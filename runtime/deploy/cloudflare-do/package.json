@@ -1,0 +1,12 @@
+{
+  "name": "mdbn-log-do-local-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node tests/runtime.mjs && LOGSVC_COMPACTED_RESTORE=1 node tests/runtime.mjs && LOGSVC_REF_INDEX_RESTORE=1 node tests/runtime.mjs && LOGSVC_LARGE_RESTORE=1 node tests/runtime.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "4.147.0",
+    "ws": "8.21.0"
+  }
+}

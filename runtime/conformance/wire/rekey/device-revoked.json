@@ -1,0 +1,27 @@
+{
+  "_type": "RekeyPayload",
+  "fmt": 1,
+  "epoch": 2,
+  "from": 1,
+  "commit": "h'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'",
+  "wraps": [
+    {
+      "_type": "KeyWrap",
+      "device": "h'2d7e9a416c3b4f189a05c8e1b2d3f467'",
+      "enc": "h'e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1'",
+      "ct": "h'c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7'"
+    },
+    {
+      "_type": "KeyWrap",
+      "device": "h'9b2f6c1e3a474d5b8e216f0a9c3d7e54'",
+      "enc": "h'e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1'",
+      "ct": "h'c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7'"
+    }
+  ],
+  "history": {
+    "_type": "SealedBox",
+    "salt": "h'0f0e0d0c0b0a09080706050403020100'",
+    "ct": "h'abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab'"
+  },
+  "reason": "DeviceRevoked"
+}

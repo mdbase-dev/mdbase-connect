@@ -1,0 +1,2782 @@
+{
+  "generatedAt": "2026-06-10T07:17:08.362Z",
+  "context": {
+    "now": "2026-06-10T07:17:08.070Z",
+    "timezone": "Australia/Melbourne",
+    "note": {
+      "price": 12.5,
+      "quantity": 4,
+      "status": "Todo",
+      "tags": [
+        "urgent",
+        "work"
+      ],
+      "values": [
+        1,
+        2,
+        3
+      ],
+      "space key": "space value",
+      "frontWiki": {
+        "type": "Link",
+        "value": {
+          "path": "Other",
+          "resolvedPath": "__codex_bases_expression_oracle/Other.md",
+          "display": {
+            "type": "String",
+            "value": "Front Alias"
+          }
+        }
+      },
+      "frontList": [
+        {
+          "type": "Link",
+          "value": {
+            "path": "Spaced Note",
+            "resolvedPath": "__codex_bases_expression_oracle/Spaced Note.md"
+          }
+        },
+        "[Front MD](Other.md)"
+      ],
+      "frontMd": "[Front MD](Other.md)"
+    },
+    "propertyTypes": {},
+    "file": {
+      "path": "__codex_bases_expression_oracle/row.md",
+      "name": "row.md",
+      "basename": "row",
+      "folder": "__codex_bases_expression_oracle",
+      "ext": "md",
+      "size": 1957,
+      "properties": {
+        "price": 12.5,
+        "quantity": 4,
+        "status": "Todo",
+        "tags": [
+          "urgent",
+          "work"
+        ],
+        "values": [
+          1,
+          2,
+          3
+        ],
+        "space key": "space value",
+        "frontWiki": {
+          "type": "Link",
+          "value": {
+            "path": "Other",
+            "resolvedPath": "__codex_bases_expression_oracle/Other.md",
+            "display": {
+              "type": "String",
+              "value": "Front Alias"
+            }
+          }
+        },
+        "frontList": [
+          {
+            "type": "Link",
+            "value": {
+              "path": "Spaced Note",
+              "resolvedPath": "__codex_bases_expression_oracle/Spaced Note.md"
+            }
+          },
+          "[Front MD](Other.md)"
+        ],
+        "frontMd": "[Front MD](Other.md)"
+      },
+      "tags": [
+        "urgent",
+        "work",
+        "project/a"
+      ],
+      "links": [
+        {
+          "path": "Other",
+          "display": "Front Alias",
+          "resolvedPath": "__codex_bases_expression_oracle/Other.md"
+        },
+        {
+          "path": "Spaced Note",
+          "display": "Spaced Note",
+          "resolvedPath": "__codex_bases_expression_oracle/Spaced Note.md"
+        },
+        {
+          "path": "Other.md",
+          "display": "Front MD",
+          "resolvedPath": "__codex_bases_expression_oracle/Other.md"
+        },
+        {
+          "path": "Other.md",
+          "display": "Front MD",
+          "resolvedPath": "__codex_bases_expression_oracle/Other.md"
+        },
+        {
+          "path": "Other",
+          "display": "Other",
+          "resolvedPath": "__codex_bases_expression_oracle/Other.md"
+        },
+        {
+          "path": "Other",
+          "display": "Alias Other",
+          "resolvedPath": "__codex_bases_expression_oracle/Other.md"
+        },
+        {
+          "path": "Other#Section One",
+          "display": "Other > Section One",
+          "resolvedPath": "__codex_bases_expression_oracle/Other.md"
+        },
+        {
+          "path": "Other#^block-id",
+          "display": "Other > ^block-id",
+          "resolvedPath": "__codex_bases_expression_oracle/Other.md"
+        },
+        {
+          "path": "Duplicate",
+          "display": "Duplicate",
+          "resolvedPath": "__codex_bases_expression_oracle/Folder A/Duplicate.md"
+        },
+        {
+          "path": "__codex_bases_expression_oracle/Folder A/Duplicate",
+          "display": "Dup A",
+          "resolvedPath": "__codex_bases_expression_oracle/Folder A/Duplicate.md"
+        },
+        {
+          "path": "__codex_bases_expression_oracle/Folder B/Duplicate",
+          "display": "__codex_bases_expression_oracle/Folder B/Duplicate",
+          "resolvedPath": "__codex_bases_expression_oracle/Folder B/Duplicate.md"
+        },
+        {
+          "path": "Spaced Note",
+          "display": "Space Alias",
+          "resolvedPath": "__codex_bases_expression_oracle/Spaced Note.md"
+        },
+        {
+          "path": "Missing Note",
+          "display": "Missing Note",
+          "resolvedPath": null
+        },
+        {
+          "path": "Other.md",
+          "display": "Markdown Other",
+          "resolvedPath": "__codex_bases_expression_oracle/Other.md"
+        },
+        {
+          "path": "Spaced Note.md",
+          "display": "Markdown Space",
+          "resolvedPath": "__codex_bases_expression_oracle/Spaced Note.md"
+        },
+        {
+          "path": "Missing.md",
+          "display": "Markdown Missing",
+          "resolvedPath": null
+        },
+        {
+          "path": "./Other.md",
+          "display": "Markdown Dot",
+          "resolvedPath": "__codex_bases_expression_oracle/Other.md"
+        },
+        {
+          "path": "Sub/Target.md",
+          "display": "Markdown Sub",
+          "resolvedPath": "__codex_bases_expression_oracle/Sub/Target.md"
+        },
+        {
+          "path": "Other#Section",
+          "display": "Pipe",
+          "resolvedPath": "__codex_bases_expression_oracle/Other.md"
+        },
+        {
+          "path": "Other#Heading [Bracket",
+          "display": "Other > Heading [Bracket",
+          "resolvedPath": "__codex_bases_expression_oracle/Other.md"
+        },
+        {
+          "path": "Unicode & Punctuation/Über Café, déjà vu! (v2)",
+          "display": "Unicode Alias",
+          "resolvedPath": "__codex_bases_expression_oracle/Unicode & Punctuation/Über Café, déjà vu! (v2).md"
+        },
+        {
+          "path": "Unicode & Punctuation/Über Café, déjà vu! (v2)#Café & crème: naïve? (v2)!",
+          "display": "Unicode & Punctuation/Über Café, déjà vu! (v2) > Café & crème: naïve? (v2)!",
+          "resolvedPath": "__codex_bases_expression_oracle/Unicode & Punctuation/Über Café, déjà vu! (v2).md"
+        },
+        {
+          "path": "Unicode %26 Punctuation/Über Café%2C déjà vu! (v2).md",
+          "display": "Unicode Markdown",
+          "resolvedPath": null
+        },
+        {
+          "path": "Case Target",
+          "display": "Case Target",
+          "resolvedPath": "__codex_bases_expression_oracle/Case Target.md"
+        },
+        {
+          "path": "Duplicate Anchors#Twin",
+          "display": "Duplicate Anchors > Twin",
+          "resolvedPath": "__codex_bases_expression_oracle/Duplicate Anchors.md"
+        },
+        {
+          "path": "Duplicate Anchors#Twin",
+          "display": "Twin Alias",
+          "resolvedPath": "__codex_bases_expression_oracle/Duplicate Anchors.md"
+        },
+        {
+          "path": "Duplicate Anchors#^dupe-block",
+          "display": "Duplicate Anchors > ^dupe-block",
+          "resolvedPath": "__codex_bases_expression_oracle/Duplicate Anchors.md"
+        },
+        {
+          "path": "Duplicate Anchors#^dupe-block",
+          "display": "Block Alias",
+          "resolvedPath": "__codex_bases_expression_oracle/Duplicate Anchors.md"
+        },
+        {
+          "path": "Report Final.pdf",
+          "display": "Report Final.pdf",
+          "resolvedPath": "__codex_bases_expression_oracle/Report Final.pdf"
+        },
+        {
+          "path": "Data Export.csv",
+          "display": "CSV Alias",
+          "resolvedPath": "__codex_bases_expression_oracle/Data Export.csv"
+        },
+        {
+          "path": "Audio Track.mp3",
+          "display": "Audio Track",
+          "resolvedPath": "__codex_bases_expression_oracle/Audio Track.mp3"
+        },
+        {
+          "path": "Embedded Note",
+          "display": "Embedded Note",
+          "resolvedPath": "__codex_bases_expression_oracle/Embedded Note.md"
+        },
+        {
+          "path": "Other#Section One",
+          "display": "Other > Section One",
+          "resolvedPath": "__codex_bases_expression_oracle/Other.md"
+        },
+        {
+          "path": "Asset.png",
+          "display": "Asset Alt",
+          "resolvedPath": "__codex_bases_expression_oracle/Asset.png"
+        },
+        {
+          "path": "Report Final.pdf",
+          "display": "Report Final.pdf",
+          "resolvedPath": "__codex_bases_expression_oracle/Report Final.pdf"
+        },
+        {
+          "path": "Photo Sample.jpg",
+          "display": "Photo Alt",
+          "resolvedPath": "__codex_bases_expression_oracle/Photo Sample.jpg"
+        }
+      ],
+      "embeds": [
+        {
+          "path": "Embedded Note",
+          "display": "Embedded Note",
+          "resolvedPath": "__codex_bases_expression_oracle/Embedded Note.md"
+        },
+        {
+          "path": "Other#Section One",
+          "display": "Other > Section One",
+          "resolvedPath": "__codex_bases_expression_oracle/Other.md"
+        },
+        {
+          "path": "Asset.png",
+          "display": "Asset Alt",
+          "resolvedPath": "__codex_bases_expression_oracle/Asset.png"
+        },
+        {
+          "path": "Report Final.pdf",
+          "display": "Report Final.pdf",
+          "resolvedPath": "__codex_bases_expression_oracle/Report Final.pdf"
+        },
+        {
+          "path": "Photo Sample.jpg",
+          "display": "Photo Alt",
+          "resolvedPath": "__codex_bases_expression_oracle/Photo Sample.jpg"
+        }
+      ],
+      "backlinks": [
+        {
+          "path": "__codex_bases_expression_oracle/Backlink Source.md",
+          "display": "Backlink Source",
+          "resolvedPath": "__codex_bases_expression_oracle/Backlink Source.md"
+        },
+        {
+          "path": "__codex_bases_expression_oracle/Backlink Markdown Source.md",
+          "display": "Backlink Markdown Source",
+          "resolvedPath": "__codex_bases_expression_oracle/Backlink Markdown Source.md"
+        }
+      ],
+      "ctime": "2026-06-10T07:17:07.911Z",
+      "mtime": "2026-06-10T07:17:07.913Z"
+    },
+    "files": [
+      {
+        "path": "__codex_bases_expression_oracle/row.md",
+        "name": "row.md",
+        "basename": "row",
+        "folder": "__codex_bases_expression_oracle",
+        "ext": "md",
+        "size": 1957,
+        "properties": {
+          "price": 12.5,
+          "quantity": 4,
+          "status": "Todo",
+          "tags": [
+            "urgent",
+            "work"
+          ],
+          "values": [
+            1,
+            2,
+            3
+          ],
+          "space key": "space value",
+          "frontWiki": {
+            "type": "Link",
+            "value": {
+              "path": "Other",
+              "resolvedPath": "__codex_bases_expression_oracle/Other.md",
+              "display": {
+                "type": "String",
+                "value": "Front Alias"
+              }
+            }
+          },
+          "frontList": [
+            {
+              "type": "Link",
+              "value": {
+                "path": "Spaced Note",
+                "resolvedPath": "__codex_bases_expression_oracle/Spaced Note.md"
+              }
+            },
+            "[Front MD](Other.md)"
+          ],
+          "frontMd": "[Front MD](Other.md)"
+        },
+        "tags": [
+          "urgent",
+          "work",
+          "project/a"
+        ],
+        "links": [
+          {
+            "path": "Other",
+            "display": "Front Alias",
+            "resolvedPath": "__codex_bases_expression_oracle/Other.md"
+          },
+          {
+            "path": "Spaced Note",
+            "display": "Spaced Note",
+            "resolvedPath": "__codex_bases_expression_oracle/Spaced Note.md"
+          },
+          {
+            "path": "Other.md",
+            "display": "Front MD",
+            "resolvedPath": "__codex_bases_expression_oracle/Other.md"
+          },
+          {
+            "path": "Other.md",
+            "display": "Front MD",
+            "resolvedPath": "__codex_bases_expression_oracle/Other.md"
+          },
+          {
+            "path": "Other",
+            "display": "Other",
+            "resolvedPath": "__codex_bases_expression_oracle/Other.md"
+          },
+          {
+            "path": "Other",
+            "display": "Alias Other",
+            "resolvedPath": "__codex_bases_expression_oracle/Other.md"
+          },
+          {
+            "path": "Other#Section One",
+            "display": "Other > Section One",
+            "resolvedPath": "__codex_bases_expression_oracle/Other.md"
+          },
+          {
+            "path": "Other#^block-id",
+            "display": "Other > ^block-id",
+            "resolvedPath": "__codex_bases_expression_oracle/Other.md"
+          },
+          {
+            "path": "Duplicate",
+            "display": "Duplicate",
+            "resolvedPath": "__codex_bases_expression_oracle/Folder A/Duplicate.md"
+          },
+          {
+            "path": "__codex_bases_expression_oracle/Folder A/Duplicate",
+            "display": "Dup A",
+            "resolvedPath": "__codex_bases_expression_oracle/Folder A/Duplicate.md"
+          },
+          {
+            "path": "__codex_bases_expression_oracle/Folder B/Duplicate",
+            "display": "__codex_bases_expression_oracle/Folder B/Duplicate",
+            "resolvedPath": "__codex_bases_expression_oracle/Folder B/Duplicate.md"
+          },
+          {
+            "path": "Spaced Note",
+            "display": "Space Alias",
+            "resolvedPath": "__codex_bases_expression_oracle/Spaced Note.md"
+          },
+          {
+            "path": "Missing Note",
+            "display": "Missing Note",
+            "resolvedPath": null
+          },
+          {
+            "path": "Other.md",
+            "display": "Markdown Other",
+            "resolvedPath": "__codex_bases_expression_oracle/Other.md"
+          },
+          {
+            "path": "Spaced Note.md",
+            "display": "Markdown Space",
+            "resolvedPath": "__codex_bases_expression_oracle/Spaced Note.md"
+          },
+          {
+            "path": "Missing.md",
+            "display": "Markdown Missing",
+            "resolvedPath": null
+          },
+          {
+            "path": "./Other.md",
+            "display": "Markdown Dot",
+            "resolvedPath": "__codex_bases_expression_oracle/Other.md"
+          },
+          {
+            "path": "Sub/Target.md",
+            "display": "Markdown Sub",
+            "resolvedPath": "__codex_bases_expression_oracle/Sub/Target.md"
+          },
+          {
+            "path": "Other#Section",
+            "display": "Pipe",
+            "resolvedPath": "__codex_bases_expression_oracle/Other.md"
+          },
+          {
+            "path": "Other#Heading [Bracket",
+            "display": "Other > Heading [Bracket",
+            "resolvedPath": "__codex_bases_expression_oracle/Other.md"
+          },
+          {
+            "path": "Unicode & Punctuation/Über Café, déjà vu! (v2)",
+            "display": "Unicode Alias",
+            "resolvedPath": "__codex_bases_expression_oracle/Unicode & Punctuation/Über Café, déjà vu! (v2).md"
+          },
+          {
+            "path": "Unicode & Punctuation/Über Café, déjà vu! (v2)#Café & crème: naïve? (v2)!",
+            "display": "Unicode & Punctuation/Über Café, déjà vu! (v2) > Café & crème: naïve? (v2)!",
+            "resolvedPath": "__codex_bases_expression_oracle/Unicode & Punctuation/Über Café, déjà vu! (v2).md"
+          },
+          {
+            "path": "Unicode %26 Punctuation/Über Café%2C déjà vu! (v2).md",
+            "display": "Unicode Markdown",
+            "resolvedPath": null
+          },
+          {
+            "path": "Case Target",
+            "display": "Case Target",
+            "resolvedPath": "__codex_bases_expression_oracle/Case Target.md"
+          },
+          {
+            "path": "Duplicate Anchors#Twin",
+            "display": "Duplicate Anchors > Twin",
+            "resolvedPath": "__codex_bases_expression_oracle/Duplicate Anchors.md"
+          },
+          {
+            "path": "Duplicate Anchors#Twin",
+            "display": "Twin Alias",
+            "resolvedPath": "__codex_bases_expression_oracle/Duplicate Anchors.md"
+          },
+          {
+            "path": "Duplicate Anchors#^dupe-block",
+            "display": "Duplicate Anchors > ^dupe-block",
+            "resolvedPath": "__codex_bases_expression_oracle/Duplicate Anchors.md"
+          },
+          {
+            "path": "Duplicate Anchors#^dupe-block",
+            "display": "Block Alias",
+            "resolvedPath": "__codex_bases_expression_oracle/Duplicate Anchors.md"
+          },
+          {
+            "path": "Report Final.pdf",
+            "display": "Report Final.pdf",
+            "resolvedPath": "__codex_bases_expression_oracle/Report Final.pdf"
+          },
+          {
+            "path": "Data Export.csv",
+            "display": "CSV Alias",
+            "resolvedPath": "__codex_bases_expression_oracle/Data Export.csv"
+          },
+          {
+            "path": "Audio Track.mp3",
+            "display": "Audio Track",
+            "resolvedPath": "__codex_bases_expression_oracle/Audio Track.mp3"
+          },
+          {
+            "path": "Embedded Note",
+            "display": "Embedded Note",
+            "resolvedPath": "__codex_bases_expression_oracle/Embedded Note.md"
+          },
+          {
+            "path": "Other#Section One",
+            "display": "Other > Section One",
+            "resolvedPath": "__codex_bases_expression_oracle/Other.md"
+          },
+          {
+            "path": "Asset.png",
+            "display": "Asset Alt",
+            "resolvedPath": "__codex_bases_expression_oracle/Asset.png"
+          },
+          {
+            "path": "Report Final.pdf",
+            "display": "Report Final.pdf",
+            "resolvedPath": "__codex_bases_expression_oracle/Report Final.pdf"
+          },
+          {
+            "path": "Photo Sample.jpg",
+            "display": "Photo Alt",
+            "resolvedPath": "__codex_bases_expression_oracle/Photo Sample.jpg"
+          }
+        ],
+        "embeds": [
+          {
+            "path": "Embedded Note",
+            "display": "Embedded Note",
+            "resolvedPath": "__codex_bases_expression_oracle/Embedded Note.md"
+          },
+          {
+            "path": "Other#Section One",
+            "display": "Other > Section One",
+            "resolvedPath": "__codex_bases_expression_oracle/Other.md"
+          },
+          {
+            "path": "Asset.png",
+            "display": "Asset Alt",
+            "resolvedPath": "__codex_bases_expression_oracle/Asset.png"
+          },
+          {
+            "path": "Report Final.pdf",
+            "display": "Report Final.pdf",
+            "resolvedPath": "__codex_bases_expression_oracle/Report Final.pdf"
+          },
+          {
+            "path": "Photo Sample.jpg",
+            "display": "Photo Alt",
+            "resolvedPath": "__codex_bases_expression_oracle/Photo Sample.jpg"
+          }
+        ],
+        "backlinks": [
+          {
+            "path": "__codex_bases_expression_oracle/Backlink Source.md",
+            "display": "Backlink Source",
+            "resolvedPath": "__codex_bases_expression_oracle/Backlink Source.md"
+          },
+          {
+            "path": "__codex_bases_expression_oracle/Backlink Markdown Source.md",
+            "display": "Backlink Markdown Source",
+            "resolvedPath": "__codex_bases_expression_oracle/Backlink Markdown Source.md"
+          }
+        ],
+        "ctime": "2026-06-10T07:17:07.911Z",
+        "mtime": "2026-06-10T07:17:07.913Z"
+      },
+      {
+        "path": "__codex_bases_expression_oracle/Other.md",
+        "name": "Other.md",
+        "basename": "Other",
+        "folder": "__codex_bases_expression_oracle",
+        "ext": "md",
+        "size": 172,
+        "properties": {
+          "status": "Other"
+        },
+        "tags": [],
+        "links": [],
+        "embeds": [],
+        "backlinks": [
+          {
+            "path": "__codex_bases_expression_oracle/Sub/Relative Source.md",
+            "display": "Relative Source",
+            "resolvedPath": "__codex_bases_expression_oracle/Sub/Relative Source.md"
+          },
+          {
+            "path": "__codex_bases_expression_oracle/row.md",
+            "display": "row",
+            "resolvedPath": "__codex_bases_expression_oracle/row.md"
+          }
+        ],
+        "ctime": "2026-06-10T07:17:07.749Z",
+        "mtime": "2026-06-10T07:17:07.750Z"
+      },
+      {
+        "path": "__codex_bases_expression_oracle/Folder A/Duplicate.md",
+        "name": "Duplicate.md",
+        "basename": "Duplicate",
+        "folder": "__codex_bases_expression_oracle/Folder A",
+        "ext": "md",
+        "size": 40,
+        "properties": {
+          "status": "Duplicate A"
+        },
+        "tags": [],
+        "links": [],
+        "embeds": [],
+        "backlinks": [
+          {
+            "path": "__codex_bases_expression_oracle/row.md",
+            "display": "row",
+            "resolvedPath": "__codex_bases_expression_oracle/row.md"
+          }
+        ],
+        "ctime": "2026-06-10T07:17:07.754Z",
+        "mtime": "2026-06-10T07:17:07.755Z"
+      },
+      {
+        "path": "__codex_bases_expression_oracle/Folder B/Duplicate.md",
+        "name": "Duplicate.md",
+        "basename": "Duplicate",
+        "folder": "__codex_bases_expression_oracle/Folder B",
+        "ext": "md",
+        "size": 40,
+        "properties": {
+          "status": "Duplicate B"
+        },
+        "tags": [],
+        "links": [],
+        "embeds": [],
+        "backlinks": [
+          {
+            "path": "__codex_bases_expression_oracle/row.md",
+            "display": "row",
+            "resolvedPath": "__codex_bases_expression_oracle/row.md"
+          }
+        ],
+        "ctime": "2026-06-10T07:17:07.764Z",
+        "mtime": "2026-06-10T07:17:07.764Z"
+      },
+      {
+        "path": "__codex_bases_expression_oracle/Unicode & Punctuation/Über Café, déjà vu! (v2).md",
+        "name": "Über Café, déjà vu! (v2).md",
+        "basename": "Über Café, déjà vu! (v2)",
+        "folder": "__codex_bases_expression_oracle/Unicode & Punctuation",
+        "ext": "md",
+        "size": 157,
+        "properties": {
+          "status": "Unicode"
+        },
+        "tags": [],
+        "links": [],
+        "embeds": [],
+        "backlinks": [
+          {
+            "path": "__codex_bases_expression_oracle/row.md",
+            "display": "row",
+            "resolvedPath": "__codex_bases_expression_oracle/row.md"
+          }
+        ],
+        "ctime": "2026-06-10T07:17:07.789Z",
+        "mtime": "2026-06-10T07:17:07.789Z"
+      },
+      {
+        "path": "__codex_bases_expression_oracle/Duplicate Anchors.md",
+        "name": "Duplicate Anchors.md",
+        "basename": "Duplicate Anchors",
+        "folder": "__codex_bases_expression_oracle",
+        "ext": "md",
+        "size": 117,
+        "properties": {
+          "status": "Duplicate Anchors"
+        },
+        "tags": [],
+        "links": [],
+        "embeds": [],
+        "backlinks": [
+          {
+            "path": "__codex_bases_expression_oracle/row.md",
+            "display": "row",
+            "resolvedPath": "__codex_bases_expression_oracle/row.md"
+          }
+        ],
+        "ctime": "2026-06-10T07:17:07.797Z",
+        "mtime": "2026-06-10T07:17:07.797Z"
+      },
+      {
+        "path": "__codex_bases_expression_oracle/Case Target.md",
+        "name": "Case Target.md",
+        "basename": "Case Target",
+        "folder": "__codex_bases_expression_oracle",
+        "ext": "md",
+        "size": 40,
+        "properties": {
+          "status": "Case Target"
+        },
+        "tags": [],
+        "links": [],
+        "embeds": [],
+        "backlinks": [
+          {
+            "path": "__codex_bases_expression_oracle/row.md",
+            "display": "row",
+            "resolvedPath": "__codex_bases_expression_oracle/row.md"
+          }
+        ],
+        "ctime": "2026-06-10T07:17:07.807Z",
+        "mtime": "2026-06-10T07:17:07.807Z"
+      },
+      {
+        "path": "__codex_bases_expression_oracle/Spaced Note.md",
+        "name": "Spaced Note.md",
+        "basename": "Spaced Note",
+        "folder": "__codex_bases_expression_oracle",
+        "ext": "md",
+        "size": 35,
+        "properties": {
+          "status": "Spaced"
+        },
+        "tags": [],
+        "links": [],
+        "embeds": [],
+        "backlinks": [
+          {
+            "path": "__codex_bases_expression_oracle/Sub/Relative Source.md",
+            "display": "Relative Source",
+            "resolvedPath": "__codex_bases_expression_oracle/Sub/Relative Source.md"
+          },
+          {
+            "path": "__codex_bases_expression_oracle/row.md",
+            "display": "row",
+            "resolvedPath": "__codex_bases_expression_oracle/row.md"
+          }
+        ],
+        "ctime": "2026-06-10T07:17:07.814Z",
+        "mtime": "2026-06-10T07:17:07.819Z"
+      },
+      {
+        "path": "__codex_bases_expression_oracle/Embedded Note.md",
+        "name": "Embedded Note.md",
+        "basename": "Embedded Note",
+        "folder": "__codex_bases_expression_oracle",
+        "ext": "md",
+        "size": 39,
+        "properties": {
+          "status": "Embedded"
+        },
+        "tags": [],
+        "links": [],
+        "embeds": [],
+        "backlinks": [
+          {
+            "path": "__codex_bases_expression_oracle/row.md",
+            "display": "row",
+            "resolvedPath": "__codex_bases_expression_oracle/row.md"
+          }
+        ],
+        "ctime": "2026-06-10T07:17:07.837Z",
+        "mtime": "2026-06-10T07:17:07.837Z"
+      },
+      {
+        "path": "__codex_bases_expression_oracle/Sub/Target.md",
+        "name": "Target.md",
+        "basename": "Target",
+        "folder": "__codex_bases_expression_oracle/Sub",
+        "ext": "md",
+        "size": 43,
+        "properties": {
+          "status": "Sub Target"
+        },
+        "tags": [],
+        "links": [],
+        "embeds": [],
+        "backlinks": [
+          {
+            "path": "__codex_bases_expression_oracle/Sub/Relative Source.md",
+            "display": "Relative Source",
+            "resolvedPath": "__codex_bases_expression_oracle/Sub/Relative Source.md"
+          },
+          {
+            "path": "__codex_bases_expression_oracle/row.md",
+            "display": "row",
+            "resolvedPath": "__codex_bases_expression_oracle/row.md"
+          }
+        ],
+        "ctime": "2026-06-10T07:17:07.842Z",
+        "mtime": "2026-06-10T07:17:07.844Z"
+      },
+      {
+        "path": "__codex_bases_expression_oracle/Sub/Relative Source.md",
+        "name": "Relative Source.md",
+        "basename": "Relative Source",
+        "folder": "__codex_bases_expression_oracle/Sub",
+        "ext": "md",
+        "size": 177,
+        "properties": {},
+        "tags": [],
+        "links": [
+          {
+            "path": "../Other.md",
+            "display": "Parent Other",
+            "resolvedPath": "__codex_bases_expression_oracle/Other.md"
+          },
+          {
+            "path": "Target.md",
+            "display": "Sibling Target",
+            "resolvedPath": "__codex_bases_expression_oracle/Sub/Target.md"
+          },
+          {
+            "path": "../Spaced Note.md",
+            "display": "Parent Space",
+            "resolvedPath": "__codex_bases_expression_oracle/Spaced Note.md"
+          },
+          {
+            "path": "../Other",
+            "display": "../Other",
+            "resolvedPath": "__codex_bases_expression_oracle/Other.md"
+          }
+        ],
+        "embeds": [],
+        "backlinks": [],
+        "ctime": "2026-06-10T07:17:07.906Z",
+        "mtime": "2026-06-10T07:17:07.906Z"
+      },
+      {
+        "path": "__codex_bases_expression_oracle/Asset.png",
+        "name": "Asset.png",
+        "basename": "Asset",
+        "folder": "__codex_bases_expression_oracle",
+        "ext": "png",
+        "size": 14,
+        "properties": {},
+        "tags": [],
+        "links": [],
+        "embeds": [],
+        "backlinks": [
+          {
+            "path": "__codex_bases_expression_oracle/row.md",
+            "display": "row",
+            "resolvedPath": "__codex_bases_expression_oracle/row.md"
+          }
+        ],
+        "ctime": "2026-06-10T07:17:07.869Z",
+        "mtime": "2026-06-10T07:17:07.869Z"
+      },
+      {
+        "path": "__codex_bases_expression_oracle/Report Final.pdf",
+        "name": "Report Final.pdf",
+        "basename": "Report Final",
+        "folder": "__codex_bases_expression_oracle",
+        "ext": "pdf",
+        "size": 14,
+        "properties": {},
+        "tags": [],
+        "links": [],
+        "embeds": [],
+        "backlinks": [
+          {
+            "path": "__codex_bases_expression_oracle/row.md",
+            "display": "row",
+            "resolvedPath": "__codex_bases_expression_oracle/row.md"
+          }
+        ],
+        "ctime": "2026-06-10T07:17:07.873Z",
+        "mtime": "2026-06-10T07:17:07.873Z"
+      },
+      {
+        "path": "__codex_bases_expression_oracle/Audio Track.mp3",
+        "name": "Audio Track.mp3",
+        "basename": "Audio Track",
+        "folder": "__codex_bases_expression_oracle",
+        "ext": "mp3",
+        "size": 14,
+        "properties": {},
+        "tags": [],
+        "links": [],
+        "embeds": [],
+        "backlinks": [
+          {
+            "path": "__codex_bases_expression_oracle/row.md",
+            "display": "row",
+            "resolvedPath": "__codex_bases_expression_oracle/row.md"
+          }
+        ],
+        "ctime": "2026-06-10T07:17:07.878Z",
+        "mtime": "2026-06-10T07:17:07.879Z"
+      },
+      {
+        "path": "__codex_bases_expression_oracle/Data Export.csv",
+        "name": "Data Export.csv",
+        "basename": "Data Export",
+        "folder": "__codex_bases_expression_oracle",
+        "ext": "csv",
+        "size": 19,
+        "properties": {},
+        "tags": [],
+        "links": [],
+        "embeds": [],
+        "backlinks": [
+          {
+            "path": "__codex_bases_expression_oracle/row.md",
+            "display": "row",
+            "resolvedPath": "__codex_bases_expression_oracle/row.md"
+          }
+        ],
+        "ctime": "2026-06-10T07:17:07.892Z",
+        "mtime": "2026-06-10T07:17:07.892Z"
+      },
+      {
+        "path": "__codex_bases_expression_oracle/Photo Sample.jpg",
+        "name": "Photo Sample.jpg",
+        "basename": "Photo Sample",
+        "folder": "__codex_bases_expression_oracle",
+        "ext": "jpg",
+        "size": 14,
+        "properties": {},
+        "tags": [],
+        "links": [],
+        "embeds": [],
+        "backlinks": [
+          {
+            "path": "__codex_bases_expression_oracle/row.md",
+            "display": "row",
+            "resolvedPath": "__codex_bases_expression_oracle/row.md"
+          }
+        ],
+        "ctime": "2026-06-10T07:17:07.902Z",
+        "mtime": "2026-06-10T07:17:07.902Z"
+      },
+      {
+        "path": "__codex_bases_expression_oracle/Backlink Source.md",
+        "name": "Backlink Source.md",
+        "basename": "Backlink Source",
+        "folder": "__codex_bases_expression_oracle",
+        "ext": "md",
+        "size": 115,
+        "properties": {},
+        "tags": [],
+        "links": [
+          {
+            "path": "__codex_bases_expression_oracle/row.md",
+            "display": "__codex_bases_expression_oracle/row.md",
+            "resolvedPath": "__codex_bases_expression_oracle/row.md"
+          },
+          {
+            "path": "__codex_bases_expression_oracle/row.md",
+            "display": "Row Alias",
+            "resolvedPath": "__codex_bases_expression_oracle/row.md"
+          }
+        ],
+        "embeds": [],
+        "backlinks": [],
+        "ctime": "2026-06-10T07:17:07.938Z",
+        "mtime": "2026-06-10T07:17:07.938Z"
+      },
+      {
+        "path": "__codex_bases_expression_oracle/Backlink Markdown Source.md",
+        "name": "Backlink Markdown Source.md",
+        "basename": "Backlink Markdown Source",
+        "folder": "__codex_bases_expression_oracle",
+        "ext": "md",
+        "size": 77,
+        "properties": {},
+        "tags": [],
+        "links": [
+          {
+            "path": "__codex_bases_expression_oracle/row.md",
+            "display": "Row Markdown",
+            "resolvedPath": "__codex_bases_expression_oracle/row.md"
+          }
+        ],
+        "embeds": [],
+        "backlinks": [],
+        "ctime": "2026-06-10T07:17:07.946Z",
+        "mtime": "2026-06-10T07:17:07.946Z"
+      }
+    ],
+    "linkResolutions": {
+      "__codex_bases_expression_oracle/row.md": "__codex_bases_expression_oracle/row.md",
+      "__codex_bases_expression_oracle/row": "__codex_bases_expression_oracle/row.md",
+      "row.md": "__codex_bases_expression_oracle/row.md",
+      "row": "__codex_bases_expression_oracle/row.md",
+      "__codex_bases_expression_oracle/Other.md": "__codex_bases_expression_oracle/Other.md",
+      "__codex_bases_expression_oracle/Other": "__codex_bases_expression_oracle/Other.md",
+      "Other.md": "__codex_bases_expression_oracle/Other.md",
+      "Other": "__codex_bases_expression_oracle/Other.md",
+      "__codex_bases_expression_oracle/Folder A/Duplicate.md": "__codex_bases_expression_oracle/Folder A/Duplicate.md",
+      "__codex_bases_expression_oracle/Folder A/Duplicate": "__codex_bases_expression_oracle/Folder A/Duplicate.md",
+      "Duplicate.md": "__codex_bases_expression_oracle/Folder A/Duplicate.md",
+      "Duplicate": "__codex_bases_expression_oracle/Folder A/Duplicate.md",
+      "__codex_bases_expression_oracle/Folder B/Duplicate.md": "__codex_bases_expression_oracle/Folder B/Duplicate.md",
+      "__codex_bases_expression_oracle/Folder B/Duplicate": "__codex_bases_expression_oracle/Folder B/Duplicate.md",
+      "__codex_bases_expression_oracle/Unicode & Punctuation/Über Café, déjà vu! (v2).md": "__codex_bases_expression_oracle/Unicode & Punctuation/Über Café, déjà vu! (v2).md",
+      "__codex_bases_expression_oracle/Unicode & Punctuation/Über Café, déjà vu! (v2)": "__codex_bases_expression_oracle/Unicode & Punctuation/Über Café, déjà vu! (v2).md",
+      "Über Café, déjà vu! (v2).md": "__codex_bases_expression_oracle/Unicode & Punctuation/Über Café, déjà vu! (v2).md",
+      "Über Café, déjà vu! (v2)": "__codex_bases_expression_oracle/Unicode & Punctuation/Über Café, déjà vu! (v2).md",
+      "__codex_bases_expression_oracle/Duplicate Anchors.md": "__codex_bases_expression_oracle/Duplicate Anchors.md",
+      "__codex_bases_expression_oracle/Duplicate Anchors": "__codex_bases_expression_oracle/Duplicate Anchors.md",
+      "Duplicate Anchors.md": "__codex_bases_expression_oracle/Duplicate Anchors.md",
+      "Duplicate Anchors": "__codex_bases_expression_oracle/Duplicate Anchors.md",
+      "__codex_bases_expression_oracle/Case Target.md": "__codex_bases_expression_oracle/Case Target.md",
+      "__codex_bases_expression_oracle/Case Target": "__codex_bases_expression_oracle/Case Target.md",
+      "Case Target.md": "__codex_bases_expression_oracle/Case Target.md",
+      "Case Target": "__codex_bases_expression_oracle/Case Target.md",
+      "__codex_bases_expression_oracle/Spaced Note.md": "__codex_bases_expression_oracle/Spaced Note.md",
+      "__codex_bases_expression_oracle/Spaced Note": "__codex_bases_expression_oracle/Spaced Note.md",
+      "Spaced Note.md": "__codex_bases_expression_oracle/Spaced Note.md",
+      "Spaced Note": "__codex_bases_expression_oracle/Spaced Note.md",
+      "__codex_bases_expression_oracle/Embedded Note.md": "__codex_bases_expression_oracle/Embedded Note.md",
+      "__codex_bases_expression_oracle/Embedded Note": "__codex_bases_expression_oracle/Embedded Note.md",
+      "Embedded Note.md": "__codex_bases_expression_oracle/Embedded Note.md",
+      "Embedded Note": "__codex_bases_expression_oracle/Embedded Note.md",
+      "__codex_bases_expression_oracle/Sub/Target.md": "__codex_bases_expression_oracle/Sub/Target.md",
+      "__codex_bases_expression_oracle/Sub/Target": "__codex_bases_expression_oracle/Sub/Target.md",
+      "Target.md": "__codex_bases_expression_oracle/Sub/Target.md",
+      "Target": "__codex_bases_expression_oracle/Sub/Target.md",
+      "__codex_bases_expression_oracle/Sub/Relative Source.md": "__codex_bases_expression_oracle/Sub/Relative Source.md",
+      "__codex_bases_expression_oracle/Sub/Relative Source": "__codex_bases_expression_oracle/Sub/Relative Source.md",
+      "Relative Source.md": "__codex_bases_expression_oracle/Sub/Relative Source.md",
+      "Relative Source": "__codex_bases_expression_oracle/Sub/Relative Source.md",
+      "__codex_bases_expression_oracle/Asset.png": "__codex_bases_expression_oracle/Asset.png",
+      "Asset.png": "__codex_bases_expression_oracle/Asset.png",
+      "Asset": "__codex_bases_expression_oracle/Asset.png",
+      "__codex_bases_expression_oracle/Report Final.pdf": "__codex_bases_expression_oracle/Report Final.pdf",
+      "Report Final.pdf": "__codex_bases_expression_oracle/Report Final.pdf",
+      "Report Final": "__codex_bases_expression_oracle/Report Final.pdf",
+      "__codex_bases_expression_oracle/Audio Track.mp3": "__codex_bases_expression_oracle/Audio Track.mp3",
+      "Audio Track.mp3": "__codex_bases_expression_oracle/Audio Track.mp3",
+      "Audio Track": "__codex_bases_expression_oracle/Audio Track.mp3",
+      "__codex_bases_expression_oracle/Data Export.csv": "__codex_bases_expression_oracle/Data Export.csv",
+      "Data Export.csv": "__codex_bases_expression_oracle/Data Export.csv",
+      "Data Export": "__codex_bases_expression_oracle/Data Export.csv",
+      "__codex_bases_expression_oracle/Photo Sample.jpg": "__codex_bases_expression_oracle/Photo Sample.jpg",
+      "Photo Sample.jpg": "__codex_bases_expression_oracle/Photo Sample.jpg",
+      "Photo Sample": "__codex_bases_expression_oracle/Photo Sample.jpg",
+      "__codex_bases_expression_oracle/Backlink Source.md": "__codex_bases_expression_oracle/Backlink Source.md",
+      "__codex_bases_expression_oracle/Backlink Source": "__codex_bases_expression_oracle/Backlink Source.md",
+      "Backlink Source.md": "__codex_bases_expression_oracle/Backlink Source.md",
+      "Backlink Source": "__codex_bases_expression_oracle/Backlink Source.md",
+      "__codex_bases_expression_oracle/Backlink Markdown Source.md": "__codex_bases_expression_oracle/Backlink Markdown Source.md",
+      "__codex_bases_expression_oracle/Backlink Markdown Source": "__codex_bases_expression_oracle/Backlink Markdown Source.md",
+      "Backlink Markdown Source.md": "__codex_bases_expression_oracle/Backlink Markdown Source.md",
+      "Backlink Markdown Source": "__codex_bases_expression_oracle/Backlink Markdown Source.md",
+      "Other#Section One": "__codex_bases_expression_oracle/Other.md",
+      "Other.md#Section One": "__codex_bases_expression_oracle/Other.md",
+      "Other#^block-id": "__codex_bases_expression_oracle/Other.md",
+      "Other.md#^block-id": "__codex_bases_expression_oracle/Other.md",
+      "Missing Note": null,
+      "Missing Note.md": null,
+      "Missing.md": null,
+      "Missing": null,
+      "./Other.md": "__codex_bases_expression_oracle/Other.md",
+      "./Other": "__codex_bases_expression_oracle/Other.md",
+      "Sub/Target.md": "__codex_bases_expression_oracle/Sub/Target.md",
+      "Sub/Target": "__codex_bases_expression_oracle/Sub/Target.md",
+      "Other#Section": "__codex_bases_expression_oracle/Other.md",
+      "Other.md#Section": "__codex_bases_expression_oracle/Other.md",
+      "Other#Heading [Bracket": "__codex_bases_expression_oracle/Other.md",
+      "Other.md#Heading [Bracket": "__codex_bases_expression_oracle/Other.md",
+      "Unicode & Punctuation/Über Café, déjà vu! (v2)": "__codex_bases_expression_oracle/Unicode & Punctuation/Über Café, déjà vu! (v2).md",
+      "Unicode & Punctuation/Über Café, déjà vu! (v2).md": "__codex_bases_expression_oracle/Unicode & Punctuation/Über Café, déjà vu! (v2).md",
+      "Unicode & Punctuation/Über Café, déjà vu! (v2)#Café & crème: naïve? (v2)!": "__codex_bases_expression_oracle/Unicode & Punctuation/Über Café, déjà vu! (v2).md",
+      "Unicode & Punctuation/Über Café, déjà vu! (v2).md#Café & crème: naïve? (v2)!": "__codex_bases_expression_oracle/Unicode & Punctuation/Über Café, déjà vu! (v2).md",
+      "Unicode %26 Punctuation/Über Café%2C déjà vu! (v2).md": null,
+      "Unicode %26 Punctuation/Über Café%2C déjà vu! (v2)": null,
+      "Duplicate Anchors#Twin": "__codex_bases_expression_oracle/Duplicate Anchors.md",
+      "Duplicate Anchors.md#Twin": "__codex_bases_expression_oracle/Duplicate Anchors.md",
+      "Duplicate Anchors#^dupe-block": "__codex_bases_expression_oracle/Duplicate Anchors.md",
+      "Duplicate Anchors.md#^dupe-block": "__codex_bases_expression_oracle/Duplicate Anchors.md",
+      "../Other.md": "__codex_bases_expression_oracle/Other.md",
+      "../Other": "__codex_bases_expression_oracle/Other.md",
+      "../Spaced Note.md": "__codex_bases_expression_oracle/Spaced Note.md",
+      "../Spaced Note": "__codex_bases_expression_oracle/Spaced Note.md"
+    },
+    "formulas": {
+      "total": "price * quantity",
+      "label": "status + \" \" + formula.total.toString()"
+    }
+  },
+  "cases": [
+    {
+      "name": "literal null",
+      "expression": "null",
+      "expected": null
+    },
+    {
+      "name": "literal true",
+      "expression": "true",
+      "expected": true
+    },
+    {
+      "name": "literal false",
+      "expression": "false",
+      "expected": false
+    },
+    {
+      "name": "literal number decimal",
+      "expression": "2.5",
+      "expected": 2.5
+    },
+    {
+      "name": "literal string single quotes",
+      "expression": "'hello'",
+      "expected": "hello"
+    },
+    {
+      "name": "bare note property",
+      "expression": "price",
+      "expected": 12.5
+    },
+    {
+      "name": "note dot property",
+      "expression": "note.price",
+      "expected": 12.5
+    },
+    {
+      "name": "note bracket property",
+      "expression": "note[\"space key\"]",
+      "expected": "space value"
+    },
+    {
+      "name": "missing property",
+      "expression": "missing",
+      "expected": null
+    },
+    {
+      "name": "missing equals null",
+      "expression": "missing == null",
+      "expected": true
+    },
+    {
+      "name": "array index",
+      "expression": "[10,20,30][1]",
+      "expected": 20
+    },
+    {
+      "name": "list property index",
+      "expression": "values[2]",
+      "expected": 3
+    },
+    {
+      "name": "arithmetic precedence",
+      "expression": "1 + 2 * 3",
+      "expected": 7
+    },
+    {
+      "name": "arithmetic grouping",
+      "expression": "(1 + 2) * 3",
+      "expected": 9
+    },
+    {
+      "name": "arithmetic modulo",
+      "expression": "10 % 4",
+      "expected": 2
+    },
+    {
+      "name": "arithmetic division",
+      "expression": "7 / 2",
+      "expected": 3.5
+    },
+    {
+      "name": "unary minus",
+      "expression": "-price",
+      "expected": -12.5
+    },
+    {
+      "name": "unary plus",
+      "expression": "+price",
+      "knownDivergence": "The package supports unary plus as a JavaScript-like operator, but the current internal parser rejects it.",
+      "expected": null
+    },
+    {
+      "name": "comparison greater equal",
+      "expression": "price >= 12.5",
+      "expected": true
+    },
+    {
+      "name": "comparison less equal",
+      "expression": "quantity <= 4",
+      "expected": true
+    },
+    {
+      "name": "comparison string",
+      "expression": "\"b\" > \"a\"",
+      "expected": true
+    },
+    {
+      "name": "equality string",
+      "expression": "status == \"Todo\"",
+      "expected": true
+    },
+    {
+      "name": "inequality string",
+      "expression": "status != \"Done\"",
+      "expected": true
+    },
+    {
+      "name": "boolean and",
+      "expression": "status == \"Todo\" && price > 10",
+      "expected": true
+    },
+    {
+      "name": "boolean or",
+      "expression": "status == \"Done\" || price > 10",
+      "expected": true
+    },
+    {
+      "name": "boolean not",
+      "expression": "!(status == \"Done\")",
+      "expected": true
+    },
+    {
+      "name": "if true branch",
+      "expression": "if(status == \"Todo\", \"yes\", \"no\")",
+      "expected": "yes"
+    },
+    {
+      "name": "if false branch",
+      "expression": "if(status == \"Done\", \"yes\", \"no\")",
+      "expected": "no"
+    },
+    {
+      "name": "if implicit false branch",
+      "expression": "if(status == \"Done\", \"yes\")",
+      "expected": null
+    },
+    {
+      "name": "escape html",
+      "expression": "escapeHTML(\"<x>&\")",
+      "expected": "&lt;x&gt;&amp;"
+    },
+    {
+      "name": "number from boolean true",
+      "expression": "number(true)",
+      "expected": 1
+    },
+    {
+      "name": "number from boolean false",
+      "expression": "number(false)",
+      "expected": 0
+    },
+    {
+      "name": "number from date",
+      "expression": "number(date(\"1970-01-02\"))",
+      "expected": 50400000
+    },
+    {
+      "name": "number from numeric string",
+      "expression": "number(\"3.4\")",
+      "expected": 3.4
+    },
+    {
+      "name": "min variadic",
+      "expression": "min(3, 1, 2)",
+      "expected": 1
+    },
+    {
+      "name": "max variadic",
+      "expression": "max(3, 1, 2)",
+      "expected": 3
+    },
+    {
+      "name": "list wraps string",
+      "expression": "list(\"value\")",
+      "expected": [
+        "value"
+      ]
+    },
+    {
+      "name": "list leaves list",
+      "expression": "list([1,2])",
+      "expected": [
+        1,
+        2
+      ]
+    },
+    {
+      "name": "link stringify",
+      "expression": "link(\"Some Note\").toString()",
+      "expected": "[[Some Note]]"
+    },
+    {
+      "name": "link with display stringify",
+      "expression": "link(\"Some Note\", \"Shown\").toString()",
+      "expected": "[[Some Note|Shown]]"
+    },
+    {
+      "name": "file global path",
+      "expression": "file(\"__codex_bases_expression_oracle/row.md\").path",
+      "expected": "__codex_bases_expression_oracle/row.md"
+    },
+    {
+      "name": "html to string",
+      "expression": "html(\"<b>x</b>\").toString()",
+      "expected": "<b>x</b>"
+    },
+    {
+      "name": "icon to string",
+      "expression": "icon(\"arrow-right\").toString()",
+      "expected": "arrow-right"
+    },
+    {
+      "name": "image url to string",
+      "expression": "image(\"https://obsidian.md/logo.png\").toString()",
+      "expected": "![](https://obsidian.md/logo.png)"
+    },
+    {
+      "name": "today date",
+      "expression": "today().format(\"YYYY-MM-DD\")",
+      "expected": "2026-06-10"
+    },
+    {
+      "name": "now year",
+      "expression": "now().year",
+      "expected": 2026
+    },
+    {
+      "name": "random range",
+      "expression": "random()",
+      "assertion": "range01",
+      "expected": 0.14306760848808064
+    },
+    {
+      "name": "any isTruthy number direct literal",
+      "expression": "1.isTruthy()",
+      "knownDivergence": "Public docs show direct numeric method syntax, but the current internal parser rejects it; parenthesized numeric literals work.",
+      "expected": null
+    },
+    {
+      "name": "any isTruthy zero direct literal",
+      "expression": "0.isTruthy()",
+      "knownDivergence": "Public docs show direct numeric method syntax, but the current internal parser rejects it; parenthesized numeric literals work.",
+      "expected": null
+    },
+    {
+      "name": "any isTruthy number",
+      "expression": "(1).isTruthy()",
+      "expected": true
+    },
+    {
+      "name": "any isTruthy zero",
+      "expression": "(0).isTruthy()",
+      "expected": false
+    },
+    {
+      "name": "any isTruthy empty string",
+      "expression": "\"\".isTruthy()",
+      "expected": false
+    },
+    {
+      "name": "any isType string",
+      "expression": "\"example\".isType(\"string\")",
+      "expected": true
+    },
+    {
+      "name": "any isType boolean",
+      "expression": "true.isType(\"boolean\")",
+      "expected": true
+    },
+    {
+      "name": "any isType date",
+      "expression": "date(\"2026-06-10\").isType(\"date\")",
+      "expected": true
+    },
+    {
+      "name": "any toString number direct literal",
+      "expression": "123.toString()",
+      "knownDivergence": "Public docs show direct numeric method syntax, but the current internal parser rejects it; parenthesized numeric literals work.",
+      "expected": null
+    },
+    {
+      "name": "any toString number",
+      "expression": "(123).toString()",
+      "expected": "123"
+    },
+    {
+      "name": "any toString boolean",
+      "expression": "true.toString()",
+      "expected": "true"
+    },
+    {
+      "name": "string length",
+      "expression": "\"hello\".length",
+      "expected": 5
+    },
+    {
+      "name": "string contains",
+      "expression": "\"hello\".contains(\"ell\")",
+      "expected": true
+    },
+    {
+      "name": "string contains all",
+      "expression": "\"hello\".containsAll(\"h\", \"e\")",
+      "expected": true
+    },
+    {
+      "name": "string contains any",
+      "expression": "\"hello\".containsAny(\"x\", \"e\")",
+      "expected": true
+    },
+    {
+      "name": "string ends with",
+      "expression": "\"hello\".endsWith(\"lo\")",
+      "expected": true
+    },
+    {
+      "name": "string starts with",
+      "expression": "\"hello\".startsWith(\"he\")",
+      "expected": true
+    },
+    {
+      "name": "string isEmpty false",
+      "expression": "\"hello\".isEmpty()",
+      "expected": false
+    },
+    {
+      "name": "string isEmpty true",
+      "expression": "\"\".isEmpty()",
+      "expected": true
+    },
+    {
+      "name": "string lower",
+      "expression": "\"Hello\".lower()",
+      "expected": "hello"
+    },
+    {
+      "name": "string replace regex first",
+      "expression": "\"a:b:c\".replace(/:/, \"-\")",
+      "expected": "a-b:c"
+    },
+    {
+      "name": "string replace regex global",
+      "expression": "\"a:b:c\".replace(/:/g, \"-\")",
+      "expected": "a-b-c"
+    },
+    {
+      "name": "string replace string",
+      "expression": "\"a:b:c\".replace(\":\", \"-\")",
+      "expected": "a-b-c"
+    },
+    {
+      "name": "string repeat",
+      "expression": "\"ab\".repeat(3)",
+      "expected": "ababab"
+    },
+    {
+      "name": "string reverse",
+      "expression": "\"hello\".reverse()",
+      "expected": "olleh"
+    },
+    {
+      "name": "string slice",
+      "expression": "\"hello\".slice(1, 4)",
+      "expected": "ell"
+    },
+    {
+      "name": "string slice omitted end",
+      "expression": "\"hello\".slice(2)",
+      "expected": "llo"
+    },
+    {
+      "name": "string split",
+      "expression": "\"a,b,c\".split(\",\", 2)",
+      "expected": [
+        "a",
+        "b"
+      ]
+    },
+    {
+      "name": "string split regex",
+      "expression": "\"a,b,c\".split(/,/, 2)",
+      "expected": [
+        "a",
+        "b"
+      ]
+    },
+    {
+      "name": "string title",
+      "expression": "\"hello world\".title()",
+      "expected": "Hello World"
+    },
+    {
+      "name": "string trim",
+      "expression": "\"  hi  \".trim()",
+      "expected": "hi"
+    },
+    {
+      "name": "number abs",
+      "expression": "(-5).abs()",
+      "expected": 5
+    },
+    {
+      "name": "number ceil",
+      "expression": "(2.1).ceil()",
+      "expected": 3
+    },
+    {
+      "name": "number floor",
+      "expression": "(2.9).floor()",
+      "expected": 2
+    },
+    {
+      "name": "number isEmpty false direct literal",
+      "expression": "5.isEmpty()",
+      "knownDivergence": "Public docs show direct numeric method syntax, but the current internal parser rejects it; parenthesized numeric literals work.",
+      "expected": null
+    },
+    {
+      "name": "number isEmpty false",
+      "expression": "(5).isEmpty()",
+      "expected": false
+    },
+    {
+      "name": "number round no digits",
+      "expression": "(2.5).round()",
+      "expected": 3
+    },
+    {
+      "name": "number round digits",
+      "expression": "(2.3333).round(2)",
+      "expected": 2.33
+    },
+    {
+      "name": "number fixed",
+      "expression": "(3.14159).toFixed(2)",
+      "expected": "3.14"
+    },
+    {
+      "name": "date parse date-only",
+      "expression": "date(\"2026-06-10\").toString()",
+      "expected": "2026-06-10"
+    },
+    {
+      "name": "date parse datetime",
+      "expression": "date(\"2026-06-10 12:34:56\").toString()",
+      "expected": "2026-06-10T12:34:56"
+    },
+    {
+      "name": "date format",
+      "expression": "date(\"2026-06-10\").format(\"YYYY-MM-DD\")",
+      "expected": "2026-06-10"
+    },
+    {
+      "name": "date field year",
+      "expression": "date(\"2026-06-10 12:34:56\").year",
+      "expected": 2026
+    },
+    {
+      "name": "date field month",
+      "expression": "date(\"2026-06-10 12:34:56\").month",
+      "expected": 6
+    },
+    {
+      "name": "date field day",
+      "expression": "date(\"2026-06-10 12:34:56\").day",
+      "expected": 10
+    },
+    {
+      "name": "date field hour",
+      "expression": "date(\"2026-06-10 12:34:56\").hour",
+      "expected": 12
+    },
+    {
+      "name": "date field minute",
+      "expression": "date(\"2026-06-10 12:34:56\").minute",
+      "expected": 34
+    },
+    {
+      "name": "date field second",
+      "expression": "date(\"2026-06-10 12:34:56\").second",
+      "expected": 56
+    },
+    {
+      "name": "date strip time",
+      "expression": "date(\"2026-06-10 12:34:56\").date().toString()",
+      "expected": "2026-06-10"
+    },
+    {
+      "name": "date time",
+      "expression": "date(\"2026-06-10 12:34:56\").time()",
+      "expected": "12:34:56"
+    },
+    {
+      "name": "date isEmpty",
+      "expression": "date(\"2026-06-10\").isEmpty()",
+      "expected": false
+    },
+    {
+      "name": "date arithmetic day",
+      "expression": "date(\"2026-06-10 12:00:00\") + \"1d\"",
+      "expected": "2026-06-11T12:00:00"
+    },
+    {
+      "name": "date arithmetic month",
+      "expression": "date(\"2026-12-01\") + \"1M\"",
+      "expected": "2027-01-01"
+    },
+    {
+      "name": "date arithmetic subtract hours",
+      "expression": "date(\"2026-06-10 12:00:00\") - \"2h\"",
+      "expected": "2026-06-10T10:00:00"
+    },
+    {
+      "name": "date difference",
+      "expression": "date(\"2026-06-11\") - date(\"2026-06-10\")",
+      "expected": "a day"
+    },
+    {
+      "name": "date relative future",
+      "expression": "date(\"2100-01-01\").relative()",
+      "expected": "in 74 years"
+    },
+    {
+      "name": "duration year",
+      "expression": "duration(\"1y\").toString()",
+      "expected": "a year"
+    },
+    {
+      "name": "duration month",
+      "expression": "duration(\"1M\").toString()",
+      "expected": "a month"
+    },
+    {
+      "name": "duration week",
+      "expression": "duration(\"2w\").toString()",
+      "expected": "14 days"
+    },
+    {
+      "name": "duration day",
+      "expression": "duration(\"1d\").toString()",
+      "expected": "a day"
+    },
+    {
+      "name": "duration hour",
+      "expression": "duration(\"1h\").toString()",
+      "expected": "an hour"
+    },
+    {
+      "name": "duration minute",
+      "expression": "duration(\"30m\").toString()",
+      "expected": "30 minutes"
+    },
+    {
+      "name": "duration second",
+      "expression": "duration(\"45s\").toString()",
+      "expected": "a minute"
+    },
+    {
+      "name": "duration scale",
+      "expression": "(duration(\"1h\") * 2).toString()",
+      "expected": "2 hours"
+    },
+    {
+      "name": "duration left scalar invalid",
+      "expression": "(2 * duration(\"1h\")).toString()",
+      "expected": {
+        "error": "Invalid operator between Number and Duration"
+      }
+    },
+    {
+      "name": "list length",
+      "expression": "[1,2,3].length",
+      "expected": 3
+    },
+    {
+      "name": "list contains",
+      "expression": "[1,2,3].contains(2)",
+      "expected": true
+    },
+    {
+      "name": "list contains string",
+      "expression": "[\"a\",\"b\"].contains(\"b\")",
+      "expected": true
+    },
+    {
+      "name": "list contains all",
+      "expression": "[1,2,3].containsAll(2, 3)",
+      "expected": true
+    },
+    {
+      "name": "list contains any",
+      "expression": "[1,2,3].containsAny(4, 3)",
+      "expected": true
+    },
+    {
+      "name": "list filter",
+      "expression": "[1,2,3,4].filter(value > 2)",
+      "expected": [
+        3,
+        4
+      ]
+    },
+    {
+      "name": "list filter index",
+      "expression": "[1,2,3,4].filter(index > 1)",
+      "expected": [
+        3,
+        4
+      ]
+    },
+    {
+      "name": "list flat",
+      "expression": "[1,[2,3]].flat()",
+      "expected": [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "name": "list isEmpty false",
+      "expression": "[1].isEmpty()",
+      "expected": false
+    },
+    {
+      "name": "list isEmpty true",
+      "expression": "[].isEmpty()",
+      "expected": true
+    },
+    {
+      "name": "list join",
+      "expression": "[1,2,3].join(\",\")",
+      "expected": "1,2,3"
+    },
+    {
+      "name": "list map",
+      "expression": "[1,2,3].map(value + index)",
+      "expected": [
+        1,
+        3,
+        5
+      ]
+    },
+    {
+      "name": "list reduce",
+      "expression": "[1,2,3].reduce(acc + value, 0)",
+      "expected": 6
+    },
+    {
+      "name": "list reverse",
+      "expression": "[1,2,3].reverse()",
+      "expected": [
+        3,
+        2,
+        1
+      ]
+    },
+    {
+      "name": "list slice",
+      "expression": "[1,2,3,4].slice(1, 3)",
+      "expected": [
+        2,
+        3
+      ]
+    },
+    {
+      "name": "list slice omitted end",
+      "expression": "[1,2,3,4].slice(2)",
+      "expected": [
+        3,
+        4
+      ]
+    },
+    {
+      "name": "list sort numbers",
+      "expression": "[3,1,2].sort()",
+      "expected": [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "name": "list sort strings",
+      "expression": "[\"c\",\"a\",\"b\"].sort()",
+      "expected": [
+        "a",
+        "b",
+        "c"
+      ]
+    },
+    {
+      "name": "list unique numbers",
+      "expression": "[1,2,2,3].unique()",
+      "expected": [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "name": "list unique strings",
+      "expression": "[\"a\",\"b\",\"a\"].unique()",
+      "expected": [
+        "a",
+        "b"
+      ]
+    },
+    {
+      "name": "object keys",
+      "expression": "{\"a\": 1, \"b\": 2}.keys()",
+      "expected": null
+    },
+    {
+      "name": "object values",
+      "expression": "{\"a\": 1, \"b\": 2}.values()",
+      "expected": null
+    },
+    {
+      "name": "object isEmpty",
+      "expression": "{\"a\": 1}.isEmpty()",
+      "expected": null
+    },
+    {
+      "name": "regex matches true",
+      "expression": "/abc/.matches(\"abcde\")",
+      "expected": true
+    },
+    {
+      "name": "regex matches false",
+      "expression": "/abc/.matches(\"abxde\")",
+      "expected": false
+    },
+    {
+      "name": "file name",
+      "expression": "file.name",
+      "expected": "row"
+    },
+    {
+      "name": "file basename",
+      "expression": "file.basename",
+      "expected": "row"
+    },
+    {
+      "name": "file path",
+      "expression": "file.path",
+      "expected": "__codex_bases_expression_oracle/row.md"
+    },
+    {
+      "name": "file folder",
+      "expression": "file.folder",
+      "expected": "__codex_bases_expression_oracle"
+    },
+    {
+      "name": "file ext",
+      "expression": "file.ext",
+      "expected": "md"
+    },
+    {
+      "name": "file size",
+      "expression": "file.size",
+      "expected": 1957
+    },
+    {
+      "name": "file properties price",
+      "expression": "file.properties.price",
+      "expected": 12.5
+    },
+    {
+      "name": "file tags contains",
+      "expression": "file.tags.contains(\"project/a\")",
+      "expected": true
+    },
+    {
+      "name": "frontmatter wikilink raw target",
+      "expression": "frontWiki",
+      "expected": "Other"
+    },
+    {
+      "name": "frontmatter wikilink to string",
+      "expression": "frontWiki.toString()",
+      "expected": "[[Other|Front Alias]]"
+    },
+    {
+      "name": "frontmatter wikilink is link",
+      "expression": "frontWiki.isType(\"link\")",
+      "expected": true
+    },
+    {
+      "name": "frontmatter wikilink as file",
+      "expression": "frontWiki.asFile().path",
+      "expected": "__codex_bases_expression_oracle/Other.md"
+    },
+    {
+      "name": "frontmatter wikilink list length",
+      "expression": "frontList.length",
+      "expected": 2
+    },
+    {
+      "name": "frontmatter wikilink list strings",
+      "expression": "frontList.map(value.toString())",
+      "expected": [
+        "[[Spaced Note]]",
+        "[Front MD](Other.md)"
+      ]
+    },
+    {
+      "name": "frontmatter wikilink list first is link",
+      "expression": "frontList[0].isType(\"link\")",
+      "expected": true
+    },
+    {
+      "name": "frontmatter wikilink list first as file",
+      "expression": "frontList[0].asFile().path",
+      "expected": "__codex_bases_expression_oracle/Spaced Note.md"
+    },
+    {
+      "name": "frontmatter markdown list item remains string",
+      "expression": "frontList[1].isType(\"string\")",
+      "expected": true
+    },
+    {
+      "name": "frontmatter markdown property remains string",
+      "expression": "frontMd.isType(\"string\")",
+      "expected": true
+    },
+    {
+      "name": "frontmatter markdown property stringifies",
+      "expression": "frontMd.toString()",
+      "expected": "[Front MD](Other.md)"
+    },
+    {
+      "name": "file links length",
+      "expression": "file.links.length",
+      "expected": 36
+    },
+    {
+      "name": "file links rendered matrix",
+      "expression": "file.links.map(value.toString())",
+      "expected": [
+        "[[Other|Front Alias]]",
+        "[[Spaced Note|Spaced Note]]",
+        "[[Other.md|Front MD]]",
+        "[[Other.md|Front MD]]",
+        "[[Other|Other]]",
+        "[[Other|Alias Other]]",
+        "[[Other#Section One|Other > Section One]]",
+        "[[Other#^block-id|Other > ^block-id]]",
+        "[[Duplicate|Duplicate]]",
+        "[[__codex_bases_expression_oracle/Folder A/Duplicate|Dup A]]",
+        "[[__codex_bases_expression_oracle/Folder B/Duplicate|__codex_bases_expression_oracle/Folder B/Duplicate]]",
+        "[[Spaced Note|Space Alias]]",
+        "[[Missing Note|Missing Note]]",
+        "[[Other.md|Markdown Other]]",
+        "[[Spaced Note.md|Markdown Space]]",
+        "[[Missing.md|Markdown Missing]]",
+        "[[./Other.md|Markdown Dot]]",
+        "[[Sub/Target.md|Markdown Sub]]",
+        "[[Other#Section|Pipe]]",
+        "[[Other#Heading [Bracket|Other > Heading [Bracket]]",
+        "[[Unicode & Punctuation/Über Café, déjà vu! (v2)|Unicode Alias]]",
+        "[[Unicode & Punctuation/Über Café, déjà vu! (v2)#Café & crème: naïve? (v2)!|Unicode & Punctuation/Über Café, déjà vu! (v2) > Café & crème: naïve? (v2)!]]",
+        "[[Unicode %26 Punctuation/Über Café%2C déjà vu! (v2).md|Unicode Markdown]]",
+        "[[Case Target|Case Target]]",
+        "[[Duplicate Anchors#Twin|Duplicate Anchors > Twin]]",
+        "[[Duplicate Anchors#Twin|Twin Alias]]",
+        "[[Duplicate Anchors#^dupe-block|Duplicate Anchors > ^dupe-block]]",
+        "[[Duplicate Anchors#^dupe-block|Block Alias]]",
+        "[[Report Final.pdf|Report Final.pdf]]",
+        "[[Data Export.csv|CSV Alias]]",
+        "[[Audio Track.mp3|Audio Track]]",
+        "[[Embedded Note|Embedded Note]]",
+        "[[Other#Section One|Other > Section One]]",
+        "[[Asset.png|Asset Alt]]",
+        "[[Report Final.pdf|Report Final.pdf]]",
+        "[[Photo Sample.jpg|Photo Alt]]"
+      ]
+    },
+    {
+      "name": "file links as files matrix",
+      "expression": "file.links.map(value.asFile().path)",
+      "expected": [
+        "__codex_bases_expression_oracle/Other.md",
+        "__codex_bases_expression_oracle/Spaced Note.md",
+        "__codex_bases_expression_oracle/Other.md",
+        "__codex_bases_expression_oracle/Other.md",
+        "__codex_bases_expression_oracle/Other.md",
+        "__codex_bases_expression_oracle/Other.md",
+        "__codex_bases_expression_oracle/Other.md",
+        "__codex_bases_expression_oracle/Other.md",
+        "__codex_bases_expression_oracle/Folder A/Duplicate.md",
+        "__codex_bases_expression_oracle/Folder A/Duplicate.md",
+        "__codex_bases_expression_oracle/Folder B/Duplicate.md",
+        "__codex_bases_expression_oracle/Spaced Note.md",
+        null,
+        "__codex_bases_expression_oracle/Other.md",
+        "__codex_bases_expression_oracle/Spaced Note.md",
+        null,
+        "__codex_bases_expression_oracle/Other.md",
+        "__codex_bases_expression_oracle/Sub/Target.md",
+        "__codex_bases_expression_oracle/Other.md",
+        "__codex_bases_expression_oracle/Other.md",
+        "__codex_bases_expression_oracle/Unicode & Punctuation/Über Café, déjà vu! (v2).md",
+        "__codex_bases_expression_oracle/Unicode & Punctuation/Über Café, déjà vu! (v2).md",
+        null,
+        "__codex_bases_expression_oracle/Case Target.md",
+        "__codex_bases_expression_oracle/Duplicate Anchors.md",
+        "__codex_bases_expression_oracle/Duplicate Anchors.md",
+        "__codex_bases_expression_oracle/Duplicate Anchors.md",
+        "__codex_bases_expression_oracle/Duplicate Anchors.md",
+        "__codex_bases_expression_oracle/Report Final.pdf",
+        "__codex_bases_expression_oracle/Data Export.csv",
+        "__codex_bases_expression_oracle/Audio Track.mp3",
+        "__codex_bases_expression_oracle/Embedded Note.md",
+        "__codex_bases_expression_oracle/Other.md",
+        "__codex_bases_expression_oracle/Asset.png",
+        "__codex_bases_expression_oracle/Report Final.pdf",
+        "__codex_bases_expression_oracle/Photo Sample.jpg"
+      ]
+    },
+    {
+      "name": "file direct link raw target",
+      "expression": "file.links[0]",
+      "expected": "Other"
+    },
+    {
+      "name": "file frontmatter wikilink rendered",
+      "expression": "file.links.map(value.toString()).contains('[[Other|Front Alias]]')",
+      "expected": true
+    },
+    {
+      "name": "file ordinary wikilink rendered",
+      "expression": "file.links.map(value.toString()).contains('[[Other|Other]]')",
+      "expected": true
+    },
+    {
+      "name": "file alias wikilink rendered",
+      "expression": "file.links.map(value.toString()).contains('[[Other|Alias Other]]')",
+      "expected": true
+    },
+    {
+      "name": "file heading wikilink rendered",
+      "expression": "file.links.map(value.toString()).contains('[[Other#Section One|Other > Section One]]')",
+      "expected": true
+    },
+    {
+      "name": "file block wikilink rendered",
+      "expression": "file.links.map(value.toString()).contains('[[Other#^block-id|Other > ^block-id]]')",
+      "expected": true
+    },
+    {
+      "name": "file duplicate wikilink resolves",
+      "expression": "link(\"Duplicate\").asFile().path",
+      "expected": "__codex_bases_expression_oracle/Folder A/Duplicate.md"
+    },
+    {
+      "name": "file full path duplicate resolves",
+      "expression": "link(\"__codex_bases_expression_oracle/Folder B/Duplicate\").asFile().path",
+      "expected": "__codex_bases_expression_oracle/Folder B/Duplicate.md"
+    },
+    {
+      "name": "file unresolved wikilink as file",
+      "expression": "link(\"Missing Note\").asFile().path",
+      "expected": null
+    },
+    {
+      "name": "file markdown link rendered",
+      "expression": "file.links.map(value.toString()).contains('[[Other.md|Markdown Other]]')",
+      "expected": true
+    },
+    {
+      "name": "file markdown encoded link rendered",
+      "expression": "file.links.map(value.toString()).contains('[[Spaced Note.md|Markdown Space]]')",
+      "expected": true
+    },
+    {
+      "name": "file markdown unresolved link rendered",
+      "expression": "file.links.map(value.toString()).contains('[[Missing.md|Markdown Missing]]')",
+      "expected": true
+    },
+    {
+      "name": "file markdown dot link rendered",
+      "expression": "file.links.map(value.toString()).contains('[[./Other.md|Markdown Dot]]')",
+      "expected": true
+    },
+    {
+      "name": "file markdown subfolder link rendered",
+      "expression": "file.links.map(value.toString()).contains('[[Sub/Target.md|Markdown Sub]]')",
+      "expected": true
+    },
+    {
+      "name": "file markdown link as file",
+      "expression": "link(\"Other.md\").asFile().path",
+      "expected": "__codex_bases_expression_oracle/Other.md"
+    },
+    {
+      "name": "file markdown encoded link as file",
+      "expression": "link(\"Spaced Note.md\").asFile().path",
+      "expected": "__codex_bases_expression_oracle/Spaced Note.md"
+    },
+    {
+      "name": "file markdown dot link as file",
+      "expression": "link(\"./Other.md\").asFile().path",
+      "expected": "__codex_bases_expression_oracle/Other.md"
+    },
+    {
+      "name": "file markdown subfolder link as file",
+      "expression": "link(\"Sub/Target.md\").asFile().path",
+      "expected": "__codex_bases_expression_oracle/Sub/Target.md"
+    },
+    {
+      "name": "file markdown unresolved link as file",
+      "expression": "link(\"Missing.md\").asFile().path",
+      "expected": null
+    },
+    {
+      "name": "file special pipe heading rendered",
+      "expression": "file.links.map(value.toString()).contains('[[Other#Section|Pipe]]')",
+      "expected": true
+    },
+    {
+      "name": "file special bracket heading rendered",
+      "expression": "file.links.map(value.toString()).contains('[[Other#Heading [Bracket|Other > Heading [Bracket]]')",
+      "expected": true
+    },
+    {
+      "name": "file unicode wikilink rendered",
+      "expression": "file.links.map(value.toString()).contains('[[Unicode & Punctuation/Über Café, déjà vu! (v2)|Unicode Alias]]')",
+      "expected": true
+    },
+    {
+      "name": "file unicode heading rendered",
+      "expression": "file.links.map(value.toString()).contains('[[Unicode & Punctuation/Über Café, déjà vu! (v2)#Café & crème: naïve? (v2)!|Unicode & Punctuation/Über Café, déjà vu! (v2) > Café & crème: naïve? (v2)!]]')",
+      "expected": true
+    },
+    {
+      "name": "file unicode markdown rendered",
+      "expression": "file.links.map(value.toString()).contains('[[Unicode %26 Punctuation/Über Café%2C déjà vu! (v2).md|Unicode Markdown]]')",
+      "expected": true
+    },
+    {
+      "name": "file unicode markdown encoded has link",
+      "expression": "file.hasLink(\"Unicode %26 Punctuation/Über Café%2C déjà vu! (v2).md\")",
+      "expected": true
+    },
+    {
+      "name": "file unicode markdown encoded as file",
+      "expression": "link(\"Unicode %26 Punctuation/Über Café%2C déjà vu! (v2).md\").asFile().path",
+      "expected": null
+    },
+    {
+      "name": "file has unicode link",
+      "expression": "file.hasLink(\"Unicode & Punctuation/Über Café, déjà vu! (v2)\")",
+      "expected": true
+    },
+    {
+      "name": "file has unicode heading link",
+      "expression": "file.hasLink(\"Unicode & Punctuation/Über Café, déjà vu! (v2)#Café & crème: naïve? (v2)!\")",
+      "expected": true
+    },
+    {
+      "name": "file unicode link as file",
+      "expression": "link(\"Unicode & Punctuation/Über Café, déjà vu! (v2)\").asFile().path",
+      "expected": "__codex_bases_expression_oracle/Unicode & Punctuation/Über Café, déjà vu! (v2).md"
+    },
+    {
+      "name": "file unicode heading link as file",
+      "expression": "link(\"Unicode & Punctuation/Über Café, déjà vu! (v2)#Café & crème: naïve? (v2)!\").asFile().path",
+      "expected": "__codex_bases_expression_oracle/Unicode & Punctuation/Über Café, déjà vu! (v2).md"
+    },
+    {
+      "name": "file lower-case basename as file",
+      "expression": "link(\"other\").asFile().path",
+      "expected": "__codex_bases_expression_oracle/Other.md"
+    },
+    {
+      "name": "file lower-case md has link",
+      "expression": "file.hasLink(\"other.md\")",
+      "expected": true
+    },
+    {
+      "name": "file lower-case subpath has link",
+      "expression": "file.hasLink(\"Other#section one\")",
+      "expected": true
+    },
+    {
+      "name": "file case target lower-case as file",
+      "expression": "link(\"case target\").asFile().path",
+      "expected": "__codex_bases_expression_oracle/Case Target.md"
+    },
+    {
+      "name": "file case target lower-case has link",
+      "expression": "file.hasLink(\"case target.md\")",
+      "expected": true
+    },
+    {
+      "name": "file duplicate heading rendered",
+      "expression": "file.links.map(value.toString()).contains('[[Duplicate Anchors#Twin|Duplicate Anchors > Twin]]')",
+      "expected": true
+    },
+    {
+      "name": "file duplicate heading alias rendered",
+      "expression": "file.links.map(value.toString()).contains('[[Duplicate Anchors#Twin|Twin Alias]]')",
+      "expected": true
+    },
+    {
+      "name": "file duplicate block rendered",
+      "expression": "file.links.map(value.toString()).contains('[[Duplicate Anchors#^dupe-block|Duplicate Anchors > ^dupe-block]]')",
+      "expected": true
+    },
+    {
+      "name": "file duplicate block alias rendered",
+      "expression": "file.links.map(value.toString()).contains('[[Duplicate Anchors#^dupe-block|Block Alias]]')",
+      "expected": true
+    },
+    {
+      "name": "file duplicate heading as file",
+      "expression": "link(\"Duplicate Anchors#Twin\").asFile().path",
+      "expected": "__codex_bases_expression_oracle/Duplicate Anchors.md"
+    },
+    {
+      "name": "file duplicate block as file",
+      "expression": "link(\"Duplicate Anchors#^dupe-block\").asFile().path",
+      "expected": "__codex_bases_expression_oracle/Duplicate Anchors.md"
+    },
+    {
+      "name": "file has duplicate heading link",
+      "expression": "file.hasLink(\"Duplicate Anchors#Twin\")",
+      "expected": true
+    },
+    {
+      "name": "file has duplicate block link",
+      "expression": "file.hasLink(\"Duplicate Anchors#^dupe-block\")",
+      "expected": true
+    },
+    {
+      "name": "file pdf attachment rendered",
+      "expression": "file.links.map(value.toString()).contains('[[Report Final.pdf|Report Final.pdf]]')",
+      "expected": true
+    },
+    {
+      "name": "file csv attachment alias rendered",
+      "expression": "file.links.map(value.toString()).contains('[[Data Export.csv|CSV Alias]]')",
+      "expected": true
+    },
+    {
+      "name": "file markdown audio rendered",
+      "expression": "file.links.map(value.toString()).contains('[[Audio Track.mp3|Audio Track]]')",
+      "expected": true
+    },
+    {
+      "name": "file has pdf attachment link",
+      "expression": "file.hasLink(\"Report Final.pdf\")",
+      "expected": true
+    },
+    {
+      "name": "file has csv attachment link",
+      "expression": "file.hasLink(\"Data Export.csv\")",
+      "expected": true
+    },
+    {
+      "name": "file has audio attachment link",
+      "expression": "file.hasLink(\"Audio Track.mp3\")",
+      "expected": true
+    },
+    {
+      "name": "file pdf attachment as file",
+      "expression": "link(\"Report Final.pdf\").asFile().path",
+      "expected": "__codex_bases_expression_oracle/Report Final.pdf"
+    },
+    {
+      "name": "file audio attachment as file",
+      "expression": "link(\"Audio Track.mp3\").asFile().path",
+      "expected": "__codex_bases_expression_oracle/Audio Track.mp3"
+    },
+    {
+      "name": "file csv attachment ext",
+      "expression": "file(\"Data Export.csv\").ext",
+      "expected": "csv"
+    },
+    {
+      "name": "file embeds length",
+      "expression": "file.embeds.length",
+      "expected": 5
+    },
+    {
+      "name": "file embeds rendered matrix",
+      "expression": "file.embeds.map(value.toString())",
+      "expected": [
+        "[[Embedded Note|Embedded Note]]",
+        "[[Other#Section One|Other > Section One]]",
+        "[[Asset.png|Asset Alt]]",
+        "[[Report Final.pdf|Report Final.pdf]]",
+        "[[Photo Sample.jpg|Photo Alt]]"
+      ]
+    },
+    {
+      "name": "file embeds as files matrix",
+      "expression": "file.embeds.map(value.asFile().path)",
+      "expected": [
+        "__codex_bases_expression_oracle/Embedded Note.md",
+        "__codex_bases_expression_oracle/Other.md",
+        "__codex_bases_expression_oracle/Asset.png",
+        "__codex_bases_expression_oracle/Report Final.pdf",
+        "__codex_bases_expression_oracle/Photo Sample.jpg"
+      ]
+    },
+    {
+      "name": "file pdf embed rendered",
+      "expression": "file.embeds.map(value.toString()).contains('[[Report Final.pdf|Report Final.pdf]]')",
+      "expected": true
+    },
+    {
+      "name": "file markdown jpg embed rendered",
+      "expression": "file.embeds.map(value.toString()).contains('[[Photo Sample.jpg|Photo Alt]]')",
+      "expected": true
+    },
+    {
+      "name": "file has jpg attachment embed",
+      "expression": "file.hasLink(\"Photo Sample.jpg\")",
+      "expected": true
+    },
+    {
+      "name": "file backlinks length",
+      "expression": "file.backlinks.length",
+      "expected": 2
+    },
+    {
+      "name": "file backlinks rendered matrix",
+      "expression": "file.backlinks.map(value.toString())",
+      "expected": [
+        "[[__codex_bases_expression_oracle/Backlink Source.md|Backlink Source]]",
+        "[[__codex_bases_expression_oracle/Backlink Markdown Source.md|Backlink Markdown Source]]"
+      ]
+    },
+    {
+      "name": "file has link",
+      "expression": "file.hasLink(\"Other.md\")",
+      "expected": true
+    },
+    {
+      "name": "file has raw basename link",
+      "expression": "file.hasLink(\"Other\")",
+      "expected": true
+    },
+    {
+      "name": "file has full path link",
+      "expression": "file.hasLink(\"__codex_bases_expression_oracle/Other.md\")",
+      "expected": true
+    },
+    {
+      "name": "file has heading link",
+      "expression": "file.hasLink(\"Other#Section One\")",
+      "expected": true
+    },
+    {
+      "name": "file has block link",
+      "expression": "file.hasLink(\"Other#^block-id\")",
+      "expected": true
+    },
+    {
+      "name": "file has duplicate basename link",
+      "expression": "file.hasLink(\"Duplicate\")",
+      "expected": true
+    },
+    {
+      "name": "file has duplicate full path A link",
+      "expression": "file.hasLink(\"__codex_bases_expression_oracle/Folder A/Duplicate.md\")",
+      "expected": true
+    },
+    {
+      "name": "file has duplicate full path B link",
+      "expression": "file.hasLink(\"__codex_bases_expression_oracle/Folder B/Duplicate.md\")",
+      "expected": true
+    },
+    {
+      "name": "file has spaced alias link",
+      "expression": "file.hasLink(\"Spaced Note\")",
+      "expected": true
+    },
+    {
+      "name": "file has unresolved raw link",
+      "expression": "file.hasLink(\"Missing Note\")",
+      "expected": true
+    },
+    {
+      "name": "file has unresolved md link",
+      "expression": "file.hasLink(\"Missing Note.md\")",
+      "expected": false
+    },
+    {
+      "name": "file has markdown dot md link",
+      "expression": "file.hasLink(\"./Other.md\")",
+      "expected": true
+    },
+    {
+      "name": "file has markdown subfolder md link",
+      "expression": "file.hasLink(\"Sub/Target.md\")",
+      "expected": true
+    },
+    {
+      "name": "file has markdown encoded md link",
+      "expression": "file.hasLink(\"Spaced Note.md\")",
+      "expected": true
+    },
+    {
+      "name": "file has markdown unresolved md link",
+      "expression": "file.hasLink(\"Missing.md\")",
+      "expected": true
+    },
+    {
+      "name": "file has markdown image embed",
+      "expression": "file.hasLink(\"Asset.png\")",
+      "expected": true
+    },
+    {
+      "name": "file does not have external markdown link",
+      "expression": "file.hasLink(\"https://example.com/path\")",
+      "expected": false
+    },
+    {
+      "name": "file has special pipe heading",
+      "expression": "file.hasLink(\"Other#Section | Pipe\")",
+      "expected": true
+    },
+    {
+      "name": "file has special bracket heading",
+      "expression": "file.hasLink(\"Other#Heading [Bracket]\")",
+      "expected": true
+    },
+    {
+      "name": "file has property",
+      "expression": "file.hasProperty(\"price\")",
+      "expected": true
+    },
+    {
+      "name": "file has tag direct",
+      "expression": "file.hasTag(\"work\")",
+      "expected": true
+    },
+    {
+      "name": "file has tag nested",
+      "expression": "file.hasTag(\"project\")",
+      "expected": true
+    },
+    {
+      "name": "file in folder",
+      "expression": "file.inFolder(\"__codex_bases_expression_oracle\")",
+      "expected": true
+    },
+    {
+      "name": "file as link",
+      "expression": "file.asLink().toString()",
+      "expected": "[[__codex_bases_expression_oracle/row.md]]"
+    },
+    {
+      "name": "file as link display",
+      "expression": "file.asLink(\"Shown\").toString()",
+      "expected": "[[__codex_bases_expression_oracle/row.md|Shown]]"
+    },
+    {
+      "name": "file global basename lookup",
+      "expression": "file(\"Other\").path",
+      "expected": "__codex_bases_expression_oracle/Other.md"
+    },
+    {
+      "name": "file global md lookup",
+      "expression": "file(\"Other.md\").path",
+      "expected": "__codex_bases_expression_oracle/Other.md"
+    },
+    {
+      "name": "file global unresolved lookup",
+      "expression": "file(\"Missing Note\").path",
+      "expected": null
+    },
+    {
+      "name": "file global spaced lookup",
+      "expression": "file(\"Spaced Note\").path",
+      "expected": "__codex_bases_expression_oracle/Spaced Note.md"
+    },
+    {
+      "name": "file global relative source lookup",
+      "expression": "file(\"Sub/Relative Source.md\").path",
+      "expected": "__codex_bases_expression_oracle/Sub/Relative Source.md"
+    },
+    {
+      "name": "relative source links rendered matrix",
+      "expression": "file(\"Sub/Relative Source.md\").links.map(value.toString())",
+      "expected": [
+        "[[../Other.md|Parent Other]]",
+        "[[Target.md|Sibling Target]]",
+        "[[../Spaced Note.md|Parent Space]]",
+        "[[../Other|../Other]]"
+      ]
+    },
+    {
+      "name": "relative source links as files matrix",
+      "expression": "file(\"Sub/Relative Source.md\").links.map(value.asFile().path)",
+      "expected": [
+        "__codex_bases_expression_oracle/Other.md",
+        "__codex_bases_expression_oracle/Sub/Target.md",
+        "__codex_bases_expression_oracle/Spaced Note.md",
+        "__codex_bases_expression_oracle/Other.md"
+      ]
+    },
+    {
+      "name": "relative source has parent markdown link",
+      "expression": "file(\"Sub/Relative Source.md\").hasLink(\"../Other.md\")",
+      "expected": true
+    },
+    {
+      "name": "relative source has sibling markdown link",
+      "expression": "file(\"Sub/Relative Source.md\").hasLink(\"Target.md\")",
+      "expected": true
+    },
+    {
+      "name": "relative source has parent encoded markdown link",
+      "expression": "file(\"Sub/Relative Source.md\").hasLink(\"../Spaced Note.md\")",
+      "expected": true
+    },
+    {
+      "name": "link as file",
+      "expression": "link(\"__codex_bases_expression_oracle/row.md\").asFile().path",
+      "expected": "__codex_bases_expression_oracle/row.md"
+    },
+    {
+      "name": "link basename as file",
+      "expression": "link(\"Other\").asFile().path",
+      "expected": "__codex_bases_expression_oracle/Other.md"
+    },
+    {
+      "name": "link md as file",
+      "expression": "link(\"Other.md\").asFile().path",
+      "expected": "__codex_bases_expression_oracle/Other.md"
+    },
+    {
+      "name": "link heading as file",
+      "expression": "link(\"Other#Section One\").asFile().path",
+      "expected": "__codex_bases_expression_oracle/Other.md"
+    },
+    {
+      "name": "link block as file",
+      "expression": "link(\"Other#^block-id\").asFile().path",
+      "expected": "__codex_bases_expression_oracle/Other.md"
+    },
+    {
+      "name": "link duplicate as file",
+      "expression": "link(\"Duplicate\").asFile().path",
+      "expected": "__codex_bases_expression_oracle/Folder A/Duplicate.md"
+    },
+    {
+      "name": "link unresolved as file",
+      "expression": "link(\"Missing Note\").asFile().path",
+      "expected": null
+    },
+    {
+      "name": "link markdown unresolved as file",
+      "expression": "link(\"Missing.md\").asFile().path",
+      "expected": null
+    },
+    {
+      "name": "link relative dot as file",
+      "expression": "link(\"./Other.md\").asFile().path",
+      "expected": "__codex_bases_expression_oracle/Other.md"
+    },
+    {
+      "name": "link spaced as file",
+      "expression": "link(\"Spaced Note\").asFile().path",
+      "expected": "__codex_bases_expression_oracle/Spaced Note.md"
+    },
+    {
+      "name": "link equals file",
+      "expression": "link(\"__codex_bases_expression_oracle/row.md\") == file",
+      "expected": true
+    },
+    {
+      "name": "link aliases equal",
+      "expression": "file.links[1] == link(\"Other\")",
+      "expected": false
+    },
+    {
+      "name": "link md variant equals basename",
+      "expression": "link(\"Other.md\") == link(\"Other\")",
+      "expected": true
+    },
+    {
+      "name": "link subpath equals basename",
+      "expression": "link(\"Other#Section One\") == link(\"Other\")",
+      "expected": true
+    },
+    {
+      "name": "markdown link equals wikilink",
+      "expression": "file.links[9] == link(\"Other\")",
+      "expected": false
+    },
+    {
+      "name": "links contains alias variant",
+      "expression": "file.links.contains(link(\"Other\", \"Alias Other\"))",
+      "expected": true
+    },
+    {
+      "name": "links contains unresolved",
+      "expression": "file.links.contains(link(\"Missing Note\"))",
+      "expected": true
+    },
+    {
+      "name": "links contains file lookup",
+      "expression": "file.links.contains(file(\"Other\"))",
+      "expected": true
+    },
+    {
+      "name": "links filter resolved file equality",
+      "expression": "file.links.filter(value == link(\"Other\")).length",
+      "expected": 12
+    },
+    {
+      "name": "links filter duplicate equality",
+      "expression": "file.links.filter(value == link(\"Duplicate\")).length",
+      "expected": 2
+    },
+    {
+      "name": "links unique resolved count",
+      "expression": "file.links.unique().length",
+      "expected": 33
+    },
+    {
+      "name": "link path field",
+      "expression": "link(\"Some Note\").path",
+      "expected": {
+        "error": "Cannot find \"path\" on type Link"
+      }
+    },
+    {
+      "name": "formula ref",
+      "expression": "formula.total",
+      "expected": 50
+    },
+    {
+      "name": "formula chain",
+      "expression": "formula.label",
+      "expected": "Todo 50"
+    },
+    {
+      "name": "this file path",
+      "expression": "this.file.path",
+      "expected": "__codex_bases_expression_oracle/row.md"
+    },
+    {
+      "name": "invalid number conversion",
+      "expression": "number(\"nope\")",
+      "expected": {
+        "error": "Unable to parse \"nope\" as a number."
+      }
+    },
+    {
+      "name": "unknown function",
+      "expression": "doesNotExist()",
+      "expected": {
+        "error": "Cannot find function \"doesNotExist\""
+      }
+    },
+    {
+      "name": "link replace regex",
+      "expression": "frontList[0].replace(/^\\[[^\\]]+\\]\\((.*)\\)$/, \"$1\")",
+      "expected": "Spaced Note",
+      "source": "Obsidian 1.12.7, 2026-09-24: link string functions and missing-value methods"
+    },
+    {
+      "name": "link replace string",
+      "expression": "frontWiki.replace(\"Other\", \"X\")",
+      "expected": "X",
+      "source": "Obsidian 1.12.7, 2026-09-24: link string functions and missing-value methods"
+    },
+    {
+      "name": "list map replace",
+      "expression": "frontList.map(value.replace(/^\\[[^\\]]+\\]\\((.*)\\)$/, \"$1\"))",
+      "expected": [
+        "Spaced Note",
+        "Other.md"
+      ],
+      "source": "Obsidian 1.12.7, 2026-09-24: link string functions and missing-value methods"
+    },
+    {
+      "name": "tasknotes project expr",
+      "expression": "frontList.map(file(value.replace(/^\\[[^\\]]+\\]\\((.*)\\)$/, \"$1\").replace(/%20/g, \" \")).asLink())",
+      "expected": [
+        "__codex_bases_expression_oracle/Spaced Note.md",
+        "__codex_bases_expression_oracle/Other.md"
+      ],
+      "source": "Obsidian 1.12.7, 2026-09-24: link string functions and missing-value methods"
+    },
+    {
+      "name": "tasknotes project paths",
+      "expression": "frontList.map(file(value.replace(/^\\[[^\\]]+\\]\\((.*)\\)$/, \"$1\").replace(/%20/g, \" \")).path)",
+      "expected": [
+        "__codex_bases_expression_oracle/Spaced Note.md",
+        "__codex_bases_expression_oracle/Other.md"
+      ],
+      "source": "Obsidian 1.12.7, 2026-09-24: link string functions and missing-value methods"
+    },
+    {
+      "name": "file of link",
+      "expression": "file(frontWiki).path",
+      "expected": "__codex_bases_expression_oracle/Other.md",
+      "source": "Obsidian 1.12.7, 2026-09-24: link string functions and missing-value methods"
+    },
+    {
+      "name": "file of wikilink string",
+      "expression": "file(\"[[Other]]\").path",
+      "expected": null,
+      "source": "Obsidian 1.12.7, 2026-09-24: link string functions and missing-value methods"
+    },
+    {
+      "name": "file of markdown link string",
+      "expression": "file(\"[Front MD](Other.md)\").path",
+      "expected": null,
+      "source": "Obsidian 1.12.7, 2026-09-24: link string functions and missing-value methods"
+    },
+    {
+      "name": "list of missing",
+      "expression": "list(missing)",
+      "expected": null,
+      "source": "Obsidian 1.12.7, 2026-09-24: link string functions and missing-value methods"
+    },
+    {
+      "name": "list of missing length",
+      "expression": "list(missing).length",
+      "expected": null,
+      "source": "Obsidian 1.12.7, 2026-09-24: link string functions and missing-value methods"
+    },
+    {
+      "name": "missing replace",
+      "expression": "missing.replace(\"a\", \"b\")",
+      "expected": null,
+      "source": "Obsidian 1.12.7, 2026-09-24: link string functions and missing-value methods"
+    },
+    {
+      "name": "file of error",
+      "expression": "file(missing.replace(\"a\", \"b\"))",
+      "expected": null,
+      "source": "Obsidian 1.12.7, 2026-09-24: link string functions and missing-value methods"
+    },
+    {
+      "name": "file of null",
+      "expression": "file(missing)",
+      "expected": null,
+      "source": "Obsidian 1.12.7, 2026-09-24: link string functions and missing-value methods"
+    },
+    {
+      "name": "map over missing list",
+      "expression": "list(missing).map(file(value.replace(\"a\", \"b\")))",
+      "expected": null,
+      "source": "Obsidian 1.12.7, 2026-09-24: link string functions and missing-value methods"
+    },
+    {
+      "name": "link type of front list string",
+      "expression": "frontList[1].isType(\"link\")",
+      "expected": false,
+      "source": "Obsidian 1.12.7, 2026-09-24: link string functions and missing-value methods"
+    },
+    {
+      "name": "file links contains front wiki",
+      "expression": "file.links.contains(link(\"Other\"))",
+      "expected": true,
+      "source": "Obsidian 1.12.7, 2026-09-24: link string functions and missing-value methods"
+    }
+  ]
+}

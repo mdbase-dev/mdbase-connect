@@ -1,0 +1,28 @@
+[package]
+name = "mdbn-wasm"
+description = "WASM bindings: the runtime module (core + replica + file layer) for thin clients and the TS SDK."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+# cdylib for wasm32 (runtime.wasm); rlib so native harnesses call the same functions.
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+# Dedicated trusted first-party artifact; the normal runtime keeps its old imports.
+app-runtime = []
+
+# Allowed internal dependencies: mdbn-core, mdbn-wire, mdbn-replica, mdbn-store-file.
+# Portable. Host capabilities are WASM imports, never getrandom/js-sys backends.
+[dependencies]
+mdbn-core.workspace = true
+mdbn-wire.workspace = true
+mdbn-replica.workspace = true
+mdbn-store-file.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,25 @@
+/ HelloResult / {
+  / version / 0: / Version / [/ major / 1, / minor / 0],
+  / runtime_version / 1: "0.1.0",
+  / sem / 2: / Version / [/ major / 1, / minor / 0],
+  / collection / 3: h'4c18af2eb04a4b77b83e493c3695962e',
+  / grant / 4: / GrantInfo / {
+    / grant / 0: h'6f1e2d3c4b5a49688776655443322110',
+    / capabilities / 1: [
+      "collection.read"
+    ],
+    / role / 2: 1 / Editor /
+  },
+  / status / 5: / SyncStatus / {
+    / mode / 0: 1 / Synced /,
+    / confirmed_through / 1: 42,
+    / head_known / 2: 42,
+    / pending / 3: 0,
+    / holds / 5: 0,
+    / unresolved / 6: 0,
+    / connection / 7: 0 / Online /,
+    / incidents / 9: []
+  },
+  / features / 6: [],
+  / head_witness / 7: h'a8000101504c18af2eb04a4b77b83e493c3695962e02502d7e9a416c3b4f189a05c8e1b2d3f4670301045820c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c40501060007584054545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454'
+}

@@ -1,0 +1,12 @@
+{
+  "_type": "PutObjectResult",
+  "status": "Upload",
+  "direct": {
+    "_type": "DirectTransfer",
+    "url": "https://objects.example/c/4c18af2e/abcd?sig=x",
+    "headers": [
+      ["x-amz-checksum-sha256", "q83v"]
+    ],
+    "expires_at": 1791100900000
+  }
+}

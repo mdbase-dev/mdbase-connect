@@ -1,0 +1,31 @@
+{
+  "_type": "Mutation",
+  "id": "h'0192f3a460007abc8def0123456789ab'",
+  "origin": "h'9b2f6c1e3a474d5b8e216f0a9c3d7e54'",
+  "base_seq": 41,
+  "clock": {
+    "_type": "OpClock",
+    "instant": 1791100800000,
+    "tz": "Australia/Melbourne",
+    "local_date": "2026-10-04"
+  },
+  "seed": "h'5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e'",
+  "source": "External",
+  "ops": [
+    {
+      "_type": "Document",
+      "kind": "Document",
+      "id": "h'0192f3a45b6c7d8e9f0123456789abcd'",
+      "base": {
+        "_type": "DocVersion",
+        "path": "tasks/a.md",
+        "doc": "---\nstatus: open\n---\n"
+      },
+      "new": {
+        "_type": "DocVersion",
+        "path": "tasks/b.md",
+        "doc": "---\nstatus: open\n---\nedited\n"
+      }
+    }
+  ]
+}

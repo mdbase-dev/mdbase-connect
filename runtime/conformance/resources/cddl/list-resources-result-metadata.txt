@@ -1,0 +1,1 @@
+Schema positive: list_resources result-metadata.

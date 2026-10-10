@@ -1,0 +1,15 @@
+/ ReadResult / {
+  / items / 0: [],
+  / head / 1: 120000,
+  / head_chain / 2: h'c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8',
+  / retained_from / 3: 100001,
+  / behind / 4: true,
+  / snapshot / 5: / SnapshotPointer / {
+    / seq / 0: 110000,
+    / manifest / 1: h'a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3',
+    / author / 2: h'2d7e9a416c3b4f189a05c8e1b2d3f467',
+    / created_at / 3: 1791000000000,
+    / endorsed / 4: true
+  },
+  / more / 6: false
+}

@@ -1,0 +1,10 @@
+{
+  "_type": "Response",
+  "kind": "Response",
+  "id": 8,
+  "error": {
+    "_type": "LsError",
+    "code": "rate_limited",
+    "retry_after_ms": 250
+  }
+}

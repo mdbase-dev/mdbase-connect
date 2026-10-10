@@ -1,0 +1,33 @@
+[package]
+name = "mdbn-legacy"
+description = "Read-only parsers for the old mdbase Connect formats (local connector, engine journals, role markers, mirrors, hosted provider), used by migration."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Allowed internal dependencies: none. The readers must not depend on new-system
+# semantics. Native only.
+[features]
+default = ["pg"]
+# Read hosted provider rows from Postgres. On by default;
+# deny.toml scopes the getrandom ban, and portable crates are still covered by
+# `cargo xtask arch`.
+pg = ["dep:postgres", "dep:tokio-postgres-rustls", "dep:rustls", "dep:rustls-native-certs"]
+
+[dependencies]
+aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc", "zeroize"] }
+base64 = "0.22"
+postgres = { version = "0.19", optional = true }
+rustls = { version = "0.23", optional = true, default-features = false, features = ["ring", "std", "tls12"] }
+rustls-native-certs = { version = "0.8", optional = true }
+tokio-postgres-rustls = { version = "0.14", optional = true, features = ["ring"] }
+zeroize = { version = "1", features = ["derive"] }
+rusqlite = { version = "0.37", features = ["bundled", "backup"] }
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+sha2 = "0.10"
+
+[lints]
+workspace = true

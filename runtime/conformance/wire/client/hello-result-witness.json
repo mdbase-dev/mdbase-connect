@@ -1,0 +1,28 @@
+{
+  "_type": "HelloResult",
+  "version": {"_type": "Version", "major": 1, "minor": 0},
+  "runtime_version": "0.1.0",
+  "sem": {"_type": "Version", "major": 1, "minor": 0},
+  "collection": "h'4c18af2eb04a4b77b83e493c3695962e'",
+  "grant": {
+    "_type": "GrantInfo",
+    "grant": "h'6f1e2d3c4b5a49688776655443322110'",
+    "capabilities": [
+      "collection.read"
+    ],
+    "role": "Editor"
+  },
+  "status": {
+    "_type": "SyncStatus",
+    "mode": "Synced",
+    "confirmed_through": 42,
+    "head_known": 42,
+    "pending": 0,
+    "holds": 0,
+    "unresolved": 0,
+    "connection": "Online",
+    "incidents": []
+  },
+  "features": [],
+  "head_witness": "h'a8000101504c18af2eb04a4b77b83e493c3695962e02502d7e9a416c3b4f189a05c8e1b2d3f4670301045820c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c40501060007584054545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454545454'"
+}

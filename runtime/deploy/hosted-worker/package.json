@@ -1,0 +1,24 @@
+{
+  "name": "mdbn-hosted-worker",
+  "private": true,
+  "type": "module",
+  "imports": { "#hosted-release-trust": "./src/unconfigured-release-trust.ts" },
+  "scripts": {
+    "build:wasm": "./build-wasm.sh",
+    "types": "wrangler types",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-transform-types --experimental-test-module-mocks --test test/*.test.mjs src/custody/*.test.ts src/admission/*.test.ts src/legacy-source/*.test.ts",
+    "dry-run": "wrangler deploy --dry-run --outdir dist"
+  },
+  "devDependencies": {
+    "@types/pg": "8.23.1",
+    "pg": "8.23.1",
+    "typescript": "5.9.3",
+    "wrangler": "4.147.0",
+    "ws": "^8.21.0"
+  },
+  "dependencies": {
+    "@noble/hashes": "2.4.0",
+    "aws4fetch": "1.0.20"
+  }
+}

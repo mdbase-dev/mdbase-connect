@@ -1,0 +1,15 @@
+{
+  "_type": "Receipt",
+  "mutation": "h'0192f3a460007abc8def0123456789ab'",
+  "state": "Rejected",
+  "problem": {
+    "_type": "Problem",
+    "code": "conflict",
+    "recovery": "ResolveConflict",
+    "message": "the record changed since if_revision",
+    "reason": "revision",
+    "details": [
+      ["current", "sha256:ab"]
+    ]
+  }
+}

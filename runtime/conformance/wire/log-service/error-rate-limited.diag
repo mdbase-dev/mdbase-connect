@@ -1,0 +1,8 @@
+/ Response / {
+  / kind / 0: 1 / Response /,
+  / id / 1: 8,
+  / error / 3: / LsError / {
+    / code / 0: "rate_limited",
+    / retry_after_ms / 3: 250
+  }
+}

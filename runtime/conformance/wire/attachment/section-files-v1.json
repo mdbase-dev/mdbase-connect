@@ -1,0 +1,14 @@
+{
+  "_type": "AttachmentSectionV1",
+  "kind": "AttachmentFiles",
+  "chunks": [
+    {
+      "_type": "ChunkRef",
+      "address": "h'a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4'",
+      "plain_hash": "h'a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5'",
+      "rows": 1,
+      "bucket": 0,
+      "plain_size": 256
+    }
+  ]
+}

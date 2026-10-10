@@ -1,0 +1,38 @@
+/ ManifestPayload / {
+  / fmt / 0: 1,
+  / seq / 1: 42,
+  / chain / 2: h'c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4',
+  / state_digest / 3: h'c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5',
+  / bucket_bits / 4: 0,
+  / sections / 5: [
+    / Section / {
+      / kind / 0: 1 / Resources /,
+      / chunks / 1: []
+    },
+    / Section / {
+      / kind / 0: 10 / AttachmentFiles /,
+      / chunks / 1: [
+        / ChunkRef / {
+          / address / 0: h'a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4',
+          / plain_hash / 1: h'a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5',
+          / rows / 2: 3,
+          / bucket / 3: 0,
+          / plain_size / 4: 600
+        }
+      ]
+    },
+    / Section / {
+      / kind / 0: 11 / AttachmentTombstones /,
+      / chunks / 1: []
+    }
+  ],
+  / horizon / 6: / Horizon / {
+    / seq_floor / 0: 1,
+    / time_floor / 1: 0
+  },
+  / sem / 7: / Version / [/ major / 1, / minor / 0],
+  / record_count / 8: 1,
+  / file_count / 9: 3,
+  / previous / 10: h'a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6',
+  / control_chain / 11: h'a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7'
+}

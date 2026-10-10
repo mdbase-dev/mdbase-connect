@@ -1,0 +1,7 @@
+{
+  "_type": "Request",
+  "kind": "Request",
+  "id": 1,
+  "method": "submit",
+  "params": [[0, [[[0, 2], [1, "h'0192f3a45b6c7d8e9f0123456789abcd'"], [2, [["status", "done"], ["priority", 3], ["estimate", 1.5]]], [3, ["snoozed"]], [4, [["tags", ["urgent"]]]], [5, [["tags", ["someday"]]]], [7, [[0, 5, "Agenda"], [42, 42, "\n- follow up with Bo"]]], [8, "h'38732073f309589131fec63f417896537e63d27fc29fcf7c60d5f47379f0887a'"], [10, [["status", "open"], ["snoozed"]]]]]], [1, "h'0192f3a460007abc8def0123456789ab'"], [3, "Australia/Melbourne"], [7, [[1, true]]]]
+}

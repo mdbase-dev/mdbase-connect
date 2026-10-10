@@ -1,0 +1,118 @@
+/ EntryPayload / {
+  / fmt / 0: 1,
+  / sem / 1: / Version / [/ major / 1, / minor / 0],
+  / mutation / 2: / Mutation / {
+    / id / 0: h'0192f3a460007abc8def0123456789ab',
+    / origin / 1: h'9b2f6c1e3a474d5b8e216f0a9c3d7e54',
+    / base_seq / 2: 41,
+    / clock / 3: / OpClock / {
+      / instant / 0: 1791100800000,
+      / tz / 1: "Australia/Melbourne",
+      / local_date / 2: "2026-10-04"
+    },
+    / seed / 4: h'5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e',
+    / source / 5: 0 / Api /,
+    / ops / 6: [
+      / Update / {
+        / kind / 0: 2 / Update /,
+        / id / 1: h'0192f3a45b6c7d8e9f0123456789abcd',
+        / patch / 2: {
+          "status": "done",
+          "priority": 3,
+          "estimate": 1.5
+        },
+        / unset / 3: [
+          "snoozed"
+        ],
+        / add / 4: {
+          "tags": [
+            "urgent"
+          ]
+        },
+        / remove / 5: {
+          "tags": [
+            "someday"
+          ]
+        },
+        / body_edits / 7: [
+          / BodyEdit / [/ start / 0, / end / 5, / insert / "Agenda"],
+          / BodyEdit / [/ start / 42, / end / 42, / insert / "\n- follow up with Bo"]
+        ],
+        / body_base / 8: h'38732073f309589131fec63f417896537e63d27fc29fcf7c60d5f47379f0887a',
+        / base / 10: [
+          / BaseField / [/ key / "status", / observed / "open"],
+          / BaseField / [/ key / "snoozed"]
+        ]
+      },
+      / OrdinaryAttachmentContinuation / {
+        / kind / 0: 18 / OrdinaryAttachmentContinuation /,
+        / id / 1: h'0192f3a45b6c7d8e9f01fedcba987654',
+        / path / 2: "notes/ordinary.md",
+        / content / 3: / AttachmentContentV1 / [/ version / 1, / reference / / AttachmentRefV1 / [/ version / 1, / collection / h'4c18af2eb04a4b77b83e493c3695962e', / key_epoch / 3, / attachment_id / h'a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1', / chunk_bytes / 8388608, / manifest_cipher_hash / h'a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2'], / whole_plain_hash / h'a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3', / total_plain_bytes / 9000000],
+        / prior / 4: / BlobRef / {
+          / plain_hash / 0: h'fc31b1678d04c636373b935684af33409df1f3612d869146bb130db0883266d2',
+          / size / 1: 18,
+          / blob_id / 2: h'b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1',
+          / id_epoch / 3: 1,
+          / part_size / 4: 8388608
+        }
+      },
+      / FileDelete / {
+        / kind / 0: 9 / FileDelete /,
+        / id / 1: h'0192f3a45b6c7d8e9f01fedcba987654'
+      }
+    ],
+    / conflict_mode / 8: 0 / Record /,
+    / validated_at / 9: 2 / Error /,
+    / room / 10: / RoomCheckpoint / {
+      / stream / 0: h'2d7e9a416c3b4f189a05c8e1b2d3f467',
+      / state / 1: h'7777777777777777777777777777777777777777777777777777777777777777'
+    }
+  },
+  / status / 3: 2 / Conflicted /,
+  / effects / 4: [
+    / PutRecord / {
+      / kind / 0: 1 / PutRecord /,
+      / id / 1: h'0192f3a45b6c7d8e9f0123456789abcd',
+      / path / 2: "tasks/a.md",
+      / doc / 3: 0
+    },
+    / PutAttachmentFile / {
+      / kind / 0: 8 / PutAttachmentFile /,
+      / id / 1: h'0192f3a45b6c7d8e9f01fedcba987654',
+      / path / 2: "assets/photo.webp",
+      / content / 3: / AttachmentContentV1 / [/ version / 1, / reference / / AttachmentRefV1 / [/ version / 1, / collection / h'4c18af2eb04a4b77b83e493c3695962e', / key_epoch / 3, / attachment_id / h'a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1', / chunk_bytes / 8388608, / manifest_cipher_hash / h'a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2'], / whole_plain_hash / h'a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3', / total_plain_bytes / 9000000]
+    },
+    / PutSettings / {
+      / kind / 0: 7 / PutSettings /,
+      / inclusion / 1: / FileInclusion / {
+        / include / 0: [
+          0 / Image /
+        ],
+        / max_size / 2: 1073741824
+      }
+    }
+  ],
+  / conflicts / 5: [
+    / Conflict / {
+      / kind / 0: 6 / File /,
+      / id / 1: h'0192f3a45b6c7d8e9f01fedcba987654',
+      / base / 3: / ConflictValue / [/ form / 3 / blob /, / value / / BlobRef / {
+        / plain_hash / 0: h'fc31b1678d04c636373b935684af33409df1f3612d869146bb130db0883266d2',
+        / size / 1: 18,
+        / blob_id / 2: h'b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1',
+        / id_epoch / 3: 1,
+        / part_size / 4: 8388608
+      }],
+      / kept / 4: / AttachmentConflictValueV1 / [/ kind / 5, / content / / AttachmentContentV1 / [/ version / 1, / reference / / AttachmentRefV1 / [/ version / 1, / collection / h'4c18af2eb04a4b77b83e493c3695962e', / key_epoch / 3, / attachment_id / h'a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1', / chunk_bytes / 8388608, / manifest_cipher_hash / h'a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2'], / whole_plain_hash / h'a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3', / total_plain_bytes / 9000000]],
+      / lost / 5: / ConflictValue / [/ form / 4 / deleted /]
+    }
+  ],
+  / aliases / 6: [
+    / Alias / [/ path / "tasks/old.md", / record / h'0192f3a45b6c7d8e9f0123456789abcd']
+  ],
+  / texts / 7: [
+    "---\nstatus: open\n---\n"
+  ],
+  / resurrect / 8: 41
+}

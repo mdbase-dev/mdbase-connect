@@ -1,0 +1,15 @@
+[package]
+name = "mdbn-backup-verify"
+description = "Offline authenticated native backup cut verification; no current-authority assertion"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+mdbn-wire.workspace = true
+mdbn-log-service.workspace = true
+
+[lints]
+workspace = true

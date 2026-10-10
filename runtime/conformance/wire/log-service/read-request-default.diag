@@ -1,0 +1,6 @@
+/ Request / {
+  / kind / 0: 0 / Request /,
+  / id / 1: 9,
+  / method / 2: "read",
+  / params / 3: {0: h'4c18af2eb04a4b77b83e493c3695962e', 1: 42, 2: 1000}
+}

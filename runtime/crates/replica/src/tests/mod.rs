@@ -1,0 +1,33 @@
+//! Engine tests that use the test-only sealer.
+
+mod attachment_apply;
+mod attachment_ingest;
+mod attachment_upload;
+mod base;
+mod describe;
+mod disk;
+mod engine;
+mod fault_sealer;
+mod handover;
+mod handover_verify;
+mod hosted;
+mod join_ahead;
+mod mirror_admission;
+mod query_cursor;
+mod resource_list;
+mod resources;
+mod snapshot_attachments;
+mod snapshot_text;
+mod unindexed_async;
+mod unindexed_blob_interop;
+mod unindexed_capture;
+mod unindexed_end_to_end;
+mod unindexed_inventory;
+mod unindexed_move;
+mod unindexed_native;
+mod unindexed_recovery;
+mod unindexed_reindex;
+mod unindexed_reverse_text;
+mod unindexed_reverse_upload;
+mod unindexed_snapshot;
+mod unindexed_upload;

@@ -1,0 +1,90 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "xtask"]
+exclude = ["fuzz"]
+default-members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.94"
+license = "MIT"
+publish = false
+repository = "https://github.com/mdbase-dev/mdbase-connect"
+
+# Internal crates. Which crate may depend on which is fixed by
+# `xtask/src/arch.rs` and checked in CI (`cargo xtask arch`).
+[workspace.dependencies]
+mdbn-core = { path = "crates/core" }
+mdbn-wire = { path = "crates/wire" }
+mdbn-replica = { path = "crates/replica" }
+mdbn-store-file = { path = "crates/store-file" }
+mdbn-platform-native = { path = "crates/platform-native" }
+mdbn-store-pg = { path = "crates/store-pg" }
+mdbn-log-service = { path = "crates/log-service" }
+mdbn-log-server = { path = "crates/log-server" }
+mdbn-log-conformance = { path = "crates/log-conformance" }
+mdbn-wasm = { path = "crates/wasm" }
+mdbn-hosted-worker = { path = "crates/hosted-worker" }
+mdbn-sim = { path = "crates/sim" }
+mdbn-legacy = { path = "crates/legacy" }
+mdbn-noise = { path = "crates/noise" }
+mdbn-migrate = { path = "crates/migrate" }
+mdbn-migrate-portable = { path = "crates/migrate-portable" }
+mdbn-takeover = { path = "crates/takeover" }
+mdbn-local-host = { path = "crates/local-host" }
+mdbase = { path = "crates/mdbase" }
+mdbn-trust = { path = "crates/trust" }
+
+# External crates. Portable crates (core, wire, replica, store-file, wasm) must not
+# pull in getrandom, libc, std-only I/O crates or the `regex` crate; see deny.toml
+# and `cargo xtask arch`.
+serde_json = "1"
+yaml-rust2 = "0.13"
+regex-lite = { version = "0.1.9", default-features = false, features = ["std", "string"] }
+unicode-normalization = { version = "0.1.25", default-features = false }
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+# The determinism and portability bans live in clippy.toml. They are deny for every
+# crate; crates that do real I/O opt out at their crate root with an explicit
+# `#![allow(...)]`, which `cargo xtask arch` forbids in portable crates.
+disallowed_methods = "deny"
+disallowed_types = "deny"
+disallowed_macros = "deny"
+dbg_macro = "deny"
+todo = "deny"
+
+# Native release: fast code, line tables for useful backtraces.
+[profile.release]
+debug = "line-tables-only"
+
+# The Node addon (crates/mdbase-node): a release build stripped of debug info,
+# since the .node file ships inside the npm package.
+[profile.node-release]
+inherits = "release"
+strip = true
+debug = 0
+
+# Size-optimised WASM release. Always followed by `wasm-opt -Oz`
+# (`cargo xtask wasm`). Do not use this profile for native builds.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+strip = true
+debug = 0
+panic = "abort"
+
+# Dev: no debug info for dependencies keeps target/ and the CI cache small.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+opt-level = 1

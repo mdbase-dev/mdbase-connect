@@ -1,0 +1,9 @@
+{
+  "name": "mdbase-next-wasm-tools",
+  "private": true,
+  "description": "Pinned build tools for runtime.wasm (wasm-opt from binaryen). Install with `npm ci --prefix tools/wasm`.",
+  "license": "MIT",
+  "dependencies": {
+    "binaryen": "132.0.0"
+  }
+}

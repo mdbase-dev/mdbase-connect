@@ -1,0 +1,34 @@
+[package]
+name = "mdbn-migrate"
+description = "The migrator: hosted adoption (generation 0, re-seal, shadow verify), local takeover, rollback, estimates and the rehearsal oracle."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# A composition point, like mdbn-bench. Allowed internal
+# dependencies: mdbn-migrate-portable, mdbn-legacy, mdbn-takeover, mdbn-core, mdbn-wire, mdbn-replica,
+# mdbn-store-file, mdbn-platform-native, mdbn-store-pg. Native only. Nothing depends on it.
+[dependencies]
+mdbn-migrate-portable.workspace = true
+mdbn-core.workspace = true
+mdbn-legacy.workspace = true
+mdbn-takeover.workspace = true
+mdbn-replica.workspace = true
+mdbn-wire.workspace = true
+serde_json.workspace = true
+
+[features]
+# Re-sealing borrows a collection epoch key, so it is compiled only into the
+# escrow/hosted service that owns key custody. Never enable it
+# in a CLI, Connect, or an operator tool.
+hosted-service = []
+# (The crate's own unit tests also compile `reseal`, under cfg(test).)
+
+[dev-dependencies]
+rusqlite = { version = "0.37", features = ["bundled"] }
+mdbn-replica = { workspace = true, features = ["testing"] }
+
+[lints]
+workspace = true

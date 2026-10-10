@@ -1,0 +1,13 @@
+{
+  "_type": "Item",
+  "fmt": 1,
+  "kind": "GrantApproval",
+  "collection": "h'4c18af2eb04a4b77b83e493c3695962e'",
+  "seq": 4,
+  "prev": "h'c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4'",
+  "epoch": 1,
+  "signer": "h'2d7e9a416c3b4f189a05c8e1b2d3f467'",
+  "salt": "h'00112233445566778899aabbccddeeff'",
+  "body": "h'6a6a6a6a6a6a6a6a6a6a6a6a'",
+  "sig": "h'5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f'"
+}

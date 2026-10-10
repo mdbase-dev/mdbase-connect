@@ -1,0 +1,47 @@
+[package]
+name = "mdbn-replica"
+description = "The replica service: pending queue, local view, ingest, holds, append loop, snapshots, verification, client API."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Allowed internal dependencies: mdbn-core, mdbn-wire. Never a store crate. Portable.
+[dependencies]
+mdbn-core.workspace = true
+mdbn-wire.workspace = true
+# Crypto (sealed-envelope.md). Pure Rust, no OS entropy: randomness comes only from
+# the injected `Entropy`.
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
+hkdf = { version = "0.12", default-features = false }
+hmac = { version = "0.12", default-features = false }
+sha2 = { version = "0.10", default-features = false }
+ed25519-dalek = { version = "2", default-features = false, features = ["zeroize"] }
+curve25519-dalek = { version = "4", default-features = false, features = ["zeroize"] }
+miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }
+subtle = { version = "2", default-features = false }
+zeroize = { version = "1", default-features = false, features = ["alloc", "zeroize_derive"] }
+# The account key bundle (AK1): password KDF and NFKC password normalisation.
+argon2 = { version = "0.5", default-features = false, features = ["zeroize"] }
+unicode-normalization.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+# Native-only allocator proof.
+# Never a production dependency or a WASM test/artifact linkage.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+allocation-counter = "=0.8.1"
+# Independent RFC 9180 interop oracle, native tests only; no system RNG features.
+hpke = { version = "=0.14.1", default-features = false, features = ["alloc", "x25519", "chacha"] }
+rand_chacha = { version = "=0.9.0", default-features = false }
+
+[features]
+# Test-only helpers for other crates' tests and the simulator: deterministic test
+# entropy (`crypto::TestEntropy`) and `seal::PlainSealer` (no cryptography). Never
+# enabled by a shipped binary.
+testing = []
+
+[lints]
+workspace = true

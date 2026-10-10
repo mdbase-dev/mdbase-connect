@@ -1,0 +1,15 @@
+/ Item / {
+  / fmt / 0: 1,
+  / kind / 1: 5 / Base /,
+  / collection / 2: h'4c18af2eb04a4b77b83e493c3695962e',
+  / seq / 3: 3,
+  / prev / 4: h'c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4',
+  / epoch / 5: 1,
+  / signer / 6: h'2d7e9a416c3b4f189a05c8e1b2d3f467',
+  / salt / 7: h'00112233445566778899aabbccddeeff',
+  / refs / 9: [
+    h'a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2'
+  ],
+  / body / 11: h'010203',
+  / sig / 12: h'5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d'
+}

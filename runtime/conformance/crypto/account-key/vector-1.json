@@ -1,0 +1,17 @@
+{
+  "description": "Account key bundle (AK1). Computed independently (Node: @noble/hashes argon2id 2.4.0, @noble/ciphers xchacha20poly1305 2.4.0). Rust (mdbn-replica crypto::account_key) and the TS SDK must both pass it.",
+  "secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "account": "0f8e3c3a-7d2b-4c55-9d7e-0b6f3d2a1c11",
+  "password": "correct horse battery staple",
+  "kdf": {
+    "alg": 1,
+    "m_kib": 19456,
+    "t": 3,
+    "p": 1,
+    "salt": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf"
+  },
+  "nonce": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7",
+  "key_id": "fcfdac882395864787341b93c865ed27012d307a339bee947d534a9c32cebe30",
+  "aad": "7a4edbdc89c9ab467e0e6b14c57cddb35ac7e9ebbb8d8499a9e9c507928afc86",
+  "bundle": "a50001018501194c00030150a0a1a2a3a4a5a6a7a8a9aaabacadaeaf025818b0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c70358304b0d971cb227c1655047c76ad6e311ab70f8345ddc6f788093ec9dd907e3b14e389d83cae41b873bf83947d9b684fc00045820fcfdac882395864787341b93c865ed27012d307a339bee947d534a9c32cebe30"
+}

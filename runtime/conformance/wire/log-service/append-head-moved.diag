@@ -1,0 +1,5 @@
+/ Response / {
+  / kind / 0: 1 / Response /,
+  / id / 1: 7,
+  / result / 2: {0: 1, 1: 44, 2: h'c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6'}
+}

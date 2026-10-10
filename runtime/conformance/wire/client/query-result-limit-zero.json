@@ -1,0 +1,21 @@
+{
+  "_type": "QueryResult",
+  "records": [],
+  "complete": true,
+  "as_of": 99,
+  "total_count": 12,
+  "diagnostics": [],
+  "groups": [
+    {
+      "_type": "QueryGroup",
+      "values": [
+        ["status", "done"]
+      ],
+      "count": 12,
+      "summaries": [
+        ["total_estimate", 30]
+      ]
+    }
+  ],
+  "has_more": true
+}

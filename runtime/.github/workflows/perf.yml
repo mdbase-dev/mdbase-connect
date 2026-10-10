@@ -1,0 +1,50 @@
+# Performance regression gate (crates/bench, tools/perf/README.md).
+# Not on every PR: Linux minutes are limited. Runs nightly, on demand, and on PRs
+# labelled `perf`. The gate compares calibration-normalised p50s at 1k notes against
+# tools/perf/baseline.json with a loose threshold (complexity regressions, not drift).
+name: Perf
+
+on:
+  schedule:
+    - cron: "30 15 * * *" # after the nightly CI sweep
+  workflow_dispatch:
+  pull_request:
+    types: [labeled, synchronize]
+
+concurrency:
+  group: perf-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  gate:
+    name: perf gate (1k corpus)
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'perf')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install pinned toolchain (rust-toolchain.toml)
+        run: rustup toolchain install && rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: build mdbn-perf (release)
+        run: cargo build --locked --release -p mdbn-bench --bin mdbn-perf
+      - name: gate
+        run: ./target/release/mdbn-perf gate --baseline tools/perf/baseline.json
+      - name: full 1k report
+        if: always()
+        run: ./target/release/mdbn-perf run --sizes 1000 --iters 15 --out perf-report.json
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: perf-report
+          path: perf-report.json
+          if-no-files-found: ignore

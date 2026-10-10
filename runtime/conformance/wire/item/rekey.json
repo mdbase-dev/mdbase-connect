@@ -1,0 +1,11 @@
+{
+  "_type": "Item",
+  "fmt": 1,
+  "kind": "Rekey",
+  "collection": "h'4c18af2eb04a4b77b83e493c3695962e'",
+  "seq": 2,
+  "prev": "h'c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4'",
+  "signer": "h'2d7e9a416c3b4f189a05c8e1b2d3f467'",
+  "body": "h'a0'",
+  "sig": "h'5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c'"
+}

@@ -1,0 +1,16 @@
+{
+  "title": "Write contracts",
+  "zeta-before-alpha": true,
+  "alpha": null,
+  "count": -7,
+  "big": 9223372036854775807,
+  "ratio": -0.0,
+  "one-point-zero": 1.0,
+  "tags": [
+    "a",
+    "b"
+  ],
+  "nested": {
+    "k": []
+  }
+}

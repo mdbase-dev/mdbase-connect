@@ -1,0 +1,25 @@
+/ QueryUpdate / {
+  / sub / 0: 3,
+  / kind / 1: 1 / Diff /,
+  / complete / 6: true,
+  / as_of / 7: 100,
+  / metadata / 8: / QueryMetadata / {
+    / columns / 0: [
+      "label"
+    ],
+    / total_count / 1: 12,
+    / diagnostics / 2: [],
+    / groups / 4: [
+      / QueryGroup / {
+        / values / 0: {
+          "status": "done"
+        },
+        / count / 1: 12,
+        / summaries / 2: {
+          "total_estimate": 30
+        }
+      }
+    ],
+    / has_more / 5: true
+  }
+}

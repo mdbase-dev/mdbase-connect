@@ -1,0 +1,9 @@
+{
+  "id": "mdbase-lab-daemon-client",
+  "name": "mdbase LAB daemon client (test)",
+  "version": "0.0.0",
+  "minAppVersion": "1.12.0",
+  "description": "Isolated LAB acceptance: actual SDK localhost Noise and TaskNotes backend.",
+  "author": "mdbase",
+  "isDesktopOnly": true
+}

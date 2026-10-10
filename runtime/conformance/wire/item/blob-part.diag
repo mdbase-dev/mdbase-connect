@@ -1,0 +1,8 @@
+/ Item / {
+  / fmt / 0: 1,
+  / kind / 1: 18 / BlobPart /,
+  / collection / 2: h'4c18af2eb04a4b77b83e493c3695962e',
+  / epoch / 5: 1,
+  / salt / 7: h'00112233445566778899aabbccddeeff',
+  / body / 11: h'0808080808080808080808080808080808080808'
+}

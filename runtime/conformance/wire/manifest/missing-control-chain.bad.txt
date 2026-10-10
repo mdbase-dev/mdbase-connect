@@ -1,0 +1,1 @@
+control_chain (key 11) is required (snapshot.md §8.1, SEC-006)

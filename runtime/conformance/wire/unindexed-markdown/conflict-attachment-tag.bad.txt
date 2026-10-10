@@ -1,0 +1,1 @@
+conflict value6 only; value5 is the attachment family

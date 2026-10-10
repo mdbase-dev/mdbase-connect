@@ -1,0 +1,7 @@
+{
+  "_type": "Request",
+  "kind": "Request",
+  "id": 9,
+  "method": "read",
+  "params": [[0, "h'4c18af2eb04a4b77b83e493c3695962e'"], [1, 42], [2, 1000], [4, 524288]]
+}

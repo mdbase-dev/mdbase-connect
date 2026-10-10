@@ -1,0 +1,23 @@
+[package]
+name = "mdbn-store-file"
+description = "The file-backed Store: publish protocol, recovery, ingest, holds, adopt and join, over FilePlatform + IndexStorage."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Allowed internal dependencies: mdbn-core, mdbn-wire, mdbn-replica. Portable: pure Rust, no std::fs, libc or C SQLite.
+[dependencies]
+mdbn-core.workspace = true
+mdbn-wire.workspace = true
+mdbn-replica.workspace = true
+
+[features]
+# The in-memory test platform (`testing`), for other crates' tests. It also
+# enables the replica's test helpers (test control plane, test entropy), which
+# native tests use to drive a whole replica over a real SQLite index.
+testing = ["mdbn-replica/testing"]
+
+[lints]
+workspace = true

@@ -1,0 +1,9 @@
+{
+  "id": "mdbase-runtime-e2e",
+  "name": "mdbase runtime e2e",
+  "version": "0.0.1",
+  "minAppVersion": "1.12.0",
+  "description": "Test harness for @mdbase-dev/obsidian-runtime. Disposable vaults only.",
+  "author": "mdbase",
+  "isDesktopOnly": false
+}

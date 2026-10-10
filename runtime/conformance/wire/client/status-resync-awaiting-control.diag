@@ -1,0 +1,22 @@
+/ SyncStatus / {
+  / mode / 0: 1 / Synced /,
+  / confirmed_through / 1: 41,
+  / head_known / 2: 44,
+  / pending / 3: 3,
+  / oldest_pending / 4: 1791100700000,
+  / holds / 5: 1,
+  / unresolved / 6: 2,
+  / connection / 7: 0 / Online /,
+  / incidents / 9: [
+    / Incident / {
+      / kind / 0: 12 / LogRegressed /
+    },
+    / Incident / {
+      / kind / 0: 11 / LostEntries /
+    }
+  ],
+  / resyncing / 10: / Resyncing / {
+    / phase / 0: 3 / AwaitingControl /,
+    / positions / 1: 3
+  }
+}

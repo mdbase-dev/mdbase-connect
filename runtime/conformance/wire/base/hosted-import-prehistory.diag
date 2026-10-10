@@ -1,0 +1,24 @@
+/ BasePayload / {
+  / fmt / 0: 1,
+  / manifest / 1: h'a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2',
+  / state_digest / 2: h'd0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0',
+  / adopter / 3: h'9b2f6c1e3a474d5b8e216f0a9c3d7e54',
+  / source / 4: 1 / HostedImport /,
+  / legacy_collection / 5: h'4c18af2eb04a4b77b83e493c3695962e',
+  / prehistory / 6: [
+    / BlobRef / {
+      / plain_hash / 0: h'e60db8e8415e43f418fad6bccc2ec5ffa8fe0bdaf71ca48ed8cc0daf314951ac',
+      / size / 1: 9437184,
+      / blob_id / 2: h'c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0',
+      / id_epoch / 3: 1,
+      / part_size / 4: 8388608
+    },
+    / BlobRef / {
+      / plain_hash / 0: h'155518cdf1d58ef0ad27e4db979978ef6fa5c532bbec1d33e6c6c76feb8efbe8',
+      / size / 1: 4096,
+      / blob_id / 2: h'c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1',
+      / id_epoch / 3: 1,
+      / part_size / 4: 8388608
+    }
+  ]
+}

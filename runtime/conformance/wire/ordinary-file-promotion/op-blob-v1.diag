@@ -1,0 +1,13 @@
+/ OrdinaryFileToRecord / {
+  / kind / 0: 17 / OrdinaryFileToRecord /,
+  / id / 1: h'11111111111111111111111111111111',
+  / path / 2: "views/existing.base",
+  / doc / 3: "views: []\n",
+  / prior / 4: / BlobRef / {
+    / plain_hash / 0: h'96f38c29a06a779a354059c40c74130771b33df5743d2e3c18f9ce1851a17f26',
+    / size / 1: 10,
+    / blob_id / 2: h'b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1',
+    / id_epoch / 3: 1,
+    / part_size / 4: 8388608
+  }
+}

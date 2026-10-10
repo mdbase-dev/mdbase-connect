@@ -1,0 +1,4 @@
+# worker-build 0.8.7 sets this for wasm-bindgen's host proc-macro. Keep the
+# setting when cargo compilation runs through rcargo rather than locally.
+[env]
+WASM_BINDGEN_USE_JS_SYS = "1"

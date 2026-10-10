@@ -1,0 +1,7 @@
+/ BlobRef / {
+  / plain_hash / 0: h'b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1',
+  / size / 1: 42,
+  / blob_id / 2: h'b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2',
+  / id_epoch / 3: 2,
+  / part_size / 4: 8388608
+}

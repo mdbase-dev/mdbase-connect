@@ -1,0 +1,38 @@
+{
+  "_type": "PolicyPayload",
+  "fmt": 1,
+  "cert": {
+    "_type": "CpCert",
+    "policy_pk": "h'9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c'",
+    "not_before": 1790000000000,
+    "not_after": 1800000000000,
+    "root": "h'a0a1a2a3a4a5a6a7a8a9aaabacadaeaf'",
+    "sig": "h'51515151515151515151515151515151515151515151515151515151515151515151515151515151515151515151515151515151515151515151515151515151'"
+  },
+  "issued_at": 1791100000000,
+  "ops": [
+    {
+      "_type": "Genesis",
+      "kind": "Genesis",
+      "owner": "h'6f1e2d3c4b5a49688776655443322110'",
+      "root": "h'a0a1a2a3a4a5a6a7a8a9aaabacadaeaf'",
+      "state": "E2e"
+    },
+    {
+      "_type": "MemberSet",
+      "kind": "MemberSet",
+      "account": "h'6f1e2d3c4b5a49688776655443322110'",
+      "role": "Owner"
+    },
+    {
+      "_type": "DeviceEnrol",
+      "kind": "DeviceEnrol",
+      "device": "h'2d7e9a416c3b4f189a05c8e1b2d3f467'",
+      "account": "h'6f1e2d3c4b5a49688776655443322110'",
+      "kind": "Desktop",
+      "sign_pk": "h'0101010101010101010101010101010101010101010101010101010101010101'",
+      "kem_pk": "h'0202020202020202020202020202020202020202020202020202020202020202'",
+      "noise_pk": "h'0303030303030303030303030303030303030303030303030303030303030303'"
+    }
+  ]
+}

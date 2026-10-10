@@ -1,0 +1,6 @@
+node_modules/
+dist/
+# Built by `cargo xtask mdbase-wasm`.
+wasm/*.wasm
+# Built by `npm run build:native` (cargo build --release -p mdbase-node).
+native/*.node

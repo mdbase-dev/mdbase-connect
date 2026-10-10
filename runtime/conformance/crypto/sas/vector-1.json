@@ -1,0 +1,18 @@
+{
+  "description": "SAS commit-then-reveal, sealed-envelope.md §5.3. Same inputs and values as obsidian-runtime test/sasProtocol.test.ts ('vectors for the Rust replica').",
+  "collection": "0f8e3c3a-7d2b-4c55-9d7e-0b6f3d2a1c11",
+  "approver": {
+    "device": "11111111-2222-4333-8444-555555555555",
+    "sign_pk": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+  },
+  "new_device": {
+    "device": "4b1d2e3f-5a6b-4c7d-8e9f-a0b1c2d3e4f5",
+    "sign_pk": "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1",
+    "kem_pk": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+    "noise_pk": "b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3"
+  },
+  "r_a": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+  "r_n": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+  "sas_commit": "025bcf77528c9da962a9b3f083a03fc6cb902b739b84c21b1acd7dd796de5f6f",
+  "code": "012286"
+}

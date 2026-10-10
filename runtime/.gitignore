@@ -1,0 +1,13 @@
+# Build output stays inside the worktree (never /tmp); see AGENTS.md.
+target/
+node_modules/
+dist/
+.pgdata/
+bench-out/
+*.db
+*.db-wal
+*.db-shm
+fuzz/corpus/
+fuzz/artifacts/
+fuzz/coverage/
+sim-failures/

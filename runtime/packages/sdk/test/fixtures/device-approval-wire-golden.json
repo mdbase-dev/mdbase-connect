@@ -1,0 +1,15 @@
+{
+  "description": "PUBLIC SYNTHETIC codec-only shapes; nil IDs do not authorize any device. Deprecated SAS slots are absent.",
+  "pending_device": {
+    "device_hex": "00000000000000000000000000000000",
+    "account_hex": "01010101010101010101010101010101",
+    "kind": 0,
+    "exchange_ready": true,
+    "cbor_hex": "a4005000000000000000000000000000000000015001010101010101010101010101010101020004f5"
+  },
+  "approval_ready": {
+    "device_hex": "00000000000000000000000000000000",
+    "exchange_ready": true,
+    "cbor_hex": "a200500000000000000000000000000000000002f5"
+  }
+}

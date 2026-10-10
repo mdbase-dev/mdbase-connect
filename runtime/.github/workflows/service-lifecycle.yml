@@ -1,0 +1,105 @@
+# `mdbase service` against the real service managers: systemd user units (Linux),
+# launchd agents (macOS) and Task Scheduler (Windows). Hosted runners are disposable,
+# so this registers for real. Also checks daemon binaries/tests on exact OS targets
+# with native C SDKs. All workspace dependencies and shared Noise fixtures trigger it.
+#
+# The keychain is not what is tested here, so the daemon uses the test secret
+# backend (MDBASE_ENV=test + MDBASE_SECRET_BACKEND=insecure-test-file), passed to the
+# service through each manager's own environment mechanism.
+name: service-lifecycle
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "crates/**"
+      - "conformance/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".cargo/**"
+      - "rust-toolchain.toml"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/service-lifecycle.yml"
+      - "scripts/ci/service-lifecycle.sh"
+      - "scripts/ci/test_service_lifecycle_diagnostics.py"
+  # Seed default-branch dependency caches, not a second full run on every merge.
+  # PR caches cannot be reused by other PRs. Only dependency/toolchain changes
+  # (and changes to this workflow) require a new seed; superseded seeds cancel.
+  push:
+    branches: [main]
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/**/Cargo.toml"
+      - ".cargo/**"
+      - "rust-toolchain.toml"
+      - ".github/workflows/service-lifecycle.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: service-lifecycle-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  lifecycle:
+    name: ${{ matrix.os }}
+    # Match ci.yml: ordinary drafts skip, same-repo train/* drafts still qualify.
+    # Ready, train and manual runs must complete all three native jobs successfully.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false || (github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'train/'))
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - os: macos-15
+            target: aarch64-apple-darwin
+          - os: windows-2025
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      # Clippy, build, cache identity and the exercised binary use one target.
+      CARGO_BUILD_TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned toolchain (rust-toolchain.toml)
+        shell: bash
+        run: rustup toolchain install && rustup show active-toolchain && rustup target add "${{ matrix.target }}"
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: native-lifecycle-v1-${{ matrix.target }}
+          # Only trusted main runs seed caches shared across PRs. Never persist
+          # service state, credentials, or a PR-scoped cache on every update.
+          save-if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.repository == 'mdbase-dev/mdbase-next' && github.event.repository.private == true && github.actor == 'callumalpass' && github.triggering_actor == 'callumalpass' }}
+      - name: Test lifecycle failure diagnostics (hermetic)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: python3 -B scripts/ci/test_service_lifecycle_diagnostics.py -v
+      - name: Daemon all targets (-D warnings, native C SDK)
+        shell: bash
+        run: cargo clippy -p mdbn-daemon --all-targets --locked -- -D warnings
+      - name: Build (one package)
+        shell: bash
+        run: cargo build --locked -p mdbn-daemon
+      - name: Service lifecycle
+        shell: bash
+        run: scripts/ci/service-lifecycle.sh "target/${{ matrix.target }}/debug/mdbase${{ runner.os == 'Windows' && '.exe' || '' }}"
+      - name: Daemon log on failure
+        if: failure()
+        shell: bash
+        run: |
+          for f in "$HOME/.local/state/mdbase/logs/"* "$HOME/Library/Application Support/mdbase/logs/"* \
+                   "${LOCALAPPDATA:-/nonexistent}/mdbase/state/logs/"*; do
+            [ -f "$f" ] && { echo "== $f"; tail -n 100 "$f"; }
+          done
+          true

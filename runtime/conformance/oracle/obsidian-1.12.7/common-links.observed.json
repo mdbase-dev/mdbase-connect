@@ -1,0 +1,849 @@
+{
+  "kind": "obsidian-1.12.7-native-link-display",
+  "version": "1.12.7",
+  "clock": {
+    "now": 1781075828070,
+    "today": "2026-06-10"
+  },
+  "repetitions": 2,
+  "property_types": {
+    "due": "date",
+    "scheduled": "date",
+    "projects": "multitext",
+    "contexts": "multitext",
+    "blockedBy": "text"
+  },
+  "source_hashes": [
+    {
+      "command": "open-tasks-view",
+      "sha256": "5fa9e0724e2a5c0f66ca8f5c010178f9aac2ee73c138907ac2b7c5d8f2a523c1"
+    },
+    {
+      "command": "open-kanban-view",
+      "sha256": "4b7682cbfb7b2e6c240399fca78e67850c21ef143701de998d4cc45225b76262"
+    }
+  ],
+  "qualification": "Actual table DOM captured before and after native horizontal UI scrolling; scalar Link.resolve() observes file targets. List data remains raw strings. No Rust/display/resolver/performance qualification.",
+  "cases": [
+    {
+      "kind": "aliased",
+      "path": "Tasks/overdue.md",
+      "raw": {
+        "projects": [
+          "[[Projects/Work|Work alias]]",
+          "[[Missing]]"
+        ],
+        "contexts": [
+          "[[Areas/Office#Desk|At office]]"
+        ],
+        "blockedBy": "[[Tasks/today#Plan|Today alias]]"
+      },
+      "native": {
+        "projects": {
+          "type": "List",
+          "elements": [
+            "[[Projects/Work|Work alias]]",
+            "[[Missing]]"
+          ]
+        },
+        "contexts": {
+          "type": "List",
+          "elements": [
+            "[[Areas/Office#Desk|At office]]"
+          ]
+        },
+        "blockedBy": {
+          "type": "Link",
+          "own": [
+            "icon",
+            "data",
+            "app",
+            "sourcePath",
+            "display"
+          ],
+          "methods": [
+            "constructor",
+            "toString",
+            "isTruthy",
+            "equals",
+            "looseEquals",
+            "renderTo",
+            "resolve"
+          ],
+          "primitive": {
+            "icon": "lucide-link",
+            "data": "Tasks/today#Plan",
+            "sourcePath": "Tasks/overdue.md"
+          },
+          "display": "Today alias",
+          "text": "[[Tasks/today#Plan|Today alias]]",
+          "normalized": "Tasks/today#Plan",
+          "resolveArity": 0,
+          "resolved": "Tasks/today.md"
+        }
+      },
+      "table": [
+        {
+          "property": "note.projects",
+          "text": "Work aliasMissing",
+          "links": [
+            {
+              "text": "Work alias",
+              "target": "Projects/Work",
+              "unresolved": false
+            },
+            {
+              "text": "Missing",
+              "target": "Missing",
+              "unresolved": true
+            }
+          ]
+        },
+        {
+          "property": "note.contexts",
+          "text": "At office",
+          "links": [
+            {
+              "text": "At office",
+              "target": "Areas/Office#Desk",
+              "unresolved": false
+            }
+          ]
+        },
+        {
+          "property": "note.blockedBy",
+          "text": "Today alias",
+          "links": [
+            {
+              "text": "Today alias",
+              "target": "Tasks/today#Plan",
+              "unresolved": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "bare",
+      "path": "Tasks/today.md",
+      "raw": {
+        "projects": [
+          "[[Projects/Work]]"
+        ],
+        "contexts": [
+          "[[Areas/Office]]"
+        ],
+        "blockedBy": "[[Tasks/today]]"
+      },
+      "native": {
+        "projects": {
+          "type": "List",
+          "elements": [
+            "[[Projects/Work]]"
+          ]
+        },
+        "contexts": {
+          "type": "List",
+          "elements": [
+            "[[Areas/Office]]"
+          ]
+        },
+        "blockedBy": {
+          "type": "Link",
+          "own": [
+            "icon",
+            "data",
+            "app",
+            "sourcePath",
+            "display"
+          ],
+          "methods": [
+            "constructor",
+            "toString",
+            "isTruthy",
+            "equals",
+            "looseEquals",
+            "renderTo",
+            "resolve"
+          ],
+          "primitive": {
+            "icon": "lucide-link",
+            "data": "Tasks/today",
+            "sourcePath": "Tasks/today.md",
+            "display": null
+          },
+          "display": null,
+          "text": "[[Tasks/today]]",
+          "normalized": "Tasks/today",
+          "resolveArity": 0,
+          "resolved": "Tasks/today.md"
+        }
+      },
+      "table": [
+        {
+          "property": "note.projects",
+          "text": "Projects/Work",
+          "links": [
+            {
+              "text": "Projects/Work",
+              "target": "Projects/Work",
+              "unresolved": false
+            }
+          ]
+        },
+        {
+          "property": "note.contexts",
+          "text": "Areas/Office",
+          "links": [
+            {
+              "text": "Areas/Office",
+              "target": "Areas/Office",
+              "unresolved": false
+            }
+          ]
+        },
+        {
+          "property": "note.blockedBy",
+          "text": "Tasks/today",
+          "links": [
+            {
+              "text": "Tasks/today",
+              "target": "Tasks/today",
+              "unresolved": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "extension",
+      "path": "Tasks/today-done.md",
+      "raw": {
+        "projects": [
+          "[[Projects/Work.md]]"
+        ],
+        "contexts": [
+          "[[Areas/Office.md#Desk]]"
+        ],
+        "blockedBy": "[[Tasks/today.md]]"
+      },
+      "native": {
+        "projects": {
+          "type": "List",
+          "elements": [
+            "[[Projects/Work.md]]"
+          ]
+        },
+        "contexts": {
+          "type": "List",
+          "elements": [
+            "[[Areas/Office.md#Desk]]"
+          ]
+        },
+        "blockedBy": {
+          "type": "Link",
+          "own": [
+            "icon",
+            "data",
+            "app",
+            "sourcePath",
+            "display"
+          ],
+          "methods": [
+            "constructor",
+            "toString",
+            "isTruthy",
+            "equals",
+            "looseEquals",
+            "renderTo",
+            "resolve"
+          ],
+          "primitive": {
+            "icon": "lucide-link",
+            "data": "Tasks/today.md",
+            "sourcePath": "Tasks/today-done.md",
+            "display": null
+          },
+          "display": null,
+          "text": "[[Tasks/today.md]]",
+          "normalized": "Tasks/today.md",
+          "resolveArity": 0,
+          "resolved": "Tasks/today.md"
+        }
+      },
+      "table": [
+        {
+          "property": "note.projects",
+          "text": "Projects/Work.md",
+          "links": [
+            {
+              "text": "Projects/Work.md",
+              "target": "Projects/Work.md",
+              "unresolved": false
+            }
+          ]
+        },
+        {
+          "property": "note.contexts",
+          "text": "Areas/Office.md > Desk",
+          "links": [
+            {
+              "text": "Areas/Office.md > Desk",
+              "target": "Areas/Office.md#Desk",
+              "unresolved": false
+            }
+          ]
+        },
+        {
+          "property": "note.blockedBy",
+          "text": "Tasks/today.md",
+          "links": [
+            {
+              "text": "Tasks/today.md",
+              "target": "Tasks/today.md",
+              "unresolved": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "heading",
+      "path": "Tasks/week.md",
+      "raw": {
+        "projects": [
+          "[[Projects/Work#Heading]]"
+        ],
+        "contexts": [
+          "[[Areas/Office#Desk]]"
+        ],
+        "blockedBy": "[[Tasks/today#Plan]]"
+      },
+      "native": {
+        "projects": {
+          "type": "List",
+          "elements": [
+            "[[Projects/Work#Heading]]"
+          ]
+        },
+        "contexts": {
+          "type": "List",
+          "elements": [
+            "[[Areas/Office#Desk]]"
+          ]
+        },
+        "blockedBy": {
+          "type": "Link",
+          "own": [
+            "icon",
+            "data",
+            "app",
+            "sourcePath",
+            "display"
+          ],
+          "methods": [
+            "constructor",
+            "toString",
+            "isTruthy",
+            "equals",
+            "looseEquals",
+            "renderTo",
+            "resolve"
+          ],
+          "primitive": {
+            "icon": "lucide-link",
+            "data": "Tasks/today#Plan",
+            "sourcePath": "Tasks/week.md",
+            "display": null
+          },
+          "display": null,
+          "text": "[[Tasks/today#Plan]]",
+          "normalized": "Tasks/today#Plan",
+          "resolveArity": 0,
+          "resolved": "Tasks/today.md"
+        }
+      },
+      "table": [
+        {
+          "property": "note.projects",
+          "text": "Projects/Work > Heading",
+          "links": [
+            {
+              "text": "Projects/Work > Heading",
+              "target": "Projects/Work#Heading",
+              "unresolved": false
+            }
+          ]
+        },
+        {
+          "property": "note.contexts",
+          "text": "Areas/Office > Desk",
+          "links": [
+            {
+              "text": "Areas/Office > Desk",
+              "target": "Areas/Office#Desk",
+              "unresolved": false
+            }
+          ]
+        },
+        {
+          "property": "note.blockedBy",
+          "text": "Tasks/today > Plan",
+          "links": [
+            {
+              "text": "Tasks/today > Plan",
+              "target": "Tasks/today#Plan",
+              "unresolved": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "block",
+      "path": "Tasks/later.md",
+      "raw": {
+        "projects": [
+          "[[Projects/Work#^block]]"
+        ],
+        "contexts": [
+          "[[Areas/Office#^desk]]"
+        ],
+        "blockedBy": "[[Tasks/today#^plan]]"
+      },
+      "native": {
+        "projects": {
+          "type": "List",
+          "elements": [
+            "[[Projects/Work#^block]]"
+          ]
+        },
+        "contexts": {
+          "type": "List",
+          "elements": [
+            "[[Areas/Office#^desk]]"
+          ]
+        },
+        "blockedBy": {
+          "type": "Link",
+          "own": [
+            "icon",
+            "data",
+            "app",
+            "sourcePath",
+            "display"
+          ],
+          "methods": [
+            "constructor",
+            "toString",
+            "isTruthy",
+            "equals",
+            "looseEquals",
+            "renderTo",
+            "resolve"
+          ],
+          "primitive": {
+            "icon": "lucide-link",
+            "data": "Tasks/today#^plan",
+            "sourcePath": "Tasks/later.md",
+            "display": null
+          },
+          "display": null,
+          "text": "[[Tasks/today#^plan]]",
+          "normalized": "Tasks/today#^plan",
+          "resolveArity": 0,
+          "resolved": "Tasks/today.md"
+        }
+      },
+      "table": [
+        {
+          "property": "note.projects",
+          "text": "Projects/Work > ^block",
+          "links": [
+            {
+              "text": "Projects/Work > ^block",
+              "target": "Projects/Work#^block",
+              "unresolved": false
+            }
+          ]
+        },
+        {
+          "property": "note.contexts",
+          "text": "Areas/Office > ^desk",
+          "links": [
+            {
+              "text": "Areas/Office > ^desk",
+              "target": "Areas/Office#^desk",
+              "unresolved": false
+            }
+          ]
+        },
+        {
+          "property": "note.blockedBy",
+          "text": "Tasks/today > ^plan",
+          "links": [
+            {
+              "text": "Tasks/today > ^plan",
+              "target": "Tasks/today#^plan",
+              "unresolved": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "broken",
+      "path": "Tasks/scheduled.md",
+      "raw": {
+        "projects": [
+          "[[Not there|Lost alias]]"
+        ],
+        "contexts": [
+          "[[Missing#Heading]]"
+        ],
+        "blockedBy": "[[Missing#^block|Lost block]]"
+      },
+      "native": {
+        "projects": {
+          "type": "List",
+          "elements": [
+            "[[Not there|Lost alias]]"
+          ]
+        },
+        "contexts": {
+          "type": "List",
+          "elements": [
+            "[[Missing#Heading]]"
+          ]
+        },
+        "blockedBy": {
+          "type": "Link",
+          "own": [
+            "icon",
+            "data",
+            "app",
+            "sourcePath",
+            "display"
+          ],
+          "methods": [
+            "constructor",
+            "toString",
+            "isTruthy",
+            "equals",
+            "looseEquals",
+            "renderTo",
+            "resolve"
+          ],
+          "primitive": {
+            "icon": "lucide-link",
+            "data": "Missing#^block",
+            "sourcePath": "Tasks/scheduled.md"
+          },
+          "display": "Lost block",
+          "text": "[[Missing#^block|Lost block]]",
+          "normalized": "Missing#^block",
+          "resolveArity": 0,
+          "resolved": null
+        }
+      },
+      "table": [
+        {
+          "property": "note.projects",
+          "text": "Lost alias",
+          "links": [
+            {
+              "text": "Lost alias",
+              "target": "Not there",
+              "unresolved": true
+            }
+          ]
+        },
+        {
+          "property": "note.contexts",
+          "text": "Missing > Heading",
+          "links": [
+            {
+              "text": "Missing > Heading",
+              "target": "Missing#Heading",
+              "unresolved": true
+            }
+          ]
+        },
+        {
+          "property": "note.blockedBy",
+          "text": "Lost block",
+          "links": [
+            {
+              "text": "Lost block",
+              "target": "Missing#^block",
+              "unresolved": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "relative",
+      "path": "Tasks/no-date.md",
+      "raw": {
+        "projects": [
+          "[[../Projects/Work]]"
+        ],
+        "contexts": [
+          "[[../Areas/Office#Desk]]"
+        ],
+        "blockedBy": "[[today|Relative today]]"
+      },
+      "native": {
+        "projects": {
+          "type": "List",
+          "elements": [
+            "[[../Projects/Work]]"
+          ]
+        },
+        "contexts": {
+          "type": "List",
+          "elements": [
+            "[[../Areas/Office#Desk]]"
+          ]
+        },
+        "blockedBy": {
+          "type": "Link",
+          "own": [
+            "icon",
+            "data",
+            "app",
+            "sourcePath",
+            "display"
+          ],
+          "methods": [
+            "constructor",
+            "toString",
+            "isTruthy",
+            "equals",
+            "looseEquals",
+            "renderTo",
+            "resolve"
+          ],
+          "primitive": {
+            "icon": "lucide-link",
+            "data": "today",
+            "sourcePath": "Tasks/no-date.md"
+          },
+          "display": "Relative today",
+          "text": "[[today|Relative today]]",
+          "normalized": "today",
+          "resolveArity": 0,
+          "resolved": "Tasks/today.md"
+        }
+      },
+      "table": [
+        {
+          "property": "note.projects",
+          "text": "../Projects/Work",
+          "links": [
+            {
+              "text": "../Projects/Work",
+              "target": "../Projects/Work",
+              "unresolved": false
+            }
+          ]
+        },
+        {
+          "property": "note.contexts",
+          "text": "../Areas/Office > Desk",
+          "links": [
+            {
+              "text": "../Areas/Office > Desk",
+              "target": "../Areas/Office#Desk",
+              "unresolved": false
+            }
+          ]
+        },
+        {
+          "property": "note.blockedBy",
+          "text": "Relative today",
+          "links": [
+            {
+              "text": "Relative today",
+              "target": "today",
+              "unresolved": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "same-note",
+      "path": "Tasks/not-task.md",
+      "raw": {
+        "projects": [
+          "[[#Heading|This heading]]"
+        ],
+        "contexts": [
+          "[[#^block]]"
+        ],
+        "blockedBy": "[[#Plan]]"
+      },
+      "native": {
+        "projects": {
+          "type": "List",
+          "elements": [
+            "[[#Heading|This heading]]"
+          ]
+        },
+        "contexts": {
+          "type": "List",
+          "elements": [
+            "[[#^block]]"
+          ]
+        },
+        "blockedBy": {
+          "type": "Link",
+          "own": [
+            "icon",
+            "data",
+            "app",
+            "sourcePath",
+            "display"
+          ],
+          "methods": [
+            "constructor",
+            "toString",
+            "isTruthy",
+            "equals",
+            "looseEquals",
+            "renderTo",
+            "resolve"
+          ],
+          "primitive": {
+            "icon": "lucide-link",
+            "data": "#Plan",
+            "sourcePath": "Tasks/not-task.md",
+            "display": null
+          },
+          "display": null,
+          "text": "[[#Plan]]",
+          "normalized": "#Plan",
+          "resolveArity": 0,
+          "resolved": "Tasks/not-task.md"
+        }
+      },
+      "table": [
+        {
+          "property": "note.projects",
+          "text": "This heading",
+          "links": [
+            {
+              "text": "This heading",
+              "target": "#Heading",
+              "unresolved": false
+            }
+          ]
+        },
+        {
+          "property": "note.contexts",
+          "text": "^block",
+          "links": [
+            {
+              "text": "^block",
+              "target": "#^block",
+              "unresolved": false
+            }
+          ]
+        },
+        {
+          "property": "note.blockedBy",
+          "text": "Plan",
+          "links": [
+            {
+              "text": "Plan",
+              "target": "#Plan",
+              "unresolved": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "mixed",
+      "path": "Tasks/archived.md",
+      "raw": {
+        "projects": [
+          "plain text",
+          "[[Projects/Work|Work alias]]"
+        ],
+        "contexts": [
+          "[[Areas/Office]]"
+        ],
+        "blockedBy": "plain text"
+      },
+      "native": {
+        "projects": {
+          "type": "List",
+          "elements": [
+            "plain text",
+            "[[Projects/Work|Work alias]]"
+          ]
+        },
+        "contexts": {
+          "type": "List",
+          "elements": [
+            "[[Areas/Office]]"
+          ]
+        },
+        "blockedBy": {
+          "type": "String",
+          "own": [
+            "icon",
+            "data"
+          ],
+          "methods": [
+            "constructor",
+            "toString",
+            "keys",
+            "objectAccess",
+            "renderTo"
+          ],
+          "primitive": {
+            "icon": "lucide-text",
+            "data": "plain text"
+          },
+          "display": null,
+          "text": "plain text",
+          "normalized": "plain text",
+          "resolved": null
+        }
+      },
+      "table": [
+        {
+          "property": "note.projects",
+          "text": "plain textWork alias",
+          "links": [
+            {
+              "text": "Work alias",
+              "target": "Projects/Work",
+              "unresolved": false
+            }
+          ]
+        },
+        {
+          "property": "note.contexts",
+          "text": "Areas/Office",
+          "links": [
+            {
+              "text": "Areas/Office",
+              "target": "Areas/Office",
+              "unresolved": false
+            }
+          ]
+        },
+        {
+          "property": "note.blockedBy",
+          "text": "plain text",
+          "links": []
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,64 @@
+/ PolicyPayload / {
+  / fmt / 0: 1,
+  / cert / 1: / CpCert / {
+    / policy_pk / 0: h'9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c',
+    / not_before / 1: 1790000000000,
+    / not_after / 2: 1800000000000,
+    / root / 3: h'a0a1a2a3a4a5a6a7a8a9aaabacadaeaf',
+    / sig / 4: h'51515151515151515151515151515151515151515151515151515151515151515151515151515151515151515151515151515151515151515151515151515151'
+  },
+  / issued_at / 2: 1791200000000,
+  / ops / 3: [
+    / DeviceRevoke / {
+      / kind / 0: 3 / DeviceRevoke /,
+      / device / 1: h'2d7e9a416c3b4f189a05c8e1b2d3f467'
+    },
+    / MemberRemove / {
+      / kind / 0: 5 / MemberRemove /,
+      / account / 1: h'9b2f6c1e3a474d5b8e216f0a9c3d7e54'
+    },
+    / Grant / {
+      / kind / 0: 6 / Grant /,
+      / grant / 1: h'6f1e2d3c4b5a49688776655443322110',
+      / installation / 2: h'9b2f6c1e3a474d5b8e216f0a9c3d7e54',
+      / app_id / 3: "tasknotes-planner",
+      / account / 4: h'6f1e2d3c4b5a49688776655443322110',
+      / capabilities / 5: [
+        "collection.read",
+        "records.edit"
+      ],
+      / client_pk / 6: h'0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c',
+      / file_folders / 7: [
+        "Photos"
+      ]
+    },
+    / GrantRevoke / {
+      / kind / 0: 7 / GrantRevoke /,
+      / grant / 1: h'6f1e2d3c4b5a49688776655443322110'
+    },
+    / CollectionState / {
+      / kind / 0: 8 / CollectionState /,
+      / state / 1: 1 / CloudCopy /,
+      / compress / 2: false
+    },
+    / CpKeyRevoke / {
+      / kind / 0: 9 / CpKeyRevoke /,
+      / key_id / 1: h'ce7ee39cb8c5c4b32f954bf04d50757d',
+      / revoked_from / 2: 1791150000000,
+      / root_sig / 3: h'52525252525252525252525252525252525252525252525252525252525252525252525252525252525252525252525252525252525252525252525252525252'
+    },
+    / MigrationCutover / {
+      / kind / 0: 10 / MigrationCutover /,
+      / legacy_collection / 1: h'4c18af2eb04a4b77b83e493c3695962e',
+      / revoked / 2: [
+        h'9b2f6c1e3a474d5b8e216f0a9c3d7e54'
+      ],
+      / cutover_at / 3: 1791200000000
+    },
+    / Freeze / {
+      / kind / 0: 11 / Freeze /,
+      / frozen / 1: false,
+      / reason / 2: "cutover complete"
+    }
+  ]
+}

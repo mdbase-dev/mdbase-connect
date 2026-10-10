@@ -1,0 +1,6 @@
+/ ReindexUnindexedMarkdown / {
+  / kind / 0: 10 / ReindexUnindexedMarkdown /,
+  / id / 1: h'0192f3a45b6c7d8e9f01fedcba987654',
+  / path / 2: "notes/huge-export.md",
+  / doc / 3: "---\ntitle: trimmed\n---\nnow small enough to index\n"
+}

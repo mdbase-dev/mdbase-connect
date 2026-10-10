@@ -1,0 +1,1280 @@
+# Explicit calendar profile: original 297 expected values remain authoritative.
+{
+  "literal null": {
+    "stage": "value"
+  },
+  "literal true": {
+    "stage": "value"
+  },
+  "literal false": {
+    "stage": "value"
+  },
+  "literal number decimal": {
+    "stage": "value"
+  },
+  "literal string single quotes": {
+    "stage": "value"
+  },
+  "bare note property": {
+    "stage": "value"
+  },
+  "note dot property": {
+    "stage": "value"
+  },
+  "note bracket property": {
+    "stage": "value"
+  },
+  "missing property": {
+    "stage": "value"
+  },
+  "missing equals null": {
+    "stage": "value"
+  },
+  "array index": {
+    "stage": "value"
+  },
+  "list property index": {
+    "stage": "value"
+  },
+  "arithmetic precedence": {
+    "stage": "value"
+  },
+  "arithmetic grouping": {
+    "stage": "value"
+  },
+  "arithmetic modulo": {
+    "stage": "value"
+  },
+  "arithmetic division": {
+    "stage": "value"
+  },
+  "unary minus": {
+    "stage": "value"
+  },
+  "unary plus": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "unary_plus"
+  },
+  "comparison greater equal": {
+    "stage": "value"
+  },
+  "comparison less equal": {
+    "stage": "value"
+  },
+  "comparison string": {
+    "stage": "value"
+  },
+  "equality string": {
+    "stage": "value"
+  },
+  "inequality string": {
+    "stage": "value"
+  },
+  "boolean and": {
+    "stage": "value"
+  },
+  "boolean or": {
+    "stage": "value"
+  },
+  "boolean not": {
+    "stage": "value"
+  },
+  "if true branch": {
+    "stage": "value"
+  },
+  "if false branch": {
+    "stage": "value"
+  },
+  "if implicit false branch": {
+    "stage": "value"
+  },
+  "escape html": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "number from boolean true": {
+    "stage": "value"
+  },
+  "number from boolean false": {
+    "stage": "value"
+  },
+  "number from date": {
+    "stage": "value"
+  },
+  "number from numeric string": {
+    "stage": "value"
+  },
+  "min variadic": {
+    "stage": "value"
+  },
+  "max variadic": {
+    "stage": "value"
+  },
+  "list wraps string": {
+    "stage": "value"
+  },
+  "list leaves list": {
+    "stage": "value"
+  },
+  "link stringify": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "link with display stringify": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "file global path": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "html to string": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "icon to string": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "image url to string": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "today date": {
+    "stage": "value"
+  },
+  "now year": {
+    "stage": "value"
+  },
+  "random range": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "any isTruthy number direct literal": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "direct_numeric_member"
+  },
+  "any isTruthy zero direct literal": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "direct_numeric_member"
+  },
+  "any isTruthy number": {
+    "stage": "value"
+  },
+  "any isTruthy zero": {
+    "stage": "value"
+  },
+  "any isTruthy empty string": {
+    "stage": "value"
+  },
+  "any isType string": {
+    "stage": "value"
+  },
+  "any isType boolean": {
+    "stage": "value"
+  },
+  "any isType date": {
+    "stage": "value"
+  },
+  "any toString number direct literal": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "direct_numeric_member"
+  },
+  "any toString number": {
+    "stage": "value"
+  },
+  "any toString boolean": {
+    "stage": "value"
+  },
+  "string length": {
+    "stage": "value"
+  },
+  "string contains": {
+    "stage": "value"
+  },
+  "string contains all": {
+    "stage": "value"
+  },
+  "string contains any": {
+    "stage": "value"
+  },
+  "string ends with": {
+    "stage": "value"
+  },
+  "string starts with": {
+    "stage": "value"
+  },
+  "string isEmpty false": {
+    "stage": "value"
+  },
+  "string isEmpty true": {
+    "stage": "value"
+  },
+  "string lower": {
+    "stage": "value"
+  },
+  "string replace regex first": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "regex_literal"
+  },
+  "string replace regex global": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "regex_literal"
+  },
+  "string replace string": {
+    "stage": "value"
+  },
+  "string repeat": {
+    "stage": "value"
+  },
+  "string reverse": {
+    "stage": "value"
+  },
+  "string slice": {
+    "stage": "value"
+  },
+  "string slice omitted end": {
+    "stage": "value"
+  },
+  "string split": {
+    "stage": "value"
+  },
+  "string split regex": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "regex_literal"
+  },
+  "string title": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "string trim": {
+    "stage": "value"
+  },
+  "number abs": {
+    "stage": "value"
+  },
+  "number ceil": {
+    "stage": "value"
+  },
+  "number floor": {
+    "stage": "value"
+  },
+  "number isEmpty false direct literal": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "direct_numeric_member"
+  },
+  "number isEmpty false": {
+    "stage": "value"
+  },
+  "number round no digits": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "number round digits": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "number fixed": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "date parse date-only": {
+    "stage": "value"
+  },
+  "date parse datetime": {
+    "stage": "value"
+  },
+  "date format": {
+    "stage": "value"
+  },
+  "date field year": {
+    "stage": "value"
+  },
+  "date field month": {
+    "stage": "value"
+  },
+  "date field day": {
+    "stage": "value"
+  },
+  "date field hour": {
+    "stage": "value"
+  },
+  "date field minute": {
+    "stage": "value"
+  },
+  "date field second": {
+    "stage": "value"
+  },
+  "date strip time": {
+    "stage": "value"
+  },
+  "date time": {
+    "stage": "value"
+  },
+  "date isEmpty": {
+    "stage": "value"
+  },
+  "date arithmetic day": {
+    "stage": "evaluate",
+    "code": "view_unsupported_construct",
+    "detail": "date_arithmetic"
+  },
+  "date arithmetic month": {
+    "stage": "evaluate",
+    "code": "view_unsupported_construct",
+    "detail": "date_arithmetic"
+  },
+  "date arithmetic subtract hours": {
+    "stage": "evaluate",
+    "code": "view_unsupported_construct",
+    "detail": "date_arithmetic"
+  },
+  "date difference": {
+    "stage": "evaluate",
+    "code": "view_unsupported_construct",
+    "detail": "date_arithmetic"
+  },
+  "date relative future": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "duration year": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "duration month": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "duration week": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "duration day": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "duration hour": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "duration minute": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "duration second": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "duration scale": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "duration left scalar invalid": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "list length": {
+    "stage": "value"
+  },
+  "list contains": {
+    "stage": "value"
+  },
+  "list contains string": {
+    "stage": "value"
+  },
+  "list contains all": {
+    "stage": "value"
+  },
+  "list contains any": {
+    "stage": "value"
+  },
+  "list filter": {
+    "stage": "value"
+  },
+  "list filter index": {
+    "stage": "value"
+  },
+  "list flat": {
+    "stage": "value"
+  },
+  "list isEmpty false": {
+    "stage": "value"
+  },
+  "list isEmpty true": {
+    "stage": "value"
+  },
+  "list join": {
+    "stage": "value"
+  },
+  "list map": {
+    "stage": "value"
+  },
+  "list reduce": {
+    "stage": "value"
+  },
+  "list reverse": {
+    "stage": "value"
+  },
+  "list slice": {
+    "stage": "value"
+  },
+  "list slice omitted end": {
+    "stage": "value"
+  },
+  "list sort numbers": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "list sort strings": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "list unique numbers": {
+    "stage": "value"
+  },
+  "list unique strings": {
+    "stage": "value"
+  },
+  "object keys": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "object_literal"
+  },
+  "object values": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "object_literal"
+  },
+  "object isEmpty": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "object_literal"
+  },
+  "regex matches true": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "regex matches false": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file name": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file basename": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file path": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file folder": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file ext": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file size": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file properties price": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file tags contains": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "frontmatter wikilink raw target": {
+    "stage": "evaluate",
+    "code": "view_unsupported_construct",
+    "detail": "link_value"
+  },
+  "frontmatter wikilink to string": {
+    "stage": "evaluate",
+    "code": "view_unsupported_construct",
+    "detail": "link_value"
+  },
+  "frontmatter wikilink is link": {
+    "stage": "evaluate",
+    "code": "view_unsupported_construct",
+    "detail": "link_value"
+  },
+  "frontmatter wikilink as file": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "frontmatter wikilink list length": {
+    "stage": "evaluate",
+    "code": "view_unsupported_construct",
+    "detail": "link_value"
+  },
+  "frontmatter wikilink list strings": {
+    "stage": "evaluate",
+    "code": "view_unsupported_construct",
+    "detail": "link_value"
+  },
+  "frontmatter wikilink list first is link": {
+    "stage": "evaluate",
+    "code": "view_unsupported_construct",
+    "detail": "link_value"
+  },
+  "frontmatter wikilink list first as file": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "frontmatter markdown list item remains string": {
+    "stage": "evaluate",
+    "code": "view_unsupported_construct",
+    "detail": "link_value"
+  },
+  "frontmatter markdown property remains string": {
+    "stage": "value"
+  },
+  "frontmatter markdown property stringifies": {
+    "stage": "value"
+  },
+  "file links length": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file links rendered matrix": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file links as files matrix": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file direct link raw target": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file frontmatter wikilink rendered": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file ordinary wikilink rendered": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file alias wikilink rendered": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file heading wikilink rendered": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file block wikilink rendered": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file duplicate wikilink resolves": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file full path duplicate resolves": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file unresolved wikilink as file": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file markdown link rendered": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file markdown encoded link rendered": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file markdown unresolved link rendered": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file markdown dot link rendered": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file markdown subfolder link rendered": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file markdown link as file": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file markdown encoded link as file": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file markdown dot link as file": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file markdown subfolder link as file": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file markdown unresolved link as file": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file special pipe heading rendered": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file special bracket heading rendered": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file unicode wikilink rendered": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file unicode heading rendered": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file unicode markdown rendered": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file unicode markdown encoded has link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file unicode markdown encoded as file": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file has unicode link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file has unicode heading link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file unicode link as file": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file unicode heading link as file": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file lower-case basename as file": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file lower-case md has link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file lower-case subpath has link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file case target lower-case as file": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file case target lower-case has link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file duplicate heading rendered": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file duplicate heading alias rendered": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file duplicate block rendered": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file duplicate block alias rendered": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file duplicate heading as file": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file duplicate block as file": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file has duplicate heading link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file has duplicate block link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file pdf attachment rendered": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file csv attachment alias rendered": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file markdown audio rendered": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file has pdf attachment link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file has csv attachment link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file has audio attachment link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file pdf attachment as file": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file audio attachment as file": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file csv attachment ext": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "file embeds length": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file embeds rendered matrix": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file embeds as files matrix": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file pdf embed rendered": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file markdown jpg embed rendered": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file has jpg attachment embed": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file backlinks length": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file backlinks rendered matrix": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "file has link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file has raw basename link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file has full path link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file has heading link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file has block link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file has duplicate basename link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file has duplicate full path A link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file has duplicate full path B link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file has spaced alias link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file has unresolved raw link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file has unresolved md link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file has markdown dot md link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file has markdown subfolder md link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file has markdown encoded md link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file has markdown unresolved md link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file has markdown image embed": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file does not have external markdown link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file has special pipe heading": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file has special bracket heading": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file has property": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file has tag direct": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file has tag nested": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file in folder": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file as link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file as link display": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "file global basename lookup": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "file global md lookup": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "file global unresolved lookup": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "file global spaced lookup": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "file global relative source lookup": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "relative source links rendered matrix": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "relative source links as files matrix": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "relative source has parent markdown link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "relative source has sibling markdown link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "relative source has parent encoded markdown link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "link as file": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "link basename as file": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "link md as file": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "link heading as file": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "link block as file": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "link duplicate as file": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "link unresolved as file": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "link markdown unresolved as file": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "link relative dot as file": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "link spaced as file": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "link equals file": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "link aliases equal": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "link md variant equals basename": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "link subpath equals basename": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "markdown link equals wikilink": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "links contains alias variant": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "links contains unresolved": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "links contains file lookup": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "links filter resolved file equality": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "links filter duplicate equality": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "links unique resolved count": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "link path field": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "formula ref": {
+    "stage": "value"
+  },
+  "formula chain": {
+    "stage": "value"
+  },
+  "this file path": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  },
+  "invalid number conversion": {
+    "stage": "value"
+  },
+  "unknown function": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "link replace regex": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "regex_literal"
+  },
+  "link replace string": {
+    "stage": "evaluate",
+    "code": "view_unsupported_construct",
+    "detail": "link_value"
+  },
+  "list map replace": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "regex_literal"
+  },
+  "tasknotes project expr": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "method"
+  },
+  "tasknotes project paths": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "file of link": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "file of wikilink string": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "file of markdown link string": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "list of missing": {
+    "stage": "value"
+  },
+  "list of missing length": {
+    "stage": "value"
+  },
+  "missing replace": {
+    "stage": "value"
+  },
+  "file of error": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "file of null": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "map over missing list": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "global_function"
+  },
+  "link type of front list string": {
+    "stage": "evaluate",
+    "code": "view_unsupported_construct",
+    "detail": "link_value"
+  },
+  "file links contains front wiki": {
+    "stage": "compile",
+    "code": "view_unsupported_construct",
+    "detail": "file_or_invocation_context"
+  }
+}

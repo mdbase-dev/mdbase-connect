@@ -1,0 +1,19 @@
+/ QueryResult / {
+  / records / 0: [],
+  / complete / 2: true,
+  / as_of / 3: 99,
+  / total_count / 5: 12,
+  / diagnostics / 6: [],
+  / groups / 8: [
+    / QueryGroup / {
+      / values / 0: {
+        "status": "done"
+      },
+      / count / 1: 12,
+      / summaries / 2: {
+        "total_estimate": 30
+      }
+    }
+  ],
+  / has_more / 9: true
+}

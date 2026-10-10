@@ -1,0 +1,53 @@
+; Replica client API §8.3. Slot allocation: Replica owner 2026-10-06T00:21.
+; Scoped shapes, not an implementation/approval/key-delivery attestation.
+; UUID is the existing 16-byte wire UUID; kinds are existing device-kind values.
+approval-uuid = bstr .size 16
+
+approval-pending-device = {
+  0: approval-uuid,         ; device
+  1: approval-uuid,         ; account
+  2: 0..6,                  ; existing device-kind; runtime approval is USER-only
+  ? 3: tstr,                ; legacy SAS: decode-only, MUST NOT emit or reuse
+  4: bool,                  ; exchange_ready: current exchange only, NOT keyed
+}
+
+approval-ready-push = {
+  0: approval-uuid,         ; device
+  ? 1: tstr,                ; legacy SAS: decode-only, MUST NOT emit or reuse
+  2: bool,                  ; exchange_ready: current exchange only, NOT approved
+}
+
+; Device-to-device metadata transport ONLY (not an app-grant pipe or authority).
+; All peer maps CLOSED. Strict mdb-cbor/1, <=2048 encoded envelope bytes.
+; Sign Ed25519 over H("mdbase/v1/device-approval-peer", canonical-body-bytes).
+; H is the existing domain-tagged wire hash. Sig sender is approver for kind 0,
+; requester for kind 1; receivers compare the whole tuple against current policy.
+; r_A is also the fresh exchange generation; never reassociate an old body.
+approval-peer-device = {
+  0: approval-uuid, 1: approval-uuid, 2: 0..3, ; USER device/account/kind
+  3: bstr .size 32, 4: bstr .size 32, 5: bstr .size 32, ; sign/KEM/Noise PK
+}
+approval-peer-binding = {
+  0: approval-uuid, 1: uint, ; collection/current private epoch
+  2: approval-peer-device, 3: approval-peer-device, ; approver/requester
+  4: bstr .size 32, ; latest applied requester SAS commitment
+}
+approval-peer-challenge-body = {
+  0: 1, 1: 0, 2: approval-peer-binding,
+  3: bstr .size 32, 4: 0..9007199254740991, ; r_A / expiry UTC ms
+}
+approval-peer-reveal-body = {
+  0: 1, 1: 1, 2: approval-peer-binding,
+  3: bstr .size 32, 4: 0..9007199254740991,
+  5: bstr .size 32, ; r_N, AFTER requester secret-state persistence
+}
+approval-peer-envelope = {
+  0: approval-peer-challenge-body / approval-peer-reveal-body,
+  1: bstr .size 64, ; device signature of exact canonical body
+}
+
+approval-start = { 0: approval-uuid }
+approval-typed-confirmation = {
+  0: approval-uuid,
+  1: tstr .regexp "^[0-9]{6}$", ; USER types the code displayed on requester
+}
