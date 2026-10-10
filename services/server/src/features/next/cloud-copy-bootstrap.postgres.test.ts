@@ -11,6 +11,7 @@ import { registerPeopleRoutes } from "../account/people-routes.js";
 import { collectionLogTokenDigest, registerCollectionLogTokenRoute } from "./collection-log-token.js";
 import { cloudCopyCreateDigest, cloudCopyJoinDigest, registerCloudCopyRoutes } from "./cloud-copy-bootstrap.js";
 import { createServiceCloudCopy } from "./service-cloud-copy.js";
+import { registerMigrationProviderRoutes } from "./migration-provider.js";
 import { currentAccount } from "./bootstrap-common.js";
 import { setCohortFrozen } from "./migration-rollout.js";
 import { deviceRegistrationDigest, issueDeviceChallenge, registerDevice } from "./devices.js";
@@ -165,6 +166,7 @@ describePg("cloud-copy bootstrap", () => {
     emitter = new PolicyEmitter(db, client, loadPolicySigner(config, Date.now()));
     await app.register(cookie);
     registerCloudCopyRoutes(app, { db, next: config, emitter, log: client, fetchImpl: deployments.fetch });
+    registerMigrationProviderRoutes(app, { db, token: "synthetic-migration-target-token", bootstrap: { next: config, emitter, log: client, fetchImpl: deployments.fetch } });
     registerCollectionLogTokenRoute(app,{db,log:client});
     registerPeopleRoutes(app,{db,issuer:"https://identity.test",publicUrl:"https://connect.test"});
   }, 60_000);
@@ -198,6 +200,64 @@ describePg("cloud-copy bootstrap", () => {
   }
   const create = (who: Who, payload: unknown) => app.inject({ method: "POST", url: "/v1/next/collections/cloud-copy", headers: who.headers, payload });
   const registered = async (collection: string) => (await db.query("SELECT 1 FROM next_collections WHERE collection_id = $1", [collection])).rows.length === 1;
+
+  async function migration() {
+    const who = await identity(), collection = randomUUID(), cohort = `target-${randomUUID().slice(0, 8)}`;
+    const owner = who.connector.user_id;
+    await db.query("UPDATE users SET account_backend='legacy' WHERE id=$1", [owner]);
+    await db.query("INSERT INTO hosted_collections(id,user_id,display_name,template) VALUES($1,$2,'Legacy source','mdbase')", [collection, owner]);
+    await db.query("INSERT INTO next_migration_cohorts(name,released_at,frozen_at) VALUES($1,now(),now())", [cohort]);
+    await db.query("INSERT INTO next_migration_cohort_members(account_id,cohort,started_at) VALUES($1,$2,now())", [owner, cohort]);
+    const request = (payload: unknown = {}, credential = "synthetic-migration-target-token") => app.inject({
+      method: "POST", url: `/internal/v1/next/migration/collections/${collection}/target`, headers: { authorization: `Bearer ${credential}` }, payload
+    });
+    return { owner, collection, request };
+  }
+  it("composes canonical SHADOW metadata for a started suspended legacy owner, never native readiness", async () => {
+    const f = await migration(); await db.query("UPDATE users SET suspended_at=now() WHERE id=$1", [f.owner]);
+    const response = await f.request(); expect(response.statusCode, response.body).toBe(200);
+    const result = response.json(); expect(result).toMatchObject({ collection_id: f.collection, owner_account: f.owner, first_member: "hosted", head: { seq: 1 } });
+    expect(result).not.toHaveProperty("verified"); expect(result).not.toHaveProperty("ready");
+    expect(result).not.toHaveProperty("device"); expect(result).not.toHaveProperty("rekey_recipients");
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect((await db.query("SELECT runtime FROM next_collections WHERE collection_id=$1", [f.collection])).rows).toEqual([{ runtime: "shadow" }]);
+    expect((await db.query("SELECT account_backend,suspended_at FROM users WHERE id=$1", [f.owner])).rows[0])
+      .toMatchObject({ account_backend: "legacy", suspended_at: expect.any(Date) });
+    const calls = deployments.calls;
+    expect((await f.request()).json()).toEqual(result); expect(deployments.calls).toBe(calls);
+    for (const service of result.service_devices) {
+      expect(response.body).not.toContain(deployments.devices.get(`${service.kind}/${f.collection}`)!.wrapped_keys);
+    }
+  });
+  it("refuses ordinary credentials/caller runtime/owner/readiness facts before generation", async () => {
+    const f = await migration(), calls = deployments.calls;
+    for (const credential of ["session", "app", "hosted-service", ""]) expect((await f.request({}, credential)).statusCode).toBe(401);
+    for (const body of [{ runtime: "next" }, { owner: f.owner }, { verified: true }, { collection: f.collection }]) {
+      expect((await f.request(body)).statusCode).toBe(400);
+    }
+    expect(deployments.calls).toBe(calls); expect(await registered(f.collection)).toBe(false);
+  });
+  for (const boundary of ["before", "generation", "readback"] as const) {
+    it.each(["unstarted", "claim-microsecond", "terminal", "quarantine", "transfer", "backend-flip", "deletion-floor"])(
+      `refuses changed target claims at ${boundary}: %s`, async change => {
+        const f = await migration();
+        const mutate = async () => {
+          if (change === "unstarted") await db.query("UPDATE next_migration_cohort_members SET started_at=NULL WHERE account_id=$1", [f.owner]);
+          if (change === "claim-microsecond") await db.query("UPDATE next_migration_cohort_members SET started_at=started_at+interval '1 microsecond' WHERE account_id=$1", [f.owner]);
+          if (change === "terminal") await db.query("UPDATE next_migration_cohort_members SET terminal_excluded_at=now() WHERE account_id=$1", [f.owner]);
+          if (change === "quarantine") await db.query("UPDATE hosted_collections SET quarantined_at=now() WHERE id=$1", [f.collection]);
+          if (change === "transfer") await db.query("UPDATE hosted_collections SET authority_state='transferred' WHERE id=$1", [f.collection]);
+          if (change === "backend-flip") await db.query("UPDATE users SET account_backend='next' WHERE id=$1", [f.owner]);
+          if (change === "deletion-floor") await db.query("INSERT INTO next_collection_deletion_facts(collection_id,deletion_id,lifecycle_epoch,authority) VALUES($1,$2,1,'native-registry')", [f.collection, randomUUID()]);
+        };
+        if (boundary === "before") await mutate();
+        if (boundary === "generation") deployments.during = mutate;
+        if (boundary === "readback") log.onRead = mutate;
+        const response = await f.request();
+        expect(response.statusCode, response.body).toBe(boundary === "before" && change === "claim-microsecond" ? 200 : 409);
+        if (boundary === "generation") expect(await registered(f.collection)).toBe(false);
+      });
+  }
 
   it("enrols the owner's device and both service devices in a cloud-copy genesis", async () => {
     const who = await identity(); const collection = randomUUID();
