@@ -1,0 +1,7 @@
+{
+  "reason": "The existing collection catalog exposes one bounded native management inventory function and the management package exposes its metadata-only DTO. Two relative imports reuse canonical sharing authority and the standard explicit inventory-limit error. No new production file, storage representation, content grant, sharing engine, provider or package boundary is introduced.",
+  "growth": {
+    "relativeImports": 2,
+    "typeScriptExportDeclarations": 2
+  }
+}

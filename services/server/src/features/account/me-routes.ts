@@ -2,7 +2,8 @@ import type { FastifyInstance } from "fastify";
 import { accessView, requireCollectionAction, resolveHostedCollectionAccess, resolveLocalCollectionAccess } from "../../collection-access.js";
 import {
   listHostedCollectionsVisibleToUser,
-  listLocalCollectionsVisibleToUser
+  listLocalCollectionsVisibleToUser,
+  listNativeCollectionsVisibleToUser
 } from "../../collection-catalog.js";
 import type { DatabasePool } from "../../db.js";
 import { effectiveEntitlement } from "../../entitlements.js";
@@ -326,6 +327,10 @@ export function registerAccountOverviewRoute(
             ...replica,
             sync_status: hostedReplicaStatuses.get(replica.id) ?? null
           }))
+      })),
+      native_collections: (await listNativeCollectionsVisibleToUser(options.db, user.id)).map((collection) => ({
+        ...collection,
+        access: { ...collection.access, can_manage_members: collection.access.can_manage_members && options.hostedCollections === true }
       })),
       grants: grants.rows.map(grantWithCompatibleApplicationOrigin),
       pending_authorizations: await Promise.all(

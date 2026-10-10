@@ -3,6 +3,7 @@ import { requireCollectionNotDeleted } from "./features/next/collection-deletion
 import { requireAccountNotMigrationFrozen } from "./features/next/migration-topology.js";
 
 export interface CollectionSharingAuthority {
+  kind: "native" | "hosted";
   id: string;
   user_id: string;
   created_at: Date | string;
@@ -59,14 +60,14 @@ async function readAuthority(
       if (error instanceof Error && error.message === "collection_deleted") return null;
       throw error;
     }
-    return { id: native.collection_id, user_id: native.owner_user_id, created_at: native.created_at };
+    return { kind: "native", id: native.collection_id, user_id: native.owner_user_id, created_at: native.created_at };
   }
   // Shadow collections retain their existing hosted authority until cutover.
-  const legacy = (await db.query<CollectionSharingAuthority>(
+  const legacy = (await db.query<Omit<CollectionSharingAuthority, "kind">>(
     `SELECT id, user_id, created_at FROM hosted_collections
      WHERE id = $1 AND authority_state = 'active' AND quarantined_at IS NULL${lock}`,
     [collectionId]
   )).rows[0];
   if (native && legacy?.user_id !== native.owner_user_id) return null;
-  return legacy ?? null;
+  return legacy ? { kind: "hosted", ...legacy } : null;
 }
