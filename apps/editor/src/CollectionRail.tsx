@@ -65,8 +65,7 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
     footer={<>
       {directAccess === "permission_required" && connectionState === "connected"
         ? <button className="local-access-action" disabled={directAccessBusy} onClick={onRequestDirectAccess}>{directAccessBusy ? "Checking…" : "Use this computer"}</button>
-        : <p role="status" aria-label={`Collection ${connectionState}`} title={connectionIssue}><span className={`status-dot ${connectionState}`} aria-hidden="true" /><span>{connectionState === "connected" ? "Connected" : connectionState === "reconnecting" ? "Reconnecting" : "Sync stopped"}</span></p>}
-      {connectionState !== "connected" && <button className="reconnect-action" aria-label="Retry connection" onClick={onReconnect}>Retry</button>}
+        : <ConnectionStatus state={connectionState} issue={connectionIssue} onReconnect={onReconnect} />}
     </>}
   >
       <FolderFilterSection
@@ -293,3 +292,11 @@ function facetCountLabel(kind: NoteFilter["kind"], item: { name: string; count: 
 }
 
 
+
+/** The collection link state and its retry; the rail shows it always, the mobile note bar only when not connected. */
+export function ConnectionStatus({ state, issue, onReconnect }: { state: ConnectionState; issue?: string | undefined; onReconnect: () => void }) {
+  return <>
+    <p role="status" aria-label={`Collection ${state}`} title={issue}><span className={`status-dot ${state}`} aria-hidden="true" /><span>{state === "connected" ? "Connected" : state === "reconnecting" ? "Reconnecting" : "Sync stopped"}</span></p>
+    {state !== "connected" && <button className="reconnect-action" aria-label="Retry connection" onClick={onReconnect}>Retry</button>}
+  </>;
+}

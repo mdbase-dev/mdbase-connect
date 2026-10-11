@@ -1221,6 +1221,18 @@ describe("mdbase editor", () => {
     expect(gateway.watchCalls).toBeGreaterThanOrEqual(2);
   });
 
+  it("shows the dropped connection in the mobile note bar too, with the same retry", async () => {
+    vi.stubGlobal("innerWidth", 390);
+    const gateway = new ReconnectingGateway();
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+    await screen.findByRole("textbox", { name: "Note title" });
+    const bar = await waitFor(() => { const element = document.querySelector<HTMLElement>(".editor-bar"); expect(element).not.toBeNull(); return element!; });
+    expect(await within(bar).findByRole("status", { name: "Collection reconnecting" })).toHaveTextContent("Reconnecting");
+    await user.click(within(bar).getByRole("button", { name: "Retry connection" }));
+    await waitFor(() => expect(within(bar).queryByRole("status", { name: /^Collection / })).toBeNull(), { timeout: 2_000 });
+  });
+
   it("refreshes collection state before recovering from an expired change cursor", async () => {
     const gateway = new ResettingCursorGateway();
     render(<App gateway={gateway} />);

@@ -35,7 +35,7 @@ import { bulkFields, type BulkPropertyChange } from "./bulk-note-actions";
 import { useNoteActions } from "./use-note-actions";
 import { AttachmentTransfer, attachmentMenuItem, useAttachmentUpload } from "./AttachmentUpload";
 import { useCollectionBrowserEntries } from "./collection-browser";
-import { CollectionRail } from "./CollectionRail";
+import { CollectionRail, ConnectionStatus } from "./CollectionRail";
 import { folderChangeMoves, type FolderChangePlan, type FolderChangeProgress, type FolderChangeResult } from "./folder-change";
 import { useFeedback } from "@mdbase-dev/ui/feedback";
 import { CollectionSwitcher, ConnectScreen } from "./ConnectionScreens";
@@ -1880,6 +1880,9 @@ export function App({ gateway, onFeedbackContext }: CollectionAppProps) {
             {!mobileLayout && noteLoading && <span role="status" className="note-opening-status" title={pendingNotePath}>Opening “{pendingNotePath}”…</span>}
             {!mobileLayout && !canEditNotes && <span className="connect-muted">Read only</span>}
             {!mobileLayout && noteSaveIndicator}
+            {mobileLayout && connectionState !== "connected" && <div className="mobile-connection">
+              <ConnectionStatus state={connectionState} issue={connectionIssue} onReconnect={() => void refreshAfterConnectionGap()} />
+            </div>}
             {!mobileLayout && <button className={`icon-button${propertiesOpen ? " active" : ""}`} aria-label="Note properties" aria-pressed={propertiesOpen} onClick={() => {
               setPropertiesOpen((value) => {
                 if (!value) setBacklinksOpen(false);
