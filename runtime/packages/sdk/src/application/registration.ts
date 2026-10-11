@@ -21,6 +21,11 @@ export interface ApplicationRegistration {
     readonly id: string;
     readonly name: string;
     readonly manifestDigest: string;
+    /** Set when the declaration named an application UUID and the CP registered
+     * this exact manifest under a different one (a changed manifest gets a new
+     * UUID). The registered `id` is used; the declared one is kept here only for
+     * the developer note. */
+    readonly supersededDeclaredId?: string;
 }
 const nativeId =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -48,6 +53,20 @@ function record(value: unknown): Record<string, unknown> {
     if (!value || typeof value !== "object" || Array.isArray(value))
         throw badReply();
     return value as Record<string, unknown>;
+}
+/** RFC 8785-style canonical JSON, as the CP hashes a registered manifest. */
+function canonicalJson(value: unknown): string {
+    if (value === null || typeof value === "string" || typeof value === "boolean" || typeof value === "number")
+        return JSON.stringify(value);
+    if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+    const entries = Object.entries(value as Record<string, unknown>)
+        .filter(([, entry]) => entry !== undefined)
+        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
+    return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`).join(",")}}`;
+}
+async function manifestDigest(manifest: unknown): Promise<string> {
+    const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalJson(manifest))));
+    return Array.from(hash, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 /** Structural equality of canonical parser outputs, NOT a parser, compiler or
  * digest implementation. The original authenticated CP supplies the digest. */
@@ -214,16 +233,22 @@ export async function resolveApplicationRegistration(
             reader.releaseLock();
         }
     }
-    function receipt(
+    async function receipt(
         value: Record<string, unknown>,
-    ): Readonly<ApplicationRegistration> {
+    ): Promise<Readonly<ApplicationRegistration>> {
         const app = record(value.application),
             id = app.id,
             digest = app.manifest_digest;
         if (typeof id !== "string" || !nativeId.test(id) || id === nil)
             throw badReply();
-        if (nativeId.test(declaration.id) && id !== declaration.id)
+        // A changed manifest gets a new CP UUID. Accept it in place of a declared
+        // UUID only when every canonical check binds it to the manifest we sent;
+        // any mismatch then is a binding failure, never a silent rebind.
+        const superseded = nativeId.test(declaration.id) && id !== declaration.id;
+        const refuse = superseded ? binding : badReply;
+        if (superseded && digest !== (await manifestDigest(manifest).catch(() => null)))
             throw binding();
+        current();
         if (
             typeof digest !== "string" ||
             !/^[0-9a-f]{64}$/.test(digest) ||
@@ -233,7 +258,7 @@ export async function resolveApplicationRegistration(
             app.family_identity !== `bundle:${manifest.id}` ||
             app.distribution !== "web"
         )
-            throw badReply();
+            throw refuse();
         if (!app.application_declaration)
             throw mdbaseError(
                 "upgrade_required",
@@ -248,12 +273,13 @@ export async function resolveApplicationRegistration(
         } catch {
             throw badReply();
         }
-        if (!sameJson(manifest, returned)) throw badReply();
+        if (!sameJson(manifest, returned)) throw refuse();
         current();
         return Object.freeze({
             id,
             name: manifest.name,
             manifestDigest: digest,
+            ...(superseded ? { supersededDeclaredId: declaration.id } : {}),
         });
     }
     try {
@@ -286,7 +312,7 @@ export async function resolveApplicationRegistration(
                         "application_registration_refused",
                     );
                 }
-                return receipt(await decode(response));
+                return await receipt(await decode(response));
             } catch (error) {
                 void response?.body?.cancel().catch(() => {});
                 current();
