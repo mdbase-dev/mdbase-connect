@@ -11,5 +11,5 @@ export function TypeWorkspaceLoading() {
   </>;
 }
 export function OpeningScreen() {
-  return <SharedOpeningScreen app="editor" title="Opening collection" detail="Reading its notes and types" />;
+  return <SharedOpeningScreen app="editor" title="Opening collection" detail="Reading its notes and types" entrance="flock" />;
 }
