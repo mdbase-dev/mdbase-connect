@@ -70,12 +70,14 @@ async function currentJoiningCloudCopy(client: DatabaseConnection, collection: s
 
 export function registerCloudCopyRoutes(app: FastifyInstance, options: {
   db: DatabasePool; next: CloudCopyBootstrapOptions["next"]; emitter: PolicyEmitter;
-  log: Pick<LogServiceClient, "controlItemAt" | "head" | "mintToken">; fetchImpl?: typeof fetch; now?: () => number;
+  log: Pick<LogServiceClient, "controlItemAt" | "head" | "mintToken">;
+  /** Native registry floor for owner deletion; absent in tests that need none. */
+  deletionFloor?: Pick<LogServiceClient, "recordCollectionDeletion">; fetchImpl?: typeof fetch; now?: () => number;
   tailscaleAuth?: boolean;
 }): void {
   const deployments = options.next.cloudCopyBootstrap;
   if (!deployments) throw new Error("cloud-copy routes need MDBASE_NEXT_CLOUD_COPY_BOOTSTRAP=1");
-  registerCollectionNameRoutes(app, options.db);
+  registerCollectionNameRoutes(app, options.db, options.deletionFloor);
   const rootKeyId = Buffer.from(options.next.policyCert.root_key_id, "hex");
   const uuid = { type: "string", pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" };
   const proof = { device_id: uuid, challenge: { type: "string", pattern: "^[0-9a-f]{64}$" }, sig: { type: "string", pattern: "^[0-9a-f]{128}$" } };

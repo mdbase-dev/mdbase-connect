@@ -1,4 +1,4 @@
-# Synced collection names
+# Synced collection names and deletion
 
 Every next synced collection (cloud-copy or private/E2E) has one shared cleartext control-plane catalog label. Its UUID remains its identity. Names are display-only: they do not authorize content access, prove enrollment/readiness, change grants or keys, or rename local folders/files. Duplicate names are allowed. Device-local registry aliases are separate.
 
@@ -27,6 +27,48 @@ Only the current owning account may rename. The original ordinary desktop/CLI or
 Writes serialize per collection and **last committed rename wins**. There is no CAS, revision, request-ID replay ledger or automatic retry. A lost/uncertain response remains UNKNOWN: refresh the authorized catalog and show the observed current name. Equality with the requested name is not proof that that request committed. An already-inflight request can commit after another rename; commit order, not user-intent time, determines the label. Any subsequent mutation needs a fresh explicit user intent.
 
 The existing approved-collection list keeps exactly `collection_id`, `display_name`, `role`. Its cloud-copy label source is the canonical CP column rather than a live legacy/device alias; the approved installation list remains cloud-copy-only. Existing authorized application grant tokens/catalogs use the canonical label for both synced modes, without widening readers. Cached offline names are display-only, not authority or a committed offline rename.
+
+## Delete
+
+`DELETE /v1/next/collections/:id`
+
+```json
+{"confirm_name":"Research"}
+```
+
+Response (`Cache-Control: no-store`):
+
+```json
+{"collection_id":"11111111-1111-4111-8111-111111111111","deleted":true}
+```
+
+The same owner, credential, enrolment, installation-scope and migration-freeze checks as rename apply. `confirm_name`, after trimming, must equal the collection's current name (`New collection` when it has none). That check sits on top of the client's own confirmation. Deletion cannot be undone. In one collection-locked transaction it:
+
+- records the collection's permanent deletion fact, which the log-token, bootstrap, join, create, rename, sharing and hosted-route paths already refuse;
+- revokes every application grant on the collection for every account, with their access and refresh tokens, and queues each bound log grant's revoke;
+- removes every installation's approved scope for the collection, and revokes its native background grants;
+- writes a `next_collection.deleted` audit event.
+
+After the commit, the control plane sends the same deletion tuple to the native registry to record a permanent denial floor. That call records denial only. If it fails or its reply is lost, the outcome is unknown, while the control plane's denial stays in force.
+
+Deletion is a soft delete. The collection row, its log and any hosted copy are kept, unreachable, until a separate erasure stage. Nothing in this route claims the data was erased. There is no archive or undelete.
+
+Refusals use these codes:
+
+| Status | Code | Meaning |
+|---|---|---|
+| 400 | `invalid_request` | Missing identifier or `confirm_name`. |
+| 404 | `not_found` | Not this account's collection, already deleted, or the credential is not current. |
+| 409 | `collection_name_mismatch` | `confirm_name` does not match the current name. |
+| 403 | `not_owner` | The account is a member but not the owner. |
+| 409 | `not_member` | The account is no longer a current member. |
+| 403 | `installation_collection_not_approved` | The installation was not approved for this collection. |
+| 403 | `installation_not_current` / `identity_not_current` | The installation or device sign-in is not current. |
+| 409 | `device_revoked` | This device's access to the collection was revoked. |
+| 409 | `migration_frozen` | The account's upgrade is in progress. |
+| 503 | `busy` | Another change holds the collection; try again. |
+
+Each refusal carries a plain-language `error.message`.
 
 ## Validation and privacy
 

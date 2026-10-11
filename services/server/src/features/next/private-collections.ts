@@ -101,11 +101,13 @@ const exactPrivateEnrolment = (device: string, account: string, d: Device, sasCo
 
 export function registerPrivateCollectionRoutes(app: FastifyInstance, options: {
   db: DatabasePool; next: NextControlPlaneConfig; emitter: PolicyEmitter;
-  log: Pick<LogServiceClient, "controlItemAt" | "head" | "mintToken">; now?: () => number;
+  log: Pick<LogServiceClient, "controlItemAt" | "head" | "mintToken">;
+  /** Native registry floor for owner deletion; absent in tests that need none. */
+  deletionFloor?: Pick<LogServiceClient, "recordCollectionDeletion">; now?: () => number;
 }): void {
   if (!options.next.privateBootstrap) throw new Error("private collection routes need MDBASE_NEXT_PRIVATE_BOOTSTRAP=1");
   // With both bootstrap modes, the cloud-copy registrar mounts this shared route.
-  if (!options.next.cloudCopyBootstrap) registerCollectionNameRoutes(app, options.db);
+  if (!options.next.cloudCopyBootstrap) registerCollectionNameRoutes(app, options.db, options.deletionFloor);
   const rootKeyId = Buffer.from(options.next.policyCert.root_key_id, "hex");
   const uuid = { type: "string", pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" };
   const proof = { device_id: uuid, challenge: { type: "string", pattern: "^[0-9a-f]{64}$" }, sig: { type: "string", pattern: "^[0-9a-f]{128}$" } };

@@ -157,6 +157,7 @@ describePg("cloud-copy bootstrap", () => {
   const app = Fastify();
   let emitter:PolicyEmitter;
 
+  const floors: string[] = [];
   beforeAll(async () => {
     const url = new URL(testUrl!);
     if (!["localhost", "127.0.0.1", "::1"].includes(url.hostname) || !/test/i.test(url.pathname)) throw new Error("Bootstrap tests require dedicated local test Postgres.");
@@ -169,7 +170,8 @@ describePg("cloud-copy bootstrap", () => {
     await app.register(cookie);
     registerErrorHandler(app);
     registerConnectorPairingRoutes(app,{db,publicUrl:"https://connect.test",installationDevices:true,installationEnvironment:"lab",cloudCopy:{db,next:config,emitter,log:client,fetchImpl:deployments.fetch}});
-    registerCloudCopyRoutes(app, { db, next: config, emitter, log: client, fetchImpl: deployments.fetch });
+    registerCloudCopyRoutes(app, { db, next: config, emitter, log: client, fetchImpl: deployments.fetch,
+      deletionFloor: { recordCollectionDeletion: async fact => { floors.push(fact.collection); return { fact, generation: 1n }; } } });
     registerMigrationProviderRoutes(app, { db, token: "synthetic-migration-target-token", bootstrap: { next: config, emitter, log: client, fetchImpl: deployments.fetch } });
     registerCollectionLogTokenRoute(app,{db,log:client});
     registerPeopleRoutes(app,{db,issuer:"https://identity.test",publicUrl:"https://connect.test"});
@@ -778,6 +780,23 @@ describePg("cloud-copy bootstrap", () => {
     await db.query("DELETE FROM installation_collection_scopes WHERE connector_id=$1",[who.connector.id]);
     expect((await people(who,collection)).statusCode).toBe(403);expect((await refresh(who,collection)).statusCode).toBe(403);expect((await join(who,collection,await joinProof(who,collection))).statusCode).toBe(403);
     expect((await listed(who)).json().collections).toEqual([]); // historical enrolment never widens scope
+  });
+  it("owner deletion refuses log tokens, bootstrap and catalog for every member installation",async()=>{
+    const owner=await installation(randomUUID(),true),member=await installation(),collection=randomUUID();
+    expect((await create(owner,await proof(owner,collection))).statusCode).toBe(200);
+    await policy(collection,[{op:"member-set",account:member.connector.user_id,role:"editor"}]);await approveScope(member,collection);
+    expect((await join(member,collection,await joinProof(member,collection))).statusCode).toBe(200);
+    for (const who of [owner,member]) expect((await refresh(who,collection)).statusCode).toBe(200);
+    const remove=(who:Who)=>app.inject({method:"DELETE",url:`/v1/next/collections/${collection}`,headers:who.headers,payload:{confirm_name:"New collection"}});
+    expect((await remove(member)).statusCode).toBe(404);
+    const deleted=await remove(owner);expect(deleted.statusCode,deleted.body).toBe(200);
+    expect(floors).toContain(collection);
+    for (const who of [owner,member]) {
+      expect((await refresh(who,collection)).statusCode).not.toBe(200);
+      expect((await join(who,collection,await joinProof(who,collection))).statusCode).not.toBe(200);
+      expect((await listed(who)).json().collections).toEqual([]);
+    }
+    expect((await create(owner,await proof(owner,collection))).statusCode).not.toBe(200);
   });
   it("refuses pending additions/removals and suspension while admitting acknowledged ordinary members",async()=>{
     const owner=await identity(),who=await installation(),collection=randomUUID();expect((await serviceCreate(await session(owner.connector.user_id),collection)).statusCode).toBe(200);await approveScope(who,collection);
