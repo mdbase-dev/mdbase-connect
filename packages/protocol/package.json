@@ -28,17 +28,17 @@
   ],
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
-    "test": "node --test test/*.test.mjs && node ../../scripts/generate-change-events.mjs --check && node ../../scripts/generate-connect-problems.mjs --check && node ../../scripts/generate-operation-catalog.mjs --check && node ../../scripts/generate-application-capabilities.mjs --check",
+    "test": "node --test test/*.test.mjs && node ../../scripts/generate-manifest-validators.mjs --check && node ../../scripts/generate-change-events.mjs --check && node ../../scripts/generate-connect-problems.mjs --check && node ../../scripts/generate-operation-catalog.mjs --check && node ../../scripts/generate-application-capabilities.mjs --check",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@noble/hashes": "2.4.0",
-    "ajv": "^8.20.0",
-    "ajv-formats": "^3.0.1",
     "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "esbuild": "^0.28.1",
     "typescript": "^7.0.2"
   }
