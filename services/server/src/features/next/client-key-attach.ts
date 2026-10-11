@@ -23,7 +23,7 @@ import { ClientNoiseKeyError, verifiedClientNoiseKey } from "./client-key.js";
 import { queueNextGrantPolicy } from "./grant-policy.js";
 
 const DOMAIN = Buffer.from("mdbase-next client noise key attach v1\0", "utf8");
-export const ATTACH_MAX_LIFETIME_MS = 5 * 60_000;
+const ATTACH_MAX_LIFETIME_MS = 5 * 60_000;
 
 const field = (bytes: Uint8Array) => {
   const length = Buffer.alloc(4);

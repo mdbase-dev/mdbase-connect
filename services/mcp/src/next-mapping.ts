@@ -12,20 +12,20 @@ type Json = Record<string, unknown>;
 const plain = (value: unknown) => toPlain(value as Parameters<typeof toPlain>[0]);
 
 /** Spec 11 members the replica parses natively, passed through unchanged. */
-export const QUERY_PASSTHROUGH = [
+const QUERY_PASSTHROUGH = [
   "types", "timezone", "context", "projections", "where", "select", "order_by",
   "group_by", "summary_functions", "summaries", "limit", "offset", "cursor"
 ] as const;
 /** Legacy members with no native counterpart: hosted cursors are already snapshot
  * bound, and the replica returns a cursor whenever more rows remain. */
-export const QUERY_DROPPED = ["pagination", "snapshot"] as const;
+const QUERY_DROPPED = ["pagination", "snapshot"] as const;
 /** Members that select the output shape rather than the query. */
-export const QUERY_SHAPE = ["output", "include_body", "frontmatter_mode", "contract"] as const;
+const QUERY_SHAPE = ["output", "include_body", "frontmatter_mode", "contract"] as const;
 
-export type FrontmatterMode = "effective" | "persisted" | "both";
-export interface ContractSelector { id: string; version: string; type?: string }
+type FrontmatterMode = "effective" | "persisted" | "both";
+interface ContractSelector { id: string; version: string; type?: string }
 
-export type NextQueryPlan =
+type NextQueryPlan =
   | { kind: "query"; query: Json; include: Include; output?: "metadata"; mode: FrontmatterMode }
   | { kind: "contract"; contract: ContractSelector; pageSize?: number; cursor?: string; where?: string; includeBody: false };
 
@@ -81,7 +81,7 @@ function frontmatter(view: RecordView, mode: FrontmatterMode): Json {
 }
 
 /** Legacy `QueryRecord`. */
-export function queryRecord(view: RecordView, mode: FrontmatterMode = "effective"): Json {
+function queryRecord(view: RecordView, mode: FrontmatterMode = "effective"): Json {
   return {
     path: view.path, revision: view.revision, ...frontmatter(view, mode),
     ...(view.body === undefined ? {} : { body: view.body }),
@@ -189,7 +189,7 @@ export function collectionDescription(input: { collectionId: string; displayName
  * and the current cursor, and pages default to 100 events. `after` was an integer
  * cursor; next cursors are opaque replica view versions, so an integer `after`
  * answers `reset: true`. */
-export const CHANGES_DEFAULT_LIMIT = 100;
+const CHANGES_DEFAULT_LIMIT = 100;
 export function changesInput(input: { after?: number | string; limit?: number }): { cursor?: string; limit: number } {
   return {
     ...(input.after === undefined ? {} : { cursor: String(input.after) }),

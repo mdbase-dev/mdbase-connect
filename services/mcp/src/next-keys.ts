@@ -37,7 +37,7 @@ async function signP1363(grantKey: GrantKeyRecord, message: Buffer): Promise<str
   return Buffer.from(signature).toString("base64url");
 }
 
-export const noiseHandle = (grantKeyHandle: string) => `mcp-noise:${grantKeyHandle}`;
+const noiseHandle = (grantKeyHandle: string) => `mcp-noise:${grantKeyHandle}`;
 
 export class NoiseKeyStore {
   constructor(private readonly db: DatabasePool, private readonly secrets: SecretBox) {}
