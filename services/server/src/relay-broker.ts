@@ -36,6 +36,8 @@ export type RelayBrokerReply = {
   version: 1;
   ok: true;
   value?: unknown;
+  /** Optional reply detail; `device_presence` reports `old_connector_running`. */
+  detail?: Record<string, unknown>;
 } | {
   version: 1;
   ok: false;

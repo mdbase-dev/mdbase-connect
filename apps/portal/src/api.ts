@@ -104,7 +104,8 @@ export interface PendingAuthorization {
 export interface AvailableCollection {
   id: string;
   offer_id?: string;
-  kind?: "local" | "hosted";
+  /** `private`: an end-to-end encrypted collection; a device approves the grant. */
+  kind?: "local" | "hosted" | "private";
   connector_name: string;
   display_name: string;
   spec_version: string;

@@ -512,8 +512,11 @@ function SupportedApprovalForm({
   [allowedFiles, chosenFileActions, jointPermissions, operations, permissionGroups]);
   const existingOperations = useMemo(() => new Set(request.existing_access?.find((access) =>
     access.collection_id === collectionId)?.operations ?? []), [collectionId, request.existing_access]);
-  const setup = selected ? neededProvisions(request, selected) : [];
-  const configurationSetup = request.provisions.configuration ?? [];
+  // A Private collection is end-to-end encrypted: the application sets up its
+  // types itself once connected, and a device of the account approves access.
+  const privateCollection = selected?.kind === "private";
+  const setup = selected && !privateCollection ? neededProvisions(request, selected) : [];
+  const configurationSetup = privateCollection ? [] : request.provisions.configuration ?? [];
   const hasSetup = setup.length > 0 || configurationSetup.length > 0;
   const requestSetupSummary = [
     ...(request.provisions.type_packs.length > 0
@@ -676,7 +679,7 @@ function SupportedApprovalForm({
             operations: [...operations],
             ...(request.requirements.files ? { file_actions: [...fileActions] } : {}),
             ...(people ? { people_permissions: [...peoplePermissions] } : {}),
-            contract_setups: contractSetups
+            contract_setups: privateCollection ? [] : contractSetups
           })
         } : {})
       });
@@ -957,6 +960,7 @@ function SupportedApprovalForm({
           <p>{request.distribution === "portable"
             ? `${request.application_name} can use ${selected?.display_name ?? "this collection"} while it remains connected. You can revoke access in mdbase connect.`
             : `${request.application_name} can use ${selected?.display_name ?? "this collection"} until you revoke access in mdbase connect.`}</p>
+          {privateCollection && <p>This is a Private collection. The mdbase desktop app on one of your computers will ask you to approve {request.application_name} before it can open it.</p>}
           {higherImpactLabels.length > 0 && <p className="receipt-impact"><i aria-hidden="true" />Includes {higherImpactLabels.join(", ")}.</p>}
           {approvalBlocker && <p className="receipt-blocker" id={blockerId}>{approvalBlocker}</p>}
         </div>

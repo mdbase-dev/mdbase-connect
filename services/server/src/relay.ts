@@ -447,7 +447,7 @@ export class RelayHub {
       session_id: generation,
       capabilities: [...RELAY_CAPABILITIES],
       contract_support: CONNECT_CONTRACT_SUPPORT,
-      ...this.nextDevices?.welcome(socket, hello.capabilities)
+      ...this.nextDevices?.welcome(socket, hello.capabilities, hello.old_connector_running === true)
     }));
     socket.once("close", (code) => {
       reportConnectorRelayClose(code, session.ready);

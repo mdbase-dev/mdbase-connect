@@ -1,0 +1,9 @@
+{
+  "reason": "Web applications can be granted a Private (end-to-end encrypted) native collection. One server module owns native-grant discovery and relay admission (enrolled devices of the granting account, membership, presence) and is shared by the route, the installation collection list and pipe admission; one authorization module owns native consent (access resolution and the grant offer), parallel to the hosted approval service. Exports: the two modules' functions and types, the route availability type, the approval-terms query and its type. Imports reuse existing membership, enrolment, deletion and policy helpers rather than duplicating them. The device-signed grant approval remains the only admission authority on the replica.",
+  "growth": {
+    "productionFiles": 2,
+    "relativeImports": 26,
+    "typeScriptExportDeclarations": 12,
+    "services/server": 2
+  }
+}

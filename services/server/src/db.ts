@@ -118,6 +118,11 @@ export async function openDatabase(
         }
         return result;
       }
+      // pg-mem cannot execute the DO block that discovers the predecessor
+      // target CHECK. Memory keeps the two-way CHECK: native-collection grants
+      // are qualified by real PostgreSQL only.
+      const grantTarget = "-- mdbase:next-collection-grant-target:v1";
+      if (sql.includes(grantTarget)) return memory.public.many(sql.slice(0, sql.indexOf(grantTarget)));
       const grantTrigger = "-- mdbase:next-grant-revoke-trigger:v1";
       if (sql.includes(grantTrigger)) return memory.public.many(sql.slice(0, sql.indexOf(grantTrigger)));
       // pg-mem does not use PostgreSQL's automatic CHECK name. Name ONLY the

@@ -5,7 +5,7 @@ import { resolveActiveMembershipPolicy, type CollectionRole } from "./collection
 import { resolveCollectionSharingAuthority } from "./collection-sharing-authority.js";
 import { RequestValidationError } from "./platform/http-errors.js";
 
-export type CollectionAuthorityKind = "local" | "hosted";
+export type CollectionAuthorityKind = "local" | "hosted" | "native";
 
 export interface CollectionLocator {
   collectionId: string;
