@@ -4,21 +4,43 @@ Installation-device START resolves `installation.app_id` against `applications.i
 The registry supplies the display name; caller display names never authorize an
 application or determine its family. The request must include an exact `Origin`.
 
-`applications.installation_origins` is operator-owned JSON configuration:
+Apps self-register their bundled declaration through `/v1/apps/register`; no
+operator allowlist is required. A web app may pair from the exact origins of its
+registered `homepage` and `redirect_uris`. Opaque redirect origins (`null`) never
+authorize pairing. The approval screen shows the registered name and the exact
+requested origin, so the user can check where the request came from.
+
+For additional native or loopback locations, an app may include this optional
+field in its manifest (both supported contract versions):
 
 ```json
 {
-  "lab": {"app-runtime": ["https://lab.notes.example"], "mobile": ["capacitor://notes.example"]},
-  "production": {"app-runtime": ["https://notes.example"]}
+  "installation_origins": {
+    "lab": {"app-runtime": ["http://127.0.0.1:48218"], "mobile": ["capacitor://notes.example"]},
+    "production": {"mobile": ["capacitor://notes.example"]}
+  }
 }
 ```
 
-Only the configured deployment environment and requested device kind are used.
-Missing application, environment, kind or Origin is refused. The default `{}`
-does not authorize installations. Ordinary manifest registrations/upserts do not
-change this field; registered names/declaration families retain their existing
-registry semantics. Applications still need explicit account/device and
-collection consent. This configuration is not an application grant.
+Additional origins use only the configured deployment environment and requested
+device kind. They must be exact canonical HTTPS origins, loopback HTTP origins,
+or mobile `capacitor://` origins: no wildcards, paths, credentials, query or
+fragment. Scheme, host and port must match exactly. The field is validated by
+the shared manifest validator and persisted in `application_declaration`.
+It participates in the canonical digest: changing an origin creates a different
+registered application identity rather than widening an existing registration.
+A lookalike site submitting the original declaration cannot START from its own
+undeclared origin, even if it uses the same display name or declaration ID.
+
+Missing application, deployment environment, device kind or Origin is refused.
+Account/device approval and collection consent remain explicit and unchanged.
+Declared origins are not a collection grant or publisher authentication.
+
+The existing `applications.installation_origins` column retains extra origins
+for older registrations, including TaskNotes migration0066. Manifest upserts
+without the optional field preserve that data. It is no longer a prerequisite
+for self-registration: the default `{}` permits the app's declared web origins.
+No applied migration or persisted pairing/credential identity is rewritten.
 
 Explicit Remove access resolves the request's registered application family and
 revokes that family's grants and installation device access for the selected

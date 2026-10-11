@@ -33,6 +33,15 @@
         "description": "An HTTPS URI on the homepage origin or a private-use scheme derived from the application ID."
       }
     },
+    "installation_origins": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lab": { "$ref": "#/$defs/installationOriginPolicy" },
+        "staging": { "$ref": "#/$defs/installationOriginPolicy" },
+        "production": { "$ref": "#/$defs/installationOriginPolicy" }
+      }
+    },
     "requirements": { "$ref": "#/$defs/requirements" },
     "provisions": {
       "type": "object",
@@ -85,6 +94,20 @@
     }
   ],
   "$defs": {
+    "installationOriginPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "app-runtime": { "$ref": "#/$defs/installationOrigins" },
+        "mobile": { "$ref": "#/$defs/installationOrigins" }
+      }
+    },
+    "installationOrigins": {
+      "type": "array",
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 255, "format": "uri" }
+    },
     "identifier": {
       "type": "string",
       "minLength": 1,

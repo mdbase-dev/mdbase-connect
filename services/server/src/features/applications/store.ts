@@ -31,14 +31,17 @@ export interface InstallationApplication {
   family_identity: string;
   requirements: ApplicationRequirements;
   notifications: ApplicationNotifications;
-  /** Operator-owned exact origins by environment and device kind. Empty denies
-   * installation pairing; application manifest upserts cannot expand this. */
+  homepage: string;
+  redirect_uris: string[];
+  application_declaration: AppManifest | null;
+  /** Retained extra origins for pre-field registrations, including migration0066.
+   * New declarations carry their own installation_origins in the manifest. */
   installation_origins: Partial<Record<"lab" | "staging" | "production", Partial<Record<"app-runtime" | "mobile", string[]>>>>;
 }
 
 export async function findInstallationApplication(db: DatabaseQueryable, appId: string): Promise<InstallationApplication | undefined> {
   return (await db.query<InstallationApplication>(
-    "SELECT id,name,family_identity,installation_origins,requirements,notifications FROM applications WHERE id::text=$1",
+    "SELECT id,name,family_identity,homepage,redirect_uris,application_declaration,installation_origins,requirements,notifications FROM applications WHERE id::text=$1",
     [appId],
   )).rows[0];
 }

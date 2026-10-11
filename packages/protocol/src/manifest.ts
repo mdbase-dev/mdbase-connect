@@ -314,6 +314,24 @@ function validateManifestOrigins(
   allowLocal: boolean
 ): ManifestValidationIssue[] {
   const manifest = asObject(value);
+  for (const [environment, policy] of Object.entries(asObject(manifest.installation_origins))) {
+    for (const [kind, origins] of Object.entries(asObject(policy))) {
+      for (const [index, origin] of (origins as string[]).entries()) {
+        const path = `/installation_origins/${environment}/${kind}/${index}`;
+        try {
+          const url = new URL(origin);
+          const web = secureOrAllowedLocal(url, true) && url.origin === origin;
+          const native = kind === "mobile" && url.protocol === "capacitor:"
+            && /^[a-z0-9.-]+$/u.test(url.hostname) && `${url.protocol}//${url.host}` === origin;
+          if ((!web && !native) || origin.includes("*") || url.username || url.password || url.search || url.hash) {
+            return [issue(path, "origin", "must be an exact HTTPS, loopback HTTP or mobile capacitor origin without wildcards")];
+          }
+        } catch {
+          return [issue(path, "origin", "must be an exact installation origin")];
+        }
+      }
+    }
+  }
   if (manifest.distribution === "portable") {
     if (manifest.project_url === undefined) {
       return manifest.icon === undefined

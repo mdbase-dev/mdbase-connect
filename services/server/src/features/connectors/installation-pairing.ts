@@ -41,21 +41,28 @@ const strict = (): never => {
     "this account uses strict device approval; add this device from your desktop",
   );
 };
-/** Registry-owned installation authorization, not a caller URL/declaration.
- * Origin is mandatory (including native) and matches the exact environment/kind. */
+/** Resolve exact origins from the registered declaration, never caller metadata.
+ * Extra native/loopback origins retain their declared environment/device kind. */
 export async function installationApp(db: DatabaseQueryable, environment: string | undefined, appId: string, origin: string | undefined, kind: "app-runtime" | "mobile") {
-  if (!environment || !["lab", "staging", "production"].includes(environment) || !origin) return fail("installation_app_not_allowed", 403);
+  if (!environment || !["lab", "staging", "production"].includes(environment) || !origin || origin === "null" || origin.includes("*")) return fail("installation_app_not_allowed", 403);
   const app = await findInstallationApplication(db, appId);
   if (!app) return fail("installation_app_not_allowed", 403);
-  const config = app.installation_origins;
+  const declaration = app.application_declaration;
+  const config = declaration?.installation_origins ?? app.installation_origins;
   if (!config || typeof config !== "object" || Array.isArray(config)) throw new Error("Invalid registered installation origins.");
   const policy = Object.hasOwn(config, environment) ? config[environment as keyof typeof config] : undefined;
-  if (policy === undefined) return fail("installation_app_not_allowed", 403);
-  if (!policy || typeof policy !== "object" || Array.isArray(policy)) throw new Error("Invalid registered installation origin policy.");
-  const allowed = Object.hasOwn(policy, kind) ? policy[kind] : undefined;
-  if (allowed === undefined) return fail("installation_app_not_allowed", 403);
+  if (policy !== undefined && (!policy || typeof policy !== "object" || Array.isArray(policy))) throw new Error("Invalid registered installation origin policy.");
+  const allowed = policy && Object.hasOwn(policy, kind) ? policy[kind] : [];
   if (!Array.isArray(allowed) || allowed.some(value => typeof value !== "string" || !value.length)) throw new Error("Invalid registered installation origins.");
-  if (!allowed.includes(origin)) return fail("installation_app_not_allowed", 403);
+  const urls = declaration
+    ? declaration.distribution === "portable" ? [] : [declaration.homepage, ...declaration.redirect_uris]
+    : [app.homepage, ...(app.redirect_uris ?? [])];
+  const declaredOrigin = urls.some(value => {
+    if (!value) return false;
+    const declared = new URL(value);
+    return declared.origin !== "null" && declared.origin === origin;
+  });
+  if (!declaredOrigin && !allowed.includes(origin)) return fail("installation_app_not_allowed", 403);
   if (!app.name || !app.family_identity) throw new Error("Invalid registered installation identity.");
   const timerDeclaration = installationTimerDeclaration(app, { environment: environment as InstallationTimerBinding["environment"], app_origin: origin, kind });
   return Object.freeze({ id: app.id, origin, name: app.name, ...(timerDeclaration ? { timerDeclaration } : {}) });
