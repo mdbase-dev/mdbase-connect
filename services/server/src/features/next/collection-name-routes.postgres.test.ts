@@ -290,6 +290,9 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
     await db.query("UPDATE connectors SET user_id=$2 WHERE id=$1", [grant, f.user]);
     await db.query("UPDATE collections SET user_id=$2,local_id=$3 WHERE id=$1", [grant, f.user, f.collection]);
     await db.query("UPDATE grants SET user_id=$2,activated_at=now() WHERE id=$1", [grant, f.user]);
+    // And a native grant (a web app reaching the collection through a device).
+    const native = await localGrantFixture(db);
+    await db.query("UPDATE grants SET user_id=$2,collection_id=NULL,next_collection_id=$3,activated_at=now() WHERE id=$1", [native, f.user, f.collection]);
     const tokens = await issueApplicationTokens(db, undefined, grant);
     const catalog = () => app.inject({ method: "GET", url: "/v1/next/apps/collections", headers: { authorization: `Bearer ${tokens.access_token}` } });
     expect((await catalog()).statusCode).toBe(200);
@@ -307,7 +310,7 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
 
     expect((await catalog()).statusCode).toBe(401);
     await expect(issueApplicationTokens(db, undefined, grant)).rejects.toThrow();
-    expect((await db.query("SELECT revoked_at IS NOT NULL AS revoked FROM grants WHERE id=$1", [grant])).rows[0].revoked).toBe(true);
+    expect((await db.query("SELECT bool_and(revoked_at IS NOT NULL) AS revoked FROM grants WHERE id=ANY($1::uuid[])", [[grant, native]])).rows[0].revoked).toBe(true);
     expect((await db.query("SELECT bool_and(revoked_at IS NOT NULL) AS revoked FROM access_tokens WHERE grant_id=$1", [grant])).rows[0].revoked).toBe(true);
     expect((await db.query("SELECT 1 FROM installation_collection_scopes WHERE collection_id=$1", [f.collection])).rows).toEqual([]);
     expect((await db.query("SELECT 1 FROM next_background_grants WHERE collection_id=$1 AND revoked_at IS NULL", [f.collection])).rows).toEqual([]);
