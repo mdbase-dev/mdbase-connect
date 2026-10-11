@@ -40,6 +40,11 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
   acknowledgeAccess: (grant: string) => ipcRenderer.invoke("connect:access:ack", grant),
   denyAccess: (grant: string) => ipcRenderer.invoke("connect:access:deny", grant),
   revokeAccess: (grant: string) => ipcRenderer.invoke("connect:access:revoke", grant),
+  listPendingDevices: () => ipcRenderer.invoke("connect:devices:pending"),
+  approveDevice: (collectionId: string, device: string, code: string) =>
+    ipcRenderer.invoke("connect:devices:approve", { collectionId, device, code }),
+  rejectDevice: (collectionId: string, device: string) =>
+    ipcRenderer.invoke("connect:devices:reject", { collectionId, device }),
   getSettings: () => ipcRenderer.invoke("connect:settings:get"),
   setRequireApproval: (on: boolean) => ipcRenderer.invoke("connect:settings:require-approval", on),
   onNavigate: (listener: (route: string) => void) => {

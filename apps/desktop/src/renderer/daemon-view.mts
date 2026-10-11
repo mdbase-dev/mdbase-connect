@@ -176,6 +176,32 @@ export function capabilityLabel(capability: string): string {
   return labels[capability] ?? capability.replaceAll("_", " ");
 }
 
+/** What an app with these capabilities will be able to do, as one phrase. */
+export function capabilityPhrase(capabilities: readonly string[]): string {
+  const phrases: Record<string, string> = {
+    read: "read notes",
+    write: "create and edit notes",
+    delete: "delete notes",
+    schema: "change note types",
+    views: "save views",
+    files: "read and add files",
+    timers: "set reminders"
+  };
+  const parts = capabilities.map((capability) => phrases[capability] ?? capability.replaceAll("_", " "));
+  if (parts.length === 0) return "do nothing yet";
+  return parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
+
+/** A device kind (`desktop`, `mobile`, ...) as people say it. */
+export function deviceLabel(kind: string): string {
+  return kind === "desktop" ? "computer" : kind === "mobile" ? "phone" : "device";
+}
+
+/** A key fingerprint in groups of four, for comparing by eye. */
+export function groupedFingerprint(fingerprint: string): string {
+  return fingerprint.replace(/(.{4})(?=.)/gu, "$1 ");
+}
+
 interface ActivityLike {
   kind: string;
   collection_name?: string;

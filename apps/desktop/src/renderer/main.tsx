@@ -6,6 +6,7 @@ import { Dialog } from "@mdbase-dev/ui/dialog";
 import { AccessView } from "./access-view";
 import { ActivityView } from "./activity-view";
 import { CollectionsView } from "./collections-view";
+import { DeviceRequests } from "./device-requests";
 import { groupAccess, presentConnection } from "./daemon-view.mjs";
 import { consumePairingCompleted } from "./onboarding-state.mjs";
 import { SignInPanel } from "./sign-in-panel";
@@ -58,6 +59,7 @@ function App() {
   const [cloud, setCloud] = useState<CloudSetting | null>(null);
   const [collections, setCollections] = useState<DaemonCollection[]>([]);
   const [access, setAccess] = useState<AccessEntry[]>([]);
+  const [devices, setDevices] = useState<PendingDevice[]>([]);
   const [activity, setActivity] = useState<ActivityEntry[] | null>([]);
   const [requireApproval, setRequireApproval] = useState<boolean | null>(null);
   const [startup, setStartup] = useState<StartupSetting>({ enabled: false, available: false });
@@ -73,8 +75,9 @@ function App() {
   const refresh = useCallback(async () => {
     const mine = ++generation.current;
     const api = window.mdbaseConnect;
-    const [nextStatus, nextCloud, nextCollections, nextAccess, nextSettings, nextStartup, nextActivity] = await Promise.allSettled([
-      api.status(), api.getCloudConfig(), api.listCollections(), api.listAccess(), api.getSettings(), api.getLaunchAtLogin(), api.listActivity()
+    const [nextStatus, nextCloud, nextCollections, nextAccess, nextSettings, nextStartup, nextActivity, nextDevices] = await Promise.allSettled([
+      api.status(), api.getCloudConfig(), api.listCollections(), api.listAccess(), api.getSettings(), api.getLaunchAtLogin(), api.listActivity(),
+      api.listPendingDevices()
     ]);
     if (mine !== generation.current) return;
     setChecked(true);
@@ -83,6 +86,7 @@ function App() {
     if (nextCloud.status === "fulfilled") setCloud(nextCloud.value);
     if (nextCollections.status === "fulfilled") setCollections(nextCollections.value);
     if (nextAccess.status === "fulfilled") setAccess(nextAccess.value);
+    if (nextDevices.status === "fulfilled") setDevices(nextDevices.value);
     if (nextSettings.status === "fulfilled") setRequireApproval(nextSettings.value.require_grant_approval);
     if (nextStartup.status === "fulfilled") setStartup(nextStartup.value);
     setActivity(nextActivity.status === "fulfilled" ? nextActivity.value : null);
@@ -173,6 +177,7 @@ function App() {
         route={route}
         collectionCount={collections.length}
         pendingCount={groups.attention}
+        deviceCount={devices.length}
         connection={connection}
         computerName={`This computer · ${collections.length} ${plural(collections.length, "collection", "collections")}`}
         onSelect={selectRoute}
@@ -196,6 +201,9 @@ function App() {
           {cloud !== null && !cloud.configured && <div hidden={route === "activity"}>
             <SignInPanel cloud={cloud} reason={signInReason} onSignedIn={onSignedIn} />
           </div>}
+
+          {(route === "overview" || route === "collections") &&
+            <DeviceRequests devices={devices} names={names} busy={busy} onAct={act} onNotice={setNotice} />}
 
           {route === "overview" ? (
             <Overview

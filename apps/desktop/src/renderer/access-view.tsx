@@ -1,5 +1,6 @@
 import React from "react";
-import { capabilityLabel, type AccessGroups } from "./daemon-view.mjs";
+import { ApprovalPrompt } from "./approval-prompt";
+import { capabilityLabel, capabilityPhrase, groupedFingerprint, type AccessGroups } from "./daemon-view.mjs";
 import { Empty, SectionHeading } from "./ui-components";
 import { plural, relativeTime } from "./view-model";
 
@@ -13,6 +14,38 @@ function scope(entry: AccessEntry, names: Record<string, string>): string {
 
 function capabilities(entry: AccessEntry): string {
   return entry.capabilities.map(capabilityLabel).join(", ") || "No actions";
+}
+
+function AppRequest({ entry, names, busy, onAct, onNotice }: {
+  entry: AccessEntry;
+  names: Record<string, string>;
+  busy: boolean;
+  onAct: Act;
+  onNotice(value: string): void;
+}) {
+  const where = scope(entry, names);
+  const unknown = entry.terms_unavailable === true;
+  return <ApprovalPrompt
+    title={`${entry.app_name} wants to use ${where}`}
+    can={unknown
+      ? "mdbase could not fetch what this app is asking for, or which folders. Approval is possible once it can."
+      : `If you approve, ${entry.app_name} will be able to ${capabilityPhrase(entry.capabilities)} in ${where}, through this computer. You can revoke this at any time.`}
+    check={unknown ? null : entry.fingerprint
+      ? <><span>App key</span> <code>{groupedFingerprint(entry.fingerprint)}</code> <span>Check that {entry.app_name} shows the same key.</span></>
+      : <span>mdbase shows the app&apos;s key when you approve. Check that {entry.app_name} shows the same key.</span>}
+    note={`Asked ${relativeTime(new Date(entry.first_seen_ms).toISOString())}`}
+    approveLabel="Approve…"
+    approveDisabled={unknown}
+    busy={busy}
+    onDecline={() => void onAct(async () => {
+      await window.mdbaseConnect.denyAccess(entry.grant);
+      onNotice(`${entry.app_name} was declined.`);
+    })}
+    onApprove={() => void onAct(async () => {
+      await window.mdbaseConnect.approveAccess(entry.grant);
+      onNotice(`${entry.app_name} can now use ${where}.`);
+    })}
+  />;
 }
 
 export function AccessView({ groups, names, busy, requireApproval, onAct, onNotice }: {
@@ -30,28 +63,12 @@ export function AccessView({ groups, names, busy, requireApproval, onAct, onNoti
         {groups.pending.length === 0
           ? <Empty title="Nothing is waiting" text="Apps you approve in mdbase appear here before they can connect." />
           : <div className="request-list">{groups.pending.map((entry) => (
-            <article key={entry.grant} className="grant-review">
-              <div className="grant-identity">
-                <h3>{entry.app_name}</h3>
-                <small>Wants {capabilities(entry)} on {scope(entry, names)}</small>
-                <small>Asked {relativeTime(new Date(entry.first_seen_ms).toISOString())}</small>
-              </div>
-              <div className="decision-actions">
-                <button className="button secondary" disabled={busy} onClick={() => void onAct(async () => {
-                  await window.mdbaseConnect.denyAccess(entry.grant);
-                  onNotice(`${entry.app_name} was declined.`);
-                })}>Decline</button>
-                <button className="button primary" disabled={busy} onClick={() => void onAct(async () => {
-                  await window.mdbaseConnect.approveAccess(entry.grant);
-                  onNotice(`${entry.app_name} can now use ${scope(entry, names)}.`);
-                })}>Approve…</button>
-              </div>
-            </article>
+            <AppRequest key={entry.grant} entry={entry} names={names} busy={busy} onAct={onAct} onNotice={onNotice} />
           ))}</div>}
       </section>}
 
       <section>
-        <SectionHeading title="Connected apps" note="Apps that can use your local collections through this computer." count={groups.apps.length} />
+        <SectionHeading title="Connected apps" note="Apps that can use your collections through this computer." count={groups.apps.length} />
         {groups.apps.length === 0
           ? <Empty title="No apps connected" text="Open the app you want to use and connect it to mdbase. You approve it in your browser, and it appears here." />
           : <div className="application-access-list">{groups.apps.map((app) => (

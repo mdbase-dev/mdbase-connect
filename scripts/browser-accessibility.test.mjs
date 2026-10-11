@@ -960,10 +960,11 @@ async function auditDesktopRoutes() {
       listHolds: async () => [{ id: "h1", path: "Inbox.md", reason: "conflict", since: Date.parse("2026-01-01T00:00:00Z"), saves: 1, has_theirs: true, binary: false }],
       getCloudConfig: async () => ({ configured: true, serverUrl: "https://connect.mdbase.dev", online: true, pairing: null, lastError: null }),
       listAccess: async () => [
-        grant({ grant: "pending", app_id: "app-planner", app_name: "Planner", state: "pending_approval" }),
+        grant({ grant: "pending", app_id: "app-planner", app_name: "Planner", state: "pending_approval", source: "log", fingerprint: "3f9a0c41d27e8b56" }),
         grant({ grant: "new", acknowledged: false }),
         grant({ grant: "old", app_id: "app-old", app_name: "Old app", state: "revoked_locally" })
       ],
+      listPendingDevices: async () => [{ collection: collection.id, device: "d-laptop", account: "a", kind: "desktop", code: "482913" }],
       getSettings: async () => ({ require_grant_approval: true }),
       listActivity: async () => [{ at_ms: Date.parse("2026-01-01T00:00:00Z"), kind: "collection_added", collection_name: "Personal notes" }],
       getLaunchAtLogin: async () => ({ enabled: false, available: true }),

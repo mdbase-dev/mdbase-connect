@@ -31,17 +31,17 @@ after(async () => {
 
 // Lean UX checks for the daemon-backed renderer, on a mocked preload API. Pure
 // presentation (wording, grouping) is covered by test/daemon-view.test.mjs.
-async function desktop({ signedIn = true, collections = [], access = [] } = {}) {
+async function desktop({ signedIn = true, collections = [], access = [], devices = [] } = {}) {
   const page = await browser.newPage({ viewport: { width: 1060, height: 720 } });
   await page.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.clock.install();
-  await page.addInitScript(({ signedIn, collections, access }) => {
+  await page.addInitScript(({ signedIn, collections, access, devices }) => {
     const calls = [];
     const record = (name) => async (...args) => { calls.push([name, ...args]); return null; };
     const fixture = {
-      calls, collections, access, requireApproval: false,
+      calls, collections, access, devices, requireApproval: false,
       account: { configured: signedIn, serverUrl: signedIn ? "https://connect.example.test" : null, online: signedIn, pairing: null, lastError: null },
       status: () => ({ target: "isolated_profile", state_dir: "/disposable", account: { signed_in: fixture.account.configured, online: fixture.account.configured }, collections: fixture.collections })
     };
@@ -73,6 +73,9 @@ async function desktop({ signedIn = true, collections = [], access = [] } = {}) 
       acknowledgeAccess: record("acknowledgeAccess"),
       revokeAccess: record("revokeAccess"),
       denyAccess: record("denyAccess"),
+      listPendingDevices: async () => fixture.devices ?? [],
+      approveDevice: async (...args) => { calls.push(["approveDevice", ...args]); fixture.devices = []; return {}; },
+      rejectDevice: record("rejectDevice"),
       signIn: async () => {
         calls.push(["signIn"]);
         fixture.account = { ...fixture.account, pairing: "https://connect.example.test/pair/same-request", lastError: null };
@@ -81,7 +84,7 @@ async function desktop({ signedIn = true, collections = [], access = [] } = {}) 
       reopenSignIn: async () => {},
       onNavigate: () => () => {}, onUpdateStatus: () => () => {}
     };
-  }, { signedIn, collections, access });
+  }, { signedIn, collections, access, devices });
   await page.goto(origin);
   await page.getByText(signedIn ? "Connected securely" : "Not signed in", { exact: true }).first().waitFor();
   const calls = (name) => page.evaluate((name) => window.fixture.calls.filter((call) => call[0] === name).map((call) => call.slice(1)), name);
@@ -239,13 +242,19 @@ test("files held at the takeover are resolved one by one before sync turns on", 
 test("access: pending approvals, new-access notices and revocation reach the daemon", async () => {
   const access = [
     entry({ grant: "pending", app_id: "planner", app_name: "Planner", state: "pending_approval" }),
-    entry({ grant: "new", acknowledged: false })
+    entry({ grant: "new", acknowledged: false }),
+    entry({ grant: "log", collection: "c-private", app_name: "Journal", state: "pending_approval", source: "log", terms_unavailable: true })
   ];
-  const { page, errors, calls } = await desktop({ collections: [collection()], access });
+  const { page, errors, calls } = await desktop({ collections: [collection(), collection({ id: "c-private", name: "Diary", mode: "synced_e2e" })], access });
   try {
-    assert.equal(await nav(page, "App access").innerText(), "App access\n2");
+    assert.equal(await nav(page, "App access").innerText(), "App access\n3");
     await nav(page, "App access").click();
-    await page.getByRole("button", { name: "Approve…" }).click();
+    const journal = page.locator(".approval-prompt").filter({ hasText: "Journal wants to use Diary" });
+    await journal.getByText("mdbase could not fetch what this app is asking for", { exact: false }).waitFor();
+    assert.equal(await journal.getByRole("button", { name: "Approve…" }).isDisabled(), true);
+    const planner = page.locator(".approval-prompt").filter({ hasText: "Planner wants to use Notes" });
+    await planner.getByText("If you approve, Planner will be able to read notes and create and edit notes in Notes", { exact: false }).waitFor();
+    await planner.getByRole("button", { name: "Approve…" }).click();
     assert.deepEqual(await calls("approveAccess"), [["pending"]]);
     const reader = page.locator(".application-grant-group").filter({ hasText: "Reader" });
     await reader.getByText("Notes", { exact: true }).waitFor();
@@ -256,6 +265,31 @@ test("access: pending approvals, new-access notices and revocation reach the dae
     await page.getByText("Reader can no longer use Notes through this computer.", { exact: true }).waitFor();
     assert.deepEqual(await calls("revokeAccess"), [["new"]]);
     await screenshot(page, "access");
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("a new device is approved only with the code shown on its screen", async () => {
+  const { page, errors, calls } = await desktop({
+    collections: [collection({ id: "c-private", name: "Diary", mode: "synced_e2e" })],
+    devices: [{ collection: "c-private", device: "d-laptop", account: "a1", kind: "desktop", code: "482913" }]
+  });
+  try {
+    await nav(page, "Collections").click();
+    const prompt = page.locator(".approval-prompt").filter({ hasText: "A new computer wants to open Diary" });
+    await prompt.waitFor();
+    assert.equal(await nav(page, "Collections").innerText(), "Collections\n1");
+    const approve = prompt.getByRole("button", { name: "Approve" });
+    assert.equal(await approve.isDisabled(), true);
+    await prompt.getByLabel("Enter the six-digit code shown on the new computer").fill("482 914");
+    await approve.click();
+    await prompt.getByRole("alert").waitFor();
+    await screenshot(page, "device-approval");
+    assert.deepEqual(await calls("approveDevice"), []);
+    await prompt.getByLabel("Enter the six-digit code shown on the new computer").fill("482 913");
+    await approve.click();
+    await page.getByText("The new computer can now open Diary.", { exact: true }).waitFor();
+    assert.deepEqual(await calls("approveDevice"), [["c-private", "d-laptop", "482913"]]);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });

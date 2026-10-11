@@ -14,6 +14,7 @@ export function ProductSidebar({
   route,
   collectionCount,
   pendingCount,
+  deviceCount,
   connection,
   computerName,
   onSelect
@@ -21,6 +22,8 @@ export function ProductSidebar({
   route: Route;
   collectionCount: number;
   pendingCount: number;
+  /** New devices waiting to open a Private collection. */
+  deviceCount?: number;
   connection: { dot: ConnectionDotState; label: string };
   computerName: string;
   onSelect(route: Route): void;
@@ -29,7 +32,7 @@ export function ProductSidebar({
     <div className="product-sidebar-brand"><Brand /></div>
     <nav className="product-sidebar-nav" aria-label="mdbase connect navigation">
       <NavButton route="overview" current={route} label="Overview" onSelect={onSelect} />
-      <NavButton route="collections" current={route} label="Collections" count={collectionCount} onSelect={onSelect} />
+      <NavButton route="collections" current={route} label="Collections" count={collectionCount} attention={deviceCount} onSelect={onSelect} />
       <NavButton route="access" current={route} label="App access" attention={pendingCount} onSelect={onSelect} />
       <NavButton route="activity" current={route} label="Activity" onSelect={onSelect} />
     </nav>

@@ -68,6 +68,23 @@ interface AccessEntry {
   first_seen_ms: number;
   acknowledged: boolean;
   delisted?: boolean;
+  /** `log`: an app grant on a synced Private collection, approved into the collection's log. */
+  source?: "local" | "log";
+  /** The app key's fingerprint, to compare with the one the app shows. */
+  fingerprint?: string;
+  /** The app's requested access could not be fetched from mdbase; it cannot be approved yet. */
+  terms_unavailable?: boolean;
+}
+
+/** `device.pending` entry, with the collection it asks to open. */
+interface PendingDevice {
+  collection: string;
+  device: string;
+  account: string;
+  /** `desktop`, `mobile`, ... */
+  kind: string;
+  /** The six-digit code the new device shows. */
+  code: string;
 }
 
 /** `activity.list` entry: something that changed on this computer. */
@@ -156,6 +173,9 @@ interface Window {
     acknowledgeAccess(grant: string): Promise<AccessEntry>;
     denyAccess(grant: string): Promise<AccessEntry>;
     revokeAccess(grant: string): Promise<AccessEntry>;
+    listPendingDevices(): Promise<PendingDevice[]>;
+    approveDevice(collectionId: string, device: string, code: string): Promise<unknown>;
+    rejectDevice(collectionId: string, device: string): Promise<unknown>;
     getSettings(): Promise<{ require_grant_approval: boolean }>;
     setRequireApproval(on: boolean): Promise<{ require_grant_approval: boolean }>;
     onNavigate(listener: (route: string) => void): () => void;
