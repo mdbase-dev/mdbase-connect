@@ -123,6 +123,10 @@ export async function openDatabase(
       // are qualified by real PostgreSQL only.
       const grantTarget = "-- mdbase:next-collection-grant-target:v1";
       if (sql.includes(grantTarget)) return memory.public.many(sql.slice(0, sql.indexOf(grantTarget)));
+      // pg-mem lacks JSONB key-array subtraction / JSONPath. Keep the column
+      // and object CHECK only; origin-shape enforcement requires real PG tests.
+      const timerOriginShape = "-- mdbase:next-timer-legacy-import-origin-shape:v1";
+      if (sql.includes(timerOriginShape)) return memory.public.many(sql.slice(0, sql.indexOf(timerOriginShape)));
       const grantTrigger = "-- mdbase:next-grant-revoke-trigger:v1";
       if (sql.includes(grantTrigger)) return memory.public.many(sql.slice(0, sql.indexOf(grantTrigger)));
       // pg-mem does not use PostgreSQL's automatic CHECK name. Name ONLY the

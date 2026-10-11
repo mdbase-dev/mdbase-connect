@@ -44,6 +44,7 @@ suite("0074 legacy timer origin schema on isolated PostgreSQL", () => {
   });
   it("accepts content-free origin and exact nanoseconds alongside floored operational times", async () => {
     const origin = { namespace: "connect-hosted:test:notifications", id: "old", runtime_id: "scoped:old", generation: "7", status: "fired",
+      subject_sha256: "c".repeat(64), source_uri_sha256: "d".repeat(64),
       fire_at: "2030-01-01T00:00:00.123456789Z", record_sha256: "a".repeat(64),
       exact_timestamps: { fire_at: "2030-01-01T00:00:00.123456789Z", fired_at: "2030-01-01T00:00:01.999999999Z" } };
     await db.query(`INSERT INTO next_timers(grant_id,namespace,timer_id,criterion_id,fire_at,generation,status,fired_at,legacy_import_origin)
@@ -60,6 +61,35 @@ suite("0074 legacy timer origin schema on isolated PostgreSQL", () => {
       await expect(db.query("UPDATE next_timers SET legacy_import_origin=$1::jsonb WHERE timer_id='existing'", [value])).rejects.toMatchObject({ code: "23514", constraint: "next_timers_legacy_import_origin_object" });
     }
     expect((await db.query("SELECT legacy_import_origin FROM next_timers WHERE timer_id='existing'")).rows[0].legacy_import_origin).toBeNull();
+  });
+  it.each([
+    ["unknown data key", { data: null }],
+    ["raw subject", { subject: "private record name" }],
+    ["raw source URI", { source_uri: "private record path" }],
+    ["malformed digest", { record_sha256: "G".repeat(64) }],
+    ["short digest", { record_sha256: "a".repeat(63) }],
+    ["numeric digest", { record_sha256: 123 }],
+    ["null digest", { record_sha256: null }],
+    ["false erasure", { data_erased: false }],
+    ["null erasure", { data_erased: null }],
+    ["string erasure", { data_erased: "true" }],
+    ["unknown timestamp key", { exact_timestamps: { subject: "private" } }],
+    ["timestamp array", { exact_timestamps: [] }],
+    ["null timestamp object", { exact_timestamps: null }],
+    ["numeric timestamp", { exact_timestamps: { fire_at: 123 } }],
+    ["null timestamp", { exact_timestamps: { fired_at: null } }],
+    ["boolean timestamp", { exact_timestamps: { created_at: true } }],
+    ["invalid subject digest", { subject_sha256: "z".repeat(64) }],
+    ["null subject digest", { subject_sha256: null }],
+    ["invalid source digest", { source_uri_sha256: "a".repeat(63) }],
+    ["numeric source digest", { source_uri_sha256: 123 }],
+    ["oversized object", { id: "x".repeat(2048) }],
+    ["multibyte byte cap", { id: "🧠".repeat(512) }]
+  ] as const)("rejects %s", async (_name, fields) => {
+    await expect(db.query("UPDATE next_timers SET legacy_import_origin=$1::jsonb WHERE timer_id='existing'", [JSON.stringify({ record_sha256: "a".repeat(64), ...fields })])).rejects.toMatchObject({ code: "23514", constraint: "next_timers_legacy_import_origin_shape" });
+  });
+  it("requires the digest even when optional fields are absent", async () => {
+    await expect(db.query("UPDATE next_timers SET legacy_import_origin='{}'::jsonb WHERE timer_id='existing'")).rejects.toMatchObject({ code: "23514", constraint: "next_timers_legacy_import_origin_shape" });
   });
   it("allows erasure metadata without restoring data or changing the original digest", async () => {
     await db.query("UPDATE next_timers SET legacy_import_origin=$1::jsonb WHERE timer_id='existing'", [JSON.stringify({ record_sha256: "b".repeat(64) })]);
