@@ -5,6 +5,8 @@ await rm("dist/main", { recursive: true, force: true });
 await build({
   entryPoints: [
     "src/main/main.ts",
+    "src/main/approval-url.ts",
+    "src/main/ipc-trust.ts",
     "src/main/preload.ts",
     "src/main/agent-startup.ts",
     "src/main/boot-gate.ts",

@@ -11,7 +11,9 @@ import {
 } from "electron";
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { hostname } from "node:os";
+import { checkApprovalUrl } from "./approval-url";
 import { BootGate } from "./boot-gate";
 import { DaemonCli, type DaemonProfile } from "./daemon-cli";
 import { DaemonControlError } from "./daemon-client";
@@ -20,6 +22,7 @@ import { DaemonSession, healthLabel } from "./daemon-session";
 import { routeForDeepLink, shouldRegisterDeepLinks } from "./deep-link";
 import { buildEditorUrl } from "./editor-url";
 import { guardDesktopProcessOutput } from "./process-output";
+import { isTrustedSender } from "./ipc-trust";
 import { createTrayImage } from "./tray-image";
 import type { DesktopUpdateStatus } from "./update-coordinator";
 import { channelForVersion } from "./update-policy";
@@ -101,26 +104,33 @@ interface AccountInfo {
   pairing?: string;
   last_error?: string;
   server?: string;
+  environment?: string;
 }
 
 async function account(): Promise<AccountInfo> {
   return (await requestReadyAgent<{ account: AccountInfo }>("status")).account;
 }
 
-/** The control plane this computer is signed in to, for account and approval pages. */
+/** Pages are opened only on the control plane this daemon was built for. */
+function approvalPolicy(current: AccountInfo) {
+  return {
+    environment: current.environment,
+    allowLoopback: !app.isPackaged && runtime?.isolatedStateDir != null
+  };
+}
+
+/** The control plane this computer is signed in to, for the account page. */
 async function signedInServer(): Promise<string> {
   const current = await account();
   if (!current.signed_in || !current.server) throw new Error("Sign in to mdbase on this computer first.");
-  return validateServerUrl(current.server);
+  return checkApprovalUrl(current.server, approvalPolicy(current));
 }
 
-/** Only the daemon's own approval page is opened: HTTPS, or loopback in development. */
+/** Only the daemon's own approval page is opened, exactly as it was issued. */
 async function openSignInPage(uri: unknown): Promise<string> {
-  if (typeof uri !== "string" || !uri) throw new Error("mdbase did not return a sign-in page.");
-  const url = new URL(uri);
-  validateServerUrl(url.origin);
-  await shell.openExternal(url.href);
-  return url.href;
+  const href = checkApprovalUrl(uri, approvalPolicy(await account()));
+  await shell.openExternal(href);
+  return href;
 }
 
 function daemonSession(): DaemonSession {
@@ -153,9 +163,11 @@ async function requestReadyAgent<T>(
   return bootGate.request(() => daemonSession().request<T>(method, params ?? {}, timeoutMs));
 }
 
+const RENDERER_FILE = join(__dirname, "../renderer/index.html");
+const RENDERER_URL = pathToFileURL(RENDERER_FILE).href;
+
 function trustedIpc(event: Electron.IpcMainInvokeEvent): void {
-  const source = event.senderFrame?.url ?? "";
-  if (!source.startsWith("file://")) {
+  if (!isTrustedSender(event, mainWindow, RENDERER_URL)) {
     throw new Error("Untrusted renderer attempted to use the connector API.");
   }
 }
@@ -385,22 +397,6 @@ function asObject(value: unknown, message: string): Record<string, unknown> {
 
 
 
-function validateServerUrl(serverUrl: unknown): string {
-  if (typeof serverUrl !== "string") throw new Error("Enter a server address.");
-  const url = new URL(serverUrl.trim());
-  const localDevelopment = url.protocol === "http:" && ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
-  if (!url.hostname || (url.protocol !== "https:" && !localDevelopment)) {
-    throw new Error("Remote mdbase connect servers must use HTTPS.");
-  }
-  if (url.username || url.password) {
-    throw new Error("The mdbase connect server address must not contain credentials.");
-  }
-  url.pathname = "/";
-  url.search = "";
-  url.hash = "";
-  return url.href.replace(/\/$/, "");
-}
-
 function registerDeepLinks(): void {
   if (!shouldRegisterDeepLinks()) return;
   if (process.defaultApp && process.argv[1]) {
@@ -479,7 +475,7 @@ function createWindow(): void {
   mainWindow.webContents.on("will-navigate", (event, target) => {
     if (target !== mainWindow?.webContents.getURL()) event.preventDefault();
   });
-  mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
+  mainWindow.loadFile(RENDERER_FILE);
   mainWindow.once("ready-to-show", () => {
     if (!process.argv.includes("--hidden")) mainWindow?.show();
   });
