@@ -17,10 +17,11 @@ import "./styles.css";
 import "./environment-badge.css";
 
 const EditorApp = lazy(() => import("./App").then((module) => ({ default: module.App })));
-const ConnectWorkspace = lazy(() => import("./ConnectApp").then((module) => ({ default: module.ConnectApp })));
 
-const connectWorkspace = location.pathname === "/connect" || location.pathname.startsWith("/connect/");
-const demoCount = !connectWorkspace && (import.meta.env.DEV || import.meta.env.VITE_MDBASE_EDITOR_DEMO === "1")
+// The Connect console is retired: collections, access and accounts are managed
+// in mdbase itself. Old /connect links open the editor instead of a dead console.
+if (location.pathname === "/connect" || location.pathname.startsWith("/connect/")) history.replaceState(null, "", "/");
+const demoCount = (import.meta.env.DEV || import.meta.env.VITE_MDBASE_EDITOR_DEMO === "1")
   ? Number(new URL(location.href).searchParams.get("demo") ?? 0)
   : 0;
 const demoDelay = demoCount > 0
@@ -30,7 +31,7 @@ const demoGateway = demoCount > 0 ? new DemoCollectionGateway(demoCount, demoDel
 const environment = import.meta.env.VITE_MDBASE_ENV ?? (import.meta.env.DEV ? "lab" : "production");
 if (environment !== "lab" && environment !== "production") throw new Error("Invalid Editor application environment");
 // One SDK owner for the module lifetime; construction does no registration IO.
-const sdk = !connectWorkspace && !demoGateway ? createEditorApplication({ origin: location.origin, environment }) : null;
+const sdk = !demoGateway ? createEditorApplication({ origin: location.origin, environment }) : null;
 
 function EditorWorkspace() {
   const [context, setContext] = useState<{ surface: Surface; collectionName?: string }>({ surface: "notes" });
@@ -44,5 +45,5 @@ function EditorWorkspace() {
 }
 
 createRoot(document.getElementById("root")!).render(
-  <StrictMode><AppErrorBoundary product={connectWorkspace ? "mdbase connect" : "mdbase editor"}><EnvironmentBadge /><Suspense fallback={<div className="route-loading" aria-live="polite">Opening mdbase…</div>}>{connectWorkspace ? <ConnectWorkspace /> : <EditorWorkspace />}</Suspense></AppErrorBoundary></StrictMode>
+  <StrictMode><AppErrorBoundary product="mdbase editor"><EnvironmentBadge /><Suspense fallback={<div className="route-loading" aria-live="polite">Opening mdbase…</div>}><EditorWorkspace /></Suspense></AppErrorBoundary></StrictMode>
 );

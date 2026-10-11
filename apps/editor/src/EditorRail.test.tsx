@@ -14,7 +14,6 @@ function renderRail(links = false, mobileReturn = false) {
     notes={links ? { href: "/notes" } : { onClick: vi.fn() }}
     types={links ? { href: "/types" } : { onClick: onTypes }}
     settings={links ? { href: "/settings" } : { onClick: onSettings }}
-    connectHref="/connect"
     onSwitch={vi.fn()}
     mobileReturn={mobileReturn ? { href: "/note", label: "Return to note" } : undefined}
     footer={<p role="status">Connected</p>}
@@ -31,13 +30,13 @@ describe("collection rail regions", () => {
     expect(within(scroll).getByRole("button", { name: "Notes folder" })).toBeInTheDocument();
     expect(within(scroll).getByRole("button", { name: "New folder" })).toBeInTheDocument();
     expect(scroll).not.toContainElement(tools);
-    expect([...tools.children].map((element) => element.textContent)).toEqual(["Types1", "Settings", "Connect"]);
+    expect([...tools.children].map((element) => element.textContent)).toEqual(["Types1", "Settings"]);
     expect(within(tools).getByRole(links ? "link" : "button", { name: "Settings" })).toHaveClass("selected");
     expect(tools.parentElement).toBe(scroll.parentElement);
     expect(screen.getByRole("status").closest("footer")).toBe(tools.parentElement!.nextElementSibling);
   });
 
-  it("tabs through the scroll contents, then Types, Settings, and Connect in visual order", async () => {
+  it("tabs through the scroll contents, then Types and Settings in visual order", async () => {
     const user = userEvent.setup();
     const { onTypes, onSettings } = renderRail();
     const order = [
@@ -46,14 +45,12 @@ describe("collection rail regions", () => {
       screen.getByRole("button", { name: "Notes folder" }),
       screen.getByRole("button", { name: "New folder" }),
       screen.getByRole("button", { name: "Types (1)" }),
-      screen.getByRole("button", { name: "Settings" }),
-      screen.getByRole("link", { name: "Connect" })
+      screen.getByRole("button", { name: "Settings" })
     ];
     for (const target of order) {
       await user.tab();
       expect(target).toHaveFocus();
     }
-    await user.tab({ shift: true });
     expect(order[5]).toHaveFocus();
     await user.keyboard("{Enter}");
     expect(onSettings).toHaveBeenCalledOnce();
@@ -62,7 +59,7 @@ describe("collection rail regions", () => {
     expect(onTypes).toHaveBeenCalledOnce();
   });
 
-  it("keeps the mobile Connect return outside the scroll and tools regions", () => {
+  it("keeps the mobile return outside the scroll and tools regions", () => {
     const { container } = renderRail(true, true);
     const back = screen.getByRole("link", { name: "Return to note" });
     expect(back.parentElement).toBe(screen.getByRole("navigation"));

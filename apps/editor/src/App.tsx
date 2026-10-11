@@ -35,7 +35,7 @@ import { bulkFields, type BulkPropertyChange } from "./bulk-note-actions";
 import { useNoteActions } from "./use-note-actions";
 import { AttachmentTransfer, attachmentMenuItem, useAttachmentUpload } from "./AttachmentUpload";
 import { useCollectionBrowserEntries } from "./collection-browser";
-import { CollectionRail, connectWorkspaceUrl } from "./CollectionRail";
+import { CollectionRail } from "./CollectionRail";
 import { folderChangeMoves, type FolderChangePlan, type FolderChangeProgress, type FolderChangeResult } from "./folder-change";
 import { useFeedback } from "@mdbase-dev/ui/feedback";
 import { CollectionSwitcher, ConnectScreen } from "./ConnectionScreens";
@@ -2005,7 +2005,7 @@ export function App({ gateway, onFeedbackContext }: CollectionAppProps) {
         onCreate={canManageTypes ? beginTypeCreate : undefined}
         onInstall={installCatalogPack}
         onOpenType={selectType}
-        onRequestAccess={() => void connectCollection()}
+        onRequestAccess={connectionSummary?.missingCapabilities?.includes("definitions.manage") ? () => void connectCollection() : undefined}
         onReload={() => setContractCatalogReload((value) => value + 1)}
         onBack={() => returnToMobilePane("notes")}
       /> : <TypeInspector
@@ -2096,7 +2096,6 @@ export function App({ gateway, onFeedbackContext }: CollectionAppProps) {
     {shortcutsOpen && <ShortcutHelp onClose={() => setShortcutsOpen(false)} />}
     {movePaths && <MoveNoteDialog paths={movePaths} folders={[...new Set([...allNotes.map((note) => note.path), ...fileInventory.files.map((file) => file.path)].flatMap((path) => { const parts = path.split("/"); return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/")); }))].sort()} onMove={onMoveNotes} onClose={() => setMovePaths(undefined)} />}
     {collectionSwitcherOpen && <CollectionSwitcher
-      connectHref={connectWorkspaceUrl(description.collectionId)}
       activeCollectionId={connectionSummary?.collectionId}
       connections={sessionSnapshot.connections}
       displayName={description.displayName}

@@ -4,14 +4,13 @@ import {
   BracketsCurlyIcon as Braces,
   CaretDownIcon as ChevronDown,
   GearSixIcon as Settings,
-  LinkIcon as Link,
   NotebookIcon as Notebook,
   SidebarSimpleIcon as PanelLeftClose
 } from "./icons";
 import { Wordmark } from "@mdbase-dev/ui/brand";
 import { RailDropTarget, type RailDropActions } from "./RailDropTarget";
 
-export type EditorRailSurface = "notes" | "types" | "settings" | "connect";
+export type EditorRailSurface = "notes" | "types" | "settings";
 
 interface RailDestination {
   href?: string;
@@ -26,8 +25,6 @@ export function EditorRail({
   notes,
   types,
   settings,
-  connectHref,
-  connectCount,
   mobileReturn,
   onSwitch,
   onCollapse,
@@ -44,8 +41,6 @@ export function EditorRail({
   notes: RailDestination;
   types: RailDestination;
   settings: RailDestination;
-  connectHref: string;
-  connectCount?: number;
   mobileReturn?: RailDestination & { label: string };
   onSwitch: () => void;
   onCollapse?: () => void;
@@ -64,9 +59,6 @@ export function EditorRail({
       <div className="rail-bottom-group" role="group" aria-label="Collection tools">
         <RailLink destination={types} selected={surface === "types"} label="Types" ariaLabel={typeCount === undefined ? "Types" : `Types (${typeCount})`} icon={<Braces aria-hidden="true" />} count={typeCount} />
         <RailLink destination={settings} selected={surface === "settings"} label="Settings" icon={<Settings aria-hidden="true" />} />
-        <a className={`editor-rail-link${surface === "connect" ? " selected" : ""}`} href={connectHref} aria-current={surface === "connect" ? "page" : undefined}>
-          <span><Link aria-hidden="true" /><span className="rail-row-label">Connect</span></span>{connectCount !== undefined && <small>{connectCount}</small>}
-        </a>
       </div>
     </nav>
     <footer className="connection-footer">{footer}</footer>

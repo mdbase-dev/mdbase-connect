@@ -57,7 +57,6 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
     notes={{ onClick: () => onFilter(undefined) }}
     types={{ onClick: onTypes }}
     settings={{ onClick: onSettings }}
-    connectHref={connectWorkspaceUrl(collectionId)}
     onSwitch={onSwitch}
     onCollapse={onCollapse}
     onMoveNotes={onMoveNotes}
@@ -294,11 +293,3 @@ function facetCountLabel(kind: NoteFilter["kind"], item: { name: string; count: 
 }
 
 
-export function connectWorkspaceUrl(collectionId: string): string {
-  const url = new URL("/connect", location.origin);
-  const source = new URLSearchParams(location.search);
-  const server = source.get("server");
-  if (server) url.searchParams.set("server", server);
-  url.searchParams.set("collection", collectionId);
-  return `${url.pathname}${url.search}`;
-}

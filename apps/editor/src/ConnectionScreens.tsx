@@ -56,17 +56,16 @@ export function ConnectScreen({ notice, missingCapabilities = [], connections, o
         ? "Connect another collection"
         : "Choose a collection")} <ChevronRight aria-hidden="true" /></button>}
     {!fatal && <p className="mdbase-connect-footnote">{updatingAccess
-      ? "mdbase connect keeps the access you already approved and shows only what needs to be added."
-      : "You’ll continue to mdbase connect. Sign in if asked, choose a collection, and approve mdbase editor. You’ll return here automatically; your files stay where they are."}</p>}
+      ? "mdbase keeps the access you already approved and shows only what needs to be added."
+      : "You’ll continue to mdbase. Sign in if asked, choose a collection, and approve mdbase editor. You’ll return here automatically; your files stay where they are."}</p>}
     <FeedbackButton />
     <details className="compatibility-help"><summary>Collection not listed?</summary><p>The editor opens mdbase 0.3 collections. For an older collection, use mdbase to upgrade a copy, verify that copy, then choose it here. Your original files can stay untouched while you check the result.</p></details>
   </ConnectLayout>;
 }
-export function CollectionSwitcher({ activeCollectionId, connections, displayName, connectHref, onOpen, onConnect, onClose }: {
+export function CollectionSwitcher({ activeCollectionId, connections, displayName, onOpen, onConnect, onClose }: {
   activeCollectionId?: string;
   connections: ConnectionSummary[];
   displayName: string;
-  connectHref?: string;
   onOpen: (collectionId: string) => void;
   onConnect: () => void;
   onClose: () => void;
@@ -93,7 +92,6 @@ export function CollectionSwitcher({ activeCollectionId, connections, displayNam
     </div>
     <footer>
       <button className="collection-connect-another mdbase-button" onClick={onConnect}><FilePlus2 aria-hidden="true" />Connect another collection</button>
-      {connectHref && <a className="collection-connect-workspace mdbase-button is-tertiary" href={connectHref}>Connect workspace</a>}
       {feedback.enabled && <button className="mdbase-feedback-trigger mdbase-button is-tertiary" onClick={() => { onClose(); requestAnimationFrame(() => requestAnimationFrame(() => feedback.open())); }}><FeedbackBug wiggle={feedback.wiggle} />Send feedback</button>}
     </footer>
   </Dialog>;

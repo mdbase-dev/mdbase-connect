@@ -968,7 +968,7 @@ describe("mdbase editor", () => {
     render(<App gateway={disconnected} />);
     expect(await screen.findByRole("button", { name: "Choose a collection" })).toBeInTheDocument();
     expect(screen.getByText(/collection you want to write in/i)).toBeInTheDocument();
-    expect(await screen.findByText(/continue to mdbase connect/i)).toBeInTheDocument();
+    expect(await screen.findByText(/continue to mdbase\. sign in/i)).toBeInTheDocument();
     expect(screen.getByText(/return here automatically/i)).toBeInTheDocument();
     expect(screen.getByText(/your files stay where they are/i)).toBeInTheDocument();
     await userEvent.click(screen.getByText("Collection not listed?"));

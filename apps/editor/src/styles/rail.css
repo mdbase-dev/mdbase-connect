@@ -250,8 +250,6 @@
 .folder-change-dialog .confirm-dialog-copy { max-height: 65vh; overflow-y: auto; }
 .folder-change-dialog code { overflow-wrap: anywhere; }
 .folder-change-dialog p + p { margin-top: var(--space-2); }
-.collection-connect-workspace { display: inline-flex; padding: var(--space-2); color: var(--muted); text-decoration: none; border-radius: var(--radius-sm); }
-.collection-connect-workspace:hover { color: var(--ink); background: var(--hover); }
 
 /* Also used on the collection connection screen. */
 .compatibility-help { margin-top: var(--space-4); color: var(--faint); font-size: var(--font-size-caption); }
