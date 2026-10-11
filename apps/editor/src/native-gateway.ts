@@ -29,6 +29,7 @@ import type {
   EditorCollectionDescription,
   FileListRequest,
   FileReadRequest,
+  FileUploadRequest,
   MutationOperationOptions,
   NoteDocument,
   NoteObservation,
@@ -226,10 +227,38 @@ export class NativeEditorGateway implements CollectionGateway {
     return new Blob([bytes as BlobPart]);
   }
 
-  /** Stopped: the public grant exposes no file action set, so the editor cannot
-   * know an upload is authorized. `fileActions` never includes "add" natively. */
-  async uploadFile(_path: string, _source: MdbaseFileSource): Promise<CollectionFile> {
-    throw unsupported("Attaching files is not available for this collection in mdbase editor yet.");
+  async uploadFile(path: string, source: MdbaseFileSource, { signal, onProgress, transferId }: FileUploadRequest = {}): Promise<CollectionFile> {
+    const current = this.signal(signal);
+    // Unknown/older grants stay closed. The native replica checks folder scope
+    // and every actual operation; this UI gate never grants authority.
+    if (!this.connection.files.grant?.actions.includes("add"))
+      throw unsupported("Attaching files is not available for this collection in mdbase editor yet.");
+    const bytes = ArrayBuffer.isView(source)
+      ? new Uint8Array(source.buffer, source.byteOffset, source.byteLength) : source;
+    const write = await this.connection.files.upload(path, bytes, {
+      signal: current,
+      ...(transferId ? { transferId } : {}),
+      ...(onProgress ? { onProgress: (progress: wire.TransferProgress) => onProgress({ phase: "uploading", transferredBytes: progress.done, totalBytes: progress.total }) } : {})
+    });
+    try {
+      this.check();
+      const receipt = await this.client.awaitReceipt(write.mutationId, 30_000, current);
+      this.check();
+      if (receipt.mutation !== write.mutationId || receipt.state !== "confirmed" || receipt.status !== "applied"
+        || (receipt.conflicts?.length ?? 0) !== 0 || receipt.published === "publishing" || receipt.published === "not_published")
+        throw new MdbaseError({ code: "outcome_unknown", recovery: "resolve_outcome", message: "This file upload is not confirmed. Resolve its original operation before trying again." });
+      const file = await this.connection.files.get(write.fileId, current);
+      this.check();
+      if (file.id !== write.fileId || file.confirmedSeq !== receipt.seq || file.hold || file.state === "pending_upload")
+        throw new MdbaseError({ code: "outcome_unknown", recovery: "resolve_outcome", message: "The current file does not confirm this upload. Resolve its original operation before trying again." });
+      return collectionFile(file);
+    } catch (error) {
+      // Receipt/readback/currentness failures retain the same SDK mutation ID.
+      // Upload submission errors already carry it and are passed through above.
+      throw new MdbaseError(error instanceof MdbaseError ? error.toProblem()
+        : { code: "outcome_unknown", recovery: "resolve_outcome", message: "The file upload outcome is unknown." },
+      { mutationId: write.mutationId, cause: error });
+    }
   }
 
   create(input: CreateNoteInput): Promise<NoteDocument> { return this.records.create(input); }
@@ -316,8 +345,7 @@ export class NativeEditorGateway implements CollectionGateway {
 
   /** Never widened: only an explicit file action in the grant is reported. */
   private fileActions(): string[] {
-    const granted = new Set(this.client.hello.grant.capabilities);
-    return ["list", "read", "add"].filter((action) => granted.has(`files.${action}`));
+    return [...(this.connection.files.grant?.actions ?? [])];
   }
 
   private current(): boolean { return !this.disposed && this.connection.isCurrent(); }

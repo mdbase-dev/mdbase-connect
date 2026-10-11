@@ -35,8 +35,8 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     expect(snapshot).toMatchObject({ status: "ready", connection: { collectionId: f.replica.collection, displayName: "Notes" } });
     const permissions = editorPermissions(snapshot.status === "ready" ? snapshot.connection : null);
     expect(permissions).toMatchObject({ canCreateNotes: true, canEditNotes: true, canRenameNotes: true, canDeleteNotes: true });
-    // definitions.manage and files.write never widen into type install/manage or uploads.
-    expect(permissions).toMatchObject({ canManageTypes: false, canInstallTypes: false, canAttachFiles: false });
+    // Type setup remains separate; file actions come from the SDK file grant.
+    expect(permissions).toMatchObject({ canManageTypes: false, canInstallTypes: false, canAttachFiles: true });
     expect(f.gateway.selectConnection(f.replica.collection).collectionId).toBe(f.replica.collection);
     expect(() => f.gateway.selectConnection("another-collection")).toThrow("not ready");
     expect(await f.gateway.checkDirectAccess()).toBeNull();
@@ -46,8 +46,11 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     const f = await fixture({ capabilities: ["collection.read"], role: "viewer" });
     const snapshot = f.gateway.sessionSnapshot();
     expect(editorPermissions(snapshot.status === "ready" ? snapshot.connection : null)).toMatchObject({
-      canCreateNotes: false, canEditNotes: false, canRenameNotes: false, canDeleteNotes: false
+      canCreateNotes: false, canEditNotes: false, canRenameNotes: false, canDeleteNotes: false, canAttachFiles: false
     });
+    const upload = vi.spyOn(f.client.files, "upload");
+    await expect(f.gateway.uploadFile("attachments/a.txt", new Blob(["x"]))).rejects.toThrow("not available");
+    expect(upload).not.toHaveBeenCalled();
   });
 
   it("forwards authorize, choose and forget to the original application with the caller signal", async () => {
@@ -135,7 +138,7 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     expect(put).not.toHaveBeenCalled();
   });
 
-  it("lists and reads files by native digest and never uploads without a file grant", async () => {
+  it("lists and reads files by native digest and never uploads with an unknown file grant", async () => {
     const f = await fixture();
     await f.client.files.upload("attachments/a.txt", Uint8Array.from([104, 101, 108, 108, 111]));
     const upload = vi.spyOn(f.client.files, "upload");
@@ -144,8 +147,47 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     expect(files[0]!.contentDigest).toBe(files[0]!.revision);
     expect(await (await f.gateway.readFile(files[0]!)).text()).toBe("hello");
     await expect(f.gateway.readFile({ ...files[0]!, revision: "sha256:00" })).rejects.toThrow("changed");
+    vi.spyOn(f.client.files, "grant", "get").mockReturnValue(null);
+    const snapshot = f.gateway.sessionSnapshot();
+    expect(editorPermissions(snapshot.status === "ready" ? snapshot.connection : null).canAttachFiles).toBe(false);
     await expect(f.gateway.uploadFile("attachments/b.txt", new Blob(["x"]))).rejects.toThrow("not available");
     expect(upload).not.toHaveBeenCalled();
+  });
+
+  it("uploads through the original file grant and returns only confirmed original-file readback", async () => {
+    const f = await fixture({ fileFolders: ["attachments"] });
+    const upload = vi.spyOn(f.client.files, "upload");
+    const progress = vi.fn();
+    const transferId = crypto.randomUUID();
+    // A view must upload only its bytes, not the surrounding backing buffer.
+    const source = new Uint8Array([0, 104, 105, 0]).subarray(1, 3);
+    const file = await f.gateway.uploadFile("attachments/hi.txt", source, { transferId, onProgress: progress });
+    expect(upload).toHaveBeenCalledTimes(1);
+    expect(upload).toHaveBeenCalledWith("attachments/hi.txt", source, expect.objectContaining({ transferId, signal: expect.any(AbortSignal) }));
+    expect(file).toMatchObject({ path: "attachments/hi.txt", size: 2 });
+    expect(await (await f.gateway.readFile(file)).text()).toBe("hi");
+    expect(progress).toHaveBeenCalledWith(expect.objectContaining({ phase: "uploading", transferredBytes: 2, totalBytes: 2 }));
+
+    const get = f.client.files.get.bind(f.client.files);
+    const readback = vi.spyOn(f.client.files, "get").mockImplementationOnce(async (ref, signal) => {
+      const view = await get(ref, signal);
+      return { ...view, confirmedSeq: view.confirmedSeq + 1 };
+    });
+    const changed = await f.gateway.uploadFile("attachments/changed.txt", new Blob(["changed"])).catch((error: unknown) => error);
+    const secondWrite = await upload.mock.results[1]!.value;
+    expect(changed).toSatisfy((error: unknown) => isMdbaseError(error, "outcome_unknown") && error.mutationId === secondWrite.mutationId);
+
+    readback.mockImplementationOnce(async (ref, signal) => {
+      const view = await get(ref, signal);
+      f.current.mockReturnValue(false);
+      return view;
+    });
+    const retired = await f.gateway.uploadFile("attachments/later.txt", new Blob(["later"])).catch((error: unknown) => error);
+    const thirdWrite = await upload.mock.results[2]!.value;
+    expect(retired).toSatisfy((error: unknown) => isMdbaseError(error, "cancelled") && error.mutationId === thirdWrite.mutationId);
+    expect(upload).toHaveBeenCalledTimes(3);
+    // Retirement did not replay the upload; the SDK still owns its exact ID.
+    expect((await f.client.awaitReceipt(thirdWrite.mutationId)).mutation).toBe(thirdWrite.mutationId);
   });
 
   it("maps native preflight rewrites and broken links", async () => {
