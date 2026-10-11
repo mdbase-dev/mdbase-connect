@@ -60,6 +60,11 @@ export function runtimeBinary(stateDir: string, platform: NodeJS.Platform = proc
   return join(stateDir, "runtime", `mdbase${platform === "win32" ? ".exe" : ""}`);
 }
 
+/** The copy `service install` keeps when it replaces the runtime, for rollback. */
+export function previousRuntimeBinary(stateDir: string, platform: NodeJS.Platform = process.platform): string {
+  return join(stateDir, "runtime", `mdbase.previous${platform === "win32" ? ".exe" : ""}`);
+}
+
 export const execCli: CliExec = (binary, args, env, timeoutMs) => new Promise((resolve) => {
   execFile(binary, args, { env, timeout: timeoutMs, windowsHide: true, maxBuffer: 8 * 1024 * 1024 },
     (error, stdout) => {

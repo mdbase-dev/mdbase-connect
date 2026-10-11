@@ -1,8 +1,8 @@
 # Desktop update architecture
 
-The desktop application and its bundled unified `mdbase` CLI/daemon are one
-release unit. The updater never replaces the daemon independently and never
-mixes binaries downloaded from different releases.
+The desktop application and its bundled mdbase daemon (mdbn-daemon) are one
+release unit. The app update delivers the daemon: the updater never downloads a
+daemon on its own and never mixes binaries from different releases.
 
 ## Trust and discovery
 
@@ -72,68 +72,48 @@ the platform trust channel owns replacement:
 - Unsigned macOS or Windows previews can be announced as manual downloads, but
   are never automatic targets.
 
-## App and daemon transaction
+## App update, then daemon update
 
-When an eligible automatic macOS release is selected, the desktop:
+An app update replaces only the application. The installed mdbase daemon is an
+OS service (systemd user unit, LaunchAgent or scheduled task) that keeps serving
+collections while the app downloads, restarts and installs; **Restart and
+update** asks the platform updater to quit and install, through Electron's
+update-specific quit path so the tray's hide-on-close behavior cannot block it.
 
-1. copies the running CLI/daemon to a private last-known-good runtime;
-2. atomically records previous and target versions, service-registration state,
-   and the recovery runtime;
-3. downloads, verifies, and asks the native updater to stage the application
-   while the existing daemon remains available.
+Each app ships its daemon as `Resources/mdbase-next/mdbase[.exe]` with a
+`VERSION` file. On every launch the app runs `mdbase --json service status`:
 
-Only after the user chooses **Restart and update**, the desktop:
+- an equal or newer registered daemon is kept (started if stopped);
+- an older, absent or stale one is replaced with `mdbase --json service install`,
+  which stops the daemon, copies the bundled binary to
+  `<state>/runtime/mdbase`, keeps the replaced copy as `mdbase.previous`,
+  registers, starts and waits for readiness with the bundled version.
 
-1. stops the daemon through its normal versioned control path;
-2. marks the transaction `installing`;
-3. handles Electron's update-specific quit path so the tray's normal
-   hide-on-close behavior cannot block replacement;
-4. asks the platform updater to quit and install.
+If the swapped-in daemon does not become ready, the app runs
+`mdbase.previous --json service install`, which puts the previous copy back the
+same way and waits for its readiness. The failed bundled version is recorded as
+held back in the update state (`daemon_held_back`), Settings says that the
+previous version keeps running, and later launches of the same app keep it
+instead of retrying. The next app update (another bundled version) tries again;
+a release that fixes the daemon is the recovery path. The app rolls back only a
+completed swap: if `service install` failed before replacing the runtime, the
+registered daemon is left as it was and the failure is shown.
 
-On first launch of the target app, before ordinary daemon startup, it:
-
-1. marks the recorded transaction `recovering`;
-2. atomically copies the new bundled CLI into the private stable service
-   runtime and refreshes service registration, or starts a new transient daemon;
-3. waits for canonical daemon readiness and the exact target binary version;
-4. commits only after that health check. Ordinary daemon-backed IPC and update
-   checks share the boot gate and cannot bypass recovery.
-
-If replacement was interrupted, the old app restarts its daemon and clears the
-transaction only after verified health. A failed or thrown recovery retains the
-same transaction and preserved runtime for the next process, blocking further
-installation and ordinary startup rather than claiming restoration. If the target daemon cannot start or migrate state, the new app
-re-registers and health-checks the preserved previous daemon. Recovery remains
-visible so the user can install a higher signed recovery release. Startup uses
-that exact verified runtime's version and preserved CLI, not the newer app's
-version or bundled CLI. Canonical readiness and the desktop's local control
-protocol must both match; unrelated or incompatible daemons remain blocked.
-
-A healthy fallback is recorded in the existing `last_known_good_runtime` with
-`for_app_version` binding it to the app that required rollback before the
-transaction is cleared. Fresh launches reverify that selection rather than
-silently reinstalling the failing bundled daemon. A newer app does not inherit
-another app version's fallback selection. Subsequent automatic transactions
-keep `previous_version` as the app version and add `previous_runtime_version`
-when the preserved daemon differs; staging never overwrites the active fallback
-with the failing bundle. Legacy schema-1 records omit these optional bindings
-and retain their original coupled app/runtime version meaning.
+The app never starts, stops or replaces the old `mdbase connect` connector. On
+machines that still have it, the daemon's takeover stops it and moves its
+collections. Update state written by apps that managed the old connector
+(`transaction`, `last_known_good_runtime`) is dropped on read; the installation
+identifier and trusted-version floor are kept.
 
 The platform installer rolls back a failed application-bundle replacement.
 After a new signed app has launched, mdbase uses publish-forward app recovery
-instead of overwriting a running signed bundle. The preserved daemon keeps
-collection access available. This avoids a second privileged installer and
-keeps signing authority with macOS, Microsoft Store, or the Linux package
-manager.
+instead of overwriting a running signed bundle. This avoids a second privileged
+installer and keeps signing authority with macOS, Microsoft Store, or the Linux
+package manager.
 
 Update state uses user-only permissions and atomic rename; its in-memory cache
 publishes a transition only after the durable write succeeds. Invalid state is
-quarantined. A crash at every boundary is safe to retry: before stop there is
-no service impact; after stop the previous runtime is recorded; after
-replacement recovery is idempotent.
-
-See [exact recovery and health](exact-recovery-and-health.md) for readiness
-compatibility and the first-adoption gate for older rollback runtimes.
+quarantined.
 
 ## Release and recovery drills
 
@@ -141,9 +121,12 @@ Before enabling a non-zero automatic rollout:
 
 1. publish a signed test beta at 0%;
 2. use **Check now** on both macOS architectures;
-3. interrupt before daemon stop, after stop, and after platform replacement;
-4. verify an installed service is rebound away from the old app bundle;
-5. inject daemon startup failure and verify the last-known-good daemon returns;
+3. interrupt the download and the platform replacement, and verify the daemon
+   keeps serving throughout;
+4. verify the next launch installs the bundled daemon version as the service's
+   `<state>/runtime/mdbase`, keeping `mdbase.previous`;
+5. ship a bundled daemon that cannot become ready and verify `mdbase.previous`
+   returns, Settings reports it, and the next launch does not retry it;
 6. publish a higher signed release that blocks the bad version and verify it
    bypasses a 0% rollout;
 7. test Store and Linux actions without package-manager privilege in Electron;

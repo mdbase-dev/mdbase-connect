@@ -12,7 +12,7 @@
     "build:renderer": "vite build",
     "build:standalone": "pnpm --filter @mdbase-dev/connect-protocol --filter @mdbase-dev/ui build && pnpm build",
     "dev:daemon": "cargo build --manifest-path ../../Cargo.toml -p mdbase-cli",
-    "start": "pnpm dev:daemon && pnpm build:standalone && electron .",
+    "start": "pnpm build:standalone && electron .",
     "make": "pnpm dev:daemon --release && pnpm build:standalone && electron-forge make",
     "package": "pnpm dev:daemon --release && pnpm build:standalone && electron-forge package && node scripts/verify-package.mjs",
     "test": "pnpm build:main && pnpm ensure:electron && node --test test/*.test.mjs",

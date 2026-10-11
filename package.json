@@ -40,8 +40,6 @@
     "dev:environment:logs": "node scripts/dev-environment.mjs logs",
     "dev:desktop:isolated": "node scripts/isolated-desktop.mjs",
     "dev:desktop:fresh": "node scripts/isolated-desktop.mjs --fresh",
-    "dev:desktop:staging": "node scripts/isolated-desktop.mjs --staging",
-    "dev:desktop:environment": "node scripts/isolated-desktop.mjs",
     "deploy:dev": "node scripts/deploy-editor-dev.mjs",
     "deploy:lab": "node scripts/deploy-lab-local.mjs",
     "e2e": "node test/system/run.mjs --suite local",

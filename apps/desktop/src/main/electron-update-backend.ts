@@ -1,43 +1,17 @@
 import { autoUpdater, shell } from "electron";
-import { presentReadiness, type AgentReadiness } from "../shared/readiness";
-import { execFile as execFileCallback } from "node:child_process";
 import { createReadStream } from "node:fs";
-import {
-  chmod,
-  copyFile,
-  mkdir,
-  rename,
-  rm,
-  stat
-} from "node:fs/promises";
+import { chmod, mkdir, rm, stat } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
-import { homedir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import { findLatestRelease, verifyArtifactBundle } from "./release-source";
-import type {
-  PreparedDaemonHandoff,
-  RecoveryResult,
-  UpdateBackend
-} from "./update-coordinator";
+import type { UpdateBackend } from "./update-coordinator";
 import {
   channelForVersion,
   type UpdateManifest,
   type UpdateTarget
 } from "./update-policy";
-import type { PersistedUpdateState, UpdateTransaction } from "./update-state";
-import { LOCAL_CONTROL_PROTOCOL_VERSION } from "./control-client";
 import { artifactMatches, downloadArtifact, downloadBytes } from "./update-download";
-import { connectCliEnvironment, daemonCliArguments, type DaemonTarget } from "./daemon-lifecycle";
-import {
-  detectTakeover,
-  newDaemonStateDirectory,
-  readTakeoverRecord,
-  registeredFoldersFromRegistry,
-  type TakeoverState
-} from "./takeover-handoff";
 
-const execFile = promisify(execFileCallback);
 const AUTO_UPDATER_TIMEOUT_MS = 180_000;
 const MAX_BUNDLE_BYTES = 4 * 1024 * 1024;
 
@@ -47,12 +21,9 @@ export interface ElectronUpdateBackendOptions {
   platform: NodeJS.Platform;
   arch: string;
   userDataDirectory: string;
-  binaryPath: () => string;
-  stateDirectory: () => string;
-  target: () => DaemonTarget;
-  endpoint: () => string;
 }
 
+/** The app's release channel; see update-coordinator.ts. */
 export class ElectronUpdateBackend implements UpdateBackend {
   readonly currentVersion: string;
   readonly channel;
@@ -66,47 +37,6 @@ export class ElectronUpdateBackend implements UpdateBackend {
     this.channel = channelForVersion(options.currentVersion);
     this.platformKey = `${options.platform}-${options.arch}`;
     this.packaged = options.packaged;
-  }
-
-  async reconcileInstalledRuntime(
-    rollback?: PersistedUpdateState["last_known_good_runtime"],
-    options: { startStopped: boolean } = { startStopped: true }
-  ): Promise<string | null> {
-    if (!this.packaged && !rollback) return null;
-    if (rollback) {
-      this.assertPrivateRuntime(rollback.path, rollback.version);
-      if (!(await stat(rollback.path)).isFile()) throw new Error("The saved rollback runtime is missing.");
-    }
-    const binary = rollback?.path ?? this.options.binaryPath();
-    const version = rollback?.version ?? this.currentVersion;
-    const status = await this.daemonStatus(binary);
-    if (!options.startStopped && !status.running) {
-      return "The connector stays stopped while mdbase finishes moving your collections.";
-    }
-    if (runtimeNeedsReconciliation(status, version)) {
-      await this.activateRuntime(binary, version);
-    } else if (rollback && !status.ready) {
-      throw new Error("The saved rollback connector is not ready or uses an incompatible local protocol.");
-    } else if (!rollback) {
-      return null;
-    }
-    return rollback
-      ? `Using verified rollback connector ${version} with application ${this.currentVersion}.`
-      : `Connector runtime ${version} was reconciled with this application.`;
-  }
-
-  takeoverState(): Promise<TakeoverState> {
-    if (this.options.target() === "isolated_profile") {
-      return Promise.resolve({ state: "none", claimedFolders: [] });
-    }
-    return detectTakeover({
-      takeoverRecord: () => readTakeoverRecord(
-        newDaemonStateDirectory(this.options.platform, homedir()),
-        this.options.stateDirectory(),
-        this.options.platform
-      ),
-      registeredFolders: () => registeredFoldersFromRegistry(this.options.stateDirectory())
-    });
   }
 
   async findLatest(): Promise<{ manifest: UpdateManifest } | null> {
@@ -151,50 +81,6 @@ export class ElectronUpdateBackend implements UpdateBackend {
     await stageMacUpdate(archive, manifest, onProgress);
   }
 
-  async prepareDaemonHandoff(previousVersion: string, previousRuntime?: string | null): Promise<PreparedDaemonHandoff> {
-    if (previousRuntime) {
-      this.assertPrivateRuntime(previousRuntime, previousVersion);
-      if (!(await stat(previousRuntime)).isFile()) throw new Error("The saved rollback runtime is missing.");
-      const status = await this.daemonStatus(previousRuntime);
-      // Already preserved: never overwrite the active fallback with the newer bundle.
-      return { serviceInstalled: status.installed, previousRuntime };
-    }
-    if (previousVersion !== this.currentVersion) throw new Error("The previous runtime binary is missing.");
-    const status = await this.daemonStatus();
-    const source = this.options.binaryPath();
-    const directory = join(
-      this.options.userDataDirectory,
-      "updates",
-      "runtimes",
-      previousVersion
-    );
-    await mkdir(directory, { recursive: true, mode: 0o700 });
-    await chmod(directory, 0o700).catch(() => undefined);
-    const extension = this.options.platform === "win32" ? ".exe" : "";
-    const destination = join(directory, `mdbase${extension}`);
-    const temporary = `${destination}.tmp-${process.pid}`;
-    await rm(temporary, { force: true });
-    try {
-      await copyFile(source, temporary);
-      if (this.options.platform !== "win32") await chmod(temporary, 0o700);
-      await rm(destination, { force: true });
-      await rename(temporary, destination);
-    } catch (error) {
-      await rm(temporary, { force: true });
-      throw error;
-    }
-    return {
-      serviceInstalled: status.installed,
-      previousRuntime: destination
-    };
-  }
-
-  async stopDaemon(): Promise<void> {
-    const status = await this.daemonStatus();
-    if (!status.running) return;
-    await this.runCli(this.options.binaryPath(), ["stop"], 35_000);
-  }
-
   installAutomatic(): void {
     autoUpdater.quitAndInstall();
   }
@@ -202,164 +88,6 @@ export class ElectronUpdateBackend implements UpdateBackend {
   async openExternal(url: string): Promise<void> {
     await shell.openExternal(url);
   }
-
-  async recover(transaction: UpdateTransaction): Promise<RecoveryResult> {
-    const previousVersion = transaction.previous_runtime_version ?? transaction.previous_version;
-    if (transaction.previous_runtime) this.assertPrivateRuntime(transaction.previous_runtime, previousVersion);
-    const runningTarget = this.currentVersion === transaction.target_version;
-    const runningPrevious = this.currentVersion === transaction.previous_version;
-    if (runningTarget) {
-      try {
-        await this.activateRuntime(
-          this.options.binaryPath(),
-          transaction.target_version
-        );
-        return {
-          healthy: true,
-          rolledBack: false,
-          message: `Updated to version ${transaction.target_version}; the connector is healthy.`
-        };
-      } catch (error) {
-        if (!transaction.previous_runtime) throw error;
-        await this.activateRuntime(
-          transaction.previous_runtime,
-          previousVersion
-        );
-        return {
-          healthy: true,
-          rolledBack: true,
-          message:
-            `Version ${transaction.target_version} could not start its connector. ` +
-            `The last-known-good ${previousVersion} connector was restored.`
-        };
-      }
-    }
-    if (runningPrevious) {
-      await this.activateRuntime(
-        previousVersion === this.currentVersion ? this.options.binaryPath() : transaction.previous_runtime!,
-        previousVersion
-      );
-      return {
-        healthy: true,
-        rolledBack: true,
-        message: "The interrupted update was cancelled and the connector was restored."
-      };
-    }
-    if (!transaction.previous_runtime) {
-      throw new Error(
-        `The application is version ${this.currentVersion}, but the interrupted update expected ` +
-          `${transaction.previous_version} or ${transaction.target_version}.`
-      );
-    }
-    await this.activateRuntime(
-      transaction.previous_runtime,
-      previousVersion
-    );
-    return {
-      healthy: true,
-      rolledBack: true,
-      message: `An unexpected application version was detected; connector ${previousVersion} was restored.`
-    };
-  }
-
-  private assertPrivateRuntime(binary: string, version: string): void {
-    const extension = this.options.platform === "win32" ? ".exe" : "";
-    const expected = join(this.options.userDataDirectory, "updates", "runtimes", version, `mdbase${extension}`);
-    if (binary !== expected) throw new Error("The recorded recovery runtime is outside the private update directory.");
-  }
-
-  private async activateRuntime(
-    binary: string,
-    expectedVersion: string
-  ): Promise<void> {
-    await this.assertMayActivateRuntime();
-    const current = await this.daemonStatus(binary).catch(() => ({ running: false }));
-    if (current.running) {
-      await this.assertMayActivateRuntime();
-      await this.runCli(binary, ["stop"], 35_000).catch(() => undefined);
-    }
-    // Status/stop may have awaited native work while takeover started. Re-read
-    // immediately before installation; recovery must not revive the old daemon.
-    await this.assertMayActivateRuntime();
-    await this.runCli(binary, ["install"], 35_000);
-    const deadline = Date.now() + 30_000;
-    let lastVersion: string | undefined;
-    while (Date.now() < deadline) {
-      const status = await this.daemonStatus(binary).catch(() => null);
-      lastVersion = status?.binaryVersion;
-      if (status?.running && status.ready && status.binaryVersion === expectedVersion) return;
-      await new Promise((resolve) => setTimeout(resolve, 150));
-    }
-    throw new Error(
-      lastVersion
-        ? `Connector ${lastVersion} started when ${expectedVersion} was required.`
-        : `Connector ${expectedVersion} did not become healthy.`
-    );
-  }
-
-  private async assertMayActivateRuntime(): Promise<void> {
-    const takeover = await this.takeoverState();
-    if (takeover.state !== "none") {
-      throw new Error("The connector stays stopped while mdbase moves your collections.");
-    }
-  }
-
-  private async daemonStatus(binary = this.options.binaryPath()): Promise<{
-    installed: boolean;
-    running: boolean;
-    ready: boolean;
-    binaryVersion?: string;
-  }> {
-    const value = await this.runCli(binary, ["status"], 10_000);
-    const status = value.status as { readiness?: AgentReadiness; protocol_version?: number } | undefined;
-    return {
-      installed: value.installed === true,
-      running: value.running === true,
-      ready: status?.protocol_version === LOCAL_CONTROL_PROTOCOL_VERSION &&
-        presentReadiness(status.readiness).state === "ready",
-      binaryVersion:
-        value.status &&
-        typeof value.status === "object" &&
-        !Array.isArray(value.status) &&
-        typeof (value.status as Record<string, unknown>).binary_version === "string"
-          ? ((value.status as Record<string, unknown>).binary_version as string)
-          : undefined
-    };
-  }
-
-  private async runCli(
-    binary: string,
-    command: string[],
-    timeout: number
-  ): Promise<Record<string, unknown>> {
-    const { stdout } = await execFile(
-      binary,
-      daemonCliArguments(
-        this.options.target(),
-        this.options.stateDirectory(),
-        this.options.endpoint(),
-        command,
-        true
-      ),
-      {
-        env: connectCliEnvironment(this.packaged),
-        timeout,
-        windowsHide: true
-      }
-    );
-    const parsed = JSON.parse(stdout) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      throw new Error("The connector returned an invalid lifecycle result.");
-    }
-    return parsed as Record<string, unknown>;
-  }
-}
-
-export function runtimeNeedsReconciliation(
-  status: { installed: boolean; running: boolean; binaryVersion?: string },
-  currentVersion: string
-): boolean {
-  return !status.installed || !status.running || status.binaryVersion !== currentVersion;
 }
 
 async function stageMacUpdate(

@@ -9,13 +9,14 @@ import {
   shell,
   Tray
 } from "electron";
+import { existsSync } from "node:fs";
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { hostname } from "node:os";
 import { checkApprovalUrl } from "./approval-url";
 import { BootGate } from "./boot-gate";
-import { DaemonCli, type DaemonProfile } from "./daemon-cli";
+import { DaemonCli, previousRuntimeBinary, type DaemonProfile } from "./daemon-cli";
 import { DaemonControlError } from "./daemon-client";
 import { resolveDaemonRuntime, type DaemonRuntime } from "./daemon-runtime";
 import { DaemonSession, healthLabel } from "./daemon-session";
@@ -24,8 +25,10 @@ import { buildEditorUrl } from "./editor-url";
 import { guardDesktopProcessOutput } from "./process-output";
 import { isTrustedSender } from "./ipc-trust";
 import { createTrayImage } from "./tray-image";
-import type { DesktopUpdateStatus } from "./update-coordinator";
-import { channelForVersion } from "./update-policy";
+import { ElectronUpdateBackend } from "./electron-update-backend";
+import { ensureNextDaemon, nextDaemonRunner } from "./next-daemon";
+import { UpdateCoordinator } from "./update-coordinator";
+import { UpdateStateStore } from "./update-state";
 
 guardDesktopProcessOutput();
 
@@ -39,18 +42,8 @@ let session: DaemonSession | null = null;
 let cli: DaemonCli | null = null;
 let migrationRun: Promise<unknown> | null = null;
 let quitting = false;
-
-/** The app updater is re-pointed at the new daemon in a later step of the port. */
-function updateStatus(): DesktopUpdateStatus {
-  return {
-    phase: "unavailable",
-    current_version: app.getVersion(),
-    channel: channelForVersion(app.getVersion()),
-    message: "Updates are not available in this development build.",
-    can_check: false,
-    can_install: false
-  };
-}
+let updateStore: UpdateStateStore;
+let updater: UpdateCoordinator;
 
 const userDataOverride = process.env.MDBASE_CONNECT_USER_DATA_DIR;
 if (userDataOverride) app.setPath("userData", resolve(userDataOverride));
@@ -148,12 +141,46 @@ async function initializeDaemon(): Promise<void> {
   });
   profile = await DaemonCli.discover(runtime.binary, runtime.isolatedStateDir);
   cli = new DaemonCli(() => runtime!.binary, profile.target, profile.stateDir);
-  session = new DaemonSession({ profile, bundled: runtime, cli });
+  session = new DaemonSession({
+    profile,
+    bundled: runtime,
+    cli,
+    ensureInstalled: () => ensureBundledDaemon(runtime!, profile!)
+  });
   session.subscribe((state) => {
     localHealthLabel = healthLabel(state);
     refreshTrayMenu();
     mainWindow?.webContents.send("connect:daemon-state", state);
   });
+}
+
+/**
+ * The installed service runs the daemon this app bundles (the app update delivers
+ * it). A bundled version that does not become ready is rolled back to the previous
+ * copy and held back until a later app update brings another version.
+ */
+async function ensureBundledDaemon(bundled: DaemonRuntime, current: DaemonProfile): Promise<void> {
+  const held = (await updateStore.load()).daemon_held_back;
+  const previous = previousRuntimeBinary(current.stateDir);
+  const result = await ensureNextDaemon(nextDaemonRunner(bundled.binary), bundled.version, {
+    heldBack: held?.version,
+    rollback: existsSync(previous) ? nextDaemonRunner(previous) : null
+  });
+  if (result.outcome === "rolled_back") {
+    await updateStore.update((state) => {
+      state.daemon_held_back = { version: result.failed, reason: result.reason };
+    });
+  } else if (held && result.version === bundled.version) {
+    await updateStore.update((state) => {
+      delete state.daemon_held_back;
+    });
+  }
+  const holding = result.outcome === "rolled_back" ||
+    (held?.version === bundled.version && result.version !== bundled.version);
+  updater.setDaemonNotice(holding
+    ? `mdbase ${bundled.version} did not start on this computer, so mdbase ${result.version} keeps running. ` +
+      "The next app update tries again."
+    : null);
 }
 
 async function requestReadyAgent<T>(
@@ -200,15 +227,15 @@ function registerIpc(): void {
   });
   ipcMain.handle("connect:updates:status", (event) => {
     trustedIpc(event);
-    return updateStatus();
+    return updater.status();
   });
   ipcMain.handle("connect:updates:check", async (event) => {
     trustedIpc(event);
-    return updateStatus();
+    return bootGate.check(() => updater.check(true));
   });
   ipcMain.handle("connect:updates:install", async (event) => {
     trustedIpc(event);
-    throw new Error("Updates are not available in this development build.");
+    return bootGate.install(() => updater.install());
   });
   ipcMain.handle("connect:collections:list", async (event) => {
     trustedIpc(event);
@@ -519,11 +546,34 @@ function createTray(): void {
 
 function refreshTrayMenu(): void {
   if (!tray) return;
+  const update = updater?.status();
+  const updateReady = update?.can_install === true;
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: "Show mdbase connect", click: () => mainWindow?.show() },
       { type: "separator" },
       { label: localHealthLabel, enabled: false },
+      {
+        label: updateReady
+          ? update?.phase === "ready"
+            ? `Install ${update.target_version}`
+            : `Open ${update?.target_version ?? "update"}`
+          : "Check for updates",
+        enabled: update?.can_check === true || updateReady,
+        click: () => {
+          if (updateReady) {
+            void bootGate.install(() => updater.install()).catch((error) => {
+              dialog.showErrorBox(
+                "mdbase connect could not install the update",
+                error instanceof Error ? error.message : String(error)
+              );
+            });
+          } else {
+            void bootGate.check(() => updater.check(true))
+              .catch((error) => dialog.showErrorBox("Could not check for updates", String(error)));
+          }
+        }
+      },
       { type: "separator" },
       {
         label: "Quit mdbase connect",
@@ -543,6 +593,20 @@ app.whenReady().then(async () => {
     });
   });
   registerDeepLinks();
+  // The updater works even when the daemon does not: an app update is how a broken
+  // daemon gets fixed.
+  updateStore = new UpdateStateStore(join(app.getPath("userData"), "updates", "state.json"));
+  updater = new UpdateCoordinator(updateStore, new ElectronUpdateBackend({
+    currentVersion: app.getVersion(),
+    packaged: app.isPackaged,
+    platform: process.platform,
+    arch: process.arch,
+    userDataDirectory: app.getPath("userData")
+  }));
+  updater.subscribe((status) => {
+    mainWindow?.webContents.send("connect:update-status", status);
+    refreshTrayMenu();
+  });
   try {
     await initializeDaemon();
   } catch (error) {
@@ -554,7 +618,7 @@ app.whenReady().then(async () => {
     return;
   }
   bootGate = new BootGate({
-    initialize: async () => {},
+    initialize: async () => { await updater.initialize(); },
     start: async () => {
       // The daemon is an OS service (or an isolated development daemon); the app
       // attaches to it and never starts the old connector.
@@ -576,6 +640,10 @@ app.whenReady().then(async () => {
       error instanceof Error ? error.message : String(error)
     );
   }
+  const initialUpdateCheck = setTimeout(() => void bootGate.check(() => updater.check(false)).catch(() => undefined), 30_000);
+  initialUpdateCheck.unref();
+  const updateChecks = setInterval(() => void bootGate.check(() => updater.check(false)).catch(() => undefined), 6 * 60 * 60 * 1000);
+  updateChecks.unref();
 });
 
 app.on("second-instance", (_event, argv) => {

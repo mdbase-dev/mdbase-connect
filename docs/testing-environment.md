@@ -93,23 +93,25 @@ single starter collection, `/getting-started` provisions it, and the browser
 then opens that collection in the editor. Stop the editor with Ctrl+C; stop the
 persistent Connect stack separately with `pnpm dev:environment:down`.
 
-Launch Electron with a persistent development-only profile:
+Launch Electron against an mdbn-daemon build in a persistent development-only
+profile:
 
 ```bash
-pnpm dev:desktop:isolated
+MDBN_DAEMON_BIN=<absolute path to an mdbase-next build of mdbase> pnpm dev:desktop:isolated
 ```
 
-Enter `http://127.0.0.1:8787` in the pairing screen and approve the computer in
-the portal. This command uses `.tmp/desktop-development-profile`, not the
-platform's normal Electron profile. To delete only that development profile
+The profile lives in `.tmp/desktop-development-profile`: the daemon runs with
+its own `--state-dir` there (no OS service), with an empty old-connector home and
+a test secret store, and Electron keeps its data there too. Nothing from the
+installed mdbase service, keychain or normal Electron profile is used. Sign-in
+goes to the control plane the daemon build embeds. To delete only that profile
 before launching:
 
 ```bash
-pnpm dev:desktop:fresh
+MDBN_DAEMON_BIN=… pnpm dev:desktop:fresh
 ```
 
-Set `MDBASE_CONNECT_DEV_USER_DATA` when a named profile is useful for a
-particular application or scenario.
+Set `MDBASE_CONNECT_DEV_USER_DATA` to use another profile directory.
 
 ## Automated black-box suites
 

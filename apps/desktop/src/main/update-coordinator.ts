@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import {
   compareVersions,
   decideUpdate,
@@ -6,14 +5,17 @@ import {
   type UpdateManifest,
   type UpdateTarget
 } from "./update-policy";
-import { UpdateStateStore, type PersistedUpdateState, type UpdateTransaction } from "./update-state";
-import {
-  TAKEOVER_COMPLETE_MESSAGE,
-  TAKEOVER_STARTED_MESSAGE,
-  takeoverOwnsDaemon,
-  type TakeoverPhase,
-  type TakeoverState
-} from "./takeover-handoff";
+import { UpdateStateStore } from "./update-state";
+
+/**
+ * Updating the app through its existing release channel: the signed GitHub release
+ * manifest (sigstore provenance), staged by Squirrel.Mac on macOS, opened in the
+ * Microsoft Store or the package download elsewhere.
+ *
+ * The app update is also the daemon update: the new app bundles its mdbase daemon and
+ * installs it at the next launch (`next-daemon.ts`). Nothing here starts, stops or
+ * rolls back a daemon, and an app update never waits for one.
+ */
 
 export type UpdatePhase =
   | "unavailable"
@@ -24,9 +26,7 @@ export type UpdatePhase =
   | "ready"
   | "external"
   | "installing"
-  | "recovery"
-  | "failed"
-  | "handed_off";
+  | "failed";
 
 export interface DesktopUpdateStatus {
   phase: UpdatePhase;
@@ -39,17 +39,8 @@ export interface DesktopUpdateStatus {
   release_url?: string;
   can_check: boolean;
   can_install: boolean;
-}
-
-export interface PreparedDaemonHandoff {
-  serviceInstalled: boolean;
-  previousRuntime: string | null;
-}
-
-export interface RecoveryResult {
-  healthy: boolean;
-  rolledBack: boolean;
-  message: string;
+  /** The bundled daemon was rolled back to the previous version; why. */
+  daemon_notice?: string;
 }
 
 export interface UpdateBackend {
@@ -57,43 +48,26 @@ export interface UpdateBackend {
   channel: UpdateChannel;
   platformKey: string;
   packaged: boolean;
-  /**
-   * Bring the old daemon to this app's version. With `startStopped: false`
-   * it leaves a stopped daemon stopped (a postponed takeover stopped it).
-   */
-  reconcileInstalledRuntime(
-    rollback?: PersistedUpdateState["last_known_good_runtime"],
-    options?: { startStopped: boolean }
-  ): Promise<string | null>;
   findLatest(): Promise<{ manifest: UpdateManifest } | null>;
   stageAutomatic(
     manifest: UpdateManifest,
     target: UpdateTarget,
     onProgress: (progress: number) => void
   ): Promise<void>;
-  prepareDaemonHandoff(previousVersion: string, previousRuntime?: string | null): Promise<PreparedDaemonHandoff>;
-  stopDaemon(): Promise<void>;
   installAutomatic(): void;
   openExternal(url: string): Promise<void>;
-  recover(transaction: UpdateTransaction): Promise<RecoveryResult>;
-  /** Whether the mdbase-next daemon has taken over this app's collections. */
-  takeoverState(): Promise<TakeoverState>;
 }
 
+const NEWEST = "This is the newest release on the selected channel.";
+
 export class UpdateCoordinator {
-  private readonly store: UpdateStateStore;
-  private readonly backend: UpdateBackend;
   private readonly listeners = new Set<(status: DesktopUpdateStatus) => void>();
   private statusValue: DesktopUpdateStatus;
   private candidate: { manifest: UpdateManifest; target: UpdateTarget } | null = null;
   private operation: Promise<DesktopUpdateStatus> | null = null;
-  private runtime: { version: string; binary: string | null };
-  private takeover: TakeoverPhase | "unknown" = "none";
+  private daemonNotice: string | null = null;
 
-  constructor(store: UpdateStateStore, backend: UpdateBackend) {
-    this.store = store;
-    this.backend = backend;
-    this.runtime = { version: backend.currentVersion, binary: null };
+  constructor(private readonly store: UpdateStateStore, private readonly backend: UpdateBackend) {
     this.statusValue = {
       phase: backend.packaged ? "idle" : "unavailable",
       current_version: backend.currentVersion,
@@ -110,19 +84,6 @@ export class UpdateCoordinator {
     return structuredClone(this.statusValue);
   }
 
-  daemonStartupRuntime(): { version: string; binary: string | null } {
-    return { ...this.runtime };
-  }
-
-  daemonStartupBlock(): string | null {
-    if (takeoverOwnsDaemon(this.takeover)) return takeoverMessage(this.takeover);
-    if (this.takeover === "unknown") return "Could not verify the mdbase takeover state.";
-    const status = this.statusValue;
-    return status.phase === "installing" ||
-      (["recovery", "failed"].includes(status.phase) && !status.can_check)
-      ? status.message : null;
-  }
-
   subscribe(listener: (status: DesktopUpdateStatus) => void): () => void {
     this.listeners.add(listener);
     listener(this.status());
@@ -130,165 +91,23 @@ export class UpdateCoordinator {
   }
 
   async initialize(): Promise<DesktopUpdateStatus> {
-    // Read the takeover state before anything that can start the old daemon.
-    // Once mdbase-next has started a takeover, never reconcile, recover,
-    // reinstall or restart the old daemon; a failed read is a failed boot.
-    const takeover = await this.refreshTakeover();
     const persisted = await this.store.load();
-    if (persisted.last_checked_at) {
-      this.statusValue.checked_at = persisted.last_checked_at;
-    }
-    if (takeover === "unknown") return this.status();
-    if (takeoverOwnsDaemon(takeover)) {
-      if (persisted.transaction) {
-        // This app updated itself; its daemon belongs to mdbase now, so there
-        // is no connector to activate or roll back.
-        await this.store.update((state) => {
-          delete state.transaction;
-        });
-      }
-      return this.status();
-    }
-    if (!persisted.transaction) {
-      try {
-        const rollback = persisted.last_known_good_runtime?.for_app_version === this.backend.currentVersion
-          ? persisted.last_known_good_runtime : undefined;
-        const message = await this.backend.reconcileInstalledRuntime(rollback, {
-          startStopped: takeover !== "postponed"
-        });
-        if (rollback) this.runtime = { version: rollback.version, binary: rollback.path };
-        if (message) {
-          this.setStatus({
-            phase: "idle",
-            message,
-            can_check: this.backend.packaged,
-            can_install: false
-          });
-        }
-      } catch (error) {
-        this.setStatus({
-          phase: "failed",
-          message: `Could not reconcile the installed connector runtime: ${message(error)}`,
-          can_check: false,
-          can_install: false
-        });
-      }
-      return this.status();
-    }
-    if (takeover === "postponed") {
-      // Recovery restarts the connector; wait until mdbase retries its takeover.
-      this.setStatus({
-        phase: "recovery",
-        target_version: persisted.transaction.target_version,
-        message: "Waiting for mdbase to finish moving your collections before restarting the connector.",
-        can_check: false,
-        can_install: false
-      });
-      return this.status();
-    }
-    this.setStatus({
-      phase: "recovery",
-      target_version: persisted.transaction.target_version,
-      message: "Finishing the application and connector upgrade.",
-      can_check: false,
-      can_install: false
-    });
-    await this.store.update((state) => {
-      if (state.transaction) state.transaction.phase = "recovering";
-    });
-    try {
-      const result = await this.backend.recover(persisted.transaction);
-      await this.completeRecovery(persisted.transaction, result);
-      this.setStatus({
-        phase: result.rolledBack ? "recovery" : "idle",
-        message: result.message,
-        can_check: this.backend.packaged,
-        can_install: false
-      });
-    } catch (error) {
-      await this.store.update((state) => {
-        if (state.transaction) state.transaction.error = message(error);
-      });
-      this.setStatus({
-        phase: "failed",
-        target_version: persisted.transaction.target_version,
-        message: `Update recovery needs attention: ${message(error)}`,
-        can_check: false,
-        can_install: false
-      });
-    }
+    if (persisted.last_checked_at) this.statusValue.checked_at = persisted.last_checked_at;
     return this.status();
   }
 
-  /**
-   * Whether this app may start a stopped old daemon now. The new daemon can
-   * take over while this app runs, so every launch asks again.
-   */
-  async mayStartOldDaemon(): Promise<boolean> {
-    return (await this.refreshTakeover()) === "none";
-  }
-
-  takeoverPhase(): TakeoverPhase | "unknown" {
-    return this.takeover;
-  }
-
-  /**
-   * Re-read the takeover record and folder claims. A takeover only moves
-   * forward within one process: once started, a later read can upgrade it to
-   * complete but never return the old daemon to this app. A failed read
-   * blocks starting the old daemon instead of risking a second daemon.
-   */
-  private async refreshTakeover(): Promise<TakeoverPhase | "unknown"> {
-    let observed: TakeoverState;
-    try {
-      observed = await this.backend.takeoverState();
-    } catch (error) {
-      if (takeoverOwnsDaemon(this.takeover)) return this.takeover;
-      this.takeover = "unknown";
-      this.setStatus({
-        phase: "failed",
-        message: `Could not check whether mdbase has taken over this computer's collections: ${message(error)}`,
-        can_check: false,
-        can_install: false
-      });
-      return this.takeover;
-    }
-    const next = this.takeover === "complete" ||
-      (takeoverOwnsDaemon(this.takeover) && !takeoverOwnsDaemon(observed.state))
-      ? this.takeover
-      : observed.state;
-    const changed = next !== this.takeover;
-    this.takeover = next;
-    if (changed && takeoverOwnsDaemon(next)) this.showHandedOff();
-    return next;
-  }
-
-  private showHandedOff(): void {
-    this.setStatus({
-      phase: "handed_off",
-      message: takeoverMessage(this.takeover),
-      // The bridge keeps updating itself, so later fixes still reach it.
-      can_check: this.backend.packaged,
-      can_install: false
-    });
+  /** Shown with the update status while a rolled-back daemon version is held back. */
+  setDaemonNotice(notice: string | null): void {
+    this.daemonNotice = notice;
+    this.setStatus({ phase: this.statusValue.phase, message: this.statusValue.message });
   }
 
   check(manual = false): Promise<DesktopUpdateStatus> {
     if (this.operation) return this.operation;
-    if (
-      ["ready", "installing"].includes(this.statusValue.phase) ||
-      !this.statusValue.can_check
-    ) {
+    if (["ready", "installing"].includes(this.statusValue.phase) || !this.statusValue.can_check) {
       return Promise.resolve(this.status());
     }
-    this.operation = this.checkExclusive(manual).then((status) => {
-      // Keep the takeover notice visible once an uneventful check finishes.
-      if (takeoverOwnsDaemon(this.takeover) && status.phase === "idle") {
-        this.showHandedOff();
-        return this.status();
-      }
-      return status;
-    }).finally(() => {
+    this.operation = this.checkExclusive(manual).finally(() => {
       this.operation = null;
     });
     return this.operation;
@@ -304,63 +123,23 @@ export class UpdateCoordinator {
       return this.status();
     }
     if (this.statusValue.phase !== "ready") throw new Error("The update has not finished downloading.");
-    const persisted = await this.store.load();
-    const transaction = persisted.transaction;
-    if (
-      !transaction ||
-      transaction.phase !== "prepared" ||
-      transaction.target_version !== this.candidate.manifest.version ||
-      transaction.previous_version !== this.backend.currentVersion
-    ) {
-      throw new Error("The prepared app and daemon update transaction is missing.");
-    }
+    const target = this.candidate.manifest.version;
     this.setStatus({
       phase: "installing",
-      target_version: transaction.target_version,
-      message: "Stopping the connector and installing the update.",
+      target_version: target,
+      message: `Installing version ${target}. mdbase keeps syncing while the app restarts.`,
       can_check: false,
       can_install: false
     });
     try {
-      const takeover = await this.refreshTakeover();
-      if (takeover === "unknown" || takeover === "postponed") {
-        throw new Error("Waiting for a verified mdbase takeover state before installing the app update.");
-      }
-      if (!takeoverOwnsDaemon(takeover)) await this.backend.stopDaemon();
-      await this.store.update((state) => {
-        if (state.transaction?.id === transaction.id) state.transaction.phase = "installing";
-      });
       this.backend.installAutomatic();
     } catch (error) {
-      await this.store.update((state) => {
-        if (state.transaction?.id === transaction.id) state.transaction.phase = "recovering";
-      });
-      const takeover = await this.refreshTakeover();
-      if (takeover !== "none") {
-        // App-update failure must never restore the old daemon into a takeover.
-        this.candidate = null;
-        if (takeoverOwnsDaemon(takeover)) this.showHandedOff();
-        throw error;
-      }
-      const recovered = await this.backend.recover(transaction).then(async (result) => {
-        await this.completeRecovery(transaction, result);
-        return result;
-      }).catch((recoveryError) => ({
-        healthy: false,
-        rolledBack: false,
-        message: message(recoveryError)
-      }));
-      if (!recovered.healthy) await this.store.update((state) => {
-        if (state.transaction?.id === transaction.id) state.transaction.error = recovered.message;
-      });
       this.candidate = null;
       this.setStatus({
         phase: "failed",
-        target_version: transaction.target_version,
-        message: recovered.healthy
-          ? `The update was not installed; the connector was restored. ${message(error)}`
-          : `The update was not installed: ${message(error)}. Connector recovery needs attention: ${recovered.message}`,
-        can_check: recovered.healthy && this.backend.packaged,
+        target_version: target,
+        message: `The update was not installed: ${message(error)}`,
+        can_check: true,
         can_install: false
       });
       throw error;
@@ -368,37 +147,8 @@ export class UpdateCoordinator {
     return this.status();
   }
 
-  private async completeRecovery(transaction: UpdateTransaction, result: RecoveryResult): Promise<void> {
-    if (!result.healthy) throw new Error(result.message);
-    const previousVersion = transaction.previous_runtime_version ?? transaction.previous_version;
-    const version = result.rolledBack ? previousVersion : transaction.target_version;
-    const binary = result.rolledBack && version !== this.backend.currentVersion ? transaction.previous_runtime : null;
-    if (version !== this.backend.currentVersion && !binary) {
-      throw new Error("Verified recovery did not preserve its runtime binary.");
-    }
-    await this.store.update((state) => {
-      if (state.transaction?.id !== transaction.id) throw new Error("Update recovery transaction changed.");
-      if (!result.rolledBack) {
-        state.highest_trusted_version = maxVersion(state.highest_trusted_version, transaction.target_version);
-      }
-      if (transaction.previous_runtime) {
-        state.last_known_good_runtime = {
-          version: previousVersion,
-          path: transaction.previous_runtime,
-          ...(result.rolledBack && version !== this.backend.currentVersion
-            ? { for_app_version: this.backend.currentVersion } : {})
-        };
-      } else if (state.last_known_good_runtime) {
-        delete state.last_known_good_runtime.for_app_version;
-      }
-      delete state.transaction;
-    });
-    this.runtime = { version, binary };
-  }
-
   private async checkExclusive(manual: boolean): Promise<DesktopUpdateStatus> {
     if (!this.backend.packaged) return this.status();
-    if (await this.refreshTakeover() === "unknown") return this.status();
     this.setStatus({
       phase: "checking",
       message: "Checking the signed release channel…",
@@ -409,22 +159,25 @@ export class UpdateCoordinator {
       const persisted = await this.store.load();
       const release = await this.backend.findLatest();
       const checkedAt = new Date().toISOString();
+      await this.store.update((state) => {
+        state.last_checked_at = checkedAt;
+        if (release) {
+          state.highest_trusted_version = maxVersion(state.highest_trusted_version, release.manifest.version);
+        }
+      });
+      this.candidate = null;
       if (!release) {
-        await this.store.update((state) => {
-          state.last_checked_at = checkedAt;
-        });
-        this.candidate = null;
-        this.setStatus({
-          phase: "idle",
-          checked_at: checkedAt,
-          message: "This is the newest release on the selected channel.",
-          can_check: true,
-          can_install: false
-        });
+        this.setStatus({ phase: "idle", checked_at: checkedAt, message: NEWEST, can_check: true, can_install: false });
         return this.status();
       }
+      const manifest = release.manifest;
+      const found = {
+        checked_at: checkedAt,
+        target_version: manifest.version,
+        release_url: manifest.release_url
+      };
       const decision = decideUpdate({
-        manifest: release.manifest,
+        manifest,
         currentVersion: this.backend.currentVersion,
         channel: this.backend.channel,
         platformKey: this.backend.platformKey,
@@ -432,121 +185,48 @@ export class UpdateCoordinator {
         highestTrustedVersion: persisted.highest_trusted_version,
         manual
       });
-      await this.store.update((state) => {
-        state.last_checked_at = checkedAt;
-        state.highest_trusted_version = maxVersion(
-          state.highest_trusted_version,
-          release.manifest.version
-        );
-      });
       if (decision.kind === "blocked") {
-        this.candidate = null;
-        this.setStatus({
-          phase: "failed",
-          checked_at: checkedAt,
-          target_version: release.manifest.version,
-          release_url: release.manifest.release_url,
-          message: decision.reason,
-          can_check: true,
-          can_install: false
-        });
+        this.setStatus({ phase: "failed", ...found, message: decision.reason, can_check: true, can_install: false });
       } else if (decision.kind === "current") {
-        this.candidate = null;
-        this.setStatus({
-          phase: "idle",
-          checked_at: checkedAt,
-          message: "This is the newest release on the selected channel.",
-          can_check: true,
-          can_install: false
-        });
+        this.setStatus({ phase: "idle", checked_at: checkedAt, message: NEWEST, can_check: true, can_install: false });
       } else if (decision.kind === "deferred") {
-        this.candidate = null;
         this.setStatus({
           phase: "deferred",
-          checked_at: checkedAt,
-          target_version: release.manifest.version,
-          release_url: release.manifest.release_url,
-          message: `Version ${release.manifest.version} is rolling out to ${decision.percentage}% of installations.`,
+          ...found,
+          message: `Version ${manifest.version} is rolling out to ${decision.percentage}% of installations.`,
           can_check: true,
           can_install: false
         });
+      } else if (decision.target.mode === "automatic") {
+        const downloading = `Downloading verified version ${manifest.version}…`;
+        this.setStatus({ phase: "downloading", ...found, progress: 0, message: downloading, can_check: false, can_install: false });
+        await this.backend.stageAutomatic(manifest, decision.target, (progress) => {
+          this.setStatus({ phase: "downloading", progress, message: downloading, can_check: false, can_install: false });
+        });
+        this.candidate = { manifest, target: decision.target };
+        this.setStatus({
+          phase: "ready",
+          ...found,
+          progress: 100,
+          message: `Version ${manifest.version} is verified and ready to install.`,
+          can_check: true,
+          can_install: true
+        });
       } else {
-        this.candidate = { manifest: release.manifest, target: decision.target };
-        if (decision.target.mode === "automatic") {
-          this.setStatus({
-            phase: "downloading",
-            checked_at: checkedAt,
-            target_version: release.manifest.version,
-            release_url: release.manifest.release_url,
-            progress: 0,
-            message: `Downloading verified version ${release.manifest.version}…`,
-            can_check: false,
-            can_install: false
-          });
-          const takeover = await this.refreshTakeover();
-          if (takeover === "unknown" || takeover === "postponed") {
-            throw new Error("Waiting for a verified mdbase takeover state before preparing the app update.");
-          }
-          const handoff = takeoverOwnsDaemon(takeover)
-            ? { serviceInstalled: false, previousRuntime: null }
-            : await this.backend.prepareDaemonHandoff(this.runtime.version, this.runtime.binary);
-          const transaction: UpdateTransaction = {
-            id: randomUUID(),
-            phase: "prepared",
-            target_version: release.manifest.version,
-            previous_version: this.backend.currentVersion,
-            service_installed: handoff.serviceInstalled,
-            previous_runtime: handoff.previousRuntime,
-            ...(this.runtime.version !== this.backend.currentVersion
-              ? { previous_runtime_version: this.runtime.version } : {}),
-            started_at: new Date().toISOString()
-          };
-          await this.store.update((state) => {
-            state.transaction = transaction;
-          });
-          try {
-            await this.backend.stageAutomatic(release.manifest, decision.target, (progress) => {
-              this.setStatus({
-                phase: "downloading",
-                progress,
-                message: `Downloading verified version ${release.manifest.version}…`,
-                can_check: false,
-                can_install: false
-              });
-            });
-          } catch (error) {
-            await this.store.update((state) => {
-              if (state.transaction?.id === transaction.id) delete state.transaction;
-            });
-            throw error;
-          }
-          this.setStatus({
-            phase: "ready",
-            checked_at: checkedAt,
-            target_version: release.manifest.version,
-            release_url: release.manifest.release_url,
-            progress: 100,
-            message: `Version ${release.manifest.version} is verified and ready to install.`,
-            can_check: true,
-            can_install: true
-          });
-        } else {
-          this.setStatus({
-            phase: "external",
-            checked_at: checkedAt,
-            target_version: release.manifest.version,
-            release_url: release.manifest.release_url,
-            message:
-              decision.target.mode === "store"
-                ? `Version ${release.manifest.version} is available through the Microsoft Store.`
-                : `Version ${release.manifest.version} is available through the signed package channel.`,
-            can_check: true,
-            can_install: true
-          });
-        }
+        this.candidate = { manifest, target: decision.target };
+        this.setStatus({
+          phase: "external",
+          ...found,
+          message: decision.target.mode === "store"
+            ? `Version ${manifest.version} is available through the Microsoft Store.`
+            : `Version ${manifest.version} is available through the signed package channel.`,
+          can_check: true,
+          can_install: true
+        });
       }
       return this.status();
     } catch (error) {
+      this.candidate = null;
       this.setStatus({
         phase: "failed",
         message: `Could not verify updates: ${message(error)}`,
@@ -558,24 +238,26 @@ export class UpdateCoordinator {
   }
 
   private setStatus(patch: Partial<DesktopUpdateStatus> & Pick<DesktopUpdateStatus, "phase" | "message">): void {
-    const base =
-      patch.phase === this.statusValue.phase
-        ? this.statusValue
-        : {
-            phase: patch.phase,
-            current_version: this.backend.currentVersion,
-            channel: this.backend.channel,
-            checked_at: this.statusValue.checked_at,
-            message: patch.message,
-            can_check: false,
-            can_install: false
-          };
-    this.statusValue = {
+    const base = patch.phase === this.statusValue.phase
+      ? this.statusValue
+      : {
+          phase: patch.phase,
+          current_version: this.backend.currentVersion,
+          channel: this.backend.channel,
+          checked_at: this.statusValue.checked_at,
+          message: patch.message,
+          can_check: false,
+          can_install: false
+        };
+    const next: DesktopUpdateStatus = {
       ...base,
       ...patch,
       current_version: this.backend.currentVersion,
       channel: this.backend.channel
     };
+    if (this.daemonNotice) next.daemon_notice = this.daemonNotice;
+    else delete next.daemon_notice;
+    this.statusValue = next;
     for (const listener of this.listeners) listener(this.status());
   }
 }
@@ -588,8 +270,4 @@ function maxVersion(left: string | undefined, right: string | undefined): string
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function takeoverMessage(phase: TakeoverPhase | "unknown"): string {
-  return phase === "complete" ? TAKEOVER_COMPLETE_MESSAGE : TAKEOVER_STARTED_MESSAGE;
 }

@@ -375,7 +375,8 @@ function Settings({ cloud, connectionLabel, requireApproval, startup, updateStat
       <section>
         <SectionHeading title="Updates" note="Releases are checked against signed provenance before installation." />
         <div className="settings-rows">
-          <SettingRow label="Application" value={`Version ${updateStatus?.current_version ?? "checking"}`} detail={updateStatus?.message ?? "Reading update status…"} />
+          <UpdateRow status={updateStatus} busy={busy} onAct={onAct} />
+          {updateStatus?.daemon_notice ? <SettingRow label="mdbase daemon" value="Previous version restored" detail={updateStatus.daemon_notice} /> : null}
         </div>
       </section>
       <section>
@@ -415,6 +416,28 @@ function ComputerNameRow({ name, busy, onAct, onNotice }: {
           onNotice(`This computer is now called ${renamed.name}.`);
         })}>Save</button>
       </div>
+    </div>
+  );
+}
+
+function UpdateRow({ status, busy, onAct }: {
+  status: DesktopUpdateStatus | null;
+  busy: boolean;
+  onAct(action: () => Promise<unknown>): Promise<void>;
+}) {
+  const install = status?.can_install === true;
+  const label = install
+    ? status.phase === "ready" ? `Install ${status.target_version}` : `Open ${status.target_version ?? "update"}`
+    : "Check for updates";
+  const enabled = install || status?.can_check === true;
+  return (
+    <div className="setting-row">
+      <span>Application</span>
+      <div><strong>{`Version ${status?.current_version ?? "checking"}`}</strong><small>{status?.message ?? "Reading update status…"}</small></div>
+      {status && status.phase !== "unavailable" ? (
+        <button className="quiet-action" disabled={busy || !enabled} onClick={() => void onAct(() =>
+          install ? window.mdbaseConnect.installUpdate() : window.mdbaseConnect.checkForUpdates())}>{label}</button>
+      ) : null}
     </div>
   );
 }

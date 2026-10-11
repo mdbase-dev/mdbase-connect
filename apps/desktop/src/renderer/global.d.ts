@@ -1,6 +1,6 @@
 /** The daemon's `status` (control protocol v1), as the renderer uses it. */
 interface DaemonStatus {
-  readiness?: import("../shared/readiness").AgentReadiness;
+  readiness?: { schema_version: number; ready: boolean; binary_version: string; safe_reason?: string | null };
   target: "installed_service" | "isolated_profile";
   state_dir: string;
   account: {
@@ -95,9 +95,7 @@ interface DesktopUpdateStatus {
     | "ready"
     | "external"
     | "installing"
-    | "recovery"
-    | "failed"
-    | "handed_off";
+    | "failed";
   current_version: string;
   channel: "stable" | "beta";
   target_version?: string;
@@ -107,6 +105,8 @@ interface DesktopUpdateStatus {
   release_url?: string;
   can_check: boolean;
   can_install: boolean;
+  /** The bundled daemon was rolled back to the previous version; why. */
+  daemon_notice?: string;
 }
 
 interface CloudSetting {

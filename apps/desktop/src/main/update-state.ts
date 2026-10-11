@@ -3,29 +3,24 @@ import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname } from "node:path";
 import { compareVersions } from "./update-policy";
 
-export interface UpdateTransaction {
-  id: string;
-  phase: "prepared" | "installing" | "recovering";
-  target_version: string;
-  previous_version: string;
-  service_installed: boolean;
-  previous_runtime: string | null;
-  previous_runtime_version?: string;
-  started_at: string;
-  error?: string;
-}
-
+/**
+ * What the app updater remembers between launches (`<userData>/updates/state.json`).
+ *
+ * Files written by apps that still managed the old connector can also hold
+ * `transaction` and `last_known_good_runtime`. Those described the old connector's
+ * runtime handoff, which the mdbase daemon's takeover now owns, so they are dropped on
+ * read and the installation ID and trusted version are kept.
+ */
 export interface PersistedUpdateState {
   schema_version: 1;
   installation_id: string;
   highest_trusted_version?: string;
   last_checked_at?: string;
-  last_known_good_runtime?: {
+  /** A bundled daemon version that did not become ready and was rolled back. */
+  daemon_held_back?: {
     version: string;
-    path: string;
-    for_app_version?: string;
+    reason: string;
   };
-  transaction?: UpdateTransaction;
 }
 
 export class UpdateStateStore {
@@ -63,11 +58,6 @@ export class UpdateStateStore {
     return structuredClone(validated);
   }
 
-  async remove(): Promise<void> {
-    this.state = null;
-    await rm(this.path, { force: true });
-  }
-
   private async write(state = this.state): Promise<void> {
     if (!state) throw new Error("Update state has not been initialized.");
     const parent = dirname(this.path);
@@ -90,10 +80,7 @@ export class UpdateStateStore {
 }
 
 export function parsePersistedState(value: unknown): PersistedUpdateState {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Update state must be an object.");
-  }
-  const state = value as Record<string, unknown>;
+  const state = record(value, "Update state");
   if (state.schema_version !== 1 || typeof state.installation_id !== "string" || !state.installation_id) {
     throw new Error("Update state is invalid.");
   }
@@ -112,65 +99,15 @@ export function parsePersistedState(value: unknown): PersistedUpdateState {
     }
     parsed.last_checked_at = new Date(state.last_checked_at).toISOString();
   }
-  if (state.last_known_good_runtime !== undefined) {
-    const runtime = record(state.last_known_good_runtime, "Last-known-good runtime");
-    if (typeof runtime.version !== "string" || typeof runtime.path !== "string" || !runtime.path) {
-      throw new Error("Last-known-good runtime is invalid.");
+  if (state.daemon_held_back !== undefined) {
+    const held = record(state.daemon_held_back, "Held-back daemon");
+    if (typeof held.version !== "string" || typeof held.reason !== "string") {
+      throw new Error("Held-back daemon is invalid.");
     }
-    compareVersions(runtime.version, runtime.version);
-    parsed.last_known_good_runtime = { version: runtime.version, path: runtime.path };
-    if (runtime.for_app_version !== undefined) {
-      if (typeof runtime.for_app_version !== "string") throw new Error("Rollback app version is invalid.");
-      compareVersions(runtime.for_app_version, runtime.for_app_version);
-      parsed.last_known_good_runtime.for_app_version = runtime.for_app_version;
-    }
+    compareVersions(held.version, held.version);
+    parsed.daemon_held_back = { version: held.version, reason: held.reason };
   }
-  if (state.transaction !== undefined) parsed.transaction = parseTransaction(state.transaction);
   return parsed;
-}
-
-function parseTransaction(value: unknown): UpdateTransaction {
-  const transaction = record(value, "Update transaction");
-  const phase = transaction.phase;
-  if (!["prepared", "installing", "recovering"].includes(String(phase))) {
-    throw new Error("Update transaction phase is invalid.");
-  }
-  for (const field of ["id", "target_version", "previous_version", "started_at"] as const) {
-    if (typeof transaction[field] !== "string" || !transaction[field]) {
-      throw new Error(`Update transaction ${field} is invalid.`);
-    }
-  }
-  compareVersions(transaction.target_version as string, transaction.target_version as string);
-  compareVersions(transaction.previous_version as string, transaction.previous_version as string);
-  if (!Number.isFinite(Date.parse(transaction.started_at as string))) {
-    throw new Error("Update transaction start time is invalid.");
-  }
-  if (typeof transaction.service_installed !== "boolean") {
-    throw new Error("Update transaction service state is invalid.");
-  }
-  if (transaction.previous_runtime !== null && typeof transaction.previous_runtime !== "string") {
-    throw new Error("Update transaction runtime path is invalid.");
-  }
-  if (transaction.previous_runtime_version !== undefined) {
-    if (typeof transaction.previous_runtime_version !== "string" || !transaction.previous_runtime) {
-      throw new Error("Previous runtime version is invalid.");
-    }
-    compareVersions(transaction.previous_runtime_version, transaction.previous_runtime_version);
-  }
-  if (transaction.error !== undefined && typeof transaction.error !== "string") {
-    throw new Error("Update transaction error is invalid.");
-  }
-  return {
-    id: transaction.id as string,
-    phase: phase as UpdateTransaction["phase"],
-    target_version: transaction.target_version as string,
-    previous_version: transaction.previous_version as string,
-    service_installed: transaction.service_installed,
-    previous_runtime: transaction.previous_runtime as string | null,
-    ...(transaction.previous_runtime_version ? { previous_runtime_version: transaction.previous_runtime_version as string } : {}),
-    started_at: new Date(transaction.started_at as string).toISOString(),
-    ...(transaction.error ? { error: transaction.error as string } : {})
-  };
 }
 
 function freshState(): PersistedUpdateState {
