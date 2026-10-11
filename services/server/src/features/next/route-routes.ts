@@ -59,7 +59,16 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
     const row = grant.rows[0] ?? hosted?.grant;
     if (!row) return reply.code(401).send(apiError("invalid_token", "Access token is invalid or expired for this collection."));
     if (!row.has_client_key) {
-      return reply.code(409).send(apiError("client_key_required", "This grant has no registered Noise key; authorize the app again to register one."));
+      // The binding's authorization ID lets a client that still holds the grant
+      // signing key attach a key (POST /v1/next/grants/client-key).
+      const binding = (await options.db.query<{ authorization_id: string | null }>(
+        "SELECT application_authorization->'binding'->>'authorization_id' AS authorization_id FROM grants WHERE id = $1",
+        [row.authorization_grant]
+      )).rows[0];
+      return reply.code(409).send(apiError("client_key_required", "This grant has no registered Noise key; authorize the app again to register one.", {
+        grant_id: row.authorization_grant,
+        ...(binding?.authorization_id ? { authorization_id: binding.authorization_id } : {})
+      }));
     }
     if (row.policy_required && !row.policy_active) {
       return reply.code(409).send(apiError("application_reauthorization_required", "This grant has no next policy binding; authorize the application again."));

@@ -72,4 +72,20 @@ describe("route target metadata handler (hermetic)", () => {
     const { response } = await route([{ device: 1 }], [], undefined, undefined, "http://connect.example");
     expect(response.json().targets[0].url).toBe("wss://connect.example/v1/next/relay/client");
   });
+
+  it("client_key_required names the grant and its authorization ID for a key attach", async () => {
+    const id = randomUUID(), authorization = randomUUID();
+    const query = vi.fn()
+      .mockResolvedValueOnce({ rows: [{ grant_id: id, authorization_grant: id, has_client_key: false, device_id: null }] })
+      .mockResolvedValueOnce({ rows: [{ authorization_id: authorization }] });
+    const app = Fastify();
+    registerNextRouteRoutes(app, { db: { query }, publicUrl: "https://connect.example", broker: { request: vi.fn() } });
+    try {
+      const response = await app.inject({ method: "GET", url: `/v1/next/collections/${id}/route`, headers: { authorization: "Bearer unit-token" } });
+      expect(response.statusCode).toBe(409);
+      expect(response.json().error).toMatchObject({ code: "client_key_required", details: { grant_id: id, authorization_id: authorization } });
+    } finally {
+      await app.close();
+    }
+  });
 });
