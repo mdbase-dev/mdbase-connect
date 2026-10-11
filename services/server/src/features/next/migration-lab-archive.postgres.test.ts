@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import pg from "pg";
+import Fastify from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, releaseCohort,
-  setCohortFrozen, setPaused, startAccountMigration } from "./migration-rollout.js";
+  setCohortFrozen, setPaused, startAccountMigration, registerMigrationRolloutRoutes } from "./migration-rollout.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -50,6 +51,24 @@ suite("LAB archive acceptance/start (real isolated PG, synthetic verifier DATA o
     expect(await acceptCohortArchive(db, f.cohort, f.body, "lab")).toEqual(accepted);
     const saved = (await db.query("SELECT verified_result,membership_revision::text AS revision FROM next_migration_archive_acceptances WHERE cohort=$1", [f.cohort])).rows[0];
     expect(saved).toEqual({ verified_result: f.body, revision: f.body.migration_batch.membership_revision });
+    const token="synthetic-lab-receiving-token-".repeat(2),app=Fastify();
+    registerMigrationRolloutRoutes(app,{db,token,environment:"lab"});
+    try {
+      const url=`/internal/v1/next/migration/cohorts/${f.cohort}/archive-binding`;
+      const headers={authorization:`Bearer ${token}`};
+      const plain=await app.inject({method:"GET",url,headers});
+      expect(plain.statusCode,plain.body).toBe(200);expect(plain.json()).toEqual(f.body.migration_batch);
+      const received=await app.inject({method:"GET",url:`${url}?view=receiving-v1`,headers});
+      expect(received.statusCode,received.body).toBe(200);expect(received.headers["cache-control"]).toBe("no-store");
+      const data=received.json();
+      expect(data.schema).toBe("mdbase-migration-receiving/1");expect(data.binding).toEqual(f.body.migration_batch);
+      expect(data.archive).toEqual({accepted_at:accepted.accepted_at,verified_result:f.body});
+      expect(data.members).toHaveLength(1);
+      expect(data.members[0]).toMatchObject({suspended:true,started_at:null,cutovers:[],flip:null,
+        view:{account_id:f.account,backend:"legacy",hosted_collections:[f.collection],started:false}});
+      expect(data.cutover_evidence_digest).toBeNull();
+      expect((await app.inject({method:"GET",url:`${url}?view=receiving-v1`,headers:{authorization:"Bearer wrong"}})).statusCode).toBe(401);
+    } finally {await app.close();}
     const started = await startAccountMigration(db, f.account, "lab");
     expect(await startAccountMigration(db, f.account, "lab")).toEqual(started);
     expect((await db.query("SELECT account_backend,suspended_at FROM users WHERE id=$1", [f.account])).rows[0])
@@ -58,6 +77,48 @@ suite("LAB archive acceptance/start (real isolated PG, synthetic verifier DATA o
     await expect(db.query("UPDATE next_migration_archive_acceptances SET verified_result=verified_result-'runtime_provenance' WHERE cohort=$1", [f.cohort]))
       .rejects.toThrow("immutable");
     expect(await startAccountMigration(db, f.account, "lab")).toEqual(started);
+  });
+  it("starts an explicit tiny LAB fixture from exact frozen inventory without manufacturing an archive acceptance", async () => {
+    const f=await fixture(),token="synthetic-lab-fixture-token-".repeat(2),app=Fastify();
+    const inventory=f.body.migration_batch,url=`/internal/v1/next/migration/accounts/${f.account}/start`;
+    const headers={authorization:`Bearer ${token}`},payload={profile:"lab-fixture-v1",inventory};
+    await db.query("UPDATE users SET suspended_at=now() WHERE id=$1",[f.account]);
+    registerMigrationRolloutRoutes(app,{db,token,environment:"lab"});
+    try {
+      expect((await app.inject({method:"POST",url,headers:{authorization:"Bearer wrong"},payload})).statusCode).toBe(401);
+      expect((await app.inject({method:"POST",url,headers,payload:{...payload,verified:true}})).statusCode).toBe(400);
+      expect((await app.inject({method:"POST",url,headers,payload:{...payload,inventory:{...inventory,membership_digest:"0".repeat(64)}}})).statusCode).toBe(409);
+      expect((await db.query("SELECT started_at FROM next_migration_cohort_members WHERE account_id=$1",[f.account])).rows[0].started_at).toBeNull();
+      const started=await app.inject({method:"POST",url,headers,payload});
+      expect(started.statusCode,started.body).toBe(200);expect(started.headers["cache-control"]).toBe("no-store");
+      expect((await app.inject({method:"POST",url,headers,payload})).json()).toEqual(started.json());
+      expect((await db.query("SELECT account_backend,suspended_at FROM users WHERE id=$1",[f.account])).rows[0])
+        .toMatchObject({account_backend:"legacy",suspended_at:expect.any(Date)});
+      expect((await db.query("SELECT count(*)::text AS count FROM next_migration_archive_acceptances WHERE cohort=$1",[f.cohort])).rows[0].count).toBe("0");
+      await expect(startAccountMigration(db,f.account,"lab")).rejects.toMatchObject({code:"backup_missing"});
+      await expect(startAccountMigration(db,f.account,"lab",{...inventory,membership_revision:String(BigInt(inventory.membership_revision)+1n)})).rejects.toMatchObject({code:"backup_missing"});
+    } finally {await app.close();}
+  });
+  it.each(["production","staging","LAB",""])("refuses the tiny fixture profile outside literal LAB: %s", async environment => {
+    const f=await fixture();
+    await expect(startAccountMigration(db,f.account,environment,f.body.migration_batch)).rejects.toMatchObject({code:"invalid_request"});
+    expect((await db.query("SELECT started_at FROM next_migration_cohort_members WHERE account_id=$1",[f.account])).rows[0].started_at).toBeNull();
+  });
+  it("keeps tiny fixture pause/freeze and complete-inventory guards including idempotent retries", async () => {
+    const f=await fixture(),inventory=f.body.migration_batch;
+    await setPaused(db,true,"synthetic pause boundary",actor);
+    await expect(startAccountMigration(db,f.account,"lab",inventory)).rejects.toMatchObject({code:"migration_paused"});
+    await setPaused(db,false,"synthetic resume boundary",actor);
+    await setCohortFrozen(db,f.cohort,false,"synthetic freeze boundary",actor);
+    await expect(startAccountMigration(db,f.account,"lab",inventory)).rejects.toMatchObject({code:"backup_missing"});
+    await setCohortFrozen(db,f.cohort,true,"synthetic freeze boundary",actor);
+    const current=await cohortArchiveBinding(db,f.cohort);
+    await startAccountMigration(db,f.account,"lab",current);
+    const extra=randomUUID();
+    await db.query("INSERT INTO hosted_collections(id,user_id,display_name,template) VALUES($1,$2,'Extra fixture','mdbase')",[extra,f.account]);
+    await expect(startAccountMigration(db,f.account,"lab",current)).rejects.toMatchObject({code:"backup_missing"});
+    await expect(startAccountMigration(db,f.account,"lab",await cohortArchiveBinding(db,f.cohort))).rejects.toMatchObject({code:"backup_missing"});
+    expect((await db.query("SELECT count(*)::text AS count FROM hosted_collections WHERE user_id=$1",[f.account])).rows[0].count).toBe("2");
   });
   it("refuses replacement provenance at the same frozen revision without rewriting acceptance age", async () => {
     const f = await fixture(), accepted = await acceptCohortArchive(db, f.cohort, f.body, "lab");

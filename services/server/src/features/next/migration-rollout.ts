@@ -309,7 +309,7 @@ async function buildReceivingSnapshot(client: DatabaseQueryable, current: Awaite
 
 /** Complete bounded service-role DATA, never a native/original-success receipt. */
 async function cohortReceivingSnapshot(db: DatabasePool, name: string, environment: string | undefined) {
-  if (environment !== "staging") throw new RolloutRefused("receiving_unavailable", "The staging receiving view is unavailable.", 503);
+  if (environment !== "staging" && environment !== "lab") throw new RolloutRefused("receiving_unavailable", "The rehearsal receiving view is unavailable.", 503);
   return inTransaction(db, async client => {
     // No hosted/user/member row locks after the batch lock: avoid inversion with
     // effect transactions. Repeatable-read keeps every canonical read coherent;
@@ -406,7 +406,14 @@ async function inTransaction<T>(db: DatabasePool, run: (client: DatabaseQueryabl
  * under the same lock). Idempotent once started; a started account ignores pause.
  * Internal migration preserves suspension; ordinary account access stays denied.
  */
-export async function startAccountMigration(db: DatabasePool, account: string, environment?: string): Promise<{ account_id: string; started_at: string }> {
+export async function startAccountMigration(db: DatabasePool, account: string, environment?: string, labFixture?: ArchiveBinding): Promise<{ account_id: string; started_at: string }> {
+  // Explicit tiny-LAB profile only. The operator retains ordinary all-version
+  // read-only exported bytes and exercises route-back; no archive receipt is manufactured.
+  if (labFixture) {
+    const binding = archiveBindingSchema.safeParse(labFixture);
+    if (environment !== "lab" || !binding.success) throw new RolloutRefused("invalid_request", "An exact LAB-only fixture binding is required.", 400);
+    labFixture = binding.data;
+  }
   return inTransaction(db, async (client) => {
     const user = (await client.query<{ backend: string }>(
       "SELECT account_backend AS backend FROM users WHERE id = $1 FOR UPDATE", [account]
@@ -428,14 +435,21 @@ export async function startAccountMigration(db: DatabasePool, account: string, e
       const rollout = (await client.query<{ paused: boolean }>("SELECT paused FROM next_migration_rollout WHERE singleton FOR SHARE")).rows[0];
       if (!rollout || rollout.paused) throw new RolloutRefused("migration_paused", "The migration rollout is paused.");
     }
-    // H0 currentness/freshness precedes every claim, including idempotent retries.
-    // The batch lock prevents membership/coverage changes committing until claim.
-    await requireCurrentCohortArchive(client, row.cohort, environment);
+    // Current frozen inventory precedes every claim, including retries; ordinary
+    // starts additionally require the original fresh archive. The batch lock
+    // prevents membership/coverage changes committing until claim.
+    if (labFixture) {
+      const current = await readArchiveBinding(client, row.cohort);
+      if (current.inventory.length !== 1 || current.inventory[0]![0] !== account || current.inventory[0]![1].length !== 1
+          || current.binding.batch_id !== labFixture.batch_id || current.binding.membership_revision !== labFixture.membership_revision
+          || current.binding.membership_digest !== labFixture.membership_digest || current.binding.membership_changed_at !== labFixture.membership_changed_at)
+        throw new RolloutRefused("backup_missing", "A current frozen one-account, one-hosted-collection fixture inventory is required.");
+    } else await requireCurrentCohortArchive(client, row.cohort, environment);
     if (row.started_at) return { account_id: account, started_at: new Date(row.started_at).toISOString() };
     const started = (await client.query<{ started_at: Date }>(
       "UPDATE next_migration_cohort_members SET started_at = now() WHERE account_id = $1 RETURNING started_at", [account]
     )).rows[0]!;
-    await audit(client, account, "next_migration.start", account, {});
+    await audit(client, account, "next_migration.start", account, labFixture ? { profile: "lab-fixture-v1", inventory: labFixture } : {});
     return { account_id: account, started_at: new Date(started.started_at).toISOString() };
   });
 }
@@ -771,11 +785,14 @@ export function registerMigrationRolloutRoutes(app: FastifyInstance, options: { 
     if (!view) return reply.code(404).send(apiError("account_not_found", "Account not found."));
     return view;
   });
-  app.post("/internal/v1/next/migration/accounts/:id/start", async (request, reply) => {
+  app.post("/internal/v1/next/migration/accounts/:id/start", { bodyLimit: 4096 }, async (request, reply) => {
     if (!migrator(request)) return deny(reply);
     const p = idParam.safeParse(request.params);
-    if (!p.success) return reply.code(400).send(apiError("invalid_request", "An account id is required."));
-    try { return await startAccountMigration(options.db, p.data.id.toLowerCase(), options.environment); } catch (e) { return refused(reply, e); }
+    const body = z.union([z.object({}).strict(), z.object({profile:z.literal("lab-fixture-v1"),inventory:archiveBindingSchema}).strict()]).safeParse(request.body ?? {});
+    if (!p.success || !body.success) return reply.code(400).send(apiError("invalid_request", "An account id and optional exact fixture profile are required."));
+    reply.header("cache-control", "no-store");
+    try { return await startAccountMigration(options.db, p.data.id.toLowerCase(), options.environment,
+      "inventory" in body.data ? body.data.inventory : undefined); } catch (e) { return refused(reply, e); }
   });
   app.post("/internal/v1/next/migration/collections/:id/cutover", async (request, reply) => {
     if (!migrator(request)) return deny(reply);
