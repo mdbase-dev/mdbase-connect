@@ -38,6 +38,7 @@ import { useCollectionBrowserEntries } from "./collection-browser";
 import { CollectionRail, connectWorkspaceUrl } from "./CollectionRail";
 import { folderChangeMoves, type FolderChangePlan, type FolderChangeProgress, type FolderChangeResult } from "./folder-change";
 import { useFeedback } from "@mdbase-dev/ui/feedback";
+import { useLaunchEntrancePlaying } from "@mdbase-dev/ui/screens";
 import { CollectionSwitcher, ConnectScreen } from "./ConnectionScreens";
 import { ConflictResolver } from "./ConflictResolver";
 import { DraftRecovery, frontmatterPatch } from "./draft-recovery";
@@ -1601,12 +1602,13 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
   }, [canRenameNotes, creationDirty, creationMode, document, focusMode, mutationsFrozen, noteFilter, noteLoading, openNote, phase, quickOpen, selectedCollectionFile, selectedPath, shortcutsOpen, surface, visibleBrowserEntries]);
 
   const wordCount = useMemo(() => noteWordCount(draft?.body ?? ""), [draft?.body]);
+  const launching = useLaunchEntrancePlaying();
   const dismissToast = useCallback((id: string) => {
     if (id === "notice") setNoticeState(undefined);
     else if (id === "note-open") setNoteOpenFailure(undefined);
     else if (id === "recovery") setRecoveryAction(undefined);
   }, []);
-  if (phase === "starting") return <OpeningScreen />;
+  if (phase === "starting" || (launching && phase !== "disconnected")) return <OpeningScreen />;
   if (phase === "disconnected") return <>
     <ConnectScreen
       notice={sessionSnapshot.status === "start_failed"
@@ -1636,7 +1638,8 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
       onClose={() => setConfirmation(undefined)}
     />}
   </>;
-  if (phase === "loading" || !description) return <OpeningScreen />;
+  // A quick open waits for the launch entrance to land rather than cutting it off mid-flight.
+  if (phase === "loading" || !description || launching) return <OpeningScreen />;
 
   const selectedType = description.types.find((type) => type.name === selectedTypeName);
   const hasListPane = surface !== "settings";

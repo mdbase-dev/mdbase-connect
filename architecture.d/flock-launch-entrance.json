@@ -1,0 +1,9 @@
+{
+  "reason": "The launch entrance for OpeningScreen: one app-ui module holds the flock's pure geometry and timing so it can be tested without a browser, and screens.tsx draws it on a canvas and exports useLaunchEntrancePlaying so an app can hold a fast open until the mark has landed. The five geometry exports exist for those tests and the screen; no new package, dependency or runtime API outside @mdbase-dev/ui/screens.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 2,
+    "typeScriptExportDeclarations": 6,
+    "packages/app-ui": 1
+  }
+}

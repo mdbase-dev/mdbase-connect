@@ -1488,6 +1488,8 @@ test("adds schema properties and edits the complete Markdown record", async ({ p
 });
 
 test("keeps a ten-thousand-note collection responsive and virtualized", async ({ page }) => {
+  // Budgets measure loading and indexing, not the launch entrance, which reduced motion skips.
+  await page.emulateMedia({ reducedMotion: "reduce" });
   const started = Date.now();
   await page.goto("?demo=10000");
   await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();
