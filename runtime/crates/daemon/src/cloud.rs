@@ -47,6 +47,10 @@ pub struct CloudConfig {
     /// This connector's ID, pinned at pairing (or from the first snapshot).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connector_id: Option<String>,
+    /// This computer's name in the account, as last set from here (pairing or
+    /// `account.rename`). Shown locally; the account is authoritative.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub computer_name: Option<String>,
     /// Whether this device is registered to the connector.
     #[serde(default)]
     pub device_registered: bool,
@@ -1104,6 +1108,24 @@ impl Cloud {
             .ok_or_else(|| CloudError::Server(200, "malformed".into()))
     }
 
+    /// Rename this computer in the account (`PATCH /v1/connectors/self`); returns
+    /// the name the account stored.
+    pub async fn rename_self(&self, name: &str) -> Result<String, CloudError> {
+        let r = self
+            .http
+            .patch(format!("{}/v1/connectors/self", self.server))
+            .bearer_auth(self.token.as_str())
+            .json(&json!({ "name": name }))
+            .send()
+            .await
+            .map_err(|e| CloudError::Network(e.to_string()))?;
+        let (status, v) = json_response(r).await?;
+        v.pointer("/connector/name")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| CloudError::Server(status, "invalid_connector_rename".into()))
+    }
+
     /// Publish the collection inventory (`POST /v1/connectors/sync`).
     pub async fn inventory(
         &self,
@@ -1965,6 +1987,46 @@ mod tests {
         };
         assert_eq!(record.active_account(), None);
         assert!(!record.permits(&config));
+    }
+
+    /// Computer rename is the connector's own PATCH, and the stored name comes from
+    /// the account's reply, not from what was sent.
+    #[tokio::test]
+    async fn rename_self_patches_the_connector_and_returns_the_stored_name() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let mock = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 4096];
+            while !String::from_utf8_lossy(&request).contains("}") {
+                let n = socket.read(&mut buffer).await.unwrap();
+                request.extend_from_slice(&buffer[..n]);
+            }
+            let body = r#"{"connector":{"id":"c","name":"Studio iMac"}}"#;
+            let reply = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            socket.write_all(reply.as_bytes()).await.unwrap();
+            String::from_utf8_lossy(&request).to_string()
+        });
+        let cloud = Cloud {
+            http: reqwest::Client::new(),
+            server: format!("http://{address}"),
+            token: Zeroizing::new("synthetic-token".into()),
+        };
+        assert_eq!(
+            cloud.rename_self(" Studio iMac ").await.unwrap(),
+            "Studio iMac"
+        );
+        let request = mock.await.unwrap();
+        assert!(
+            request.starts_with("PATCH /v1/connectors/self "),
+            "{request}"
+        );
+        assert!(request.contains(r#"{"name":" Studio iMac "}"#), "{request}");
     }
 
     #[test]

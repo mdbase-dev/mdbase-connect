@@ -9,7 +9,7 @@ use mdbn_local_host::{
     Descriptor, HostKind, HostLock, Identity, LocalReplica, OsEntropy, ReplicaOptions,
     StoreOptions, SystemClock, open_store,
 };
-use mdbn_replica::api::{ClientApi, Target};
+use mdbn_replica::api::{ClientApi, ContractQuery, Target};
 use mdbn_wire::client::{Include, ReceiptState, SubmitParams};
 use mdbn_wire::common::{B16, DataMap, Text, Value};
 use mdbn_wire::intent::{Create, Op};
@@ -134,6 +134,214 @@ fn create_publish_outside_edit_reopen() {
         .unwrap();
     assert_eq!(rec.id, id, "the record ID survives a reopen");
     let _ = std::fs::remove_dir_all(&root);
+}
+
+fn contract_source(id: &str, version: &str) -> String {
+    format!(
+        "---\nkind: mdbase.contract\ncontract_type: record\nid: {id}\nversion: '{version}'\nrecord_schema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    properties:\n      name: {{type: string}}\n      identities: {{type: array}}\n---\n"
+    )
+}
+fn contract_fixture(tag: &str) -> (PathBuf, HostLock, LocalReplica) {
+    let root = test_dir(tag);
+    std::fs::write(root.join("mdbase.yaml"), "spec_version: '0.3.0'\n").unwrap();
+    std::fs::create_dir_all(root.join("_contracts")).unwrap();
+    std::fs::create_dir_all(root.join("_types")).unwrap();
+    std::fs::create_dir_all(root.join("people")).unwrap();
+    for (path, id, version) in [
+        ("person", "mdbase.person", "2.0.0"),
+        ("person3", "mdbase.person", "3.0.0"),
+        ("other", "acme.other", "2.0.0"),
+    ] {
+        std::fs::write(
+            root.join(format!("_contracts/{path}.md")),
+            contract_source(id, version),
+        )
+        .unwrap();
+    }
+    let mut source = "---\nkind: mdbase.type\nname: arbitraryContact\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    properties:\n      full_name: {type: string}\n      identities: {type: array}\nimplements:\n".to_string();
+    for (id, version) in [("mdbase.person", "2.0.0"), ("acme.other", "2.0.0")] {
+        source.push_str(&format!("  - contract: {id}\n    version: '{version}'\n    fields: {{'/name': '/full_name', '/identities': '/identities'}}\n"));
+    }
+    source.push_str("---\n");
+    std::fs::write(root.join("_types/contact3.md"), source.replace("arbitraryContact", "versionThreeContact").replace("version: '2.0.0'", "version: '3.0.0'").replace("  - contract: acme.other\n    version: '3.0.0'\n    fields: {'/name': '/full_name', '/identities': '/identities'}\n", "")).unwrap();
+    std::fs::write(root.join("_types/contact.md"), source).unwrap();
+    for i in 0..5 {
+        std::fs::write(root.join(format!("people/{i}.md")), format!("---\ntype: arbitraryContact\nfull_name: Person {i}\nname: Not the mapped name\nidentities: []\n---\n")).unwrap();
+    }
+    let (lock, mut rep) = open(&root);
+    rep.rescan().unwrap();
+    (root, lock, rep)
+}
+fn contract_request(cursor: Option<String>) -> ContractQuery {
+    ContractQuery {
+        where_: None,
+        contract: "mdbase.person".into(),
+        version: "2.0.0".into(),
+        limit: 2,
+        cursor,
+    }
+}
+
+#[test]
+fn native_contract_query_has_real_indexed_complete_pages_and_exact_projection_binding() {
+    let (root, _lock, mut rep) = contract_fixture("native-contract-pages");
+    let session = rep.session();
+    let description = rep.replica().describe(session).unwrap();
+    assert!(description.issues.is_empty(), "{description:?}");
+    assert!(
+        description.types.iter().any(|t| t
+            .implements
+            .iter()
+            .any(|i| i.contract == "mdbase.person" && i.version == "2.0.0")),
+        "{description:?}"
+    );
+    let row = rep
+        .replica()
+        .get(session, Target::Path("people/0.md".into()), include())
+        .unwrap();
+    assert_eq!(row.types, ["arbitraryContact"], "{row:?}");
+    let first = rep
+        .replica()
+        .query_contract(session, contract_request(None))
+        .unwrap();
+    assert!(first.page.complete);
+    assert_eq!(first.page.records.len(), 2);
+    assert_eq!(first.page.has_more, Some(true));
+    assert_eq!(first.page.total_count, None);
+    assert_eq!(first.records[0].id, first.page.records[0].id);
+    assert_eq!(
+        first.records[0].implementations[0].fields,
+        DataMap(vec![
+            (
+                "name".into(),
+                first.page.records[0]
+                    .frontmatter
+                    .get("full_name")
+                    .unwrap()
+                    .clone()
+            ),
+            ("identities".into(), Value::List(vec![]))
+        ])
+    );
+    let second = rep
+        .replica()
+        .query_contract(
+            session,
+            contract_request(Some(first.page.cursor.clone().unwrap())),
+        )
+        .unwrap();
+    let third = rep
+        .replica()
+        .query_contract(
+            session,
+            contract_request(Some(second.page.cursor.clone().unwrap())),
+        )
+        .unwrap();
+    assert_eq!(second.page.records.len(), 2);
+    assert_eq!(third.page.records.len(), 1);
+    assert!(third.page.cursor.is_none());
+    assert_eq!(third.page.has_more, Some(false));
+    for page in [&second, &third] {
+        assert!(page.page.complete);
+        assert_eq!(page.page.as_of, first.page.as_of);
+        assert_eq!(page.contract_digest, first.contract_digest);
+        assert_eq!(page.page.total_count, None);
+    }
+    let mut paths: Vec<_> = [&first, &second, &third]
+        .into_iter()
+        .flat_map(|page| page.page.records.iter().map(|row| row.path.as_str()))
+        .collect();
+    paths.sort();
+    assert_eq!(
+        paths,
+        [
+            "people/0.md",
+            "people/1.md",
+            "people/2.md",
+            "people/3.md",
+            "people/4.md"
+        ]
+    );
+    assert_eq!(
+        rep.replica_ref().query_stats().indexed,
+        3,
+        "actual maintained SQLite path, not a fake cursor"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn native_contract_cursor_refuses_other_contract_version_session_and_changed_catalog() {
+    let (root, _lock, mut rep) = contract_fixture("native-contract-cursor-fences");
+    let session = rep.session();
+    let cursor = rep
+        .replica()
+        .query_contract(session, contract_request(None))
+        .unwrap()
+        .page
+        .cursor
+        .unwrap();
+    for (contract, version) in [("acme.other", "2.0.0"), ("mdbase.person", "3.0.0")] {
+        let mut request = contract_request(Some(cursor.clone()));
+        request.contract = contract.into();
+        request.version = version.into();
+        let error = rep.replica().query_contract(session, request).unwrap_err();
+        assert_eq!(
+            error.problem().reason.as_deref(),
+            Some("invalid_query_cursor")
+        );
+    }
+    std::fs::write(
+        root.join("people/0.md"),
+        "---\ntype: arbitraryContact\nfull_name: Updated\nidentities: []\n---\n",
+    )
+    .unwrap();
+    rep.rescan().unwrap();
+    let error = rep
+        .replica()
+        .query_contract(session, contract_request(Some(cursor)))
+        .unwrap_err();
+    assert_eq!(error.problem().reason.as_deref(), Some("cursor_stale"));
+    let cursor = rep
+        .replica()
+        .query_contract(session, contract_request(None))
+        .unwrap()
+        .page
+        .cursor
+        .unwrap();
+    std::fs::write(
+        root.join("_contracts/person.md"),
+        contract_source("mdbase.person", "2.0.0")
+            .replace("type: string", "type: string, minLength: 1"),
+    )
+    .unwrap();
+    rep.rescan().unwrap();
+    let error = rep
+        .replica()
+        .query_contract(session, contract_request(Some(cursor)))
+        .unwrap_err();
+    // Digest is part of the invocation, checked before the view stamp.
+    assert_eq!(
+        error.problem().reason.as_deref(),
+        Some("invalid_query_cursor")
+    );
+    let cursor = rep
+        .replica()
+        .query_contract(session, contract_request(None))
+        .unwrap()
+        .page
+        .cursor
+        .unwrap();
+    rep.replica().close(session);
+    let error = rep
+        .replica()
+        .query_contract(session, contract_request(Some(cursor)))
+        .unwrap_err();
+    assert_eq!(
+        error.code(),
+        Some(mdbn_replica::api::ErrorCode::Unauthenticated)
+    );
+    let _ = std::fs::remove_dir_all(root);
 }
 
 /// A native host answers a per-record (non-indexed) query over more records than

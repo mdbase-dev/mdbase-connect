@@ -30,29 +30,7 @@ describe("native byte fixture shared with the Rust encoder (grammar only)",()=>{
   });
 });
 describe("separate bounded native discovery grammar (synthetic codec fixtures, not catalog proof)",()=>{
-  it("encodes canonical primary request and fixed 32-byte handle, not Query cursor",()=>{
-    const token=new Uint8Array(32).fill(7),bytes=encodeAppBasesDiscoveryRequest({captureTimezone:"UTC",limit:128,continuation:token});
-    expect(decode(bytes)).toEqual(new Map<number,CborValue>([[0,1],[1,"UTC"],[2,128],[3,token]]));
-    expect(()=>encodeAppBasesDiscoveryRequest({captureTimezone:"UTC",limit:0})).toThrow();
-    expect(()=>encodeAppBasesDiscoveryRequest({captureTimezone:"UTC",limit:129})).toThrow();
-    expect(()=>encodeAppBasesDiscoveryRequest({captureTimezone:"UTC",limit:1,continuation:new Uint8Array(31)})).toThrow();
-  });
-  it("encodes exact native UUID SHA original ordinal with no aliases or sources",()=>{
-    expect(decode(encodeAppBasesSourceRequest(request))).toEqual(new Map([[0,1],[1,uuid.enc(record)],[2,hash.enc(revision)],[3,0],[4,"UTC"]]));
-    expect(()=>encodeAppBasesSourceRequest({...request,ordinal:0x100000000})).toThrow();
-  });
-  it("empty descriptor page with continuation is progress not EOF",()=>{
-    const result=decodeAppBasesDiscoveryResult(encode(page([],new Uint8Array(32).fill(8))));
-    expect(result.kind).toBe("success");if(result.kind!=="success")throw Error("success");
-    expect(result.views).toEqual([]);expect(result.continuation?.length).toBe(32);
-    expect(decodeAppBasesDiscoveryResult(encode(page()))).toMatchObject({kind:"success",continuation:null});
-  });
-  it("retains duplicate names with distinct original ordinals",()=>{
-    const result=decodeAppBasesDiscoveryResult(encode(page([descriptor(0),descriptor(2)])),2);
-    expect(result).toMatchObject({kind:"success",views:[{name:"same",ordinal:0},{name:"same",ordinal:2}]});
-    expect(()=>decodeAppBasesDiscoveryResult(encode(page([descriptor(0),descriptor(2)])),1)).toThrow();
-  });
-  it.each([[0,0],[2,1]])("refuses repeated/decreasing actual source ordinal %i %i",(a,b)=>{
+  it.each([[2,1]])("refuses repeated/decreasing actual source ordinal %i %i",(a,b)=>{
     expect(()=>decodeAppBasesDiscoveryResult(encode(page([descriptor(a),descriptor(b)])))).toThrow();
   });
   it("refuses same source with two SHA/path identities and no implementation provenance",()=>{

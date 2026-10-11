@@ -19,9 +19,10 @@ function origin(value: unknown, loopbackAllowed: boolean): string {
   if (u.origin !== value || u.username || u.password || (u.protocol !== "https:" && !loopback)) throw invalid();
   return value;
 }
-/** No environment or app-origin default. LAB loopback is explicit and bound to
- * the LAB CP; production cannot select LAB or loopback. Same-origin cutover
- * storage preservation is an app gate, never a legacy runtime fallback. */
+/** No environment or app-origin default. CP/log origins come only from the
+ * preauthenticated build release, whose environment must match exactly.
+ * LAB app loopback is explicit; production never permits app loopback.
+ * Same-origin storage preservation is an app gate, not a runtime fallback. */
 export function selectAppEnvironment(input: {
   environment: "lab" | "production";
   appOrigin: string;
@@ -38,9 +39,7 @@ export function selectAppEnvironment(input: {
       release.trustedRoots.some(root => !(root instanceof Uint8Array) || root.length !== 32 || root.every(b => b === 0)) ||
       !(release.policyPins instanceof Uint8Array) || !release.policyPins.length || release.policyPins.length > 65536) throw invalid();
   const cpOrigin = origin(release.cpOrigin, false), logOrigin = origin(release.logOrigin, false);
-  if ((environment === "lab") !== (cpOrigin === "https://connect-lab.mdbase.dev")) throw invalid();
   const appOrigin = origin(input.appOrigin, environment === "lab");
-  if (environment === "lab" && appOrigin === "https://app.tasknotes.dev") throw invalid();
   const selected = Object.freeze({environment, appOrigin, cpOrigin, logOrigin, assetSha256: release.assetSha256,
     allowLoopbackHttp: new URL(appOrigin).protocol === "http:"});
   selections.add(selected); return selected;

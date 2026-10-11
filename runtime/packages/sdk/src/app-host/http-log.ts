@@ -272,7 +272,11 @@ export class AppHttpLogTransport implements AppLogTransport {
         const id = this.commitId--;
         commit = encode(new Map<number, CborValue>([[0, 0], [1, id], [2, "commit_object"], [3, new Map<number, CborValue>([[0, this.collectionBytes], [1, address]])]]));
         const committed = await this.rpc(commit, "commit_object", id, options.signal, request.id);
-        try { this.check(options.signal); const c = this.response(committed, id); if (c.has(3) || c.get(2) !== true) throw error("unavailable"); }
+        try {
+          this.check(options.signal);
+          const c = this.response(committed, id), result = c.get(2);
+          if (c.has(3) || !(result instanceof Map) || result.size !== 1 || (result as Map<number, CborValue>).get(0) !== true) throw error("unavailable");
+        }
         finally { committed.fill(0); }
         const normalized = new Map(result); normalized.delete(1); normalized.set(0, 0);
         response.set(2, struct(normalized)); return encode(struct(response));

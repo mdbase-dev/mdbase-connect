@@ -218,11 +218,7 @@ pub fn run(
     }
     let started = prior.as_ref().is_some_and(|r| r.state.fences_old_service());
     if started {
-        // Fence a revived old service at every start.
-        if let Err(e) = old.stop_and_disable() {
-            tracing::warn!(error = %e, "could not stop the old connector again");
-        }
-        ran.revived = old_daemon_running(old_state_dir)?;
+        ran.revived = fence_again(old_state_dir, old)?;
     }
     if !old_state_dir.join("connector.sqlite").is_file() {
         ran.record = prior;
@@ -460,6 +456,33 @@ pub fn run(
     }
     ran.record = Some(record);
     Ok(ran)
+}
+
+/// Stop and disable the old service again, and report whether its daemon is
+/// running anyway (`old_connector_revived`).
+fn fence_again(old_state_dir: &Path, old: &mut dyn OldService) -> io::Result<bool> {
+    if let Err(e) = old.stop_and_disable() {
+        tracing::warn!(error = %e, "could not stop the old connector again");
+    }
+    old_daemon_running(old_state_dir)
+}
+
+/// Keep a started takeover's old service fenced when no run happens (an automatic
+/// start without fresh rollout permission: signed out, Connect unreachable or
+/// denied). Permission was needed to *start* the takeover; once its record fences
+/// the old service, a revived old connector is stopped and reported at every start
+/// regardless. `Some(revived)` when the record fences, else `None` (nothing done).
+pub fn refence(
+    paths: &Paths,
+    old_state_dir: &Path,
+    old: &mut dyn OldService,
+) -> io::Result<Option<bool>> {
+    match Record::load(&paths.record)? {
+        Some(r) if r.state.fences_old_service() && r.old_state_dir == old_state_dir => {
+            fence_again(old_state_dir, old).map(Some)
+        }
+        _ => Ok(None),
+    }
 }
 
 /// Whether `root` still carries this daemon's v2 claim for `collection`.

@@ -68,13 +68,18 @@ export const runtimeOp: Codec<RuntimeOp> = {
   },
 };
 export type RuntimeMutation = Omit<Mutation, "ops"> & { ops: RuntimeOp[] };
+// The legacy wire exports the pending-evidence codec, which delegates to this
+// family. Delay its value references so either module may be imported first.
+function deferred<T>(name: string, codec: () => Codec<T>): Codec<T> {
+  return { name, enc: v => codec().enc(v), dec: c => codec().dec(c) };
+}
 /** Canonical parent keys unchanged; only the explicit operation family differs. */
 export const runtimeMutation = struct<RuntimeMutation>("runtime-v1-mutation", [
   [0, "id", uuid], [1, "origin", uuid], [2, "baseSeq", uint],
-  [3, "clock", opClock],
+  [3, "clock", deferred("op-clock", () => opClock)],
   [4, "seed", b32], [5, "source", enumOf("source", ["api", "external"] as const)],
   [6, "ops", list(runtimeOp, { nonEmpty: true }), "req1"],
-  [7, "onBehalf", uuid, "opt"], [8, "conflictMode", conflictMode, "opt"],
+  [7, "onBehalf", uuid, "opt"], [8, "conflictMode", deferred("conflict-mode", () => conflictMode), "opt"],
   [9, "validatedAt", enumOf("level", ["off", "warn", "error"] as const), "opt"],
   [10, "room", struct<{ stream: Uint8Array; state: Hash }>("room-checkpoint", [[0, "stream", b16], [1, "state", hash]]), "opt"],
 ]);

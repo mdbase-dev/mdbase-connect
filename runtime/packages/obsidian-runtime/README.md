@@ -45,6 +45,23 @@ not qualify real-phone OEM background killing or physical storage durability.
 (`.mdbase/devices/…`) and its durability require device testing. Check `journal-a.log`
 after the `journal` suite, together with the `kills` suite, before claiming support.
 
+### Explicit bounded whole-file range provider
+
+For Obsidian adapters without positional IO, `VaultPlatform` can explicitly opt
+in with `wholeFileRangeMaxBytes` (0–8 MiB). FilePlatform range handles then own
+real byte snapshots and re-read/compare the source before read/metadata results.
+This is **whole-file `readBinary` plus slicing**, not an inode handle or true
+positional IO; metadata keeps `id: null`. Changed bytes refuse even when adapter
+size/times have not changed. Close invalidates delivery and waits for original IO.
+
+At most 64 handles and 8 MiB aggregate accepted snapshot bytes are retained.
+Pre-read size checks and returned-size checks bound accepted data, but racing
+file growth can make the adapter allocate more before returning. Original,
+recheck, output, IPC and WASM buffers must all be budgeted; this is not peak-heap,
+CPU or power-loss certification. The separate attachment `RangeBackend` keeps
+its stable-handle/single-chunk contract; no silent whole-file fallback is added.
+Without explicit opt-in, FilePlatform range-handle operations refuse.
+
 ## Sharing rules
 
 - Every plugin embeds a byte-identical runtime build and calls

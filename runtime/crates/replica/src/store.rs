@@ -41,7 +41,9 @@
 
 use std::collections::BTreeSet;
 use std::fmt;
+use std::future::Future;
 use std::ops::Range;
+use std::pin::Pin;
 
 use mdbn_wire::attachment_runtime_v1::{Conflict as RtConflict, Mutation as RtMutation};
 use mdbn_wire::cbor::{self, Cbor};
@@ -169,6 +171,8 @@ pub struct FileRow {
     pub media: MediaClass,
     /// Position of the last change.
     pub modified_seq: Seq,
+    /// Writing-device capture clock in milliseconds; old/absent remains unknown.
+    pub mtime: Option<i64>,
     /// [`bucket16`] of the ID.
     pub bucket: u16,
     /// Local materialization (device-local; not replicated).
@@ -922,6 +926,9 @@ impl std::error::Error for StoreError {}
 /// Store result.
 pub type StoreResult<T> = Result<T, StoreError>;
 
+/// A retained single-threaded store operation, owned until completion.
+pub type StoreFuture<'a, T> = Pin<Box<dyn Future<Output = StoreResult<T>> + 'a>>;
+
 // ------------------------------------------------------------------ the trait
 
 /// Persistent state of one replica of one collection.
@@ -971,6 +978,75 @@ pub trait Store {
         _copy_limit: usize,
     ) -> StoreResult<Option<BoundedResource>> {
         Err(StoreError::Io("bounded resource source unavailable".into()))
+    }
+    /// Retain original delivery eligibility while a resource bootstrap defers.
+    /// This is not acknowledgement, capture or mutation resubmission.
+    fn defer_disk_observations(&mut self, _tokens: &[ObservationId]) -> StoreResult<()> {
+        Ok(())
+    }
+    /// Keep a terminal native resource refusal bound to its original mutation
+    /// and exact observation set; unchanged redelivery must not remint attempts.
+    fn resource_observation_refused(
+        &mut self,
+        _tokens: &[ObservationId],
+        _mutation: Uuid,
+    ) -> StoreResult<()> {
+        Ok(())
+    }
+    /// Recheck the original live observation and read bounded UTF-8 source for
+    /// a declared resource dependency. Never infer text from an attachment hash.
+    fn resource_observation_text(
+        &mut self,
+        _observation: &Observation,
+        _limit: usize,
+    ) -> StoreResult<Option<String>> {
+        Err(StoreError::Io(
+            "bounded observed resource source unavailable".into(),
+        ))
+    }
+    /// Retained source read for suspending stores. Native defaults preserve the
+    /// exact synchronous result; callers retain the future until completion.
+    fn resource_observation_text_async<'a>(
+        &'a mut self,
+        observation: &'a Observation,
+        limit: usize,
+    ) -> StoreFuture<'a, Option<String>> {
+        Box::pin(std::future::ready(
+            self.resource_observation_text(observation, limit),
+        ))
+    }
+    /// Final live observation fence, including deletions, before resource capture.
+    fn resource_observation_current(&mut self, _observation: &Observation) -> StoreResult<bool> {
+        Err(StoreError::Io("observed resource fence unavailable".into()))
+    }
+    /// Retained final source fence, with the same native semantics.
+    fn resource_observation_current_async<'a>(
+        &'a mut self,
+        observation: &'a Observation,
+    ) -> StoreFuture<'a, bool> {
+        Box::pin(std::future::ready(
+            self.resource_observation_current(observation),
+        ))
+    }
+    /// A bounded redelivery prefix must not hide another live declared resource
+    /// observation from the same deferred set. Missing obsolete sources may drop
+    /// out; their original tokens are not acknowledged by this check.
+    fn resource_observation_batch_complete(
+        &self,
+        _observations: &[Observation],
+    ) -> StoreResult<bool> {
+        Err(StoreError::Io(
+            "observed resource set fence unavailable".into(),
+        ))
+    }
+    /// Retained complete-set fence; pending is not a complete resource set.
+    fn resource_observation_batch_complete_async<'a>(
+        &'a self,
+        observations: &'a [Observation],
+    ) -> StoreFuture<'a, bool> {
+        Box::pin(std::future::ready(
+            self.resource_observation_batch_complete(observations),
+        ))
     }
     /// The file inclusion policy, `None` before any was set (the default applies).
     fn settings(&self) -> StoreResult<Option<FileInclusion>>;
@@ -1215,6 +1291,14 @@ pub trait Store {
     fn observe(&mut self, _paths: Option<&[String]>) -> StoreResult<Vec<Observation>> {
         Ok(Vec::new())
     }
+    /// Retained disk observation for suspending stores. Immediate native stores
+    /// keep their existing result. Pending futures must not be dropped/restarted.
+    fn observe_async<'a>(
+        &'a mut self,
+        paths: Option<&'a [String]>,
+    ) -> StoreFuture<'a, Vec<Observation>> {
+        Box::pin(std::future::ready(self.observe(paths)))
+    }
     /// A bounded positional reader of the file at `path` for an attachment
     /// upload, which must still be a regular file of `size` bytes. `None` when
     /// it is not (gone, changed size) or the store cannot stream files. The
@@ -1358,6 +1442,9 @@ pub mod meta_keys {
     /// Device-local (it holds plaintext chunk hashes); resumed when the file is
     /// observed again after a restart.
     pub const ATTACHMENT_INGEST: &str = "replica.attachment_ingest.";
+    /// Hash of actual native HostV2/GrantV1 owner+transfer → opaque resume reference.
+    /// Contains no plaintext journal, payload or keys.
+    pub const CLIENT_UPLOAD_RESUME: &str = "replica.client_upload_resume.";
     /// The chain hash of seq 1 as this store applied it, committed with it. Store
     /// identity consistency for the host's genesis pin; not an attestation of the
     /// log, its head or admission.

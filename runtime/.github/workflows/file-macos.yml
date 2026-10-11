@@ -4,17 +4,12 @@ name: file-macos
 # standard hosted runner. macOS minutes are expensive: this runs only on pushes to
 # native-platform branches that touch the file layer, and on demand.
 on:
+  # On demand only: run before a LAB refresh or release candidate.
   workflow_dispatch:
     inputs:
       stress_secs:
         description: "Seconds for the editor race test"
         default: "10"
-  push:
-    branches: ["ws/file-*"]
-    paths:
-      - "crates/platform-native/**"
-      - "crates/store-file/**"
-      - ".github/workflows/file-macos.yml"
 
 concurrency:
   group: file-macos-${{ github.ref }}

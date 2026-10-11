@@ -79,6 +79,7 @@ fn authoritative_kind_and_same_hash_reseal_are_full_cas_not_extension_override()
         content: content(),
         media: MediaClass::Other,
         modified_seq: 1,
+        mtime: None,
         bucket: 0,
         local: FileLocal::Remote,
     };

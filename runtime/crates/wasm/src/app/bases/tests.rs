@@ -181,6 +181,7 @@ fn result() -> BasesExecutionResult {
     let data = fixture();
     let cases = data.get("cells").unwrap().as_list().unwrap();
     BasesExecutionResult {
+        summaries: vec![],
         window: None,
         view: BasesViewDescriptor {
             record: B16([0x11; 16]),
@@ -220,6 +221,36 @@ fn result() -> BasesExecutionResult {
             rows: vec![0],
         }],
     }
+}
+#[test]
+fn optional_summary_field_uses_shared_tagged_value_bytes_and_legacy_results_stay_exact() {
+    let addon = mdbn_core::yaml::parse_value(include_str!(
+        "../../../../../conformance/views/bases-summary-codec.json"
+    ))
+    .unwrap()
+    .unwrap();
+    let mut expected = hex(fixture().get("success_hex").unwrap().as_str().unwrap());
+    assert_eq!(expected[0], 0xa7);
+    expected[0] = 0xa8;
+    expected.extend(hex(addon.get("suffix_hex").unwrap().as_str().unwrap()));
+    let mut value = result();
+    value.summaries = vec![
+        ("all".into(), RuntimeValue::Number(3.0)),
+        ("total".into(), RuntimeValue::Number(6.0)),
+    ];
+    assert_eq!(encode(&value).unwrap(), expected);
+    value.summaries.push(("all".into(), RuntimeValue::Null));
+    assert!(encode(&value).is_err());
+    value.summaries = vec![(
+        "large".into(),
+        RuntimeValue::List(vec![RuntimeValue::Null; 4096]),
+    )];
+    assert!(encode(&value).is_err());
+    value.summaries = vec![(
+        "empty".into(),
+        RuntimeValue::List(vec![RuntimeValue::Null; 4]),
+    )];
+    assert!(encode(&value).is_ok());
 }
 #[test]
 fn shared_native_bytes_cover_all_cell_tags_and_authoritative_zone_aliases() {

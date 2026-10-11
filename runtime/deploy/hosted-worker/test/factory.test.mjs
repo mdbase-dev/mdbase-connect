@@ -8,7 +8,7 @@ let bundled = { schema: "mdbn-app-trust/release/1", environment: "lab", cpOrigin
   trustedRoots: [new Uint8Array(32).fill(0xab)], policyPins: Uint8Array.of(0x80) };
 const configured = bundled;
 mock.module("#hosted-release-trust", { namedExports: { appReleaseTrust: () => bundled } });
-const { ProductionCustody, hostedPort, productionParts, productionWrapper } = await import("../src/factory.ts");
+const { ProductionCustody, hostedPort, productionParts, productionWrapper, ownedCppControlOrigin } = await import("../src/factory.ts");
 import { ControlClient } from "../src/control.ts";
 
 const full = {
@@ -18,6 +18,46 @@ const full = {
   LOG_URL: "https://log.test", CP_URL: "https://cp.test", CP_INBOUND_TOKEN: "t".repeat(40), CP_ROOTS: "ab".repeat(32),
   HOSTED_SIGNERS: "22222222-2222-4222-8222-222222222222",
 };
+
+test("CPP origin requires the actual fully configured factory's ControlClient object", () => {
+  const parts = productionParts(full);
+  assert.equal(ownedCppControlOrigin(parts.control), "https://cp.test");
+  const manual = new ControlClient({ url: "https://cp.test", token: "t".repeat(40) });
+  assert.equal(manual.cppClaimOriginData(), "https://cp.test", "parsed DATA is not provenance");
+  assert.equal(ownedCppControlOrigin(manual), null);
+  assert.equal(ownedCppControlOrigin({ cppClaimOriginData: () => "https://cp.test" }), null);
+  assert.equal(ownedCppControlOrigin(Object.create(parts.control)), null);
+  assert.equal(ownedCppControlOrigin(new Proxy(parts.control, {})), null);
+  assert.equal(ownedCppControlOrigin({ ...parts, control: manual }.control), null);
+  parts.control.cppClaimOriginData = () => "https://foreign.test";
+  parts.control.base = "https://foreign.test";
+  parts.control.cppOrigin = "https://foreign.test";
+  assert.equal(ownedCppControlOrigin(parts.control), "https://cp.test", "captured intrinsic reads immutable private origin");
+  for (const kind of ["hosted", "escrow"]) {
+    const other = new ControlClient({ url: "https://cp.test", token: "t".repeat(40), kind });
+    assert.equal(ownedCppControlOrigin(other), null);
+  }
+});
+
+test("CPP origin DATA rejects non-origin configurations without changing ordinary ControlClient", () => {
+  for (const url of ["https://u:p@cp.test", "https://cp.test/path", "https://cp.test?x", "https://cp.test#x"]) {
+    const control = new ControlClient({ url, token: "t".repeat(40) });
+    assert.equal(control.cppClaimOriginData(), null, url);
+    assert.equal(ownedCppControlOrigin(control), null);
+  }
+  assert.equal(new ControlClient({ url: "https://cp.test", token: "t".repeat(40), kind: "escrow" }).cppClaimOriginData(), null);
+  assert.equal(productionParts({ ...full, CP_URL: "https://foreign.test" }), null);
+});
+
+test("actual factory-owned transport keeps its original immutable HTTPS base", async () => {
+  let called;
+  const parts = productionParts(full, async (url) => { called = url; return new Response("", { status: 401 }); });
+  parts.control.base = "https://foreign.test";
+  parts.control.cppOrigin = "https://foreign.test";
+  await assert.rejects(parts.control.serviceDevice("0e0e0e0e-0e0e-4e0e-8e0e-0e0e0e0e0e0e", AbortSignal.timeout(1000)));
+  assert.ok(called.startsWith("https://cp.test/"));
+  assert.equal(ownedCppControlOrigin(parts.control), "https://cp.test");
+});
 
 test("fails closed unless fully configured", () => {
   assert.ok(productionParts(full));

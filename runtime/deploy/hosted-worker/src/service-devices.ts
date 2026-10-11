@@ -73,6 +73,11 @@ export function serviceAuthorization(request: Request, serviceToken?: string): R
   return null;
 }
 
+/** Deployment-role separation for the isolated stateless dual factory. */
+export function distinctServiceTokens(a: string | undefined, b: string | undefined): boolean {
+  return typeof a === "string" && typeof b === "string" && a.length >= 32 && b.length >= 32 && !equal(a, b);
+}
+
 /** Authenticate and decode the shared bounded CP service request. */
 export async function serviceCollection(request: Request, serviceToken?: string): Promise<string | Response> {
   const denied = serviceAuthorization(request, serviceToken);
@@ -92,10 +97,16 @@ export async function generateServiceDevice(
     serviceToken?: string; generate: () => GeneratedDevice; wrapper: DeviceKeyWrapper; newId?: () => string;
     /** This deployment's service role (default `hosted`). */
     kind?: "hosted" | "escrow";
+    /** Additional restriction only; service-token authentication is always required. */
+    allowed?: (collection: string) => Promise<boolean>;
   },
 ): Promise<Response> {
   const collection = await serviceCollection(request, deps.serviceToken);
   if (collection instanceof Response) return collection;
+  const allowed = async () => {
+    try { return deps.allowed ? await deps.allowed(collection) : true; } catch { return false; }
+  };
+  if (deps.allowed && !await allowed()) return error(503, "custody_unavailable");
   const device = (deps.newId ?? (() => crypto.randomUUID()))();
   const keys = deps.generate();
   let wrapped: { envelope: Uint8Array; kmsKeyArn: string };
@@ -106,6 +117,7 @@ export async function generateServiceDevice(
   } finally {
     keys.secret.fill(0);
   }
+  if (deps.allowed && !await allowed()) return error(503, "custody_unavailable");
   const { envelope, kmsKeyArn } = wrapped;
   if (!(envelope instanceof Uint8Array) || envelope.length === 0 || envelope.length > MAX_ENVELOPE_BYTES
     || typeof kmsKeyArn !== "string" || !/^arn:[!-~]{1,2044}$/.test(kmsKeyArn)) {

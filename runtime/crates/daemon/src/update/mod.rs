@@ -43,5 +43,16 @@ impl std::fmt::Display for UpdateError {
 }
 impl std::error::Error for UpdateError {}
 
+/// The `doctor` `update` check. Until an apply path and production key custody
+/// land, this build never updates itself; say so instead of implying it does.
+pub fn doctor_check(version: &str) -> crate::control::Check {
+    crate::control::Check {
+        id: "update".into(),
+        status: "warn".into(),
+        detail: format!("version {version}; automatic updates are not available in this build"),
+        action: Some("Install new releases manually until automatic updates ship.".into()),
+    }
+}
+
 #[cfg(test)]
 mod tests;

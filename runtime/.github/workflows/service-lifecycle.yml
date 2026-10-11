@@ -9,31 +9,7 @@
 name: service-lifecycle
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - "crates/**"
-      - "conformance/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - ".cargo/**"
-      - "rust-toolchain.toml"
-      - ".github/workflows/ci.yml"
-      - ".github/workflows/service-lifecycle.yml"
-      - "scripts/ci/service-lifecycle.sh"
-      - "scripts/ci/test_service_lifecycle_diagnostics.py"
-  # Seed default-branch dependency caches, not a second full run on every merge.
-  # PR caches cannot be reused by other PRs. Only dependency/toolchain changes
-  # (and changes to this workflow) require a new seed; superseded seeds cancel.
-  push:
-    branches: [main]
-    paths:
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "crates/**/Cargo.toml"
-      - ".cargo/**"
-      - "rust-toolchain.toml"
-      - ".github/workflows/service-lifecycle.yml"
+  # On demand only: run before a LAB refresh or release candidate.
   workflow_dispatch:
 
 permissions:
@@ -88,6 +64,9 @@ jobs:
       - name: Daemon all targets (-D warnings, native C SDK)
         shell: bash
         run: cargo clippy -p mdbn-daemon --all-targets --locked -- -D warnings
+      - name: Takeover tests (native marker durability, incl. Windows)
+        shell: bash
+        run: cargo test --locked -p mdbn-takeover
       - name: Build (one package)
         shell: bash
         run: cargo build --locked -p mdbn-daemon

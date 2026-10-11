@@ -29,7 +29,7 @@ const COMMON = new Set([
   "internet", "hello", "mustang", "ginger", "cheese", "summer", "winter", "spring", "autumn", "flower", "killer", "hunter",
   "ranger", "buster", "soccer", "tigger", "pepper", "jordan", "harley", "robert", "matthew", "daniel", "andrew", "joshua",
   "ashley", "nicole", "chelsea", "amanda", "orange", "purple", "yellow", "silver", "golden", "cookie", "chocolate", "mdbase",
-  "tasknotes", "obsidian", "recovery", "private", "encryption", "unlock", "account", "default", "changeme", "temp", "test",
+  "task", "note", "notes", "obsidian", "recovery", "private", "encryption", "unlock", "account", "default", "changeme", "temp", "test",
   "testing", "guest", "root", "user", "system", "server", "database", "oracle", "google", "apple", "facebook", "twitter",
   "github", "linkedin", "amazon", "netflix", "spotify", "windows", "android", "iphone", "samsung", "nokia", "sony",
   "january", "february", "march", "april", "june", "july", "august", "september", "october", "november", "december",

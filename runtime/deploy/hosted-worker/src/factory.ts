@@ -45,6 +45,19 @@ export function deploymentRelease(env: FactoryEnv): ReleaseTrust | null {
   return trust;
 }
 
+// No exported registration/setter. Only this actual compiled-release-verified
+// factory may bind its newly constructed ControlClient to a deployment origin.
+const cppOwnedControls = new WeakMap<ControlClient, string>();
+const controlOriginData = ControlClient.prototype.cppClaimOriginData;
+
+/** Actual object provenance + immutable configuration DATA, not permission. */
+export function ownedCppControlOrigin(control: ControlClient): string | null {
+  const origin = cppOwnedControls.get(control);
+  if (!origin) return null;
+  try { return controlOriginData.call(control) === origin ? origin : null; }
+  catch { return null; }
+}
+
 export interface ProductionParts {
   kms: HostedAwsKms;
   control: ControlClient;
@@ -69,6 +82,7 @@ export function productionParts(env: FactoryEnv, fetchImpl: typeof fetch = fetch
       fetchImpl,
     );
     const control = new ControlClient({ url: env.CP_URL, token: env.CP_INBOUND_TOKEN, kind: "hosted" }, fetchImpl);
+    if (controlOriginData.call(control) === trust.cpOrigin) cppOwnedControls.set(control, trust.cpOrigin);
     return { kms, control, roots: trust.trustedRoots.map(pk => new Uint8Array(pk)), policyPins: new Uint8Array(trust.policyPins), signers, keyArn: env.KMS_KEY_ARN };
   } catch {
     return null;

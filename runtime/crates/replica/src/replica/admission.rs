@@ -29,6 +29,12 @@ pub(crate) struct HostedKeyDelivery {
     epoch: u64,
     seq: u64,
 }
+impl HostedKeyDelivery {
+    // Internal candidate correlation only; this is NOT a committed observation.
+    pub(super) fn is_at(&self, position: u64) -> bool {
+        self.seq == position
+    }
+}
 
 /// Live serving observation; it cannot be installed back into a replica.
 #[derive(Debug, Clone, PartialEq, Eq)]

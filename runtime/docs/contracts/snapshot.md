@@ -134,7 +134,7 @@ chunk-payload = {
 
 snapshot-row = resource-row / index-row / record-row / file-row
              / tombstone-row / alias-row / conflict-row / receipt-row / settings-row
-             / attachment-file-row-v1 / attachment-tombstone-row-v1
+             / attachment-file-row-v1 / attachment-file-row-v2 / attachment-tombstone-row-v1
              / unindexed-markdown-file-row-v1 / unindexed-markdown-tombstone-row-v1
 
 snapshot-text = tstr / blob-ref
@@ -155,6 +155,8 @@ tombstone-row = [uuid, &( record: 0, file: 1 ), path, snapshot-text, seq, time-m
                                                               ; id, kind, last path, last document or file blob-ref,
                                                               ;   deleted at, deleted when; key: id
 attachment-file-row-v1 = [uuid, path, attachment-content-v1, media-class]
+attachment-file-row-v2 = [uuid, path, attachment-content-v1, media-class, int]
+; v2 trailing writing-device capture mtime (milliseconds); absent emits old v1 exactly
 attachment-tombstone-row-v1 = [uuid, 1, path, attachment-content-v1, seq, time-ms]
 unindexed-markdown-file-row-v1 = [uuid, path, unindexed-markdown-payload-v1, media-class]
 unindexed-markdown-tombstone-row-v1 = [uuid, 1, path, unindexed-markdown-payload-v1, seq, time-ms]
@@ -248,10 +250,19 @@ attachment-runtime-v1-chunk-payload =
   / { 0: 1, 1: 8, 2: uint, 3: [* receipt-row] }
   / { 0: 1, 1: 9, 2: uint, 3: [* settings-row] }
   / { 0: 1, 1: 10, 2: uint, 3: [* attachment-file-row-v1] }
+  / { 0: 2, 1: 10, 2: uint, 3: [* (attachment-file-row-v1 / attachment-file-row-v2)] }
   / { 0: 1, 1: 11, 2: uint, 3: [* attachment-tombstone-row-v1] }
   / { 0: 1, 1: 12, 2: uint, 3: [* unindexed-markdown-file-row-v1] }
   / { 0: 1, 1: 13, 2: uint, 3: [* unindexed-markdown-tombstone-row-v1] }
 ```
+
+Timestamped AttachmentFiles rows require chunk `fmt=2`: extending a strict
+row tuple is incompatible, unlike optional map fields. Format2 is restricted to
+section10 and must contain at least one v2 row; fmt1 contains only v1 rows.
+Absent metadata leaves old chunks byte-identical. Old fmt1-only decoders refuse
+fmt2 as an unknown format (§6.1), not malformed legacy rows. Metadata is bound by
+the sealed chunk bytes/hashes; descriptive mtime, like media/modified_seq, does
+not change the semantic state digest below.
 
 ## 4. State digest
 

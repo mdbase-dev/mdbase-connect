@@ -242,6 +242,8 @@ fn open(
         device_id: d.tk.id.0,
         root: folder,
         private_dir: dir.join(format!("{}-state", d.label)),
+        adopt: None,
+        id_hints: vec![],
         sync: Some(Synced {
             log_url: log.into(),
             chosen_state: CState::CloudCopy,

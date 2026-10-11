@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
     AppCpCloudCopyBootstrap,
     type AppCloudCopyBootstrapPersistence,
@@ -49,7 +49,9 @@ function fixture(purpose: "create" | "join" = "create") {
             cloudCopyCollectionCurrent: vi.fn(() => true),
             registeredDeviceReceipt: vi.fn(() => receipt),
             signCloudCopyCreate: vi.fn(() => new Uint8Array(64).fill(7)),
-            signCloudCopyJoin: vi.fn(() => new Uint8Array(64).fill(8)),
+            signCloudCopyJoin: vi.fn((_nonce: Uint8Array) =>
+                new Uint8Array(64).fill(8),
+            ),
             retireLog: vi.fn(),
             adoptDevice: vi.fn(),
         };
@@ -107,7 +109,12 @@ function fixture(purpose: "create" | "join" = "create") {
                 source,
                 trust,
                 persistence,
-                { fetch, now: () => now, allowLoopbackHttp: true, ...(displayName === undefined ? {} : {displayName}) },
+                {
+                    fetch,
+                    now: () => now,
+                    allowLoopbackHttp: true,
+                    ...(displayName === undefined ? {} : { displayName }),
+                },
             );
     return {
         source,
@@ -122,31 +129,278 @@ function fixture(purpose: "create" | "join" = "create") {
         now,
     };
 }
+afterEach(() => vi.useRealTimers());
 describe("first-party cloud-copy CP bootstrap (protocol/native/persistence stand-ins)", () => {
+    it.each(["503", "network"])(
+        "backs off and recovers a transient challenge %s without repeating enrollment",
+        async (failure) => {
+            vi.useFakeTimers();
+            const f = fixture(),
+                original = f.fetch.getMockImplementation()!;
+            f.fetch.mockImplementationOnce(async () => {
+                if (failure === "network")
+                    throw new TypeError("private network diagnostic");
+                return new Response(null, { status: 503 });
+            });
+            f.fetch.mockImplementation(original);
+            const result = f
+                .create()
+                .bootstrap({ signal: f.signal })
+                .then(
+                    (value) => ({ value }),
+                    (error) => ({ error }),
+                );
+            await vi.advanceTimersByTimeAsync(0);
+            expect(f.fetch).toHaveBeenCalledOnce();
+            await vi.advanceTimersByTimeAsync(249);
+            expect(f.fetch).toHaveBeenCalledOnce();
+            await vi.advanceTimersByTimeAsync(1);
+            expect(await result).toHaveProperty("value");
+            expect(
+                f.fetch.mock.calls.map(
+                    (call) => new URL(String(call[0])).pathname,
+                ),
+            ).toEqual([
+                "/v1/next/devices/challenge",
+                "/v1/next/devices/challenge",
+                "/v1/next/collections/cloud-copy",
+            ]);
+            expect(f.persistence.pending).toHaveBeenCalledOnce();
+            expect(f.native.signCloudCopyCreate).toHaveBeenCalledOnce();
+            expect(f.state.outcome.state).toBe("completed");
+            expect(vi.getTimerCount()).toBe(0);
+        },
+    );
+    it("bounds challenge retries and exposes only positively classified pre-enrollment exhaustion as retryable", async () => {
+        vi.useFakeTimers();
+        const f = fixture();
+        f.fetch.mockImplementation(
+            async () => new Response(null, { status: 503 }),
+        );
+        const error = f
+            .create()
+            .bootstrap({ signal: f.signal })
+            .catch((error) => error);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(f.fetch).toHaveBeenCalledOnce();
+        await vi.advanceTimersByTimeAsync(250);
+        expect(f.fetch).toHaveBeenCalledTimes(2);
+        await vi.advanceTimersByTimeAsync(999);
+        expect(f.fetch).toHaveBeenCalledTimes(2);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(await error).toMatchObject({
+            reason: "unavailable",
+            retryable: true,
+        });
+        expect(f.fetch).toHaveBeenCalledTimes(3);
+        expect(f.native.signCloudCopyCreate).not.toHaveBeenCalled();
+        expect(f.persistence.completed).not.toHaveBeenCalled();
+        expect(f.state.outcome.state).toBe("pending");
+        expect(f.native.retireLog).toHaveBeenCalled();
+        expect(vi.getTimerCount()).toBe(0);
+    });
+    it.each([401, 403, 404, 409])(
+        "permanent challenge HTTP %s never retries or advertises Retry",
+        async (status) => {
+            const f = fixture();
+            f.fetch.mockImplementation(
+                async () => new Response(null, { status }),
+            );
+            await expect(
+                f.create().bootstrap({ signal: f.signal }),
+            ).rejects.toMatchObject({ reason: "refused", retryable: false });
+            expect(f.fetch).toHaveBeenCalledOnce();
+            expect(f.native.signCloudCopyCreate).not.toHaveBeenCalled();
+        },
+    );
+    it.each(["create", "join"] as const)(
+        "unknown %s enrollment never automatically retries its POST",
+        async (purpose) => {
+            const f = fixture(purpose),
+                original = f.fetch.getMockImplementation()!;
+            f.fetch.mockImplementation(async (url, init) =>
+                new URL(String(url)).pathname === "/v1/next/devices/challenge"
+                    ? original(url, init)
+                    : new Response(null, { status: 503 }),
+            );
+            await expect(
+                f.create().bootstrap({ signal: f.signal }),
+            ).rejects.toMatchObject({
+                reason: "outcome_unknown",
+                retryable: false,
+            });
+            expect(f.fetch).toHaveBeenCalledTimes(2);
+            expect(f.state.outcome.state).toBe("pending");
+            expect(f.persistence.completed).not.toHaveBeenCalled();
+        },
+    );
+
+    it("explicit unknown enrollment recovery preserves the exact operation and device keys and uses a fresh proof", async () => {
+        const f = fixture("join");
+        let challenge = 0,
+            enrollments = 0;
+        const nonces: Uint8Array[] = [];
+        f.native.signCloudCopyJoin.mockImplementation((nonce) => {
+            nonces.push(new Uint8Array(nonce));
+            return new Uint8Array(64).fill(8);
+        });
+        f.fetch.mockImplementation(async (url) => {
+            if (new URL(String(url)).pathname === "/v1/next/devices/challenge")
+                return Response.json({
+                    challenge: (++challenge === 1 ? "11" : "22").repeat(32),
+                    expires_at: f.now + 60000,
+                });
+            return ++enrollments === 1
+                ? new Response(null, { status: 503 })
+                : Response.json(f.response());
+        });
+        await expect(
+            f.create().bootstrap({ signal: f.signal }),
+        ).rejects.toMatchObject({
+            reason: "outcome_unknown",
+            retryable: false,
+        });
+        const original = structuredClone(f.state.outcome);
+        expect(original.state).toBe("pending");
+        await expect(
+            f.create().bootstrap({ signal: f.signal }),
+        ).rejects.toMatchObject({ reason: "outcome_unknown" });
+        expect(f.fetch).toHaveBeenCalledTimes(2);
+        const recovered = await f
+            .create()
+            .bootstrap({
+                signal: f.signal,
+                reconcile: "explicit-unknown-outcome",
+            });
+        expect(
+            original.state === "pending" ? original.operation : null,
+        ).toEqual(recovered.operation);
+        expect(nonces).toEqual([
+            new Uint8Array(32).fill(0x11),
+            new Uint8Array(32).fill(0x22),
+        ]);
+        expect(f.fetch).toHaveBeenCalledTimes(4);
+        expect(enrollments).toBe(2);
+        expect(f.state.outcome.state).toBe("completed");
+    });
+    it.each(["abort", "scope", "trust"])(
+        "%s loss during challenge backoff never dispatches another request",
+        async (loss) => {
+            vi.useFakeTimers();
+            const f = fixture(),
+                controller = new AbortController();
+            f.fetch.mockImplementation(
+                async () => new Response(null, { status: 503 }),
+            );
+            const error = f
+                .create()
+                .bootstrap({ signal: controller.signal })
+                .catch((error) => error);
+            await vi.advanceTimersByTimeAsync(0);
+            expect(f.fetch).toHaveBeenCalledOnce();
+            if (loss === "abort") controller.abort();
+            if (loss === "scope")
+                Object.assign(f.source, {
+                    collection: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                });
+            if (loss === "trust") f.trust.policyPins.fill(0);
+            await vi.advanceTimersByTimeAsync(1250);
+            expect(await error).toMatchObject({
+                reason: "fenced",
+                retryable: false,
+            });
+            expect(f.fetch).toHaveBeenCalledOnce();
+            expect(vi.getTimerCount()).toBe(0);
+        },
+    );
+    it("malformed challenge JSON is terminal, not transient network failure", async () => {
+        const f = fixture();
+        f.fetch.mockImplementation(async () => new Response("invalid-json"));
+        await expect(
+            f.create().bootstrap({ signal: f.signal }),
+        ).rejects.toMatchObject({ reason: "response", retryable: false });
+        expect(f.fetch).toHaveBeenCalledOnce();
+    });
+    it("lost enrollment reply is unknown, never automatically replayed", async () => {
+        const f = fixture("join"),
+            original = f.fetch.getMockImplementation()!;
+        f.fetch.mockImplementation(async (url, init) => {
+            if (new URL(String(url)).pathname === "/v1/next/devices/challenge")
+                return original(url, init);
+            throw new TypeError("private lost reply");
+        });
+        await expect(
+            f.create().bootstrap({ signal: f.signal }),
+        ).rejects.toMatchObject({
+            reason: "outcome_unknown",
+            retryable: false,
+        });
+        expect(f.fetch).toHaveBeenCalledTimes(2);
+        expect(f.state.outcome.state).toBe("pending");
+    });
     it("captures and protects the normalized explicit create label before bearer/challenge/POST", async () => {
-        const f = fixture(), host = f.create("  Research  ");
-        const metadata = await host.bootstrap({signal: f.signal});
+        const f = fixture(),
+            host = f.create("  Research  ");
+        const metadata = await host.bootstrap({ signal: f.signal });
         const body = JSON.parse(f.fetch.mock.calls[1]![1]!.body as string);
         expect(body.display_name).toBe("Research");
-        expect(vi.mocked(f.persistence.pending).mock.calls[0]![0].displayName).toBe("Research");
+        expect(
+            vi.mocked(f.persistence.pending).mock.calls[0]![0].displayName,
+        ).toBe("Research");
         expect(metadata.operation.displayName).toBe("Research");
-        expect(vi.mocked(f.persistence.pending).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(f.source.connectorBearer).mock.invocationCallOrder[0]!);
-        await expect(f.create("Other").bootstrap({signal: f.signal, reconcile: "explicit-unknown-outcome"})).rejects.toMatchObject({reason: "response"});
+        expect(
+            vi.mocked(f.persistence.pending).mock.invocationCallOrder[0],
+        ).toBeLessThan(
+            vi.mocked(f.source.connectorBearer).mock.invocationCallOrder[0]!,
+        );
+        await expect(
+            f
+                .create("Other")
+                .bootstrap({
+                    signal: f.signal,
+                    reconcile: "explicit-unknown-outcome",
+                }),
+        ).rejects.toMatchObject({ reason: "response" });
         expect(f.fetch).toHaveBeenCalledTimes(2);
     });
     it("captures optional name exactly once before any await and ignores later caller option mutation", async () => {
-        const f = fixture(); let label = "  Research  "; let reads = 0;
-        const options = {fetch: f.fetch, now: () => f.now, allowLoopbackHttp: true, get displayName() { reads++; return label; }};
-        const host = new AppCpCloudCopyBootstrap(f.native as unknown as AppWasmRuntime, f.source, f.trust, f.persistence, options);
-        expect(reads).toBe(1); label = "Other";
-        await host.bootstrap({signal: f.signal});
-        expect(reads).toBe(1); expect(JSON.parse(f.fetch.mock.calls[1]![1]!.body as string).display_name).toBe("Research");
-        expect(vi.mocked(f.persistence.pending).mock.calls[0]![0].displayName).toBe("Research");
+        const f = fixture();
+        let label = "  Research  ";
+        let reads = 0;
+        const options = {
+            fetch: f.fetch,
+            now: () => f.now,
+            allowLoopbackHttp: true,
+            get displayName() {
+                reads++;
+                return label;
+            },
+        };
+        const host = new AppCpCloudCopyBootstrap(
+            f.native as unknown as AppWasmRuntime,
+            f.source,
+            f.trust,
+            f.persistence,
+            options,
+        );
+        expect(reads).toBe(1);
+        label = "Other";
+        await host.bootstrap({ signal: f.signal });
+        expect(reads).toBe(1);
+        expect(
+            JSON.parse(f.fetch.mock.calls[1]![1]!.body as string).display_name,
+        ).toBe("Research");
+        expect(
+            vi.mocked(f.persistence.pending).mock.calls[0]![0].displayName,
+        ).toBe("Research");
     });
     it("rejects raw-invalid names and name on join before any asynchronous operation", () => {
-        const f = fixture(); expect(() => f.create("Research\n")).toThrow("binding");
-        expect(f.persistence.restore).not.toHaveBeenCalled(); expect(f.fetch).not.toHaveBeenCalled();
-        const join = fixture("join"); expect(() => join.create("Research")).toThrow("binding");
+        const f = fixture();
+        expect(() => f.create("Research\n")).toThrow("binding");
+        expect(f.persistence.restore).not.toHaveBeenCalled();
+        expect(f.fetch).not.toHaveBeenCalled();
+        const join = fixture("join");
+        expect(() => join.create("Research")).toThrow("binding");
         expect(join.fetch).not.toHaveBeenCalled();
     });
     it("adopts only confirmed completion with SAME bundled authority, no metadata/state/root overrides", async () => {

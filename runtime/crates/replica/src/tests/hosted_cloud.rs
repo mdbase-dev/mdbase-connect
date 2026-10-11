@@ -208,6 +208,126 @@ fn verified_observer_cloud_real_join_before_initial_does_not_require_owner_onlin
     desktop_reads_current_key(&svc, &h);
 }
 
+/// An original app-runtime writes before approval of the second app-runtime.
+/// The original is then offline; cold hosted replay must supply the second
+/// device's grant without another user device or an account-key secret.
+#[test]
+fn cloud_copy_second_app_runtime_reads_history_with_original_offline() {
+    use crate::KeyWaitReason;
+    use crate::seal::KeyringSealer;
+
+    const SECOND: B16 = B16([104; 16]);
+    const SECOND_SIGN: [u8; 32] = [0x41; 32];
+    const SECOND_KEM: [u8; 32] = [0x42; 32];
+    let (svc, mut cp) = service_world();
+    cp.append(
+        &svc,
+        vec![enrol(
+            OWNER_DEV,
+            TEST_OWNER,
+            DeviceKind::AppRuntime,
+            OWNER_SIGN,
+            OWNER_KEM,
+        )],
+    );
+    let template = crypto_open(&svc, MemStore::new());
+    let clock = Rc::new(Cell::new(1_700_000_000_000));
+    let open_app = |device, sign: [u8; 32], kem: [u8; 32]| {
+        let mut cfg = template.r.cfg.clone();
+        cfg.device_id = device;
+        cfg.replica_id = device;
+        cfg.trusted_signers.clear();
+        Replica::open(
+            cfg,
+            MemStore::new(),
+            Box::new(CreatePlanner),
+            Box::new(KeyringSealer::new(COL, device, &sign, &kem)),
+            Host {
+                clock: Box::new(TestClock(clock.clone())),
+                entropy: Box::new(crate::crypto::TestEntropy::new(device.0[0])),
+                zones: Box::new(UtcOnly),
+            },
+            DeviceSecrets {
+                sign_sk: sign,
+                kem_sk: kem,
+            },
+        )
+        .unwrap()
+    };
+    let drive = |replica: &mut Replica<MemStore>, log: &mut FakeLog| {
+        for _ in 0..10 {
+            pump(replica, log, 100);
+            replica.tick();
+        }
+    };
+    let mut original = open_app(OWNER_DEV, OWNER_SIGN, OWNER_KEM);
+    let mut original_log = svc.client(OWNER_DEV);
+    drive(&mut original, &mut original_log);
+    assert_eq!(original.policy.epoch, 1, "original created the epoch");
+    assert_eq!(
+        original.policy.devices[&HOSTED_DEV].delivered_by,
+        Some(OWNER_DEV)
+    );
+    let session = original.hello(SessionAuth::Host, hello()).unwrap().0;
+    original
+        .submit(session, create(1, "before-second-device.md", None))
+        .unwrap();
+    drive(&mut original, &mut original_log);
+    let historical = original.store().record(&mid(1)).unwrap().unwrap();
+    let content_position = original.head().seq;
+    drop(original);
+    drop(original_log);
+
+    let enrolled = cp.append(
+        &svc,
+        vec![enrol(
+            SECOND,
+            TEST_OWNER,
+            DeviceKind::AppRuntime,
+            SECOND_SIGN,
+            SECOND_KEM,
+        )],
+    );
+    assert!(enrolled > content_position);
+    let mut second = open_app(SECOND, SECOND_SIGN, SECOND_KEM);
+    let mut second_log = svc.client(SECOND);
+    drive(&mut second, &mut second_log);
+    assert_eq!(second.head().seq, content_position - 1);
+    assert_eq!(
+        second.key_wait_reason(),
+        Some(KeyWaitReason::NoGrant { through: enrolled })
+    );
+    assert!(second.store().record(&mid(1)).unwrap().is_none());
+
+    // A genuinely cold hosted replica unwraps the original initial rekey, applies
+    // the historical content and CP enrollment, then emits the ordinary grant.
+    let mut hosted = crypto_open(&svc, MemStore::new());
+    hosted.pump();
+    assert_eq!(
+        hosted.r.policy.devices[&SECOND].delivered_by,
+        Some(HOSTED_DEV)
+    );
+    clock.set(clock.get() + 60_000); // past the bounded key-wait probe deadline
+    drive(&mut second, &mut second_log);
+    assert_eq!(
+        second.store().record(&mid(1)).unwrap().unwrap().doc,
+        historical.doc
+    );
+    assert_eq!(second.head(), hosted.r.head());
+    assert!(second.key_wait_reason().is_none());
+    drop(second); // also cover cold join with the grant already in the log
+    let mut second = open_app(SECOND, SECOND_SIGN, SECOND_KEM);
+    drive(&mut second, &mut second_log);
+    assert_eq!(
+        second.store().record(&mid(1)).unwrap().unwrap().doc,
+        historical.doc
+    );
+    assert_eq!(second.head(), hosted.r.head());
+    assert!(second.key_wait_reason().is_none());
+    assert!(!second.key_untrusted);
+    assert_eq!(second.stats.voided, 0);
+}
+
 #[test]
 fn verified_observer_cloud_prekey_is_distinct_from_serving_and_current_after_closed() {
     let (svc, _) = service_world();

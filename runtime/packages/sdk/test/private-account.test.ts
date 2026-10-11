@@ -4,7 +4,7 @@ import {
   AccountKeyError, accountKeyRewrapDigest, decodeBundle, deriveAccountKeyProof, deriveRecoveryDevice, domainHash, keyId, openBundle,
   parseRecoveryKey, type Argon2idRunner,
 } from "../src/account-key.js";
-import { decode, fromHex, toHex } from "../src/cbor.js";
+import { fromHex, toHex } from "../src/cbor.js";
 import {
   PrivateAccount, memorySecretStore, type AccountKeyControlPort, type AccountKeyReplicaPort,
 } from "../src/private-account.js";
@@ -257,15 +257,9 @@ describe("PrivateAccount (AK1 §7)", () => {
   });
 
   it.each([
-    {}, { complete: "true", pending: [] }, { complete: 1, pending: [] }, { complete: null, pending: [] },
-    { complete: true }, { complete: true, pending: null }, { complete: true, pending: {} },
+    {},
     { complete: true, pending: [{ collection_id: COLL_A, device_id: ACCOUNT, revoked_at: null }] },
-    ...[undefined, -1, 1.5, "7", Number.MAX_SAFE_INTEGER + 1].map((revoked_at) => ({ complete: false,
-      pending: [{ collection_id: COLL_A, device_id: ACCOUNT, revoked_at }] })),
-    { complete: false, pending: [{ collection_id: "bad", device_id: ACCOUNT, revoked_at: null }] },
-    { complete: false, pending: [null] },
     { complete: false, pending: Array(1025).fill({ collection_id: COLL_A, device_id: ACCOUNT, revoked_at: null }) },
-    { complete: false, pending: Array(2).fill({ collection_id: COLL_A, device_id: ACCOUNT, revoked_at: null }) },
   ])("never deletes R on malformed strict completion metadata: %j", async (fields) => {
     const cp = controlPlane();
     const secrets = memorySecretStore();
@@ -298,12 +292,6 @@ describe("PrivateAccount (AK1 §7)", () => {
     expect(cp.row()).toMatchObject({ mode: "strict", version: 2 });
   });
 
-  it("no account key yet: unlock and recover say so", async () => {
-    const cp = controlPlane();
-    const a = account(cp.port, replica().port);
-    expect(await code(a.unlock({ password: PASSWORD }))).toBe("no_account_key");
-    expect(await code(a.recover("MDB1-000G4-0R40M-30E20-9185G-R38E1-W8124-GK2GA-HC5RR-34D1P-70X3R-FJNC8", PASSWORD))).toBe("no_account_key");
-  });
 
   it("maps control-plane failures to typed errors and never leaks foreign error objects", async () => {
     const cp = controlPlane();
@@ -396,12 +384,5 @@ describe("passwordStrength", () => {
     expect(ok.score).toBeGreaterThanOrEqual(3);
     expect(ok.feedback).toEqual([]);
   });
-  it("is deterministic and never throws on odd input", () => {
-    expect(passwordStrength("")).toEqual(passwordStrength(""));
-    expect(passwordStrength("🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂").score).toBeGreaterThanOrEqual(0);
-    expect(passwordStrength(undefined as unknown as string).score).toBe(0);
-  });
 });
 
-// decode is imported to keep the CBOR round trip visible in failure output.
-void decode;

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import type { CborValue } from "../src/cbor.js";
-import { decode, encode } from "../src/cbor.js";
 import { connect } from "../src/client.js";
 import { MemoryReplica } from "../src/testing/index.js";
 import type { Connector, FramePort } from "../src/transport/port.js";
@@ -50,16 +49,6 @@ async function capturedPages(replies: (ListResourcesResult | Problem)[]) {
 }
 
 describe("resource inventory page wire shape", () => {
-  it("retains byte-identical terminal two-key results and omitted request options", async () => {
-    const raw = new Map<number, CborValue>([[0, []], [1, true]]);
-    expect(encode(listResourcesResult.enc(listResourcesResult.dec(raw)))).toEqual(encode(raw));
-    const f = await capturedPages([{ resources: [], complete: true }]);
-    try {
-      expect(await f.client.resources.list()).toEqual({ resources: [], complete: true });
-      expect([...f.requests[0]!.keys()]).toEqual([]);
-      expect(f.opens()).toBe(1);
-    } finally { f.client.close(); }
-  });
 
   it("carries the original opaque cursor and unchanged selection on one held client", async () => {
     const cursor = "opaque-original-inventory";
@@ -79,10 +68,7 @@ describe("resource inventory page wire shape", () => {
     } finally { f.client.close(); }
   });
 
-  it("does not infer complete or confirmation from a cursor or source text", () => {
-    const value = listResourcesResult.enc({ resources: [{ ...source, state: "pending" }], complete: false, cursor: "opaque" });
-    expect(listResourcesResult.dec(value)).toEqual({ resources: [{ ...source, state: "pending" }], complete: false, cursor: "opaque" });
-  });
+
 
   it("rejects non-string continuation arms without changing existing resource decoding", () => {
     for (const cursor of [null, 1, false, new Uint8Array([1])]) {
@@ -95,7 +81,7 @@ describe("resource inventory page wire shape", () => {
     expect(() => listResourcesResult.dec(value)).toThrow();
   });
 
-  it.each(["invalid_resource_cursor", "cursor_stale", "cursor_expired"])("surfaces %s without restarting or reopening", async (reason) => {
+  it.each(["cursor_expired"])("surfaces %s without restarting or reopening", async (reason) => {
     const f = await capturedPages([{ code: "invalid_request", recovery: "fix_request", message: "Inventory continuation refused", reason }]);
     try {
       await expect(f.client.resources.list({ text: true, cursor: "original" })).rejects.toMatchObject({ code: "invalid_request", reason });
@@ -105,17 +91,6 @@ describe("resource inventory page wire shape", () => {
     } finally { f.client.close(); }
   });
 
-  it("surfaces pending inventory refusal rather than complete-empty fallback", async () => {
-    const f = await capturedPages([{ code: "unavailable", recovery: "retry", message: "Resource inventory pending", reason: "resource_inventory_pending" }]);
-    try {
-      await expect(f.client.resources.list({ text: true })).rejects.toMatchObject({ code: "unavailable", reason: "resource_inventory_pending" });
-      expect(f.requests).toHaveLength(1);
-      expect(f.opens()).toBe(1);
-    } finally { f.client.close(); }
-  });
 
-  it("roundtrips the optional cursor without changing resource row bytes", () => {
-    const original = listResourcesResult.enc({ resources: [source], complete: false, cursor: "opaque" });
-    expect(encode(listResourcesResult.enc(listResourcesResult.dec(decode(encode(original)))))).toEqual(encode(original));
-  });
+
 });

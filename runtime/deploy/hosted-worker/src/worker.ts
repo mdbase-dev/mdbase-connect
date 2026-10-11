@@ -25,12 +25,15 @@
  */
 import { DurableObject } from "cloudflare:workers";
 import { encode, type CborValue } from "../../../packages/sdk/src/cbor.js";
-import { Engine } from "./engine.js";
+import { Engine, type MigrationPendingTicket, type MigrationPhysicalTicket } from "./engine.js";
 import { AlarmLifecycle } from "./alarm-lifecycle.ts";
 import { attachmentSlots, ChunkBusy, type ChunkPermit } from "./chunk-slots.ts";
 import { httpsLog, pumpLog, StaleAppendStore, type CallTimings } from "./log.js";
 import { DENY_ADMISSION, DENY_CUSTODY, DENY_WRAPPER, type Admission, type Custody, type OpenKeys } from "./seams.js";
-import { generateServiceDevice, serviceCollection } from "./service-devices.js";
+import { distinctServiceTokens, generateServiceDevice, serviceCollection } from "./service-devices.js";
+import { PitrCut, PitrWork } from "./pitr-cut.ts";
+import { PitrActorRestriction } from "./pitr-actor.ts";
+import { pitrFactory, type PitrFactorySettings } from "./pitr-factory.ts";
 import { migrationAdmissionRequest, migrationAdmissionObservation, migrationAdmissionUnavailable } from "./migration-admission.ts";
 import { generateDeviceKeys } from "./keygen.js";
 import engineModule from "../hosted.wasm";
@@ -81,7 +84,19 @@ function openConfig(collection: string, k: OpenKeys, grantOnly = false): Uint8Ar
 /** An encoded index Reset request (drop the `st_*` tables). */
 const RESET = Uint8Array.of(0x4d, 0x44, 0x42, 0x49, 0x44, 0x58, 0x00, 0x01, 1);
 
+function pitrConfigured(env: Env): boolean {
+  const p = env as Env & PitrFactorySettings & { PITR_PHASE?: R2Bucket };
+  return p.PITR_BINDING !== undefined || p.PITR_MINIMUM_EPOCH !== undefined
+    || p.PITR_ESCROW_SERVICE_TOKEN !== undefined || p.PITR_PHASE !== undefined;
+}
+
 export class HostedCollection extends DurableObject<Env> {
+  /** Temporary deny-only actor mode. Only removal through reviewed all-path
+   * integration may open it; no request, R2 record or restored SQL flag can. */
+  private readonly pitrClosed: boolean;
+  private readonly pitrWork: PitrWork | null;
+  private readonly pitrRestriction: PitrActorRestriction | null = null;
+  private readonly pitrCut: PitrCut | null = null;
   private engine: Engine | null = null;
   private attachmentPermit: { engine: Engine; session: number; permit: ChunkPermit } | null = null;
   private attachmentWaiters = new Map<AbortController, { engine: Engine; session: number }>();
@@ -91,6 +106,7 @@ export class HostedCollection extends DurableObject<Env> {
     return this.background ??= new AlarmLifecycle(this.ctx.storage);
   }
   private async requireBackground(): Promise<void> {
+    if (this.pitrClosed) throw new Error("pitr_actor_closed");
     if (!await this.alarms.allowed()) throw new Error("hosted_alarm_inhibited");
   }
   /** Log session generation: bumped whenever the engine is reset or replaced, so a
@@ -109,8 +125,10 @@ export class HostedCollection extends DurableObject<Env> {
   /** When this DO instance (wake) started. */
   private readonly wokeAt = Date.now();
 
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, env: Env, requiredPitr = false) {
     super(ctx, env);
+    this.pitrClosed = requiredPitr || pitrConfigured(env);
+    this.pitrWork = this.pitrClosed ? new PitrWork(promise => ctx.waitUntil(promise)) : null;
     this.objectOrigins = deploymentObjectOrigins(env as Env & { OBJECT_STORAGE_ORIGINS?: string });
     const lab = env.LAB === "1";
     const e = env as unknown as {
@@ -118,6 +136,19 @@ export class HostedCollection extends DurableObject<Env> {
       LAB_CUSTODY_WRAP_KEY?: string; LAB_HOSTED_CONFIG?: string;
     };
     this.escrow = e.SERVICE_KIND === "escrow";
+    if (this.pitrClosed) {
+      this.production = null;
+      this.custody = DENY_CUSTODY;
+      this.admission = DENY_ADMISSION;
+      this.closePitrResources();
+      try {
+        const restriction = PitrActorRestriction.from(ctx, env, this.pitrWork!);
+        const cut = restriction?.cut(() => this.closePitrResources()) ?? null;
+        this.pitrRestriction = restriction;
+        this.pitrCut = cut;
+      } catch { /* Physical/configuration drift remains CLOSED. */ }
+      return; // No fixture, release/KMS parts, CP client, keys or engine opening.
+    }
     // LAB: the fixture's keys for its listed collections; for any other collection,
     // the control plane's service-device record opened with the custody stub.
     const release = deploymentRelease(env as unknown as FactoryEnv);
@@ -141,11 +172,27 @@ export class HostedCollection extends DurableObject<Env> {
     // Production: KMS custody when fully configured; otherwise LAB stub
     // custody on LAB builds; otherwise DENY.
     const parts = this.escrow ? null : productionParts(env as unknown as FactoryEnv);
+    this.cppControl=parts?.control??null;
     this.production = parts
       ? new ProductionCustody(parts, () => this.replicaId(), (secret) => devicePublicKeys(engineModule, secret), verifyOriginal)
       : null;
     this.custody = this.production ?? (lab ? combinedCustody(labCustody(env, (secret) => devicePublicKeys(engineModule, secret), verifyOriginal), inFixture, cp) : DENY_CUSTODY);
     this.admission = DENY_ADMISSION;
+  }
+
+  private closePitrResources(): void {
+    this.pitrWork?.close(); // RAM fence before callback/resource work.
+    this.logGen++;
+    if (this.engine) this.releaseAttachment(this.engine);
+    for (const reader of this.readers.values()) reader.wipe();
+    this.readers.clear();
+    this.live = null;
+    this.engine = null;
+    // Hibernated sockets and auto-replies must not bypass the entrypoint closure.
+    this.ctx.setWebSocketAutoResponse();
+    for (const ws of this.ctx.getWebSockets()) {
+      try { ws.close(1012, "pitr closed"); } catch { /* Already closed. */ }
+    }
   }
 
   /** Live admission for app sessions (hosted with a Noise key), else null (deny). */
@@ -172,12 +219,15 @@ export class HostedCollection extends DurableObject<Env> {
    * the exact engine (wake) the caller is working with: after a reset, an older
    * engine's pending work never borrows the new engine's proof. */
   private admitted(engine: Engine, ctx: AdmissionContext): boolean {
-    return !!this.live && this.live.engine === engine && this.engine === engine &&
+    return !this.pitrClosed && !!this.live && this.live.engine === engine && this.engine === engine &&
       this.live.admission.recheck(ctx) === "allow";
   }
 
   /** The production KMS custody, when configured (closed on terminal events). */
   private readonly production: ProductionCustody | null;
+  private readonly cppControl: ControlClient|null=null;
+  /** Actual host confirmation provenance; not serialized or inferred from IDs. */
+  readonly #migrationConfirmed = new WeakMap<MigrationPendingTicket, { engine: Engine; generation: number }>();
 
   /** A replica ID for this DO, persisted so it is stable across wakes. */
   private async replicaId(): Promise<string> {
@@ -191,9 +241,101 @@ export class HostedCollection extends DurableObject<Env> {
   /** This deployment is the escrow: no content surface, polls the log. */
   private readonly escrow: boolean;
 
+  /** Actual platform references, never caller IDs or persisted collection labels.
+   * VOID physical mapping only: does not admit this namespace or grant H1. */
+  private requirePhysicalCollection(collection: string): void {
+    if (!this.ctx.id.equals(this.env.COLLECTIONS.idFromName(collection))) {
+      throw new Error("physical_collection_mismatch");
+    }
+  }
+
+  /** Closed native/owned-Control exchange, then actual physical journal ACK.
+   * Internal action-host seam only: no operator route or H1/effect permission.
+   * No caller owner/key/audience/result/ACK inputs; original CPP receipt is DATA. */
+  private async prepareMigrationPending(signal: AbortSignal): Promise<MigrationPendingTicket> {
+    const engine = this.engine, control = this.cppControl;
+    if (!engine || !control || this.escrow) throw new Error("migration_host_unavailable");
+    await this.requireBackground();
+    if (this.engine !== engine || this.cppControl !== control) throw new Error("migration_host_changed");
+    const generation = this.logGen;
+    const cpp = engine.beginCppClaim();
+    let pending: MigrationPendingTicket | undefined, physical: MigrationPhysicalTicket | undefined;
+    let challenge: Uint8Array | undefined, signature: Uint8Array | undefined;
+    const check = (): void => {
+      if (signal?.aborted || this.engine !== engine || this.collection !== cpp.collection ||
+          this.logGen !== generation || !this.alarms.current) throw new Error("migration_host_changed");
+      this.requirePhysicalCollection(cpp.collection);
+      engine.assertCppClaimCurrent(cpp);
+      if (pending) engine.assertMigrationPendingCurrent(pending);
+    };
+    try {
+      check();
+      challenge = await control.migrationClaimChallenge(cpp.collection, cpp.device, signal);
+      check();
+      signature = engine.signCppClaimChallenge(cpp, challenge);
+      const hex = (b: Uint8Array): string => Array.from(b, v => v.toString(16).padStart(2, "0")).join("");
+      const claim = await control.migrationClaimRead(cpp.collection, {
+        device_id: cpp.device, challenge: hex(challenge), sig: hex(signature),
+      }, signal);
+      check();
+      engine.openMigrationDriver(cpp, claim);
+      pending = engine.beginMigrationPending();
+      check();
+      // Cloudflare's actual promise confirms prior SQL/KV writes to disk. SQL
+      // cursor results, metadata readback, caller ACKs and abort are not this.
+      physical = engine.beginMigrationPhysical(pending);
+      engine.assertMigrationPhysicalCurrent(physical);
+      await this.ctx.storage.sync();
+      check();
+      engine.finishMigrationPhysical(physical);
+      this.#migrationConfirmed.set(pending, { engine, generation });
+      return pending;
+    } catch (error) {
+      if (pending) engine.finishMigrationPending(pending); // DB remains UNKNOWN.
+      throw error;
+    } finally {
+      if (physical) engine.closeMigrationPhysical(physical);
+      challenge?.fill(0); signature?.fill(0); engine.finishCppClaim(cpp);
+    }
+  }
+
+  /** VOID exact original host-confirmed pending, no H1/effect conversion. */
+  private assertMigrationConfirmed(ticket: MigrationPendingTicket): void {
+    const original = this.#migrationConfirmed.get(ticket);
+    if (!original || original.engine !== this.engine || original.generation !== this.logGen ||
+        this.collection !== ticket.collection || !this.alarms.current) throw new Error("migration_host_changed");
+    this.requirePhysicalCollection(ticket.collection);
+    original.engine.assertMigrationPendingCurrent(ticket);
+  }
+
+  /** Native negative H1 outcome -> atomic original settlement/checkpoint ->
+   * actual physical completion ACK before output. No positive H1/created flag. */
+  private async commitMigrationKeyingWait(ticket: MigrationPendingTicket, signal?: AbortSignal): Promise<string> {
+    if (signal?.aborted) throw new Error("migration_host_changed");
+    this.assertMigrationConfirmed(ticket);
+    const original = this.#migrationConfirmed.get(ticket)!;
+    const result = original.engine.recordMigrationKeyingWait(ticket);
+    // From here any error is UNKNOWN despite a potentially landed settlement.
+    const physical = original.engine.beginMigrationPhysical(ticket);
+    try {
+      original.engine.assertMigrationPhysicalCurrent(physical);
+      await this.ctx.storage.sync();
+      if (signal?.aborted || this.engine !== original.engine || this.logGen !== original.generation ||
+          this.collection !== ticket.collection || !this.alarms.current) throw new Error("migration_host_changed");
+      this.requirePhysicalCollection(ticket.collection);
+      original.engine.assertMigrationSettlementCurrent(ticket);
+      original.engine.finishMigrationPhysical(physical);
+      original.engine.assertMigrationSettlementConfirmed(ticket);
+      this.#migrationConfirmed.delete(ticket);
+      original.engine.finishMigrationPending(ticket);
+      return result;
+    } finally { original.engine.closeMigrationPhysical(physical); }
+  }
+
   /** Open (or return) the engine for this wake, rebuilt from the log. */
   private async ready(collection: string): Promise<Engine> {
     await this.requireBackground();
+    this.requirePhysicalCollection(collection);
     if (this.collection && this.collection !== collection) throw new Error("collection mismatch");
     this.collection = collection;
     // Both service roles must reopen after eviction without an app socket.
@@ -218,9 +360,12 @@ export class HostedCollection extends DurableObject<Env> {
       let app: { device: string; publicKeys: NonNullable<typeof keys.publicKeys>; roots: Uint8Array[] } | null = null;
       try {
         await this.requireBackground();
+        this.requirePhysicalCollection(collection);
         engine = new Engine(this.ctx.storage);
         tWasm = Date.now();
-        engine.open(openConfig(collection, keys, this.escrow));
+        const config=openConfig(collection,keys,this.escrow);
+        if(this.cppControl) engine.openForCppClaim(config,this.cppControl);
+        else engine.open(config); // No CPP signer in escrow/LAB-fixture/unconfigured opens.
         // App sessions (hosted only): the Noise static secret moves into the
         // engine's RAM for this wake; the JS copy is wiped with the rest.
         if (!this.escrow && keys.noiseSk && keys.publicKeys && engine.noiseKey(keys.noiseSk.slice())) {
@@ -276,8 +421,9 @@ export class HostedCollection extends DurableObject<Env> {
 
   /** Move log traffic until quiet, deliver output, schedule the next wakeup. */
   private async sync(engine: Engine, timings?: CallTimings): Promise<void> {
+    if (this.pitrClosed) { this.closePitrResources(); return; }
     const gen = this.logGen;
-    const current = () => this.alarms.current && this.logGen === gen && this.engine === engine;
+    const current = () => !this.pitrClosed && this.alarms.current && this.logGen === gen && this.engine === engine;
     if (!await this.alarms.allowed() || !current()) return;
     const tag = this.env.LAB === "1" && this.collection ? await wakeCollectionTag(this.collection) : null;
     if (!current()) return;
@@ -376,6 +522,7 @@ export class HostedCollection extends DurableObject<Env> {
   }
 
   private attachmentAdmitted(engine: Engine, session: number): boolean {
+    if (this.pitrClosed) return false;
     const ws = this.ctx.getWebSockets().find((ws) => {
       const a = ws.deserializeAttachment() as AppAttachment | null;
       return ws.readyState === 1 && a?.wake === this.wakeId && a.session === session;
@@ -387,6 +534,11 @@ export class HostedCollection extends DurableObject<Env> {
   }
 
   private deliver(engine: Engine): void {
+    if (this.pitrClosed) {
+      this.closePitrResources();
+      for (const output of engine.poll()) output.frame?.fill(0);
+      return;
+    }
     const bySession = new Map<number, WebSocket>();
     for (const ws of this.ctx.getWebSockets()) {
       const a = ws.deserializeAttachment() as { session?: number; wake?: string } | null;
@@ -433,6 +585,11 @@ export class HostedCollection extends DurableObject<Env> {
   private readonly wakeId = crypto.randomUUID();
 
   async alarm(): Promise<void> {
+    if (this.pitrClosed) {
+      this.closePitrResources();
+      await this.pitrWork!.trackClosed(() => this.ctx.storage.deleteAlarm());
+      return; // No stored collection lookup, custody, tick, refresh or reschedule.
+    }
     if (!await this.alarms.allowed()) {
       await this.alarms.inhibit();
       return;
@@ -454,6 +611,26 @@ export class HostedCollection extends DurableObject<Env> {
   }
 
   async fetch(request: Request): Promise<Response> {
+    if (this.pitrClosed) {
+      this.closePitrResources();
+      const url = new URL(request.url);
+      if (this.pitrRestriction && request.method === "POST" && url.pathname === "/v1/hosted/activate" && !request.signal.aborted) {
+        // Actual CLOSED activation callback, not a permit or a custody opening.
+        // Track through finally; close/abort never stands in for settlement.
+        let work: ReturnType<PitrWork["beginClosed"]> | undefined;
+        const generation = this.logGen;
+        try {
+          this.pitrCut!.assertRestrictionIdle();
+          work = this.pitrWork!.beginClosed();
+          work.check();
+          await this.pitrRestriction.assertSeedCurrent(url.searchParams.get("collection") ?? "", work.signal);
+          work.check();
+          if (request.signal.aborted || generation !== this.logGen) throw new Error("pitr_actor_closed");
+        } catch { /* Missing original-principal/current-CP admission stays CLOSED. */ }
+        finally { work?.finish(); }
+      }
+      return new Response("unavailable", { status: 503, headers: { "cache-control": "no-store" } });
+    }
     const url = new URL(request.url);
     const collection = url.searchParams.get("collection") ?? "";
     if (!UUID.test(collection)) return new Response("bad collection", { status: 400 });
@@ -621,6 +798,7 @@ export class HostedCollection extends DurableObject<Env> {
   }
 
   async webSocketMessage(ws: WebSocket, message: ArrayBuffer | string): Promise<void> {
+    if (this.pitrClosed) { this.closePitrResources(); return; }
     const a = ws.deserializeAttachment() as AppAttachment | null;
     const engine = this.engine;
     if (!engine || !a || a.wake !== this.wakeId) {
@@ -652,7 +830,13 @@ export class HostedCollection extends DurableObject<Env> {
     await this.sync(engine);
   }
 
+  async webSocketError(ws: WebSocket): Promise<void> {
+    if (this.pitrClosed) { this.closePitrResources(); return; }
+    await this.webSocketClose(ws);
+  }
+
   async webSocketClose(ws: WebSocket): Promise<void> {
+    if (this.pitrClosed) { this.closePitrResources(); return; }
     const a = ws.deserializeAttachment() as AppAttachment | null;
     if (this.engine && a?.wake === this.wakeId) {
       if (a.noise) {
@@ -700,6 +884,19 @@ export default {
     const url = new URL(request.url);
     const e = env as unknown as { HOSTED_SERVICE_TOKEN?: string; SERVICE_KIND?: string; LAB_CUSTODY_WRAP_KEY?: string };
     const kind = e.SERVICE_KIND === "escrow" ? "escrow" : "hosted";
+    // Optional isolated deployment settings; deployment generates the admitted profile.
+    const p = env as Env & PitrFactorySettings & { PITR_PHASE?: R2Bucket };
+    const isolated = pitrConfigured(env);
+    const escrowFactory = url.pathname === "/pitr-escrow/internal/v1/service-devices";
+    const factoryRequest = escrowFactory || url.pathname === "/internal/v1/service-devices";
+    if (url.pathname.startsWith("/pitr-escrow/") && (!isolated || !escrowFactory)) {
+      return new Response("not found", { status: 404 });
+    }
+    const pitr = isolated ? pitrFactory(p, p.PITR_PHASE) : null;
+    if (isolated && (!pitr || !distinctServiceTokens(e.HOSTED_SERVICE_TOKEN, p.PITR_ESCROW_SERVICE_TOKEN) || !factoryRequest)) {
+      // Keep every actor entry CLOSED until the all-path fence is installed.
+      return new Response("unavailable", { status: 503 });
+    }
     if (url.pathname === "/internal/v1/migration-admission") {
       if (kind !== "hosted") return new Response("not found", { status: 404 });
       const input = await migrationAdmissionRequest(request, e.HOSTED_SERVICE_TOKEN);
@@ -719,12 +916,16 @@ export default {
         method: "POST", headers: request.headers, body: JSON.stringify({ collection }),
       }));
     }
-    if (url.pathname === "/internal/v1/service-devices") {
-      // The control plane's cloud-copy bootstrap. Denied until KMS custody is
-      // installed; LAB may use the custody stub (LAB_CUSTODY_WRAP_KEY).
-      const wrapper = (kind === "hosted" ? productionWrapper(productionParts(env as unknown as FactoryEnv)) : null)
-        ?? (env.LAB === "1" ? labStubWrapper(kind, e.LAB_CUSTODY_WRAP_KEY) : null) ?? DENY_WRAPPER;
-      return generateServiceDevice(request, { serviceToken: e.HOSTED_SERVICE_TOKEN, generate: () => generateDeviceKeys(engineModule), wrapper, kind });
+    if (factoryRequest) {
+      // One canonical real generation/wrapping/wiping pipeline, no DO lookup.
+      const role = escrowFactory ? "escrow" : kind;
+      const wrapper = (role === "hosted" ? productionWrapper(productionParts(env as unknown as FactoryEnv)) : null)
+        ?? (env.LAB === "1" ? labStubWrapper(role, e.LAB_CUSTODY_WRAP_KEY) : null) ?? DENY_WRAPPER;
+      return generateServiceDevice(request, {
+        serviceToken: escrowFactory ? p.PITR_ESCROW_SERVICE_TOKEN : e.HOSTED_SERVICE_TOKEN,
+        generate: () => generateDeviceKeys(engineModule), wrapper, kind: role,
+        ...(pitr ? { allowed: pitr.seedGuard() } : {}),
+      });
     }
     const collection = url.searchParams.get("collection") ?? "";
     if (!url.pathname.startsWith("/v1/hosted/") || !UUID.test(collection)) {

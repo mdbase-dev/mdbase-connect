@@ -25,17 +25,23 @@
 #[allow(unsafe_code)]
 mod abi;
 pub mod admission_wire;
-mod attachment_region;
+
 // Labels alone cannot mint a lease or confer current native authority.
-pub use attachment_region::RegionOwner;
+pub use mdbn_replica::file_io::RegionOwner;
+#[cfg(any(test, target_arch = "wasm32"))]
+mod cpp_claim_ticket;
 pub mod device_keys;
 pub mod do_index;
 mod effect_currentness;
-mod file_reads;
 pub mod host_trust;
 pub mod log_http;
+#[cfg(any(test, target_arch = "wasm32"))]
+mod migration_action_ledger;
+pub mod migration_checkpoint;
+pub mod migration_rollback_receipt;
 pub mod migration_source;
 pub mod noise_sessions;
+pub mod original_app;
 pub mod runtime;
 
 #[cfg(test)]

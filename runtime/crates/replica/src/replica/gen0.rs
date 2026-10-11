@@ -355,6 +355,7 @@ impl Gen0Writer {
                         path: f.path,
                         content,
                         media: f.media,
+                        mtime: None,
                     }
                     .to_cbor(),
                 );

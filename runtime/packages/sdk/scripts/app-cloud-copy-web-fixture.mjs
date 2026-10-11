@@ -64,7 +64,7 @@ const rpc=async m=>{
  if(m.op==='stop'){current=false;ctrl?.abort();await host?.close();await flow?.close();return true;}
  if(m.op==='sign-in'){
   if(ctrl||initialized)throw Error('duplicate sign-in');stage='selected-account';ctrl=new AbortController();current=true;await setup(m.offline);
-  flow=await AppProtectedInstallationSignIn.open({origin:location.origin,cpOrigin:fixture.trust.cpOrigin,appId:'tasknotes-web',environment:'lab',mode:m.mode,signal:ctrl.signal,locks:navigator.locks,fetch:request});await flow.start();await flow.exchange();return flow.view();
+  flow=await AppProtectedInstallationSignIn.open({origin:location.origin,cpOrigin:fixture.trust.cpOrigin,appId:'5cdfa020-c201-4da8-845a-f2cc9969eade',appName:'TaskNotes',environment:'lab',mode:m.mode,signal:ctrl.signal,locks:navigator.locks,fetch:request});await flow.start();await flow.exchange();return flow.view();
  }
  if(m.op==='confirm-account'){return flow.confirmSelectedAccount(m.account);}
  if(m.op==='fence'){current=false;return true;}

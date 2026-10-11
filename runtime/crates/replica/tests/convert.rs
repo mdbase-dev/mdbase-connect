@@ -121,16 +121,24 @@ fn file_content_keeps_each_arm_without_blob_substitution() {
 #[test]
 fn legacy_effect_codec_refuses_attachment_and_explicit_codec_round_trips() {
     let put = PutAttachmentFile {
+        mtime: Some(1_791_100_800_000),
         id: B16([19; 16]),
         path: "large.bin".into(),
         content: attachment(),
     };
     let core = convert::attachment_effect(&put);
-    let CoreEffect::PutAttachmentFile { id, path, content } = &core else {
+    let CoreEffect::PutAttachmentFile {
+        id,
+        path,
+        content,
+        mtime,
+    } = &core
+    else {
         panic!("typed attachment effect");
     };
     assert_eq!(*id, convert::uuid(&put.id));
     assert_eq!(path, "large.bin");
+    assert_eq!(*mtime, put.mtime);
     assert_eq!(convert::wattachment_content(content), put.content);
     assert_eq!(convert::wattachment_effect(&core), Some(put.clone()));
     assert_eq!(
@@ -191,6 +199,7 @@ fn legacy_conflict_codec_refuses_attachment_side_and_explicit_codec_round_trips(
 #[test]
 fn attachment_rows_become_typed_state() {
     let file = convert::attachment_file_row(&AttachmentFileRowV1 {
+        mtime: None,
         id: B16([20; 16]),
         path: "img/big.png".into(),
         content: attachment(),
@@ -330,6 +339,7 @@ fn legacy_conflict_codec_refuses_unindexed_markdown_side_and_explicit_codec_roun
 #[test]
 fn attachment_rows_are_ordinary_kind() {
     let file = convert::attachment_file_row(&AttachmentFileRowV1 {
+        mtime: None,
         id: B16([24; 16]),
         path: "img/big.png".into(),
         content: attachment(),

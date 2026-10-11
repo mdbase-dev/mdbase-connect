@@ -2,6 +2,13 @@
  * @mdbase-dev/sdk: the TS SDK for replicas
  * (`docs/contracts/replica-client-api.md`).
  */
+export {MdbaseConnect,MdbaseApplicationUnavailableError} from "./application/entry.js";
+export {effectiveCapabilities} from "./application/capabilities.js";
+export type {MdbaseApplicationCapability,MdbaseApplicationCapabilities} from "./application/capabilities.js";
+export type {MdbaseApplicationEntry,MdbaseApplication,MdbaseApplicationConnection,MdbaseApplicationSnapshot,MdbaseApplicationRequestOptions,
+  MdbaseApplicationFacet,MdbaseApplicationProblem,MdbaseApplicationAssessment,MdbaseApplicationFacetSnapshot,MdbaseApplicationReadinessSnapshot} from "./application/entry.js";
+export type {ApplicationCollectionSelectionSnapshot as MdbaseApplicationSelectionSnapshot,ApplicationCollectionSelectionState as MdbaseApplicationSelectionState} from "./application/collection-selection.js";
+export type {MdbaseApplicationDeclaration,ApplicationStorageDeclaration,ApplicationJson} from "./application/declaration.js";
 export * from "./cbor.js";
 export { SchemaError } from "./codec.js";
 export type { Codec } from "./codec.js";
@@ -53,6 +60,7 @@ export type {
   TemporalHint,
   TypingEntry,
 } from "./wire.js";
+export type {RecordValidation, ValidationIssue} from "./validation.js";
 export { connect, LiveQuery, MdbaseClient, Write } from "./client.js";
 export type {
   ClientOptions,
@@ -68,10 +76,22 @@ export type {
   UpdateInput,
   WriteOptions,
 } from "./client.js";
+export type { DescribeOptions, TypeCreation } from "./client.js";
+export type {RecordLease, RecordOpenOptions, RecordSession, RecordSessionSnapshot, RecordSessionState, RecordRecovery, RecordRecoveryRef, RecordResolution, RecordFlushOptions, RecordFlushResult, Records} from "./records.js";
+export {readMany, queryPages, resolveRecordLinks, READ_MANY_MAX_REFS, READ_MANY_MAX_CONCURRENCY} from "./read-helpers.js";
+export type {ReadManyOptions} from "./read-helpers.js";
+export {createViewSource, updateViewSource, readViewSourceRecord} from "./view-sources.js";
+export type {ViewSourceCreateInput, ViewSourceWriteOptions, ViewSourceReadOptions} from "./view-sources.js";
 export type { LiveQueryState } from "./live.js";
 export { FilesApi, MAX_CONVENIENCE_BYTES } from "./files.js";
-export type { FileRef, UploadOptions, UploadSource } from "./files.js";
+export type { FileRef, FileWrite, UploadOptions, UploadSource } from "./files.js";
+export { fileGrant } from "./files.js";
+export type { FileAction, FileGrant, FileScope } from "./files.js";
 export { PresenceApi } from "./presence.js";
+export { MdbasePeopleClient, PERSON_CONTRACT, sameIdentity } from "./people.js";
+export type { AccountIdentity, AccountProfile, CurrentAccount, CollectionMemberProfile, PersonRecord, InvalidPersonRecord, PersonResolution, PeopleDirectory, PeopleRequestOptions, PeopleDirectoryOptions, PeopleAuthority } from "./people.js";
+export type { ContractRef, ContractProjection, ContractQueryRecord, ContractQueryResult, ContractQueryOptions } from "./contract-query.js";
+export type { ContractSelector, ContractIdentity, ContractRecordView } from "./contract-records.js";
 export { TimersApi } from "./timers.js";
 export type {
   AppTimersPort, DesiredTimer, Timer, TimerRequestOptions, TimerReconcileInput,

@@ -243,7 +243,7 @@ impl std::fmt::Display for Requirement {
 // --------------------------------------------------------------- contracts
 
 /// The schema members digested per `contract_type` (spec 05A).
-fn schema_members(contract_type: &str) -> &'static [&'static str] {
+pub(crate) fn schema_members(contract_type: &str) -> &'static [&'static str] {
     match contract_type {
         "record" => &["record_schema", "binding_schema"],
         "event" => &["data_schema", "source_schema"],
@@ -666,6 +666,23 @@ impl Implementation {
     /// the contract's `record_schema`; failures are
     /// `data_contract_record_invalid`.
     pub fn view(&self, contract: &Contract, effective: &Map) -> Result<Map, Vec<Issue>> {
+        let (view, issues) = self.inspect_view(contract, effective)?;
+        if issues.is_empty() {
+            Ok(view)
+        } else {
+            Err(issues)
+        }
+    }
+
+    /// Canonical projection plus validation issues for read-only inspection.
+    /// Invalid projections retain their mapped values so directories can report
+    /// identity claims without treating an invalid record as a valid contract view.
+    /// Mapping failures remain errors; no raw-field or display-name fallback.
+    pub fn inspect_view(
+        &self,
+        contract: &Contract,
+        effective: &Map,
+    ) -> Result<(Map, Vec<Issue>), Vec<Issue>> {
         let mut view = Map::new();
         for (cf, rf) in &self.fields {
             if let Some(v) = select_one(effective, rf) {
@@ -695,11 +712,7 @@ impl Implementation {
                 .with_type(&self.type_name)
             })
             .collect();
-        if issues.is_empty() {
-            Ok(view)
-        } else {
-            Err(issues)
-        }
+        Ok((view, issues))
     }
 }
 

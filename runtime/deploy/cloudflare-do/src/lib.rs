@@ -20,12 +20,14 @@
 
 mod backup;
 mod collection_closing;
+mod cors;
 mod deletion_floor;
 mod deletion_registry;
 mod destination_denial;
 mod ingress;
 mod metrics;
 mod native_r2;
+mod prekey_original;
 mod registry_backup;
 mod restore_aux;
 
@@ -35,8 +37,8 @@ use std::rc::Rc;
 
 use js_sys::{Function, Reflect, Uint8Array};
 use mdbn_log_service::auth::{
-    Claims, NonceCache, Principal, collection_from_params, http_nonce, verify_http_claims,
-    verify_token_with_budget,
+    NonceCache, Principal, VerifiedToken, collection_from_params, http_nonce,
+    verify_http_verified_token, verify_issuer_token_with_budget,
 };
 use mdbn_log_service::backend::Verified;
 use mdbn_log_service::backend::{Archive, Backend, Mode, ObjectStore, Txn, Write};
@@ -127,7 +129,7 @@ fn config(env: &Env) -> Config {
 
 // Cheap authentication preflight before allocating/reading an RPC body. Full
 // possession, route/scope and replay verification still happen in the actor.
-fn rpc_preflight(req: &Request, cfg: &Config, budget: &Budget) -> LsResult<Claims> {
+fn rpc_preflight(req: &Request, cfg: &Config, budget: &Budget) -> LsResult<VerifiedToken> {
     let unauth = || ServiceError::reason(mdbn_log_service::Code::Unauthenticated, "token");
     let auth = req
         .headers()
@@ -151,7 +153,7 @@ fn rpc_preflight(req: &Request, cfg: &Config, budget: &Budget) -> LsResult<Claim
     {
         return Err(unauth());
     }
-    verify_token_with_budget(token, &cfg.token_issuers, now_ms(), budget)
+    verify_issuer_token_with_budget(token, &cfg.token_issuers, now_ms(), budget)
 }
 
 // Counters restrict resources, NOT authority. The public Worker overwrites client
@@ -272,6 +274,8 @@ pub struct DoBackend {
     storage: Storage,
     lock: Rc<async_lock::Mutex<()>>,
     ns: ObjectNamespace,
+    /// Physical actor ID from State, never a query, token or stored projection.
+    actor_id: String,
     /// This object is the credential registry (learned from its first request).
     is_registry: std::cell::Cell<bool>,
 }
@@ -1120,16 +1124,186 @@ impl HubHost for Host {
     }
 }
 
-/// One collection's log service actor.
+// The isolated profile is permanently closed until positive all-path integration.
+// Presence (even empty/malformed) is enough; never read a secret/binding value.
+fn pitr_configured(env: &Env) -> bool {
+    [
+        "LOGSVC_PITR_REQUIRED",
+        "PITR_BINDING",
+        "PITR_MINIMUM_EPOCH",
+        "PITR_PHASE",
+        "PITR_AUTHORITY_TOKEN",
+        "PITR_ESCROW_SERVICE_TOKEN",
+    ]
+    .iter()
+    .any(|key| Reflect::has(env, &JsValue::from_str(key)).unwrap_or(true))
+}
+
+fn pitr_denied() -> Result<Response> {
+    let mut response = Response::empty()?.with_status(503);
+    response.headers_mut().set("cache-control", "no-store")?;
+    Ok(response)
+}
+
+enum LogMode {
+    Closed(Box<prekey_original::ClosedOriginal>),
+    Ordinary(Box<LogActor>),
+}
+
+/// SDK actor entry: isolated missing/partial profiles cannot construct a service.
 #[durable_object]
 pub struct LogCollection {
+    mode: LogMode,
+}
+
+impl DurableObject for LogCollection {
+    fn new(state: State, env: Env) -> Self {
+        let mode = if pitr_configured(&env) {
+            // The platform accepts an omitted/undefined optional argument to
+            // remove auto-response; workers-rs' setter type omits this API case.
+            state.set_websocket_auto_response(&JsValue::UNDEFINED.unchecked_into());
+            for ws in state.get_websockets() {
+                let _ = ws.close(Some(1008), Some("PITR closed"));
+            }
+            LogMode::Closed(Box::new(prekey_original::ClosedOriginal::new(state, &env)))
+        } else {
+            LogMode::Ordinary(Box::new(LogActor::new(state, env)))
+        };
+        Self { mode }
+    }
+
+    async fn fetch(&self, req: Request) -> Result<Response> {
+        match &self.mode {
+            LogMode::Closed(_) => pitr_denied(),
+            LogMode::Ordinary(actor) => actor.fetch(req).await,
+        }
+    }
+
+    async fn alarm(&self) -> Result<Response> {
+        match &self.mode {
+            LogMode::Closed(closed) => {
+                closed.state().storage().delete_alarm().await?;
+                Response::empty()
+            }
+            // Preserve the ordinary actor's existing unsupported alarm behavior.
+            LogMode::Ordinary(_) => unimplemented!("alarm() handler"),
+        }
+    }
+
+    async fn websocket_message(
+        &self,
+        ws: WebSocket,
+        message: WebSocketIncomingMessage,
+    ) -> Result<()> {
+        match &self.mode {
+            LogMode::Closed(_) => {
+                let _ = ws.close(Some(1008), Some("PITR closed"));
+                Ok(())
+            }
+            LogMode::Ordinary(actor) => actor.websocket_message(ws, message).await,
+        }
+    }
+
+    async fn websocket_close(
+        &self,
+        ws: WebSocket,
+        code: usize,
+        reason: String,
+        clean: bool,
+    ) -> Result<()> {
+        match &self.mode {
+            LogMode::Closed(_) => Ok(()),
+            LogMode::Ordinary(actor) => actor.websocket_close(ws, code, reason, clean).await,
+        }
+    }
+
+    async fn websocket_error(&self, ws: WebSocket, error: Error) -> Result<()> {
+        match &self.mode {
+            LogMode::Closed(_) => {
+                let _ = ws.close(Some(1008), Some("PITR closed"));
+                Ok(())
+            }
+            LogMode::Ordinary(actor) => actor.websocket_error(ws, error).await,
+        }
+    }
+}
+
+// Private SDK callbacks only; no Worker route or ordinary service permission.
+// These exports are denial-only until the actual CLOSED nonce/caller producer
+// exists. Constructor/physical checks must not mint a replacement witness.
+#[wasm_bindgen]
+impl LogCollection {
+    #[wasm_bindgen(js_name = prekeyBegin)]
+    pub async fn prekey_begin(
+        &self,
+        request: worker::worker_sys::web_sys::Request,
+    ) -> std::result::Result<Uint8Array, JsValue> {
+        match &self.mode {
+            LogMode::Closed(closed) => closed.begin(request).await,
+            LogMode::Ordinary(_) => Err(JsValue::from_str("prekey_context_refused")),
+        }
+    }
+
+    #[wasm_bindgen(js_name = prekeyAccept)]
+    pub fn prekey_accept(
+        &self,
+        handle: f64,
+        envelope: Uint8Array,
+    ) -> std::result::Result<(), JsValue> {
+        self.prekey_require_caller()?;
+        let handle = prekey_handle(handle)?;
+        match &self.mode {
+            LogMode::Closed(closed) => closed.accept(handle, envelope),
+            LogMode::Ordinary(_) => Err(JsValue::from_str("prekey_context_refused")),
+        }
+    }
+
+    #[wasm_bindgen(js_name = prekeyCurrent)]
+    pub fn prekey_current(&self, handle: f64) -> std::result::Result<(), JsValue> {
+        self.prekey_require_caller()?;
+        prekey_handle(handle)?;
+        Err(JsValue::from_str("prekey_caller_unavailable"))
+    }
+
+    #[wasm_bindgen(js_name = prekeyFinish)]
+    pub fn prekey_finish(&self, handle: f64) -> std::result::Result<(), JsValue> {
+        let handle = prekey_handle(handle)?;
+        match &self.mode {
+            LogMode::Closed(closed) => closed.finish(handle),
+            LogMode::Ordinary(_) => Err(JsValue::from_str("prekey_ticket_refused")),
+        }
+    }
+}
+
+impl LogCollection {
+    fn prekey_require_caller(&self) -> std::result::Result<(), JsValue> {
+        match &self.mode {
+            LogMode::Closed(closed) => closed.require_caller_producer(),
+            LogMode::Ordinary(_) => Err(JsValue::from_str("prekey_context_refused")),
+        }
+    }
+}
+
+fn prekey_handle(handle: f64) -> std::result::Result<u64, JsValue> {
+    if !handle.is_finite()
+        || handle < 1.0
+        || handle > ((1_u64 << 53) - 1) as f64
+        || handle.fract() != 0.0
+    {
+        return Err(JsValue::from_str("prekey_ticket_refused"));
+    }
+    Ok(handle as u64)
+}
+
+/// Ordinary actor implementation; never initialized by an isolated profile.
+struct LogActor {
     svc: Service<DoBackend, R2Objects>,
     heavy: async_lock::Mutex<()>,
     host: Host,
     _env: Env,
 }
 
-impl LogCollection {
+impl LogActor {
     fn collection_from(req: &Request) -> Option<Uuid> {
         let url = req.url().ok()?;
         let c = url.query_pairs().find(|(k, _)| k == "c")?.1.to_string();
@@ -1156,7 +1330,7 @@ impl LogCollection {
     }
 }
 
-impl DurableObject for LogCollection {
+impl LogActor {
     fn new(state: State, env: Env) -> Self {
         let sql = state.storage().sql();
         for q in SCHEMA
@@ -1171,6 +1345,7 @@ impl DurableObject for LogCollection {
             sql.exec(q, None).expect("schema");
         }
         let backend = DoBackend {
+            actor_id: state.id().to_string(),
             sql,
             storage: state.storage(),
             lock: Rc::new(async_lock::Mutex::new(())),
@@ -1184,7 +1359,7 @@ impl DurableObject for LogCollection {
             bucket: env.bucket("OBJECTS").expect("OBJECTS binding"),
         };
         let svc = Service::new(backend, objects, config(&env));
-        LogCollection {
+        LogActor {
             svc,
             heavy: async_lock::Mutex::new(()),
             host: Host {
@@ -1322,7 +1497,7 @@ impl DurableObject for LogCollection {
                 let Ok(LsFrame::Request(rq)) = &decoded else {
                     return Err(ServiceError::invalid("shape"));
                 };
-                let p = verify_http_claims(
+                let caller = verify_http_verified_token(
                     &token,
                     &get("x-mdbase-nonce"),
                     &get("x-mdbase-sig"),
@@ -1337,6 +1512,7 @@ impl DurableObject for LogCollection {
                     &NonceCache::default(),
                     now_ms(),
                 )?;
+                let p = caller.principal();
                 let nonce: [u8; 32] = unhex(&get("x-mdbase-nonce"))
                     .and_then(|v| v.try_into().ok())
                     .expect("verify_http checked nonce shape");
@@ -1603,7 +1779,25 @@ async fn forward(env: &Env, c: &Uuid, req: Request) -> Result<Response> {
 }
 
 #[event(fetch)]
-async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
+async fn fetch(req: Request, env: Env, ctx: Context) -> Result<Response> {
+    if pitr_configured(&env) {
+        return pitr_denied();
+    }
+    let configured = env.var(cors::ENV).ok().map(|v| v.to_string());
+    let Ok(cors) = cors::Cors::parse(configured.as_deref()) else {
+        return Response::error("CORS configuration", 503);
+    };
+    let origin = req.headers().get("origin")?;
+    if req.method() == Method::Options {
+        let method = req.headers().get("access-control-request-method")?;
+        let headers = req.headers().get("access-control-request-headers")?;
+        return cors.preflight(origin.as_deref(), method.as_deref(), headers.as_deref());
+    }
+    // Authentication/possession/nonce handling and all original routes unchanged.
+    cors.decorate(fetch_authenticated(req, env, ctx).await?, origin.as_deref())
+}
+
+async fn fetch_authenticated(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     let url = req.url()?;
     let path = url.path().to_string();
     let cfg = config(&env);
@@ -1654,7 +1848,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         return Response::ok(hex(&http_nonce(&cfg.url_secret, now_ms(), random_bytes())));
     }
     if path == "/v1/ws" {
-        let Some(c) = LogCollection::collection_from(&req) else {
+        let Some(c) = LogActor::collection_from(&req) else {
             return Response::error("missing ?c=<collection>", 400);
         };
         return forward(&env, &c, req).await;

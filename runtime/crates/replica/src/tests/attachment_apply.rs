@@ -5,6 +5,13 @@
 //! rename without refetching; attachment conflict sides; terminal failures for
 //! objects the log collected.
 
+mod client_evict;
+mod client_fetch;
+mod client_read;
+mod client_read_ls;
+mod native_read;
+mod read_driver_types;
+
 use std::cell::RefCell;
 use std::rc::Rc;
 

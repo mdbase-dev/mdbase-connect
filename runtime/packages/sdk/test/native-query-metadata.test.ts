@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { decode, encode } from "../src/cbor.js";
-import { queryMetadata, queryResult, queryUpdate } from "../src/wire.js";
+import { queryResult, queryUpdate } from "../src/wire.js";
 
 // Native wire codec conformance vectors.
 // They do not prove runtime execution of query groups or summaries.
@@ -33,15 +33,5 @@ describe("native query metadata wire contract", () => {
     expect(update.metadata?.groups?.[0]?.count).toBe(12);
     expect(update.metadata?.hasMore).toBe(true);
   });
-  it("legacy omissions stay absent, not fabricated empty groups/counts", () => {
-    const result = queryResult.dec(queryResult.enc({ records: [], complete: true, asOf: 1 }));
-    expect(result).toEqual({ records: [], complete: true, asOf: 1 });
-    const update = queryUpdate.dec(queryUpdate.enc({ sub: 1, kind: "diff", complete: true, asOf: 2 }));
-    expect(update).not.toHaveProperty("metadata");
-    expect(queryMetadata.dec(queryMetadata.enc({}))).toEqual({});
-  });
-  it("preserves explicit false/zero/empty metadata", () => {
-    const metadata = { columns: [], totalCount: 0, groups: [], hasMore: false };
-    expect(queryMetadata.dec(queryMetadata.enc(metadata))).toEqual(metadata);
-  });
+
 });

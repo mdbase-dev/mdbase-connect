@@ -99,6 +99,7 @@ impl Clock for TestClock {
 }
 
 mod bases;
+mod client_versions;
 mod collection_setup;
 mod receipt_fanout;
 
@@ -978,7 +979,11 @@ fn live_query_and_change_feed() {
     );
     let ch = b.r.changes(b.s, Some(feed.cursor), None, false).unwrap();
     assert!(!ch.reset);
-    assert!(ch.changes.iter().any(|c| c.path == "a.md"));
+    assert!(
+        ch.changes
+            .iter()
+            .any(|c| c.path == "a.md" && c.entity == Some(mdbn_wire::client::ChangeEntity::Record))
+    );
     let bad = b.r.changes(b.s, Some("1:1".into()), None, false).unwrap();
     assert!(bad.reset, "a cursor from another instance resets");
 }
@@ -3219,6 +3224,7 @@ fn folder_scoped_grant_sees_only_its_files() {
             content: mdbn_wire::attachment::FileContent::Blob(blob(id)),
             media: mdbn_wire::intent::MediaClass::Image,
             modified_seq: 1,
+            mtime: None,
             bucket: crate::store::bucket16(&B16([id; 16])),
             local: crate::store::FileLocal::Remote,
         });
@@ -3234,14 +3240,14 @@ fn folder_scoped_grant_sees_only_its_files() {
         B16([101; 16]),
     );
     settle(&mut [&mut a]);
-    let (s, _) =
+    let (s, hello) =
         a.r.hello(
             SessionAuth::Grant {
                 grant: gid,
                 client_pk: [0x57; 32],
             },
             HelloParams {
-                versions: vec![Version { major: 1, minor: 0 }],
+                versions: vec![Version { major: 1, minor: 2 }],
                 client_name: "app".into(),
                 client_version: "0".into(),
                 features: None,
@@ -3249,6 +3255,9 @@ fn folder_scoped_grant_sees_only_its_files() {
             },
         )
         .expect("approved grant session");
+    // API 1.2 reports the effective folder scope with the grant.
+    assert_eq!(hello.version, Version { major: 1, minor: 2 });
+    assert_eq!(hello.grant.file_folders, Some(vec!["photos".to_string()]));
     let list = a.r.list_files(s, ListFiles::default()).unwrap();
     assert_eq!(
         list.files
@@ -5730,6 +5739,7 @@ fn attachment_rows_are_typed_in_the_store_and_wait_for_their_snapshot_inventory(
         content: FileContent::AttachmentV1(att.clone()),
         media: MediaClass::Image,
         modified_seq: 1,
+        mtime: None,
         bucket: bucket16(&fid),
         local: FileLocal::Remote,
     });
@@ -5810,6 +5820,7 @@ fn attachment_entry_applies_whole_with_its_legacy_effects() {
         payload
             .effects
             .push(rt::Effect::PutAttachmentFile(PutAttachmentFile {
+                mtime: None,
                 id: B16([0x33; 16]),
                 path: "assets/big.bin".into(),
                 content: AttachmentContentV1 {
@@ -5902,4 +5913,68 @@ fn indexed_projection_declines_without_store_support() {
         )
         .unwrap();
     assert_eq!(out.unwrap_err(), crate::replica::QueryDecline::Projection);
+}
+
+#[test]
+fn change_feed_marks_file_puts_and_removals_as_files() {
+    use mdbn_wire::client::{ChangeEntity, ChangeKind};
+    use mdbn_wire::intent::{BlobRef, FileDelete, FilePut};
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1, MemStore::new());
+    a.r.planner = Box::new(crate::plan::CorePlanner);
+    settle(&mut [&mut a]);
+    let cursor = a.r.changes(a.s, None, None, false).unwrap().cursor;
+    let id = B16([0x63; 16]);
+    let submit = |op: Op| SubmitParams {
+        ops: vec![op],
+        mutation_id: None,
+        conflict_mode: None,
+        timezone: None,
+        allow_partial: None,
+        mutation_ids: None,
+        dry_run: None,
+        include: None,
+        wait: None,
+    };
+    let put = Op::FilePut(FilePut {
+        id,
+        path: "photos/c.png".into(),
+        blob: BlobRef {
+            plain_hash: mdbn_wire::common::B32([0x63; 32]),
+            size: 3,
+            blob_id: mdbn_wire::common::B32([0x63; 32]),
+            id_epoch: 1,
+            part_size: 8 << 20,
+        },
+        if_revision: None,
+        base: None,
+    });
+    let r = a.r.submit(a.s, submit(put)).unwrap();
+    assert!(r.iter().all(|r| r.problem.is_none()), "{r:?}");
+    settle(&mut [&mut a]);
+    a.r.submit(
+        a.s,
+        submit(Op::FileDelete(FileDelete {
+            id,
+            if_revision: None,
+            base: None,
+        })),
+    )
+    .unwrap();
+    settle(&mut [&mut a]);
+    let feed = a.r.changes(a.s, Some(cursor), None, false).unwrap();
+    let kinds: Vec<_> = feed
+        .changes
+        .iter()
+        .filter(|c| c.id == id)
+        .map(|c| (c.kind, c.entity))
+        .collect();
+    assert!(
+        kinds.contains(&(ChangeKind::Put, Some(ChangeEntity::File))),
+        "{kinds:?}"
+    );
+    assert!(
+        kinds.contains(&(ChangeKind::Remove, Some(ChangeEntity::File))),
+        "{kinds:?}"
+    );
 }

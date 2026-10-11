@@ -61,11 +61,52 @@ grant-info = {
   ? 0: uuid,             ; grant ID (absent for the hosting app itself)
   1: [+ capability],     ; capabilities (policy.md §5)
   2: role,               ; the granting member's role
+  ? 4: [+ path],         ; file_folders: the grant's file-namespace folder scope (API 1.2); key 3 reserved
 }
 ```
 
+From API 1.2, `file_folders` is the effective grant's folder scope: present means
+file reads, listings and writes are limited to those folders, absent means the whole
+file namespace. Before API 1.2 its absence says nothing about the scope. `capabilities`
+are the role-effective capabilities in force; file actions follow from them
+(`policy.md` §5): list and read need `collection.read`, add needs `records.create`,
+replace and move need `records.edit`, delete needs `records.delete`.
+
 `hello` is the first request. Before it, every other request fails with
 `unauthenticated`. Version negotiation is in §13.
+
+### Feature negotiation is not operation or permission discovery
+
+`hello-result.features` is the intersection of the features requested in this
+hello and the markers this producer admits. It is not a complete feature catalog.
+Retain the exact requested list alongside the current hello: distinguish **not
+requested**, **requested / negotiation pending**, **requested but not negotiated**,
+and **negotiated**. A failed hello or an unavailable current session is an error,
+not a negative feature result. Absence of an unrequested marker says nothing about
+support. Do not use a prior session's hello to certify a new session.
+
+The current Replica producer's marker list is `presence` and `attachment-v1`
+(bare codec support), plus qualified `attachment-v1.read` and
+`attachment-v1.materialize` directions when that replica admits them.
+`attachment-v1.write` is not granted by this producer. Directions are not implied
+by the bare codec marker. This source list is not a qualification of a deployed
+producer, transport, app session or UI; testing substitutes may advertise
+other markers and are not evidence of native negotiation.
+
+Legacy Connect names `query-metadata-v1`, `read-many-documents-v1`, and
+`query-record-revisions-v1` are **not native aliases**. Ordinary reads use
+`collection.read` and the corresponding public operation, not one of these hello
+markers. Typed query/selection metadata belongs to `query-result` (§4); record
+identity/revision belongs to `record-view` (§3). SDK `queryPages` preserves ordinary
+query pages/cursors; SDK `readMany` composes ordinary gets, not a native bulk RPC,
+transaction or common snapshot. No negotiation marker proves those stronger
+semantics. `describe` is catalog/contract inspection, not a feature catalog.
+
+The hello grant capabilities and role are snapshots, separate from negotiated
+markers and current RPC authorization. Every RPC must retain its existing current
+authority checks; read failures, revocations, stale cursors and unsupported query
+semantics remain their real errors, never converted to `false` capability or an
+unrequested fallback. See the SDK's operation mapping for legacy consumers.
 
 ## 3. Record views
 
@@ -103,18 +144,50 @@ All of these require `collection.read`.
 
 | Method | Params | Result |
 |---|---|---|
-| `describe` | — | `describe-result` (§4.1): typed catalog summary and registered contracts |
+| `describe` | `null` or `{? 0: bool definitions}` | `describe-result` (§4.1): typed catalog summary and registered contracts; `definitions` adds type definitions/schemas and contract schemas |
+| `query_contract_v1` | versioned exact contract + bounded continuation (§4.1.1) | ordinary query page + canonical inspection projections |
 | `describe_typing` | `{0: [* tstr] types (≤ 64), 1: [* path] paths (≤ 256)}` | `{0: uint catalog_generation, 1: [* {0: path, 1: typing}]}`, one entry per requested path in request order; `typing = &(none: 0, date: 1, date_time: 2)` is `date`/`date_time` only when every listed type declares that format at the path (top-level field paths only; nested or unknown → `none`, empty `types` → `none`). `too_large` over the bounds |
 | `get` | `{0: uuid / path, ? 1: include}` | `record-view`, or `not_found` |
+| `get_contract_v1` | `{0: 1, 1: uuid / path, 2: tstr contract, 3: tstr exact version, ? 4: tstr type}` | `{0: 1, 1: uuid id, 2: path, 3: hash revision, 4: tstr type, 5: data-map fields, 6: hash contract_digest, 7: hash implementation_digest}`: the record's valid contract view through Core's resolved mapping in the local view. `not_found` (no record; `data_contract_not_found`; `data_contract_not_implemented` when the record has no implementing type), `invalid_request`/`data_contract_ambiguous` (several of its types implement it; details: the types), `invalid_record`/`data_contract_record_invalid` (with issues). Unknown keys are `invalid_request`. READ required |
+| `map_contract_write_v1` | `{0: 1, 1: tstr contract, 2: tstr exact version, ? 3: tstr type, ? 4: uuid / path target, ? 5: data-map contract fields, ? 6: [* tstr] contract field refs to unset (≤ 256), ? 7: bool promote}` | `{0: 1, 1: tstr type, 2: data-map patch, 3: [* tstr] unset, 4: [* base-field] base, 5: hash contract_digest, 6: hash implementation_digest, ? 7: uuid id, ? 8: path, ? 9: hash revision}`: contract fields as ordinary top-level record changes, for a `create` of `type` (no target) or an `update` of the target, which must implement the selection (7–9 describe it). Nested record fields are merged with the target's current values and their observed values returned as `base`. Core refuses unmapped contract fields (`invalid_request`/`data_contract_field_unmapped`, details: the pointer), conflicting mappings (`data_contract_field_conflict`), and a write whose resulting view is invalid (`invalid_record`/`data_contract_record_invalid`); selection errors as `get_contract_v1`. With `promote` (API 1.x additive; older producers refuse key 7 as `invalid_request`), an untyped target (no type membership) is mapped through the selected implementing type and the plan also sets the first `explicit_type_keys` key to that type, with the key's observed absence in `base`, so one `update` promotes and writes. A target that already implements the selection maps as usual; one with other types is `invalid_request`/`data_contract_promote_typed`; a collection without explicit type keys is `data_contract_promote_unsupported`. Nothing is written. READ required |
 | `get_resource` | `{0: path}` (exactly one field) | `resource-view`, or `not_found`; unrestricted collection READ required |
+| `new_type_file` | `{0: tstr source}` (exactly one field) | `{0: tstr name, 1: path}`: where a type file created from `source` goes in the local view, `<types_folder>/<name>.md`, for a `resource_put` with `mustNotExist` (`definitions.manage`). Core derives it: `invalid_record`/`invalid_type_definition` (with the issue) for a missing or unusable name, `conflict`/`type_conflict` (details: existing path) when the name exists under any casing, `conflict`/`path_taken` (details: revision) for an occupied path. The definition is validated when written. READ required |
 | `list_resources` | `list-resources-params` below | `list-resources-result`; unrestricted collection READ required |
 | `query` | `{0: query, ? 1: include}` | `query-result` |
 | `subscribe` | `{0: query, ? 1: include}` | `{0: sub ID}`, then `query-update` pushes |
 | `unsubscribe` | `{0: sub ID}` | — |
 | `changes` | `{0: cursor?, ? 1: limit, ? 2: watch: bool}` | `{0: [change], 1: cursor, 2: reset: bool}`, then `changes` pushes if `watch` |
 | `list_views`, `execute_view`, `read_view_source` | spec 12 shapes | spec 12 shapes |
-| `validate` | `{? 0: [uuid / path]}` | issues per record (spec 04) |
+| `validate` | `{? 0: [uuid / path] / null}` | `[validation-record]`, bounded current-record diagnostics below |
 | `list_files`, `get_file`, `read_file` | §10 | §10 |
+
+`validate` is a read-only operation over the actual current local records and
+catalog, including pending record/definition changes. It reuses Core's
+single-record and cross-record checks and explicit-validation severity policy
+(`warn`/`off` report warnings). It does not validate an unsaved draft, install
+any definitions, or authorize a write. READ is reauthorized before delivery;
+existing file-folder visibility applies to file link targets.
+
+A `validation-record` is `{0: uuid, 1: [validation-issue], 2: path, 3: hash}`.
+The path and SHA-256 revision belong to the exact current document validated.
+A `validation-issue` preserves `issue` fields 0–3 and adds optional field 4
+(location), optional field 5 (type name), and required field 6 (Core tier:
+`request`, `single_record`, or `cross_record`). Fields 0/1 of the original
+validation record result remain unchanged. Generic `issue` elsewhere is unchanged.
+Explicit targets retain request order and duplicates. Missing targets, invalid
+catalogs, storage faults, or exceeded budgets refuse the whole operation, never
+return partial rows or an empty diagnostic substitute.
+
+At most 1000 selections/types/local touched entries are admitted. Paths are
+nonempty and at most 4096 UTF-8 bytes; each examined document is at most 1 MiB.
+The producer meters at most 4096 record/index work units and 8 MiB of examined
+source/overlay data. The encoded result is at most 1 MiB, 4096 issues, 65536 CBOR
+nodes and depth 32. Absent/null targets request all current records, enumerated
+in bounded pages of 128 with a 1000-record ceiling. Cross-record uniqueness checks
+also need that bounded collection inventory, even for an explicit target.
+Exhaustion returns `too_large` / `validation_budget`, not truncated diagnostics.
+These are selection/read/serialization bounds, not a peak-heap, kernel CPU,
+existing Store allocation or downstream UI qualification certificate.
 
 `get_resource` reads the exact authoritative local definition source (including
 pending resource replacements), never a Describe projection or filesystem read.
@@ -224,8 +297,19 @@ query-update = {
   7: uint,               ; as_of
   ? 8: query-metadata,   ; FULL metadata replacement at this as_of, never a delta
 }
-change = { 0: uuid, 1: path, 2: &( put: 0, remove: 1 ), 3: uint }   ; id, path, kind, view version
+change = {
+  0: uuid,                     ; id
+  1: path,
+  2: &( put: 0, remove: 1 ),   ; kind
+  3: uint,                     ; view version
+  ? 5: &( record: 0, file: 1 ), ; entity (API 1.2); key 4 reserved
+}
 ```
+
+From API 1.2 every change names its entity, except a removal the producer cannot
+classify (it left no tombstone, so its path is empty too). A client that
+follows one entity treats an unclassified removal as possibly its own and an
+unclassified put as a reason to re-read.
 
 **Query metadata** follows canonical Core/spec 11 semantics. Counts, grouping and
 summaries describe the complete filtered match set before offset/limit, including
@@ -288,12 +372,17 @@ type-summary = {
   0: tstr,                   ; type name
   1: path,                   ; type resource path
   2: [* implementation],     ; valid resolved implementations, in catalog order
+  ? 3: int,                  ; the type's declared `version`
+  ? 4: hash,                 ; revision of the type source in the local view
+  ? 5: value,                ; whole type frontmatter (definitions only)
+  ? 6: value,                ; resolved schema the type validates with (definitions only)
 }
 implementation = {
   0: tstr,                   ; contract ID
   1: tstr,                   ; exact resolved contract version
   2: { * tstr => tstr },     ; contract field reference -> record field reference
   ? 3: value,                ; binding, omitted when empty
+  ? 4: hash,                 ; implementation digest (spec 05A)
 }
 contract-summary = {
   0: tstr,                   ; contract ID
@@ -302,8 +391,21 @@ contract-summary = {
   3: hash,                   ; canonical contract digest
   4: tstr,                   ; contract_type
   5: [* tstr],               ; types implementing this exact version
+  ? 6: { * tstr => value },  ; resolved schemas by member (definitions only)
 }
 ```
+
+Describe reads the local view, including pending definition changes, so a type's
+revision (key 4) equals the revision `get_resource` returns for its path and is a
+valid resource CAS base. The implementation's type version is the owning
+type-summary's key 3. Keys 5 and 6 of a type and key 6 of a contract are present
+only when the request sets `definitions`; their combined encoding is bounded at
+8 MiB, over which the request fails `too_large` with reason
+`describe_budget_exceeded` and the caller reads definitions with `get_resource`.
+Any other param key is `invalid_request` (`unknown_param`). Producers that
+predate these keys ignore the param and omit keys 3–6 and implementation key 4,
+so a client that asked for definitions treats a type without key 5 as
+`upgrade_required`.
 
 Types are summary maps, not type-name strings. The `types`, `issues` and
 `contracts` arrays are required even when empty. Only registered contracts and
@@ -311,6 +413,60 @@ valid resolved implementations are projected from the current local catalog;
 Describe is not a substitute for `get_resource`'s exact source. The shared
 `conformance/describe/populated.hex` fixture covers the existing response
 encoding. This shape does not add a query contract filter or saved-view RPC.
+
+### 4.1.1 Version-one contract inspection
+
+`query_contract_v1` is an additive, explicitly versioned read method, independent
+of the ordinary `query` params (which still refuse an unsupported contract param).
+It uses the same READ capability, local view, Core type membership, effective
+frontmatter and resolved `Implementation` projector as other reads. It neither
+creates contracts nor guesses fields from names. Old producers refuse the method;
+SDK callers never fall back to projecting raw frontmatter themselves. It changes
+no generic Client API negotiation or persisted representation.
+
+```cddl
+contract-query-v1 = {
+  0: 1,
+  1: tstr,                 ; exact registered contract ID, max 1024 bytes
+  2: tstr,                 ; exact resolved version, max 128 bytes
+  ? 3: uint,               ; page size 1..128, default 128
+  ? 4: tstr,               ; session-bound ordinary query cursor
+  ? 5: tstr,               ; CEL filter over contract fields, 1..4096 bytes
+}
+contract-query-result-v1 = {
+  0: 1,
+  1: query-result,
+  2: [* {0: uuid, 1: [* {0: tstr, 1: data-map, 2: [* issue]}]}],
+  3: hash,                 ; registered contract digest
+}
+```
+
+Projection rows match query record UUIDs and order exactly. Each implementation
+entry contains its type name, mapped effective fields and record-schema issues.
+Nonempty issues mean inspection data, **not** a valid contract view: retaining
+mapped identities lets a directory report an invalid claimant without guessing.
+Strict Core `Implementation::view` still rejects those records unchanged.
+
+Key 5 filters projections: the CEL is compiled like a record `where` (an invalid
+one is `invalid_request`/`invalid_query`) and evaluated on each implementation's
+mapped fields as top-level names (no types, so no defaults; `file.*` is the
+record's file). Non-matching projections are dropped, then records left with none;
+the page's query records are filtered to match, `total_count` is omitted, and the
+cursor continues the underlying walk, so a page may hold fewer than the page size.
+Producers before key 5 refuse the envelope (`invalid_request`), never ignore it.
+
+The contract/version/digest (and filter) are included in the ordinary cursor fingerprint;
+all existing session, catalog, head and view-version invalidation rules apply.
+The method selects every type implementing that exact record contract, with a
+128-implementation/128-mapping cap and a fixed 1 MiB projection/response budget.
+A valid registered contract with no implementations returns a complete empty
+page; a missing contract is `not_found` / `data_contract_not_found`. Invalid
+catalogs are `collection_invalid`. No cursor is fabricated for whole-scan stores:
+a short fixed-type window proves completeness, but a full window without terminal
+metadata refuses with `upgrade_required` / `contract_query_cursor_required`.
+Readers must consume all continuations, require `complete`, keep one `as_of` and
+digest, and reject missing continuations when `has_more` is true. They must not
+present a prefix as a complete directory.
 
 ## 5. Writes
 
@@ -361,6 +517,21 @@ it simply resubmits with the same ID.
 
 **Offline.** With no log service reachable, submits still succeed as `pending`. Status
 shows the backlog (§7). Nothing about being offline is an error.
+
+### SDK editor leases are local, not distributed locks
+
+SDK `records.open` composes ordinary reads, observation, updates and receipts into
+one shared editor draft/session per UUID/client. Its lease is a local lifetime
+reference, not a replica-issued exclusive lock, token or renewable remote lease.
+Writer's open/edit/autosave/conflict/recovery/release uses map to that existing
+[SDK session contract](../../packages/sdk/README.md#writer-lease-mapping).
+
+Saves explicitly use the actual full record base/revision CAS and captured
+mutation identity. Unknown outcomes retain the original receipt recovery rather
+than submit another mutation. Saved requires confirmed, unprotected, same-UUID
+full current readback, not receipt confirmation alone. Release does not certify
+save, roll back a captured write or unlock other clients. Settled CAS conflict
+choices do not authorize resolving native held/unresolved records (§8).
 
 ## 6. Receipts
 
@@ -419,6 +590,33 @@ acknowledge a capture or push a receipt before its preceding commits are durable
 
 The replica keeps receipts for at least 24 hours after they leave `pending`, and
 confirmed ones for the receipts horizon.
+
+### 6.1. Pending-write inventory
+
+`list_pending {? 0: uuid cursor}` returns `{0: [* pending-mutation], ? 1: uuid next}`.
+A pending-mutation is `{0: receipt, 1: time-ms captured, 2: [+ runtime-op]}`.
+These are actual durable PendingRows in increasing capture order, with their original
+mutation UUID, capture clock and exact runtime operations (including FileAttach).
+It is not an inventory of upload references, metadata keys, holds or settled receipts.
+Legacy Submit admission is unchanged; runtime operations here are recovery evidence,
+not permission to submit them through the legacy API.
+
+A current authenticated grant sees only rows submitted under that grant; Host sees
+all rows in this replica. Like receipt recovery, no READ capability is required.
+Each request scans at most 64 rows plus one lookahead, retaining only one source
+row at a time, and returns at most 4 MiB of encoded entries;
+a single entry exceeding that budget refuses `too_large / pending_inventory_budget`.
+Hidden rows count toward work but their IDs/operations never enter output. Thus an
+empty page can have `next`: callers must continue until `next` is absent.
+
+The opaque UUID continuation is bound to the original live session, not a mutation
+ID or authority token. At most 16 positions are retained per session for five
+minutes; closing/revoking the session drops them. Unknown, expired or foreign
+positions refuse `invalid_request / invalid_pending_cursor`. Restart inventory
+explicitly on refusal; do not infer an empty queue. Pages are live, not an atomic
+snapshot: confirmation can remove rows between pages, and subsequent captures may
+appear. Continuation remembers capture order even after the preceding row settles.
+This read never captures, retries, remints, confirms or publishes a mutation.
 
 ## 7. Status: "confirmed through N, plus pending"
 
@@ -658,6 +856,11 @@ reports progress.
 
 ### 10.1 File views
 
+`mtime` is optional persisted producer metadata from native upload commit's
+writing-device capture clock. Old/absent values remain absent, not inferred from
+sequence or local filesystem stat. Replay, snapshots and captured upload recovery
+preserve the original value; metadata-only moves do not retimestamp the bytes.
+
 ```cddl
 ; ---- files (replica-client-api.md §10) ----
 file-view = {
@@ -669,6 +872,8 @@ file-view = {
   5: file-state,
   6: seq,                ; confirmed_seq: last log position that changed it
   ? 7: hold-ref,
+  ? 8: int,              ; mtime: writing-device commit/capture clock, milliseconds
+  ? 9: tstr,             ; IANA media type from the extension (Core paths::media_type); absent when unknown; never sniffed
 }
 file-state = &(
   materialized: 0,       ; the bytes are on this device
@@ -707,6 +912,7 @@ open-upload-result = {
   1: uint,               ; chunk_size: 1 MiB
   2: [* uint],           ; received: chunk indexes already held (resume)
   3: time-ms,            ; expires_at: 24 hours after the last activity
+  ? 4: uuid,             ; file_id: natively minted CREATE identity (API 1.1)
 }
 upload-chunk-params  = { 0: uuid, 1: uint, 2: bstr }      ; transfer, index, bytes (exactly chunk_size except the last)
 upload-chunk-result  = { 0: uint }                        ; chunks received
@@ -714,6 +920,27 @@ commit-upload-params = { 0: uuid }
 commit-upload-result = receipt                            ; for the file_put mutation
 abort-upload-params  = { 0: uuid }
 ```
+
+API 1.1 upload producers return `file_id` in `open-upload-result`; CREATE never
+accepts a caller-selected file identity. The optional wire slot preserves API 1.0
+responses; newer SDK uploads refuse absent identity before transmitting file bytes,
+never substituting a post-confirmation path lookup. `FilesApi.upload` returns a
+Write-compatible `FileWrite` with the original native `fileId`. The `file_id` input
+continues to mean replacement only; it is not a CREATE identity parameter.
+
+**Replace.** `open_upload` with both `file_id` and `if_revision` replaces the content
+of a live Ordinary File, keeping its ID. Only one of them is `invalid_request`
+(`attachment_replace_requires_revision`). The session needs `records.edit`, plus the
+grant's folder scope for the path. `path` must be the file's current path
+(`conflict`, `attachment_replace_target_changed`). `if_revision` must be its current
+whole-plaintext digest (`conflict`, reason `revision`). A file with a pending local
+change is `conflict` (`attachment_replace_pending`). These checks run at open, at
+every staging boundary and at capture. The captured `file_attach` carries
+`if_revision`, so the log order enforces the same CAS. The encrypted resume journal
+binds the replacement (file and original `if_revision`; create journals keep their
+original bytes), and a cold resume whose request does not restate it exactly is
+`conflict`, `attachment_upload_scope_changed`. Without `file_id`, an
+occupied destination is `conflict`, reason `attachment_destination_exists`.
 
 1. **Open and send.** `open_upload`, then `upload_chunk` in any order. A retried chunk
    must carry the same bytes; different bytes are `invalid_request`.
@@ -734,6 +961,7 @@ abort-upload-params  = { 0: uuid }
 |---|---|---|
 | `read_file` | `{0: uuid / path, ? 1: [offset, length], ? 2: hash revision}` | `{0: uint stream ID, 1: file-view}`, then `file-chunk` pushes |
 | `ack_chunks` | `{0: stream ID, 1: uint offset}` | flow control: the replica keeps at most 8 MiB unacknowledged |
+| `cancel_stream` | `{0: stream ID}` | idempotent cancellation of this session's matching stream only |
 | `fetch_file` | `{0: uuid}` | materializes a remote file on this device (§10.3); progress pushes |
 
 ```cddl
@@ -807,6 +1035,102 @@ materialization = {
 | `fetch_file` | `{0: uuid}` | `collection.read` |
 | `evict_file` | `{0: uuid}` | the hosting app only. It drops the local copy of a confirmed, unheld file and leaves it `remote` |
 
+Native attachment CREATE uses one session-derived context for actual device Host
+or Grant subjects. `start_attachment_create` returns the original native UUID and
+mutation from the existing bounded positional-source writer; it does not perform
+an identity lookup after confirmation. Host has no synthetic `on_behalf` grant.
+Current CREATE/device/key/folder/health and collection/wake/store-generation/epoch
+checks precede source/object work and capture. The existing hosted source/region
+entry points remain HOSTED+Grant-only. Existing Grant V1 encrypted resume bytes
+are unchanged. The same bounded codec supports a distinct tagged Host V2 owner
+(device/account/transfer) and purpose, not a placeholder grant; see the
+resume owner formats in the source.
+This source seam may read its first chunk at start: it is not the streamed wire
+`open_upload` producer. Native region start/resume now returns the original
+(mutation, file) identity before input; device Host/Grant and hosted wrappers use
+one writer/journal/rehash/commit implementation. Host resume authenticates its real
+device/account owner, rebuilds the committed digest prefix after reopen, and keeps
+the same native UUID. Hosted entry points still refuse device profiles and wipe
+supplied regions on boundary failures. ClientApi open/chunk/abort now uses this
+same leased backing: open returns the original UUID before input, 1MiB fragments
+assemble in one bounded 8MiB window, and native authenticated LS staging must pass
+its object probe and known encrypted-journal PUT before committed progress. Packet
+acceptance is tentative RAM progress, not durability. Commit now drives the same
+manifest/probe/capture loop (including empty files) and answers only with the
+actual native receipt. Frames holds original upload/commit request IDs across
+native backpressure, with at most four 1MiB fragment bodies in total (matching the
+SDK's four concurrent requests). Held bodies are wiped on cancel, close or
+completion; timeout reports unknown outcome, never a fabricated receipt. Within-
+window out-of-order/retry and cross-window deferral are tested. Reconnect/restart
+delivery of the authenticated checkpoint and end-to-end package/runtime
+qualification remain unfinished; this is not qualified upload delivery. Native
+ClientApi uploads persist only an opaque journal reference, scoped to the actual
+HostV2/GrantV1 owner+transfer, after known journal PUT and settled local store
+commit. Unknown local durability fences the instance; close retains the pointer
+and explicit abort retires it. Stored-transfer open now defers its original RPC
+while native authenticated LS fetches the bounded encrypted journal and rehashes
+its committed prefix in the same exact region lease. Only then does it return the
+original native UUID and committed fragment indexes; tentative RAM ACKs are not
+resumed. Journal/chunk tamper and stale scopes refuse and wipe. Fresh wire open
+also waits for known encrypted zero-prefix journal and local-pointer commits
+before exposing identity or accepting file bytes. Zero-prefix cold restart keeps
+the original UUID and expiry, including empty files; it claims no committed
+chunks. Already-captured recovery authenticates the original journal and requires
+its exact owner-scoped opaque reference coupled to the actual FileAttach capture
+transaction, then reads the actual native receipt. A marker, journal, or file row
+alone cannot certify an outcome. Same-session retries and cold opens keep the
+original UUID/expiry; captured recovery neither creates a writer nor rehashes or
+uploads the payload. Pending/rejected outcomes remain those actual outcomes.
+Captured cleanup preserves recovery references and cannot withdraw the write or
+release a successor read lease. Ordinary CREATE still requires an absent
+destination. Full package/runtime qualification remains unfinished.
+
+The shared native attachment read pin accepts active, keyed member devices of
+kind desktop/mobile/app-runtime/CLI, including viewers without write authority,
+or an actual cloud-copy hosted profile. Escrow/recovery, key-only and local-only
+profiles do not serve attachment bytes. Pins bind the collection, wake and store
+generation; current READ/folder/health checks precede input and output. Hosted
+transports must additionally preserve live Noise/admission checks. The existing
+hosted native API remains HOSTED-only and delegates to this same reader.
+
+Replica owns one ephemeral read driver and leased region. ClientApi read/ACK/cancel
+and the hosted engine's existing bounded object callbacks use this same state;
+the hosted engine no longer owns a separate reader or backing. Pin capture precedes
+region allocation. Close/revocation cleanup and idle expiry release the exact
+lease; transport retirement scrubs pending ciphertext and invalidates old object tickets.
+Device reads issue one native-ticket-bound `GetObject` at a time through the existing
+authenticated LS capture/decode path. Each reply is at most one sealed chunk, checked
+against its pinned size/address, then authenticated in the same leased region; the
+transport copy is zeroized. The shared driver emits one bounded typed `file-chunk`
+per push drain; the canonical frame encoder zeroizes its temporary plaintext copy.
+Queued unsent frames are zeroizing and tagged with their native stream ID so scoped
+cancellation can purge them without decoding or copying plaintext. ACK credit gates
+both output and the next object read. Hosted reads retain their direct bounded R2
+callbacks and live transport admission rather than issuing duplicate device LS calls.
+Source-level device RPC/LS/frame tests do not establish complete SDK/native package
+or runtime qualification; those remain separate end-to-end checks.
+
+`fetch_file` checks the session's current `collection.read` grant and file-folder
+scope before checking device storage support. It admits a request to the existing
+attachment reconciliation/materialization driver, not a completed disk publish;
+repeat requests reuse the same queued or in-flight fetch. Its current implementation
+supports attachment-v1 files on synced device stores that materialize attachments.
+Other stores return `unavailable` / `file_materialization_unsupported`; other file
+content profiles return `upgrade_required` / `attachment_required`. An external-edit
+or hold fence returns `unavailable` / `file_materialization_fenced`. A terminal native
+fetch failure is returned unchanged, without restarting that content's fetch.
+
+`evict_file` is host-only and reuses conditional unlink of the materializer's
+tracked copy. Held/external-edit-fenced files are refused; changed or locked bytes
+are preserved with `conflict` / `file_eviction_drift`. A prior shown path now owned
+by another confirmed entity is never unlinked. The confirmed file and collection
+log remain unchanged. The remote state is persisted before unlink; the shown marker
+is retained until success, so interrupted eviction can be reconciled or retried.
+Unknown persistence/unlink outcomes require reopening the instance, not an invented
+successful eviction. In-flight fetches are cancelled and late replies cannot publish.
+The existing default `all` policy may refetch after reopen or later reconciliation;
+eviction does not introduce a persistent on-demand policy.
+
 - **Records and resources are always materialized** on a file-backed replica.
 - **What a remote file looks like on disk** (absent, or an OS placeholder through
   Windows Cloud Files or a macOS File Provider) is a `FilePlatform` matter, pending
@@ -820,6 +1144,12 @@ materialization = {
   log service.
 
 ## 11. Presence
+
+**Current implementation:** the native Replica's join/update/leave/subscribe
+methods below return `not_yet("presence")`. An admitted hello `presence` marker
+is not proof that these RPCs are implemented. Writer's local editor lease flow
+does not require presence; presence is never an exclusive editing/write permit.
+The following describes the intended protocol, not a deployed qualification.
 
 Presence uses the ephemeral per-record streams of the log service
 (`log-service-api.md` §8). Thin clients have no keys, so the replica relays for them.

@@ -12,6 +12,7 @@ pub(super) fn params(size: u64) -> HostedAttachmentTransferParams {
         size,
         digest: None,
         mutation: Some(B16([0xc2; 16])),
+        replace: None,
     }
 }
 pub(super) fn store_chunk(
@@ -134,7 +135,7 @@ fn region_boundary_requires_native_chunk_and_encrypted_metadata_storage_before_p
     };
     let auth =
         h.r.sealer
-            .open_hosted_upload_resume(&r, owner, &mut region)
+            .open_hosted_upload_resume(&r, owner.into(), &mut region)
             .unwrap();
     assert_eq!(auth.metadata().expires_at_ms, progress.expires_at_ms);
     let native_file = auth.metadata().file;
@@ -274,7 +275,7 @@ fn fresh_native_wake_rehashes_committed_prefix_and_captures_same_native_file() {
     region[..meta.len()].copy_from_slice(&meta);
     let old_file =
         h.r.sealer
-            .open_hosted_upload_resume(&reference, owner, &mut region)
+            .open_hosted_upload_resume(&reference, owner.into(), &mut region)
             .unwrap()
             .metadata()
             .file;
@@ -338,7 +339,7 @@ fn fresh_native_wake_rehashes_committed_prefix_and_captures_same_native_file() {
     let auth = fresh
         .r
         .sealer
-        .open_hosted_upload_resume(&ref2, owner, &mut region)
+        .open_hosted_upload_resume(&ref2, owner.into(), &mut region)
         .unwrap();
     assert_eq!(auth.metadata().file, old_file);
     fresh

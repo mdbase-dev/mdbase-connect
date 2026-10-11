@@ -334,6 +334,7 @@ pub(super) fn file_put(
             content: FileContent::Blob(f.blob),
             if_revision: f.if_revision,
             base: f.base,
+            mtime: None,
         },
     )
 }
@@ -343,6 +344,12 @@ pub(super) fn file_attach(
     ov: &mut Overlay<'_>,
     f: &FileAttach,
 ) -> Result<(), Rejection> {
+    if f.mtime.is_some_and(|mtime| mtime != ctx.m.clock.instant_ms) {
+        return Err(invalid(
+            "invalid_request",
+            "file mtime must equal the capture clock",
+        ));
+    }
     put_file(
         ctx,
         ov,
@@ -352,6 +359,7 @@ pub(super) fn file_attach(
             content: FileContent::AttachmentV1(f.content),
             if_revision: f.if_revision,
             base: f.base,
+            mtime: f.mtime,
         },
     )
 }
@@ -419,6 +427,7 @@ pub(super) fn ordinary_attachment_continuation(
             id: f.id,
             path: f.path.clone(),
             content: f.content,
+            mtime: None,
         },
     );
     Ok(())
@@ -430,12 +439,23 @@ struct FileWrite<'a> {
     content: FileContent,
     if_revision: Option<Hash>,
     base: Option<Hash>,
+    mtime: Option<i64>,
 }
 
-fn file_effect(id: crate::ids::FileId, path: String, content: FileContent) -> Effect {
+fn file_effect(
+    id: crate::ids::FileId,
+    path: String,
+    content: FileContent,
+    mtime: Option<i64>,
+) -> Effect {
     match content {
         FileContent::Blob(blob) => Effect::PutFile { id, path, blob },
-        FileContent::AttachmentV1(content) => Effect::PutAttachmentFile { id, path, content },
+        FileContent::AttachmentV1(content) => Effect::PutAttachmentFile {
+            id,
+            path,
+            content,
+            mtime,
+        },
     }
 }
 
@@ -448,7 +468,7 @@ fn file_effect_kind(
     kind: FileKind,
 ) -> Effect {
     match kind {
-        FileKind::Ordinary => file_effect(id, path, content),
+        FileKind::Ordinary => file_effect(id, path, content, None),
         FileKind::UnindexedOversizedMarkdown => Effect::PutUnindexedMarkdown { id, path, content },
     }
 }
@@ -894,7 +914,7 @@ fn put_file(ctx: &mut Ctx<'_>, ov: &mut Overlay<'_>, f: FileWrite<'_>) -> Result
                 ctx.merged = true;
             }
             ctx.touch_path(&path);
-            ctx.emit(ov, file_effect(f.id, path, f.content));
+            ctx.emit(ov, file_effect(f.id, path, f.content, f.mtime));
         }
         Some(cur) => {
             if cur.kind != FileKind::Ordinary {
@@ -943,7 +963,7 @@ fn put_file(ctx: &mut Ctx<'_>, ov: &mut Overlay<'_>, f: FileWrite<'_>) -> Result
                 });
                 return Ok(());
             }
-            ctx.emit(ov, file_effect(f.id, cur.path, f.content));
+            ctx.emit(ov, file_effect(f.id, cur.path, f.content, f.mtime));
         }
     }
     Ok(())

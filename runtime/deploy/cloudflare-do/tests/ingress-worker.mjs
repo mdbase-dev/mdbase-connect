@@ -61,6 +61,17 @@ async function invoke(q, env, ctx, actorHandler, onPut) {
     headers: q.headers ?? {},
     ...(q.method === "GET" || q.method === "HEAD" ? {} : { body }),
   });
+  if (q.corsMetadataOnly) {
+    // Preflight must require only public CORS metadata, not authentication,
+    // native bindings/actor lookup or reading even the instrumented body.
+    const scoped = { LOGSVC_CORS_ORIGINS: q.corsOrigins ?? env.LOGSVC_CORS_ORIGINS };
+    for (const name of ["INSECURE_TEST_KEYS", "LOGSVC_ROOT_KEYS", "LOGSVC_TOKEN_ISSUERS", "LOGSVC_URL_SECRET", "LOG", "OBJECTS", "METRICS"]) {
+      Object.defineProperty(scoped, name, { get() { throw new Error("preflight side effect"); } });
+    }
+    const result = await new worker(ctx, scoped).fetch(incoming);
+    return { status: result.status, response: Array.from(new Uint8Array(await result.arrayBuffer())),
+      emitted, pulls, forwarded, r2writes, allowOrigin: result.headers.get("access-control-allow-origin") };
+  }
   // Direct-download seams are request-local. Inherit the actual native binding's
   // constructor (workers-rs validates its name), but call every method on its
   // ORIGINAL receiver. No global binding override or Proxy is used here.
@@ -310,7 +321,10 @@ export class LogCollection extends RustCollection {
       // Fault only the backend-owned nil lookup inside the actual Rust actor.
       // Keep native namespace/stub receivers (workers-rs rejects fake bindings).
       const q = await req.json();
-      const namespace = this.testEnv.LOG, getByName = namespace.getByName;
+      const namespace = this.testEnv.LOG, getByName = namespace.getByName, get = namespace.get;
+      const nilName = "00000000-0000-0000-0000-000000000000";
+      const nilId = namespace.idFromName(nilName).toString();
+      const wrapped = new WeakSet();
       let pause;
       if (q.fault === "pause") {
         if (this.floorPause) throw Error("one bounded paused producer per actor");
@@ -321,9 +335,9 @@ export class LogCollection extends RustCollection {
         pause = this.floorPause = { reached: false, resume, gate, at };
       }
       let calls = 0;
-      namespace.getByName = function (name, ...args) {
-        const stub = getByName.call(this, name, ...args);
-        if (name !== "00000000-0000-0000-0000-000000000000") return stub;
+      const faultStub = stub => {
+        if (wrapped.has(stub)) return stub;
+        wrapped.add(stub);
         const fetch = stub.fetch;
         stub.fetch = async function (...args) {
           const url = new URL(typeof args[0] === "string" ? args[0] : args[0].url);
@@ -351,6 +365,16 @@ export class LogCollection extends RustCollection {
         };
         return stub;
       };
+      // Both SDK entrypoints return genuine namespace stubs. Rust ObjectId's
+      // get_stub uses namespace.get; getByName remains used by other producers.
+      namespace.getByName = function (name, ...args) {
+        const stub = getByName.call(this, name, ...args);
+        return name === nilName ? faultStub(stub) : stub;
+      };
+      namespace.get = function (id, ...args) {
+        const stub = get.call(this, id, ...args);
+        return id.toString() === nilId ? faultStub(stub) : stub;
+      };
       try {
         const response = await super.fetch(new Request(q.url, {
           method: "POST", headers: q.headers,
@@ -360,6 +384,7 @@ export class LogCollection extends RustCollection {
           response: Array.from(new Uint8Array(await response.arrayBuffer())) });
       } finally {
         namespace.getByName = getByName;
+        namespace.get = get;
         if (pause) { pause.resume(); this.floorPause = undefined; }
       }
     }

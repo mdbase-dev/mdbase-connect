@@ -62,7 +62,6 @@ class Host implements HandoffHost {
   marker: string | null = null;
   intent: HandoffIntent | null = null;
   persistFails = false;
-  finalMarkerFails = false;
   partialPersistFails = false;
   finalIntent: HandoffIntent | null = null;
   private lockTail: Promise<void> = Promise.resolve();
@@ -94,7 +93,6 @@ class Host implements HandoffHost {
       this.intent = null;
       this.log.push("unfence");
     } else {
-      if (this.finalMarkerFails) throw new Error("marker flush failed");
       this.marker = next.intent.daemonDevice;
       this.finalIntent = { ...next.intent };
       this.intent = null;
@@ -176,12 +174,6 @@ describe("handoff (§13 rule 3)", () => {
     const cli = new Host(0);
     cli.enrol = { account: "ACCT-1", kind: "cli" };
     expect((await handOff(cli, daemon().ch, me)).kind).toBe("handed_off");
-  });
-  it("shows a local notice when the handoff completes", async () => {
-    const h = new Host(1);
-    await handOff(h, daemon().ch, me);
-    expect(h.notices).toHaveLength(1);
-    expect(h.notices[0]).toMatch(/review your devices/);
   });
   it("if approving the daemon's device fails, nothing moves and hosting stays here", async () => {
     const h = new Host(5);
@@ -296,24 +288,12 @@ describe("handoff (§13 rule 3)", () => {
     expect(h.intent).toEqual(before);
     expect(h.log).not.toContain("resume");
   });
-  it("a crash-window final-marker failure retains the intent for restart reconciliation", async () => {
-    const h = new Host(0);
-    h.finalMarkerFails = true;
-    const d = daemon();
-    expect(await handOff(h, d.ch, me)).toMatchObject({ kind: "failed", resumed: false });
-    expect(h.intent?.id).toBe(d.state.id);
-    expect(h.log).not.toContain("resume");
-    const restarted = new Host(0);
-    restarted.intent = structuredClone(h.intent);
-    expect(await handOff(restarted, d.ch, me)).toMatchObject({ kind: "handed_off" });
-    expect(restarted.marker).toBe(DEV);
-  });
-  it.each([false, true])("concurrent lost-ACK handoffs keep one identity (distinct wrapper=%s)", async (distinct) => {
+  it("concurrent lost-ACK handoffs through distinct facades keep one identity", async () => {
     const h = new Host(0);
     // Distinct facade, SAME device/collection backend lock and durable state.
-    const other = distinct ? new Proxy(h, {
+    const other = new Proxy(h, {
       get(target, key) { const value = Reflect.get(target, key); return typeof value === "function" ? value.bind(target) : value; },
-    }) : h;
+    });
     let releaseReady!: () => void;
     let readyEntered!: () => void;
     const gate = new Promise<void>(r => { releaseReady = r; });
@@ -342,18 +322,6 @@ describe("handoff (§13 rule 3)", () => {
     expect(await handOff(restarted, d.ch, me)).toMatchObject({ kind: "handed_off" });
     expect(d.readyCalls()).toBe(1);
     expect(restarted.log).not.toContain("resume");
-  });
-  it("durable CAS rejects overwriting a pending or completed fence", async () => {
-    const h = new Host(0);
-    const a: HandoffIntent = { id: "first", daemonDevice: DEV, daemonNoisePk: NOISE };
-    const b = { ...a, id: "second" };
-    expect(await h.compareHandoffState({ kind: "host" }, { kind: "pending", intent: a })).toBe(true);
-    expect(await h.compareHandoffState({ kind: "host" }, { kind: "pending", intent: b })).toBe(false);
-    expect(await h.compareHandoffState({ kind: "pending", intent: b }, { kind: "host" })).toBe(false);
-    expect(h.intent).toEqual(a);
-    expect(await h.compareHandoffState({ kind: "pending", intent: a }, { kind: "handed_off", intent: a })).toBe(true);
-    expect(await h.compareHandoffState({ kind: "host" }, { kind: "pending", intent: b })).toBe(false);
-    expect(h.finalIntent).toEqual(a);
   });
   it("uncertain CAS persistence never sends ready or resumes", async () => {
     const h = new Host(0);

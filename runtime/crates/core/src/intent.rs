@@ -400,6 +400,8 @@ pub struct FileAttach {
     pub if_revision: Option<Hash>,
     /// External captured whole plaintext base revision.
     pub base: Option<Hash>,
+    /// Optional writing-device capture clock in milliseconds; equals mutation clock.
+    pub mtime: Option<i64>,
 }
 
 /// Critical Op18: existing Ordinary File at the same exact record path only.

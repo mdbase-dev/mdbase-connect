@@ -3,7 +3,7 @@ use crate::crypto::Entropy;
 use crate::seal::{KeyringSealer, PlainSealer, Sealer};
 use sha2::{Digest, Sha256};
 
-struct Salt(u8);
+pub(super) struct Salt(pub(super) u8);
 impl Entropy for Salt {
     fn fill(&mut self, bytes: &mut [u8]) {
         bytes.fill(self.0);
@@ -17,7 +17,7 @@ impl Entropy for NoEntropy {
     }
 }
 impl CsprngEntropy for NoEntropy {}
-fn metadata(total: u64) -> UploadResumeMetadataV1 {
+pub(super) fn metadata(total: u64) -> UploadResumeMetadataV1 {
     UploadResumeMetadataV1 {
         context: AttachmentContextV1 {
             collection: B16([1; 16]),
@@ -30,13 +30,15 @@ fn metadata(total: u64) -> UploadResumeMetadataV1 {
             client_pk: B32([4; 32]),
             account: B16([5; 16]),
             transfer: B16([6; 16]),
-        },
+        }
+        .into(),
         file: B16([7; 16]),
         mutation: B16([8; 16]),
         path: "files/resume.bin".into(),
         total_plain_bytes: total,
         expected_whole_hash: Some(B32([9; 32])),
         expires_at_ms: 86_400_000,
+        replace_revision: None,
         chunks: vec![],
     }
 }
@@ -59,7 +61,7 @@ fn reopen(key: &Secret32, m: &UploadResumeMetadataV1) -> AuthenticatedUploadResu
     assert!(region.iter().all(|b| *b == 0));
     auth
 }
-fn fail_open(key: &Secret32, r: UploadResumeRefV1, owner: UploadResumeOwnerV1, bytes: &[u8]) {
+fn fail_open(key: &Secret32, r: UploadResumeRefV1, owner: UploadResumeOwner, bytes: &[u8]) {
     let mut region = vec![0xce; MAX_SEALED];
     region[..bytes.len()].copy_from_slice(bytes);
     assert!(open_resume_metadata(key, &r, owner, &mut region).is_err());
@@ -132,13 +134,16 @@ fn owner_context_purpose_checksum_and_payload_binding_drift_refuses_and_wipes_al
     let key = Secret32([10; 32]);
     let m = metadata(123);
     let (object, reference) = seal_resume_metadata(&key, &m, &mut Salt(12)).unwrap();
-    let mut owners = [m.owner; 4];
+    let UploadResumeOwner::GrantV1(grant) = m.owner else {
+        panic!("grant fixture")
+    };
+    let mut owners = [grant; 4];
     owners[0].grant.0[0] ^= 1;
     owners[1].client_pk.0[0] ^= 1;
     owners[2].account.0[0] ^= 1;
     owners[3].transfer.0[0] ^= 1;
     for owner in owners {
-        fail_open(&key, reference, owner, &object.bytes);
+        fail_open(&key, reference, owner.into(), &object.bytes);
     }
     let mut references = [reference; 5];
     references[0].context.collection.0[0] ^= 1;
@@ -168,7 +173,10 @@ fn owner_context_purpose_checksum_and_payload_binding_drift_refuses_and_wipes_al
     r.sealed_bytes = foreign.bytes.len() as u64;
     fail_open(&key, r, m.owner, &foreign.bytes);
     let mut wrong_payload = m.clone();
-    wrong_payload.owner.grant.0[0] ^= 1;
+    let UploadResumeOwner::GrantV1(owner) = &mut wrong_payload.owner else {
+        panic!("grant fixture")
+    };
+    owner.grant.0[0] ^= 1;
     let forged = seal_object(
         &key,
         m.context,
@@ -199,6 +207,28 @@ fn strict_metadata_decoder_refuses_nonminimal_trailing_and_oversized_claims() {
     huge_count.extend([0x9b, 255, 255, 255, 255, 255, 255, 255, 255]);
     assert!(UploadResumeMetadataV1::decode(&huge_count).is_err());
     assert!(UploadResumeMetadataV1::decode(&vec![0; METADATA_BYTES + 1]).is_err());
+}
+
+#[test]
+fn replacement_journal_binds_its_revision_and_create_bytes_are_unchanged() {
+    let create = metadata(0);
+    let create_bytes = create.encode().unwrap();
+    assert_eq!(create_bytes[0], 0x90); // 16 fields, as before replacement existed
+    let replace = UploadResumeMetadataV1 {
+        replace_revision: Some(B32([0x33; 32])),
+        ..metadata(0)
+    };
+    let bytes = replace.encode().unwrap();
+    assert_eq!(bytes[0], 0x91);
+    assert_eq!(&bytes[1..create_bytes.len()], &create_bytes[1..]);
+    assert_eq!(UploadResumeMetadataV1::decode(&bytes).unwrap(), replace);
+    // A create journal never reads back as a replacement.
+    assert_eq!(
+        UploadResumeMetadataV1::decode(&create_bytes)
+            .unwrap()
+            .replace_revision,
+        None
+    );
 }
 
 #[test]
@@ -278,45 +308,54 @@ fn keyring_requires_current_epoch_for_metadata_and_chunks_defaults_refuse_and_wi
         s.set_epoch(7);
         s
     }
-    let mut s = sealer();
-    let mut m = metadata(3);
-    let chunk = add_chunk(&Secret32([10; 32]), &mut m, 0, b"abc");
-    let (object, r) = s.seal_hosted_upload_resume(&m, &mut Salt(12)).unwrap();
-    let mut region = vec![0xbb; MAX_SEALED];
-    region[..object.bytes.len()].copy_from_slice(&object.bytes);
-    let auth = s
-        .open_hosted_upload_resume(&r, m.owner, &mut region)
-        .unwrap();
-    s.set_epoch(8); // OLD KEY STILL HELD; resume is not a historical read
-    assert!(s.seal_hosted_upload_resume(&m, &mut NoEntropy).is_err());
-    region.fill(0xbb);
-    region[..object.bytes.len()].copy_from_slice(&object.bytes);
-    assert!(
-        s.open_hosted_upload_resume(&r, m.owner, &mut region)
-            .is_err()
-    );
-    assert!(region.iter().all(|b| *b == 0));
-    region.fill(0xbb);
-    region[..chunk.bytes.len()].copy_from_slice(&chunk.bytes);
-    assert!(
-        s.open_hosted_upload_committed_chunk_in_place(&auth, 0, &mut region)
-            .is_err()
-    );
-    assert!(region.iter().all(|b| *b == 0));
-    let plain = PlainSealer::for_device(B16([2; 16]));
-    assert!(plain.seal_hosted_upload_resume(&m, &mut NoEntropy).is_err());
-    region.fill(0xbb);
-    assert!(
-        plain
+    for host in [false, true] {
+        let mut s = sealer();
+        let mut m = metadata(3);
+        if host {
+            m.owner = UploadResumeOwner::HostV2 {
+                device: B16([13; 16]),
+                account: B16([5; 16]),
+                transfer: B16([6; 16]),
+            };
+        }
+        let chunk = add_chunk(&Secret32([10; 32]), &mut m, 0, b"abc");
+        let (object, r) = s.seal_hosted_upload_resume(&m, &mut Salt(12)).unwrap();
+        let mut region = vec![0xbb; MAX_SEALED];
+        region[..object.bytes.len()].copy_from_slice(&object.bytes);
+        let auth = s
             .open_hosted_upload_resume(&r, m.owner, &mut region)
-            .is_err()
-    );
-    assert!(region.iter().all(|b| *b == 0));
-    region.fill(0xbb);
-    assert!(
-        plain
-            .open_hosted_upload_committed_chunk_in_place(&auth, 0, &mut region)
-            .is_err()
-    );
-    assert!(region.iter().all(|b| *b == 0));
+            .unwrap();
+        s.set_epoch(8); // OLD KEY STILL HELD; resume is not a historical read
+        assert!(s.seal_hosted_upload_resume(&m, &mut NoEntropy).is_err());
+        region.fill(0xbb);
+        region[..object.bytes.len()].copy_from_slice(&object.bytes);
+        assert!(
+            s.open_hosted_upload_resume(&r, m.owner, &mut region)
+                .is_err()
+        );
+        assert!(region.iter().all(|b| *b == 0));
+        region.fill(0xbb);
+        region[..chunk.bytes.len()].copy_from_slice(&chunk.bytes);
+        assert!(
+            s.open_hosted_upload_committed_chunk_in_place(&auth, 0, &mut region)
+                .is_err()
+        );
+        assert!(region.iter().all(|b| *b == 0));
+        let plain = PlainSealer::for_device(B16([2; 16]));
+        assert!(plain.seal_hosted_upload_resume(&m, &mut NoEntropy).is_err());
+        region.fill(0xbb);
+        assert!(
+            plain
+                .open_hosted_upload_resume(&r, m.owner, &mut region)
+                .is_err()
+        );
+        assert!(region.iter().all(|b| *b == 0));
+        region.fill(0xbb);
+        assert!(
+            plain
+                .open_hosted_upload_committed_chunk_in_place(&auth, 0, &mut region)
+                .is_err()
+        );
+        assert!(region.iter().all(|b| *b == 0));
+    }
 }

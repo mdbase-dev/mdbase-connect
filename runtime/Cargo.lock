@@ -2200,6 +2200,7 @@ dependencies = [
  "mdbn-replica",
  "mdbn-store-file",
  "mdbn-wire",
+ "rusqlite",
  "zeroize",
 ]
 

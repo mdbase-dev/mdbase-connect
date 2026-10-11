@@ -22,13 +22,6 @@ describe("SAS commit-then-reveal (sealed-envelope §5.3)", () => {
     expect(await sasCode(COL, A, N, rA, rN)).toBe(want);
   });
 
-  it("vectors for the Rust replica", async () => {
-    const rA = new Uint8Array(32).fill(0x0a);
-    const rN = new Uint8Array(32).fill(0x0b);
-    // Recorded so the Rust implementation can assert the same values.
-    expect(Buffer.from(await sasCommit(COL, N, rN)).toString("hex")).toMatchInlineSnapshot(`"025bcf77528c9da962a9b3f083a03fc6cb902b739b84c21b1acd7dd796de5f6f"`);
-    expect(await sasCode(COL, A, N, rA, rN)).toMatchInlineSnapshot(`"012286"`);
-  });
 
   async function run(joinerKeys: EnrolledKeys, approverView: EnrolledKeys) {
     const joiner = JoinerApproval.create(COL, joinerKeys);

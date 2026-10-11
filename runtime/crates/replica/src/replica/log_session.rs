@@ -140,6 +140,7 @@ impl<S: Store> Replica<S> {
         {
             return;
         }
+        self.attachment_read_retire_transport();
         self.log_sessions.current = None;
         let calls = std::mem::take(&mut self.log_sessions.calls);
         self.dispatch_log_push(LogPush::Disconnected);
@@ -157,6 +158,7 @@ impl<S: Store> Replica<S> {
     ) -> Result<Vec<(LogCall, LogReplyScope)>, LogSessionError> {
         self.check_log_session(session)?;
         self.prune_hosted_uploads();
+        self.client_file_read_step();
         // Check all queued routes before draining anything.
         if self
             .calls
@@ -194,6 +196,8 @@ impl<S: Store> Replica<S> {
     ) -> Result<(), LogSessionError> {
         self.check_log_session(&scope.0.session)?;
         self.prune_hosted_uploads();
+        self.client_upload_resume_prune();
+        self.prune_client_file_call();
         if !self
             .log_sessions
             .calls

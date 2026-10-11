@@ -85,6 +85,7 @@ fn install(store: &mut MemStore, g: &Gen0) {
                 content: mdbn_wire::attachment::FileContent::Blob(f.blob.clone()),
                 media: f.media,
                 modified_seq: 0,
+                mtime: None,
                 bucket: bucket16(&f.id),
                 local: FileLocal::Remote,
             })

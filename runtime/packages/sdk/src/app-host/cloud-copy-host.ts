@@ -8,6 +8,9 @@ import { MdbaseClient } from "../client.js";
 import { MdbaseError } from "../errors.js";
 import { inProcessConnector } from "../transport/inprocess.js";
 import { AppCpLogAuthority } from "./cp-authority.js";
+import { AppCpPeopleAuthority } from "./cp-people.js";
+import { attachAppTimerReceiver } from "./timer-port.js";
+import type { PeopleAuthority } from "../people.js";
 import type { AppLogPump } from "./log-pump.js";
 import { attachAppLocalFacade } from "./local-facade.js";
 import {
@@ -29,7 +32,7 @@ import { AppIndexedDbDeviceKeyProtectedStore } from "./device-key-idb.js";
 import { AppWebDeviceKeyCustody } from "./device-key-custody.js";
 import { AppIndexedDbNoiseProtectedStore } from "./noise-idb.js";
 import { AppWebNoiseCustody } from "./noise-custody.js";
-import type { AppProtectedInstallationSignIn, AppInstallationSignInView } from "./installation-sign-in.js";
+import type { AppProtectedInstallationSignIn, AppInstallationSignInView, AppInstallationTimerConsent } from "./installation-sign-in.js";
 import {
     AppCpDeviceRegistration,
     type AppCpDeviceSession,
@@ -49,6 +52,9 @@ export interface AppCloudCopyHostSession extends AppCpDeviceSession {
     readonly accountId: string;
     readonly logOrigin: string;
     readonly approvalMode: "password-ak1" | "strict";
+    /** Original protected CP receipt metadata; absent means no timer reference.
+     * Neither this snapshot nor its public IDs authorize a CP operation. */
+    timerConsent?(): AppInstallationTimerConsent | null;
 }
 /** SAME public bundled output of the shared BUILD verifier; never discover at
  * runtime. Release context/tool authentication precedes host construction. */
@@ -82,6 +88,9 @@ export class AppWebCloudCopyHost {
     private signIn: AppProtectedInstallationSignIn | null = null;
     private originalCustody: AppNoiseCustodyResult | null = null;
     private collectionAttempted = false;
+    // Original collection cancellation remains bound to protected bootstrap
+    // storage/adoption. Each public call also observes its own caller signal.
+    private collectionSignal: AbortSignal | null = null;
     private collectionCurrent: (() => boolean) | null = null;
     private outcomeStore: AppIndexedDbCloudCopyOutcomeStore | null = null;
     private outcome: AppWebCloudCopyBootstrapPersistence | null = null;
@@ -97,12 +106,14 @@ export class AppWebCloudCopyHost {
     private logLoopback = false;
     private logWork: Promise<void> | null = null;
     private authority: AppCpLogAuthority | null = null;
+    private peopleMetadata: { authority: AppCpPeopleAuthority; view: PeopleAuthority } | null = null;
     private pump: AppLogPump | null = null;
+    private readonly timerPorts = new Set<{close():Promise<void>}>();
     private readWork: Promise<void> | null = null;
     private readAbort: AbortController | null = null;
     private readClient: MdbaseClient | null = null;
     private readVerified = false;
-    private facade: { close(): void } | null = null;
+    private facade: ReturnType<typeof attachAppLocalFacade> | null = null;
     private readonly selected: Readonly<{
         accountId: string;
         connectorId: string;
@@ -230,8 +241,16 @@ export class AppWebCloudCopyHost {
         }
     }
     private check(signal: AbortSignal): void {
-        if (signal !== this.lifetime || signal.aborted || !this.current())
-            throw fail("fenced");
+        if (signal.aborted || !this.current()) throw fail("fenced");
+    }
+    private operationSignal(caller: AbortSignal): AbortSignal {
+        const signal = AbortSignal.any([
+            this.lifetime,
+            ...(this.collectionSignal ? [this.collectionSignal] : []),
+            caller,
+        ]);
+        this.check(signal);
+        return signal;
     }
     /** Must run INSIDE owned Worker initialization, after installation acquisition.
      * loadRuntime is the explicit authenticated immutable-artifact intake, not a
@@ -405,11 +424,12 @@ export class AppWebCloudCopyHost {
             collectionCurrent,
             purpose,
             outcomeMode,
-            signal,
+            signal: callerSignal,
             reconcile,
             fetch: request,
             allowLoopbackHttp,
         } = options;
+        const signal = this.operationSignal(callerSignal);
         const requestedName = options.displayName;
         const displayName = requestedName === undefined ? undefined : collectionDisplayName(requestedName);
         if (displayName !== undefined && purpose !== "create") throw fail("binding");
@@ -435,6 +455,7 @@ export class AppWebCloudCopyHost {
             try {
                 return (
                     this.current() &&
+                    !signal.aborted &&
                     options.scope === scope &&
                     options.collectionCurrent === collectionCurrent &&
                     Object.entries(original).every(
@@ -449,6 +470,7 @@ export class AppWebCloudCopyHost {
         };
         if (!current()) throw fail("fenced");
         this.collectionAttempted = true;
+        this.collectionSignal = signal;
         this.collectionCurrent = current;
         this.collectionScope = original;
         const source: AppCpCloudCopySession & AppCloudCopyOutcomeScope =
@@ -508,7 +530,8 @@ export class AppWebCloudCopyHost {
         options: AppCloudCopyAdoptionOptions,
         sql: AppSqlLifetime,
     ): void {
-        this.checkCollection(options.signal);
+        const signal = this.operationSignal(options.signal);
+        this.checkCollection(signal);
         if (
             !this.bootstrap ||
             !this.bootstrapConfirmed ||
@@ -516,8 +539,13 @@ export class AppWebCloudCopyHost {
         )
             throw fail("fenced");
         const endpoint = options.endpoint;
-        this.bootstrap.adoptCollection(options, sql);
-        this.checkCollection(options.signal);
+        // Preserve the exact original protected bootstrap signal internally;
+        // never require the app to retrieve or loan the host's private lifetime.
+        this.bootstrap.adoptCollection(
+            { ...options, signal: this.collectionSignal! },
+            sql,
+        );
+        this.checkCollection(signal);
         this.adoptedEndpoint = endpoint;
     }
     /** Trusted immutable storage intake callback: actual OPFS adapter in this
@@ -538,7 +566,8 @@ export class AppWebCloudCopyHost {
             close(): Promise<void>;
         }>;
     }): Promise<void> {
-        const { signal, replicaId, endpoint, openSql } = options;
+        const { replicaId, endpoint, openSql } = options;
+        const signal = this.operationSignal(options.signal);
         this.checkCollection(signal);
         if (
             !this.bootstrapConfirmed ||
@@ -591,7 +620,8 @@ export class AppWebCloudCopyHost {
         fetch?: typeof fetch;
         allowLoopbackHttp?: boolean;
     }): Promise<void> {
-        const { signal, fetch: request, allowLoopbackHttp } = options;
+        const { fetch: request, allowLoopbackHttp } = options;
+        const signal = this.operationSignal(options.signal);
         this.checkCollection(signal);
         if (
             !this.native ||
@@ -607,7 +637,11 @@ export class AppWebCloudCopyHost {
         )
             throw fail("fenced");
         if (this.pump) return;
-        if (this.logWork) return this.logWork;
+        if (this.logWork) {
+            await this.logWork;
+            this.checkCollection(signal);
+            return;
+        }
         if (!this.authority) {
             this.logRequest = captured;
             this.logLoopback = loopback;
@@ -636,9 +670,79 @@ export class AppWebCloudCopyHost {
             if (this.logWork === work) this.logWork = null;
         }
     }
+    /** Read-only metadata for this adopted collection. Uses the already pinned
+     * CP transport; no session, credential, key or readiness authority escapes.
+     * Compose with MdbasePeopleClient INSIDE the trusted owned Worker and send
+     * only public projections across its caller channel. */
+    peopleAuthority(): PeopleAuthority {
+        this.checkCollection(this.lifetime);
+        if (!this.collectionSession || this.adoptedEndpoint === null || !this.logRequest)
+            throw fail("binding");
+        if (!this.peopleMetadata) {
+            const endpoint = this.adoptedEndpoint, session = this.collectionSession;
+            const authority = new AppCpPeopleAuthority(Object.freeze({
+                ...session,
+                endpoint,
+                directOrigins: Object.freeze([]),
+                isCurrent: () => this.collectionCurrent?.() === true && this.adoptedEndpoint === endpoint,
+                connectorBearer: async ({ signal }: { signal: AbortSignal }) => {
+                    signal.throwIfAborted();
+                    this.checkCollection(this.lifetime);
+                    // Custody admits ONLY the original owner lifetime; the
+                    // metadata request's child signal controls its HTTP work.
+                    const bearer = await session.connectorBearer({ signal: this.lifetime });
+                    this.checkCollection(this.lifetime);
+                    signal.throwIfAborted();
+                    return bearer;
+                },
+            }), { fetch: this.logRequest, allowLoopbackHttp: this.logLoopback });
+            const view = Object.freeze<PeopleAuthority>({
+                collection: authority.collection,
+                isCurrent: () => authority.isCurrent(),
+                request: (resource, options) => authority.request(resource, options),
+            });
+            this.peopleMetadata = { authority, view };
+        }
+        return this.peopleMetadata.view;
+    }
+    /** SAME Worker host/scope/child lifetime. Only the original chosen receipt
+     * selects a fixed native CP receiver; no session or bearer leaves Worker. */
+    openTimersPort(options:{scope:Readonly<AppReplicaScope>;generation:string;signal:AbortSignal}):{port:MessagePort;close():Promise<void>} | null {
+        this.checkCollection(this.lifetime);
+        if(!this.readVerified || !this.logRequest || !this.collectionScope || options.signal.aborted) throw fail("binding");
+        const {scope,generation,signal}=options,original=this.collectionScope;
+        if(scope.account!==original.account || scope.installation!==original.installation || scope.collection!==original.collection || uuidToBytes(generation).every(value=>value===0)) throw fail("binding");
+        const callback=this.source.timerConsent,consent=callback?.call(this.source);
+        if(!consent?.approved)return null;
+        const grant=consent.grants.find(reference=>reference.collectionId===scope.collection);
+        if(!grant)return null;
+        const WorkerScope=(globalThis as typeof globalThis & {WorkerGlobalScope?:new()=>object}).WorkerGlobalScope;
+        if(typeof WorkerScope!=="function" || !(globalThis instanceof WorkerScope)) throw fail("binding");
+        if(uuidToBytes(grant.grantId).every(value=>value===0)||!/^[0-9a-f]{64}$/.test(grant.declarationDigest))throw fail("binding");
+        const snapshot=JSON.stringify(consent),channel=new MessageChannel();
+        const isCurrent=()=>{
+            try{return !signal.aborted && options.signal===signal && options.scope===scope && options.generation===generation && this.collectionCurrent?.()===true && this.current()
+                && scope.account===original.account && scope.installation===original.installation && scope.collection===original.collection
+                && this.source.timerConsent===callback && JSON.stringify(callback?.call(this.source))===snapshot;}
+            catch{return false;}
+        };
+        const receiver=attachAppTimerReceiver(channel.port1,{scope:original,generation,grantId:grant.grantId,cpOrigin:new URL(this.selected.cpOrigin).origin,
+            signal,isCurrent,fetch:this.logRequest,...(this.signIn ? {journal:{
+                read:()=>this.signIn!.originalTimerChannel(grant.grantId),
+                write:(value:Parameters<AppProtectedInstallationSignIn["retainTimerChannel"]>[1])=>this.signIn!.retainTimerChannel(grant.grantId,value),
+            }} : {}),bearer:async()=>{
+                if(!isCurrent())throw fail("fenced");
+                // Custody callback accepts ONLY original host lifetime. Child
+                // cancellation fences HTTP, never borrows/unlocks the actor.
+                const value=await this.bearerCallback.call(this.source,{signal:this.lifetime});
+                if(!isCurrent())throw fail("fenced");return value;
+            }});
+        this.timerPorts.add(receiver);
+        return Object.freeze({port:channel.port2,close:async()=>{await receiver.close();channel.port2.close();this.timerPorts.delete(receiver);}});
+    }
     /** Ordinary foreground log drive. Quiet/head/ACK/status are NOT read/Saved. */
     async driveCollection(options: { signal: AbortSignal }): Promise<void> {
-        const { signal } = options;
+        const signal = this.operationSignal(options.signal);
         this.checkCollection(signal);
         if (!this.native || !this.pump || this.adoptedEndpoint === null)
             throw fail("binding");
@@ -653,7 +757,8 @@ export class AppWebCloudCopyHost {
         signal: AbortSignal;
         timeoutMs?: number;
     }): Promise<void> {
-        const { signal, timeoutMs = 15000 } = options;
+        const { timeoutMs = 15000 } = options;
+        const signal = this.operationSignal(options.signal);
         this.checkCollection(signal);
         if (
             !this.native ||
@@ -664,7 +769,10 @@ export class AppWebCloudCopyHost {
             timeoutMs > 15000
         )
             throw fail("binding");
-        if (this.readWork) return this.readWork;
+        if (this.readWork)
+            return this.readWork.then(() => {
+                this.checkCollection(signal);
+            });
         const work = this.verifyRead(signal, timeoutMs);
         this.readWork = work;
         void work
@@ -744,7 +852,7 @@ export class AppWebCloudCopyHost {
     /** ONE data-only Worker port, only after a genuine native typed read passed.
      * Every subsequent frame remains gated by native trust/applied/key/read.
      * Host controls, SQL/custody/log tokens and owner unlock are never RPCs. */
-    attachDataFacade(channel: MessagePort): void {
+    attachDataFacade(channel: MessagePort): ReturnType<typeof attachAppLocalFacade>["resourceSetup"] {
         this.checkCollection(this.lifetime);
         if (
             !this.native ||
@@ -765,6 +873,7 @@ export class AppWebCloudCopyHost {
             },
         });
         this.facade = attachAppLocalFacade(this.native, channel, scope);
+        return this.facade.resourceSetup;
     }
     /** Public tuple copy only; no key loans and no readiness claim. */
     registeredReceipt(): AppDeviceRegistrationReceipt {
@@ -787,6 +896,7 @@ export class AppWebCloudCopyHost {
         for (const close of [
             () => this.readClient?.close(),
             () => this.facade?.close(),
+            () => this.peopleMetadata?.authority.close(),
             () => this.bootstrap?.close(),
             () => this.outcome?.close(),
         ]) {
@@ -798,6 +908,9 @@ export class AppWebCloudCopyHost {
         }
         return (this.closeResult ??= (async () => {
             try {
+                // Drain exact timer HTTP/IPC before native/SQL/lease shutdown.
+                await Promise.all([...this.timerPorts].map(async port=>{try{await port.close();}catch{fenceFailed=true;}}));
+                this.timerPorts.clear();
                 const clean = await this.native?.close();
                 if (this.collectionSql && clean !== true)
                     this.collectionSql.fence();

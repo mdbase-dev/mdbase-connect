@@ -40,9 +40,13 @@ export function acquireAppInstallationLease(locks: AppLockPort | undefined, scop
 }
 /** Origin-local pre-account sign-in slot. No placeholder account or device keys.
  * Keep this lease until all pairing IO and protected ledger handles are closed. */
-export function acquireAppSignInLease(locks: AppLockPort | undefined, scope: Readonly<{cpOrigin: string; appId: "tasknotes-web" | "tasknotes-mobile"}>, signal?: AbortSignal): Promise<AppReplicaLease> {
+/** Opaque registry identifier, bounded for origin-local storage/lock namespaces. */
+export function isAppInstallationId(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 64 && !/[^A-Za-z0-9_-]/.test(value);
+}
+export function acquireAppSignInLease(locks: AppLockPort | undefined, scope: Readonly<{cpOrigin: string; appId: string}>, signal?: AbortSignal): Promise<AppReplicaLease> {
   const u = new URL(scope.cpOrigin);
-  if (u.origin !== scope.cpOrigin || u.username || u.password || !["https:", "http:"].includes(u.protocol) || !["tasknotes-web", "tasknotes-mobile"].includes(scope.appId)) throw new AppReplicaOwnerError("invalid_scope");
+  if (u.origin !== scope.cpOrigin || u.username || u.password || !["https:", "http:"].includes(u.protocol) || !isAppInstallationId(scope.appId)) throw new AppReplicaOwnerError("invalid_scope");
   return acquireNamedLease(locks, `mdbase-app-sign-in-v1-${scope.appId}-${scope.cpOrigin}`, signal);
 }
 function acquireNamedLease(locks: AppLockPort | undefined, name: string, signal?: AbortSignal): Promise<AppReplicaLease> {

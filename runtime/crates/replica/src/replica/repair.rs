@@ -42,8 +42,20 @@ impl<S: Store> Replica<S> {
             self.prune_retained(&row, &mut tx)?;
             tx.tail_put.push(row);
         }
+        self.commit_with_read_health(Some(head), tx)
+    }
+
+    /// Same settled commit/read-health boundary, also for DATA-only warm replay
+    /// hints. `None` NEVER moves a head or claims new applied-original bytes.
+    pub(crate) fn commit_with_read_health(
+        &mut self,
+        head: Option<Head>,
+        tx: Tx,
+    ) -> Result<(), StoreError> {
         self.store.commit(tx)?;
-        self.head = head;
+        if let Some(head) = head {
+            self.head = head;
+        }
         // Successful commit remains confirmation even when this AFTER-commit
         // read fails. Fence immediately: do not restore the committed checkpoint
         // or issue further actions/outputs through an unhealthy Store instance.

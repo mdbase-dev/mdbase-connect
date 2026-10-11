@@ -38,6 +38,7 @@ use crate::semantics::{SEM, Sem};
 use crate::state::StateView;
 
 pub mod admission;
+pub mod contract_records;
 pub mod frontmatter_admission;
 mod planner;
 mod records;
@@ -140,6 +141,8 @@ pub enum Effect {
         path: String,
         /// Signed whole-file content, verified by the replica before runtime use.
         content: AttachmentContentV1,
+        /// Optional writing-device capture timestamp (milliseconds).
+        mtime: Option<i64>,
     },
     /// Install a complete unindexed oversized Markdown file (`intent.md` §3.10).
     /// Atomically removes a live record with the same ID (an Op15 transition)
@@ -458,6 +461,48 @@ pub fn plan(
 }
 
 pub use request::check_request;
+
+/// Where a type file created from `source` goes in `state` (spec 05), for a
+/// `resource_put` with `must_not_exist` at the returned path. Refuses an
+/// unusable name (`invalid_record`/`invalid_type_definition` with the issue),
+/// a name the catalog already has under any casing (`conflict`/`type_conflict`,
+/// details: the existing path) and an occupied path (`conflict`/`path_taken`,
+/// details: its revision). The write itself still validates the definition.
+pub fn new_type_file(
+    state: &dyn StateView,
+    source: &str,
+) -> Result<crate::types::NewTypeFile, Rejection> {
+    let catalog = state.catalog();
+    let created = crate::types::new_type_file(&catalog, source).map_err(|issue| {
+        if issue.code == "type_conflict" {
+            let mut r = Rejection::new(
+                RejectCode::Conflict,
+                Some("type_conflict"),
+                issue.message.clone(),
+            );
+            r.details = issue.details.as_ref().and_then(|d| d.get("path")).cloned();
+            r
+        } else {
+            let mut r = Rejection::new(
+                RejectCode::InvalidRecord,
+                Some("invalid_type_definition"),
+                issue.message.clone(),
+            );
+            r.issues = vec![*issue];
+            r
+        }
+    })?;
+    if let Some(current) = state.resource(&created.path) {
+        let mut r = Rejection::new(
+            RejectCode::Conflict,
+            Some("path_taken"),
+            format!("a resource already exists at `{}`", created.path),
+        );
+        r.details = Some(Value::string(crate::ids::revision(&current).to_string()));
+        return Err(r);
+    }
+    Ok(created)
+}
 
 /// The digest of a body, as `body_base` carries it.
 pub fn body_digest(body: &str) -> Hash {

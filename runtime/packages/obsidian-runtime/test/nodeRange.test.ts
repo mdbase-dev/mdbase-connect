@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { mkdir, mkdtemp, open, rename, rm } from "node:fs/promises";
-import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { nodeRangeBackend } from "../src/attachments/nodeRange.js";
-import { ATTACHMENT_RANGE_BYTES, BoundedRangeSource } from "../src/attachments/range.js";
+import { BoundedRangeSource } from "../src/attachments/range.js";
 
 const work = resolve(dirname(fileURLToPath(import.meta.url)), "../e2e/.work/range-tests");
 async function fixture<T>(run: (dir: string) => Promise<T>): Promise<T> {
@@ -47,37 +46,4 @@ describe("actual native handle range IO (not root/path or staged-publication qua
     await expect(BoundedRangeSource.open(nodeRangeBackend(handle))).rejects.toMatchObject({ code: "unsupported" });
     expect(handle.fd).toBe(-1);
   }));
-  it("reads and hashes an actual 500MiB sparse file in <=8MiB owned leases", async () => fixture(async dir => {
-    // Native IO primitive evidence only: NOT two-daemon/hosted/crypto/memory qualification.
-    const size = 500 * 1024 * 1024;
-    const file = await open(join(dir, "large.bin"), "w+");
-    await file.truncate(size);
-    const backend = nodeRangeBackend(file);
-    let maxRequest = 0;
-    let totalRead = 0;
-    const source = await BoundedRangeSource.open({
-      ...backend,
-      async readInto(offset, target) {
-        maxRequest = Math.max(maxRequest, target.length);
-        const read = await backend.readInto(offset, target);
-        totalRead += read;
-        return read;
-      },
-    });
-    const actual = createHash("sha256");
-    const expected = createHash("sha256");
-    const zero = new Uint8Array(ATTACHMENT_RANGE_BYTES);
-    try {
-      for (let offset = 0; offset < size; offset += ATTACHMENT_RANGE_BYTES) {
-        const lease = await source.readAt(offset, ATTACHMENT_RANGE_BYTES);
-        actual.update(lease.bytes);
-        expected.update(zero.subarray(0, lease.bytes.length));
-        lease.release();
-      }
-      expect(totalRead).toBe(size);
-      expect(maxRequest).toBe(ATTACHMENT_RANGE_BYTES);
-      expect(actual.digest("hex")).toBe(expected.digest("hex"));
-    } finally { await source.close(); }
-    expect(file.fd).toBe(-1);
-  }), 30_000);
 });

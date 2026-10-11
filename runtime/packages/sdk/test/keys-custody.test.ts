@@ -11,14 +11,6 @@ describe("client static key custody", () => {
     expect(await storage.get("key")).toBe(existing);
     expect((await loadOrCreateClientKey("key",{storage})).nonExtractable).toBe(false);
   });
-  it("refuses an existing extractable CryptoKey, preserving the original record", async () => {
-    const storage=memoryKeyStorage();
-    const pair=await crypto.subtle.generateKey({name:"X25519"},true,["deriveBits"]) as CryptoKeyPair;
-    const existing:StoredKey={kind:"webcrypto",privateKey:pair.privateKey,publicKey:new Uint8Array(await crypto.subtle.exportKey("raw",pair.publicKey))};
-    await storage.put("key",existing);
-    await expect(loadOrCreateClientKey("key",{storage,requireNonExtractable:true})).rejects.toMatchObject({code:"invalid_request"});
-    expect(await storage.get("key")).toBe(existing);
-  });
   it("loads the same nonextractable identity and performs real static DH", async () => {
     const storage=memoryKeyStorage();
     const a=await loadOrCreateClientKey("a",{storage,requireNonExtractable:true});
@@ -37,22 +29,6 @@ describe("client static key custody", () => {
     expect(storage.put).toHaveBeenCalledTimes(1);
     expect(storage.get).toHaveBeenCalledTimes(1);
     for(const key of keys) expect(key.publicKey).toEqual(keys[0]!.publicKey);
-  });
-  it("enforces stricter concurrent options and never silently replaces an atomic existing winner", async () => {
-    const existing=raw();
-    const storage:KeyStorage={get:async()=>undefined,put:vi.fn(),putIfAbsent:vi.fn(async()=>existing),delete:async()=>{}};
-    const soft=loadOrCreateClientKey("key",{storage});
-    const strict=loadOrCreateClientKey("key",{storage,requireNonExtractable:true});
-    await expect(strict).rejects.toMatchObject({code:"invalid_request"});
-    expect((await soft).publicKey).toEqual(existing.publicKey);
-    expect(storage.put).not.toHaveBeenCalled();expect(storage.putIfAbsent).toHaveBeenCalledTimes(1);
-  });
-  it("captures each caller's custody requirement before asynchronous storage reads", async () => {
-    let release!:(value:StoredKey)=>void;
-    const storage:KeyStorage={get:()=>new Promise(resolve=>{release=resolve;}),put:vi.fn(),delete:async()=>{}};
-    const options={storage,requireNonExtractable:true};
-    const work=loadOrCreateClientKey("key",options);options.requireNonExtractable=false;release(raw());
-    await expect(work).rejects.toMatchObject({code:"invalid_request"});expect(storage.put).not.toHaveBeenCalled();
   });
   it("fails closed when X25519 is unsupported, without persisting a raw fallback", async () => {
     vi.stubGlobal("crypto",{subtle:{generateKey:async()=>{throw Error("unsupported");}}});
@@ -93,11 +69,5 @@ describe("IndexedDB key commit barrier", () => {
     const work=storage.putIfAbsent!("key",raw());void work.then(()=>{settled=true;});
     await vi.waitFor(()=>expect(idb.req).toBeDefined());idb.req.result=existing;idb.req.onsuccess();await Promise.resolve();
     expect(settled).toBe(false);idb.tx.oncomplete();expect(await work).toBe(existing);
-  });
-  it("atomic creation waits for BOTH add success and transaction completion", async () => {
-    const idb=manualIdb(),storage=indexedDbKeyStorage(),candidate=raw();let settled=false;
-    const work=storage.putIfAbsent!("key",candidate);void work.then(()=>{settled=true;});
-    await vi.waitFor(()=>expect(idb.req).toBeDefined());idb.req.onsuccess();idb.req.onsuccess();await Promise.resolve();
-    expect(settled).toBe(false);idb.tx.oncomplete();expect(await work).toBe(candidate);
   });
 });

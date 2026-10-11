@@ -468,6 +468,29 @@ mod abi {
         super::runtime::wipe(&mut bytes);
         give(result)
     }
+    /// Bounded resource-only Core planning on the actual resident READ session.
+    /// This produces DATA only, never a mutation or native file-absence witness.
+    ///
+    /// # Safety
+    /// Input is an initialized, same-instance allocation from alloc(len).
+    #[unsafe(no_mangle)]
+    #[cfg(feature = "app-runtime")]
+    pub unsafe extern "C" fn rt_app_resources(session: u64, ptr: *mut u8, len: usize) -> u64 {
+        let mut bytes = unsafe { take(ptr, len) };
+        let result = rt().and_then(Active::app).map_or_else(
+            || {
+                mdbn_wire::cbor::encode(&mdbn_wire::Cbor::Array(vec![
+                    mdbn_wire::Cbor::Uint(1),
+                    mdbn_wire::Cbor::Bool(false),
+                    mdbn_wire::Cbor::Null,
+                ]))
+                .expect("fixed refusal")
+            },
+            |r| r.resources_consuming(session, &mut bytes),
+        );
+        super::runtime::wipe(&mut bytes);
+        give(result)
+    }
     /// Authenticated host-only one-time connector pin, before log binding.
     ///
     /// # Safety

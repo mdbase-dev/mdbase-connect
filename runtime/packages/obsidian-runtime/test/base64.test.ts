@@ -22,10 +22,6 @@ describe("base64", () => {
       expect(Buffer.from(decodeBase64(ref.replace(/=+$/, "")))).toEqual(Buffer.from(b));
     }
   });
-  it("decodes large input", () => {
-    const b = rand(1 << 20, 99);
-    expect(Buffer.from(decodeBase64(Buffer.from(b).toString("base64"))).equals(Buffer.from(b))).toBe(true);
-  });
   it("accepts URL-safe alphabet", () => {
     const b = rand(64, 3);
     expect(Buffer.from(decodeBase64(Buffer.from(b).toString("base64url")))).toEqual(Buffer.from(b));

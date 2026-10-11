@@ -52,6 +52,36 @@ pub struct BasesExecutionResult {
     pub rows: Vec<BasesExecutionRow>,
     /// Whole typed grouping in source requested group direction.
     pub groups: Vec<BasesExecutionGroup>,
+    /// Named whole-match reductions, before source limiting/display windowing.
+    pub summaries: Vec<(String, RuntimeValue)>,
+}
+/// Apply the source query cap only after complete semantic ordering/grouping.
+/// Display windows consume this capped inventory, never an SQL page prefix.
+pub(super) fn apply_view_limit(
+    order: &mut Vec<usize>,
+    groups: &mut Vec<BasesExecutionGroup>,
+    limit: Option<u64>,
+    work: &mut WorkBudget,
+) -> Result<(), EvaluationFailure> {
+    let Some(limit) = limit else {
+        return Ok(());
+    };
+    let steps = order.len() as u64
+        + groups.len() as u64
+        + groups
+            .iter()
+            .map(|group| group.rows.len() as u64)
+            .sum::<u64>();
+    if !work.charge(steps, 0) {
+        return Err(work.failure().expect("view limit metadata"));
+    }
+    let count = limit.min(order.len() as u64) as usize;
+    order.truncate(count);
+    for group in groups.iter_mut() {
+        group.rows.retain(|index| *index < count);
+    }
+    groups.retain(|group| !group.rows.is_empty());
+    Ok(())
 }
 impl<S: Store> Replica<S> {
     /// Execute an immutable selected-source capture against the actual confirmed
@@ -84,7 +114,7 @@ impl<S: Store> Replica<S> {
         let clock =
             CapturedClock::new(input.capture.clock.instant_ms, zone, work).map_err(failure)?;
         let base = discover_base_record(
-            &self.catalog,
+            self.bases_read_catalog(),
             &descriptor.path,
             &input.documents[source],
             &input.capture.clock,
@@ -141,7 +171,7 @@ impl<S: Store> Replica<S> {
             .iter()
             .map(|(_, row)| TypedSortRow { keys: &row.sort })
             .collect::<Vec<_>>();
-        let order =
+        let mut order =
             order_typed_rows(&keys, &directions, policies.ordering, work).map_err(failure)?;
         let mut groups = Vec::new();
         if let Some(direction) = plan.group_direction() {
@@ -174,6 +204,19 @@ impl<S: Store> Replica<S> {
                 });
             }
         }
+        let summaries = plan
+            .summarize(
+                order.iter().map(|index| &projected[*index].1),
+                &mdbn_core::query::QueryEnv {
+                    now_ms: input.capture.clock.instant_ms,
+                    tz: input.capture.clock.tz.clone(),
+                    today: input.capture.clock.local_date.clone(),
+                },
+                work,
+                cancelled,
+            )
+            .map_err(failure)?;
+        apply_view_limit(&mut order, &mut groups, plan.limit(), work).map_err(failure)?;
         let mut rows = Vec::with_capacity(order.len());
         for index in order {
             let (record_index, row) = &mut projected[index];
@@ -209,6 +252,7 @@ impl<S: Store> Replica<S> {
             unavailable_columns,
             rows,
             groups,
+            summaries,
         })
     }
 }

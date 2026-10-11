@@ -163,6 +163,7 @@ fn run(args: &Map) -> Result<Value, Box<Issue>> {
                         id,
                         path: path.into(),
                         content,
+                        mtime: None,
                     })
                 }
             }

@@ -1,7 +1,7 @@
 /** Internal pre-account sign-in ledger. Nonextractable origin AES handle + bounded
  * encrypted operation in ONE strict IDB commit. Not an account KEK, generic KV,
  * OS keychain, XSS boundary or physical durability/collection Saved guarantee. */
-import { acquireAppSignInLease, AppReplicaOwnerError, type AppLockPort, type AppReplicaLease } from "./owner.js";
+import { acquireAppSignInLease, isAppInstallationId, AppReplicaOwnerError, type AppLockPort, type AppReplicaLease } from "./owner.js";
 const STORE = "installation-sign-in", KEY = "original", MAX = 128 * 1024; // bounded original + additive consent receipts (<=1000 IDs each)
 export class AppInstallationStorageError extends Error {
   constructor(readonly reason: "busy" | "unavailable") { super(`app installation storage ${reason}; preserve storage and reopen`); }
@@ -23,8 +23,10 @@ export interface AppInstallationStoreOptions {
   readonly origin: string;
   /** Authenticated first-party build context, never supplied by a redirect. */
   readonly cpOrigin: string;
-  readonly appId: "tasknotes-web" | "tasknotes-mobile";
-  readonly mode: "fresh" | "existing";
+  readonly appId: string;
+  /** open creates only an absent database in its atomic upgrade; an occupied,
+   * partial or corrupt database is restored or refused, never replaced. */
+  readonly mode: "fresh" | "existing" | "open";
   readonly signal: AbortSignal;
   readonly locks: AppLockPort | undefined;
   readonly allowLoopbackHttp?: boolean;
@@ -49,10 +51,10 @@ export class AppInstallationStore {
         const u = new URL(origin), loopback = p.allowLoopbackHttp && u.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
         if (u.origin !== origin || u.username || u.password || (u.protocol !== "https:" && !loopback)) throw fail();
       }
-      if (!["fresh", "existing"].includes(p.mode) || !["tasknotes-web", "tasknotes-mobile"].includes(p.appId) || p.signal.aborted || globalThis.location?.origin !== p.origin || !globalThis.indexedDB || !globalThis.crypto?.subtle || typeof CryptoKey !== "function") throw fail();
+      if (!["fresh", "existing", "open"].includes(p.mode) || !isAppInstallationId(p.appId) || p.signal.aborted || globalThis.location?.origin !== p.origin || !globalThis.indexedDB || !globalThis.crypto?.subtle || typeof CryptoKey !== "function") throw fail();
       const lease = await acquireAppSignInLease(p.locks, p, p.signal);
       out = new AppInstallationStore(p, lease); out.check();
-      if (p.mode === "fresh") {
+      if (p.mode !== "existing") {
         // Ownership precedes randomness/crypto; commit initial tuple, secret and
         // handle atomically in the upgrade transaction, never an empty fresh DB.
         plain = initial(); out.check(); out.bound(plain);
@@ -99,7 +101,7 @@ export class AppInstallationStore {
       this.options.signal.addEventListener("abort", stop, {once: true}); req.onblocked = stop;
       req.onupgradeneeded = () => { try { this.check(); if (abandoned || !fresh || req.result.objectStoreNames.length) throw fail(); req.result.createObjectStore(STORE).add(fresh, KEY); created = true; } catch { req.transaction?.abort(); } };
       req.onerror = () => { finish(); reject(fail()); };
-      req.onsuccess = () => { finish(); try { this.check(); if (abandoned || (fresh !== null && !created) || req.result.objectStoreNames.length !== 1 || !req.result.objectStoreNames.contains(STORE)) throw fail(); resolve(req.result); } catch { req.result.close(); reject(fail()); } };
+      req.onsuccess = () => { finish(); try { this.check(); if (abandoned || (this.options.mode === "fresh" && !created) || req.result.objectStoreNames.length !== 1 || !req.result.objectStoreNames.contains(STORE)) throw fail(); resolve(req.result); } catch { req.result.close(); reject(fail()); } };
     });
   }
   private readRecord(): Promise<Stored> {

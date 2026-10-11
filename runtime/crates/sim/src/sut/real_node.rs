@@ -900,9 +900,7 @@ mod tests {
         f.register_secrets(&w);
         {
             let mut tap = w.shared.tap.borrow_mut();
-            for m in ["title", "status", "tags", "Body ", "notes/"] {
-                tap.marker(&format!("field or text {m:?}"), m.as_bytes());
-            }
+            tap.content_fields(w.seed);
             for p in ["real:request", "real:response"] {
                 tap.require(p);
             }

@@ -1,6 +1,8 @@
 // Local-only over-the-wire tests; no Cloudflare account or remote resources.
 // Build the Worker first; LOGSVC_BENCH must be a freshly built/pulled binary.
 import assert from 'node:assert/strict';
+import { corsCases } from './cors-cases.mjs';
+import { createProxyFetch } from './proxy-fetch.mjs';
 import { ingressCases } from './ingress-cases.mjs';
 import { sec061Cases } from './sec061-cases.mjs';
 import { directGetCases } from './direct-get-cases.mjs';
@@ -16,7 +18,7 @@ import WebSocket from 'ws';
 import { createHash, createPrivateKey, createPublicKey, sign } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdirSync, mkdtempSync, openSync, closeSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, openSync, closeSync, writeFileSync, readFileSync, readdirSync, appendFileSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -94,10 +96,37 @@ writeFileSync(config, JSON.stringify({
   migrations: [{ tag: 'v1', new_sqlite_classes: ['LogCollection'] }],
   r2_buckets: [{ binding: 'OBJECTS', bucket_name: 'logsvc-local-test' }],
   analytics_engine_datasets: [{ binding: 'METRICS', dataset: 'logsvc_local_test' }],
-  vars: { PUBLIC_BASE: base, INSECURE_TEST_KEYS: '1', DEBUG_HOOKS: '1', TESTKIT_CP: 'conformance' },
+  vars: { PUBLIC_BASE: base, INSECURE_TEST_KEYS: '1', DEBUG_HOOKS: '1', TESTKIT_CP: 'conformance',
+    LOGSVC_CORS_ORIGINS: 'http://127.0.0.1:48218,https://lab.tasknotes-app.pages.dev' },
 }));
 let server;
 let stateDirectory = resolve(dir, 'state');
+// Local owned process-group metadata only, never argv/env/token/body dumps.
+// Preserve evidence of PID replacement/exit or cgroup OOM instead of declaring
+// every ProxyWorker disconnect a harmless retry. Unsupported hosts are explicit.
+function processEvidence(phase) {
+  const observation={event:'runtime_processes',phase,available:false,processes:[],oom:null};
+  try {
+    for(const name of readdirSync('/proc')) {
+      if(!/^[0-9]+$/.test(name))continue;
+      try {
+        const stat=readFileSync(`/proc/${name}/stat`,'utf8');const end=stat.lastIndexOf(')');
+        const fields=stat.slice(end+2).trim().split(/\s+/);
+        if(Number(fields[2])!==server?.pid)continue;
+        const comm=stat.slice(stat.indexOf('(')+1,end);
+        observation.processes.push({pid:Number(name),kind:comm==='workerd'?'workerd':'harness',
+          state:fields[0],startTicks:fields[19],rssPages:Number(fields[21])});
+      }catch{/* An exiting owned child may disappear during observation. */}
+    }
+    observation.available=true;
+    try {observation.oom=Object.fromEntries(readFileSync('/sys/fs/cgroup/memory.events','utf8').trim().split('\n')
+      .filter(line=>/^oom(?:_kill|_group_kill)? /.test(line)).map(line=>{const [k,v]=line.split(/\s+/);return[k,Number(v)];}));}catch{/* cgroup unavailable. */}
+  }catch{/* Non-Linux: no process observation claim. */}
+  observation.processes.sort((a,b)=>a.pid-b.pid);
+  const metadata=JSON.stringify(observation);
+  appendFileSync(resolve(dir,'wrangler.log'),metadata+'\n');
+  console.log(metadata); // Retain sanitized successful-run evidence too.
+}
 async function start() {
   server = spawn(process.execPath, [resolve('node_modules/wrangler/bin/wrangler.js'), 'dev',
     '--config', config, '--local', '--ip', '127.0.0.1', '--port', String(port),
@@ -115,11 +144,21 @@ async function start() {
 async function stop() {
   if (!server) return;
   const child = server; server = undefined;
-  if (child.exitCode !== null) return;
-  const exited = once(child, 'exit');
-  process.kill(-child.pid, 'SIGTERM');
+  const exited = child.exitCode === null ? once(child, 'exit') : Promise.resolve();
+  if(child.exitCode===null)process.kill(-child.pid, 'SIGTERM');
   const timer = setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch {} }, 5000);
-  try { await exited; } finally { clearTimeout(timer); }
+  try { await exited; } finally {
+    clearTimeout(timer);
+    // Parent exit alone is not UserWorker/ProxyWorker process-group settlement.
+    // This group was created by this harness's detached spawn, never a shared PID.
+    try { process.kill(-child.pid, 'SIGKILL'); } catch (error) { if(error.code!=='ESRCH')throw error; }
+    let settled=false;
+    for(let i=0;i<100;i++){
+      try {process.kill(-child.pid,0);}catch(error){if(error.code==='ESRCH'){settled=true;break;}throw error;}
+      await delay(50);
+    }
+    if(!settled)throw new Error('owned wrangler process group did not settle');
+  }
 }
 async function rpc(headers, body) {
   const response = await fetch(`${base}/v1/rpc`, { method: 'POST', headers, body });
@@ -130,6 +169,7 @@ let passed = false;
 try {
   await start();
   assert.equal((await fetch(`${base}/ready`)).status, 200, 'SQL/R2/metrics readiness');
+  processEvidence('before-benchmark');
   if (process.env.LOGSVC_BENCH) {
     const bench = spawn(resolve(process.env.LOGSVC_BENCH), ['--url', base, 'conformance', '--hooks'], { stdio: 'inherit' });
     const [status] = await once(bench, 'exit');
@@ -142,6 +182,14 @@ try {
     }
     assert.ok(!text.includes('logsvc_metrics_write_failed'), 'local Analytics Engine writes succeed');
     console.log('PASS: repair log privacy and Analytics Engine binding');
+    processEvidence('after-benchmark');
+    // Benchmark WebSocket/load and HTTP CORS probes must not share a warmed
+    // dev ProxyWorker/UserWorker lifetime. Preserve the SAME SQLite/R2 directory
+    // and restore mode, but give CORS fresh native/proxy processes, no retries.
+    await stop();
+    await start();
+    processEvidence('fresh-cors-runtime');
+    assert.equal((await fetch(`${base}/ready`)).status,200,'post-benchmark fresh SQL/R2/metrics readiness');
   }
   const transport = key('conformance/policy');
   const issuer = key('conformance/issuer');
@@ -150,6 +198,9 @@ try {
   const token = `${claims.toString('hex')}.${sign(null, h('mdbase/v1/ls-token', claims), issuer).toString('hex')}`;
   const c = Buffer.alloc(16, 0x7e);
   const cid = '7e7e7e7e-7e7e-7e7e-7e7e-7e7e7e7e7e7e';
+  await corsCases({ base, token, transport, encode, decode, map, sha, h,
+    fetch: createProxyFetch({base,logPath:resolve(dir,'wrangler.log')}) });
+  if (process.env.LOGSVC_CORS_ONLY !== '1') {
   await collectionDeletionCases({ base, token, transport, encode, decode, map, sha, h,
     restart: async () => { await stop(); await start(); } });
   await destinationDenialCases({ base, token, transport, encode, decode, map, sha, h,
@@ -235,8 +286,10 @@ try {
   console.log('PASS: HTTPS possession, single use, and replay rejection after restart');
   await sec061Cases({base,token,transport,sha,h});
   await directGetCases({base,encode,map,sha});
+  }
   passed = true;
 } finally {
+  processEvidence(passed?'complete':'failed');
   await stop(); closeSync(log);
   if (passed) rmSync(dir, { recursive: true });
   else console.error(`Runtime diagnostics retained in ${dir}`);

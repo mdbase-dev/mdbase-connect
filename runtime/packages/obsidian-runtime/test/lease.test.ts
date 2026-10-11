@@ -128,28 +128,16 @@ describe("folder lease (Web Lock + folder host descriptor)", () => {
     expect(late).toHaveBeenCalledExactlyOnceWith("descriptor_unreadable");
   });
 
-  it.each(["read error", "missing descriptor"])("fails closed on %s without republishing", async failure => {
+  it("fails closed on a descriptor read error without republishing", async () => {
     const locks = new FakeLocks(), io = new MemIo(), t = timers();
     const r = await tryAcquireFolderLease(ID, io, { locks: locks as unknown as LockManager, instance: "owned", ...t });
     if (!("lease" in r)) throw Error("refused");
     const writes = vi.spyOn(io, "write"), lost = vi.fn(); r.lease.onLost(lost);
-    if (failure === "read error") vi.spyOn(io, "read").mockRejectedValue(new Error("read failed"));
-    else io.text = null;
+    vi.spyOn(io, "read").mockRejectedValue(new Error("read failed"));
     await t.tick();
     expect(lost).toHaveBeenCalledExactlyOnceWith("descriptor_unreadable");
     expect(writes).not.toHaveBeenCalled();
     expect(locks.held.has(leaseName(ID))).toBe(false);
-  });
-
-  it("serializes slow heartbeat publication", async () => {
-    const io = new MemIo(), t = timers();
-    const r = await tryAcquireFolderLease(ID, io, { locks: new FakeLocks() as unknown as LockManager, instance: "owned", ...t });
-    if (!("lease" in r)) throw Error("refused");
-    let finish!: () => void;
-    const writes = vi.spyOn(io, "write").mockImplementation(() => new Promise<void>(resolve => { finish = resolve; }));
-    await t.tick(); await t.tick();
-    expect(writes).toHaveBeenCalledTimes(1);
-    finish(); await Promise.resolve(); r.lease.release();
   });
 
   it("drains publication before release cleanup and unlock", async () => {

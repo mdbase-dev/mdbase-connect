@@ -67,6 +67,9 @@ pub struct Entry {
     pub id: String,
     /// Display name.
     pub name: String,
+    /// What the collection is for, in the user's words (this device only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     /// Absolute folder path.
     pub root: PathBuf,
     /// This device's replica ID for the collection.
@@ -269,6 +272,7 @@ mod tests {
             replica_id: format!("r-{id}"),
             mode: SyncMode::Local,
             origin: Origin::Created,
+            description: None,
             added_at_ms: 1,
             paused: false,
             ever_e2e: false,

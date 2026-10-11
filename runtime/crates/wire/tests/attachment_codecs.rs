@@ -154,6 +154,7 @@ fn standalone_critical_carriers_roundtrip_while_legacy_unions_require_upgrade() 
     let c = content();
     let id = B16([5; 16]);
     let op = AttachmentOpV1::FileAttach(FileAttach {
+        mtime: None,
         id,
         path: "assets/a.bin".into(),
         content: c.clone(),
@@ -170,6 +171,7 @@ fn standalone_critical_carriers_roundtrip_while_legacy_unions_require_upgrade() 
             .is_unknown()
     );
     let effect = AttachmentEffectV1::PutAttachmentFile(PutAttachmentFile {
+        mtime: None,
         id,
         path: "assets/a.bin".into(),
         content: c.clone(),
@@ -237,8 +239,128 @@ fn standalone_critical_carriers_roundtrip_while_legacy_unions_require_upgrade() 
     );
 }
 #[test]
+fn optional_capture_mtime_preserves_old_shapes_and_refuses_malformed_snapshot_metadata() {
+    let mut op = FileAttach {
+        id: B16([5; 16]),
+        path: "assets/a.bin".into(),
+        content: content(),
+        if_revision: None,
+        base: None,
+        mtime: None,
+    };
+    let old = op.to_bytes().unwrap();
+    let Cbor::Map(fields) = op.to_cbor() else {
+        panic!()
+    };
+    assert!(fields.iter().all(|(key, _)| key != &Cbor::Uint(6)));
+    assert_eq!(FileAttach::from_bytes(&old).unwrap().mtime, None);
+    op.mtime = Some(-123);
+    assert_eq!(FileAttach::from_bytes(&op.to_bytes().unwrap()).unwrap(), op);
+    op.mtime = None;
+    assert_eq!(op.to_bytes().unwrap(), old);
+    let mut effect = PutAttachmentFile {
+        id: op.id,
+        path: op.path.clone(),
+        content: op.content.clone(),
+        mtime: None,
+    };
+    let old_effect = effect.to_bytes().unwrap();
+    effect.mtime = Some(i64::MAX);
+    assert_eq!(
+        PutAttachmentFile::from_bytes(&effect.to_bytes().unwrap()).unwrap(),
+        effect
+    );
+    effect.mtime = None;
+    assert_eq!(effect.to_bytes().unwrap(), old_effect);
+    let mut row = AttachmentFileRowV1 {
+        id: op.id,
+        path: op.path,
+        content: op.content,
+        media: mdbn_wire::intent::MediaClass::Other,
+        mtime: None,
+    };
+    let old_row = row.to_bytes().unwrap();
+    let Cbor::Array(old_fields) = row.to_cbor() else {
+        panic!()
+    };
+    assert_eq!(old_fields.len(), 4);
+    assert_eq!(
+        AttachmentFileRowV1::from_bytes(&old_row).unwrap().mtime,
+        None
+    );
+    for mtime in [i64::MIN, 0, i64::MAX] {
+        row.mtime = Some(mtime);
+        assert_eq!(
+            AttachmentFileRowV1::from_bytes(&row.to_bytes().unwrap()).unwrap(),
+            row
+        );
+        assert_ne!(row.to_bytes().unwrap(), old_row);
+        let chunk = mdbn_wire::attachment_runtime_v1::ChunkPayload {
+            section: mdbn_wire::attachment_runtime_v1::SectionKind::AttachmentFiles,
+            bucket: 0,
+            rows: vec![row.to_cbor()],
+        };
+        assert_eq!(
+            mdbn_wire::attachment_runtime_v1::ChunkPayload::from_bytes(&chunk.to_bytes().unwrap())
+                .unwrap(),
+            chunk
+        );
+        let Cbor::Map(mut fields) = chunk.to_cbor() else {
+            panic!()
+        };
+        assert!(matches!(
+            mdbn_wire::schema::check_fmt(&fields, "old fmt1-only reader", 1),
+            Err(mdbn_wire::schema::SchemaError::UnknownFormat { fmt: 2, .. })
+        ));
+        fields
+            .iter_mut()
+            .find(|(key, _)| *key == Cbor::Uint(0))
+            .unwrap()
+            .1 = Cbor::Uint(1);
+        assert!(
+            mdbn_wire::attachment_runtime_v1::ChunkPayload::from_cbor(&Cbor::Map(fields)).is_err(),
+            "never widen fmt1 for timestamped tuples"
+        );
+    }
+    for bad in [Cbor::Null, Cbor::Text("123".into()), Cbor::Uint(u64::MAX)] {
+        let mut fields = old_fields.clone();
+        fields.push(bad);
+        assert!(AttachmentFileRowV1::from_cbor(&Cbor::Array(fields)).is_err());
+    }
+    let mut fields = old_fields.clone();
+    fields.extend([Cbor::Uint(1), Cbor::Uint(2)]);
+    assert!(AttachmentFileRowV1::from_cbor(&Cbor::Array(fields)).is_err());
+    row.mtime = None;
+    assert_eq!(row.to_bytes().unwrap(), old_row);
+    let chunk = mdbn_wire::attachment_runtime_v1::ChunkPayload {
+        section: mdbn_wire::attachment_runtime_v1::SectionKind::AttachmentFiles,
+        bucket: 0,
+        rows: vec![row.to_cbor()],
+    };
+    let Cbor::Map(mut fields) = chunk.to_cbor() else {
+        panic!()
+    };
+    mdbn_wire::schema::check_fmt(&fields, "old fmt1-only reader", 1).unwrap();
+    assert_eq!(
+        mdbn_wire::attachment_runtime_v1::ChunkPayload::from_cbor(&Cbor::Map(fields.clone()))
+            .unwrap(),
+        chunk
+    );
+    fields
+        .iter_mut()
+        .find(|(key, _)| *key == Cbor::Uint(0))
+        .unwrap()
+        .1 = Cbor::Uint(2);
+    assert!(
+        mdbn_wire::attachment_runtime_v1::ChunkPayload::from_cbor(&Cbor::Map(fields)).is_err(),
+        "fmt2 is only for present metadata"
+    );
+}
+
+#[test]
 fn snapshot_rows_have_exact_shapes_and_only_file_tombstones() {
     let row = AttachmentFileRowV1 {
+        mtime: None,
         id: B16([5; 16]),
         path: "assets/a.bin".into(),
         content: content(),

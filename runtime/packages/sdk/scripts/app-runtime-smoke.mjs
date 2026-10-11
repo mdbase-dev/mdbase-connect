@@ -13,7 +13,7 @@ import { pathToFileURL } from "node:url";
 import { build } from "../node_modules/esbuild/lib/main.js";
 const file = process.argv[2]; if (!file) throw new Error("explicit app-runtime.wasm required");
 const out = new URL("../../../target/app-sdk-smoke/", import.meta.url); mkdirSync(out, { recursive: true });
-await build({ stdin: { contents: 'export * from "./src/app-host/wasm-runtime.ts"; export * from "./src/app-host/cp-authority.ts"; export { uuidToBytes } from "./src/codec.ts"; export * from "./src/cbor.ts"; export { ed25519 } from "@noble/curves/ed25519.js"; export { sha256 } from "@noble/hashes/sha2.js"; export * from "../obsidian-runtime/src/index/appIndexHost.ts";', resolveDir: new URL("../", import.meta.url).pathname }, bundle: true, platform: "node", format: "esm", outfile: new URL("helpers.mjs", out).pathname });
+await build({ stdin: { contents: 'export * from "./src/app-host/wasm-runtime.ts"; export * from "./src/app-host/cp-authority.ts"; export { uuidToBytes } from "./src/codec.ts"; export * from "./src/cbor.ts"; export { ed25519 } from "@noble/curves/ed25519.js"; export { sha256 } from "@noble/hashes/sha2.js"; export * from "./src/app-storage/app-binary-index.ts";', resolveDir: new URL("../", import.meta.url).pathname }, bundle: true, platform: "node", format: "esm", outfile: new URL("helpers.mjs", out).pathname });
 const { AppWasmRuntime, AppCpLogAuthority, AppBinaryIndexHost, appSqlHost, encode, decode, uuidToBytes, ed25519, sha256 } = await import(new URL("helpers.mjs", out));
 const bytes = readFileSync(file), db = new DatabaseSync(":memory:");
 const v = db.prepare("SELECT sqlite_version() AS v").get().v.split(".").map(Number);

@@ -16,9 +16,14 @@ import type { CborValue } from "../cbor.js";
 import { hashFromBytes, list, uuid as uuidCodec } from "../codec.js";
 import { ERROR_CODES, ErrorCode, isMdbaseError, mdbaseError, MdbaseError } from "../errors.js";
 import { Connector, FramePort, portPair } from "../transport/port.js";
-import { toPlain, uuidv7 } from "../values.js";
+import { toPlain, toValue, uuidv7, type PlainValue } from "../values.js";
 import * as w from "../wire.js";
 import { accountKeyStatus, type AccountKeyStatus } from "../private.js";
+import { contractRecordWire, contractWritePlan } from "../contract-records.js";
+import { contractQueryResult } from "../contract-query.js";
+import {
+  contractDigest, contractFields, implementationDigest, implementationFor, mapWrite, type MemoryContract,
+} from "./memory-contracts.js";
 
 type M = Map<number, CborValue>;
 
@@ -41,11 +46,17 @@ export interface MemoryReplicaOptions {
   role?: w.Role;
   capabilities?: string[];
   grant?: w.Uuid;
+  /** The grant's file folder scope (absent: the whole file namespace). */
+  fileFolders?: string[];
   /** Answer hello with this problem instead (auth tests). */
   refuse?: w.Problem;
   runtimeVersion?: string;
   /** Core's temporal hint for a top-level field under a query's exact type list (default: `none`). */
   typing?: (types: string[], path: string) => w.TemporalHint;
+  /** Serve contract-scoped records through these declared implementations (a
+   * subset of Core's mapping; no schema validation). Absent: contract methods
+   * are unknown, as on an older replica. */
+  contracts?: MemoryContract[];
 }
 
 interface Sub {
@@ -89,6 +100,27 @@ function renderDocument(r: MemoryRecord): string {
   return lines.length ? `---\n${lines.join("\n")}\n---\n${r.body}` : r.body;
 }
 
+/** Synthetic frontmatter subset shared by document creates and replacements.
+ * Not Core's YAML/type/contract parser. */
+function parseDocument(doc: string): { frontmatter: w.FmMap; body: string } {
+  const mm = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(doc);
+  const frontmatter = new Map<string, CborValue>();
+  for (const line of (mm?.[1] ?? "").split("\n")) {
+    const i = line.indexOf(":");
+    if (i > 0) {
+      const raw = line.slice(i + 1).trim();
+      let v: CborValue = raw;
+      try {
+        v = JSON.parse(raw) as CborValue;
+      } catch {
+        // keep as text
+      }
+      frontmatter.set(line.slice(0, i).trim(), v);
+    }
+  }
+  return { frontmatter, body: mm ? mm[2]! : doc };
+}
+
 function revision(r: MemoryRecord): string {
   return hashFromBytes(sha256(new TextEncoder().encode(renderDocument(r))));
 }
@@ -100,6 +132,14 @@ function mediaOf(path: string): w.MediaClass {
   if (["mp4", "webm", "mov", "mkv"].includes(ext)) return "video";
   if (ext === "pdf") return "pdf";
   return "other";
+}
+
+/** A few of Core's `paths::media_type` entries, enough for SDK tests. */
+const MEDIA_TYPES: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", pdf: "application/pdf", txt: "text/plain" };
+function mediaTypeOf(path: string): string | undefined {
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  const dot = name.lastIndexOf(".");
+  return dot < 0 ? undefined : MEDIA_TYPES[name.slice(dot + 1).toLowerCase()];
 }
 
 function applyScalarEdits(base: string, edits: w.BodyEdit[]): string {
@@ -115,7 +155,7 @@ export class MemoryReplica {
   readonly collection: w.Uuid;
   private records = new Map<w.Uuid, MemoryRecord>();
   private files = new Map<w.Uuid, MemFile>();
-  private uploads = new Map<w.Uuid, { params: w.OpenUploadParams; chunks: Map<number, Uint8Array> }>();
+  private uploads = new Map<w.Uuid, { params: w.OpenUploadParams; fileId: w.Uuid; chunks: Map<number, Uint8Array> }>();
   private receipts = new Map<w.Uuid, w.Receipt>();
   private pendingQueue: w.Uuid[] = [];
   private pendingRecords = new Map<w.Uuid, w.Uuid[]>();
@@ -236,7 +276,8 @@ export class MemoryReplica {
     if (f.kind !== "request" || f.method !== "hello") throw new Error("expected hello");
     if (this.opts.refuse) return w.clientFrame.enc({ kind: "response", id: f.id, problem: this.opts.refuse });
     const p = w.helloParams.dec(f.params);
-    if (!p.versions.some((v) => v.major === 1)) {
+    const minor = Math.max(-1, ...p.versions.filter((v) => v.major === 1 && v.minor <= 2).map((v) => v.minor));
+    if (minor < 0) {
       return w.clientFrame.enc({
         kind: "response",
         id: f.id,
@@ -249,14 +290,14 @@ export class MemoryReplica {
         "records.create",
         "records.edit",
         "records.delete",
-        "files.write",
         "definitions.manage",
       ],
       role: this.opts.role ?? "owner",
     };
     if (this.opts.grant) grant.grant = this.opts.grant;
+    if (this.opts.fileFolders) grant.fileFolders = [...this.opts.fileFolders];
     const result: w.HelloResult = {
-      version: { major: 1, minor: 0 },
+      version: { major: 1, minor },
       runtimeVersion: this.opts.runtimeVersion ?? "memory-0",
       sem: { major: 1, minor: 0 },
       collection: this.collection,
@@ -310,6 +351,61 @@ export class MemoryReplica {
         : problem("invalid_request", e instanceof Error ? e.message : String(e));
       this.send(c, { kind: "response", id: f.id, problem: p });
     }
+  }
+
+  private contractMethod(method: string, m: M, contracts: MemoryContract[]): CborValue {
+    if (method === "query_contract_v1") {
+      const sel = { id: m.get(1) as string, version: m.get(2) as string };
+      const impls = contracts.filter((c) => c.id === sel.id && c.version === sel.version);
+      if (!impls.length) throw mdbaseError("not_found", "no such contract", "data_contract_not_found");
+      const where = m.get(5) as string | undefined;
+      if (where && !this.opts.where) throw mdbaseError("invalid_request", "MemoryReplica: pass a `where` evaluator to use where");
+      const rows = [...this.records.values()]
+        .sort((a, b) => (a.path < b.path ? -1 : 1))
+        .map((r) => ({
+          r,
+          implementations: impls
+            .filter((c) => r.types.includes(c.type))
+            .map((c) => ({ typeName: c.type, fields: contractFields(c, r), issues: [] }))
+            .filter((x) => !where || this.opts.where!(where, { ...r, frontmatter: x.fields })),
+        }))
+        .filter((x) => x.implementations.length);
+      const start = Number(m.get(4) ?? 0);
+      const limit = (m.get(3) as number | undefined) ?? 128;
+      const slice = rows.slice(start, start + limit);
+      const page: w.QueryResult = { records: slice.map((x) => this.view(x.r)), complete: true, asOf: this.viewVersion };
+      if (start + limit < rows.length) page.cursor = String(start + limit);
+      return contractQueryResult.enc({
+        version: 1, page, contractDigest: contractDigest(impls[0]!),
+        records: slice.map((x) => ({ id: x.r.id, implementations: x.implementations })),
+      });
+    }
+    if (method === "get_contract_v1") {
+      const r = this.find(m.get(1)!);
+      const c = implementationFor(contracts, { id: m.get(2) as string, version: m.get(3) as string, type: m.get(4) as string | undefined }, r);
+      return contractRecordWire.enc({
+        version: 1, id: r.id, path: r.path, revision: revision(r), type: c.type, fields: contractFields(c, r),
+        contractDigest: contractDigest(c), implementationDigest: implementationDigest(c),
+      });
+    }
+    const target = m.get(4);
+    const r = target === undefined ? undefined : this.find(target);
+    const sel = { id: m.get(1) as string, version: m.get(2) as string, type: m.get(3) as string | undefined };
+    // Promotion: an untyped record takes the implementing type through `type`.
+    const promoting = m.get(7) === true && r !== undefined && r.types.length === 0;
+    if (m.get(7) === true && r?.types.length && !contracts.some((c) => c.id === sel.id && c.version === sel.version && r.types.includes(c.type))) {
+      throw mdbaseError("invalid_request", "only a record without types can be promoted", "data_contract_promote_typed");
+    }
+    const c = implementationFor(contracts, sel, promoting ? undefined : r);
+    const mapped = mapWrite(c, r, (m.get(5) ?? new Map()) as Map<string, CborValue>, (m.get(6) ?? []) as string[]);
+    if (promoting) {
+      mapped.patch.set("type", c.type);
+      mapped.base.push({ key: "type" });
+    }
+    return contractWritePlan.enc({
+      version: 1, type: c.type, ...mapped, contractDigest: contractDigest(c), implementationDigest: implementationDigest(c),
+      ...(r ? { id: r.id, path: r.path, revision: revision(r) } : {}),
+    });
   }
 
   private find(ref: CborValue): MemoryRecord {
@@ -391,12 +487,25 @@ export class MemoryReplica {
         }
         return w.describeResult.enc({
           specVersion: "0.3.0-rc.5",
-          types: [...types].sort().map((name) => ({ name, path: `_types/${name}.md`, implements: [] })),
+          types: [...types].sort().map((name) => this.typeSummary(name, m.get(0) === true)),
           settings: new Map(),
           inclusion: { include: ["image", "audio", "video", "pdf", "other"] },
           issues: [],
           contracts: [],
         });
+      }
+      case "new_type_file": {
+        // Synthetic subset of Core's derivation: frontmatter name, default folder.
+        const { frontmatter } = parseDocument(m.get(0) as string);
+        const name = frontmatter.get("name");
+        if (frontmatter.get("kind") !== "mdbase.type" || typeof name !== "string" || name === "" || name.includes("/")) {
+          throw mdbaseError("invalid_record", "the type needs a usable name", "invalid_type_definition");
+        }
+        const existing = [...this.resources.keys()].find((p) => p.toLowerCase() === `_types/${name.toLowerCase()}.md`);
+        if (existing !== undefined) {
+          throw mdbaseError("conflict", "the type exists", { reason: "type_conflict", details: existing });
+        }
+        return w.newTypeFile.enc({ name, path: `_types/${name}.md` });
       }
       case "get_resource": {
         const path = m.get(0) as string;
@@ -426,7 +535,8 @@ export class MemoryReplica {
       }
       case "list_pending": {
         const pending = this.pendingQueue
-          .filter((mu) => c.mutations.has(mu))
+          // Owner-scoped like the replica: one grant per MemoryReplica, so every
+          // session (a reload included) sees them.
           .map((mu) => ({ receipt: this.receipts.get(mu)!, captured: 0, ops: this.pendingOps.get(mu) ?? [] }))
           .filter((x) => x.ops.length);
         return w.listPendingResult.enc({ pending });
@@ -578,13 +688,14 @@ export class MemoryReplica {
         return w.fileView.enc(this.fileView(this.findFile(m.get(0)!)));
       case "open_upload": {
         const op = w.openUploadParams.dec(p);
-        const u = this.uploads.get(op.transfer) ?? { params: op, chunks: new Map() };
+        const u = this.uploads.get(op.transfer) ?? { params: op, fileId: op.fileId ?? uuidv7(), chunks: new Map() };
         this.uploads.set(op.transfer, u);
         return w.openUploadResult.enc({
           transfer: op.transfer,
           chunkSize: 1024 * 1024,
           received: [...u.chunks.keys()],
           expiresAt: Date.now() + 86_400_000,
+          fileId: u.fileId,
         });
       }
       case "upload_chunk": {
@@ -624,6 +735,11 @@ export class MemoryReplica {
         return null;
       case "fence_report":
         return null;
+      case "get_contract_v1":
+      case "map_contract_write_v1":
+      case "query_contract_v1":
+        if (this.opts.contracts) return this.contractMethod(method, m, this.opts.contracts);
+        throw mdbaseError("invalid_request", `MemoryReplica does not implement ${method}`, "unknown_method");
       default:
         throw mdbaseError("invalid_request", `MemoryReplica does not implement ${method}`, "unknown_method");
     }
@@ -663,6 +779,7 @@ export class MemoryReplica {
       size: f.bytes.length,
       digest: hashFromBytes(sha256(f.bytes)),
       media: mediaOf(f.path),
+      ...(mediaTypeOf(f.path) ? { mediaType: mediaTypeOf(f.path)! } : {}),
       state: f.pending ? "pending_upload" : "materialized",
       confirmedSeq: f.confirmedSeq,
     };
@@ -686,13 +803,13 @@ export class MemoryReplica {
     const mutation = u.params.mutationId ?? uuidv7();
     const existing = this.receipts.get(mutation);
     if (existing) return existing;
-    const id = u.params.fileId ?? uuidv7();
+    const id = u.fileId;
     const prev = this.files.get(id);
     if (u.params.ifRevision && prev && hashFromBytes(sha256(prev.bytes)) !== u.params.ifRevision) {
       throw mdbaseError("conflict", "file changed", "revision");
     }
     this.files.set(id, { id, path: u.params.path, bytes, confirmedSeq: prev?.confirmedSeq ?? 0, pending: true });
-    this.touch(id, u.params.path, "put");
+    this.touch(id, u.params.path, "put", "file");
     c.mutations.add(mutation);
     const r: w.Receipt = { mutation, state: "pending" };
     this.receipts.set(mutation, r);
@@ -711,6 +828,26 @@ export class MemoryReplica {
   /** Seed a resource (a type file, mdbase.yaml). */
   seedResource(path: string, text: string): void {
     this.resources.set(path, { text, pending: false });
+  }
+
+  /** Synthetic type summary: the parsed subset of the type file, never Core's catalog. */
+  private typeSummary(name: string, definitions: boolean): w.TypeSummary {
+    const path = `_types/${name}.md`;
+    const summary: w.TypeSummary = { name, path, implements: [] };
+    const source = this.resources.get(path);
+    if (source === undefined) return definitions ? { ...summary, definition: new Map(), schema: null } : summary;
+    const { frontmatter } = parseDocument(source.text);
+    const version = frontmatter.get("version");
+    if (typeof version === "number" && Number.isInteger(version)) summary.version = version;
+    summary.revision = this.resourceView(path, source, false).revision;
+    if (definitions) {
+      // parseDocument leaves JSON objects plain; normalise them to data maps.
+      const definition = toValue(frontmatter as Map<string, PlainValue>) as Map<string, CborValue>;
+      const schema = definition.get("schema");
+      summary.definition = definition;
+      summary.schema = schema instanceof Map ? ((schema as Map<string, CborValue>).get("value") ?? null) : null;
+    }
+    return summary;
   }
 
   private resourceView(path: string, r: { text: string; pending: boolean }, text: boolean): w.ResourceView {
@@ -848,8 +985,9 @@ export class MemoryReplica {
             id: op.id,
             path,
             types: op.type ? [op.type] : [],
-            frontmatter: new Map(op.frontmatter ?? []),
-            body: op.body ?? "",
+            ...(op.document === undefined
+              ? { frontmatter: new Map(op.frontmatter ?? []), body: op.body ?? "" }
+              : parseDocument(op.document)),
             confirmedSeq: 0,
             pending: true,
           });
@@ -867,6 +1005,9 @@ export class MemoryReplica {
           }
           const r = { ...r0, frontmatter: new Map(r0.frontmatter), pending: true };
           for (const [k, v] of op.patch ?? []) r.frontmatter.set(k, v);
+          // Explicit membership, as Core reads the `type` key.
+          const declared = r.frontmatter.get("type");
+          if (typeof declared === "string" && !r.types.includes(declared)) r.types = [declared];
           for (const k of op.unset ?? []) r.frontmatter.delete(k);
           for (const [k, items] of op.add ?? []) {
             const old = r.frontmatter.get(k);
@@ -896,28 +1037,11 @@ export class MemoryReplica {
             staged.set(op.id, null);
             break;
           }
-          const doc = op.new.doc;
-          const mm = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(doc);
-          const fm = new Map<string, CborValue>();
-          for (const line of (mm?.[1] ?? "").split("\n")) {
-            const i = line.indexOf(":");
-            if (i > 0) {
-              const raw = line.slice(i + 1).trim();
-              let v: CborValue = raw;
-              try {
-                v = JSON.parse(raw) as CborValue;
-              } catch {
-                // keep as text
-              }
-              fm.set(line.slice(0, i).trim(), v);
-            }
-          }
           staged.set(op.id, {
             id: op.id,
             path: op.new.path || r0?.path || `${op.id}.md`,
             types: r0?.types ?? [],
-            frontmatter: fm,
-            body: mm ? mm[2]! : doc,
+            ...parseDocument(op.new.doc),
             confirmedSeq: r0?.confirmedSeq ?? 0,
             pending: true,
           });
@@ -944,17 +1068,17 @@ export class MemoryReplica {
         case "file_move": {
           const f = this.files.get(op.id);
           if (!f) throw mdbaseError("not_found", "no such file");
-          this.touch(f.id, f.path, "remove");
+          this.touch(f.id, f.path, "remove", "file");
           f.path = op.to;
           f.pending = true;
-          this.touch(f.id, f.path, "put");
+          this.touch(f.id, f.path, "put", "file");
           break;
         }
         case "file_delete": {
           const f = this.files.get(op.id);
           if (!f) throw mdbaseError("not_found", "no such file");
           this.files.delete(op.id);
-          this.touch(f.id, f.path, "remove");
+          this.touch(f.id, f.path, "remove", "file");
           break;
         }
         case "resource_put": {
@@ -1075,9 +1199,9 @@ export class MemoryReplica {
   }
 
   /** Record a change and refresh live queries. */
-  private touch(id: w.Uuid, path: string, kind: "put" | "remove"): void {
+  private touch(id: w.Uuid, path: string, kind: "put" | "remove", entity: "record" | "file" = "record"): void {
     this.viewVersion++;
-    const ch: w.Change = { id, path, kind, version: this.viewVersion };
+    const ch: w.Change = { id, path, kind, version: this.viewVersion, entity };
     this.changeLog.push(ch);
     queueMicrotask(() => {
       for (const c of this.conns) {

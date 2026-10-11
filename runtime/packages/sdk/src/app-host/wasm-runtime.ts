@@ -1,11 +1,30 @@
 /** Optional first-party app artifact binding. No auth/custody defaults or MemStore fallback. */
-import { decode, encodeSecret, type CborValue } from "../cbor.js";
+import { decode, encode, encodeSecret, type CborValue } from "../cbor.js";
 import { hashToBytes, uuidToBytes } from "../codec.js";
 import { mdbaseError } from "../errors.js";
 import { WasmRuntime, type Exports, type OpenConfig } from "../runtime/wasm.js";
 import { confirmedHead, syncStatus, type ConfirmedHead, type SyncStatus } from "../wire.js";
 import { AppLogPump, type AppLogCall, type AppLogRuntime, type AppLogTransport } from "./log-pump.js";
 import type { AppLogHttpProof } from "./http-log.js";
+import { resourceAssessment, type AppResourceAssessment } from "./collection-control.js";
+import { modelResourcePlan } from "./collection-setup-journal.js";
+import type { ModelResourcePlan } from "./collection-setup-types.js";
+
+function resourceJson(value: unknown, toCbor: boolean, depth = 0, count = { nodes: 0 }): unknown {
+  if (depth > 32 || ++count.nodes > 65536) throw mdbaseError("invalid_request", "resource DATA exceeds bound");
+  if (value === null || typeof value === "boolean" || typeof value === "string"
+    || (typeof value === "number" && Number.isFinite(value))) return value;
+  if (Array.isArray(value)) return value.map(child => resourceJson(child, toCbor, depth + 1, count));
+  const map = toCbor ? value !== null && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype
+    ? Object.entries(value) : null : value instanceof Map ? [...value] : null;
+  if (!map) throw mdbaseError("invalid_request", "invalid resource DATA");
+  const result = new Map<string, unknown>();
+  for (const [key, child] of map) {
+    if (typeof key !== "string" || result.has(key)) throw mdbaseError("invalid_request", "invalid resource DATA");
+    result.set(key, resourceJson(child, toCbor, depth + 1, count));
+  }
+  return toCbor ? result : Object.fromEntries(result);
+}
 
 export interface AppSqlMemory {
   memory: WebAssembly.Memory;
@@ -108,6 +127,7 @@ interface AppExports extends Exports {
   rt_app_private_create_sign(p: number, n: number): bigint;
   rt_app_private_device_enrol_sign(p: number, n: number): bigint;
   rt_app_verify_handover(session: bigint, dp: number, dn: number, wp: number, wn: number): bigint;
+  rt_app_resources?(session: bigint, p: number, n: number): bigint;
   rt_app_bases_execute?(session: bigint, p: number, n: number): bigint;
   rt_app_bases_list_views?(session: bigint, p: number, n: number): bigint;
   rt_app_bases_read_view_source?(session: bigint, p: number, n: number): bigint;
@@ -256,6 +276,34 @@ export class AppWasmRuntime extends WasmRuntime implements AppLogRuntime {
       if (!this.active || this.retired || this.sql.needsRecovery || this.sessionForPort(port) !== session) { out.fill(0); throw bad(); }
       return out;
     } finally { owned.fill(0); }
+  }
+  /** Private resource-only planner, bound to the already held facade session.
+   * Native owns inventory and authority checks; no caller IDs or state loans. */
+  setupResources(port: ReturnType<WasmRuntime["connect"]>, operation: "assess", manifest: unknown): AppResourceAssessment;
+  setupResources(port: ReturnType<WasmRuntime["connect"]>, operation: "apply", manifest: unknown, expectedDigest: string): ModelResourcePlan;
+  setupResources(port: ReturnType<WasmRuntime["connect"]>, operation: "assess" | "apply", manifest: unknown, expectedDigest?: string): AppResourceAssessment | ModelResourcePlan {
+    const session = this.sessionForPort(port), native = this.app.rt_app_resources;
+    if (!this.active || this.retired || !this.sql || this.sql.needsRecovery || session === null || typeof native !== "function")
+      throw mdbaseError("unavailable", "resource setup unsupported", "resource_setup_unsupported");
+    if (operation !== "assess" && operation !== "apply") throw bad();
+    if (operation === "apply" && (typeof expectedDigest !== "string" || !/^sha256:[0-9a-f]{64}$/.test(expectedDigest))) throw bad();
+    const input = encode([1, operation === "apply" ? 1 : 0, resourceJson(manifest, true) as CborValue, expectedDigest ?? null]);
+    if (!input.length || input.length > 512 * 1024) { input.fill(0); throw mdbaseError("invalid_request", "resource DATA exceeds bound"); }
+    let output: Uint8Array | undefined;
+    try {
+      output = this.guard(() => {
+        const packed = uint64(native.call(this.app, session, ...this.put(input)));
+        const length = Number(packed & 0xffffffffn);
+        if (!length || length > 512 * 1024) throw bad();
+        return this.takeOut(packed);
+      });
+      if (!this.active || this.retired || this.sql.needsRecovery || this.sessionForPort(port) !== session) throw bad();
+      const response = this.guard(() => decode(output!));
+      if (!Array.isArray(response) || response.length !== 3 || response[0] !== 1 || typeof response[1] !== "boolean") throw bad();
+      if (response[1] === false) throw mdbaseError("unavailable", "resource setup unavailable", "resource_setup_unavailable");
+      const value = resourceJson(response[2], false);
+      return operation === "assess" ? resourceAssessment(value) : modelResourcePlan(value);
+    } finally { input.fill(0); output?.fill(0); }
   }
   /** Positive ONLY from native verified-policy signature + retained prefix and
    * live READ session. Ordinary unavailable stays hosted; no saved implication. */

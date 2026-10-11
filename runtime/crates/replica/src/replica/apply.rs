@@ -503,7 +503,23 @@ impl<S: Store> Replica<S> {
             Ok(None) => Outcome::Applied,
             Ok(Some(rule)) => Outcome::Void(rule),
         };
+        // Only the actual accepted semantic verdict prepares a correlation.
+        // It is not installed in RAM until settled commit + read health below.
+        let next_history = matches!(outcome, Outcome::Applied).then(|| {
+            let (grants, devices) = super::original_history::control_subjects(item);
+            self.original_history.prepare(
+                self.store_generation,
+                head,
+                &grants,
+                &devices,
+                self.hosted_key_delivery
+                    .is_some_and(|delivery| delivery.is_at(p)),
+            )
+        });
         let mut meta = vec![self.policy_meta(), self.account_key_meta()];
+        if let Some(bytes) = next_history.as_ref().and_then(|h| h.hint_bytes()) {
+            meta.push((super::original_history::META.into(), Some(bytes)));
+        }
         meta.extend(self.keyring_meta());
         meta.extend(self.genesis_meta(head));
         let committed = self.commit_retained(
@@ -517,6 +533,12 @@ impl<S: Store> Replica<S> {
         if let Err(e) = committed {
             self.discard_staged_key_grants();
             return Err(e);
+        }
+        if !self.apply_fault
+            && !self.is_apply_recovering()
+            && let Some(history) = next_history
+        {
+            self.original_history = history;
         }
         // Durable: only now does an own approval grant count as applied.
         self.publish_staged_key_grants();
@@ -606,6 +628,9 @@ impl<S: Store> Replica<S> {
     /// A control item read during a snapshot install (`snapshot.md` §8 step 1):
     /// evaluated into policy and keys and persisted; the head is set by the install.
     pub(crate) fn evaluate_control_bytes(&mut self, p: u64, raw: &[u8]) -> Result<(), String> {
+        // Read-ahead has no settled applied prefix. Its persisted policy/hints
+        // cannot recreate an original observation, even after a typed abort.
+        self.original_history.invalidate();
         if self.apply_fault {
             return Err("apply state is faulted; reopen required".into());
         }
@@ -801,6 +826,7 @@ impl<S: Store> Replica<S> {
             chain: mdbn_wire::hash::chain_hash(&bytes.0),
         };
         if item.kind.is_control() && p <= self.policy.seq {
+            self.original_history.invalidate();
             // Applied while installing a snapshot: only the head advances here.
             self.commit_retained(
                 head,
@@ -1373,6 +1399,10 @@ impl<S: Store> Replica<S> {
                         path_key: pk,
                         kind: mdbn_wire::unindexed_markdown::FileKindV1::UnindexedOversizedMarkdown,
                         content: f.payload.content.clone(),
+                        mtime: old
+                            .as_ref()
+                            .filter(|o| o.content == f.payload.content)
+                            .and_then(|o| o.mtime),
                         media: media_class(&f.path),
                         modified_seq: p,
                         bucket: bucket16(&f.id),
@@ -1498,6 +1528,11 @@ impl<S: Store> Replica<S> {
                         path: f.path.clone(),
                         path_key: pk,
                         kind: mdbn_wire::unindexed_markdown::FileKindV1::Ordinary,
+                        mtime: f.mtime.or_else(|| {
+                            old.as_ref()
+                                .filter(|o| o.content == content)
+                                .and_then(|o| o.mtime)
+                        }),
                         content,
                         media: media_class(&f.path),
                         modified_seq: p,
@@ -1623,6 +1658,7 @@ impl<S: Store> Replica<S> {
                         path_key: pk,
                         kind: mdbn_wire::unindexed_markdown::FileKindV1::Ordinary,
                         content: mdbn_wire::attachment::FileContent::Blob(f.blob.clone()),
+                        mtime: None,
                         media: media_class(&f.path),
                         modified_seq: p,
                         bucket: bucket16(&f.id),

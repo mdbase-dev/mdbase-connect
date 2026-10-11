@@ -74,7 +74,23 @@ pub struct RuntimeConfig {
     pub private_dir: PathBuf,
     /// The synced link, or `None` for a local-only collection.
     pub sync: Option<Synced>,
+    /// Synced only: adopt the folder as generation 0 (the adopt journal's plan)
+    /// before anything else is ingested.
+    pub adopt: Option<mdbn_replica::AdoptRecords>,
+    /// Record IDs a path's first ingest takes (the takeover's imported ID map).
+    pub id_hints: Vec<([u8; 16], String)>,
 }
+
+/// One readiness observation: status, caught up, and the adopt state (if adopting).
+pub type ReadinessView = (
+    mdbn_wire::client::SyncStatus,
+    bool,
+    Option<mdbn_replica::AdoptStatus>,
+);
+
+/// A local collection's inventory: confirmed `(record ID, path)` in ID order and
+/// resource paths.
+pub type Inventory = (Vec<([u8; 16], String)>, Vec<String>);
 
 /// A synced collection's log link and locally persisted trust anchors.
 #[derive(Clone)]
@@ -131,7 +147,9 @@ enum Cmd {
     Log(crate::logwire::Event),
     /// The replica's sync status.
     Status(oneshot::Sender<mdbn_wire::client::SyncStatus>),
-    Readiness(oneshot::Sender<(mdbn_wire::client::SyncStatus, bool)>),
+    Readiness(oneshot::Sender<ReadinessView>),
+    /// Rescan, then list the confirmed records and resources.
+    Inventory(oneshot::Sender<Option<Inventory>>),
     /// A content-free digest of the confirmed records.
     Digest(oneshot::Sender<Option<(u64, [u8; 32])>>),
     /// Counters and digests from ONE serialized actor observation.
@@ -382,10 +400,18 @@ impl Runtime {
 
     /// The status and whether the replica has read up to the head it heard in the
     /// current connection.
-    pub async fn readiness(&self) -> Option<(mdbn_wire::client::SyncStatus, bool)> {
+    pub async fn readiness(&self) -> Option<ReadinessView> {
         let (tx, rx) = oneshot::channel();
         self.tx.send(Cmd::Readiness(tx)).ok()?;
         rx.await.ok()
+    }
+
+    /// After a full rescan, the confirmed records and resource paths (the adopt
+    /// inventory of a local collection), or `None` once stopped or unreadable.
+    pub async fn inventory(&self) -> Option<Inventory> {
+        let (tx, rx) = oneshot::channel();
+        self.tx.send(Cmd::Inventory(tx)).ok()?;
+        rx.await.ok().flatten()
     }
 
     /// The replica's sync status (confirmed through, pending, holds, conflicts,
@@ -747,6 +773,22 @@ fn open_replica(
     // The desktop composition point explicitly selects its query fallback policy;
     // portable/hosted/mobile defaults remain constrained.
     rep.set_query_execution_profile(mdbn_replica::QueryExecutionProfile::Desktop);
+    // Before the first scan: a path's first ingest takes its hinted ID, and an
+    // adopting replica ingests nothing until its base is applied.
+    if !cfg.id_hints.is_empty() {
+        rep.set_id_hints(
+            cfg.id_hints
+                .iter()
+                .map(|(id, p)| (B16(*id), p.clone()))
+                .collect(),
+        );
+    }
+    if let Some(plan) = &cfg.adopt {
+        rep.begin_adopt(Box::new(crate::adopt::FolderSource::new(
+            &cfg.root,
+            plan.clone(),
+        )));
+    }
     let replica_ms = t0.elapsed().as_millis() as u64 - store_ms;
     // First scan: ingest whatever changed while we were down.
     let t1 = std::time::Instant::now();
@@ -915,6 +957,26 @@ fn on_log_event<S: mdbn_replica::store::Store>(
     retire_stale_log(rep, active);
 }
 
+fn inventory(rep: &Replica<Store>) -> Option<Inventory> {
+    use mdbn_replica::store::{Page, Store as _};
+    let store = rep.store();
+    let mut records = Vec::new();
+    let mut after = None;
+    loop {
+        let rows = store.records(Page { after, limit: 1024 }).ok()?;
+        let Some(last) = rows.last() else { break };
+        after = Some(last.id);
+        records.extend(rows.into_iter().map(|r| (r.id.0, r.path)));
+    }
+    let resources = store
+        .resources()
+        .ok()?
+        .into_iter()
+        .map(|(p, _)| p)
+        .collect();
+    Some((records, resources))
+}
+
 fn confirmed_digest(rep: &Replica<Store>) -> Option<(u64, [u8; 32])> {
     confirmed_store_digest(rep.store())
 }
@@ -1060,6 +1122,7 @@ fn run(
     let mut last_observe = std::time::Instant::now();
     let mut acks: Vec<oneshot::Sender<()>> = Vec::new();
     let mut last_status = std::time::Instant::now();
+    let mut adopting = rep.adopt_status() == Some(mdbn_replica::AdoptStatus::Pending);
     loop {
         if last_heartbeat.elapsed() >= HOST_HEARTBEAT {
             last_heartbeat = std::time::Instant::now();
@@ -1116,7 +1179,14 @@ fn run(
                 let _ = reply.send(rep.sync_status());
             }
             Ok(Cmd::Readiness(reply)) => {
-                let _ = reply.send((rep.sync_status(), rep.caught_up()));
+                let _ = reply.send((rep.sync_status(), rep.caught_up(), rep.adopt_status()));
+            }
+            Ok(Cmd::Inventory(reply)) => {
+                rep.store_mut().inner_mut().request_rescan();
+                if let Err(e) = rep.observe(None) {
+                    tracing::warn!(error = ?e, "observe failed");
+                }
+                let _ = reply.send(inventory(&rep));
             }
             Ok(Cmd::Digest(reply)) => {
                 let _ = reply.send(confirmed_digest(&rep));
@@ -1213,6 +1283,16 @@ fn run(
                     std::time::Instant::now() + Duration::from_millis(t.saturating_sub(now).max(5)),
                 );
             }
+        }
+        if adopting && rep.adopt_status() != Some(mdbn_replica::AdoptStatus::Pending) {
+            // The base is applied: ingest what changed meanwhile now, not at the
+            // next periodic rescan.
+            adopting = false;
+            rep.store_mut().inner_mut().request_rescan();
+            if let Err(e) = rep.observe(None) {
+                tracing::warn!(error = ?e, "observe failed");
+            }
+            last_observe = std::time::Instant::now();
         }
         if last_observe.elapsed() >= observe_every {
             // No watcher yet: `observe(None)` only walks the folder when a rescan is
@@ -1440,6 +1520,8 @@ mod tests {
             device_id: [3; 16],
             root: dir.path().to_path_buf(),
             private_dir: state.path().to_path_buf(),
+            adopt: None,
+            id_hints: vec![],
             sync: None,
         };
         let (rep, _lock) = super::open_replica(

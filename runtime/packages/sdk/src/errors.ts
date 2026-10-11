@@ -4,7 +4,16 @@
  * Generic query cursor expiry/staleness uses typed invalid_request reasons;
  * paging resets require explicit caller clearing before a fresh first page.
  */
-import type { Issue, Problem, Recovery } from "./wire.js";
+import type { Issue, Problem, Recovery, Uuid } from "./wire.js";
+
+/** Local facts about a failure that are not part of the wire problem. */
+export interface MdbaseErrorContext {
+  /** The original mutation this failure belongs to. */
+  mutationId?: Uuid;
+  /** A partial batch: one original mutation per item, in op order. */
+  mutationIds?: readonly Uuid[];
+  cause?: unknown;
+}
 
 export const ERROR_CODES = {
   invalid_request: "fix_request",
@@ -47,9 +56,18 @@ export class MdbaseError extends Error {
   readonly retryAfterMs?: number;
   readonly issues?: Issue[];
   readonly traceId?: string;
+  /**
+   * The original mutation of a failed or unsettled write. Its outcome may still be
+   * unknown: resolve it with `receipt` / `awaitReceipt` / `pendingWrites` under this
+   * same ID. The SDK never resubmits it under a new identity. Absent for reads and
+   * dry runs, which capture nothing. Not part of {@link toProblem}.
+   */
+  readonly mutationId?: Uuid;
+  /** Every original mutation of a failed partial batch, in op order. */
+  readonly mutationIds?: readonly Uuid[];
 
-  constructor(problem: Problem) {
-    super(problem.message);
+  constructor(problem: Problem, context: MdbaseErrorContext = {}) {
+    super(problem.message, context.cause === undefined ? undefined : { cause: context.cause });
     this.name = "MdbaseError";
     // A code outside the 15 is a replica bug or a newer API; never invent recovery.
     this.code = isErrorCode(problem.code) ? problem.code : "internal";
@@ -59,6 +77,10 @@ export class MdbaseError extends Error {
     if (problem.retryAfterMs !== undefined) this.retryAfterMs = problem.retryAfterMs;
     if (problem.issues !== undefined) this.issues = problem.issues;
     if (problem.traceId !== undefined) this.traceId = problem.traceId;
+    const ids = context.mutationIds ? Object.freeze([...context.mutationIds]) : undefined;
+    const id = context.mutationId ?? ids?.[0];
+    if (id !== undefined) this.mutationId = id;
+    if (ids !== undefined) this.mutationIds = ids;
   }
 
   toProblem(): Problem {

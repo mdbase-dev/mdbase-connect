@@ -229,6 +229,13 @@ pub struct TypeDef {
 }
 
 impl TypeDef {
+    /// The type's resolved schema: `schema_entry` within `schema_document`.
+    pub fn schema_value(&self) -> Value {
+        pointer_value(&self.schema_document, &self.schema_entry)
+            .cloned()
+            .unwrap_or(Value::Null)
+    }
+
     /// Top-level fields this type's lifecycle assigns with `now` or `today`
     /// (merge default `max`, spec 07).
     pub fn time_fields(&self) -> BTreeSet<String> {
@@ -1440,6 +1447,39 @@ fn schema_ref_target(type_path: &str, reference: &str) -> Result<(String, String
     Ok((parts.join("/"), fragment))
 }
 
+/// Local schema dependencies declared by one type/contract definition. This
+/// discovers candidates only: callers must compile the complete catalog before
+/// treating any target as a resource. Uses the same resolver as compilation.
+pub fn definition_schema_refs(path: &str, source: &str) -> Result<Vec<String>, (String, String)> {
+    let doc = Document::parse(source, RecordFormat::Markdown);
+    let fm = doc.frontmatter();
+    let members = match fm.get("kind").and_then(Value::as_str) {
+        Some("mdbase.type") => &["schema"][..],
+        Some("mdbase.contract") => crate::contracts::schema_members(
+            fm.get("contract_type")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
+        ),
+        _ => &[],
+    };
+    let mut targets = Vec::new();
+    for member in members {
+        if let Some(reference) = fm
+            .get(member)
+            .and_then(Value::as_map)
+            .and_then(|w| w.get("ref"))
+            .and_then(Value::as_str)
+        {
+            let (target, _) = schema_ref_target(path, reference)
+                .map_err(|(code, message)| (code.to_owned(), message))?;
+            targets.push(target);
+        }
+    }
+    targets.sort();
+    targets.dedup();
+    Ok(targets)
+}
+
 pub(crate) fn resolve_schema_ref(
     type_path: &str,
     reference: &str,
@@ -1596,6 +1636,72 @@ fn parse_provider(p: &Value) -> Option<Provider> {
     })
 }
 
+/// Where a new type file goes: its `name` and `<types_folder>/<name>.md` (spec 05).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewTypeFile {
+    /// The type name, as written.
+    pub name: String,
+    /// The type file's resource path.
+    pub path: String,
+}
+
+/// Derive the name and path of a type file from its `source`. Only the name and
+/// path are checked here: an `invalid_type` issue for a missing or unusable
+/// name, `type_conflict` when `cat` already has the name under any casing. The
+/// definition itself is validated when the file is written, against the
+/// catalog it would produce.
+pub fn new_type_file(cat: &Catalog, source: &str) -> Result<NewTypeFile, Box<Issue>> {
+    let invalid = |msg: String| {
+        Box::new(Issue::new(
+            "invalid_type",
+            Severity::Error,
+            Tier::Request,
+            msg,
+        ))
+    };
+    let doc = Document::parse(source, RecordFormat::Markdown);
+    if doc.problem().is_some() || !doc.has_frontmatter() {
+        return Err(invalid(
+            "type file frontmatter is missing or invalid".into(),
+        ));
+    }
+    let fm = doc.frontmatter();
+    if fm.get("kind").and_then(Value::as_str) != Some("mdbase.type") {
+        return Err(invalid(
+            "not a type definition (`kind: mdbase.type`)".into(),
+        ));
+    }
+    let Some(name) = fm
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|n| !n.is_empty())
+    else {
+        return Err(invalid("`name` is required".into()));
+    };
+    let path = format!("{}/{name}.md", cat.settings.types_folder);
+    if name.contains('/') || crate::paths::check_path(&path).is_err() {
+        let issue = invalid(format!("`{name}` cannot name a type file"));
+        return Err(Box::new(issue.with_type(name)));
+    }
+    if let Some(existing) = cat.type_named(name) {
+        return Err(Box::new(
+            Issue::new(
+                "type_conflict",
+                Severity::Error,
+                Tier::Request,
+                format!("type `{}` already exists", existing.name),
+            )
+            .with_type(name)
+            .at(&existing.source_path)
+            .with_details(map([("path", Value::string(existing.source_path.clone()))])),
+        ));
+    }
+    Ok(NewTypeFile {
+        name: name.to_owned(),
+        path,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1731,5 +1837,48 @@ mod tests {
         assert!(!c.is_record_path("archive/old.md"));
         assert!(c.is_record_path("archive/2025/older.md"));
         assert!(!c.is_record_path("_types/task.md"));
+    }
+}
+
+#[cfg(test)]
+mod new_type_file_tests {
+    use super::*;
+
+    fn catalog() -> Catalog {
+        Catalog::load([
+            (
+                "mdbase.yaml",
+                "spec_version: '0.3.0'\nsettings:\n  types_folder: defs\n",
+            ),
+            (
+                "defs/task.md",
+                "---\nkind: mdbase.type\nname: Task\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object}\n---\n",
+            ),
+        ])
+    }
+
+    #[test]
+    fn derives_the_path_under_the_configured_types_folder() {
+        let t = new_type_file(&catalog(), "---\nkind: mdbase.type\nname: note\n---\n").unwrap();
+        assert_eq!((t.name.as_str(), t.path.as_str()), ("note", "defs/note.md"));
+    }
+
+    #[test]
+    fn refuses_unusable_names_and_case_insensitive_conflicts() {
+        let code = |src: &str| new_type_file(&catalog(), src).unwrap_err().code;
+        assert_eq!(
+            code("---\nkind: mdbase.type\nname: TASK\n---\n"),
+            "type_conflict"
+        );
+        assert_eq!(
+            code("---\nkind: mdbase.type\nname: a/b\n---\n"),
+            "invalid_type"
+        );
+        assert_eq!(
+            code("---\nkind: mdbase.type\nname: 'x:y'\n---\n"),
+            "invalid_type"
+        );
+        assert_eq!(code("---\nkind: mdbase.type\n---\n"), "invalid_type");
+        assert_eq!(code("---\nkind: note\nname: n\n---\n"), "invalid_type");
     }
 }

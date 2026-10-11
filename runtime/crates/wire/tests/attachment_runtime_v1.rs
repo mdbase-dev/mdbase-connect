@@ -145,7 +145,9 @@ fn change_fmt(c: &mut Cbor) {
         panic!("parent map")
     };
     let (_, v) = m.iter_mut().find(|(k, _)| *k == Cbor::Uint(0)).unwrap();
-    *v = Cbor::Uint(2);
+    // Chunk fmt2 is now the timestamped attachment-row format; fmt3 remains
+    // unknown to every parent. Known fmt2/invalid-row refusal is tested separately.
+    *v = Cbor::Uint(3);
 }
 #[test]
 fn future_parent_formats_remain_whole_unknown_errors() {

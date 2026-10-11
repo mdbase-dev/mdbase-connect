@@ -94,6 +94,10 @@ export type FileOp =
   | { readonly op: "Stat"; readonly path: string }
   | { readonly op: "Read"; readonly path: string }
   | { readonly op: "ReadRange"; readonly path: string; readonly offset: number; readonly len: number }
+  | { readonly op: "OpenRangeRead"; readonly path: string }
+  | { readonly op: "ReadAt"; readonly handle: bigint; readonly offset: number; readonly len: number }
+  | { readonly op: "RangeMeta"; readonly handle: bigint }
+  | { readonly op: "CloseRangeRead"; readonly handle: bigint }
   | { readonly op: "List"; readonly dir: string }
   | { readonly op: "CreateDirAll"; readonly dir: string }
   | { readonly op: "WriteNew"; readonly path: string; readonly bytes: Uint8Array; readonly durable: boolean }
@@ -115,6 +119,7 @@ export type FileOpOutput =
   | { readonly kind: "Environment"; readonly value: PlatformEnvironment }
   | { readonly kind: "Meta"; readonly value: FileMeta }
   | { readonly kind: "Read"; readonly value: ReadResult }
+  | { readonly kind: "Range"; readonly value: { readonly handle: bigint; readonly meta: FileMeta } }
   | { readonly kind: "Bytes"; readonly value: Uint8Array }
   | { readonly kind: "Entries"; readonly value: readonly DirEntry[] }
   | { readonly kind: "Guarded"; readonly value: Guarded }

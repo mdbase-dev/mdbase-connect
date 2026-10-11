@@ -13,12 +13,11 @@ use mdbn_wire::{
     policy::{DeviceKind, Role},
 };
 use sha2::{Digest, Sha256};
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 
-// Strong by default. Only bounded discovery residency may release contents;
-// Weak still reserves allocation identity and prevents pointer/address reuse.
+// Setup observations always retain the immutable catalogue allocation.
 #[cfg(test)]
-mod discovery_pin_tests {
+mod catalog_pin_tests {
     use super::*;
     #[test]
     fn default_identity_keeps_strong_catalog_contents_until_capture_drops() {
@@ -32,40 +31,15 @@ mod discovery_pin_tests {
         drop(identity);
         assert!(observer.upgrade().is_none());
     }
-    #[test]
-    fn discovery_identity_releases_contents_but_never_accepts_dead_or_new_catalog() {
-        let catalog = Arc::new(Catalog::empty());
-        let observer = Arc::downgrade(&catalog);
-        let identity = CatalogCapture::Discovery(Arc::downgrade(&catalog));
-        assert_eq!(Arc::strong_count(&catalog), 1);
-        assert!(identity.matches(&catalog));
-        let replacement = Arc::new(Catalog::empty());
-        assert!(!identity.matches(&replacement));
-        drop(catalog);
-        assert!(observer.upgrade().is_none());
-        assert!(!identity.matches(&replacement));
-    }
-    #[test]
-    fn weak_control_block_and_inline_catalog_are_inside_slot_accounting() {
-        let bytes = SetupCaptureFence::discovery_catalog_allocation_bytes();
-        assert!(
-            bytes >= (std::mem::size_of::<Catalog>() + 2 * std::mem::size_of::<usize>()) as u64
-        );
-        assert!(bytes < 4096);
-    }
 }
 
 enum CatalogCapture {
     Strong(Arc<Catalog>),
-    Discovery(Weak<Catalog>),
 }
 impl CatalogCapture {
     fn matches(&self, current: &Arc<Catalog>) -> bool {
         match self {
             Self::Strong(catalog) => Arc::ptr_eq(catalog, current),
-            Self::Discovery(catalog) => catalog
-                .upgrade()
-                .is_some_and(|original| Arc::ptr_eq(&original, current)),
         }
     }
 }
@@ -93,24 +67,11 @@ pub struct SetupCaptureFence {
     authority: DeviceState,
     role: Role,
     // Immutable allocation identity scopes this token to its replica lifetime.
-    // Default strong captures retain contents; discovery-only Weak residency
-    // reserves identity without retaining catalog maps. Pointers are NEVER hashed.
+    // Strong captures retain contents. Pointers are NEVER hashed.
     catalog: CatalogCapture,
     revision: Hash,
 }
 impl SetupCaptureFence {
-    /// Discovery-only residency: preserve allocation identity/full rechecks,
-    /// but do not keep replaced catalogs' owned maps/resources alive.
-    pub(in crate::replica) fn release_discovery_catalog_pin(&mut self) {
-        if let CatalogCapture::Strong(catalog) = &self.catalog {
-            self.catalog = CatalogCapture::Discovery(Arc::downgrade(catalog));
-        }
-    }
-    /// Weak retains the Arc control block and inline Catalog allocation even
-    /// after its contents drop. Charge both conservatively to each slot.
-    pub(in crate::replica) fn discovery_catalog_allocation_bytes() -> u64 {
-        (std::mem::size_of::<Catalog>() + 2 * std::mem::size_of::<usize>() + 64) as u64
-    }
     /// Trusted collection/head revision, not an app-declared token. The opaque
     /// fence separately binds instance/catalog/generation and current authority.
     pub fn collection_revision(&self) -> Hash {

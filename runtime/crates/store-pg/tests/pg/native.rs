@@ -9,6 +9,7 @@ use mdbn_wire::{
 };
 fn native(n: u8, content: FileContent) -> FileRow {
     FileRow {
+        mtime: None,
         id: id(u64::from(n)),
         path: format!("{n}.md"),
         path_key: format!("{n}.md"),

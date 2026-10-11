@@ -3,6 +3,7 @@
 //! codec is the sole SDK grammar; it is not a benchmark bridge or permission.
 use super::*;
 mod discovery;
+mod summaries;
 use mdbn_core::views::bases::{BasesDisplayCell, PropertySelector, RuntimeValue};
 use mdbn_replica::{
     SessionId,
@@ -291,7 +292,10 @@ impl Writer {
         {
             return Err(too_large());
         }
-        self.map(if result.window.is_some() { 8 } else { 7 })?;
+        summaries::admit(&result.summaries)?;
+        self.map(
+            7 + usize::from(result.window.is_some()) + usize::from(!result.summaries.is_empty()),
+        )?;
         self.uint(0)?;
         self.uint(1)?;
         self.uint(1)?;
@@ -404,6 +408,15 @@ impl Writer {
                 for ordinal in &placement.row_ordinals {
                     self.uint(u64::from(*ordinal))?;
                 }
+            }
+        }
+        if !result.summaries.is_empty() {
+            self.uint(9)?;
+            self.array(result.summaries.len())?;
+            for (name, value) in &result.summaries {
+                self.array(2)?;
+                self.text(name)?;
+                self.value(value, 1)?;
             }
         }
         Ok(())

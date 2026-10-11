@@ -77,6 +77,8 @@ async function probe(scope) {
 `;
 let context;
 const launch = () => chromium.launchPersistentContext(profile, {
+  // MV3 needs the full Chromium process, not Playwright's headless shell.
+  channel:"chromium",
   headless:true,
   ...(process.env.CHROMIUM_EXECUTABLE ? {executablePath:process.env.CHROMIUM_EXECUTABLE} : {}),
   args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`],

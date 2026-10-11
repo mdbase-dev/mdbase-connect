@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { TimersApi } from "../src/timers.js";
+import { appTimerPortClient } from "../src/app-host/timer-port.js";
 import {
     AppWebCloudCopyHost,
     type AppCloudCopyHostRelease,
@@ -19,6 +21,12 @@ import {
 import { AppIndexedDbCloudCopyOutcomeStore } from "../src/app-host/cloud-copy-persistence-idb.js";
 import { MdbaseClient } from "../src/client.js";
 import { mdbaseError } from "../src/errors.js";
+import { IDBFactory } from "fake-indexeddb";
+import { createAppWebCollectionAdapter } from "../src/app-host/web-collection.js";
+import * as collectionSql from "../src/app-storage/collection-sql.js";
+import { AppWebSignInSession } from "../src/app-host/web-sign-in-session.js";
+import { AppProtectedInstallationSignIn as ProtectedSignIn } from "../src/app-host/installation-sign-in.js";
+import * as ownership from "../src/app-host/owner.js";
 import { AppCpLogAuthority } from "../src/app-host/cp-authority.js";
 import * as localFacade from "../src/app-host/local-facade.js";
 afterEach(() => {
@@ -28,7 +36,8 @@ afterEach(() => {
 async function fixture(mode: "fresh" | "existing" = "fresh") {
     const calls: string[] = [],
         origin = "https://app.example.test",
-        signal = new AbortController().signal;
+        controller = new AbortController(),
+        signal = controller.signal;
     vi.stubGlobal("location", { origin });
     const session: AppCloudCopyHostSession = {
         accountId: "11111111-1111-1111-1111-111111111111",
@@ -40,7 +49,7 @@ async function fixture(mode: "fresh" | "existing" = "fresh") {
         kind: "app-runtime",
         approvalMode: "password-ak1",
         isCurrent: () => true,
-        connectorBearer: async () => "fixture-bearer",
+        connectorBearer: vi.fn(async () => "ct_fixture-bearer"),
     };
     const installation = {
         scope: Object.freeze({
@@ -181,6 +190,7 @@ async function fixture(mode: "fresh" | "existing" = "fresh") {
         loadRuntime,
     };
     return {
+        controller,
         calls,
         session,
         installation,
@@ -200,7 +210,7 @@ async function fixture(mode: "fresh" | "existing" = "fresh") {
     };
 }
 describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual WebCrypto)", () => {
-    async function collectionFixture() {
+    async function collectionFixture(purpose: "create" | "join" = "create") {
         const f = await fixture(),
             host = await AppWebCloudCopyHost.openOriginalDevice(f.options),
             scope = {
@@ -211,7 +221,7 @@ describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual 
             options = {
                 scope,
                 collectionCurrent: () => true,
-                purpose: "create" as const,
+                purpose,
                 outcomeMode: "fresh" as const,
                 signal: f.options.signal,
                 allowLoopbackHttp: true,
@@ -334,7 +344,7 @@ describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual 
             connect = vi
                 .spyOn(MdbaseClient, "connect")
                 .mockResolvedValue(reader as unknown as MdbaseClient),
-            facade = { close: vi.fn() },
+            facade = { close: vi.fn(), resourceSetup: { assess: vi.fn(), apply: vi.fn() } },
             attach = vi
                 .spyOn(localFacade, "attachAppLocalFacade")
                 .mockReturnValue(facade),
@@ -371,6 +381,266 @@ describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual 
             channel,
         };
     }
+    it.each(["direct", "factory"] as const)("public session %s openCollection can bootstrap using SDK child cancellation", async path => {
+        const c = await collectionFixture("join"); await c.host.close();
+        const requestId = "77777777-7777-4777-8777-777777777777";
+        const flow = {
+            view: () => ({state: "paired", requestId, collectionSelection: null}),
+            start: vi.fn(async () => ({state: "paired"})),
+            confirmedSelection: () => ({accountId: c.options.scope.account, installationId: c.options.scope.installation}),
+            collectionConsentView: () => null,
+            listApprovedCollections: async () => [{collectionId: c.options.scope.collection, displayName: "Fixture", role: "owner"}],
+            close: vi.fn(async () => {}),
+        };
+        vi.spyOn(ProtectedSignIn, "open").mockResolvedValue(flow as unknown as ProtectedSignIn);
+        vi.spyOn(ownership, "acquireAppInstallationLease").mockResolvedValue({release: async () => {}});
+        vi.spyOn(ownership, "acquireAppReplicaLease").mockResolvedValue({release: async () => {}});
+        let parentSignal!: AbortSignal, childSignal!: AbortSignal, actualHost!: AppWebCloudCopyHost;
+        vi.spyOn(AppWebCloudCopyHost, "openInstallationDevice").mockImplementation(async input => {
+            parentSignal = input.signal;
+            actualHost = await AppWebCloudCopyHost.openOriginalDevice({...c.f.options, signal: input.signal});
+            return actualHost;
+        });
+        let handedOff = false;
+        // Factory, SDK session, host, protected persistence and WebCrypto are real;
+        // native/CP, platform IDB and SQL are declared component stand-ins.
+        vi.stubGlobal("indexedDB", new IDBFactory());
+        vi.spyOn(collectionSql, "createAppCollectionSql").mockReturnValue(async () => ({
+            sql: {import: vi.fn(), fence: vi.fn(), needsRecovery: false}, opened: "fresh", sqliteVersion: 3053004, close: async () => {},
+        }));
+        vi.spyOn(MdbaseClient, "connect").mockResolvedValue({query: async () => ({records: []}), close() {}} as unknown as MdbaseClient);
+        vi.spyOn(localFacade, "attachAppLocalFacade").mockReturnValue({close() {}, resourceSetup: {assess: vi.fn(), apply: vi.fn()}});
+        c.f.runtime.bindLogTransport.mockReturnValue({pump: async () => ({quiet: true}), close: async () => {}});
+        vi.spyOn(AppCpLogAuthority.prototype, "accessToken").mockResolvedValue("fixture-token");
+        vi.spyOn(AppCpLogAuthority.prototype, "logTransport").mockReturnValue({
+            endpoint: 0, collection: c.options.scope.collection, isCurrent: () => true,
+            send: async () => new Uint8Array(),
+        } as unknown as ReturnType<AppCpLogAuthority["logTransport"]>);
+        const factory = createAppWebCollectionAdapter({
+            allowLoopbackHttp: true,
+            joinDatabaseName: "fixture.join", setupJournal: {databaseName: "fixture.setup", applicationNamespace: "fixture", appOrigin: c.f.options.origin, cpOrigin: c.f.release.cpOrigin},
+            sql: {wasmSha256: "00".repeat(32), maxWasmBytes: 1100000, loadWasm: async () => new Uint8Array(1), initialize: async () => ({})},
+            handoff: () => {handedOff = true;},
+        });
+        const session = new AppWebSignInSession<unknown>({
+            appId: "fixture-app", appName: "Fixture", environment: "production",
+            origin: c.f.options.origin, cpOrigin: c.f.release.cpOrigin,
+            release: {...c.f.release, environment: "production"}, signal: c.f.options.signal, locks: undefined,
+            loadRuntime: c.f.loadRuntime, openPortal: () => ({navigate() {}, close() {}}),
+            openCollection: async input => {
+                childSignal = input.signal;
+                expect(childSignal).not.toBe(parentSignal);
+                if (path === "factory") return factory(input);
+                await input.host.bootstrapCloudCopy({...c.options, scope: input.scope, signal: input.signal});
+                return {state: "setup_required", connection: {fixture: true}, close: async () => {}};
+            },
+        });
+        await session.start();
+        expect(session.snapshot().status).toBe("setup_required");
+        expect(c.bootstrap).toHaveBeenCalledOnce(); expect(c.f.openNative).toHaveBeenCalledTimes(2);
+        expect(actualHost.registeredReceipt()).toEqual(c.f.receipt);
+        expect(handedOff).toBe(path === "factory");
+        await session.close(); expect(childSignal.aborted).toBe(true);
+    });
+    it.each(["host", "caller"] as const)("%s cancellation before bootstrap refuses before outcome IO or native preparation", async which => {
+        const c = await collectionFixture(), caller = new AbortController();
+        (which === "host" ? c.f.controller : caller).abort();
+        await expect(c.host.bootstrapCloudCopy({...c.options, signal: caller.signal})).rejects.toMatchObject({reason: "fenced"});
+        expect(c.open).not.toHaveBeenCalled(); expect(c.bootstrap).not.toHaveBeenCalled();
+        expect(c.f.runtime.prepareCloudCopyCollection).not.toHaveBeenCalled(); await c.host.close();
+    });
+    it.each(["host", "caller"] as const)("%s cancellation during bootstrap cannot deliver late metadata or admit adoption", async which => {
+        const c = await collectionFixture(), caller = new AbortController();
+        const original = c.bootstrap.getMockImplementation()!;
+        let internal!: AbortSignal;
+        c.bootstrap.mockImplementation(async function (this: AppCpCloudCopyBootstrap, input) {
+            internal = input.signal;
+            const metadata = await original.call(this, input);
+            (which === "host" ? c.f.controller : caller).abort();
+            return metadata;
+        });
+        await expect(c.host.bootstrapCloudCopy({...c.options, signal: caller.signal})).rejects.toMatchObject({reason: "fenced"});
+        expect(internal.aborted).toBe(true); expect(c.cipher()).not.toBeNull();
+        expect(c.bootstrap).toHaveBeenCalledOnce(); expect(c.adopt).not.toHaveBeenCalled();
+        await c.host.close(); expect(c.f.runtime.close).toHaveBeenCalledOnce();
+    });
+    it("an aborted original collection signal cannot be replaced by a fresh caller signal", async () => {
+        const c = await collectionFixture(), caller = new AbortController();
+        await c.host.bootstrapCloudCopy({...c.options, signal: caller.signal}); caller.abort();
+        expect(() => c.host.adoptCloudCopy({signal: new AbortController().signal,
+            replicaId: c.f.receipt.deviceId, endpoint: 37, opened: "fresh", sqliteVersion: 3053004, cloudCopyOptIn: true},
+            {import: vi.fn(), fence: vi.fn(), needsRecovery: false})).toThrow();
+        expect(c.adopt).not.toHaveBeenCalled(); await c.host.close();
+    });
+    it("per-call SQL cancellation propagates internally and retains late-handle cleanup without adoption", async () => {
+        const c = await collectionFixture(); await c.host.bootstrapCloudCopy(c.options);
+        const caller = new AbortController(), close = vi.fn(async () => {});
+        let internal!: AbortSignal, finish!: () => void;
+        const pending = c.host.openCollectionSql({signal: caller.signal, replicaId: c.f.receipt.deviceId, endpoint: 37,
+            openSql: async input => {
+                internal = input.signal;
+                await new Promise<void>(resolve => {finish = resolve;});
+                return {sql: {import: vi.fn(), fence: vi.fn(), needsRecovery: false}, opened: "fresh", sqliteVersion: 3053004, close};
+            },
+        });
+        const rejected = expect(pending).rejects.toMatchObject({reason: "fenced"});
+        caller.abort(); expect(internal.aborted).toBe(true); finish(); await rejected;
+        expect(c.adopt).not.toHaveBeenCalled(); expect(close).toHaveBeenCalledOnce();
+    });
+    it("a shared log waiter must retain its own caller fence without a second mint", async () => {
+        const c = await readableFixture(), first = new AbortController(), second = new AbortController();
+        let finish!: () => void;
+        c.mint.mockImplementationOnce(async () => {
+            await new Promise<void>(resolve => {finish = resolve;}); return "fixture-token";
+        });
+        const original = c.host.startCollectionLog({signal: first.signal});
+        const waiter = c.host.startCollectionLog({signal: second.signal});
+        const rejected = expect(waiter).rejects.toMatchObject({reason: "fenced"});
+        second.abort(); finish(); await original; await rejected;
+        expect(c.mint).toHaveBeenCalledOnce(); await c.host.close();
+    });
+    it("absent timer consent retains the original collection factory without requiring or creating Worker timer IPC", async () => {
+        const c = await readableFixture(), child = new AbortController();
+        const request = vi.fn(async () => Response.json({namespace: "reminders", timers: []}));
+        await c.host.startCollectionLog({signal: c.options.signal, fetch: request});
+        await c.host.waitForVerifiedRead({signal: c.options.signal});
+        vi.stubGlobal("WorkerGlobalScope", undefined);
+        const channel = vi.spyOn(globalThis, "MessageChannel");
+        expect(c.host.openTimersPort({scope: c.options.scope, generation: "55555555-5555-4555-8555-555555555555", signal: child.signal})).toBeNull();
+        expect(channel).not.toHaveBeenCalled(); expect(request).not.toHaveBeenCalled();
+        expect(c.f.session.connectorBearer).not.toHaveBeenCalled(); await c.host.close();
+    });
+    async function timerFixture() {
+        vi.stubGlobal("WorkerGlobalScope",class {static [Symbol.hasInstance](value:unknown){return value===globalThis;}});
+        const c=await readableFixture(),child=new AbortController(),generation="55555555-5555-4555-8555-555555555555";
+        const consent={requestId:"66666666-6666-4666-8666-666666666666",approved:true,grants:[{grantId:"77777777-7777-4777-8777-777777777777",collectionId:c.options.scope.collection,declarationDigest:"ab".repeat(32)}]};
+        Object.assign(c.f.session,{timerConsent:()=>consent});vi.mocked(c.f.session.connectorBearer).mockResolvedValue(`idev_${"a".repeat(43)}`);
+        const request=vi.fn(async()=>Response.json({namespace:"reminders",timers:[]}));
+        await c.host.startCollectionLog({signal:c.options.signal,fetch:request});await c.host.waitForVerifiedRead({signal:c.options.signal});
+        const options={scope:c.options.scope,generation,signal:child.signal};
+        return {...c,consent,request,child,timerOptions:options};
+    }
+    it("constructs native timer IPC only from the actual chosen original receipt in SAME Worker/scope/child lifetime",async()=>{
+        const c=await timerFixture(),opened=c.host.openTimersPort(c.timerOptions)!;
+        const api=new TimersApi(appTimerPortClient(opened.port,c.timerOptions,{signal:c.child.signal,onClose:()=>{}}));
+        expect(await api.list("reminders")).toEqual({namespace:"reminders",timers:[]});
+        expect(c.f.session.connectorBearer).toHaveBeenCalledWith({signal:c.options.signal});
+        expect(c.request.mock.calls[0]).toEqual([`https://cp.example.test/v1/next/collections/${c.options.scope.collection}/background-grants/${c.consent.grants[0]!.grantId}/timers/reminders`,expect.objectContaining({method:"GET",credentials:"omit",redirect:"error"})]);
+        expect(Object.keys(opened).sort()).toEqual(["close","port"]);api.close();await opened.close();await c.host.close();
+    });
+    it.each(["declined","other_collection","worker","wrong_scope"])("native timer constructor refuses %s without a credential loan",async variant=>{
+        const c=await timerFixture();
+        if(variant==="declined")c.consent.approved=false;
+        if(variant==="other_collection")c.consent.grants[0]!.collectionId="88888888-8888-4888-8888-888888888888";
+        if(variant==="worker")vi.stubGlobal("WorkerGlobalScope",undefined);
+        if(variant==="wrong_scope")c.timerOptions.scope={...c.options.scope,collection:"88888888-8888-4888-8888-888888888888"};
+        if(variant==="declined"||variant==="other_collection")expect(c.host.openTimersPort(c.timerOptions)).toBeNull();
+        else expect(()=>c.host.openTimersPort(c.timerOptions)).toThrow("binding");
+        expect(c.request).not.toHaveBeenCalled();expect(c.f.session.connectorBearer).not.toHaveBeenCalled();await c.host.close();
+    });
+    it("fences old timer port on fresh consent and drains actual IPC/HTTP BEFORE native host stop",async()=>{
+        const c=await timerFixture();let deliver!:(response:Response)=>void;
+        c.request.mockImplementation(async()=>new Promise(resolve=>{deliver=resolve;}));
+        const opened=c.host.openTimersPort(c.timerOptions)!,api=new TimersApi(appTimerPortClient(opened.port,c.timerOptions,{signal:c.child.signal,onClose:()=>{}}));
+        const list=api.list("reminders");await vi.waitFor(()=>expect(c.request).toHaveBeenCalledOnce());
+        const rejected=expect(list).rejects.toMatchObject({code:"cancelled"});
+        const close=c.host.close();await rejected;expect(c.f.runtime.close).not.toHaveBeenCalled();
+        deliver(Response.json({namespace:"reminders",timers:[]}));await close;expect(c.f.runtime.close).toHaveBeenCalledOnce();api.close();
+    });
+    it("never adopts a changed declaration/grant snapshot into an existing port",async()=>{
+        const c=await timerFixture(),opened=c.host.openTimersPort(c.timerOptions)!;
+        const api=new TimersApi(appTimerPortClient(opened.port,c.timerOptions,{signal:c.child.signal,onClose:()=>{}}));
+        c.consent.grants[0]!.grantId="88888888-8888-4888-8888-888888888888";
+        await expect(api.list("reminders")).rejects.toMatchObject({code:"unauthenticated"});expect(c.request).not.toHaveBeenCalled();
+        api.close();await opened.close();await c.host.close();
+    });
+    it("people metadata requires adopted collection and an already pinned CP transport", async () => {
+        const c = await collectionFixture();
+        expect(() => c.host.peopleAuthority()).toThrow("fenced");
+        await c.host.bootstrapCloudCopy(c.options);
+        expect(() => c.host.peopleAuthority()).toThrow("binding");
+        await c.host.close();
+        const r = await readableFixture();
+        expect(() => r.host.peopleAuthority()).toThrow("binding");
+        await r.host.startCollectionLog({ signal: r.options.signal });
+        expect(r.host.peopleAuthority().collection).toBe(r.options.scope.collection);
+        await r.host.close();
+    });
+    it("people factory exposes only one frozen read-only view using the original CP credential and transport", async () => {
+        const c = await readableFixture();
+        const request = vi.fn(async () => Response.json({ issuer: c.f.session.cpOrigin, subject: c.f.session.accountId, name: "Person" }));
+        await c.host.startCollectionLog({ signal: c.options.signal, fetch: request });
+        const metadata = c.host.peopleAuthority();
+        expect(c.host.peopleAuthority()).toBe(metadata);
+        expect(Object.isFrozen(metadata)).toBe(true);
+        expect(Object.keys(metadata).sort()).toEqual(["collection", "isCurrent", "request"]);
+        expect(Object.getPrototypeOf(metadata)).toBe(Object.prototype);
+        expect(await metadata.request("identity")).toMatchObject({ subject: c.f.session.accountId });
+        expect(c.f.session.connectorBearer).toHaveBeenCalledWith({ signal: c.options.signal });
+        expect(request).toHaveBeenCalledWith(
+            `${c.f.session.cpOrigin}/v1/authorities/${c.options.scope.collection}/identity?device_id=${c.f.session.deviceId}`,
+            expect.objectContaining({ method: "GET", headers: { authorization: "Bearer ct_fixture-bearer" }, credentials: "omit", redirect: "error" }),
+        );
+        await c.host.close();
+        expect(metadata.isCurrent()).toBe(false);
+        await expect(metadata.request("members")).rejects.toMatchObject({ code: "unauthenticated" });
+        expect(() => c.host.peopleAuthority()).toThrow("fenced");
+        expect(request).toHaveBeenCalledTimes(1);
+    });
+    it.each(["collection", "session", "ownership", "origin", "outcome"] as const)("people view refuses %s lifetime drift before HTTP", async (drift) => {
+        const c = await readableFixture();
+        const request = vi.fn(async () => Response.json({}));
+        await c.host.startCollectionLog({ signal: c.options.signal, fetch: request });
+        const metadata = c.host.peopleAuthority();
+        switch (drift) {
+            case "collection": c.options.scope.collection = "33333333-3333-3333-3333-333333333333"; break;
+            case "session": c.f.session.isCurrent = () => true; break;
+            case "ownership": c.f.installation.isCurrent = () => true; break;
+            case "origin": vi.stubGlobal("location", { origin: "https://other.example.test" }); break;
+            case "outcome": c.store.close(); break;
+        }
+        expect(metadata.isCurrent()).toBe(false);
+        await expect(metadata.request("identity")).rejects.toMatchObject({ code: "unauthenticated" });
+        expect(request).not.toHaveBeenCalled();
+        await c.host.close();
+    });
+    it("host close aborts people HTTP before native drain and refuses a late reply", async () => {
+        const c = await readableFixture();
+        let deliver!: (response: Response) => void;
+        let httpSignal: AbortSignal | undefined;
+        const request = vi.fn((_input: string | URL | Request, init?: RequestInit) => {
+            httpSignal = init?.signal ?? undefined;
+            return new Promise<Response>(resolve => { deliver = resolve; });
+        });
+        await c.host.startCollectionLog({ signal: c.options.signal, fetch: request });
+        const metadata = c.host.peopleAuthority();
+        const pending = metadata.request("identity");
+        const rejected = expect(pending).rejects.toMatchObject({ code: "unauthenticated" });
+        await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+        let drained!: () => void;
+        c.f.runtime.close.mockImplementationOnce(() => {
+            c.f.calls.push("native-close");
+            return new Promise<boolean>(resolve => { drained = () => resolve(true); });
+        });
+        const closing = c.host.close();
+        expect(httpSignal?.aborted).toBe(true);
+        expect(c.sqlClose).not.toHaveBeenCalled();
+        deliver(Response.json({ issuer: c.f.session.cpOrigin, subject: c.f.session.accountId, name: "Late" }));
+        await rejected;
+        drained();
+        await closing;
+        expect(c.f.calls.indexOf("native-close")).toBeLessThan(c.f.calls.indexOf("sql-close"));
+    });
+    it("late people reply cannot cross a changed collection lifetime", async () => {
+        const c = await readableFixture();
+        const request = vi.fn(async () => {
+            c.options.scope.collection = "33333333-3333-3333-3333-333333333333";
+            return Response.json({ issuer: c.f.session.cpOrigin, subject: c.f.session.accountId, name: "Late" });
+        });
+        await c.host.startCollectionLog({ signal: c.options.signal, fetch: request });
+        await expect(c.host.peopleAuthority().request("identity")).rejects.toMatchObject({ code: "unauthenticated" });
+        await c.host.close();
+    });
     it("cannot run SQL loader before protected bootstrap completion", async () => {
         const c = await collectionFixture(),
             openSql = vi.fn();
@@ -385,12 +655,13 @@ describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual 
         expect(openSql).not.toHaveBeenCalled();
         await c.host.close();
     });
-    it("SQL callback sees exact frozen original scope/signal; native shuts down before SQL close", async () => {
+    it("SQL callback sees frozen original scope and composed signal; native shuts down before SQL close", async () => {
         const c = await readableFixture();
         expect(c.openSql).toHaveBeenCalledWith({
             scope: c.options.scope,
-            signal: c.options.signal,
+            signal: expect.any(AbortSignal),
         });
+        expect(c.openSql.mock.calls[0]![0].signal.aborted).toBe(false);
         expect(Object.isFrozen(c.openSql.mock.calls[0]![0]?.scope)).toBe(true);
         await c.host.close();
         expect(c.f.calls.indexOf("native-close")).toBeLessThan(
@@ -447,7 +718,7 @@ describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual 
             reconnect: false,
             app: { name: "app-local-read-gate" },
         });
-        c.host.attachDataFacade(c.channel);
+        expect(c.host.attachDataFacade(c.channel)).toBe(c.facade.resourceSetup);
         expect(c.attach).toHaveBeenCalledTimes(1);
         expect(() => c.host.attachDataFacade(c.channel)).toThrow();
         await c.host.close();
@@ -644,7 +915,7 @@ describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual 
         expect(c.store.close).toHaveBeenCalledTimes(1);
         expect(c.f.runtime.close).toHaveBeenCalledTimes(1);
     });
-    it("outcome versionchange and signal replacement cannot authorize SQL adoption", async () => {
+    it("new caller signals retain the original private bootstrap signal during SQL adoption", async () => {
         const c = await collectionFixture();
         await c.host.bootstrapCloudCopy(c.options);
         const sql = { import: vi.fn(), fence: vi.fn(), needsRecovery: false },
@@ -656,16 +927,18 @@ describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual 
                 sqliteVersion: 3053004,
                 cloudCopyOptIn: true as const,
             };
-        expect(() => c.host.adoptCloudCopy(options, sql)).toThrow();
-        c.store.close();
-        expect(() =>
-            c.host.adoptCloudCopy(
-                { ...options, signal: c.options.signal },
-                sql,
-            ),
-        ).toThrow();
-        expect(c.adopt).not.toHaveBeenCalled();
+        c.host.adoptCloudCopy(options, sql);
+        expect(c.adopt).toHaveBeenCalledOnce();
+        expect(c.adopt.mock.calls[0]![0].signal).toBe(c.bootstrap.mock.calls[0]![0].signal);
+        expect(c.adopt.mock.calls[0]![0].signal).not.toBe(options.signal);
         await c.host.close();
+    });
+    it("outcome versionchange still refuses SQL adoption with any caller signal", async () => {
+        const c = await collectionFixture(); await c.host.bootstrapCloudCopy(c.options); c.store.close();
+        expect(() => c.host.adoptCloudCopy({signal: new AbortController().signal,
+            replicaId: c.f.receipt.deviceId, endpoint: 37, opened: "fresh", sqliteVersion: 3053004, cloudCopyOptIn: true},
+            {import: vi.fn(), fence: vi.fn(), needsRecovery: false})).toThrow();
+        expect(c.adopt).not.toHaveBeenCalled(); await c.host.close();
     });
 });
 describe("production web host device composition ordering (platform/native/CP stand-ins)", () => {

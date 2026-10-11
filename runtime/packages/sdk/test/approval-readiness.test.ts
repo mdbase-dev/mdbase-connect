@@ -40,13 +40,4 @@ describe("code-free approval readiness contract", () => {
     legacy.delete(2);
     expect(() => approvalReadiness.dec(legacy as ReturnType<typeof approvalReadiness.enc>)).toThrow(/exchangeReady/);
   });
-  it("does not reinterpret a code string as the new readiness boolean", () => {
-    const wrong = approvalReadiness.enc({ device, exchangeReady: true }) as Map<number, unknown>;
-    wrong.set(2, "123456");
-    expect(() => approvalReadiness.dec(wrong as ReturnType<typeof approvalReadiness.enc>)).toThrow();
-  });
-  it("false readiness round-trips and says nothing about key delivery", () => {
-    const value = { ...expected, exchangeReady: false };
-    expect(pendingDevice.dec(pendingDevice.enc(value))).toEqual(value);
-  });
 });

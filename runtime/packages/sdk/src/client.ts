@@ -14,13 +14,20 @@
  */
 import { Float64, type CborValue } from "./cbor.js";
 import { encodeAppBasesRequest, decodeAppBasesResult, type AppBasesRequest, type AppBasesResult, encodeAppBasesDiscoveryRequest, decodeAppBasesDiscoveryResult, encodeAppBasesSourceRequest, decodeAppBasesSourceResult, type AppBasesDiscoveryRequest, type AppBasesDiscoveryResult, type AppBasesSourceRequest, type AppBasesSourceResult } from "./app-host/bases-wire.js";
+import { appBasesPages, type AppBasesPagesOptions } from "./app-host/bases-pages.js";
 import { list, uint, uuid as uuidCodec } from "./codec.js";
+import {recordValidations, captureValidation, bindValidation, type RecordValidation} from "./validation.js";
 import { isMdbaseError, mdbaseError, MdbaseError } from "./errors.js";
 import { FilesApi } from "./files.js";
+import { readMany as readManyRecords, queryPages as readQueryPages, type ReadManyOptions } from "./read-helpers.js";
+import {RecordsApi, type Records, type RecordOpenOptions, type RecordLease} from "./records.js";
+import {createViewSource, updateViewSource, readViewSourceRecord, type ViewSourceCreateInput, type ViewSourceWriteOptions, type ViewSourceReadOptions} from "./view-sources.js";
+import { contractRecordWire, contractWritePlan, type ContractRecordView, type ContractSelector, type ContractWritePlan } from "./contract-records.js";
+import { contractQueryResult, type ContractQueryOptions, type ContractQueryResult, type ContractRef } from "./contract-query.js";
 import { LiveListener, LiveQueryState, LiveResult } from "./live.js";
 import { PresenceApi } from "./presence.js";
 import { rememberWitness, witnessesFor } from "./witness.js";
-import { API_VERSIONS, problemCodec, schemaToError, Session } from "./session.js";
+import { API_VERSIONS, problemCodec, schemaToError, Session, withMutation } from "./session.js";
 import type { Connector } from "./transport/port.js";
 import { usesNextRelayFence } from "./transport/read-fence-policy.js";
 import { diffEdits, PlainValue, revisionOf, toFmMap, toValue, uuidv7, valueEquals } from "./values.js";
@@ -38,6 +45,7 @@ import {
   backlinksResult,
   DescribeResult,
   describeResult,
+  newTypeFile,
   DescribeTypingResult,
   describeTypingResult,
   DESCRIBE_TYPING_MAX_PATHS,
@@ -111,6 +119,20 @@ export interface ClientOptions {
   signal?: AbortSignal;
 }
 
+/** A type created by {@link MdbaseClient.createType}. */
+export interface TypeCreation {
+  name: string;
+  path: string;
+  /** The create-only resource write; its receipt settles the creation. */
+  write: Write;
+}
+
+export interface DescribeOptions {
+  /** Include type definitions/schemas and contract schemas. */
+  definitions?: boolean;
+  signal?: AbortSignal;
+}
+
 /** The link between this client and its replica (not the replica's sync state). */
 export type LinkState = "open" | "reconnecting" | "closed";
 
@@ -166,7 +188,7 @@ export interface PagesOptions {
   onReset?: (reset: PagesReset) => void | Promise<void>;
 }
 
-export type RecordRef = Uuid | { path: string } | RecordView;
+export type RecordRef = Uuid | { path: string } | RecordView | ContractRecordView;
 
 function refValue(ref: RecordRef): CborValue {
   if (typeof ref === "string") return uuidCodec.enc(ref);
@@ -204,6 +226,13 @@ export interface CreateInput {
   body?: string;
   /** Complete source instead of frontmatter + body. */
   document?: string;
+  /**
+   * Create through a record contract: `frontmatter` holds contract fields, which
+   * the replica maps to the implementing type's record fields (and sets `type`).
+   * Unmapped contract fields and an invalid resulting view are refused before
+   * anything is submitted. Not with `document`.
+   */
+  contract?: ContractSelector;
 }
 
 export interface UpdateInput {
@@ -218,6 +247,23 @@ export interface UpdateInput {
   bodyBase?: string;
   /** Opt-in whole-document CAS. */
   ifRevision?: string;
+  /**
+   * Update through a record contract: `patch` and `unset` name contract fields,
+   * mapped by the replica to record fields (nested record fields are merged with
+   * the current record, sending their observed values as `base`). The record
+   * must implement the contract. `patch`, `unset`, the body options and `ifRevision`
+   * apply, in one atomic update.
+   */
+  contract?: ContractSelector;
+  /**
+   * With `contract`: an untyped record (no type membership) first takes the
+   * selected implementing type through the collection's explicit type key, in
+   * the same atomic update; its ID, body and other fields are kept. A record
+   * that already implements the contract is updated as usual; one with other
+   * types is refused (`invalid_request`/`data_contract_promote_typed`). Older
+   * replicas refuse the option with `invalid_request`.
+   */
+  promote?: boolean;
 }
 
 export interface WriteOptions {
@@ -301,7 +347,7 @@ export class Write {
         code: r.state === "unknown" ? "outcome_unknown" : "internal",
         recovery: r.state === "unknown" ? "resolve_outcome" : "contact_support",
         message: `mutation ${r.state}`,
-      });
+      }, { mutationId: r.mutation });
       this.settle.reject(error);
       this.settlePublished.reject(error);
     } else {
@@ -433,9 +479,9 @@ export type FenceHandler = (
 
 /** Collection data reads, not status/receipts/writes or historical proof probes. */
 const READ_METHODS = new Set([
-  "get", "query", "subscribe", "changes", "backlinks", "list_resources", "get_resource", "execute_view",
+  "get", "query", "query_contract_v1", "subscribe", "changes", "backlinks", "list_resources", "get_resource", "execute_view",
   "list_views", "read_view_source", "describe", "describe_typing", "list_files", "get_file", "read_file",
-  "list_holds", "list_conflicts", "validate",
+  "list_holds", "list_conflicts", "validate", "new_type_file", "get_contract_v1", "map_contract_write_v1",
 ]);
 
 export class MdbaseClient {
@@ -558,6 +604,7 @@ export class MdbaseClient {
 
   close(): void {
     this.closing = true;
+    this.recordSessions.dispose();
     this.session?.close();
     this.setLink("closed");
     for (const w of this.reconnectWaiters.splice(0)) w();
@@ -941,9 +988,45 @@ export class MdbaseClient {
 
   // ---------------------------------------------------------------- reads (§4)
 
-  /** Catalog summary: types with their contract implementations, contracts, settings (§4.4). */
-  describe(signal?: AbortSignal): Promise<DescribeResult> {
-    return this.call("describe", null, { codec: describeResult, retry: true, ...(signal ? { signal } : {}) });
+  /**
+   * Catalog summary: types with their version, source revision and contract
+   * implementations, contracts, settings (§4.4). `definitions` adds each type's
+   * definition and schema and each contract's schemas, bounded by the replica
+   * (`too_large` when over budget; read them with `resources.get` instead).
+   * A producer that cannot describe definitions fails `upgrade_required`.
+   */
+  async describe(options: AbortSignal | DescribeOptions = {}): Promise<DescribeResult> {
+    const o: DescribeOptions = options instanceof AbortSignal ? { signal: options } : options;
+    const result = await this.call("describe", o.definitions ? params([[0, true]]) : null, {
+      codec: describeResult,
+      retry: true,
+      ...(o.signal ? { signal: o.signal } : {}),
+    });
+    if (o.definitions && (result.types.some((t) => t.definition === undefined) || result.contracts.some((c) => c.schemas === undefined))) {
+      throw mdbaseError("upgrade_required", "this replica does not describe definitions", "describe_definitions_unsupported");
+    }
+    return result;
+  }
+
+  /**
+   * Create a type from its complete type-file `document`. The replica's Core
+   * derives the name and path (`<types_folder>/<name>.md`) from the local
+   * catalog, then the document is written create-only there, so a concurrent
+   * creator loses with `conflict`. Refusals: `invalid_record` /
+   * `invalid_type_definition` (unusable name, or the definition is invalid
+   * when written), `conflict` / `type_conflict` (the name exists under any
+   * casing) or `path_taken`, and `forbidden` without `definitions.manage`.
+   * Update a type with `resources.put(path, document, { baseRevision })`,
+   * using the path and revision from {@link describe}.
+   */
+  async createType(document: string, o: WriteOptions = {}): Promise<TypeCreation> {
+    const { name, path } = await this.call("new_type_file", params([[0, document]]), {
+      codec: newTypeFile,
+      retry: true,
+      ...(o.signal ? { signal: o.signal } : {}),
+    });
+    const write = await this.resources.put(path, document, { ...o, mustNotExist: true });
+    return { name, path, write };
   }
 
   /**
@@ -979,6 +1062,63 @@ export class MdbaseClient {
     );
   }
 
+  /**
+   * One record's valid view through a record contract, mapped by the replica's
+   * Core. Refusals: `not_found` (no record, or `data_contract_not_implemented`
+   * when it does not implement the contract), `not_found`/`data_contract_not_found`,
+   * `invalid_request`/`data_contract_ambiguous` (select `type`; details: the types),
+   * `invalid_record`/`data_contract_record_invalid` (with issues), and
+   * `upgrade_required`/`contract_records_unsupported` from an older replica.
+   */
+  async getContract(ref: RecordRef, contract: ContractSelector, signal?: AbortSignal): Promise<ContractRecordView> {
+    const r = await this.contractCall("get_contract_v1", params([
+      [0, 1], [1, refValue(ref)], [2, contract.id], [3, contract.version], [4, contract.type],
+    ]), contractRecordWire, signal);
+    if (r.version !== 1) throw mdbaseError("upgrade_required", "unsupported contract record", "contract_records_unsupported");
+    return {
+      id: r.id, path: r.path, revision: r.revision, fields: r.fields,
+      contract: { id: contract.id, version: contract.version, digest: r.contractDigest, type: r.type, implementationDigest: r.implementationDigest },
+    };
+  }
+
+  /** @internal Contract fields as ordinary record changes, mapped by the replica. */
+  private async contractPlan(
+    contract: ContractSelector,
+    target: RecordRef | undefined,
+    fields: Map<string, CborValue> | undefined,
+    unset: string[] | undefined,
+    signal: AbortSignal | undefined,
+    promote = false,
+  ): Promise<ContractWritePlan> {
+    const plan = await this.contractCall("map_contract_write_v1", params([
+      [0, 1], [1, contract.id], [2, contract.version], [3, contract.type],
+      [4, target === undefined ? undefined : refValue(target)], [5, fields], [6, unset?.length ? unset : undefined],
+      [7, promote ? true : undefined],
+    ]), contractWritePlan, signal);
+    if (plan.version !== 1) throw mdbaseError("upgrade_required", "unsupported contract write plan", "contract_records_unsupported");
+    return plan;
+  }
+
+  private contractCall<T>(method: string, p: CborValue, codec: import("./codec.js").Codec<T>, signal?: AbortSignal): Promise<T> {
+    return this.call(method, p, { codec, retry: true, ...(signal ? { signal } : {}) }).catch((e: unknown) => {
+      if (isMdbaseError(e, "invalid_request") && e.reason === "unknown_method") {
+        throw mdbaseError("upgrade_required", "this replica does not serve contract-scoped records", "contract_records_unsupported");
+      }
+      throw e;
+    });
+  }
+
+  /** Bounded ordered ordinary gets. Missing/refused reads fail the batch;
+   * duplicate slots and the original signal are retained, not a snapshot. */
+  readMany(
+    refs: readonly RecordRef[],
+    include?: Include,
+    signal?: AbortSignal,
+    options: ReadManyOptions = {},
+  ): Promise<RecordView[]> {
+    return readManyRecords(this, refs, include, signal, options);
+  }
+
   /** One record, or `null` when there is none. */
   async find(ref: RecordRef, include?: Include, signal?: AbortSignal): Promise<RecordView | null> {
     try {
@@ -1006,6 +1146,22 @@ export class MdbaseClient {
       ]),
       { codec: queryResult, retry: true, ...(signal ? { signal } : {}) },
     );
+  }
+
+  /** Canonical contract projections with validation issues and ordinary cursor
+   * metadata. Old producers refuse; there is no SDK projection fallback. */
+  async queryContract(contract: ContractRef, options: ContractQueryOptions = {}): Promise<ContractQueryResult> {
+    const limit = options.pageSize ?? 128;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 128 || !contract.id || contract.id.length > 1024 || !contract.version || contract.version.length > 128
+      || (options.where !== undefined && (!options.where || options.where.length > 4096)))
+      throw mdbaseError("invalid_request", "invalid contract page selection");
+    const result = await this.call("query_contract_v1", params([
+      [0, 1], [1, contract.id], [2, contract.version], [3, limit], [4, options.cursor], [5, options.where],
+    ]), { codec: contractQueryResult, retry: true, ...(options.signal ? { signal: options.signal } : {}) });
+    if (result.version !== 1) throw mdbaseError("upgrade_required", "unsupported contract query result", "contract_query_version");
+    if (result.records.length !== result.page.records.length || result.records.some((record, i) => record.id !== result.page.records[i]?.id))
+      throw mdbaseError("unavailable", "invalid contract query record binding", "contract_query_response");
+    return result;
   }
 
   /** Records whose links resolve to `target` (index-backed, §4.2). */
@@ -1071,8 +1227,19 @@ export class MdbaseClient {
       this.one({ kind: "resource_delete", path, ...(o.baseRevision ? { baseRevision: o.baseRevision } : {}) }, o),
   };
 
-  /** Saved views (§4.3). Write view sources with ordinary record ops. */
+  /** Shared native record editor leases; no app-specific record index. */
+  private readonly recordSessions = new RecordsApi(this);
+  readonly records: Records = Object.freeze({open: (ref:RecordRef, options?:RecordOpenOptions):Promise<RecordLease> => this.recordSessions.open(ref,options)});
+
+  /** Saved views (§4.3). Source helpers use ordinary record ops/full CAS reads;
+   * web app-host Bases reads use the separate native AppBases methods. */
   readonly views = {
+    createSource: (input: ViewSourceCreateInput, options: ViewSourceWriteOptions): Promise<Write> =>
+      createViewSource(this, input, options),
+    updateSource: (seen: RecordView, document: string, options: ViewSourceWriteOptions): Promise<Write> =>
+      updateViewSource(this, seen, document, options),
+    getSourceRecord: (source: RecordRef, options: ViewSourceReadOptions = {}): Promise<RecordView> =>
+      readViewSourceRecord(this, source, options),
     list: (folder?: string, signal?: AbortSignal) =>
       this.call("list_views", params([[0, folder]]), { codec: listViewsResult, retry: true, ...(signal ? { signal } : {}) }),
     execute: (
@@ -1102,8 +1269,10 @@ export class MdbaseClient {
   };
 
   /**
-   * This session's pending mutations, oldest first (§6): recover after a reload, then
-   * follow each with `awaitReceipt`. Pages through everything.
+   * Pending mutations of this session's owner (its grant, or the device), oldest
+   * first (§6): a new session after a reload sees writes made before it. Follow
+   * each with `awaitReceipt`, or keep the `mutationId` you chose and call
+   * `receipt(id)` / `awaitReceipt(id)`. Pages through everything.
    */
   async pendingWrites(signal?: AbortSignal): Promise<PendingMutation[]> {
     const out: PendingMutation[] = [];
@@ -1169,6 +1338,16 @@ export class MdbaseClient {
       if (!page.cursor) return;
       cursor = page.cursor;
     }
+  }
+
+  /** Shared alias of pages(): whole native pages, no implicit cursor reset. */
+  queryPages(
+    query: Query,
+    include?: Include,
+    signal?: AbortSignal,
+    options: PagesOptions = {},
+  ): AsyncGenerator<QueryResult> {
+    return readQueryPages(this, query, include, signal, options);
   }
 
   /**
@@ -1354,8 +1533,14 @@ export class MdbaseClient {
     return Object.freeze(watch) as ChangesWatch;
   }
 
-  validate(refs?: RecordRef[], signal?: AbortSignal): Promise<CborValue> {
-    return this.call("validate", params([[0, refs?.map(refValue)]]), { retry: true, ...(signal ? { signal } : {}) });
+  async validate(refs?: readonly RecordRef[], signal?: AbortSignal): Promise<RecordValidation[]> {
+    signal?.throwIfAborted();
+    const {targets,expected}=captureValidation(refs);
+    const result = await this.call("validate", params([[0, targets]]), {
+      codec: recordValidations, retry: true, ...(signal ? { signal } : {}),
+    });
+    signal?.throwIfAborted();
+    return bindValidation(result,expected);
   }
 
   /** Independent native app-host Bases READ, exact original held session.
@@ -1368,6 +1553,13 @@ export class MdbaseClient {
     if (session !== this.session || session.closed || this.readFencedAt !== null) throw mdbaseError("unavailable", "original Bases session is no longer current");
     try { return decodeAppBasesResult(reply, window); }
     catch (error) { throw schemaToError(error, "app Bases result"); }
+  }
+
+  /** All rows of a saved view, page by page over native windows (prod
+   * `executeViewPages`). Each page is an independent READ; `changedSinceFirst`
+   * marks pages taken after the collection changed. */
+  executeAppBasesPages(request: AppBasesRequest, options: AppBasesPagesOptions = {}) {
+    return appBasesPages((r, signal) => this.executeAppBases(r, signal), request, options);
   }
 
   /** One bounded native discovery page. Empty views do not mean EOF when a
@@ -1419,11 +1611,19 @@ export class MdbaseClient {
     if (o.include) p.include = o.include;
     if (o.wait) p.wait = o.wait;
     // Idempotent by mutation ID: safe to resubmit after a dropped link.
-    const receipts = await this.call("submit", submitParams.enc(p), {
-      codec: submitResult,
-      retry: true,
-      ...(o.signal ? { signal: o.signal } : {}),
-    });
+    let receipts: Receipt[];
+    try {
+      receipts = await this.call("submit", submitParams.enc(p), {
+        codec: submitResult,
+        retry: true,
+        ...(o.signal ? { signal: o.signal } : {}),
+      });
+    } catch (e) {
+      // A dry run captures nothing. Otherwise the request may have been captured
+      // whatever the code says: report the original identity, never a new one.
+      if (o.dryRun) throw e;
+      throw withMutation(e, "submit", p.mutationIds ? { mutationIds: p.mutationIds } : { mutationId: p.mutationId! });
+    }
     return receipts.map((r) => (o.dryRun ? new Write(r) : this._track(r)));
   }
 
@@ -1434,6 +1634,7 @@ export class MdbaseClient {
 
   /** Create a record. The ID is minted here, so the app can use it before confirmation. */
   create(input: CreateInput, o: WriteOptions = {}): Promise<Write> {
+    if (input.contract) return this.createThroughContract(input, input.contract, o);
     const op: Op = { kind: "create", id: input.id ?? uuidv7() };
     if (input.path !== undefined) op.path = input.path;
     if (input.type !== undefined) op.type = input.type;
@@ -1443,17 +1644,51 @@ export class MdbaseClient {
     return this.one(op, o);
   }
 
+  private async createThroughContract(input: CreateInput, contract: ContractSelector, o: WriteOptions): Promise<Write> {
+    if (input.document !== undefined) throw mdbaseError("invalid_request", "a contract create takes frontmatter fields, not a document");
+    if (input.type !== undefined && contract.type !== undefined && input.type.toLowerCase() !== contract.type.toLowerCase()) {
+      throw mdbaseError("invalid_request", "the create type and contract type must name the same type");
+    }
+    const selector = contract.type === undefined && input.type !== undefined ? { ...contract, type: input.type } : contract;
+    const plan = await this.contractPlan(selector, undefined, toFmMap(input.frontmatter ?? {}), undefined, o.signal);
+    const op: Op = { kind: "create", id: input.id ?? uuidv7(), type: plan.type, frontmatter: plan.patch };
+    if (input.path !== undefined) op.path = input.path;
+    if (input.body !== undefined) op.body = input.body;
+    return this.one(op, o);
+  }
+
   /**
    * Update a record by field-level intent. Pass the `RecordView` you edited from, and
    * the SDK sends `base` for every key you set or unset, and the body as a 3-way merge,
    * so concurrent edits merge instead of last-writer-wins.
    */
   update(target: RecordRef, changes: UpdateInput, o: WriteOptions = {}): Promise<Write> {
+    if (changes.contract) return this.updateThroughContract(target, changes, changes.contract, o);
     return this.one(this.updateOp(target, changes), o);
+  }
+
+  private async updateThroughContract(target: RecordRef, c: UpdateInput, contract: ContractSelector, o: WriteOptions): Promise<Write> {
+    if (c.add || c.remove) {
+      throw mdbaseError("invalid_request", "a contract update takes only patch, unset, body and ifRevision");
+    }
+    const plan = await this.contractPlan(contract, target, c.patch ? toFmMap(c.patch) : undefined, c.unset, o.signal, c.promote);
+    // The body is the record's own, not a contract field: it rides the same op.
+    const seen = typeof target === "object" && "frontmatter" in target ? target : plan.id!;
+    const body = this.updateOp(seen, { body: c.body, bodyEdits: c.bodyEdits, bodyBase: c.bodyBase });
+    const op: Op & { kind: "update" } = { kind: "update", id: plan.id! };
+    if (body.body !== undefined) op.body = body.body;
+    if (body.bodyEdits) op.bodyEdits = body.bodyEdits;
+    if (body.bodyBase !== undefined) op.bodyBase = body.bodyBase;
+    if (plan.patch.size) op.patch = plan.patch;
+    if (plan.unset.length) op.unset = plan.unset;
+    if (plan.base.length) op.base = plan.base;
+    if (c.ifRevision) op.ifRevision = c.ifRevision;
+    return this.one(op, o);
   }
 
   /** @internal Build an `update` op (exposed for batching with `submit`). */
   updateOp(target: RecordRef, c: UpdateInput): Op & { kind: "update" } {
+    if (c.contract || c.promote) throw mdbaseError("invalid_request", "contract updates are mapped by the replica; use update()");
     const op: Op & { kind: "update" } = { kind: "update", id: refId(target) };
     const seen = typeof target === "object" && "frontmatter" in target ? (target as RecordView) : null;
     if (c.patch) op.patch = toFmMap(c.patch);
@@ -1514,20 +1749,38 @@ export class MdbaseClient {
     return this.one(op, o);
   }
 
-  /** Delete a record. With a RecordView, a concurrent change supersedes the delete. */
-  delete(target: RecordRef, o: WriteOptions & { ifRevision?: string } = {}): Promise<Write> {
+  /**
+   * Delete a record. With a RecordView, a concurrent change supersedes the delete.
+   * With `contract`, the record must implement it; the delete is then bound to
+   * the revision checked, so a concurrent change supersedes it.
+   */
+  delete(target: RecordRef, o: WriteOptions & { ifRevision?: string; contract?: ContractSelector } = {}): Promise<Write> {
+    if (o.contract) {
+      const { contract, ...rest } = o;
+      return this.contractPlan(contract, target, undefined, undefined, o.signal).then((plan) => {
+        const op: Op = { kind: "delete", id: plan.id!, baseRevision: plan.revision! };
+        if (rest.ifRevision) op.ifRevision = rest.ifRevision;
+        return this.one(op, rest);
+      });
+    }
     const op: Op = { kind: "delete", id: refId(target) };
     if (typeof target === "object" && "revision" in target) op.baseRevision = (target as RecordView).revision;
     if (o.ifRevision) op.ifRevision = o.ifRevision;
     return this.one(op, o);
   }
 
-  /** Rename (move) a record; `updateRefs` rewrites links to it (default true). */
+  /** Rename (move) a record; `updateRefs` rewrites links to it (default true).
+   * With `contract`, the record must implement it, and moves from its current path. */
   rename(
-    target: RecordView,
+    target: RecordView | ContractRecordView,
     to: string,
-    o: WriteOptions & { updateRefs?: boolean; ifRevision?: string } = {},
+    o: WriteOptions & { updateRefs?: boolean; ifRevision?: string; contract?: ContractSelector } = {},
   ): Promise<Write> {
+    if (o.contract) {
+      const { contract, ...rest } = o;
+      return this.contractPlan(contract, target.id, undefined, undefined, o.signal).then((plan) =>
+        this.rename({ ...target, id: plan.id!, path: plan.path! } as RecordView, to, rest));
+    }
     const op: Op = { kind: "rename", id: target.id, from: target.path, to, updateRefs: o.updateRefs ?? true };
     if (o.ifRevision) op.ifRevision = o.ifRevision;
     return this.one(op, o);
@@ -1557,13 +1810,13 @@ export class MdbaseClient {
     return w;
   }
 
-  /** The current receipt of a mutation. */
+  /** The current receipt of a mutation. Failures carry `mutationId`. */
   receipt(mutation: Uuid, signal?: AbortSignal): Promise<Receipt> {
     return this.call("receipt", params([[0, uuidCodec.enc(mutation)]]), {
       codec: receiptCodec,
       retry: true,
       ...(signal ? { signal } : {}),
-    });
+    }).catch((e: unknown) => { throw withMutation(e, "receipt", { mutationId: mutation }); });
   }
 
   /** Resolves when the receipt leaves `pending`, or at `timeoutMs` with the pending receipt. */
@@ -1575,7 +1828,7 @@ export class MdbaseClient {
         [1, timeoutMs],
       ]),
       { codec: receiptCodec, retry: true, ...(signal ? { signal } : {}) },
-    );
+    ).catch((e: unknown) => { throw withMutation(e, "await", { mutationId: mutation }); });
   }
 
   // ---------------------------------------------------------------- holds and conflicts (§8)

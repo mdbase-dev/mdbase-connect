@@ -6,6 +6,7 @@ use mdbn_core::views::bases::{
     FileTimeAvailability, IncrementalBasesBudget, OrderingCapture, RuntimeValue, TypedSortRow,
     order_incremental_typed_rows, partition_incremental_typed_refs,
 };
+mod local;
 mod ownership;
 mod source;
 mod window;
@@ -145,16 +146,16 @@ impl<S: Store> Replica<S> {
         if let Some(window) = window {
             window.check()?;
         }
-        let fence = self.collection_setup_capture_fence(None)?;
+        let fence = self.bases_read_capture_fence()?;
         cancelled(check_cancelled)?;
         if !policies.inventory_ties {
             return Err(failure(EvaluationFailure::MetadataUnavailable(
                 "view_tie_order_not_captured",
             )));
         }
-        if !self.catalog.is_valid()
+        if !self.bases_read_catalog().is_valid()
             || !self
-                .catalog
+                .bases_read_catalog()
                 .contracts()
                 .iter()
                 .any(|c| c.id == BASES_CONTRACT)
@@ -227,7 +228,7 @@ impl<S: Store> Replica<S> {
         // source reads, never used/reset to capture the rest of the inventory.
         let mut source_budget = QueryBudget::new(2, 1 << 20);
         let source = self.indexed_bases_source(selection, &mut source_budget, &mut ledger)?;
-        self.recheck_collection_setup_capture(&fence)?;
+        self.recheck_bases_read_capture(&fence)?;
         let (document, footprint) = ledger
             .admit(|work| {
                 if !work.charge(source.doc.len() as u64, source.doc.len() as u64) {
@@ -250,7 +251,13 @@ impl<S: Store> Replica<S> {
                 if !work.charge(footprint.values, footprint.estimated_heap_bytes) {
                     return Err(work.failure().expect("source structure"));
                 }
-                discover_base_record(&self.catalog, &source.path, &document, &clock, work)
+                discover_base_record(
+                    self.bases_read_catalog(),
+                    &source.path,
+                    &document,
+                    &clock,
+                    work,
+                )
             })
             .map_err(failure)?
             .ok_or_else(invalid)?;
@@ -258,10 +265,7 @@ impl<S: Store> Replica<S> {
             .views
             .get(selection.index as usize)
             .ok_or_else(invalid)?;
-        if !matches!(
-            view.view_type,
-            "table" | "tasknotesTaskList" | "tasknotesKanban"
-        ) {
+        if !mdbn_core::views::bases::supports_host_renderer(view.view_type) {
             return Err(failure(EvaluationFailure::UnsupportedConstruct(
                 "bases_view_renderer",
             )));
@@ -342,7 +346,7 @@ impl<S: Store> Replica<S> {
         let mut after = None;
         loop {
             cancelled(check_cancelled)?;
-            self.recheck_collection_setup_capture(&fence)?;
+            self.recheck_bases_read_capture(&fence)?;
             if self.indexed_bases_state()? != snapshot {
                 return Err(invalid());
             }
@@ -379,6 +383,9 @@ impl<S: Store> Replica<S> {
             let more = page.has_more;
             for row in page.rows {
                 after = Some(row.id);
+                if self.layer.touches(&crate::convert::uuid(&row.id)) {
+                    continue;
+                }
                 let projected = ledger
                     .row(row.source_bytes, |work| {
                         let raw = ownership::fields(&requirements.fields, row.fields, work)?;
@@ -421,6 +428,68 @@ impl<S: Store> Replica<S> {
                 break;
             }
         }
+        // Confirmed projections never stand in for an overridden local record.
+        // Evaluate the real pending raw source in the same captured clock/meter.
+        for id in self.bases_pending_ids(&mut ledger)? {
+            cancelled(check_cancelled)?;
+            self.recheck_bases_read_capture(&fence)?;
+            let Some(row) = self.bases_pending_projection(
+                id,
+                &requirements.fields,
+                requirements.tags,
+                &mut ledger,
+            )?
+            else {
+                continue;
+            };
+            let projected = ledger
+                .row(row.source_bytes, |work| {
+                    let raw = ownership::fields(&requirements.fields, row.fields, work)?;
+                    let file =
+                        CapturedFile::new(&row.path, Some(row.source_bytes), None, None, work)?;
+                    let file = CapturedFileBindings::capture(&file, row.tags.as_deref(), work)?;
+                    let bindings = types
+                        .projected_bindings(&raw, work)?
+                        .with_clock(captured_clock)
+                        .with_file(file);
+                    if window.is_some() {
+                        plan.project_semantic(bindings, work, check_cancelled)
+                    } else {
+                        plan.project(bindings, work, check_cancelled)
+                    }
+                })
+                .map_err(failure)?;
+            if let Some(projected) = projected {
+                ledger
+                    .retain(
+                        row.path.len() as u64 + std::mem::size_of::<BasesExecutionRow>() as u64 + 8,
+                    )
+                    .map_err(failure)?;
+                staged.push((
+                    BasesExecutionRow {
+                        record: row.id,
+                        path: row.path,
+                        revision: row.source_sha,
+                        cells: Vec::new(),
+                    },
+                    projected,
+                    row.source_bytes,
+                ));
+            }
+        }
+        ledger
+            .admit(|work| {
+                let steps =
+                    staged.len() as u64 * (u64::from((staged.len() as u64 + 1).ilog2()) + 1);
+                if !work.charge(steps, 0) {
+                    return Err(work.failure().expect("local inventory order"));
+                }
+                Ok(())
+            })
+            .map_err(failure)?;
+        // UUIDs are unique after overriding confirmed identities. No scratch
+        // allocation is needed to restore the stable inventory tie order.
+        staged.sort_unstable_by_key(|(row, _, _)| row.record);
         cancelled(check_cancelled)?;
         let directions = plan.sort_directions();
         ledger
@@ -430,7 +499,7 @@ impl<S: Store> Replica<S> {
             .iter()
             .map(|(_, row, _)| TypedSortRow { keys: &row.sort })
             .collect::<Vec<_>>();
-        let order =
+        let mut order =
             order_incremental_typed_rows(&keys, &directions, policies.ordering, &mut ledger)
                 .map_err(failure)?;
         drop(keys);
@@ -469,6 +538,30 @@ impl<S: Store> Replica<S> {
                 });
             }
         }
+        if plan.has_summaries() {
+            // The existing reduction kernel independently bounds metadata to
+            // 1MiB; retain its input/output ownership in this request ledger.
+            ledger
+                .retain((mdbn_core::query::groups::MAX_BYTES * 4) as u64)
+                .map_err(failure)?;
+        }
+        let summaries = ledger
+            .admit(|work| {
+                plan.summarize(
+                    order.iter().map(|index| &staged[*index].1),
+                    &mdbn_core::query::QueryEnv {
+                        now_ms: clock.instant_ms,
+                        tz: clock.tz.clone(),
+                        today: clock.local_date.clone(),
+                    },
+                    work,
+                    check_cancelled,
+                )
+            })
+            .map_err(failure)?;
+        ledger
+            .admit(|work| super::run::apply_view_limit(&mut order, &mut groups, plan.limit(), work))
+            .map_err(failure)?;
         ledger
             .retain(
                 order.len() as u64 * std::mem::size_of::<BasesExecutionRow>() as u64
@@ -518,6 +611,7 @@ impl<S: Store> Replica<S> {
                 unavailable_columns: plan.unavailable_columns().collect(),
                 rows,
                 groups,
+                summaries,
             },
             &mut ledger,
         )?;
@@ -531,7 +625,7 @@ impl<S: Store> Replica<S> {
         {
             return Err(invalid());
         }
-        self.recheck_collection_setup_capture(&fence)?;
+        self.recheck_bases_read_capture(&fence)?;
         Ok(output)
     }
 }

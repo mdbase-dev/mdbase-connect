@@ -628,6 +628,71 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
         }
     }
 
+    /// Read ONLY the two declared original clear policy records in one readonly
+    /// transaction, reverify against configured trust and opaque initial caller.
+    /// No ACL/projection/cache/journal identity, writes, ciphertext or key lookup.
+    /// This is historical provenance, NOT current CP/phase/effect admission.
+    /// Raw backend replies are still untrusted; caps checked after each read (not
+    /// a transport cancellation/peak-allocation guarantee). Clock sampled after
+    /// awaits; caller must separately prove pins' admission and actual context.
+    pub async fn original_caller(
+        &self,
+        caller: &crate::auth::VerifiedCaller,
+        pins: &crate::policy::OriginalPins,
+        clock: impl Fn() -> i64,
+        budget: &Budget,
+    ) -> Result<crate::policy::OriginalCaller> {
+        let refuse = || ServiceError::invalid("original_identity");
+        if !self.config.roots.contains(&pins.root_pk)
+            || !self.config.token_issuers.contains(&pins.issuer_pk)
+            || caller.issuer_key() != pins.issuer_pk
+            || caller.transport_key() != pins.transport_pk
+            || pins.enrollment_sha256.is_some() != pins.enrollment_seq.is_some()
+            || pins.enrollment_seq == Some(0)
+        {
+            return Err(refuse());
+        }
+        let mut tx = self
+            .backend
+            .begin_with_budget(&pins.collection, Mode::Read, budget)
+            .await?;
+        let first = tx.items(0, 1, 128 * 1024, true).await?;
+        if first.len() != 1
+            || first[0].seq != 1
+            || first[0].kind != ItemKind::Policy.value()
+            || first[0].bytes.len() > 128 * 1024
+        {
+            return Err(refuse());
+        }
+        let enrollment = if let Some(seq) = pins.enrollment_seq {
+            if seq == 1 {
+                Some(first[0].bytes.clone())
+            } else {
+                let found = tx
+                    .items(seq - 1, 1, (128 * 1024 - first[0].bytes.len()) as u64, true)
+                    .await?;
+                if found.len() != 1
+                    || found[0].seq != seq
+                    || found[0].kind != ItemKind::Policy.value()
+                    || found[0].bytes.len() > 128 * 1024 - first[0].bytes.len()
+                {
+                    return Err(refuse());
+                }
+                Some(found[0].bytes.clone())
+            }
+        } else {
+            None
+        };
+        crate::policy::bind_original_caller(
+            caller,
+            pins,
+            &first[0].bytes,
+            enrollment.as_deref(),
+            clock(),
+            budget,
+        )
+    }
+
     /// A request view sharing backend/store/cache handles, never their counters.
     /// Projection decoders invoked by nested backend calls use this same budget.
     pub(crate) fn scoped(&self, budget: &Budget) -> Service<BudgetBackend<B>, O> {

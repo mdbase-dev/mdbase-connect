@@ -11,7 +11,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use mdbn_core::state::StateView;
-use mdbn_wire::client::{Change, ChangeKind, Include, QueryUpdate, UpdateKind};
+use mdbn_wire::client::{Change, ChangeEntity, ChangeKind, Include, QueryUpdate, UpdateKind};
 use mdbn_wire::common::{B16, Hash, Value};
 
 use super::Replica;
@@ -94,6 +94,7 @@ impl<S: Store> Replica<S> {
                             path: r.path,
                             kind: ChangeKind::Put,
                             version,
+                            entity: Some(ChangeEntity::Record),
                         }
                     } else if let Some(f) = lv.file(&cid) {
                         Change {
@@ -101,18 +102,24 @@ impl<S: Store> Replica<S> {
                             path: f.path,
                             kind: ChangeKind::Put,
                             version,
+                            entity: Some(ChangeEntity::File),
                         }
                     } else {
-                        let path = match lv.tombstone(&cid) {
-                            Some(mdbn_core::state::Tombstone::Record { path, .. })
-                            | Some(mdbn_core::state::Tombstone::File { path, .. }) => path,
-                            None => String::new(),
+                        let (path, entity) = match lv.tombstone(&cid) {
+                            Some(mdbn_core::state::Tombstone::Record { path, .. }) => {
+                                (path, Some(ChangeEntity::Record))
+                            }
+                            Some(mdbn_core::state::Tombstone::File { path, .. }) => {
+                                (path, Some(ChangeEntity::File))
+                            }
+                            None => (String::new(), None),
                         };
                         Change {
                             id: *id,
                             path,
                             kind: ChangeKind::Remove,
                             version,
+                            entity,
                         }
                     }
                 })

@@ -46,6 +46,12 @@ struct Disk {
     publish_attempts: u64,
     max_pending: u64,
     pending_rows_read: u64,
+    source_paused: bool,
+    current_paused: bool,
+    complete_paused: bool,
+    source_started: Vec<ObservationId>,
+    current_started: Vec<ObservationId>,
+    complete_started: u64,
 }
 
 fn h(s: &str) -> Hash {
@@ -180,6 +186,96 @@ impl Store for DiskStore {
     }
     fn resources(&self) -> StoreResult<Vec<(String, String)>> {
         self.inner.resources()
+    }
+    fn resource_paths_page(&self, p: ResourcePathPage<'_>) -> StoreResult<Vec<String>> {
+        self.inner.resource_paths_page(p)
+    }
+    fn resource_bounded(&self, p: &str, limit: usize) -> StoreResult<Option<BoundedResource>> {
+        self.inner.resource_bounded(p, limit)
+    }
+    fn resource_observation_batch_complete(
+        &self,
+        _observations: &[Observation],
+    ) -> StoreResult<bool> {
+        // This toy backend returns the complete queued observation set, never a prefix.
+        Ok(true)
+    }
+    fn resource_observation_batch_complete_async<'a>(
+        &'a self,
+        observations: &'a [Observation],
+    ) -> StoreFuture<'a, bool> {
+        Box::pin(async move {
+            self.disk.borrow_mut().complete_started += 1;
+            std::future::poll_fn(|_| {
+                if self.disk.borrow().complete_paused {
+                    std::task::Poll::Pending
+                } else {
+                    std::task::Poll::Ready(())
+                }
+            })
+            .await;
+            self.resource_observation_batch_complete(observations)
+        })
+    }
+    fn resource_observation_current_async<'a>(
+        &'a mut self,
+        o: &'a Observation,
+    ) -> StoreFuture<'a, bool> {
+        Box::pin(async move {
+            self.disk.borrow_mut().current_started.push(o.token);
+            std::future::poll_fn(|_| {
+                if self.disk.borrow().current_paused {
+                    std::task::Poll::Pending
+                } else {
+                    std::task::Poll::Ready(())
+                }
+            })
+            .await;
+            self.resource_observation_current(o)
+        })
+    }
+    fn resource_observation_text_async<'a>(
+        &'a mut self,
+        o: &'a Observation,
+        limit: usize,
+    ) -> StoreFuture<'a, Option<String>> {
+        Box::pin(async move {
+            self.disk.borrow_mut().source_started.push(o.token);
+            std::future::poll_fn(|_| {
+                if self.disk.borrow().source_paused {
+                    std::task::Poll::Pending
+                } else {
+                    std::task::Poll::Ready(())
+                }
+            })
+            .await;
+            self.resource_observation_text(o, limit)
+        })
+    }
+    fn resource_observation_current(&mut self, o: &Observation) -> StoreResult<bool> {
+        let d = self.disk.borrow();
+        Ok(match &o.now {
+            Some(Observed::Text(text)) => d.files.get(&o.path) == Some(text),
+            None => !d.files.contains_key(&o.path),
+            _ => false,
+        })
+    }
+    fn resource_observation_text(
+        &mut self,
+        o: &Observation,
+        limit: usize,
+    ) -> StoreResult<Option<String>> {
+        let d = self.disk.borrow();
+        let Some(current) = d.files.get(&o.path) else {
+            return Ok(None);
+        };
+        let Some(Observed::Text(observed)) = &o.now else {
+            return Ok(None);
+        };
+        if current.len() > limit || current != observed {
+            return Ok(None);
+        }
+        Ok(Some(current.clone()))
     }
     fn settings(&self) -> StoreResult<Option<FileInclusion>> {
         self.inner.settings()
@@ -1428,6 +1524,189 @@ fn local_only_grants_come_from_the_host() {
 }
 
 #[test]
+fn queued_publication_model_resource_path_uses_the_complete_core_registry() {
+    // A model of the shared Replica queued-publication contract, not the actual
+    // Obsidian async FileStore driver, executed WASM or browser durability.
+    use mdbn_wire::client::SyncMode;
+    let svc = FakeLogService::new();
+    let mut a = node_mode(&svc, 1, SyncMode::LocalOnly);
+    a.r.planner = Box::new(crate::plan::CorePlanner);
+    a.disk.borrow_mut().defer = true;
+    let bundle: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../local-host/tests/fixtures/reader-semantic-digests/bundle.json"
+    ))
+    .unwrap();
+    for r in bundle["resources"].as_array().unwrap() {
+        a.disk
+            .borrow_mut()
+            .user_write(r["path"].as_str().unwrap(), r["document"].as_str());
+    }
+    a.r.observe(None).unwrap();
+    a.disk.borrow_mut().complete();
+    a.r.tick();
+    let session = a.s;
+    assert_eq!(a.r.describe(session).unwrap().contracts.len(), 3);
+    for r in bundle["resources"].as_array().unwrap() {
+        let path = r["path"].as_str().unwrap();
+        let source = r["document"].as_str().unwrap();
+        let actual = a.r.get_resource(session, path.into()).unwrap();
+        assert!(actual.confirmed);
+        assert_eq!(actual.text, source);
+        assert_eq!(a.file(path).as_deref(), Some(source));
+    }
+}
+
+#[test]
+fn retained_resource_ingestion_model_waits_at_source_complete_set_and_currentness_without_recapture()
+ {
+    // Core/Replica + toy disk/publication model ONLY, not physical FileStore,
+    // TS HostLoop, executed WASM, Obsidian or durability qualification.
+    let svc = FakeLogService::new();
+    let mut a = node_mode(&svc, 1, mdbn_wire::client::SyncMode::LocalOnly);
+    a.r.planner = Box::new(crate::plan::CorePlanner);
+    let bundle: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../local-host/tests/fixtures/reader-semantic-digests/bundle.json"
+    ))
+    .unwrap();
+    for r in bundle["resources"].as_array().unwrap() {
+        a.disk
+            .borrow_mut()
+            .user_write(r["path"].as_str().unwrap(), r["document"].as_str());
+    }
+    assert_eq!(a.disk.borrow().queued.len(), 8);
+    let original_tokens = a
+        .disk
+        .borrow()
+        .queued
+        .iter()
+        .map(|o| o.token)
+        .collect::<std::collections::BTreeSet<_>>();
+    {
+        let mut d = a.disk.borrow_mut();
+        d.defer = true;
+        d.source_paused = true;
+        d.complete_paused = true;
+        d.current_paused = true;
+    }
+    let mut future = Box::pin(a.r.observe_async(None));
+    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+    for _ in 0..4 {
+        assert!(std::future::Future::poll(future.as_mut(), &mut cx).is_pending());
+        let d = a.disk.borrow();
+        assert_eq!(d.observe_calls, 1);
+        assert_eq!(d.source_started.len(), 1);
+        assert_eq!(d.acknowledged, 0);
+        assert_eq!(d.publish_attempts, 0);
+    }
+    a.disk.borrow_mut().source_paused = false;
+    for _ in 0..4 {
+        assert!(std::future::Future::poll(future.as_mut(), &mut cx).is_pending());
+        let d = a.disk.borrow();
+        assert_eq!(d.complete_started, 1);
+        // Native bootstrap checks configuration first, then its resource-path
+        // inclusion again with the definitions. That is nine deliberate reads,
+        // not a restarted pending future. Keep the EXACT native ordered trace.
+        assert_eq!(
+            d.source_started,
+            vec![
+                ObservationId(7),
+                ObservationId(1),
+                ObservationId(2),
+                ObservationId(3),
+                ObservationId(4),
+                ObservationId(5),
+                ObservationId(6),
+                ObservationId(7),
+                ObservationId(8)
+            ]
+        );
+        assert_eq!(d.acknowledged, 0);
+        assert_eq!(d.publish_attempts, 0);
+    }
+    a.disk.borrow_mut().complete_paused = false;
+    for _ in 0..4 {
+        assert!(std::future::Future::poll(future.as_mut(), &mut cx).is_pending());
+        let d = a.disk.borrow();
+        assert_eq!(d.current_started.len(), 1);
+        assert_eq!(d.acknowledged, 0);
+        assert_eq!(d.publish_attempts, 0);
+    }
+    a.disk.borrow_mut().current_paused = false;
+    assert!(matches!(
+        std::future::Future::poll(future.as_mut(), &mut cx),
+        std::task::Poll::Ready(Ok(()))
+    ));
+    drop(future);
+    let d = a.disk.borrow();
+    assert_eq!(d.observe_calls, 1);
+    assert_eq!(d.acknowledged, 8);
+    assert_eq!(
+        d.source_started
+            .iter()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>(),
+        original_tokens
+    );
+    assert_eq!(
+        d.current_started
+            .iter()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>(),
+        original_tokens
+    );
+    assert_eq!(d.next, 8, "no observation token remint");
+    assert!(
+        d.deferred.len() <= 1,
+        "one original resource capture/publication batch"
+    );
+    drop(d);
+    a.disk.borrow_mut().complete();
+    a.r.tick();
+    assert_eq!(a.r.describe(a.s).unwrap().contracts.len(), 3);
+    for r in bundle["resources"].as_array().unwrap() {
+        let actual =
+            a.r.get_resource(a.s, r["path"].as_str().unwrap().into())
+                .unwrap();
+        assert!(actual.confirmed);
+        assert_eq!(actual.text, r["document"].as_str().unwrap());
+    }
+}
+
+#[test]
+fn retained_resource_ingestion_model_refuses_source_changed_while_currentness_is_pending() {
+    let svc = FakeLogService::new();
+    let mut a = node_mode(&svc, 1, mdbn_wire::client::SyncMode::LocalOnly);
+    a.r.planner = Box::new(crate::plan::CorePlanner);
+    a.disk
+        .borrow_mut()
+        .user_write("mdbase.yaml", Some("spec_version: \"0.3.0\"\n"));
+    a.disk.borrow_mut().current_paused = true;
+    {
+        let mut future = std::pin::pin!(a.r.observe_async(None));
+        let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+        for _ in 0..3 {
+            assert!(std::future::Future::poll(future.as_mut(), &mut cx).is_pending());
+            assert_eq!(a.disk.borrow().current_started, vec![ObservationId(1)]);
+            assert_eq!(a.disk.borrow().acknowledged, 0);
+        }
+        a.disk.borrow_mut().files.insert(
+            "mdbase.yaml".into(),
+            "changed outside original evidence".into(),
+        );
+        a.disk.borrow_mut().current_paused = false;
+        assert!(matches!(
+            std::future::Future::poll(future.as_mut(), &mut cx),
+            std::task::Poll::Ready(Ok(()))
+        ));
+    }
+    assert_eq!(a.disk.borrow().acknowledged, 0);
+    assert_eq!(a.disk.borrow().next, 1);
+    assert_eq!(a.disk.borrow().publish_attempts, 0);
+    assert!(a.r.store().resources().unwrap().is_empty());
+    assert!(a.r.store().pending(None, 64).unwrap().is_empty());
+}
+
+#[test]
 fn local_cold_scan_ingests_configuration_and_types_before_records() {
     use mdbn_wire::client::SyncMode;
     let svc = FakeLogService::new();
@@ -1690,5 +1969,100 @@ fn held_local_bytes_survive_a_generation_zero_base_install() {
         b.file("notes/2.md").as_deref(),
         Some("imported 2\n"),
         "unheld imported records are published"
+    );
+}
+
+/// Adopt: a synced replica over a folder that already holds
+/// files seals generation 0 from them with the given record IDs and appends a
+/// `base {source: folder}` before any entry. The folder is not rewritten and
+/// nothing is held; nothing is ingested before the base; a later edit syncs; a
+/// second device installs the same records under the same IDs.
+#[test]
+fn adopt_seals_the_folder_as_generation_zero_with_its_record_ids() {
+    use crate::replica::adopt::{AdoptRecords, AdoptSource, AdoptStatus};
+    struct Folder(Rc<RefCell<Disk>>, Vec<(Uuid, String)>);
+    impl AdoptSource for Folder {
+        fn records(&mut self) -> Result<AdoptRecords, String> {
+            Ok(AdoptRecords {
+                records: self.1.clone(),
+                resources: vec![],
+                settings: None,
+            })
+        }
+        fn read(&mut self, path: &str) -> Result<Option<String>, String> {
+            Ok(self.0.borrow().files.get(path).cloned())
+        }
+    }
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    let one = B16([0x31; 16]);
+    let two = B16([0x32; 16]);
+    for (p, t) in [("notes/1.md", "one\n"), ("notes/2.md", "two\r\n")] {
+        a.disk.borrow_mut().user_write(p, Some(t));
+    }
+    let source = Folder(
+        a.disk.clone(),
+        vec![(one, "notes/1.md".into()), (two, "notes/2.md".into())],
+    );
+    a.r.begin_adopt(Box::new(source));
+    // Before keying/base, a scan captures nothing (no entry may precede the base).
+    a.r.observe(None).unwrap();
+    assert_eq!(a.r.sync_status().pending, 0);
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.adopt_status(), Some(AdoptStatus::Done));
+    let base_seq = a.r.head().seq;
+    assert!(base_seq > 0);
+    for (id, path, doc) in [(one, "notes/1.md", "one\n"), (two, "notes/2.md", "two\r\n")] {
+        let r = crate::Store::record(a.r.store(), &id).unwrap().unwrap();
+        assert_eq!((r.path.as_str(), r.doc.as_str()), (path, doc));
+        assert_eq!(
+            a.file(path).as_deref(),
+            Some(doc),
+            "the folder is untouched"
+        );
+    }
+    assert!(
+        crate::Store::holds(a.r.store()).unwrap().is_empty(),
+        "nothing held"
+    );
+    assert_eq!(a.r.sync_status().pending, 0, "no entry for adopted files");
+    // Ingest resumes after the base: an edit becomes an ordinary entry.
+    a.disk
+        .borrow_mut()
+        .user_write("notes/1.md", Some("one edited\n"));
+    settle(&mut [&mut a]);
+    assert!(a.r.head().seq > base_seq);
+    assert_eq!(a.r.sync_status().pending, 0);
+    let mut b = node(&svc, 2);
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(b.file("notes/1.md").as_deref(), Some("one edited\n"));
+    assert_eq!(b.file("notes/2.md").as_deref(), Some("two\r\n"));
+    let r = crate::Store::record(b.r.store(), &two).unwrap().unwrap();
+    assert_eq!(r.path, "notes/2.md", "the second device has the adopted ID");
+}
+
+/// The takeover's record-ID map names a file's ID at its
+/// first local ingest; an ID another record already holds is never reused.
+#[test]
+fn first_local_ingest_takes_record_ids_from_the_hints() {
+    use mdbn_wire::client::SyncMode;
+    let svc = FakeLogService::new();
+    let mut a = node_mode(&svc, 1, SyncMode::LocalOnly);
+    create(&mut a, 9, "taken.md", "x");
+    let legacy = B16([0x41; 16]);
+    a.r.set_id_hints(vec![(legacy, "a.md".into()), (B16([9; 16]), "b.md".into())]);
+    a.disk.borrow_mut().user_write("a.md", Some("alpha"));
+    a.disk.borrow_mut().user_write("b.md", Some("beta"));
+    a.r.observe(None).unwrap();
+    let r = crate::Store::record(a.r.store(), &legacy).unwrap().unwrap();
+    assert_eq!(r.path, "a.md");
+    let taken = crate::Store::record(a.r.store(), &B16([9; 16]))
+        .unwrap()
+        .unwrap();
+    assert_eq!(taken.path, "taken.md", "a held ID is not reused");
+    assert!(
+        crate::Store::record_at(a.r.store(), &mdbn_core::paths::path_key("b.md"))
+            .unwrap()
+            .is_some()
     );
 }

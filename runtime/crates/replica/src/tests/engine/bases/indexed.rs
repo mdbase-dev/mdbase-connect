@@ -9,6 +9,7 @@ use mdbn_core::views::bases::{
 use std::collections::BTreeMap;
 mod publication;
 mod scaling;
+mod starter_filter;
 mod store;
 mod windows;
 use store::ProjectionStore;

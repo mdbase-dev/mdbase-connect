@@ -429,6 +429,76 @@ async fn status(profile: &Profile, os: &platform::Manager) -> Result<ServiceStat
     })
 }
 
+/// The `doctor` `service` check: is this profile's daemon registered to start at
+/// login, from its runtime copy? Read-only; an isolated profile has no registration.
+pub fn doctor_check(profile: &Profile) -> crate::control::Check {
+    if profile.target != Target::InstalledService {
+        return crate::control::Check {
+            id: "service".into(),
+            status: "ok".into(),
+            detail: "isolated profile: not registered with the service manager (by design)".into(),
+            action: None,
+        };
+    }
+    match platform::Manager::new().and_then(|os| os.query()) {
+        Ok(reg) => classify_registration(reg, &runtime_binary(profile)),
+        Err(e) => crate::control::Check {
+            id: "service".into(),
+            status: "warn".into(),
+            detail: format!(
+                "could not query the service manager: {}",
+                e.to_control().1.message
+            ),
+            action: Some("Run `mdbase service status` for details.".into()),
+        },
+    }
+}
+
+fn classify_registration(reg: Option<Registration>, expected: &Path) -> crate::control::Check {
+    let reinstall = || Some("Run `mdbase service install`.".to_string());
+    let (status, detail, action) = match reg {
+        None => (
+            "warn",
+            "not registered: the daemon will not start at login".to_string(),
+            reinstall(),
+        ),
+        Some(r)
+            if !r
+                .binary
+                .as_deref()
+                .is_some_and(|b| same_file(b, expected) && b.exists()) =>
+        {
+            (
+                "fail",
+                format!(
+                    "stale registration: it runs {} instead of {}",
+                    r.binary
+                        .as_deref()
+                        .map_or("an unreadable binary".into(), |b| b.display().to_string()),
+                    expected.display()
+                ),
+                reinstall(),
+            )
+        }
+        Some(r) if !r.enabled => (
+            "warn",
+            "registered but disabled: the daemon will not start at login".to_string(),
+            reinstall(),
+        ),
+        Some(_) => (
+            "ok",
+            format!("registered to start at login ({})", platform::MANAGER),
+            None,
+        ),
+    };
+    crate::control::Check {
+        id: "service".into(),
+        status: status.into(),
+        detail,
+        action,
+    }
+}
+
 fn same_file(a: &Path, b: &Path) -> bool {
     match (a.canonicalize(), b.canonicalize()) {
         (Ok(a), Ok(b)) => a == b,
@@ -896,6 +966,25 @@ mod tests {
         readiness.control_protocol = crate::control::PROTOCOL;
         readiness.ready = false;
         assert!(!readiness_matches(&readiness, "0.2.0-beta.2"));
+    }
+
+    #[test]
+    fn doctor_flags_absent_stale_and_disabled_registrations() {
+        let tmp = crate::testutil::TestDir::new("service-doctor");
+        let expected = tmp.path().join("mdbase");
+        std::fs::write(&expected, b"").unwrap();
+        let reg = |binary: Option<PathBuf>, enabled| Some(Registration { binary, enabled });
+        let status = |r| classify_registration(r, &expected).status;
+        assert_eq!(status(reg(Some(expected.clone()), true)), "ok");
+        assert_eq!(status(None), "warn");
+        assert_eq!(status(reg(Some(expected.clone()), false)), "warn");
+        assert_eq!(status(reg(Some(tmp.path().join("gone")), true)), "fail");
+        assert_eq!(status(reg(None, true)), "fail");
+        let isolated = doctor_check(&isolated(&tmp.path().join("state")));
+        assert_eq!(
+            (isolated.id.as_str(), isolated.status.as_str()),
+            ("service", "ok")
+        );
     }
 
     fn isolated(dir: &Path) -> Profile {

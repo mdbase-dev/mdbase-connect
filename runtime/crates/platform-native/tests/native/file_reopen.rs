@@ -108,6 +108,7 @@ fn live_files_survive_catalog_reclassification_and_cold_reopen_without_deleting_
         let id = B16([i as u8 + 60; 16]);
         let hash = revision(bytes.as_bytes());
         let row = FileRow {
+            mtime: None,
             kind: *kind,
             id,
             path: (*path).into(),
