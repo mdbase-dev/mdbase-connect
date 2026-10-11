@@ -43,7 +43,9 @@ fn cold_initialization_does_not_hold_map_and_shutdown_fences_publication() {
                 .unwrap()
         })
     };
-    let warm_result = read_result.recv_timeout(Duration::from_secs(2));
+    // The cold open is released only after this wait, so a warm read blocked
+    // behind it never arrives; the bound only absorbs a loaded runner.
+    let warm_result = read_result.recv_timeout(Duration::from_secs(20));
     let (stopped, stop_result) = mpsc::sync_channel(1);
     let shutdown = {
         let registry = registry.clone();
