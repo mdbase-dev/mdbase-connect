@@ -1,0 +1,9 @@
+{
+  "reason": "The daemon's automatic local-takeover gate is a separate connector-authenticated read boundary. It exposes only a route registrar over the existing flipped-account predicate; no new state, setter or caller-selected account is added.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 4,
+    "typeScriptExportDeclarations": 1,
+    "services/server": 1
+  }
+}
