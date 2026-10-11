@@ -57,14 +57,15 @@ async function ownedCollection(client: DatabaseConnection, connector: ConnectorI
   return held.display_name;
 }
 
-/** Every grant on the deleted collection, for every account: app grants (the
+/** Every grant on the deleted collection, for every account: app grants, including
+ * native grants on a Private collection (the
  * #653 hook queues each log grant revoke), their tokens, installation scopes and
  * native background grants. Membership and device enrolment stay in policy;
  * the deletion fact already refuses their log tokens and bootstrap. */
 async function revokeCollectionAccess(client: DatabaseConnection, collection: string): Promise<void> {
   const revoked = await client.query<{ id: string }>(
     `UPDATE grants SET revoked_at=COALESCE(revoked_at,now())
-     WHERE revoked_at IS NULL AND (hosted_collection_id=$1 OR collection_id IN (SELECT id FROM collections WHERE local_id=$1))
+     WHERE revoked_at IS NULL AND (hosted_collection_id=$1 OR next_collection_id=$1 OR collection_id IN (SELECT id FROM collections WHERE local_id=$1))
      RETURNING id`, [collection]);
   const ids = revoked.rows.map(row => row.id);
   if (ids.length) for (const table of ["access_tokens", "refresh_tokens"] as const) {
