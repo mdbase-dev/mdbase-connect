@@ -21,7 +21,6 @@ import { routeForDeepLink, shouldRegisterDeepLinks } from "./deep-link";
 import { buildEditorUrl } from "./editor-url";
 import { createHostedSnapshotLoader, type HostedControlSnapshot } from "./hosted-snapshot";
 import { guardDesktopProcessOutput } from "./process-output";
-import { ComputerPairing } from "./pairing";
 import { selectiveSyncPolicy } from "./selective-sync-input";
 import { createTrayImage } from "./tray-image";
 import type { DesktopUpdateStatus } from "./update-coordinator";
@@ -39,13 +38,6 @@ let session: DaemonSession | null = null;
 let cli: DaemonCli | null = null;
 let migrationRun: Promise<unknown> | null = null;
 let quitting = false;
-const pairing = new ComputerPairing({
-  openBrowser: (url) => shell.openExternal(url),
-  configure: (serverUrl, token) => requestReadyAgent("account.configure", {
-    server_url: serverUrl, connector_token: token
-  }, 10_000),
-  completed: () => restartApplication(1_000)
-});
 
 /** The app updater is re-pointed at the new daemon in a later step of the port. */
 function updateStatus(): DesktopUpdateStatus {
@@ -104,6 +96,34 @@ function startMigration(stopMirrors: boolean): Promise<unknown> {
 }
 // The daemon's own drain is bounded well below this; the CLI call waits for the run.
 const MIGRATION_TIMEOUT_MS = 650_000;
+
+interface AccountInfo {
+  signed_in: boolean;
+  online: boolean;
+  pairing?: string;
+  last_error?: string;
+  server?: string;
+}
+
+async function account(): Promise<AccountInfo> {
+  return (await requestReadyAgent<{ account: AccountInfo }>("status")).account;
+}
+
+/** The control plane this computer is signed in to, for account and approval pages. */
+async function signedInServer(): Promise<string> {
+  const current = await account();
+  if (!current.signed_in || !current.server) throw new Error("Sign in to mdbase on this computer first.");
+  return validateServerUrl(current.server);
+}
+
+/** Only the daemon's own approval page is opened: HTTPS, or loopback in development. */
+async function openSignInPage(uri: unknown): Promise<string> {
+  if (typeof uri !== "string" || !uri) throw new Error("mdbase did not return a sign-in page.");
+  const url = new URL(uri);
+  validateServerUrl(url.origin);
+  await shell.openExternal(url.href);
+  return url.href;
+}
 
 function daemonSession(): DaemonSession {
   if (!session) throw new Error("mdbase has not been initialized.");
@@ -348,87 +368,44 @@ function registerIpc(): void {
   });
   ipcMain.handle("connect:cloud:get", async (event) => {
     trustedIpc(event);
-    const configuration = await requestReadyAgent<{
-      configured: boolean;
-      server_url: string | null;
-    }>("account.configuration");
+    const current = await account();
     return {
-      configured: configuration.configured,
-      serverUrl: configuration.server_url
+      configured: current.signed_in,
+      serverUrl: current.server ?? null,
+      online: current.online,
+      pairing: current.pairing ?? null,
+      lastError: current.last_error ?? null
     };
   });
   ipcMain.handle("connect:account:open", async (event) => {
     trustedIpc(event);
-    const configuration = await requestReadyAgent<{
-      configured: boolean;
-      server_url: string | null;
-    }>("account.configuration");
-    if (!configuration.configured || !configuration.server_url) {
-      throw new Error("Connect this computer to your mdbase account first.");
-    }
-    const accountUrl = new URL("/account", validateServerUrl(configuration.server_url));
-    await shell.openExternal(accountUrl.href);
+    await shell.openExternal(new URL("/account", await signedInServer()).href);
   });
   ipcMain.handle("connect:authorizations:open", async (event, requestId: unknown) => {
     trustedIpc(event);
     if (typeof requestId !== "string" || !/^[0-9a-f-]{36}$/iu.test(requestId)) {
       throw new Error("Invalid authorization request.");
     }
-    const configuration = await requestReadyAgent<{
-      configured: boolean;
-      server_url: string | null;
-    }>("account.configuration");
-    if (!configuration.configured || !configuration.server_url) {
-      throw new Error("Connect this computer to your mdbase account first.");
-    }
-    const authorizationUrl = new URL(
-      `/authorize/${encodeURIComponent(requestId)}`,
-      validateServerUrl(configuration.server_url)
-    );
-    await shell.openExternal(authorizationUrl.href);
+    const url = new URL(`/authorize/${encodeURIComponent(requestId)}`, await signedInServer());
+    await shell.openExternal(url.href);
   });
-  ipcMain.handle("connect:cloud:set", async (event, input: unknown) => {
+  // `account.sign_in` is privileged, so it runs through the CLI; with --json it
+  // returns the approval page without opening it, and the app opens it here.
+  ipcMain.handle("connect:account:sign-in", async (event) => {
     trustedIpc(event);
-    if (!input || typeof input !== "object") throw new Error("Invalid cloud connection input.");
-    const { serverUrl, connectorToken } = input as {
-      serverUrl?: unknown;
-      connectorToken?: unknown;
-    };
-    if (typeof serverUrl !== "string" || typeof connectorToken !== "string") {
-      throw new Error("Server URL and connector token are required.");
-    }
-    await requestReadyAgent(
-      "account.configure",
-      { server_url: serverUrl, connector_token: connectorToken },
-      10_000
-    );
-    restartApplication();
-    return { configured: true, serverUrl };
+    const result = await bootGate.request(() => daemonCli().run<{ verification_uri?: string; expires_in?: number }>(
+      ["account", "sign-in"], 30_000
+    ));
+    const verificationUri = await openSignInPage(result.verification_uri);
+    return { verificationUri, expiresIn: result.expires_in ?? null };
   });
-  ipcMain.handle("connect:cloud:clear", async (event) => {
+  ipcMain.handle("connect:account:reopen-sign-in", async (event) => {
     trustedIpc(event);
-    await requestReadyAgent("account.clear", undefined, 10_000);
-    restartApplication();
-    return { configured: false, serverUrl: null };
+    await openSignInPage((await account()).pairing);
   });
-  ipcMain.handle("connect:pairing:begin", async (event, input: unknown) => {
+  ipcMain.handle("connect:account:sign-out", async (event) => {
     trustedIpc(event);
-    const value = asObject(input, "Invalid pairing input.");
-    const serverUrl = validateServerUrl(value.serverUrl);
-    const connectorName = typeof value.connectorName === "string" && value.connectorName.trim()
-      ? value.connectorName.trim().slice(0, 100)
-      : hostname();
-    return pairing.begin(serverUrl, connectorName);
-  });
-  ipcMain.handle("connect:pairing:reopen", async (event, pairingId: unknown) => {
-    trustedIpc(event);
-    if (typeof pairingId !== "string") throw new Error("Invalid pairing request.");
-    return pairing.reopen(pairingId);
-  });
-  ipcMain.handle("connect:pairing:status", async (event, pairingId: unknown) => {
-    trustedIpc(event);
-    if (typeof pairingId !== "string") throw new Error("Invalid pairing request.");
-    return pairing.status(pairingId);
+    await bootGate.request(() => daemonCli().run(["account", "sign-out"], 30_000));
   });
   ipcMain.handle("connect:access:snapshot", async (event) => {
     trustedIpc(event);
@@ -716,14 +693,6 @@ function validateServerUrl(serverUrl: unknown): string {
   url.search = "";
   url.hash = "";
   return url.href.replace(/\/$/, "");
-}
-
-function restartApplication(delay = 250): void {
-  setTimeout(() => {
-    quitting = true;
-    app.relaunch();
-    app.exit(0);
-  }, delay);
 }
 
 function registerDeepLinks(): void {

@@ -149,8 +149,13 @@ interface DesktopUpdateStatus {
 }
 
 interface CloudSetting {
+  /** Signed in to an mdbase account. */
   configured: boolean;
   serverUrl: string | null;
+  online?: boolean;
+  /** A sign-in waiting for browser approval: the page to open. */
+  pairing?: string | null;
+  lastError?: string | null;
 }
 
 interface ConnectorAccount {
@@ -379,15 +384,9 @@ interface Window {
     openAuthorization(requestId: string): Promise<void>;
     approveAuthorization(input: { requestId: string; collectionId: string; operations: string[] }): Promise<unknown>;
     denyAuthorization(requestId: string): Promise<unknown>;
-    setCloudConfig(input: { serverUrl: string; connectorToken: string }): Promise<CloudSetting>;
-    clearCloudConfig(): Promise<CloudSetting>;
-    beginPairing(input: { serverUrl: string; connectorName: string }): Promise<{
-      pairingId: string;
-      verificationUri: string;
-      expiresIn: number;
-    }>;
-    reopenPairing(pairingId: string): Promise<void>;
-    pairingStatus(pairingId: string): Promise<{ status: "pending" | "paired"; connector?: { id: string; name: string } }>;
+    signIn(): Promise<{ verificationUri: string; expiresIn: number | null }>;
+    reopenSignIn(): Promise<void>;
+    signOut(): Promise<void>;
     accessSnapshot(): Promise<AccessSnapshot>;
     setAccessPaused(paused: boolean): Promise<{ paused: boolean }>;
     renameComputer(name: string): Promise<{ connector: { id: string; name: string } }>;

@@ -8,6 +8,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createRoot } from "react-dom/client";
 import { Collections } from "./collections-view";
 import { TakeoverPanel } from "./takeover-panel";
+import { SignInPanel } from "./sign-in-panel";
 import { CollectionCompletionReceipt } from "./completion-receipt";
 import { AuthorityTransferReceipt } from "./authority-transfer-receipt";
 import { presentConnection } from "./connection-state.mjs";
@@ -36,7 +37,6 @@ import {
   AccessControl,
   Empty,
   MobileProductBar,
-  PairingPanel,
   ProductSidebar,
   SectionHeading,
   SettingSwitch,
@@ -121,9 +121,8 @@ function App() {
   const [transferReceipt, setTransferReceipt] = useState<TransferReceipt | null>(() => readTransferReceipt(localStorage));
   const [initialRefreshComplete, setInitialRefreshComplete] = useState(false);
   const [navigationOpen, setNavigationOpen] = useState(false);
-  // Set once pairing configures the account; the main process then relaunches.
-  const [pairingRestart, setPairingRestart] = useState(false);
-  const onPaired = useCallback(() => setPairingRestart(true), []);
+  // Why sign-in is being asked for now (for example, after choosing Add collection).
+  const [signInReason, setSignInReason] = useState<string | null>(null);
 
   // Each source coalesces on its own: a slow one (the hosted snapshot may take
   // 30 s) keeps its request in flight without delaying the connection status.
@@ -182,6 +181,11 @@ function App() {
     setInitialRefreshComplete(true);
   }, [requests]);
 
+  const onSignedIn = useCallback(() => {
+    setSignInReason(null);
+    void refresh();
+  }, [refresh]);
+
   useEffect(() => {
     void refresh();
     const timer = window.setInterval(() => void refresh(true), 5_000);
@@ -225,11 +229,10 @@ function App() {
   }, [refresh]);
 
   useEffect(() => {
-    // The relaunched window consumes the post-pairing route, not this one.
-    if (pairingRestart || !initialRefreshComplete || !cloud?.configured || !consumePairingCompleted(localStorage)) return;
+    if (!initialRefreshComplete || !cloud?.configured || !consumePairingCompleted(localStorage)) return;
     if (authorizationTarget) setRoute("access");
     else setRoute("collections");
-  }, [authorizationTarget, cloud?.configured, initialRefreshComplete, pairingRestart]);
+  }, [authorizationTarget, cloud?.configured, initialRefreshComplete]);
 
   useEffect(() => {
     if (cloud?.configured && route === "access" && authorizationTarget) {
@@ -271,7 +274,21 @@ function App() {
     }
   }
 
+  /** Collections are registered to an account, so adding one needs sign-in first. */
+  function requireSignIn(): boolean {
+    if (cloud?.configured) return true;
+    setSignInReason("Sign in first, then add your collection.");
+    return false;
+  }
+
+  function openCreate() {
+    if (!requireSignIn()) return;
+    setCreateError(null);
+    setCreateOpen(true);
+  }
+
   async function addExisting() {
+    if (!requireSignIn()) return;
     await act(async () => {
       const result = await window.mdbaseConnect.addCollection();
       if (result?.status === "added") {
@@ -447,8 +464,8 @@ function App() {
           onDismiss={dismissTransferReceipt}
         />}
 
-        {cloud !== null && (!cloud.configured || pairingRestart) && <div hidden={!["overview", "access", "settings"].includes(route)}>
-          <PairingPanel resumeAuthorization={authorizationTarget !== null} completing={pairingRestart} onPaired={onPaired} />
+        {cloud !== null && !cloud.configured && <div hidden={!["overview", "collections", "access", "settings"].includes(route)}>
+          <SignInPanel cloud={cloud} resumeAuthorization={authorizationTarget !== null} reason={signInReason} onSignedIn={onSignedIn} />
         </div>}
 
         <TakeoverPanel names={collectionNames} />
@@ -474,7 +491,7 @@ function App() {
             busy={busy}
             onNavigate={setRoute}
             onAdd={() => void addExisting()}
-            onCreate={() => { setCreateError(null); setCreateOpen(true); }}
+            onCreate={openCreate}
             onPause={(paused) => void act(async () => {
               await window.mdbaseConnect.setAccessPaused(paused);
               setNotice(paused ? "Remote access is paused on this computer." : "Remote access is available again.");
@@ -494,7 +511,7 @@ function App() {
             copiedCollectionPath={copiedCollectionPath}
             onAdd={() => void addExisting()}
             onCancelCopy={() => setCopiedCollectionPath(null)}
-            onCreate={() => { setCreateError(null); setCreateOpen(true); }}
+            onCreate={openCreate}
             onRegisterCopy={() => void registerCopiedCollection()}
             onMirrorTargetHandled={() => setMirrorTarget(null)}
             onDetailTargetHandled={() => setDetailTarget(null)}
@@ -819,7 +836,7 @@ function Settings({ startup, cloud, access, status, updateStatus, busy, onAct, o
           </div>
           <div className="portal-connection-actions">
             <button className="button secondary" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.openAccount())}>Manage in Connect</button>
-            <button className="button secondary danger-text disconnect-button" disabled={busy} onClick={() => { if (window.confirm("Forget this account on this computer? This removes the saved account credential from this computer. Connecting again will create a new computer entry. Existing local collection files are unaffected.")) void onAct(async () => { await window.mdbaseConnect.clearCloudConfig(); }); }}>Forget account on this computer…</button>
+            <button className="button secondary danger-text disconnect-button" disabled={busy} onClick={() => { if (window.confirm("Sign out on this computer? Apps can no longer reach your local collections through this computer. Your files are unaffected.")) void onAct(async () => { await window.mdbaseConnect.signOut(); }); }}>Sign out on this computer…</button>
           </div>
         </section>
       )}

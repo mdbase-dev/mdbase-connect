@@ -50,13 +50,9 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
   approveAuthorization: (input: { requestId: string; collectionId: string; operations: string[] }) =>
     ipcRenderer.invoke("connect:authorizations:approve", input),
   denyAuthorization: (requestId: string) => ipcRenderer.invoke("connect:authorizations:deny", requestId),
-  setCloudConfig: (input: { serverUrl: string; connectorToken: string }) =>
-    ipcRenderer.invoke("connect:cloud:set", input),
-  clearCloudConfig: () => ipcRenderer.invoke("connect:cloud:clear"),
-  beginPairing: (input: { serverUrl: string; connectorName: string }) =>
-    ipcRenderer.invoke("connect:pairing:begin", input),
-  pairingStatus: (pairingId: string) => ipcRenderer.invoke("connect:pairing:status", pairingId),
-  reopenPairing: (pairingId: string) => ipcRenderer.invoke("connect:pairing:reopen", pairingId),
+  signIn: () => ipcRenderer.invoke("connect:account:sign-in"),
+  reopenSignIn: () => ipcRenderer.invoke("connect:account:reopen-sign-in"),
+  signOut: () => ipcRenderer.invoke("connect:account:sign-out"),
   accessSnapshot: () => ipcRenderer.invoke("connect:access:snapshot"),
   setAccessPaused: (paused: boolean) => ipcRenderer.invoke("connect:access:pause", paused),
   renameComputer: (name: string) => ipcRenderer.invoke("connect:account:rename-computer", name),

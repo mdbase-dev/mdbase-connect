@@ -57,6 +57,7 @@ async function desktop({ configured = true, hostedOnline = true, completionRecei
       listActivity: async () => [],
       hostedSnapshot: async () => window.fixture.hostedOnline ? hosted : { ...hosted, online: false, hosted_collections: [] },
       listMirrors: async () => [mirror],
+      migrationStatus: async () => ({ record: null, running: false }),
       onNavigate: () => () => {}, onUpdateStatus: () => () => {}
     };
   }, { configured, hostedOnline, completionReceipt });
@@ -319,89 +320,59 @@ test("saved completion opens the collection identity, not a folder reassigned to
   } finally { await page.close(); }
 });
 
-async function beginPairing(page, { expiresIn = 600, firstError } = {}) {
-  await page.evaluate(({ expiresIn, firstError }) => {
-    window.fixture.pairingBegins = 0;
-    window.fixture.pairingChecks = [];
-    window.mdbaseConnect.beginPairing = async () => {
-      window.fixture.pairingBegins++;
-      return { pairingId: "same-request", verificationUri: "http://127.0.0.1:42391/pair/same-request", expiresIn };
+async function signInFixture(page) {
+  await page.evaluate(() => {
+    window.fixture.signIns = 0;
+    window.fixture.added = 0;
+    window.fixture.account = { configured: false, serverUrl: null, pairing: null, lastError: null };
+    window.mdbaseConnect.getCloudConfig = async () => ({ ...window.fixture.account });
+    window.mdbaseConnect.addCollection = async () => { window.fixture.added++; return null; };
+    window.mdbaseConnect.signIn = async () => {
+      window.fixture.signIns++;
+      window.fixture.account = { ...window.fixture.account, pairing: "http://127.0.0.1:42391/pair/same-request", lastError: null };
+      return { verificationUri: window.fixture.account.pairing, expiresIn: 600 };
     };
-    window.mdbaseConnect.reopenPairing = async () => {};
-    window.mdbaseConnect.pairingStatus = async (id) => {
-      window.fixture.pairingChecks.push(id);
-      if (firstError && window.fixture.pairingChecks.length === 1) throw new Error(firstError);
-      return { status: window.fixture.approved ? "paired" : "pending" };
-    };
-  }, { expiresIn, firstError });
-  await page.getByRole("button", { name: "Overview", exact: true }).click();
-  await page.getByRole("button", { name: "Continue in browser" }).click();
+    window.mdbaseConnect.reopenSignIn = async () => {};
+  });
 }
 
-test("pending computer approval survives navigation without creating another request", async () => {
+test("adding a collection asks for sign-in first; one sign-in survives navigation and approval needs no restart", async () => {
   const { page, errors } = await desktop({ configured: false });
   try {
-    await beginPairing(page);
+    await signInFixture(page);
+    await page.getByRole("button", { name: "Add existing", exact: true }).click();
+    await page.getByText("Sign in first, then add your collection.", { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => window.fixture.added), 0);
+    await page.getByRole("button", { name: "Sign in with your browser" }).click();
     await page.getByText("Waiting for browser approval", { exact: true }).waitFor();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
-    await screenshot(page, "pairing-navigation");
+    await screenshot(page, "sign-in-navigation");
     assert.equal(await page.getByText("Waiting for browser approval", { exact: true }).isVisible(), true);
-    await page.getByRole("button", { name: /^Collections/ }).click();
-    await page.getByRole("button", { name: "App access", exact: true }).click();
-    assert.equal(await page.getByText("Waiting for browser approval", { exact: true }).isVisible(), true);
-    await page.evaluate(() => { window.fixture.approved = true; });
-    await page.clock.runFor(2_000);
-    await page.getByText("Computer approved. Connecting securely…", { exact: true }).waitFor();
-    assert.equal(await page.evaluate(() => window.fixture.pairingBegins), 1);
-    assert.deepEqual(errors, []);
-  } finally { await page.close(); }
-});
-
-test("pairing restart notice survives a refresh that sees the configured account", async () => {
-  const { page, errors } = await desktop({ configured: false });
-  try {
-    await beginPairing(page);
     await page.evaluate(() => {
-      window.fixture.approved = true;
-      // Pairing configured the account before reporting "paired" (#580).
-      window.mdbaseConnect.getCloudConfig = async () => ({ configured: true, serverUrl: "http://127.0.0.1:42391" });
-      window.mdbaseConnect.accessSnapshot = async () => ({ configured: true, online: true, account: { connector_name: "Paired computer" }, grants: [], pending_authorizations: [], authority_conflicts: [] });
+      window.fixture.account = { configured: true, serverUrl: "http://127.0.0.1:42391", pairing: null, lastError: null };
     });
     await page.clock.runFor(2_000);
-    const notice = page.getByText("mdbase connect is restarting with the new secure connection.", { exact: true });
-    await notice.waitFor();
-    await page.clock.runFor(5_000);
-    await page.getByText("Paired computer ·").waitFor();
-    assert.equal(await notice.isVisible(), true);
-    assert.equal(await page.getByRole("heading", { name: "Your collections." }).count(), 0);
+    await page.getByRole("button", { name: /^Collections/ }).click();
+    await page.getByRole("button", { name: "Sign in with your browser" }).waitFor({ state: "detached" });
+    assert.equal(await page.getByText("Waiting for browser approval", { exact: true }).count(), 0);
+    await page.getByRole("button", { name: "Add existing", exact: true }).click();
+    assert.equal(await page.evaluate(() => window.fixture.signIns), 1);
+    assert.equal(await page.evaluate(() => window.fixture.added), 1);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
 
-test("authoritatively expired pairing stops retrying and offers a fresh request", async () => {
+test("a failed sign-in shows the daemon's reason and offers a fresh one", async () => {
   const { page, errors } = await desktop({ configured: false });
   try {
-    await beginPairing(page, { firstError: "That pairing request expired. Start again." });
-    await page.getByText("Setup request expired", { exact: true }).waitFor();
-    await page.clock.runFor(4_000);
-    assert.equal(await page.evaluate(() => window.fixture.pairingChecks.length), 1);
-    assert.equal(await page.getByRole("button", { name: "Open browser again" }).count(), 0);
-    await page.getByRole("button", { name: "Start again" }).click();
-    await page.getByRole("button", { name: "Continue in browser" }).waitFor();
-    assert.deepEqual(errors, []);
-  } finally { await page.close(); }
-});
-
-test("already-approved pairing retries local configuration after the browser request expires", async () => {
-  const { page, errors } = await desktop({ configured: false });
-  try {
-    await beginPairing(page, { expiresIn: 1, firstError: "Connector still starting" });
-    await page.getByText("Connection interrupted", { exact: true }).waitFor();
-    await page.evaluate(() => { window.fixture.approved = true; });
+    await signInFixture(page);
+    await page.getByRole("button", { name: "Overview", exact: true }).click();
+    await page.getByRole("button", { name: "Sign in with your browser" }).click();
+    await page.getByText("Waiting for browser approval", { exact: true }).waitFor();
+    await page.evaluate(() => { window.fixture.account = { ...window.fixture.account, pairing: null, lastError: "sign-in expired" }; });
     await page.clock.runFor(2_000);
-    await screenshot(page, "pairing-expiry");
-    assert.equal(await page.evaluate(() => window.fixture.pairingChecks.length), 2);
-    assert.equal(await page.getByText("Computer approved. Connecting securely…", { exact: true }).isVisible(), true);
+    await page.getByText("sign-in expired", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Sign in with your browser" }).waitFor();
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });

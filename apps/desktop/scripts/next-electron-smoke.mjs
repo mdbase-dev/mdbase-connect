@@ -53,6 +53,13 @@ try {
   assert.equal(status.target, "isolated_profile");
   assert.equal(status.state_dir, stateDir);
   console.log(`ok - app started the isolated daemon and read status (version ${status.readiness.binary_version})`);
+  // Signed out: the app asks for sign-in before adding a collection. The smoke never
+  // starts a sign-in (that would reach a real control plane).
+  await window.getByRole("button", { name: "Sign in with your browser" }).waitFor({ timeout: 30_000 });
+  await window.getByRole("button", { name: /^Collections/ }).click();
+  await window.getByRole("button", { name: "Add existing", exact: true }).click();
+  await window.getByText("Sign in first, then add your collection.", { exact: true }).waitFor();
+  console.log("ok - signed out: sign-in is offered and Add collection asks for it first");
   if (connectHome) {
     const move = window.getByRole("button", { name: "Move to the new sync engine" });
     await move.waitFor({ timeout: 30_000 });
