@@ -1213,3 +1213,75 @@ async fn rollback_receipt_http_requires_internal_auth_and_lookup_is_read_only() 
     assert_eq!(response.json::<Value>().await.unwrap(), receipt);
     server.abort();
 }
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn refused_old_clients_learn_their_collection_is_upgrading_or_moved() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let provider = &fixture.provider;
+    let id = fixture.collection_id;
+    let mirror = mirror_id(&fixture).await;
+    fenced(&fixture).await;
+    provider
+        .revoke_migration_replicas(id, &[mirror])
+        .await
+        .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let state = AppState::new(provider.clone(), &"internal-cutover-test-token-".repeat(2)).unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app(state)).await.unwrap() });
+    let client = reqwest::Client::new();
+    let files = format!(
+        "http://{address}/v1/authorities/{id}/files?protocol_version={FILE_PROTOCOL_VERSION}"
+    );
+
+    let migrating = client
+        .get(&files)
+        .bearer_auth(&fixture.token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(migrating.status(), reqwest::StatusCode::CONFLICT);
+    assert_eq!(migrating.headers()["retry-after"], "300");
+    let body: Value = migrating.json().await.unwrap();
+    assert_eq!(body["error"]["code"], "collection_migrating");
+
+    let stranger = client
+        .get(&files)
+        .bearer_auth("t".repeat(40))
+        .send()
+        .await
+        .unwrap();
+    assert_ne!(
+        stranger.status(),
+        reqwest::StatusCode::CONFLICT,
+        "unknown tokens learn nothing"
+    );
+
+    provider
+        .set_legacy_migration_state(
+            id,
+            "migrated",
+            Some(Utc::now() + Duration::days(120)),
+            false,
+            &[],
+        )
+        .await
+        .unwrap();
+    let moved = client
+        .get(&files)
+        .bearer_auth(&fixture.token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(moved.status(), reqwest::StatusCode::CONFLICT);
+    let body: Value = moved.json().await.unwrap();
+    assert_eq!(body["error"]["code"], "collection_unavailable");
+    assert_eq!(body["error"]["details"]["reason"], "moved_to_next_runtime");
+    assert_eq!(
+        body["error"]["details"]["update_url"],
+        "https://mdbase.dev/downloads"
+    );
+    server.abort();
+}

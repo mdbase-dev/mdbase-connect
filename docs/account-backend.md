@@ -92,3 +92,32 @@ A backend change is not authorization to retry an uncertain legacy write in
 NEXT. Preserve its original operation identity and receipt; migration admission
 and stale-writer fencing belong to the cutover owner. This endpoint is metadata,
 not current collection policy, approval/key delivery or Ready proof.
+
+## What old clients see during and after cutover
+
+Clients built on the old SDK keep calling `/oauth/token` and the hosted
+provider's `/v1/authorities/{collection_id}/...` routes. They show
+`error.message` to their user, so these refusals use plain language. Newer
+clients should read `error.code` and `details`, never the message.
+
+| When | Status | `error.code` | `details` |
+| --- | --- | --- | --- |
+| The collection is fenced for its move | 409, `Retry-After: 300` | `collection_migrating` | `retry_after_seconds` |
+| The collection completed its move (it has a `next_migration_collections` row, or the provider reports it `migrated`) | 409 | `collection_unavailable` | `reason: "moved_to_next_runtime"`, `update_url`, optional `minimum_client_version` |
+| The grant's account is suspended | 403 | `account_suspended` | none |
+
+- The control plane refuses token issuance for a moved collection before it
+  rotates any provider credential. It decides per collection, not by
+  `users.account_backend`, because a member's grant can point at another
+  owner's collection.
+- The provider rewrites a 401, 403 or 404 on a `migrating` or `migrated`
+  collection only when the bearer was issued for one of that collection's
+  replicas, so unknown tokens learn nothing.
+- `MDBASE_CONNECT_CLIENT_UPDATE_URL` (https, default
+  `https://mdbase.dev/downloads`) and `MDBASE_CONNECT_MINIMUM_CLIENT_VERSION`
+  (unset by default; release sets it at cutover) configure both the control
+  plane and the provider.
+
+Returning users whose account has a `next_migration_account_flips` row see
+"mdbase was upgraded. Approve <app> once to continue." on the installation
+approval page, unless the request only renews an existing device's access.

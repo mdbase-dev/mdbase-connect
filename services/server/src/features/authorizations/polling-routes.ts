@@ -151,8 +151,7 @@ export function registerAuthorizationPollingRoutes(
          JOIN grants g ON g.id = ac.grant_id
          JOIN users u ON u.id = g.user_id
          WHERE ac.code_hash = $1 AND ac.used_at IS NULL
-           AND ac.expires_at > now() AND g.revoked_at IS NULL
-           AND u.suspended_at IS NULL`,
+           AND ac.expires_at > now() AND g.revoked_at IS NULL`,
         [tokenHash(input.code)]
       );
       const authorizationCode = code.rows[0];
@@ -196,8 +195,7 @@ export function registerAuthorizationPollingRoutes(
        JOIN users u ON u.id = g.user_id
        WHERE rt.token_hash = $1 AND rt.used_at IS NULL AND rt.revoked_at IS NULL
          AND rt.expires_at > now() AND g.revoked_at IS NULL
-         AND g.activated_at IS NOT NULL AND g.application_id = $2
-         AND u.suspended_at IS NULL`,
+         AND g.activated_at IS NOT NULL AND g.application_id = $2`,
       [tokenHash(input.refresh_token), input.client_id]
     );
     const current = refresh.rows[0];

@@ -28,7 +28,7 @@ pub use execution_budget::{
     HostedExecutionBudgets, HostedExecutionEntitlement,
 };
 pub use execution_measurement::HostedProcessMemory;
-pub use http::{app, AppState};
+pub use http::{app, AppState, ClientUpdatePolicy};
 pub use key_admin::{HostedKeyAdmin, KeyRewrapOptions, KeyRewrapReport, KeyWrapInventory};
 pub use key_wrapping::{
     AwsKmsKeyWrapper, KeyWrapContext, KeyWrapError, KeyWrapErrorKind, KeyWrapInspection,

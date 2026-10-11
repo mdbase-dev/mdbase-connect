@@ -129,6 +129,28 @@ enum MigrationRestore<'a> {
 }
 
 impl HostedProvider {
+    /// The cutover state of `collection_id` when `token` was ever issued for one
+    /// of its replicas (revoked and expired tokens included), so a refused old
+    /// client can be told why. Unknown tokens learn nothing.
+    pub(crate) async fn cutover_state_for_token(
+        &self,
+        collection_id: Uuid,
+        token: &str,
+    ) -> ApiResult<Option<String>> {
+        Ok(sqlx::query_scalar(
+            r#"SELECT c.state
+               FROM hosted_provider_collections c
+               JOIN hosted_provider_replicas r ON r.collection_id = c.id
+               WHERE c.id = $1 AND r.token_hash = $2
+                 AND c.state IN ('migrating', 'migrated')
+               LIMIT 1"#,
+        )
+        .bind(collection_id)
+        .bind(token_hash(token))
+        .fetch_optional(&self.pool)
+        .await?)
+    }
+
     /// Move a collection between `active`, `migrating` and `migrated`.
     ///
     /// Allowed: active → migrating → migrated, and back (rollback). Repeating the
@@ -705,7 +727,8 @@ async fn restore_owned_revocations(
 fn collection_migrating() -> ApiError {
     ApiError::conflict(
         "collection_migrating",
-        "The hosted collection is moving to mdbase-next; update the client.",
+        "This collection is being upgraded. Your data is safe, and editing will resume \
+         once the upgrade finishes. Try again in a few minutes.",
     )
 }
 

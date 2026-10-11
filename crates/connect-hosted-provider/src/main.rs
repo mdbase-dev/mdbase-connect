@@ -3,8 +3,9 @@ use std::{net::IpAddr, sync::Arc, time::Duration};
 use axum::{http::StatusCode, response::IntoResponse, routing::get, Json, Router};
 use clap::{Parser, ValueEnum};
 use mdbase_connect_hosted_provider::{
-    app, ApiResult, AppState, HostedNotificationConfig, HostedProvider, KeyWrappingBackend,
-    KeyWrappingConfig, ProviderCrypto, ProviderLimits, R2BlobStore, R2Config, R2InsecureHttpConfig,
+    app, ApiResult, AppState, ClientUpdatePolicy, HostedNotificationConfig, HostedProvider,
+    KeyWrappingBackend, KeyWrappingConfig, ProviderCrypto, ProviderLimits, R2BlobStore, R2Config,
+    R2InsecureHttpConfig,
 };
 use tokio::{net::TcpListener, signal};
 use tracing_subscriber::EnvFilter;
@@ -312,7 +313,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "advanced hosted semantic projection rebuilds before readiness"
         );
     }
-    let state = AppState::new(provider.clone(), &secrets.internal_token)?;
+    let state = AppState::new(provider.clone(), &secrets.internal_token)?
+        .with_client_update(client_update_policy()?);
     let maintenance = tokio::spawn(maintain_history(
         provider.clone(),
         arguments.retain_changes,
@@ -398,6 +400,23 @@ async fn provider_crypto(
     .build()
     .await?;
     Ok(ProviderCrypto::with_key_wrapping(runtime, environment)?)
+}
+
+/// Where old clients are sent once their collection moved to mdbase-next; the
+/// minimum version stays unset until release sets it at cutover.
+fn client_update_policy() -> Result<ClientUpdatePolicy, std::io::Error> {
+    let mut policy = ClientUpdatePolicy::default();
+    if let Some(url) = optional_environment("MDBASE_CONNECT_CLIENT_UPDATE_URL")? {
+        if !url.starts_with("https://") {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "MDBASE_CONNECT_CLIENT_UPDATE_URL must be an https URL",
+            ));
+        }
+        policy.update_url = url;
+    }
+    policy.minimum_client_version = optional_environment("MDBASE_CONNECT_MINIMUM_CLIENT_VERSION")?;
+    Ok(policy)
 }
 
 fn required_environment(name: &'static str) -> Result<String, std::io::Error> {

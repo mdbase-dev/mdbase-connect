@@ -35,6 +35,7 @@ interface DevicePairing {
   approved_create_collections?: boolean;
   approved_collection_ids?: string[];
   scope_only?: boolean;
+  account_upgraded?: boolean;
   retained_collection_ids?: string[];
   retained_create_collections?: boolean;
   collections?: Array<{collection_id:string;display_name:string;role:string}>;
@@ -198,6 +199,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
             ) : (
               <>
                 <h1>Open {pairing.connector_name}</h1>
+                {pairing.account_upgraded && <p className="mdbase-connect-notice">mdbase was upgraded. Approve {pairing.connector_name} once to continue. Your collections and notes are unchanged.</p>}
                 <p className="mdbase-connect-lead">Choose a collection to use in {pairing.connector_name}. Approve only if you started sign-in in this app.</p>
                 {installationAccountLabel(pairing) ? (
                   <p className="installation-account-label">Account: {installationAccountLabel(pairing)}</p>

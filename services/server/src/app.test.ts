@@ -555,8 +555,11 @@ describe("mdbase connect server", () => {
         client_id: applicationId
       }).toString()
     });
-    expect(refresh.statusCode).toBe(400);
-    expect(refresh.json().error.code).toBe("invalid_grant");
+    expect(refresh.statusCode).toBe(403);
+    expect(refresh.json().error).toMatchObject({
+      code: "account_suspended",
+      message: expect.stringContaining("Contact mdbase support")
+    });
 
     const code = await app.inject({
       method: "POST",
@@ -570,8 +573,8 @@ describe("mdbase connect server", () => {
         code_verifier: verifier
       }).toString()
     });
-    expect(code.statusCode).toBe(400);
-    expect(code.json().error.code).toBe("invalid_grant");
+    expect(code.statusCode).toBe(403);
+    expect(code.json().error.code).toBe("account_suspended");
 
     const pairing = await app.inject({
       method: "POST",
