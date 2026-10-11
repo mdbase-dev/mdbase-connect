@@ -103,13 +103,16 @@ clients should read `error.code` and `details`, never the message.
 | When | Status | `error.code` | `details` |
 | --- | --- | --- | --- |
 | The collection is fenced for its move | 409, `Retry-After: 300` | `collection_migrating` | `retry_after_seconds` |
-| The collection completed its move (it has a `next_migration_collections` row, or the provider reports it `migrated`) | 409 | `collection_unavailable` | `reason: "moved_to_next_runtime"`, `update_url`, optional `minimum_client_version` |
+| The collection completed its move (it has a `next_migration_collections` row, or the provider reports it `migrated`), or it is a desktop collection that mdbase-next took over (its legacy row is retired, the owner's account is on `next`, and a native collection exists at its id) | 409 | `collection_unavailable` | `reason: "moved_to_next_runtime"`, `update_url`, optional `minimum_client_version` |
 | The grant's account is suspended | 403 | `account_suspended` | none |
 
 - The control plane refuses token issuance for a moved collection before it
   rotates any provider credential. It decides per collection, not by
   `users.account_backend`, because a member's grant can point at another
   owner's collection.
+- For a desktop collection, the relayed operation and file routes and token
+  issuance give the same refusal once mdbase-next took it over; these routes
+  also answer `account_suspended` instead of `invalid_token`.
 - The provider rewrites a 401, 403 or 404 on a `migrating` or `migrated`
   collection only when the bearer was issued for one of that collection's
   replicas, so unknown tokens learn nothing.
