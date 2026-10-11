@@ -1,11 +1,11 @@
 {
   "package": "@mdbase-dev/sdk",
   "version": "0.0.0",
-  "artifact": "mdbase-dev-sdk-dev-9935671f.tgz",
-  "sourceCommit": "9935671f0f1f1fdfa3e9a6835bbff10bff3b34ef",
+  "artifact": "mdbase-dev-sdk-dev-41c26ca7.tgz",
+  "sourceCommit": "41c26ca73f6c97551ba4732c35627d626b927f03",
   "label": "dev intake, not release-qualified",
-  "sha256": "f2cdfae42fcd39220300f3dc3b5f0f63f9f3ebf47a9964c49463d749ef51eb66",
-  "integrity": "sha512-6iyt6oDM2sY3j89vzBxJdjzO9v7uaOAZOdCaUWK/0aWl4DHUm5UDqTNtf3JhA8NY3sncNhvW+6aCKPykYTwXFQ==",
+  "sha256": "f8a00e2364d6adacb8a8ddcfa219f4ae5a5451bfd817758a9022ca32fb9ef1e3",
+  "integrity": "sha512-riy0hLonke3g88Ahr6qosefs6fAtoHmpZwRY/msTdl++yq65o0+yXWnwZtdRYKuy3GFgYmFTd9UGrFHTZcZUjA==",
   "includesPublicApplicationEntry": true,
   "includesPublicApplicationFixture": true,
   "sourceOnly": true,
@@ -15,10 +15,10 @@
     {
       "package": "@mdbase-dev/connect-protocol",
       "version": "0.1.0-beta.129",
-      "artifact": "mdbase-dev-connect-protocol-0.1.0-beta.129-3c14fc913a80.tgz",
-      "sourceCommit": "3c14fc913a8066a23f889e38559c9bb5ff7422e4",
-      "sha256": "3dc48b6b9dbf8651b6c300ab5896408ff90a0e1a7b8f1312e27442914b50ca83",
-      "integrity": "sha512-1cGQC+RKazMrL6NVkt6gFR6vElOruPJb0wLYjtVZU69C88FChTzkr9o12UvoKMFVFUpi0JDa4RPD/iNHUb7d7A=="
+      "artifact": "mdbase-dev-connect-protocol-0.1.0-beta.129-c280cd194ffd.tgz",
+      "sourceCommit": "c280cd194ffd74e2c72b9d08a74d71bd43fa7321",
+      "sha256": "cd1e15236ab7e25c511a4ba13af6a9df23f4b41715161479bba97b0445e1c138",
+      "integrity": "sha512-c0iOOWEcNJRstdyUJ6aqJ3puVR5C9jXW4MBHmQnHI2c4vgOeKi5VWfiuueWx3ArvtwB3nPuAaXHhll/OKH/+Yw=="
     }
   ]
 }

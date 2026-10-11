@@ -238,6 +238,8 @@ function ApplicationView({ sdk, renderNative, onSignedOut, onFeedbackContext, pr
       onClick={() => void act((signal) => application.approve(selection.requested.collectionId, { signal }))}>Approve collection</button>}
     {choosing && signIn && !needsApproval && !invalidSelection && <button type="button" className="mdbase-connect-action mdbase-button" disabled={working}
       onClick={() => void act((signal) => application.reauthorize({ signal }))}>Review access</button>}
+    {blocked?.action === "update_app" && blocked.updateUrl && <a className="mdbase-connect-action mdbase-button is-primary" href={blocked.updateUrl} target="_blank" rel="noreferrer">{blocked.actionLabel}</a>}
+    {blocked?.action === "reload" && <button type="button" className="mdbase-connect-action mdbase-button is-primary" onClick={() => window.location.reload()}>{blocked.actionLabel}</button>}
     {setup && <button type="button" className="mdbase-connect-action mdbase-button is-primary" disabled={working}
       onClick={() => void act((signal) => application.configure({ signal }))}>Set up mdbase editor</button>}
     {choosing && !needsApproval && !invalidSelection && (privates?.merge(snapshot.collections, signIn ? privateList : []) ?? snapshot.collections.map((c) => ({ collectionId: c.collectionId, displayName: c.displayName, kind: "cloud_copy" as const, availability: { state: "available" as const } }))).map((entry) => {
@@ -295,7 +297,8 @@ function PrivateCollectionRow({ entry, working, waiting, onOpen, onAuthorize, on
   const availability = entry.availability;
   const reason = availability.state === "unavailable" ? availability.reason : null;
   const copy = reason ? describeError(availability) : null;
-  const openable = reason !== "sync_required" && reason !== "access_removed";
+  // Approval, deletion and removal can't be fixed by opening; the row offers the SDK's action instead.
+  const openable = copy?.action !== "approve" && copy?.action !== "choose_collection";
   return <div className="sdk-collection-choice is-private" role="group" aria-label={entry.displayName}>
     {openable && <button type="button" className="mdbase-connect-action mdbase-button" disabled={working} onClick={onOpen}>{entry.displayName}</button>}
     {!openable && <span className="sdk-collection-name">{entry.displayName}</span>}
@@ -303,9 +306,10 @@ function PrivateCollectionRow({ entry, working, waiting, onOpen, onAuthorize, on
     {waiting && <p className="mdbase-connect-status" role="status">Waiting for your computer…</p>}
     {availability.state === "opening" && !waiting && <p className="mdbase-connect-status">Getting this collection ready…</p>}
     {copy && <div className="sdk-collection-availability"><strong>{copy.title}</strong><p>{copy.message}</p></div>}
-    {reason === "sync_required" && <button type="button" className="mdbase-button" disabled={working} onClick={onAuthorize}>Give access again</button>}
-    {reason === "access_removed" && <button type="button" className="mdbase-button is-tertiary" disabled={working} onClick={onForget}>Remove from this browser</button>}
-    {onDelete && reason !== "access_removed" && <button type="button" className="mdbase-button is-tertiary" disabled={working}
+    {copy?.action === "approve" && <button type="button" className="mdbase-button" disabled={working} onClick={onAuthorize}>{copy.actionLabel}</button>}
+    {copy?.action === "update_app" && copy.updateUrl && <a className="mdbase-button" href={copy.updateUrl} target="_blank" rel="noreferrer">{copy.actionLabel}</a>}
+    {copy?.action === "choose_collection" && <button type="button" className="mdbase-button is-tertiary" disabled={working} onClick={onForget}>Remove from this browser</button>}
+    {onDelete && reason !== "access_removed" && reason !== "collection_deleted" && <button type="button" className="mdbase-button is-tertiary" disabled={working}
       aria-label={`Delete ${entry.displayName}`} onClick={onDelete}>Delete</button>}
   </div>;
 }

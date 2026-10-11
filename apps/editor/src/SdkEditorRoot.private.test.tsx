@@ -102,15 +102,18 @@ describe("Private collections in the editor chooser", () => {
     expect(scopes.at(-1)?.gateway.peopleDirectory).toBeUndefined();
   });
 
-  it("sync_required asks for access again for that collection; access_removed offers no open", async () => {
+  it("unavailable rows offer the SDK's action label: approve again, get the update; access_removed offers no open", async () => {
     const h = signedIn();
     const other = "0190a5a0-0000-7000-8000-000000000002";
+    const third = "0190a5a0-0000-7000-8000-000000000003";
     const fake = fakePrivate([privateEntry({ state: "unavailable", reason: "sync_required" }),
-      privateEntry({ state: "unavailable", reason: "access_removed" }, other, "Shared")]);
+      privateEntry({ state: "unavailable", reason: "access_removed" }, other, "Shared"),
+      privateEntry({ state: "unavailable", reason: "desktop_update_required" }, third, "Laptop")]);
     render(<SdkEditorRoot sdk={h.entry} privateCollections={fake.port} />);
     await screen.findByRole("group", { name: "Research" });
     expect(within(row("Shared")).queryByRole("button", { name: "Shared" })).toBeNull();
-    fireEvent.click(within(row("Research")).getByRole("button", { name: "Give access again" }));
+    expect(within(row("Laptop")).getByRole("link", { name: "Get the update" }).getAttribute("href")).toMatch(/^https:\/\//);
+    fireEvent.click(within(row("Research")).getByRole("button", { name: "Approve again" }));
     await waitFor(() => expect(fake.port.authorize).toHaveBeenCalledWith(RESEARCH, expect.anything()));
   });
 
