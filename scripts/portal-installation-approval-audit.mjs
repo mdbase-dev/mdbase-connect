@@ -58,6 +58,17 @@ export async function auditPortalInstallationApproval(localPage, origin) {
         assert.equal(await page.getByRole("checkbox").count(), 0, "extra consent waits behind Advanced");
         assert.doesNotMatch(await page.locator("body").innerText(), /[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}/i);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
+        assert.equal(await approve().isEnabled(), true, "picked collection enables approval");
+        assert.deepEqual(await approve().evaluate(element => {
+          const probe = document.createElement("span");
+          probe.style.backgroundColor = "var(--color-accent)";
+          probe.style.color = "var(--color-on-accent)";
+          element.after(probe);
+          const actual = getComputedStyle(element), expected = getComputedStyle(probe);
+          const state = [element.disabled, actual.backgroundColor === expected.backgroundColor, actual.color === expected.color];
+          probe.remove();
+          return state;
+        }), [false, true, true], "enabled approval immediately uses the filled primary colors, never disabled gray");
         assert.ok(await approve().evaluate(element => element.getBoundingClientRect().height) >= 44);
       }
     }

@@ -928,6 +928,11 @@ select {
   min-width: 0;
 }
 
+/* Consent becoming available must look enabled immediately, not fade from gray. */
+.installation-approval .mdbase-button.is-primary {
+  transition-property: border-color;
+}
+
 .installation-approval .installation-account-label {
   margin-top: var(--space-4);
   color: var(--color-text-muted);
