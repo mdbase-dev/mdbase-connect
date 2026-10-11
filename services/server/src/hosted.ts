@@ -486,7 +486,7 @@ export function mdbaseResources(timezone = "UTC"): SyncCollectionResources {
   };
 }
 
-function isIanaTimezone(timezone: string): boolean {
+export function isIanaTimezone(timezone: string): boolean {
   if (!timezone.trim() || timezone.toLowerCase() === "local" || /^[+-]\d{2}:\d{2}$/.test(timezone)) {
     return false;
   }

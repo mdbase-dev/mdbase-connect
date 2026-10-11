@@ -103,8 +103,11 @@ export function cloudCopyMetadata(options: CloudCopyBootstrapOptions, collection
 export async function createServiceCloudCopy(options: CloudCopyBootstrapOptions, input: {
   collection: string; owner: string; runtime: "shadow" | "next"; displayName: string;
   current: (client: DatabaseConnection) => Promise<void>;
+  /** Seals the collection's initial content after genesis, on every call. It must be
+   * idempotent per collection, so a retry converges on the same content. */
+  initialContent?: () => Promise<unknown>;
 }) {
-  const { collection, owner, runtime, displayName, current } = input;
+  const { collection, owner, runtime, displayName, current, initialContent } = input;
   const rootKeyId = Buffer.from(options.next.policyCert.root_key_id, "hex");
   const pitr = options.next.logService.labPitr;
   if (pitrCollection(pitr, collection) && (runtime !== "next" || owner !== pitr!.owner || displayName !== pitrLabel(pitr!, collection))) throw new CreateError(403, "lab_pitr_fixture_required");
@@ -143,6 +146,10 @@ export async function createServiceCloudCopy(options: CloudCopyBootstrapOptions,
   await inTransaction(options.db, check);
   const genesis = await appendedCloudCopyGenesis(options, collection);
   await inTransaction(options.db, check);
+  if (initialContent) {
+    await initialContent();
+    await inTransaction(options.db, check);
+  }
   const head = await options.log.head(collection);
   return inTransaction(options.db, async client => {
     if (!await check(client)) throw new CreateError(409, "not_current_cloud_copy");

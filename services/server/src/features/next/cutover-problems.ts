@@ -20,7 +20,7 @@ export const DEFAULT_CLIENT_UPDATE_POLICY: ClientUpdatePolicy = {
  */
 export class CutoverProblemError extends Error {
   constructor(
-    readonly kind: "moved" | "migrating" | "suspended"
+    readonly kind: "moved" | "onboarding_moved" | "migrating" | "suspended"
   ) {
     super(kind);
   }
@@ -33,6 +33,13 @@ export function cutoverProblem(error: CutoverProblemError, policy: ClientUpdateP
   details?: Record<string, unknown>;
   retryAfterSeconds?: number;
 } {
+  const moved = {
+    reason: "moved_to_next_runtime",
+    update_url: policy.updateUrl,
+    ...(policy.minimumClientVersion
+      ? { minimum_client_version: policy.minimumClientVersion }
+      : {})
+  };
   if (error.kind === "moved") {
     return {
       status: 409,
@@ -40,13 +47,17 @@ export function cutoverProblem(error: CutoverProblemError, policy: ClientUpdateP
       message: "mdbase was upgraded, and this app needs to update to keep syncing. "
         + "Reload the page, or download the latest version from "
         + `${policy.updateUrl} if you use the desktop or mobile app.`,
-      details: {
-        reason: "moved_to_next_runtime",
-        update_url: policy.updateUrl,
-        ...(policy.minimumClientVersion
-          ? { minimum_client_version: policy.minimumClientVersion }
-          : {})
-      }
+      details: moved
+    };
+  }
+  if (error.kind === "onboarding_moved") {
+    return {
+      status: 409,
+      code: "onboarding_moved",
+      message: "mdbase was upgraded. Open one of your apps to finish setting up your "
+        + `starter collection, or download the latest version from ${policy.updateUrl} `
+        + "if you use the desktop or mobile app.",
+      details: moved
     };
   }
   if (error.kind === "migrating") {
