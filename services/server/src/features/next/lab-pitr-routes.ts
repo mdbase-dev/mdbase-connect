@@ -24,8 +24,68 @@ interface CpOriginalFacts {
   audience: string; run: "gate4-pitr-lab-20261009-01"; collection: string; owner: string;
   rootPublicKey: Uint8Array; issuerPublicKey: Uint8Array; transportPublicKey: Uint8Array;
   genesisSha256: Uint8Array; challenge: Uint8Array; issuedAt: number;
+  replay?: {nonce: Uint8Array; transcriptHash: Uint8Array};
 }
 const PREKEY_DOMAIN = "mdbase/v1/prekey-original-admission";
+const PREKEY_V2_DOMAIN = "mdbase/v2/prekey-original-admission";
+// Existing HTTP authentication timing; these bounds do not authenticate selectors.
+const HTTP_NONCE_TTL_MS = 60000, HTTP_NONCE_MAX_SKEW_MS = 5000;
+const PREKEY_GC_MARGIN_MS = 24*60*60*1000;
+const PREKEY_LIVE_COLLECTION_CAP = 4096, PREKEY_LIVE_ACCOUNT_CAP = 8192;
+const PREKEY_DEADLINE_MS = 5000;
+let prekeyInFlight = 0;
+const prekeyCollectionInFlight = new Map<string,number>();
+function cpSafeMs(value: unknown): number {
+  if (typeof value!=="string" || !/^(?:0|[1-9][0-9]{0,15})$/.test(value)) throw new Error("prekey_clock_unavailable");
+  const number=Number(value);if(!Number.isSafeInteger(number))throw new Error("prekey_clock_unavailable");return number;
+}
+async function lockCpNonceOwner(client: DatabaseConnection,owner: string): Promise<void> {
+  await client.query("SELECT pg_advisory_xact_lock(hashtextextended('prekey-http-owner:' || $1::uuid::text, 20261005))",[owner]);
+}
+async function cpTransactionNow(db: Pick<DatabaseConnection,"query">): Promise<number> {
+  const rows=await db.query<{now_ms:string}>("SELECT floor(extract(epoch FROM now())*1000)::text AS now_ms");
+  if(rows.rows.length!==1)throw new Error("prekey_clock_unavailable");return cpSafeMs(rows.rows[0]!.now_ms);
+}
+function prekeyDeadline(started: number): void {
+  const now=performance.now();if(!Number.isFinite(now)||now<started||now-started>=PREKEY_DEADLINE_MS)throw new Error("prekey_deadline");
+}
+function nonceExpiry(nonce: Uint8Array,now: number): number {
+  if(!Number.isSafeInteger(now)||now<0||!Number.isSafeInteger(now+HTTP_NONCE_MAX_SKEW_MS))throw new Error("prekey_nonce_time");
+  nonzero32(nonce);
+  const issued=Buffer.from(nonce).readBigUInt64BE(),expiry=issued+BigInt(HTTP_NONCE_TTL_MS);
+  if(expiry>BigInt(Number.MAX_SAFE_INTEGER)||issued>BigInt(now+HTTP_NONCE_MAX_SKEW_MS)||expiry<BigInt(now))throw new Error("prekey_nonce_time");
+  return Number(expiry);
+}
+async function registerCpNonce(client: DatabaseConnection,collection: string,owner: string,nonce: Uint8Array,
+  transcript: Uint8Array,challenge: Uint8Array,now: number): Promise<boolean> {
+  const expires=nonceExpiry(nonce,now),issued=expires-HTTP_NONCE_TTL_MS;
+  const floors=await client.query<{owner_user_id:string;cutoff_ms:string;not_before_ms:string;last_cp_now_ms:string}>(
+    "SELECT owner_user_id::text,cutoff_ms::text,not_before_ms::text,last_cp_now_ms::text FROM next_prekey_http_nonce_floors WHERE collection_id=$1 FOR UPDATE",[collection]);
+  if(floors.rows.length===0){
+    const floor=now+HTTP_NONCE_TTL_MS+HTTP_NONCE_MAX_SKEW_MS;
+    if(!Number.isSafeInteger(floor))throw new Error("prekey_floor_unavailable");
+    await client.query("INSERT INTO next_prekey_http_nonce_floors(collection_id,owner_user_id,cutoff_ms,not_before_ms,last_cp_now_ms) VALUES($1,$2,$3,$4,$3)",[collection,owner,now,floor]);
+    // Persist a cutoff, not a physical drain ACK. This first request cannot sign.
+    return false;
+  }
+  if(floors.rows.length!==1)throw new Error("prekey_floor_unavailable");
+  const row=floors.rows[0]!,cutoff=cpSafeMs(row.cutoff_ms),floor=cpSafeMs(row.not_before_ms),previous=cpSafeMs(row.last_cp_now_ms);
+  if(row.owner_user_id!==owner||floor!==cutoff+HTTP_NONCE_TTL_MS+HTTP_NONCE_MAX_SKEW_MS||now<previous||previous<cutoff)throw new Error("prekey_floor_unavailable");
+  if(now<=floor||issued<=floor)throw new Error("prekey_floor_not_passed");
+  await client.query("UPDATE next_prekey_http_nonce_floors SET last_cp_now_ms=$2 WHERE collection_id=$1",[collection,now]);
+  const gcBefore=now-HTTP_NONCE_TTL_MS-HTTP_NONCE_MAX_SKEW_MS-PREKEY_GC_MARGIN_MS;
+  await client.query(`DELETE FROM next_prekey_http_nonce_uses WHERE collection_id=$1 AND http_nonce IN
+    (SELECT http_nonce FROM next_prekey_http_nonce_uses WHERE collection_id=$1 AND nonce_expires_ms<$2 ORDER BY nonce_expires_ms,http_nonce LIMIT 64)`,[collection,gcBefore]);
+  for(const [scope,id,cap] of [["collection_id",collection,PREKEY_LIVE_COLLECTION_CAP],["owner_user_id",owner,PREKEY_LIVE_ACCOUNT_CAP]] as const){
+    const count=await client.query<{live:number}>(`SELECT count(*)::integer AS live FROM
+      (SELECT 1 FROM next_prekey_http_nonce_uses WHERE ${scope}=$1 AND nonce_expires_ms>=$2 LIMIT ${cap+1}) live`,[id,now]);
+    if(count.rows.length!==1||!Number.isSafeInteger(count.rows[0]!.live)||count.rows[0]!.live<0||count.rows[0]!.live>=cap)throw new Error("prekey_capacity");
+  }
+  const inserted=await client.query(`INSERT INTO next_prekey_http_nonce_uses(collection_id,owner_user_id,http_nonce,transcript_hash,challenge,nonce_expires_ms)
+    VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(collection_id,http_nonce) DO NOTHING RETURNING collection_id`,
+    [collection,owner,Buffer.from(nonce),Buffer.from(nonzero32(transcript)),Buffer.from(nonzero32(challenge)),expires]);
+  if(inserted.rows.length!==1)throw new Error("prekey_nonce_consumed");return true;
+}
 function admissionUuid(value: string): Uint8Array {
   if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}(?![\s\S])/u.test(value) || value===NIL) throw new Error("invalid_prekey_subject");
   return uuidBytes(value);
@@ -83,12 +143,13 @@ function signCpOriginalAdmission(signer: PolicySigner, facts: CpOriginalFacts): 
   const issuedAt=facts.issuedAt,expiresAt=Math.min(issuedAt+10000,signer.cert.notAfter);
   if (!Number.isSafeInteger(issuedAt) || issuedAt<0 || !Number.isSafeInteger(expiresAt)
       || issuedAt<signer.cert.notBefore || expiresAt<=issuedAt || expiresAt-issuedAt>10000) throw new Error("invalid_prekey_freshness");
-  const claims=encodeCbor([1,admissionAudience(facts.audience),facts.run,"original-caller-prekey",admissionUuid(facts.collection),admissionUuid(facts.owner),
+  const version=facts.replay?2:1;
+  const claims=encodeCbor([version,admissionAudience(facts.audience),facts.run,"original-caller-prekey",admissionUuid(facts.collection),admissionUuid(facts.owner),
     root,nonzero32(facts.issuerPublicKey),nonzero32(facts.transportPublicKey),nonzero32(facts.genesisSha256),1,null,null,null,
-    nonzero32(facts.challenge),issuedAt,expiresAt]);
+    nonzero32(facts.challenge),issuedAt,expiresAt,...(facts.replay?[nonzero32(facts.replay.nonce),nonzero32(facts.replay.transcriptHash)]:[])]);
   if (claims.length>2048) throw new Error("prekey_claims_too_large");
-  const signature=sign(null,domainHash(PREKEY_DOMAIN,claims),signer.privateKey);
-  const admission=Buffer.concat([Buffer.of(0x84,1),encodeCbor(claims),encodeCert(signer.cert),encodeCbor(signature)]);
+  const signature=sign(null,domainHash(facts.replay?PREKEY_V2_DOMAIN:PREKEY_DOMAIN,claims),signer.privateKey);
+  const admission=Buffer.concat([Buffer.of(0x84,version),encodeCbor(claims),encodeCert(signer.cert),encodeCbor(signature)]);
   if (admission.length>4096) throw new Error("prekey_admission_too_large");
   return {admission,expiresAt};
 }
@@ -258,10 +319,15 @@ export function registerLabPitrRoutes(app: FastifyInstance, options: {
     reply.header("cache-control", "no-store");
     const presented = bearerToken(request);
     if (!presented || !safeEqual(presented, token)) return reply.code(401).send(apiError("invalid_internal_token", "Internal token required."));
-    const input = z.object({collection:uuid,challenge:z.string().regex(/^[0-9a-f]{64}(?![\s\S])/u).refine(v=>v!=="00".repeat(32))}).strict().safeParse(request.body);
+    const bytes32=z.string().regex(/^[0-9a-f]{64}(?![\s\S])/u).refine(v=>v!=="00".repeat(32));
+    const input=z.union([z.object({collection:uuid,challenge:bytes32}).strict(),
+      z.object({v:z.literal(2),collection:uuid,challenge:bytes32,http_nonce:bytes32,transcript_hash:bytes32}).strict()]).safeParse(request.body);
     if (!input.success || !z.object({}).strict().safeParse(request.query).success) return reply.code(400).send(apiError("invalid_request", "Exact collection and challenge required."));
-    const b = input.data;
-    try {
+    const b = input.data,replay="v" in b?{nonce:Buffer.from(b.http_nonce,"hex"),transcriptHash:Buffer.from(b.transcript_hash,"hex")}:undefined;
+    const started=performance.now();
+    if(replay&&(prekeyInFlight>=4||(prekeyCollectionInFlight.get(b.collection)??0)>=2))return reply.code(503).send(apiError("lab_pitr_authority_unavailable","Original CP admission not established."));
+    if(replay){prekeyInFlight++;prekeyCollectionInFlight.set(b.collection,(prekeyCollectionInFlight.get(b.collection)??0)+1);}
+    const run=async()=>{
       const source = options.admission, identity = source?.identity.pitrAdmissionIdentity();
       if (!source || !identity) throw new Error("prekey_source_unavailable");
       if (b.collection!==pitr.active && b.collection!==pitr.deleted) denied();
@@ -274,30 +340,47 @@ export function registerLabPitrRoutes(app: FastifyInstance, options: {
           || !Buffer.from(source.signer.cert.root).equals(Buffer.from(keyId(options.next.rootPublicKey)))) denied();
       let issuedAt = -1;
       const signed = await inTransaction(options.db,async client=>{
+        if(replay){prekeyDeadline(started);await lockCpNonceOwner(client,pitr.owner);prekeyDeadline(started);}
         await lock(client,b.collection);
+        const now=replay?await cpTransactionNow(client):(options.now??Date.now)();
+        if(replay){prekeyDeadline(started);nonceExpiry(replay.nonce,now);}
         const original = await originalGenesis(client,b.collection,{owner:pitr.owner,root:options.next.policyCert.root_key_id,state:"sending-or-appended"});
         assertCpOriginalGenesis(Buffer.from(original.item,"base64"),b.collection,pitr.owner,options.next.rootPublicKey,transport);
         // The final reread still counts complete original history and pending
         // owner/key denial under the same collection/security locks.
-        await currentCollection(client,pitr,options.next,b.collection,original.hash,(options.now??Date.now)(),"cp-genesis");
+        await currentCollection(client,pitr,options.next,b.collection,original.hash,now,"cp-genesis");
         const originalKeyRevoked = await client.query(`SELECT 1 FROM next_policy_outbox
           WHERE collection_id=$1 AND ops->'ops' @> $2::jsonb LIMIT 1`,
           [b.collection,JSON.stringify([{op:"cp-key-revoke",keyId:{$hex:Buffer.from(keyId(transport)).toString("hex")}}])]);
         if (originalKeyRevoked.rows.length) denied();
         const currentIdentity = source.identity.pitrAdmissionIdentity();
         if (!currentIdentity || currentIdentity.issuerPublicKey!==identity.issuerPublicKey || currentIdentity.transportPublicKey!==identity.transportPublicKey) denied();
-        issuedAt = (options.now??Date.now)();
+        if(replay){
+          prekeyDeadline(started);
+          if(!await registerCpNonce(client,b.collection,pitr.owner,replay.nonce,replay.transcriptHash,Buffer.from(b.challenge,"hex"),now))return null;
+          prekeyDeadline(started);
+        }
+        issuedAt = replay?now:(options.now??Date.now)();
         return signCpOriginalAdmission(source.signer,{audience:source.audience,run:pitr.run,collection:b.collection,owner:pitr.owner,
           rootPublicKey:options.next.rootPublicKey,issuerPublicKey:issuer,transportPublicKey:transport,
-          genesisSha256:Buffer.from(original.hash,"hex"),challenge:Buffer.from(b.challenge,"hex"),issuedAt});
+          genesisSha256:Buffer.from(original.hash,"hex"),challenge:Buffer.from(b.challenge,"hex"),issuedAt,...(replay?{replay}:{})});
       }); // No signature can escape a failed or unknown COMMIT.
-      const now = (options.now??Date.now)();
+      if(!signed)throw new Error("prekey_floor_initialized");
+      const now = replay?await cpTransactionNow(options.db):(options.now??Date.now)();
+      if(replay)prekeyDeadline(started);
       if (!Number.isSafeInteger(now) || now<issuedAt || now>=signed.expiresAt) denied();
+      if(replay)nonceExpiry(replay.nonce,now);
       return {admission:Buffer.from(signed.admission).toString("base64"),expires_at:signed.expiresAt};
+    };
+    let timer:ReturnType<typeof setTimeout>|undefined;
+    const pending=run().finally(()=>{if(replay){prekeyInFlight--;const n=prekeyCollectionInFlight.get(b.collection)!-1;
+      if(n===0)prekeyCollectionInFlight.delete(b.collection);else prekeyCollectionInFlight.set(b.collection,n);}});
+    try {
+      return replay?await Promise.race([pending,new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error("prekey_deadline")),PREKEY_DEADLINE_MS);})]):await pending;
     } catch(error) {
       const status = error instanceof CreateError || (error instanceof Error && error.message==="collection_deleted") ? 409 : 503;
       return reply.code(status).send(apiError(status===409?"lab_pitr_authority_denied":"lab_pitr_authority_unavailable","Original CP admission not established."));
-    }
+    } finally {if(timer!==undefined)clearTimeout(timer);}
   });
   app.post("/internal/v1/next/lab-pitr/current", limit, async (request, reply) => {
     reply.header("cache-control", "no-store");
