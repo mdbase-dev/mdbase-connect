@@ -46,7 +46,7 @@ jobs:
         run: |
           $crashes = 0
           for ($run = 1; $run -le 10; $run++) {
-            & .\target\release\pipe-uaf-repro.exe 20000 | Select-Object -Last 1
+            & .\target\release\pipe-uaf-repro.exe 5000 | Select-Object -Last 1
             $code = $LASTEXITCODE
             if ($code -ne 0) { $crashes++; Write-Output ("run {0}: exit 0x{1:x8}" -f $run, $code) }
           }

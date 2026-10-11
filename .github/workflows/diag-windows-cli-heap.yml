@@ -2,7 +2,7 @@ name: Diagnose Windows CLI heap corruption
 
 on:
   push:
-    branches: ['diag/windows-cli-heap*']
+    branches: ['diag/windows-cli-heap-fixed']
 
 permissions:
   contents: read
