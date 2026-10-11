@@ -23,12 +23,14 @@ export function pendingNoteRequestId(error: unknown): string | undefined {
     ? error.problem.details.request_id : undefined;
 }
 
+const PENDING_NOUNS: Readonly<Record<string, string>> = { update: "change", rename: "rename", create: "new note", delete: "delete" };
+
 export function pendingNoteToasts(pending: readonly PendingMutationSummary[], renameId: string | undefined, busy: boolean, recover: (id: string) => Promise<void>): ToastItem[] {
   return pending.filter((operation) => operation.requestId !== renameId).map((operation) => ({
     id: `pending-${operation.requestId}`,
-    message: `An interrupted ${operation.operation} from ${new Date(operation.createdAt).toLocaleString()} needs exact recovery. No new write will be attempted.`,
+    message: `Your ${PENDING_NOUNS[operation.operation] ?? "change"} from ${new Date(operation.createdAt).toLocaleString()} isn't confirmed yet. Check again to finish saving it.`,
     tone: "error", sticky: true, dismissible: false,
-    action: { label: `Recover ${operation.operation}`, busy, onAction: () => void recover(operation.requestId) }
+    action: { label: "Check again", busy, onAction: () => void recover(operation.requestId) }
   }));
 }
 

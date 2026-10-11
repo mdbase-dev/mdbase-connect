@@ -112,6 +112,34 @@ describe("SdkEditorRoot over the public SDK fixture", () => {
     expect(h.controls.observedActions().some((call) => call.action === "reauthorize")).toBe(true);
   });
 
+  it("a new account with no collections says so and offers one way to choose a collection", async () => {
+    const h = applicationFixture({ status: "unselected", signIn: paired, collections: [] });
+    render(<SdkEditorRoot sdk={h.entry} />);
+    expect(screen.getByText("mdbase editor doesn't have a collection yet. Choose one in mdbase to start writing.")).toBeInTheDocument();
+    expect(screen.queryByText("Choose the collection you want to write in.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Review access" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Choose a collection" }));
+    await act(async () => undefined);
+    const approve = h.controls.observedActions().find((call) => call.action === "approve");
+    expect(approve).toMatchObject({ signal: expect.any(AbortSignal) });
+    expect(approve?.collectionId).toBeUndefined(); // no collection named: choose in mdbase
+  });
+
+  it("slow opening says it is taking longer instead of waiting silently", () => {
+    vi.useFakeTimers();
+    try {
+      const id = "selected-id";
+      const h = applicationFixture({ status: "opening", signIn: paired, selectedCollectionId: id, collections: [{ collectionId: id, displayName: "Notes", role: "owner" }],
+        selection: { state: "usable", requested: { collectionId: id, source: "user", displayName: "Notes", approved: true }, usable: { collectionId: id, displayName: "Notes", role: "owner" }, problem: null },
+        readiness: { ...signedOut.readiness, checking: true } });
+      render(<SdkEditorRoot sdk={h.entry} />);
+      expect(screen.getByText("Opening Notes…")).toBeInTheDocument();
+      act(() => { vi.advanceTimersByTime(15_000); });
+      expect(screen.getByText("Opening Notes is taking longer than usual. You can keep waiting or choose another collection.")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Choose another collection" })).toBeEnabled();
+    } finally { vi.useRealTimers(); }
+  });
+
   it("a failed close does not report sign-out or leak its detail", async () => {
     const h = applicationFixture({ status: "unselected", signIn: paired });
     const signedOut = vi.fn();

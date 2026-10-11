@@ -111,10 +111,22 @@ describe("NextEditorRecords (SDK stand-in, not LAB)", () => {
     const update = vi.spyOn(f.client, "update").mockRejectedValue(new MdbaseError({ code: "outcome_unknown", recovery: "resolve_outcome", message: "Unknown" }));
     await expect(f.adapter.updateProperties(base.path, { status: "done" }, base.revision)).rejects.toMatchObject({ code: "outcome_unknown" });
     const [mutation] = f.adapter.pendingMutations();
-    await expect(f.adapter.updateProperties(base.path, { status: "open" }, base.revision)).rejects.toThrow("Recover the interrupted");
+    await expect(f.adapter.updateProperties(base.path, { status: "open" }, base.revision)).rejects.toThrow("Check your unconfirmed change");
     vi.spyOn(f.client, "awaitReceipt").mockResolvedValue({ mutation: mutation.mutationId, state: "confirmed", status: "applied" });
     await f.adapter.recover(mutation.mutationId);
     expect(update).toHaveBeenCalledTimes(1);
+    expect(f.adapter.pendingMutations()).toEqual([]);
+  });
+
+  it("a save still waiting for its receipt (offline) is not reported as interrupted", async () => {
+    const f = await fixture(true);
+    const base = await f.adapter.read(f.record.path);
+    const update = vi.spyOn(f.client, "update");
+    const saving = f.adapter.updateProperties(base.path, { status: "done" }, base.revision);
+    await vi.waitFor(() => expect(update).toHaveBeenCalledTimes(1));
+    expect(f.adapter.pendingMutations()).toEqual([]);
+    f.replica.confirmAll();
+    expect((await saving)?.frontmatter.status).toBe("done");
     expect(f.adapter.pendingMutations()).toEqual([]);
   });
 

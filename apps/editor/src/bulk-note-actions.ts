@@ -68,7 +68,7 @@ export async function runNoteBatch<Value>(paths: readonly string[], operation: (
     } catch (error) {
       result.failed.push({ path, error });
       if (pendingNoteRequestId(error)) {
-        result.failed.push(...uniquePaths.slice(index + 1).map((path) => ({ path, error: new Error("Not attempted because an earlier note needs exact recovery.") })));
+        result.failed.push(...uniquePaths.slice(index + 1).map((path) => ({ path, error: new Error("Not changed because an earlier note's change isn't confirmed yet.") })));
         break;
       }
     }

@@ -69,6 +69,7 @@ interface PrivateScope {
   readonly actions: EditorScopeActions;
 }
 let privateGeneration = 0;
+const SLOW_OPENING_MS = 15_000;
 
 function ApplicationView({ sdk, renderNative, onSignedOut, onFeedbackContext, privateCollections }: SdkEditorRootProps) {
   const declaration = declarations.get(sdk);
@@ -116,6 +117,16 @@ function ApplicationView({ sdk, renderNative, onSignedOut, onFeedbackContext, pr
   // Private collections: listed from this browser's grants, opened through the relay.
   const [privateList, setPrivateList] = useState<readonly MdbasePrivateCollection[]>([]);
   const [privateProblem, setPrivateProblem] = useState<string | null>(null);
+  const [privateListed, setPrivateListed] = useState(false);
+  // Opening has no SDK deadline; after a while say so rather than wait silently.
+  const openingNow = snapshot.status === "starting" || snapshot.status === "opening" || snapshot.readiness.checking;
+  const [slowOpening, setSlowOpening] = useState(false);
+  useEffect(() => {
+    setSlowOpening(false);
+    if (!openingNow) return;
+    const timer = setTimeout(() => setSlowOpening(true), SLOW_OPENING_MS);
+    return () => clearTimeout(timer);
+  }, [openingNow, snapshot.selectedCollectionId]);
   const [privateWaiting, setPrivateWaiting] = useState<string | null>(null);
   const [privateScope, setPrivateScope] = useState<PrivateScope | null>(null);
   const signedIn = snapshot.status !== "closed" && snapshot.signIn?.state === "paired";
@@ -123,9 +134,9 @@ function ApplicationView({ sdk, renderNative, onSignedOut, onFeedbackContext, pr
     if (!privates) return;
     try {
       const list = await privates.collections({ signal });
-      if (!signal.aborted) { setPrivateList(list); setPrivateProblem(null); }
+      if (!signal.aborted) { setPrivateList(list); setPrivateProblem(null); setPrivateListed(true); }
     } catch (error) {
-      if (!signal.aborted) setPrivateProblem(describeError(error)?.message ?? "Private collections couldn't be loaded.");
+      if (!signal.aborted) { setPrivateProblem(describeError(error)?.message ?? "Private collections couldn't be loaded."); setPrivateListed(true); }
     }
   }, [privates]);
   useEffect(() => {
@@ -216,6 +227,9 @@ function ApplicationView({ sdk, renderNative, onSignedOut, onFeedbackContext, pr
   const signIn = !closed && snapshot.signIn?.state === "paired" ? snapshot.signIn : null;
   const identity = signIn?.accountEmail ? `Signed in as ${signIn.accountEmail}`
     : signIn?.accountProvider === "github" && signIn.accountLogin ? `Signed in as ${signIn.accountLogin} on GitHub` : null;
+  // Only once the Private list has answered, so the empty copy never flashes before it.
+  const noCollections = !closed && !unavailable && !waiting && !opening && signIn !== null && !needsApproval && !invalidSelection
+    && snapshot.collections.length === 0 && (!privates || (privateListed && privateList.length === 0));
   const error = problem || snapshot.status === "blocked" || invalidSelection;
   const message = unavailable ? "Opening collections isn't available in this build yet."
     : closed ? "mdbase editor has signed out. Reload to sign in again."
@@ -225,7 +239,9 @@ function ApplicationView({ sdk, renderNative, onSignedOut, onFeedbackContext, pr
     : waiting ? "Waiting for approval in the mdbase tab…"
     : needsApproval ? "This collection needs approval for mdbase editor."
     : setup ? "This collection needs mdbase editor setup before editing."
+    : opening && slowOpening ? `Opening ${selected?.displayName ?? "your collection"} is taking longer than usual. You can keep waiting or choose another collection.`
     : opening || snapshot.status === "ready" ? `Opening ${selected?.displayName ?? "your collection"}…`
+    : noCollections ? "mdbase editor doesn't have a collection yet. Choose one in mdbase to start writing."
     : signIn ? "Choose the collection you want to write in."
     : "Sign in with your mdbase account to open your collections.";
   const choosing = !closed && !unavailable && !waiting && !opening;
@@ -236,7 +252,9 @@ function ApplicationView({ sdk, renderNative, onSignedOut, onFeedbackContext, pr
       onClick={() => void act((signal) => application.approve(undefined, { signal }))}>Sign in</button>}
     {choosing && needsApproval && <button type="button" className="mdbase-connect-action mdbase-button is-primary" disabled={working}
       onClick={() => void act((signal) => application.approve(selection.requested.collectionId, { signal }))}>Approve collection</button>}
-    {choosing && signIn && !needsApproval && !invalidSelection && <button type="button" className="mdbase-connect-action mdbase-button" disabled={working}
+    {noCollections && <button type="button" className="mdbase-connect-action mdbase-button is-primary" disabled={working}
+      onClick={() => void act((signal) => application.approve(null, { signal }))}>Choose a collection</button>}
+    {choosing && signIn && !needsApproval && !invalidSelection && !noCollections && <button type="button" className="mdbase-connect-action mdbase-button" disabled={working}
       onClick={() => void act((signal) => application.reauthorize({ signal }))}>Review access</button>}
     {blocked?.action === "update_app" && blocked.updateUrl && <a className="mdbase-connect-action mdbase-button is-primary" href={blocked.updateUrl} target="_blank" rel="noreferrer">{blocked.actionLabel}</a>}
     {blocked?.action === "reload" && <button type="button" className="mdbase-connect-action mdbase-button is-primary" onClick={() => window.location.reload()}>{blocked.actionLabel}</button>}

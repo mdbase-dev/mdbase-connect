@@ -19,6 +19,8 @@ export class NextEditorRecords {
   private readonly seen = new Map<string, { record: wire.RecordView; bytes: number }>();
   private seenBytes = 0;
   private readonly pending = new Map<string, NextEditorPendingMutation>();
+  /** Writes this session is still awaiting a receipt for (e.g. while offline): pending, not interrupted. */
+  private readonly inFlight = new Set<string>();
 
   /** `isCurrent` is the borrowed SDK connection's currentness; a retired
    * connection fences every later await, including receipt readback. */
@@ -96,7 +98,7 @@ export class NextEditorRecords {
     return result;
   }
 
-  pendingMutations(): readonly NextEditorPendingMutation[] { return [...this.pending.values()]; }
+  pendingMutations(): readonly NextEditorPendingMutation[] { return [...this.pending.values()].filter((mutation) => !this.inFlight.has(mutation.mutationId)); }
 
   /** Restore only native record mutations whose exact target is unambiguous.
    * Resources/setup batches are not silently converted into note operations. */
@@ -139,17 +141,22 @@ export class NextEditorRecords {
   private async write(operation: NextEditorPendingMutation["operation"], recordId: string,
     submit: (options: { mutationId: string; signal: AbortSignal }) => Promise<Write>, signal?: AbortSignal): Promise<NoteDocument | undefined> {
     const current = this.signal(signal);
-    if (this.pending.size) throw new Error("Recover the interrupted note operation before making another change. No new write was attempted.");
+    if (this.pending.size) throw new Error(this.inFlight.size === this.pending.size
+      ? "Your previous change is still being confirmed. Try again in a moment."
+      : "Check your unconfirmed change before making another one. Nothing new was saved.");
     const mutationId = crypto.randomUUID();
     const mutation = { mutationId, operation, recordId, createdAt: new Date().toISOString() };
     this.pending.set(mutationId, mutation);
-    // An error code alone does not prove non-capture: even an internal SDK
-    // response error can follow an accepted write. Only an exact native receipt
-    // can settle this identity, so submission failures retain it for recovery.
-    const write = await submit({ mutationId, signal: current });
-    this.check(current);
-    if (write.mutationId !== mutationId) throw new Error("The native write changed its mutation identity.");
-    return this.confirm(mutation, current);
+    this.inFlight.add(mutationId);
+    try {
+      // An error code alone does not prove non-capture: even an internal SDK
+      // response error can follow an accepted write. Only an exact native receipt
+      // can settle this identity, so submission failures retain it for recovery.
+      const write = await submit({ mutationId, signal: current });
+      this.check(current);
+      if (write.mutationId !== mutationId) throw new Error("The native write changed its mutation identity.");
+      return await this.confirm(mutation, current);
+    } finally { this.inFlight.delete(mutationId); }
   }
 
   private async confirm(mutation: NextEditorPendingMutation, signal: AbortSignal): Promise<NoteDocument | undefined> {

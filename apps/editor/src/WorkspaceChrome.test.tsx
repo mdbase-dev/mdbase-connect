@@ -106,7 +106,7 @@ describe("quiet save status", () => {
     expect(screen.queryByRole("button", { name: "Retry save" })).not.toBeInTheDocument();
     expect(screen.getByText("Needs attention")).toBeInTheDocument();
     view.rerender(<SaveIndicator state="recovery" />);
-    expect(screen.getByText("Recovery pending")).toBeInTheDocument();
+    expect(screen.getByText("Not confirmed yet")).toBeInTheDocument();
     view.rerender(<SaveIndicator state="saved" activity="renaming" detail="Updating linked notes" onCancel={cancel} />);
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(cancel).toHaveBeenCalledOnce();
