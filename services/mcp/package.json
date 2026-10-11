@@ -18,6 +18,7 @@
     "@fastify/rate-limit": "^11.2.0",
     "@mdbase-dev/connect": "workspace:*",
     "@mdbase-dev/connect-protocol": "workspace:*",
+    "@mdbase-dev/sdk": "file:vendor/mdbase-dev-sdk-0.0.0-9a2b6cc3.tgz",
     "@modelcontextprotocol/sdk": "^1.31.0",
     "fastify": "^5.12.5",
     "pg": "^8.23.0",
