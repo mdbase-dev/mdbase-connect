@@ -34,6 +34,13 @@ test("account refusals no retry can fix cancel the window in plain words; others
   assert.equal(legacy.cancel, true);
   assert.match(legacy.message, /mdbase editor/);
   assert.doesNotMatch(legacy.message, /legacy|backend|migrat/i);
+  const upgrading = model.installationRefusal({ status: 409, code: "installation_legacy_backend", message: "x", details: { upgrade: "in_progress" } }, "Reader");
+  assert.equal(upgrading.cancel, false);
+  assert.match(upgrading.message, /being upgraded/);
+  assert.match(upgrading.message, /try again/i);
+  const unscheduled = model.installationRefusal({ status: 409, code: "installation_legacy_backend", message: "x", details: { upgrade: "not_scheduled" } }, "Reader");
+  assert.equal(unscheduled.cancel, true);
+  assert.match(unscheduled.message, /support@mdbase\.dev/);
   assert.equal(model.installationRefusal({ status: 403, code: "strict_device_approval", message: "x" }, "Reader").cancel, true);
   for (const reason of [{ status: 503, code: "busy", message: "Busy." }, new TypeError("Failed to fetch"), { status: 409, code: "installation_actor_conflict", message: "Conflict." }])
     assert.equal(model.installationRefusal(reason, "Reader").cancel, false);

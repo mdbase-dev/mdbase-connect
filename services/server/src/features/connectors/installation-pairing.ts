@@ -23,6 +23,7 @@ export class InstallationPairingError extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
+    readonly details?: Record<string, unknown>,
   ) {
     super(message);
   }
@@ -150,8 +151,19 @@ async function active(
     [user],
   )).rows[0];
   if (!account) fail("installation_account_unavailable", 403);
-  if (!allowLegacy && account.account_backend === "legacy")
-    throw new InstallationPairingError(409, "installation_legacy_backend", "This account still uses the legacy backend. Finish migrating the account before approving this device sign-in.");
+  if (!allowLegacy && account.account_backend === "legacy") {
+    // Where the account's upgrade stands, so the person knows whether to wait.
+    const member = (await c.query<{ started: boolean }>(
+      "SELECT started_at IS NOT NULL AS started FROM next_migration_cohort_members WHERE account_id=$1 AND terminal_excluded_at IS NULL",
+      [user],
+    )).rows[0];
+    const upgrade = member?.started ? "in_progress" : member ? "scheduled" : "not_scheduled";
+    throw new InstallationPairingError(409, "installation_legacy_backend", {
+      in_progress: "Your mdbase account is being upgraded. Try again in a few minutes.",
+      scheduled: "Your mdbase account will be upgraded soon. Sign in again once it is.",
+      not_scheduled: "Your mdbase account hasn't been upgraded yet. Email support@mdbase.dev and we'll upgrade it.",
+    }[upgrade], { upgrade });
+  }
   if (account.account_backend !== "legacy" && account.account_backend !== "next")
     throw new Error("Account backend marker is unavailable or invalid.");
 }
