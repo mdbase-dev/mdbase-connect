@@ -7,6 +7,8 @@ import type { WebhookSigningConfig } from "./webhook.js";
 import { parsePushTargetSealerEnv, type PushTargetSealerConfig } from "./features/next/push-target-seal.js";
 import { loadPolicySigner, parseNextControlPlaneEnv, type NextControlPlaneConfig } from "./features/next/policy-keys.js";
 
+import { parsePasswordSignupIpMaxAttempts, passwordSignupIpRule } from "./features/auth/password-signup-limit.js";
+
 export type RegistrationMode = "closed" | "invite" | "open";
 
 export interface AuthenticationLegalDocuments {
@@ -34,6 +36,7 @@ export interface RuntimeConfig {
   googleAuth: GoogleAuthConfig | null;
   registration: RegistrationMode;
   authRateLimitSecret: string | null;
+  passwordSignupIpMaxAttempts?: number;
   betaAccessOrigin: string | null;
   managementOrigins?: string[];
   editorOrigin: string | null;
@@ -67,6 +70,7 @@ export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
       "MDBASE_CONNECT_ENVIRONMENT must be a lowercase environment identifier."
     );
   }
+  passwordSignupIpRule(environment, config.passwordSignupIpMaxAttempts);
   const localPublicOrigin = isLoopback(publicUrl.hostname);
   if (publicUrl.username || publicUrl.password || publicUrl.pathname !== "/" || publicUrl.search || publicUrl.hash) {
     throw new Error("PUBLIC_URL must be an origin without credentials, a path, a query, or a fragment.");
@@ -370,6 +374,7 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
       : null,
     registration,
     authRateLimitSecret,
+    passwordSignupIpMaxAttempts: parsePasswordSignupIpMaxAttempts(env),
     betaAccessOrigin,
     managementOrigins,
     editorOrigin,

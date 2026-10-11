@@ -7,6 +7,7 @@ import {
   AuthRateLimiter,
   type AuthRateLimitRule
 } from "../../auth-rate-limit.js";
+import { passwordSignupIpRule } from "./password-signup-limit.js";
 import { sessionClientName } from "../../account-sessions.js";
 import { ianaTimezoneSchema } from "../../platform/timezones.js";
 import type { AuthenticationPolicyStore } from "../../authentication-policy.js";
@@ -64,12 +65,6 @@ const PASSWORD_SIGNUP_TOKEN_LIMIT: AuthRateLimitRule = {
   baseBlockSeconds: 15 * 60,
   maxBlockSeconds: 6 * 60 * 60
 };
-const PASSWORD_SIGNUP_IP_LIMIT: AuthRateLimitRule = {
-  maxAttempts: 10,
-  windowSeconds: 60 * 60,
-  baseBlockSeconds: 15 * 60,
-  maxBlockSeconds: 6 * 60 * 60
-};
 const PASSWORD_SIGNUP_EMAIL_LIMIT: AuthRateLimitRule = {
   maxAttempts: 3,
   windowSeconds: 60 * 60,
@@ -103,6 +98,8 @@ const PASSWORD_AUTH_GLOBAL_LIMIT: AuthRateLimitRule = {
 
 interface PasswordAuthRoutesOptions {
   db: DatabasePool;
+  environment?: string;
+  passwordSignupIpMaxAttempts?: number;
   publicUrl: string;
   authenticationPolicy: AuthenticationPolicyStore;
   authRateLimitSecret?: string;
@@ -126,6 +123,7 @@ export function registerPasswordAuthRoutes(
   app: FastifyInstance,
   options: PasswordAuthRoutesOptions
 ): void {
+  const PASSWORD_SIGNUP_IP_LIMIT = passwordSignupIpRule(options.environment, options.passwordSignupIpMaxAttempts);
   const passwordAccounts = new PasswordAccountService(
     options.db,
     options.authenticationPolicy

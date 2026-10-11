@@ -46,6 +46,7 @@ const { app } = await buildApp({
   googleAuth: runtime.googleAuth ?? undefined,
   registration: runtime.registration,
   authRateLimitSecret: runtime.authRateLimitSecret ?? undefined,
+  passwordSignupIpMaxAttempts: runtime.passwordSignupIpMaxAttempts,
   betaAccessOrigin: runtime.betaAccessOrigin ?? undefined,
   managementOrigins: runtime.managementOrigins,
   editorOrigin: runtime.editorOrigin ?? undefined,
