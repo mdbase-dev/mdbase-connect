@@ -21,6 +21,9 @@ revokes the account's enrolled devices and derived grants and requires rekeying.
 Removal publishes that operation immediately, while member seats stay reserved
 until existing provider cleanup completes. Re-invitation requires a fresh device
 identity rather than restoring a revoked historical enrollment.
+Deleting an account publishes the same `member-remove` to every current native
+collection it belongs to, and records a permanent deletion denial for each native
+collection it owns before those rows are erased.
 
 Policy publication is not key delivery. After authorized device enrollment, the
 existing hosted/escrow or private-device keying mechanism supplies encrypted keys.

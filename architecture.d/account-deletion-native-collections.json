@@ -1,0 +1,6 @@
+{
+  "reason": "Account erasure reuses the existing collection deletion journal and policy outbox so a deleted account's native collections stay permanently denied and other owners' logs remove its devices. Two imports of existing helpers; no new transport, store or authorization path.",
+  "growth": {
+    "relativeImports": 2
+  }
+}
