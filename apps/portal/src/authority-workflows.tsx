@@ -59,7 +59,7 @@ interface FileAccessRequest {
 type FileAction = "list" | "read" | "add" | "replace" | "move" | "delete";
 const FILE_ACTION_VERBS: Record<FileAction, string> = {list: "see the list of", read: "open", add: "add", replace: "replace", move: "move or rename", delete: "delete"};
 /** "add", "add and replace", "add, replace and delete". */
-export function fileAccessVerbs(actions: readonly FileAction[]): string {
+function fileAccessVerbs(actions: readonly FileAction[]): string {
   const verbs = actions.map(action => FILE_ACTION_VERBS[action]);
   return verbs.length < 2 ? verbs.join("") : `${verbs.slice(0, -1).join(", ")} and ${verbs[verbs.length - 1]}`;
 }

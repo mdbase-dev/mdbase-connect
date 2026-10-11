@@ -112,9 +112,9 @@ interface Row {
   approved_file_actions: FileAction[] | null;
 }
 export const FILE_ACTIONS = ["list", "read", "add", "replace", "move", "delete"] as const;
-export type FileAction = (typeof FILE_ACTIONS)[number];
+type FileAction = (typeof FILE_ACTIONS)[number];
 /** A request for optional file actions on one collection already in scope. */
-export interface InstallationFileAccessInput { collection_id: string; actions: FileAction[]; reason: string }
+interface InstallationFileAccessInput { collection_id: string; actions: FileAction[]; reason: string }
 const sortedActions = (actions: readonly FileAction[]): FileAction[] => FILE_ACTIONS.filter(action => actions.includes(action));
 /** The registered manifest's optional file actions, never caller metadata. */
 function declaredOptionalFileActions(requirements: unknown): Set<string> {
