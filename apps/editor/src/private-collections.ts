@@ -30,7 +30,7 @@ export interface PrivateCollections {
 
 /** Cloud copies only, before the app-grant code has loaded (no Private entries exist yet). */
 function cloudEntries(cloud: readonly AppInstallationCollection[]): MdbaseCollectionEntry[] {
-  return cloud.map((c) => ({ collectionId: c.collectionId, displayName: c.displayName, kind: "cloud_copy" as const, availability: { state: "available" as const } }))
+  return cloud.map((c) => ({ collectionId: c.collectionId, displayName: c.displayName, kind: "cloud_copy" as const, availability: { state: "available" as const }, role: c.role ?? null }))
     .sort((a, b) => a.displayName.localeCompare(b.displayName) || a.collectionId.localeCompare(b.collectionId));
 }
 
