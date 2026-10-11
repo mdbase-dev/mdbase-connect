@@ -24,21 +24,21 @@ for (const makerName of ["deb", "rpm"]) {
     const { ElectronInstaller } = installerRequire()("electron-installer-common");
     const options = config.makers.find(maker => maker.name === `@electron-forge/maker-${makerName}`).config.options;
     assert.equal(options.bin, "mdbase-connect");
-    assert.deepEqual(options.additionalBinaries, { mdbase: "resources/mdbase" });
+    assert.deepEqual(options.additionalBinaries, { mdbase: "resources/mdbase-next/mdbase" });
     const root = await mkdtemp(join(tmpdir(), "mdbase-linux-package-"));
     try {
       const src = join(root, "app");
-      await mkdir(join(src, "resources"), { recursive: true });
+      await mkdir(join(src, "resources/mdbase-next"), { recursive: true });
       await writeFile(join(src, "mdbase-connect"), "desktop");
-      await writeFile(join(src, "resources/mdbase"), "cli");
+      await writeFile(join(src, "resources/mdbase-next/mdbase"), "cli");
       const installer = new ElectronInstaller({});
       installer.options = { ...options, src };
       installer.stagingDir = join(root, "stage");
       await installer.createBinarySymlink();
-      assert.equal(await readlink(join(root, "stage/usr/bin/mdbase")), "../lib/mdbase-connect/resources/mdbase");
+      assert.equal(await readlink(join(root, "stage/usr/bin/mdbase")), "../lib/mdbase-connect/resources/mdbase-next/mdbase");
       assert.equal(await readlink(join(root, "stage/usr/bin/mdbase-connect")), "../lib/mdbase-connect/mdbase-connect");
       await rm(installer.stagingDir, { recursive: true });
-      await rm(join(src, "resources/mdbase"));
+      await rm(join(src, "resources/mdbase-next/mdbase"));
       await assert.rejects(installer.createBinarySymlink(), /could not find/);
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -56,7 +56,7 @@ test("RPM manifest includes the CLI, while unconfigured consumers remain unchang
     description: "test", license: "MIT", homepage: "", requires: [],
     productDescription: "test", icon: "test.png", pre: null, preun: null, post: null, postun: null
   };
-  const spec = render({ ...options, additionalBinaries: { mdbase: "resources/mdbase" } });
+  const spec = render({ ...options, additionalBinaries: { mdbase: "resources/mdbase-next/mdbase" } });
   assert.match(spec, /%files\n\/usr\/bin\/mdbase-connect\n\/usr\/bin\/mdbase\n/);
   assert.doesNotMatch(render(options), /\/usr\/bin\/mdbase\n/);
 });

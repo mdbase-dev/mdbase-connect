@@ -1,8 +1,8 @@
 # Beta release checklist
 
 mdbase connect desktop bundles contain the Electron client and the matching
-Rust `mdbase` daemon/CLI. A release is one tested unit; mixing desktop
-and daemon versions is unsupported.
+mdbase daemon/CLI (an mdbn-daemon build from mdbase-next). A release is one
+tested unit; mixing desktop and daemon versions is unsupported.
 
 Until the stable `0.1.0` contract is ready, releases use
 `0.1.0-beta.N`. Beta tags are immutable test releases: increment `N` for every
@@ -45,12 +45,17 @@ pnpm e2e:container
 pnpm e2e:relay
 pnpm e2e:sync
 pnpm e2e:provider
-pnpm --filter @mdbase/connect-desktop package
+MDBN_DAEMON_BIN=<absolute path to the mdbase-next release build of mdbase> \
+  pnpm --filter @mdbase/connect-desktop package
 ```
 
-The package command compiles the release daemon/CLI, creates the platform
-Electron bundle, and verifies that `app.asar` and the `mdbase` executable are
-both present. The release workflow also smoke-tests that exact native
+The package command stages that daemon build as `Resources/mdbase-next/`
+(`mdbase` plus a `VERSION` file from its `--version`; set `MDBN_DAEMON_VERSION`
+to require an exact version), creates the platform Electron bundle, and verifies
+that `app.asar` and the bundled daemon are present, that the daemon reports its
+`VERSION`, and that the old connector binary is not shipped. The release
+workflow does not yet obtain the daemon build: until it does, desktop release
+builds stop at the staging step. The release workflow also smoke-tests that exact native
 executable's CLI and foreground-daemon entry points, then publishes it as a
 standalone headless archive with the same tag-bound provenance and checksums.
 Run the packaged application once with a fresh user-data directory and complete

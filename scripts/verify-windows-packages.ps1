@@ -45,7 +45,7 @@ $application = Get-SinglePackageFile `
 $connector = Get-SinglePackageFile `
   -Description "packaged connector CLI" `
   -Files @(
-    Get-ChildItem (Join-Path $packageDirectory.FullName "resources") `
+    Get-ChildItem (Join-Path $packageDirectory.FullName "resources\mdbase-next") `
       -File `
       -Filter "mdbase.exe"
   )
@@ -150,7 +150,7 @@ if ([string]$properties.PublisherDisplayName -ne $PublisherDisplayName) {
 if ($applicationNode.Executable -ne "app\mdbase-connect.exe") {
   throw "Unexpected Store package executable: $($applicationNode.Executable)"
 }
-$storeConnector = Join-Path $unpacked "app\resources\mdbase.exe"
+$storeConnector = Join-Path $unpacked "app\resources\mdbase-next\mdbase.exe"
 if (-not (Test-Path $storeConnector -PathType Leaf)) {
   throw "Microsoft Store package does not contain the connector CLI"
 }
