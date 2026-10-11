@@ -76,6 +76,7 @@ export async function issueApplicationTokens(
     allowed_types: string[] | null;
     suspended: boolean;
     hosted_cut_over: boolean;
+    local_taken_over: boolean;
   }>(
     `SELECT g.user_id,
             COALESCE(col.local_id, g.hosted_collection_id, g.next_collection_id) AS collection_id,
@@ -93,7 +94,9 @@ export async function issueApplicationTokens(
             CASE WHEN g.application_origin = '' THEN app.homepage
                  ELSE g.application_origin END AS application_origin,
             u.suspended_at IS NOT NULL AS suspended,
-            moved.collection_id IS NOT NULL AS hosted_cut_over
+            moved.collection_id IS NOT NULL AS hosted_cut_over,
+            (col.authority_state = 'retired' AND u.account_backend = 'next'
+              AND nc.runtime = 'next') AS local_taken_over
      FROM grants g
      JOIN users u ON u.id = g.user_id
      JOIN applications app ON app.id = g.application_id
@@ -112,6 +115,10 @@ export async function issueApplicationTokens(
   // The hosted provider no longer serves a collection that completed its move to
   // mdbase-next (the account's backend follows once all its collections move).
   if (grant.rows[0].hosted_collection_id && grant.rows[0].hosted_cut_over) {
+    throw new CutoverProblemError("moved");
+  }
+  // A desktop collection taken over by mdbase-next after its owner's account moved.
+  if (grant.rows[0].local_authority_row_id && grant.rows[0].local_taken_over) {
     throw new CutoverProblemError("moved");
   }
   if (
