@@ -23,11 +23,14 @@ export interface ApplicationDeclarationSnapshot extends Omit<MdbaseApplicationDe
 }
 const storageOverrides=new WeakMap<Readonly<ApplicationDeclarationSnapshot>,Readonly<ApplicationStorageDeclaration>>();
 /** SDK-only registration rebinding. Fresh defaults derive from registered ID;
- * supplied compatibility DATA stays exact, including supplied default-like values. */
-export function rebindApplicationDeclaration(original:Readonly<ApplicationDeclarationSnapshot>,registered:{readonly id:string;readonly name:string}):Readonly<ApplicationDeclarationSnapshot>{
+ * supplied compatibility DATA stays exact, including supplied default-like values.
+ * When the CP superseded a declared application UUID (changed manifest), every
+ * storage name stays as resolved for the DECLARED id, so local data never moves. */
+export function rebindApplicationDeclaration(original:Readonly<ApplicationDeclarationSnapshot>,registered:{readonly id:string;readonly name:string;readonly supersededDeclaredId?:string}):Readonly<ApplicationDeclarationSnapshot>{
   const overrides=storageOverrides.get(original);
   if(!overrides||!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(registered.id)||registered.id==="00000000-0000-0000-0000-000000000000")fail();
-  return applicationDeclaration({...original,id:registered.id,name:registered.name,storage:overrides});
+  if(registered.supersededDeclaredId!==undefined&&registered.supersededDeclaredId!==original.id)fail();
+  return applicationDeclaration({...original,id:registered.id,name:registered.name,storage:registered.supersededDeclaredId===undefined?overrides:{...original.storage}});
 }
 function fail():never{throw mdbaseError("invalid_request","invalid application declaration","application_declaration");}
 function json(value:unknown,seen=new Set<object>(),depth=0,budget={nodes:0,chars:0}):ApplicationJson{

@@ -117,6 +117,20 @@ describePg("SDK application registration against the register route", () => {
     expect(bound.storage).toEqual(storage);
   });
 
+  it("keeps storage at the declared ID when the declaration names no storage", async () => {
+    const appId = `dev.example.unnamed-${randomUUID().slice(0, 8)}`;
+    const { registered: first } = await register(declare("example", manifest(appId)));
+    const { storage: _named, ...unnamed } = declare(first.id, manifest(appId, [`${origin}/callback`, `${origin}/return`]));
+
+    const { registered, snapshot } = await register(unnamed);
+    expect(registered.supersededDeclaredId).toBe(first.id);
+    expect(rebindApplicationDeclaration(snapshot, registered).storage).toEqual({
+      applicationNamespace: first.id,
+      joinDatabaseName: `mdbase.${first.id}.native-collection-join.v1`,
+      setupDatabaseName: `mdbase.${first.id}.native-model-setup.v1`
+    });
+  });
+
   it("refuses a reply whose canonical identity is not the manifest it sent", async () => {
     const appId = `dev.example.mismatch-${randomUUID().slice(0, 8)}`;
     const { registered: first } = await register(declare("example", manifest(appId)));
