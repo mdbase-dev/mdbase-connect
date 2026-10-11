@@ -9,6 +9,7 @@ import {
   normalizeEmailAddress
 } from "./email-identity.js";
 import { randomToken, tokenHash } from "./security.js";
+import { provisionNewAccountBackend, type AccountBackend } from "./features/next/account-backend-flip.js";
 
 export type ExternalProvider = "github" | "google";
 
@@ -31,6 +32,8 @@ export interface ExternalSession {
 export interface CreateExternalSessionOptions {
   clientName?: string;
   allowAccountCreation?: boolean;
+  /** Backend for an account this sign-in creates (MDBASE_NEW_ACCOUNT_BACKEND). */
+  newAccountBackend?: AccountBackend;
 }
 
 export class AccountUnavailableError extends Error {
@@ -92,6 +95,7 @@ export async function createExternalSessionInTransaction(
     );
     // A previously disconnected identity must not reopen its former account.
     if (!created.rows[0]) throw new AccountUnavailableError();
+    await provisionNewAccountBackend(connection, userId, options.newAccountBackend ?? "legacy");
     if (normalizedEmail && !await reserveAccountCreationEmail(connection, {
       normalizedEmail,
       userId,

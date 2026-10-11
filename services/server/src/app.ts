@@ -97,6 +97,7 @@ import type { ClientUpdatePolicy } from "./features/next/cutover-problems.js";
 import { authorityUrl } from "./platform/authority-url.js";
 import { apiError } from "./platform/http-errors.js";
 import { sessionToken } from "./platform/session-cookies.js";
+import type { AccountBackend } from "./features/next/account-backend-flip.js";
 
 interface BuildOptions {
   db: DatabasePool;
@@ -123,6 +124,8 @@ interface BuildOptions {
   publicUrl?: string;
   /** Where old clients are told to update once their collection moves to mdbase-next. */
   clientUpdate?: ClientUpdatePolicy;
+  /** Backend of newly created accounts; legacy when absent. */
+  newAccountBackend?: AccountBackend;
   /** Validated by runtime configuration; loopback tests default to publicUrl. */
   identityIssuer?: string;
   portalDist?: string;
@@ -418,6 +421,7 @@ export async function buildApp(options: BuildOptions) {
     authRateLimitSecret: options.authRateLimitSecret,
     authenticationLegalDocuments: options.authenticationLegalDocuments,
     emailTransport: options.emailTransport,
+    newAccountBackend: options.newAccountBackend ?? "legacy",
     providers: {
       development: options.devAuth === true,
       tailscale: options.tailscaleAuth === true,
@@ -433,7 +437,8 @@ export async function buildApp(options: BuildOptions) {
     githubAuth: options.githubAuth,
     googleAuth: options.googleAuth,
     authRateLimitSecret: options.authRateLimitSecret,
-    authenticationLegalDocuments: options.authenticationLegalDocuments
+    authenticationLegalDocuments: options.authenticationLegalDocuments,
+    newAccountBackend: options.newAccountBackend ?? "legacy"
   });
   registerConnectorPairingRoutes(app, {
     db: options.db,

@@ -6,6 +6,7 @@ import type { VapidConfig } from "./web-push.js";
 import type { WebhookSigningConfig } from "./webhook.js";
 import { parsePushTargetSealerEnv, type PushTargetSealerConfig } from "./features/next/push-target-seal.js";
 import { loadPolicySigner, parseNextControlPlaneEnv, type NextControlPlaneConfig } from "./features/next/policy-keys.js";
+import type { AccountBackend } from "./features/next/account-backend-flip.js";
 
 import { DEFAULT_CLIENT_UPDATE_POLICY, type ClientUpdatePolicy } from "./features/next/cutover-problems.js";
 import { parsePasswordSignupIpMaxAttempts, passwordSignupIpRule } from "./features/auth/password-signup-limit.js";
@@ -63,6 +64,8 @@ export interface RuntimeConfig {
   pushTargetSeal?: PushTargetSealerConfig | null;
   /** Update link and optional minimum version shown to clients of moved collections. */
   clientUpdate?: ClientUpdatePolicy;
+  /** Backend of newly created accounts (MDBASE_NEW_ACCOUNT_BACKEND); legacy when absent. */
+  newAccountBackend?: AccountBackend;
 }
 
 export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
@@ -410,7 +413,8 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
     nextControlPlane: parseNextControlPlaneEnv(env),
     nextTimers: parseNextTimersEnv(env),
     pushTargetSeal: parsePushTargetSealerEnv(env),
-    clientUpdate: parseClientUpdateEnv(env)
+    clientUpdate: parseClientUpdateEnv(env),
+    newAccountBackend: parseNewAccountBackendEnv(env)
   });
 }
 
@@ -422,6 +426,14 @@ function parseClientUpdateEnv(env: NodeJS.ProcessEnv): ClientUpdatePolicy {
     throw new Error("MDBASE_CONNECT_MINIMUM_CLIENT_VERSION must be a semantic version, such as 1.2.0.");
   }
   return { updateUrl, minimumClientVersion };
+}
+
+function parseNewAccountBackendEnv(env: NodeJS.ProcessEnv): AccountBackend {
+  const value = env.MDBASE_NEW_ACCOUNT_BACKEND?.trim() || "legacy";
+  if (value !== "legacy" && value !== "next") {
+    throw new Error("MDBASE_NEW_ACCOUNT_BACKEND must be legacy or next.");
+  }
+  return value;
 }
 
 export function hostedProviderConfigFromEnv(

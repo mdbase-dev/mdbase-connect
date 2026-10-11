@@ -1,7 +1,7 @@
 # Explicit account backend
 
 `users.account_backend` is a non-null `legacy | next` marker, defaulting to
-`legacy` for existing and newly created accounts. A deployment's NEXT flag,
+`legacy` for existing accounts. A deployment's NEXT flag,
 collection encryption mode, transport failure or client preference never selects
 an account backend. The guarded migration/cutover owner sets `next` only after
 account takeover has met its admission/data-preservation requirements. There is
@@ -32,7 +32,7 @@ preservation or grant ordinary access.
    It requires a started account and the control plane's cloud copy with the
    preserved ID, owned by that account. It sets that copy's runtime to `next`.
 3. **Flip.** `POST …/accounts/{id}/flip {collections, evidence_digest}` is the
-   only setter of `next`. It requires a started account. The collections must be
+   only setter of `next` for an existing account. It requires a started account. The collections must be
    exactly its hosted collections (transferred ones excluded), none may be mid
    import or transfer, and every one must be cut over. The evidence digest must
    equal SHA-256 over the sorted lines `collection:barrier_f:final_digest\n`,
@@ -54,6 +54,22 @@ completes (validated flips or accepted terminal exclusions), or an audited
 unfreeze before archive acceptance, including after restart. Acceptance is not
 completed erasure. Outside a freeze deletion remains immediate.
 See [the topology-freeze procedure](migration-topology-freeze.md).
+
+## New accounts
+
+`MDBASE_NEW_ACCOUNT_BACKEND` (`legacy` or `next`, default `legacy`) selects the
+backend of every account the control plane creates: OAuth sign-up, email
+sign-up and invitation acceptance. Any other value refuses to start. Keep it
+`legacy` until the all-user cutover, then set it to `next` so new sign-ups land
+on the backend the live apps use. It never changes an existing account.
+
+A `next` account is created flipped, in the creating transaction, by the same
+writes as the staged flip: the marker, a `next_migration_account_flips` row with
+no collections and the digest over the empty set, and a `next_migration.flip`
+audit event marked `new_account`. It has no cohort membership, so it is never
+migrated, and the installation sign-in page does not show it the "mdbase was
+upgraded" notice. The development and Tailscale session modes create `legacy`
+accounts.
 
 ## Retained application grant
 
