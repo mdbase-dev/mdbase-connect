@@ -12,6 +12,7 @@ import {tokenHash} from "../../security.js";
 import {createCohort,addToCohort,setCohortFrozen,releaseCohort,setPaused,cohortArchiveBinding,registerMigrationRolloutRoutes,acceptCohortArchive,flipEvidenceDigest} from "./migration-rollout.js";
 import {registerNextCollection} from "./policy-outbox.js";
 import {requireCompletedAccountMigration} from "./migration-sharing.js";
+import {provisionNewAccountBackend} from "./account-backend-flip.js";
 
 const testUrl=process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved=process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL==="I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -128,6 +129,27 @@ suite("original emailed invite continuity (CP counterexamples, NOT native migrat
     await registerNextCollection(db,{collectionId:collection,ownerUserId:owner.id,runtime:"next",sync:"cloud_copy",rootKeyId:Buffer.alloc(16,17),ops:[{op:"genesis",owner:owner.id,root:Buffer.alloc(16,17),state:"cloud-copy"},{op:"member-set",account:owner.id,role:"owner"}]});
     await db.query("UPDATE users SET account_backend='next' WHERE id=$1",[owner.id]);
     const client=await db.connect();try{await client.query("BEGIN");await expect(requireCompletedAccountMigration(client,collection,owner.id)).rejects.toMatchObject({code:"collection_migrating"});await client.query("ROLLBACK");}finally{client.release();}
+  });
+  async function newNextOwnerInvite(){
+    const owner=await account(true),target=await account(),collection=randomUUID();
+    const client=await db.connect();try{await client.query("BEGIN");await provisionNewAccountBackend(client,owner.id,"next");await client.query("COMMIT");}finally{client.release();}
+    await registerNextCollection(db,{collectionId:collection,ownerUserId:owner.id,runtime:"next",sync:"cloud_copy",rootKeyId:Buffer.alloc(16,17),ops:[{op:"genesis",owner:owner.id,root:Buffer.alloc(16,17),state:"cloud-copy"},{op:"member-set",account:owner.id,role:"owner"}]});
+    const created=await app.inject({method:"POST",url:`/v1/hosted/collections/${collection}/invitations`,headers:owner.headers,payload:{email:target.email,role:"viewer"}});
+    expect(created.statusCode,created.body).toBe(202);
+    const token=(created.json().invitation as {token:string}).token;
+    return {owner,target,collection,accept:()=>app.inject({method:"POST",url:"/v1/hosted/collection-invitations/accept",headers:target.headers,payload:{token}})};
+  }
+  it("a never-migrated account created on the next backend keeps ordinary invitation acceptance",async()=>{
+    const f=await newNextOwnerInvite();
+    const accepted=await f.accept();expect(accepted.statusCode,accepted.body).toBe(201);
+    expect(accepted.json().membership).toMatchObject({collection_id:f.collection,role:"viewer",state:"active"});
+  });
+  it("a forged non-empty flip without cohort membership is not treated as a new next account",async()=>{
+    const f=await newNextOwnerInvite();
+    // Deliberate negative corruption: a flip naming collections can only come from a staged migration.
+    await db.query("UPDATE next_migration_account_flips SET collections=ARRAY[$2::uuid] WHERE account_id=$1",[f.owner.id,f.collection]);
+    const refused=await f.accept();expect(refused.statusCode).toBe(409);expect(refused.json().error.code).toBe("collection_migrating");
+    expect((await db.query("SELECT id FROM collection_memberships WHERE collection_id=$1 AND user_id=$2",[f.collection,f.target.id])).rows).toHaveLength(0);
   });
   it("tiny guarded CP flip and freeform audited unfreeze cannot replace native verify/recovery completion",async()=>{
     const f=await fixture("viewer",false);await shadow(f);await guardedFlip(f);await retryable(f);

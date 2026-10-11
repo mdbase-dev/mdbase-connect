@@ -26,14 +26,23 @@ const sequence=(v:unknown,positive=false):boolean=>typeof v==="string"&&/^(0|[1-
  * topology check. Reads only actual CP ledger/registry; no caller completion,
  * Outcome, arbitrary projection, profile flag or receipt is accepted here. */
 export async function requireCompletedMigrationInvitation(client:DatabaseConnection,collection:string,owner:string):Promise<void> {
-  const participation=(await client.query<{started_at:Date|null;frozen_at:Date|null;flipped_account:string|null}>(
-    `SELECT m.started_at,c.frozen_at,f.account_id::text AS flipped_account FROM users u
+  const participation=(await client.query<{member:boolean;started_at:Date|null;frozen_at:Date|null;flipped_account:string|null}>(
+    `SELECT m.account_id IS NOT NULL AS member,m.started_at,c.frozen_at,f.account_id::text AS flipped_account FROM users u
      LEFT JOIN next_migration_cohort_members m ON m.account_id=u.id
      LEFT JOIN next_migration_cohorts c ON c.name=m.cohort
      LEFT JOIN next_migration_account_flips f ON f.account_id=u.id WHERE u.id=$1`,[owner]
   )).rows[0];
   if(!participation)throw new InvitationMigrationPending();
   if(participation.started_at===null&&participation.frozen_at===null&&participation.flipped_account===null)return;
+  // An account created on the next backend is flipped at creation with no
+  // collections and no cohort membership: it never migrated. A staged flip
+  // always has a cohort member row, which only account deletion removes.
+  if(!participation.member&&participation.flipped_account!==null){
+    const flip=(await client.query<{collections:unknown}>(
+      "SELECT collections::text[] AS collections FROM next_migration_account_flips WHERE account_id=$1",[owner]
+    )).rows[0];
+    if(flip&&Array.isArray(flip.collections)&&flip.collections.length===0)return;
+  }
   // Also guard an audited unfreeze: it is not a substitute for completion.
   await requireCompletedAccountMigration(client,collection,owner);
 }

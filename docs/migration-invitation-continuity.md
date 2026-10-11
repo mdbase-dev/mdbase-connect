@@ -12,6 +12,8 @@ For an archived completed cohort the read-only guard requires the original accou
 
 The existing native-aware acceptance path consumes the same invitation ID/token/expiry and writes its exact immutable role/preset/actions/operations/record scope/file ceiling through the normal membership policy and outbox functions. It issues no replacement invite or email.
 
+An account created on the next backend (`MDBASE_NEW_ACCOUNT_BACKEND=next`) has a flip record with no collections and no cohort membership. It never migrated, so its invitations are accepted normally. A flip record naming collections without a cohort membership is not treated as such an account and still refuses.
+
 Tiny LAB fixtures have no archive acceptance. Their genuine original native verify/recovery completion producer is not implemented here, so even a guarded CP flip or audited unfreeze remains retryable. No new schema, caller completion flag or generic audit event substitutes for that producer.
 
 ## Evidence boundary
