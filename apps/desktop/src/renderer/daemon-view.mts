@@ -61,7 +61,19 @@ const REASONS: Record<string, string> = {
   account_identity_missing: "Sign in to serve this collection.",
   collection_account_mismatch: "This collection belongs to a different mdbase account.",
   collection_policy_required: "Waiting for the collection's access policy from mdbase.",
-  collection_membership_missing: "This computer is not a member of this collection yet."
+  collection_membership_missing: "This computer is not a member of this collection yet.",
+  old_connector_running: "The old mdbase Connect is running on this computer. Quit it or update it; mdbase resumes on its own.",
+  hosted_elsewhere: "Another app, such as Obsidian, is using this folder right now. mdbase opens it when that app lets go.",
+  sync_not_configured: "Sign in to sync this collection.",
+  sync_not_eligible: "Your mdbase account cannot sync this collection. Check your plan or the collection's owner.",
+  sync_unreachable: "mdbase cannot reach the sync service. It opens the collection when you are back online.",
+  trust_missing: "This build of mdbase cannot sync yet. Update mdbase.",
+  sync_config_invalid: "This collection's sync settings could not be verified. Turn sync off and on again, or contact support.",
+  not_joined: "This computer has not joined this collection yet.",
+  joining_sync: "Joining this collection…",
+  detached_sync: "This copy stopped following the collection. Join it again to keep it in sync.",
+  adopt_failed: "Turning on sync did not finish. Choose Turn on sync again to continue.",
+  adopting: "Turning on sync: uploading the files in the folder…"
 };
 
 function reasonText(reason: string | undefined): string | undefined {
@@ -82,7 +94,7 @@ export function presentCollection(collection: CollectionLike): CollectionPresent
     case "paused":
       return { ...base, status: "Paused", detail: "Apps cannot use it until you resume it.", dot: "paused" };
     case "opening":
-      return { ...base, status: "Opening…", dot: "connecting" };
+      return { ...base, status: "Opening…", detail: reasonText(collection.reason), dot: "connecting" };
     case "moving":
       return { ...base, status: "Changing sync…", detail: "Apps keep working while the change finishes.", dot: "connecting" };
     case "unavailable":

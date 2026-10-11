@@ -20,6 +20,7 @@ test("collections: sync is offered only for a ready local collection; waiting wo
   assert.match(busy.detail, /2 changes to upload · 1 file waiting/);
   assert.equal(busy.canDisableSync, true);
   assert.match(presentCollection({ mode: "local", state: "failed", reason: "folder_missing" }).detail, /files are untouched/);
+  assert.match(presentCollection({ mode: "local", state: "unavailable", reason: "old_connector_running" }).detail, /old mdbase Connect is running/);
 });
 
 test("access: pending, served-by-app and refused are separated; badge counts decisions and new notices", () => {

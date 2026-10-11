@@ -60,7 +60,12 @@ async function desktop({ signedIn = true, collections = [], access = [] } = {}) 
       createCollection: async (input) => { calls.push(["createCollection", input]); return { name: input.name }; },
       enableSync: record("enableSync"),
       removeCollection: record("removeCollection"),
-      listHolds: async () => [],
+      listHolds: async () => fixture.holds ?? [],
+      resolveHold: async (id, hold, how) => { calls.push(["resolveHold", id, hold, how]); fixture.holds = (fixture.holds ?? []).filter((h) => h.id !== hold);
+        const held = fixture.migration?.holds?.[id];
+        if (held) fixture.migration.holds[id] = held.filter((h) => h.id !== hold);
+        return null;
+      },
       listActivity: async () => fixture.activity ?? [],
       updateCollection: async (id, changes) => { calls.push(["updateCollection", id, changes]); if (fixture.failUpdate) throw new Error(fixture.failUpdate); return { ...fixture.collections[0], ...changes }; },
       renameComputer: async (name) => { calls.push(["renameComputer", name]); fixture.account = { ...fixture.account, computerName: name }; return { name }; },
@@ -198,6 +203,35 @@ test("turning on sync for a taken-over folder shows the files held at takeover a
     await confirm.click();
     await page.getByText("Notes now syncs privately.", { exact: true }).waitFor();
     assert.deepEqual(await calls("enableSync"), [["c-notes", "private", true]]);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("files held at the takeover are resolved one by one before sync turns on", async () => {
+  const { page, errors, calls } = await desktop({ collections: [collection()] });
+  try {
+    await page.evaluate(() => {
+      window.fixture.holds = [{ id: "takeover:1", path: "Inbox/plan.md", reason: "taken_over", since: Date.now(), saves: 0, has_theirs: true, binary: false }];
+      window.fixture.migration = {
+        record: { state: "complete", collections: { "c-notes": { state: "held", holds: 1 } } },
+        holds: { "c-notes": [{ id: "takeover:1", path: "Inbox/plan.md", reason: "conflict" }] },
+        running: false
+      };
+    });
+    await nav(page, "Collections").click();
+    await page.locator(".collection-card").filter({ hasText: "Notes" }).getByRole("button", { name: "Turn on sync" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByText("Inbox/plan.md", { exact: true }).waitFor();
+    const confirm = dialog.getByRole("button", { name: "Turn on sync" });
+    assert.equal(await confirm.isDisabled(), true, "held files are resolved first");
+    assert.equal(await dialog.getByRole("checkbox").count(), 0, "no blanket acceptance when each file can be resolved");
+    await dialog.getByRole("button", { name: "Keep both" }).click();
+    await dialog.getByText("Inbox/plan.md", { exact: true }).waitFor({ state: "detached" });
+    assert.equal(await confirm.isDisabled(), false);
+    await confirm.click();
+    await page.getByText("Notes now syncs privately.", { exact: true }).waitFor();
+    assert.deepEqual(await calls("resolveHold"), [["c-notes", "takeover:1", "keep_both"]]);
+    assert.deepEqual(await calls("enableSync"), [["c-notes", "private", false]]);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });

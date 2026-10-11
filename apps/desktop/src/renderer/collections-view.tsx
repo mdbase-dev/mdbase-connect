@@ -125,13 +125,21 @@ const HOLD_REASONS: Record<string, string> = {
   deleted_elsewhere: "Deleted on another device",
   read_only: "Changed while read-only",
   editor_busy: "Open in an editor",
-  suspect_write: "Looked like an accidental overwrite"
+  suspect_write: "Looked like an accidental overwrite",
+  taken_over: "Differed when mdbase took over from the old app; this computer's version is in the folder"
 };
 
-function Holds({ collection, busy, onAct }: { collection: DaemonCollection; busy: boolean; onAct: Act }) {
+function Holds({ collection, busy, onAct, onLoaded }: {
+  collection: DaemonCollection;
+  busy: boolean;
+  onAct: Act;
+  onLoaded?(holds: HoldSummary[]): void;
+}) {
   const [holds, setHolds] = useState<HoldSummary[] | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
-  const load = () => window.mdbaseConnect.listHolds(collection.id).then(setHolds).catch((reason) => setFailure(message(reason)));
+  const load = () => window.mdbaseConnect.listHolds(collection.id)
+    .then((list) => { setHolds(list); onLoaded?.(list); })
+    .catch((reason) => setFailure(message(reason)));
   React.useEffect(() => { void load(); }, [collection.id, collection.sync?.holds]);
   const resolve = (hold: HoldSummary, how: "keep_mine" | "take_theirs" | "keep_both") =>
     void onAct(async () => { await window.mdbaseConnect.resolveHold(collection.id, hold.id, how); await load(); });
@@ -143,7 +151,12 @@ function Holds({ collection, busy, onAct }: { collection: DaemonCollection; busy
         <ul>{holds.map((hold) => (
           <li key={hold.id}>
             <div><code>{hold.path}</code><small>{HOLD_REASONS[hold.reason] ?? hold.reason} · since {relativeTime(new Date(hold.since).toISOString())}</small></div>
-            {hold.binary
+            {hold.binary && hold.reason === "taken_over"
+              ? <div className="row-actions">
+                <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "keep_mine")}>Keep this computer's</button>
+                <small>This file is not a note: restore the other version by hand if you need it.</small>
+              </div>
+              : hold.binary
               ? <small>Resolve this file in the app that uses it.</small>
               : <div className="row-actions">
                 <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "keep_mine")}>Keep this computer's</button>
@@ -159,8 +172,10 @@ function Holds({ collection, busy, onAct }: { collection: DaemonCollection; busy
 
 /**
  * Sync starts from the files already in the folder (a taken-over folder included).
- * Files that are waiting for a decision are shown first: holds must be resolved, and
- * files held when the folder was taken over must be acknowledged.
+ * Files waiting for a decision come first and are resolved one by one, files held at
+ * the takeover included. A daemon that does not list those files as holds yet (an
+ * older build) still reports them through the takeover status: they are then listed
+ * here and must be checked before sync is turned on with them as they are.
  */
 function TurnOnSyncDialog({ collection, busy, onAct, onClose, onConfirm }: {
   collection: DaemonCollection;
@@ -171,31 +186,36 @@ function TurnOnSyncDialog({ collection, busy, onAct, onClose, onConfirm }: {
 }) {
   const [mode, setMode] = useState<"private" | "cloud-copy">("private");
   const [takeover, setTakeover] = useState<{ takenOver: boolean; held: TakeoverHold[] } | null>(null);
+  const [holds, setHolds] = useState<HoldSummary[] | null>(null);
   const [reviewed, setReviewed] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
-  React.useEffect(() => {
+  // Read with each hold list, so a file resolved through the hold path drops out of both.
+  const holdsLoaded = (list: HoldSummary[]) => {
     window.mdbaseConnect.migrationStatus()
-      .then((status) => setTakeover({
-        takenOver: Boolean(status.record?.collections[collection.id]),
-        held: status.holds?.[collection.id] ?? []
-      }))
+      .then((status) => {
+        setTakeover({
+          takenOver: Boolean(status.record?.collections[collection.id]),
+          held: status.holds?.[collection.id] ?? []
+        });
+        setHolds(list);
+      })
       .catch((reason) => setFailure(message(reason)));
-  }, [collection.id]);
-  const holds = collection.sync?.holds ?? 0;
-  const ready = takeover !== null && holds === 0 && (takeover.held.length === 0 || reviewed);
+  };
+  const unlisted = takeover && holds ? takeover.held.filter((held) => !holds.some((hold) => hold.path === held.path)) : [];
+  const ready = takeover !== null && holds !== null && holds.length === 0 && (unlisted.length === 0 || reviewed);
   return (
     <Dialog open onClose={() => !busy && onClose()} title={`Turn on sync for ${collection.name}`} className="modal" closeDisabled={busy}>
       <p className="eyebrow">Sync</p>
       <p>Your other devices get a copy and stay up to date. The folder stays where it is{takeover?.takenOver ? ", and the files already in it become the first synced version" : ""}.</p>
       {failure && <p className="message error-message" role="alert">{failure}</p>}
-      {holds > 0 && <>
-        <p>Resolve these files before turning on sync.</p>
-        <Holds collection={collection} busy={busy} onAct={onAct} />
-      </>}
-      {takeover && takeover.held.length > 0 && (
+      {holds !== null && holds.length > 0 && <p>Choose a version for each of these files before turning on sync.</p>}
+      <div hidden={holds !== null && holds.length === 0}>
+        <Holds collection={collection} busy={busy} onAct={onAct} onLoaded={holdsLoaded} />
+      </div>
+      {unlisted.length > 0 && (
         <div className="collection-holds">
-          <p>When this folder moved to the new sync engine, mdbase kept both versions of {takeover.held.length} {plural(takeover.held.length, "file", "files")}. Check them in the folder first: both versions sync as they are.</p>
-          <ul>{takeover.held.map((hold) => <li key={hold.path}><code>{hold.path}</code></li>)}</ul>
+          <p>When this folder moved to the new sync engine, mdbase kept another version of {unlisted.length} {plural(unlisted.length, "file", "files")}. The folder has this computer's version; check it before sync starts from it.</p>
+          <ul>{unlisted.map((hold) => <li key={hold.path}><code>{hold.path}</code></li>)}</ul>
           <label className="takeover-option">
             <input type="checkbox" checked={reviewed} disabled={busy} onChange={(event) => setReviewed(event.target.checked)} />
             I have checked these files
@@ -215,7 +235,7 @@ function TurnOnSyncDialog({ collection, busy, onAct, onClose, onConfirm }: {
       </fieldset>
       <div className="modal-actions">
         <button className="button secondary" disabled={busy} onClick={onClose}>Cancel</button>
-        <button className="button primary" disabled={busy || !ready} onClick={() => void onConfirm(mode, reviewed && (takeover?.held.length ?? 0) > 0)}>{busy ? "Turning on…" : "Turn on sync"}</button>
+        <button className="button primary" disabled={busy || !ready} onClick={() => void onConfirm(mode, unlisted.length > 0 && reviewed)}>{busy ? "Turning on…" : "Turn on sync"}</button>
       </div>
     </Dialog>
   );
