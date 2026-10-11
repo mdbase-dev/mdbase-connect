@@ -1231,6 +1231,7 @@ async fn refused_old_clients_learn_their_collection_is_upgrading_or_moved() {
     let address = listener.local_addr().unwrap();
     let state = AppState::new(provider.clone(), &"internal-cutover-test-token-".repeat(2)).unwrap();
     let server = tokio::spawn(async move { axum::serve(listener, app(state)).await.unwrap() });
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     let client = reqwest::Client::new();
     let files = format!(
         "http://{address}/v1/authorities/{id}/files?protocol_version={FILE_PROTOCOL_VERSION}"

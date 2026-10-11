@@ -527,6 +527,13 @@ describe("mdbase connect server", () => {
       publicUrl: "http://connect.test"
     });
     resources.push(() => app.close());
+    // The startup scan revokes this undeclared fixture app's grant at a racy
+    // moment; settle it and restore the grant so suspension is what refuses.
+    await (app as typeof app & { drainApplicationReconciliation(): Promise<void> })
+      .drainApplicationReconciliation();
+    await db.query("UPDATE grants SET revoked_at = NULL WHERE id = $1", [grantId]);
+    await db.query("UPDATE refresh_tokens SET revoked_at = NULL WHERE grant_id = $1", [grantId]);
+    await db.query("UPDATE access_tokens SET revoked_at = NULL WHERE grant_id = $1", [grantId]);
 
     const connector = await app.inject({
       method: "GET",
@@ -544,7 +551,6 @@ describe("mdbase connect server", () => {
     });
     expect(operation.statusCode).toBe(401);
     expect(operation.json().error.code).toBe("invalid_token");
-
     const refresh = await app.inject({
       method: "POST",
       url: "/oauth/token",

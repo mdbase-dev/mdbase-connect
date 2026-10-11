@@ -66,6 +66,12 @@ describe("cutover refusals old clients can explain", () => {
       clientUpdate: { updateUrl: "https://example.test/get", minimumClientVersion: "2.0.0" }
     });
     resources.push(() => app.close());
+    // The startup scan revokes this undeclared fixture app's grant at a racy
+    // moment; settle it and restore the grant so the cutover is what refuses.
+    await (app as typeof app & { drainApplicationReconciliation(): Promise<void> })
+      .drainApplicationReconciliation();
+    await db.query("UPDATE grants SET revoked_at = NULL WHERE id = $1", [grantId]);
+    await db.query("UPDATE refresh_tokens SET revoked_at = NULL WHERE grant_id = $1", [grantId]);
 
     const refresh = await app.inject({
       method: "POST",
