@@ -1,0 +1,6 @@
+{
+  "reason": "The device sign-in approval page maps a refused step to plain copy and decides whether the window must be cancelled so the app stops waiting. One exported pure portal-model function holds that mapping so it is unit-tested without rendering; it adds no transport, storage or policy path.",
+  "growth": {
+    "typeScriptExportDeclarations": 1
+  }
+}

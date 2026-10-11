@@ -28,3 +28,14 @@ test("explicit approval and original creation take precedence over a hint", () =
   assert.equal(model.initialInstallationCollection({ ...pairing, creation: { collection_id: b, completed: true } }), b);
   assert.equal(model.initialInstallationCollection({ ...pairing, creation: { collection_id: b, completed: false } }), "new-collection");
 });
+
+test("account refusals no retry can fix cancel the window in plain words; others stay retryable", () => {
+  const legacy = model.installationRefusal({ status: 409, code: "installation_legacy_backend", message: "This account still uses the legacy backend. Finish migrating the account before approving this device sign-in." }, "mdbase editor");
+  assert.equal(legacy.cancel, true);
+  assert.match(legacy.message, /mdbase editor/);
+  assert.doesNotMatch(legacy.message, /legacy|backend|migrat/i);
+  assert.equal(model.installationRefusal({ status: 403, code: "strict_device_approval", message: "x" }, "Reader").cancel, true);
+  for (const reason of [{ status: 503, code: "busy", message: "Busy." }, new TypeError("Failed to fetch"), { status: 409, code: "installation_actor_conflict", message: "Conflict." }])
+    assert.equal(model.installationRefusal(reason, "Reader").cancel, false);
+  assert.match(model.installationRefusal(new TypeError("Failed to fetch"), "Reader").message, /try again/i);
+});

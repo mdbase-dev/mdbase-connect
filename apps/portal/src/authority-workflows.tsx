@@ -4,7 +4,7 @@ import {
   ApiError,
   type AuthorityTransfer as AuthorityTransferData,
 } from "./api";
-import { initialInstallationCollection, installationAccountLabel, message, NEW_COLLECTION, pairingInspectionPath } from "./portal-model";
+import { initialInstallationCollection, installationAccountLabel, installationRefusal, message, NEW_COLLECTION, pairingInspectionPath } from "./portal-model";
 import { Loading, PageBrand } from "./portal-ui";
 import { Select } from "@mdbase-dev/ui/select";
 import "@mdbase-dev/ui/screens.css";
@@ -54,6 +54,9 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
+  // The step to repeat after a retryable refusal; cancelled once a refusal no retry can fix.
+  const [retry, setRetry] = useState<"select-account" | "approve" | null>(null);
+  const [signInCancelled, setSignInCancelled] = useState(false);
   const [collectionIds,setCollectionIds] = useState<string[]>([]);
   const [createCollections,setCreateCollections] = useState(false);
   const [allowReminders,setAllowReminders] = useState(false);
@@ -76,6 +79,8 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     setNewCollectionName("");
     setDeepLink("");
     setError("");
+    setRetry(null);
+    setSignInCancelled(false);
     setBusy(false);
     dispatching.current = false;
     api<{ pairing: DevicePairing }>(inspectionPath)
@@ -128,6 +133,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     dispatching.current = true;
     setBusy(true);
     setError("");
+    setRetry(null);
     try {
       let selected = selectedCollectionId;
       if (action === "approve" && pairing.installation_device && selected === NEW_COLLECTION) {
@@ -172,7 +178,21 @@ export function Pairing({ pairingId }: { pairingId: string }) {
           }
         } catch { /* Keep the original failure, not a replacement request. */ }
       }
-      if (current === generation.current) setError(approved ? "" : message(reason));
+      if (current !== generation.current) return;
+      if (approved) setError("");
+      else if (action === "select-account" || action === "approve") {
+        const refusal = installationRefusal(reason, pairing.connector_name);
+        let windowCancelled = false;
+        // Cancel the window so the app stops waiting and can start sign-in again.
+        if (refusal.cancel) {
+          try { await api(`/v1/pairing-requests/${pairingId}/deny`, { method: "POST" }); windowCancelled = true; }
+          catch { /* Keep the window; the user can retry or cancel. */ }
+        }
+        if (current !== generation.current) return;
+        setSignInCancelled(windowCancelled);
+        setRetry(windowCancelled ? null : action);
+        setError(refusal.message);
+      } else setError(message(reason));
     } finally {
       if (current === generation.current) {
         dispatching.current = false;
@@ -206,7 +226,14 @@ export function Pairing({ pairingId }: { pairingId: string }) {
         {installation ? (
           <>
             <PageBrand label="connect" error={error} />
-            {pairing.approved_at ? (
+            {signInCancelled ? (
+              <>
+                <h1>Sign-in cancelled</h1>
+                <p className="mdbase-connect-lead">{pairing.return_url
+                  ? <a href={pairing.return_url}>Return to {pairing.connector_name}</a>
+                  : `Return to ${pairing.connector_name}.`}</p>
+              </>
+            ) : pairing.approved_at ? (
               <>
                 <h1>Access approved</h1>
                 <p className="mdbase-connect-lead">{pairing.return_url
@@ -358,6 +385,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
         {error && (
           <div className="message error" role="alert">
             {error}
+            {retry && !busy && <button className="mdbase-button installation-account-action" onClick={() => void act(retry)}>Try again</button>}
           </div>
         )}
       </section>

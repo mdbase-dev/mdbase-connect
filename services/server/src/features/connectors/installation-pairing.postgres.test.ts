@@ -276,6 +276,16 @@ describePg("installation device sign-in on daemon pairing", () => {
     await db.query("UPDATE users SET account_backend='next' WHERE id=$1", [owner.user]);
     expect((await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: owner.headers })).statusCode).toBe(200);
   });
+  it("tells the requesting app, by its secret only, that its window was cancelled", async () => {
+    const owner = await account(), input = original(), flow = await start(input);
+    expect((await app.inject({ method: "POST", url: `${flow.base}/deny`, headers: owner.headers })).statusCode).toBe(200);
+    for (const replay of [await flow.exchange(), await app.inject({ method: "POST", url: "/v1/pairing-requests", payload: input, headers: originHeaders(input) })]) {
+      expect(replay.statusCode).toBe(404);
+      expect(replay.json().error.code).toBe("installation_pairing_denied");
+    }
+    const wrongSecret = await app.inject({ method: "POST", url: `${flow.base}/exchange`, headers: { authorization: "Bearer pair_wrong" } });
+    expect(wrongSecret.json().error.code).toBe("installation_pairing_not_found");
+  });
   it("rechecks backend at attestation, approval and committed exchange replay; cancellation is still allowed", async () => {
     const f = await prepared();
     await db.query("UPDATE users SET account_backend='legacy' WHERE id=$1", [f.owner.user]);

@@ -77,6 +77,17 @@ export function message(value: unknown) {
   }
   return detail;
 }
+/** A device sign-in step the portal refused. `cancel` marks refusals that no
+ * retry in this window can fix: the portal cancels the window so the app stops
+ * waiting and can offer sign-in again. Everything else stays retryable here. */
+export function installationRefusal(reason: unknown, app: string): { message: string; cancel: boolean } {
+  const code = reason && typeof reason === "object" && "code" in reason ? (reason as { code?: unknown }).code : undefined;
+  if (code === "installation_legacy_backend")
+    return { cancel: true, message: `This mdbase account hasn't been upgraded yet, so ${app} can't use it. Go back to ${app} to sign in with a different account.` };
+  if (code === "strict_device_approval")
+    return { cancel: true, message: `This account approves new devices from the mdbase desktop app. Add this device from the desktop app, then sign in again in ${app}.` };
+  return { cancel: false, message: message(reason) };
+}
 export function host(value: string) { try { return new URL(value).host; } catch { return value; } }
 export function formatDeviceCode(value: string) {
   const canonical = value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
