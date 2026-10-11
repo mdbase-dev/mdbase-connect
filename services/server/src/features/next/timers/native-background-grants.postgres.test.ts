@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { copyFile, mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -15,6 +15,7 @@ const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APP
 const suite = testUrl && approved ? describe : describe.skip;
 const migrations = new URL("../../../../migrations/", import.meta.url);
 const migrationId = "0069_native_background_grants";
+const validationId = "0071_validate_native_background_grants";
 const criterion = { id: "synthetic.reminder", event: MDBASE_TIMER_FIRED_CONTRACT, presentation: { title: "Reminder" } };
 const inventoryTables = ["grants", "next_timers", "next_timer_events", "next_timer_event_receipts",
   "next_timer_namespace_intents", "next_timer_operation_receipts", "push_channels", "notification_subscriptions",
@@ -23,7 +24,7 @@ const children = ["next_timers", "next_timer_events", "next_timer_namespace_inte
   "notification_subscriptions", "notification_signals"] as const;
 
 suite("background grant migration (real PG; synthetic production-shaped data, not consent authority)", () => {
-  let admin: pg.Pool, db: DatabasePool, beforeDirectory: string;
+  let admin: pg.Pool, db: DatabasePool, beforeDirectory: string, swapDirectory: string;
   const schemas: string[] = [];
   const seal = new PushTargetSealer({ keyId: "synthetic", key: Buffer.alloc(32, 42), previousKeys: {} });
   const grants: string[] = [];
@@ -62,8 +63,10 @@ suite("background grant migration (real PG; synthetic production-shaped data, no
     const target = new URL("../../../../../../target/", import.meta.url);
     await mkdir(target, { recursive: true });
     beforeDirectory = await mkdtemp(fileURLToPath(new URL("native-timer-predecessor-", target)));
+    swapDirectory = await mkdtemp(fileURLToPath(new URL("native-timer-swap-", target)));
+    await copyFile(new URL(`${migrationId}.sql`, migrations), `${swapDirectory}/${migrationId}.sql`);
     for (const name of await readdir(migrations)) {
-      if (name.endsWith(".sql") && name !== `${migrationId}.sql`) {
+      if (name.endsWith(".sql") && ![`${migrationId}.sql`, `${validationId}.sql`].includes(name)) {
         await copyFile(new URL(name, migrations), `${beforeDirectory}/${name}`);
       }
     }
@@ -124,6 +127,7 @@ suite("background grant migration (real PG; synthetic production-shaped data, no
     if (admin) for (const schema of schemas) await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
     await admin?.end();
     if (beforeDirectory) await rm(beforeDirectory, { recursive: true, force: true });
+    if (swapDirectory) await rm(swapDirectory, { recursive: true, force: true });
   });
 
   it("upgrades the actual predecessor with exact row counts, generations, revisions, receipt bytes and sealed targets", async () => {
@@ -136,7 +140,18 @@ suite("background grant migration (real PG; synthetic production-shaped data, no
     expect(before.grants).toHaveLength(48); expect(before.next_timers).toHaveLength(192);
     for (const table of inventoryTables.filter(table => table !== "next_timers")) expect(before[table]).toHaveLength(48);
     expect((await db.query("SELECT to_regclass('next_background_grants') AS relation")).rows[0].relation).toBeNull();
+    await runControlPlaneMigrations(db, { directory: swapDirectory, lock: true, isolatedTestSchema: true });
+    expect((await db.query(`SELECT convalidated FROM pg_constraint
+      WHERE contype='f' AND confrelid='next_background_grants'::regclass ORDER BY conname`)).rows)
+      .toEqual(children.map(() => ({ convalidated: false })));
+    await expect(db.query("INSERT INTO next_timers(grant_id,namespace,timer_id,criterion_id,fire_at) VALUES($1,'invalid','one',$2,now())", [randomUUID(), criterion.id]))
+      .rejects.toThrow(/foreign key/);
     await upgrade(db);
+    expect((await db.query(`SELECT convalidated FROM pg_constraint
+      WHERE contype='f' AND confrelid='next_background_grants'::regclass ORDER BY conname`)).rows)
+      .toEqual(children.map(() => ({ convalidated: true })));
+    expect((await db.query("SELECT indexname FROM pg_indexes WHERE schemaname=current_schema() AND indexname IN ('next_background_native_collection','next_background_native_user','next_background_native_application') ORDER BY indexname")).rows)
+      .toEqual(["next_background_native_application", "next_background_native_collection", "next_background_native_user"].map(indexname => ({ indexname })));
     expect(await inventory(db)).toEqual(before);
     expect((await db.query("SELECT id,legacy_grant_id,principal_kind FROM next_background_grants ORDER BY id")).rows)
       .toEqual([...grants].sort().map(id => ({ id, legacy_grant_id: id, principal_kind: "legacy" })));
@@ -150,6 +165,57 @@ suite("background grant migration (real PG; synthetic production-shaped data, no
     }
     await upgrade(db);
     expect(await inventory(db)).toEqual(before);
+  });
+
+  it("validates with the file-only client/server budget beyond the runtime limits and restores the session limit", async () => {
+    const other = await predecessor();
+    const target = new URL("../../../../../../target/", import.meta.url);
+    const directory = await mkdtemp(fileURLToPath(new URL("native-timer-validation-", target)));
+    try {
+      await runControlPlaneMigrations(other, { directory: swapDirectory, lock: true, isolatedTestSchema: true });
+      expect((await other.query("SHOW statement_timeout")).rows).toEqual([{ statement_timeout: "15s" }]);
+      const sql = await readFile(new URL(`${validationId}.sql`, migrations), "utf8");
+      // This disposable fixture crosses both the 15s server and 20s client defaults.
+      await writeFile(`${directory}/${validationId}.sql`, `${sql}\nSELECT pg_sleep(20.1);\n`);
+      await runControlPlaneMigrations(other, { directory, lock: true, isolatedTestSchema: true });
+      expect((await other.query("SHOW statement_timeout")).rows).toEqual([{ statement_timeout: "15s" }]);
+      expect((await other.query(`SELECT convalidated FROM pg_constraint
+        WHERE contype='f' AND confrelid='next_background_grants'::regclass ORDER BY conname`)).rows)
+        .toEqual(children.map(() => ({ convalidated: true })));
+      expect((await other.query("SELECT 1 FROM schema_migrations WHERE id=$1", [validationId])).rowCount).toBe(1);
+    } finally { await other.end(); await rm(directory, { recursive: true, force: true }); }
+  }, 35_000);
+
+  it("excludes legacy grant writers until the backfill and insert hook commit together", async () => {
+    const other = await predecessor();
+    let migration: Awaited<ReturnType<DatabasePool["connect"]>> | undefined;
+    let writer: Awaited<ReturnType<DatabasePool["connect"]>> | undefined;
+    try {
+      const c = randomUUID(), legacyCollection = randomUUID(), grant = randomUUID();
+      await other.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Synthetic concurrent upgrade')", [user, `${user}@example.test`]);
+      await other.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'Synthetic concurrent device',$3)", [c, user, randomUUID()]);
+      await other.query("INSERT INTO collections(id,user_id,connector_id,local_id,display_name,spec_version,enabled) VALUES($1,$2,$3,$4,'Synthetic','0.3.0',true)", [legacyCollection, user, c, randomUUID()]);
+      await other.query("INSERT INTO applications(id,canonical_identity,manifest_version,name,homepage,redirect_uris) VALUES($1,$2,1,'Synthetic','https://reminders.example.test','[]'::jsonb)", [application, `bundle:synthetic:${application}`]);
+      migration = await other.connect(); writer = await other.connect();
+      await migration.query("BEGIN");
+      const migrationSql = await readFile(new URL(`${migrationId}.sql`, migrations), "utf8");
+      const hooksOffset = migrationSql.indexOf("CREATE FUNCTION installation_timer_request_immutable()");
+      expect(hooksOffset).toBeGreaterThan(0);
+      await migration.query(migrationSql.slice(0, hooksOffset));
+      await writer.query("SET lock_timeout = '50ms'");
+      const sql = `INSERT INTO grants(id,user_id,application_id,collection_id,operations,application_authorization,application_installation_id)
+        VALUES($1,$2,$3,$4,'[]'::jsonb,'{"binding":{"protocol_version":4}}'::jsonb,$5)`;
+      const values = [grant, user, application, legacyCollection, randomUUID()];
+      await expect(writer.query(sql, values)).rejects.toThrow(/lock timeout/);
+      await migration.query(migrationSql.slice(hooksOffset));
+      await migration.query("COMMIT");
+      await other.query(sql, values);
+      expect((await other.query("SELECT id,principal_kind,legacy_grant_id FROM next_background_grants WHERE id=$1", [grant])).rows)
+        .toEqual([{ id: grant, principal_kind: "legacy", legacy_grant_id: grant }]);
+    } finally {
+      if (migration) { await migration.query("ROLLBACK").catch(() => undefined); migration.release(); }
+      writer?.release(); await other.end();
+    }
   });
 
   it("preserves raw legacy INSERT and DELETE cascades after repointing", async () => {
@@ -234,8 +300,55 @@ suite("background grant migration (real PG; synthetic production-shaped data, no
       sign_pk,kem_pk,noise_pk,user_id,application_id,collection_id,approval_request_id,timer_declaration,approved_at)
       VALUES($1,'installation',$2,$3,$4,'app-runtime',$5,$6,$7,$8,$9,$10,$11,$12::jsonb,now())`,
     [id, connector, installation, device, ...keys, user, application, nativeCollection, randomUUID(), JSON.stringify({ operations: ["reconcile_timers"], criteria: [criterion] })]);
-    return { id, connector, collection: nativeCollection, keys };
+    return { id, connector, collection: nativeCollection, keys, installation };
   }
+
+  async function nativeBackingFixture() {
+    const f = await nativeFixture();
+    const channel = randomUUID(), subscription = randomUUID(), signal = randomUUID(), event = randomUUID();
+    const sealed = seal.seal(f.id, f.installation, { fcm_token: `synthetic-cascade-${channel}` });
+    await db.query("INSERT INTO next_timer_namespace_intents(grant_id,namespace,intent_revision) VALUES($1,'cascade',11)", [f.id]);
+    await db.query(`INSERT INTO next_timers(grant_id,namespace,timer_id,criterion_id,fire_at,generation,status,fired_at)
+      VALUES($1,'cascade','one',$2,now(),7,'fired',now())`, [f.id, criterion.id]);
+    await db.query(`INSERT INTO next_timer_events(event_id,grant_id,criterion_id,namespace,timer_id,generation,scheduled_for,fired_at,late_by_ms)
+      VALUES($1,$2,$3,'cascade','one',7,now(),now(),0)`, [event, f.id, criterion.id]);
+    await db.query("INSERT INTO next_timer_event_receipts(consumer,event_id) VALUES('notifications',$1)", [event]);
+    await db.query(`INSERT INTO next_timer_operation_receipts(grant_id,operation_id,namespace,request_digest,terms_digest,
+      expected_revision,committed_revision,result_metadata) VALUES($1,$2,'cascade',$3,$4,10,11,$5::jsonb)`,
+    [f.id, randomUUID(), Buffer.alloc(32, 1), Buffer.alloc(32, 2), JSON.stringify({ namespace: "cascade", timers: [], cancelled_ids: [] })]);
+    await db.query(`INSERT INTO push_channels(id,grant_id,installation_id,kind,fcm_project_id,fcm_token_hash,sealed_target,sealed_key_id)
+      VALUES($1,$2,$3,'fcm','synthetic-project',$4,$5,'synthetic')`, [channel, f.id, f.installation, channel, sealed]);
+    await db.query("INSERT INTO notification_subscriptions(id,grant_id,channel_id,criterion_id) VALUES($1,$2,$3,$4)", [subscription, f.id, channel, criterion.id]);
+    await db.query("INSERT INTO notification_signals(id,signal_id,grant_id,criterion_id,cursor) VALUES($1,$2,$3,$4,$2)", [signal, event, f.id, criterion.id]);
+    await db.query(`INSERT INTO notification_deliveries(id,signal_id,subscription_id,status,attempts,lease_token,leased_until)
+      VALUES($1,$2,$3,'sending',2,$4,now()+interval '30 seconds')`, [randomUUID(), signal, subscription, randomUUID()]);
+    await db.query("INSERT INTO notification_webhook_deliveries(id,signal_id,url,status,attempts) VALUES($1,$2,'https://hooks.example.test','retry',2)", [randomUUID(), signal]);
+    return { ...f, event, signal };
+  }
+
+  it.each([
+    { kind: "collection", sql: "DELETE FROM next_collections WHERE collection_id=$1", key: "collection" as const },
+    { kind: "credential", sql: "DELETE FROM installation_device_credentials WHERE connector_id=$1", key: "connector" as const },
+    { kind: "connector", sql: "DELETE FROM connectors WHERE id=$1", key: "connector" as const }
+  ])("deleting a $kind with live native consent cascades all backing rows through the original scope trigger", async ({ sql, key }) => {
+    const f = await nativeBackingFixture();
+    const references = [
+      ...children.map(table => ({ table, column: "grant_id", value: f.id })),
+      { table: "next_background_grants", column: "id", value: f.id },
+      { table: "next_timer_event_receipts", column: "event_id", value: f.event },
+      { table: "next_timer_operation_receipts", column: "grant_id", value: f.id },
+      { table: "notification_deliveries", column: "signal_id", value: f.signal },
+      { table: "notification_webhook_deliveries", column: "signal_id", value: f.signal }
+    ];
+    expect((await db.query("SELECT revoked_at FROM next_background_grants WHERE id=$1", [f.id])).rows).toEqual([{ revoked_at: null }]);
+    expect((await db.query("SELECT 1 FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2", [f.connector, f.collection])).rowCount).toBe(1);
+    for (const r of references) expect((await db.query(`SELECT 1 FROM ${r.table} WHERE ${r.column}=$1`, [r.value])).rowCount).toBe(1);
+    expect((await db.query(sql, [f[key]])).rowCount).toBe(1);
+    for (const r of references) expect((await db.query(`SELECT 1 FROM ${r.table} WHERE ${r.column}=$1`, [r.value])).rowCount).toBe(0);
+    expect((await db.query("SELECT 1 FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2", [f.connector, f.collection])).rowCount)
+      .toBe(0);
+    expect((await db.query("SELECT 1 FROM grants WHERE id=$1", [f.id])).rowCount).toBe(0);
+  });
 
   it("keeps native identities exclusive and immutable, bound to the original three registered keys", async () => {
     const f = await nativeFixture();

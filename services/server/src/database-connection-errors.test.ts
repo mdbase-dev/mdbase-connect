@@ -71,6 +71,19 @@ describe("PostgreSQL connection error containment", () => {
     expect(client.query.mock.calls).toEqual([["SELECT 1", undefined], ["ROLLBACK", undefined]]);
   });
 
+  it("overrides only the chosen checked-out query's timeout and preserves subsequent runtime calls", async () => {
+    const { db, client } = await fixture();
+    const connection = await db.connect();
+    await connection.query("SELECT 1", undefined, 600_000);
+    await connection.query("SELECT $1", [2]);
+    connection.release();
+    expect(client.query.mock.calls).toEqual([
+      [{ text: "SELECT 1", values: undefined, query_timeout: 600_000 }],
+      ["SELECT $1", [2]]
+    ]);
+    expect(client.release).toHaveBeenCalledExactlyOnceWith(false);
+  });
+
   it("reuses healthy clients and preserves query results, checkout errors and shutdown", async () => {
     const { db, driver, client } = await fixture();
     const connection = await db.connect();

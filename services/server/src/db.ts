@@ -98,7 +98,12 @@ export async function openDatabase(
       // Keep memory tests on their existing legacy FKs; no native revocation,
       // raw-insert/cascade or consent qualification is emulated here.
       const backgroundHooks = "-- mdbase:native-background-grant-hooks:v1";
-      if (sql.includes(backgroundHooks)) return memory.public.many(sql.slice(0, sql.indexOf(backgroundHooks)));
+      if (sql.includes(backgroundHooks)) {
+        const schemaSql = sql.slice(0, sql.indexOf(backgroundHooks));
+        // The validation-only follow-up has no schema prefix. Memory retains
+        // legacy FKs; real PostgreSQL alone qualifies native FK validation.
+        return schemaSql.trim() ? memory.public.many(schemaSql) : [];
+      }
       const archiveTrigger = "-- mdbase:next-migration-archive-triggers:v1";
       if (sql.includes(archiveTrigger)) return memory.public.many(
         sql.slice(0, sql.indexOf(archiveTrigger)).replace("DEFAULT date_trunc('milliseconds', clock_timestamp())", "DEFAULT now()")
@@ -188,9 +193,11 @@ export async function openDatabase(
         const client = await postgres.connect();
         let failed = false;
         return {
-          async query(text, values) {
+          async query(text, values, queryTimeoutMs) {
             try {
-              return await client.query(text, values);
+              if (queryTimeoutMs === undefined) return await client.query(text, values);
+              const query = { text, values, query_timeout: queryTimeoutMs };
+              return await client.query(query);
             } catch (error) {
               // A fatal query response can precede the socket's error/close
               // event. Do not return that client to the pool in this window.

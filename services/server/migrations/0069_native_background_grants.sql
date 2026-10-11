@@ -56,12 +56,21 @@ CREATE UNIQUE INDEX next_background_native_original_approval
   ON next_background_grants(approval_request_id, collection_id)
   WHERE principal_kind = 'installation';
 
-INSERT INTO next_background_grants(id, principal_kind, legacy_grant_id)
-  SELECT id, 'legacy', id FROM grants;
+CREATE INDEX next_background_native_collection
+  ON next_background_grants(collection_id) WHERE principal_kind = 'installation';
+CREATE INDEX next_background_native_user
+  ON next_background_grants(user_id) WHERE principal_kind = 'installation';
+CREATE INDEX next_background_native_application
+  ON next_background_grants(application_id) WHERE principal_kind = 'installation';
 
 -- mdbase:native-background-grant-hooks:v1
 -- Real PostgreSQL alone qualifies FK upgrades, raw inserts/cascades and hooks.
 -- The schema-only memory adapter must not emulate native grant authority.
+-- Exclude grant writers until both the backfill and insert hook are committed.
+LOCK TABLE grants IN SHARE ROW EXCLUSIVE MODE;
+INSERT INTO next_background_grants(id, principal_kind, legacy_grant_id)
+  SELECT id, 'legacy', id FROM grants;
+
 CREATE FUNCTION installation_timer_request_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   IF OLD.timer_declaration IS DISTINCT FROM NEW.timer_declaration
@@ -99,7 +108,7 @@ BEGIN
         AND a.attname='grant_id' AND c.conkey=ARRAY[a.attnum]::smallint[];
     IF matches <> 1 THEN RAISE EXCEPTION 'Expected one original background grant foreign key in %', child; END IF;
     EXECUTE format('ALTER TABLE %I DROP CONSTRAINT %I', child, old_constraint);
-    EXECUTE format('ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY(grant_id) REFERENCES next_background_grants(id) ON DELETE CASCADE',
+    EXECUTE format('ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY(grant_id) REFERENCES next_background_grants(id) ON DELETE CASCADE NOT VALID',
       child, child || '_background_grant_fkey');
   END LOOP;
 END $$;
