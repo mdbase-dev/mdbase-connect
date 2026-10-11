@@ -1,10 +1,13 @@
-import { isMdbaseError } from "@mdbase-dev/sdk";
+import { isMdbaseError, MdbaseError } from "@mdbase-dev/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { editorPermissions } from "./gateway";
 import type { EditorCollectionChange, NoteObservationSnapshot } from "./model";
 import { NativeEditorGateway } from "./native-gateway";
 import { outdatedPersonStarter } from "./person-setup";
 import { closeNativeFixtures, readyFixture } from "./test/native-fixture";
+import manifest from "../public/.well-known/mdbase-app.json";
+
+const declaration = { id: manifest.id, name: manifest.name, origin: "https://editor.mdbase.dev", environment: "lab" as const, manifest };
 
 const gateways: NativeEditorGateway[] = [];
 afterEach(() => {
@@ -14,7 +17,7 @@ afterEach(() => {
 
 async function fixture(...args: Parameters<typeof readyFixture>) {
   const f = await readyFixture(...args);
-  const gateway = new NativeEditorGateway(f.application, f.connection);
+  const gateway = new NativeEditorGateway(f.application, f.connection, declaration);
   gateways.push(gateway);
   return { ...f, gateway };
 }
@@ -35,19 +38,21 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     expect(snapshot).toMatchObject({ status: "ready", connection: { collectionId: f.replica.collection, displayName: "Notes" } });
     const permissions = editorPermissions(snapshot.status === "ready" ? snapshot.connection : null);
     expect(permissions).toMatchObject({ canCreateNotes: true, canEditNotes: true, canRenameNotes: true, canDeleteNotes: true });
-    // definitions.manage installs packs through the SDK; type documents stay off.
-    expect(permissions).toMatchObject({ canManageTypes: false, canInstallTypes: true, canAttachFiles: true });
+    expect(permissions).toMatchObject({ canManageTypes: true, canInstallTypes: true, canAttachFiles: true });
+    expect(snapshot.status === "ready" && snapshot.connection.missingCapabilities).toBeFalsy();
     expect(f.gateway.selectConnection(f.replica.collection).collectionId).toBe(f.replica.collection);
     expect(() => f.gateway.selectConnection("another-collection")).toThrow("not ready");
     expect(await f.gateway.checkDirectAccess()).toBeNull();
   });
 
-  it("a read-only grant exposes no write operations", async () => {
+  it("a read-only grant exposes no write operations and reports what it lacks", async () => {
     const f = await fixture({ capabilities: ["collection.read"], role: "viewer" });
     const snapshot = f.gateway.sessionSnapshot();
-    expect(editorPermissions(snapshot.status === "ready" ? snapshot.connection : null)).toMatchObject({
-      canCreateNotes: false, canEditNotes: false, canRenameNotes: false, canDeleteNotes: false, canAttachFiles: false, canInstallTypes: false
+    const connection = snapshot.status === "ready" ? snapshot.connection : null;
+    expect(editorPermissions(connection)).toMatchObject({
+      canCreateNotes: false, canEditNotes: false, canRenameNotes: false, canDeleteNotes: false, canAttachFiles: false, canInstallTypes: false, canManageTypes: false
     });
+    expect(connection?.missingCapabilities).toEqual(["records.create", "records.edit", "records.delete", "definitions.manage"]);
     const upload = vi.spyOn(f.client.files, "upload");
     await expect(f.gateway.uploadFile("attachments/a.txt", new Blob(["x"]))).rejects.toThrow("not available");
     expect(upload).not.toHaveBeenCalled();
@@ -65,13 +70,41 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
         ["select", f.replica.collection, true], ["forget", f.replica.collection, false]]));
   });
 
-  it("describes native types and contracts honestly as names-only", async () => {
+  it("describes type schemas, versions and contract schemas from the native catalog", async () => {
     const f = await fixture({}, seedNotes);
+    const describe = f.client.describe.bind(f.client);
+    const map = (value: object): Map<string, unknown> => new Map(Object.entries(value).map(([key, item]) =>
+      [key, item && typeof item === "object" && !Array.isArray(item) ? map(item) : item]));
+    const schema = { type: "object", properties: { name: { type: "string" }, email: { type: "string" } } };
+    vi.spyOn(f.client, "describe").mockImplementation(async (options) => {
+      const base = await describe(options);
+      if (!(typeof options === "object" && !(options instanceof AbortSignal) && options.definitions)) return base;
+      return { ...base,
+        types: [{ name: "person", path: "_types/person.md", version: 2, revision: `sha256:${"a".repeat(64)}`,
+          implements: [{ contract: "mdbase.person", version: "2.0.0", fields: new Map([["name", "name"]]), digest: `sha256:${"b".repeat(64)}` }],
+          definition: map({ kind: "mdbase.type", name: "person", version: 2, description: "People", extensions: { "x-app": { on: true } }, schema }), schema: map(schema) }],
+        contracts: [{ id: "mdbase.person", version: "2.0.0", path: "_contracts/person.md", digest: `sha256:${"c".repeat(64)}`, contractType: "record",
+          implementedBy: ["person"], schemas: new Map([["record_schema", map(schema)]]) }] } as Awaited<ReturnType<typeof describe>>;
+    });
     const description = await f.gateway.describe();
-    expect(description).toMatchObject({ collectionId: f.replica.collection, displayName: "Notes", typing: "names_only" });
+    expect(description.typing).toBeUndefined();
+    expect(description.types).toEqual([expect.objectContaining({ name: "person", version: 2, description: "People", schema, extensions: { "x-app": { on: true } } })]);
+    expect(description.contracts[0]).toMatchObject({ id: "mdbase.person", schema,
+      implementations: [{ typeName: "person", typePath: "_types/person.md", typeVersion: 2, digest: `sha256:${"b".repeat(64)}`, fields: { name: "name" } }] });
+    expect(outdatedPersonStarter(description)).toMatchObject({ typeVersion: 2 });
+  });
+
+  it("falls back to names-only when the replica cannot describe definitions", async () => {
+    const f = await fixture({}, seedNotes);
+    const describe = f.client.describe.bind(f.client);
+    vi.spyOn(f.client, "describe").mockImplementation(async (options) => {
+      if (typeof options === "object" && !(options instanceof AbortSignal) && options.definitions)
+        throw new MdbaseError({ code: "upgrade_required", recovery: "upgrade", message: "no definitions" });
+      return describe(options);
+    });
+    const description = await f.gateway.describe();
+    expect(description).toMatchObject({ collectionId: f.replica.collection, typing: "names_only" });
     expect(description.types).toEqual([{ name: "note", path: "_types/note.md", schema: {}, extensions: {} }]);
-    expect(description.operations).toEqual(expect.arrayContaining(["read", "query", "create", "update", "rename", "delete"]));
-    expect(description.operations).not.toContain("create_type");
     expect(outdatedPersonStarter({ ...description, contracts: [{ contractType: "record", id: "mdbase.person", version: "2.0.0", digest: "", schema: {},
       implementations: [{ typeName: "person", typePath: "_types/person.md", typeVersion: 0, digest: "", fields: {} }] }] })).toBeUndefined();
   });
@@ -126,15 +159,21 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     expect(f.gateway.sessionSnapshot().status).toBe("unselected");
   });
 
-  it("reads type sources but refuses type creation without writing", async () => {
-    const f = await fixture({}, (replica) => {
-      replica.seedResource("_types/note.md", "---\nname: note\n---\n");
-      seedNotes(replica);
-    });
-    const put = vi.spyOn(f.client.resources, "put");
-    expect(await f.gateway.readType("note")).toMatchObject({ name: "note", path: "_types/note.md", document: "---\nname: note\n---\n" });
-    await expect(f.gateway.createType()).rejects.toThrow("not available");
-    expect(put).not.toHaveBeenCalled();
+  it("creates a type create-only and saves edits only over the revision that was opened", async () => {
+    const f = await fixture({}, seedNotes);
+    const source = "---\nkind: mdbase.type\nname: task\n---\n";
+    const created = await f.gateway.createType(source);
+    expect(created).toMatchObject({ name: "task", path: "_types/task.md", document: source });
+    expect(await f.gateway.readType("task")).toEqual(created);
+    await expect(f.gateway.createType(source)).rejects.toSatisfy((error: unknown) => isMdbaseError(error, "conflict"));
+
+    const edited = `${source}Tasks.\n`;
+    const saved = await f.gateway.updateType(created, edited);
+    expect(saved).toMatchObject({ name: "task", document: edited });
+    expect(saved.revision).not.toBe(created.revision);
+    // A save over the stale revision is refused, never overwritten.
+    await expect(f.gateway.updateType(created, `${source}Stale.\n`)).rejects.toSatisfy((error: unknown) => isMdbaseError(error, "conflict"));
+    expect((await f.client.resources.get("_types/task.md")).text).toBe(edited);
   });
 
   it("installs a reviewed type pack through the SDK plan as one confirmed guarded write", async () => {

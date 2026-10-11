@@ -1,8 +1,11 @@
 import {
+  effectiveCapabilities,
+  isMdbaseError,
   MdbaseError,
   toPlain,
   type MdbaseApplication,
   type MdbaseApplicationConnection,
+  type MdbaseApplicationDeclaration,
   type MdbaseClient,
   type TypePackPlan,
   type wire
@@ -43,20 +46,22 @@ import type {
 
 type CollectionOperation = CollectionDescription["operations"][number];
 
-/** Editor operations a native v2 capability grants. Type document create/edit
- * stay off (the public SDK has no type-document create); type packs install
- * through the SDK's guarded `typePacks` plan/apply. */
+/** Editor operations a native v2 capability grants. Type documents are written
+ * create-only or revision-guarded through `resources`; type packs install
+ * through the SDK's guarded `typePacks` plan/apply. The replica checks every
+ * actual operation; this map only shapes the UI. */
 const CAPABILITY_OPERATIONS: Readonly<Record<string, readonly CollectionOperation[]>> = {
   "collection.read": ["describe", "changes", "read", "query", "validate", "read_type"],
   "records.create": ["create"],
   "records.edit": ["update", "rename"],
   "records.delete": ["delete"],
-  "definitions.manage": ["assess_type_pack", "apply_type_pack"]
+  "definitions.manage": ["create_type", "update_type", "assess_type_pack", "apply_type_pack"]
 };
 
 const INSTALLED_BY = "dev.mdbase.editor";
 /** Reviewed plans kept for apply, newest last. */
 const PLAN_MEMORY = 8;
+const RECEIPT_TIMEOUT_MS = 30_000;
 
 /** The editor's collection gateway over one borrowed public SDK connection.
  * `SdkEditorRoot` owns lifecycle, selection and readiness; this adapter never
@@ -69,7 +74,13 @@ export class NativeEditorGateway implements CollectionGateway {
   private disposed = false;
   private readonly plans = new Map<string, TypePackPlan>();
 
-  constructor(private readonly application: MdbaseApplication, private readonly connection: MdbaseApplicationConnection) {
+  /** `declaration` is the bundled app declaration; with it the summary reports
+   * declared capabilities this grant lacks, for the "update access" prompts. */
+  constructor(
+    private readonly application: MdbaseApplication,
+    private readonly connection: MdbaseApplicationConnection,
+    private readonly declaration?: MdbaseApplicationDeclaration
+  ) {
     this.client = connection.records;
     if (connection.id !== this.client.collection) throw new Error("The editor requires its original SDK collection client.");
     this.records = new NextEditorRecords(this.client, () => this.current());
@@ -104,7 +115,9 @@ export class NativeEditorGateway implements CollectionGateway {
     return this.summary();
   }
 
-  /** Native connections have no Connect direct-access upgrade. */
+  /** Browser apps reach a collection through relay or hosted access only; the
+   * SDK reports browser direct access as unsupported at launch, so the editor
+   * shows no "this computer" control rather than a prompt that cannot work. */
   async checkDirectAccess(): Promise<ConnectionSummary | null> { return null; }
   async requestDirectAccess(): Promise<ConnectionSummary | null> { return null; }
 
@@ -121,8 +134,16 @@ export class NativeEditorGateway implements CollectionGateway {
 
   async describe(): Promise<EditorCollectionDescription> {
     const signal = this.signal();
-    const described = await this.client.describe(signal);
+    const full = await this.client.describe({ definitions: true, signal }).catch((error: unknown) => {
+      // Older replicas, or catalogs over the replica's describe budget, still
+      // open with names only; schema-driven features then stay off.
+      if (isMdbaseError(error) && (error.code === "upgrade_required" || error.code === "too_large")) return undefined;
+      throw error;
+    });
     this.check();
+    const described = full ?? await this.client.describe(signal);
+    this.check();
+    const versions = new Map(described.types.map((type) => [type.name, type.version]));
     return {
       protocolVersion: 1,
       collectionId: this.connection.id,
@@ -132,26 +153,31 @@ export class NativeEditorGateway implements CollectionGateway {
       // Native change cursors are opaque; observe() owns the watch position.
       changeCursor: 0,
       configuration: { settings: toPlain(described.settings) },
-      // Native describe has names, paths and contract bindings only.
-      typing: "names_only",
-      types: described.types.map((type) => ({ name: type.name, path: type.path, schema: {}, extensions: {} })),
-      contracts: described.contracts.map((contract) => ({
-        contractType: "record",
-        id: contract.id,
-        version: contract.version,
-        digest: contract.digest,
-        schema: {},
-        implementations: described.types.flatMap((type) => type.implements
-          .filter((implementation) => implementation.contract === contract.id && implementation.version === contract.version)
-          .map((implementation) => ({
-            typeName: type.name,
-            typePath: type.path,
-            typeVersion: 0,
-            digest: "",
-            fields: Object.fromEntries(implementation.fields),
-            ...(implementation.binding === undefined ? {} : { binding: toPlain(implementation.binding) as JsonObject })
-          })))
-      }))
+      ...(full ? {} : { typing: "names_only" as const }),
+      types: described.types.map(typeDescriptor),
+      contracts: described.contracts.map((contract) => {
+        const schemas = contract.schemas;
+        const bindingSchema = jsonObject(schemas?.get("binding_schema"));
+        return {
+          contractType: "record" as const,
+          id: contract.id,
+          version: contract.version,
+          digest: contract.digest,
+          schema: jsonObject(schemas?.get("record_schema")) ?? {},
+          ...(bindingSchema ? { bindingSchema } : {}),
+          implementations: described.types.flatMap((type) => type.implements
+            .filter((implementation) => implementation.contract === contract.id && implementation.version === contract.version)
+            .map((implementation) => ({
+              typeName: type.name,
+              typePath: type.path,
+              // Names-only describes carry no versions; 0 never reads as current.
+              typeVersion: full ? versions.get(type.name) ?? 1 : 0,
+              digest: implementation.digest ?? "",
+              fields: Object.fromEntries(implementation.fields),
+              ...(implementation.binding === undefined ? {} : { binding: toPlain(implementation.binding) as JsonObject })
+            })))
+        };
+      })
     };
   }
 
@@ -338,8 +364,26 @@ export class NativeEditorGateway implements CollectionGateway {
     return { name: type.name, path: resource.path, revision: resource.revision, document: resource.text };
   }
 
-  async createType(): Promise<TypeDocument> { throw typeManagementUnavailable(); }
-  async updateType(): Promise<TypeDocument> { throw typeManagementUnavailable(); }
+  /** Core derives the name and `<types_folder>/<name>.md` path; the write is
+   * create-only, so a concurrent creator of the same type loses with conflict. */
+  async createType(document: string): Promise<TypeDocument> {
+    const signal = this.signal();
+    const created = await this.client.createType(document, { signal });
+    this.check();
+    await this.confirmed(created.write.mutationId, signal, "type");
+    return this.typeAt(created.path, document, signal);
+  }
+
+  /** Guarded by the reviewed revision: an edit made elsewhere since it was
+   * opened is refused as a conflict, never overwritten. */
+  async updateType(current: TypeDocument, source: string): Promise<TypeDocument> {
+    const signal = this.signal();
+    const write = await this.client.resources.put(current.path, source, { baseRevision: current.revision, signal });
+    this.check();
+    await this.confirmed(write.mutationId, signal, "type");
+    return this.typeAt(current.path, source, signal);
+  }
+
   async assessTypePack(provision: TypePackProvision, adoptResources: Record<string, string> = {}): Promise<TypePackAssessment> {
     const plan = await this.client.typePacks.plan(provision, { installedBy: INSTALLED_BY, adopt: adoptResources, signal: this.signal() });
     this.check();
@@ -364,20 +408,45 @@ export class NativeEditorGateway implements CollectionGateway {
     const result = await this.client.typePacks.apply(plan, { signal });
     this.check();
     this.plans.delete(plan.digest);
-    if (result.write) {
-      const receipt = await this.client.awaitReceipt(result.write.mutationId, 30_000, signal);
-      this.check();
-      if (receipt.state === "rejected") throw receipt.problem ? new MdbaseError(receipt.problem) : new Error("The type pack install was rejected.");
-      if (receipt.status === "conflicted") throw new MdbaseError({ code: "conflict", recovery: "resolve_conflict", message: "The type pack install has a conflict. Resolve it before continuing." });
-      if (receipt.state !== "confirmed") {
-        throw new MdbaseError({ code: "outcome_unknown", recovery: "resolve_outcome", message: "The type pack install is not confirmed yet. Check the collection before trying again." });
-      }
-    }
+    if (result.write) await this.confirmed(result.write.mutationId, signal, "type pack install");
     return { ...assessmentOf(plan), receipt: result.receipt, cleanupDeferred: false };
   }
 
+  /** Waits for a definition write's receipt; anything short of confirmed and
+   * applied is reported, never assumed. */
+  private async confirmed(mutationId: string, signal: AbortSignal, subject: string): Promise<void> {
+    const receipt = await this.client.awaitReceipt(mutationId, RECEIPT_TIMEOUT_MS, signal);
+    this.check();
+    if (receipt.state === "rejected") throw receipt.problem ? new MdbaseError(receipt.problem) : new Error(`The ${subject} was rejected.`);
+    if (receipt.status === "conflicted") throw new MdbaseError({ code: "conflict", recovery: "resolve_conflict", message: `The ${subject} has a conflict. Resolve it before continuing.` });
+    if (receipt.state !== "confirmed") {
+      throw new MdbaseError({ code: "outcome_unknown", recovery: "resolve_outcome", message: `The ${subject} is not confirmed yet. Check the collection before trying again.` });
+    }
+  }
+
+  /** Reads back the confirmed type source and the name Core gives it. */
+  private async typeAt(path: string, written: string, signal: AbortSignal): Promise<TypeDocument> {
+    const resource = await this.client.resources.get(path, signal);
+    this.check();
+    if (resource.text !== written) {
+      throw new MdbaseError({ code: "conflict", recovery: "refresh", reason: "concurrent_modification", message: "This type changed after it was saved. Reload it before editing again." });
+    }
+    const type = (await this.client.describe(signal)).types.find((candidate) => candidate.path === path);
+    this.check();
+    if (!type) throw new MdbaseError({ code: "invalid_request", recovery: "fix_request", reason: "invalid_type_definition", message: "The collection does not read this file as a type definition. Check its name and kind." });
+    return { name: type.name, path, revision: resource.revision, document: resource.text };
+  }
+
   private summary(): ConnectionSummary {
-    return { collectionId: this.connection.id, displayName: this.connection.displayName, operations: this.operations(), fileActions: this.fileActions() };
+    const missing = this.missingCapabilities();
+    return { collectionId: this.connection.id, displayName: this.connection.displayName, operations: this.operations(), fileActions: this.fileActions(),
+      ...(missing.length ? { missingCapabilities: missing } : {}) };
+  }
+
+  /** Declared capability groups the current grant lacks (SDK-computed). */
+  private missingCapabilities(): string[] {
+    if (!this.declaration || !this.current()) return [];
+    return [...(effectiveCapabilities(this.declaration, this.connection)?.missing ?? [])];
   }
 
   private operations(): CollectionOperation[] {
@@ -425,8 +494,29 @@ function unsupported(message: string): MdbaseError {
   return new MdbaseError({ code: "invalid_request", recovery: "fix_request", reason: "unsupported", message });
 }
 
-function typeManagementUnavailable(): MdbaseError {
-  return unsupported("Creating and editing type definitions is not available in mdbase editor for this collection yet.");
+function typeDescriptor(type: wire.TypeSummary): EditorCollectionDescription["types"][number] {
+  const definition = jsonObject(type.definition);
+  const description = definition?.description;
+  const collection = jsonObject(definition?.collection);
+  const lifecycle = jsonObject(definition?.lifecycle);
+  return {
+    name: type.name,
+    path: type.path,
+    ...(type.version === undefined ? {} : { version: type.version }),
+    ...(type.revision === undefined ? {} : { revision: type.revision }),
+    ...(typeof description === "string" ? { description } : {}),
+    ...(definition ? { definition } : {}),
+    schema: jsonObject(type.schema) ?? {},
+    ...(collection ? { collection } : {}),
+    ...(lifecycle ? { lifecycle } : {}),
+    extensions: jsonObject(definition?.extensions) ?? {}
+  };
+}
+
+function jsonObject(value: unknown): JsonObject | undefined {
+  if (value === undefined || value === null) return undefined;
+  const plainValue = value instanceof Map ? toPlain(value as wire.Value) : value;
+  return plainValue && typeof plainValue === "object" && !Array.isArray(plainValue) ? plainValue as JsonObject : undefined;
 }
 
 /** The editor's assessment shape from the SDK plan (no contract setups). */

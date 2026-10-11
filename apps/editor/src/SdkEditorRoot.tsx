@@ -15,9 +15,15 @@ export function createEditorApplication(input: {
   origin: string;
   environment: MdbaseApplicationDeclaration["environment"];
 }): MdbaseConnect {
-  return new MdbaseConnect({ id: manifest.id, name: manifest.name,
-    origin: input.origin, environment: input.environment, manifest });
+  const declaration: MdbaseApplicationDeclaration = { id: manifest.id, name: manifest.name,
+    origin: input.origin, environment: input.environment, manifest };
+  const sdk = new MdbaseConnect(declaration);
+  declarations.set(sdk, declaration);
+  return sdk;
 }
+
+/** The declaration each editor SDK was built from, for capability step-up. */
+const declarations = new WeakMap<object, MdbaseApplicationDeclaration>();
 
 export type EditorSdk = MdbaseApplicationEntry;
 export interface EditorNativeScope {
@@ -49,6 +55,7 @@ export function SdkEditorRoot(props: SdkEditorRootProps) {
 }
 
 function ApplicationView({ sdk, renderNative, onSignedOut, onFeedbackContext }: SdkEditorRootProps) {
+  const declaration = declarations.get(sdk);
   const application = sdk.application();
   const snapshot = useSyncExternalStore((listener) => application.subscribe(listener), () => application.getSnapshot(), () => application.getSnapshot());
   const caller = useRef<AbortController | null>(null);
@@ -94,7 +101,7 @@ function ApplicationView({ sdk, renderNative, onSignedOut, onFeedbackContext }: 
     && !snapshot.readiness.checking && snapshot.readiness.problem === null
     && snapshot.readiness.assessment?.status === "ready" && snapshot.readiness.assessment.problem === null);
   if (ready && connection) {
-    return <NativeScopeView key={`${connection.id}:${connection.generation}`} application={application} connection={connection}
+    return <NativeScopeView key={`${connection.id}:${connection.generation}`} application={application} connection={connection} declaration={declaration}
       renderNative={renderNative} onFeedbackContext={onFeedbackContext} />;
   }
 
@@ -149,9 +156,10 @@ function ApplicationView({ sdk, renderNative, onSignedOut, onFeedbackContext }: 
   </ConnectLayout>;
 }
 
-function NativeScopeView({ application, connection, renderNative, onFeedbackContext }: {
+function NativeScopeView({ application, connection, declaration, renderNative, onFeedbackContext }: {
   application: MdbaseApplication;
   connection: MdbaseApplicationConnection;
+  declaration?: MdbaseApplicationDeclaration;
   renderNative?: SdkEditorRootProps["renderNative"];
   onFeedbackContext?: SdkEditorRootProps["onFeedbackContext"];
 }) {
@@ -161,11 +169,11 @@ function NativeScopeView({ application, connection, renderNative, onFeedbackCont
   const [original] = useState(connection);
   const [view, setView] = useState<{ client: MdbaseClient; scope: EditorNativeScope } | null>(null);
   useEffect(() => {
-    const gateway = new NativeEditorGateway(application, original);
+    const gateway = new NativeEditorGateway(application, original, declaration);
     let active = true;
     queueMicrotask(() => { if (active) setView({ client, scope: { application, connection: original, gateway } }); });
     return () => { active = false; gateway.dispose(); };
-  }, [application, client, original]);
+  }, [application, client, declaration, original]);
   const opening = <OpeningScreen app="editor" title={`Opening ${original.displayName}`} />;
   if (!view || view.client !== client) return opening;
   if (renderNative) return renderNative(view.scope);
