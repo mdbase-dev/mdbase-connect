@@ -388,12 +388,6 @@ importers:
       '@noble/hashes':
         specifier: 2.4.0
         version: 2.4.0
-      ajv:
-        specifier: ^8.20.0
-        version: 8.20.0
-      ajv-formats:
-        specifier: ^3.0.1
-        version: 3.0.1(ajv@8.20.0)
       yaml:
         specifier: ^2.9.1
         version: 2.9.1
@@ -401,6 +395,12 @@ importers:
       '@types/node':
         specifier: ^24.0.0
         version: 24.13.3
+      ajv:
+        specifier: ^8.20.0
+        version: 8.20.0
+      ajv-formats:
+        specifier: ^3.0.1
+        version: 3.0.1(ajv@8.20.0)
       esbuild:
         specifier: ^0.28.1
         version: 0.28.1

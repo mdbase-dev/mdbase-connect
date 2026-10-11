@@ -1,11 +1,12 @@
 import { sha256 as sha256Bytes } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
-import { Ajv2020, type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
-import addFormatsModule from "ajv-formats";
+import type { ErrorObject, ValidateFunction } from "ajv/dist/2020.js";
 import { isMap, parseDocument } from "yaml";
-import appManifestSchema from "../schemas/mdbase-app.schema.json" with { type: "json" };
-import legacyAppManifestSchema from "../schemas/mdbase-app.legacy-v1.schema.json" with { type: "json" };
 import type { LegacyMdbaseAppManifest } from "./index.js";
+import {
+  appManifestValidator as generatedAppManifestValidator,
+  legacyAppManifestValidator as generatedLegacyAppManifestValidator
+} from "./manifest-validators.generated.js";
 export type {
   LegacyApplicationFileRequirement,
   LegacyApplicationRequirements,
@@ -81,18 +82,11 @@ export class AppManifestValidationError extends Error {
   }
 }
 
-const ajv = new Ajv2020({
-  allErrors: true,
-  strict: true,
-  // `required` may name properties declared by an enclosing oneOf branch.
-  strictRequired: false
-});
-const addFormats = addFormatsModule as unknown as (instance: Ajv2020) => Ajv2020;
-addFormats(ajv);
-ajv.addSchema(appManifestSchema);
-const appManifestValidator = requiredValidator(String(appManifestSchema.$id));
-ajv.addSchema(legacyAppManifestSchema);
-const legacyAppManifestValidator = requiredValidator(String(legacyAppManifestSchema.$id));
+// Precompiled from the published JSON Schemas by
+// scripts/generate-manifest-validators.mjs, so validation stays synchronous and
+// identical without shipping the Ajv compiler to consumers.
+const appManifestValidator = generatedAppManifestValidator as ValidateFunction;
+const legacyAppManifestValidator = generatedLegacyAppManifestValidator as ValidateFunction;
 
 /**
  * Validate the complete bundled application declaration accepted by Connect.
@@ -202,12 +196,6 @@ export function formatManifestValidationIssues(
   issues: readonly ManifestValidationIssue[]
 ): string {
   return issues.map((issue) => `${issue.path || "/"} ${issue.message}`).join("; ");
-}
-
-function requiredValidator(reference: string): ValidateFunction {
-  const validate = ajv.getSchema(reference);
-  if (!validate) throw new Error(`Canonical schema is unavailable: ${reference}`);
-  return validate;
 }
 
 function validationResult(
