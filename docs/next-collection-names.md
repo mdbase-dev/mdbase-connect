@@ -49,7 +49,7 @@ The same owner, credential, enrolment, installation-scope and migration-freeze c
 - removes every installation's approved scope for the collection, and revokes its native background grants;
 - writes a `next_collection.deleted` audit event.
 
-After the commit, the control plane sends the same deletion tuple to the native registry to record a permanent denial floor. That call records denial only. If it fails or its reply is lost, the outcome is unknown, while the control plane's denial stays in force.
+After the commit, the control plane sends the same deletion tuple to the native registry to record a permanent denial floor. That call records denial only. If it fails or its reply is lost, the outcome is unknown, while the control plane's denial stays in force. The server then logs a warning with the collection ID, deletion ID, lifecycle epoch and error class, and no credentials. An operator reruns the call with `pnpm --filter @mdbase/connect-server next:deletion-floor rerun <collection id>`, using the server's database and next control-plane environment. The rerun sends the same committed tuple, so retrying is idempotent. If the registry already holds a different tuple, the rerun reports the refusal and changes nothing.
 
 Deletion is a soft delete. The collection row, its log and any hosted copy are kept, unreachable, until a separate erasure stage. Nothing in this route claims the data was erased. There is no archive or undelete.
 
