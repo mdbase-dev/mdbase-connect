@@ -1,0 +1,6 @@
+{
+  "reason": "Installation file access shares one list of file action names between the installation pairing feature and its route schema, so the request validator and the stored check accept the same values. No new boundary, crypto or data operation is added.",
+  "growth": {
+    "typeScriptExportDeclarations": 1
+  }
+}

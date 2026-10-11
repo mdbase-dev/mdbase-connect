@@ -1321,4 +1321,39 @@ describePg("installation device sign-in on daemon pairing", () => {
     const exchange = await app.inject({method:"POST",url:`${base}/exchange`,headers}); expect(exchange.statusCode).toBe(200); expect(typeof exchange.json().token).toBe("string");
     expect((await app.inject({method:"POST",url:`${base}/exchange`,headers})).statusCode).toBe(409);
   });
+  it("asks for a declared optional file action on one scoped collection, records the decision, and reports a decline",async()=>{
+    const family=randomUUID(),appId=await registeredApp(family);
+    await db.query("UPDATE applications SET requirements=$2::jsonb WHERE id=$1",[appId,JSON.stringify({access:"full_collection",contracts:[],files:{required:["list","read"],optional:["add"],scope:{kind:"collection"}}})]);
+    const p=await prepared("app-runtime",false,undefined,undefined,appId),collection=await scopeCollection(p.owner.user);
+    expect((await approvePicked(p,p.flow,[collection],collection)).statusCode).toBe(200);
+    const token=(await p.flow.exchange()).json().token,origin=originHeaders(p.input).origin;
+    const ask=(actions:string[],reason="Add the image you just chose")=>{
+      const input={...p.input,installation:{...p.input.installation,request_id:randomUUID(),pairing_secret:randomToken("pair"),reconsent:true,file_access:{collection_id:collection,actions,reason}}};
+      return {input,flow:channel(input),sent:app.inject({method:"POST",url:"/v1/pairing-requests",headers:{origin,authorization:`Bearer ${token}`},payload:input})};
+    };
+    // Undeclared actions and multi-line reasons are refused before any request exists.
+    expect((await ask(["delete"]).sent).json()).toMatchObject({error:{code:"installation_file_access_undeclared"}});
+    expect((await ask(["add"],"line one\nline two").sent).statusCode).toBe(400);
+    const granted=ask(["add"]);
+    expect((await granted.sent).statusCode).toBe(201);
+    const shown=(await app.inject({method:"GET",url:granted.flow.base,headers:p.owner.headers})).json().pairing;
+    expect(shown.file_access).toEqual({collection_id:collection,collection_name:"New collection",actions:["add"],reason:"Add the image you just chose",approved_actions:null});
+    expect((await granted.flow.exchange()).json().status).toBe("awaiting_approval");
+    const fingerprint=clientFingerprint(Buffer.from(p.proof.payload.sign_pk,"hex"));
+    expect((await app.inject({method:"POST",url:`${granted.flow.base}/approve`,headers:p.owner.headers,payload:{fingerprint,collection_ids:[collection],file_actions:["add"]}})).statusCode).toBe(400);
+    expect((await app.inject({method:"POST",url:`${granted.flow.base}/approve`,headers:p.owner.headers,payload:{fingerprint,file_actions:["add"]}})).statusCode).toBe(200);
+    expect((await app.inject({method:"POST",url:`${granted.flow.base}/deny`,headers:p.owner.headers})).statusCode).toBe(409);
+    const receipt=await granted.flow.exchange();
+    expect(receipt.statusCode).toBe(200);
+    expect(receipt.json()).toEqual({status:"file_access_updated",request_id:granted.input.installation.request_id,collection_id:collection,file_actions:["add"]});
+    expect((await db.query("SELECT file_actions FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2",[p.selected.connector_id,collection])).rows).toEqual([{file_actions:["add"]}]);
+    const declined=ask(["add"]);
+    expect((await declined.sent).statusCode).toBe(201);
+    expect((await app.inject({method:"POST",url:`${declined.flow.base}/deny`,headers:p.owner.headers})).statusCode).toBe(200);
+    const answer=await declined.flow.exchange();
+    expect(answer.statusCode).toBe(200);
+    expect(answer.json()).toEqual({status:"declined",request_id:declined.input.installation.request_id});
+    // The earlier decision stays recorded.
+    expect((await db.query("SELECT file_actions FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2",[p.selected.connector_id,collection])).rows).toEqual([{file_actions:["add"]}]);
+  });
 });
