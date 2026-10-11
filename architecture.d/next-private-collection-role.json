@@ -1,0 +1,6 @@
+{
+  "reason": "The app collection list reports the account's role on a Private collection. It reuses the existing membership check, which now returns the role it already reads. No new module, export or data path is added.",
+  "growth": {
+    "relativeImports": 1
+  }
+}
