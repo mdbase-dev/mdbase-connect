@@ -13,8 +13,28 @@ use chrono::Duration as ChronoDuration;
 use serde::Deserialize;
 use sqlx::postgres::PgRow;
 
+mod notification_watermark;
+
 /// Minimum retention of a migrated collection's legacy rows and objects.
 const LEGACY_RETENTION_MIN_DAYS: i64 = 90;
+
+// Count blocking rows, not distinct reminders. Expiry cannot settle a dispatch.
+// Missing runtime schema fails closed; migration must never initialize it.
+const NOTIFICATION_BLOCKERS_SQL: &str = r#"
+    SELECT CASE WHEN (SELECT version FROM mdbase_runtime_schema WHERE singleton = TRUE) = 2 THEN
+      (SELECT count(*) FROM mdbase_runtime_timers t
+       WHERE t.namespace = 'connect-hosted:' || ($1::uuid)::text || ':notifications'
+         AND (t.status NOT IN ('scheduled','fired','cancelled') OR t.lease_token IS NOT NULL
+           OR t.lease_worker IS NOT NULL OR t.lease_expires_at IS NOT NULL))
+      + (SELECT count(*) FROM mdbase_runtime_runs r
+         WHERE r.namespace = 'connect-hosted:' || ($1::uuid)::text || ':notifications'
+           AND (r.status NOT IN ('succeeded','cancelled') OR r.lease_token IS NOT NULL
+             OR r.lease_worker IS NOT NULL OR r.lease_expires_at IS NOT NULL))
+      + (SELECT count(*) FROM hosted_provider_runtime_outbox o
+         WHERE o.collection_id = $1 AND (o.processed_at IS NULL
+           OR o.lease_token IS NOT NULL OR o.leased_until IS NOT NULL))
+    END
+"#;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -71,9 +91,13 @@ pub struct LegacyRollbackReceipt {
 
 /// What the migration driver reads to drain a fenced collection (H6) and to fix
 /// `S_final`: the lifecycle state, the head and the accepted mutations that could
-/// still change it, all from one statement (one snapshot).
+/// still change it, plus its complete content-free notification watermark,
+/// all from one REPEATABLE READ READ ONLY snapshot.
 #[derive(Debug, Clone, Serialize)]
 pub struct LegacyMigrationDrain {
+    /// Authenticated response header DATA, never a permission or receipt.
+    #[serde(skip)]
+    pub(crate) notification_watermark: String,
     pub collection_id: Uuid,
     /// The raw lifecycle state (`active`, `migrating`, `migrated`, or another).
     pub state: String,
@@ -85,8 +109,10 @@ pub struct LegacyMigrationDrain {
     /// request may still be applying. Draining waits for zero. An expired lease
     /// cannot apply once the collection is fenced: every apply path requires
     /// `state = 'active'` under the collection row lock that the fence takes.
+    /// Also includes notification firing/unfinished delivery/lease rows, even
+    /// when their lease expired or the runtime labels an UNKNOWN terminal.
     pub in_flight: i64,
-    /// Accepted mutations not yet resolved, live or not.
+    /// Accepted mutations and notification work not yet resolved, live or not.
     pub unresolved: i64,
     /// Mutations applied (already in `head`) whose receipt is not yet final.
     pub applied_unreceipted: i64,
@@ -317,6 +343,29 @@ impl HostedProvider {
                 "Replicas are restored only by the rollback to active.",
             ));
         }
+        if (current, target) == (Active, Migrating)
+            || (current, target) == (Migrating, Migrated)
+            || rollback.is_some()
+        {
+            let pending: Option<i64> = sqlx::query_scalar(NOTIFICATION_BLOCKERS_SQL)
+                .bind(collection_id)
+                .fetch_one(&mut *transaction)
+                .await?;
+            let pending = pending.ok_or_else(|| {
+                ApiError::conflict(
+                    "legacy_notification_schema_unavailable",
+                    "The original notification runtime schema is not supported for migration.",
+                )
+            })?;
+            if pending != 0 {
+                // No state/run/retention/revocation update has happened: this
+                // collection remains active so legacy can genuinely finish.
+                return Err(ApiError::conflict(
+                    "legacy_notifications_not_drained",
+                    "Notification delivery is unsettled; retry migration after legacy completion.",
+                ));
+            }
+        }
         if (current, target) == (Migrating, Migrated) || rollback.is_some() {
             let in_flight: i64 = sqlx::query_scalar(
                 r#"SELECT count(*) FROM hosted_provider_mutation_journal j
@@ -415,43 +464,6 @@ impl HostedProvider {
             },
             receipt,
         ))
-    }
-
-    /// The drain status of one collection (H6).
-    pub async fn legacy_migration_drain(
-        &self,
-        collection_id: Uuid,
-    ) -> ApiResult<LegacyMigrationDrain> {
-        let row = sqlx::query(
-            r#"SELECT c.state, c.head, c.legacy_migration_id, c.legacy_migration_started_at, c.legacy_retain_until,
-                      count(j.request_id) FILTER (
-                        WHERE j.state IN ('claimed', 'prepared') AND j.lease_expires_at > now()
-                      ) AS in_flight,
-                      count(j.request_id) FILTER (
-                        WHERE j.state IN ('claimed', 'prepared')
-                      ) AS unresolved,
-                      count(j.request_id) FILTER (WHERE j.state = 'applied') AS applied
-               FROM hosted_provider_collections c
-               LEFT JOIN hosted_provider_replicas r ON r.collection_id = c.id
-               LEFT JOIN hosted_provider_mutation_journal j ON j.replica_id = r.id
-               WHERE c.id = $1
-               GROUP BY c.id"#,
-        )
-        .bind(collection_id)
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or_else(not_found)?;
-        Ok(LegacyMigrationDrain {
-            collection_id,
-            state: row.get("state"),
-            migration_id: row.get("legacy_migration_id"),
-            head: row.get("head"),
-            started_at: row.get("legacy_migration_started_at"),
-            retain_until: row.get("legacy_retain_until"),
-            in_flight: row.get("in_flight"),
-            unresolved: row.get("unresolved"),
-            applied_unreceipted: row.get("applied"),
-        })
     }
 
     /// H8: revoke only currently live replicas and record this provider run as

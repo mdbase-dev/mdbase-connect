@@ -1,3 +1,10 @@
+// Reuse the integration fixtures inside private admission unit tests.
+#[cfg(test)]
+extern crate self as mdbase_connect_hosted_provider;
+#[cfg(test)]
+#[path = "../tests/support/test_postgres.rs"]
+mod test_postgres;
+
 mod backup_admin;
 mod blob_store;
 mod crypto;

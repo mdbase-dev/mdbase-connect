@@ -11,9 +11,45 @@ use mdbase_connect_protocol::*;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::Row;
-use support::FileLifecycleFixture;
 use test_postgres::DisposablePostgres;
 use uuid::Uuid;
+
+// Migration drain requires the authoritative runtime schema even when empty.
+// This local fixture adds only its physical projection, never a runtime
+// initializer, effect producer or synthetic settlement.
+struct FileLifecycleFixture(support::FileLifecycleFixture);
+
+impl std::ops::Deref for FileLifecycleFixture {
+    type Target = support::FileLifecycleFixture;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl FileLifecycleFixture {
+    async fn new(url: &str) -> Self {
+        let fixture = support::FileLifecycleFixture::new(url).await;
+        sqlx::raw_sql(r#"
+            CREATE TABLE IF NOT EXISTS mdbase_runtime_schema (singleton boolean PRIMARY KEY CHECK(singleton), version integer);
+            INSERT INTO mdbase_runtime_schema VALUES(TRUE,2) ON CONFLICT DO NOTHING;
+            CREATE TABLE IF NOT EXISTS mdbase_runtime_timers (
+                namespace text, id text, generation bigint, status text, fire_at timestamptz,
+                lease_token text, lease_worker text, lease_expires_at timestamptz, PRIMARY KEY(namespace,id));
+            CREATE TABLE IF NOT EXISTS mdbase_runtime_runs (
+                namespace text, id text, revision bigint, status text, executor text,
+                workflow text, trigger_id text, created_at timestamptz, not_before timestamptz,
+                lease_token text, lease_worker text, lease_expires_at timestamptz, PRIMARY KEY(namespace,id));
+            CREATE TABLE IF NOT EXISTS mdbase_runtime_events (namespace text, cursor bigint, PRIMARY KEY(namespace,cursor));
+        "#).execute(&fixture.pool).await.unwrap();
+        let version: i32 =
+            sqlx::query_scalar("SELECT version FROM mdbase_runtime_schema WHERE singleton=TRUE")
+                .fetch_one(&fixture.pool)
+                .await
+                .unwrap();
+        assert_eq!(version, 2, "fixture must not normalize unsupported schema");
+        Self(fixture)
+    }
+}
 
 fn upload() -> OpenFileUploadRequest {
     let bytes = b"after the freeze";

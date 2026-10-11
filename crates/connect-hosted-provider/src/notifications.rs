@@ -158,6 +158,29 @@ impl HostedNotificationRuntime {
         Ok(())
     }
 
+    // Same physical collection-row lock as the migration fence. Keep it through
+    // runtime effects, not merely an active-state preflight on another await.
+    async fn lock_active_collection(
+        &self,
+        collection_id: Uuid,
+    ) -> ApiResult<Option<sqlx::Transaction<'_, sqlx::Postgres>>> {
+        let mut guard = self.pool.begin().await?;
+        sqlx::query("SET LOCAL lock_timeout = '5s'")
+            .execute(&mut *guard)
+            .await?;
+        let state = sqlx::query_scalar::<_, String>(
+            "SELECT state FROM hosted_provider_collections WHERE id = $1 FOR SHARE",
+        )
+        .bind(collection_id)
+        .fetch_optional(&mut *guard)
+        .await?;
+        if state.as_deref() != Some("active") {
+            guard.rollback().await?;
+            return Ok(None);
+        }
+        Ok(Some(guard))
+    }
+
     pub async fn timer_operation(
         &self,
         collection_id: Uuid,
@@ -165,6 +188,15 @@ impl HostedNotificationRuntime {
         operation: &str,
         input: Value,
     ) -> ApiResult<Value> {
+        let guard = self
+            .lock_active_collection(collection_id)
+            .await?
+            .ok_or_else(|| {
+                ApiError::conflict(
+                    "collection_migrating",
+                    "The hosted collection is unavailable for timer operations.",
+                )
+            })?;
         let grant = sqlx::query_scalar::<_, Value>(
             "SELECT grant_json FROM hosted_provider_notification_grants
              WHERE grant_id = $1 AND collection_id = $2",
@@ -187,7 +219,7 @@ impl HostedNotificationRuntime {
         let catalog = compose_catalog(std::slice::from_ref(&grant), collection_id)
             .map_err(runtime_error("catalog"))?;
         let runtime = self.runtime(collection_id).await?;
-        perform_timer_operation(&runtime, &catalog, &grant, operation, input)
+        let result = perform_timer_operation(&runtime, &catalog, &grant, operation, input)
             .await
             .map_err(|error| {
                 if error.internal {
@@ -195,7 +227,9 @@ impl HostedNotificationRuntime {
                 } else {
                     ApiError::bad_request("invalid_timer_request", error.message)
                 }
-            })
+            })?;
+        guard.commit().await?;
+        Ok(result)
     }
 
     pub async fn recover(&self, limit: usize) -> ApiResult<usize> {
@@ -206,6 +240,9 @@ impl HostedNotificationRuntime {
         .fetch_all(&self.pool)
         .await?;
         for collection_id in collections {
+            let Some(guard) = self.lock_active_collection(collection_id).await? else {
+                continue;
+            };
             let grants = self.grants(collection_id).await?;
             if grants.is_empty() {
                 continue;
@@ -227,6 +264,7 @@ impl HostedNotificationRuntime {
             drain_notification_runtime(&runtime, 100)
                 .await
                 .map_err(runtime_error("run_drain"))?;
+            guard.commit().await?;
         }
         Ok(processed)
     }
@@ -353,6 +391,9 @@ impl HostedNotificationRuntime {
         let mut processed = 0;
         for row in rows {
             let collection_id: Uuid = row.get("collection_id");
+            let Some(guard) = self.lock_active_collection(collection_id).await? else {
+                continue;
+            };
             let sequence = u64::try_from(row.get::<i64, _>("sequence"))
                 .map_err(|_| ApiError::internal("Hosted runtime cursor is negative."))?;
             let attempts: i32 = row.get("attempts");
@@ -425,6 +466,7 @@ impl HostedNotificationRuntime {
                     tracing::warn!(%collection_id, sequence, %error, "hosted runtime event deferred");
                 }
             }
+            guard.commit().await?;
         }
         Ok(processed)
     }
@@ -512,6 +554,8 @@ impl HostedNotificationRuntime {
         providers.register(
             catalog.notification_provider_binding().clone(),
             Arc::new(HostedSignalProvider {
+                pool: self.pool.clone(),
+                collection_id,
                 client: self.client.clone(),
                 control_plane_url: self.config.control_plane_url.clone(),
                 internal_token: self.config.internal_token.clone(),
@@ -550,50 +594,14 @@ impl HostedNotificationRuntime {
 
 #[derive(Clone)]
 struct HostedSignalProvider {
+    pool: PgPool,
+    collection_id: Uuid,
     client: reqwest::Client,
     control_plane_url: String,
     internal_token: String,
 }
 
-#[async_trait]
-impl ActionProvider for HostedSignalProvider {
-    async fn dispatch(
-        &self,
-        invocation: ActionInvocation,
-    ) -> Result<ActionOutcome, DispatchFailure> {
-        let grant_id = input_uuid(&invocation.input, "grant_id")?;
-        let criterion_id = input_string(&invocation.input, "criterion_id")?;
-        let cursor = input_string(&invocation.input, "cursor")?;
-        let response = self
-            .client
-            .post(format!(
-                "{}/internal/v1/hosted/notification-signals",
-                self.control_plane_url
-            ))
-            .bearer_auth(&self.internal_token)
-            .json(&json!({
-                "signal_id": invocation.invocation_id,
-                "grant_id": grant_id,
-                "criterion_id": criterion_id,
-                "cursor": cursor
-            }))
-            .send()
-            .await
-            .map_err(|error| dispatch_error(error.to_string(), DispatchOutcome::Unknown))?;
-        if !response.status().is_success() {
-            let outcome = if response.status().is_client_error() {
-                DispatchOutcome::NotApplied
-            } else {
-                DispatchOutcome::Unknown
-            };
-            return Err(dispatch_error(
-                format!("Notification control plane returned {}.", response.status()),
-                outcome,
-            ));
-        }
-        Ok(successful_notification_outcome(&invocation))
-    }
-}
+mod effect_admission;
 
 #[derive(Clone)]
 struct HostedNotificationAuthorizer {
@@ -751,7 +759,8 @@ fn input_uuid(input: &Value, name: &str) -> Result<Uuid, DispatchFailure> {
     })
 }
 
-fn dispatch_error(message: String, outcome: DispatchOutcome) -> DispatchFailure {
+fn dispatch_error(message: impl Into<String>, outcome: DispatchOutcome) -> DispatchFailure {
+    let message = message.into();
     DispatchFailure {
         code: "notification_signal_failed".to_string(),
         message,
@@ -801,6 +810,10 @@ fn retry_delay_seconds(attempt: i32) -> i64 {
         .saturating_pow(u32::try_from(attempt.saturating_sub(1).min(10)).unwrap_or(10))
         .min(15 * 60)
 }
+
+#[cfg(test)]
+#[path = "notifications/migration_tests.rs"]
+mod migration_tests;
 
 #[cfg(test)]
 mod tests {

@@ -1,11 +1,10 @@
 use super::*;
 #[path = "atomic_migrations_scenarios_tests.rs"]
 mod scenarios;
+use crate::test_postgres;
 use sqlx::{migrate::Migrate, PgConnection, PgPool};
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, Mutex};
-#[path = "../../../tests/support/test_postgres.rs"]
-mod test_postgres;
 
 tokio::task_local! {
     pub(super) static AFTER_40: (mpsc::Sender<i32>, Arc<Mutex<oneshot::Receiver<bool>>>);
