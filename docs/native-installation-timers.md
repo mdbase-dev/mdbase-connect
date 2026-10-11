@@ -129,8 +129,11 @@ than disguised as network retries. Transport delivery remains at-least-once unde
 uncertain network outcomes, distinct from timer-generation/event/receipt uniqueness.
 
 Isolated PostgreSQL tests exercise these boundaries with recording transports, not
-real customer endpoints. The adopted-host timer port and end-to-end app qualification
-remain integration work; source/recording-transport tests do not enable reminders
+real customer endpoints. The SDK's optional timer port is constructed inside the
+same adopted collection Worker and uses the original protected consent; it is not
+a second data client or a custody loan. Its component qualification is not actual
+native caller/platform/network-delivery acceptance. End-to-end app qualification
+remains integration work; source/recording-transport tests do not enable reminders
 or establish native LAB acceptance.
 
 ## Upgrade evidence and down-path limit
