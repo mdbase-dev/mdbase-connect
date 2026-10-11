@@ -108,12 +108,17 @@ interface Batch {
 type DrainOutcome = "appended" | "rebuild" | "idle" | "blocked";
 /** Rebuilds after `head-moved` before yielding to the next poll. */
 const MAX_REBUILDS = 8;
+/** Foreground wake hints are optional; overflow remains in the durable ledger
+ * for the existing poller. Never create an unbounded background request queue. */
+const MAX_BACKGROUND_WAKES = 4;
 
 export class PolicyEmitter {
   private timer: NodeJS.Timeout | undefined;
   private inFlight: Promise<number> | undefined;
   private lastVerificationAt = -Infinity;
   private readonly verificationHints = new Set<string>();
+  private readonly wakeWork = new Map<string, Promise<void>>();
+  private closed = false;
 
   /** Hints only select a collection for verification, never its ops or positions. */
   hintLostPolicy(collectionId: string): void {
@@ -131,6 +136,7 @@ export class PolicyEmitter {
   ) {}
 
   start(): void {
+    if (this.closed) throw new Error("policy emitter closed");
     if (this.timer) return;
     this.timer = setInterval(() => void this.drain().catch((error) => this.onError(error)), this.pollIntervalMs);
     this.timer.unref();
@@ -138,14 +144,32 @@ export class PolicyEmitter {
   }
 
   async close(): Promise<void> {
+    this.closed = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
-    await this.inFlight;
+    // A failed global drain must not orphan admitted wakes or their DB writes.
+    try { await this.inFlight; }
+    finally { await Promise.allSettled(this.wakeWork.values()); }
+  }
+
+  private wakeCommittedCollection(collectionId: string): void {
+    if (this.closed || this.wakeWork.has(collectionId) || this.wakeWork.size >= MAX_BACKGROUND_WAKES) return;
+    // Only a wake hint, not activation/keying evidence. The original callback
+    // retains its 8s transport/body bound and captured-batch ACK/CAS protections.
+    const work = Promise.resolve().then(() => this.activateServices(collectionId))
+      .catch(error => this.onError(error, collectionId))
+      .finally(() => { if (this.wakeWork.get(collectionId) === work) this.wakeWork.delete(collectionId); });
+    this.wakeWork.set(collectionId, work);
+    // The failure was delivered to onError; a throwing diagnostic callback must
+    // not create an unhandled rejection or fail an already committed append.
+    void work.catch(() => undefined);
   }
 
   /** Append everything pending for every collection; returns the number of items appended. */
   async drain(): Promise<number> {
+    if (this.closed) throw new Error("policy emitter closed");
     while (this.inFlight) await this.inFlight;
+    if (this.closed) throw new Error("policy emitter closed");
     const run = this.drainAll();
     this.inFlight = run;
     try {
@@ -194,18 +218,17 @@ export class PolicyEmitter {
 
   /** Append the collection's pending items in order until it is idle, blocked or must retry. */
   async drainCollection(collectionId: string): Promise<number> {
+    if (this.closed) throw new Error("policy emitter closed");
     let appended = 0;
     let rebuilds = 0;
     for (;;) {
       const outcome = await this.step(collectionId);
       if (outcome === "appended") {
         appended += 1;
-        // Foreground create/enrol routes call this method, not drainAll().
-        // step() has released its policy lock; wake only this committed
-        // collection now, without waiting for the historical verification scan.
-        // A wake failure cannot undo or fail an already committed policy append.
-        try { await this.activateServices(collectionId); }
-        catch (error) { this.onError(error, collectionId); }
+        // step() released the policy lock and committed this original batch.
+        // Wake in owned background work; enrollment still verifies exact appended
+        // bytes/current principal, and SDK first-read/keying gates remain intact.
+        this.wakeCommittedCollection(collectionId);
       }
       else if (outcome !== "rebuild" || ++rebuilds > MAX_REBUILDS) return appended;
     }
