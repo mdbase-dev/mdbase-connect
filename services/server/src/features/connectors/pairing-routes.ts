@@ -38,7 +38,7 @@ async function installationResult(
     return await work();
   } catch (e) {
     if (e instanceof InstallationPairingError)
-      return reply.code(e.status).send(apiError(e.code, e.message));
+      return reply.code(e.status).send(apiError(e.code, e.message, e.details));
     if (e instanceof ServiceDeviceError)
       return reply.code(e.status===502?503:e.status).send(apiError(e.code,"Collection creation is incomplete. Resume the original named collection."));
     if (e instanceof CreateError)

@@ -82,8 +82,16 @@ export function message(value: unknown) {
  * waiting and can offer sign-in again. Everything else stays retryable here. */
 export function installationRefusal(reason: unknown, app: string): { message: string; cancel: boolean } {
   const code = reason && typeof reason === "object" && "code" in reason ? (reason as { code?: unknown }).code : undefined;
-  if (code === "installation_legacy_backend")
-    return { cancel: true, message: `This mdbase account hasn't been upgraded yet, so ${app} can't use it. Go back to ${app} to sign in with a different account.` };
+  if (code === "installation_legacy_backend") {
+    const details = (reason as { details?: unknown }).details;
+    const upgrade = details && typeof details === "object" ? (details as { upgrade?: unknown }).upgrade : undefined;
+    // Mid-upgrade the same window works once it finishes, so keep it open.
+    if (upgrade === "in_progress")
+      return { cancel: false, message: "Your mdbase account is being upgraded. This usually takes a few minutes. Try again shortly." };
+    if (upgrade === "scheduled")
+      return { cancel: true, message: `Your mdbase account will be upgraded soon, so ${app} can't use it yet. Sign in again from ${app} once it is.` };
+    return { cancel: true, message: `Your mdbase account hasn't been upgraded yet, so ${app} can't use it. Email support@mdbase.dev and we'll upgrade it, or go back to ${app} to sign in with a different account.` };
+  }
   if (code === "strict_device_approval")
     return { cancel: true, message: `This account approves new devices from the mdbase desktop app. Add this device from the desktop app, then sign in again in ${app}.` };
   return { cancel: false, message: message(reason) };
