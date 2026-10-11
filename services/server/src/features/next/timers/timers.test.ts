@@ -11,7 +11,6 @@ import {
   sealExistingPushTargets,
   unsealPushTargets
 } from "../push-target-seal.js";
-import { legacyTimer } from "./hosted-copy.js";
 import { TimerWorker, notificationsConsumer, timerEventId, type TimerMetric } from "./worker.js";
 
 class RecordingPushTransport implements PushTransport {
@@ -566,13 +565,13 @@ describe("timer service: firing and the fired-timer event", () => {
 describe("timer service: cutover copy", () => {
   it("imports legacy cloud-copy timers idempotently", async () => {
     const f = await fixture({ hosted: true });
-    const timer = legacyTimer({
-      id: "connect:x:task-reminders:timer.6162",
-      fire_at: "2030-01-01T00:00:00Z",
-      data: { grant_id: f.grantId, criterion_id: "task.reminder", namespace: "task-reminders", timer_id: "ab", data: { secret: 1 } }
-    });
-    expect(timer).toMatchObject({ grant_id: f.grantId, namespace: "task-reminders", id: "ab" });
-    expect(legacyTimer({ fire_at: "2030-01-01T00:00:00Z", data: { foreign: true } })).toBeNull();
+    // Existing target-route regression only, not an original-source import.
+    // Complete original DTO projection/refusals live in hosted-copy.test.ts;
+    // copy-hosted cannot call this old lossy target path.
+    const timer = {
+      grant_id: f.grantId, criterion_id: "task.reminder", namespace: "task-reminders",
+      id: "ab", fire_at: "2030-01-01T00:00:00Z", data: { secret: 1 }
+    };
 
     const send = () => f.app.inject({
       method: "POST",

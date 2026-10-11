@@ -1,44 +1,36 @@
 // Operator tooling for the mdbase-next timer service and sealed push targets.
 //
 //   next-timers copy-hosted <collection id>
-//       Copy a hosted collection's active legacy timers into next_timers (cutover,
-//       migration H10). Reads the hosted provider's database at
-//       MDBASE_NEXT_PROVIDER_DATABASE_URL and writes DATABASE_URL. Idempotent.
+//       Fails closed until the strict original-timer importer and authenticated
+//       paged caller are integrated. The former lossy importer is not usable.
 //   next-timers seal-push-targets
 //       Seal plaintext push targets, and re-seal ones under a previous key, with
 //       MDBASE_NEXT_PUSH_TOKEN_KEY.
 //   next-timers unseal-push-targets
 //       Rollback aid: restore plaintext targets before running a release that
 //       predates sealing.
-import { createDatabase, openDatabase } from "../../../db.js";
+import { createDatabase } from "../../../db.js";
 import {
   PushTargetSealer,
   parsePushTargetSealerEnv,
   sealExistingPushTargets,
   unsealPushTargets
 } from "../push-target-seal.js";
-import { legacyTimerGrantResolver } from "./grants.js";
-import { readHostedLegacyTimers } from "./hosted-copy.js";
-import { importLegacyTimers } from "./routes.js";
+
+class TimerImportRequiresStrictImporterError extends Error {
+  readonly code = "timer_import_requires_strict_importer";
+  constructor() {
+    super("Timer import requires the strict original-timer importer and authenticated paged caller.");
+    this.name = "TimerImportRequiresStrictImporterError";
+  }
+}
 
 const [command, argument] = process.argv.slice(2);
 
 async function main(): Promise<void> {
   if (command === "copy-hosted") {
     if (!argument || !/^[0-9a-f-]{36}$/i.test(argument)) throw new Error("usage: next-timers copy-hosted <collection id>");
-    const providerUrl = process.env.MDBASE_NEXT_PROVIDER_DATABASE_URL;
-    if (!providerUrl) throw new Error("MDBASE_NEXT_PROVIDER_DATABASE_URL is required.");
-    const provider = await openDatabase(providerUrl);
-    const db = await createDatabase();
-    try {
-      const { timers, skipped } = await readHostedLegacyTimers(provider, argument);
-      const result = await importLegacyTimers(db, legacyTimerGrantResolver, timers, "cloud_copy");
-      console.log(JSON.stringify({ collection: argument, read: timers.length, unrecognized: skipped, ...result }));
-    } finally {
-      await provider.end();
-      await db.end();
-    }
-    return;
+    throw new TimerImportRequiresStrictImporterError();
   }
   if (command === "seal-push-targets" || command === "unseal-push-targets") {
     const config = parsePushTargetSealerEnv(process.env);
@@ -59,6 +51,8 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : error);
+  console.error(error instanceof TimerImportRequiresStrictImporterError
+    ? JSON.stringify({ error: error.code, message: error.message })
+    : error instanceof Error ? error.message : error);
   process.exitCode = 1;
 });
