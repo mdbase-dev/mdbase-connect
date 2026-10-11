@@ -47,6 +47,21 @@ interface DevicePairing {
   retained_collection_ids?: string[];
   retained_create_collections?: boolean;
   collections?: Array<{collection_id:string;display_name:string;role:string}>;
+  file_access?: FileAccessRequest;
+}
+interface FileAccessRequest {
+  collection_id: string;
+  collection_name: string | null;
+  actions: FileAction[];
+  reason: string;
+  approved_actions: FileAction[] | null;
+}
+type FileAction = "list" | "read" | "add" | "replace" | "move" | "delete";
+const FILE_ACTION_VERBS: Record<FileAction, string> = {list: "see the list of", read: "open", add: "add", replace: "replace", move: "move or rename", delete: "delete"};
+/** "add", "add and replace", "add, replace and delete". */
+export function fileAccessVerbs(actions: readonly FileAction[]): string {
+  const verbs = actions.map(action => FILE_ACTION_VERBS[action]);
+  return verbs.length < 2 ? verbs.join("") : `${verbs.slice(0, -1).join(", ")} and ${verbs[verbs.length - 1]}`;
 }
 export function Pairing({ pairingId }: { pairingId: string }) {
   const [pairing, setPairing] = useState<DevicePairing | null>(null);
@@ -61,6 +76,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   const [newCollectionName,setNewCollectionName] = useState("");
   const [removingId,setRemovingId] = useState("");
   const [revokingId,setRevokingId] = useState("");
+  const [declined,setDeclined] = useState(false);
   const generation = useRef(0);
   const dispatching = useRef(false);
   const handBack = useRef(false);
@@ -77,6 +93,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     setDeepLink("");
     setError("");
     setBusy(false);
+    setDeclined(false);
     dispatching.current = false;
     api<{ pairing: DevicePairing }>(inspectionPath)
       .then((value) => {
@@ -144,9 +161,13 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       const approvedIds = [...new Set([...collectionIds, selected])].filter(id=>id && !pairing.retained_collection_ids?.includes(id));
       const result = await api<{ deep_link?: string }>(
         `/v1/pairing-requests/${pairingId}/${action}`,
-        { method: "POST", ...(action==="remove-access" ? {body:JSON.stringify({collection_id:removingId,confirm:true})} : action==="approve" && pairing.installation_device ? {body:JSON.stringify({fingerprint:pairing.fingerprint,collection_ids:approvedIds,create_collections:createCollections && !pairing.retained_create_collections,selected_collection_id:selected,...(pairing.timer_declaration?{timer_consent:allowReminders}:{})})} : {}) },
+        { method: "POST", ...(action==="remove-access" ? {body:JSON.stringify({collection_id:removingId,confirm:true})} : action==="approve" && pairing.file_access ? {body:JSON.stringify({fingerprint:pairing.fingerprint,collection_ids:[],file_actions:pairing.file_access.actions})} : action==="approve" && pairing.installation_device ? {body:JSON.stringify({fingerprint:pairing.fingerprint,collection_ids:approvedIds,create_collections:createCollections && !pairing.retained_create_collections,selected_collection_id:selected,...(pairing.timer_declaration?{timer_consent:allowReminders}:{})})} : {}) },
       );
       if (current !== generation.current) return;
+      if (action === "deny" && pairing.file_access) {
+        setDeclined(true);
+        return;
+      }
       if (action === "deny") {
         location.href = "/";
         return;
@@ -199,6 +220,44 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       />
     );
   const installation = pairing.installation_device === true;
+  if (installation && pairing.file_access) {
+    const request = pairing.file_access, app = pairing.connector_name;
+    const collection = request.collection_name ?? "this collection";
+    return (
+      <main className="mdbase-connect-screen installation-approval">
+        <section>
+          <PageBrand label="connect" error={error} />
+          {pairing.approved_at ? (
+            <>
+              <h1>Allowed</h1>
+              <p className="mdbase-connect-lead">{app} can now {fileAccessVerbs(request.approved_actions ?? request.actions)} files in {collection}. Return to {app} to continue.</p>
+            </>
+          ) : declined ? (
+            <>
+              <h1>Not allowed</h1>
+              <p className="mdbase-connect-lead">{app} won't {fileAccessVerbs(request.actions)} files in {collection}. Return to {app}; everything else works as before.</p>
+            </>
+          ) : (
+            <>
+              <h1>Allow {app} to {fileAccessVerbs(request.actions)} files?</h1>
+              <p className="mdbase-connect-lead">In {collection}. Allow only if you just asked for this in {app}.</p>
+              <blockquote className="installation-file-access-reason">
+                <p>{app} says: {request.reason}</p>
+              </blockquote>
+              {installationAccountLabel(pairing) && <p className="installation-account-label">Account: {installationAccountLabel(pairing)}</p>}
+              <p className="field-note">mdbase remembers your choice and {app} follows it. {app} keeps its copy of this collection either way.</p>
+              <button className="mdbase-button is-primary" disabled={busy || !pairing.fingerprint} onClick={() => void act("approve")}>
+                {busy ? "Allowing…" : "Allow"}
+              </button>
+              <div className="decision-actions">
+                <button className="mdbase-button" disabled={busy} onClick={() => void act("deny")}>Don't allow</button>
+              </div>
+            </>
+          )}
+        </section>
+      </main>
+    );
+  }
   return (
     <main className={installation ? "mdbase-connect-screen installation-approval" : "center-page"}>
       {!installation && <PageBrand label="Computer pairing" error={error} />}

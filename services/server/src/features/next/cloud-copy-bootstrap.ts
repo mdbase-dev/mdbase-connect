@@ -104,10 +104,12 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
     const connector = await requireInstallationDeviceConnector(request,reply,options.db);
     if (!connector) return reply;
     if (!connector.installation_device_id) return reply.code(403).send(apiError("installation_credential_required","Use an installation credential."));
+    // Opt-in, so SDKs that check the exact row shape keep working.
+    const fileActions = (request.query as {include?: unknown} | undefined)?.include === "file_actions";
     try {
       return await inTransaction(options.db,async client=> {
         await requireInstallationScope(client,connector);
-        return {collections:await installationCollections(client,connector.user_id,connector.id,connector.installation_device_id)};
+        return {collections:await installationCollections(client,connector.user_id,connector.id,connector.installation_device_id,fileActions)};
       });
     } catch (error) { return refuse(reply,error,"The approved collection list is unavailable."); }
   });

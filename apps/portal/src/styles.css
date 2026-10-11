@@ -1710,3 +1710,10 @@ select {
   white-space: nowrap;
   border: 0;
 }
+
+.installation-approval .installation-file-access-reason {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid currentColor;
+  overflow-wrap: anywhere;
+}

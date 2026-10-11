@@ -65,7 +65,7 @@ export async function installationApp(db: DatabaseQueryable, environment: string
   if (!declaredOrigin && !allowed.includes(origin)) return fail("installation_app_not_allowed", 403);
   if (!app.name || !app.family_identity) throw new Error("Invalid registered installation identity.");
   const timerDeclaration = installationTimerDeclaration(app, { environment: environment as InstallationTimerBinding["environment"], app_origin: origin, kind });
-  return Object.freeze({ id: app.id, origin, name: app.name, ...(timerDeclaration ? { timerDeclaration } : {}) });
+  return Object.freeze({ id: app.id, origin, name: app.name, requirements: app.requirements, ...(timerDeclaration ? { timerDeclaration } : {}) });
 }
 type Connection = Awaited<ReturnType<DatabasePool["connect"]>>;
 interface Row {
@@ -106,6 +106,21 @@ interface Row {
   approved_session_epoch: string | number | null;
   timer_declaration: InstallationTimerDeclaration | null;
   timer_consent: boolean | null;
+  file_access_collection_id: string | null;
+  requested_file_actions: FileAction[] | null;
+  file_access_reason: string | null;
+  approved_file_actions: FileAction[] | null;
+}
+export const FILE_ACTIONS = ["list", "read", "add", "replace", "move", "delete"] as const;
+export type FileAction = (typeof FILE_ACTIONS)[number];
+/** A request for optional file actions on one collection already in scope. */
+export interface InstallationFileAccessInput { collection_id: string; actions: FileAction[]; reason: string }
+const sortedActions = (actions: readonly FileAction[]): FileAction[] => FILE_ACTIONS.filter(action => actions.includes(action));
+/** The registered manifest's optional file actions, never caller metadata. */
+function declaredOptionalFileActions(requirements: unknown): Set<string> {
+  const files = requirements && typeof requirements === "object" ? (requirements as {files?: unknown}).files : undefined;
+  const optional = files && typeof files === "object" ? (files as {optional?: unknown}).optional : undefined;
+  return new Set(Array.isArray(optional) ? optional.filter((value): value is string => typeof value === "string") : []);
 }
 const tx = inTransaction;
 async function row(
@@ -116,7 +131,7 @@ async function row(
   includeRevoked = false,
 ): Promise<Row> {
   const found = await c.query<Row>(
-    `SELECT p.*, i.installation_id,i.previous_pairing_id,i.app_id,i.app_origin,i.device_id,i.connector_id,i.kind,i.challenge,i.account_selected_at,COALESCE(i.sign_pk,k.sign_pk) AS sign_pk,COALESCE(i.kem_pk,k.kem_pk) AS kem_pk,COALESCE(i.noise_pk,k.noise_pk) AS noise_pk,i.registration_sig,i.attested_at,i.requested_create_collections,i.approved_create_collections,i.approved_collection_ids,i.scope_only,i.approved_session_epoch,i.portal_account_confirmed_at,i.portal_account_email,i.portal_account_provider,i.portal_account_login,i.portal_account_session_id,i.portal_account_session_epoch,i.selected_collection_id,i.created_collection_ids,i.timer_declaration,i.timer_consent FROM pairing_requests p JOIN installation_device_pairings i ON i.pairing_id=p.id LEFT JOIN installation_device_credentials k ON k.connector_id=i.connector_id AND i.scope_only WHERE p.id=$1 ${includeRevoked ? "" : "AND p.revoked_at IS NULL"} ${secret === undefined ? "" : "AND p.secret_hash=$2"} ${lock ? "FOR UPDATE OF p,i" : ""}`,
+    `SELECT p.*, i.installation_id,i.previous_pairing_id,i.app_id,i.app_origin,i.device_id,i.connector_id,i.kind,i.challenge,i.account_selected_at,COALESCE(i.sign_pk,k.sign_pk) AS sign_pk,COALESCE(i.kem_pk,k.kem_pk) AS kem_pk,COALESCE(i.noise_pk,k.noise_pk) AS noise_pk,i.registration_sig,i.attested_at,i.requested_create_collections,i.approved_create_collections,i.approved_collection_ids,i.scope_only,i.approved_session_epoch,i.portal_account_confirmed_at,i.portal_account_email,i.portal_account_provider,i.portal_account_login,i.portal_account_session_id,i.portal_account_session_epoch,i.selected_collection_id,i.created_collection_ids,i.timer_declaration,i.timer_consent,i.file_access_collection_id,i.requested_file_actions,i.file_access_reason,i.approved_file_actions FROM pairing_requests p JOIN installation_device_pairings i ON i.pairing_id=p.id LEFT JOIN installation_device_credentials k ON k.connector_id=i.connector_id AND i.scope_only WHERE p.id=$1 ${includeRevoked ? "" : "AND p.revoked_at IS NULL"} ${secret === undefined ? "" : "AND p.secret_hash=$2"} ${lock ? "FOR UPDATE OF p,i" : ""}`,
     [id, ...(secret === undefined ? [] : [tokenHash(secret)])],
   );
   const r = found.rows[0];
@@ -211,11 +226,20 @@ export async function installationPairingExists(
 }
 export async function startInstallationPairing(
   db: DatabasePool,
-  input: { request_id: string; pairing_secret: string; installation_id: string; device_id: string; kind: "app-runtime" | "mobile"; requested_create_collections?: boolean; collection_hint?: string; reconsent?: boolean; renewal?: { request_id: string; pairing_secret: string } },
+  input: { request_id: string; pairing_secret: string; installation_id: string; device_id: string; kind: "app-runtime" | "mobile"; requested_create_collections?: boolean; collection_hint?: string; reconsent?: boolean; renewal?: { request_id: string; pairing_secret: string }; file_access?: InstallationFileAccessInput },
   app: Awaited<ReturnType<typeof installationApp>>,
   publicUrl: string,
   existingConnector?: ConnectorIdentity,
 ) {
+  if (input.file_access) {
+    // One collection, declared optional actions, a single-line reason, and only
+    // as a re-consent of an existing installation credential.
+    const {actions, reason} = input.file_access, declared = declaredOptionalFileActions(app.requirements);
+    if (!input.reconsent || input.renewal || input.requested_create_collections || !actions.length || new Set(actions).size !== actions.length)
+      return fail("installation_invalid_scope",400);
+    if (actions.some(action => !declared.has(action))) return fail("installation_file_access_undeclared",403);
+    if (!reason.trim() || reason.length > 140 || /[\u0000-\u001f\u007f\u2028\u2029]/u.test(reason)) return fail("installation_invalid_scope",400);
+  }
   return tx(db, async c => {
     // Serialize both identifiers, in a stable order. A new attempt may not
     // replace an active window or a registered actor, including cross-ID drift.
@@ -240,6 +264,12 @@ export async function startInstallationPairing(
         // device attestation or a second registration. The public keys are read
         // from that credential even if the original pairing window was pruned.
         await c.query("INSERT INTO installation_device_pairings(pairing_id,installation_id,device_id,connector_id,app_id,app_origin,kind,challenge,account_selected_at,requested_create_collections,scope_only,timer_declaration) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now(),$9,true,$10::jsonb)",[input.request_id,input.installation_id,input.device_id,k.connector_id,app.id,app.origin,input.kind,randomBytes(32),input.requested_create_collections??false,app.timerDeclaration ? JSON.stringify(app.timerDeclaration) : null]);
+        if (input.file_access) {
+          const scoped = await c.query("SELECT 1 FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2 FOR SHARE",[existingConnector.id,input.file_access.collection_id]);
+          if (!scoped.rows.length) return fail("installation_collection_unavailable",403);
+          await c.query("UPDATE installation_device_pairings SET file_access_collection_id=$2,requested_file_actions=$3,file_access_reason=$4 WHERE pairing_id=$1",
+            [input.request_id,input.file_access.collection_id,sortedActions(input.file_access.actions),input.file_access.reason]);
+        }
       } else {
       if (registered.rows[0]) return fail("installation_already_registered");
       let prior: Row | null = null;
@@ -265,6 +295,9 @@ export async function startInstallationPairing(
     }
     const r = await row(c,input.request_id,input.pairing_secret,true);
     if (r.scope_only!==(input.reconsent??false) || r.requested_create_collections!==(input.requested_create_collections??false)) return fail("installation_original_binding_changed");
+    const fileAccess = input.file_access;
+    if (r.file_access_collection_id!==(fileAccess?.collection_id??null) || r.file_access_reason!==(fileAccess?.reason??null) ||
+      JSON.stringify(r.requested_file_actions)!==JSON.stringify(fileAccess?sortedActions(fileAccess.actions):null)) return fail("installation_original_binding_changed");
     if (r.scope_only) {
       if (!existingConnector?.installation_device_id || r.connector_id!==existingConnector.id || r.device_id!==existingConnector.installation_device_id) return fail("installation_credential_required",403);
       await requireInstallationScope(c,existingConnector);
@@ -327,6 +360,13 @@ export async function inspectInstallationPairing(
       retained_create_collections: r.scope_only ? (await db.query<{create_collections:boolean}>("SELECT create_collections FROM installation_device_credentials WHERE connector_id=$1",[r.connector_id])).rows[0]?.create_collections??false : false,
       collections,
       collection_hint: hint,
+      ...(r.file_access_collection_id ? { file_access: {
+        collection_id: r.file_access_collection_id,
+        collection_name: collections.find(collection => collection.collection_id === r.file_access_collection_id)?.display_name ?? null,
+        actions: r.requested_file_actions,
+        reason: r.file_access_reason,
+        approved_actions: r.approved_file_actions,
+      } } : {}),
       return_url: returnUrl ? await declaredReturnUrl(db, r.app_id, returnUrl) : null,
     },
   };
@@ -464,7 +504,7 @@ export async function approveInstallationPairing(
   user: string,
   session: string,
   fingerprint: string,
-  consent: {collection_ids:string[];create_collections:boolean;selected_collection_id?:string;timer_consent?:boolean} = {collection_ids:[],create_collections:false},
+  consent: {collection_ids:string[];create_collections:boolean;selected_collection_id?:string;timer_consent?:boolean;file_actions?:FileAction[]} = {collection_ids:[],create_collections:false},
 ) {
   return tx(db, async (c) => {
     await active(c, user, true);
@@ -475,6 +515,7 @@ export async function approveInstallationPairing(
     if (r.user_id !== user || !r.account_selected_at || (!r.attested_at && !r.scope_only))
       fail("installation_attestation_required");
     if (!r.sign_pk || fingerprint !== clientFingerprint(r.sign_pk)) return fail("installation_fingerprint_changed", 403);
+    if (r.file_access_collection_id || consent.file_actions) return approveFileAccess(c, r, user, consent);
     const selected = consent.selected_collection_id ?? null;
     // Manual legacy approval remains supported, but can never fabricate the
     // guarded SDK's portal confirmation or collection-selection provenance.
@@ -540,6 +581,37 @@ export async function approveInstallationPairing(
     return { ok: true, installation_device: true };
   });
 }
+/** A file-access request approves only (a subset of) its own requested actions
+ * on its own collection, and changes no collection scope, creation or timers. */
+async function approveFileAccess(
+  c: Connection,
+  r: Row,
+  user: string,
+  consent: {collection_ids:string[];create_collections:boolean;selected_collection_id?:string;timer_consent?:boolean;file_actions?:FileAction[]},
+) {
+  const requested = r.requested_file_actions, collection = r.file_access_collection_id, approved = consent.file_actions;
+  if (!collection || !requested || !approved?.length || new Set(approved).size !== approved.length || approved.some(action => !requested.includes(action)) ||
+    consent.collection_ids.length || consent.create_collections || consent.timer_consent !== undefined ||
+    (consent.selected_collection_id !== undefined && consent.selected_collection_id !== collection)) return fail("installation_invalid_scope", 400);
+  const actions = sortedActions(approved);
+  if (r.approved_at) {
+    if (JSON.stringify(r.approved_file_actions) !== JSON.stringify(actions)) fail("installation_approved_scope_changed");
+    return { ok: true, installation_device: true };
+  }
+  await requireInstallationScope(c, {id: r.connector_id, user_id: user, installation_device_id: r.device_id});
+  const scope = await c.query<{file_actions: FileAction[]}>("SELECT file_actions FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2 FOR UPDATE", [r.connector_id, collection]);
+  if (!scope.rows[0]) return fail("installation_collection_unavailable", 403);
+  await currentMember(c, collection, user);
+  await refuseRevoked(c, collection, r.device_id);
+  await c.query("UPDATE installation_collection_scopes SET file_actions=$3 WHERE connector_id=$1 AND collection_id=$2",
+    [r.connector_id, collection, sortedActions([...scope.rows[0].file_actions, ...actions])]);
+  await c.query("UPDATE installation_device_pairings SET approved_file_actions=$2,approved_session_epoch=(SELECT session_epoch FROM users WHERE id=$3) WHERE pairing_id=$1", [r.id, actions, user]);
+  await c.query("UPDATE pairing_requests SET approved_at=now(),expires_at=GREATEST(expires_at,now()+interval '10 minutes') WHERE id=$1", [r.id]);
+  await audit(c, user, "device.installation_file_access_approved", r.id, {
+    kind: r.kind, installation_id: r.installation_id, device_id: r.device_id, collection_id: collection, file_actions: actions,
+  });
+  return { ok: true, installation_device: true };
+}
 export async function denyInstallationPairing(
   db: DatabasePool,
   id: string,
@@ -555,6 +627,8 @@ export async function denyInstallationPairing(
     if (r.user_id && r.user_id !== user)
       fail("installation_account_changed", 403);
     if (r.consumed_at) fail("installation_already_registered");
+    // An approved file-access decision is already recorded; deny cannot undo it.
+    if (r.file_access_collection_id && r.approved_at) fail("installation_approval_already_recorded");
     await c.query("UPDATE pairing_requests SET revoked_at=now() WHERE id=$1", [id]);
     await c.query(`UPDATE next_background_grants SET revoked_at=clock_timestamp()
       WHERE principal_kind='installation' AND approval_request_id=$1 AND revoked_at IS NULL`, [id]);
@@ -689,7 +763,13 @@ export async function exchangeInstallationPairing(
   secret: string,
 ) {
   return tx(db, async (c) => {
-    const initial = await row(c, id, secret);
+    const initial = await row(c, id, secret, false, true);
+    // A declined file-access request answers its own app with a typed outcome;
+    // every other revoked request stays not found, as before.
+    if (initial.revoked_at) {
+      if (initial.file_access_collection_id && !initial.approved_at) return { status: "declined" as const, request_id: initial.id };
+      fail("installation_pairing_not_found", 404);
+    }
     if (!initial.user_id || !initial.account_selected_at) {
       live(initial);
       return { status: "pending" as const };
@@ -715,6 +795,8 @@ export async function exchangeInstallationPairing(
         await persistScope(c,r);
         await c.query("UPDATE pairing_requests SET consumed_at=now() WHERE id=$1",[id]);
       }
+      if (r.file_access_collection_id)
+        return {status:"file_access_updated" as const,request_id:r.id,collection_id:r.file_access_collection_id,file_actions:r.approved_file_actions??[]};
       return {status:"scope_updated" as const,...selection(r),...collectionSelection(r),...await timerReceipt(c,r),added_collection_ids:r.approved_collection_ids,approved_create_collections:r.approved_create_collections};
     }
     const token = credential(r, secret);

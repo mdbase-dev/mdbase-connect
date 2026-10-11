@@ -24,6 +24,7 @@ import {
   denyInstallationPairing,
   removeInstallationAccess,
   installationApp,
+  FILE_ACTIONS,
 } from "./installation-pairing.js";
 import { CreateError, isLockTimeout } from "../next/bootstrap-common.js";
 import { createInstallationPairingCollection } from "./installation-pairing-collection.js";
@@ -112,6 +113,11 @@ export function registerConnectorPairingRoutes(
               installation_id: originalUuid,
               device_id: originalUuid,
               kind: z.enum(["app-runtime", "mobile"]),
+              file_access: z.object({
+                collection_id: originalUuid,
+                actions: z.array(z.enum(FILE_ACTIONS)).min(1).max(6),
+                reason: z.string().min(1).max(140),
+              }).strict().optional(),
             })
             .strict(),
         })
@@ -230,12 +236,13 @@ export function registerConnectorPairingRoutes(
             );
         const session = await requireSessionContext(request, reply, options.db);
         if (!session) return;
-        const {fingerprint,collection_ids,create_collections,selected_collection_id,timer_consent}=z.object({
+        const {fingerprint,collection_ids,create_collections,selected_collection_id,timer_consent,file_actions}=z.object({
           fingerprint:z.string().regex(/^[0-9a-f]{4}(?:-[0-9a-f]{4}){3}$/),
           collection_ids:z.array(originalUuid).max(1000).default([]),
           create_collections:z.boolean().default(false),
           selected_collection_id:originalUuid.optional(),
           timer_consent:z.boolean().optional(),
+          file_actions:z.array(z.enum(FILE_ACTIONS)).min(1).max(6).optional(),
         }).strict().parse(request.body);
         return installationResult(reply, () =>
           approveInstallationPairing(
@@ -244,7 +251,7 @@ export function registerConnectorPairingRoutes(
             session.user.id,
             session.sessionId,
             fingerprint,
-            {collection_ids,create_collections,selected_collection_id,timer_consent},
+            {collection_ids,create_collections,selected_collection_id,timer_consent,file_actions},
           ),
         );
       }
@@ -397,7 +404,7 @@ export function registerConnectorPairingRoutes(
             secret,
           );
           return reply
-            .code(result.status === "paired" || result.status === "scope_updated" ? 200 : 202)
+            .code(["paired","scope_updated","file_access_updated","declined"].includes(result.status) ? 200 : 202)
             .send(result);
         });
       }
