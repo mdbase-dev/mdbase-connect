@@ -128,6 +128,9 @@ export function legacyTimer(row: Partial<HostedLegacyTimerRow>): HostedLegacyTim
       || BigInt(row.generation) > BigInt(Number.MAX_SAFE_INTEGER)) refuse("unrepresentable generation or lease");
   if (row.status !== "scheduled" && row.status !== "fired" && row.status !== "cancelled") refuse("unsettled status");
   const record = object(losslessJson(row.record_json));
+  if (!["event_contract", "event_source", "source_uri", "subject"].every(field => Object.hasOwn(record, field))) {
+    refuse("incomplete record");
+  }
   const contract = object(record.event_contract);
   const source = object(record.event_source);
   for (const field of [contract.id, contract.version, contract.digest,
@@ -152,9 +155,7 @@ export function legacyTimer(row: Partial<HostedLegacyTimerRow>): HostedLegacyTim
       || (record.fired_at === null ? null : timestamp(record.fired_at)) !== fired_at
       || typeof row.runtime_namespace !== "string" || !/^connect-hosted:[0-9a-f-]+:notifications$/.test(row.runtime_namespace)
       || (row.status === "fired" && fired_at === null) || (row.status === "scheduled" && fired_at !== null)
-      || !Object.hasOwn(wrapped, "data") || !Object.hasOwn(record, "event_contract")
-      || !Object.hasOwn(record, "event_source") || !Object.hasOwn(record, "source_uri")
-      || !Object.hasOwn(record, "subject")) refuse("SQL/record/wrapper disagreement or incomplete record");
+      || !Object.hasOwn(wrapped, "data")) refuse("SQL/record/wrapper disagreement or incomplete record");
   return { grant_id, namespace, id, criterion_id, fire_at, data: wrapped.data,
     generation: row.generation, status: row.status, created_at, updated_at, fired_at,
     runtime_namespace: row.runtime_namespace, runtime_id, record_json: row.record_json };
