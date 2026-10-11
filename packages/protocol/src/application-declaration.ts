@@ -62,6 +62,8 @@ interface MdbaseAppManifestBase {
   manifest_version: 1;
   id: string;
   name: string;
+  /** Exact additional installation origins; part of the digest-bound declaration. */
+  installation_origins?: Partial<Record<"lab" | "staging" | "production", Partial<Record<"app-runtime" | "mobile", string[]>>>>;
   requirements: CanonicalApplicationRequirements;
   provisions?: ApplicationProvisions;
   notifications?: ApplicationNotifications;

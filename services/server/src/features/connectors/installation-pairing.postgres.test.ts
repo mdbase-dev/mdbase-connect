@@ -78,7 +78,7 @@ describePg("installation device sign-in on daemon pairing", () => {
     await db.query("INSERT INTO applications(id,canonical_identity,family_identity,name,homepage,redirect_uris,installation_origins) VALUES($1,$2,$3,$4,$5,'[]',$6)",[id,randomUUID(),family,"Independent Notes",web,JSON.stringify({lab:{"app-runtime":[web],mobile:[mobile]}})]);
     return id;
   }
-  it("registers TaskNotes as ordinary data; manifest upserts cannot expand installation origins", async () => {
+  it("keeps TaskNotes0066 identity and legacy origins when re-registering its declaration", async () => {
     const seeded=(await db.query("SELECT * FROM applications WHERE id=$1",[tasknotesId])).rows[0];
     expect(seeded.installation_origins.lab["app-runtime"]).toEqual([webOrigin,"http://127.0.0.1:48218"]);
     expect(seeded.application_declaration.name).toBe("TaskNotes");
@@ -114,6 +114,28 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect(f.selected.app_id).toBe(appId); expect(f.selected.app_origin).toBe(apps.get(appId)!.web);
     expect((await approveDevice(f.flow,f.owner)).statusCode).toBe(200);
     const paired=(await f.flow.exchange()).json(); expect(paired.status).toBe("paired"); expect(paired.connector.name).toBe("Independent Notes");
+  });
+  it("self-registers Journal without operator origins, refuses a lookalike, and keeps explicit device consent", async () => {
+    const web = `https://journal-${randomUUID()}.example.test`, mobile = `capacitor://journal.example.test`;
+    const discovered = registerApplicationManifest({ manifest_version: 1, id: "dev.example.journal", name: "Journal",
+      homepage: `${web}/`, redirect_uris: [`${web}/callback`], requirements: { access: "full_collection", contracts: [] },
+      installation_origins: { lab: { mobile: [mobile] } } });
+    const registered = await upsertApplication(db, discovered);
+    apps.set(registered.id, { name: "Journal", web, mobile });
+    expect((await db.query("SELECT installation_origins FROM applications WHERE id=$1", [registered.id])).rows[0].installation_origins).toEqual({});
+    const input = original(); input.installation.app_id = registered.id;
+    const refused = await app.inject({ method: "POST", url: "/v1/pairing-requests", payload: input, headers: { origin: "https://journal-lookalike.example.test" } });
+    expect(refused.statusCode).toBe(403); expect(refused.json().error.code).toBe("installation_app_not_allowed");
+    expect((await db.query("SELECT id FROM pairing_requests WHERE id=$1", [input.installation.request_id])).rows).toEqual([]);
+    const f = await prepared("app-runtime", false, undefined, undefined, registered.id);
+    const shown = (await app.inject({ method: "GET", url: f.flow.base, headers: f.owner.headers })).json().pairing;
+    expect(shown).toMatchObject({ connector_name: "Journal", app_origin: web });
+    expect((await f.flow.exchange()).json().token).toBeUndefined();
+    expect((await db.query("SELECT connector_id FROM installation_device_credentials WHERE connector_id=$1", [f.selected.connector_id])).rows).toEqual([]);
+    expect((await approveDevice(f.flow, f.owner)).statusCode).toBe(200);
+    expect((await f.flow.exchange()).json()).toMatchObject({ status: "paired", connector: { name: "Journal" } });
+    const m = await prepared("mobile", false, undefined, undefined, registered.id);
+    expect(m.selected).toMatchObject({ app_id: registered.id, app_origin: mobile });
   });
   async function account() {
     const user = randomUUID(), session = randomUUID(), token = randomToken("session");
@@ -301,12 +323,19 @@ describePg("installation device sign-in on daemon pairing", () => {
   });
   it("rejects unknown/missing/foreign Origin and app ID at START before creating any request", async () => {
     const input = original();
-    for (const origin of [undefined,"https://untrusted.example","https://app.tasknotes.dev","null"]) {
+    for (const origin of [undefined,"https://untrusted.example","https://app.tasknotes.dev.lookalike.example","null"]) {
       const result = await app.inject({method:"POST",url:"/v1/pairing-requests",payload:input,headers:origin?{origin}:{}});
       expect(result.statusCode).toBe(403);
     }
     expect((await app.inject({method:"POST",url:"/v1/pairing-requests",payload:{...input,installation:{...input.installation,app_id:"third-party"}},headers:{origin:webOrigin}})).statusCode).toBe(403);
     expect((await db.query("SELECT id FROM pairing_requests WHERE id=$1",[input.installation.request_id])).rows).toEqual([]);
+  });
+  it("accepts TaskNotes' registered homepage origin without an environment-specific operator entry", async () => {
+    const input = original();
+    const result = await app.inject({ method: "POST", url: "/v1/pairing-requests", payload: input, headers: { origin: "https://app.tasknotes.dev" } });
+    expect(result.statusCode).toBe(201); expect(result.json().app_name).toBe("TaskNotes");
+    expect((await channel(input).exchange()).json()).toEqual({ status: "pending" });
+    expect((await db.query("SELECT app_origin FROM installation_device_pairings WHERE pairing_id=$1", [input.installation.request_id])).rows[0].app_origin).toBe("https://app.tasknotes.dev");
   });
   it("refuses approval before native attestation, wrong account and wrong secret", async () => {
     const owner = await account(), other = await account(), input = original(), flow = await start(input);
