@@ -59,6 +59,39 @@ describePg("H0 acceptance/currentness (isolated local PostgreSQL; synthetic veri
   }
   const startedAt = async (account: string) => (await db.query("SELECT started_at FROM next_migration_cohort_members WHERE account_id=$1", [account])).rows[0]?.started_at;
 
+  it("refuses a frozen empty cohort before acceptance while preserving its original empty header and receipts", async () => {
+    const name = await batch([]), binding = await cohortArchiveBinding(db, name), body = await metadata(name, binding);
+    expect(binding.membership_digest).toBe(migrationMembershipDigest([]));
+    expect(Object.keys(binding).sort()).toEqual(["batch_id", "membership_changed_at", "membership_digest", "membership_revision"]);
+    const before = (await db.query("SELECT count(*)::text AS count FROM audit_events WHERE event_type='next_migration.backup_accept'")).rows;
+    await expect(acceptCohortArchive(db, name, body, "production")).rejects.toMatchObject({ code: "backup_missing" });
+    expect((await db.query("SELECT 1 FROM next_migration_archive_acceptances WHERE cohort=$1", [name])).rows).toHaveLength(0);
+    expect((await db.query("SELECT count(*)::text AS count FROM audit_events WHERE event_type='next_migration.backup_accept'")).rows).toEqual(before);
+    expect(await cohortArchiveBinding(db, name)).toEqual(binding);
+    // Retained receipts are not rewritten to hide an empty historical cohort.
+    await db.query(`INSERT INTO next_migration_archive_acceptances(cohort,membership_revision,verified_result,accepted_at)
+      VALUES($1,$2::bigint,$3::jsonb,date_trunc('milliseconds',clock_timestamp()))`, [name, binding.membership_revision, JSON.stringify(body)]);
+    const stored = () => db.query("SELECT verified_result::text AS receipt,accepted_at::text AS accepted FROM next_migration_archive_acceptances WHERE cohort=$1", [name]);
+    const original = (await stored()).rows;
+    await expect(acceptCohortArchive(db, name, body, "production")).rejects.toMatchObject({ code: "backup_missing" });
+    expect((await stored()).rows).toEqual(original);
+    expect(await cohortArchiveBinding(db, name)).toEqual(binding);
+  });
+
+  it("counts distinct frozen accounts including collectionless and suspended members without narrowing complete coverage", async () => {
+    const collectionless = await user(), suspended = await user();
+    await db.query("UPDATE users SET suspended_at=now() WHERE id=$1", [suspended]);
+    const first = await collection(suspended), second = await collection(suspended), name = await batch([collectionless, suspended]);
+    const binding = await cohortArchiveBinding(db, name);
+    expect(binding.membership_digest).toBe(migrationMembershipDigest([[collectionless, []], [suspended, [first, second]]]));
+    const body = await metadata(name, binding), original = JSON.stringify(body);
+    const accepted = await acceptCohortArchive(db, name, body, "production");
+    expect(await acceptCohortArchive(db, name, body, "production")).toEqual(accepted);
+    expect(JSON.stringify(body)).toBe(original);
+    expect((await db.query("SELECT verified_result FROM next_migration_archive_acceptances WHERE cohort=$1", [name])).rows[0].verified_result).toEqual(body);
+    expect((await db.query("SELECT suspended_at FROM users WHERE id=$1", [suspended])).rows[0].suspended_at).not.toBeNull();
+  });
+
   it("admits namespaced legacy metadata through currentness/start without changing the stored physical prefix", async () => {
     const account = await user(), name = await batch([account]), body = await metadata(name);
     body.prefix = `legacy-archive/${body.prefix}`;
