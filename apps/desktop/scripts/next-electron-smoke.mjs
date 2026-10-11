@@ -56,10 +56,20 @@ try {
   // Signed out: the app asks for sign-in before adding a collection. The smoke never
   // starts a sign-in (that would reach a real control plane).
   await window.getByRole("button", { name: "Sign in with your browser" }).waitFor({ timeout: 30_000 });
-  await window.getByRole("button", { name: /^Collections/ }).click();
+  const nav = (name) => window.locator(".product-sidebar-link").filter({ hasText: name });
+  await nav("Collections").click();
   await window.getByRole("button", { name: "Add existing", exact: true }).click();
   await window.getByText("Sign in first, then add your collection.", { exact: true }).waitFor();
   console.log("ok - signed out: sign-in is offered and Add collection asks for it first");
+  // The views read the real daemon through the guarded IPC (owning main frame only).
+  await window.getByRole("heading", { name: "No collections yet" }).waitFor();
+  await nav("App access").click();
+  await window.getByRole("heading", { name: "No apps connected" }).waitFor();
+  await nav("Settings").click();
+  await window.getByText("Ask before new apps connect", { exact: true }).waitFor();
+  const settings = await window.evaluate(() => window.mdbaseConnect.getSettings());
+  assert.equal(typeof settings.require_grant_approval, "boolean");
+  console.log("ok - Collections, App access and Settings views read the daemon");
   if (connectHome) {
     const move = window.getByRole("button", { name: "Move to the new sync engine" });
     await move.waitFor({ timeout: 30_000 });

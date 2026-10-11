@@ -1,122 +1,71 @@
-interface AgentStatus {
+/** The daemon's `status` (control protocol v1), as the renderer uses it. */
+interface DaemonStatus {
   readiness?: import("../shared/readiness").AgentReadiness;
-  relay_problem?: string;
-  protocol_version: number;
-  binary_version?: string;
-  state: "local_only" | "connecting" | "connected" | "offline";
-  registered_collections: number;
-  paused: boolean;
-  direct_access_available: boolean;
-  loopback_port?: number;
-}
-
-interface CollectionSummary {
-  id: string;
-  display_name: string;
-  description?: string;
-  path: string;
-  spec_version: string;
-  enabled: boolean;
-  authority_transfer?: {
-    transfer_id: string;
-    state: "fenced";
+  target: "installed_service" | "isolated_profile";
+  state_dir: string;
+  account: {
+    signed_in: boolean;
+    online: boolean;
+    pairing?: string;
+    last_error?: string;
+    server?: string;
+    environment?: string;
   };
-  contracts: CollectionContractDescriptor[];
-  unavailable_reason?: "claimed_by_newer_runtime";
+  collections: DaemonCollection[];
 }
 
-interface ContractRequirement {
+interface SyncCounters {
+  confirmed_through: number;
+  head_known: number;
+  pending: number;
+  holds: number;
+  unresolved: number;
+  connection: "online" | "connecting" | "offline" | string;
+  last_error?: string;
+  resyncing?: boolean;
+  unsupported_entries?: number;
+}
+
+/** `collection.list` entry (`CollectionStatus`). */
+interface DaemonCollection {
   id: string;
-  version: string;
-  digest: string;
-}
-
-interface CollectionContractDescriptor extends ContractRequirement {
-  digest: string;
-  schema: Record<string, unknown>;
-  binding_schema?: Record<string, unknown>;
-  implementations: Array<{
-    type_name: string;
-    type_version: number;
-    type_path?: string;
-    digest: string;
-    fields: Record<string, string>;
-    binding?: Record<string, unknown>;
-  }>;
-}
-
-interface CollectionTypeDescriptor {
   name: string;
-  version?: number;
-  description?: string;
-  revision?: string;
-  schema: Record<string, unknown>;
+  root: string;
+  mode: "local" | "synced" | "synced_e2e";
+  origin: string;
+  log: "none" | "hosted";
+  state: "paused" | "opening" | "ready" | "moving" | "unavailable" | "failed";
+  reason?: string;
+  sync?: SyncCounters;
+  other_devices_online?: number;
+  notices: Array<{ code: string; message: string }>;
 }
 
-type ApplicationCapabilityId =
-  | "collection.read" | "records.create" | "records.edit" | "records.delete"
-  | "views.manage" | "definitions.manage" | "background.schedule" | "offline.replica";
-
-interface ApplicationRequirements {
-  contracts: ContractRequirement[];
-  capabilities?: {
-    contract_version: 2;
-    required: ApplicationCapabilityId[];
-    optional?: ApplicationCapabilityId[];
-  };
-  access?: "contract" | "full_collection";
-  collection_kind?: "hosted";
-  files?: {
-    required: Array<"list" | "read" | "add" | "replace" | "move" | "delete">;
-    optional?: Array<"list" | "read" | "add" | "replace" | "move" | "delete">;
-    scope:
-      | { kind: "selected_folders"; folders: string[] }
-      | { kind: "collection" };
-  };
-}
-
-interface TypePackProvision {
-  manifest: {
-    kind: "mdbase.type-pack";
-    id: string;
-    version: string;
-    name?: string;
-    description?: string;
-    resources: Array<{
-      kind: "contract" | "type" | "schema";
-      source: string;
-      target: string;
-      digest: string;
-    }>;
-  };
-  resources: Array<{ source: string; document: string }>;
-  provides: ContractRequirement[];
-}
-
-interface ApplicationProvisions {
-  type_packs: TypePackProvision[];
-}
-
-interface NotificationCriterion {
+/** `collection.holds` entry. */
+interface HoldSummary {
   id: string;
-  event: ContractRequirement;
-  if?: { $expr: string };
-  debounce?: string;
-  minimum_interval?: string;
-  presentation: {
-    title: string;
-    body?: string;
-    tag?: string;
-  };
+  path: string;
+  reason: string;
+  since: number;
+  saves: number;
+  has_theirs: boolean;
+  binary: boolean;
 }
 
-interface ApplicationNotifications {
-  criteria: NotificationCriterion[];
-}
-
-interface GrantScope {
-  contracts: CollectionContractDescriptor[];
-  access: "contract" | "full_collection";
+/** `access.list` entry: an app's grant for a local collection, as this device sees it. */
+interface AccessEntry {
+  grant: string;
+  collection: string;
+  app_id: string;
+  app_name: string;
+  client_pk: string;
+  capabilities: string[];
+  folders?: string[];
+  legacy_only?: boolean;
+  state: "active" | "pending_approval" | "denied" | "revoked_locally";
+  first_seen_ms: number;
+  acknowledged: boolean;
+  delisted?: boolean;
 }
 
 interface StartupSetting {
@@ -158,263 +107,40 @@ interface CloudSetting {
   lastError?: string | null;
 }
 
-interface ConnectorAccount {
-  connector_id: string;
-  connector_name: string;
-  user_name: string;
-  user_email: string;
-}
-
-interface GrantSummary {
-  id: string;
-  application_id: string;
-  application_family_id?: string;
-  application_name: string;
-  application_distribution: "web" | "portable";
-  application_homepage: string;
-  application_project_url?: string;
-  application_origin: string;
-  application_icon?: string;
-  collection_id: string;
-  collection_name: string;
-  collection_kind?: "local" | "hosted";
-  operations: string[];
-  requirements?: ApplicationRequirements;
-  scope: GrantScope;
-  created_at: string;
-  revocation_status?: "active" | "revoking" | "revoked";
-}
-
-interface PendingAuthorization {
-  id: string;
-  application_id: string;
-  application_name: string;
-  application_distribution: "web" | "portable";
-  application_homepage: string;
-  application_project_url?: string;
-  flow: "authorization_code" | "device_code";
-  user_code?: string;
-  application_icon?: string;
-  requested_operations: string[];
-  collection_id?: string;
-  requirements: ApplicationRequirements;
-  provisions: ApplicationProvisions;
-  notifications: ApplicationNotifications;
-  compatible_collection_ids: string[];
-  provisionable_collection_ids: string[];
-  collection_types: Array<{
-    collection_id: string;
-    types: CollectionTypeDescriptor[];
-  }>;
-  expires_at: string;
-}
-
-interface AccessSnapshot {
-  configured: boolean;
-  online: boolean;
-  account?: ConnectorAccount;
-  grants: GrantSummary[];
-  pending_authorizations: PendingAuthorization[];
-  authority_conflicts: AuthorityConflict[];
-}
-
-interface HostedReplicaSummary {
-  id: string;
-  name: string;
-  mode: "read_only" | "read_write";
-  allowed_types: string[];
-  revoked_at: string | null;
-  revocation_status: "active" | "revoking" | "revoked";
-  created_at: string;
-  sync_status: {
-    head: number;
-    acknowledged_sequence: number;
-    last_seen_at: string | null;
-    token_expires_at: string;
-  } | null;
-}
-
-interface HostedCollectionSummary {
-  id: string;
-  display_name: string;
-  template: "mdbase";
-  sync_url: string;
-  spec_version: string;
-  contracts: CollectionContractDescriptor[];
-  types?: CollectionTypeDescriptor[];
-  authority_state: "active" | "transferring" | "transferred";
-  authority_epoch: number;
-  transferred_collection_id: string | null;
-  created_at: string;
-  replicas: HostedReplicaSummary[];
-}
-
-interface HostedControlSnapshot {
-  online: boolean;
-  hosted_collections_available?: boolean;
-  hosted_collections: HostedCollectionSummary[];
-  grants: GrantSummary[];
-  pending_authorizations: PendingAuthorization[];
-}
-
-type DesktopFileMediaClass = "image" | "audio" | "video" | "pdf" | "other";
-
-interface DesktopSelectiveSyncPolicy {
-  file_classes: DesktopFileMediaClass[];
-  excluded_folders: string[];
-}
-
-interface DesktopMirrorSummary {
-  collection_id: string;
-  replica_id: string;
-  name: string;
-  mode: "read_only" | "read_write";
-  selective_sync: DesktopSelectiveSyncPolicy;
-  path: string;
-  state: "not_initialized" | "up_to_date" | "changes_waiting" | "attention" | "offline";
-  pending: number;
-  conflicts: Array<{
-    entity: "record" | "file";
-    object_id: string;
-    decision_id: string;
-    path: string | null;
-    kind: "conflicted" | "rejected";
-    message: string;
-  }>;
-  local_issues: Array<{
-    path: string;
-    code: "invalid_frontmatter";
-    message: string;
-  }>;
-  cursor: number | null;
-  last_synced_at: string | null;
-  syncing: boolean;
-  promotion_pending: boolean;
-  promotion?: {
-    phase:
-      | "synchronizing"
-      | "awaiting_approval"
-      | "verifying"
-      | "registering"
-      | "registered"
-      | "activating"
-      | "completed"
-      | "resuming";
-  };
-  progress?: {
-    phase: "uploading" | "applying";
-    completed: number;
-    total: number | null;
-  };
-  error_code?: string;
-  error?: string;
-}
-
-interface MirrorConflictVersion {
-  path: string | null;
-  revision: string | null;
-  size: number | null;
-  document: string | null;
-}
-
-interface MirrorConflictReview {
-  review_version: 1;
-  decision_id: string;
-  local: MirrorConflictVersion;
-  remote: MirrorConflictVersion;
-}
-
-interface AuthorityConflict {
-  collection_id: string;
-  display_name: string;
-  active_connector_name: string;
-}
-
-interface ActivityEntry {
-  id: string;
-  application_id: string;
-  application_name: string;
-  collection_id: string;
-  collection_name: string;
-  operation: string;
-  outcome: "succeeded" | "failed" | "denied";
-  detail?: string;
-  created_at: string;
-}
-
 interface Window {
   mdbaseConnect: {
-    status(): Promise<AgentStatus>;
+    status(): Promise<DaemonStatus>;
     updateStatus(): Promise<DesktopUpdateStatus>;
-    migrationStatus(): Promise<import("./takeover-state.mjs").TakeoverStatus & { running: boolean }>;
-    startMigration(stopMirrors: boolean): Promise<unknown>;
     checkForUpdates(): Promise<DesktopUpdateStatus>;
     installUpdate(): Promise<DesktopUpdateStatus>;
-    listCollections(): Promise<CollectionSummary[]>;
-    addCollection(): Promise<
-      | { status: "added"; collection: CollectionSummary }
-      | { status: "copy_requires_new_identity"; path: string }
-      | null
-    >;
-    addCopiedCollection(path: string): Promise<CollectionSummary>;
-    makeCollectionIndependent(collectionId: string): Promise<CollectionSummary>;
-    takeCollectionAuthority(collectionId: string): Promise<{ ok: true }>;
-    transferCollectionAuthority(collectionId: string): Promise<{
-      transfer: { status: "completed"; collection_id: string; authority_epoch: number };
-      mirror: DesktopMirrorSummary;
-    }>;
-    cancelCollectionAuthorityTransfer(collectionId: string, transferId: string): Promise<{
-      status: "cancelled";
-      collection_id: string;
-      transfer_id: string;
-    }>;
+    migrationStatus(): Promise<import("./takeover-state.mjs").TakeoverStatus & { running: boolean }>;
+    startMigration(stopMirrors: boolean): Promise<unknown>;
+    listCollections(): Promise<DaemonCollection[]>;
+    addCollection(): Promise<DaemonCollection | null>;
     chooseCreateFolder(): Promise<string | null>;
-    createCollection(input: { path: string; name: string; timezone: string }): Promise<CollectionSummary>;
-    updateCollectionMetadata(input: { collectionId: string; name: string; description?: string }): Promise<CollectionSummary>;
-    setCollectionEnabled(collectionId: string, enabled: boolean): Promise<CollectionSummary>;
-    validateCollection(collectionId: string): Promise<unknown>;
-    removeCollection(collectionId: string): Promise<CollectionSummary>;
+    createCollection(input: { parent: string; name: string }): Promise<DaemonCollection>;
+    removeCollection(collectionId: string): Promise<unknown>;
+    setCollectionEnabled(collectionId: string, enabled: boolean): Promise<unknown>;
+    enableSync(collectionId: string, mode: "e2e" | "synced"): Promise<unknown>;
+    disableSync(collectionId: string): Promise<unknown>;
+    listHolds(collectionId: string): Promise<HoldSummary[]>;
+    resolveHold(collectionId: string, id: string, how: "keep_mine" | "take_theirs" | "keep_both" | "delete"): Promise<unknown>;
     openCollectionFolder(collectionId: string): Promise<void>;
-    openCollectionConfig(collectionId: string): Promise<void>;
     openEditor(collectionId: string): Promise<void>;
     getLaunchAtLogin(): Promise<StartupSetting>;
     setLaunchAtLogin(enabled: boolean): Promise<StartupSetting>;
     getCloudConfig(): Promise<CloudSetting>;
     openAccount(): Promise<void>;
-    openAuthorization(requestId: string): Promise<void>;
-    approveAuthorization(input: { requestId: string; collectionId: string; operations: string[] }): Promise<unknown>;
-    denyAuthorization(requestId: string): Promise<unknown>;
     signIn(): Promise<{ verificationUri: string; expiresIn: number | null }>;
     reopenSignIn(): Promise<void>;
     signOut(): Promise<void>;
-    accessSnapshot(): Promise<AccessSnapshot>;
-    setAccessPaused(paused: boolean): Promise<{ paused: boolean }>;
-    renameComputer(name: string): Promise<{ connector: { id: string; name: string } }>;
-    createGrant(input: { applicationId: string; collectionId: string; operations: string[] }): Promise<unknown>;
-    updateGrant(input: { grantId: string; operations: string[] }): Promise<unknown>;
-    revokeGrant(grantId: string): Promise<{ ok: boolean; revocation_status: "revoking" | "revoked" }>;
-    listActivity(limit?: number): Promise<ActivityEntry[]>;
-    hostedSnapshot(): Promise<HostedControlSnapshot>;
-    createHostedCollection(input: { name: string; timezone: string }): Promise<{ collection: HostedCollectionSummary }>;
-    renameHostedCollection(input: { collectionId: string; name: string }): Promise<{ collection: { id: string; display_name: string } }>;
-    deleteHostedCollection(collectionId: string): Promise<{ ok: true }>;
-    updateHostedGrant(input: { grantId: string; operations: string[] }): Promise<unknown>;
-    revokeHostedGrant(grantId: string): Promise<{ ok: true; revocation_status: "revoking" | "revoked" }>;
-    revokeHostedReplica(replicaId: string): Promise<{ ok: true; revocation_status: "revoking" | "revoked" }>;
-    listMirrors(): Promise<DesktopMirrorSummary[]>;
-    chooseMirrorFolder(): Promise<string | null>;
-    connectMirror(input: { collectionId: string; path: string; mode: "read_only" | "read_write"; name?: string; selectiveSync: DesktopSelectiveSyncPolicy }): Promise<DesktopMirrorSummary>;
-    syncMirror(replicaId: string): Promise<DesktopMirrorSummary>;
-    configureMirrorSelectiveSync(input: { replicaId: string; selectiveSync: DesktopSelectiveSyncPolicy }): Promise<DesktopMirrorSummary>;
-    reviewMirrorConflict(input: { replicaId: string; objectId: string; decisionId: string }): Promise<MirrorConflictReview>;
-    resolveMirrorConflict(input: { replicaId: string; objectId: string; decisionId: string; resolution: "local" | "remote" }): Promise<DesktopMirrorSummary>;
-    promoteMirrorAuthority(replicaId: string): Promise<{
-      collection_id: string;
-      authority_epoch: number;
-      path: string;
-    }>;
-    disconnectMirror(replicaId: string): Promise<{ ok: true }>;
-    openMirror(replicaId: string): Promise<void>;
+    listAccess(): Promise<AccessEntry[]>;
+    approveAccess(grant: string): Promise<AccessEntry>;
+    acknowledgeAccess(grant: string): Promise<AccessEntry>;
+    denyAccess(grant: string): Promise<AccessEntry>;
+    revokeAccess(grant: string): Promise<AccessEntry>;
+    getSettings(): Promise<{ require_grant_approval: boolean }>;
+    setRequireApproval(on: boolean): Promise<{ require_grant_approval: boolean }>;
     onNavigate(listener: (route: string) => void): () => void;
     onUpdateStatus(listener: (status: DesktopUpdateStatus) => void): () => void;
   };

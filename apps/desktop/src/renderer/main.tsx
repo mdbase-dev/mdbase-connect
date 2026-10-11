@@ -1,218 +1,97 @@
 import "@mdbase-dev/ui/fonts.css";
-import {
-  groupApplicationAccess,
-  type ApplicationAccessGroup
-} from "@mdbase/connect-ui/access";
 import "@mdbase/connect-ui/styles.css";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Collections } from "./collections-view";
-import { TakeoverPanel } from "./takeover-panel";
+import { Dialog } from "@mdbase-dev/ui/dialog";
+import { AccessView } from "./access-view";
+import { CollectionsView } from "./collections-view";
+import { groupAccess, presentConnection } from "./daemon-view.mjs";
+import { consumePairingCompleted } from "./onboarding-state.mjs";
 import { SignInPanel } from "./sign-in-panel";
-import { CollectionCompletionReceipt } from "./completion-receipt";
-import { AuthorityTransferReceipt } from "./authority-transfer-receipt";
-import { presentConnection } from "./connection-state.mjs";
+import { TakeoverPanel } from "./takeover-panel";
 import {
-  COMPLETION_RECEIPT_KEY,
-  POST_PAIRING_KEY,
-  RESUME_AUTHORIZATION_KEY,
-  clearCompletionReceipt,
-  clearTransferReceipt,
-  consumePairingCompleted,
-  readAuthorizationTarget,
-  readCompletionReceipt,
-  readTransferReceipt,
-  writeTransferReceipt,
-  writeCompletionReceipt,
-  type CollectionCompletionReceipt as CompletionReceipt,
-  type AuthorityTransferReceipt as TransferReceipt
-} from "./onboarding-state.mjs";
-import { NotificationAccess, RequestPermissionChoices } from "./authorization-components";
-import { hasSupportedCapabilityDeclaration, requestCapabilityGroups } from "./application-capabilities";
-import { ConnectionProgress, Overview } from "./overview-view";
-import { singleFlight } from "./single-flight.mjs";
-import { refreshResources, presentResourceFailures, retainOfflineInventory } from "./resource-health.mjs";
-import { presentReadiness } from "../shared/readiness";
-import {
-  AccessControl,
   Empty,
   MobileProductBar,
   ProductSidebar,
   SectionHeading,
   SettingSwitch,
-  StatusDot,
   ThemeMenu
 } from "./ui-components";
-import {
-  host,
-  message,
-  plural,
-  relativeTime,
-  type Route
-} from "./view-model";
+import { message, plural, type Route } from "./view-model";
 import "./styles.css";
-import { Select } from "@mdbase-dev/ui/select";
-import { Dialog } from "@mdbase-dev/ui/dialog";
-import { usePermissionSelection } from "@mdbase-dev/ui/permission-selection";
-import { useLocalAction } from "./use-local-action";
 
 const routeCopy: Record<Route, { eyebrow: string; title: string; lede: string }> = {
   overview: {
     eyebrow: "This computer",
     title: "Your local connection.",
-    lede: "Collections, application access, and connection status in one place."
+    lede: "Collections, app access and sync status in one place."
   },
   collections: {
-    eyebrow: "Collection storage",
+    eyebrow: "Collections",
     title: "Your collections.",
-    lede: "See where each main copy lives and which folders stay in sync."
+    lede: "Folders on this computer that your apps can use, and how each one syncs."
   },
   access: {
-    eyebrow: "Application access",
+    eyebrow: "App access",
     title: "Decide what apps can do.",
-    lede: "Approve new requests and narrow or revoke existing connections."
+    lede: "Apps you approve in mdbase reach your local collections through this computer."
   },
   activity: {
-    eyebrow: "Local activity",
+    eyebrow: "Activity",
     title: "What reached this computer.",
-    lede: "Successful, failed, and denied remote operations are recorded locally."
+    lede: "App access and collection changes on this computer."
   },
   settings: {
     eyebrow: "Settings",
-    title: "Connection and startup.",
-    lede: "Manage this computer, its account connection, and background behavior."
+    title: "Account and startup.",
+    lede: "This computer's account, app approval and background behavior."
   }
 };
 
-function storedAuthorizationTarget(): string | null {
-  return readAuthorizationTarget(localStorage);
-}
+const POLL_MS = 5_000;
 
 function App() {
-  const [route, setRoute] = useState<Route>(() => storedAuthorizationTarget() ? "access" : "overview");
-  const [authorizationTarget, setAuthorizationTarget] = useState<string | null>(storedAuthorizationTarget);
-  const [status, setStatus] = useState<AgentStatus | null>(null);
-  const [updateStatus, setUpdateStatus] = useState<DesktopUpdateStatus | null>(null);
-  // Once mdbase has taken over, this app stays a shell for its own updates.
-  const [takeoverNotice, setTakeoverNotice] = useState<string | null>(null);
-  useEffect(() => {
-    if (updateStatus?.phase === "handed_off") setTakeoverNotice(updateStatus.message);
-  }, [updateStatus]);
-  const [collections, setCollections] = useState<CollectionSummary[]>([]);
-  const [startup, setStartup] = useState<StartupSetting>({ enabled: false, available: false });
+  const [route, setRoute] = useState<Route>("overview");
+  const [status, setStatus] = useState<DaemonStatus | null>(null);
+  const [checked, setChecked] = useState(false);
   const [cloud, setCloud] = useState<CloudSetting | null>(null);
-  const [access, setAccess] = useState<AccessSnapshot>({ configured: false, online: false, grants: [], pending_authorizations: [], authority_conflicts: [] });
-  const [hosted, setHosted] = useState<HostedControlSnapshot>({ online: false, hosted_collections_available: false, hosted_collections: [], grants: [], pending_authorizations: [] });
-  const [mirrors, setMirrors] = useState<DesktopMirrorSummary[]>([]);
-  const [activity, setActivity] = useState<ActivityEntry[]>([]);
+  const [collections, setCollections] = useState<DaemonCollection[]>([]);
+  const [access, setAccess] = useState<AccessEntry[]>([]);
+  const [requireApproval, setRequireApproval] = useState<boolean | null>(null);
+  const [startup, setStartup] = useState<StartupSetting>({ enabled: false, available: false });
+  const [updateStatus, setUpdateStatus] = useState<DesktopUpdateStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [resourceFailures, setResourceFailures] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<string | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
-  const [copiedCollectionPath, setCopiedCollectionPath] = useState<string | null>(null);
-  const [newName, setNewName] = useState("");
-  const [newPath, setNewPath] = useState("");
-  const [newAuthority, setNewAuthority] = useState<"local" | "hosted">("local");
-  const [mirrorTarget, setMirrorTarget] = useState<string | null>(null);
-  const [detailTarget, setDetailTarget] = useState<string | null>(null);
-  const [completionReceipt, setCompletionReceipt] = useState<CompletionReceipt | null>(() => readCompletionReceipt(localStorage));
-  const [transferReceipt, setTransferReceipt] = useState<TransferReceipt | null>(() => readTransferReceipt(localStorage));
-  const [initialRefreshComplete, setInitialRefreshComplete] = useState(false);
-  const [navigationOpen, setNavigationOpen] = useState(false);
-  // Why sign-in is being asked for now (for example, after choosing Add collection).
   const [signInReason, setSignInReason] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [navigationOpen, setNavigationOpen] = useState(false);
 
-  // Each source coalesces on its own: a slow one (the hosted snapshot may take
-  // 30 s) keeps its request in flight without delaying the connection status.
-  const requests = useMemo(() => ({
-    status: singleFlight(() => window.mdbaseConnect.status()),
-    collections: singleFlight(() => window.mdbaseConnect.listCollections()),
-    startup: singleFlight(() => window.mdbaseConnect.getLaunchAtLogin()),
-    cloud: singleFlight(() => window.mdbaseConnect.getCloudConfig()),
-    access: singleFlight(() => window.mdbaseConnect.accessSnapshot()),
-    activity: singleFlight(() => window.mdbaseConnect.listActivity(100)),
-    hosted: singleFlight(() => window.mdbaseConnect.hostedSnapshot()),
-    mirrors: singleFlight(() => window.mdbaseConnect.listMirrors())
-  }), []);
-  const collectionNames = useMemo(
-    () => Object.fromEntries(collections.map((collection) => [collection.id, collection.display_name])),
-    [collections]
-  );
-  const latestRefresh = useRef(0);
-  const refresh = useCallback(async (_quiet = false) => {
-    const generation = ++latestRefresh.current;
-    let configured: boolean | undefined;
-    const failures = await refreshResources({
-      connector: () => requests.status().then((next) => {
-        const health = presentReadiness(next.readiness);
-        if (health.state !== "ready") throw new Error(health.label);
-        setStatus(next);
-      }).catch((reason) => {
-        // Inventory can be last-known; a live connection indicator cannot.
-        setStatus(null);
-        throw new Error(message(reason));
-      }),
-      collections: () => requests.collections().then(setCollections),
-      startup: () => requests.startup().then(setStartup),
-      account: () => requests.cloud().then((next) => {
-        configured = next.configured;
-        setCloud(next);
-      }),
-      access: () => requests.access().then((next) => {
-        setAccess((current) => !next.configured ? next : retainOfflineInventory(current, next));
-        if (next.configured && !next.online) throw new Error("Application access is offline.");
-      }),
-      activity: () => requests.activity().then(setActivity),
-      hosted: () => requests.hosted().then((next) => {
-        setHosted((current) => retainOfflineInventory(current, next));
-        if (!next.online) throw new Error("Hosted collections are offline.");
-      }),
-      mirrors: () => requests.mirrors().then(setMirrors)
-    });
-    // A newer refresh owns the summary once it has started.
-    if (generation !== latestRefresh.current) return;
-    if (configured === false) {
-      setHosted({ online: false, hosted_collections_available: false, hosted_collections: [], grants: [], pending_authorizations: [] });
-      delete failures.hosted;
-    }
-    setResourceFailures(failures);
-    setInitialRefreshComplete(true);
-  }, [requests]);
-
-  const onSignedIn = useCallback(() => {
-    setSignInReason(null);
-    void refresh();
-  }, [refresh]);
+  const generation = useRef(0);
+  const refresh = useCallback(async () => {
+    const mine = ++generation.current;
+    const api = window.mdbaseConnect;
+    const [nextStatus, nextCloud, nextCollections, nextAccess, nextSettings, nextStartup] = await Promise.allSettled([
+      api.status(), api.getCloudConfig(), api.listCollections(), api.listAccess(), api.getSettings(), api.getLaunchAtLogin()
+    ]);
+    if (mine !== generation.current) return;
+    setChecked(true);
+    // A live connection indicator is never last-known; lists keep their last value.
+    setStatus(nextStatus.status === "fulfilled" ? nextStatus.value : null);
+    if (nextCloud.status === "fulfilled") setCloud(nextCloud.value);
+    if (nextCollections.status === "fulfilled") setCollections(nextCollections.value);
+    if (nextAccess.status === "fulfilled") setAccess(nextAccess.value);
+    if (nextSettings.status === "fulfilled") setRequireApproval(nextSettings.value.require_grant_approval);
+    if (nextStartup.status === "fulfilled") setStartup(nextStartup.value);
+  }, []);
 
   useEffect(() => {
     void refresh();
-    const timer = window.setInterval(() => void refresh(true), 5_000);
+    const timer = window.setInterval(() => void refresh(), POLL_MS);
     const removeNavigation = window.mdbaseConnect.onNavigate((next) => {
-      if (next === "access" || next.startsWith("access:")) {
-        const requestId = next.startsWith("access:") ? next.slice("access:".length) : "pending";
-        localStorage.setItem(RESUME_AUTHORIZATION_KEY, requestId);
-        setAuthorizationTarget(requestId);
-        setRoute("access");
-        return;
-      }
-      if (next.startsWith("collections:mirror:")) {
-        setMirrorTarget(next.slice("collections:mirror:".length));
-        setRoute("collections");
-        return;
-      }
-      if (next === "paired") {
-        localStorage.setItem(POST_PAIRING_KEY, "completed");
-        setInitialRefreshComplete(false);
-        void refresh();
-        return;
-      }
-      if (["overview", "collections", "access", "activity", "settings"].includes(next)) {
-        setRoute(next as Route);
-      }
+      const target = next.startsWith("access") ? "access" : next;
+      if (["overview", "collections", "access", "activity", "settings"].includes(target)) setRoute(target as Route);
     });
-    // Updates already have a push subscription; do not poll them with daemon data.
     let updatePushed = false;
     const removeUpdateStatus = window.mdbaseConnect.onUpdateStatus((next) => {
       updatePushed = true;
@@ -228,51 +107,28 @@ function App() {
     };
   }, [refresh]);
 
-  useEffect(() => {
-    if (!initialRefreshComplete || !cloud?.configured || !consumePairingCompleted(localStorage)) return;
-    if (authorizationTarget) setRoute("access");
-    else setRoute("collections");
-  }, [authorizationTarget, cloud?.configured, initialRefreshComplete]);
+  const onSignedIn = useCallback(() => {
+    setSignInReason(null);
+    void refresh();
+  }, [refresh]);
 
   useEffect(() => {
-    if (cloud?.configured && route === "access" && authorizationTarget) {
-      localStorage.removeItem(RESUME_AUTHORIZATION_KEY);
-    }
-  }, [authorizationTarget, cloud?.configured, route]);
+    if (cloud?.configured && consumePairingCompleted(localStorage)) setRoute("collections");
+  }, [cloud?.configured]);
 
-  useEffect(() => {
-    if (!navigationOpen) return;
-    const close = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setNavigationOpen(false);
-    };
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
-  }, [navigationOpen]);
-
-  async function act(action: () => Promise<void>) {
+  const act = useCallback(async (action: () => Promise<unknown>) => {
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
       await action();
-      await refresh(true);
-    } catch (actionError) {
-      setError(message(actionError));
+      await refresh();
+    } catch (reason) {
+      setError(message(reason));
     } finally {
       setBusy(false);
     }
-  }
-
-  async function transferAct(action: () => Promise<void>) {
-    setError(null);
-    setNotice(null);
-    try {
-      await action();
-      await refresh(true);
-    } catch (actionError) {
-      setError(message(actionError));
-    }
-  }
+  }, [refresh]);
 
   /** Collections are registered to an account, so adding one needs sign-in first. */
   function requireSignIn(): boolean {
@@ -283,124 +139,24 @@ function App() {
 
   function openCreate() {
     if (!requireSignIn()) return;
-    setCreateError(null);
     setCreateOpen(true);
   }
 
-  async function addExisting() {
+  function addExisting() {
     if (!requireSignIn()) return;
-    await act(async () => {
-      const result = await window.mdbaseConnect.addCollection();
-      if (result?.status === "added") {
-        showCompletionReceipt({
-          collectionId: result.collection.id,
-          collectionName: result.collection.display_name,
-          authority: "local",
-          path: result.collection.path
-        });
-      } else if (result?.status === "copy_requires_new_identity") {
-        setCopiedCollectionPath(result.path);
+    void act(async () => {
+      const added = await window.mdbaseConnect.addCollection();
+      if (added) {
+        setRoute("collections");
+        setNotice(`${added.name} was added.`);
       }
     });
   }
 
-  async function registerCopiedCollection() {
-    if (!copiedCollectionPath) return;
-    await act(async () => {
-      const added = await window.mdbaseConnect.addCopiedCollection(copiedCollectionPath);
-      setCopiedCollectionPath(null);
-      showCompletionReceipt({ collectionId: added.id, collectionName: added.display_name, authority: "local", path: added.path });
-    });
-  }
-
-  async function chooseCreateFolder() {
-    setCreateError(null);
-    try {
-      const path = await window.mdbaseConnect.chooseCreateFolder();
-      if (path) {
-        setNewPath(path);
-        if (!newName) setNewName(path.split(/[\\/]/).filter(Boolean).at(-1) ?? "");
-      }
-    } catch (reason) { setCreateError(message(reason)); }
-  }
-
-  async function createCollection() {
-    setCreateError(null);
-    await act(async () => {
-      try {
-      if (newAuthority === "hosted") {
-        const result = await window.mdbaseConnect.createHostedCollection({
-          name: newName,
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
-        });
-        showCompletionReceipt({ collectionId: result.collection.id, collectionName: result.collection.display_name, authority: "hosted" });
-      } else {
-        const created = await window.mdbaseConnect.createCollection({
-          path: newPath,
-          name: newName,
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
-        });
-        showCompletionReceipt({ collectionId: created.id, collectionName: created.display_name, authority: "local", path: created.path });
-      }
-      setCreateOpen(false);
-      setNewName("");
-      setNewPath("");
-      setNewAuthority("local");
-      } catch (reason) { setCreateError(message(reason)); }
-    });
-  }
-
-  function showCompletionReceipt(receipt: CompletionReceipt) {
-    writeCompletionReceipt(localStorage, receipt);
-    setCompletionReceipt(receipt);
-    setRoute("collections");
-  }
-
-  function dismissCompletionReceipt() {
-    clearCompletionReceipt(localStorage);
-    setCompletionReceipt(null);
-  }
-
-  function showTransferReceipt(receipt: TransferReceipt) {
-    writeTransferReceipt(localStorage, receipt);
-    setTransferReceipt(receipt);
-    setRoute("collections");
-  }
-
-  function dismissTransferReceipt() {
-    clearTransferReceipt(localStorage);
-    setTransferReceipt(null);
-  }
-
+  const names = useMemo(() => Object.fromEntries(collections.map((c) => [c.id, c.name])), [collections]);
+  const groups = useMemo(() => groupAccess(access), [access]);
+  const connection = presentConnection(status, checked);
   const copy = routeCopy[route];
-  const connection = presentConnection(status, cloud);
-  const combinedAccess = useMemo<AccessSnapshot>(() => {
-    const grants = new Map<string, GrantSummary>();
-    for (const grant of access.grants) grants.set(grant.id, {
-      ...grant,
-      collection_kind: grant.collection_kind ?? "local"
-    });
-    for (const grant of hosted.grants) grants.set(grant.id, grant);
-    const pending = new Map<string, PendingAuthorization>();
-    for (const request of hosted.pending_authorizations) pending.set(request.id, request);
-    for (const request of access.pending_authorizations) pending.set(request.id, request);
-    return {
-      ...access,
-      online: access.online || hosted.online,
-      grants: [...grants.values()],
-      pending_authorizations: [...pending.values()]
-    };
-  }, [access, hosted]);
-  const localCollectionIds = new Set(collections.map((collection) => collection.id));
-  const hostedCollectionIds = new Set(hosted.hosted_collections.map((collection) => collection.id));
-  const standaloneMirrorIds = new Set(mirrors.filter((mirror) =>
-    !localCollectionIds.has(mirror.collection_id) && !hostedCollectionIds.has(mirror.collection_id)
-  ).map((mirror) => mirror.collection_id));
-  const collectionCount = collections.length + standaloneMirrorIds.size + hosted.hosted_collections.filter((collection) =>
-    collection.authority_state !== "transferred"
-      || !collection.transferred_collection_id
-      || !localCollectionIds.has(collection.transferred_collection_id)
-  ).length;
   const selectRoute = (next: Route) => {
     setRoute(next);
     setNavigationOpen(false);
@@ -410,438 +166,191 @@ function App() {
     <div className={`shell product-shell ${navigationOpen ? "navigation-open" : ""}`}>
       <ProductSidebar
         route={route}
-        collectionCount={collectionCount}
-        pendingCount={combinedAccess.pending_authorizations.length}
+        collectionCount={collections.length}
+        pendingCount={groups.attention}
         connection={connection}
-        computerName={`${access.account?.connector_name ?? "This computer"} · ${collectionCount} ${plural(collectionCount, "collection", "collections")}`}
+        computerName={`This computer · ${collections.length} ${plural(collections.length, "collection", "collections")}`}
         onSelect={selectRoute}
       />
       <button className="product-sidebar-backdrop" aria-label="Close navigation" onClick={() => setNavigationOpen(false)} />
       <div className="product-canvas desktop-canvas">
         <MobileProductBar open={navigationOpen} onOpen={() => setNavigationOpen(true)} />
         <main className="content">
-        <header className="topbar">
-          <div><p className="eyebrow">{copy.eyebrow}</p><h1>{copy.title}</h1><p className="lede">{copy.lede}</p></div>
-        </header>
+          <header className="topbar">
+            <div><p className="eyebrow">{copy.eyebrow}</p><h1>{copy.title}</h1><p className="lede">{copy.lede}</p></div>
+          </header>
 
-        <div aria-live="polite">
-          {error && <div className="message error-message" role="alert"><span>{error}</span> <button className="quiet-action" onClick={() => setError(null)}>Dismiss</button></div>}
-          {presentResourceFailures(resourceFailures) && <div className="message" role="status">{presentResourceFailures(resourceFailures)}</div>}
-          {notice && <div className="message notice-message">{notice}</div>}
-        </div>
+          <div aria-live="polite">
+            {error && <div className="message error-message" role="alert"><span>{error}</span> <button className="quiet-action" onClick={() => setError(null)}>Dismiss</button></div>}
+            {checked && !status && <div className="message error-message" role="status">mdbase is not running on this computer. It restarts automatically; if this stays, restart mdbase connect.</div>}
+            {notice && <div className="message notice-message">{notice}</div>}
+          </div>
 
-        {completionReceipt && cloud !== null && <CollectionCompletionReceipt
-          receipt={completionReceipt}
-          hasPendingAuthorization={authorizationTarget !== null || combinedAccess.pending_authorizations.length > 0}
-          onOpenFolder={() => void act(() => window.mdbaseConnect.openCollectionFolder(completionReceipt.collectionId))}
-          onUseInApplication={() => setRoute("access")}
-          onOpenEditor={() => void act(() => window.mdbaseConnect.openEditor(completionReceipt.collectionId))}
-          onViewDetails={() => {
-            setDetailTarget(completionReceipt.collectionId);
-            setRoute("collections");
-          }}
-          onAddSyncedFolder={() => {
-            setMirrorTarget(completionReceipt.collectionId);
-            setRoute("collections");
-          }}
-          onDismiss={dismissCompletionReceipt}
-        />}
+          <TakeoverPanel names={names} />
 
-        {transferReceipt && cloud !== null && <AuthorityTransferReceipt
-          receipt={transferReceipt}
-          onOpen={() => {
-            if (transferReceipt.direction === "hosted_to_local") {
-              void act(() => window.mdbaseConnect.openCollectionFolder(transferReceipt.collectionId));
-            } else {
-              void act(() => window.mdbaseConnect.openEditor(transferReceipt.collectionId));
-            }
-          }}
-          onReconnect={() => setRoute("access")}
-          onViewDetails={() => {
-            setDetailTarget(transferReceipt.collectionId);
-            setRoute("collections");
-          }}
-          onDismiss={dismissTransferReceipt}
-        />}
+          {cloud !== null && !cloud.configured && <div hidden={route === "activity"}>
+            <SignInPanel cloud={cloud} reason={signInReason} onSignedIn={onSignedIn} />
+          </div>}
 
-        {cloud !== null && !cloud.configured && <div hidden={!["overview", "collections", "access", "settings"].includes(route)}>
-          <SignInPanel cloud={cloud} resumeAuthorization={authorizationTarget !== null} reason={signInReason} onSignedIn={onSignedIn} />
-        </div>}
-
-        <TakeoverPanel names={collectionNames} />
-
-        {takeoverNotice !== null && updateStatus ? (
-          <section className="authority-history" role="status" aria-live="polite">
-            <strong>Your collections have moved to mdbase</strong>
-            <span>{takeoverNotice}</span>
-            {updateStatus.phase !== "handed_off" && <small>{updateStatus.message}</small>}
-            {(updateStatus.can_check || updateStatus.can_install) && <div className="collection-config-actions">
-              <button className="quiet-action" disabled={busy} onClick={() => void act(async () => {
-                if (updateStatus.can_install) await window.mdbaseConnect.installUpdate();
-                else setNotice((await window.mdbaseConnect.checkForUpdates()).message);
-              })}>{updateStatus.can_install ? "Install this app's update" : "Check for app updates"}</button>
-            </div>}
-          </section>
-        ) : cloud === null ? <ConnectionProgress /> : route === "overview" ? (
-          <Overview
-            status={status}
-            cloud={cloud}
-            access={combinedAccess}
-            collectionCount={collectionCount}
-            busy={busy}
-            onNavigate={setRoute}
-            onAdd={() => void addExisting()}
-            onCreate={openCreate}
-            onPause={(paused) => void act(async () => {
-              await window.mdbaseConnect.setAccessPaused(paused);
-              setNotice(paused ? "Remote access is paused on this computer." : "Remote access is available again.");
-            })}
-          />
-        ) : route === "collections" ? (
-          <Collections
-            collections={collections}
-            hosted={hosted}
-            grants={combinedAccess.grants}
-            cloudConfigured={cloud.configured}
-            mirrors={mirrors}
-            mirrorTarget={mirrorTarget}
-            detailTarget={detailTarget}
-            authorityConflicts={access.authority_conflicts}
-            busy={busy}
-            copiedCollectionPath={copiedCollectionPath}
-            onAdd={() => void addExisting()}
-            onCancelCopy={() => setCopiedCollectionPath(null)}
-            onCreate={openCreate}
-            onRegisterCopy={() => void registerCopiedCollection()}
-            onMirrorTargetHandled={() => setMirrorTarget(null)}
-            onDetailTargetHandled={() => setDetailTarget(null)}
-            onAct={act}
-            onTransfer={transferAct}
-            onTransferComplete={showTransferReceipt}
-            onNotice={setNotice}
-          />
-        ) : route === "access" ? (
-          <Access
-            cloud={cloud}
-            access={combinedAccess}
-            collections={collections}
-            focusedRequestId={authorizationTarget === "pending" ? null : authorizationTarget}
-            busy={busy}
-            onAct={act}
-            onNotice={setNotice}
-          />
-        ) : route === "activity" ? <Activity entries={activity} /> : (
-          <Settings
-            startup={startup}
-            cloud={cloud}
-            access={access}
-            status={status}
-            updateStatus={updateStatus}
-            busy={busy}
-            onAct={act}
-            onNotice={setNotice}
-          />
-        )}
+          {route === "overview" ? (
+            <Overview
+              cloud={cloud}
+              connectionLabel={connection.label}
+              collections={collections}
+              attention={groups.attention}
+              busy={busy}
+              onNavigate={selectRoute}
+              onAdd={addExisting}
+              onCreate={openCreate}
+            />
+          ) : route === "collections" ? (
+            <CollectionsView collections={collections} busy={busy} onAdd={addExisting} onCreate={openCreate} onAct={act} onNotice={setNotice} />
+          ) : route === "access" ? (
+            <AccessView groups={groups} names={names} busy={busy} requireApproval={requireApproval} onAct={act} onNotice={setNotice} />
+          ) : route === "activity" ? (
+            <section><SectionHeading title="Recent activity" note="Shown on this computer only." /><Empty title="No activity yet" text="App access and collection changes on this computer will be listed here." /></section>
+          ) : (
+            <Settings
+              cloud={cloud}
+              connectionLabel={connection.settingsLabel}
+              requireApproval={requireApproval}
+              startup={startup}
+              updateStatus={updateStatus}
+              busy={busy}
+              onAct={act}
+              onNotice={setNotice}
+            />
+          )}
         </main>
 
-        {createOpen && (
-          <Dialog open onClose={() => !busy && setCreateOpen(false)} title="Create an mdbase collection" className="modal" closeDisabled={busy}>
-            <p className="eyebrow">New collection</p>
-            {createError && <div className="message error-message" role="alert">{createError}</div>}
-            <p>Choose where the main copy should live. A collection hosted by mdbase can also keep a synced folder on this computer.</p>
-            <fieldset className="authority-choice">
-              <legend>Where should the main copy live?</legend>
-              <label className={newAuthority === "local" ? "selected" : ""}>
-                <input type="radio" name="authority" value="local" checked={newAuthority === "local"} disabled={busy} onChange={() => setNewAuthority("local")} />
-                <span><strong>On this computer</strong><small>The folder you choose is the main copy.</small></span>
-              </label>
-              <label className={`${newAuthority === "hosted" ? "selected" : ""} ${cloud?.configured && hosted.hosted_collections_available !== false ? "" : "disabled"}`}>
-                <input type="radio" name="authority" value="hosted" checked={newAuthority === "hosted"} disabled={busy || !cloud?.configured || hosted.hosted_collections_available === false} onChange={() => setNewAuthority("hosted")} />
-                <span><strong>Hosted by mdbase</strong><small>{!cloud?.configured ? "Connect this computer to your account first." : hosted.hosted_collections_available !== false ? "Available while this computer is off; add a synced folder if you want one." : "Hosted collections are not enabled for this Connect service."}</small></span>
-              </label>
-            </fieldset>
-            <label><span>Collection name</span><input autoFocus disabled={busy} value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="Workouts" /></label>
-            {newAuthority === "local" && <label><span>Folder</span><button className="folder-picker" disabled={busy} onClick={() => void chooseCreateFolder()}>{newPath || "Choose a folder…"}</button></label>}
-            <div className="modal-actions">
-              <button className="button secondary" disabled={busy} onClick={() => setCreateOpen(false)}>Cancel</button>
-              <button className="button primary" disabled={busy || !newName.trim() || (newAuthority === "local" && !newPath)} onClick={() => void createCollection()}>Create collection</button>
-            </div>
-          </Dialog>
-        )}
+        {createOpen && <CreateCollectionDialog busy={busy} onClose={() => setCreateOpen(false)} onCreate={async (input) => {
+          // Failures stay in the dialog with the draft, not behind it.
+          setBusy(true);
+          try {
+            const created = await window.mdbaseConnect.createCollection(input);
+            setCreateOpen(false);
+            setRoute("collections");
+            setError(null);
+            setNotice(`${created.name} was created.`);
+            await refresh();
+          } finally {
+            setBusy(false);
+          }
+        }} />}
       </div>
     </div>
   );
 }
 
-function Access({ cloud, access, collections, focusedRequestId, busy, onAct, onNotice }: {
-  cloud: CloudSetting;
-  access: AccessSnapshot;
-  collections: CollectionSummary[];
-  focusedRequestId: string | null;
+function Overview({ cloud, connectionLabel, collections, attention, busy, onNavigate, onAdd, onCreate }: {
+  cloud: CloudSetting | null;
+  connectionLabel: string;
+  collections: DaemonCollection[];
+  attention: number;
   busy: boolean;
-  onAct(action: () => Promise<void>): Promise<void>;
-  onNotice(value: string): void;
+  onNavigate(route: Route): void;
+  onAdd(): void;
+  onCreate(): void;
 }) {
-  const applicationAccess = useMemo(() => groupApplicationAccess(access.grants), [access.grants]);
-  const pendingAuthorizations = useMemo(() => [...access.pending_authorizations].sort((left, right) =>
-    left.id === focusedRequestId ? -1 : right.id === focusedRequestId ? 1 : 0
-  ), [access.pending_authorizations, focusedRequestId]);
-  if (!cloud.configured) return null;
+  if (!cloud?.configured) return null;
+  const synced = collections.filter((collection) => collection.mode !== "local").length;
   return (
     <div className="workspace-stack">
-      <section>
-        <SectionHeading title="Pending decisions" note="Choose a collection and review the access this application requests." count={access.pending_authorizations.length} />
-        {access.pending_authorizations.length === 0 ? (
-          <Empty title="No decisions are waiting" text="New application requests are reviewed in Connect." />
-        ) : (
-          <div className="request-list">
-            {pendingAuthorizations.map((request) => <PortalApprovalRequest
-              key={request.id}
-              request={request}
-              collections={collections}
-              focused={request.id === focusedRequestId}
-              busy={busy}
-              onAct={onAct}
-            />)}
-          </div>
-        )}
-      </section>
-
-      <section>
-        <SectionHeading title="Connected applications" note="Applications are grouped here; expand one to review its collection access." count={applicationAccess.length} />
-        {applicationAccess.length === 0 ? (
-          <Empty title="No applications connected" text="Open the app you want to use and choose its mdbase connection action. The request will appear here for your decision." />
-        ) : (
-          <div className="application-access-list">{applicationAccess.map((group) => (
-            <ApplicationGrantGroup key={group.applicationId} group={group} busy={busy} onAct={onAct} onNotice={onNotice} />
-          ))}</div>
-        )}
-      </section>
-
-    </div>
-  );
-}
-
-function PortalApprovalRequest({ request, collections, focused, busy, onAct: run }: {
-  request: PendingAuthorization;
-  collections: CollectionSummary[];
-  focused: boolean;
-  busy: boolean;
-  onAct(action: () => Promise<void>): Promise<void>;
-}) {
-  const { act: onAct, error: actionError } = useLocalAction(run);
-  const candidates = collections.filter((collection) => collection.enabled
-    && request.compatible_collection_ids.includes(collection.id)
-    && (!request.collection_id || request.collection_id === collection.id));
-  const [collectionId, setCollectionId] = useState(candidates.length === 1 ? candidates[0].id : "");
-  const groups = requestCapabilityGroups(request.requirements, request.requested_operations);
-  const [operations, setOperations] = useState(() => groups.flatMap((group) =>
-    group.required || !group.higherImpact ? group.operations : []
-  ));
-  const files = request.requirements.files;
-  // Complex setup needs the existing type-mapping/configuration review. Merely
-  // appearing in this snapshot never establishes fresh issuance support.
-  const native = candidates.length > 0 && hasSupportedCapabilityDeclaration(request.requirements)
-    && (request.requirements as { access?: string }).access !== "contract_scoped"
-    && (!files || (Array.isArray(files.required) && !(files.optional?.length)))
-    && request.provisions.type_packs.length === 0
-    && !((request.requirements as { configuration?: unknown[] }).configuration?.length)
-    && !((request.provisions as { configuration?: unknown[] }).configuration?.length);
-  const selected = candidates.find((collection) => collection.id === collectionId);
-  const identity = request.application_distribution === "portable"
-    ? request.application_project_url
-      ? `Downloaded file · ${host(request.application_project_url)}`
-      : "Downloaded file"
-    : host(request.application_homepage);
-  return <article className={`portal-approval-row ${focused ? "focused-request" : ""}`}>
-    <div>
-      <h3>{request.application_name}</h3>
-      <code>{identity}</code>
-      <small>Expires {relativeTime(request.expires_at)}</small>
-    </div>
-    {actionError && <p className="message error-message" role="alert">{actionError}</p>}
-    {native ? <div className="request-decision">
-      <label>Collection on this computer
-        <Select
-          aria-label="Collection on this computer"
-          disabled={busy}
-          value={selected?.id ?? ""}
-          placeholder="Choose a collection"
-          options={candidates.map((collection) => ({ value: collection.id, label: collection.display_name }))}
-          onChange={setCollectionId}
-        />
-      </label>
-      <p>Entire collection. Access continues until revoked under Connected applications. New installations may also require local code comparison.</p>
-      <RequestPermissionChoices groups={groups} selected={operations} disabled={busy} onChange={setOperations} />
-      {files && <p>Files: {[...files.required, ...(files.optional ?? [])].join(", ")}. Scope: {files.scope.kind === "collection" ? "Entire collection" : files.scope.folders.join(", ")}.</p>}
-      <NotificationAccess notifications={request.notifications} />
-      <div className="modal-actions">
-        <button className="button secondary" disabled={busy} onClick={() => void onAct(async () => {
-          await window.mdbaseConnect.denyAuthorization(request.id);
-        })}>Deny</button>
-        <button className="button primary" disabled={busy || !selected || Date.parse(request.expires_at) <= Date.now()} onClick={() => void onAct(async () => {
-          await window.mdbaseConnect.approveAuthorization({ requestId: request.id, collectionId, operations });
-        })}>{busy ? "Allowing…" : `Allow ${request.application_name}`}</button>
-      </div>
-    </div> : <>
-      <p>Review collection setup, hosted access, or permissions requiring additional controls in Connect.</p>
-      <button className="button primary" disabled={busy} onClick={() => void onAct(async () => {
-        await window.mdbaseConnect.openAuthorization(request.id);
-      })}>Review in Connect</button>
-    </>}
-  </article>;
-}
-
-function ApplicationGrantGroup({ group, busy, onAct, onNotice }: {
-  group: ApplicationAccessGroup<GrantSummary>;
-  busy: boolean;
-  onAct(action: () => Promise<void>): Promise<void>;
-  onNotice(value: string): void;
-}) {
-  const identity = group.grants[0];
-  return (
-    <details className="application-grant-group">
-      <summary>
-        <div><strong>{group.applicationName}</strong><code>{identity.application_distribution === "portable" ? `Downloaded file${identity.application_project_url ? ` · ${host(identity.application_project_url)}` : ""}` : host(identity.application_homepage)}</code></div>
-        <span>{group.collectionCount} {plural(group.collectionCount, "collection", "collections")}</span>
-        <span>{group.grants.length} {plural(group.grants.length, "connection", "connections")}</span>
-        <b>Review</b>
-      </summary>
-      <div className="application-grant-body">
-        <div className="grant-list">{group.grants.map((grant) => (
-          <GrantEditor key={grant.id} grant={grant} busy={busy} onAct={onAct} onNotice={onNotice} />
-        ))}</div>
-        <div className="application-grant-actions">
-          <small>Revokes this application from every collection listed above.</small>
-          <button className="quiet-action danger" disabled={busy} onClick={() => {
-            if (!window.confirm(`Revoke all ${group.applicationName} collection access?`)) return;
-            void onAct(async () => {
-              let providerConfirmationPending = false;
-              for (const grant of group.grants) {
-                if (grant.collection_kind === "hosted") {
-                  const result = await window.mdbaseConnect.revokeHostedGrant(grant.id);
-                  providerConfirmationPending ||= result.revocation_status === "revoking";
-                } else {
-                  const result = await window.mdbaseConnect.revokeGrant(grant.id);
-                  providerConfirmationPending ||= result.revocation_status !== "revoked";
-                }
-              }
-              onNotice(providerConfirmationPending
-                ? `${group.applicationName} revocation is pending authority confirmation.`
-                : `${group.applicationName} collection access was revoked.`);
-            });
-          }}>Revoke all access</button>
+      {collections.length === 0 && <section>
+        <Empty title="Add your first collection" text="Choose a folder of Markdown notes, or create a new one. It stays on this computer; your apps reach it through mdbase." />
+        <div className="collection-config-actions">
+          <button className="button primary" disabled={busy} onClick={onAdd}>Add existing folder</button>
+          <button className="button secondary" disabled={busy} onClick={onCreate}>Create collection</button>
         </div>
-      </div>
-    </details>
+      </section>}
+      <section>
+        <SectionHeading title="Overview" note="What this computer is doing right now." />
+        <div className="overview-list">
+          <OverviewRow label="Account" value={connectionLabel} detail={cloud.serverUrl ?? ""} action="Settings" onClick={() => onNavigate("settings")} />
+          <OverviewRow label="Collections" value={`${collections.length} ${plural(collections.length, "collection", "collections")}`} detail={synced > 0 ? `${synced} synced` : "All on this computer only"} action="Collections" onClick={() => onNavigate("collections")} />
+          <OverviewRow label="App access" value={attention > 0 ? `${attention} ${plural(attention, "item needs", "items need")} you` : "Nothing waiting"} detail="Apps you approve reach your collections through this computer" action="App access" onClick={() => onNavigate("access")} />
+        </div>
+      </section>
+    </div>
   );
 }
 
-function GrantEditor({ grant, busy, onAct: run, onNotice }: { grant: GrantSummary; busy: boolean; onAct(action: () => Promise<void>): Promise<void>; onNotice(value: string): void }) {
-  const { act: onAct, error: actionError } = useLocalAction(run);
-  const { selected: operations, setSelected: setOperations, needsReview, acknowledge } = usePermissionSelection(grant.id, grant.operations);
-  const allowedOperations = grant.operations;
-  const permissionDetailsAvailable = hasSupportedCapabilityDeclaration(grant.requirements);
-  const permissionGroups = useMemo(
-    () => requestCapabilityGroups(grant.requirements, allowedOperations),
-    [allowedOperations, grant.requirements]
-  );
-  const selectedPermissionCount = permissionGroups.filter((group) =>
-    group.operations.every((operation) => operations.includes(operation))
-  ).length;
-  const changed = useMemo(() => [...operations].sort().join(",") !== [...grant.operations].sort().join(","), [operations, grant.operations]);
+function OverviewRow({ label, value, detail, action, onClick }: { label: string; value: string; detail: string; action: string; onClick(): void }) {
+  return <div className="overview-row"><span>{label}</span><div><strong>{value}</strong><small>{detail}</small></div><button className="quiet-action" onClick={onClick}>{action}</button></div>;
+}
 
-  const authority = grant.collection_kind === "hosted" ? "Hosted by mdbase" : "On this computer";
-  if (grant.revocation_status === "revoking") {
-    return <article className="grant-review"><div className="grant-identity"><p className="eyebrow">{authority}</p><h3>{grant.collection_name}</h3><small>Revocation is pending. Waiting for {grant.collection_kind === "hosted" ? "the hosted authority" : "this computer"} to confirm enforcement.</small></div><strong>Revoking…</strong></article>;
-  }
-  if (permissionDetailsAvailable && (grant.scope.access !== "full_collection" || grant.scope.contracts.length > 0)) {
-    return <article className="grant-review"><div className="grant-identity"><p className="eyebrow">{authority}</p><h3>{grant.collection_name}</h3><small>Legacy scoped access is revoked. Reauthorize this application for the entire collection.</small></div><strong>Reauthorization required</strong></article>;
-  }
+function CreateCollectionDialog({ busy, onClose, onCreate }: {
+  busy: boolean;
+  onClose(): void;
+  onCreate(input: { parent: string; name: string }): Promise<void>;
+}) {
+  const [name, setName] = useState("");
+  const [parent, setParent] = useState("");
+  const [failure, setFailure] = useState<string | null>(null);
   return (
-    <article className="grant-review">
-      {actionError && <p className="message error-message" role="alert">{actionError}</p>}
-      <div className="grant-identity"><p className="eyebrow">{authority}</p><h3>{grant.collection_name}</h3><code>{grant.application_distribution === "portable" ? "Downloaded file · encrypted access" : host(grant.application_origin || grant.application_homepage)}</code><small>Connected {relativeTime(grant.created_at)}</small><small>{grant.scope.access === "full_collection" && grant.scope.contracts.length === 0 ? "Entire collection" : "Legacy scoped access"}</small></div>
-      <div className="request-decision">
-        <section className="request-section">
-          <div><strong>Permissions</strong><small>{permissionDetailsAvailable
-            ? "You can remove optional capability groups here. An application must request any additional access separately."
-            : "Permission details unavailable. Access has not been changed. You can still revoke access."}</small></div>
-          {needsReview && <p role="status">Access changed elsewhere. Review the current permissions before saving. <button onClick={acknowledge}>Review current access</button></p>}
-          {permissionDetailsAvailable && <RequestPermissionChoices groups={permissionGroups} selected={operations} disabled={busy} onChange={setOperations} />}
-        </section>
-        <footer className="request-footer">
-          <p>{permissionDetailsAvailable
-            ? `${grant.application_name} can use the selected actions on ${grant.collection_name} until you revoke access.`
-            : `Existing access for ${grant.application_name} to ${grant.collection_name} remains unchanged.`}</p>
-          <div className="decision-actions">
-            <button className="button secondary danger-text" disabled={busy} onClick={() => { if (window.confirm(`Revoke ${grant.application_name} access to ${grant.collection_name}?`)) void onAct(async () => {
-              if (grant.collection_kind === "hosted") {
-                const result = await window.mdbaseConnect.revokeHostedGrant(grant.id);
-                onNotice(result.revocation_status === "revoking"
-                  ? `${grant.application_name} access is disabled here; hosted revocation confirmation is pending.`
-                  : `${grant.application_name} access was revoked.`);
-              } else {
-                const result = await window.mdbaseConnect.revokeGrant(grant.id);
-                onNotice(result.revocation_status === "revoked"
-                  ? `${grant.application_name} access was revoked.`
-                  : `${grant.application_name} revocation is pending confirmation from this computer.`);
-              }
-            }); }}>Revoke</button>
-            <button className="button primary" disabled={busy || needsReview || !permissionDetailsAvailable || !changed || selectedPermissionCount === 0} onClick={() => void onAct(async () => {
-              if (!permissionDetailsAvailable) return;
-              if (grant.collection_kind === "hosted") await window.mdbaseConnect.updateHostedGrant({ grantId: grant.id, operations });
-              else await window.mdbaseConnect.updateGrant({ grantId: grant.id, operations });
-              onNotice(`Narrower access for ${grant.application_name} was saved.`);
-            })}>Save narrower access</button>
-          </div>
-        </footer>
+    <Dialog open onClose={() => !busy && onClose()} title="Create a collection" className="modal" closeDisabled={busy}>
+      <p className="eyebrow">New collection</p>
+      {failure && <div className="message error-message" role="alert">{failure}</div>}
+      <p>mdbase creates a new folder with this name and keeps it on this computer. You can turn on sync later.</p>
+      <label><span>Collection name</span><input autoFocus disabled={busy} value={name} maxLength={100} onChange={(event) => setName(event.target.value)} placeholder="Workouts" /></label>
+      <label><span>Create the folder in</span><button className="folder-picker" disabled={busy} onClick={() => void window.mdbaseConnect.chooseCreateFolder().then((chosen) => { if (chosen) setParent(chosen); }).catch((reason) => setFailure(message(reason)))}>{parent || "Choose a location…"}</button></label>
+      <div className="modal-actions">
+        <button className="button secondary" disabled={busy} onClick={onClose}>Cancel</button>
+        <button className="button primary" disabled={busy || !name.trim() || !parent} onClick={() => { setFailure(null); void onCreate({ parent, name: name.trim() }).catch((reason) => setFailure(message(reason))); }}>Create collection</button>
       </div>
-    </article>
+    </Dialog>
   );
 }
 
-function Activity({ entries }: { entries: ActivityEntry[] }) {
-  return (
-    <section className="activity-section">
-      <SectionHeading title="Recent operations" note="Stored in the connector registry on this computer." count={entries.length} />
-      {entries.length === 0 ? <Empty title="No remote activity yet" text="Operations from approved applications will be recorded here, including requests denied by the local policy." /> : (
-        <div className="activity-list">{entries.map((entry) => <div className="activity-row" key={entry.id}><StatusDot state={entry.outcome === "succeeded" ? "connected" : entry.outcome === "denied" ? "paused" : "danger"} /><div><strong>{entry.application_name}</strong><small>{entry.operation} on {entry.collection_name}{entry.detail ? `: ${entry.detail}` : ""}</small></div><code>{entry.outcome}</code><time>{relativeTime(entry.created_at)}</time></div>)}</div>
-      )}
-    </section>
-  );
-}
-
-function Settings({ startup, cloud, access, status, updateStatus, busy, onAct, onNotice }: {
+function Settings({ cloud, connectionLabel, requireApproval, startup, updateStatus, busy, onAct, onNotice }: {
+  cloud: CloudSetting | null;
+  connectionLabel: string;
+  requireApproval: boolean | null;
   startup: StartupSetting;
-  cloud: CloudSetting;
-  access: AccessSnapshot;
-  status: AgentStatus | null;
   updateStatus: DesktopUpdateStatus | null;
   busy: boolean;
-  onAct(action: () => Promise<void>): Promise<void>;
+  onAct(action: () => Promise<unknown>): Promise<void>;
   onNotice(value: string): void;
 }) {
-  const connection = presentConnection(status, cloud);
   return (
     <div className="workspace-stack settings-stack">
-      {cloud.configured && (
+      {cloud?.configured && (
         <section>
-          <SectionHeading title="Account connection" note="The account this computer uses for application requests." />
+          <SectionHeading title="Account" note="The mdbase account this computer is signed in to." />
           <div className="settings-rows">
-            <ComputerNameSetting account={access.account} online={access.online} busy={busy} onAct={onAct} onNotice={onNotice} />
-            <SettingRow label="Connect service" value={cloud.serverUrl ?? "Configured"} detail={access.online ? "Account changes are up to date" : "Saved app access still works on this computer"} mono />
-            <SettingRow label="Connection" value={connection.settingsLabel} detail="Keeps approved apps on other devices connected to this computer" />
-            <SettingRow label="Apps on this computer" value={status?.direct_access_available ? "Available" : "Unavailable"} detail="Approved apps here can connect without sending records over the internet" />
+            <SettingRow label="mdbase service" value={cloud.serverUrl ?? "Signed in"} detail={cloud.online ? "Connected" : "Saved app access still works on this computer"} mono />
+            <SettingRow label="Connection" value={connectionLabel} detail="Keeps apps on your other devices connected to this computer" />
           </div>
           <div className="portal-connection-actions">
-            <button className="button secondary" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.openAccount())}>Manage in Connect</button>
-            <button className="button secondary danger-text disconnect-button" disabled={busy} onClick={() => { if (window.confirm("Sign out on this computer? Apps can no longer reach your local collections through this computer. Your files are unaffected.")) void onAct(async () => { await window.mdbaseConnect.signOut(); }); }}>Sign out on this computer…</button>
+            <button className="button secondary" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.openAccount())}>Manage in mdbase</button>
+            <button className="button secondary danger-text disconnect-button" disabled={busy} onClick={() => {
+              if (window.confirm("Sign out on this computer? Apps can no longer reach your local collections through this computer. Your files are unaffected.")) {
+                void onAct(() => window.mdbaseConnect.signOut());
+              }
+            }}>Sign out on this computer…</button>
           </div>
         </section>
       )}
       <section>
-        <SectionHeading title="Background behavior" note="Keep the local connector ready without opening a window." />
+        <SectionHeading title="App approval" note="How new apps get access to your local collections." />
+        <div className="settings-rows">
+          <SettingSwitch
+            className="setting-toggle"
+            label="Ask before new apps connect"
+            description="When on, an app you approve in mdbase also waits for your approval on this computer"
+            checked={requireApproval === true}
+            disabled={busy || requireApproval === null}
+            stateLabel={requireApproval === null ? "Unavailable" : requireApproval ? "On" : "Off"}
+            onChange={(checked) => void onAct(async () => {
+              // Turning it off is confirmed on this computer's screen by mdbase itself.
+              await window.mdbaseConnect.setRequireApproval(checked);
+              onNotice(checked ? "New apps now wait for your approval on this computer." : "New apps connect without asking; you are still notified.");
+            })}
+          />
+        </div>
+      </section>
+      <section>
+        <SectionHeading title="Background behavior" note="Keep mdbase connect in the tray without opening a window." />
         <div className="settings-rows">
           <SettingSwitch
             className="setting-toggle"
@@ -855,56 +364,12 @@ function Settings({ startup, cloud, access, status, updateStatus, busy, onAct, o
               onNotice(checked ? "mdbase connect will start at login." : "Launch at login is off.");
             })}
           />
-          <AccessControl
-            paused={status?.paused ?? false}
-            disabled={busy || status === null}
-            onChange={(paused) => void onAct(async () => {
-              await window.mdbaseConnect.setAccessPaused(paused);
-              onNotice(paused ? "App access is paused." : "App access is available again.");
-            })}
-          />
         </div>
       </section>
       <section>
         <SectionHeading title="Updates" note="Releases are checked against signed provenance before installation." />
         <div className="settings-rows">
-          <div className="setting-row">
-            <span>Application</span>
-            <div>
-              <strong>Version {updateStatus?.current_version ?? "checking"}</strong>
-              <small>
-                {updateStatus
-                  ? `${updateStatus.message}${updateStatus.progress !== undefined && updateStatus.phase === "downloading" ? ` ${Math.round(updateStatus.progress)}%` : ""}`
-                  : "Reading update status…"}
-              </small>
-            </div>
-            <button
-              className="quiet-action"
-              disabled={
-                busy ||
-                !updateStatus ||
-                (!updateStatus.can_check && !updateStatus.can_install)
-              }
-              onClick={() =>
-                void onAct(async () => {
-                  if (updateStatus?.can_install) {
-                    await window.mdbaseConnect.installUpdate();
-                  } else {
-                    const next = await window.mdbaseConnect.checkForUpdates();
-                    onNotice(next.message);
-                  }
-                })
-              }
-            >
-              {updateStatus?.can_install
-                ? updateStatus.phase === "ready"
-                  ? "Restart and update"
-                  : "Open update"
-                : updateStatus?.phase === "checking"
-                  ? "Checking…"
-                  : "Check now"}
-            </button>
-          </div>
+          <SettingRow label="Application" value={`Version ${updateStatus?.current_version ?? "checking"}`} detail={updateStatus?.message ?? "Reading update status…"} />
         </div>
       </section>
       <section>
@@ -917,29 +382,9 @@ function Settings({ startup, cloud, access, status, updateStatus, busy, onAct, o
           </div>
         </div>
       </section>
-      <section className="privacy-block"><span className="privacy-lock">⌁</span><div><strong>Folder locations are never uploaded.</strong><p>Collections kept on this computer stay here. Hosted Markdown is stored by mdbase, and synced folders exchange changes directly with it. Your account only receives collection and app-access details.</p></div></section>
+      <section className="privacy-block"><span className="privacy-lock">⌁</span><div><strong>Folder locations are never uploaded.</strong><p>Collections stay on this computer. Synced collections send changes to mdbase; private sync encrypts them so mdbase cannot read them. Your account only receives collection names and app-access details.</p></div></section>
     </div>
   );
-}
-
-function ComputerNameSetting({ account, online, busy, onAct, onNotice }: {
-  account?: ConnectorAccount;
-  online: boolean;
-  busy: boolean;
-  onAct(action: () => Promise<void>): Promise<void>;
-  onNotice(value: string): void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [name, setName] = useState(account?.connector_name ?? "This computer");
-  useEffect(() => {
-    if (!editing) setName(account?.connector_name ?? "This computer");
-  }, [account?.connector_name, editing]);
-  if (!editing) return <div className="setting-row"><span>Computer</span><div><strong>{account?.connector_name ?? "This computer"}</strong><small>{account?.user_email ?? "Account details unavailable while offline"}</small></div><button className="quiet-action" disabled={busy || !online} onClick={() => setEditing(true)}>Rename</button></div>;
-  return <form className="setting-row setting-editor" onSubmit={(event) => { event.preventDefault(); void onAct(async () => { const result = await window.mdbaseConnect.renameComputer(name); setEditing(false); onNotice(`This computer is now named ${result.connector.name}.`); }); }}>
-    <span>Computer</span>
-    <label><span>Computer name</span><input autoFocus disabled={busy} value={name} maxLength={100} required onChange={(event) => setName(event.target.value)} /></label>
-    <div className="row-actions"><button type="button" className="quiet-action" disabled={busy} onClick={() => setEditing(false)}>Cancel</button><button className="button primary" disabled={busy || !name.trim() || name.trim() === account?.connector_name}>Save</button></div>
-  </form>;
 }
 
 function SettingRow({ label, value, detail, mono = false }: { label: string; value: string; detail: string; mono?: boolean }) {

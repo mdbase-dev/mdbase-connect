@@ -455,3 +455,18 @@ fieldset legend { margin-bottom: 6px; }
 .takeover-rows small { color: var(--muted); }
 .takeover-holds { padding-left: 12px; font-size: var(--type-metadata); }
 .takeover-option { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+
+.collection-card { display: grid; gap: 8px; padding: 14px 0; }
+.collection-card-main { display: grid; grid-template-columns: 7px 1fr; align-items: baseline; gap: 12px; }
+.collection-card-main > div { display: grid; gap: 3px; min-width: 0; }
+.collection-card-main h3 { margin: 0; font-size: var(--type-body); }
+.collection-card-main code { overflow: hidden; color: var(--muted); font-size: var(--type-metadata); text-overflow: ellipsis; white-space: nowrap; }
+.collection-card-main small { color: var(--muted); font-size: var(--type-supporting); }
+.collection-card-main .collection-notice { color: var(--ink); }
+.collection-holds { display: grid; gap: 8px; padding: 10px 0 0 19px; font-size: var(--type-supporting); }
+.collection-holds p { margin: 0; color: var(--muted); }
+.collection-holds ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.collection-holds li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.collection-holds li > div:first-child { display: grid; gap: 2px; min-width: 0; }
+.collection-holds small { color: var(--muted); }
+.new-access { margin-left: 8px; padding: 1px 6px; border-radius: 3px; color: var(--paper); background: var(--connected); font-size: var(--type-metadata); }

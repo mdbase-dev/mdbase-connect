@@ -19,9 +19,7 @@ import { resolveDaemonRuntime, type DaemonRuntime } from "./daemon-runtime";
 import { DaemonSession, healthLabel } from "./daemon-session";
 import { routeForDeepLink, shouldRegisterDeepLinks } from "./deep-link";
 import { buildEditorUrl } from "./editor-url";
-import { createHostedSnapshotLoader, type HostedControlSnapshot } from "./hosted-snapshot";
 import { guardDesktopProcessOutput } from "./process-output";
-import { selectiveSyncPolicy } from "./selective-sync-input";
 import { createTrayImage } from "./tray-image";
 import type { DesktopUpdateStatus } from "./update-coordinator";
 import { channelForVersion } from "./update-policy";
@@ -68,11 +66,11 @@ async function openLocalPath(path: string): Promise<void> {
 
 async function registeredCollectionPath(collectionId: unknown): Promise<string> {
   if (typeof collectionId !== "string") throw new Error("Invalid collection ID.");
-  const collection = (await requestReadyAgent<Array<{ id: string; path: string }>>(
-    "collections.list"
+  const collection = (await requestReadyAgent<Array<{ id: string; root: string }>>(
+    "collection.list"
   )).find((candidate) => candidate.id === collectionId);
   if (!collection) throw new Error("That collection is not registered.");
-  return collection.path;
+  return collection.root;
 }
 
 function daemonCli(): DaemonCli {
@@ -162,9 +160,9 @@ function trustedIpc(event: Electron.IpcMainInvokeEvent): void {
   }
 }
 
-async function chooseFolder(): Promise<string | null> {
+async function chooseFolder(title = "Choose a collection folder"): Promise<string | null> {
   const options: Electron.OpenDialogOptions = {
-    title: "Choose a collection folder",
+    title,
     properties: ["openDirectory", "createDirectory"]
   };
   const result = mainWindow
@@ -174,10 +172,6 @@ async function chooseFolder(): Promise<string | null> {
 }
 
 function registerIpc(): void {
-  const loadHostedSnapshot = createHostedSnapshotLoader(
-    () => requestReadyAgent<HostedControlSnapshot>("hosted.snapshot", undefined, 30_000)
-  );
-
   ipcMain.handle("connect:status", async (event) => {
     trustedIpc(event);
     return requestReadyAgent("status");
@@ -205,153 +199,80 @@ function registerIpc(): void {
   });
   ipcMain.handle("connect:collections:list", async (event) => {
     trustedIpc(event);
-    return requestReadyAgent("collections.list");
+    return requestReadyAgent("collection.list");
   });
   ipcMain.handle("connect:collections:add", async (event) => {
     trustedIpc(event);
-    const path = await chooseFolder();
+    const path = await chooseFolder("Choose a folder to add");
     if (!path) return null;
-    try {
-      return {
-        status: "added",
-        collection: await requestReadyAgent("collections.add", { path })
-      };
-    } catch (error) {
-      if (error instanceof DaemonControlError && error.code === "duplicate_collection_identity") {
-        return { status: "copy_requires_new_identity", path };
-      }
-      throw error;
-    }
-  });
-  ipcMain.handle("connect:collections:add-copy", async (event, path: unknown) => {
-    trustedIpc(event);
-    if (typeof path !== "string" || path.length === 0) throw new Error("Choose a folder.");
-    return requestReadyAgent("collections.add-copy", { path });
-  });
-  ipcMain.handle("connect:collections:make-independent", async (event, collectionId: unknown) => {
-    trustedIpc(event);
-    if (typeof collectionId !== "string") throw new Error("Invalid collection ID.");
-    return requestReadyAgent(
-      "collections.make-independent",
-      { collection_id: collectionId },
-      10_000
-    );
-  });
-  ipcMain.handle("connect:collections:take-authority", async (event, collectionId: unknown) => {
-    trustedIpc(event);
-    if (typeof collectionId !== "string") throw new Error("Invalid collection ID.");
-    return requestReadyAgent(
-      "collections.take-authority",
-      { collection_id: collectionId },
-      15_000
-    );
-  });
-  ipcMain.handle("connect:collections:transfer-authority", async (event, collectionId: unknown) => {
-    trustedIpc(event);
-    if (typeof collectionId !== "string") throw new Error("Invalid collection ID.");
-    const collections = await requestReadyAgent<Array<{
-      id: string;
-      display_name: string;
-      path: string;
-    }>>("collections.list");
-    const collection = collections.find((candidate) => candidate.id === collectionId);
-    if (!collection) throw new Error("The local collection is no longer registered.");
-    const transfer = await requestReadyAgent<{
-      status: "completed";
-      collection_id: string;
-      authority_epoch: number;
-    }>(
-      "collections.transfer-authority",
-      { collection_id: collectionId, target: "remote" },
-      10 * 60 * 1_000
-    );
-    const mirror = await requestReadyAgent(
-      "mirrors.add",
-      {
-        collection_id: collectionId,
-        path: collection.path,
-        mode: "read_write",
-        name: `${hostname().trim() || "This computer"} mirror`
-      },
-      2 * 60 * 1_000
-    );
-    return { transfer, mirror };
+    return requestReadyAgent("collection.add", { path }, 60_000);
   });
   ipcMain.handle("connect:collections:choose-create", async (event) => {
     trustedIpc(event);
-    return chooseFolder();
+    return chooseFolder("Choose where to create the collection folder");
   });
+  // A new collection is a new, empty folder registered as a local collection.
   ipcMain.handle("connect:collections:create", async (event, input: unknown) => {
     trustedIpc(event);
-    if (!input || typeof input !== "object") throw new Error("Invalid collection input.");
-    const { path, name, timezone } = input as { path?: unknown; name?: unknown; timezone?: unknown };
-    if (typeof path !== "string" || path.length === 0) throw new Error("Choose a folder.");
-    if (typeof name !== "string" || name.trim().length === 0) throw new Error("Enter a collection name.");
-    if (typeof timezone !== "string" || !timezone.trim()) throw new Error("The collection timezone is required.");
-    return requestReadyAgent("collections.create", { path, name: name.trim(), timezone: timezone.trim() });
-  });
-  ipcMain.handle("connect:collections:update-metadata", async (event, input: unknown) => {
-    trustedIpc(event);
-    const value = asObject(input, "Invalid collection metadata.");
-    const collectionId = value.collectionId;
-    const name = value.name;
-    const description = value.description;
-    if (typeof collectionId !== "string") throw new Error("Invalid collection ID.");
-    if (typeof name !== "string" || name.trim().length === 0 || [...name.trim()].length > 100) {
-      throw new Error("Collection name must be between 1 and 100 characters.");
+    const value = asObject(input, "Invalid collection input.");
+    const name = collectionName(value.name);
+    if (typeof value.parent !== "string" || !value.parent) throw new Error("Choose where to create the folder.");
+    const folder = join(resolve(value.parent), folderName(name));
+    try {
+      await mkdir(folder);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new Error(`A folder named "${folderName(name)}" already exists there. Choose another name or use Add existing.`);
+      }
+      throw error;
     }
-    if (description !== undefined && (typeof description !== "string" || [...description.trim()].length > 500)) {
-      throw new Error("Collection description must be 500 characters or fewer.");
+    try {
+      return await requestReadyAgent("collection.add", { path: folder, name }, 60_000);
+    } catch (error) {
+      await rm(folder, { recursive: false }).catch(() => undefined);
+      throw error;
     }
-    return requestReadyAgent("collections.update-metadata", {
-      collection_id: collectionId,
-      name: name.trim(),
-      description: typeof description === "string" && description.trim() ? description.trim() : undefined
-    });
-  });
-  ipcMain.handle("connect:collections:cancel-authority-transfer", async (event, input: unknown) => {
-    trustedIpc(event);
-    const value = asObject(input, "Invalid authority transfer recovery request.");
-    if (typeof value.collectionId !== "string" || typeof value.transferId !== "string") {
-      throw new Error("Invalid authority transfer recovery request.");
-    }
-    return requestReadyAgent("collections.cancel-authority-transfer", {
-      collection_id: value.collectionId,
-      transfer_id: value.transferId
-    });
-  });
-  ipcMain.handle("connect:collections:set-enabled", async (event, input: unknown) => {
-    trustedIpc(event);
-    const value = asObject(input, "Invalid collection setting.");
-    if (typeof value.collectionId !== "string" || typeof value.enabled !== "boolean") {
-      throw new Error("Invalid collection setting.");
-    }
-    return requestReadyAgent("collections.set-enabled", {
-      collection_id: value.collectionId,
-      enabled: value.enabled
-    });
-  });
-  ipcMain.handle("connect:collections:validate", async (event, collectionId: unknown) => {
-    trustedIpc(event);
-    if (typeof collectionId !== "string") throw new Error("Invalid collection ID.");
-    return requestReadyAgent("collections.validate", {
-      collection_id: collectionId
-    });
   });
   ipcMain.handle("connect:collections:remove", async (event, collectionId: unknown) => {
     trustedIpc(event);
-    if (typeof collectionId !== "string") throw new Error("Invalid collection ID.");
-    return requestReadyAgent("collections.remove", {
-      collection_id: collectionId
-    });
+    return requestReadyAgent("collection.remove", { collection: collectionIdOf(collectionId) }, 30_000);
+  });
+  ipcMain.handle("connect:collections:set-enabled", async (event, input: unknown) => {
+    trustedIpc(event);
+    const value = asObject(input, "Invalid collection input.");
+    if (typeof value.enabled !== "boolean") throw new Error("Invalid collection input.");
+    return requestReadyAgent(value.enabled ? "collection.resume" : "collection.pause",
+      { collection: collectionIdOf(value.collectionId) }, 30_000);
+  });
+  // Privileged (it moves the log to mdbase): through the CLI.
+  ipcMain.handle("connect:collections:sync-enable", async (event, input: unknown) => {
+    trustedIpc(event);
+    const value = asObject(input, "Invalid sync input.");
+    if (value.mode !== "e2e" && value.mode !== "synced") throw new Error("Choose how to sync.");
+    return bootGate.request(() => daemonCli().run(
+      ["sync", "enable", collectionIdOf(value.collectionId), "--mode", value.mode as string], 600_000
+    ));
+  });
+  ipcMain.handle("connect:collections:sync-disable", async (event, collectionId: unknown) => {
+    trustedIpc(event);
+    return requestReadyAgent("sync.disable", { collection: collectionIdOf(collectionId) }, 600_000);
+  });
+  ipcMain.handle("connect:collections:holds", async (event, collectionId: unknown) => {
+    trustedIpc(event);
+    return requestReadyAgent("collection.holds", { collection: collectionIdOf(collectionId) }, 15_000);
+  });
+  ipcMain.handle("connect:collections:resolve-hold", async (event, input: unknown) => {
+    trustedIpc(event);
+    const value = asObject(input, "Invalid hold input.");
+    if (typeof value.id !== "string" || !["keep_mine", "take_theirs", "keep_both", "delete"].includes(value.how as string)) {
+      throw new Error("Invalid hold input.");
+    }
+    return requestReadyAgent("collection.resolve_hold",
+      { collection: collectionIdOf(value.collectionId), id: value.id, how: value.how }, 30_000);
   });
   ipcMain.handle("connect:collections:open-folder", async (event, collectionId: unknown) => {
     trustedIpc(event);
     return openLocalPath(await registeredCollectionPath(collectionId));
-  });
-  ipcMain.handle("connect:collections:open-config", async (event, collectionId: unknown) => {
-    trustedIpc(event);
-    return openLocalPath(join(await registeredCollectionPath(collectionId), "mdbase.yaml"));
   });
   ipcMain.handle("connect:editor:open", async (event, collectionId: unknown) => {
     trustedIpc(event);
@@ -381,14 +302,6 @@ function registerIpc(): void {
     trustedIpc(event);
     await shell.openExternal(new URL("/account", await signedInServer()).href);
   });
-  ipcMain.handle("connect:authorizations:open", async (event, requestId: unknown) => {
-    trustedIpc(event);
-    if (typeof requestId !== "string" || !/^[0-9a-f-]{36}$/iu.test(requestId)) {
-      throw new Error("Invalid authorization request.");
-    }
-    const url = new URL(`/authorize/${encodeURIComponent(requestId)}`, await signedInServer());
-    await shell.openExternal(url.href);
-  });
   // `account.sign_in` is privileged, so it runs through the CLI; with --json it
   // returns the approval page without opening it, and the app opens it here.
   ipcMain.handle("connect:account:sign-in", async (event) => {
@@ -407,246 +320,62 @@ function registerIpc(): void {
     trustedIpc(event);
     await bootGate.request(() => daemonCli().run(["account", "sign-out"], 30_000));
   });
-  ipcMain.handle("connect:access:snapshot", async (event) => {
+  ipcMain.handle("connect:access:list", async (event) => {
     trustedIpc(event);
-    return requestReadyAgent("access.snapshot", undefined, 8_000);
+    return requestReadyAgent("access.list");
   });
-  ipcMain.handle("connect:access:pause", async (event, paused: unknown) => {
+  // Approve and acknowledge are privileged: the CLI authenticates them, and the
+  // daemon still asks on this computer's screen before approving. `--yes` only
+  // skips the CLI's terminal prompt, which an app cannot answer.
+  ipcMain.handle("connect:access:approve", async (event, grant: unknown) => {
     trustedIpc(event);
-    if (typeof paused !== "boolean") throw new Error("Invalid pause setting.");
-    return requestReadyAgent("access.pause", { paused }, 10_000);
+    return bootGate.request(() => daemonCli().run(["--yes", "access", "approve", grantIdOf(grant)], 180_000));
   });
-  ipcMain.handle("connect:account:rename-computer", async (event, name: unknown) => {
+  ipcMain.handle("connect:access:ack", async (event, grant: unknown) => {
     trustedIpc(event);
-    if (typeof name !== "string" || name.trim().length === 0 || [...name.trim()].length > 100) {
-      throw new Error("Computer name must be between 1 and 100 characters.");
-    }
-    return requestReadyAgent("account.rename-computer", { name: name.trim() }, 10_000);
+    return bootGate.request(() => daemonCli().run(["access", "ack", grantIdOf(grant)], 30_000));
   });
-  ipcMain.handle("connect:authorizations:approve", async (event, input: unknown) => {
+  ipcMain.handle("connect:access:deny", async (event, grant: unknown) => {
     trustedIpc(event);
-    const value = asObject(input, "Invalid authorization input.");
-    if (typeof value.requestId !== "string" || typeof value.collectionId !== "string"
-      || !Array.isArray(value.operations) || !value.operations.every((operation) => typeof operation === "string")) {
-      throw new Error("Choose a request, collection, and permissions.");
-    }
-    return requestReadyAgent("authorizations.approve", {
-      request_id: value.requestId, collection_id: value.collectionId,
-      operations: value.operations, contract_setups: []
-    }, 75_000);
+    return requestReadyAgent("access.deny", { grant: grantIdOf(grant) }, 10_000);
   });
-  ipcMain.handle("connect:authorizations:deny", async (event, requestId: unknown) => {
+  ipcMain.handle("connect:access:revoke", async (event, grant: unknown) => {
     trustedIpc(event);
-    if (typeof requestId !== "string") throw new Error("Invalid authorization request.");
-    return requestReadyAgent("authorizations.deny", { request_id: requestId }, 10_000);
+    return requestReadyAgent("access.revoke", { grant: grantIdOf(grant) }, 10_000);
   });
-  ipcMain.handle("connect:grants:create", async (event, input: unknown) => {
+  ipcMain.handle("connect:settings:get", async (event) => {
     trustedIpc(event);
-    return requestReadyAgent("grants.create", grantInput(input, true), 10_000);
+    return requestReadyAgent("settings.get");
   });
-  ipcMain.handle("connect:grants:update", async (event, input: unknown) => {
+  ipcMain.handle("connect:settings:require-approval", async (event, on: unknown) => {
     trustedIpc(event);
-    return requestReadyAgent("grants.update", grantInput(input, false), 10_000);
+    if (typeof on !== "boolean") throw new Error("Invalid setting.");
+    return bootGate.request(() => daemonCli().run(
+      ["--yes", "settings", "--require-approval", on ? "on" : "off"], 180_000
+    ));
   });
-  ipcMain.handle("connect:grants:revoke", async (event, grantId: unknown) => {
-    trustedIpc(event);
-    if (typeof grantId !== "string") throw new Error("Invalid grant ID.");
-    return requestReadyAgent("grants.revoke", { grant_id: grantId }, 10_000);
-  });
-  ipcMain.handle("connect:activity:list", async (event, limit: unknown) => {
-    trustedIpc(event);
-    const value = typeof limit === "number" ? Math.max(1, Math.min(500, Math.floor(limit))) : 100;
-    return requestReadyAgent("activity.list", { limit: value });
-  });
-  ipcMain.handle("connect:hosted:snapshot", async (event) => {
-    trustedIpc(event);
-    return loadHostedSnapshot();
-  });
-  ipcMain.handle("connect:hosted:create", async (event, input: unknown) => {
-    trustedIpc(event);
-    const value = asObject(input, "Invalid hosted collection details.");
-    const name = value.name;
-    if (typeof name !== "string" || name.trim().length === 0 || [...name.trim()].length > 200) {
-      throw new Error("Collection name must be between 1 and 200 characters.");
-    }
-    if (typeof value.timezone !== "string" || !value.timezone.trim()) {
-      throw new Error("The collection timezone is required.");
-    }
-    return requestReadyAgent(
-      "hosted.collections.create",
-      { name: name.trim(), timezone: value.timezone.trim() },
-      30_000
-    );
-  });
-  ipcMain.handle("connect:hosted:rename", async (event, input: unknown) => {
-    trustedIpc(event);
-    const value = asObject(input, "Invalid hosted collection details.");
-    if (typeof value.collectionId !== "string") throw new Error("Invalid collection ID.");
-    if (typeof value.name !== "string" || value.name.trim().length === 0 || [...value.name.trim()].length > 200) {
-      throw new Error("Collection name must be between 1 and 200 characters.");
-    }
-    return requestReadyAgent(
-      "hosted.collections.rename",
-      { collection_id: value.collectionId, name: value.name.trim() },
-      30_000
-    );
-  });
-  ipcMain.handle("connect:hosted:delete", async (event, collectionId: unknown) => {
-    trustedIpc(event);
-    if (typeof collectionId !== "string") throw new Error("Invalid collection ID.");
-    return requestReadyAgent(
-      "hosted.collections.delete",
-      { collection_id: collectionId },
-      30_000
-    );
-  });
-  ipcMain.handle("connect:hosted:grant-update", async (event, input: unknown) => {
-    trustedIpc(event);
-    const value = asObject(input, "Invalid hosted application access.");
-    if (typeof value.grantId !== "string") throw new Error("Invalid grant ID.");
-    return requestReadyAgent(
-      "hosted.grants.update",
-      {
-        grant_id: value.grantId,
-        operations: stringArray(value.operations, "Choose at least one operation.")
-      },
-      30_000
-    );
-  });
-  ipcMain.handle("connect:hosted:grant-revoke", async (event, grantId: unknown) => {
-    trustedIpc(event);
-    if (typeof grantId !== "string") throw new Error("Invalid grant ID.");
-    return requestReadyAgent(
-      "hosted.grants.revoke",
-      { grant_id: grantId },
-      30_000
-    );
-  });
-  ipcMain.handle("connect:hosted:replica-revoke", async (event, replicaId: unknown) => {
-    trustedIpc(event);
-    if (typeof replicaId !== "string") throw new Error("Invalid mirror ID.");
-    return requestReadyAgent(
-      "hosted.replicas.revoke",
-      { replica_id: replicaId },
-      30_000
-    );
-  });
-  ipcMain.handle("connect:mirrors:list", async (event) => {
-    trustedIpc(event);
-    return requestReadyAgent("mirrors.list");
-  });
-  ipcMain.handle("connect:mirrors:choose-folder", async (event) => {
-    trustedIpc(event);
-    const result = mainWindow
-      ? await dialog.showOpenDialog(mainWindow, {
-          title: "Choose a folder for this hosted collection",
-          properties: ["openDirectory", "createDirectory"]
-        })
-      : await dialog.showOpenDialog({
-          title: "Choose a folder for this hosted collection",
-          properties: ["openDirectory", "createDirectory"]
-        });
-    return result.canceled ? null : result.filePaths[0] ?? null;
-  });
-  ipcMain.handle("connect:mirrors:connect", async (event, input: unknown) => {
-    trustedIpc(event);
-    const value = asObject(input, "Invalid mirror settings.");
-    if (typeof value.collectionId !== "string" || typeof value.path !== "string") {
-      throw new Error("Choose a hosted collection and folder.");
-    }
-    if (!["read_only", "read_write"].includes(String(value.mode))) {
-      throw new Error("Choose receive-only or two-way synchronization.");
-    }
-    const selectiveSync = selectiveSyncPolicy(value.selectiveSync);
-    return requestReadyAgent("mirrors.add", {
-      collection_id: value.collectionId,
-      path: value.path,
-      mode: value.mode as "read_only" | "read_write",
-      name: typeof value.name === "string" ? value.name : undefined,
-      selective_sync: selectiveSync
-    }, 2 * 60 * 1_000);
-  });
-  ipcMain.handle("connect:mirrors:sync", async (event, replicaId: unknown) => {
-    trustedIpc(event);
-    if (typeof replicaId !== "string") throw new Error("Invalid mirror ID.");
-    return requestReadyAgent("mirrors.sync", { replica_id: replicaId }, 2 * 60 * 1_000);
-  });
-  ipcMain.handle("connect:mirrors:configure-selective-sync", async (event, input: unknown) => {
-    trustedIpc(event);
-    const value = asObject(input, "Invalid selective sync settings.");
-    if (typeof value.replicaId !== "string") throw new Error("Invalid mirror ID.");
-    return requestReadyAgent("mirrors.configure-selective-sync", {
-      replica_id: value.replicaId,
-      selective_sync: selectiveSyncPolicy(value.selectiveSync)
-    }, 15 * 60 * 1_000);
-  });
-  ipcMain.handle("connect:mirrors:review-conflict", async (event, input: unknown) => {
-    trustedIpc(event);
-    const value = asObject(input, "Invalid conflict review.");
-    if (typeof value.replicaId !== "string" || typeof value.objectId !== "string" || typeof value.decisionId !== "string") {
-      throw new Error("Choose a conflict to review.");
-    }
-    return requestReadyAgent("mirrors.review-conflict", {
-      replica_id: value.replicaId, object_id: value.objectId, decision_id: value.decisionId
-    }, 2 * 60 * 1_000);
-  });
-  ipcMain.handle("connect:mirrors:resolve", async (event, input: unknown) => {
-    trustedIpc(event);
-    const value = asObject(input, "Invalid conflict resolution.");
-    if (
-      typeof value.replicaId !== "string"
-      || typeof value.objectId !== "string"
-      || typeof value.decisionId !== "string"
-      || !["local", "remote"].includes(String(value.resolution))
-    ) {
-      throw new Error("Choose the local or hosted version.");
-    }
-    return requestReadyAgent(
-      "mirrors.resolve",
-      {
-        replica_id: value.replicaId,
-        object_id: value.objectId,
-        decision_id: value.decisionId,
-        resolution: value.resolution
-      },
-      2 * 60 * 1_000
-    );
-  });
-  ipcMain.handle("connect:mirrors:promote", async (event, replicaId: unknown) => {
-    trustedIpc(event);
-    if (typeof replicaId !== "string") throw new Error("Invalid mirror ID.");
-    const begun = await requestReadyAgent<{
-      verification_uri: string;
-    }>(
-      "mirrors.promote.begin",
-      { replica_id: replicaId },
-      2 * 60 * 1_000
-    );
-    await shell.openExternal(begun.verification_uri);
-    return requestReadyAgent(
-      "mirrors.promote.complete",
-      { replica_id: replicaId },
-      10 * 60 * 1_000
-    );
-  });
-  ipcMain.handle("connect:mirrors:disconnect", async (event, replicaId: unknown) => {
-    trustedIpc(event);
-    if (typeof replicaId !== "string") throw new Error("Invalid mirror ID.");
-    return requestReadyAgent(
-      "mirrors.remove",
-      { replica_id: replicaId },
-      30_000
-    );
-  });
-  ipcMain.handle("connect:mirrors:open", async (event, replicaId: unknown) => {
-    trustedIpc(event);
-    if (typeof replicaId !== "string") throw new Error("Invalid mirror ID.");
-    const mirror = (await requestReadyAgent<Array<{ replica_id: string; path: string }>>(
-      "mirrors.list"
-    )).find((candidate) => candidate.replica_id === replicaId);
-    if (!mirror) throw new Error("That mirror is not controlled by this computer.");
-    return openLocalPath(mirror.path);
-  });
+}
+
+function collectionIdOf(value: unknown): string {
+  if (typeof value !== "string" || !/^[0-9a-f-]{32,36}$/iu.test(value)) throw new Error("Invalid collection ID.");
+  return value;
+}
+
+function grantIdOf(value: unknown): string {
+  if (typeof value !== "string" || !/^[0-9a-f-]{32,36}$/iu.test(value)) throw new Error("Invalid grant ID.");
+  return value;
+}
+
+function collectionName(value: unknown): string {
+  const name = typeof value === "string" ? value.trim() : "";
+  if (!name || [...name].length > 100) throw new Error("Collection name must be between 1 and 100 characters.");
+  return name;
+}
+
+/** A portable folder name from a collection name. */
+function folderName(name: string): string {
+  const cleaned = name.replace(/[<>:"/\\|?*\u0000-\u001f]/gu, " ").replace(/\s+/gu, " ").trim().replace(/[. ]+$/u, "");
+  return cleaned || "Collection";
 }
 
 function asObject(value: unknown, message: string): Record<string, unknown> {
@@ -654,30 +383,7 @@ function asObject(value: unknown, message: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function stringArray(value: unknown, message: string): string[] {
-  if (!Array.isArray(value) || value.length === 0 || value.some((item) => typeof item !== "string")) {
-    throw new Error(message);
-  }
-  return [...new Set(value as string[])];
-}
 
-function grantInput(input: unknown, includeTarget: boolean): Record<string, unknown> {
-  const value = asObject(input, "Invalid application access input.");
-  const result: Record<string, unknown> = {
-    operations: stringArray(value.operations, "Choose at least one operation.")
-  };
-  if (includeTarget) {
-    if (typeof value.applicationId !== "string" || typeof value.collectionId !== "string") {
-      throw new Error("Choose an application and collection.");
-    }
-    result.application_id = value.applicationId;
-    result.collection_id = value.collectionId;
-  } else {
-    if (typeof value.grantId !== "string") throw new Error("Invalid grant ID.");
-    result.grant_id = value.grantId;
-  }
-  return result;
-}
 
 function validateServerUrl(serverUrl: unknown): string {
   if (typeof serverUrl !== "string") throw new Error("Enter a server address.");

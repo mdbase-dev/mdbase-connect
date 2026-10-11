@@ -6,7 +6,7 @@ import {
   type ThemePreference
 } from "@mdbase-dev/ui/theme";
 import React, { useEffect, useRef, useState } from "react";
-import type { ConnectionDotState } from "./connection-state.mjs";
+import type { ConnectionDotState } from "./daemon-view.mjs";
 import { message, type Route } from "./view-model";
 import { ThemeSelect } from "@mdbase-dev/ui/theme-select";
 
@@ -99,30 +99,6 @@ export function SettingSwitch({ className, label, description, checked, disabled
         />
       </span>
     </label>
-  );
-}
-
-export function AccessControl({ paused, disabled, onChange }: {
-  paused: boolean;
-  disabled: boolean;
-  onChange(paused: boolean): void;
-}) {
-  return (
-    <div className="access-control">
-      <div>
-        <strong>{paused ? "App access is paused" : "App access is available"}</strong>
-        <small>{paused
-          ? "Connected apps remain listed, but this computer is denying their requests."
-          : "Approved apps can use the collections you made available."}</small>
-      </div>
-      <button
-        className={`button ${paused ? "primary" : "secondary"}`}
-        disabled={disabled}
-        onClick={() => onChange(!paused)}
-      >
-        {paused ? "Resume app access" : "Pause app access"}
-      </button>
-    </div>
   );
 }
 

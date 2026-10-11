@@ -1,107 +1,43 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { DesktopUpdateStatus } from "./update-coordinator";
 
-type DesktopSelectiveSyncPolicy = {
-  file_classes: Array<"image" | "audio" | "video" | "pdf" | "other">;
-  excluded_folders: string[];
-};
-
 contextBridge.exposeInMainWorld("mdbaseConnect", {
   status: () => ipcRenderer.invoke("connect:status"),
   updateStatus: () => ipcRenderer.invoke("connect:updates:status"),
-  migrationStatus: () => ipcRenderer.invoke("connect:migration:status"),
-  startMigration: (stopMirrors: boolean) => ipcRenderer.invoke("connect:migration:start", { stopMirrors }),
   checkForUpdates: () => ipcRenderer.invoke("connect:updates:check"),
   installUpdate: () => ipcRenderer.invoke("connect:updates:install"),
+  migrationStatus: () => ipcRenderer.invoke("connect:migration:status"),
+  startMigration: (stopMirrors: boolean) => ipcRenderer.invoke("connect:migration:start", { stopMirrors }),
   listCollections: () => ipcRenderer.invoke("connect:collections:list"),
   addCollection: () => ipcRenderer.invoke("connect:collections:add"),
-  addCopiedCollection: (path: string) =>
-    ipcRenderer.invoke("connect:collections:add-copy", path),
-  makeCollectionIndependent: (collectionId: string) =>
-    ipcRenderer.invoke("connect:collections:make-independent", collectionId),
-  takeCollectionAuthority: (collectionId: string) =>
-    ipcRenderer.invoke("connect:collections:take-authority", collectionId),
-  transferCollectionAuthority: (collectionId: string) =>
-    ipcRenderer.invoke("connect:collections:transfer-authority", collectionId),
-  cancelCollectionAuthorityTransfer: (collectionId: string, transferId: string) =>
-    ipcRenderer.invoke("connect:collections:cancel-authority-transfer", { collectionId, transferId }),
   chooseCreateFolder: () => ipcRenderer.invoke("connect:collections:choose-create"),
-  createCollection: (input: { path: string; name: string; timezone: string }) =>
+  createCollection: (input: { parent: string; name: string }) =>
     ipcRenderer.invoke("connect:collections:create", input),
-  updateCollectionMetadata: (input: { collectionId: string; name: string; description?: string }) =>
-    ipcRenderer.invoke("connect:collections:update-metadata", input),
+  removeCollection: (collectionId: string) => ipcRenderer.invoke("connect:collections:remove", collectionId),
   setCollectionEnabled: (collectionId: string, enabled: boolean) =>
     ipcRenderer.invoke("connect:collections:set-enabled", { collectionId, enabled }),
-  validateCollection: (collectionId: string) =>
-    ipcRenderer.invoke("connect:collections:validate", collectionId),
-  removeCollection: (collectionId: string) =>
-    ipcRenderer.invoke("connect:collections:remove", collectionId),
+  enableSync: (collectionId: string, mode: "e2e" | "synced") =>
+    ipcRenderer.invoke("connect:collections:sync-enable", { collectionId, mode }),
+  disableSync: (collectionId: string) => ipcRenderer.invoke("connect:collections:sync-disable", collectionId),
+  listHolds: (collectionId: string) => ipcRenderer.invoke("connect:collections:holds", collectionId),
+  resolveHold: (collectionId: string, id: string, how: "keep_mine" | "take_theirs" | "keep_both" | "delete") =>
+    ipcRenderer.invoke("connect:collections:resolve-hold", { collectionId, id, how }),
   openCollectionFolder: (collectionId: string) => ipcRenderer.invoke("connect:collections:open-folder", collectionId),
-  openCollectionConfig: (collectionId: string) =>
-    ipcRenderer.invoke("connect:collections:open-config", collectionId),
-  openEditor: (collectionId: string) =>
-    ipcRenderer.invoke("connect:editor:open", collectionId),
+  openEditor: (collectionId: string) => ipcRenderer.invoke("connect:editor:open", collectionId),
   getLaunchAtLogin: () => ipcRenderer.invoke("connect:startup:get"),
   setLaunchAtLogin: (enabled: boolean) => ipcRenderer.invoke("connect:startup:set", enabled),
   getCloudConfig: () => ipcRenderer.invoke("connect:cloud:get"),
   openAccount: () => ipcRenderer.invoke("connect:account:open"),
-  openAuthorization: (requestId: string) =>
-    ipcRenderer.invoke("connect:authorizations:open", requestId),
-  approveAuthorization: (input: { requestId: string; collectionId: string; operations: string[] }) =>
-    ipcRenderer.invoke("connect:authorizations:approve", input),
-  denyAuthorization: (requestId: string) => ipcRenderer.invoke("connect:authorizations:deny", requestId),
   signIn: () => ipcRenderer.invoke("connect:account:sign-in"),
   reopenSignIn: () => ipcRenderer.invoke("connect:account:reopen-sign-in"),
   signOut: () => ipcRenderer.invoke("connect:account:sign-out"),
-  accessSnapshot: () => ipcRenderer.invoke("connect:access:snapshot"),
-  setAccessPaused: (paused: boolean) => ipcRenderer.invoke("connect:access:pause", paused),
-  renameComputer: (name: string) => ipcRenderer.invoke("connect:account:rename-computer", name),
-  createGrant: (input: { applicationId: string; collectionId: string; operations: string[] }) =>
-    ipcRenderer.invoke("connect:grants:create", input),
-  updateGrant: (input: { grantId: string; operations: string[] }) =>
-    ipcRenderer.invoke("connect:grants:update", input),
-  revokeGrant: (grantId: string) => ipcRenderer.invoke("connect:grants:revoke", grantId),
-  listActivity: (limit = 100) => ipcRenderer.invoke("connect:activity:list", limit),
-  hostedSnapshot: () => ipcRenderer.invoke("connect:hosted:snapshot"),
-  createHostedCollection: (input: { name: string; timezone: string }) =>
-    ipcRenderer.invoke("connect:hosted:create", input),
-  renameHostedCollection: (input: { collectionId: string; name: string }) =>
-    ipcRenderer.invoke("connect:hosted:rename", input),
-  deleteHostedCollection: (collectionId: string) =>
-    ipcRenderer.invoke("connect:hosted:delete", collectionId),
-  updateHostedGrant: (input: { grantId: string; operations: string[] }) =>
-    ipcRenderer.invoke("connect:hosted:grant-update", input),
-  revokeHostedGrant: (grantId: string) =>
-    ipcRenderer.invoke("connect:hosted:grant-revoke", grantId),
-  revokeHostedReplica: (replicaId: string) =>
-    ipcRenderer.invoke("connect:hosted:replica-revoke", replicaId),
-  listMirrors: () => ipcRenderer.invoke("connect:mirrors:list"),
-  chooseMirrorFolder: () => ipcRenderer.invoke("connect:mirrors:choose-folder"),
-  connectMirror: (input: {
-    collectionId: string;
-    path: string;
-    mode: "read_only" | "read_write";
-    name?: string;
-    selectiveSync: DesktopSelectiveSyncPolicy;
-  }) => ipcRenderer.invoke("connect:mirrors:connect", input),
-  syncMirror: (replicaId: string) => ipcRenderer.invoke("connect:mirrors:sync", replicaId),
-  configureMirrorSelectiveSync: (input: {
-    replicaId: string;
-    selectiveSync: DesktopSelectiveSyncPolicy;
-  }) => ipcRenderer.invoke("connect:mirrors:configure-selective-sync", input),
-  reviewMirrorConflict: (input: { replicaId: string; objectId: string; decisionId: string }) =>
-    ipcRenderer.invoke("connect:mirrors:review-conflict", input),
-  resolveMirrorConflict: (input: {
-    replicaId: string;
-    objectId: string;
-    decisionId: string;
-    resolution: "local" | "remote";
-  }) => ipcRenderer.invoke("connect:mirrors:resolve", input),
-  promoteMirrorAuthority: (replicaId: string) =>
-    ipcRenderer.invoke("connect:mirrors:promote", replicaId),
-  disconnectMirror: (replicaId: string) =>
-    ipcRenderer.invoke("connect:mirrors:disconnect", replicaId),
-  openMirror: (replicaId: string) => ipcRenderer.invoke("connect:mirrors:open", replicaId),
+  listAccess: () => ipcRenderer.invoke("connect:access:list"),
+  approveAccess: (grant: string) => ipcRenderer.invoke("connect:access:approve", grant),
+  acknowledgeAccess: (grant: string) => ipcRenderer.invoke("connect:access:ack", grant),
+  denyAccess: (grant: string) => ipcRenderer.invoke("connect:access:deny", grant),
+  revokeAccess: (grant: string) => ipcRenderer.invoke("connect:access:revoke", grant),
+  getSettings: () => ipcRenderer.invoke("connect:settings:get"),
+  setRequireApproval: (on: boolean) => ipcRenderer.invoke("connect:settings:require-approval", on),
   onNavigate: (listener: (route: string) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, route: string) => listener(route);
     ipcRenderer.on("connect:navigate", handler);
