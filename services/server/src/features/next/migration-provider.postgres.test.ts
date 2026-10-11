@@ -36,7 +36,7 @@ suite("migration provider fronts (isolated real PostgreSQL, synthetic provider)"
     const app = Fastify();
     registerMigrationProviderRoutes(app, { db, token, provider: {
       legacyMigrationDrain: async (id, options) => { expect(id).toBe(collection); expect(options?.deadline).toBeGreaterThan(Date.now()); reads++; await readAwait?.(); if (unavailable) throw new HostedProviderResponseError(503, "synthetic", "private-provider-error"); return { ...source }; },
-      legacyMigrationFence: async (id, options) => { expect(id).toBe(collection); expect(options?.deadline).toBeGreaterThan(Date.now()); fences++; Object.assign(source, fenced); await fenceAwait?.(); return { ...fenced }; }
+      legacyMigrationFence: async (id, options) => { expect(id).toBe(collection); expect(options?.deadline).toBeGreaterThan(Date.now()); fences++; Object.assign(source, { state: fenced.state, migration_id: fenced.migration_id, started_at: fenced.started_at, retain_until: fenced.retain_until }); await fenceAwait?.(); return { ...fenced }; }
     } });
     const request = (fence = true, authorization = `Bearer ${token}`, body: unknown = {}) => app.inject({
       method: fence ? "POST" : "GET", url: `/internal/v1/next/migration/collections/${collection}/${fence ? "fence" : "source"}`,
@@ -101,6 +101,38 @@ suite("migration provider fronts (isolated real PostgreSQL, synthetic provider)"
       if (mode === "unavailable") f.unavailable = true;
       const result = await f.request(); expect(result.statusCode, result.body).toBe(["foreign-source", "unavailable"].includes(mode) ? 503 : 409);
       expect(f.fences).toBe(0); expect(result.body).not.toContain("private-provider-error");
+    } finally { await f.app.close(); }
+  });
+  it.each(["run", "start"])("refuses a provider run changed across the fence await: %s", async field => {
+    const f = await fixture(); try {
+      Object.assign(f.source, { state: "migrating", migration_id: f.fenced.migration_id, started_at: f.fenced.started_at });
+      f.fenceAwait = async () => {
+        if (field === "run") f.fenced.migration_id = randomUUID();
+        else f.fenced.started_at = new Date(Date.parse(f.fenced.started_at) + 1).toISOString();
+      };
+      const result = await f.request();
+      expect(result.statusCode, result.body).toBe(409);
+      expect(result.json().error.code).toBe("migration_source_changed");
+      expect(f.fences).toBe(1); // The completed effect is not undone or relabelled.
+      expect((await db.query("SELECT 1 FROM audit_events WHERE subject_id=$1", [f.collection])).rows).toEqual([]);
+    } finally { await f.app.close(); }
+  });
+  it.each(["run", "start"])("refuses an active provider with residual migration identity before fencing: %s", async field => {
+    const f = await fixture(); try {
+      if (field === "run") f.source.migration_id = f.fenced.migration_id;
+      else f.source.started_at = f.fenced.started_at;
+      const result = await f.request();
+      expect(result.statusCode, result.body).toBe(409);
+      expect(f.fences).toBe(0);
+    } finally { await f.app.close(); }
+  });
+  it("refuses a malformed provider outcome without a successful fence audit", async () => {
+    const f = await fixture(); try {
+      f.fenceAwait = async () => { f.fenced.migration_id = "00000000-0000-0000-0000-000000000000"; };
+      const result = await f.request();
+      expect(result.statusCode, result.body).toBe(503);
+      expect(f.fences).toBe(1);
+      expect((await db.query("SELECT 1 FROM audit_events WHERE subject_id=$1", [f.collection])).rows).toEqual([]);
     } finally { await f.app.close(); }
   });
   it("allows started internal migration while preserving suspension and every user access denial", async () => {
