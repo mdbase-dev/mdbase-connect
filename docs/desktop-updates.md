@@ -37,8 +37,17 @@ can be verified, the check fails visibly. The installation records the highest
 signed release it has observed. A replayed
 older manifest cannot cause a downgrade. A release can name bad installed
 versions in `blocked_versions`; those installations bypass staged rollout so a
-signed recovery release reaches them immediately. A target must never block
-itself.
+signed recovery release reaches them immediately, and the app on such a version
+says that it is no longer supported and that the update must be installed. A
+target must never block itself.
+
+`config/desktop-update-minimum.json` sets the minimum supported version. The
+release workflow lists every published version below it in `blocked_versions`,
+so the manifest schema is unchanged and apps already installed read it. The
+first release with the bundled mdbase daemon sets the minimum to itself: an
+older app runs the old Connect daemon, which can write to the same folders as
+the new one. The new daemon also closes folders it took over while an old
+Connect daemon runs, for apps too old to check for updates.
 
 ## Rollout
 

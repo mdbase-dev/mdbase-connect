@@ -529,13 +529,20 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           rollout="${UPDATE_ROLLOUT_PERCENTAGE:-100}"
+          # Versions below the committed minimum must update (they bypass rollout).
+          minimum="$(node -p "require('./config/desktop-update-minimum.json').minimum_version")"
+          published="$(git ls-remote --tags --refs origin 'v*' | sed -n 's|.*refs/tags/v||p' \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' | tr '\n' ' ')"
+          test -n "$published"
           node scripts/generate-update-manifest.mjs \
             --directory release-artifacts \
             --output release-artifacts/mdbase-connect-channel-v1.json \
             --version "$version" \
             --repository "$GITHUB_REPOSITORY" \
             --rollout "$rollout" \
-            --blocked-versions "${UPDATE_BLOCKED_VERSIONS:-}"
+            --blocked-versions "${UPDATE_BLOCKED_VERSIONS:-}" \
+            --minimum-version "$minimum" \
+            --published-versions "$published"
           cp \
             release-artifacts/mdbase-connect-channel-v1.json \
             release-artifacts/mdbase-connect-update.json

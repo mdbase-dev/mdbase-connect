@@ -39,6 +39,8 @@ export interface DesktopUpdateStatus {
   release_url?: string;
   can_check: boolean;
   can_install: boolean;
+  /** This version is no longer supported: the update must be installed. */
+  required?: true;
   /** The bundled daemon was rolled back to the previous version; why. */
   daemon_notice?: string;
 }
@@ -59,6 +61,7 @@ export interface UpdateBackend {
 }
 
 const NEWEST = "This is the newest release on the selected channel.";
+const UNSUPPORTED = "This version of mdbase is no longer supported.";
 
 export class UpdateCoordinator {
   private readonly listeners = new Set<(status: DesktopUpdateStatus) => void>();
@@ -198,6 +201,7 @@ export class UpdateCoordinator {
           can_install: false
         });
       } else if (decision.target.mode === "automatic") {
+        const required = decision.required ? { required: true as const } : {};
         const downloading = `Downloading verified version ${manifest.version}…`;
         this.setStatus({ phase: "downloading", ...found, progress: 0, message: downloading, can_check: false, can_install: false });
         await this.backend.stageAutomatic(manifest, decision.target, (progress) => {
@@ -208,7 +212,10 @@ export class UpdateCoordinator {
           phase: "ready",
           ...found,
           progress: 100,
-          message: `Version ${manifest.version} is verified and ready to install.`,
+          ...required,
+          message: decision.required
+            ? `${UNSUPPORTED} Version ${manifest.version} is verified; install it now.`
+            : `Version ${manifest.version} is verified and ready to install.`,
           can_check: true,
           can_install: true
         });
@@ -217,9 +224,10 @@ export class UpdateCoordinator {
         this.setStatus({
           phase: "external",
           ...found,
-          message: decision.target.mode === "store"
+          ...(decision.required ? { required: true as const } : {}),
+          message: (decision.required ? `${UNSUPPORTED} ` : "") + (decision.target.mode === "store"
             ? `Version ${manifest.version} is available through the Microsoft Store.`
-            : `Version ${manifest.version} is available through the signed package channel.`,
+            : `Version ${manifest.version} is available through the signed package channel.`),
           can_check: true,
           can_install: true
         });

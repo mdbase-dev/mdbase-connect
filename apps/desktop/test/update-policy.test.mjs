@@ -147,23 +147,22 @@ test("rollout cohorts are stable and manual checks can opt in", () => {
   );
 });
 
-test("blocked installed versions bypass rollout while withdrawn targets fail closed", () => {
+test("blocked installed versions bypass rollout and must update; withdrawn targets fail closed", () => {
   const emergency = parseUpdateManifest(
     manifest({
       rollout: { percentage: 0, seed: "emergency" },
       blocked_versions: ["0.1.0-beta.8"]
     })
   );
-  assert.equal(
-    decideUpdate({
-      manifest: emergency,
-      currentVersion: "0.1.0-beta.8",
-      channel: "beta",
-      platformKey: "darwin-arm64",
-      installationId: "outside-cohort"
-    }).kind,
-    "available"
-  );
+  const forced = decideUpdate({
+    manifest: emergency,
+    currentVersion: "0.1.0-beta.8",
+    channel: "beta",
+    platformKey: "darwin-arm64",
+    installationId: "outside-cohort"
+  });
+  assert.equal(forced.kind, "available");
+  assert.equal(forced.required, true);
   const withdrawn = parseUpdateManifest(
     manifest({ blocked_versions: ["0.1.0-beta.9"] })
   );

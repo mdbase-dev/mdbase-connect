@@ -208,7 +208,9 @@ Set `UPDATE_ROLLOUT_PERCENTAGE` on the `desktop-release` environment to a number
 from 0 through 100; it defaults to 100. Set `UPDATE_BLOCKED_VERSIONS` to a
 comma-separated list of exact versions only when a higher recovery release
 must bypass rollout for affected installations. Both values are captured in
-the signed manifest and require a new immutable tag to change.
+the signed manifest and require a new immutable tag to change. Every published
+version below `config/desktop-update-minimum.json` is added to the blocked list
+automatically; raise it only when older apps must not keep running.
 
 Before publishing a version, record the exact `mdbase-rs` revision, run the
 local protocol-1, relay, sync, and production-provider end-to-end suites,
