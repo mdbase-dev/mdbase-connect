@@ -311,8 +311,8 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
     expect((await db.query("SELECT bool_and(revoked_at IS NOT NULL) AS revoked FROM access_tokens WHERE grant_id=$1", [grant])).rows[0].revoked).toBe(true);
     expect((await db.query("SELECT 1 FROM installation_collection_scopes WHERE collection_id=$1", [f.collection])).rows).toEqual([]);
     expect((await db.query("SELECT 1 FROM next_background_grants WHERE collection_id=$1 AND revoked_at IS NULL", [f.collection])).rows).toEqual([]);
-    expect((await rename(f)).statusCode).toBe(404);
-    expect((await remove(f)).statusCode).toBe(404);
+    // An installation has also lost its scope, so it is refused before lookup.
+    for (const again of [await rename(f), await remove(f)]) expect(again.statusCode).toBe(installation ? 403 : 404);
     // Soft delete: the collection's row and label are retained, unreachable.
     expect(await name(f.collection)).toBe("Initial label");
   });
