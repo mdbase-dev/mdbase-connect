@@ -338,7 +338,9 @@ async function declaredReturnUrl(db: DatabaseQueryable, appId: string, returnUrl
   const app = await findInstallationApplication(db, appId);
   const declaration = app?.application_declaration;
   const declared = declaration ? declaration.distribution === "portable" ? [] : declaration.redirect_uris : app?.redirect_uris ?? [];
-  return declared.includes(returnUrl) ? returnUrl : null;
+  // Exact string match only (RFC 8252 §8.10). A '*' is never honoured, even on a
+  // row registered before manifests refused wildcards.
+  return !returnUrl.includes("*") && declared.includes(returnUrl) ? returnUrl : null;
 }
 export async function selectInstallationAccount(
   db: DatabasePool,
