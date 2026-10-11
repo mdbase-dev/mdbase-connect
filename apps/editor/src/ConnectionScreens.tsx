@@ -10,8 +10,14 @@ import { FeedbackButton, FeedbackBug, useFeedback } from "@mdbase-dev/ui/feedbac
 import "@mdbase-dev/ui/feedback.css";
 import { Dialog } from "./Dialog";
 import type { ConnectionSummary } from "./model";
+import { NativeSignInControls, type NativeConnectScreenProps } from "./NativeSignInControls";
 
-export function ConnectScreen({ notice, missingCapabilities = [], connections, onConnect, onOpen, onForget, actionLabel, hideSavedConnections = false, fatal = false }: {
+export function ConnectScreen(props: LegacyConnectScreenProps | NativeConnectScreenProps) {
+  if ("nativeSignIn" in props) return <NativeSignInControls key={props.nativeSignIn.binding.viewKey} {...props} />;
+  return <LegacyConnectScreen {...props} />;
+}
+
+interface LegacyConnectScreenProps {
   notice?: string;
   missingCapabilities?: string[];
   connections: ConnectionSummary[];
@@ -21,7 +27,9 @@ export function ConnectScreen({ notice, missingCapabilities = [], connections, o
   actionLabel?: string;
   hideSavedConnections?: boolean;
   fatal?: boolean;
-}) {
+}
+
+function LegacyConnectScreen({ notice, missingCapabilities = [], connections, onConnect, onOpen, onForget, actionLabel, hideSavedConnections = false, fatal = false }: LegacyConnectScreenProps) {
   const updatingAccess = missingCapabilities.length > 0;
   return <ConnectLayout
     app="editor"
