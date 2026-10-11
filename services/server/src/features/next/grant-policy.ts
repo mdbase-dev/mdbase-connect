@@ -43,7 +43,7 @@ export async function assertNextGrantPermissions(db: DatabaseQueryable, grantId:
   const result = await db.query<{ semantic: number | null; file_capability: FileCapability | null }>(
     `SELECT (g.application_authorization->'binding'->'contracts'->>'semantic_capabilities')::int AS semantic, g.file_capability
      FROM grants g LEFT JOIN collections col ON col.id = g.collection_id
-     JOIN next_collections nc ON nc.collection_id::text = COALESCE(col.local_id::text, g.hosted_collection_id::text)
+     JOIN next_collections nc ON nc.collection_id::text = COALESCE(col.local_id::text, g.hosted_collection_id::text, g.next_collection_id::text)
      WHERE g.id = $1 AND nc.runtime = 'next' AND nc.left_sync_at IS NULL`, [grantId]
   );
   const row = result.rows[0];
@@ -89,7 +89,7 @@ export async function queueNextGrantPolicy(db: DatabaseQueryable, grantId: strin
             g.application_authorization->'binding'->>'application_declaration_id' AS declaration, k.client_pk
      FROM grants g
      LEFT JOIN collections col ON col.id = g.collection_id
-     JOIN next_collections nc ON nc.collection_id::text = COALESCE(col.local_id::text, g.hosted_collection_id::text)
+     JOIN next_collections nc ON nc.collection_id::text = COALESCE(col.local_id::text, g.hosted_collection_id::text, g.next_collection_id::text)
      LEFT JOIN next_grant_client_keys k ON k.grant_id = g.id
      WHERE g.id = $1 AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL
        AND nc.runtime = 'next' AND nc.left_sync_at IS NULL`, [grantId]

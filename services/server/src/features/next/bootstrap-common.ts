@@ -3,7 +3,7 @@
 // bounded transactions, enrolment lookups and refusals.
 import { verify } from "node:crypto";
 import type { FastifyReply } from "fastify";
-import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
+import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireCollectionNotDeleted } from "./collection-deletion.js";
 import { ed25519PublicKeyObject } from "./policy-keys.js";
@@ -121,7 +121,7 @@ export const exactEnrolment = (device: string, account: string, d: Device) => JS
 }]);
 
 /** A historical enrolment is never current once the device has been revoked. */
-export async function refuseRevoked(client: DatabaseConnection, collection: string, device: string): Promise<void> {
+export async function refuseRevoked(client: DatabaseQueryable, collection: string, device: string): Promise<void> {
   const revoked = await client.query(
     "SELECT 1 FROM next_policy_outbox WHERE collection_id = $1 AND ops->'ops' @> $2::jsonb LIMIT 1",
     [collection, JSON.stringify([{ op: "device-revoke", device }])]
@@ -159,7 +159,7 @@ export function refuse(reply: FastifyReply, error: unknown, message: string) {
  * the log. Queued/lost removals deny immediately; a pending member-set is
  * not. One row at most, projected in SQL.
  */
-export async function currentMember(client: DatabaseConnection, collection: string, account: string, requiredRole?: "owner"): Promise<void> {
+export async function currentMember(client: DatabaseQueryable, collection: string, account: string, requiredRole?: "owner"): Promise<void> {
   const latest = await client.query<{ op: string; role: string }>(
     `SELECT e.value->>'op' AS op, e.value->>'role' AS role
        FROM next_policy_outbox o

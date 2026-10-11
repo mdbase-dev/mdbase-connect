@@ -171,6 +171,7 @@ export function registerAccountOverviewRoute(
               CASE
                 WHEN g.revoked_at IS NULL THEN 'active'
                 WHEN g.hosted_replica_id IS NULL AND g.hosted_collection_id IS NULL
+                  AND g.next_collection_id IS NULL
                   AND g.revocation_confirmed_at IS NULL THEN 'revoking'
                 WHEN g.id IN (
                   SELECT job.grant_id FROM provider_revocation_jobs job
@@ -180,17 +181,18 @@ export function registerAccountOverviewRoute(
               END AS revocation_status,
               CASE WHEN g.application_origin = '' THEN a.homepage
                    ELSE g.application_origin END AS application_origin,
-              COALESCE(col.local_id, g.hosted_collection_id) AS collection_id,
+              COALESCE(col.local_id, g.hosted_collection_id, g.next_collection_id) AS collection_id,
               a.id AS application_id,
               a.family_identity AS application_family_id,
               a.distribution, a.name AS application_name,
               a.homepage, a.project_url, a.icon, a.requirements,
-              COALESCE(col.display_name, hosted.display_name) AS collection_name,
-              CASE WHEN g.hosted_collection_id IS NULL THEN 'local' ELSE 'hosted' END AS collection_kind
+              COALESCE(col.display_name, hosted.display_name, native.display_name) AS collection_name,
+              CASE WHEN g.next_collection_id IS NOT NULL THEN 'private' WHEN g.hosted_collection_id IS NULL THEN 'local' ELSE 'hosted' END AS collection_kind
        FROM grants g
        JOIN applications a ON a.id = g.application_id
        LEFT JOIN collections col ON col.id = g.collection_id
        LEFT JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
+       LEFT JOIN next_collections native ON native.collection_id = g.next_collection_id
        WHERE g.user_id = $1
          AND (g.activated_at IS NOT NULL OR g.revoked_at IS NOT NULL)
        ORDER BY g.created_at DESC`,

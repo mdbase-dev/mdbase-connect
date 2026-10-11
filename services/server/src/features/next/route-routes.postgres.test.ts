@@ -51,14 +51,16 @@ describePostgres("mdbase-next route endpoint", () => {
   it("routes a keyed grant to its daemon through the relay", async () => {
     const { id, route } = await grantWithToken();
     await db.query("INSERT INTO next_grant_client_keys(grant_id, client_pk) VALUES($1,$2)", [id, randomBytes(32)]);
-    expect((await route()).json()).toEqual({ collection: id, grant: id, targets: [], reason: "no_device_registered" });
+    expect((await route()).json()).toEqual({ collection: id, grant: id, targets: [], reason: "no_device_registered",
+      availability: { state: "unavailable", reason: "no_device_registered" } });
     const device = randomUUID();
     const noisePk = randomBytes(32);
     await db.query("INSERT INTO next_devices(id, connector_id, user_id, kind, sign_pk, kem_pk, noise_pk) VALUES($1,$2,$3,'desktop',$4,$5,$6)",
       [device, id, id, randomBytes(32), randomBytes(32), noisePk]);
     expect((await route()).json()).toEqual({
       collection: id, grant: id,
-      targets: [{ kind: "desktop", device, noise_pk: noisePk.toString("hex"), url: "wss://connect.example/v1/next/relay/client", online: false, relay_collection: id }]
+      targets: [{ kind: "desktop", device, noise_pk: noisePk.toString("hex"), url: "wss://connect.example/v1/next/relay/client", online: false, relay_collection: id }],
+      availability: { state: "unavailable", reason: "device_offline" }
     });
     await db.query("UPDATE connectors SET latest_policy_ack_at = now(), latest_policy_ack_generation = relay_generation WHERE id = $1", [id]);
     // A recent policy ACK is not proof that this device's Noise socket is bound.
@@ -67,7 +69,7 @@ describePostgres("mdbase-next route endpoint", () => {
     const owner = await broker.bind({ connectorId: id, generation: String(generation),
       handle: async (command) => ({ version: 1, ok: true, value: command.kind === "device_presence" && (command.message as { device_id: string }).device_id === device }),
       handleBinary: async () => ({ version: 1, ok: true, value: new Uint8Array() }), replaced: () => {} });
-    expect((await route()).json().targets[0].online).toBe(true);
+    expect((await route()).json()).toMatchObject({ targets: [{ online: true }], availability: { state: "available" } });
     await db.query("UPDATE connectors SET relay_generation = relay_generation + 1 WHERE id = $1", [id]);
     expect((await route()).json().targets[0].online).toBe(false);
     await owner.close();

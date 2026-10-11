@@ -198,7 +198,7 @@ export function deviceBindDigest(connectorId: string, sessionId: string, nonce: 
  * did not offer `next_device_v1`.
  */
 export class NextRelayDevices {
-  private readonly sockets = new WeakMap<WebSocket, { nonce: Buffer; pipes: boolean; deviceId?: string }>();
+  private readonly sockets = new WeakMap<WebSocket, { nonce: Buffer; pipes: boolean; deviceId?: string; oldConnectorRunning: boolean }>();
 
   constructor(private readonly db: DatabasePool, private readonly pipes?: NoisePipes) {}
 
@@ -222,10 +222,11 @@ export class NextRelayDevices {
   }
 
   /** Extra `relay_welcome` fields: a fresh nonce when the connector offered the capability. */
-  welcome(socket: WebSocket, capabilities: readonly string[]): { device_nonce?: string } {
+  /** `oldConnectorRunning` is the daemon's `relay_hello` report, held in memory for this socket only. */
+  welcome(socket: WebSocket, capabilities: readonly string[], oldConnectorRunning = false): { device_nonce?: string } {
     if (!this.negotiated(capabilities)) return {};
     const nonce = randomBytes(32);
-    this.sockets.set(socket, { nonce, pipes: this.pipes !== undefined && capabilities.includes(NOISE_PIPE_CAPABILITY) });
+    this.sockets.set(socket, { nonce, pipes: this.pipes !== undefined && capabilities.includes(NOISE_PIPE_CAPABILITY), oldConnectorRunning });
     return { device_nonce: nonce.toString("hex") };
   }
 
@@ -260,7 +261,9 @@ export class NextRelayDevices {
         || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(body.device_id)) {
       return { version: 1, ok: false, error: { kind: "internal", code: "invalid_broker_command", message: "The relay command was invalid." } };
     }
-    return { version: 1, ok: true, value: this.pipes?.isBound(socket, generation, body.device_id) ?? false };
+    const bound = this.pipes?.isBound(socket, generation, body.device_id) ?? false;
+    // A bound daemon whose collections are still held by a legacy connector cannot serve them.
+    return { version: 1, ok: true, value: bound, ...(bound && this.sockets.get(socket)?.oldConnectorRunning ? { detail: { old_connector_running: true } } : {}) };
   }
 
   boundDevice(socket: WebSocket): string | undefined {

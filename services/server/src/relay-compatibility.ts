@@ -24,6 +24,8 @@ export interface RelayHello {
   connector_version: string;
   capabilities: string[];
   contract_support: ConnectContractSupport;
+  /** The daemon reports that a legacy connector still holds this computer's collections. */
+  old_connector_running?: boolean;
 }
 
 export interface RelayContractMismatch {
@@ -60,7 +62,8 @@ export async function receiveRelayHello(socket: WebSocket): Promise<RelayHello |
               protocol_version: value.protocol_version,
               connector_version: value.connector_version,
               capabilities: value.capabilities as string[],
-              contract_support: value.contract_support
+              contract_support: value.contract_support,
+              ...(value.old_connector_running === true ? { old_connector_running: true } : {})
             }
           : null);
       } catch {

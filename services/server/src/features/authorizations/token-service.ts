@@ -22,6 +22,8 @@ import { authorityUrl } from "../../platform/authority-url.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import { normalizedApplicationOrigin } from "./redirects.js";
 import { CutoverProblemError } from "../next/cutover-problems.js";
+import { resolveNativeCollectionAccess } from "./native-approval-service.js";
+import { requireCollectionNotDeleted } from "../next/collection-deletion.js";
 
 export async function issueApplicationTokens(
   db: DatabaseQueryable,
@@ -56,6 +58,7 @@ export async function issueApplicationTokens(
     local_authority_row_id: string | null;
     collection_name: string;
     hosted_collection_id: string | null;
+    next_collection_id: string | null;
     hosted_replica_id: string | null;
     provider_url: string | null;
     operations: string[];
@@ -75,11 +78,11 @@ export async function issueApplicationTokens(
     hosted_cut_over: boolean;
   }>(
     `SELECT g.user_id,
-            COALESCE(col.local_id, g.hosted_collection_id) AS collection_id,
+            COALESCE(col.local_id, g.hosted_collection_id, g.next_collection_id) AS collection_id,
             g.collection_id AS local_authority_row_id,
             CASE WHEN nc.runtime='next' AND nc.sync IN ('cloud_copy','private') AND nc.left_sync_at IS NULL THEN COALESCE(nc.display_name,'New collection')
                  ELSE COALESCE(col.display_name, hosted.display_name) END AS collection_name,
-            g.hosted_collection_id, g.hosted_replica_id, hosted.provider_url,
+            g.hosted_collection_id, g.next_collection_id, g.hosted_replica_id, hosted.provider_url,
             g.operations, g.scope, g.encryption, g.file_capability,
             g.proof_public_key, g.membership_id, g.membership_policy_id,
             g.membership_policy_revision,
@@ -96,7 +99,7 @@ export async function issueApplicationTokens(
      JOIN applications app ON app.id = g.application_id
      LEFT JOIN collections col ON col.id = g.collection_id
      LEFT JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
-     LEFT JOIN next_collections nc ON nc.collection_id = COALESCE(col.local_id, g.hosted_collection_id)
+     LEFT JOIN next_collections nc ON nc.collection_id = COALESCE(col.local_id, g.hosted_collection_id, g.next_collection_id)
      LEFT JOIN hosted_replicas replica ON replica.id = g.hosted_replica_id
      LEFT JOIN next_migration_collections moved ON moved.collection_id = g.hosted_collection_id
      WHERE g.id = $1 AND g.revoked_at IS NULL
@@ -137,6 +140,21 @@ export async function issueApplicationTokens(
         grant.rows[0].user_id,
         grant.rows[0].local_authority_row_id
       ),
+      "application.authorize"
+    );
+  } else if (grant.rows[0].next_collection_id) {
+    // A Private native collection: the same authority check as consent (a current
+    // member with application.authorize on a synced Private collection).
+    try {
+      await requireCollectionNotDeleted(db, grant.rows[0].next_collection_id);
+    } catch (error) {
+      if (error instanceof Error && error.message === "collection_deleted") {
+        throw new RequestValidationError("The application grant no longer matches the current collection.");
+      }
+      throw error;
+    }
+    requireCollectionAction(
+      await resolveNativeCollectionAccess(db, grant.rows[0].user_id, grant.rows[0].next_collection_id),
       "application.authorize"
     );
   }
