@@ -199,6 +199,8 @@ describePg("native starter onboarding", () => {
     const other = await account();
     expect((await onboard(other)).statusCode).toBe(200);
     const who = await account();
+    // Reservations are unique; free the other account's UUID so this one can point at its collection.
+    await db.query("UPDATE account_onboarding SET starter_collection_id=$2 WHERE user_id=$1", [other.id, randomUUID()]);
     await db.query("UPDATE account_onboarding SET starter_collection_id=$2 WHERE user_id=$1", [who.id, other.starter]);
     expect((await onboard(who)).json().error.code).toBe("starter_unavailable");
     expect(await owned(who)).toEqual([]);
