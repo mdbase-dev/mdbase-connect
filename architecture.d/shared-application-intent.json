@@ -1,0 +1,9 @@
+{
+  "reason": "Move the existing application authorization compiler into one shared protocol implementation and delete its client copy. The original problem carrier preserves client error constructor identity; unchanged declaration types move out of the barrel to keep those dependencies acyclic. Three protocol modules replace the client compiler and existing inline definitions, with exact net growth and no shared ratchet change.",
+  "growth": {
+    "productionFiles": 2,
+    "relativeImports": 2,
+    "typeScriptExportDeclarations": 3,
+    "packages/protocol": 3
+  }
+}
