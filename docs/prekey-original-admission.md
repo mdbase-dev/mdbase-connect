@@ -2,7 +2,7 @@
 
 This fixed-run source produces authenticated admission **data**, not a native caller witness, serving permission, physical authority or migration authorization. It does not open any required actor. The native consumer must independently authenticate the actual request with LOG `VerifiedCaller`, verify exact originals with `bind_original_caller`, and retain a one-shot challenge bound to its own actor, wake, request and purpose before SQL, keys, custody or Engine access.
 
-## HTTP source
+## HTTP source (v1)
 
 `POST /internal/v1/next/lab-pitr/original-cp-admission` is mounted only with the existing fixed LAB mapping and separate PITR authority credential. The bearer gates this metadata source; it does not prove an original caller. Request body is exactly `{ "collection": "<canonical admitted A or D UUID>", "challenge": "<nonzero 32-byte lowercase hex>" }`, at most 1024 bytes, with no query. No caller-selected owner, root, key, hash, run, role or purpose is accepted.
 
@@ -33,6 +33,66 @@ Claims are at most 2048 bytes; envelope at most 4096. Timestamps are nonnegative
 
 Native decoding must require canonical bytes, exact arities/lengths, no trailing data and no unknown fields. A locally retained challenge must match audience/run/collection and the actual verified CP request; abort, output loss or restart must not recreate it. This source has no portable permit or generic signing endpoint.
 
+## Versioned replay source (v2)
+
+The same endpoint additionally accepts exactly
+`{v:2,collection,challenge,http_nonce,transcript_hash}`. Byte selectors are
+nonzero canonical lowercase 32-byte hex; the body remains at most 1024 bytes.
+They are registration DATA, not authenticated caller facts. V1 remains a separate
+source contract and cannot satisfy a positive v2 witness.
+
+V2 uses `[2,bstr(claims_bytes),CpCert,bstr(signature64)]`, domain
+`mdbase/v2/prekey-original-admission`, and exactly nineteen claims: the old
+seventeen positions with version 2, followed by nonce32 and transcript32.
+The native consumer must match these SIGNED bytes to its retained, genuinely
+MAC/token/PoP-authenticated request and existing HTTP digest, not an HTTP-verb
+substitute or reconstructed JSON. It independently checks the actual token
+issuer, original binder and this-instance context; neither a bearer nor a CP
+signature creates an opaque native caller or witness.
+
+V2 issuance reads PostgreSQL `statement_timestamp()` exactly once **after both
+account and collection locks are held**. That single authoritative reading is
+used for nonce/floor checks, live counts, GC, currentness and signed `issued_at`;
+BEGIN's frozen `now()` is not used as admission time. A fresh PostgreSQL
+statement-time observation after actual COMMIT must still be within the signed
+interval; elapsed process time
+bounds the five-second request budget only. Unknown or failed COMMIT, timeout,
+clock reversal, output loss and duplicates never reissue an old result. Timeout
+does not settle pending database work or release its in-flight accounting.
+
+Outside actor rollback, `next_prekey_http_nonce_uses` has primary key
+`(collection_id,http_nonce)`; owner, transcript and challenge are immutable
+registration values, not uniqueness partitions. It has no deletion cascade.
+A separate persistent per-collection cutoff row first commits without signing;
+subsequent issuance must be strictly after cutoff + 60000 ms + the named 5000 ms
+future-tolerance bound. The floor row is NOT an old-writer drain acknowledgement.
+Loss of clock/authority continuity or an unqualified transition remains a
+positive-serving blocker, including the reverse transition to ordinary mode.
+
+A distinct account advisory-lock namespace (seed 20261011, versus the existing
+collection seed 20261005) precedes the collection lock across replicas. Indexed bounded live counts include nonce expiry equality:
+4096 per collection and 8192 per immutable owner. Local admission permits at most
+four pending calls per process and two per collection, before pool checkout;
+these are not distributed RPS guarantees. Under the same locks, at most 64 rows
+are garbage-collected strictly when nonce expiry is older than that authoritative
+reading minus (60000 + 5000 + 24-hour margin). Unexpired rows and cutoff rows are
+untouched. There is no automatic quota expansion or capacity qualification.
+
+The live ceilings do **not** cap all retained rows: expired rows remain at least
+24 hours plus 65 seconds past expiry, and successful admission transactions are
+the only GC driver. Quiet collections retain expired rows indefinitely; bursts
+or failed admission can extend retention further because GC is bounded to 64
+rows and rolls back with a refused transaction. The existing 120/minute route
+limiter bounds registrations in practice for each effective limiter key and
+process; its aggregate key/replica scope and traffic have not been qualified as
+a global storage bound. At a hypothetical steady aggregate 120/minute, one day
+alone corresponds to about 172800 rows before the extra margin/bursts, not the
+4096 live ceiling. No storage-capacity or measured-rate claim follows.
+
+Required actors still return 503. Actual old-writer/shared-key issuer fencing,
+drain, clock continuity and native receive/current freshness remain independently
+required; topology freeze and stored cutoff data do not prove physical drain.
+
 ## Evidence boundaries
 
-The public synthetic vector in `services/server/src/features/next/fixtures/prekey-original-admission-v1.json` is generated independently with canonical CBOR and Ed25519 reference code, not release trust. Tests exercise real crypto, private production helpers without production exports, the actual HTTP route with substituted SQL, held COMMIT, and refusal paths. They do not qualify managed databases, a native actor bridge, device originals, nil admission, all-five coherence or operations.
+The public synthetic vectors in `services/server/src/features/next/fixtures/prekey-original-admission-v1.json` and `prekey-original-admission-v2.json` are generated independently with canonical CBOR and Ed25519 reference code, not release trust. Tests exercise real crypto, private production helpers without production exports, the actual HTTP route with substituted SQL, held/late COMMIT, timeout and refusal paths. A separately opted-in dedicated local PostgreSQL fixture exercises the actual migration and private replay SQL with concurrent connections, account/collection locking, persistent floor refusal, commit/rollback, inclusive live quotas and strict bounded GC. This local fixture is not a managed CP clock or recovery qualification. None of these tests qualify a native actor bridge, device originals, nil admission, all-five coherence or operations.
