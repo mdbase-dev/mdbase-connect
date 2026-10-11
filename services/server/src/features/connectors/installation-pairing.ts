@@ -281,6 +281,7 @@ export async function inspectInstallationPairing(
   canCreateCollection: boolean,
   authenticated: User,
   collectionHint?: string,
+  returnUrl?: string,
 ) {
   if (authenticated.id !== user) fail("installation_account_changed", 403);
   const identity = portalAccountIdentity(authenticated);
@@ -326,8 +327,18 @@ export async function inspectInstallationPairing(
       retained_create_collections: r.scope_only ? (await db.query<{create_collections:boolean}>("SELECT create_collections FROM installation_device_credentials WHERE connector_id=$1",[r.connector_id])).rows[0]?.create_collections??false : false,
       collections,
       collection_hint: hint,
+      return_url: returnUrl ? await declaredReturnUrl(db, r.app_id, returnUrl) : null,
     },
   };
+}
+/** A URL-carried hand-back after approval, honoured only when it exactly equals
+ * one of the app's declared redirect URIs (its registered app links). It carries
+ * no credential: the app still completes sign-in by polling. */
+async function declaredReturnUrl(db: DatabaseQueryable, appId: string, returnUrl: string): Promise<string | null> {
+  const app = await findInstallationApplication(db, appId);
+  const declaration = app?.application_declaration;
+  const declared = declaration ? declaration.distribution === "portable" ? [] : declaration.redirect_uris : app?.redirect_uris ?? [];
+  return declared.includes(returnUrl) ? returnUrl : null;
 }
 export async function selectInstallationAccount(
   db: DatabasePool,

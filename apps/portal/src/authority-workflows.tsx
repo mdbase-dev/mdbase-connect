@@ -9,6 +9,13 @@ import { Loading, PageBrand } from "./portal-ui";
 import { Select } from "@mdbase-dev/ui/select";
 import "@mdbase-dev/ui/screens.css";
 
+/** Plain label for an exact non-web app origin shown on the consent screen. */
+function appOriginKind(origin: string | undefined): string | null {
+  if (origin?.startsWith("capacitor://")) return "mobile app";
+  if (origin?.startsWith("chrome-extension://")) return "browser extension";
+  return null;
+}
+
 interface DevicePairing {
   connector_name: string;
   approved_at: string | null;
@@ -29,6 +36,7 @@ interface DevicePairing {
   attested?: boolean;
   fingerprint?: string | null;
   app_origin?: string;
+  return_url?: string | null;
   timer_declaration?: {digest:string};
   timer_consent?: boolean | null;
   requested_create_collections?: boolean;
@@ -55,6 +63,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   const [revokingId,setRevokingId] = useState("");
   const generation = useRef(0);
   const dispatching = useRef(false);
+  const handBack = useRef(false);
   const inspectionPath = pairingInspectionPath(pairingId, location.search);
 
   useEffect(() => {
@@ -142,6 +151,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
         location.href = "/";
         return;
       }
+      if (action === "approve") handBack.current = true;
       if(action==="remove-access"){setRevokingId(removingId);setRemovingId("");}
       if (pairing.installation_device) setAttempt((value) => value + 1);
       else if (result.deep_link) setDeepLink(result.deep_link);
@@ -171,6 +181,14 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     }
   }
 
+  // Hand back to the app's declared link once, right after this approval.
+  useEffect(() => {
+    if (handBack.current && pairing?.approved_at && pairing.return_url) {
+      handBack.current = false;
+      location.assign(pairing.return_url);
+    }
+  }, [pairing]);
+
   if (!pairing)
     return (
       <Loading
@@ -191,7 +209,9 @@ export function Pairing({ pairingId }: { pairingId: string }) {
             {pairing.approved_at ? (
               <>
                 <h1>Access approved</h1>
-                <p className="mdbase-connect-lead">Return to {pairing.connector_name}.</p>
+                <p className="mdbase-connect-lead">{pairing.return_url
+                  ? <a href={pairing.return_url}>Return to {pairing.connector_name}</a>
+                  : `Return to ${pairing.connector_name}.`}</p>
                 {pairing.timer_declaration && <p role="status">{pairing.timer_consent
                   ? "You allowed reminders for the selected collections."
                   : "Reminders are off. You can turn them on in the app by approving reminders again."}</p>}
@@ -199,6 +219,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
             ) : (
               <>
                 <h1>Open {pairing.connector_name}</h1>
+                {appOriginKind(pairing.app_origin) && <p className="installation-account-label">Requested by the {pairing.connector_name} {appOriginKind(pairing.app_origin)}.</p>}
                 {pairing.account_upgraded && <p className="mdbase-connect-notice">mdbase was upgraded. Approve {pairing.connector_name} once to continue. Your collections and notes are unchanged.</p>}
                 <p className="mdbase-connect-lead">Choose a collection to use in {pairing.connector_name}. Approve only if you started sign-in in this app.</p>
                 {installationAccountLabel(pairing) ? (
