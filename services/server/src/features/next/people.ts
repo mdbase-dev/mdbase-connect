@@ -1,6 +1,6 @@
 // Shared native people authority: exact registered device, current collection,
 // acknowledged membership/enrolment; installation consent remains additional.
-import type { DatabaseConnection } from "../../database-types.js";
+import type { DatabaseConnection, DatabaseQueryable } from "../../database-types.js";
 import type { ConnectorIdentity } from "../../platform/request-authentication.js";
 import { CreateError, currentCollectionDevice, type Device } from "./bootstrap-common.js";
 import { requireInstallationScope } from "./installation-scope.js";
@@ -19,6 +19,12 @@ export async function nextDevicePeople(client: DatabaseConnection, connector: Co
     if (!user) throw new CreateError(403,"identity_not_current");
     return profile(user);
   }
+  return nativeCollectionMembers(client,collection,issuer);
+}
+
+/** Current members of a native collection, from its acknowledged policy log. */
+export async function nativeCollectionMembers(client: DatabaseQueryable, collection: string, issuer: string) {
+  const profile = (row:{id:string;public_subject:string;name:string}) => ({issuer,subject:row.public_subject,name:row.name,account_id:row.id});
   const members = await client.query<{id:string;public_subject:string;name:string;role:"owner"|"editor"|"viewer"}>(
     `SELECT u.id,u.public_subject,u.name,m.role FROM users u
      JOIN LATERAL (
