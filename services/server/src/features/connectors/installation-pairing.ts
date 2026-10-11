@@ -766,10 +766,10 @@ export async function exchangeInstallationPairing(
   return tx(db, async (c) => {
     const initial = await row(c, id, secret, false, true);
     // A declined file-access request answers its own app with a typed outcome;
-    // every other revoked request stays not found, as before.
+    // every other cancelled request answers as before.
     if (initial.revoked_at) {
       if (initial.file_access_collection_id && !initial.approved_at) return { status: "declined" as const, request_id: initial.id };
-      fail("installation_pairing_not_found", 404);
+      throw new InstallationPairingError(404, "installation_pairing_denied", "This sign-in was cancelled. Start sign-in again from the app.");
     }
     if (!initial.user_id || !initial.account_selected_at) {
       live(initial);
