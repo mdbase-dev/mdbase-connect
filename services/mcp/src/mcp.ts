@@ -58,18 +58,19 @@ export function createMcpServer(
     description: "Return collection metadata, supported operations, types and contracts.",
     inputSchema: { connection_id: connectionId },
     annotations: { readOnlyHint: true, openWorldHint: false }
-  }, ({ connection_id }, { signal }) => operationTool(gateway, context, connection_id, "describe", {}, { signal }));
+  }, ({ connection_id }, { signal }) => operationTool(gateway, oauth, context, connection_id, "describe", {}, { signal }));
 
   server.registerTool("list_changes", {
     title: "List collection changes",
     description: "List changes after an optional collection change cursor. Includes typed_events with record revisions, changed fields and body-change hints when supplied by the authority; unknown events retain their raw payload.",
     inputSchema: {
       connection_id: connectionId,
-      after: z.number().int().nonnegative().optional(),
+      after: z.union([z.number().int().nonnegative(), z.string().min(1).max(200)]).optional()
+        .describe("Change cursor from a previous page or describe_collection"),
       limit: z.number().int().min(1).max(200).optional()
     },
     annotations: { readOnlyHint: true, openWorldHint: false }
-  }, ({ connection_id, ...input }, { signal }) => operationTool(gateway, context, connection_id, "changes", input, { signal }));
+  }, ({ connection_id, ...input }, { signal }) => operationTool(gateway, oauth, context, connection_id, "changes", input, { signal }));
 
   server.registerTool("query_records", {
     title: "Query mdbase records",
@@ -97,7 +98,7 @@ export function createMcpServer(
       contract: z.unknown().optional()
     },
     annotations: { readOnlyHint: true, openWorldHint: false }
-  }, ({ connection_id, ...input }, { signal }) => operationTool(gateway, context, connection_id, "query", input, { signal }));
+  }, ({ connection_id, ...input }, { signal }) => operationTool(gateway, oauth, context, connection_id, "query", input, { signal }));
 
   server.registerTool("release_query_cursor", {
     title: "Release an mdbase query cursor",
@@ -106,6 +107,7 @@ export function createMcpServer(
     annotations: { readOnlyHint: true, openWorldHint: false }
   }, ({ connection_id, cursor }, { signal }) => operationTool(
     gateway,
+    oauth,
     context,
     connection_id,
     "query",
@@ -118,14 +120,14 @@ export function createMcpServer(
     description: "Read one record by its collection-relative path.",
     inputSchema: { connection_id: connectionId, path },
     annotations: { readOnlyHint: true, openWorldHint: false }
-  }, ({ connection_id, path }, { signal }) => operationTool(gateway, context, connection_id, "read", { path }, { signal }));
+  }, ({ connection_id, path }, { signal }) => operationTool(gateway, oauth, context, connection_id, "read", { path }, { signal }));
 
   server.registerTool("validate_collection", {
     title: "Validate an mdbase collection",
     description: "Run collection validation. Optional input is passed to the collection's validation operation.",
     inputSchema: { connection_id: connectionId, input: object.optional() },
     annotations: { readOnlyHint: true, openWorldHint: false }
-  }, ({ connection_id, input }, { signal }) => operationTool(gateway, context, connection_id, "validate", input ?? {}, { signal }));
+  }, ({ connection_id, input }, { signal }) => operationTool(gateway, oauth, context, connection_id, "validate", input ?? {}, { signal }));
 
   server.registerTool("read_type", {
     title: "Read an mdbase type",
@@ -136,13 +138,13 @@ export function createMcpServer(
       path: path.optional()
     },
     annotations: { readOnlyHint: true, openWorldHint: false }
-  }, ({ connection_id, ...input }, { signal }) => operationTool(gateway, context, connection_id, "read_type", input, { signal }));
+  }, ({ connection_id, ...input }, { signal }) => operationTool(gateway, oauth, context, connection_id, "read_type", input, { signal }));
 
-  if (context.scopes.includes("mdbase:write")) registerWriteTools(server, context, gateway);
+  if (context.scopes.includes("mdbase:write")) registerWriteTools(server, context, gateway, oauth);
   return server;
 }
 
-function registerWriteTools(server: McpServer, context: McpAuthContext, gateway: ConnectGateway): void {
+function registerWriteTools(server: McpServer, context: McpAuthContext, gateway: ConnectGateway, oauth: OAuthService): void {
   const updateRecordInput = z.object({
     connection_id: connectionId,
     path,
@@ -169,7 +171,7 @@ function registerWriteTools(server: McpServer, context: McpAuthContext, gateway:
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
   }, ({ connection_id, mutation_id, ...input }, { signal }) => mutationOperationTool(
-    gateway, context, connection_id, "create", input, mutation_id, signal
+    gateway, oauth, context, connection_id, "create", input, mutation_id, signal
   ));
 
   server.registerTool("update_record", {
@@ -178,7 +180,7 @@ function registerWriteTools(server: McpServer, context: McpAuthContext, gateway:
     inputSchema: updateRecordInput,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
   }, ({ connection_id, mutation_id, ...input }, { signal }) => mutationOperationTool(
-    gateway, context, connection_id, "update", input, mutation_id, signal
+    gateway, oauth, context, connection_id, "update", input, mutation_id, signal
   ));
 
   server.registerTool("delete_record", {
@@ -193,7 +195,7 @@ function registerWriteTools(server: McpServer, context: McpAuthContext, gateway:
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
   }, ({ connection_id, mutation_id, ...input }, { signal }) => mutationOperationTool(
-    gateway, context, connection_id, "delete", input, mutation_id, signal
+    gateway, oauth, context, connection_id, "delete", input, mutation_id, signal
   ));
 
   server.registerTool("rename_record", {
@@ -209,7 +211,7 @@ function registerWriteTools(server: McpServer, context: McpAuthContext, gateway:
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
   }, ({ connection_id, mutation_id, ...input }, { signal }) => mutationOperationTool(
-    gateway, context, connection_id, "rename", input, mutation_id, signal
+    gateway, oauth, context, connection_id, "rename", input, mutation_id, signal
   ));
 
   server.registerTool("create_type", {
@@ -223,7 +225,7 @@ function registerWriteTools(server: McpServer, context: McpAuthContext, gateway:
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
   }, ({ connection_id, mutation_id, ...input }, { signal }) => mutationOperationTool(
-    gateway, context, connection_id, "create_type", input, mutation_id, signal
+    gateway, oauth, context, connection_id, "create_type", input, mutation_id, signal
   ));
 
   server.registerTool("update_type", {
@@ -239,12 +241,13 @@ function registerWriteTools(server: McpServer, context: McpAuthContext, gateway:
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
   }, ({ connection_id, mutation_id, ...input }, { signal }) => mutationOperationTool(
-    gateway, context, connection_id, "update_type", input, mutation_id, signal
+    gateway, oauth, context, connection_id, "update_type", input, mutation_id, signal
   ));
 }
 
 function mutationOperationTool(
   gateway: ConnectGateway,
+  oauth: OAuthService,
   context: McpAuthContext,
   connectionId: string,
   operation: CollectionOperation,
@@ -253,7 +256,7 @@ function mutationOperationTool(
   signal: AbortSignal
 ) {
   const requestId = mutationId ?? randomUUID();
-  return operationTool(gateway, context, connectionId, operation, input, {
+  return operationTool(gateway, oauth, context, connectionId, operation, input, {
     signal,
     requestId,
     mutationReceipt: true
@@ -262,6 +265,7 @@ function mutationOperationTool(
 
 async function operationTool(
   gateway: ConnectGateway,
+  oauth: OAuthService,
   context: McpAuthContext,
   connectionId: string,
   operation: CollectionOperation,
@@ -289,6 +293,16 @@ async function operationTool(
       outcome: value
     } : value);
   } catch (error) {
+    // A grant that could not take a Noise key silently: one-click re-approval link.
+    if (error instanceof GatewayOperationError && error.code === "reconnect_required") {
+      const authorizationUrl = await oauth.createConnectionTicket(context, connectionId).catch(() => null);
+      if (authorizationUrl) error = new GatewayOperationError(error.code, error.message, {
+        ...error.details,
+        authorization_url: authorizationUrl,
+        expires_in: 600,
+        instruction: "Ask the user to open this link and approve the collection again, then retry."
+      });
+    }
     const value = error instanceof GatewayOperationError
       ? {
           error: {
