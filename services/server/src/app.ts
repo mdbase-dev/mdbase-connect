@@ -568,7 +568,8 @@ export async function buildApp(options: BuildOptions) {
     registerCollectionLogTokenRoute(app, { db: options.db, log: nextLog });
     registerNoisePipeClientRoute(app, { db: options.db, broker: relayBroker });
     registerNextHostedRoutes(app, { db: options.db, tokens: options.nextControlPlane.serviceTokens, log: nextLog });
-    registerLabPitrRoutes(app, { db: options.db, next: options.nextControlPlane, log: nextLog });
+    registerLabPitrRoutes(app, { db: options.db, next: options.nextControlPlane, log: nextLog,
+      admission: { signer: nextPolicySigner!, audience: new URL(publicUrl).origin, identity: nextLog } });
     registerCollectionMigrationRecordRoute(app, options.db);
     if (options.nextControlPlane.migrationToken) {
       registerMigrationRolloutRoutes(app, { db: options.db, token: options.nextControlPlane.migrationToken, environment: options.environment });

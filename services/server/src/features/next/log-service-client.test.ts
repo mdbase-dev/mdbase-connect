@@ -43,7 +43,7 @@ function fixture() {
 
 describe("log HTTP PoP client interoperability", () => {
   it("exposes detached PITR public CP identity without fetch/sign/token work; absent otherwise",()=>{
-    const ordinary=fixture();expect(ordinary.client.pitrControlIdentity()).toBeNull();
+    const ordinary=fixture();expect(ordinary.client.pitrControlIdentity()).toBeNull();expect(ordinary.client.pitrAdmissionIdentity()).toBeNull();
     const issuer=generateKeyPairSync("ed25519").privateKey,transport=generateKeyPairSync("ed25519").privateKey;
     const client=new LogServiceClient({url:"https://normal.example.test",tokenIssuerKeyPem:issuer.export({format:"pem",type:"pkcs8"}).toString(),
       transportKeyPem:transport.export({format:"pem",type:"pkcs8"}).toString(),labPitr:{run:"gate4-pitr-lab-20261009-01",active:"aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
@@ -53,7 +53,14 @@ describe("log HTTP PoP client interoperability", () => {
     const expected={transportPublicKey:Buffer.from(ed25519RawPublicKey(transport)).toString("hex"),issuerKeyId:Buffer.from(keyId(ed25519RawPublicKey(issuer))).toString("hex")};
     const first=client.pitrControlIdentity()!;expect(first).toEqual(expected);
     (first as {transportPublicKey:string}).transportPublicKey="00".repeat(32);
-    expect(client.pitrControlIdentity()).toEqual(expected);expect(mint).not.toHaveBeenCalled();
+    expect(client.pitrControlIdentity()).toEqual(expected);
+    const admission = { transportPublicKey: expected.transportPublicKey, issuerPublicKey: Buffer.from(ed25519RawPublicKey(issuer)).toString("hex") };
+    const observed = client.pitrAdmissionIdentity()!; expect(observed).toEqual(admission);
+    expect(observed.issuerPublicKey).not.toEqual(observed.transportPublicKey);
+    expect(Buffer.from(keyId(Buffer.from(observed.issuerPublicKey,"hex"))).toString("hex")).toBe(expected.issuerKeyId);
+    (observed as {issuerPublicKey:string}).issuerPublicKey="00".repeat(32);
+    expect(client.pitrAdmissionIdentity()).toEqual(admission);expect(client.pitrControlIdentity()).toEqual(expected);
+    expect(mint).not.toHaveBeenCalled();
   });
   it("matches the independently generated public3809 Rust/Python conformance vector byte-for-byte", async () => {
     const vector = JSON.parse(readFileSync(new URL("./fixtures/log-http-public-vector.json", import.meta.url), "utf8"));
