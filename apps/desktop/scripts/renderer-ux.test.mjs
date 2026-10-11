@@ -147,6 +147,8 @@ test("create needs a name and a location, and sends both", async () => {
     await submit.click();
     await page.getByText("[test] Workouts was created.", { exact: true }).waitFor();
     assert.deepEqual(await calls("createCollection"), [[{ parent: "/disposable/parent", name: "[test] Workouts" }]]);
+    await nav(page, "Settings").click();
+    assert.equal(await page.getByText("[test] Workouts was created.", { exact: true }).count(), 0, "confirmations do not follow you to other views");
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });

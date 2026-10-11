@@ -158,6 +158,8 @@ function App() {
   const connection = presentConnection(status, checked);
   const copy = routeCopy[route];
   const selectRoute = (next: Route) => {
+    // A confirmation belongs to the view it was shown in.
+    if (next !== route) setNotice(null);
     setRoute(next);
     setNavigationOpen(false);
   };
