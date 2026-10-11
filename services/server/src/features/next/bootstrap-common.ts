@@ -157,9 +157,9 @@ export function refuse(reply: FastifyReply, error: unknown, message: string) {
  * The account is a current member of the collection: its latest effective membership
  * op (native batch position, then row/op order) is a member-set acknowledged by
  * the log. Queued/lost removals deny immediately; a pending member-set is
- * not. One row at most, projected in SQL.
+ * not. One row at most, projected in SQL. Returns the current role.
  */
-export async function currentMember(client: DatabaseQueryable, collection: string, account: string, requiredRole?: "owner"): Promise<void> {
+export async function currentMember(client: DatabaseQueryable, collection: string, account: string, requiredRole?: "owner"): Promise<string> {
   const latest = await client.query<{ op: string; role: string }>(
     `SELECT e.value->>'op' AS op, e.value->>'role' AS role
        FROM next_policy_outbox o
@@ -176,6 +176,7 @@ export async function currentMember(client: DatabaseQueryable, collection: strin
   );
   if (latest.rows[0]?.op !== "member-set") throw new CreateError(409, "not_member");
   if (requiredRole !== undefined && latest.rows[0].role !== requiredRole) throw new CreateError(403, "not_owner");
+  return latest.rows[0].role;
 }
 
 /** Exact current native device authority, shared by People and background work.

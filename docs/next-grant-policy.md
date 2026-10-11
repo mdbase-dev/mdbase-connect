@@ -45,6 +45,8 @@ Routing for a Private grant considers only desktop and CLI devices of the granti
 | `unavailable`, `access_removed` | The account is no longer a member of the collection. |
 | `unavailable`, `sync_required` | The grant's legacy collection was taken over by a native collection, or the collection left Private sync or was deleted. The app must be set up again. |
 
+A native Private entry of `/v1/next/apps/collections` also carries `role` (`owner`, `editor` or `viewer`) while the account is a current member; it is omitted in every other case (removed, left Private sync, deleted, or an unknown role). It is for display and UI gating only: every action is still checked where it lands.
+
 A member's grant is bound to the membership policy it was approved under: removing the member, or changing their role, revokes it (and its log grant). Re-adding the member needs new consent. Token refresh repeats the consent authority check (`application.authorize` on a current Private collection).
 
 **Deploy order.** A server version older than this change refreshes a native grant's tokens without the collection checks (the tokens open nothing on that version, but would on a newer one). Roll the new server out fully before any native grant is created. Any future change that moves a collection from Private to cloud copy must revoke its native grants first.

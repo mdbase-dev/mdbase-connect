@@ -20,6 +20,7 @@ export type { RouteTarget } from "./hosted-route-target.js";
 import { pitrCollection, type LabPitrConfig } from "./lab-pitr-config.js";
 import { grantDeviceApproval } from "./grant-approval.js";
 import { nativeDevices, nativeGrant, nativeGrantStanding, supersededLegacyGrant } from "./native-grant-target.js";
+import { CreateError, currentMember } from "./bootstrap-common.js";
 
 /** Whether the app can open the collection now and, if not, why (SDK describeError reasons). */
 export type RouteAvailability =
@@ -209,9 +210,17 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
     const rows = grants.rows.filter((row) => !row.superseded || !nativeCollections.has(row.collection));
     const collections = await Promise.all(rows.map(async (row) => {
       let availability: RouteAvailability | undefined;
+      let role: string | null = null;
       if (row.superseded) availability = { state: "unavailable", reason: "sync_required" };
       else if (row.native && row.routable) {
         const standing = await nativeGrantStanding(options.db, row.collection, self.user_id);
+        // Display and UI gating only; every action is still checked where it lands.
+        if (standing === "current") {
+          role = await currentMember(options.db, row.collection, self.user_id).catch((error: unknown) => {
+            if (error instanceof CreateError) return null; // left between the two reads: omit
+            throw error;
+          });
+        }
         availability = standing === "current"
           ? await deviceAvailability(options.db, await deviceCandidates(options.broker,
             (await nativeDevices(options.db, row.collection, self.user_id)).map((device) => ({ ...device, local_id: row.collection })),
@@ -226,7 +235,8 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
         state: row.sync === "cloud_copy" ? "synced" : row.sync === "private" ? "synced_e2e" : "local",
         operations: row.operations,
         routable: row.routable && !row.superseded,
-        ...(availability ? { availability } : {})
+        ...(availability ? { availability } : {}),
+        ...(role === "owner" || role === "editor" || role === "viewer" ? { role } : {})
       };
     }));
     return { collections };

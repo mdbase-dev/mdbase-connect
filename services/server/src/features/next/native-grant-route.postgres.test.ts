@@ -248,6 +248,25 @@ describePostgres("Private native collection grants", () => {
     expect(await nativeAdmission(db, tokenHash(memberGrant.token), shared, memberGrant.logGrant, memberDesktop.id)).toBeNull();
   });
 
+  it("lists the account's current role on a Private collection, and none once access is removed", async () => {
+    const owner = await user();
+    const collection = await privateCollection(owner, []);
+    expect((await (await nativeGrant(owner, collection)).list())[0]).toMatchObject({ collection, role: "owner" });
+    for (const role of ["editor", "viewer"] as const) {
+      const member = await user();
+      await queueNextPolicy(db, collection, [{ op: "member-set", account: member, role }]);
+      await appendPending(collection);
+      const g = await nativeGrant(member, collection);
+      expect((await g.list())[0]).toMatchObject({ collection, role });
+      if (role === "viewer") {
+        await queueNextPolicy(db, collection, [{ op: "member-remove", account: member }]);
+        const [removed] = await g.list();
+        expect(removed).toMatchObject({ collection, availability: { state: "unavailable", reason: "access_removed" } });
+        expect(removed).not.toHaveProperty("role");
+      }
+    }
+  });
+
   it("asks to set up again a grant whose legacy collection was taken over", async () => {
     const owner = await user();
     const legacy = randomUUID();
