@@ -1,6 +1,6 @@
 // Real TimersApi with controlled READ replies; scoped facet tests, not a
 // criteria/delivery producer, browser permission or registration acceptance.
-import type { ApplicationNotifications } from "@mdbase-dev/connect-protocol";
+import { MDBASE_TIMER_FIRED_CONTRACT, type ApplicationNotifications } from "@mdbase-dev/connect-protocol";
 import { afterEach, expect, it, vi } from "vitest";
 import { TimersApi, type AppTimersPort } from "../src/timers.js";
 import {
@@ -159,6 +159,23 @@ it("absent borrowed timer READ is unsupported rather than port-presence READY", 
         problem: { code: "notifications_unsupported" },
     });
     expect(f.list).not.toHaveBeenCalled();
+});
+it("declared timer criteria without approved timers ask for consent", async () => {
+    const f = fixture(),
+        facet = createApplicationNotificationReadiness({
+            ...f.options,
+            notifications: {
+                declaration: {
+                    criteria: [{ ...declaration.criteria[0]!, event: MDBASE_TIMER_FIRED_CONTRACT }],
+                },
+            },
+            timers: undefined,
+        });
+    cleanup.push(facet.close);
+    expect(await facet.start()).toMatchObject({
+        assessment: null,
+        problem: { code: "notifications_consent_required" },
+    });
 });
 it("failed READ clears assessment and exposes only bounded diagnostic code", async () => {
     const f = fixture();

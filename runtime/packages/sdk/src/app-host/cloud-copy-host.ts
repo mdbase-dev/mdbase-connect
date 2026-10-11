@@ -2,6 +2,7 @@
  * Device phase uses the actual persistent browser provider/stores and actual CP
  * registration. No fixture/memory custody or default roots. Collection SQL opens
  * only after ownership + protected completion; native reads gate the data facade. */
+import { currentAppOrigin } from "./app-origin.js";
 import { uuidToBytes } from "../codec.js";
 import { collectionDisplayName } from "./collection-display-name.js";
 import { MdbaseClient } from "../client.js";
@@ -12,6 +13,7 @@ import { AppCpPeopleAuthority } from "./cp-people.js";
 import { attachAppTimerReceiver } from "./timer-port.js";
 import type { PeopleAuthority } from "../people.js";
 import type { AppLogPump } from "./log-pump.js";
+import type { AppServerProblem } from "./cp-problem.js";
 import { attachAppLocalFacade } from "./local-facade.js";
 import {
     AppCpCloudCopyBootstrap,
@@ -159,7 +161,7 @@ export class AppWebCloudCopyHost {
         ])
             if (uuidToBytes(v).every((b) => b === 0)) throw fail("binding");
         if (
-            source.kind !== "app-runtime" ||
+            (source.kind !== "app-runtime" && source.kind !== "mobile") ||
             originalRelease.schema !== "mdbn-app-trust/release/1" ||
             originalRelease.cpOrigin !== source.cpOrigin ||
             originalRelease.logOrigin !== source.logOrigin ||
@@ -211,7 +213,7 @@ export class AppWebCloudCopyHost {
             return (
                 !this.closing &&
                 !this.lifetime.aborted &&
-                globalThis.location?.origin === this.origin &&
+                currentAppOrigin() === this.origin &&
                 this.source.isCurrent === this.currentCallback &&
                 this.source.connectorBearer === this.bearerCallback &&
                 this.installation.isCurrent === this.ownershipCallback &&
@@ -739,6 +741,10 @@ export class AppWebCloudCopyHost {
             }});
         this.timerPorts.add(receiver);
         return Object.freeze({port:channel.port2,close:async()=>{await receiver.close();channel.port2.close();this.timerPorts.delete(receiver);}});
+    }
+    /** The live log's latest specific server refusal, or null. Display only. */
+    serverProblem(): AppServerProblem | null {
+        return this.pump?.serverProblem ?? null;
     }
     /** Ordinary foreground log drive. Quiet/head/ACK/status are NOT read/Saved. */
     async driveCollection(options: { signal: AbortSignal }): Promise<void> {

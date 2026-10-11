@@ -5,14 +5,20 @@
  * ```json
  * {"collection": "…", "grant": "…", "targets": [{"kind": "…", "device": "<uuid>",
  *   "noise_pk": "<64 hex>", "url": "wss://…/v1/next/relay/client", "relay_collection": "…"}],
+ *  "availability": {"state": "unavailable", "reason": "device_offline"},
  *  "reason": "no_device_registered"}
  * ```
+ *
+ * `availability` (Private collections) is advisory; an `unavailable` one fails the
+ * open with {@link collectionUnavailableError}, including the 200 `sync_required`
+ * answer for a grant whose collection must be set up again.
  *
  * `routeFromControl` turns one response into the `RelayRoute` `relayConnector` wants,
  * and `controlRouteResolver` fetches it on every (re)connect, so the three app ports
  * share one mapping.
  */
 import { fromHex } from "../cbor.js";
+import { collectionUnavailableError, parseCollectionAvailability, type CollectionAvailability } from "../collection-availability.js";
 import { mdbaseError } from "../errors.js";
 import type { RelayRoute } from "./relay.js";
 
@@ -28,6 +34,7 @@ export interface ControlRouteResponse {
   collection: string;
   grant: string;
   targets: ControlRouteTarget[];
+  availability?: CollectionAvailability;
   reason?: string;
 }
 
@@ -86,6 +93,8 @@ export function controlRouteResolver(o: ControlRouteOptions): () => Promise<Rela
     }
     if (!res.ok) throw mdbaseError("unavailable", `control plane answered ${res.status}`, "control_error");
     const body = (await res.json()) as ControlRouteResponse;
+    const availability = parseCollectionAvailability(body.availability);
+    if (availability?.state === "unavailable") throw collectionUnavailableError(availability.reason);
     const route = routeFromControl(body, token);
     if (!route && body.reason === "no_device_registered") {
       throw mdbaseError("unavailable", "this collection has no device set up to serve it", "no_device_registered");

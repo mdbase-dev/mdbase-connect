@@ -2,6 +2,7 @@
  * the shared build verifier; it does NOT authenticate arbitrary caller context.
  * Release manifest/tool/asset authentication must precede this selection. */
 import type { AppBundledReleaseTrust } from "./cloud-copy-bootstrap.js";
+import { isAppOrigin } from "./app-origin.js";
 export interface AppEnvironmentSelection {
   readonly environment: "lab" | "production";
   readonly appOrigin: string;
@@ -39,7 +40,8 @@ export function selectAppEnvironment(input: {
       release.trustedRoots.some(root => !(root instanceof Uint8Array) || root.length !== 32 || root.every(b => b === 0)) ||
       !(release.policyPins instanceof Uint8Array) || !release.policyPins.length || release.policyPins.length > 65536) throw invalid();
   const cpOrigin = origin(release.cpOrigin, false), logOrigin = origin(release.logOrigin, false);
-  const appOrigin = origin(input.appOrigin, environment === "lab");
+  const appOrigin = input.appOrigin;
+  if (!isAppOrigin(appOrigin, environment === "lab")) throw invalid();
   const selected = Object.freeze({environment, appOrigin, cpOrigin, logOrigin, assetSha256: release.assetSha256,
     allowLoopbackHttp: new URL(appOrigin).protocol === "http:"});
   selections.add(selected); return selected;

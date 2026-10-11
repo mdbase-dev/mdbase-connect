@@ -42,7 +42,9 @@ for package in "${packages[@]}"; do
   # One package per invocation: features are resolved exactly as `cargo build -p <package>`.
   # Read resolved features on EVERY node, including the root. Feature-edge
   # output alone omits a root feature explicitly enabled by the build caller.
-  enabled=$(cargo tree -p "$package" "${target_args[@]}" "${feature_args[@]}" --locked \
+  # `${a[@]+"${a[@]}"}`: an empty array is unbound under `set -u` in bash 3.2 (macOS).
+  enabled=$(cargo tree -p "$package" ${target_args[@]+"${target_args[@]}"} \
+      ${feature_args[@]+"${feature_args[@]}"} --locked \
       -e normal,build --prefix none --no-dedupe --format '{p}|{f}' |
     awk -F'|' '{ split($1, p, " "); n = split($2, f, ",");
       for (i = 1; i <= n; i++) if (f[i] != "") print p[1], f[i] }' | sort -u)

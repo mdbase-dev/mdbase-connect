@@ -3,6 +3,7 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { decode, encode, type CborValue } from "../cbor.js";
 import { uuidToBytes } from "../codec.js";
 import type { AppLogCall, AppLogTransport } from "./log-pump.js";
+import { appServerBody, appServerOutcome, appServerProblem, isAppServerProblem, type AppServerOutcome, type AppServerProblem } from "./cp-problem.js";
 
 const MAX_FRAME = 16 * 1024 * 1024, MAX_OBJECT = 9 * 1024 * 1024;
 const METHODS = new Set(["append", "read", "head", "subscribe", "unsubscribe", "put_object", "get_object", "has_objects", "put_snapshot", "get_snapshot", "endorse_snapshot", "stream_join", "stream_leave", "stream_send"]);
@@ -10,7 +11,7 @@ const FORBIDDEN = new Set(["host", "content-length", "transfer-encoding", "conne
 const utf8 = new TextEncoder();
 type MapValue = Map<CborValue, CborValue>;
 export class AppHttpLogError extends Error {
-  constructor(readonly reason: "binding" | "fenced" | "shape" | "unavailable" | "integrity") { super(`app log transport: ${reason}`); this.name = "AppHttpLogError"; }
+  constructor(readonly reason: "binding" | "fenced" | "shape" | "unavailable" | "integrity" | AppServerOutcome, readonly server?: AppServerProblem) { super(`app log transport: ${reason}`); this.name = "AppHttpLogError"; }
 }
 const error = (reason: AppHttpLogError["reason"]) => new AppHttpLogError(reason);
 /** A domain-specific proof, never a generic device signer reachable by grant clients. */
@@ -165,11 +166,19 @@ export class AppHttpLogTransport implements AppLogTransport {
     } catch (e) { buf.fill(0); void (reader?.cancel() ?? r.body?.cancel())?.catch(() => {}); throw e; }
     finally { reader?.releaseLock(); this.release(r); }
   }
+  /** Bounded, sanitized server problem (code/reason/retry only). */
+  private async refusal(r: Response, signal: AbortSignal): Promise<AppHttpLogError> {
+    let body: unknown;
+    try { const raw = await this.read(r, 8 * 1024, signal); try { body = appServerBody(raw); } finally { raw.fill(0); } }
+    catch (e) { if (e instanceof AppHttpLogError && e.reason === "fenced") return e; body = undefined; }
+    const server = appServerProblem(r.status, body, r.headers);
+    return new AppHttpLogError(appServerOutcome(server) ?? "unavailable", server);
+  }
   private async rpc(frame: Uint8Array, method: string, id: bigint, signal: AbortSignal, originalId = id): Promise<Uint8Array> {
     this.check(signal); const token = await this.authority.accessToken({ signal }); this.check(signal);
     if (typeof token !== "string" || !token || token.length > 16 * 1024 || /[\r\n]/.test(token)) throw error("shape");
     const nr = await this.fetch(`${this.base}/v1/nonce`, {}, signal, 15_000);
-    if (!nr.ok) { void nr.body?.cancel().catch(() => {}); this.release(nr); throw error("unavailable"); }
+    if (!nr.ok) throw await this.refusal(nr, signal);
     const raw = await this.read(nr, 128, signal);
     let nonce: Uint8Array;
     try { this.check(signal); const text = new TextDecoder("utf-8", { fatal: true }).decode(raw).trim(); if (!/^[0-9a-f]{64}$/.test(text)) throw error("shape"); nonce = Uint8Array.from(text.match(/../g)!.map(v => parseInt(v, 16))); } finally { raw.fill(0); }
@@ -179,7 +188,7 @@ export class AppHttpLogTransport implements AppLogTransport {
       signature = await this.authority.signLogProof(p, { signal }); this.check(signal);
       if (!(signature instanceof Uint8Array) || signature.length !== 64) throw error("shape");
       const r = await this.fetch(`${this.base}/v1/rpc`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/cbor", "x-mdbase-nonce": hex(p.nonce), "x-mdbase-sig": hex(signature) }, body: frame as BodyInit }, signal, 15_000);
-      if (!r.ok) { void r.body?.cancel().catch(() => {}); this.release(r); throw error("unavailable"); }
+      if (!r.ok) throw await this.refusal(r, signal);
       const reply = await this.read(r, method === "append" ? 64 * 1024 : MAX_FRAME, signal);
       try { this.check(signal); this.response(reply, id); return reply; } catch (e) { reply.fill(0); throw e; }
     } finally { signature?.fill(0); p.frame.fill(0); p.nonce.fill(0); p.bodyHash.fill(0); p.tokenHash.fill(0); p.digest.fill(0); }
@@ -293,7 +302,14 @@ export class AppHttpLogTransport implements AppLogTransport {
         response.set(2, struct(normalized)); return encode(struct(response));
       }
       const out = reply; reply = null; return out;
-    } catch (e) { if (e instanceof AppHttpLogError) throw e; throw error(options.signal.aborted || !this.isCurrent() ? "fenced" : "unavailable"); }
+    } catch (e) {
+      if (e instanceof AppHttpLogError) throw e;
+      if (options.signal.aborted || !this.isCurrent()) throw error("fenced");
+      // The CP authority's log-token refusal (e.g. collection_migrating) stays specific.
+      let server: unknown = null; try { server = (e as {server?: unknown}).server; } catch { /* hostile getter */ }
+      const outcome = isAppServerProblem(server) ? appServerOutcome(server) : null;
+      throw outcome && isAppServerProblem(server) ? new AppHttpLogError(outcome, server) : error("unavailable");
+    }
     finally { frame?.fill(0); sidecar?.fill(0); reply?.fill(0); object?.fill(0); commit?.fill(0); }
   }
 }

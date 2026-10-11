@@ -130,6 +130,9 @@ try {
   const promote = method(6, "map_contract_write_v1", new Map([[0, 1], [1, "artifact.missing"], [2, "1.0.0"], [5, new Map()], [7, true]]));
   assert.equal(promote.get(3)?.get(0), "not_found", "contract promote actual native envelope");
   assert.equal(promote.get(3)?.get(3), "data_contract_not_found");
+  const pack = method(7, "plan_type_pack_v1", new Map([[0, 1], [1, new Map()], [2, "artifact.native.typepack"]]));
+  assert.equal(pack.get(3)?.get(0), "invalid_request", "type pack actual native envelope");
+  assert.equal(pack.get(3)?.get(3), "invalid_type_pack_request", "type pack reaches native provision validation, not unknown_method");
   a.x.rt_close(BigInt(session));
   const observation = decode(a.take(a.x.rt_app_observations()));
   assert.equal(observation.get(3), true); // actual typed staging support
@@ -162,5 +165,17 @@ try {
   const wrong = await create(); assert.match(wrong.open(config(1, 7)), /open failed/);
   const malformed = await create(); assert.match(malformed.open(Uint8Array.of(0xa0)), /open failed/);
   const before = sqlCalls; assert.match(malformed.open(config(1)), /module already used/); assert.equal(sqlCalls, before);
-  console.log(JSON.stringify({ actualWasm: true, sqliteVersion: version, sqlCalls, metadataRows: meta.length, staging: true, keyringPersisted: false, warmReopen: true, singleUseModule: true, legacyMemStoreRefused: true, staleLogReplyRefused: true, scopedHttpSigner: true, terminalRetirement: true, physicalDurabilityQualified: false }));
+  // Stateless setup planning over a caller-read inventory: no open, no SQL.
+  const planner = await create(), sqlBefore = sqlCalls;
+  const setupManifest = new Map([["id", "org.example.resources"],
+    ["requirements", new Map([["configuration", [new Map([["id", "base-format"], ["path", "/settings/record_extensions"], ["predicate", "contains"], ["value", "base"]])]]])],
+    ["provisions", new Map([["configuration", [new Map([["requirement", "base-format"], ["path", "/settings/record_extensions"], ["operation", "set_add"], ["value", "base"]])]], ["type_packs", []]])]]);
+  const setupRequest = encode([1, 0, setupManifest, null, []]);
+  const [setupVersion, setupOk, setupAnswer] = decode(planner.take(planner.x.rt_app_setup_assess(planner.put(setupRequest), setupRequest.length)));
+  assert.equal(setupVersion, 1); assert.equal(setupOk, true, "stateless setup assessment refused");
+  assert.equal(setupAnswer.get("status"), "provision"); assert.match(setupAnswer.get("assessmentDigest"), /^sha256:[0-9a-f]{64}$/);
+  const unordered = encode([1, 0, setupManifest, null, [["b.md", "x"], ["a.md", "y"]]]);
+  assert.equal(decode(planner.take(planner.x.rt_app_setup_assess(planner.put(unordered), unordered.length)))[1], false);
+  assert.equal(sqlCalls, sqlBefore);
+  console.log(JSON.stringify({ actualWasm: true, sqliteVersion: version, sqlCalls, metadataRows: meta.length, staging: true, keyringPersisted: false, warmReopen: true, singleUseModule: true, legacyMemStoreRefused: true, staleLogReplyRefused: true, statelessSetup: true, scopedHttpSigner: true, terminalRetirement: true, physicalDurabilityQualified: false }));
 } finally { db.close(); }

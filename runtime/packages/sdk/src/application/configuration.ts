@@ -1,10 +1,11 @@
 import type { MdbaseClient } from "../client.js";
 import type { Session } from "../session.js";
 import type { Op, Receipt } from "../wire.js";
-import { mdbaseError } from "../errors.js";
+import { MdbaseError, isMdbaseError, mdbaseError } from "../errors.js";
 import { decode, modelResourcePlan } from "../app-host/collection-setup-journal.js";
 import type { ModelResourceSetupJournal, ModelSetupIntent } from "../app-host/collection-setup-types.js";
-import type { AppResourceSetupPort } from "../app-host/collection-control.js";
+import { resourceDecisions, type AppResourceDecisions, type AppResourceSetupPort } from "../app-host/collection-control.js";
+import { setupPlan, setupRecords, type MdbaseSetupPlan, type MdbaseSetupPlanOptions, type MdbaseSetupRecord } from "./setup.js";
 import type { AppReplicaScope } from "../app-host/owner.js";
 import type { AppWebCollectionHandoff } from "../app-host/web-collection.js";
 import type { compileApplicationManifest } from "./manifest.js";
@@ -27,6 +28,24 @@ export type ApplicationConfigurationResources = AppResourceSetupPort;
 const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
 const hash = /^sha256:[0-9a-f]{64}$/;
 const failure = (reason: string) => mdbaseError("unavailable", "application configuration unavailable", `configuration_${reason}`);
+interface SetupRequest {
+  readonly decisions?: AppResourceDecisions;
+  /** The reviewed plan digest; a different assessment refuses `setup_changed`. */
+  readonly expected?: string;
+  readonly records?: readonly MdbaseSetupRecord[];
+}
+const changed = (mutationId?: string, cause?: unknown) => new MdbaseError(
+  mdbaseError("conflict", "This collection changed since the setup was reviewed. Review it again.", "setup_changed").toProblem(),
+  { ...(mutationId ? { mutationId } : {}), ...(cause === undefined ? {} : { cause }) });
+/** Native refuses an adoption that no longer matches its reviewed row
+ * (changed, deleted or no longer adoptable): that is a stale review. */
+const reviewed = async <T>(work: Promise<T>, decisions: AppResourceDecisions | undefined): Promise<T> => {
+  try { return await work; } catch (error) {
+    if (decisions?.adopt && Object.keys(decisions.adopt).length && isMdbaseError(error, "unavailable") && error.reason === "resource_setup_unavailable")
+      throw changed(undefined, error);
+    throw error;
+  }
+};
 const snapshot = (code: string | null = null, checking = false): MdbaseApplicationFacetSnapshot =>
   Object.freeze({ checking, assessment: null, problem: code ? Object.freeze({ code }) : null });
 
@@ -42,10 +61,11 @@ export function createApplicationConfiguration(source: ApplicationConfigurationI
   const lifetime = new AbortController();
   const readSignal = AbortSignal.any([input.signal, lifetime.signal]);
   const listeners = new Set<() => void>();
-  let value = snapshot(), pending: Promise<MdbaseApplicationFacetSnapshot> | null = null;
+  let value = snapshot(), pending: Promise<unknown> | null = null;
   let closing: Promise<void> | null = null, closed = false;
   let assessedSession: Session | undefined;
   const stops: Array<() => void> = [];
+  const plans = new WeakMap<MdbaseSetupPlan, { readonly decisions: AppResourceDecisions; readonly records: readonly MdbaseSetupRecord[] }>();
   function check(signal?: AbortSignal, session?: Session) {
     signal?.throwIfAborted();
     if (closed || readSignal.aborted || input.isCurrent() !== true
@@ -112,10 +132,12 @@ export function createApplicationConfiguration(source: ApplicationConfigurationI
       if (actual.path !== expected.path || actual.text !== expected.doc || actual.state !== "confirmed")
         throw failure("recovery_required");
     }
+    // A created record proves itself by identity, path and confirmation: Core
+    // may canonicalize its frontmatter (defaults, declared type) on create.
     if (intent.version !== 2) for (const expected of intent.plan.sources) {
-      const actual = await input.client.get(expected.id, { document: true }, readSignal);
+      const actual = await input.client.get(expected.id, undefined, readSignal);
       check(signal, session);
-      if (actual.id !== expected.id || actual.path !== expected.path || actual.document !== expected.document || actual.state.state !== "confirmed" || actual.state.hold || actual.state.unresolved)
+      if (actual.id !== expected.id || actual.path !== expected.path || actual.state.state !== "confirmed" || actual.state.hold || actual.state.unresolved)
         throw failure("recovery_required");
     }
   }
@@ -134,24 +156,39 @@ export function createApplicationConfiguration(source: ApplicationConfigurationI
     }
     return intent;
   }
-  async function perform(explicit: boolean, signal: AbortSignal) {
+  /** Settle the retained journal before any new work: confirm an earlier
+   * operation, or record a finally rejected one (which applied nothing). */
+  async function recover(signal: AbortSignal, session: Session) {
+    let original = await input.journal.load(readSignal);
+    check(signal, session);
+    if (!original) return { journaled: false, previous: null };
+    original = decode(original, input.scope);
+    if (original.version === 1 || original.phase === "prepared") throw failure("recovery_required");
+    if (original.phase === "attempted" && (original.version === 3 || original.version === 4) && input.journal.recordResourceRejected) {
+      const receipt = await input.client.awaitReceipt(original.mutationId, 120000, readSignal);
+      check(signal, session);
+      if (receipt.mutation === original.mutationId && receipt.state === "rejected") {
+        original = decode(await input.journal.recordResourceRejected(original.mutationId, readSignal), input.scope);
+        check(signal, session);
+      }
+    }
+    if (original.version === 1) throw failure("recovery_required");
+    if (original.phase === "rejected") return { journaled: true, previous: original.version === 4 ? original.previous : null };
+    return { journaled: true, previous: await confirmed(original, signal, session) };
+  }
+  async function perform(explicit: boolean, signal: AbortSignal, request: SetupRequest = {}) {
     check(signal);
     const session = await input.client.readyForRead(readSignal);
     check(signal, session);
     if (!stops.length) stops.push(input.client.onStatus(invalidate), input.client.onLink(invalidate));
-    let original = await input.journal.load(readSignal);
-    check(signal, session);
-    if (original) {
-      original = decode(original, input.scope);
-      if (original.version === 1 || original.phase === "prepared") throw failure("recovery_required");
-      original = await confirmed(original, signal, session);
-    }
+    const { journaled, previous } = await recover(signal, session);
     if (!resources) throw failure("unsupported");
-    let assessed = await resources.assess(input.compiledManifest.manifest, readSignal);
+    let assessed = await reviewed(resources.assess(input.compiledManifest.manifest, readSignal, request.decisions), request.decisions);
     check(signal, session);
     if (!hash.test(assessed.assessmentDigest) || !["current", "provision", "conflict"].includes(assessed.status))
       throw failure("response");
-    const automatic = !original && input.setupMode === "approved-new";
+    if (request.expected !== undefined && assessed.assessmentDigest !== request.expected) throw changed();
+    const automatic = !journaled && input.setupMode === "approved-new";
     if (assessed.status === "provision" && (explicit || automatic)) {
       if (input.setupMode === "reconcile-original") throw failure("recovery_required");
       // Declaration intent and the original native grant are independent of the
@@ -159,16 +196,20 @@ export function createApplicationConfiguration(source: ApplicationConfigurationI
       if (!(input.compiledManifest.operations.includes("apply_collection_setup")
         || input.compiledManifest.operations.includes("apply_type_pack"))
         || !session.hello.grant.capabilities.includes("definitions.manage")) throw failure("not_authorized");
-      const plan = modelResourcePlan(await resources.apply(input.compiledManifest.manifest, assessed.assessmentDigest, readSignal));
+      const records = request.records ?? [];
+      if (records.length && !session.hello.grant.capabilities.includes("records.create")) throw failure("not_authorized");
+      const produced = modelResourcePlan(await reviewed(resources.apply(input.compiledManifest.manifest, assessed.assessmentDigest, readSignal, request.decisions), request.decisions));
       check(signal, session);
-      if (plan.assessmentDigest !== assessed.assessmentDigest) throw failure("response");
-      // The resources-only Core producer does not prove native file absence.
-      // Retained original sources are reconciled above, never newly seeded here.
-      if (plan.sources.length) throw failure("unsupported_source_provision");
+      if (produced.assessmentDigest !== assessed.assessmentDigest) throw failure("response");
+      // Core plans definitions only. Starter records are the caller's reviewed,
+      // create-only sources: fresh UUIDs, written in the same mutation.
+      if (produced.sources.length) throw failure("unsupported_source_provision");
+      const plan = records.length ? modelResourcePlan({ ...produced,
+        sources: records.map(r => ({ id: crypto.randomUUID(), path: r.path, document: r.document })) }) : produced;
       let intent;
-      if (original) {
+      if (previous) {
         if (!input.journal.prepareResourceRound) throw failure("recovery_required");
-        intent = await input.journal.prepareResourceRound(plan, original.mutationId, readSignal);
+        intent = await input.journal.prepareResourceRound(plan, previous.mutationId, readSignal);
       } else intent = await input.journal.prepareResources(plan, readSignal);
       check(signal, session);
       intent = decode(intent, input.scope);
@@ -178,11 +219,20 @@ export function createApplicationConfiguration(source: ApplicationConfigurationI
       check(signal, session);
       if ((attempted.version !== 3 && attempted.version !== 4) || attempted.mutationId !== intent.mutationId || attempted.phase !== "attempted"
         || JSON.stringify(attempted.plan) !== JSON.stringify(plan)) throw failure("recovery_required");
-      const ops: Op[] = [...plan.resourceOps];
+      const ops: Op[] = [...plan.resourceOps, ...plan.sources.map(r => ({ kind: "create" as const, id: r.id, path: r.path, document: r.document }))];
       const writes = await input.client.submit(ops, { mutationId: intent.mutationId, wait: "confirmed", signal: readSignal });
       check(signal, session);
       if (writes.length !== 1 || writes[0]!.mutationId !== intent.mutationId) throw failure("recovery_required");
-      const receipt: Receipt = await writes[0]!.confirmed;
+      let receipt: Receipt;
+      try { receipt = await writes[0]!.confirmed; } catch (error) {
+        check(signal, session);
+        // A final rejection applied nothing (for example a definition or
+        // starter path changed after review): settle it so setup can re-plan.
+        if (writes[0]!.receipt.state !== "rejected" || !input.journal.recordResourceRejected) throw error;
+        await input.journal.recordResourceRejected(intent.mutationId, readSignal);
+        check(signal, session);
+        throw changed(intent.mutationId, error);
+      }
       check(signal, session);
       if (receipt.state !== "confirmed" || receipt.status !== "applied" || (receipt.conflicts?.length ?? 0) !== 0)
         throw failure("recovery_required");
@@ -202,10 +252,45 @@ export function createApplicationConfiguration(source: ApplicationConfigurationI
     if (value !== result) throw failure("changed");
     return result;
   }
-  function run(explicit: boolean, options: MdbaseApplicationRequestOptions = {}) {
+  /** Reviewable plan; changes no collection data. Recovery may first settle
+   * the local setup journal of an earlier apply. Never prepares or submits. */
+  function plan(options: MdbaseSetupPlanOptions = {}): Promise<MdbaseSetupPlan> {
+    // Queues behind running work: recovery may settle the journal.
+    try { check(options.signal); } catch (error) { return Promise.reject(error); }
+    const before = pending;
+    const work = (before ? before.then(() => {}, () => {}) : Promise.resolve()).then(() => planning(options));
+    pending = work;
+    void work.finally(() => { if (pending === work) pending = null; }).catch(() => {});
+    return work;
+  }
+  async function planning(options: MdbaseSetupPlanOptions): Promise<MdbaseSetupPlan> {
+    const records = setupRecords(options.records), decisions = resourceDecisions(options.adopt === undefined ? {} : { adopt: options.adopt });
+    const signal = AbortSignal.any([readSignal, ...(options.signal ? [options.signal] : [])]);
+    const session = await input.client.readyForRead(readSignal);
+    check(signal, session);
+    await recover(signal, session);
+    if (!resources) throw failure("unsupported");
+    const assessed = await reviewed(resources.assess(input.compiledManifest.manifest, readSignal, decisions), decisions);
+    check(signal, session);
+    if (!assessed.review) throw failure("response");
+    const occupied: { path: string; free: boolean }[] = [];
+    if (assessed.status !== "current") for (const r of records) {
+      const found = await input.client.find({ path: r.path }, undefined, readSignal);
+      check(signal, session);
+      occupied.push({ path: r.path, free: found === null });
+    }
+    const capabilities = session.hello.grant.capabilities;
+    const result = setupPlan(assessed, { records: occupied,
+      canManage: capabilities.includes("definitions.manage") && (input.compiledManifest.operations.includes("apply_collection_setup")
+        || input.compiledManifest.operations.includes("apply_type_pack")),
+      canCreateRecords: capabilities.includes("records.create") });
+    plans.set(result, Object.freeze({ decisions, records: records.filter(r => occupied.some(o => o.path === r.path && o.free)) }));
+    return result;
+  }
+  function run(explicit: boolean, options: MdbaseApplicationRequestOptions = {}, request?: SetupRequest) {
     try { check(options.signal); if (pending) throw failure("busy"); } catch (error) { return Promise.reject(error); }
     const signal = AbortSignal.any([readSignal, ...(options.signal ? [options.signal] : [])]);
-    const work = Promise.resolve().then(() => perform(explicit, signal)).catch(error => {
+    const work = Promise.resolve().then(() => perform(explicit, signal, request)).catch(error => {
       publish(snapshot(readSignal.aborted || signal.aborted ? "configuration_fenced" : "configuration_unavailable"));
       throw error;
     });
@@ -230,5 +315,15 @@ export function createApplicationConfiguration(source: ApplicationConfigurationI
   input.signal.addEventListener("abort", abort, { once: true });
   return Object.freeze({ getSnapshot, subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     assess: (options?: MdbaseApplicationRequestOptions) => run(false, options),
-    configure: (options?: MdbaseApplicationRequestOptions) => run(true, options), close });
+    configure: (options?: MdbaseApplicationRequestOptions) => run(true, options),
+    plan,
+    /** Apply a reviewed plan from `plan` exactly; a changed collection refuses. */
+    async apply(reviewed: MdbaseSetupPlan, options: MdbaseApplicationRequestOptions = {}) {
+      const bound = plans.get(reviewed);
+      if (!bound) throw new TypeError("setup.apply needs a plan returned by setup.plan");
+      if (reviewed.refusal) throw mdbaseError(reviewed.refusal.code === "setup_conflict" ? "conflict" : "forbidden", reviewed.refusal.message, reviewed.refusal.code);
+      if (reviewed.status === "current") { await run(false, options, { decisions: bound.decisions, expected: reviewed.digest }); return; }
+      await run(true, options, { decisions: bound.decisions, expected: reviewed.digest, records: bound.records });
+    },
+    close });
 }

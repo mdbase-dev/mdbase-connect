@@ -33,6 +33,22 @@ describe("public scoped SDK journal/control channel", () => {
     expect(await f.client.journal.load(f.ui.signal)).toBeNull(); expect(f.assess).not.toHaveBeenCalled();
     expect("host" in f.client.resourceSetup).toBe(false); expect("session" in f.client.resourceSetup).toBe(false);
   });
+  it("carries reviewed decisions and the review across the control slot, refusing a malformed review", async () => {
+    const adopt = {"_types/task.md": "sha256:" + "cd".repeat(32)};
+    const review = {packs: [{id: "org.example.task", version: "1.0.0", status: "install", installedVersion: null,
+      resources: [{target: "_types/task.md", kind: "type", mode: "managed", action: "adopt", installed: false, currentDigest: adopt["_types/task.md"]}]}],
+      configuration: [{requirement: "ext", path: "/settings/record_extensions", action: "add", value: "md"}], staged: [{path: "_types/task.md", document: "doc"}]};
+    const producer: AppResourceSetupPort = { assess: vi.fn(async () => ({status: "provision" as const, assessmentDigest: hash, review} as never)),
+      apply: vi.fn(async () => ({...resourcePlan, sources: []})) };
+    const f = fixture(producer), manifest = {id: "org.example.app"};
+    expect(await f.client.resourceSetup.assess(manifest, f.ui.signal, {adopt})).toEqual({status: "provision", assessmentDigest: hash, review});
+    expect(producer.assess).toHaveBeenCalledWith(manifest, f.parent.signal, {adopt});
+    await f.client.resourceSetup.apply(manifest, hash, f.ui.signal, {adopt});
+    expect(producer.apply).toHaveBeenCalledWith(manifest, hash, f.parent.signal, {adopt});
+    await expect(f.client.resourceSetup.assess(manifest, f.ui.signal, {adopt: {"_types/task.md": "md5:x"}})).rejects.toMatchObject({reason: "binding"});
+    vi.mocked(producer.assess).mockResolvedValueOnce({status: "provision", assessmentDigest: hash, review: {...review, staged: [{path: "x", document: 1}]}} as never);
+    await expect(f.client.resourceSetup.assess(manifest, f.ui.signal, {})).rejects.toBeTruthy();
+  });
   it.each(["assess", "apply"] as const)("resource %s cancellation retains the original occupied slot", async action => {
     let finish!: () => void; const gate = new Promise<void>(resolve => {finish = resolve;});
     const producer: AppResourceSetupPort = { assess: vi.fn(async () => {await gate; return {status: "provision" as const, assessmentDigest: hash};}),
@@ -151,6 +167,26 @@ describe("public scoped SDK journal/control channel", () => {
     if (variant === "oversized") packet[5] = "x".repeat(600000);
     f.channel.port2.postMessage(packet); await vi.waitFor(() => expect(f.bad).toHaveBeenCalledOnce());
     expect(load).not.toHaveBeenCalled(); expect(f.assess).not.toHaveBeenCalled();
+  });
+  it("records a rejected round only on the native final-rejection witness for that exact mutation", async () => {
+    const witness = vi.fn(async (_id: string, _signal: AbortSignal) => false);
+    const producer: AppResourceSetupPort = { assess: vi.fn(), apply: vi.fn(), rejected: witness };
+    const f = fixture(producer);
+    const prepared = await f.journal.prepareResources(resourcePlan, f.parent.signal);
+    await f.journal.recordResourceAttempt(prepared.mutationId, f.parent.signal);
+    // A bare control assertion (no native rejection) never settles the round.
+    await expect(f.client.journal.recordResourceRejected!(prepared.mutationId, f.ui.signal)).rejects.toMatchObject({reason: "recovery_required"});
+    expect(witness).toHaveBeenCalledWith(prepared.mutationId, expect.anything());
+    expect(await f.journal.load(f.parent.signal)).toMatchObject({phase: "attempted", mutationId: prepared.mutationId});
+    // Without a native witness at all the verb is refused too.
+    const bare = fixture({assess: vi.fn(), apply: vi.fn()});
+    const other = await bare.journal.prepareResources(resourcePlan, bare.parent.signal);
+    await bare.journal.recordResourceAttempt(other.mutationId, bare.parent.signal);
+    await expect(bare.client.journal.recordResourceRejected!(other.mutationId, bare.ui.signal)).rejects.toMatchObject({reason: "recovery_required"});
+    expect((await bare.journal.load(bare.parent.signal))?.phase).toBe("attempted");
+    // A final native rejection of that mutation settles it.
+    witness.mockResolvedValueOnce(true);
+    expect(await f.client.journal.recordResourceRejected!(prepared.mutationId, f.ui.signal)).toMatchObject({phase: "rejected"});
   });
   it("does not serialize backend exception details into public control errors", async () => {
     const f = fixture(); vi.spyOn(f.journal, "load").mockRejectedValue(Error("private storage detail"));

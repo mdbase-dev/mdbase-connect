@@ -1,7 +1,9 @@
 // Canonical public parser + controlled CP metadata replies; no actor/DB/Worker allocation.
+import { createHash } from "node:crypto";
 import { afterEach, expect, it, vi } from "vitest";
 import { parseVersionedAppManifest } from "@mdbase-dev/connect-protocol/manifest";
 import { resolveApplicationRegistration } from "../src/application/registration.js";
+import { describeError } from "../src/describe-error.js";
 import type { MdbaseApplicationDeclaration } from "../src/application/declaration.js";
 import * as trust from "../src/application/packaged-trust.js";
 const id = "5cdfa020-c201-4da8-845a-f2cc9969eade",
@@ -280,3 +282,88 @@ it("oversized reply is refused without reading a truncated declaration or disclo
     expect(error.message).not.toContain("private");
     expect(f.fetch).toHaveBeenCalledOnce();
 });
+it("accepts a native origin only when declared under installation_origins for the environment and kind", async () => {
+    const f = fixture();
+    const native = "capacitor://app.tasknotes.dev";
+    Object.assign(f.input.declaration, {origin: native, installationKind: "mobile"});
+    await expect(resolveApplicationRegistration(f.input)).rejects.toMatchObject({reason: "application_registration_binding"});
+    const declared = fixture();
+    Object.assign(declared.input.declaration, {
+        origin: native,
+        installationKind: "mobile",
+        manifest: {...(declared.input.declaration.manifest as object), installation_origins: {lab: {mobile: [native]}}},
+    });
+    const reply = declared.reply();
+    reply.application.application_declaration = parseVersionedAppManifest(declared.input.declaration.manifest, {allowLocal: true}).manifest;
+    declared.fetch.mockImplementation(async () => Response.json(reply));
+    await expect(resolveApplicationRegistration(declared.input)).resolves.toMatchObject({id});
+    expect(f.fetch).not.toHaveBeenCalled();
+});
+it("keeps a permanent typed 400's code and manifest paths, bounded, without retry or echo", async () => {
+    const f = fixture();
+    f.fetch.mockImplementation(async () => Response.json({
+        error: {
+            code: "invalid_application_manifest",
+            message: "Application declaration is invalid: see https://evil.example/<script>",
+            details: { issues: [
+                { path: "/homepage", keyword: "pattern", message: "must match", params: { pattern: "^https://" } },
+                { path: "/icon", keyword: "pattern", message: "must match", params: {} },
+                { path: "/icon", keyword: "format", message: "dup", params: {} },
+                { path: "https://evil.example/x", keyword: "x", message: "x", params: {} },
+                ...Array.from({ length: 20 }, (_, i) => ({ path: `/redirect_uris/${i}`, keyword: "pattern", message: "m", params: {} })),
+            ] },
+        },
+    }, { status: 400 }));
+    const error = await resolveApplicationRegistration(f.input).catch((e) => e);
+    expect(error).toMatchObject({ code: "forbidden", reason: "application_registration_refused" });
+    expect(error.details).toEqual(new Map<string, unknown>([["code", "invalid_application_manifest"], ["paths", ["/homepage", "/icon", "/redirect_uris/0", "/redirect_uris/1", "/redirect_uris/2"]]]));
+    expect(JSON.stringify([...error.details])).not.toContain("evil");
+    expect(error.message).not.toContain("evil");
+    expect(f.fetch).toHaveBeenCalledOnce();
+    expect(describeError(error)).toMatchObject({
+        key: "application_registration_refused",
+        message: "This app can't connect right now. Contact the app's developer.",
+        developerMessage: "This app's registration was rejected (invalid manifest: /homepage, /icon, /redirect_uris/0, /redirect_uris/1, /redirect_uris/2).",
+    });
+
+    // An untyped, oversized or non-JSON refusal stays the generic refusal.
+    for (const body of [new Response("<html>nope</html>", { status: 400 }), new Response(JSON.stringify({ error: { code: "x".repeat(9000) } }), { status: 400 }), new Response(null, { status: 403 })]) {
+        const g = fixture();
+        g.fetch.mockImplementation(async () => body);
+        const refused = await resolveApplicationRegistration(g.input).catch((e) => e);
+        expect(refused).toMatchObject({ code: "forbidden", reason: "application_registration_refused" });
+        expect(refused.details).toBeUndefined();
+        expect(describeError(refused)?.developerMessage).toBe("This app's registration was rejected by mdbase.");
+        expect(g.fetch).toHaveBeenCalledOnce();
+    }
+});
+it("accepts the CP's new id for a changed manifest only when it binds to the manifest sent", async () => {
+    const f = fixture(),
+        canonical = f.reply().application.application_declaration;
+    const digest = createHash("sha256").update(canonicalJson(canonical)).digest("hex");
+    const superseded = () => {
+        const reply = f.reply();
+        reply.application.id = other;
+        reply.application.manifest_digest = digest;
+        reply.application.canonical_identity = `bundle:dev.tasknotes.web:sha256:${digest}`;
+        return reply;
+    };
+    f.fetch.mockImplementation(async () => Response.json(superseded()));
+    await expect(resolveApplicationRegistration(f.input)).resolves.toEqual({
+        id: other, name: "TaskNotes", manifestDigest: digest, supersededDeclaredId: id,
+    });
+    expect(describeError("application_registration_id_superseded")).toMatchObject({ severity: "info", action: "none" });
+    expect(describeError("application_registration_id_superseded")!.developerMessage).toContain("registered ID");
+    for (const change of ["identity", "manifest"] as const) {
+        const reply = superseded();
+        if (change === "identity") reply.application.canonical_identity = `bundle:dev.other.app:sha256:${digest}`;
+        if (change === "manifest") reply.application.application_declaration = { ...canonical, name: "Other" };
+        f.fetch.mockImplementation(async () => Response.json(reply));
+        await expect(resolveApplicationRegistration(f.input)).rejects.toMatchObject({ reason: "application_registration_binding" });
+    }
+});
+function canonicalJson(value: unknown): string {
+    if (value === null || typeof value !== "object") return JSON.stringify(value);
+    if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+    return `{${Object.entries(value).filter(([, v]) => v !== undefined).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(",")}}`;
+}

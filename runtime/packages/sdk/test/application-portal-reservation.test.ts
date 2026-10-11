@@ -1,5 +1,5 @@
 import {afterEach,describe,expect,it,vi} from "vitest";
-import {reserveApplicationPortal,browserApplicationPortalHost,ApplicationPortalError,type ApplicationPortalHost} from "../src/application/portal-reservation.js";
+import {reserveApplicationPortal,browserApplicationPortalHost,openerApplicationPortalHost,ApplicationPortalError,type ApplicationPortalHost} from "../src/application/portal-reservation.js";
 const cpOrigin="https://cp.test",uri=`${cpOrigin}/pair/11111111-1111-4111-8111-111111111111`;
 function fixture(){const caller=new AbortController(),popup={navigate:vi.fn(),close:vi.fn()},open=vi.fn(()=>popup),current=vi.fn(()=>true);const host:ApplicationPortalHost={cpOrigin,signal:caller.signal,open,isCurrent:current};return{host,caller,popup,open,current};}
 afterEach(()=>vi.unstubAllGlobals());
@@ -40,5 +40,14 @@ describe("SDK-private original gesture popup reservation",()=>{
     const host=browserApplicationPortalHost(cpOrigin,signal,()=>true),portal=reserveApplicationPortal(host);popup.closed=true;
     expect(()=>portal.navigate(uri)).toThrow(ApplicationPortalError);expect(popup.location.href).toBe("about:blank");portal.close();
     expect(()=>reserveApplicationPortal(host)).toThrow(ApplicationPortalError);expect(popup.close).toHaveBeenCalledOnce();
+  });
+  it("public signIn opener receives the CP-bound URL with return_url and is dismissed on close",async()=>{
+    const opener={open:vi.fn(),close:vi.fn(),returnUrl:"capacitor://app.tasknotes.dev/signed-in"},signal=new AbortController().signal;
+    const portal=reserveApplicationPortal(openerApplicationPortalHost(cpOrigin,signal,()=>true,opener));
+    expect(opener.open).not.toHaveBeenCalled();
+    expect(()=>portal.navigate("https://foreign.test/pair/x")).toThrow(ApplicationPortalError);
+    portal.navigate(uri);await Promise.resolve();await Promise.resolve();
+    const opened=new URL(opener.open.mock.calls[0]![0]);expect(opened.origin).toBe(cpOrigin);expect(opened.searchParams.get("return_url")).toBe(opener.returnUrl);
+    portal.close();await Promise.resolve();await Promise.resolve();expect(opener.close).toHaveBeenCalledOnce();expect(opener.open).toHaveBeenCalledOnce();
   });
 });

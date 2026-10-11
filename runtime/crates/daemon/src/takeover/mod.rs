@@ -38,6 +38,7 @@
 //! directory is left in place for rollback (§6.1).
 
 pub mod adapter;
+pub mod held;
 pub mod mirror_driver;
 pub mod mirror_evidence;
 pub mod mirror_hold;
@@ -368,7 +369,8 @@ pub fn run(
             Ok(LibOutcome::AlreadyTakenOver) => {
                 // A run that crashed after T6 left the counts in its import only.
                 if let Some(ev) = adapter::Evidence::load(&paths.legacy, &c.id)? {
-                    e.holds = ev.holds.len() as u64;
+                    // Holds the user has resolved since stay resolved.
+                    e.holds = held::open(&paths.legacy, &c.id)?.len() as u64;
                     e.rolled_forward = ev.rolled_forward.len() as u64;
                 }
                 e.state = if e.holds > 0 {
@@ -591,6 +593,51 @@ pub struct Gate {
     pub retirement: std::sync::Mutex<Option<serde_json::Value>>,
     /// The last run's error, for `doctor` (no content, no secrets).
     pub error: std::sync::Mutex<Option<String>>,
+    /// An old connector daemon is running now (shared with collection hosts).
+    pub old_running: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// How many of this daemon's own operations hold the old `daemon.lock` (the
+    /// takeover, retirement). While any does, a probe cannot tell an old daemon
+    /// from ourselves, so it is skipped.
+    own_old_lock: std::sync::Mutex<usize>,
+}
+
+/// One of this daemon's own holds on the old `daemon.lock`; see [`Gate::holding_old_lock`].
+pub struct OwnOldLock<'a>(&'a Gate);
+
+impl Drop for OwnOldLock<'_> {
+    fn drop(&mut self) {
+        *self
+            .0
+            .own_old_lock
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) -= 1;
+    }
+}
+
+impl Gate {
+    /// Announce, before taking it, that this daemon is about to hold the old
+    /// `daemon.lock`, so [`Gate::probe_old_connector`] does not mistake it for an old
+    /// daemon. Serialized with probes, so neither reads the other's lock.
+    pub fn holding_old_lock(&self) -> OwnOldLock<'_> {
+        *self.own_old_lock.lock().unwrap_or_else(|p| p.into_inner()) += 1;
+        OwnOldLock(self)
+    }
+
+    /// Whether an old connector daemon runs on `old_state_dir` now: `None` when
+    /// this daemon holds that lock itself or the lock cannot be read. Never creates
+    /// the lock file.
+    pub fn probe_old_connector(&self, old_state_dir: &Path) -> Option<bool> {
+        let own = self.own_old_lock.lock().unwrap_or_else(|p| p.into_inner());
+        if *own > 0 {
+            return None;
+        }
+        if !mdbn_legacy::lock::daemon_lock_path(old_state_dir).is_file() {
+            return Some(false);
+        }
+        let running = old_daemon_running(old_state_dir).ok();
+        drop(own);
+        running
+    }
 }
 
 #[cfg(test)]

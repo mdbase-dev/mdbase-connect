@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { appServerProblem } from "../src/app-host/cp-problem.js";
 import { AppWebSignInSession } from "../src/app-host/web-sign-in-session.js";
 import { AppProtectedInstallationSignIn, AppInstallationSignInError, type AppInstallationSignInView } from "../src/app-host/installation-sign-in.js";
 import { AppCollectionSetupError } from "../src/app-host/collection-setup-journal.js";
@@ -24,7 +25,8 @@ function fixture(initial: AppInstallationSignInView["state"] = "pending", autoSe
     exchange: vi.fn(async () => { trace.push("exchange"); if (state === "pending" && selectedOnPortal) state = "account_selected"; if (state === "awaiting_approval" && approved) state = "paired"; return view(); }),
     confirmPortalSelectedAccount: vi.fn(async () => { trace.push("portal-confirm"); state = "account_confirmed"; return view(); }),
     confirmedSelection: vi.fn(() => { if (state === "pending" || state === "account_selected") throw new AppInstallationSignInError("account_confirmation_required"); return {accountId: account, installationId: installation}; }),
-    listApprovedCollections: vi.fn(async () => [{collectionId, displayName: "My notes", role: "owner" as const}]),
+    listApprovedCollections: vi.fn(async () => [{collectionId, displayName: "My notes", role: "owner" as "owner" | "editor" | "viewer"}]),
+    deleteApprovedCollection: vi.fn(async (_installation: unknown, id: string, _name: string) => ({collectionId: id, deleted: true as const})),
     renewExpiredPairing: vi.fn(async () => {state = "pending"; return view();}),
     close: vi.fn(async () => {trace.push("flow-close");}),
   };
@@ -157,6 +159,21 @@ describe("shared first-party web sign-in", () => {
     notify(); expect(f.session.snapshot().status).toBe("unselected"); expect(f.session.connection()).toBeNull();
     await f.session.close();
   });
+  it("shows a live migrating/moved collection as that problem, keeps it usable and clears it when it lifts", async () => {
+    const f = fixture("paired"); let problem: unknown = null, notify: () => void = () => {};
+    f.openCollection.mockImplementationOnce(async () => ({state: "ready", get problem() {return problem;}, connection: f.connection, close: f.closeConnection,
+      subscribe(listener: () => void) {notify = listener; return () => {};}}));
+    await f.session.start(); expect(f.session.snapshot()).toMatchObject({status: "ready", problem: null});
+    const server = appServerProblem(409, {error: {code: "collection_migrating", details: {retry_after_seconds: 30}}});
+    problem = server; notify();
+    expect(f.session.snapshot()).toMatchObject({status: "ready", problem: "collection_migrating", problemDetail: {server}});
+    expect(f.session.connection()).toBe(f.connection);
+    problem = {...server}; notify(); expect(f.session.snapshot().problem).toBeNull(); // only SDK-parsed problems count
+    problem = appServerProblem(409, {error: {code: "collection_unavailable", details: {reason: "moved_to_next_runtime"}}}); notify();
+    expect(f.session.snapshot().problem).toBe("update_required");
+    problem = null; notify(); expect(f.session.snapshot()).toMatchObject({status: "ready", problem: null}); expect(f.session.snapshot().problemDetail).toBeUndefined();
+    await f.session.close();
+  });
   it("completed restore has no start/exchange/attest HTTP and retains the original installation owner", async () => {
     const f = fixture("paired"); await f.session.start(); expect(f.hostOpen).toHaveBeenCalledOnce(); expect(f.flow.exchange).not.toHaveBeenCalled(); expect(f.host.attestInstallation).not.toHaveBeenCalled(); expect(f.openPortal).not.toHaveBeenCalled(); await f.session.close();
   });
@@ -232,6 +249,17 @@ describe("shared first-party web sign-in", () => {
     await expect(f.session.select(collectionId)).rejects.toBe(original);
     expect(f.session.snapshot()).toMatchObject({problem: "open_failed", problemDetail: {name: "UnknownError", code: null}});
     await f.session.close();
+  });
+  it("reopens the same collection by itself after the server's migration retry delay", async () => {
+    vi.useFakeTimers(); const f=fixture("paired","never"); await f.session.start();
+    const server={status:409,code:"collection_migrating",reason:null,retryAfterMs:20_000,updateUrl:null};
+    f.openCollection.mockRejectedValueOnce(new AppCloudCopyBootstrapError("collection_migrating",false,server));
+    await expect(f.session.select(collectionId)).rejects.toMatchObject({reason:"collection_migrating"});
+    expect(f.session.snapshot()).toMatchObject({status:"blocked",problem:"collection_migrating",problemDetail:{server}});
+    await vi.advanceTimersByTimeAsync(19_999); expect(f.openCollection).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1); expect(f.openCollection).toHaveBeenCalledTimes(2);
+    expect(f.session.snapshot()).toMatchObject({status:"ready",problem:null,selectedCollectionId:collectionId});
+    await f.session.close(); expect(vi.getTimerCount()).toBe(0);
   });
   it("polls hidden owners less often and exchanges immediately on foreground resume", async () => {
     vi.useFakeTimers(); const f = fixture(); await f.session.start(); await f.session.authorize(); f.session.setForeground(false);
@@ -339,6 +367,22 @@ describe("shared first-party web sign-in", () => {
     const f = fixture("paired"); await f.session.start(); await f.session.forget(collectionId);
     expect(f.session.connection()).toBeNull(); expect(f.session.snapshot()).toMatchObject({status: "unselected", collections: [], selectedCollectionId: null});
     expect(f.flow.close).not.toHaveBeenCalled(); expect(f.trace.indexOf("connection-close")).toBeLessThan(f.trace.indexOf("host-close")); expect(f.trace.indexOf("host-close")).toBeLessThan(f.trace.indexOf("collection-release")); await f.session.close();
+  });
+  it("collection delete is owner-only, and a CP refusal never blocks or closes the open collection", async () => {
+    const f = fixture("paired"); await f.session.start();
+    f.flow.deleteApprovedCollection.mockRejectedValueOnce(new AppInstallationSignInError("refused", appServerProblem(409, {error: {code: "collection_name_mismatch", message: "server text"}})));
+    await expect(f.session.deleteCollection(collectionId, "Wrong")).rejects.toMatchObject({code: "collection_delete_name_mismatch"});
+    expect(f.session.snapshot()).toMatchObject({status: "ready", selectedCollectionId: collectionId, problem: null});
+    expect(f.session.connection()).not.toBeNull(); expect(f.closeConnection).not.toHaveBeenCalled();
+    f.flow.deleteApprovedCollection.mockRejectedValueOnce(new AppInstallationSignInError("outcome_unknown"));
+    await expect(f.session.deleteCollection(collectionId, "My notes")).rejects.toMatchObject({code: "collection_delete_outcome_unknown"});
+    await f.session.deleteCollection(collectionId, "My notes");
+    expect(f.flow.deleteApprovedCollection).toHaveBeenLastCalledWith(expect.anything(), collectionId, "My notes");
+    await f.session.close();
+    const editor = fixture("paired"); editor.flow.listApprovedCollections.mockResolvedValue([{collectionId, displayName: "My notes", role: "editor"}]);
+    await editor.session.start();
+    await expect(editor.session.deleteCollection(collectionId, "My notes")).rejects.toMatchObject({code: "collection_delete_not_owner"});
+    expect(editor.flow.deleteApprovedCollection).not.toHaveBeenCalled(); await editor.session.close();
   });
   it("close aborts work, drains in-flight acquisition and shuts down native before closing the protected flow/unlocking", async () => {
     const f = fixture("paired"); await f.session.start(); await f.session.close();

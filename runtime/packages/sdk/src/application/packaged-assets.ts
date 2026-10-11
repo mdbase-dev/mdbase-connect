@@ -1,4 +1,5 @@
 import {selectAppEnvironment} from "../app-host/app-environment.js";
+import {urlOrigin} from "../app-host/app-origin.js";
 import {mdbaseError} from "../errors.js";
 import type {ApplicationAsset} from "./asset-loader.js";
 import type {PackagedApplicationNativeAssets} from "./native-assets.js";
@@ -24,10 +25,10 @@ export function packagedApplicationAssets(environment:"lab"|"production",appOrig
   let runtimeUrl:URL,sqliteUrl:URL;
   try {
     const module=new URL(import.meta.url);
-    if(module.origin!==appOrigin||module.username||module.password||module.search||module.hash)throw unavailable();
+    if(urlOrigin(module)!==appOrigin||module.username||module.password||module.search||module.hash)throw unavailable();
     runtimeUrl=new URL("../native/runtime-lab.wasm",import.meta.url);
     sqliteUrl=new URL("../native/sqlite3.wasm",import.meta.url);
-    if(runtimeUrl.origin!==appOrigin||sqliteUrl.origin!==appOrigin)throw unavailable();
+    if(urlOrigin(runtimeUrl)!==appOrigin||urlOrigin(sqliteUrl)!==appOrigin)throw unavailable();
   } catch { throw unavailable(); }
   const descriptor=(url:URL,pin:Pick<ApplicationAsset,"sha256"|"bytes"|"maxBytes">):ApplicationAsset=>Object.freeze({url:url.href,...pin});
   const initializeSqlite:PackagedApplicationNativeAssets["initializeSqlite"]=async options=>{

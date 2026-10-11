@@ -287,5 +287,6 @@ describe("local-only collection behavior", () => {
     const s = summarizeStatus({ mode: "local_only", confirmedThrough: 0, headKnown: 0, pending: 0, holds: 0, unresolved: 0, connection: "offline", incidents: [] });
     expect(s).toMatchObject({ kind: "local", text: "Saved on this device", confirmedThrough: null });
     expect(summarizeStatus({ mode: "synced", confirmedThrough: 5, headKnown: 9, pending: 2, holds: 0, unresolved: 0, connection: "online", incidents: [] }).kind).toBe("catching_up");
+    expect(summarizeStatus({ mode: "synced", confirmedThrough: 5, headKnown: 5, pending: 1, holds: 0, unresolved: 0, connection: "offline", incidents: [] }, "collection_migrating").kind).toBe("collection_migrating");
   });
 });

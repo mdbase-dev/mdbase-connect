@@ -1,3 +1,4 @@
+import {appOriginPlatform} from "../app-host/app-origin.js";
 import {mdbaseError} from "../errors.js";
 
 export type ApplicationJson=null|boolean|number|string|readonly ApplicationJson[]|{readonly[key:string]:ApplicationJson};
@@ -12,12 +13,18 @@ export interface ApplicationStorageDeclaration {
 export interface MdbaseApplicationDeclaration {
   readonly id:string;readonly name:string;readonly origin:string;
   readonly environment:"lab"|"production";
+  /** Installation kind sent at pairing; the origin must be declared under the
+   * manifest's `installation_origins.<environment>.<kind>`. Default: "mobile"
+   * for `capacitor://` origins, else "app-runtime". Android Capacitor apps
+   * served from https set "mobile" explicitly. */
+  readonly installationKind?:"app-runtime"|"mobile";
   /** Complete canonical manifest data; runtime validation uses the public
    * Connect parser. Accepts canonical typed builders without index-signature casts. */
   readonly manifest:unknown;
   readonly storage?:ApplicationStorageDeclaration;
 }
-export interface ApplicationDeclarationSnapshot extends Omit<MdbaseApplicationDeclaration,"storage"|"manifest"> {
+export interface ApplicationDeclarationSnapshot extends Omit<MdbaseApplicationDeclaration,"storage"|"manifest"|"installationKind"> {
+  readonly installationKind:"app-runtime"|"mobile";
   readonly manifest:Readonly<Record<string,ApplicationJson>>;
   readonly storage:Readonly<Required<ApplicationStorageDeclaration>>;
 }
@@ -61,20 +68,19 @@ export function plainApplicationManifest(declaration:Readonly<ApplicationDeclara
 }
 export function applicationDeclaration(input:MdbaseApplicationDeclaration):Readonly<ApplicationDeclarationSnapshot>{
   const data=json(input) as Record<string,ApplicationJson>;
-  if(!data||Array.isArray(data)||Object.keys(data).some(key=>!["id","name","origin","environment","manifest","storage"].includes(key)))fail();
+  if(!data||Array.isArray(data)||Object.keys(data).some(key=>!["id","name","origin","environment","manifest","storage","installationKind"].includes(key)))fail();
   const {id,name,origin,environment,manifest}=data;
   if(typeof id!=="string"||!id||id.length>256||!/^[a-z0-9][a-z0-9._-]*$/.test(id)||id==="00000000-0000-0000-0000-000000000000"
     ||typeof name!=="string"||!name.trim()||new TextEncoder().encode(name).length>100||/[\u0000-\u001f\u007f]/.test(name)
     ||typeof origin!=="string"||typeof environment!=="string"||!["lab","production"].includes(environment)||!manifest||Array.isArray(manifest)||typeof manifest!=="object")fail();
-  let url:URL;try{url=new URL(origin);}catch{return fail();}
-  const extension=["chrome-extension:","moz-extension:"].includes(url.protocol),loopback=["localhost","127.0.0.1","[::1]"].includes(url.hostname);
-  if(url.username||url.password||(!["/",""].includes(url.pathname))||url.search||url.hash||(!extension&&url.origin!==origin)||(extension&&`${url.protocol}//${url.host}`!==origin)
-    ||(!extension&&url.protocol!=="https:"&&!(environment==="lab"&&url.protocol==="http:"&&loopback)))fail();
+  const platform=appOriginPlatform(origin,environment==="lab");
+  const kind=data.installationKind??(platform==="mobile"?"mobile":"app-runtime");
+  if(platform===null||(kind!=="app-runtime"&&kind!=="mobile")||(platform==="mobile"&&kind!=="mobile")||(platform==="extension"&&kind!=="app-runtime"))fail();
   const override=data.storage;if(override!==undefined&&(!override||Array.isArray(override)||typeof override!=="object"||Object.keys(override).some(key=>!["joinDatabaseName","setupDatabaseName","applicationNamespace"].includes(key))))fail();
   const fields=override as Record<string,ApplicationJson>|undefined;
   const storage={joinDatabaseName:fields?.joinDatabaseName??`mdbase.${id}.native-collection-join.v1`,setupDatabaseName:fields?.setupDatabaseName??`mdbase.${id}.native-model-setup.v1`,applicationNamespace:fields?.applicationNamespace??id};
   for(const value of Object.values(storage))if(typeof value!=="string"||!value||value.length>256||/[\u0000-\u001f\u007f]/.test(value))fail();
   if(storage.joinDatabaseName===storage.setupDatabaseName)fail();
-  const resolved=Object.freeze({id,name,origin,environment:environment as "lab"|"production",manifest:manifest as ApplicationDeclarationSnapshot["manifest"],storage:Object.freeze(storage as Required<ApplicationStorageDeclaration>)});
+  const resolved=Object.freeze({id,name,origin,environment:environment as "lab"|"production",installationKind:kind as "app-runtime"|"mobile",manifest:manifest as ApplicationDeclarationSnapshot["manifest"],storage:Object.freeze(storage as Required<ApplicationStorageDeclaration>)});
   storageOverrides.set(resolved,Object.freeze({...fields}) as Readonly<ApplicationStorageDeclaration>);return resolved;
 }

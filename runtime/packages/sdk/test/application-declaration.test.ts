@@ -35,4 +35,14 @@ describe("generic application declaration custody (not registration/trust/manife
     expect(()=>applicationDeclaration({...declaration(),storage:{applicationNamespace:"bad\0namespace"}})).toThrow("application declaration");
     expect(()=>applicationDeclaration({...declaration(),id:"00000000-0000-0000-0000-000000000000"})).toThrow("application declaration");
   });
+  it("native and extension origins carry their installation kind",()=>{
+    expect(applicationDeclaration({...declaration(),origin:"capacitor://app.tasknotes.dev"}).installationKind).toBe("mobile");
+    expect(applicationDeclaration({...declaration(),origin:"https://tasknotes.dev"}).installationKind).toBe("app-runtime");
+    expect(applicationDeclaration({...declaration(),installationKind:"mobile"}).installationKind).toBe("mobile");
+    expect(applicationDeclaration({...declaration(),origin:`chrome-extension://${"a".repeat(32)}`}).installationKind).toBe("app-runtime");
+    expect(()=>applicationDeclaration({...declaration(),origin:"capacitor://app.tasknotes.dev",installationKind:"app-runtime"})).toThrow("application declaration");
+    expect(()=>applicationDeclaration({...declaration(),origin:`chrome-extension://${"a".repeat(32)}`,installationKind:"mobile"})).toThrow("application declaration");
+    expect(()=>applicationDeclaration({...declaration(),origin:"capacitor://app.tasknotes.dev:8080"})).toThrow("application declaration");
+    expect(()=>applicationDeclaration({...declaration(),origin:"chrome-extension://not-an-extension-id"})).toThrow("application declaration");
+  });
 });

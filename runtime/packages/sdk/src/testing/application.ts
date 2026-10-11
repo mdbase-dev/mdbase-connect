@@ -5,13 +5,16 @@
 import {applicationDeclaration, type MdbaseApplicationDeclaration} from "../application/declaration.js";
 import type {
   MdbaseApplication, MdbaseApplicationConnection, MdbaseApplicationEntry,
-  MdbaseApplicationRequestOptions, MdbaseApplicationSnapshot,
+  MdbaseApplicationRequestOptions, MdbaseApplicationSnapshot, MdbaseCollectionDeleteOptions,
 } from "../application/entry.js";
+import type {MdbaseSetupPlan} from "../application/setup.js";
 
-export type ApplicationFixtureAction = "start" | "authorize" | "approve" | "reauthorize" | "select" | "clearSelection" | "chooseAnother" | "forget" | "assess" | "configure" | "close";
+export type ApplicationFixtureAction = "start" | "authorize" | "approve" | "reauthorize" | "select" | "clearSelection" | "chooseAnother" | "forget" | "deleteCollection" | "assess" | "configure" | "planSetup" | "applySetup" | "close";
 export interface ApplicationFixtureCall {
   readonly action: ApplicationFixtureAction | "setForeground";
   readonly collectionId?: string;
+  /** `deleteCollection`: the typed confirmation name. */
+  readonly confirmName?: string;
   /** Original caller signal, never a fixture-created replacement. */
   readonly signal?: AbortSignal;
   readonly active?: boolean;
@@ -32,6 +35,8 @@ export interface ApplicationFixtureControls {
   /** Custom outcomes/delays/refusals, including blocked authorization/failed close.
    * assess handlers supply a full snapshot; assess returns its readiness only. */
   setHandler(action: ApplicationFixtureAction, handler: ApplicationFixtureHandler): () => void;
+  /** The plan `application.setup.plan` returns (a plain object); none refuses. */
+  setSetupPlan(plan: MdbaseSetupPlan | null): void;
   observedActions(): readonly ApplicationFixtureCall[];
   /** Release fixture-owned notifications/currentness, not borrowed clients. */
   close(): void;
@@ -69,6 +74,7 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
   let closed = false;
   let closeJob: Promise<void> | undefined;
   let actionGeneration = 0;
+  let setupPlan: MdbaseSetupPlan | null = null;
   let active: {source: MdbaseApplicationConnection; view: MdbaseApplicationConnection} | undefined;
 
   function bindings(values: readonly MdbaseApplicationConnection[]): Map<string, MdbaseApplicationConnection> {
@@ -97,12 +103,13 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
     listeners.clear();
     handlers.clear();
   }
-  async function run(action: ApplicationFixtureAction, request: MdbaseApplicationRequestOptions = {}, collectionId?: string): Promise<MdbaseApplicationSnapshot> {
+  async function run(action: ApplicationFixtureAction, request: MdbaseApplicationRequestOptions = {}, collectionId?: string, confirmName?: string): Promise<MdbaseApplicationSnapshot> {
     request.signal?.throwIfAborted();
     if (closed || closeJob) throw new Error("Application fixture is closed or closing");
     const generation = ++actionGeneration;
     const call: ApplicationFixtureCall = Object.freeze({action,
       ...(collectionId !== undefined ? {collectionId} : {}),
+      ...(confirmName !== undefined ? {confirmName} : {}),
       ...(request.signal ? {signal: request.signal} : {})});
     calls.push(call);
     const outcome = await handlers.get(action)?.(call);
@@ -113,7 +120,7 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
     if (outcome) publish(outcome);
     else if (action === "select") publish({...snapshot, selectedCollectionId: collectionId ?? null});
     else if (action === "clearSelection" || action === "chooseAnother") publish({...snapshot, selectedCollectionId: null});
-    else if (action === "forget") publish({...snapshot,
+    else if (action === "forget" || action === "deleteCollection") publish({...snapshot,
       collections: snapshot.collections.filter(collection => collection.collectionId !== collectionId),
       selectedCollectionId: snapshot.selectedCollectionId === collectionId ? null : snapshot.selectedCollectionId});
     return snapshot;
@@ -134,8 +141,17 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
     clearSelection: (request?: MdbaseApplicationRequestOptions) => run("clearSelection", request),
     chooseAnother: (request?: MdbaseApplicationRequestOptions) => run("chooseAnother", request),
     forget: (id: string, request?: MdbaseApplicationRequestOptions) => run("forget", request, id),
+    deleteCollection: (id: string, {confirmName, ...request}: MdbaseCollectionDeleteOptions) => run("deleteCollection", request, id, confirmName),
     assess: async (request?: MdbaseApplicationRequestOptions) => (await run("assess", request)).readiness,
     configure: (request?: MdbaseApplicationRequestOptions) => run("configure", request),
+    setup: Object.freeze({
+      async plan(request?: MdbaseApplicationRequestOptions) {
+        await run("planSetup", request);
+        if (!setupPlan) throw new Error("No fixture setup plan; call controls.setSetupPlan");
+        return setupPlan;
+      },
+      apply: (_plan: MdbaseSetupPlan, request?: MdbaseApplicationRequestOptions) => run("applySetup", request),
+    }),
     setForeground(active: boolean) {calls.push(Object.freeze({action: "setForeground", active}));},
     close() {
       if (closed) return Promise.resolve();
@@ -181,6 +197,7 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
       handlers.set(action, handler);
       return () => {if (handlers.get(action) === handler) handlers.delete(action);};
     },
+    setSetupPlan(plan: MdbaseSetupPlan | null) {setupPlan = plan;},
     observedActions: () => Object.freeze([...calls]),
     close: closeFixture,
   });

@@ -5,7 +5,7 @@ import { isErrorCode, MdbaseError, mdbaseError } from "../errors.js";
 import type { AppTimersPort, TimerRequestOptions } from "../timers.js";
 import type { AppReplicaScope } from "./owner.js";
 import type { AppInstallationTimerChannel } from "./installation-sign-in.js";
-import type { WebPushChannelOptions, FcmChannelOptions, TimerChannelRegistration } from "../timers.js";
+import type { ResolvedWebPushChannelOptions, FcmChannelOptions, TimerChannelRegistration } from "../timers.js";
 
 const NS=/^[A-Za-z0-9._-]{1,64}$/,ID=/^[A-Za-z0-9._:-]{1,128}$/;
 const MAX=2*1024*1024;
@@ -218,7 +218,7 @@ export function appTimerPortClient(port:MessagePort,binding:{scope:Readonly<AppR
     check();request.signal?.throwIfAborted();if(channelBusy||slot)throw error("unavailable","timer_port_busy");channelBusy=true;
     try{return await work();}finally{channelBusy=false;}
   };
-  const registerWebPush=(request:WebPushChannelOptions)=>workflow(request,async()=>{
+  const registerWebPush=(request:ResolvedWebPushChannelOptions)=>workflow(request,async()=>{
     const chosen=criteria(request.criteria);if(request.installationId!==undefined&&request.installationId!==binding.scope.installation)throw error("invalid_request","timer_channel_installation");
     const worker=request.serviceWorker;
     if(!worker?.pushManager||typeof worker.pushManager.getSubscription!=="function"||typeof worker.pushManager.subscribe!=="function")throw error("invalid_request","timer_push_platform");

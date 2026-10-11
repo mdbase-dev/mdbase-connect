@@ -33,6 +33,8 @@ pub use contract_records::{
     ContractRecordView, ContractSelection, ContractWritePlan, ContractWriteRequest,
 };
 
+mod type_packs;
+pub use type_packs::{TypePackPlan, TypePackRequest, TypePackWrite};
 mod contract_query;
 pub use contract_query::{
     ContractProjection, ContractQuery, ContractQueryRecord, ContractQueryResult,
@@ -768,6 +770,18 @@ pub trait ClientApi {
         Err(ErrorCode::UpgradeRequired.err_with_reason(
             "contract_records_unsupported",
             "this replica does not serve contract-scoped records",
+        ))
+    }
+    /// A type pack assessment, or with `expected` the guarded writes of its
+    /// apply (Core `packs`, spec 05A). Writes nothing.
+    fn plan_type_pack(
+        &mut self,
+        _session: SessionId,
+        _request: TypePackRequest,
+    ) -> ApiResult<TypePackPlan> {
+        Err(ErrorCode::UpgradeRequired.err_with_reason(
+            "type_packs_unsupported",
+            "this replica does not plan type packs",
         ))
     }
     /// Contract field values as ordinary record changes, for a create or an

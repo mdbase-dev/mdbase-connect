@@ -1,3 +1,4 @@
+import {isAppOrigin,urlOrigin} from "../app-host/app-origin.js";
 /** SDK-private browser selection policy. URL/stored IDs are REQUESTED hints,
  * never approval, identity, native access or current semantic readiness. */
 export interface ApplicationBrowserSelectionOptions {readonly parameter?:string;readonly fallbackPath?:string}
@@ -42,7 +43,7 @@ export class ApplicationBrowserSelection {
     let base:URL,fallback:URL;
     try{base=new URL(origin);fallback=new URL(options.fallbackPath??"/",base);}catch{throw new ApplicationSelectionError("application_selection_binding");}
     const parameter=options.parameter??"collection";
-    if(base.origin!==origin||base.username||base.password||base.pathname!=="/"||base.search||base.hash||!["https:","http:"].includes(base.protocol)||fallback.origin!==origin||fallback.username||fallback.password||fallback.search||fallback.hash||
+    if(!isAppOrigin(origin,true)||urlOrigin(base)!==origin||urlOrigin(fallback)!==origin||fallback.username||fallback.password||fallback.search||fallback.hash||
       typeof parameter!=="string"||! /^[a-z][a-zA-Z0-9_.-]{0,63}$/.test(parameter)||["code","state","error","error_description"].includes(parameter))throw new ApplicationSelectionError("application_selection_binding");
     this.origin=origin;this.parameter=parameter;this.fallback=fallback.href;this.port=port;
   }
@@ -56,7 +57,7 @@ export class ApplicationBrowserSelection {
   private check():void{if(this.closed)throw new ApplicationSelectionError("application_selection_fenced");}
   private url():URL {
     let url:URL;try{url=new URL(this.port!.href());}catch{throw new ApplicationSelectionError("application_selection_binding");}
-    if(url.origin!==this.origin||url.username||url.password)throw new ApplicationSelectionError("application_selection_binding");return url;
+    if(urlOrigin(url)!==this.origin||url.username||url.password)throw new ApplicationSelectionError("application_selection_binding");return url;
   }
   private read():ApplicationSelectionSnapshot {
     if(!this.port)return state(null,"none");
@@ -86,7 +87,7 @@ export class ApplicationBrowserSelection {
   }
   /** Same-origin return-path policy; never navigate to a caller-supplied origin. */
   returnUrl(value:string):string {
-    this.check();try{const url=new URL(value,this.origin);if(url.origin===this.origin&&!url.username&&!url.password)return url.href;}catch{/* use declared base-path */}return this.fallback;
+    this.check();try{const url=new URL(value,this.origin);if(urlOrigin(url)===this.origin&&!url.username&&!url.password)return url.href;}catch{/* use declared base-path */}return this.fallback;
   }
   close():void {if(this.closed)return;this.closed=true;const stop=this.stopListening;this.stopListening=null;stop?.();this.listeners.clear();}
 }

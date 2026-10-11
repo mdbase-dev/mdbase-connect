@@ -30,6 +30,7 @@ import { rememberWitness, witnessesFor } from "./witness.js";
 import { API_VERSIONS, problemCodec, schemaToError, Session, withMutation } from "./session.js";
 import type { Connector } from "./transport/port.js";
 import { usesNextRelayFence } from "./transport/read-fence-policy.js";
+import { applyTypePack, planTypePack, type TypePackApplyResult, type TypePackOptions, type TypePackPlan, type TypePackProvision } from "./type-packs.js";
 import { diffEdits, PlainValue, revisionOf, toFmMap, toValue, uuidv7, valueEquals } from "./values.js";
 import {
   PendingDevice,
@@ -482,6 +483,7 @@ const READ_METHODS = new Set([
   "get", "query", "query_contract_v1", "subscribe", "changes", "backlinks", "list_resources", "get_resource", "execute_view",
   "list_views", "read_view_source", "describe", "describe_typing", "list_files", "get_file", "read_file",
   "list_holds", "list_conflicts", "validate", "new_type_file", "get_contract_v1", "map_contract_write_v1",
+  "plan_type_pack_v1",
 ]);
 
 export class MdbaseClient {
@@ -1226,6 +1228,13 @@ export class MdbaseClient {
     delete: (path: string, o: WriteOptions & { baseRevision?: string } = {}): Promise<Write> =>
       this.one({ kind: "resource_delete", path, ...(o.baseRevision ? { baseRevision: o.baseRevision } : {}) }, o),
   };
+
+  /** Type packs: `plan` (writes nothing), review, then `apply(plan)` as one
+   * guarded all-or-nothing mutation (needs `definitions.manage`). */
+  readonly typePacks = Object.freeze({
+    plan: (pack: TypePackProvision, options: TypePackOptions): Promise<TypePackPlan> => planTypePack(this, pack, options),
+    apply: (plan: TypePackPlan, o?: WriteOptions): Promise<TypePackApplyResult> => applyTypePack(this, plan, o),
+  });
 
   /** Shared native record editor leases; no app-specific record index. */
   private readonly recordSessions = new RecordsApi(this);

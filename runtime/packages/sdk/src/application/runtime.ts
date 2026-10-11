@@ -2,6 +2,7 @@ import type {AppWebSignInPortal,AppWebSignInSnapshot} from "../app-host/web-sign
 import type {ApplicationDeclarationSnapshot} from "./declaration.js";
 import type {MdbaseApplicationConnection,MdbaseApplicationReadinessSnapshot,MdbaseApplicationRequestOptions,MdbaseApplicationSnapshot as PublicSnapshot} from "./entry.js";
 import {ApplicationScope} from "./scope.js";
+import type {MdbaseSetupPlan,MdbaseSetupPlanOptions} from "./setup.js";
 import {ApplicationWorkerClient} from "./worker-client.js";
 import {browserApplicationPortalHost,reserveApplicationPortal} from "./portal-reservation.js";
 
@@ -119,6 +120,15 @@ export class ApplicationRuntime {
   configure(options:MdbaseApplicationRequestOptions={}):Promise<MdbaseApplicationSnapshot>{
     const caller=this.signal(options);return this.action(async()=>{await this.scope.configure({signal:caller});this.publish();return this.snapshot;},caller);
   }
+  /** Read-only review plan of the open collection; no snapshot publication. */
+  planSetup(options:MdbaseSetupPlanOptions={}):Promise<MdbaseSetupPlan>{
+    const caller=this.signal(options);
+    if(this.closed||caller.aborted)return Promise.reject(new ApplicationRuntimeError("application_fenced"));
+    return this.scope.planSetup({...options,signal:caller});
+  }
+  applySetup(plan:MdbaseSetupPlan,options:MdbaseApplicationRequestOptions={}):Promise<MdbaseApplicationSnapshot>{
+    const caller=this.signal(options);return this.action(async()=>{await this.scope.applySetup(plan,{signal:caller});this.publish();return this.snapshot;},caller);
+  }
   clearSelection(options:MdbaseApplicationRequestOptions={}):Promise<MdbaseApplicationSnapshot>{
     const caller=this.signal(options);return this.action(async()=>{
       ++this.epoch;await this.scope.retire();return this.complete(await this.worker.request("clearSelection",null,caller),caller);
@@ -126,6 +136,15 @@ export class ApplicationRuntime {
   }
   forget(id:string,options:MdbaseApplicationRequestOptions={}):Promise<MdbaseApplicationSnapshot>{
     const caller=this.signal(options);return this.action(async()=>{
+      if(this.raw.selectedCollectionId===id){++this.epoch;await this.scope.retire();}
+      return this.complete(await this.worker.request("forget",id,caller),caller);
+    },caller);
+  }
+  /** Owner delete through the CP, then forget it locally like `forget`. A
+   * refusal leaves the collection (and any open connection) as it was. */
+  deleteCollection(id:string,confirmName:string,options:MdbaseApplicationRequestOptions={}):Promise<MdbaseApplicationSnapshot>{
+    const caller=this.signal(options);return this.action(async()=>{
+      await this.worker.request("deleteCollection",[id,confirmName],caller);
       if(this.raw.selectedCollectionId===id){++this.epoch;await this.scope.retire();}
       return this.complete(await this.worker.request("forget",id,caller),caller);
     },caller);

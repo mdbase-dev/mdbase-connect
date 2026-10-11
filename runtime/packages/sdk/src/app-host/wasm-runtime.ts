@@ -6,11 +6,12 @@ import { WasmRuntime, type Exports, type OpenConfig } from "../runtime/wasm.js";
 import { confirmedHead, syncStatus, type ConfirmedHead, type SyncStatus } from "../wire.js";
 import { AppLogPump, type AppLogCall, type AppLogRuntime, type AppLogTransport } from "./log-pump.js";
 import type { AppLogHttpProof } from "./http-log.js";
-import { resourceAssessment, type AppResourceAssessment } from "./collection-control.js";
+import { resourceAssessment, resourceDecisions, type AppResourceAssessment, type AppResourceDecisions } from "./collection-control.js";
 import { modelResourcePlan } from "./collection-setup-journal.js";
 import type { ModelResourcePlan } from "./collection-setup-types.js";
 
-function resourceJson(value: unknown, toCbor: boolean, depth = 0, count = { nodes: 0 }): unknown {
+/** @internal Bounded resource DATA codec shared with the setup engine. */
+export function resourceJson(value: unknown, toCbor: boolean, depth = 0, count = { nodes: 0 }): unknown {
   if (depth > 32 || ++count.nodes > 65536) throw mdbaseError("invalid_request", "resource DATA exceeds bound");
   if (value === null || typeof value === "boolean" || typeof value === "string"
     || (typeof value === "number" && Number.isFinite(value))) return value;
@@ -128,6 +129,7 @@ interface AppExports extends Exports {
   rt_app_private_device_enrol_sign(p: number, n: number): bigint;
   rt_app_verify_handover(session: bigint, dp: number, dn: number, wp: number, wn: number): bigint;
   rt_app_resources?(session: bigint, p: number, n: number): bigint;
+  rt_app_receipt_rejected?(session: bigint, p: number, n: number): number;
   rt_app_bases_execute?(session: bigint, p: number, n: number): bigint;
   rt_app_bases_list_views?(session: bigint, p: number, n: number): bigint;
   rt_app_bases_read_view_source?(session: bigint, p: number, n: number): bigint;
@@ -279,15 +281,19 @@ export class AppWasmRuntime extends WasmRuntime implements AppLogRuntime {
   }
   /** Private resource-only planner, bound to the already held facade session.
    * Native owns inventory and authority checks; no caller IDs or state loans. */
-  setupResources(port: ReturnType<WasmRuntime["connect"]>, operation: "assess", manifest: unknown): AppResourceAssessment;
-  setupResources(port: ReturnType<WasmRuntime["connect"]>, operation: "apply", manifest: unknown, expectedDigest: string): ModelResourcePlan;
-  setupResources(port: ReturnType<WasmRuntime["connect"]>, operation: "assess" | "apply", manifest: unknown, expectedDigest?: string): AppResourceAssessment | ModelResourcePlan {
+  setupResources(port: ReturnType<WasmRuntime["connect"]>, operation: "assess", manifest: unknown, expectedDigest?: undefined, decisions?: AppResourceDecisions): AppResourceAssessment;
+  setupResources(port: ReturnType<WasmRuntime["connect"]>, operation: "apply", manifest: unknown, expectedDigest: string, decisions?: AppResourceDecisions): ModelResourcePlan;
+  setupResources(port: ReturnType<WasmRuntime["connect"]>, operation: "assess" | "apply", manifest: unknown, expectedDigest?: string, decisions?: AppResourceDecisions): AppResourceAssessment | ModelResourcePlan {
     const session = this.sessionForPort(port), native = this.app.rt_app_resources;
     if (!this.active || this.retired || !this.sql || this.sql.needsRecovery || session === null || typeof native !== "function")
       throw mdbaseError("unavailable", "resource setup unsupported", "resource_setup_unsupported");
     if (operation !== "assess" && operation !== "apply") throw bad();
     if (operation === "apply" && (typeof expectedDigest !== "string" || !/^sha256:[0-9a-f]{64}$/.test(expectedDigest))) throw bad();
-    const input = encode([1, operation === "apply" ? 1 : 0, resourceJson(manifest, true) as CborValue, expectedDigest ?? null]);
+    // A fifth member carries reviewed decisions and asks assess for the review.
+    const reviewing = decisions !== undefined;
+    const request: CborValue[] = [1, operation === "apply" ? 1 : 0, resourceJson(manifest, true) as CborValue, expectedDigest ?? null];
+    if (reviewing) request.push(resourceJson(resourceDecisions(decisions), true) as CborValue);
+    const input = encode(request);
     if (!input.length || input.length > 512 * 1024) { input.fill(0); throw mdbaseError("invalid_request", "resource DATA exceeds bound"); }
     let output: Uint8Array | undefined;
     try {
@@ -302,8 +308,20 @@ export class AppWasmRuntime extends WasmRuntime implements AppLogRuntime {
       if (!Array.isArray(response) || response.length !== 3 || response[0] !== 1 || typeof response[1] !== "boolean") throw bad();
       if (response[1] === false) throw mdbaseError("unavailable", "resource setup unavailable", "resource_setup_unavailable");
       const value = resourceJson(response[2], false);
-      return operation === "assess" ? resourceAssessment(value) : modelResourcePlan(value);
+      return operation === "assess" ? resourceAssessment(value, reviewing) : modelResourcePlan(value);
     } finally { input.fill(0); output?.fill(0); }
+  }
+  /** True only when native holds a FINAL rejected receipt for exactly this
+   * mutation on the port's own session. Anything else, including errors, is false. */
+  resourceRejected(port: ReturnType<WasmRuntime["connect"]>, mutationId: string): boolean {
+    let bytes: Uint8Array | null = null;
+    try {
+      const session = this.sessionForPort(port), native = this.app.rt_app_receipt_rejected;
+      if (!this.active || this.retired || session === null || typeof native !== "function" || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(mutationId)) return false;
+      bytes = uuidToBytes(mutationId);
+      const answer = this.guard(() => native.call(this.app, session, ...this.put(bytes!)));
+      return answer === 1 && this.active && !this.retired && this.sessionForPort(port) === session;
+    } catch { return false; } finally { bytes?.fill(0); }
   }
   /** Positive ONLY from native verified-policy signature + retained prefix and
    * live READ session. Ordinary unavailable stays hosted; no saved implication. */

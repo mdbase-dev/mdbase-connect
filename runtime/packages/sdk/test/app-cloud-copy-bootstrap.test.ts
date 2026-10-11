@@ -199,6 +199,30 @@ describe("first-party cloud-copy CP bootstrap (protocol/native/persistence stand
         expect(f.native.retireLog).toHaveBeenCalled();
         expect(vi.getTimerCount()).toBe(0);
     });
+    it.each([
+        [409, { code: "collection_migrating", message: "secret", details: { retry_after_seconds: 45 } }, "collection_migrating", 45_000],
+        [403, { code: "account_suspended", message: "secret" }, "account_suspended", null],
+        [409, { code: "collection_unavailable", details: { reason: "moved_to_next_runtime", update_url: "https://app.example.test/update" } }, "update_required", null],
+    ] as const)(
+        "carries the CP problem through (HTTP %s)",
+        async (status, error, reason, retryAfterMs) => {
+            const f = fixture();
+            f.fetch.mockImplementation(
+                async () => Response.json({ error }, { status }),
+            );
+            const failure = await f
+                .create()
+                .bootstrap({ signal: f.signal })
+                .catch((e: unknown) => e);
+            expect(failure).toMatchObject({
+                reason,
+                retryable: false,
+                server: { status, code: error.code, retryAfterMs },
+            });
+            expect(JSON.stringify(failure)).not.toContain("secret");
+            expect(f.fetch).toHaveBeenCalledOnce();
+        },
+    );
     it.each([401, 403, 404, 409])(
         "permanent challenge HTTP %s never retries or advertises Retry",
         async (status) => {

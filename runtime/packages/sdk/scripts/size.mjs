@@ -13,7 +13,14 @@ const r = await build({
   platform: "browser",
   write: false,
   treeShaking: true,
+  metafile: true,
 });
+// `@mdbase-dev/sdk/app-grant` is a separate entry: the default one must not pull it in.
+const leaked = Object.keys(r.metafile.inputs).filter((path) => path.startsWith("src/app-grant/"));
+if (leaked.length) {
+  console.error(`sdk bundle includes the app-grant entry: ${leaked.join(", ")}`);
+  process.exit(1);
+}
 const raw = r.outputFiles[0].contents;
 const gz = gzipSync(raw, { level: 9 }).length;
 console.log(`sdk bundle: ${(raw.length / 1024).toFixed(1)} KiB raw, ${(gz / 1024).toFixed(1)} KiB gzip (ceiling ${CEILING_GZIP / 1024} KiB)`);

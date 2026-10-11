@@ -3,6 +3,7 @@
 import { uuidToBytes } from "../codec.js";
 import { AppHttpLogTransport, type AppLogHttpAuthority, type AppLogHttpOptions, type AppLogHttpProof } from "./http-log.js";
 import type { AppCpConnectorPin, AppWasmRuntime } from "./wasm-runtime.js";
+import { appServerBody, appServerOutcome, appServerProblem, type AppServerOutcome, type AppServerProblem } from "./cp-problem.js";
 
 export interface AppCpSession extends AppCpConnectorPin {
   readonly endpoint: number | bigint;
@@ -13,9 +14,10 @@ export interface AppCpSession extends AppCpConnectorPin {
   connectorBearer(options: { signal: AbortSignal }): Promise<string>;
 }
 export class AppCpAuthorityError extends Error {
-  constructor(readonly reason: "binding" | "fenced" | "unavailable" | "response") { super(`app CP authority: ${reason}`); this.name = "AppCpAuthorityError"; }
+  constructor(readonly reason: "binding" | "fenced" | "unavailable" | "response" | AppServerOutcome, readonly server?: AppServerProblem) { super(`app CP authority: ${reason}`); this.name = "AppCpAuthorityError"; }
 }
 const fail = (r: AppCpAuthorityError["reason"]) => new AppCpAuthorityError(r);
+const refused = (server: AppServerProblem) => new AppCpAuthorityError(appServerOutcome(server) ?? "unavailable", server);
 function origin(input: string, loopback: boolean): string {
   let u: URL; try { u = new URL(input); } catch { throw fail("binding"); }
   if (u.username || u.password || u.pathname !== "/" || u.search || u.hash || (u.protocol !== "https:" && !(loopback && u.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname)))) throw fail("binding");
@@ -82,16 +84,16 @@ export class AppCpLogAuthority implements AppLogHttpAuthority {
       const fetchImpl = this.fetchImpl;
       response = await fetchImpl(`${this.cpOrigin}${path}`, { method: "POST", headers: { authorization: `Bearer ${bearer}`, ...(body === undefined ? {} : { "content-type": "application/json" }) }, body, signal: ctrl.signal, redirect: "error", credentials: "omit", cache: "no-store", referrerPolicy: "no-referrer" });
       this.check(parent); if (ctrl.signal.aborted) throw fail("unavailable");
-      if (!response.ok) throw fail("unavailable");
       // Content-Encoding may be hidden by CORS; Content-Length is wire-only.
       const length = response.headers.get("content-length");
-      if (length !== null && /^(0|[1-9][0-9]*)$/.test(length) && Number(length) > bytes.length) {ctrl.abort(); throw fail("unavailable");}
-      if (!response.body) throw fail("response"); reader = response.body.getReader();
+      if (length !== null && /^(0|[1-9][0-9]*)$/.test(length) && Number(length) > bytes.length) {ctrl.abort(); throw response.ok ? fail("unavailable") : refused(appServerProblem(response.status, undefined, response.headers));}
+      if (!response.body) throw response.ok ? fail("response") : refused(appServerProblem(response.status, undefined, response.headers)); reader = response.body.getReader();
       for (;;) {
         const { done, value } = await reader.read();
         try { this.check(parent); if (ctrl.signal.aborted) throw fail("unavailable"); if (done) break; if (count + value.length > bytes.length) {ctrl.abort(); throw fail("response");} bytes.set(value, count); count += value.length; }
         finally { value?.fill(0); }
       }
+      if (!response.ok) throw refused(appServerProblem(response.status, appServerBody(bytes.subarray(0, count)), response.headers));
       return object(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, count))));
     } catch (e) { this.check(parent); if (e instanceof AppCpAuthorityError) throw e; throw fail("unavailable"); }
     finally { bytes.fill(0); void (reader?.cancel() ?? response?.body?.cancel())?.catch(() => {}); reader?.releaseLock(); clearTimeout(timer); parent.removeEventListener("abort", abort); this.lifetime.signal.removeEventListener("abort", abort); }

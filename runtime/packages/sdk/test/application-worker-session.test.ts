@@ -18,6 +18,8 @@ describe("SDK-private original Worker session composition",()=>{
     try{
       expect(result.session).toBeInstanceOf(AppWebSignInSession);expect(result.session.getSnapshot()).toMatchObject({status:"not_started",signIn:null,selectedCollectionId:null});
       expect(result.compiled.nativeCapabilities).toEqual({capabilityContractVersion:2,requiredNativeCapabilities:["collection.read"]});
+      // The local slot owner is the declaration's manifest family, not the CP appId.
+      expect((result.session as unknown as {options:{appId:string;owner:string}}).options).toMatchObject({appId:id,owner:"bundle:dev.example.tasknotes"});
       expect(result.collection.people).toBe(true);expect(result.collection.joinDatabaseName).toBe("retained.join.v1");
       expect(result.collection.setupJournal).toEqual({databaseName:"retained.setup.v1",applicationNamespace:"retained-namespace",appOrigin:origin,cpOrigin});
       expect(result.collection.sql.initialize).toBe(p.initializeSqlite);expect(fetcher).not.toHaveBeenCalled();expect(openPortal).not.toHaveBeenCalled();expect(handoff).not.toHaveBeenCalled();expect(uuid).not.toHaveBeenCalled();expect(p.initializeSqlite).not.toHaveBeenCalled();

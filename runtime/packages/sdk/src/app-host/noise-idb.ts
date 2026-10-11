@@ -1,6 +1,7 @@
 /** First-party opaque Noise vault IO only. No keys, decryption, collection SQL,
  * deletion, replacement, generic KV or retry API. Actual atomic IDB transaction;
  * strict durability is a request, NOT a physical durability/Saved claim. */
+import { currentAppOrigin, isAppOrigin } from "./app-origin.js";
 import { uuidToBytes } from "../codec.js";
 import type { AppDeviceIdentityPin } from "./wasm-runtime.js";
 import type { AppNoiseProtectedStore } from "./noise-custody.js";
@@ -51,11 +52,7 @@ export class AppIndexedDbNoiseProtectedStore implements AppNoiseProtectedStore {
   private static async openChecked(options: AppIndexedDbNoiseOptions): Promise<AppIndexedDbNoiseProtectedStore> {
     const { source, signal } = options;
     const pins = [source.connectorId, source.deviceId, source.installationId] as const;
-    const endpoint = new URL(options.origin);
-    const loopback = options.allowLoopbackHttp === true && endpoint.protocol === "http:" &&
-      ["localhost", "127.0.0.1", "[::1]"].includes(endpoint.hostname);
-    if ((!loopback && endpoint.protocol !== "https:") || endpoint.origin !== options.origin ||
-        endpoint.username || endpoint.password || globalThis.location?.origin !== options.origin ||
+    if (!isAppOrigin(options.origin, options.allowLoopbackHttp === true) || currentAppOrigin() !== options.origin ||
         !["fresh", "existing"].includes(options.mode) || signal.aborted || !current(source, pins) ||
         typeof globalThis.indexedDB === "undefined") throw fail();
     const name = `mdbase.app.noise.v1.${id(pins[2])}.${id(pins[0])}.${id(pins[1])}`;
@@ -97,7 +94,7 @@ export class AppIndexedDbNoiseProtectedStore implements AppNoiseProtectedStore {
 
   private get namespace(): string { return `mdbase.app-noise.v1:${this.pins[0]}:${this.pins[1]}:${this.pins[2]}`; }
   private check(signal: AbortSignal, namespace = this.namespace): void {
-    if (this.closed || signal.aborted || namespace !== this.namespace || globalThis.location?.origin !== this.origin ||
+    if (this.closed || signal.aborted || namespace !== this.namespace || currentAppOrigin() !== this.origin ||
         !current(this.source, this.pins)) throw fail();
   }
   async read(namespace: string, options: { signal: AbortSignal }): Promise<Uint8Array | null> {

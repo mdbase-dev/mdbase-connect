@@ -10,22 +10,102 @@ export interface AppCollectionControlBinding {
   readonly scope: ModelSetupScope;
   readonly generation: string;
 }
+/** Native Core's reviewable setup (present only when decisions were sent). */
+export interface AppResourceReview {
+  readonly packs: readonly {
+    readonly id: string;
+    readonly version: string;
+    readonly status: "current" | "install" | "upgrade" | "downgrade" | "reconfigure" | "conflict";
+    readonly installedVersion: string | null;
+    readonly resources: readonly {
+      readonly target: string;
+      readonly kind: string;
+      readonly mode: "managed" | "seed";
+      readonly action: "create" | "update" | "delete" | "adopt" | "preserve" | "conflict";
+      readonly installed: boolean;
+      readonly currentDigest?: string;
+      readonly reason?: string;
+    }[];
+  }[];
+  readonly configuration: readonly { readonly requirement: string; readonly path: string; readonly action: "add" | "conflict"; readonly value?: string | number | boolean | null }[];
+  readonly staged: readonly { readonly path: string; readonly document: string }[];
+}
 export interface AppResourceAssessment {
   readonly status: "current" | "provision" | "conflict";
   readonly assessmentDigest: string;
+  readonly review?: AppResourceReview;
+}
+/** Reviewed decisions: an unmanaged definition target → its exact reviewed digest. */
+export interface AppResourceDecisions {
+  readonly adopt?: Readonly<Record<string, string>>;
 }
 /** SDK-private producer port. Inputs are declaration DATA, outputs are Core
- * resource DATA/guarded ops only; apply here never submits a mutation. */
+ * resource DATA/guarded ops only; apply here never submits a mutation.
+ * Passing decisions (even `{}`) asks assess for the review. */
 export interface AppResourceSetupPort {
-  assess(manifest: unknown, signal: AbortSignal): Promise<AppResourceAssessment>;
-  apply(manifest: unknown, assessmentDigest: string, signal: AbortSignal): Promise<ModelResourcePlan>;
+  assess(manifest: unknown, signal: AbortSignal, decisions?: AppResourceDecisions): Promise<AppResourceAssessment>;
+  apply(manifest: unknown, assessmentDigest: string, signal: AbortSignal, decisions?: AppResourceDecisions): Promise<ModelResourcePlan>;
+  /** Native witness: true only for a FINAL rejected receipt of exactly this
+   * mutation on the original session. The only way a round is recorded rejected. */
+  rejected?(mutationId: string, signal: AbortSignal): Promise<boolean>;
 }
-export function resourceAssessment(value: unknown): AppResourceAssessment {
+const digestText = /^sha256:[0-9a-f]{64}$/;
+const plainObject = (v: unknown): v is Record<string, unknown> =>
+  !!v && typeof v === "object" && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype;
+const text = (v: unknown, max = 4096): v is string => typeof v === "string" && v.length > 0 && v.length <= max;
+export function resourceDecisions(value: unknown): AppResourceDecisions {
+  if (!plainObject(value) || Object.keys(value).some(k => k !== "adopt")) throw fail("binding");
+  if (value.adopt === undefined) return Object.freeze({});
+  const adopt = value.adopt;
+  if (!plainObject(adopt) || Object.keys(adopt).length > 256) throw fail("binding");
+  const copy: Record<string, string> = {};
+  for (const [target, digest] of Object.entries(adopt)) {
+    if (!text(target) || typeof digest !== "string" || !digestText.test(digest)) throw fail("binding");
+    copy[target] = digest;
+  }
+  return Object.freeze({adopt: Object.freeze(copy)});
+}
+const keys = (v: Record<string, unknown>, required: string, optional: readonly string[] = []) => {
+  const want = required.split(",");
+  return want.every(k => Object.hasOwn(v, k)) && Object.keys(v).every(k => want.includes(k) || optional.includes(k));
+};
+function resourceReview(value: unknown): AppResourceReview {
+  if (!plainObject(value) || !keys(value, "configuration,packs,staged")
+    || !Array.isArray(value.packs) || value.packs.length > 16
+    || !Array.isArray(value.configuration) || value.configuration.length > 64
+    || !Array.isArray(value.staged) || value.staged.length > 1024) throw fail("binding");
+  const packs = value.packs.map(pack => {
+    if (!plainObject(pack) || !keys(pack, "id,installedVersion,resources,status,version") || !text(pack.id, 150) || !text(pack.version, 128)
+      || !["current", "install", "upgrade", "downgrade", "reconfigure", "conflict"].includes(pack.status as string)
+      || !(pack.installedVersion === null || text(pack.installedVersion, 128)) || !Array.isArray(pack.resources) || pack.resources.length > 1024) throw fail("binding");
+    const resources = pack.resources.map(row => {
+      if (!plainObject(row) || !keys(row, "action,installed,kind,mode,target", ["currentDigest", "reason"]) || !text(row.target) || !text(row.kind, 64)
+        || (row.mode !== "managed" && row.mode !== "seed") || typeof row.installed !== "boolean"
+        || !["create", "update", "delete", "adopt", "preserve", "conflict"].includes(row.action as string)
+        || (row.currentDigest !== undefined && (typeof row.currentDigest !== "string" || !digestText.test(row.currentDigest)))
+        || (row.reason !== undefined && !text(row.reason, 8192))) throw fail("binding");
+      return Object.freeze({...row}) as AppResourceReview["packs"][number]["resources"][number];
+    });
+    return Object.freeze({id: pack.id, version: pack.version, status: pack.status, installedVersion: pack.installedVersion, resources: Object.freeze(resources)}) as AppResourceReview["packs"][number];
+  });
+  const configuration = value.configuration.map(row => {
+    if (!plainObject(row) || !keys(row, "action,path,requirement", ["value"]) || !text(row.requirement, 256) || !text(row.path, 1024)
+      || (row.action !== "add" && row.action !== "conflict")
+      || !(row.value === undefined || row.value === null || ["string", "number", "boolean"].includes(typeof row.value))) throw fail("binding");
+    return Object.freeze({...row}) as AppResourceReview["configuration"][number];
+  });
+  const staged = value.staged.map(row => {
+    if (!plainObject(row) || !keys(row, "document,path") || !text(row.path) || typeof row.document !== "string" || row.document.length > 512 * 1024) throw fail("binding");
+    return Object.freeze({path: row.path, document: row.document});
+  });
+  return Object.freeze({packs: Object.freeze(packs), configuration: Object.freeze(configuration), staged: Object.freeze(staged)});
+}
+export function resourceAssessment(value: unknown, reviewing = false): AppResourceAssessment {
   const v = value as AppResourceAssessment;
-  if (!v || typeof v !== "object" || Object.keys(v).sort().join(",") !== "assessmentDigest,status"
+  if (!v || typeof v !== "object" || Object.keys(v).sort().join(",") !== (reviewing ? "assessmentDigest,review,status" : "assessmentDigest,status")
     || !["current", "provision", "conflict"].includes(v.status)
-    || typeof v.assessmentDigest !== "string" || !/^sha256:[0-9a-f]{64}$/.test(v.assessmentDigest)) throw fail("binding");
-  return Object.freeze({ status: v.status, assessmentDigest: v.assessmentDigest });
+    || typeof v.assessmentDigest !== "string" || !digestText.test(v.assessmentDigest)) throw fail("binding");
+  return Object.freeze({ status: v.status, assessmentDigest: v.assessmentDigest, ...(reviewing ? {review: resourceReview(v.review)} : {}) });
 }
 export interface AppCollectionControlClient {
   readonly resourceSetup: AppResourceSetupPort;
@@ -53,8 +133,8 @@ function pin(source: AppCollectionControlBinding) {
 function bounded(value: unknown): boolean {
   try { return new TextEncoder().encode(JSON.stringify(value)).byteLength <= MAX; } catch { return false; }
 }
-type Action = "load" | "prepare" | "prepareResources" | "prepareResourceRound" | "recordAttempt" | "recordConfirmed" | "recordVerified" | "recordResourceAttempt" | "recordResourceConfirmed" | "recordResourceVerified" | "assess" | "foreground" | "peopleIdentity" | "peopleMembers" | "resourcesAssess" | "resourcesApply";
-const actions = ["load", "prepare", "prepareResources", "prepareResourceRound", "recordAttempt", "recordConfirmed", "recordVerified", "recordResourceAttempt", "recordResourceConfirmed", "recordResourceVerified", "assess", "foreground", "peopleIdentity", "peopleMembers", "resourcesAssess", "resourcesApply"] as const;
+type Action = "load" | "prepare" | "prepareResources" | "prepareResourceRound" | "recordAttempt" | "recordConfirmed" | "recordVerified" | "recordResourceAttempt" | "recordResourceConfirmed" | "recordResourceVerified" | "recordResourceRejected" | "assess" | "foreground" | "peopleIdentity" | "peopleMembers" | "resourcesAssess" | "resourcesApply";
+const actions = ["load", "prepare", "prepareResources", "prepareResourceRound", "recordAttempt", "recordConfirmed", "recordVerified", "recordResourceAttempt", "recordResourceConfirmed", "recordResourceVerified", "recordResourceRejected", "assess", "foreground", "peopleIdentity", "peopleMembers", "resourcesAssess", "resourcesApply"] as const;
 const peopleResource = (action: Action): CollectionPeopleResource | null => action === "peopleIdentity" ? "identity" : action === "peopleMembers" ? "members" : null;
 const readAction = (action: Action) => action === "load" || action === "assess" || action === "foreground" || action === "resourcesAssess" || action === "resourcesApply" || peopleResource(action) !== null;
 
@@ -105,11 +185,18 @@ export function attachAppCollectionControl(port: MessagePort, source: AppCollect
           case "resourcesAssess": case "resourcesApply": {
             const producer = options.resourceSetup;
             if (!producer) throw fail("recovery_required");
-            if (action === "resourcesAssess") result = resourceAssessment(await producer.assess(payload, options.signal));
-            else {
-              if (!Array.isArray(payload) || payload.length !== 2 || typeof payload[1] !== "string"
-                || !/^sha256:[0-9a-f]{64}$/.test(payload[1])) throw fail("binding");
-              result = modelResourcePlan(await producer.apply(payload[0], payload[1], options.signal));
+            // Decisions travel as an array member; a manifest is never an array.
+            if (action === "resourcesAssess") {
+              const reviewing = Array.isArray(payload);
+              if (reviewing && payload.length !== 2) throw fail("binding");
+              result = reviewing ? resourceAssessment(await producer.assess(payload[0], options.signal, resourceDecisions(payload[1])), true)
+                : resourceAssessment(await producer.assess(payload, options.signal));
+            } else {
+              if (!Array.isArray(payload) || (payload.length !== 2 && payload.length !== 3) || typeof payload[1] !== "string"
+                || !digestText.test(payload[1])) throw fail("binding");
+              result = modelResourcePlan(payload.length === 3
+                ? await producer.apply(payload[0], payload[1], options.signal, resourceDecisions(payload[2]))
+                : await producer.apply(payload[0], payload[1], options.signal));
             }
             current(); break;
           }
@@ -137,6 +224,15 @@ export function attachAppCollectionControl(port: MessagePort, source: AppCollect
             result = await options.journal.prepareResourceRound(modelResourcePlan(payload[0]), payload[1], options.signal); break;
           case "assess": if (payload !== "ready" && payload !== "setup_required") throw fail("binding"); options.assess(payload); break;
           case "foreground": if (typeof payload !== "boolean") throw fail("binding"); options.foreground(payload); break;
+          case "recordResourceRejected": {
+            // "Applied nothing, may replace" is never taken on the UI's word:
+            // only a final native rejection of the journaled mutation counts.
+            // The journal then binds it to that intent's exact predecessor.
+            if (typeof payload !== "string" || !uuid.test(payload)) throw fail("binding");
+            const witness = options.resourceSetup?.rejected;
+            if (!witness || await witness(payload, options.signal) !== true) throw fail("recovery_required");
+            current(); result = await options.journal.recordResourceRejected(payload, options.signal); break;
+          }
           default:
             if (typeof payload !== "string" || !uuid.test(payload)) throw fail("binding");
             result = await options.journal[action](payload, options.signal);
@@ -251,6 +347,7 @@ export function appCollectionControlClient(port: MessagePort, source: AppCollect
     recordResourceAttempt: (id, signal) => resource("recordResourceAttempt", id, signal),
     recordResourceConfirmed: (id, signal) => resource("recordResourceConfirmed", id, signal),
     recordResourceVerified: (id, signal) => resource("recordResourceVerified", id, signal),
+    recordResourceRejected: (id, signal) => resource("recordResourceRejected", id, signal),
   });
   const peopleAuthority: PeopleAuthority | undefined = options.people === true ? Object.freeze({
     collection: original.scope.collection,
@@ -271,13 +368,14 @@ export function appCollectionControlClient(port: MessagePort, source: AppCollect
     },
   }) : undefined;
   const resourceSetup: AppResourceSetupPort = Object.freeze({
-    async assess(manifest: unknown, signal: AbortSignal) {
-      const value = await request("resourcesAssess", manifest, signal); delivery("resourcesAssess", signal);
-      const result = resourceAssessment(value); delivery("resourcesAssess", signal); return result;
+    async assess(manifest: unknown, signal: AbortSignal, decisions?: AppResourceDecisions) {
+      const reviewing = decisions !== undefined;
+      const value = await request("resourcesAssess", reviewing ? [manifest, resourceDecisions(decisions)] : manifest, signal); delivery("resourcesAssess", signal);
+      const result = resourceAssessment(value, reviewing); delivery("resourcesAssess", signal); return result;
     },
-    async apply(manifest: unknown, assessmentDigest: string, signal: AbortSignal) {
-      if (!/^sha256:[0-9a-f]{64}$/.test(assessmentDigest)) throw fail("binding");
-      const value = await request("resourcesApply", [manifest, assessmentDigest], signal); delivery("resourcesApply", signal);
+    async apply(manifest: unknown, assessmentDigest: string, signal: AbortSignal, decisions?: AppResourceDecisions) {
+      if (!digestText.test(assessmentDigest)) throw fail("binding");
+      const value = await request("resourcesApply", decisions === undefined ? [manifest, assessmentDigest] : [manifest, assessmentDigest, resourceDecisions(decisions)], signal); delivery("resourcesApply", signal);
       const result = modelResourcePlan(value); delivery("resourcesApply", signal); return result;
     },
   });

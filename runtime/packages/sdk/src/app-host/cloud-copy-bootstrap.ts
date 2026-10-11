@@ -10,6 +10,13 @@ import type {
     AppSqlLifetime,
     AppWasmRuntime,
 } from "./wasm-runtime.js";
+import {
+    appServerBody,
+    appServerOutcome,
+    appServerProblem,
+    type AppServerOutcome,
+    type AppServerProblem,
+} from "./cp-problem.js";
 /** Static public output of the ONE shared BUILD verifier, bundled by the release.
  * Authenticating this manifest/tool MUST precede constructing the trusted host. */
 export interface AppBundledReleaseTrust {
@@ -79,10 +86,12 @@ export class AppCloudCopyBootstrapError extends Error {
             | "unavailable"
             | "response"
             | "outcome_unknown"
-            | "refused",
+            | "refused"
+            | AppServerOutcome,
         /** True only for exhausted, safely repeatable pre-enrollment HTTP.
          * Not authority to replay uncertain writes or bypass failed shutdown. */
         readonly retryable = false,
+        readonly server?: AppServerProblem,
     ) {
         super(`app cloud copy bootstrap: ${reason}`);
         this.name = "AppCloudCopyBootstrapError";
@@ -417,8 +426,14 @@ export class AppCpCloudCopyBootstrap {
             this.check(signal);
             if (ctrl.signal.aborted) throw fail("unavailable", true);
             if (!response.ok) {
-                const transient = transientHttp.has(response.status);
-                throw fail(transient ? "unavailable" : "refused", transient);
+                const server = await this.problem(response, signal);
+                const outcome = appServerOutcome(server);
+                const transient = !outcome && transientHttp.has(response.status);
+                throw new AppCloudCopyBootstrapError(
+                    outcome ?? (transient ? "unavailable" : "refused"),
+                    transient,
+                    server,
+                );
             }
             // Fetch decodes content-encoding (which CORS may hide). The
             // decoded stream, not wire Content-Length, enforces the hard cap.
@@ -473,6 +488,48 @@ export class AppCpCloudCopyBootstrap {
             clearTimeout(timer);
             signal.removeEventListener("abort", abort);
             this.lifetime.signal.removeEventListener("abort", abort);
+        }
+    }
+    /** Bounded (8 KiB), sanitized refusal body: code/reason/retry only. */
+    private async problem(
+        response: Response,
+        signal: AbortSignal,
+    ): Promise<AppServerProblem> {
+        const buffer = new Uint8Array(8 * 1024);
+        let count = 0;
+        const reader = response.body?.getReader();
+        try {
+            for (;;) {
+                if (!reader) break;
+                const { done, value } = await reader.read();
+                try {
+                    this.check(signal);
+                    if (done) break;
+                    if (count + value.length > buffer.length) {
+                        count = 0;
+                        break;
+                    }
+                    buffer.set(value, count);
+                    count += value.length;
+                } finally {
+                    value?.fill(0);
+                }
+            }
+        } catch {
+            this.check(signal);
+            count = 0;
+        } finally {
+            void reader?.cancel().catch(() => {});
+            reader?.releaseLock();
+        }
+        try {
+            return appServerProblem(
+                response.status,
+                count ? appServerBody(buffer.subarray(0, count)) : undefined,
+                response.headers,
+            );
+        } finally {
+            buffer.fill(0);
         }
     }
     private async challenge(

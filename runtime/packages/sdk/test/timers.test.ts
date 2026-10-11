@@ -80,4 +80,16 @@ describe("backend-independent control timers", () => {
     await expect(pending).rejects.toMatchObject({ code: "cancelled" });
   });
 
+  it("registers push with the declared criteria and the ready service worker when the app names neither", async () => {
+    const { p } = fixture();
+    const api = new TimersApi(p, { criteria: ["task.reminder"] });
+    const serviceWorker = { scope: "https://app.example/" } as unknown as ServiceWorkerRegistration;
+    vi.stubGlobal("navigator", { serviceWorker: { ready: Promise.resolve(serviceWorker) } });
+    try {
+      await api.registerWebPush();
+      await api.registerFcm({ token: "fcm-token-0123456789" });
+    } finally { vi.unstubAllGlobals(); }
+    expect(p.registerWebPush).toHaveBeenCalledWith(expect.objectContaining({ serviceWorker, criteria: ["task.reminder"] }));
+    expect(p.registerFcm).toHaveBeenCalledWith(expect.objectContaining({ token: "fcm-token-0123456789", criteria: ["task.reminder"] }));
+  });
 });

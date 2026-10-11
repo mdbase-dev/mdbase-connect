@@ -5,7 +5,8 @@ export class ApplicationPortalError extends Error {
     super("application authorization popup unavailable");this.name="ApplicationPortalError";
   }
 }
-/** Private UI port only. Never an application declaration/constructor option. */
+/** Private UI port only. Apps reach it solely through the narrower public
+ * `signIn` opener (openerApplicationPortalHost), never directly. */
 export interface ApplicationPopupWindow {navigate(uri:string):void;close():void}
 export interface ApplicationPortalHost {
   readonly cpOrigin:string;
@@ -64,5 +65,20 @@ export function browserApplicationPortalHost(cpOrigin:string,signal:AbortSignal,
       popup.location.href=uri;
     },close(){popup.close();}};
     browserWindows.set(popup,port);return port;
+  }};
+}
+/** System-browser/extension adapter for the public `signIn` opener. Opening is
+ * deferred to the first CP-bound navigate; opener failures are not retried and
+ * the pairing request persists, so `start()` resumes it in a later context. */
+export function openerApplicationPortalHost(cpOrigin:string,signal:AbortSignal,isCurrent:()=>boolean,
+  opener:{open(url:string):void|Promise<void>;close?():void|Promise<void>;readonly returnUrl?:string},allowLoopbackHttp=false):ApplicationPortalHost {
+  return {cpOrigin,signal,isCurrent,allowLoopbackHttp,open(){
+    let opened=false;
+    return {navigate(uri){
+      const url=new URL(uri);if(opener.returnUrl!==undefined)url.searchParams.set("return_url",opener.returnUrl);
+      opened=true;void Promise.resolve().then(()=>opener.open(url.href)).catch(()=>{/* the app owns opener UI failures */});
+    },close(){
+      if(opened&&opener.close)void Promise.resolve().then(()=>opener.close!()).catch(()=>{/* best-effort dismissal */});
+    }};
   }};
 }

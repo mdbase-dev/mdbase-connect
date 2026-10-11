@@ -200,7 +200,7 @@ pub fn reseal_prehistory(
 }
 
 /// Seal `bytes` into parts and upload the parts the log service doesn't have.
-fn seal_and_upload(
+pub(crate) fn seal_and_upload(
     bytes: &[u8],
     id: &str,
     seal: &SealKey<'_>,

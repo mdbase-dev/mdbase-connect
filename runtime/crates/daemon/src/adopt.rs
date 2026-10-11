@@ -12,12 +12,16 @@
 //! - registry mode synced: the synced runtime adopts the folder on every open until
 //!   its base is applied, then the journal is removed.
 
+use std::future::Future;
 use std::io;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+use std::task::{Context, Poll, Waker};
 
 use serde::{Deserialize, Serialize};
 
 use mdbn_replica::{AdoptRecords, AdoptSource};
+use mdbn_store_file::platform::{FilePlatform, FsErrorKind, RelPath};
 use mdbn_wire::common::B16;
 
 /// The current journal schema.
@@ -25,7 +29,7 @@ pub const SCHEMA_VERSION: u32 = 1;
 
 /// Larger files are left to ordinary ingest after the base (the replica's own
 /// record-size admission is far below this).
-const MAX_READ: u64 = 16 * 1024 * 1024;
+const MAX_READ: u32 = 16 * 1024 * 1024;
 
 /// The mode adopt creates the log in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -187,52 +191,55 @@ pub fn takeover_holds(state_dir: &Path, id: &str) -> io::Result<u64> {
     )
 }
 
-/// The live folder, read for generation 0.
-pub struct FolderSource {
-    root: PathBuf,
+/// The live folder, read for generation 0 through the collection's own file
+/// platform: on the desktop that is the native platform, which resolves every
+/// path from the held collection root and opens each component without
+/// following a symlink or reparse point, so the file read is the file checked.
+pub struct FolderSource<P: FilePlatform> {
+    platform: Rc<P>,
     plan: AdoptRecords,
 }
 
-impl FolderSource {
-    /// A source over `root` adopting `plan`.
-    pub fn new(root: &Path, plan: AdoptRecords) -> FolderSource {
-        FolderSource {
-            root: root.to_path_buf(),
-            plan,
-        }
+impl<P: FilePlatform> FolderSource<P> {
+    /// A source over `platform`'s folder adopting `plan`.
+    pub fn new(platform: Rc<P>, plan: AdoptRecords) -> FolderSource<P> {
+        FolderSource { platform, plan }
     }
 }
 
-impl AdoptSource for FolderSource {
+impl<P: FilePlatform> AdoptSource for FolderSource<P> {
     fn records(&mut self) -> Result<AdoptRecords, String> {
         Ok(self.plan.clone())
     }
 
     fn read(&mut self, path: &str) -> Result<Option<String>, String> {
-        let rel = Path::new(path);
-        if path.is_empty() || !rel.components().all(|c| matches!(c, Component::Normal(_))) {
+        let Ok(rel) = RelPath::new(path) else {
+            return Ok(None);
+        };
+        if rel.is_root() {
             return Ok(None);
         }
-        // No component may be a symlink: the file must be inside the folder.
-        let mut at = self.root.clone();
-        for c in rel.components() {
-            at.push(c);
-            match std::fs::symlink_metadata(&at) {
-                Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-                Err(e) => return Err(format!("stat: {}", e.kind())),
-                Ok(m) if m.file_type().is_symlink() => return Ok(None),
-                Ok(_) => {}
+        // One bounded read of the opened regular file: a file larger than the
+        // cap is refused by what was read, not by an earlier stat.
+        match now(self.platform.read_range(&rel, 0, MAX_READ + 1)) {
+            Ok(b) if b.len() as u64 <= u64::from(MAX_READ) => Ok(String::from_utf8(b).ok()),
+            Ok(_) => Ok(None),
+            Err(e) if e.kind == FsErrorKind::Other || e.kind == FsErrorKind::Busy => {
+                Err(format!("read: {:?}", e.kind))
             }
+            // Gone, not a regular file, a link, or not ours to read: left to
+            // ordinary ingest after the base.
+            Err(_) => Ok(None),
         }
-        let meta = std::fs::symlink_metadata(&at).map_err(|e| format!("stat: {}", e.kind()))?;
-        if !meta.is_file() || meta.len() > MAX_READ {
-            return Ok(None);
-        }
-        match std::fs::read(&at) {
-            Ok(b) => Ok(String::from_utf8(b).ok()),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(format!("read: {}", e.kind())),
-        }
+    }
+}
+
+/// The platform's synchronous IO, which completes on first poll.
+fn now<F: Future>(f: F) -> F::Output {
+    let mut f = std::pin::pin!(f);
+    match f.as_mut().poll(&mut Context::from_waker(Waker::noop())) {
+        Poll::Ready(v) => v,
+        Poll::Pending => unreachable!("platform IO is synchronous"),
     }
 }
 
@@ -278,7 +285,32 @@ mod tests {
     }
 
     #[test]
-    fn folder_source_reads_only_regular_files_inside_the_folder() {
+    fn folder_source_reads_through_the_confined_platform_with_a_bounded_read() {
+        use mdbn_store_file::platform::{CaseSensitivity, ReplaceStrategy};
+        use mdbn_store_file::testing::MemPlatform;
+        let p = Rc::new(MemPlatform::new(
+            ReplaceStrategy::Exchange,
+            CaseSensitivity::Sensitive,
+        ));
+        p.fs.write_in_place("n/a.md", b"a").unwrap();
+        p.fs.write_in_place("bin.md", &[0xff]).unwrap();
+        // Larger than the cap: refused by a bounded read, never read whole.
+        p.fs.write_synthetic("big.md", u64::from(MAX_READ) + 1);
+        let mut s = FolderSource::new(p.clone(), AdoptRecords::default());
+        assert_eq!(s.read("n/a.md").unwrap().as_deref(), Some("a"));
+        assert_eq!(s.read("big.md").unwrap(), None);
+        assert_eq!(p.fs.synthetic_whole_reads(), 0);
+        assert_eq!(s.read("bin.md").unwrap(), None);
+        assert_eq!(s.read("../a.md").unwrap(), None);
+        assert_eq!(s.read("gone.md").unwrap(), None);
+        assert_eq!(s.read("n").unwrap(), None);
+        assert!(p.fs.log().iter().any(|l| l.contains("read_range n/a.md")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn folder_source_never_follows_a_link_out_of_the_folder() {
+        use mdbn_platform_native::{NativePlatform, OpenOptions};
         let base = std::env::temp_dir().join(format!("mdbn-adopt-src-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let (dir, outside) = (base.join("folder"), base.join("outside"));
@@ -286,14 +318,13 @@ mod tests {
         std::fs::create_dir_all(&outside).unwrap();
         std::fs::write(outside.join("secret.md"), "s").unwrap();
         std::fs::write(dir.join("n/a.md"), "a").unwrap();
-        #[cfg(unix)]
         std::os::unix::fs::symlink(&outside, dir.join("link")).unwrap();
-        let mut s = FolderSource::new(&dir, AdoptRecords::default());
+        std::os::unix::fs::symlink(outside.join("secret.md"), dir.join("s.md")).unwrap();
+        let p = Rc::new(NativePlatform::open(&dir, &OpenOptions::default()).unwrap());
+        let mut s = FolderSource::new(p, AdoptRecords::default());
         assert_eq!(s.read("n/a.md").unwrap().as_deref(), Some("a"));
-        assert_eq!(s.read("../secret.md").unwrap(), None);
         assert_eq!(s.read("link/secret.md").unwrap(), None);
-        assert_eq!(s.read("gone.md").unwrap(), None);
-        assert_eq!(s.read("n").unwrap(), None);
+        assert_eq!(s.read("s.md").unwrap(), None);
         let _ = std::fs::remove_dir_all(&base);
     }
 }

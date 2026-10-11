@@ -3,6 +3,7 @@ import {
     parseVersionedAppManifest,
 } from "@mdbase-dev/connect-protocol/manifest";
 import { selectAppEnvironment } from "../app-host/app-environment.js";
+import type { CborValue } from "../cbor.js";
 import { MdbaseError, mdbaseError } from "../errors.js";
 import {
     applicationDeclaration,
@@ -10,6 +11,11 @@ import {
     type MdbaseApplicationDeclaration,
 } from "./declaration.js";
 import { appReleaseTrust } from "./packaged-trust.js";
+import {
+    REGISTRATION_REFUSAL_MAX_BYTES,
+    registrationRefusal,
+    type RegistrationRefusal,
+} from "./registration-refusal.js";
 
 export interface ApplicationRegistrationOptions {
     readonly declaration: Readonly<MdbaseApplicationDeclaration>;
@@ -54,6 +60,8 @@ function record(value: unknown): Record<string, unknown> {
         throw badReply();
     return value as Record<string, unknown>;
 }
+/** Structural equality of canonical parser outputs, NOT a parser, compiler or
+ * digest implementation. The original authenticated CP supplies the digest. */
 /** RFC 8785-style canonical JSON, as the CP hashes a registered manifest. */
 function canonicalJson(value: unknown): string {
     if (value === null || typeof value === "string" || typeof value === "boolean" || typeof value === "number")
@@ -68,8 +76,6 @@ async function manifestDigest(manifest: unknown): Promise<string> {
     const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalJson(manifest))));
     return Array.from(hash, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
-/** Structural equality of canonical parser outputs, NOT a parser, compiler or
- * digest implementation. The original authenticated CP supplies the digest. */
 function sameJson(left: unknown, right: unknown): boolean {
     const stack: [unknown, unknown][] = [[left, right]];
     let nodes = 0;
@@ -161,10 +167,18 @@ export async function resolveApplicationRegistration(
     } catch {
         throw binding();
     }
+    // The app origin is the manifest homepage's, or one declared exactly under
+    // installation_origins for this environment and installation kind
+    // (Capacitor `capacitor://` and Android https, extension pages).
+    const declaredOrigins =
+        manifest.installation_origins?.[declaration.environment]?.[
+            declaration.installationKind
+        ] ?? [];
     if (
         manifest.name !== declaration.name ||
         manifest.distribution === "portable" ||
-        new URL(manifest.homepage).origin !== declaration.origin
+        (new URL(manifest.homepage).origin !== declaration.origin &&
+            !declaredOrigins.includes(declaration.origin))
     )
         throw binding();
     const body = JSON.stringify({ manifest }),
@@ -183,6 +197,46 @@ export async function resolveApplicationRegistration(
     function current(): void {
         check();
         if (control.signal.aborted) throw unknown();
+    }
+    /** A bounded, typed refusal body, or null (oversized, untyped, not JSON). */
+    async function refusalOf(
+        response: Response,
+    ): Promise<RegistrationRefusal | null> {
+        const length = response.headers.get("content-length");
+        if (
+            !response.body ||
+            (length !== null &&
+                (!/^(0|[1-9][0-9]*)$/.test(length) ||
+                    Number(length) > REGISTRATION_REFUSAL_MAX_BYTES))
+        ) {
+            void response.body?.cancel().catch(() => {});
+            return null;
+        }
+        const reader = response.body.getReader(),
+            buffer = new Uint8Array(REGISTRATION_REFUSAL_MAX_BYTES);
+        let count = 0;
+        try {
+            for (;;) {
+                const part = await reader.read();
+                current();
+                if (part.done) break;
+                if (count + part.value.length > buffer.length) return null;
+                buffer.set(part.value, count);
+                count += part.value.length;
+            }
+            return registrationRefusal(
+                JSON.parse(
+                    new TextDecoder("utf-8", { fatal: true }).decode(
+                        buffer.subarray(0, count),
+                    ),
+                ),
+            );
+        } catch (error) {
+            if (error instanceof MdbaseError) throw error;
+            return null;
+        } finally {
+            void reader.cancel().catch(() => {});
+        }
     }
     async function decode(
         response: Response,
@@ -304,12 +358,24 @@ export async function resolveApplicationRegistration(
                 )
                     throw badReply();
                 if (!response.ok) {
-                    await response.body?.cancel().catch(() => {});
-                    if (transient.has(response.status)) throw unknown();
+                    if (transient.has(response.status)) {
+                        await response.body?.cancel().catch(() => {});
+                        throw unknown();
+                    }
+                    // Permanent: never retried. Keep only the typed code and paths.
+                    const refusal = await refusalOf(response);
                     throw mdbaseError(
                         "forbidden",
                         "Application registration refused",
-                        "application_registration_refused",
+                        refusal
+                            ? {
+                                  reason: "application_registration_refused",
+                                  details: new Map<string, CborValue>([
+                                      ["code", refusal.code],
+                                      ["paths", [...refusal.paths]],
+                                  ]),
+                              }
+                            : "application_registration_refused",
                     );
                 }
                 return await receipt(await decode(response));

@@ -491,6 +491,38 @@ mod abi {
         super::runtime::wipe(&mut bytes);
         give(result)
     }
+    /// Final-rejection witness for one mutation on the resident session's own
+    /// grant: 1 only for a native rejected receipt of exactly that mutation.
+    ///
+    /// # Safety
+    /// Input is an initialized, same-instance allocation from alloc(len).
+    #[unsafe(no_mangle)]
+    #[cfg(feature = "app-runtime")]
+    pub unsafe extern "C" fn rt_app_receipt_rejected(
+        session: u64,
+        ptr: *mut u8,
+        len: usize,
+    ) -> u32 {
+        let mut bytes = unsafe { take(ptr, len) };
+        let result = rt()
+            .and_then(Active::app)
+            .map_or(0, |r| r.receipt_rejected_consuming(session, &mut bytes));
+        super::runtime::wipe(&mut bytes);
+        result
+    }
+    /// Stateless resource-only Core planning over a caller-read confirmed
+    /// inventory. No runtime, session, write or native witness; DATA only.
+    ///
+    /// # Safety
+    /// Input is an initialized, same-instance allocation from alloc(len).
+    #[unsafe(no_mangle)]
+    #[cfg(feature = "app-runtime")]
+    pub unsafe extern "C" fn rt_app_setup_assess(ptr: *mut u8, len: usize) -> u64 {
+        let mut bytes = unsafe { take(ptr, len) };
+        let result = super::app::resources::setup_inventory_consuming(&mut bytes);
+        super::runtime::wipe(&mut bytes);
+        give(result)
+    }
     /// Authenticated host-only one-time connector pin, before log binding.
     ///
     /// # Safety

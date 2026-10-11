@@ -59,9 +59,11 @@ pub const CAPABILITIES: &[&str] = &[
     "noise_pipe_v1",
 ];
 
-/// The `relay_hello` message.
-pub fn hello() -> Value {
-    json!({
+/// The `relay_hello` message. `old_connector_running`: an old mdbase Connect daemon
+/// runs on this device, so Connect reports its collections as unavailable for that
+/// reason (sent only when true).
+pub fn hello(old_connector_running: bool) -> Value {
+    let mut hello = json!({
         "type": "relay_hello",
         "protocol_version": 1,
         "connector_version": crate::BINARY_VERSION,
@@ -72,7 +74,11 @@ pub fn hello() -> Value {
             "semantic_capabilities": [2, 1],
             "durable_mutation": [1]
         }
-    })
+    });
+    if old_connector_running {
+        hello["old_connector_running"] = Value::Bool(true);
+    }
+    hello
 }
 
 /// A checked policy snapshot.
@@ -282,6 +288,11 @@ pub trait RelayHost: crate::session::Handler {
     ) -> crate::session::BoxFuture<'a, bool>;
     /// Report connection state for status.
     fn set_online(&self, online: bool);
+    /// Whether an old mdbase Connect daemon runs on this device (reported in
+    /// `relay_hello`; a change reconnects so Connect sees it).
+    fn old_connector_running(&self) -> bool {
+        false
+    }
 }
 
 /// Why a relay session ended.
@@ -406,7 +417,12 @@ async fn session<H: RelayHost>(
         Err(_) => return Ended::Retry("connect timed out".into()),
     };
     let (mut tx, mut rx) = ws.split();
-    if tx.send(Message::text(hello().to_string())).await.is_err() {
+    let old_connector_running = host.old_connector_running();
+    if tx
+        .send(Message::text(hello(old_connector_running).to_string()))
+        .await
+        .is_err()
+    {
         return Ended::Retry("send hello".into());
     }
     let welcome = match tokio::time::timeout(Duration::from_secs(5), next_text(&mut rx)).await {
@@ -539,6 +555,9 @@ async fn session<H: RelayHost>(
                 }
             }
             _ = sweep.tick() => {
+                if host.old_connector_running() != old_connector_running {
+                    break Ended::Retry("old connector state changed".into());
+                }
                 close_dead(host, &mut open, &out_tx).await;
                 open.retain(|_, p| !p.task.is_finished());
             }
@@ -722,6 +741,12 @@ mod tests {
             "connector_id": cid, "sequence": seq,
             "lease_issued_at_ms": issued, "lease_expires_at_ms": expires, "grants": grants
         })
+    }
+
+    #[test]
+    fn hello_reports_a_running_old_connector_only_when_true() {
+        assert_eq!(hello(true)["old_connector_running"], Value::Bool(true));
+        assert!(hello(false).get("old_connector_running").is_none());
     }
 
     #[test]

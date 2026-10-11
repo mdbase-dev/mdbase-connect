@@ -5,8 +5,9 @@
 export {MdbaseConnect,MdbaseApplicationUnavailableError} from "./application/entry.js";
 export {effectiveCapabilities} from "./application/capabilities.js";
 export type {MdbaseApplicationCapability,MdbaseApplicationCapabilities} from "./application/capabilities.js";
-export type {MdbaseApplicationEntry,MdbaseApplication,MdbaseApplicationConnection,MdbaseApplicationSnapshot,MdbaseApplicationRequestOptions,
+export type {MdbaseApplicationEntry,MdbaseApplication,MdbaseApplicationConnection,MdbaseApplicationSnapshot,MdbaseApplicationRequestOptions,MdbaseCollectionDeleteOptions,MdbaseConnectOptions,MdbaseSignInOpener,
   MdbaseApplicationFacet,MdbaseApplicationProblem,MdbaseApplicationAssessment,MdbaseApplicationFacetSnapshot,MdbaseApplicationReadinessSnapshot} from "./application/entry.js";
+export type {MdbaseApplicationSetup,MdbaseSetupPlan,MdbaseSetupPlanOptions,MdbaseSetupRecord,MdbaseSetupChange,MdbaseSetupChangeKind,MdbaseSetupConflict,MdbaseSetupRefusalCode} from "./application/setup.js";
 export type {ApplicationCollectionSelectionSnapshot as MdbaseApplicationSelectionSnapshot,ApplicationCollectionSelectionState as MdbaseApplicationSelectionState} from "./application/collection-selection.js";
 export type {MdbaseApplicationDeclaration,ApplicationStorageDeclaration,ApplicationJson} from "./application/declaration.js";
 export * from "./cbor.js";
@@ -92,6 +93,10 @@ export { MdbasePeopleClient, PERSON_CONTRACT, sameIdentity } from "./people.js";
 export type { AccountIdentity, AccountProfile, CurrentAccount, CollectionMemberProfile, PersonRecord, InvalidPersonRecord, PersonResolution, PeopleDirectory, PeopleRequestOptions, PeopleDirectoryOptions, PeopleAuthority } from "./people.js";
 export type { ContractRef, ContractProjection, ContractQueryRecord, ContractQueryResult, ContractQueryOptions } from "./contract-query.js";
 export type { ContractSelector, ContractIdentity, ContractRecordView } from "./contract-records.js";
+export type {
+  TypePackAction, TypePackApplyResult, TypePackConflict, TypePackOptions, TypePackPlan, TypePackProvision,
+  TypePackReceipt, TypePackRefusalCode, TypePackResource, TypePackResourceKind, TypePackStatus,
+} from "./type-packs.js";
 export { TimersApi } from "./timers.js";
 export type {
   AppTimersPort, DesiredTimer, Timer, TimerRequestOptions, TimerReconcileInput,
@@ -99,6 +104,14 @@ export type {
   TimerOperationIdentity, TimerRecoverableReconcileInput, TimerOperationReceipt, TimerOperationLookup,
   WebPushChannelOptions, FcmChannelOptions,
 } from "./timers.js";
+export {
+  MDBASE_NOTIFICATION_TYPE, MDBASE_NOTIFICATION_CLICK, parseMdbasePush, parseMdbaseNativeNotification,
+  readMdbaseNotificationData, showMdbaseNotification, handleMdbasePush, handleMdbaseNotificationClick,
+} from "./notifications.js";
+export type {
+  MdbaseNotification, MdbaseNotificationPresentation, MdbaseNotificationClickMessage, MdbaseNotificationDisplayOptions,
+  HandleMdbasePushOptions, HandleMdbaseNotificationClickOptions,
+} from "./notifications.js";
 export { Session, API_VERSIONS } from "./session.js";
 export { framedPort, portPair, RecordReader } from "./transport/port.js";
 export type { ByteChannel, Connector, FramePort, OpenedPort } from "./transport/port.js";
@@ -156,3 +169,18 @@ export type { ControlRouteOptions, ControlRouteResponse, ControlRouteTarget } fr
 // Ed25519 and the strength meter, which the thin client does not need.
 export { HOLD_COMPARE_SCHEME, HOLD_TITLE, describeHold, holdCompareLink, holdNotice, parseHoldCompareLink, syncStatusText } from "./holds.js";
 export type { DescribeHoldOptions, HoldAction, HoldActionOption, HoldPresentation } from "./holds.js";
+export {
+  describeError,
+  type MdbaseErrorAction,
+  type MdbaseErrorDescription,
+} from "./describe-error.js";
+export {
+  COLLECTION_UNAVAILABLE_REASONS,
+  collectionUnavailableError,
+  isCollectionUnavailableReason,
+  parseCollectionAvailability,
+  type CollectionAvailability,
+  type CollectionUnavailableReason,
+} from "./collection-availability.js";
+// Grants for Private collections (OAuth PKCE + a client Noise key) live at
+// `@mdbase-dev/sdk/app-grant`, kept out of this entry.

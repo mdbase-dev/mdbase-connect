@@ -413,3 +413,208 @@ fn prehistory_segments_seal_in_order_and_decrypt_back() {
         assert!(decode_segment(&got).is_ok());
     }
 }
+
+/// Both historical digests and bytes survive with only the imported GC roots.
+#[test]
+fn retained_two_version_file_keeps_digests_and_bytes_after_gc() {
+    use crate::prehistory::{build_segments, seal_retained_history};
+    use mdbn_legacy::hosted::FileVersion;
+    use mdbn_migrate_portable::prehistory::decode_segment;
+
+    let old = b"old attachment bytes".to_vec();
+    let current = b"new attachment bytes\0\xff".to_vec();
+    let versions: Vec<_> = [(&old, "old-object"), (&current, "current-object")]
+        .into_iter()
+        .enumerate()
+        .map(|(index, (bytes, object))| FileVersion {
+            file_id: F1.into(),
+            sequence: index as u64 + 1,
+            revision: format!("legacy-version-{}", index + 1),
+            created_at_ms: index as i64 + 1,
+            deleted: false,
+            path: Some(format!("att/version-{}.bin", index + 1)),
+            content_digest: Some(revision_of(bytes)),
+            size: Some(bytes.len() as u64),
+            object_key: Some(object.into()),
+            media_type: None,
+            media_class: None,
+        })
+        .collect();
+    let segments = build_segments(
+        CID,
+        2,
+        100,
+        Vec::<crate::Result<mdbn_legacy::hosted::RecordVersion>>::new(),
+        versions.iter().cloned().map(Ok),
+    )
+    .unwrap();
+    let cid = crate::ids::uuid(CID).unwrap();
+    let key = Secret32([7; 32]);
+    let seal = SealKey {
+        key: &key,
+        epoch: 1,
+        collection: cid,
+    };
+    let mut source = Objects(
+        BTreeMap::from([
+            ("old-object".into(), old.clone()),
+            ("current-object".into(), current.clone()),
+        ]),
+        0,
+    );
+    let mut service = super::testing::StrictStore::default();
+    let archive = seal_retained_history(
+        &segments,
+        &versions,
+        100,
+        &mut source,
+        &seal,
+        &mut service,
+        &mut TestEntropy::new(17),
+    )
+    .unwrap();
+    assert_eq!(source.1, 2, "read each version's exact old object");
+    let mut stored: BTreeMap<_, _> = service.objects(&cid).into_iter().collect();
+    // Model blind GC: ciphertext cannot reveal the nested version blob refs.
+    stored.retain(|address, _| archive.refs.contains(address));
+    let content_key = content_key(&key, &cid);
+    let open = |blob: &mdbn_wire::intent::BlobRef| {
+        let mut bytes = Vec::new();
+        for (index, address) in part_addresses(&content_key, blob)
+            .unwrap()
+            .iter()
+            .enumerate()
+        {
+            bytes.extend(open_part(&key, &cid, blob, index as u64, &stored[address]).unwrap());
+        }
+        assert!(check_blob(blob, &bytes));
+        bytes
+    };
+    let files: Vec<_> = archive
+        .prehistory
+        .iter()
+        .flat_map(|blob| decode_segment(&open(blob)).unwrap().files)
+        .collect();
+    assert_eq!(files.len(), 2);
+    for ((version, expected), legacy) in files.iter().zip([old, current]).zip(&versions) {
+        assert_eq!(version.revision, legacy.revision);
+        assert_eq!(version.sequence, legacy.sequence);
+        assert_eq!(version.file_id.to_uuid_string(), legacy.file_id);
+        assert_eq!(version.path, legacy.path);
+        assert_eq!(version.size, legacy.size);
+        assert_eq!(version.created_at, legacy.created_at_ms);
+        assert_eq!(version.deleted, legacy.deleted);
+        assert_eq!(
+            version.content_digest,
+            Some(mdbn_wire::hash::sha256(&expected))
+        );
+        let blob = version.content.as_ref().expect("old bytes retained");
+        assert_eq!(blob.plain_hash, version.content_digest.unwrap());
+        assert_eq!(open(blob), expected);
+        assert!(
+            part_addresses(&content_key, blob)
+                .unwrap()
+                .iter()
+                .all(|part| archive.refs.contains(part))
+        );
+    }
+}
+
+#[test]
+fn retained_version_refuses_missing_or_current_bytes_and_reads_no_deleted_object() {
+    use crate::prehistory::seal_file_version;
+    use mdbn_legacy::hosted::FileVersion;
+
+    let row = FileVersion {
+        file_id: F1.into(),
+        sequence: 1,
+        revision: "original-v1".into(),
+        created_at_ms: 3,
+        deleted: false,
+        path: Some("att/original.bin".into()),
+        size: Some(4),
+        content_digest: Some(revision_of(b"old!")),
+        object_key: Some("original-object".into()),
+        media_type: None,
+        media_class: None,
+    };
+    let key = Secret32([8; 32]);
+    let seal = SealKey {
+        key: &key,
+        epoch: 1,
+        collection: crate::ids::uuid(CID).unwrap(),
+    };
+    for objects in [
+        BTreeMap::new(),
+        BTreeMap::from([("original-object".into(), b"new!".to_vec())]),
+    ] {
+        let mut source = Objects(objects, 0);
+        let mut store = super::testing::StrictStore::default();
+        assert!(
+            seal_file_version(
+                &row,
+                2,
+                &mut source,
+                &seal,
+                &mut store,
+                &mut TestEntropy::new(19)
+            )
+            .is_err()
+        );
+        assert_eq!(source.1, 1);
+        assert_eq!(store.inline_puts + store.direct_puts, 0);
+    }
+    let deleted = FileVersion {
+        sequence: 2,
+        revision: "original-deletion".into(),
+        deleted: true,
+        path: None,
+        size: None,
+        content_digest: None,
+        object_key: None,
+        ..row.clone()
+    };
+    let mut source = Objects(BTreeMap::new(), 0);
+    let mut store = super::testing::StrictStore::default();
+    let retained = seal_file_version(
+        &deleted,
+        2,
+        &mut source,
+        &seal,
+        &mut store,
+        &mut TestEntropy::new(23),
+    )
+    .unwrap();
+    assert!(retained.version.deleted);
+    assert_eq!(retained.version.revision, deleted.revision);
+    assert!(retained.version.content.is_none());
+    assert!(retained.refs.is_empty());
+    assert_eq!(source.1, 0);
+    assert_eq!(store.inline_puts + store.direct_puts, 0);
+    for bad in [
+        FileVersion {
+            sequence: 3,
+            ..row.clone()
+        },
+        FileVersion {
+            object_key: Some("wrong-deleted-object".into()),
+            ..deleted
+        },
+    ] {
+        assert!(
+            seal_file_version(
+                &bad,
+                2,
+                &mut source,
+                &seal,
+                &mut store,
+                &mut TestEntropy::new(29)
+            )
+            .is_err()
+        );
+    }
+    assert_eq!(
+        source.1, 0,
+        "reject malformed metadata before reading old objects"
+    );
+}

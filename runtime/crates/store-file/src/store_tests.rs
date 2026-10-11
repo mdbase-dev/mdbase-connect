@@ -1083,6 +1083,45 @@ fn drift_reports_and_keeps_user_bytes() {
 }
 
 #[test]
+fn create_onto_identical_file_records_it_without_writing() {
+    for case in [CaseSensitivity::Sensitive, CaseSensitivity::Insensitive] {
+        for strategy in ALL {
+            let w = World::new(strategy, case);
+            let mut s = w.open();
+            w.p.fs.write_in_place("notes/a.md", b"same").unwrap();
+            w.p.fs.write_in_place("B.md", b"same").unwrap();
+            let ino = w.p.fs.ino("notes/a.md");
+            let before = w.p.fs.ops();
+            assert!(publish(&mut s, write("notes/a.md", RExpect::Absent, "same")).is_empty());
+            let log = w.p.fs.log().split_off(before as usize);
+            assert!(
+                log.iter()
+                    .all(|l| !l.contains("write") && !l.contains("rename") && !l.contains("flush")),
+                "{case:?} {strategy:?} {log:?}"
+            );
+            assert_eq!(w.p.fs.ino("notes/a.md"), ino);
+            // Known: not observed back, and the next publish expects it.
+            s.request_rescan();
+            w.clock.advance(5_000);
+            assert!(s.observe(None).unwrap().is_empty(), "{case:?} {strategy:?}");
+            assert!(publish(&mut s, write("notes/a.md", rev("same"), "v2")).is_empty());
+            assert_eq!(w.p.fs.get("notes/a.md").unwrap(), b"v2");
+            // Other bytes, or a name that differs only by case, stay a drift.
+            w.p.fs.write_in_place("c.md", b"user").unwrap();
+            assert_eq!(
+                publish(&mut s, write("c.md", RExpect::Absent, "same")).len(),
+                1
+            );
+            let d = publish(&mut s, write("b.md", RExpect::Absent, "same"));
+            if case == CaseSensitivity::Insensitive {
+                assert_eq!(d.len(), 1, "{strategy:?}");
+                assert!(w.p.fs.get("B.md").is_some());
+            }
+        }
+    }
+}
+
+#[test]
 fn delete_needs_recheck_and_window() {
     let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
     let mut s = w.open();

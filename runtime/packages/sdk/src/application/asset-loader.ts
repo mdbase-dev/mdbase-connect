@@ -1,3 +1,4 @@
+import {isAppOrigin,urlOrigin} from "../app-host/app-origin.js";
 import {isMdbaseError,mdbaseError} from "../errors.js";
 
 /** SDK build/packaging input only, not an application declaration option.
@@ -25,10 +26,8 @@ export function applicationAssetLoader(input:ApplicationAsset,source:Application
   const asset=Object.freeze({...input}),host=Object.freeze({...source});
   let url:URL,origin:URL;
   try{url=new URL(asset.url);origin=new URL(host.origin);}catch{throw error("application_asset_binding");}
-  const loopback=["localhost","127.0.0.1","[::1]"].includes(origin.hostname);
-  if(origin.origin!==host.origin||origin.username||origin.password||origin.search||origin.hash||origin.pathname!=="/"
-    ||!["lab","production"].includes(host.environment)||url.origin!==host.origin||url.username||url.password||url.search||url.hash
-    ||(url.protocol!=="https:"&&!(host.environment==="lab"&&url.protocol==="http:"&&loopback))
+  if(!isAppOrigin(host.origin,host.environment==="lab")||origin.protocol!==url.protocol
+    ||!["lab","production"].includes(host.environment)||urlOrigin(url)!==host.origin||url.username||url.password||url.search||url.hash
     ||!/^[0-9a-f]{64}$/.test(asset.sha256)||!Number.isSafeInteger(asset.bytes)||asset.bytes<1
     ||!Number.isSafeInteger(asset.maxBytes)||asset.maxBytes<asset.bytes||asset.maxBytes>4*1024*1024)throw error("application_asset_binding");
   const fetcher=host.fetch??globalThis.fetch;

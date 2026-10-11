@@ -26,8 +26,9 @@ export class ApplicationUiConnections {
   private retiring:Promise<void>|null=null;
   private closing:Promise<void>|null=null;
   private epoch=0;
-  constructor(app:ClientOptions["app"],signal:AbortSignal){
-    this.app=Object.freeze({...app});this.signal=signal;
+  private readonly timerCriteria:readonly string[];
+  constructor(app:ClientOptions["app"],signal:AbortSignal,timerCriteria:readonly string[]=[]){
+    this.app=Object.freeze({...app});this.signal=signal;this.timerCriteria=Object.freeze([...timerCriteria]);
     signal.addEventListener("abort",this.abort,{once:true});
   }
   private readonly abort=()=>{void this.close().catch(()=>{});};
@@ -64,7 +65,7 @@ export class ApplicationUiConnections {
     let ui:AppWebCollectionClient|null=null;
     const pending=Promise.resolve().then(async()=>{
       if(!valid()||caller.aborted)throw new ApplicationUiConnectionError("application_connection_fenced");
-      ui=await openAppWebCollectionClient(handoff,{app:this.app,signal});
+      ui=await openAppWebCollectionClient(handoff,{app:this.app,signal,timerCriteria:this.timerCriteria});
       if(!valid()||caller.aborted)throw new ApplicationUiConnectionError("application_connection_fenced");
       if(ui.client.collection!==scope.collection||ui.client.link!=="open")throw new ApplicationUiConnectionError("application_connection_binding");
       if(!ui.people)throw new ApplicationUiConnectionError("application_connection_people_unavailable");
