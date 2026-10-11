@@ -45,6 +45,7 @@ import { registerCollectionLogTokenRoute } from "./features/next/collection-log-
 import { registerNextDeviceRoutes } from "./features/next/device-routes.js";
 import { registerLocalRollbackBindingRoutes } from "./features/next/local-rollback-bindings.js";
 import { registerLocalTakeoverRoutes } from "./features/next/local-takeover.js";
+import { registerNextRolloutRoutes } from "./features/next/rollout-routes.js";
 import { registerNextRouteRoutes } from "./features/next/route-routes.js";
 import { registerClientKeyAttachRoute } from "./features/next/client-key-attach.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
@@ -585,6 +586,7 @@ export async function buildApp(options: BuildOptions) {
     registerNextDeviceRoutes(app, { db: options.db, log: nextLog });
     registerLocalRollbackBindingRoutes(app, options.db);
     registerLocalTakeoverRoutes(app, { db: options.db, relay });
+    registerNextRolloutRoutes(app, options.db);
     registerCollectionLogTokenRoute(app, { db: options.db, log: nextLog });
     registerNoisePipeClientRoute(app, { db: options.db, broker: relayBroker });
     registerNextHostedRoutes(app, { db: options.db, tokens: options.nextControlPlane.serviceTokens, log: nextLog });
