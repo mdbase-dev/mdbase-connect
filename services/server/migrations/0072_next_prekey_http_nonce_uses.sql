@@ -11,10 +11,9 @@ CREATE TABLE next_prekey_http_nonce_floors (
 CREATE TABLE next_prekey_http_nonce_uses (
   collection_id uuid NOT NULL,
   owner_user_id uuid NOT NULL,
-  http_nonce bytea NOT NULL CHECK (octet_length(http_nonce) = 32),
-  transcript_hash bytea NOT NULL CHECK (octet_length(transcript_hash) = 32),
-  challenge bytea NOT NULL CHECK (octet_length(challenge) = 32),
-  created_at timestamptz NOT NULL DEFAULT now(),
+  http_nonce bytea NOT NULL CHECK (octet_length(http_nonce) = 32 AND http_nonce <> decode(repeat('00',32),'hex')),
+  transcript_hash bytea NOT NULL CHECK (octet_length(transcript_hash) = 32 AND transcript_hash <> decode(repeat('00',32),'hex')),
+  challenge bytea NOT NULL CHECK (octet_length(challenge) = 32 AND challenge <> decode(repeat('00',32),'hex')),
   nonce_expires_ms bigint NOT NULL CHECK (nonce_expires_ms BETWEEN 0 AND 9007199254740991),
   PRIMARY KEY (collection_id, http_nonce)
 );

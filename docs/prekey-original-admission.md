@@ -50,9 +50,12 @@ substitute or reconstructed JSON. It independently checks the actual token
 issuer, original binder and this-instance context; neither a bearer nor a CP
 signature creates an opaque native caller or witness.
 
-V2 issuance uses PostgreSQL `now()` inside the admission transaction as its
-single authorization time. A fresh PostgreSQL transaction-time observation after
-actual COMMIT must still be within the signed interval; elapsed process time
+V2 issuance reads PostgreSQL `statement_timestamp()` exactly once **after both
+account and collection locks are held**. That single authoritative reading is
+used for nonce/floor checks, live counts, GC, currentness and signed `issued_at`;
+BEGIN's frozen `now()` is not used as admission time. A fresh PostgreSQL
+statement-time observation after actual COMMIT must still be within the signed
+interval; elapsed process time
 bounds the five-second request budget only. Unknown or failed COMMIT, timeout,
 clock reversal, output loss and duplicates never reissue an old result. Timeout
 does not settle pending database work or release its in-flight accounting.
@@ -66,14 +69,25 @@ future-tolerance bound. The floor row is NOT an old-writer drain acknowledgement
 Loss of clock/authority continuity or an unqualified transition remains a
 positive-serving blocker, including the reverse transition to ordinary mode.
 
-A distinct account advisory-lock namespace precedes the existing collection
-lock across replicas. Indexed bounded live counts include nonce expiry equality:
+A distinct account advisory-lock namespace (seed 20261011, versus the existing
+collection seed 20261005) precedes the collection lock across replicas. Indexed bounded live counts include nonce expiry equality:
 4096 per collection and 8192 per immutable owner. Local admission permits at most
 four pending calls per process and two per collection, before pool checkout;
 these are not distributed RPS guarantees. Under the same locks, at most 64 rows
-are garbage-collected strictly when nonce expiry is older than transaction time
-minus 60000 + 5000 + 24-hour margin. Unexpired rows and cutoff rows are untouched.
-There is no automatic quota expansion or capacity qualification.
+are garbage-collected strictly when nonce expiry is older than that authoritative
+reading minus (60000 + 5000 + 24-hour margin). Unexpired rows and cutoff rows are
+untouched. There is no automatic quota expansion or capacity qualification.
+
+The live ceilings do **not** cap all retained rows: expired rows remain at least
+24 hours plus 65 seconds past expiry, and successful admission transactions are
+the only GC driver. Quiet collections retain expired rows indefinitely; bursts
+or failed admission can extend retention further because GC is bounded to 64
+rows and rolls back with a refused transaction. The existing 120/minute route
+limiter bounds registrations in practice for each effective limiter key and
+process; its aggregate key/replica scope and traffic have not been qualified as
+a global storage bound. At a hypothetical steady aggregate 120/minute, one day
+alone corresponds to about 172800 rows before the extra margin/bursts, not the
+4096 live ceiling. No storage-capacity or measured-rate claim follows.
 
 Required actors still return 503. Actual old-writer/shared-key issuer fencing,
 drain, clock continuity and native receive/current freshness remain independently

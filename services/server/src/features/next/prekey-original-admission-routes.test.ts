@@ -97,6 +97,10 @@ describe("CP-only admitted original HTTP source",()=>{
       expect(verify(null,domainHash("mdbase/v2/prekey-original-admission",outer[1]),ed25519PublicKeyObject(f.signer.cert.policyPublicKey),outer[3])).toBe(true);
       expect(verify(null,domainHash("mdbase/v1/prekey-original-admission",outer[1]),ed25519PublicKeyObject(f.signer.cert.policyPublicKey),outer[3])).toBe(false);
       expect(f.consumed.size).toBe(1);expect(f.queries.filter(q=>q.includes("AS now_ms"))).toHaveLength(2);
+      const locks=f.queries.filter(q=>q.includes("pg_advisory_xact_lock"));expect(locks).toHaveLength(2);
+      expect(locks[0]).toContain("20261011");expect(locks[1]).toContain("20261005");
+      const clock=f.queries.findIndex(q=>q.includes("AS now_ms"));expect(f.queries[clock]).toContain("statement_timestamp()");
+      expect(clock).toBeGreaterThan(f.queries.indexOf(locks[1]!));
       expect(f.queries.indexOf("COMMIT")).toBeLessThan(f.queries.findLastIndex(q=>q.includes("AS now_ms")));
     }finally{await f.app.close();}
   });

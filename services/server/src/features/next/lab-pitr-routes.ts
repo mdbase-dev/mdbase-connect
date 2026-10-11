@@ -40,10 +40,12 @@ function cpSafeMs(value: unknown): number {
   const number=Number(value);if(!Number.isSafeInteger(number))throw new Error("prekey_clock_unavailable");return number;
 }
 async function lockCpNonceOwner(client: DatabaseConnection,owner: string): Promise<void> {
-  await client.query("SELECT pg_advisory_xact_lock(hashtextextended('prekey-http-owner:' || $1::uuid::text, 20261005))",[owner]);
+  await client.query("SELECT pg_advisory_xact_lock(hashtextextended('prekey-http-owner:' || $1::uuid::text, 20261011))",[owner]);
 }
-async function cpTransactionNow(db: Pick<DatabaseConnection,"query">): Promise<number> {
-  const rows=await db.query<{now_ms:string}>("SELECT floor(extract(epoch FROM now())*1000)::text AS now_ms");
+// Exactly one authoritative statement-time reading after both admission locks.
+// BEGIN's now() can precede lock waits and therefore is not this admission time.
+async function cpStatementNow(db: Pick<DatabaseConnection,"query">): Promise<number> {
+  const rows=await db.query<{now_ms:string}>("SELECT floor(extract(epoch FROM statement_timestamp())*1000)::text AS now_ms");
   if(rows.rows.length!==1)throw new Error("prekey_clock_unavailable");return cpSafeMs(rows.rows[0]!.now_ms);
 }
 function prekeyDeadline(started: number): void {
@@ -342,7 +344,7 @@ export function registerLabPitrRoutes(app: FastifyInstance, options: {
       const signed = await inTransaction(options.db,async client=>{
         if(replay){prekeyDeadline(started);await lockCpNonceOwner(client,pitr.owner);prekeyDeadline(started);}
         await lock(client,b.collection);
-        const now=replay?await cpTransactionNow(client):(options.now??Date.now)();
+        const now=replay?await cpStatementNow(client):(options.now??Date.now)();
         if(replay){prekeyDeadline(started);nonceExpiry(replay.nonce,now);}
         const original = await originalGenesis(client,b.collection,{owner:pitr.owner,root:options.next.policyCert.root_key_id,state:"sending-or-appended"});
         assertCpOriginalGenesis(Buffer.from(original.item,"base64"),b.collection,pitr.owner,options.next.rootPublicKey,transport);
@@ -366,7 +368,7 @@ export function registerLabPitrRoutes(app: FastifyInstance, options: {
           genesisSha256:Buffer.from(original.hash,"hex"),challenge:Buffer.from(b.challenge,"hex"),issuedAt,...(replay?{replay}:{})});
       }); // No signature can escape a failed or unknown COMMIT.
       if(!signed)throw new Error("prekey_floor_initialized");
-      const now = replay?await cpTransactionNow(options.db):(options.now??Date.now)();
+      const now = replay?await cpStatementNow(options.db):(options.now??Date.now)();
       if(replay)prekeyDeadline(started);
       if (!Number.isSafeInteger(now) || now<issuedAt || now>=signed.expiresAt) denied();
       if(replay)nonceExpiry(replay.nonce,now);
