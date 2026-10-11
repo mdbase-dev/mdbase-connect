@@ -10,6 +10,7 @@ interface DaemonStatus {
     last_error?: string;
     server?: string;
     environment?: string;
+    computer_name?: string;
   };
   collections: DaemonCollection[];
 }
@@ -30,6 +31,7 @@ interface SyncCounters {
 interface DaemonCollection {
   id: string;
   name: string;
+  description?: string;
   root: string;
   mode: "local" | "synced" | "synced_e2e";
   origin: string;
@@ -66,6 +68,16 @@ interface AccessEntry {
   first_seen_ms: number;
   acknowledged: boolean;
   delisted?: boolean;
+}
+
+/** `activity.list` entry: something that changed on this computer. */
+interface ActivityEntry {
+  at_ms: number;
+  kind: string;
+  collection?: string;
+  collection_name?: string;
+  app_name?: string;
+  detail?: string;
 }
 
 interface StartupSetting {
@@ -105,6 +117,8 @@ interface CloudSetting {
   /** A sign-in waiting for browser approval: the page to open. */
   pairing?: string | null;
   lastError?: string | null;
+  /** This computer's name in the account. */
+  computerName?: string | null;
 }
 
 interface Window {
@@ -134,6 +148,9 @@ interface Window {
     signIn(): Promise<{ verificationUri: string; expiresIn: number | null }>;
     reopenSignIn(): Promise<void>;
     signOut(): Promise<void>;
+    renameComputer(name: string): Promise<{ name: string }>;
+    listActivity(): Promise<ActivityEntry[]>;
+    updateCollection(collectionId: string, changes: { name?: string; description?: string }): Promise<DaemonCollection>;
     listAccess(): Promise<AccessEntry[]>;
     approveAccess(grant: string): Promise<AccessEntry>;
     acknowledgeAccess(grant: string): Promise<AccessEntry>;

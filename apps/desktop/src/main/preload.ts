@@ -31,6 +31,10 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
   signIn: () => ipcRenderer.invoke("connect:account:sign-in"),
   reopenSignIn: () => ipcRenderer.invoke("connect:account:reopen-sign-in"),
   signOut: () => ipcRenderer.invoke("connect:account:sign-out"),
+  renameComputer: (name: string) => ipcRenderer.invoke("connect:account:rename", name),
+  listActivity: () => ipcRenderer.invoke("connect:activity:list"),
+  updateCollection: (collectionId: string, changes: { name?: string; description?: string }) =>
+    ipcRenderer.invoke("connect:collections:update", { collectionId, ...changes }),
   listAccess: () => ipcRenderer.invoke("connect:access:list"),
   approveAccess: (grant: string) => ipcRenderer.invoke("connect:access:approve", grant),
   acknowledgeAccess: (grant: string) => ipcRenderer.invoke("connect:access:ack", grant),

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { groupAccess, presentCollection, presentConnection } from "../src/renderer/daemon-view.mts";
+import { describeActivity, groupAccess, presentCollection, presentConnection } from "../src/renderer/daemon-view.mts";
 
 test("connection: unknown, stopped, signed out, signing in and online are distinct", () => {
   assert.equal(presentConnection(null, false).dot, "connecting");
@@ -32,4 +32,10 @@ test("access: pending, served-by-app and refused are separated; badge counts dec
   assert.deepEqual(groups.apps.map((a) => [a.appName, a.grants.length]), [["Reader", 2], ["Tasks", 1]]);
   assert.deepEqual(groups.refused.map((e) => e.grant), ["4"]);
   assert.equal(groups.attention, 2);
+});
+
+test("activity reads as sentences and never hides an unknown kind", () => {
+  assert.equal(describeActivity({ kind: "sync_enabled", collection_name: "Notes", detail: "synced_e2e" }), "Notes now syncs privately");
+  assert.equal(describeActivity({ kind: "app_revoked", app_name: "Reader", collection_name: "Notes" }), "You revoked Reader on Notes");
+  assert.equal(describeActivity({ kind: "files_held" }), "files held");
 });

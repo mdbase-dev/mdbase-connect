@@ -105,6 +105,7 @@ interface AccountInfo {
   last_error?: string;
   server?: string;
   environment?: string;
+  computer_name?: string;
 }
 
 async function account(): Promise<AccountInfo> {
@@ -256,6 +257,17 @@ function registerIpc(): void {
     return requestReadyAgent(value.enabled ? "collection.resume" : "collection.pause",
       { collection: collectionIdOf(value.collectionId) }, 30_000);
   });
+  ipcMain.handle("connect:collections:update", async (event, input: unknown) => {
+    trustedIpc(event);
+    const value = asObject(input, "Invalid collection input.");
+    const params: Record<string, string> = { collection: collectionIdOf(value.collectionId) };
+    for (const key of ["name", "description"] as const) {
+      if (value[key] === undefined) continue;
+      if (typeof value[key] !== "string") throw new Error("Invalid collection input.");
+      params[key] = value[key] as string;
+    }
+    return requestReadyAgent("collection.update", params);
+  });
   // Privileged (it moves the log to mdbase): through the CLI.
   ipcMain.handle("connect:collections:sync-enable", async (event, input: unknown) => {
     trustedIpc(event);
@@ -307,7 +319,8 @@ function registerIpc(): void {
       serverUrl: current.server ?? null,
       online: current.online,
       pairing: current.pairing ?? null,
-      lastError: current.last_error ?? null
+      lastError: current.last_error ?? null,
+      computerName: current.computer_name ?? null
     };
   });
   ipcMain.handle("connect:account:open", async (event) => {
@@ -331,6 +344,15 @@ function registerIpc(): void {
   ipcMain.handle("connect:account:sign-out", async (event) => {
     trustedIpc(event);
     await bootGate.request(() => daemonCli().run(["account", "sign-out"], 30_000));
+  });
+  ipcMain.handle("connect:account:rename", async (event, name: unknown) => {
+    trustedIpc(event);
+    if (typeof name !== "string") throw new Error("Enter a name for this computer.");
+    return requestReadyAgent("account.rename", { name }, 30_000);
+  });
+  ipcMain.handle("connect:activity:list", async (event) => {
+    trustedIpc(event);
+    return requestReadyAgent("activity.list", { limit: 100 });
   });
   ipcMain.handle("connect:access:list", async (event) => {
     trustedIpc(event);

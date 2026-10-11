@@ -965,6 +965,7 @@ async function auditDesktopRoutes() {
         grant({ grant: "old", app_id: "app-old", app_name: "Old app", state: "revoked_locally" })
       ],
       getSettings: async () => ({ require_grant_approval: true }),
+      listActivity: async () => [{ at_ms: Date.parse("2026-01-01T00:00:00Z"), kind: "collection_added", collection_name: "Personal notes" }],
       getLaunchAtLogin: async () => ({ enabled: false, available: true }),
       setLaunchAtLogin: async () => ({ enabled: false, available: true }),
       chooseCreateFolder: async () => "/home/example/new",

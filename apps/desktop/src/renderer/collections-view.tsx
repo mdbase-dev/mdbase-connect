@@ -19,7 +19,7 @@ export function CollectionsView({ collections, busy, onAdd, onCreate, onAct, onN
   return (
     <div className="workspace-stack">
       <section>
-        <SectionHeading title="Collections" note="Folders on this computer that your apps can use." count={collections.length}>
+        <SectionHeading title="On this computer" note="Each folder stays where it is. Sync is optional.">
           <button className="button secondary" disabled={busy} onClick={onAdd}>Add existing</button>
           <button className="button primary" disabled={busy} onClick={onCreate}>Create</button>
         </SectionHeading>
@@ -47,12 +47,14 @@ function CollectionCard({ collection, busy, onAct, onNotice, onTurnOnSync }: {
 }) {
   const view = presentCollection(collection);
   const [holdsOpen, setHoldsOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   return (
     <article className="collection-card">
       <div className="collection-card-main">
         <StatusDot state={view.dot} />
         <div>
           <h3>{collection.name}</h3>
+          {collection.description && <small className="collection-description">{collection.description}</small>}
           <code>{collection.root}</code>
           <small>{view.mode} · {view.status}{view.detail ? ` · ${view.detail}` : ""}</small>
           {collection.notices.map((notice) => <small key={notice.code} className="collection-notice">{notice.message}</small>)}
@@ -60,6 +62,7 @@ function CollectionCard({ collection, busy, onAct, onNotice, onTurnOnSync }: {
       </div>
       <div className="collection-config-actions">
         <button className="quiet-action" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.openCollectionFolder(collection.id))}>Open folder</button>
+        <button className="quiet-action" aria-expanded={detailsOpen} onClick={() => setDetailsOpen((open) => !open)}>Details</button>
         {view.holds > 0 && <button className="quiet-action" onClick={() => setHoldsOpen((open) => !open)}>{holdsOpen ? "Hide" : "Review"} {view.holds} {plural(view.holds, "file", "files")}</button>}
         {view.canEnableSync && <button className="quiet-action" disabled={busy} onClick={onTurnOnSync}>Turn on sync</button>}
         {view.canDisableSync && <button className="quiet-action" disabled={busy} onClick={() => {
@@ -78,8 +81,40 @@ function CollectionCard({ collection, busy, onAct, onNotice, onTurnOnSync }: {
           });
         }}>Remove</button>
       </div>
+      {detailsOpen && <Details collection={collection} onDone={(saved) => { setDetailsOpen(false); if (saved) onNotice(`${saved.name} was saved.`); }} />}
       {holdsOpen && <Holds collection={collection} busy={busy} onAct={onAct} />}
     </article>
+  );
+}
+
+/** Name and description. The draft survives a failed save; nothing is editable while saving. */
+function Details({ collection, onDone }: { collection: DaemonCollection; onDone(saved: DaemonCollection | null): void }) {
+  const [name, setName] = useState(collection.name);
+  const [description, setDescription] = useState(collection.description ?? "");
+  const [saving, setSaving] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  async function save() {
+    setSaving(true);
+    setFailure(null);
+    try {
+      onDone(await window.mdbaseConnect.updateCollection(collection.id, { name: name.trim(), description: description.trim() }));
+    } catch (reason) {
+      setFailure(message(reason));
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="collection-details">
+      {failure && <p className="message error-message" role="alert">{failure}</p>}
+      <label><span>Name</span><input value={name} maxLength={100} disabled={saving} onChange={(event) => setName(event.target.value)} /></label>
+      <label><span>Description</span><textarea value={description} maxLength={500} disabled={saving} onChange={(event) => setDescription(event.target.value)} placeholder="What this collection is for" /></label>
+      <small>The folder is not renamed. The description stays on this computer.</small>
+      <div className="row-actions">
+        <button className="button secondary" disabled={saving} onClick={() => onDone(null)}>Cancel</button>
+        <button className="button primary" disabled={saving || !name.trim()} onClick={() => void save()}>{saving ? "Saving…" : "Save details"}</button>
+      </div>
+    </div>
   );
 }
 

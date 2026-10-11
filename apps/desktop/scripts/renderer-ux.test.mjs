@@ -61,6 +61,9 @@ async function desktop({ signedIn = true, collections = [], access = [] } = {}) 
       enableSync: record("enableSync"),
       removeCollection: record("removeCollection"),
       listHolds: async () => [],
+      listActivity: async () => fixture.activity ?? [],
+      updateCollection: async (id, changes) => { calls.push(["updateCollection", id, changes]); if (fixture.failUpdate) throw new Error(fixture.failUpdate); return { ...fixture.collections[0], ...changes }; },
+      renameComputer: async (name) => { calls.push(["renameComputer", name]); fixture.account = { ...fixture.account, computerName: name }; return { name }; },
       approveAccess: record("approveAccess"),
       acknowledgeAccess: record("acknowledgeAccess"),
       revokeAccess: record("revokeAccess"),
@@ -225,6 +228,51 @@ test("daemon errors are shown without Electron's IPC method name", async () => {
     await page.getByRole("button", { name: "Add existing", exact: true }).click();
     await page.getByRole("alert").waitFor();
     assert.equal(await page.getByRole("alert").locator("span").innerText(), "That folder is already a collection.");
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("collection details keep the draft when saving fails, then save name and description", async () => {
+  const { page, errors, calls } = await desktop({ collections: [collection()] });
+  try {
+    await nav(page, "Collections").click();
+    const card = page.locator(".collection-card").filter({ hasText: "Notes" });
+    await card.getByRole("button", { name: "Details" }).click();
+    await card.getByLabel("Name").fill("Journal");
+    await card.getByLabel("Description").fill("Daily notes");
+    await page.evaluate(() => { window.fixture.failUpdate = "Error invoking remote method 'connect:collections:update': DaemonControlError: a collection name is 1 to 100 characters"; });
+    await card.getByRole("button", { name: "Save details" }).click();
+    await card.getByRole("alert").filter({ hasText: "a collection name is 1 to 100 characters" }).waitFor();
+    assert.equal(await card.getByLabel("Description").inputValue(), "Daily notes");
+    await page.evaluate(() => { window.fixture.failUpdate = null; });
+    await card.getByRole("button", { name: "Save details" }).click();
+    await page.getByText("Journal was saved.", { exact: true }).waitFor();
+    assert.deepEqual((await calls("updateCollection")).at(-1), ["c-notes", { name: "Journal", description: "Daily notes" }]);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("settings renames this computer; activity lists recent changes", async () => {
+  const { page, errors, calls } = await desktop();
+  try {
+    await page.evaluate(() => {
+      window.fixture.account = { ...window.fixture.account, computerName: "laptop" };
+      window.fixture.activity = [
+        { at_ms: Date.now(), kind: "app_revoked", app_name: "Reader", collection_name: "Notes" },
+        { at_ms: Date.now() - 60_000, kind: "collection_added", collection_name: "Notes" }
+      ];
+    });
+    await page.clock.runFor(5_000);
+    await nav(page, "Settings").click();
+    await page.getByText("laptop", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Rename" }).click();
+    await page.getByLabel("Computer name").fill("Studio iMac");
+    await page.getByRole("button", { name: "Save" }).click();
+    await page.getByText("This computer is now called Studio iMac.", { exact: true }).waitFor();
+    assert.deepEqual(await calls("renameComputer"), [["Studio iMac"]]);
+    await nav(page, "Activity").click();
+    const items = page.locator(".activity-list li span");
+    assert.deepEqual(await items.allInnerTexts(), ["You revoked Reader on Notes", "Notes was added"]);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });

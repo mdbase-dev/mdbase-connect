@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createRoot } from "react-dom/client";
 import { Dialog } from "@mdbase-dev/ui/dialog";
 import { AccessView } from "./access-view";
+import { ActivityView } from "./activity-view";
 import { CollectionsView } from "./collections-view";
 import { groupAccess, presentConnection } from "./daemon-view.mjs";
 import { consumePairingCompleted } from "./onboarding-state.mjs";
@@ -57,6 +58,7 @@ function App() {
   const [cloud, setCloud] = useState<CloudSetting | null>(null);
   const [collections, setCollections] = useState<DaemonCollection[]>([]);
   const [access, setAccess] = useState<AccessEntry[]>([]);
+  const [activity, setActivity] = useState<ActivityEntry[] | null>([]);
   const [requireApproval, setRequireApproval] = useState<boolean | null>(null);
   const [startup, setStartup] = useState<StartupSetting>({ enabled: false, available: false });
   const [updateStatus, setUpdateStatus] = useState<DesktopUpdateStatus | null>(null);
@@ -71,8 +73,8 @@ function App() {
   const refresh = useCallback(async () => {
     const mine = ++generation.current;
     const api = window.mdbaseConnect;
-    const [nextStatus, nextCloud, nextCollections, nextAccess, nextSettings, nextStartup] = await Promise.allSettled([
-      api.status(), api.getCloudConfig(), api.listCollections(), api.listAccess(), api.getSettings(), api.getLaunchAtLogin()
+    const [nextStatus, nextCloud, nextCollections, nextAccess, nextSettings, nextStartup, nextActivity] = await Promise.allSettled([
+      api.status(), api.getCloudConfig(), api.listCollections(), api.listAccess(), api.getSettings(), api.getLaunchAtLogin(), api.listActivity()
     ]);
     if (mine !== generation.current) return;
     setChecked(true);
@@ -83,6 +85,7 @@ function App() {
     if (nextAccess.status === "fulfilled") setAccess(nextAccess.value);
     if (nextSettings.status === "fulfilled") setRequireApproval(nextSettings.value.require_grant_approval);
     if (nextStartup.status === "fulfilled") setStartup(nextStartup.value);
+    setActivity(nextActivity.status === "fulfilled" ? nextActivity.value : null);
   }, []);
 
   useEffect(() => {
@@ -210,7 +213,7 @@ function App() {
           ) : route === "access" ? (
             <AccessView groups={groups} names={names} busy={busy} requireApproval={requireApproval} onAct={act} onNotice={setNotice} />
           ) : route === "activity" ? (
-            <section><SectionHeading title="Recent activity" note="Shown on this computer only." /><Empty title="No activity yet" text="App access and collection changes on this computer will be listed here." /></section>
+            <ActivityView entries={activity} />
           ) : (
             <Settings
               cloud={cloud}
@@ -322,6 +325,7 @@ function Settings({ cloud, connectionLabel, requireApproval, startup, updateStat
           <div className="settings-rows">
             <SettingRow label="mdbase service" value={cloud.serverUrl ?? "Signed in"} detail={cloud.online ? "Connected" : "Saved app access still works on this computer"} mono />
             <SettingRow label="Connection" value={connectionLabel} detail="Keeps apps on your other devices connected to this computer" />
+            <ComputerNameRow name={cloud.computerName ?? null} busy={busy} onAct={onAct} onNotice={onNotice} />
           </div>
           <div className="portal-connection-actions">
             <button className="button secondary" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.openAccount())}>Manage in mdbase</button>
@@ -385,6 +389,32 @@ function Settings({ cloud, connectionLabel, requireApproval, startup, updateStat
         </div>
       </section>
       <section className="privacy-block"><span className="privacy-lock">⌁</span><div><strong>Folder locations are never uploaded.</strong><p>Collections stay on this computer. Synced collections send changes to mdbase; private sync encrypts them so mdbase cannot read them. Your account only receives collection names and app-access details.</p></div></section>
+    </div>
+  );
+}
+
+function ComputerNameRow({ name, busy, onAct, onNotice }: {
+  name: string | null;
+  busy: boolean;
+  onAct(action: () => Promise<unknown>): Promise<void>;
+  onNotice(value: string): void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  if (draft === null) {
+    return <div className="setting-row"><span>This computer</span><div><strong>{name ?? "Unnamed"}</strong><small>How this computer appears in your mdbase account</small></div><button className="quiet-action" disabled={busy} onClick={() => setDraft(name ?? "")}>Rename</button></div>;
+  }
+  return (
+    <div className="setting-row">
+      <span>This computer</span>
+      <div className="computer-name-form">
+        <input aria-label="Computer name" autoFocus value={draft} maxLength={100} disabled={busy} onChange={(event) => setDraft(event.target.value)} />
+        <button className="button secondary" disabled={busy} onClick={() => setDraft(null)}>Cancel</button>
+        <button className="button primary" disabled={busy || !draft.trim()} onClick={() => void onAct(async () => {
+          const renamed = await window.mdbaseConnect.renameComputer(draft.trim());
+          setDraft(null);
+          onNotice(`This computer is now called ${renamed.name}.`);
+        })}>Save</button>
+      </div>
     </div>
   );
 }

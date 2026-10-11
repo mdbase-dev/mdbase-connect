@@ -163,3 +163,36 @@ export function capabilityLabel(capability: string): string {
   };
   return labels[capability] ?? capability.replaceAll("_", " ");
 }
+
+interface ActivityLike {
+  kind: string;
+  collection_name?: string;
+  app_name?: string;
+  detail?: string;
+}
+
+/** One activity entry as a sentence. Unknown kinds are shown as they are. */
+export function describeActivity(entry: ActivityLike): string {
+  const collection = entry.collection_name ?? "a collection";
+  const app = entry.app_name ?? "An app";
+  switch (entry.kind) {
+    case "collection_added": return `${collection} was added`;
+    case "collection_removed": return `${collection} was removed (its files were not touched)`;
+    case "collection_updated": return `${collection} was renamed or described`;
+    case "collection_paused": return `${collection} was paused`;
+    case "collection_resumed": return `${collection} was resumed`;
+    case "collection_joined": return `${collection} was joined from your account`;
+    case "sync_enabled": return `${collection} now syncs${entry.detail === "synced_e2e" ? " privately" : ""}`;
+    case "sync_disabled": return `${collection} stopped syncing`;
+    case "app_connected": return `${app} can now use ${collection}`;
+    case "app_requested": return `${app} asked to use ${collection}`;
+    case "app_approved": return `You approved ${app} for ${collection}`;
+    case "app_declined": return `You declined ${app} for ${collection}`;
+    case "app_revoked": return `You revoked ${app} on ${collection}`;
+    case "app_revoked_in_account": return `${app} lost access to ${collection} in your account`;
+    case "signed_in": return "This computer signed in";
+    case "signed_out": return "This computer signed out";
+    case "computer_renamed": return `This computer is now called ${entry.detail ?? "something new"}`;
+    default: return entry.kind.replaceAll("_", " ");
+  }
+}

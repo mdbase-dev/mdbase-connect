@@ -69,7 +69,10 @@ try {
   await window.getByText("Ask before new apps connect", { exact: true }).waitFor();
   const settings = await window.evaluate(() => window.mdbaseConnect.getSettings());
   assert.equal(typeof settings.require_grant_approval, "boolean");
-  console.log("ok - Collections, App access and Settings views read the daemon");
+  assert.ok(Array.isArray(await window.evaluate(() => window.mdbaseConnect.listActivity())));
+  await nav("Activity").click();
+  await window.getByRole("heading", { name: "Recent activity" }).waitFor();
+  console.log("ok - Collections, App access, Activity and Settings views read the daemon");
   if (connectHome) {
     const move = window.getByRole("button", { name: "Move to the new sync engine" });
     await move.waitFor({ timeout: 30_000 });
