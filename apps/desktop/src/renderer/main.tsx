@@ -7,6 +7,7 @@ import "@mdbase/connect-ui/styles.css";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Collections } from "./collections-view";
+import { TakeoverPanel } from "./takeover-panel";
 import { CollectionCompletionReceipt } from "./completion-receipt";
 import { AuthorityTransferReceipt } from "./authority-transfer-receipt";
 import { presentConnection } from "./connection-state.mjs";
@@ -136,6 +137,10 @@ function App() {
     hosted: singleFlight(() => window.mdbaseConnect.hostedSnapshot()),
     mirrors: singleFlight(() => window.mdbaseConnect.listMirrors())
   }), []);
+  const collectionNames = useMemo(
+    () => Object.fromEntries(collections.map((collection) => [collection.id, collection.display_name])),
+    [collections]
+  );
   const latestRefresh = useRef(0);
   const refresh = useCallback(async (_quiet = false) => {
     const generation = ++latestRefresh.current;
@@ -445,6 +450,8 @@ function App() {
         {cloud !== null && (!cloud.configured || pairingRestart) && <div hidden={!["overview", "access", "settings"].includes(route)}>
           <PairingPanel resumeAuthorization={authorizationTarget !== null} completing={pairingRestart} onPaired={onPaired} />
         </div>}
+
+        <TakeoverPanel names={collectionNames} />
 
         {takeoverNotice !== null && updateStatus ? (
           <section className="authority-history" role="status" aria-live="polite">

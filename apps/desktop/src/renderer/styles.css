@@ -444,3 +444,14 @@ fieldset legend { margin-bottom: 6px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.001ms !important; animation-duration: 0.001ms !important; }
 }
+
+.takeover-panel { display: grid; gap: 8px; margin-top: 24px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 4px; font-size: var(--type-supporting); }
+.takeover-panel.attention { border-color: color-mix(in oklch, var(--danger) 34%, var(--line)); }
+.takeover-panel p { margin: 0; color: var(--muted); line-height: 1.5; }
+.takeover-panel .takeover-advice span { color: var(--ink); font-weight: 600; }
+.takeover-panel .takeover-incident { color: var(--danger); }
+.takeover-rows, .takeover-holds { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.takeover-rows > li { display: grid; gap: 2px; }
+.takeover-rows small { color: var(--muted); }
+.takeover-holds { padding-left: 12px; font-size: var(--type-metadata); }
+.takeover-option { display: flex; align-items: center; gap: 8px; color: var(--muted); }

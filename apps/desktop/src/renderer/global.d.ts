@@ -341,6 +341,8 @@ interface Window {
   mdbaseConnect: {
     status(): Promise<AgentStatus>;
     updateStatus(): Promise<DesktopUpdateStatus>;
+    migrationStatus(): Promise<import("./takeover-state.mjs").TakeoverStatus & { running: boolean }>;
+    startMigration(stopMirrors: boolean): Promise<unknown>;
     checkForUpdates(): Promise<DesktopUpdateStatus>;
     installUpdate(): Promise<DesktopUpdateStatus>;
     listCollections(): Promise<CollectionSummary[]>;

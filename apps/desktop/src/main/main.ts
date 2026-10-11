@@ -36,6 +36,8 @@ let localHealthLabel = "mdbase starting";
 let runtime: DaemonRuntime | null = null;
 let profile: DaemonProfile | null = null;
 let session: DaemonSession | null = null;
+let cli: DaemonCli | null = null;
+let migrationRun: Promise<unknown> | null = null;
 let quitting = false;
 const pairing = new ComputerPairing({
   openBrowser: (url) => shell.openExternal(url),
@@ -81,6 +83,28 @@ async function registeredCollectionPath(collectionId: unknown): Promise<string> 
   return collection.path;
 }
 
+function daemonCli(): DaemonCli {
+  if (!cli) throw new Error("mdbase has not been initialized.");
+  return cli;
+}
+
+/**
+ * An explicit, user-chosen move from the old Connect engine. It is never called
+ * automatically: the daemon moves on its own once the account's rollout allows it.
+ * `migrate start` is privileged, so it runs through the CLI (keychain control key).
+ */
+function startMigration(stopMirrors: boolean): Promise<unknown> {
+  if (migrationRun) return migrationRun;
+  const run = bootGate.request(() => daemonCli().run(
+    ["migrate", "start", ...(stopMirrors ? ["--stop-mirrors"] : [])],
+    MIGRATION_TIMEOUT_MS
+  ));
+  migrationRun = run.finally(() => { migrationRun = null; });
+  return migrationRun;
+}
+// The daemon's own drain is bounded well below this; the CLI call waits for the run.
+const MIGRATION_TIMEOUT_MS = 650_000;
+
 function daemonSession(): DaemonSession {
   if (!session) throw new Error("mdbase has not been initialized.");
   return session;
@@ -94,7 +118,7 @@ async function initializeDaemon(): Promise<void> {
     env: process.env
   });
   profile = await DaemonCli.discover(runtime.binary, runtime.isolatedStateDir);
-  const cli = new DaemonCli(() => runtime!.binary, profile.target, profile.stateDir);
+  cli = new DaemonCli(() => runtime!.binary, profile.target, profile.stateDir);
   session = new DaemonSession({ profile, bundled: runtime, cli });
   session.subscribe((state) => {
     localHealthLabel = healthLabel(state);
@@ -137,6 +161,15 @@ function registerIpc(): void {
   ipcMain.handle("connect:status", async (event) => {
     trustedIpc(event);
     return requestReadyAgent("status");
+  });
+  ipcMain.handle("connect:migration:status", async (event) => {
+    trustedIpc(event);
+    return { ...await requestReadyAgent<object>("migrate.status"), running: migrationRun !== null };
+  });
+  ipcMain.handle("connect:migration:start", async (event, input: unknown) => {
+    trustedIpc(event);
+    const stopMirrors = asObject(input, "Invalid migration input.").stopMirrors === true;
+    return startMigration(stopMirrors);
   });
   ipcMain.handle("connect:updates:status", (event) => {
     trustedIpc(event);

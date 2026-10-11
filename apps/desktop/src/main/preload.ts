@@ -9,6 +9,8 @@ type DesktopSelectiveSyncPolicy = {
 contextBridge.exposeInMainWorld("mdbaseConnect", {
   status: () => ipcRenderer.invoke("connect:status"),
   updateStatus: () => ipcRenderer.invoke("connect:updates:status"),
+  migrationStatus: () => ipcRenderer.invoke("connect:migration:status"),
+  startMigration: (stopMirrors: boolean) => ipcRenderer.invoke("connect:migration:start", { stopMirrors }),
   checkForUpdates: () => ipcRenderer.invoke("connect:updates:check"),
   installUpdate: () => ipcRenderer.invoke("connect:updates:install"),
   listCollections: () => ipcRenderer.invoke("connect:collections:list"),
