@@ -57,7 +57,7 @@ export async function recoverPendingNoteOperation(requestId: string, context: {
     } else {
       const recovered = await scope.register(token, context.gateway.recoverNoteMutation(requestId));
       if (!scope.isCurrent(token)) return;
-      await context.refresh(recovered.path);
+      if (recovered) await context.refresh(recovered.path);
     }
     if (scope.isCurrent(token)) await context.reload();
   } catch (error) {

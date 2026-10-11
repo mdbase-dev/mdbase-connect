@@ -1,7 +1,8 @@
 import { PERSON_CONTRACT } from "@mdbase-dev/connect";
-import type { CollectionDescription, TypePackAssessment, TypePackProvision, TypePackResourceDiff } from "@mdbase-dev/connect";
+import type { TypePackAssessment, TypePackProvision, TypePackResourceDiff } from "@mdbase-dev/connect";
 import provisionUrl from "./person-setup.pack.json?url";
 import { loadTypePackProvision } from "./contract-catalog";
+import type { EditorCollectionDescription } from "./model";
 
 // Exact canonical mdbase.contact 1.4.0 provision, bundled so this guided setup
 // does not depend on catalog publication or availability. Shared resources keep
@@ -24,7 +25,9 @@ const PERSON_STARTER = { target: "_types/person.md", version: 3 } as const;
  * An older Person starter in place, offered for a reviewed upgrade before creating
  * a record. Any mdbase.person version counts: the Person v1 starter implements 1.0.0.
  */
-export function outdatedPersonStarter(description: Pick<CollectionDescription, "contracts">) {
+export function outdatedPersonStarter(description: Pick<EditorCollectionDescription, "contracts" | "typing">) {
+  // Without native type versions there is no evidence an upgrade is needed.
+  if (description.typing === "names_only") return undefined;
   return description.contracts.filter((contract) => contract.id === PERSON_CONTRACT.id)
     .flatMap((contract) => contract.implementations)
     .find((implementation) => implementation.typePath === PERSON_STARTER.target && implementation.typeVersion < PERSON_STARTER.version);

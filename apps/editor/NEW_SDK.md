@@ -1,10 +1,54 @@
-# Native SDK record adapter
+# Native SDK mode
 
-`NextEditorRecords` is a source-only data-layer foundation for the editor's
-new-SDK gateway. It does not replace the active Connect gateway. An explicitly
-owned SDK sign-in binding can now use the existing connection screen; genuine
-native collection composition is still pending. The source is developed on the non-deploy
-`next/new-sdk` integration lane; no staging or production publication is implied.
+`SdkEditorRoot` runs the editor against the public SDK `MdbaseApplicationEntry`.
+`main.tsx` still constructs the Connect gateway, so production is unchanged;
+wiring the root into the entry point waits for qualified runtime composition.
+The source is developed on the non-deploy `next/new-sdk` integration lane; no
+staging or production publication is implied.
+
+## Public entry and lifecycle
+
+- `createEditorApplication` builds the declaration with the public
+  `MdbaseConnect` helper from the checked-in `.well-known/mdbase-app.json`. The
+  SDK constructor is still an explicit unavailable shell, so the root shows
+  "isn't available" and no sign-in.
+- `SdkEditorRoot` subscribes to the application snapshot, starts it once (StrictMode
+  safe) with the caller's signal, forwards foreground state, and calls the SDK's
+  `authorize`, `select`, `configure`, `clearSelection`, `forget` and `close`.
+  Sign-in, consent popup, setup and collection selection are SDK-owned; the editor
+  opens no popup of its own. A failed or late `close` never reports sign-out.
+- The editor opens only when the selected connection is current, its client
+  reports the same collection and readiness is assessed `ready` with no problem.
+  The native scope is keyed by connection ID and generation; losing readiness or
+  currentness unmounts it and retires its gateway. The borrowed client is never
+  closed by the editor.
+
+## Native gateway
+
+`NativeEditorGateway` implements the editor's existing `CollectionGateway` over
+`connection.records`, `connection.files` and `connection.people`:
+
+- Notes: `NextEditorRecords` (below), fenced by connection currentness.
+- Index: `NativeNoteObservation` registers the SDK change watch before reading one
+  complete, `asOf`-consistent `pages()` snapshot, rereads changed records by
+  original ID, and reports created/updated/renamed/deleted/reset changes. A
+  resumed watch triggers one complete reread. Optimistic overlays are
+  presentation only.
+- Permissions come from the native grant: `records.create` → create,
+  `records.edit` → update/rename, `records.delete` → delete. Type install and
+  type management stay off; file upload stays off because the public grant has
+  no file action set.
+- Files list/read by native digest; people use `people.directory({ members:
+  "omit" })`; contracts use `queryContract`; validation and preflights use the
+  native operations.
+- `describe()` is marked `typing: "names_only"`: native describe has type names,
+  paths and contract bindings, but no type schemas/versions or contract
+  schemas/implementation digests. Those fields are empty and the Person starter
+  upgrade check is skipped.
+- Type sources are read with `resources.get`. Creating/editing types and type
+  packs are refused without writing; collection setup belongs to SDK `configure`.
+
+# Native SDK record adapter
 
 ## Record operations
 
@@ -32,13 +76,12 @@ native collection composition is still pending. The source is developed on the n
 
 ## Remaining integration
 
-The active gateway still uses Connect. Shared SDK web sign-in/native collection
-opening and manifest-driven setup are owned by the SDK workstreams; do not copy
-TaskNotes' Worker, lease, authentication or SQL-bootstrap glue into the editor.
-Files, native catalog/type management, live observation, attention/conflict UI,
-validation and the gateway session bridge still need qualification/integration.
-The launch uses relay/hosted routes only. Browser direct-access controls must
-consume the shared unsupported compatibility port and hide/skip gracefully.
+Runtime composition, the production entry point, native record-session recovery
+state (an interrupted write is recovered from the pending-operation notice),
+typed schemas, file uploads and file change notifications wait for public SDK
+APIs or qualification. The launch uses relay/hosted routes only; direct access
+is hidden in native mode. Do not copy TaskNotes' Worker, lease, authentication or
+SQL-bootstrap glue into the editor.
 
 The SDK is release's original `ad69a506` dev archive (not release-qualified),
 recorded in `vendor/mdbase-next-sdk.json` with verified SHA256/SHA512. It exposes
@@ -55,35 +98,5 @@ Unit tests use SDK MemoryReplica and are not native/LAB evidence. SDK811 now hon
 `create.document` through its shared synthetic parser; restore verifies the actual
 SDK document submission without an app-side source-create fixture bridge.
 
-## Existing connection screen, public SDK actions
-
-`App` accepts an optional owner-supplied `nativeSignIn` binding. That branch uses
-`ConnectScreen` and the same shared layout and styled controls, without creating
-any legacy session snapshot or starting legacy gateway/index/file stores. The
-production entry point still supplies its existing gateway; no new route or
-unqualified native configuration is enabled.
-
-`createNativeSignIn` forwards explicit app/release/origin/runtime/stores/locks and
-the original signal to `AppWebSignInSession`. Approval, polling, account/collection
-selection and custody belong to the SDK. The collection callback explicitly
-refuses with **Opening collections isn't available in this build yet.** It cannot
-manufacture a connection, setup result, save state or native-ready gateway.
-
-Sign in synchronously reserves a named 620×760 popup before SDK startup/renewal.
-The trusted Connect popup retains its opener so the parent can close it after
-cross-origin navigation. A blocked popup falls back to a tab with its opener
-immediately detached; a blocked tab has an explicit retry action. Only the SDK's
-validated URI is navigated, using the original handle. Reopen reuses that handle
-or replaces a manually closed window; view replacement closes only its own popup.
-
-Pairing alone never closes a popup while the SDK remains `authorizing`. Public
-completed/terminal states close it automatically. SDK snapshots supply actual
-email and selected metadata; generic refusal is not labelled user decline. Sign
-out waits for successful SDK `close()` and means local shutdown, not revocation
-or erasure. Forget uses the SDK's actual selected ID. View teardown never closes
-the borrowed SDK session, and retired actions cannot publish to a replacement.
-
-Tests use labelled SDK snapshot/action stand-ins. Real Chromium verifies popup
-geometry, retained opener, cross-origin UI closure and 390px long-email layout,
-not native authentication, factory/producer ABI, browser custody or LAB acceptance.
-Qualified per-app inputs and genuine native composition remain required.
+Tests use the SDK's `createApplicationFixture` for lifecycle/readiness and real
+public SDK clients over MemoryReplica for data. They are not native/LAB evidence.

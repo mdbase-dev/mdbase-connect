@@ -6,7 +6,7 @@ import { StaleCollectionOperationError, type CollectionMutationScope, type Colle
 import { gatewayError } from "./gateway";
 import type { CollectionGateway, CollectionFile, NoteDocument, NoteSummary } from "./model";
 import { noteTitle, safeRenamePath, summaryFromDocument } from "./note";
-import type { NoteSession, NoteSessionStore, Draft, NoteActivity } from "./note-session";
+import { recoveredNote, type NoteSession, type NoteSessionStore, type Draft, type NoteActivity } from "./note-session";
 import { updateMutationActivity } from "./note-mutation-presentation";
 import { pendingNoteRequestId, type RenamePlan, type PendingRenameRecovery } from "./pending-note-mutation";
 import { composeRecordSource, replaceDocumentFrontmatter } from "./record-source";
@@ -292,7 +292,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
         if (session.document.path !== from) throw new Error("This note moved before the rename could begin.");
       }
       const renamed = await runNoteOperation(session, updateRefs ? "renaming" : "moving", (token) => requestId
-        ? gateway.recoverNoteMutation(requestId)
+        ? recoveredNote(gateway, requestId)
         : gateway.rename(
         from,
         to,

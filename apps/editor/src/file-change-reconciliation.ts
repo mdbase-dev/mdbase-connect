@@ -1,13 +1,13 @@
-import type { CollectionChange } from "@mdbase-dev/connect";
+import type { EditorCollectionChange } from "./model";
 import type { FileAssetStore } from "./file-asset-store";
 import type { FileInventoryController } from "./file-inventory-controller";
 
-export function isFileChange(change: CollectionChange): boolean {
+export function isFileChange(change: EditorCollectionChange): boolean {
   return change.kind === "file.put" || change.kind === "file.removed" || change.kind === "file.changed";
 }
 
 export function reconcileFileChange(
-  change: CollectionChange,
+  change: EditorCollectionChange,
   inventory: FileInventoryController,
   assets: FileAssetStore
 ): void {

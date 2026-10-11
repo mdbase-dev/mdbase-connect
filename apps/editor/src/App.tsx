@@ -169,16 +169,9 @@ interface CollectionAppProps {
   gateway: CollectionGateway;
   onFeedbackContext?(surface: Surface, collectionName?: string): void;
 }
-type AppProps = CollectionAppProps | import("./NativeSignInControls").NativeConnectScreenProps;
-
-export function App(props: AppProps) {
-  // Native sign-in needs no legacy gateway, snapshot or data stores.
-  // The production entry point keeps its existing collection gateway.
-  if ("nativeSignIn" in props) return <ConnectScreen nativeSignIn={props.nativeSignIn} />;
-  return <CollectionApp {...props} />;
-}
-
-function CollectionApp({ gateway, onFeedbackContext }: CollectionAppProps) {
+/** The editor over a collection gateway: Connect by default, or the native
+ * SDK gateway supplied by `SdkEditorRoot` once its scope is ready. */
+export function App({ gateway, onFeedbackContext }: CollectionAppProps) {
   const { reportError } = useFeedback();
   const { controller: indexController, state: collectionIndex } = useCollectionIndex(gateway);
   const { controller: fileController, state: fileInventory } = useFileInventory(gateway);
@@ -1506,7 +1499,7 @@ function CollectionApp({ gateway, onFeedbackContext }: CollectionAppProps) {
     const active = connectionSummary?.collectionId === collectionId;
     try {
       if (active) await transitionCollection(() => gateway.forgetConnection(collectionId));
-      else gateway.forgetConnection(collectionId);
+      else await gateway.forgetConnection(collectionId);
       setCollectionSwitcherOpen(false);
       setNotice(undefined);
     } catch (error) { setNotice(gatewayError(error)); }

@@ -20,12 +20,14 @@ export class NextEditorRecords {
   private seenBytes = 0;
   private readonly pending = new Map<string, NextEditorPendingMutation>();
 
-  constructor(private readonly client: MdbaseClient) {}
+  /** `isCurrent` is the borrowed SDK connection's currentness; a retired
+   * connection fences every later await, including receipt readback. */
+  constructor(private readonly client: MdbaseClient, private readonly isCurrent: () => boolean = () => true) {}
 
   async read(path: string, signal?: AbortSignal): Promise<NoteDocument> {
     const current = this.signal(signal);
     const record = await this.client.get({ path }, noteInclude, current);
-    current.throwIfAborted();
+    this.check(current);
     return this.remember(record);
   }
 
@@ -82,7 +84,7 @@ export class NextEditorRecords {
     const current = this.signal(signal);
     const record = await this.base(path, revision, current);
     const result = await this.client.preflightRename(record, to, { updateRefs: true });
-    current.throwIfAborted();
+    this.check(current);
     return result;
   }
 
@@ -90,7 +92,7 @@ export class NextEditorRecords {
     const current = this.signal(signal);
     const record = await this.base(path, revision, current);
     const result = await this.client.preflightDelete(record);
-    current.throwIfAborted();
+    this.check(current);
     return result;
   }
 
@@ -101,7 +103,7 @@ export class NextEditorRecords {
   async restorePending(signal?: AbortSignal): Promise<void> {
     const current = this.signal(signal);
     const pending = await this.client.pendingWrites(current);
-    current.throwIfAborted();
+    this.check(current);
     for (const mutation of pending) {
       if (mutation.ops.length !== 1) continue;
       const op = mutation.ops[0];
@@ -122,10 +124,10 @@ export class NextEditorRecords {
   dispose(): void { this.lifetime.abort(); this.clearSeen(); }
 
   private async base(path: string, revision: string, signal: AbortSignal): Promise<wire.RecordView> {
-    signal.throwIfAborted();
+    this.check(signal);
     const key = JSON.stringify([path, revision]);
     const record = this.seen.get(key)?.record ?? await this.client.get({ path }, noteInclude, signal);
-    signal.throwIfAborted();
+    this.check(signal);
     if (record.path !== path || record.revision !== revision)
       throw new MdbaseError({ code: "conflict", reason: "revision_mismatch", recovery: "refresh", message: "This note changed after it was opened. Reload before saving." });
     if (record.state.hold || record.state.unresolved)
@@ -145,14 +147,14 @@ export class NextEditorRecords {
     // response error can follow an accepted write. Only an exact native receipt
     // can settle this identity, so submission failures retain it for recovery.
     const write = await submit({ mutationId, signal: current });
-    current.throwIfAborted();
+    this.check(current);
     if (write.mutationId !== mutationId) throw new Error("The native write changed its mutation identity.");
     return this.confirm(mutation, current);
   }
 
   private async confirm(mutation: NextEditorPendingMutation, signal: AbortSignal): Promise<NoteDocument | undefined> {
     const receipt = await this.client.awaitReceipt(mutation.mutationId, 30_000, signal);
-    signal.throwIfAborted();
+    this.check(signal);
     if (receipt.mutation !== mutation.mutationId) throw new Error("The native receipt changed its mutation identity.");
     if (receipt.state === "pending" || receipt.state === "unknown")
       throw new MdbaseError({ code: "outcome_unknown", recovery: "resolve_outcome", message: "This note change is not confirmed. Check the interrupted operation before trying again." });
@@ -166,7 +168,7 @@ export class NextEditorRecords {
     }
     if (mutation.operation === "delete") { this.pending.delete(mutation.mutationId); this.clearSeen(); return undefined; }
     const record = await this.client.get(mutation.recordId, noteInclude, signal);
-    signal.throwIfAborted();
+    this.check(signal);
     if (record.id !== mutation.recordId) throw new Error("The saved note changed its record identity.");
     if (record.state.state !== "confirmed" || record.state.hold || record.state.unresolved)
       throw new MdbaseError({ code: "outcome_unknown", reason: "unqualified_readback", recovery: "resolve_outcome", message: "The current note is pending or protected. Keep the original operation for recovery before reporting it as saved." });
@@ -199,10 +201,17 @@ export class NextEditorRecords {
       file: { path: record.path, ...(record.mtime === undefined ? {} : { mtime: new Date(record.mtime).toISOString() }) } };
   }
 
+  private check(signal: AbortSignal): void {
+    if (!this.isCurrent())
+      throw new MdbaseError({ code: "cancelled", recovery: "none", message: "This collection is no longer open in mdbase editor." });
+    signal.throwIfAborted();
+  }
+
   private clearSeen(): void { this.seen.clear(); this.seenBytes = 0; }
 
   private signal(extra?: AbortSignal): AbortSignal {
-    this.lifetime.signal.throwIfAborted();
+    this.check(this.lifetime.signal);
+    extra?.throwIfAborted();
     return AbortSignal.any([this.lifetime.signal, ...(extra ? [extra] : []), AbortSignal.timeout(45_000)]);
   }
 }
@@ -214,5 +223,6 @@ function completeSource(record: wire.RecordView): asserts record is wire.RecordV
   if (revisionOf(record.document) !== record.revision)
     throw unsupported("The complete note source does not match its native revision. No source was reconstructed or submitted.");
 }
-function plain(value: wire.FmMap): JsonObject { return Object.fromEntries([...value].map(([key, item]) => [key, toPlain(item)])) as JsonObject; }
+/** Plain JSON view of native frontmatter, for the editor's JSON domain model. */
+export function plain(value: wire.FmMap): JsonObject { return Object.fromEntries([...value].map(([key, item]) => [key, toPlain(item)])) as JsonObject; }
 function unsupported(message: string): MdbaseError { return new MdbaseError({ code: "invalid_request", recovery: "fix_request", reason: "unsupported", message }); }
