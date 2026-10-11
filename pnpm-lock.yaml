@@ -175,12 +175,6 @@ importers:
       '@mdbase-dev/ui':
         specifier: workspace:*
         version: link:../../packages/app-ui
-      '@mdbase/connect-management':
-        specifier: workspace:*
-        version: link:../../packages/management
-      '@mdbase/connect-ui':
-        specifier: workspace:*
-        version: link:../../packages/ui
       '@phosphor-icons/react':
         specifier: ^2.1.10
         version: 2.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
