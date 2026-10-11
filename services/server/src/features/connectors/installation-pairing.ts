@@ -120,7 +120,13 @@ async function row(
     [id, ...(secret === undefined ? [] : [tokenHash(secret)])],
   );
   const r = found.rows[0];
-  if (!r) fail("installation_pairing_not_found", 404);
+  if (!r) {
+    // Only the secret holder learns its window was cancelled, so it can renew.
+    if (secret !== undefined && !includeRevoked && (await c.query(
+      "SELECT 1 FROM pairing_requests WHERE id=$1 AND secret_hash=$2 AND revoked_at IS NOT NULL", [id, tokenHash(secret)])).rows[0])
+      throw new InstallationPairingError(404, "installation_pairing_denied", "This sign-in was cancelled. Start sign-in again from the app.");
+    fail("installation_pairing_not_found", 404);
+  }
   if (r.timer_declaration !== null) {
     r.timer_declaration = readInstallationTimerDeclaration(r.timer_declaration);
     if (r.timer_declaration.application_id !== r.app_id || r.timer_declaration.app_origin !== r.app_origin || r.timer_declaration.kind !== r.kind) {
