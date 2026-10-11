@@ -48,6 +48,14 @@ if ($parsedVersionParts[3] -ne 0) {
   throw "Microsoft Store package version revision component must be zero"
 }
 
+$manifestPath = Join-Path $env:RUNNER_TEMP "mdbase-connect-AppxManifest.xml"
+[xml]$manifest = Get-Content (Join-Path $PSScriptRoot "../apps/desktop/assets/AppxManifest.xml")
+$manifest.Package.Identity.SetAttribute("Name", $IdentityName)
+$manifest.Package.Identity.SetAttribute("Publisher", $Publisher)
+$manifest.Package.Identity.SetAttribute("Version", $PackageVersion)
+$manifest.Package.Properties.PublisherDisplayName = $PublisherDisplayName
+$manifest.Save($manifestPath)
+
 $certificatePath = Join-Path $env:RUNNER_TEMP "mdbase-connect-store-dev.pfx"
 $certificateDerPath = Join-Path $env:RUNNER_TEMP "mdbase-connect-store-dev.cer"
 $certificatePassword = [guid]::NewGuid().ToString("N")
@@ -80,6 +88,7 @@ Export-PfxCertificate `
   "WINDOWS_STORE_PUBLISHER=$Publisher"
   "WINDOWS_STORE_PUBLISHER_DISPLAY_NAME=$PublisherDisplayName"
   "WINDOWS_STORE_PACKAGE_VERSION=$PackageVersion"
+  "WINDOWS_STORE_MANIFEST=$manifestPath"
   "WINDOWS_STORE_DEV_CERT=$certificatePath"
   "WINDOWS_STORE_DEV_CERT_PASSWORD=$certificatePassword"
 ) | Add-Content -LiteralPath $EnvironmentFile

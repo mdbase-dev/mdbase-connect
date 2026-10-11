@@ -150,6 +150,16 @@ if ([string]$properties.PublisherDisplayName -ne $PublisherDisplayName) {
 if ($applicationNode.Executable -ne "app\mdbase-connect.exe") {
   throw "Unexpected Store package executable: $($applicationNode.Executable)"
 }
+$namespaces = New-Object System.Xml.XmlNamespaceManager($manifest.NameTable)
+$namespaces.AddNamespace("f", "http://schemas.microsoft.com/appx/manifest/foundation/windows10")
+$namespaces.AddNamespace("uap", "http://schemas.microsoft.com/appx/manifest/uap/windows10")
+$protocols = $manifest.SelectNodes("/f:Package/f:Applications/f:Application/f:Extensions/uap:Extension[@Category='windows.protocol']/uap:Protocol", $namespaces)
+if ($protocols.Count -ne 1 -or $protocols[0].Name -ne "mdbase-connect") {
+  throw "Store package must register the mdbase-connect deep-link protocol"
+}
+if ($identity.ProcessorArchitecture -ne "x64") {
+  throw "Store package must target x64"
+}
 $storeConnector = Join-Path $unpacked "app\resources\mdbase.exe"
 if (-not (Test-Path $storeConnector -PathType Leaf)) {
   throw "Microsoft Store package does not contain the connector CLI"
