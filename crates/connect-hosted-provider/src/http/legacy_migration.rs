@@ -4,6 +4,7 @@
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
+    response::IntoResponse,
     routing::{post, put},
     Json, Router,
 };
@@ -85,10 +86,16 @@ async fn legacy_migration_drain(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(collection_id): Path<Uuid>,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<impl IntoResponse> {
     state.authorize_internal(&headers)?;
     let drain = state.provider.legacy_migration_drain(collection_id).await?;
-    Ok(Json(json!(drain)))
+    Ok((
+        [
+            ("etag", drain.notification_watermark.clone()),
+            ("cache-control", "no-store".to_string()),
+        ],
+        Json(json!(drain)),
+    ))
 }
 
 async fn revoke_replicas(
