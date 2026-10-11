@@ -83,6 +83,14 @@ describe("public runtime configuration", () => {
       .toThrow(/MDBASE_CONNECT_CLIENT_UPDATE_URL/);
   });
 
+  it("creates legacy accounts until the cutover configures next", () => {
+    const base = { PUBLIC_URL: "http://localhost:8787", MDBASE_CONNECT_DEV_AUTH: "1" };
+    expect(runtimeConfigFromEnv(base).newAccountBackend).toBe("legacy");
+    expect(runtimeConfigFromEnv({ ...base, MDBASE_NEW_ACCOUNT_BACKEND: "next" }).newAccountBackend).toBe("next");
+    expect(() => runtimeConfigFromEnv({ ...base, MDBASE_NEW_ACCOUNT_BACKEND: "NEXT" }))
+      .toThrow(/MDBASE_NEW_ACCOUNT_BACKEND/);
+  });
+
   it("allows explicit loopback development authentication", () => {
     expect(() => validateRuntimeConfig(config({
       host: "0.0.0.0",

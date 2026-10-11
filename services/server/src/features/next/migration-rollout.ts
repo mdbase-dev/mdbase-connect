@@ -25,6 +25,9 @@ import { bearerToken } from "../../platform/request-authentication.js";
 import { safeEqual } from "../../security.js";
 import { drainDeferredAccountDeletions } from "../../account-management.js";
 import { completeMigrationBatch, releaseDeferredDeletions } from "./migration-topology.js";
+import { flipEvidenceDigest, recordAccountFlip } from "./account-backend-flip.js";
+
+export { flipEvidenceDigest };
 
 export interface RolloutState { paused: boolean; reason: string; changed_by: string; changed_at: string }
 
@@ -492,12 +495,6 @@ export async function recordCollectionCutover(
   });
 }
 
-/** The flip evidence digest: SHA-256 over the sorted `collection:barrier_f:final_digest` lines. */
-export function flipEvidenceDigest(records: readonly { collection_id: string; barrier_f: string | number; final_digest: string }[]): string {
-  const lines = records.map((r) => `${r.collection_id.toLowerCase()}:${r.barrier_f}:${r.final_digest}\n`).sort();
-  return createHash("sha256").update(lines.join("")).digest("hex");
-}
-
 /**
  * Switch a started account to the next backend once every hosted collection has
  * a recorded cutover. `collections` must name exactly those collections and
@@ -557,16 +554,11 @@ export async function flipAccountBackend(
     }
     const expected = flipEvidenceDigest(held.map((c) => ({ collection_id: c.id, barrier_f: c.barrier_f!, final_digest: c.final_digest! })));
     if (expected !== evidenceDigest) throw new RolloutRefused("evidence_mismatch", "The evidence digest does not match the recorded cutovers.");
-    await client.query("UPDATE users SET account_backend = 'next' WHERE id = $1", [account]);
-    const flipped = (await client.query<{ flipped_at: Date }>(
-      `INSERT INTO next_migration_account_flips (account_id, collections, evidence_digest)
-       VALUES ($1, $2::uuid[], $3) RETURNING flipped_at`, [account, named, evidenceDigest]
-    )).rows[0]!;
-    await audit(client, account, "next_migration.flip", account, { collections: named, evidence_digest: evidenceDigest });
+    const flippedAt = await recordAccountFlip(client, account, named, evidenceDigest);
     // Every member must have a validated final flip OR accepted terminal
     // exclusion. An excluded account never needs a witness/cutover/flip.
     if (batch.frozen_at !== null) await completeMigrationBatch(client, member.cohort, batch.revision, batch.frozen_at);
-    return { account_id: account, backend: "next" as const, flipped_at: new Date(flipped.flipped_at).toISOString() };
+    return { account_id: account, backend: "next" as const, flipped_at: new Date(flippedAt).toISOString() };
   });
   await drainDeferredAccountDeletions(db);
   return result;

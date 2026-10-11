@@ -28,6 +28,7 @@ import {
 } from "./entitlements.js";
 import { scheduleBetaWelcomeEmail } from "./beta-welcome-email.js";
 import { scheduleStarterCollection } from "./account-onboarding.js";
+import { provisionNewAccountBackend, type AccountBackend } from "./features/next/account-backend-flip.js";
 
 const DEFAULT_INVITATION_LIFETIME_SECONDS = 7 * 24 * 60 * 60;
 const MIN_INVITATION_LIFETIME_SECONDS = 5 * 60;
@@ -171,7 +172,8 @@ export class PasswordCredentialUnavailableError extends Error {
 export class PasswordAccountService {
   constructor(
     private readonly db: DatabasePool,
-    private readonly policy: AuthenticationPolicyStore
+    private readonly policy: AuthenticationPolicyStore,
+    private readonly newAccountBackend: AccountBackend = "legacy"
   ) {}
 
   async createInvitation(input: CreateInvitationInput): Promise<CreatedInvitation> {
@@ -325,6 +327,7 @@ export class PasswordAccountService {
         "INSERT INTO users (id, email, name) VALUES ($1, NULL, $2)",
         [userId, name]
       );
+      await provisionNewAccountBackend(connection, userId, this.newAccountBackend);
       if (!await reserveAccountCreationEmail(connection, {
         normalizedEmail: row.normalized_email,
         userId,

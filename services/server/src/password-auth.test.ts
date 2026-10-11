@@ -12,6 +12,7 @@ import {
   PasswordLoginRejectedError
 } from "./password-auth.js";
 import { tokenHash } from "./security.js";
+import { flipEvidenceDigest } from "./features/next/migration-rollout.js";
 import {
   PASSWORD_HASH_PARAMETERS,
   passwordHashNeedsUpgrade
@@ -444,6 +445,31 @@ describe("invite-only password accounts", () => {
       entitlementProfile: null
     })).rejects.toBeInstanceOf(InvitationTargetConflictError);
     expect((await db.query("SELECT id FROM users")).rows).toHaveLength(3);
+  });
+
+  it.each(["legacy", "next"] as const)("creates an invited account on the configured %s backend", async (backend) => {
+    const { db, policy } = await fixture();
+    const service = new PasswordAccountService(db, policy, backend);
+    const invitation = await service.createInvitation({
+      email: "person@example.com", actor: "operator:test", reason: "Private beta", entitlementProfile: null
+    });
+    const { user } = await service.acceptInvitation({
+      invitationToken: invitation.token, name: "Person", password: "a durable private beta password",
+      termsVersion: invitation.termsVersion, privacyVersion: invitation.privacyVersion, timezone: "UTC"
+    });
+    const marker = await db.query<{ account_backend: string }>("SELECT account_backend FROM users WHERE id = $1", [user.id]);
+    expect(marker.rows[0]?.account_backend).toBe(backend);
+    const flip = await db.query<{ collections: string[]; evidence_digest: string }>(
+      "SELECT collections::text[] AS collections, evidence_digest FROM next_migration_account_flips WHERE account_id = $1", [user.id]);
+    const audited = await db.query("SELECT 1 FROM audit_events WHERE user_id = $1 AND event_type = 'next_migration.flip'", [user.id]);
+    if (backend === "legacy") {
+      expect(flip.rows).toEqual([]);
+      expect(audited.rows).toEqual([]);
+    } else {
+      // Exactly what the staged flip writes for an account with no hosted collections.
+      expect(flip.rows).toEqual([{ collections: [], evidence_digest: flipEvidenceDigest([]) }]);
+      expect(audited.rows).toHaveLength(1);
+    }
   });
 });
 

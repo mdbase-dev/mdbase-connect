@@ -40,6 +40,7 @@ import {
 } from "../../platform/http-errors.js";
 import { requireSameOrigin } from "../../platform/request-security.js";
 import { setSessionCookie } from "../../platform/session-cookies.js";
+import type { AccountBackend } from "../next/account-backend-flip.js";
 
 const PASSWORD_LOGIN_EMAIL_LIMIT: AuthRateLimitRule = {
   maxAttempts: 5,
@@ -105,6 +106,7 @@ interface PasswordAuthRoutesOptions {
   authRateLimitSecret?: string;
   authenticationLegalDocuments?: AuthenticationLegalDocuments;
   emailTransport?: EmailTransport;
+  newAccountBackend: AccountBackend;
   providers: {
     development: boolean;
     tailscale: boolean;
@@ -126,7 +128,8 @@ export function registerPasswordAuthRoutes(
   const PASSWORD_SIGNUP_IP_LIMIT = passwordSignupIpRule(options.environment, options.passwordSignupIpMaxAttempts);
   const passwordAccounts = new PasswordAccountService(
     options.db,
-    options.authenticationPolicy
+    options.authenticationPolicy,
+    options.newAccountBackend
   );
   const passwordRecovery = new PasswordRecoveryService(
     options.db,
@@ -134,7 +137,8 @@ export function registerPasswordAuthRoutes(
   );
   const publicSignup = new PublicSignupService(
     options.db,
-    options.authenticationPolicy
+    options.authenticationPolicy,
+    options.newAccountBackend
   );
   const authenticationRateLimiter = options.authRateLimitSecret
     ? new AuthRateLimiter(options.db, options.authRateLimitSecret)

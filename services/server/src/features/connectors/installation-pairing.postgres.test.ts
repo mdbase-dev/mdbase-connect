@@ -4,6 +4,7 @@ import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
+import { createExternalSession } from "../../external-auth.js";
 import { MDBASE_TIMER_FIRED_CONTRACT } from "@mdbase-dev/connect-protocol";
 import { randomToken, tokenHash } from "../../security.js";
 import { pruneUsageHistory } from "../../usage-report.js";
@@ -262,6 +263,16 @@ describePg("installation device sign-in on daemon pairing", () => {
     ]) await expect(db.query(`UPDATE installation_device_pairings SET ${fields} WHERE pairing_id=$1`,fields.includes("$2")?[input.installation.request_id,owner.session]:[input.installation.request_id])).rejects.toMatchObject({code:"23514",constraint:"installation_portal_confirmation_complete"});
     const empty=(await db.query("SELECT portal_account_confirmed_at,portal_account_email,portal_account_provider,portal_account_login,portal_account_session_id,portal_account_session_epoch FROM installation_device_pairings WHERE pairing_id=$1",[input.installation.request_id])).rows[0];
     expect(Object.values(empty)).toEqual([null,null,null,null,null,null]);
+  });
+  it("lets an account created on a next deployment select the app at once, without the upgrade notice", async () => {
+    const session = await createExternalSession(db, {
+      provider: "github", subject: randomUUID(), login: "new-person", email: null, emailVerified: false, name: "New Person", avatarUrl: null
+    }, { allowAccountCreation: true, newAccountBackend: "next" });
+    const owner = { user: session.userId, headers: { cookie: `mdbase_session=${session.token}` } };
+    const input = original(), flow = await start(input);
+    expect((await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: owner.headers })).statusCode).toBe(200);
+    expect((await flow.exchange()).json()).toMatchObject({ status: "account_selected", account_id: owner.user });
+    expect((await app.inject({ method: "GET", url: flow.base, headers: owner.headers })).json().pairing.account_upgraded).toBe(false);
   });
   it("refuses legacy account selection without claiming the request or issuing a device", async () => {
     const owner = await account(), input = original(), flow = await start(input);

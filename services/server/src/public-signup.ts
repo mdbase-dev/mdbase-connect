@@ -15,6 +15,7 @@ import {
 import { completePublicAccountOnboarding } from "./public-account-onboarding.js";
 import { hashPassword } from "./password.js";
 import { randomToken, tokenHash } from "./security.js";
+import { provisionNewAccountBackend, type AccountBackend } from "./features/next/account-backend-flip.js";
 
 const PUBLIC_SIGNUP_LIFETIME_SECONDS = 60 * 60;
 
@@ -77,7 +78,8 @@ export class InvalidPublicSignupVerificationError extends Error {
 export class PublicSignupService {
   constructor(
     private readonly db: DatabasePool,
-    private readonly policy: AuthenticationPolicyStore
+    private readonly policy: AuthenticationPolicyStore,
+    private readonly newAccountBackend: AccountBackend = "legacy"
   ) {}
 
   async create(
@@ -202,6 +204,7 @@ export class PublicSignupService {
         "INSERT INTO users (id, email, name) VALUES ($1, NULL, $2)",
         [userId, name]
       );
+      await provisionNewAccountBackend(connection, userId, this.newAccountBackend);
       if (!await reserveAccountCreationEmail(connection, {
         normalizedEmail: challenge.normalized_email,
         userId,
