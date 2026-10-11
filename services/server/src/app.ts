@@ -625,6 +625,20 @@ export async function buildApp(options: BuildOptions) {
     await app.register(fastifyStatic, { root: resolve(options.portalDist), wildcard: false });
     app.setNotFoundHandler((request, reply) => {
       if (request.method === "GET" && request.headers.accept?.includes("text/html")) {
+        // Cross-origin app popups need their original WindowProxy to remain live.
+        // Even same-origin-allow-popups severs an incoming cross-origin opener.
+        // Keep other portal pages/APIs and all other Helmet protections unchanged.
+        const page = new URL(request.url, publicUrl);
+        const approvalPath = (path: string) => /^\/(?:pair|authorize)\/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\/?$/i.test(path) || path === "/device";
+        let approval = approvalPath(page.pathname);
+        const returnTo = page.searchParams.get("return_to");
+        if (!approval && returnTo && ["/login", "/signup", "/reset-password"].includes(page.pathname)) {
+          try {
+            const target = new URL(returnTo, publicUrl);
+            approval = target.origin === new URL(publicUrl).origin && approvalPath(target.pathname);
+          } catch { /* malformed return targets retain the ordinary policy */ }
+        }
+        if (approval) reply.header("Cross-Origin-Opener-Policy", "unsafe-none");
         return reply.sendFile("index.html");
       }
       return reply.code(404).send(apiError("not_found", "Not found."));
