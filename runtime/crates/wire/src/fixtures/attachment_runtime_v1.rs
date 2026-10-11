@@ -19,6 +19,7 @@ pub(super) fn runtime_mutation() -> r::Mutation {
             content: attachment_content(),
             if_revision: Some(b32(0xb3)),
             base: Some(b32(0xb4)),
+            mtime: None,
         }),
     );
     v.on_behalf = Some(b16(GRANT));
@@ -54,6 +55,7 @@ pub(super) fn runtime_entry() -> r::EntryPayload {
                 id: b16(FILE),
                 path: "assets/photo.webp".into(),
                 content: attachment_content(),
+                mtime: None,
             }),
             r::Effect::Legacy(Effect::PutSettings(PutSettings {
                 inclusion: FileInclusion {
@@ -120,6 +122,7 @@ fn file_chunk() -> r::ChunkPayload {
                     path: format!("assets/{n}.webp"),
                     content: attachment_content(),
                     media: MediaClass::Image,
+                    mtime: None,
                 }
                 .to_cbor()
             })

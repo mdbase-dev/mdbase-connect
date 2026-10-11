@@ -43,6 +43,7 @@ fn base_view_and_tombstones_preserve_stored_kind_under_identical_paths_and_conte
             content: content.clone(),
             media: MediaClass::Other,
             modified_seq: 1,
+            mtime: None,
             bucket: 0,
             local: FileLocal::Remote,
         };

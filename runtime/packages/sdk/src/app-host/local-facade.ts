@@ -10,6 +10,7 @@ import { mdbaseError } from "../errors.js";
 import { inProcessConnector } from "../transport/inprocess.js";
 import { MAX_FRAME, type Connector, type FramePort } from "../transport/port.js";
 import type { AppWasmRuntime } from "./wasm-runtime.js";
+import type { AppResourceSetupPort } from "./collection-control.js";
 
 export interface AppLocalScope {
   readonly account: string;
@@ -100,7 +101,7 @@ function bridge(channel: MessagePort, source: AppLocalScope, receive: (frame: Cb
 /** Worker-side attachment, AFTER ownership and genuine native bootstrap/adoption.
  * AppWasmRuntime checks the original collection; a caller cannot choose a grant
  * or request a different native authority. No host-control RPC is exposed. */
-export function attachAppLocalFacade(runtime: Pick<AppWasmRuntime, "connect"> & Partial<Pick<AppWasmRuntime, "executeBases" | "discoverBases">>, channel: MessagePort, source: AppLocalScope): { close(): void } {
+export function attachAppLocalFacade(runtime: Pick<AppWasmRuntime, "connect"> & Partial<Pick<AppWasmRuntime, "executeBases" | "discoverBases" | "setupResources">>, channel: MessagePort, source: AppLocalScope): { close(): void; readonly resourceSetup: AppResourceSetupPort } {
   const original = pin(source);
   if (!original.current()) throw unavailable();
   let native: FramePort;
@@ -121,7 +122,21 @@ export function attachAppLocalFacade(runtime: Pick<AppWasmRuntime, "connect"> & 
     native.onframe = frame => { try { wire.send(frame); } catch { /* closed and fenced facade */ } };
     native.onclose = () => wire.close();
   } catch { native.close(); channel.close(); throw unavailable(); }
-  return { close: () => wire.close() };
+  const resourceSetup: AppResourceSetupPort = Object.freeze({
+    async assess(manifest: unknown, signal: AbortSignal) {
+      signal.throwIfAborted(); wire.current();
+      if (!runtime.setupResources) throw unavailable();
+      const result = runtime.setupResources(native, "assess", manifest);
+      wire.current(); signal.throwIfAborted(); return result;
+    },
+    async apply(manifest: unknown, assessmentDigest: string, signal: AbortSignal) {
+      signal.throwIfAborted(); wire.current();
+      if (!runtime.setupResources) throw unavailable();
+      const result = runtime.setupResources(native, "apply", manifest, assessmentDigest);
+      wire.current(); signal.throwIfAborted(); return result;
+    },
+  });
+  return { close: () => wire.close(), resourceSetup };
 }
 
 export interface AppLocalConnector extends Connector {
@@ -135,9 +150,13 @@ export function appLocalConnector(channel: MessagePort, source: AppLocalScope): 
   const original = pin(source);
   let used = false, closed = false;
   let wire: ReturnType<typeof bridge> | undefined;
-  // One outstanding native read per held channel. Cancellation settles locally
-  // but retains this slot until the original reply (or close); no queued work.
-  let pending: {id: number; response: BasesPacket; finish(bytes?: Uint8Array, error?: unknown): void} | null = null;
+  // One occupied native READ slot plus at most 32 FIFO waiters (4 MiB of
+  // independently owned bounded input). Active cancellation retains its slot
+  // until the original reply/close; waiting cancellation never reaches native.
+  type Read = {kind: BasesRequestPacket; request: Uint8Array; id?: number; response: BasesPacket; finish(bytes?: Uint8Array, error?: unknown): void};
+  let pending: Read | null = null;
+  const queued: Read[] = [];
+  const cancelled = () => mdbaseError("cancelled", "Bases read cancelled");
   let nextBasesId = 1;
   return {
     description: "app-local",
@@ -149,31 +168,61 @@ export function appLocalConnector(channel: MessagePort, source: AppLocalScope): 
       used = true;
       let port: FramePort | undefined;
       const active = wire = bridge(channel, source, frame => port?.onframe?.(frame), () => {
-        const stopped = pending; pending = null; stopped?.finish(undefined, unavailable());
+        const stopped = pending; pending = null;
+        const waiting = queued.splice(0);
+        stopped?.finish(undefined, cancelled());
+        for (const read of waiting) read.finish(undefined, cancelled());
         port?.onclose?.(unavailable());
       }, (kind, id, bytes) => {
         if (!pending || kind !== pending.response || id !== pending.id) { bytes.fill(0); throw unavailable(); }
-        const completed = pending; pending = null; completed.finish(bytes);
+        const completed = pending; pending = null; completed.finish(bytes); dispatch();
       });
+      function dispatch() {
+        if (pending || queued.length === 0) return;
+        const read = queued.shift()!;
+        pending = read;
+        try {
+          active.current();
+          if (pending !== read) { dispatch(); return; } // cancelled before native dispatch
+          if (nextBasesId > 0xffffffff) { active.close(); throw unavailable(); }
+          read.id = nextBasesId++;
+          active.control(read.kind, read.id, read.request);
+        } catch (error) {
+          if (pending === read) pending = null;
+          read.finish(undefined, error);
+          dispatch();
+        }
+      }
       const readBases = (kind: BasesRequestPacket, request: Uint8Array, signal?: AbortSignal): Promise<Uint8Array> => {
           try {
             active.current();
-            if (signal?.aborted) throw mdbaseError("cancelled", "Bases read cancelled");
+            if (signal?.aborted) throw cancelled();
             if (!(request instanceof Uint8Array) || !request.length || request.length > 128 * 1024) throw mdbaseError("invalid_request", "Bases request bytes exceed bound");
-            if (pending) throw mdbaseError("too_large", "one Bases read is already outstanding");
-            if (nextBasesId > 0xffffffff) { active.close(); throw unavailable(); }
+            if (queued.length >= 32) throw mdbaseError("unavailable", "Bases read queue is full", "bases_read_backpressure");
           } catch (error) { return Promise.reject(error); }
-          const id = nextBasesId++;
+          // Capture before waiting: mutation of a caller's buffer cannot alter
+          // another queued READ. Never loan/retain the caller's buffer.
+          const owned = new Uint8Array(request);
           return new Promise<Uint8Array>((resolve, reject) => {
             let settled = false;
             const finish = (bytes?: Uint8Array, error?: unknown) => {
-              if (settled) { bytes?.fill(0); return; } settled = true; signal?.removeEventListener("abort", abort);
+              // Active caller cancellation does NOT wipe an input still being
+              // transferred. Dispose only after removal/original reply/close.
+              if (pending !== read && owned.byteLength) owned.fill(0);
+              if (settled) { if (bytes?.byteLength) bytes.fill(0); return; }
+              settled = true; signal?.removeEventListener("abort", abort);
               if (error !== undefined) reject(error); else resolve(bytes!);
             };
-            const abort = () => finish(undefined, mdbaseError("cancelled", "Bases read cancelled"));
-            pending = {id, response:responseFor(kind), finish}; signal?.addEventListener("abort", abort, {once: true});
-            try { active.control(kind, id, new Uint8Array(request)); }
-            catch (error) { if (pending?.id === id) pending = null; finish(undefined, error); }
+            const read: Read = {kind, request: owned, response: responseFor(kind), finish};
+            const abort = () => {
+              const index = queued.indexOf(read);
+              if (index !== -1) queued.splice(index, 1);
+              if (pending === read && read.id === undefined) pending = null;
+              finish(undefined, cancelled()); // dispatched pending remains occupied
+            };
+            queued.push(read);
+            signal?.addEventListener("abort", abort, {once: true});
+            dispatch();
           });
       };
       port = { onframe: null, onclose: null, send: frame => active.send(frame), close: () => active.close(),

@@ -33,6 +33,7 @@ fn registration() -> Entry {
         replica_id: GRANT.into(),
         mode: SyncMode::Local,
         origin: Origin::Created,
+        description: None,
         added_at_ms: 0,
         paused: false,
         ever_e2e: false,

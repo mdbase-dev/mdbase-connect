@@ -14,6 +14,7 @@
 //! The writer plans only when it has applied everything up to the head it knows
 //! (`caught_up`), never during a log move, and never while stalled.
 
+use crate::api::ClientApi;
 use std::collections::BTreeSet;
 
 use mdbn_core::plan::PlanOptions;
@@ -136,6 +137,10 @@ pub(crate) enum Inflight {
     UnindexedReindexUpload(Uuid),
     /// An attachment fetch's object read (its File ID).
     AttachmentFetch(Uuid),
+    /// Device ClientApi file stream's original native object ticket.
+    ClientFileRead(u64),
+    /// Original authenticated GET for native upload journal/prefix rehash.
+    ClientUploadResume,
     /// Bounded T6b authenticated source read for an unconfirmed entry.
     UnindexedSource(crate::store::Head),
     UnindexedReverseText(crate::store::Head),
@@ -143,6 +148,8 @@ pub(crate) enum Inflight {
     UnindexedBlob(Uuid),
     /// A snapshot inventory read of an attachment manifest (its address).
     AttachmentInventory(mdbn_wire::common::Hash),
+    /// An adopt's generation-0 object upload.
+    AdoptPut,
     Other,
 }
 
@@ -282,6 +289,10 @@ impl<S: Store> Replica<S> {
         else {
             return Ok(());
         };
+        // Adopt: the generation-0 base goes before any entry.
+        if self.adopt_step() {
+            return Ok(());
+        }
         let rows = self.store.pending(None, self.tuning.max_items.min(64))?;
         if rows.is_empty() {
             return Ok(());
@@ -772,6 +783,11 @@ impl<S: Store> Replica<S> {
         })
     }
 
+    /// Append an adopt's sealed, signed `base` (`adopt.rs`).
+    pub(crate) fn append_base_item(&mut self, item: Item) -> bool {
+        self.append_item(item)
+    }
+
     fn append_item(&mut self, item: Item) -> bool {
         let Ok(b) = item.to_bytes() else {
             return false;
@@ -1238,6 +1254,16 @@ impl<S: Store> Replica<S> {
 
     /// Run timers: retries and backoff.
     pub fn tick(&mut self) {
+        if let Some(session) = self.attachment_read_tick(self.now()) {
+            self.close(session);
+            self.pushes.push((
+                session,
+                crate::api::Push::Closed(
+                    crate::api::ErrorCode::Unavailable
+                        .problem_with_reason("file_read_idle", "file read timed out"),
+                ),
+            ));
+        }
         self.prune_hosted_uploads();
         // An unlock's control read-ahead retries after transport trouble.
         self.account_key_ahead_step();
@@ -1272,6 +1298,7 @@ impl<S: Store> Replica<S> {
         self.pump();
         self.attachment_upload_step();
         self.attachment_fetch_step();
+        self.client_file_read_step();
         self.unindexed_upload_step();
         self.unindexed_reverse_upload_step();
         self.maybe_build();
@@ -1325,6 +1352,7 @@ impl<S: Store> Replica<S> {
             reverse_upload,
             install_native,
             install_text,
+            self.attachment_read_deadline(),
         ]
         .into_iter()
         .flatten()
@@ -1416,6 +1444,7 @@ impl<S: Store> Replica<S> {
             Inflight::SnapPut => {
                 self.on_snap_put(matches!(reply, Ok(LogResponse::PutObject { .. })))
             }
+            Inflight::AdoptPut => self.on_adopt_put(&reply),
             Inflight::SnapRegister => {
                 self.on_snap_registered(matches!(reply, Ok(LogResponse::PutSnapshot(true))))
             }
@@ -1440,6 +1469,8 @@ impl<S: Store> Replica<S> {
                 self.on_unindexed_reverse_upload_reply(upload, id, reply)
             }
             Inflight::AttachmentFetch(file) => self.on_attachment_fetch_reply(file, id, reply),
+            Inflight::ClientFileRead(ticket) => self.on_client_file_read_reply(id, ticket, reply),
+            Inflight::ClientUploadResume => self.on_client_upload_resume_reply(id, reply),
             Inflight::UnindexedSource(head) => self.on_unindexed_source_reply(head, id, reply),
             Inflight::UnindexedReverseText(head) => self.on_reverse_text_reply(head, id, reply),
             Inflight::UnindexedBlob(file) => self.on_native_blob_reply(file, id, reply),
@@ -1463,6 +1494,7 @@ impl<S: Store> Replica<S> {
 impl<S: Store> LogPort for Replica<S> {
     fn take_log_calls(&mut self) -> Vec<crate::log::LogCall> {
         self.prune_hosted_uploads();
+        self.client_file_read_step();
         std::mem::take(&mut self.calls)
     }
 
@@ -1482,6 +1514,9 @@ impl<S: Store> LogPort for Replica<S> {
 
 impl<S: Store> Replica<S> {
     pub(super) fn dispatch_log_push(&mut self, push: LogPush) {
+        if matches!(&push, LogPush::Disconnected) {
+            self.attachment_read_retire_transport();
+        }
         if self.apply_fault {
             return;
         }

@@ -40,6 +40,7 @@
  */
 
 import { detectForeignSync } from "./syncDetect.js";
+import { openWholeFileRange, type WholeFileRange } from "./wholeFileRange.js";
 import { ATTACHMENT_RANGE_BYTES, AttachmentRangeError, AttachmentRangeOpenError, type BoundedRangeSource, type RangeLease } from "../attachments/range.js";
 import type { ObsApp, ObsFile, ObsPlatform } from "./obsidianApi.js";
 import {
@@ -85,6 +86,13 @@ export interface VaultPlatformOptions {
    * Without it ReadRange is Unsupported, never whole readBinary+slice.
    */
   readonly openRangeSource?: (vaultPath: string) => Promise<BoundedRangeSource>;
+  /**
+   * Explicit whole-file snapshot provider for FilePlatform range handles.
+   * Disabled when absent. At most 8 MiB accepted per source and retained across
+   * all handles. readBinary reads WHOLE files and rechecks original bytes; not
+   * true positional IO, inode identity, fsync or a peak-heap guarantee.
+   */
+  readonly wholeFileRangeMaxBytes?: number;
 }
 
 /** The vault `FilePlatform`. */
@@ -93,6 +101,12 @@ export class VaultPlatform {
   private readonly root: string;
   private readonly events: VaultPlatformOptions["events"];
   private readonly openRangeSource: VaultPlatformOptions["openRangeSource"];
+  private readonly wholeFileRangeMaxBytes: number | undefined;
+  private readonly fileRanges = new Map<bigint, { source: WholeFileRange; closing: boolean }>();
+  private fileRangeBytes = 0;
+  private nextFileRange = 0n;
+  private fileRangeOpening = false;
+  private fileRangeOpenDone: Promise<void> = Promise.resolve();
   private readonly rangeSources = new Set<BoundedRangeSource>();
   private readonly rangeOpenCleanup = new Set<AttachmentRangeOpenError>();
   private rangeBusy = false;
@@ -107,6 +121,9 @@ export class VaultPlatform {
     this.root = opts.root;
     this.events = opts.events;
     this.openRangeSource = opts.openRangeSource;
+    this.wholeFileRangeMaxBytes = opts.wholeFileRangeMaxBytes;
+    if (this.wholeFileRangeMaxBytes !== undefined && (!Number.isSafeInteger(this.wholeFileRangeMaxBytes) || this.wholeFileRangeMaxBytes < 0 || this.wholeFileRangeMaxBytes > ATTACHMENT_RANGE_BYTES))
+      throw new FsError("Unsupported", "invalid whole-file range bound");
     const adapter = app.vault.adapter;
     // Android shared storage is case-insensitive although the adapter
     // reports `insensitive = false`. iOS (APFS default) is insensitive too.
@@ -151,9 +168,11 @@ export class VaultPlatform {
   async perform(op: FileOp): Promise<FileOpResult> {
     try {
       const value = await this.dispatch(op);
+      if ((op.op === "OpenRangeRead" || op.op === "RangeMeta") && this.rangesClosed)
+        throw new FsError("BadHandle", "range provider closed");
       // The public host boundary has its own final await: shutdown must win
       // before delivery even if the private range helper already completed.
-      if (op.op === "ReadRange" && this.rangesClosed) {
+      if ((op.op === "ReadRange" || op.op === "ReadAt") && this.rangesClosed) {
         if (value.kind === "Bytes") value.value.fill(0);
         throw new FsError("BadHandle", "range provider closed");
       }
@@ -194,6 +213,19 @@ export class VaultPlatform {
       }
       case "ReadRange":
         return { kind: "Bytes", value: await this.readRange(op.path, op.offset, op.len) };
+      case "OpenRangeRead":
+        return { kind: "Range", value: await this.openFileRange(op.path) };
+      case "ReadAt":
+        return { kind: "Bytes", value: await this.readFileRange(op.handle, op.offset, op.len) };
+      case "RangeMeta": {
+        const entry = this.fileRange(op.handle);
+        const value = await entry.source.currentMeta();
+        if (entry.closing || this.rangesClosed) throw new FsError("BadHandle", "range source closed");
+        return { kind: "Meta", value };
+      }
+      case "CloseRangeRead":
+        await this.closeFileRange(op.handle);
+        return { kind: "Unit" };
       case "List": {
         const dir = this.vaultPath(op.dir);
         const st = await a.stat(dir || "/");
@@ -251,8 +283,18 @@ export class VaultPlatform {
   async closeRangeReads(): Promise<void> {
     this.rangesClosed = true;
     // Invalidate issued sources before waiting, so late IO cannot yield bytes.
+    for (const entry of this.fileRanges.values()) {
+      entry.closing = true;
+      void entry.source.close().catch(() => {});
+    }
     for (const source of this.rangeSources) void source.close().catch(() => {});
     await this.rangeDone;
+    await this.fileRangeOpenDone;
+    let fileRangeFailure = false;
+    for (const handle of this.fileRanges.keys()) {
+      try { await this.closeFileRange(handle); }
+      catch { fileRangeFailure = true; }
+    }
     const failures = await Promise.all([...this.rangeSources].map(async source => {
       try { await source.close(); this.rangeSources.delete(source); return false; }
       catch { return true; }
@@ -261,7 +303,60 @@ export class VaultPlatform {
       try { await error.retryCleanup(); this.rangeOpenCleanup.delete(error); }
       catch { failures.push(true); }
     }
-    if (failures.some(Boolean)) throw new FsError("Other", "range cleanup pending");
+    if (fileRangeFailure || failures.some(Boolean)) throw new FsError("Other", "range cleanup pending");
+  }
+
+  private fileRange(handle: bigint): { source: WholeFileRange; closing: boolean } {
+    const entry = this.fileRanges.get(handle);
+    if (!entry || entry.closing || this.rangesClosed) throw new FsError("BadHandle", "range source closed");
+    return entry;
+  }
+
+  private async openFileRange(rel: string): Promise<{ handle: bigint; meta: FileMeta }> {
+    const path = this.vaultPath(rel);
+    if (this.rangesClosed) throw new FsError("BadHandle", "range provider closed");
+    const max = this.wholeFileRangeMaxBytes;
+    if (max === undefined) throw new FsError("Unsupported", "explicit file range provider required");
+    if (this.fileRangeOpening) throw new FsError("Busy", "range open pending");
+    if (this.fileRanges.size >= 64 || this.nextFileRange > 0xffffffffffffffffn)
+      throw new FsError("NoSpace", "range handle limit");
+    const available = ATTACHMENT_RANGE_BYTES - this.fileRangeBytes;
+    this.fileRangeOpening = true;
+    let finish!: () => void;
+    this.fileRangeOpenDone = new Promise<void>(resolve => { finish = resolve; });
+    let source: WholeFileRange | null = null;
+    try {
+      source = await openWholeFileRange(this.app.vault.adapter, path, Math.min(max, available));
+      if (this.rangesClosed) throw new FsError("BadHandle", "range provider closed");
+      const handle = this.nextFileRange++;
+      this.fileRanges.set(handle, { source, closing: false });
+      this.fileRangeBytes += source.retainedBytes;
+      return { handle, meta: source.openedMeta };
+    } catch (e) {
+      if (source) await source.close();
+      throw e;
+    } finally { this.fileRangeOpening = false; finish(); }
+  }
+
+  private async readFileRange(handle: bigint, offset: number, length: number): Promise<Uint8Array> {
+    const entry = this.fileRange(handle);
+    const bytes = await entry.source.readAt(offset, length);
+    if (entry.closing || this.rangesClosed) {
+      bytes.fill(0);
+      throw new FsError("BadHandle", "range source closed");
+    }
+    return bytes;
+  }
+
+  private async closeFileRange(handle: bigint): Promise<void> {
+    const entry = this.fileRanges.get(handle);
+    if (!entry) throw new FsError("BadHandle", "unknown range handle");
+    entry.closing = true;
+    await entry.source.close();
+    if (this.fileRanges.get(handle) === entry) {
+      this.fileRanges.delete(handle);
+      this.fileRangeBytes -= entry.source.retainedBytes;
+    }
   }
 
   private async readRange(rel: string, offset: number, length: number): Promise<Uint8Array> {

@@ -1,7 +1,7 @@
-//! Hosted attachment read pins. The host supplies one bounded ciphertext object
-//! at a time; the replica retains keys and authenticates before a sink sees bytes.
-//! This is not host admission: the Worker must still recheck its live verified
-//! admission immediately before every effect and output (including after awaits).
+//! Native attachment read pins. Hosts supply one bounded ciphertext object at
+//! a time; the replica retains keys and authenticates before a sink sees bytes.
+//! This is not transport admission: hosts must still recheck live admission
+//! immediately before every effect and output, including after awaits.
 
 use mdbn_wire::attachment::FileContent;
 use mdbn_wire::client::FileView;
@@ -13,30 +13,33 @@ use crate::attachments::{AttachmentReader, Need, PlainSink, StreamError};
 use crate::crypto::chunked_blob::AttachmentLimits;
 use crate::store::Store;
 
-/// One session's pinned, log-derived attachment revision, bound to this wake.
-/// Contains no key or ciphertext. Cannot be constructed from a client's descriptor.
-pub struct HostedAttachmentRead {
+/// One session's confirmed attachment revision, bound to this collection, wake
+/// and store lifetime. Cannot be constructed from a client's descriptor.
+pub struct AttachmentRead {
     session: SessionId,
     collection: Uuid,
     wake: u64,
+    generation: u64,
     view: FileView,
     reader: AttachmentReader,
 }
 
-impl std::fmt::Debug for HostedAttachmentRead {
+/// Existing hosted native API name; both hosts use the same opaque pin.
+pub type HostedAttachmentRead = AttachmentRead;
+
+impl std::fmt::Debug for AttachmentRead {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("HostedAttachmentRead")
-            .finish_non_exhaustive()
+        f.debug_struct("AttachmentRead").finish_non_exhaustive()
     }
 }
 
-impl HostedAttachmentRead {
+impl AttachmentRead {
     /// The pinned file metadata returned to the caller of `read_file`.
     pub fn view(&self) -> &FileView {
         &self.view
     }
 
-    /// The next complete encrypted object to fetch, never a caller-selected URL.
+    /// The next exact encrypted object from the native descriptor/manifest.
     pub fn need(&self) -> Option<Need> {
         self.reader.need()
     }
@@ -60,12 +63,22 @@ fn stream_error(e: StreamError) -> crate::api::ApiError {
 }
 
 impl<S: Store> Replica<S> {
-    fn hosted_attachment_gate(&self, session: SessionId, path: Option<&str>) -> ApiResult<()> {
+    fn attachment_read_gate(&self, session: SessionId, path: Option<&str>) -> ApiResult<()> {
         self.require(session, crate::policy::capability::READ)?;
-        if !self.is_hosted() || self.cfg.key_grants_only || !self.hosted_serving() {
+        let hosted_identity = self
+            .policy
+            .devices
+            .get(&self.cfg.device_id)
+            .is_some_and(|d| d.kind == mdbn_wire::policy::DeviceKind::Hosted);
+        if self.is_hosted() != hosted_identity
+            || self.local_only()
+            || self.cfg.key_grants_only
+            || !self.hosted_serving()
+            || !self.policy.device_can_read(&self.cfg.device_id)
+        {
             return Err(ErrorCode::Unavailable.err_with_reason(
-                "hosted_attachment_unavailable",
-                "the hosted attachment reader is unavailable",
+                "attachment_reader_unavailable",
+                "the native attachment reader is unavailable",
             ));
         }
         if path.is_some_and(|p| !self.file_visible(session, p)) {
@@ -74,17 +87,29 @@ impl<S: Store> Replica<S> {
         Ok(())
     }
 
-    /// Capture a READ/file-folder-gated attachment from the confirmed store.
-    /// `range` is `[offset, length]`; overflow/out-of-file bounds are refused.
-    /// `revision` is the expected whole-file digest, not a supplied descriptor.
-    pub fn hosted_attachment_read(
+    // Preserve the old hosted API's mode fence; generic device serving is a
+    // distinct caller boundary, never a fake hosted profile or grant.
+    fn hosted_attachment_gate(&self, session: SessionId) -> ApiResult<()> {
+        self.require(session, crate::policy::capability::READ)?;
+        if !self.is_hosted() || self.cfg.key_grants_only || !self.hosted_serving() {
+            return Err(ErrorCode::Unavailable.err_with_reason(
+                "hosted_attachment_unavailable",
+                "the hosted attachment reader is unavailable",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Pin a confirmed attachment for an eligible synced device/hosted reader.
+    /// `range` is `[offset, length]`; `revision` is the expected whole-file digest.
+    pub fn attachment_read(
         &mut self,
         session: SessionId,
         target: Target,
         range: Option<(u64, u64)>,
         revision: Option<Hash>,
-    ) -> ApiResult<HostedAttachmentRead> {
-        self.hosted_attachment_gate(session, None)?;
+    ) -> ApiResult<AttachmentRead> {
+        self.attachment_read_gate(session, None)?;
         let view = self.get_file(session, target)?;
         if revision.is_some_and(|r| r != view.digest) {
             return Err(ErrorCode::Conflict.err_with_reason(
@@ -126,38 +151,102 @@ impl<S: Store> Replica<S> {
             )
         }
         .map_err(stream_error)?;
-        Ok(HostedAttachmentRead {
+        Ok(AttachmentRead {
             session,
             collection: self.cfg.collection,
             wake: self.wake_instance(),
+            generation: self.store_generation,
             view,
             reader,
         })
     }
 
-    /// Current READ/folder/health authority for this exact pin, before and after I/O.
-    /// A concurrent replacement does not disturb the immutable pinned revision.
-    pub fn hosted_attachment_read_check(&self, read: &HostedAttachmentRead) -> ApiResult<()> {
-        if read.collection != self.cfg.collection || read.wake != self.wake_instance() {
-            return Err(ErrorCode::Unavailable.err("attachment read belongs to another wake"));
+    /// Recheck current READ/folder/health and exact wake/store lifetime.
+    /// A normal concurrent replacement does not disturb the immutable revision.
+    pub fn attachment_read_check(&self, read: &AttachmentRead) -> ApiResult<()> {
+        if read.collection != self.cfg.collection
+            || read.wake != self.wake_instance()
+            || read.generation != self.store_generation
+        {
+            return Err(ErrorCode::Unavailable.err_with_reason(
+                "attachment_read_lifetime",
+                "attachment read belongs to another wake or store lifetime",
+            ));
         }
-        self.hosted_attachment_gate(read.session, Some(&read.view.path))
+        self.attachment_read_gate(read.session, Some(&read.view.path))
     }
 
-    /// Authenticate the manifest through held keys and the signed descriptor.
+    /// Authenticate the manifest using held keys and the confirmed descriptor.
+    pub fn attachment_read_manifest(&self, read: &mut AttachmentRead, raw: &[u8]) -> ApiResult<()> {
+        self.attachment_read_check(read)?;
+        read.reader
+            .supply_manifest(self.sealer.as_ref(), raw)
+            .map_err(stream_error)
+    }
+
+    /// Authenticate one complete chunk, releasing only its requested slice.
+    /// Plaintext is wiped after the sink returns, including on failure.
+    pub fn attachment_read_chunk(
+        &self,
+        read: &mut AttachmentRead,
+        index: u64,
+        raw: &[u8],
+        sink: &mut dyn PlainSink,
+    ) -> ApiResult<()> {
+        self.attachment_read_check(read)?;
+        read.reader
+            .supply_chunk(self.sealer.as_ref(), index, raw, sink)
+            .map_err(stream_error)
+    }
+
+    /// Authenticate inside the fixed private region; no continuing authority is granted.
+    pub fn attachment_read_chunk_in_place(
+        &self,
+        read: &mut AttachmentRead,
+        index: u64,
+        raw: &mut [u8],
+    ) -> ApiResult<crate::attachments::AuthenticatedReadSpan> {
+        self.attachment_read_check(read)?;
+        read.reader
+            .supply_chunk_in_place(self.sealer.as_ref(), index, raw)
+            .map_err(stream_error)
+    }
+
+    /// Complete a whole-file digest-checked read or authenticated chunk range.
+    pub fn attachment_read_finish(&self, read: AttachmentRead) -> ApiResult<()> {
+        self.attachment_read_check(&read)?;
+        read.reader.finish().map(|_| ()).map_err(stream_error)
+    }
+
+    /// Existing HOSTED-only entry point, delegated to the shared native reader.
+    pub fn hosted_attachment_read(
+        &mut self,
+        session: SessionId,
+        target: Target,
+        range: Option<(u64, u64)>,
+        revision: Option<Hash>,
+    ) -> ApiResult<HostedAttachmentRead> {
+        self.hosted_attachment_gate(session)?;
+        self.attachment_read(session, target, range, revision)
+    }
+
+    /// Existing hosted pin check; the hosted mode fence remains mandatory.
+    pub fn hosted_attachment_read_check(&self, read: &HostedAttachmentRead) -> ApiResult<()> {
+        self.attachment_read_check(read)?;
+        self.hosted_attachment_gate(read.session)
+    }
+
+    /// Existing hosted manifest callback, with current hosted and native checks.
     pub fn hosted_attachment_manifest(
         &self,
         read: &mut HostedAttachmentRead,
         raw: &[u8],
     ) -> ApiResult<()> {
         self.hosted_attachment_read_check(read)?;
-        read.reader
-            .supply_manifest(self.sealer.as_ref(), raw)
-            .map_err(stream_error)
+        self.attachment_read_manifest(read, raw)
     }
 
-    /// Authenticate one complete chunk, then release only its requested slice.
-    /// The reader wipes plaintext after the sink returns, including on failure.
+    /// Existing hosted chunk/sink callback, with current hosted and native checks.
     pub fn hosted_attachment_chunk(
         &self,
         read: &mut HostedAttachmentRead,
@@ -166,13 +255,10 @@ impl<S: Store> Replica<S> {
         sink: &mut dyn PlainSink,
     ) -> ApiResult<()> {
         self.hosted_attachment_read_check(read)?;
-        read.reader
-            .supply_chunk(self.sealer.as_ref(), index, raw, sink)
-            .map_err(stream_error)
+        self.attachment_read_chunk(read, index, raw, sink)
     }
 
-    /// Authenticate inside the host's fixed private region; the returned span
-    /// grants no continuing admission permit and exposes no held keys.
+    /// Existing hosted fixed-region callback; no keys or continuing permits escape.
     pub fn hosted_attachment_chunk_in_place(
         &self,
         read: &mut HostedAttachmentRead,
@@ -180,15 +266,12 @@ impl<S: Store> Replica<S> {
         raw: &mut [u8],
     ) -> ApiResult<crate::attachments::AuthenticatedReadSpan> {
         self.hosted_attachment_read_check(read)?;
-        read.reader
-            .supply_chunk_in_place(self.sealer.as_ref(), index, raw)
-            .map_err(stream_error)
+        self.attachment_read_chunk_in_place(read, index, raw)
     }
 
-    /// Complete the read. Full reads independently check the whole-file digest;
-    /// ranges authenticate every touched chunk and the signed manifest binding.
+    /// Existing hosted completion callback, delegated to the same native reader.
     pub fn hosted_attachment_finish(&self, read: HostedAttachmentRead) -> ApiResult<()> {
         self.hosted_attachment_read_check(&read)?;
-        read.reader.finish().map(|_| ()).map_err(stream_error)
+        self.attachment_read_finish(read)
     }
 }

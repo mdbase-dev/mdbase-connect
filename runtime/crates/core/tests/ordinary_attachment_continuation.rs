@@ -48,6 +48,7 @@ fn state(content: FileContent) -> MemState {
             blob,
         }),
         FileContent::AttachmentV1(content) => s.apply_effect(&Effect::PutAttachmentFile {
+            mtime: None,
             id: id(1),
             path: PATH.into(),
             content,
@@ -112,7 +113,8 @@ fn exact_blob_and_attachment_prior_preserve_identity_kind_path_and_use_only_effe
                     vec![Effect::PutAttachmentFile {
                         id: id(1),
                         path: PATH.into(),
-                        content: attachment(2)
+                        content: attachment(2),
+                        mtime: None,
                     }]
                 );
                 assert!(p.conflicts.is_empty());
@@ -170,6 +172,7 @@ fn drift(form: bool, case: &str) -> MemState {
             content: prior(form),
         }),
         "moved" => s.apply_effect(&Effect::PutAttachmentFile {
+            mtime: None,
             id: id(1),
             path: "latest.md".into(),
             content: attachment(1),

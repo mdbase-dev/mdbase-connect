@@ -210,6 +210,8 @@ pub(crate) struct KeyRebuild {
     target: u64,
     /// The cache's persisted policy at `target`.
     persisted: Option<Vec<u8>>,
+    /// Private accepted-semantic replay candidate, never cached hint authority.
+    originals: super::original_history::OriginalHistory,
     /// A read is outstanding.
     reading: bool,
 }
@@ -794,6 +796,13 @@ impl<S: Store> Replica<HostedCache<S>> {
             // Cold: whatever policy bytes the cache holds are not provenance. Start
             // from a fresh state; every item is applied from genesis in this instance.
             r.policy = crate::policy::PolicyState::new();
+            r.original_history = super::original_history::OriginalHistory::new(
+                r.cfg.collection,
+                r.store_generation,
+                crate::store::Head::GENESIS,
+                0,
+                None,
+            );
             r.sealer.set_epoch(0);
             state.origin = PolicyOrigin::Genesis;
         } else {
@@ -803,6 +812,13 @@ impl<S: Store> Replica<HostedCache<S>> {
                 after: 0,
                 target: head,
                 persisted: r.store.meta(meta_keys::POLICY)?,
+                originals: super::original_history::OriginalHistory::new(
+                    r.cfg.collection,
+                    r.store_generation,
+                    crate::store::Head::GENESIS,
+                    0,
+                    None,
+                ),
                 reading: false,
             });
             r.policy = crate::policy::PolicyState::new();
@@ -1139,11 +1155,22 @@ impl<S: Store> Replica<S> {
                 return self.hosted_reset_required("not a control item of this collection");
             }
             let chain = mdbn_wire::hash::chain_hash(&it.item.0);
-            if let Err(e) = self.evaluate_control(it.seq, &chain, &item, &it.item.0) {
-                // A stall (e.g. a key not yet deliverable) or a refused item: the
-                // cache cannot be confirmed against this prefix.
-                let _ = e;
-                return self.hosted_reset_required("control prefix does not verify");
+            match self.evaluate_control(it.seq, &chain, &item, &it.item.0) {
+                Ok(None) => {
+                    let (grants, devices) = super::original_history::control_subjects(&item);
+                    let delivered = self.hosted_key_delivery.is_some_and(|d| d.is_at(it.seq));
+                    if let Some(k) = self.hosted.as_deref_mut().and_then(|h| h.keys.as_mut()) {
+                        k.originals = k.originals.prepare(
+                            self.store_generation,
+                            crate::store::Head { seq: it.seq, chain },
+                            &grants,
+                            &devices,
+                            delivered,
+                        );
+                    }
+                }
+                Ok(Some(_)) => {}
+                Err(_) => return self.hosted_reset_required("control prefix does not verify"),
             }
             last = Some(it.seq);
         }
@@ -1161,11 +1188,11 @@ impl<S: Store> Replica<S> {
             return self.hosted_key_rebuild_step();
         }
         // The fresh policy at the cache's head must be the one the cache holds.
-        let persisted = self
-            .hosted
-            .as_deref_mut()
-            .and_then(|h| h.keys.take())
-            .and_then(|k| k.persisted);
+        let Some(rebuild) = self.hosted.as_deref_mut().and_then(|h| h.keys.take()) else {
+            return;
+        };
+        let originals = rebuild.originals;
+        let persisted = rebuild.persisted;
         // Entries (not control items) also move a few counters in the policy state;
         // take those from the cache, then require everything else to match exactly.
         let Some(cached) = persisted
@@ -1185,6 +1212,23 @@ impl<S: Store> Replica<S> {
         if self.policy.to_bytes().ok() != persisted {
             return self.hosted_reset_required("cached policy differs from the log's");
         }
+        // Only actual complete native replay + exact cached-state equality may
+        // recreate observations. DATA hints alone never take this path. Land the
+        // hint update using the same commit/read-health boundary as live apply.
+        let Some(bytes) = originals.hint_bytes() else {
+            return self.hosted_reset_required("original history hints exceed bound");
+        };
+        let tx = crate::store::Tx {
+            meta: vec![(super::original_history::META.into(), Some(bytes))],
+            ..Default::default()
+        };
+        if self.commit_with_read_health(None, tx).is_err()
+            || self.apply_fault
+            || self.is_apply_recovering()
+        {
+            return self.hosted_reset_required("original history commit/read health unavailable");
+        }
+        self.original_history = originals;
         if let Some(h) = self.hosted.as_deref_mut() {
             h.origin = PolicyOrigin::Replayed { target };
         }

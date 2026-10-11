@@ -37,6 +37,8 @@
 #![allow(clippy::disallowed_methods, clippy::disallowed_types)]
 
 pub mod access;
+pub mod activity;
+pub mod adopt;
 pub mod approval_journal;
 pub mod attest;
 pub mod authority;

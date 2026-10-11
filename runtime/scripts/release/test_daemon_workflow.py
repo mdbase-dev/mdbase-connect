@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/daemon-release.yml"
 MAPPING = "${{ github.repository == 'mdbase-dev/mdbase-connect' && 'runtime' || '.' }}"
 SIGNING = "${{ github.event_name == 'workflow_dispatch' && github.repository == 'mdbase-dev/mdbase-connect' && github.ref == 'refs/heads/main' && github.actor == 'callumalpass' && github.triggering_actor == 'callumalpass' }}"
+DISPATCH = "${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.actor == 'callumalpass' && github.triggering_actor == 'callumalpass' }}"
 
 
 class DaemonWorkflow(unittest.TestCase):
@@ -28,7 +29,7 @@ class DaemonWorkflow(unittest.TestCase):
         assert match
         cls.plan = textwrap.dedent(match[1]).replace("${{ github.event.pull_request.number }}", "17")
 
-    def run_plan(self, repo, event, signing, version="0.2.0-beta.1"):
+    def run_plan(self, repo, event, signing, version="0.2.0-beta.1", dispatch="false"):
         with tempfile.TemporaryDirectory(dir=ROOT / "scripts/release") as directory:
             owned = Path(directory)
             source_root = owned / "runtime" if repo == "mdbase-dev/mdbase-connect" else owned
@@ -38,7 +39,7 @@ class DaemonWorkflow(unittest.TestCase):
             output = owned / "outputs"
             result = subprocess.run(["bash", "-euo", "pipefail", "-c", self.plan], cwd=source_root,
                 env={**os.environ, "GITHUB_REPOSITORY": repo, "GITHUB_EVENT_NAME": event,
-                     "TRUSTED_SIGNING": signing, "INPUT_VERSION": version,
+                     "TRUSTED_SIGNING": signing, "TRUSTED_DISPATCH": dispatch, "INPUT_VERSION": version,
                      "GITHUB_OUTPUT": str(output)}, capture_output=True, text=True, check=False)
             values = dict(line.split("=", 1) for line in output.read_text().splitlines()) if output.exists() else {}
             return result, values
@@ -131,7 +132,11 @@ class DaemonWorkflow(unittest.TestCase):
 
     def test_exact_signing_repo_main_actor_and_rerun_actor(self):
         self.assertIn(f"TRUSTED_SIGNING: {SIGNING}", self.source)
-        self.assertEqual(self.source.count("if: needs.plan.outputs.signing == 'true'"), 3)
+        # Apple signing and GitHub attestation: the shipping repo only. The cosign
+        # signature over SHA256SUMS: any trusted protected-main dispatch.
+        self.assertEqual(self.source.count("if: needs.plan.outputs.signing == 'true'"), 1)
+        self.assertEqual(self.source.count("if: needs.plan.outputs.sign_sums == 'true'"), 2)
+        self.assertIn(f"TRUSTED_DISPATCH: {DISPATCH}", self.source)
         self.assertIn("SIGNING_REPO: ${{ needs.plan.outputs.signing }}", self.source)
         self.assertIn('"https://github.com/${GITHUB_REPOSITORY}/.github/workflows/daemon-release.yml@${GITHUB_REF}"', self.source)
 
@@ -150,7 +155,13 @@ class DaemonWorkflow(unittest.TestCase):
         result, values = self.run_plan("mdbase-dev/mdbase-next", "workflow_dispatch", "false")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(values["signing"], "false")
+        self.assertEqual(values["sign_sums"], "false")
         self.assertEqual(len(json.loads(values["matrix"])), 5)
+
+    def test_private_trusted_dispatch_signs_checksums_only(self):
+        result, values = self.run_plan("mdbase-dev/mdbase-next", "workflow_dispatch", "false", dispatch="true")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((values["signing"], values["sign_sums"]), ("false", "true"))
 
     def test_public_main_dispatch_plan_uses_runtime_subtree(self):
         result, values = self.run_plan("mdbase-dev/mdbase-connect", "workflow_dispatch", "true")

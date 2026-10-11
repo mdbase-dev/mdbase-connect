@@ -36,7 +36,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
   },
+  "peerDependencies": {
+    "@mdbase-dev/sdk": "0.0.0"
+  },
   "devDependencies": {
+    "@mdbase-dev/sdk": "file:../sdk",
     "@types/node": "22.20.5",
     "esbuild": "0.28.2",
     "fake-indexeddb": "6.2.5",

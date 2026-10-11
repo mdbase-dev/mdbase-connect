@@ -157,6 +157,12 @@ impl<I: IndexStorage> SqlSpill<I> {
         Ok(s)
     }
 
+    /// Borrow the SAME index for native host metadata beside the spill. This is
+    /// not a durability acknowledgment or a second migration driver.
+    pub fn index_mut(&mut self) -> &mut I {
+        &mut self.index
+    }
+
     /// The index back (for the host).
     pub fn into_inner(self) -> I {
         self.index

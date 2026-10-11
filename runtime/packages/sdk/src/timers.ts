@@ -39,8 +39,8 @@ export interface FcmChannelOptions extends TimerRequestOptions {
 }
 
 /**
- * A narrow retained-app-grant port, supplied by the Connect client. Its owner
- * authenticates fixed timer/channel HTTP routes, enforces grant lifetime and
+ * A narrow original-app-consent port, supplied by the Connect client or owned
+ * native Worker. Its owner authenticates fixed timer/channel routes, enforces grant lifetime and
  * bounds response bodies. No bearer, signer, arbitrary URL or request callback.
  * Writes MUST NOT retry after ambiguous admission. This is not a replica port.
  */

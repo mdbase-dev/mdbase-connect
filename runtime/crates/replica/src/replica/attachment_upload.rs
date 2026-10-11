@@ -68,8 +68,12 @@ use crate::crypto::chunked_blob::{
 use crate::log::{CallId, LogError, LogErrorCode, LogReply, LogRequest, LogResponse};
 use crate::store::{PendingRow, Store, Tx, meta_keys};
 
+mod client_resume;
+#[cfg(test)]
+pub(crate) use client_resume::captured_key;
 mod hosted_limits;
 use hosted_limits::HostedLifetime;
+mod hosted_region;
 mod region_upload;
 pub use region_upload::{HostedAttachmentTransferParams, HostedAttachmentTransferProgress};
 
@@ -280,9 +284,11 @@ enum Call {
     PutManifest,
     /// `has_objects` of every ref.
     Verify,
+    /// Native authenticated LS staging of the exact region-sealed object.
+    RegionPutChunk { address: Hash },
     /// Native LS confirmation of the externally staged sealed chunk, NOT a host boolean.
     HostedVerifyChunk { address: Hash },
-    /// Storing encrypted resume metadata only AFTER native confirmed chunk storage.
+    /// Storing initial zero-prefix identity or metadata after confirmed chunk storage.
     HostedPutResume {
         reference: crate::crypto::chunked_blob::upload_resume::UploadResumeRefV1,
         chunks: u64,
@@ -333,8 +339,8 @@ struct Upload {
 /// the uploaded content) and retires the persisted checkpoint atomically.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Origin {
-    /// Native-owned app authorization; never populated on device/external paths.
-    pub(crate) delegated: Option<super::hosted_attachment_upload::DelegatedAttachmentCreate>,
+    /// Native session-owned API CREATE, distinct from implicit disk/external writes.
+    pub(crate) delegated: Option<super::hosted_attachment_upload::AttachmentCreateContext>,
     pub(crate) external: bool,
     /// Device-local hold generation selected before opening the source. Never
     /// populated by API/delegated inputs; changes across awaits refuse capture.
@@ -636,11 +642,11 @@ impl<S: Store> Replica<S> {
         }
         let total = source.len();
         if let Some(context) = &origin.delegated {
-            self.hosted_attachment_create_check(context, &params.path, total, &params.file)?;
+            self.attachment_create_check(context, &params.path, total, &params.file)?;
             if params.if_revision.is_some() || origin.external || origin.base.is_some() {
                 return Err(ErrorCode::UpgradeRequired.err_with_reason(
-                    "attachment_replace_requires_op18",
-                    "hosted attachment replacement is unsupported until Op18",
+                    "attachment_replace_unsupported",
+                    "this hosted upload path cannot replace a file; use open_upload",
                 ));
             }
             self.hosted_upload_capacity(context.grant())?;
@@ -913,6 +919,25 @@ impl<S: Store> Replica<S> {
             .as_ref()
             .ok_or_else(|| ErrorCode::Forbidden.err("not a delegated hosted upload"))?;
         self.hosted_attachment_upload_caller_check(session, context)?;
+        self.close_attachment_create(session, mutation)
+    }
+
+    /// Exact native CREATE owner cleanup, without inventing grant ownership.
+    /// Captured mutations and unknown external object outcomes are not withdrawn.
+    pub fn close_attachment_create(
+        &mut self,
+        session: crate::api::SessionId,
+        mutation: &Uuid,
+    ) -> ApiResult<bool> {
+        let Some(up) = self.attachment_uploads.map.get(mutation) else {
+            return Ok(false);
+        };
+        let context = up
+            .origin
+            .delegated
+            .as_ref()
+            .ok_or_else(|| ErrorCode::Forbidden.err("not a session-owned attachment create"))?;
+        self.attachment_create_caller_check(session, context)?;
         Ok(self.remove_attachment_upload(mutation))
     }
 
@@ -998,7 +1023,9 @@ impl<S: Store> Replica<S> {
         }
         if matches!(
             call,
-            Call::HostedVerifyChunk { .. } | Call::HostedPutResume { .. }
+            Call::RegionPutChunk { .. }
+                | Call::HostedVerifyChunk { .. }
+                | Call::HostedPutResume { .. }
         ) {
             return self.hosted_region_reply(up, call, reply);
         }
@@ -1105,12 +1132,12 @@ impl<S: Store> Replica<S> {
             Call::PutChunk { .. } | Call::PutManifest => up.unsure = Some(call),
             // A failed check is simply asked again; a failed probe, the same.
             Call::Recheck { .. } | Call::Probe | Call::Verify => {}
-            Call::HostedVerifyChunk { .. } | Call::HostedPutResume { .. } => {
-                up.fail(ErrorCode::Unavailable.problem_with_reason(
-                    "hosted_upload_commit_unknown",
-                    "the hosted boundary outcome is unknown; no progress is claimed",
-                ))
-            }
+            Call::RegionPutChunk { .. }
+            | Call::HostedVerifyChunk { .. }
+            | Call::HostedPutResume { .. } => up.fail(ErrorCode::Unavailable.problem_with_reason(
+                "hosted_upload_commit_unknown",
+                "the hosted boundary outcome is unknown; no progress is claimed",
+            )),
         }
     }
 
@@ -1277,7 +1304,7 @@ impl<S: Store> Replica<S> {
                 return up.fail(error.into_problem());
             }
             if let Some(context) = &up.origin.delegated
-                && let Err(error) = self.hosted_attachment_create_check(
+                && let Err(error) = self.attachment_create_check(
                     context,
                     &up.params.path,
                     up.total,
@@ -1378,12 +1405,8 @@ impl<S: Store> Replica<S> {
             return up.fail(error.into_problem());
         }
         if let Some(context) = &up.origin.delegated
-            && let Err(error) = self.hosted_attachment_create_check(
-                context,
-                &up.params.path,
-                up.total,
-                &up.params.file,
-            )
+            && let Err(error) =
+                self.attachment_create_check(context, &up.params.path, up.total, &up.params.file)
         {
             return up.fail(error.into_problem());
         }
@@ -1530,12 +1553,9 @@ impl<S: Store> Replica<S> {
             return up.fail(ErrorCode::Internal.problem("attachment: no manifest"));
         };
         let admission = match &up.origin.delegated {
-            Some(context) => self.hosted_attachment_create_check(
-                context,
-                &up.params.path,
-                up.total,
-                &up.params.file,
-            ),
+            Some(context) => {
+                self.attachment_create_check(context, &up.params.path, up.total, &up.params.file)
+            }
             None => self.attachment_upload_admission(&up.params.path),
         };
         if let Err(e) = admission {
@@ -1640,8 +1660,20 @@ impl<S: Store> Replica<S> {
         use mdbn_core::plan::{PlanOptions, Stage};
         let store_problem = super::submit::store_err;
         let id = up.mutation;
-        let grant = up.origin.delegated.as_ref().map(|context| context.grant());
+        let grant = up
+            .origin
+            .delegated
+            .as_ref()
+            .and_then(|context| context.grant());
         if let Some(r) = self.known_receipt_for(&id, grant).map_err(store_problem)? {
+            // A live ClientApi upload has never captured yet. Another submit with
+            // the same mutation must not substitute its unrelated receipt.
+            if client_resume::has_capture_reference(up) {
+                return Err(ErrorCode::Conflict.err_with_reason(
+                    "attachment_upload_scope_changed",
+                    "the upload mutation was captured by another submission",
+                ));
+            }
             return Ok(r);
         }
         if grant.is_some() && self.receipt_exists(&id).map_err(store_problem)? {
@@ -1651,12 +1683,7 @@ impl<S: Store> Replica<S> {
             ));
         }
         if let Some(context) = &up.origin.delegated {
-            self.hosted_attachment_create_check(
-                context,
-                &up.params.path,
-                up.total,
-                &up.params.file,
-            )?;
+            self.attachment_create_check(context, &up.params.path, up.total, &up.params.file)?;
         }
         let instant = self.capture_instant();
         let tz = self.host.zones.default_zone();
@@ -1692,6 +1719,7 @@ impl<S: Store> Replica<S> {
                 },
                 if_revision: up.params.if_revision,
                 base: up.origin.base,
+                mtime: Some(instant),
             })],
             on_behalf: grant,
             conflict_mode: None,
@@ -1724,12 +1752,7 @@ impl<S: Store> Replica<S> {
         if let Some(context) = &up.origin.delegated {
             for effect in &planned.effects {
                 if let mdbn_core::plan::Effect::PutAttachmentFile { id, path, .. } = effect {
-                    self.hosted_attachment_create_check(
-                        context,
-                        path,
-                        up.total,
-                        &convert::wuuid(id),
-                    )?;
+                    self.attachment_create_check(context, path, up.total, &convert::wuuid(id))?;
                 }
             }
         }

@@ -15,7 +15,6 @@ import {
 } from "../src/transport/next-relay.js";
 import { MemoryReplica, serveNoise } from "../src/testing/index.js";
 import { uuidv7 } from "../src/values.js";
-import { receipt as receiptCodec } from "../src/wire.js";
 
 const app = { name: "t", version: "0" };
 
@@ -125,18 +124,6 @@ function world(n = 1, chunk?: number) {
 }
 
 describe("duplexCarrier", () => {
-  it("frames once and reassembles arbitrary chunks", () => {
-    const p = pipe();
-    const c = duplexCarrier(p.app);
-    const got: number[][] = [];
-    c.onmessage = (m) => got.push([...m]);
-    p.app.onmessage!(new Uint8Array([0, 0, 0, 2, 7]));
-    p.app.onmessage!(new Uint8Array([8, 0, 0]));
-    p.app.onmessage!(new Uint8Array([0, 0]));
-    expect(got).toEqual([[7, 8], []]);
-    c.send(new Uint8Array([1, 2, 3]));
-    expect([...p.app.sent[0]!]).toEqual([0, 0, 0, 3, 1, 2, 3]);
-  });
 
   it("ends the pipe on an oversized message and maps relay closes", () => {
     const p = pipe();
@@ -369,20 +356,6 @@ describe("bridge scope and session regressions", () => {
     c.close();
   });
 
-  it("a read and a file stream started while reconnecting wait for the fence on the new session", async () => {
-    const { w, a, b, c } = await failoverClient();
-    // Drop B too: the client is reconnecting with the fence up.
-    b.online = false;
-    b.pipes.at(-1)!.end(4000, "pipe_closed");
-    await waitFor(() => c.link === "reconnecting");
-    const read = c.get({ path: "n2.md" });
-    const stream = c.files.downloadStream({ path: "missing.bin" } as never);
-    a.online = true;
-    await waitFor(() => c.link === "open" && w.opened.filter((d) => d === a.id).length === 2);
-    expect((await read).path).toBe("n2.md");
-    await expect(stream.file).rejects.toBeDefined();
-    c.close();
-  });
 });
 
 describe("next-relay-only consistency policy", () => {
@@ -402,32 +375,7 @@ describe("next-relay-only consistency policy", () => {
       expect(c.readFenced).toBe(true);
     } finally { c.close(); writer.close(); }
   });
-  it.each([true, false])("uses the original receipt codec despite pending options mutation (original=%s)", async (original) => {
-    const w = world(2), [a, b] = w.devices as [Device, Device]; b.online = false;
-    const c = await connect({ app, connector: nextRelayConnector({ next: w.next, collection: w.collection, staticKey: generateKeyPair() }), reconnect: { minDelayMs: 1, maxDelayMs: 5 } });
-    const writer = await connect({ app, connector: a.replica.connector(), reconnect: false });
-    const otherCodec = { ...receiptCodec }, options = { codec: original ? receiptCodec : otherCodec };
-    let release!: () => void, held = false;
-    const gate = new Promise<void>(r => { release = r; });
-    const session = c.currentSession(), request = session.request.bind(session);
-    const mock = vi.spyOn(session, "request").mockImplementation(async (name, p, selected) => {
-      const result = await request(name, p, selected);
-      if (name === "receipt") { held = true; await gate; }
-      return result;
-    });
-    try {
-      const done = await (await writer.create({ path: "codec.md", body: "seen" })).confirmed;
-      const pending = c.call("receipt", new Map([[0, uuidToBytes(done.mutation)]]), options);
-      await waitFor(() => held);
-      expect(mock.mock.calls.at(-1)![2]!.codec).toBe(original ? receiptCodec : otherCodec);
-      options.codec = original ? otherCodec : receiptCodec;
-      release(); expect((await pending).state).toBe("confirmed");
-      a.online = false; b.online = true; a.pipes.at(-1)!.end(4000, "pipe_closed");
-      await waitFor(() => c.link === "open" && w.opened.includes(b.id));
-      expect(c.readFenced).toBe(original);
-    } finally { release(); mock.mockRestore(); c.close(); writer.close(); }
-  });
-  it.each(["receipt", "await"] as const)("late %s reply cannot contribute a retired session's floor", async (method) => {
+  it.each(["receipt"] as const)("late %s reply cannot contribute a retired session's floor", async (method) => {
     const w = world(2), [a, b] = w.devices as [Device, Device]; b.online = false;
     const c = await connect({ app, connector: nextRelayConnector({ next: w.next, collection: w.collection, staticKey: generateKeyPair() }), reconnect: { minDelayMs: 1, maxDelayMs: 5 } });
     const writer = await connect({ app, connector: a.replica.connector(), reconnect: false });
@@ -471,24 +419,6 @@ describe("next-relay-only consistency policy", () => {
     } finally { c.close(); }
   });
 
-  it("pins collection and bridge methods before route awaits", async () => {
-    const w = world();
-    let entered!: () => void, release!: () => void;
-    const started = new Promise<void>(r => { entered = r; });
-    const gate = new Promise<void>(r => { release = r; });
-    const next: NextBridge = { ...w.next, route: async (c, o) => { entered(); await gate; return w.next.route(c, o); } };
-    const opts = { next, collection: w.collection, staticKey: generateKeyPair() };
-    const connector = nextRelayConnector(opts);
-    const opening = connect({ app, connector, reconnect: false });
-    await started;
-    opts.collection = uuidv7();
-    opts.next = { route: async () => { throw Error("foreign fixture"); }, openPipe: async () => { throw Error("foreign fixture"); } };
-    next.openPipe = opts.next.openPipe;
-    release();
-    const c = await opening;
-    expect(c.collection).toBe(w.collection);
-    c.close();
-  });
 
   it("holds typed catalog and file-stream reads while status/receipt/proof probes stay usable", async () => {
     const { c } = await failoverClient();

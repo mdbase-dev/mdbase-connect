@@ -61,6 +61,8 @@ fn readiness_of(verdict: Result<bool, &'static str>) -> Readiness {
 enum Readiness {
     /// Not yet (or a local runtime, which needs no gate).
     Pending,
+    /// Adopting the folder: generation 0 is not applied yet.
+    Adopting,
     /// Genesis applied, keyed, caught up (or verified cache while offline).
     Ready,
     /// Never: the runtime was stopped (the reason is a status reason).
@@ -195,6 +197,24 @@ impl CollectionHost {
         let pins = sync.as_ref().map(|s| s.policy_pins.clone());
         let account = authority.active_account().map(|a| a.0);
         let u = |s: &str| crate::attest::uuid_bytes(s).ok_or_else(|| format!("bad uuid {s}"));
+        // A synced collection with an adopt journal adopts its folder on open
+        // until the base is applied (the readiness watch then removes the journal).
+        let journal = crate::adopt::Journal::path(&ctx.collections_dir, &self.entry.id);
+        let adopt = match &sync {
+            None => None,
+            Some(_) => crate::adopt::Journal::load(&journal)
+                .map_err(|e| format!("adopt journal: {e}"))?
+                .map(|j| j.plan()),
+        };
+        let journal = adopt.is_some().then_some(journal);
+        let id_hints = match (&self.entry.origin, ctx.collections_dir.parent()) {
+            (crate::registry::Origin::MigratedLocal, Some(state))
+                if sync.is_none() || adopt.is_some() =>
+            {
+                crate::adopt::legacy_hints(state, &self.entry.id)
+            }
+            _ => Vec::new(),
+        };
         let cfg = crate::runtime::RuntimeConfig {
             collection: u(&self.entry.id)?,
             replica_id: u(&self.entry.replica_id)?,
@@ -202,6 +222,8 @@ impl CollectionHost {
             root: self.entry.root.clone(),
             private_dir: ctx.collections_dir.join(&self.entry.id),
             sync,
+            adopt,
+            id_hints,
         };
         let secrets = mdbn_replica::DeviceSecrets {
             sign_sk: *ctx.identity.sign_seed(),
@@ -286,19 +308,37 @@ impl CollectionHost {
                     // watched separately and never holds the opener.
                     if synced && let (Ok(rt), Some(handle)) = (&r, &handle) {
                         let (rt, ready, cancel, notify) = (rt.clone(), ready.clone(), cancel.clone(), notify.clone());
+                        let (id, journal) = (id.clone(), journal.clone());
                         handle.spawn(async move {
                             // Maintained for the runtime's life, not latched at the
                             // first Ready: a reconnect or a missing key returns it to
                             // opening, a terminal verdict stops it for good.
                             let mut last = Readiness::Pending;
+                            let mut journal = journal;
                             loop {
                                 if cancel.load(Ordering::SeqCst) {
                                     return;
                                 }
-                                let Some((s, caught_up)) = rt.readiness().await else {
+                                let Some((s, caught_up, adopt)) = rt.readiness().await else {
                                     return; // stopped
                                 };
-                                let now = readiness_of(crate::runtime::synced_ready(&s, caught_up, offline));
+                                let now = match adopt {
+                                    Some(mdbn_replica::AdoptStatus::Pending) => Readiness::Adopting,
+                                    Some(mdbn_replica::AdoptStatus::Failed(why)) => {
+                                        tracing::error!(collection = %id, reason = %why, "adopt failed");
+                                        Readiness::Failed("adopt_failed")
+                                    }
+                                    _ => {
+                                        // Applied: later opens are ordinary.
+                                        if let Some(path) = &journal {
+                                            match crate::adopt::Journal::remove(path) {
+                                                Ok(()) => journal = None,
+                                                Err(e) => tracing::warn!(collection = %id, error = %e, "adopt journal not removed"),
+                                            }
+                                        }
+                                        readiness_of(crate::runtime::synced_ready(&s, caught_up, offline))
+                                    }
+                                };
                                 if now != last {
                                     if let Ok(mut g) = ready.lock() {
                                         *g = now;
@@ -484,6 +524,7 @@ impl CollectionHost {
             (CollectionState::Opening, Some(Some(Ok(_)))) => match self.ready.lock().map(|g| *g) {
                 Ok(Readiness::Ready) => (CollectionState::Ready, None),
                 Ok(Readiness::Failed(reason)) => (CollectionState::Failed, Some(reason.into())),
+                Ok(Readiness::Adopting) => (CollectionState::Opening, Some("adopting".into())),
                 _ => (CollectionState::Opening, None),
             },
             (CollectionState::Opening, Some(Some(Err(e)))) if e.starts_with(INELIGIBLE) => (
@@ -630,6 +671,7 @@ impl CollectionHost {
         CollectionStatus {
             id: e.id.clone(),
             name: e.name.clone(),
+            description: e.description.clone(),
             root: e.root.clone(),
             mode: e.mode,
             origin: e.origin,

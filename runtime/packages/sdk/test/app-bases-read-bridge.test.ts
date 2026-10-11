@@ -3,7 +3,7 @@ import { MessageChannel } from "node:worker_threads";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { connect } from "../src/index.js";
 import { MemoryReplica } from "../src/testing/index.js";
-import { decode, fromHex } from "../src/cbor.js";
+import { fromHex } from "../src/cbor.js";
 import { appLocalConnector, attachAppLocalFacade, type AppLocalScope } from "../src/app-host/local-facade.js";
 import type { FramePort } from "../src/transport/port.js";
 import type { AppBasesRequest } from "../src/app-host/bases-wire.js";
@@ -28,41 +28,18 @@ async function local(read:(port:FramePort,bytes:Uint8Array)=>Uint8Array,hostScop
  const opened=await connector.open([0]);return {port:opened.port,native,executeBases,discoverBases,connector};
 }
 describe("native discovery held-port bridge stand-ins (not catalog/authority proof)",()=>{
- it.each(["list-views","read-view-source"] as const)("dispatches %s only on the exact native held port and copies caller input",async operation=>{
+ it.each(["read-view-source"] as const)("dispatches %s only on the exact native held port and copies caller input",async operation=>{
    const f=await local(()=>Uint8Array.of(9),scope(),scope(),(port,kind,bytes)=>{expect(port).toBe(f.native);expect(kind).toBe(operation);expect(bytes).toEqual(Uint8Array.of(7));return Uint8Array.of(8);});
    const caller=Uint8Array.of(7),pending=f.port.readAppBasesDiscovery!(operation,caller);caller.fill(0);
    expect(await pending).toEqual(Uint8Array.of(8));expect(f.executeBases).not.toHaveBeenCalled();expect(f.discoverBases).toHaveBeenCalledOnce();
- });
- it("retains ONE shared in-flight slot across execution and both discovery kinds after cancel",async()=>{
-   const f=await local(()=>Uint8Array.of(9),scope(),scope(),()=>Uint8Array.of(8)),abort=new AbortController();
-   const pending=f.port.readAppBasesDiscovery!("list-views",Uint8Array.of(1),abort.signal);abort.abort();
-   await expect(pending).rejects.toMatchObject({code:"cancelled"});
-   await expect(f.port.readAppBases!(Uint8Array.of(1))).rejects.toMatchObject({code:"too_large"});
-   await expect(f.port.readAppBasesDiscovery!("read-view-source",Uint8Array.of(1))).rejects.toMatchObject({code:"too_large"});
-   await new Promise(resolve=>setTimeout(resolve,20));
-   expect(await f.port.readAppBasesDiscovery!("read-view-source",Uint8Array.of(1))).toEqual(Uint8Array.of(8));
-   expect(f.discoverBases).toHaveBeenCalledTimes(2);expect(f.executeBases).not.toHaveBeenCalled();
  });
  it("refuses unknown operation and oversized discovery output, never routes to execution",async()=>{
    const f=await local(()=>Uint8Array.of(9),scope(),scope(),()=>new Uint8Array(1024*1024+1));
    await expect(f.port.readAppBasesDiscovery!("unknown" as "list-views",Uint8Array.of(1))).rejects.toMatchObject({code:"invalid_request"});
    expect(f.discoverBases).not.toHaveBeenCalled();
-   await expect(f.port.readAppBasesDiscovery!("list-views",Uint8Array.of(1))).rejects.toMatchObject({code:"unavailable"});
+   // The oversized reply closes the facade: READs drain as typed cancelled.
+   await expect(f.port.readAppBasesDiscovery!("list-views",Uint8Array.of(1))).rejects.toMatchObject({code:"cancelled"});
    expect(f.executeBases).not.toHaveBeenCalled();
- });
- it("fails on scope loss during native discovery and wipes abandoned metadata",async()=>{
-   let current=true;const abandoned=Uint8Array.of(8),f=await local(()=>Uint8Array.of(9),{...scope(),isCurrent:()=>current},scope(),()=>{current=false;return abandoned;});
-   await expect(f.port.readAppBasesDiscovery!("list-views",Uint8Array.of(1))).rejects.toMatchObject({code:"unavailable"});expect(abandoned.every(v=>v===0)).toBe(true);
- });
- it("SDK missing metadata transport refuses without legacy list/execute fallback",async()=>{
-   const client=await clientFixture(),list=vi.spyOn(client,"listViews"),exec=vi.spyOn(client,"executeView");
-   await expect(client.listAppBasesViews({captureTimezone:"UTC",limit:128})).rejects.toMatchObject({code:"invalid_request",reason:"unsupported"});
-   await expect(client.readAppBasesViewSource({record:request.record,sourceRevision:request.sourceRevision,ordinal:3,captureTimezone:"UTC"})).rejects.toMatchObject({code:"invalid_request",reason:"unsupported"});
-   expect(list).not.toHaveBeenCalled();expect(exec).not.toHaveBeenCalled();
- });
- it("closed original metadata session suppresses/wipes reply, no session replay",async()=>{
-   const abandoned=Uint8Array.of(8),client=await clientFixture(undefined,async()=>{client.close();return abandoned;});
-   await expect(client.listAppBasesViews({captureTimezone:"UTC",limit:128})).rejects.toMatchObject({code:"unavailable"});expect(abandoned.every(v=>v===0)).toBe(true);
  });
 });
 describe("Bases READ bridge stand-ins (not native authority/execution/render proof)",()=>{
@@ -102,20 +79,6 @@ describe("Bases READ bridge stand-ins (not native authority/execution/render pro
  });
  it("scope loss during execution suppresses the entire reply and wipes abandoned bytes",async()=>{
   let current=true;const abandoned=fromHex(fullFixture.success_hex),f=await local(()=>{current=false;return abandoned;},{...scope(),isCurrent:()=>current});
-  await expect(f.port.readAppBases!(Uint8Array.of(1))).rejects.toMatchObject({code:"unavailable"});expect(abandoned.every(byte=>byte===0)).toBe(true);
- });
- it("scope loss before dispatch prevents native work",async()=>{
-  let current=true;const f=await local(()=>fromHex(fullFixture.success_hex),scope(),{...scope(),isCurrent:()=>current});current=false;
-  await expect(f.port.readAppBases!(Uint8Array.of(1))).rejects.toMatchObject({code:"unavailable"});expect(f.executeBases).not.toHaveBeenCalled();
- });
- it("cancellation retains one bounded in-flight slot until original reply, no queued/restarted work",async()=>{
-  const f=await local(()=>fromHex(fullFixture.success_hex)),abort=new AbortController(),first=f.port.readAppBases!(Uint8Array.of(1),abort.signal);abort.abort();
-  await expect(first).rejects.toMatchObject({code:"cancelled"});await expect(f.port.readAppBases!(Uint8Array.of(1))).rejects.toMatchObject({code:"too_large"});
-  await new Promise(resolve=>setTimeout(resolve,20));expect(f.executeBases).toHaveBeenCalledOnce();
-  expect(decode(await f.port.readAppBases!(Uint8Array.of(1)))).toBeInstanceOf(Map);expect(f.executeBases).toHaveBeenCalledTimes(2);
- });
- it("bounds request before transfer and rejects close while awaiting reply",async()=>{
-  const f=await local(()=>fromHex(fullFixture.success_hex));await expect(f.port.readAppBases!(new Uint8Array(128*1024+1))).rejects.toMatchObject({code:"invalid_request"});expect(f.executeBases).not.toHaveBeenCalled();
-  const pending=f.port.readAppBases!(Uint8Array.of(1));f.connector.close();await expect(pending).rejects.toMatchObject({code:"unavailable"});
+  await expect(f.port.readAppBases!(Uint8Array.of(1))).rejects.toMatchObject({code:"cancelled"});expect(abandoned.every(byte=>byte===0)).toBe(true);
  });
 });

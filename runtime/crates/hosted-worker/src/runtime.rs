@@ -18,9 +18,13 @@
 
 use std::collections::BTreeMap;
 
-use crate::attachment_region::AttachmentRegion;
-use crate::file_reads::FileReads;
+mod cpp_claim;
+pub(crate) use cpp_claim::{ConfiguredCppAudience, CppClaimSignRefused};
+
+use mdbn_replica::ClientApi;
 use mdbn_replica::api::{ApiError, ErrorCode, SessionAuth, SessionId};
+#[cfg(test)]
+use mdbn_replica::file_io::AttachmentRegion;
 use mdbn_replica::frames::{FileReadRequest, Frames, file_read_request};
 use mdbn_replica::log::{CallId, LogCall, LogPush, LogReply};
 use mdbn_replica::plan::CorePlanner;
@@ -36,7 +40,7 @@ use mdbn_wire::schema::Wire;
 /// Largest frame sent to a client (the 1 MiB hydrated-per-request budget). A larger
 /// response becomes a `too_large` problem; a larger push closes the session (the
 /// client re-subscribes with a smaller window). Never truncated.
-pub const MAX_OUT_FRAME: usize = 1 << 20;
+pub use mdbn_replica::file_io::MAX_OUT_FRAME;
 
 /// The runtime's version, reported in `hello`.
 pub const RUNTIME_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -53,6 +57,35 @@ pub enum Out {
     /// The engine closed this session; the host closes its socket.
     Closed(u64),
 }
+
+/// Crate-internal original target observation for the H1 verifier. Private
+/// construction, no serialization/permission conversion; ALREADY OPEN/KEYED.
+/// Native collection/device provenance is NOT physical DO or fresh CPP authority.
+#[derive(Debug)]
+pub(crate) struct ObservedNativeTarget {
+    // Allocation identity only: never serialized/hashed or derived from DATA.
+    instance: std::rc::Rc<()>,
+    native: mdbn_replica::VerifiedHostedAdmission,
+    owner: Uuid,
+    originals: [(mdbn_replica::replica::ObservedOriginalRecord, Vec<u8>); 3],
+}
+impl ObservedNativeTarget {
+    pub(crate) fn admission(&self) -> &mdbn_replica::VerifiedHostedAdmission {
+        &self.native
+    }
+    pub(crate) fn genesis_owner(&self) -> Uuid {
+        self.owner
+    }
+    // Exact full signed Genesis, hosted enrollment/bootstrap, current delivery
+    // records in that order, not a projected identity or serialized proof.
+    pub(crate) fn originals(
+        &self,
+    ) -> &[(mdbn_replica::replica::ObservedOriginalRecord, Vec<u8>); 3] {
+        &self.originals
+    }
+}
+#[derive(Debug)]
+pub(crate) struct NativeTargetRefused;
 
 /// The open configuration, decoded from `mdb-cbor/1`:
 /// `{0: collection, 1: replica_id, 2: device_id (the hosted service device),
@@ -222,9 +255,35 @@ struct Waiting {
     request: u64,
 }
 
+/// Read-only observation of original app provenance in this Engine's verified
+/// native context. A clone is historical, not fresh CP/phase/session authority
+/// or a serving/effect lease. No public constructor or install-back path.
+#[derive(Clone)]
+pub struct ObservedOriginalAppCaller {
+    original: crate::original_app::OriginalAppCaller,
+    native: mdbn_replica::VerifiedHostedAdmission,
+}
+impl std::fmt::Debug for ObservedOriginalAppCaller {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ObservedOriginalAppCaller { .. }")
+    }
+}
+impl ObservedOriginalAppCaller {
+    /// Exact original signed grant and actual initial Noise proof.
+    pub fn original(&self) -> &crate::original_app::OriginalAppCaller {
+        &self.original
+    }
+    /// This Engine's native admission at observation, never a retained permit.
+    pub fn native(&self) -> &mdbn_replica::VerifiedHostedAdmission {
+        &self.native
+    }
+}
+
 /// One hosted collection.
 pub struct Engine<S: Store> {
     replica: Replica<HostedCache<S>>,
+    native_target_instance: std::rc::Rc<()>,
+    cpp_claim_signer: Option<cpp_claim::CppClaimSigner>,
     frames: Frames,
     submits: BTreeMap<SubmitTicket, Waiting>,
     out: Vec<Out>,
@@ -234,9 +293,6 @@ pub struct Engine<S: Store> {
     /// Each sent call's original provenance, captured before it left; a reply is
     /// accepted only through it, for the session that sent it.
     log_scopes: BTreeMap<CallId, mdbn_replica::replica::LogReplyScope>,
-    file_reads: FileReads,
-    // READ and UPLOAD borrow this ONE backing; neither driver owns another.
-    attachment_region: AttachmentRegion,
     collection: Uuid,
     // Private default-deny foundation only: all-site Engine/adapter/destination
     // enforcement is a separate PR. No issuer or caller proof can open this.
@@ -291,10 +347,20 @@ impl<S: Store> Engine<S> {
         host: Host,
         profile: HostedProfile,
     ) -> Result<Engine<S>, OpenFailure> {
+        Self::open_with_cpp_signer(config, store, sealer, host, profile, None)
+    }
+
+    fn open_with_cpp_signer(
+        config: OpenConfig,
+        store: S,
+        sealer: Box<dyn mdbn_replica::Sealer>,
+        host: Host,
+        profile: HostedProfile,
+        cpp_claim_signer: Option<cpp_claim::CppClaimSigner>,
+    ) -> Result<Engine<S>, OpenFailure> {
         config.validate_public_trust()?;
         let OpenConfig { cfg, secrets, .. } = config;
         let collection = cfg.collection;
-        let now_ms = i64::try_from(host.clock.now_ms()).unwrap_or(i64::MAX);
         let replica = Replica::open_hosted(
             cfg,
             store,
@@ -309,13 +375,13 @@ impl<S: Store> Engine<S> {
         debug_assert!(!effect_currentness.permits_effect());
         Ok(Engine {
             replica,
+            native_target_instance: std::rc::Rc::new(()),
+            cpp_claim_signer,
             frames: Frames::new(),
             submits: BTreeMap::new(),
             out: Vec::new(),
             log_session: None,
             log_scopes: BTreeMap::new(),
-            file_reads: FileReads::new(now_ms),
-            attachment_region: AttachmentRegion::new(),
             collection,
             _effect_currentness: effect_currentness,
         })
@@ -347,6 +413,262 @@ impl<S: Store> Engine<S> {
         self.replica.grant_authorized(grant, client_pk)
     }
 
+    /// Observe THIS native FULL target plus accepted complete original records.
+    /// At most3 bounded original lookups. No current claim/physical proof/lease.
+    pub(crate) fn observe_native_target(
+        &self,
+    ) -> Result<ObservedNativeTarget, NativeTargetRefused> {
+        use mdbn_wire::{
+            envelope::{Item, ItemKind},
+            policy::{DeviceKind, PolicyOp, PolicyPayload},
+        };
+        let refuse = || NativeTargetRefused;
+        let mdbn_replica::HostedAdmission::Verified(native) = self.admission() else {
+            return Err(refuse());
+        };
+        let genesis = self
+            .replica
+            .observed_original_genesis()
+            .ok_or_else(refuse)?;
+        let enrollment = self
+            .replica
+            .observed_original_device(&native.device())
+            .ok_or_else(refuse)?;
+        let delivery = self
+            .replica
+            .observed_original_key_delivery()
+            .ok_or_else(refuse)?;
+        if Some(genesis.chain()) != self.replica.config().expected_genesis {
+            return Err(refuse());
+        }
+        let mut originals = Vec::with_capacity(3);
+        for record in [genesis, enrollment, delivery] {
+            let mut rows = self
+                .replica
+                .store()
+                .tail(record.position() - 1, 1)
+                .map_err(|_| refuse())?;
+            if record.collection() != native.collection()
+                || rows.len() != 1
+                || rows[0].seq != record.position()
+                || rows[0].item.is_empty()
+                || rows[0].item.len() > crate::original_app::MAX_ORIGINAL_POLICY_BYTES
+                || mdbn_wire::hash::chain_hash(&rows[0].item) != record.chain()
+            {
+                return Err(refuse());
+            }
+            originals.push((record, rows.remove(0).item));
+        }
+        let genesis_item = Item::from_bytes(&originals[0].1).map_err(|_| refuse())?;
+        let genesis_payload =
+            PolicyPayload::from_bytes(&genesis_item.body.0).map_err(|_| refuse())?;
+        let founding: Vec<_> = genesis_payload
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                PolicyOp::Genesis(g) => Some(g),
+                _ => None,
+            })
+            .collect();
+        if genesis_item.kind != ItemKind::Policy
+            || founding.len() != 1
+            || founding[0].root != native.root_id()
+            || founding[0].state != CState::CloudCopy
+        {
+            return Err(refuse());
+        }
+        let owner = founding[0].owner;
+        let enrollment_item = Item::from_bytes(&originals[1].1).map_err(|_| refuse())?;
+        let enrollment_payload =
+            PolicyPayload::from_bytes(&enrollment_item.body.0).map_err(|_| refuse())?;
+        let enrolled: Vec<_> = enrollment_payload
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                PolicyOp::DeviceEnrol(d) if d.device == native.device() => Some(d),
+                _ => None,
+            })
+            .collect();
+        if enrollment_item.kind != ItemKind::Policy
+            || enrolled.len() != 1
+            || enrolled[0].kind != DeviceKind::Hosted
+            || enrolled[0].account != mdbn_replica::policy::SERVICE_ACCOUNT
+            || enrolled[0].sign_pk != native.identity().sign_pk
+            || enrolled[0].kem_pk != native.identity().kem_pk
+            || enrolled[0].noise_pk != native.noise_pk()
+        {
+            return Err(refuse());
+        }
+        let delivered = Item::from_bytes(&originals[2].1).map_err(|_| refuse())?;
+        if !matches!(delivered.kind, ItemKind::Rekey | ItemKind::KeyGrant)
+            || delivery.position() != native.key_delivery_seq()
+        {
+            return Err(refuse());
+        }
+        let originals = originals.try_into().map_err(|_| refuse())?;
+        Ok(ObservedNativeTarget {
+            instance: self.native_target_instance.clone(),
+            native: *native,
+            owner,
+            originals,
+        })
+    }
+
+    /// Fresh SAME-Engine point comparison; VOID, never an effect permit.
+    pub(crate) fn recheck_native_target(
+        &self,
+        before: &ObservedNativeTarget,
+    ) -> Result<(), NativeTargetRefused> {
+        if !std::rc::Rc::ptr_eq(&self.native_target_instance, &before.instance) {
+            return Err(NativeTargetRefused);
+        }
+        let now = self.observe_native_target()?;
+        if now.admission() != before.admission()
+            || now.genesis_owner() != before.genesis_owner()
+            || now.originals() != before.originals()
+        {
+            return Err(NativeTargetRefused);
+        }
+        Ok(())
+    }
+
+    /// Read exact admitted original positions from this Engine's retained raw
+    /// tail, not grant/ACL/meta projections. Require actual configured public
+    /// trust/genesis plus FULL native context and an active matching native grant.
+    /// No app-serving/ABI hook invokes this observer. It does not discover the
+    /// first valid grant, authenticate admission, prove historical commitment or
+    /// physical deployment/session identity, or replace current CP+phase gates.
+    /// Tail's existing API bounds row count only: byte caps follow owned reads,
+    /// not preallocation/whole-request ledger/transport cancellation proof.
+    pub fn original_app_caller(
+        &self,
+        caller: &crate::noise_sessions::VerifiedAppCaller,
+        pins: &crate::original_app::OriginalAppPins,
+    ) -> Result<ObservedOriginalAppCaller, crate::original_app::OriginalAppRefused> {
+        use crate::original_app::{
+            MAX_ORIGINAL_POLICY_BYTES, OriginalAppRefused, bind_original_app_caller,
+        };
+        let refuse = || OriginalAppRefused;
+        let mdbn_replica::HostedAdmission::Verified(native) = self.admission() else {
+            return Err(refuse());
+        };
+        let cfg = self.replica.config();
+        let Some(published) = &cfg.policy_pins else {
+            return Err(refuse());
+        };
+        let Some(expected_genesis) = cfg.expected_genesis else {
+            return Err(refuse());
+        };
+        let root = mdbn_replica::policy::key_id(&pins.root_pk.0);
+        let policy_key = mdbn_replica::policy::key_id(&pins.policy_pk.0);
+        if caller.collection() != pins.collection
+            || caller.grant() != pins.grant
+            || caller.target_device() != pins.target_device
+            || caller.client_pk() != pins.client_pk
+            || pins.collection != self.collection
+            || pins.collection != cfg.collection
+            || pins.target_device != cfg.device_id
+            || native.collection() != pins.collection
+            || native.device() != pins.target_device
+            || native.root_id() != root
+            || native.root_pk() != pins.root_pk
+            || caller.responder_pk() != native.noise_pk()
+            || !cfg.trusted_roots.contains(&pins.root_pk.0)
+            || !published
+                .roots
+                .iter()
+                .any(|p| p.root_id == root && p.root_pk == pins.root_pk)
+            || !published.policy_keys.iter().any(|p| {
+                p.root_id == root && p.key_id == policy_key && p.policy_pk == pins.policy_pk
+            })
+            || pins.grant_seq == 0
+            || pins.grant_seq > native.applied_head().seq
+            || !self
+                .replica
+                .grant_authorized(&pins.grant, &caller.client_pk().0)
+        {
+            return Err(refuse());
+        }
+        let read = |seq| -> Result<Vec<u8>, crate::original_app::OriginalAppRefused> {
+            let mut rows = self
+                .replica
+                .store()
+                .tail(seq - 1, 1)
+                .map_err(|_| refuse())?;
+            if rows.len() != 1
+                || rows[0].seq != seq
+                || rows[0].item.is_empty()
+                || rows[0].item.len() > MAX_ORIGINAL_POLICY_BYTES
+            {
+                return Err(refuse());
+            }
+            Ok(rows.remove(0).item)
+        };
+        let accepted_genesis = self
+            .replica
+            .observed_original_genesis()
+            .ok_or_else(refuse)?;
+        let accepted_grant = self
+            .replica
+            .observed_original_grant(&pins.grant)
+            .ok_or_else(refuse)?;
+        if accepted_genesis.collection() != pins.collection
+            || accepted_genesis.position() != 1
+            || accepted_grant.collection() != pins.collection
+            || accepted_grant.position() != pins.grant_seq
+        {
+            return Err(refuse());
+        }
+        let genesis = read(1)?;
+        if mdbn_wire::hash::chain_hash(&genesis) != accepted_genesis.chain()
+            || mdbn_wire::hash::chain_hash(&genesis) != expected_genesis
+        {
+            return Err(refuse());
+        }
+        let grant = if pins.grant_seq == 1 {
+            None
+        } else {
+            Some(read(pins.grant_seq)?)
+        };
+        let grant_bytes = grant.as_deref().unwrap_or(&genesis);
+        if mdbn_wire::hash::chain_hash(grant_bytes) != accepted_grant.chain() {
+            return Err(refuse());
+        }
+        let original = bind_original_app_caller(caller, pins, &genesis, grant_bytes)?;
+        Ok(ObservedOriginalAppCaller {
+            original,
+            native: *native,
+        })
+    }
+
+    /// Public CP app-query metadata from a newly checked native original caller.
+    /// Encoded fixed five-field array: collection, LSgrant, client Noise PK,
+    /// original genesis SHA256, original policy key ID. NOT a permit or current
+    /// CP result. The ABI supplies its own RAM Noise handle; decoded declarations
+    /// cannot fabricate that witness. Recheck after external I/O; profiles stay closed.
+    pub fn original_app_query(
+        &self,
+        caller: &crate::noise_sessions::VerifiedAppCaller,
+        declarations: &[u8],
+    ) -> Result<Vec<u8>, crate::original_app::OriginalAppRefused> {
+        let pins = crate::original_app::OriginalAppPins::decode_query_declarations(declarations)?;
+        let target = self
+            .observe_native_target()
+            .map_err(|_| crate::original_app::OriginalAppRefused)?;
+        let observed = self.original_app_caller(caller, &pins)?;
+        self.recheck_native_target(&target)
+            .map_err(|_| crate::original_app::OriginalAppRefused)?;
+        let original = observed.original();
+        cbor::encode(&Cbor::Array(vec![
+            original.caller().collection().to_cbor(),
+            original.caller().grant().to_cbor(),
+            original.caller().client_pk().to_cbor(),
+            original.genesis_sha256().to_cbor(),
+            original.policy_key_id().to_cbor(),
+        ]))
+        .map_err(|_| crate::original_app::OriginalAppRefused)
+    }
+
     /// Whether the replica serves sessions yet (rebuilt from the log since open).
     pub fn serving(&self) -> bool {
         self.replica.hosted_serving()
@@ -374,7 +696,7 @@ impl<S: Store> Engine<S> {
     /// folder, descriptor/revision/range and hosted health precede queueing.
     /// The ordinary frame handler repeats every gate after the host's await.
     pub fn attachment_call_requires_slot(&mut self, session: u64, frame: &[u8]) -> bool {
-        if self.file_reads.active_session().is_some() {
+        if self.replica.attachment_read_session().is_some() {
             return false;
         }
         match file_read_request(frame) {
@@ -407,7 +729,7 @@ impl<S: Store> Engine<S> {
                 let result = self
                     .replica
                     .hosted_attachment_read(SessionId(session), target, range, revision)
-                    .and_then(|_| Err(crate::file_reads::busy()));
+                    .and_then(|_| Err(mdbn_replica::file_io::busy()));
                 self.out.push(Out::Frame(session, response(id, result)));
             }
             _ => self.frame(session, frame),
@@ -415,7 +737,7 @@ impl<S: Store> Engine<S> {
     }
     /// Whether this session still owns the ephemeral attachment stream.
     pub fn attachment_active(&self, session: u64) -> bool {
-        self.file_reads.active_session() == Some(SessionId(session))
+        self.replica.attachment_read_session() == Some(SessionId(session))
     }
 
     /// A frame from a session's client.
@@ -427,25 +749,18 @@ impl<S: Store> Engine<S> {
                     target,
                     range,
                     revision,
-                } => self.file_reads.start(
-                    &mut self.replica,
-                    session,
-                    target,
-                    range,
-                    revision,
-                    &mut self.attachment_region,
-                ),
-                FileReadRequest::Ack { stream, offset } => self.file_reads.ack(
-                    &self.replica,
-                    session,
-                    stream,
-                    offset,
-                    &self.attachment_region,
-                ),
-                FileReadRequest::Cancel { stream } => {
-                    self.file_reads
-                        .cancel(session, stream, &mut self.attachment_region)
-                }
+                } => self
+                    .replica
+                    .read_file(session, target, range, revision)
+                    .map(mdbn_replica::frames::file_read_result),
+                FileReadRequest::Ack { stream, offset } => self
+                    .replica
+                    .ack_chunks(session, stream, offset)
+                    .map(|()| Cbor::Null),
+                FileReadRequest::Cancel { stream } => self
+                    .replica
+                    .cancel_stream(session, stream)
+                    .map(|()| Cbor::Null),
             });
             self.out.push(Out::Frame(session.0, response(id, result)));
             return;
@@ -472,15 +787,13 @@ impl<S: Store> Engine<S> {
 
     /// The client's socket closed.
     pub fn close(&mut self, session: u64) {
-        self.file_reads
-            .close(SessionId(session), &mut self.attachment_region);
         self.submits.retain(|_, w| w.session.0 != session);
         self.frames.close(&mut self.replica, SessionId(session));
     }
 
     /// Run timers.
     pub fn tick(&mut self, now_ms: i64) {
-        if let Some(session) = self.file_reads.tick(now_ms, &mut self.attachment_region) {
+        if let Some(session) = self.replica.attachment_read_tick(now_ms) {
             self.close(session.0);
             self.out.push(Out::Closed(session.0));
         }
@@ -491,7 +804,10 @@ impl<S: Store> Engine<S> {
 
     /// When to call [`Engine::tick`] next (host ms), if at all.
     pub fn next_wakeup(&self) -> Option<i64> {
-        match (self.replica.next_wakeup(), self.file_reads.deadline()) {
+        match (
+            self.replica.next_wakeup(),
+            self.replica.attachment_read_deadline(),
+        ) {
             (Some(a), Some(b)) => Some(a.min(b)),
             (a, b) => a.or(b),
         }
@@ -519,8 +835,7 @@ impl<S: Store> Engine<S> {
     /// Retire the current log session (reset, pause, replaced engine, transport
     /// lost): later replies for its calls are refused before any decoding.
     pub fn retire_log(&mut self) {
-        self.file_reads
-            .retire_transport(&mut self.attachment_region);
+        self.replica.attachment_read_retire_transport();
         if let Some(s) = self.log_session.take() {
             self.log_scopes.clear();
             self.replica.retire_authenticated_log(&s);
@@ -533,10 +848,7 @@ impl<S: Store> Engine<S> {
     /// ticket. It is not an app RPC or an admission permit.
     pub fn attachment_object(&mut self) -> Option<Cbor> {
         self.log_session.as_ref()?;
-        match self
-            .file_reads
-            .object(&self.replica, &self.attachment_region)
-        {
+        match self.replica.attachment_read_object() {
             Ok(Some(o)) => {
                 let call = mdbn_replica::log::LogCall {
                     id: CallId(o.ticket),
@@ -566,54 +878,39 @@ impl<S: Store> Engine<S> {
     }
     /// Recheck the original ticket and READ/folder/wake/health, after every await.
     pub fn attachment_allowed(&self, ticket: u64) -> bool {
-        self.log_session.is_some()
-            && self
-                .file_reads
-                .allowed(&self.replica, ticket, &self.attachment_region)
+        self.log_session.is_some() && self.replica.attachment_read_allowed(ticket)
     }
     /// Bound ciphertext allocation, before streaming network segments into WASM.
     pub fn attachment_reserve(&mut self, ticket: u64, size: u64) -> bool {
-        self.log_session.is_some()
-            && self
-                .file_reads
-                .reserve(&self.replica, ticket, size, &mut self.attachment_region)
+        self.log_session.is_some() && self.replica.attachment_read_reserve(ticket, size)
     }
     #[cfg(test)]
     pub(crate) fn test_attachment_region(&mut self) -> &mut AttachmentRegion {
-        &mut self.attachment_region
+        self.replica.test_attachment_read_region()
     }
 
     /// Borrow the next bounded fixed-region slice; no ownership/key export and
     /// no plaintext output. Host views must not be retained across awaits.
     pub fn attachment_region(&mut self, ticket: u64, size: usize) -> Option<*mut u8> {
         self.log_session.as_ref()?;
-        self.file_reads
-            .region(&self.replica, ticket, size, &mut self.attachment_region)
+        self.replica.attachment_read_region(ticket, size)
     }
     /// Commit exactly the minted slice after its synchronous host copy.
     pub fn attachment_written(&mut self, ticket: u64, size: usize) -> bool {
-        self.log_session.is_some()
-            && self
-                .file_reads
-                .written(&self.replica, ticket, size, &self.attachment_region)
+        self.log_session.is_some() && self.replica.attachment_read_written(ticket, size)
     }
     /// Append the next bounded network segment; no plaintext is released here.
     pub fn attachment_write(&mut self, ticket: u64, bytes: &[u8]) -> bool {
         self.log_session.is_some()
             && bytes.len() <= MAX_OUT_FRAME
-            && self
-                .file_reads
-                .append(&self.replica, ticket, bytes, &mut self.attachment_region)
+            && self.replica.attachment_read_write(ticket, bytes)
     }
     /// Authenticate the complete object in place before exposing a plaintext span.
     pub fn attachment_complete(&mut self, ticket: u64, checksum: B32) -> bool {
         if self.log_session.is_none() {
             return false;
         }
-        match self
-            .file_reads
-            .complete(&self.replica, ticket, checksum, &mut self.attachment_region)
-        {
+        match self.replica.attachment_read_complete(ticket, checksum) {
             Ok(done) => done,
             Err(session) => {
                 self.close(session.0);
@@ -624,7 +921,7 @@ impl<S: Store> Engine<S> {
     }
     /// Abort this exact pending object only, never a newer request's stream.
     pub fn attachment_failed(&mut self, ticket: u64) {
-        if let Some(session) = self.file_reads.fail(ticket, &mut self.attachment_region) {
+        if let Some(session) = self.replica.attachment_read_failed(ticket) {
             self.close(session.0);
             self.out.push(Out::Closed(session.0));
         }
@@ -719,13 +1016,9 @@ impl<S: Store> Engine<S> {
             }
         }
         for session in self.frames.take_closed() {
-            self.file_reads.close(session, &mut self.attachment_region);
             out.push(Out::Closed(session.0));
         }
-        match self
-            .file_reads
-            .poll(&self.replica, &mut self.attachment_region)
-        {
+        match self.replica.attachment_read_poll() {
             Ok(Some((session, frame))) => out.push(Out::Frame(session.0, frame)),
             Ok(None) => {}
             Err(session) => {

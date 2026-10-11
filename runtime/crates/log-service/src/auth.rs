@@ -220,6 +220,25 @@ pub fn verify_token_with_budget(
     now: i64,
     budget: &crate::decode::Budget,
 ) -> Result<Claims> {
+    verify_issuer_token_with_budget(token, issuers, now, budget).map(|token| token.claims)
+}
+
+/// Issuer-only preflight result. This is NOT possession/current-authority proof.
+/// Fields are private and bound to exact token bytes; it can safely survive the
+/// bounded body await without accepting mutable/caller-decoded Claims afterward.
+pub struct VerifiedToken {
+    claims: Claims,
+    issuer: B32,
+    token_hash: B32,
+}
+
+/// Verify issuer/expiry/audience with the existing shared budget BEFORE body I/O.
+pub fn verify_issuer_token_with_budget(
+    token: &str,
+    issuers: &[B32],
+    now: i64,
+    budget: &crate::decode::Budget,
+) -> Result<VerifiedToken> {
     let unauth = |why: &str| ServiceError::reason(Code::Unauthenticated, why);
     if token.len() > 16 * 1024 {
         return Err(unauth("token"));
@@ -233,9 +252,11 @@ pub fn verify_token_with_budget(
         .and_then(|v| v.try_into().ok())
         .ok_or_else(|| unauth("token"))?;
     let digest = token_digest(&claims);
-    if !issuers.iter().any(|pk| verify_sig(&pk.0, &digest.0, &sig)) {
-        return Err(unauth("token_signature"));
-    }
+    let issuer = issuers
+        .iter()
+        .find(|pk| verify_sig(&pk.0, &digest.0, &sig))
+        .copied()
+        .ok_or_else(|| unauth("token_signature"))?;
     let claims = Claims::decode(budget.raw(&claims)?).ok_or_else(|| unauth("token"))?;
     if claims.expires_at <= now {
         return Err(unauth("expired"));
@@ -243,7 +264,67 @@ pub fn verify_token_with_budget(
     if claims.control_plane == claims.device.is_some() {
         return Err(unauth("token"));
     }
-    Ok(claims)
+    Ok(VerifiedToken {
+        claims,
+        issuer,
+        token_hash: sha256(token.as_bytes()),
+    })
+}
+
+/// Initial issuer + possession authentication result, not serving admission.
+///
+/// In particular `Principal::ControlPlane` otherwise erases the actual issuer
+/// and transport key. Fields are private: callers cannot construct this from
+/// decoded claims, a restored ACL, a point reply, or request role metadata.
+/// No raw token/private key is stored and no serialization/default constructor
+/// is provided. Original genesis/kind/owner and fresh revocation/CP/phase/effect
+/// checks remain the caller's responsibility; this is NOT an authority lease.
+#[derive(Clone)]
+pub struct VerifiedCaller {
+    principal: Principal,
+    transport_key: B32,
+    issuer_key: B32,
+    expires_at: i64,
+    token_collection: Option<Uuid>,
+}
+
+impl std::fmt::Debug for VerifiedCaller {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("VerifiedCaller { .. }")
+    }
+}
+
+impl VerifiedCaller {
+    /// The role/UUID/collection tuple actually issuer- and possession-verified.
+    pub fn principal(&self) -> Principal {
+        self.principal
+    }
+    /// Public key that proved possession of this exact token/request or hello.
+    pub fn transport_key(&self) -> B32 {
+        self.transport_key
+    }
+    /// Exact trusted issuer key whose signature was verified, including rotation.
+    pub fn issuer_key(&self) -> B32 {
+        self.issuer_key
+    }
+    /// Signed expiry; observing this value is not fresh current-authority proof.
+    pub fn expires_at(&self) -> i64 {
+        self.expires_at
+    }
+    /// Original signed collection scope, including any CP token scope that the
+    /// legacy unit ControlPlane principal does not itself retain.
+    pub fn token_collection(&self) -> Option<Uuid> {
+        self.token_collection
+    }
+    fn new(principal: Principal, claims: &Claims, issuer: B32) -> Self {
+        Self {
+            principal,
+            transport_key: claims.sign_pk,
+            issuer_key: issuer,
+            expires_at: claims.expires_at,
+            token_collection: claims.collection,
+        }
+    }
 }
 
 fn principal_of(claims: &Claims) -> Principal {
@@ -281,10 +362,25 @@ pub fn verify_hello_with_budget(
     now: i64,
     budget: &crate::decode::Budget,
 ) -> Result<Principal> {
+    verify_hello_caller_with_budget(p, server_nonce, issuers, now, budget)
+        .map(|caller| caller.principal())
+}
+
+/// Verify the original hello while retaining actual issuer/transport identity.
+/// This uses the same version, token, device equality and possession checks as
+/// `verify_hello_with_budget`; it does not establish current serving authority.
+pub fn verify_hello_caller_with_budget(
+    p: &LsHelloParams,
+    server_nonce: &[u8; 32],
+    issuers: &[B32],
+    now: i64,
+    budget: &crate::decode::Budget,
+) -> Result<VerifiedCaller> {
     if p.version.major != 1 {
         return Err(ServiceError::new(Code::UpgradeRequired));
     }
-    let claims = verify_token_with_budget(&p.token, issuers, now, budget)?;
+    let verified = verify_issuer_token_with_budget(&p.token, issuers, now, budget)?;
+    let claims = &verified.claims;
     if claims.device != p.device {
         return Err(ServiceError::reason(Code::Unauthenticated, "device"));
     }
@@ -295,7 +391,11 @@ pub fn verify_hello_with_budget(
     ) {
         return Err(ServiceError::reason(Code::Unauthenticated, "possession"));
     }
-    Ok(principal_of(&claims))
+    Ok(VerifiedCaller::new(
+        principal_of(claims),
+        claims,
+        verified.issuer,
+    ))
 }
 
 type HmacSha256 = Hmac<Sha256>;
@@ -363,6 +463,73 @@ pub fn verify_http(
         seen,
         now,
     )
+}
+
+/// Verify the exact token plus HTTP possession/replay, retaining original public
+/// caller identity. Unlike `verify_http_claims`, decoded/caller-provided Claims
+/// cannot substitute for issuer verification. `collection` must be borrowed from
+/// the caller's already budgeted request, just as with `verify_http_claims`.
+/// Token/body decode, current authority and effect checks must still be bounded;
+/// callers rejecting auth before body reads must keep that early issuer check.
+pub fn verify_http_caller_with_budget(
+    token: &str,
+    nonce_hex: &str,
+    sig_hex: &str,
+    path: &str,
+    method: &str,
+    body: &[u8],
+    collection: &[u8; 16],
+    issuers: &[B32],
+    secret: &[u8],
+    seen: &NonceCache,
+    now: i64,
+    budget: &crate::decode::Budget,
+) -> Result<VerifiedCaller> {
+    let verified = verify_issuer_token_with_budget(token, issuers, now, budget)?;
+    verify_http_verified_token(
+        token, nonce_hex, sig_hex, path, method, body, collection, &verified, secret, seen, now,
+    )
+}
+
+/// Finish HTTP proof/replay using ONLY an opaque issuer-preflight result. Exact
+/// token binding prevents role/key/expiry substitution across the body await;
+/// no second token decode/budget reset is needed. Not current serving authority.
+pub fn verify_http_verified_token(
+    token: &str,
+    nonce_hex: &str,
+    sig_hex: &str,
+    path: &str,
+    method: &str,
+    body: &[u8],
+    collection: &[u8; 16],
+    verified: &VerifiedToken,
+    secret: &[u8],
+    seen: &NonceCache,
+    now: i64,
+) -> Result<VerifiedCaller> {
+    if token.len() > 16 * 1024
+        || !crate::service::ct_eq(&sha256(token.as_bytes()).0, &verified.token_hash.0)
+    {
+        return Err(ServiceError::reason(Code::Unauthenticated, "token"));
+    }
+    let principal = verify_http_claims(
+        token,
+        nonce_hex,
+        sig_hex,
+        path,
+        method,
+        body,
+        collection,
+        &verified.claims,
+        secret,
+        seen,
+        now,
+    )?;
+    Ok(VerifiedCaller::new(
+        principal,
+        &verified.claims,
+        verified.issuer,
+    ))
 }
 
 /// Check possession/replay using already issuer-verified claims and a collection

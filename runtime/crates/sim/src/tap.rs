@@ -87,6 +87,17 @@ pub struct Tap {
     pub hits: Vec<Hit>,
 }
 
+/// Deterministic, domain-separated 128-bit pseudorandom content tag. The same
+/// tag is written into the workload and registered before any transport scan;
+/// deriving it does not consume the workload's scheduling/entropy RNG.
+pub fn content_tag(seed: u64, label: &str) -> String {
+    let mut input = seed.to_le_bytes().to_vec();
+    input.extend_from_slice(label.as_bytes());
+    let digest = mdbn_wire::hash::h("sim/tap-content/v1", &input);
+    let suffix: String = digest.0[..16].iter().map(|b| format!("{b:02x}")).collect();
+    format!("{label}-{suffix}")
+}
+
 const MAX_RAW: usize = 16 << 20;
 
 /// Every embedded `alg = 1` frame (`u8(1) ‖ u32be(len) ‖ u32be(raw_len) ‖ data`)
@@ -157,6 +168,15 @@ fn contains(hay: &[u8], needle: &[u8]) -> bool {
 }
 
 impl Tap {
+    /// Register the exact long field names, body prefix and path namespace used
+    /// by the simulated workload; generic short words are not content tags.
+    pub fn content_fields(&mut self, seed: u64) {
+        for label in ["title", "status", "tags", "Body", "notes"] {
+            let tag = content_tag(seed, label);
+            self.marker(&format!("field or text {label}"), tag.as_bytes());
+        }
+    }
+
     /// Register a content marker.
     pub fn marker(&mut self, label: &str, bytes: &[u8]) {
         self.markers.push((label.to_string(), bytes.to_vec()));
@@ -298,14 +318,35 @@ mod tests {
     }
 
     #[test]
+    fn content_tags_are_long_seeded_and_detect_each_content_class() {
+        let mut tap = Tap::default();
+        tap.content_fields(7906);
+        assert_eq!(tap.markers.len(), 5);
+        assert!(tap.markers.iter().all(|(_, bytes)| bytes.len() >= 16));
+        for label in ["title", "status", "tags", "Body", "notes"] {
+            let tag = content_tag(7906, label);
+            assert_eq!(tag, content_tag(7906, label));
+            assert_ne!(tag, content_tag(7907, label));
+            let mut detector = tap.clone();
+            detector.scan(Party::LogService, "plain", tag.as_bytes());
+            detector.scan(Party::LogService, "compressed", &frame(tag.as_bytes()));
+            assert_eq!(detector.hits.len(), 2);
+            assert!(detector.hits.iter().all(|h| h.kind == Kind::Plaintext));
+        }
+        tap.scan(Party::LogService, "opaque short-word collision", b"tags");
+        assert!(tap.hits.is_empty());
+    }
+
+    #[test]
     fn all_private_parties_reject_plaintext_and_keys() {
         for party in [Party::HostedPrivate, Party::Relay, Party::ControlPlane] {
             let mut tap = Tap::default();
-            tap.marker("field title", b"title:");
+            let title = content_tag(1, "title");
+            tap.marker("field title", title.as_bytes());
             tap.secret("device key", &[7; 32]);
             tap.scan(party, "ciphertext", &[9; 100]);
             assert!(tap.hits.is_empty());
-            tap.scan(party, "raw", b"title: private");
+            tap.scan(party, "raw", format!("{title}: private").as_bytes());
             tap.scan(party, "compressed", &frame(b"tk000123x"));
             tap.scan(party, "key", &[7; 32]);
             assert_eq!(
@@ -439,11 +480,16 @@ mod tests {
     #[test]
     fn catches_raw_compressed_and_keys() {
         let mut t = Tap::default();
-        t.marker("field title", b"title:");
+        let title = content_tag(1, "title");
+        t.marker("field title", title.as_bytes());
         t.secret("epoch key 1", &[7u8; 32]);
         t.scan(Party::LogService, "opaque", &[9u8; 100]);
         assert!(t.hits.is_empty());
-        t.scan(Party::LogService, "raw", b"---\ntitle: x\n");
+        t.scan(
+            Party::LogService,
+            "raw",
+            format!("---\n{title}: x\n").as_bytes(),
+        );
         let mut wrapped = b"\x8a\x0bheader".to_vec();
         wrapped.extend(frame(b"---\nstatus: open\n- tk000055x\n"));
         t.scan(Party::LogService, "deflated", &wrapped);

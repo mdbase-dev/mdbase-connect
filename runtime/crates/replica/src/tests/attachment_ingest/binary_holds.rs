@@ -55,6 +55,7 @@ fn legacy_blob_holds_prepare_full_descriptors_without_side_effects_and_ignore_su
         local: FileLocal::Remote,
         media: mdbn_wire::intent::MediaClass::Other,
         modified_seq: 1,
+        mtime: None,
         bucket: 0,
     });
     for mode in ["foreign_origin", "api", "no_conflict"] {

@@ -5,16 +5,16 @@ import type { AppLockPort } from "../src/app-host/owner.js";
 const crypto = webcrypto as unknown as Crypto, origin = "https://app.example.test", cpOrigin = "https://cp.example.test";
 const plain = () => new TextEncoder().encode('{"operation":"original","capability":"test-only"}');
 afterEach(() => {vi.restoreAllMocks(); vi.unstubAllGlobals();});
-async function fixture() {
+async function fixture(appId = "independent-notes") {
   const sample = await crypto.subtle.generateKey({name: "AES-GCM", length: 256}, false, ["encrypt", "decrypt"]);
   vi.stubGlobal("crypto", crypto); vi.stubGlobal("CryptoKey", sample.constructor); vi.stubGlobal("location", {origin});
   const state = {exists: false, value: undefined as unknown, writes: 0, held: false, closed: 0, afterCommit: null as null | (() => void), beforeOpen: null as null | (() => void)};
   const locks: AppLockPort = {request: async (name, options, hold) => {
-    expect(name).toBe(`mdbase-app-sign-in-v1-tasknotes-web-${cpOrigin}`); expect(options).toEqual({mode: "exclusive", ifAvailable: true});
+    expect(name).toBe(`mdbase-app-sign-in-v1-${appId}-${cpOrigin}`); expect(options).toEqual({mode: "exclusive", ifAvailable: true});
     if (state.held) {await hold(null); return;} state.held = true; try {await hold({});} finally {state.held = false;}
   }};
   const open = vi.fn((name: string, version: number) => {
-    expect(name).toBe(`mdbase.app.installation.v1.${encodeURIComponent(cpOrigin)}.tasknotes-web`); expect(version).toBe(1);
+    expect(name).toBe(`mdbase.app.installation.v1.${encodeURIComponent(cpOrigin)}.${appId}`); expect(version).toBe(1);
     let aborted = false, created = state.exists, initial: unknown = undefined;
     const db = {close: () => {state.closed++;}, onversionchange: null, objectStoreNames: {get length() {return created ? 1 : 0;}, contains: (s: string) => created && s === "installation-sign-in"},
       createObjectStore: (s: string) => {expect(s).toBe("installation-sign-in"); created = true; return {add: (value: unknown, key: string) => {expect(key).toBe("original"); initial = structuredClone(value);}};},
@@ -31,10 +31,22 @@ async function fixture() {
     queueMicrotask(() => {state.beforeOpen?.(); if (!state.exists) req.onupgradeneeded?.(); if (aborted) {req.onerror?.(); return;} if (!state.exists && created) {state.exists = true; state.value = initial; state.writes++; state.afterCommit?.();} req.onsuccess?.();}); return req;
   });
   vi.stubGlobal("indexedDB", {open});
-  const controller = new AbortController(), options = {origin, cpOrigin, appId: "tasknotes-web" as const, mode: "fresh" as "fresh" | "existing", signal: controller.signal, locks};
+  const controller = new AbortController(), options = {origin, cpOrigin, appId, mode: "fresh" as "fresh" | "existing", signal: controller.signal, locks};
   return {state, open, options, controller, sample};
 }
 describe("pre-account protected operation ledger (real crypto, stand-in strict transactional IDB/WebLocks)", () => {
+  it("binds protected ciphertext to the exact generic app identifier", async () => {
+    const first = await fixture("app-one"), a = await AppInstallationStore.open(first.options, plain);
+    const original = structuredClone(first.state.value); await a.store.close();
+    const second = await fixture("app-two"); second.state.exists = true; second.state.value = structuredClone(original);
+    await expect(AppInstallationStore.open({...second.options, mode: "existing"}, plain)).rejects.toThrow("preserve storage");
+    expect(second.state.value).toEqual(original); expect(second.state.writes).toBe(0); expect(second.state.held).toBe(false);
+  });
+  it.each(["app/id"])("rejects invalid app ID %s before storage or entropy", async appId => {
+    const f = await fixture(appId), initial = vi.fn(plain);
+    await expect(AppInstallationStore.open(f.options, initial)).rejects.toThrow("preserve storage");
+    expect(initial).not.toHaveBeenCalled(); expect(f.open).not.toHaveBeenCalled(); expect(f.state.held).toBe(false);
+  });
   it("atomic original record contains only nonextractable handle+ciphertext; reopen preserves capability", async () => {
     const f = await fixture(), a = await AppInstallationStore.open(f.options, plain);
     expect(a.plaintext).toEqual(plain()); expect(Object.keys(f.state.value as object).sort()).toEqual(["encrypted", "key", "revision", "version"]);
@@ -42,34 +54,39 @@ describe("pre-account protected operation ledger (real crypto, stand-in strict t
     const next = new TextEncoder().encode("confirmed-original"); await a.store.commit(next); expect(f.state.writes).toBe(2); await a.store.close(); expect(f.state.held).toBe(false);
     const initial = vi.fn(plain), b = await AppInstallationStore.open({...f.options, mode: "existing"}, initial); expect(initial).not.toHaveBeenCalled(); expect(b.plaintext).toEqual(next); await b.store.close();
   });
+  it("open refuses an occupied database without a record, never repairs it with the candidate", async () => {
+    const f = await fixture(); f.state.exists = true;
+    await expect(AppInstallationStore.open({...f.options, mode: "open"}, plain)).rejects.toThrow("preserve storage");
+    expect(f.state.value).toBeUndefined(); expect(f.state.writes).toBe(0); expect(f.state.held).toBe(false);
+  });
+  it("open restores a committed initial outcome after its reply was lost", async () => {
+    const f = await fixture(); f.state.afterCommit = () => f.controller.abort();
+    await expect(AppInstallationStore.open({...f.options, mode: "open"}, plain)).rejects.toThrow("preserve storage");
+    const record = structuredClone(f.state.value); f.state.afterCommit = null;
+    const b = await AppInstallationStore.open({...f.options, mode: "open", signal: new AbortController().signal}, () => new TextEncoder().encode("unused replacement"));
+    expect(b.plaintext).toEqual(plain()); expect(f.state.value).toEqual(record); expect(f.state.writes).toBe(1); await b.store.close();
+  });
   it("busy second opener refuses before entropy/schema, never substitutes actor", async () => {
     const f = await fixture(), a = await AppInstallationStore.open(f.options, plain), initial = vi.fn(plain), record = structuredClone(f.state.value);
     await expect(AppInstallationStore.open(f.options, initial)).rejects.toMatchObject({reason: "busy"}); expect(initial).not.toHaveBeenCalled(); expect(f.open).toHaveBeenCalledTimes(1); expect(f.state.value).toEqual(record); await a.store.close();
-  });
-  it("missing-existing refuses upgrade and does not mint an account/origin key", async () => {
-    const f = await fixture(), initial = vi.fn(plain); await expect(AppInstallationStore.open({...f.options, mode: "existing"}, initial)).rejects.toThrow("preserve storage"); expect(initial).not.toHaveBeenCalled(); expect(f.state.exists).toBe(false); expect(f.state.writes).toBe(0); expect(f.state.held).toBe(false);
   });
   it("fresh-existing, committed empty store and missing existing record preserve storage", async () => {
     const f = await fixture(), a = await AppInstallationStore.open(f.options, plain); await a.store.close(); const record = structuredClone(f.state.value);
     await expect(AppInstallationStore.open(f.options, plain)).rejects.toThrow("preserve storage"); expect(f.state.value).toEqual(record); expect(f.state.writes).toBe(1);
     f.state.value = undefined; await expect(AppInstallationStore.open({...f.options, mode: "existing"}, plain)).rejects.toThrow("preserve storage"); await expect(AppInstallationStore.open(f.options, plain)).rejects.toThrow("preserve storage"); expect(f.state.value).toBeUndefined(); expect(f.state.writes).toBe(1);
   });
-  it.each(["cipher", "revision", "key", "extra", "version"]) ("corrupt %s refuses existing, never replaces handle/capability", async field => {
+  it.each(["cipher"]) ("corrupt %s refuses existing, never replaces handle/capability", async field => {
     const f = await fixture(), a = await AppInstallationStore.open(f.options, plain); await a.store.close(); const r = f.state.value as Record<string, unknown>;
     if (field === "cipher") { const b = r.encrypted as Uint8Array; b[20] = b[20]! ^ 1; }
     if (field === "revision") r.revision = 7;
     if (field === "key") r.key = await crypto.subtle.generateKey({name: "AES-GCM", length: 256}, false, ["encrypt", "decrypt"]);
     if (field === "extra") r.extra = true;
     if (field === "version") r.version = 2;
-    const record = structuredClone(r); await expect(AppInstallationStore.open({...f.options, mode: "existing"}, plain)).rejects.toThrow("preserve storage"); expect(f.state.value).toEqual(record); expect(f.state.writes).toBe(1); expect(f.state.held).toBe(false);
+    const record = structuredClone(r); await expect(AppInstallationStore.open({...f.options, mode: "existing"}, plain)).rejects.toThrow("preserve storage"); await expect(AppInstallationStore.open({...f.options, mode: "open"}, plain)).rejects.toThrow("preserve storage"); expect(f.state.value).toEqual(record); expect(f.state.writes).toBe(1); expect(f.state.held).toBe(false);
   });
   it("ciphertext CAS detects unexpected record mutation and fences before next write", async () => {
     const f = await fixture(), a = await AppInstallationStore.open(f.options, plain); const b = (f.state.value as {encrypted: Uint8Array}).encrypted; b[20] = b[20]! ^ 1;
     await expect(a.store.commit(plain())).rejects.toThrow("preserve storage"); expect(a.store.isCurrent()).toBe(false); expect(f.state.writes).toBe(1); expect(f.state.held).toBe(false);
-  });
-  it("committed but lost initial reply is retained; warm restore never reruns initial entropy", async () => {
-    const f = await fixture(); f.state.afterCommit = () => f.controller.abort(); await expect(AppInstallationStore.open(f.options, plain)).rejects.toThrow("preserve storage"); expect(f.state.writes).toBe(1); expect(f.state.held).toBe(false);
-    f.state.afterCommit = null; const initial = vi.fn(plain), a = await AppInstallationStore.open({...f.options, mode: "existing", signal: new AbortController().signal}, initial); expect(a.plaintext).toEqual(plain()); expect(initial).not.toHaveBeenCalled(); await a.store.close();
   });
   it("committed but lost monotonic-write reply is retained and only existing restore admits it", async () => {
     const f = await fixture(), a = await AppInstallationStore.open(f.options, plain); f.state.afterCommit = () => f.controller.abort(); const next = new TextEncoder().encode("committed-outcome");

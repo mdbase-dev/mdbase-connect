@@ -180,7 +180,9 @@ impl MemState {
             Effect::PutFile { id, path, blob } => {
                 self.put_file_content(*id, path, FileContent::Blob(*blob));
             }
-            Effect::PutAttachmentFile { id, path, content } => {
+            Effect::PutAttachmentFile {
+                id, path, content, ..
+            } => {
                 self.put_file_content(*id, path, FileContent::AttachmentV1(*content));
             }
             Effect::PutUnindexedMarkdown { id, path, content } => {
@@ -462,7 +464,9 @@ impl<'a> Overlay<'a> {
             Effect::PutFile { id, path, blob } => {
                 self.put_file_content(*id, path, FileContent::Blob(*blob));
             }
-            Effect::PutAttachmentFile { id, path, content } => {
+            Effect::PutAttachmentFile {
+                id, path, content, ..
+            } => {
                 self.put_file_content(*id, path, FileContent::AttachmentV1(*content));
             }
             Effect::PutUnindexedMarkdown { id, path, content } => {

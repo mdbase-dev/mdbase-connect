@@ -393,7 +393,7 @@ fn file_c(f: &FileRow) -> StoreResult<Vec<u8>> {
             c
         }
     };
-    enc(Cbor::Array(vec![
+    let mut fields = vec![
         f.id.to_cbor(),
         f.path.to_cbor(),
         f.path_key.to_cbor(),
@@ -402,13 +402,22 @@ fn file_c(f: &FileRow) -> StoreResult<Vec<u8>> {
         f.modified_seq.to_cbor(),
         u64::from(f.bucket).to_cbor(),
         local_c(f.local),
-    ]))
+    ];
+    if let Some(mtime) = f.mtime {
+        fields.push(mtime.to_cbor());
+    }
+    enc(Cbor::Array(fields))
 }
 
 fn file_d(v: &SqlValue) -> StoreResult<FileRow> {
     let a = dec(v, "file")?;
-    let [id, path, pk, content, media, ms, bucket, local] = a.as_slice() else {
-        return Err(corrupt("file"));
+    let (fields, mtime) = match a.as_slice() {
+        [_, _, _, _, _, _, _, _] => (a.as_slice(), None),
+        [_, _, _, _, _, _, _, _, mtime] => (&a[..8], Some(w::<i64>(mtime, "file mtime")?)),
+        _ => return Err(corrupt("file")),
+    };
+    let [id, path, pk, content, media, ms, bucket, local] = fields else {
+        unreachable!("exact file row arity checked above");
     };
     use mdbn_wire::unindexed_markdown::{
         FileKindV1, PAYLOAD_DISCRIMINATOR, UnindexedMarkdownPayloadV1,
@@ -433,6 +442,7 @@ fn file_d(v: &SqlValue) -> StoreResult<FileRow> {
         modified_seq: w(ms, "file")?,
         bucket: u16::try_from(w::<u64>(bucket, "file")?).map_err(|_| corrupt("file"))?,
         local: local_d(local)?,
+        mtime,
     })
 }
 
@@ -1653,6 +1663,7 @@ mod tests {
             content: FileContent::Blob(blob.clone()),
             media: MediaClass::Other,
             modified_seq: 7,
+            mtime: None,
             bucket: 5,
             local: FileLocal::Remote,
         };
@@ -1683,7 +1694,38 @@ mod tests {
             total_plain_bytes: 1 << 30,
         };
         row.content = FileContent::AttachmentV1(content.clone());
-        assert_eq!(file_d(&SqlValue::Blob(file_c(&row).unwrap())).unwrap(), row);
+        let old_attachment = file_c(&row).unwrap();
+        assert_eq!(
+            file_d(&SqlValue::Blob(old_attachment.clone())).unwrap(),
+            row
+        );
+        let old_fields = dec(&SqlValue::Blob(old_attachment.clone()), "file").unwrap();
+        assert_eq!(old_fields.len(), 8);
+        for mtime in [i64::MIN, 0, i64::MAX] {
+            row.mtime = Some(mtime);
+            let encoded = file_c(&row).unwrap();
+            assert_eq!(
+                dec(&SqlValue::Blob(encoded.clone()), "file").unwrap().len(),
+                9
+            );
+            assert_eq!(file_d(&SqlValue::Blob(encoded)).unwrap(), row);
+        }
+        for bad in [Cbor::Null, Cbor::Text("123".into()), Cbor::Uint(u64::MAX)] {
+            let mut fields = old_fields.clone();
+            fields.push(bad);
+            assert!(matches!(
+                file_d(&SqlValue::Blob(enc(Cbor::Array(fields)).unwrap())),
+                Err(StoreError::Corrupt(_))
+            ));
+        }
+        let mut fields = old_fields;
+        fields.extend([Cbor::Uint(1), Cbor::Uint(2)]);
+        assert!(matches!(
+            file_d(&SqlValue::Blob(enc(Cbor::Array(fields)).unwrap())),
+            Err(StoreError::Corrupt(_))
+        ));
+        row.mtime = None;
+        assert_eq!(file_c(&row).unwrap(), old_attachment);
         let mut encoded = dec(&SqlValue::Blob(file_c(&row).unwrap()), "file").unwrap();
         let Cbor::Array(tuple) = &mut encoded[3] else {
             panic!("attachment tuple");
@@ -1770,6 +1812,7 @@ mod tests {
                 content,
                 media: MediaClass::Other,
                 modified_seq: 7,
+                mtime: None,
                 bucket: 5,
                 local: FileLocal::Remote,
             };

@@ -37,6 +37,25 @@ by deployment config or included in the eight-file artifact. Tests also exercise
 real network chunked transfer, error/abort cleanup, concurrent outer/actor reads,
 multiple actors, R2-await lifetime accounting and nonce preservation on rejection.
 
+### Local dev-proxy disconnect classification (test harness only)
+
+CORS probes have one narrowly scoped transport replay: only a failed request with
+an **exact correlated** new `Error inside ProxyWorker ... Network connection lost.`
+log line is retried ONCE. A unique test-only query tag binds the method+URL to this
+request (signed pathname/body/headers unchanged); old/other-request/other-error/
+missing/unbounded log evidence cannot trigger replay. Log observation is bounded.
+The retry uses `node:http` with `agent:false` for a new client socket and forwards
+`Connection: close`. It records `local_proxy_disconnect_retry` without tokens or
+payloads. Another failure is returned unchanged, not retried recursively.
+
+Worker-generated500s without that exact proxy evidence still fail the original
+assertions. No status/signature/nonce assertion changes, global fetch override,
+Wrangler/dependency patch or production retry/drain policy. Only replayable CORS
+fixture bytes are accepted; WS and mutation/restore/other suites do not use this
+helper. A proxy-disconnect replay is not proof the Worker did not execute the first
+request: an already-consumed nonce still causes the unchanged replay assertion to
+fail. These tests qualify local native behavior, not browser or managed PITR behavior.
+
 ## Ingress memory admission
 
 RPC transport bodies are capped at 10 MiB (the 9 MiB import-object maximum plus
@@ -91,6 +110,82 @@ refusal during commit preserves valid staged bytes for a fresh minimal retry;
 actual canonical/protocol corruption still triggers authorized stage cleanup. Debug counters
 require both test keys and debug hooks. The test-only wrapper is excluded from
 deployment artifacts; real environment configs enable neither test flag.
+
+## Browser CORS
+
+`LOGSVC_CORS_ORIGINS` is a comma-separated list of exact canonical HTTP(S)
+origins (no paths, credentials, wildcard or `null`). Absent/empty disables CORS;
+malformed, duplicate or oversized configuration refuses. It is transport
+visibility only, never authentication, possession, grant or nonce authority.
+
+Environment-specific values to configure through the guarded release path:
+
+- LAB: `http://127.0.0.1:48218,https://lab.tasknotes-app.pages.dev`
+- Production, **set later; not deployed by this change**: `https://app.tasknotes.dev`
+
+Only allowlisted origins may get empty unauthenticated OPTIONS responses. The
+requested method must be GET/POST/PUT and requested headers must be in the fixed
+list: authorization, content-type, x-mdbase-nonce, x-mdbase-sig, range,
+x-amz-checksum-sha256. Preflight does not read bodies/auth keys, generate or consume
+nonces, look up an actor, or call R2. Denied preflight has no CORS allow headers.
+Real responses retain their original status/body stream/WebSocket and existing
+RPC auth; allowlisted responses get exact ACAO and exposed object metadata.
+Vary preserves existing tokens and adds Origin, including on denied/no-origin
+responses. Credentials/cookie access is not enabled. Unhandled platform exceptions
+are not converted into successful CORS responses.
+
+Targeted local check after building the real Worker: `LOGSVC_CORS_ONLY=1 node
+tests/runtime.mjs`. The CORS cases also run in the ordinary runtime suite. They
+use actual WASM/Worker/actor/SQLite paths with synthetic signers and isolated
+local bindings; poisoned getters/instrumented bodies verify empty preflight with
+no auth/binding/body side effects. They test missing/invalid bearer, invalid
+possession, successful signed dispatch and nonce replay. No real deployment or
+browser acceptance follows from these tests.
+
+Reuse considered: Connect uses `@fastify/cors` with reflective `origin: true` and
+credentials enabled; that Node plugin/policy cannot be reused in this Rust
+exact-allowlist Worker. No CORS helper exists in the hosted Worker or Rust log
+server. The small adapter uses existing Workers SDK Headers/Url APIs and no new
+dependency. It decorates the unchanged authenticated handler, not its auth logic.
+
+## CLOSED native pre-key constructor
+
+`prekey_original.rs` captures only the required profile's bounded public inputs
+and actual SDK State/LOG namespace. Missing/malformed public roots, canonical
+CP_URL or binding refuse before request-body/private-key/SQL access. The four
+private native SDK callbacks are currently denial-only: no genuine CLOSED nonce
+producer is wired, so no challenge handle or authenticated witness is issued.
+Required serving remains503; ordinary behavior is unchanged. Configuration
+capture/export availability is not migration or H0 permission.
+
+The private v2 source pipeline reserves one exact slot before body await, bounds
+raw original genesis to64KiB, independently preflights current/next public issuers,
+and composes the unchanged native HTTP nonce/MAC/PoP verifier and OriginalCaller
+binder. Minimal native verification buffers are wiped on drop. Local Begin DATA
+is `[2,handle,challenge32,nonce32,digest32]` (max113bytes); committed CP envelopes
+require exact19claims/outer2/domainv2, independent root certificate validation and
+actual issuer/transport/original/N/T/challenge binding. V1 cannot satisfy it.
+
+These primitives are behind the existing unavailable producer guard: actual SDK
+Begin still refuses before reading body/secret; Accept and Current never release a
+positive witness. Signed PG-time checks are non-consuming and never reset RAM
+first-use state. External receive/current clock, durable handoff floor, both-way
+old-writer/issuer drain and CP continuity remain unqualified. Neither codec/crypto
+unit tests nor a public synthetic envelope proves those facts. `/v1/nonce` remains
+503; this source change does not enable issuance or change ordinary authentication.
+
+After a fresh remote native build/package, run the isolated checks:
+
+```sh
+node tests/prekey-constructor-runtime.mjs
+node tests/pitr-closed-runtime.mjs
+```
+
+The first uses actual native SDK exports and native opaque IDs in three local
+namespaces, with public synthetic configuration and poisoned private getters.
+It covers A/D, nil, foreign namespace/object, malformed/missing public inputs,
+immutable capture and all503/no-body/no-private-read/no-service-SQL denial. It
+does not authenticate a live caller or call CP/provider/LAB services.
 
 ## Deployment gates
 

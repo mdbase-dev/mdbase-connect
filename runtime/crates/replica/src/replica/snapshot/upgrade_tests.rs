@@ -213,8 +213,9 @@ fn unknown_chunk_versions_and_sections_upgrade_whole_install_preserving_prior_st
         rows: vec![],
     }
     .to_cbor();
+    // Chunk fmt 2 carries optional attachment mtime; 3 is still unknown.
     for bad in [
-        field(&good, 0, Cbor::Uint(2)),
+        field(&good, 0, Cbor::Uint(3)),
         field(&good, 1, Cbor::Uint(14)),
         field(&good, 1, Cbor::Uint(15)),
     ] {
@@ -224,6 +225,24 @@ fn unknown_chunk_versions_and_sections_upgrade_whole_install_preserving_prior_st
         assert_prior(&r, IncidentKind::UpgradeRequired, true);
     }
 }
+#[test]
+fn known_attachment_mtime_format_in_wrong_section_is_integrity_not_upgrade() {
+    let bad = field(
+        &ChunkPayload {
+            section: SectionKind::Legacy(L::Records),
+            bucket: 0,
+            rows: vec![],
+        }
+        .to_cbor(),
+        0,
+        Cbor::Uint(2),
+    );
+    assert!(!ChunkPayload::from_cbor(&bad).unwrap_err().is_unknown());
+    let mut r = replica();
+    chunk_reply(&mut r, &bad);
+    assert_prior(&r, IncidentKind::Integrity, true);
+}
+
 #[test]
 fn decoded_native_sections_still_require_authenticated_manifest_and_complete_digest() {
     for kind in [

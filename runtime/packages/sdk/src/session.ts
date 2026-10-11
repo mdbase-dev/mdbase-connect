@@ -7,12 +7,12 @@
  */
 import type { CborValue } from "./cbor.js";
 import { Codec, SchemaError } from "./codec.js";
-import { isMdbaseError, mdbaseError, MdbaseError } from "./errors.js";
+import { isMdbaseError, mdbaseError, MdbaseError, type MdbaseErrorContext } from "./errors.js";
 import type { Connector, FramePort } from "./transport/port.js";
 import { clientFrame, helloParams, HelloParams, helloResult, HelloResult, Problem, problem } from "./wire.js";
 
 /** API versions this SDK speaks, highest first. */
-export const API_VERSIONS = [{ major: 1, minor: 0 }];
+export const API_VERSIONS = [{ major: 1, minor: 2 }, { major: 1, minor: 1 }, { major: 1, minor: 0 }];
 
 export type PushHandler = (payload: CborValue) => void;
 export type RequestHandler = (params: CborValue) => Promise<CborValue> | CborValue;
@@ -30,6 +30,12 @@ export function schemaToError(e: unknown, what: string): MdbaseError {
     return mdbaseError("upgrade_required", `${what}: ${e.message}`, { reason: "unknown_variant" });
   }
   return mdbaseError("internal", `${what}: ${e instanceof Error ? e.message : String(e)}`);
+}
+
+/** @internal A copy of a write failure that names its original mutation(s). The
+ * original error is never mutated: one session failure can reject many requests. */
+export function withMutation(e: unknown, what: string, ids: MdbaseErrorContext): MdbaseError {
+  return new MdbaseError(schemaToError(e, what).toProblem(), { ...ids, cause: e });
 }
 
 export class Session {

@@ -38,7 +38,8 @@ async fn wait_ready(profile: &Profile) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn daemon_lifecycle() {
     let root = scratch("d");
-    let profile = Profile::isolated(&root.join("state")).unwrap();
+    // Keep isolated Unix endpoints short; readiness assertions remain unchanged.
+    let profile = Profile::isolated(&root.join("s")).unwrap();
 
     assert!(matches!(
         client::ping(&profile.control).await,
@@ -519,7 +520,8 @@ async fn widening_access_needs_an_on_screen_confirmation() {
         (Answer::Yes, None),
     ] {
         let root = scratch("c");
-        let profile = Profile::isolated(&root.join("state")).unwrap();
+        // Keep isolated Unix endpoints short; readiness assertions remain unchanged.
+        let profile = Profile::isolated(&root.join("s")).unwrap();
         let keys = std::sync::Arc::new(MemoryStore::default());
         let (p, k2) = (profile.clone(), keys.clone());
         let daemon = tokio::spawn(async move {

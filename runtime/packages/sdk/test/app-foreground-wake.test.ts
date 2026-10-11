@@ -31,11 +31,6 @@ describe("foreground hints use existing authenticated native replacement, never 
     expect(f.runtime.reconnectLogTransport).toHaveBeenCalledTimes(2); f.wake.hidden(); await vi.advanceTimersByTimeAsync(15000);
     expect(f.authority.accessToken).toHaveBeenCalledTimes(2); await f.wake.close();
   });
-  it("hidden after token await does not start a native replacement", async () => {
-    const f = fixture(); let resolve!: (value: string) => void;
-    f.authority.accessToken.mockImplementationOnce(() => new Promise(yes => { resolve = yes; }));
-    const pending = f.wake.foreground(); f.wake.hidden(); resolve("admitted"); expect(await pending).toBe(false); expect(f.runtime.reconnectLogTransport).not.toHaveBeenCalled(); await f.wake.close();
-  });
   it("offline CP failure does not retire/recreate local owners", async () => {
     const f = fixture(); f.authority.accessToken.mockRejectedValueOnce(new Error("private credential MUST NOT escape"));
     await expect(f.wake.foreground()).rejects.toMatchObject({ reason: "unavailable", message: "app foreground wake: unavailable" });

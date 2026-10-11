@@ -5,7 +5,12 @@ use crate::value::Value;
 use std::collections::BTreeMap;
 mod candidate;
 mod projection;
+mod summaries;
 pub use candidate::{BasesCandidate, BasesCandidateAtom, BasesCandidateCompare};
+#[cfg(test)]
+mod host_renderer_tests;
+#[cfg(test)]
+mod summary_tests;
 pub(crate) mod witness;
 pub use projection::{
     BasesProjectionRequirements, MAX_BASES_PROJECTION_FIELD_BYTES, MAX_BASES_PROJECTION_FIELDS,
@@ -40,6 +45,8 @@ pub struct BasesProjectedRow {
     pub sort: Vec<RuntimeValue>,
     /// Exact optional grouping scalar.
     pub group: Option<RuntimeValue>,
+    /// Typed semantic summary inputs in declaration order, never display gaps.
+    pub summary_inputs: Vec<RuntimeValue>,
     /// One cell per original displayed column, including repeats/unavailable.
     pub cells: Vec<BasesDisplayCell>,
 }
@@ -50,6 +57,8 @@ pub struct AdmittedBasesView {
     group: Option<SortTerm>,
     columns: Vec<PropertySelector>,
     unavailable: Vec<Option<&'static str>>,
+    limit: Option<u64>,
+    summaries: Vec<crate::query::groups::CompiledSummary>,
 }
 impl AdmittedBasesView {
     /// Admit every reachable filter/sort/group/display formula before any rows.
@@ -61,24 +70,32 @@ impl AdmittedBasesView {
         times: FileTimeAvailability,
         budget: &mut WorkBudget,
     ) -> Result<Self, FilterAdmissionFailure> {
-        for (k, _) in view.raw.iter() {
-            if !matches!(
-                k,
-                "type"
-                    | "name"
-                    | "filters"
-                    | "order"
-                    | "sort"
-                    | "groupBy"
-                    | "columnWidth"
-                    | "hideEmptyColumns"
-            ) {
+        super::host_renderer::admit_options(view, budget)?;
+        let limit = if let Some(value) = view.raw.get("limit") {
+            if !matches!(value, Value::Int(_) | Value::Float(_)) {
                 return work_fail(
                     budget,
-                    EvaluationFailure::UnsupportedConstruct("base_view_option"),
+                    EvaluationFailure::UnsupportedConstruct("base_view_limit"),
                 );
             }
-        }
+            if !budget.charge(1, 128) {
+                return Err(FilterAdmissionFailure::Work(
+                    budget.failure().expect("view limit"),
+                ));
+            }
+            // Use the canonical Core query validator, not a second number policy.
+            crate::query::Query::from_value(&Value::Map(crate::value::Map::from_iter([(
+                "limit".into(),
+                value.clone(),
+            )])))
+            .map_err(|_| {
+                FilterAdmissionFailure::Source(ErrorKind::UnsupportedConstruct("base_view_limit"))
+            })?
+            .limit
+        } else {
+            None
+        };
+        let (summaries, summary_selectors) = summaries::compile(view, budget)?;
         let mut formulas: BTreeMap<String, String> = BTreeMap::new();
         if let Some(value) = fields.formulas {
             let Some(map) = value.as_map() else {
@@ -185,6 +202,10 @@ impl AdmittedBasesView {
             lowered.append(",")?;
             append_selector(&mut lowered, &term.property)?;
         }
+        for selector in &summary_selectors {
+            lowered.append(",")?;
+            append_selector(&mut lowered, selector)?;
+        }
         for column in &columns {
             lowered.append(",")?;
             append_selector(&mut lowered, column)?;
@@ -205,7 +226,7 @@ impl AdmittedBasesView {
         let (program, unavailable) = match Program::compile_view(
             &lowered.source,
             &formulas,
-            sort.len() + usize::from(group.is_some()),
+            sort.len() + usize::from(group.is_some()) + summaries.len(),
             times,
         ) {
             Ok(p) => p,
@@ -223,11 +244,22 @@ impl AdmittedBasesView {
             group,
             columns,
             unavailable,
+            limit,
+            summaries,
         })
     }
     /// Original normalized display selectors, retaining declaration order/repeats.
     pub fn columns(&self) -> &[PropertySelector] {
         &self.columns
+    }
+    /// Global query cap, applied after complete semantic ordering and before
+    /// the independently requested display window. Zero is an empty result.
+    pub fn limit(&self) -> Option<u64> {
+        self.limit
+    }
+    /// Whether a complete-match reduction must precede limiting/windowing.
+    pub fn has_summaries(&self) -> bool {
+        !self.summaries.is_empty()
     }
     /// Requested sort directions; comparator policy is captured separately.
     pub fn sort_directions(&self) -> Vec<SortDirection> {
@@ -271,7 +303,7 @@ impl AdmittedBasesView {
         budget: &mut WorkBudget,
         cancelled: &dyn Fn() -> bool,
     ) -> Result<Option<BasesProjectedRow>, EvaluationFailure> {
-        let semantic = self.sort.len() + usize::from(self.group.is_some());
+        let semantic = self.sort.len() + usize::from(self.group.is_some()) + self.summaries.len();
         // Bounded stack scratch, not a per-row cloned heap allocation. Runtime
         // display gaps are populated only AFTER matching and semantic keys.
         let mut unavailable = [None; MAX_VIEW_COLUMNS];
@@ -290,6 +322,7 @@ impl AdmittedBasesView {
             return Ok(None);
         };
         let display = values.split_off(semantic);
+        let summary_inputs = values.split_off(semantic - self.summaries.len());
         let group = if self.group.is_some() {
             values.pop()
         } else {
@@ -314,6 +347,7 @@ impl AdmittedBasesView {
         Ok(Some(BasesProjectedRow {
             sort: values,
             group,
+            summary_inputs,
             cells,
         }))
     }

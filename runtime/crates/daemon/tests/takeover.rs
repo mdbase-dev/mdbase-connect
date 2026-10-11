@@ -252,10 +252,14 @@ async fn automatic_takeover_waits_for_a_flipped_batch_and_fails_closed() {
     );
 
     // A restart with Connect unreachable leaves evidence unchanged and still serves.
+    // The closed gate guards starting only: an old daemon revived meanwhile (it holds
+    // daemon.lock) is still reported.
     fixture.abort();
     let evidence = std::fs::read(profile.state_dir.join("takeover.json")).unwrap();
     c.call(Method::SHUTDOWN, json!({})).await.unwrap();
     daemon.await.unwrap().unwrap();
+    let revived_old = std::fs::File::create(old.join("daemon.lock")).unwrap();
+    revived_old.try_lock().unwrap();
     let p = profile.clone();
     let daemon = tokio::spawn(async move { server::run(p, Some(Box::new(keys))).await });
     wait_ready(&profile).await;
@@ -264,12 +268,13 @@ async fn automatic_takeover_waits_for_a_flipped_batch_and_fails_closed() {
     assert!(v.to_string().contains(old_agent::CID));
     let st = status(&profile).await;
     assert_eq!(st["record"]["state"], "complete");
-    assert_eq!(st["revived"], false);
-    until("unreachable batch wait", || async {
+    let st = until("unreachable batch wait", || async {
         let s = status(&profile).await;
         (s["waiting_for_migration_batch"] == true).then_some(s)
     })
     .await;
+    assert_eq!(st["revived"], true, "{st}");
+    drop(revived_old);
     assert_eq!(
         std::fs::read(profile.state_dir.join("takeover.json")).unwrap(),
         evidence

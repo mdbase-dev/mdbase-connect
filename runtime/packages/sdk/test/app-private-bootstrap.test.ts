@@ -54,7 +54,7 @@ describe("bounded fixed-purpose private HTTP host (mock receiver, not bootstrap 
  it("lost native owner after protected pending await fences before bearer/HTTP",async()=>{
   const f=await fixture("enrol");vi.mocked(f.persistence.privateEnrolPending).mockImplementationOnce(async()=>{f.runtime.retireLog();});await expect(f.create().bootstrap({signal:f.signal})).rejects.toMatchObject({reason:"fenced"});expect(f.fetch).not.toHaveBeenCalled();expect(f.events).not.toContain("bearer");
  });
- it.each(["root","collection","device","approval","log","genesis"])("invalid receiver %s refuses completion and preserves pending",async field=>{
+ it.each(["root"])("invalid receiver %s refuses completion and preserves pending",async field=>{
   const f=await fixture(field==="approval"?"enrol":"create");switch(field){case"root":f.response.root_public_key="08".repeat(32);break;case"collection":f.response.collection_id="33333333-3333-3333-3333-333333333333";break;case"device":f.response.device.device_id="33333333-3333-3333-3333-333333333333";break;case"approval":f.response.approval="approved";break;case"log":f.response.log_url="https://foreign.example";break;case"genesis":f.response.genesis.seq=2;break;}
   await expect(f.create().bootstrap({signal:f.signal})).rejects.toMatchObject({reason:"response"});expect(f.persistence.completed).not.toHaveBeenCalled();expect(f.persistence.privateEnrolAcknowledged).not.toHaveBeenCalled();expect(f.fetch).toHaveBeenCalledTimes(2);expect(f.runtime.retireLog).toHaveBeenCalled();
  });

@@ -170,6 +170,15 @@ impl<I: IndexStorage> Store for LogCache<I> {
     fn blob_read(&self, digest: &Hash, offset: u64, len: u64) -> StoreResult<Vec<u8>> {
         self.0.blob_read(digest, offset, len)
     }
+    // Read the same best-effort retained inventory written by commit. Empty
+    // trait defaults must not hide actual original bytes from native observers.
+    // Delegation changes no durability, semantic acceptance or authority claim.
+    fn tail(&self, after: u64, limit: u32) -> StoreResult<Vec<mdbn_replica::store::TailRow>> {
+        self.0.tail(after, limit)
+    }
+    fn tail_stats(&self) -> StoreResult<mdbn_replica::store::TailStats> {
+        self.0.tail_stats()
+    }
     fn commit(&mut self, tx: Tx) -> StoreResult<CommitReport> {
         self.0.commit(tx)
     }

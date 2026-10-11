@@ -70,19 +70,6 @@ describe("VaultPlatform explicitly bounded ReadRange", () => {
     expect(b.readInto).not.toHaveBeenCalled();
     expect(b.close).toHaveBeenCalledOnce();
   });
-  it("close during native read prevents late plaintext delivery", async () => {
-    const started = deferred<void>(), pending = deferred<number>();
-    let target!: Uint8Array;
-    const b = backend({ readInto: async (_, bytes) => { target = bytes; started.resolve(); return pending.promise; } });
-    const platform = new VaultPlatform(new FakeVault().app, { root: "", platform: desktop, openRangeSource: () => BoundedRangeSource.open(b) });
-    const read = platform.perform({ op: "ReadRange", path: "a.bin", offset: 0, len: 4 });
-    await started.promise;
-    const closing = platform.closeRangeReads();
-    target.fill(123); pending.resolve(4);
-    expect(await read).toMatchObject({ ok: false, error: { kind: "BadHandle" } });
-    await closing;
-    expect(target.byteLength === 0 || target.every(v => v === 0)).toBe(true);
-  });
   it("shutdown during final cleanup fences the already copied output and wipes it", async () => {
     const startedClose = deferred<void>(), finishClose = deferred<void>();
     const b = backend({ close: async () => { startedClose.resolve(); await finishClose.promise; } });

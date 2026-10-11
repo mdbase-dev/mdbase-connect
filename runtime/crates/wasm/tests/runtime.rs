@@ -173,6 +173,109 @@ fn hello_answers_with_a_response_frame() {
 }
 
 #[test]
+fn contract_query_frame_requires_exact_version_one_envelope() {
+    let mut rt = Runtime::open(&config(), host()).unwrap();
+    let request = |id, method: &str, params| {
+        ClientFrame::Request(ClientRequest {
+            id,
+            method: method.into(),
+            params,
+        })
+        .to_bytes()
+        .unwrap()
+    };
+    let hello = request(
+        0,
+        "hello",
+        HelloParams {
+            versions: vec![Version { major: 1, minor: 0 }],
+            client_name: "contract-frames".into(),
+            client_version: "1".into(),
+            features: None,
+            timezone: None,
+        }
+        .to_cbor(),
+    );
+    let (session, response) = rt.hello(None, &hello);
+    let ClientFrame::Response(response) =
+        ClientFrame::from_cbor(&cbor::decode(&response).unwrap()).unwrap()
+    else {
+        panic!("response")
+    };
+    assert!(session != 0 && response.problem.is_none());
+    rt.poll();
+    let base = vec![
+        (Cbor::Uint(0), Cbor::Uint(1)),
+        (Cbor::Uint(1), Cbor::Text("mdbase.person".into())),
+        (Cbor::Uint(2), Cbor::Text("2.0.0".into())),
+    ];
+    let mut wrong_version = base.clone();
+    wrong_version[0].1 = Cbor::Uint(2);
+    let mut extra = base.clone();
+    extra.push((Cbor::Uint(5), Cbor::Bool(true)));
+    let mut invalid_limit = base.clone();
+    invalid_limit.push((Cbor::Uint(3), Cbor::Uint(129)));
+    let mut invalid_cursor = base.clone();
+    invalid_cursor.push((Cbor::Uint(4), Cbor::Uint(7)));
+    let mut missing_version = base.clone();
+    missing_version.remove(0);
+    for (index, params) in [
+        wrong_version,
+        extra,
+        invalid_limit,
+        invalid_cursor,
+        missing_version,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        rt.frame(
+            session,
+            &request(index as u64 + 1, "query_contract_v1", Cbor::Map(params)),
+        );
+        let responses: Vec<_> = rt
+            .poll()
+            .into_iter()
+            .filter_map(|out| {
+                let Out::Frame(s, bytes) = out else {
+                    return None;
+                };
+                assert_eq!(s, session);
+                match ClientFrame::from_cbor(&cbor::decode(&bytes).unwrap()).unwrap() {
+                    ClientFrame::Response(r) => Some(r),
+                    _ => None,
+                }
+            })
+            .collect();
+        assert_eq!(responses.len(), 1);
+        assert!(responses[0].result.is_none());
+        assert_eq!(
+            responses[0].problem.as_ref().unwrap().code,
+            "invalid_request"
+        );
+    }
+    rt.frame(session, &request(99, "query_contract_v1", Cbor::Map(base)));
+    let responses: Vec<_> = rt
+        .poll()
+        .into_iter()
+        .filter_map(|out| {
+            let Out::Frame(_, bytes) = out else {
+                return None;
+            };
+            match ClientFrame::from_cbor(&cbor::decode(&bytes).unwrap()).unwrap() {
+                ClientFrame::Response(r) => Some(r),
+                _ => None,
+            }
+        })
+        .collect();
+    assert_eq!(responses.len(), 1);
+    assert_eq!(
+        responses[0].problem.as_ref().unwrap().reason.as_deref(),
+        Some("data_contract_not_found")
+    );
+}
+
+#[test]
 fn wipe_zeroes_key_material() {
     let mut b = vec![7u8; 32];
     mdbn_wasm::runtime::wipe(&mut b);

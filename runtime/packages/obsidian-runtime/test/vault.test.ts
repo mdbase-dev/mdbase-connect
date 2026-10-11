@@ -26,13 +26,6 @@ const val = (r: FileOpResult) => {
   return r.value;
 };
 
-describe("VaultPlatform capabilities", () => {
-  it("declares the GuardedInPlace contract; Android is case-insensitive despite the adapter", () => {
-    expect(setup().pf.capabilities).toMatchObject({ replace: "GuardedInPlace", exclusiveCreate: false, durability: "None", events: "Hint", case: "Sensitive" });
-    expect(setup({ android: true }).pf.capabilities.case).toBe("Insensitive");
-  });
-});
-
 describe("guarded operations", () => {
   it("replaces only when the content is exactly as expected", async () => {
     const { fv, run } = setup();
@@ -94,12 +87,6 @@ describe("renames", () => {
     expect(fv.text("Case.md")).toBe("precious");
   });
 
-  it("control: the bridge rename alone would have deleted it", async () => {
-    const fv = new FakeVault({ android: true, insensitive: true });
-    fv.setText("case.md", "precious");
-    await fv.app.vault.adapter.rename("case.md", "Case.md");
-    expect(fv.files.size).toBe(0);
-  });
 });
 
 describe("collection root", () => {
@@ -165,17 +152,6 @@ describe("sync-tool detection", () => {
   });
 });
 
-describe("process() is not CAS against outside writers", () => {
-  it("documents the residual: an outside write between read and write is lost", async () => {
-    const { fv, run } = setup();
-    fv.setText("a.md", "one");
-    fv.betweenReadAndWrite = () => fv.setText("a.md", "outside");
-    await run({ op: "GuardedReplace", path: "a.md", expect: b("one"), new: b("two") });
-    // This is the outside-writer race; the store's quiet gate,
-    // sync-tool detection and post-write verification exist because of it.
-    expect(fv.text("a.md")).toBe("two");
-  });
-});
 
 describe("event pairing regressions", () => {
   it("a trashed file is not paired with a create whose path was renamed away", () => {

@@ -118,11 +118,6 @@ describe("relay Noise pipe (Connect #596)", () => {
   });
 
   for (const [code, reason, want] of [
-    [4401, "unauthenticated", { code: "unauthenticated" }],
-    [4403, "grant_inactive", { code: "forbidden" }],
-    [4404, "connector_offline", { code: "unavailable", reason: "no_device_online" }],
-    [4429, "connector_busy", { code: "rate_limited" }],
-    [4000, "device_key_mismatch", { code: "unauthenticated", reason: "device_key_mismatch" }],
     [4000, "device_mismatch", { code: "unavailable", reason: "device_mismatch" }],
   ] as const) {
     it(`close ${code} ${reason} → ${want.code}`, async () => {

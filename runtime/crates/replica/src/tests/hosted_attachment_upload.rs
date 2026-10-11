@@ -2,6 +2,8 @@
 use super::*;
 use crate::replica::AttachmentUploadStatus;
 
+#[path = "hosted_attachment_upload/client_open.rs"]
+mod client_open;
 #[path = "hosted_attachment_upload/fairness.rs"]
 mod fairness;
 #[path = "hosted_attachment_upload/region_upload.rs"]
@@ -154,7 +156,7 @@ fn delegated_create_pending_empty_effects_reserves_canonical_destination() {
     };
     assert_eq!(
         problem.reason.as_deref(),
-        Some("attachment_replace_requires_op18")
+        Some("attachment_destination_exists")
     );
     assert!(h.r.store.pending_get(&b).unwrap().is_none());
     assert!(h.r.known_receipt_for(&b, Some(G2)).unwrap().is_none());
@@ -165,7 +167,7 @@ fn delegated_create_pending_empty_effects_reserves_canonical_destination() {
     let error = start(&mut h, session_b, "files/pending.bin", B16([0xbc; 16])).unwrap_err();
     assert_eq!(
         error.into_problem().reason.as_deref(),
-        Some("attachment_replace_requires_op18")
+        Some("attachment_destination_exists")
     );
     for call in held {
         let reply = h.log.call(call.request);
@@ -259,7 +261,7 @@ fn delegated_create_rechecks_concurrent_destination_holder() {
     };
     assert_eq!(
         problem.reason.as_deref(),
-        Some("attachment_replace_requires_op18")
+        Some("attachment_destination_exists")
     );
     assert!(h.r.known_receipt_for(&id, Some(G1)).unwrap().is_none());
 }

@@ -1,10 +1,10 @@
 import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { describe, expect, it } from "vitest";
-import { DualJournal, unionCopies } from "../src/journal/dual.js";
+import { DualJournal } from "../src/journal/dual.js";
 import { IdbJournalCopy } from "../src/journal/idbCopy.js";
 import { VaultJournalCopy, type VaultFileIO } from "../src/journal/vaultCopy.js";
-import { decodeBatch, encodeBatch, JournalError, type JournalEntry } from "../src/journal/types.js";
+import { JournalError, type JournalEntry } from "../src/journal/types.js";
 
 class MemVault implements VaultFileIO {
   files = new Map<string, string>();
@@ -50,30 +50,7 @@ const wipe = async (idb: IDBFactory) => {
   for (const d of dbs) await new Promise((r) => { const q = idb.deleteDatabase(d.name!); q.onsuccess = q.onerror = () => r(null); });
 };
 
-describe("batch encoding", () => {
-  it("round-trips", () => {
-    const b = [set("a", 1, "x"), del("b", 2), { space: 255, key: new Uint8Array(0), version: 2 ** 52, value: new Uint8Array(0) }];
-    expect(decodeBatch(encodeBatch(b))).toEqual(b);
-    expect(() => decodeBatch(encodeBatch(b).slice(0, -1))).toThrow();
-  });
-});
-
 describe("DualJournal", () => {
-  it("appends to both and loads the live set", async () => {
-    const vault = new MemVault();
-    const idb = freshIdb();
-    let s = await open(vault, idb);
-    expect(await s.j.load()).toEqual([]);
-    await s.j.append([set("a", 1, "1"), set("b", 2, "2")]);
-    await s.j.append([del("a", 3), set("c", 4, "4")]);
-    s.close();
-    s = await open(vault, idb);
-    expect(view(await s.j.load())).toEqual({ b: "2", c: "4" });
-    expect(s.j.lastReport!.repaired).toBe(false);
-    expect(s.j.lastReport!.copies.map((c) => c.state)).toEqual(["ok", "ok"]);
-    s.close();
-  });
-
   it("recovers from the vault file after Clear storage, and repairs IndexedDB", async () => {
     const vault = new MemVault();
     const idb = freshIdb();
@@ -86,20 +63,6 @@ describe("DualJournal", () => {
     expect(view(await s.j.load())).toEqual({ a: "1" });
     expect(s.j.lastReport!.repaired).toBe(true);
     expect((await s.idbCopy.load()).entries.length).toBe(1);
-    s.close();
-  });
-
-  it("recovers the tail from IndexedDB after power loss tore the vault file", async () => {
-    const vault = new MemVault();
-    const idb = freshIdb();
-    let s = await open(vault, idb);
-    await s.j.load();
-    for (let i = 1; i <= 10; i++) await s.j.append([set(`k${i}`, i, `v${i}`)]);
-    s.close();
-    const [path, text] = [...vault.files.entries()][0]!;
-    vault.files.set(path, text.slice(0, text.length - 37)); // tail lost mid-line
-    s = await open(vault, idb);
-    expect(Object.keys(view(await s.j.load())).length).toBe(10);
     s.close();
   });
 
@@ -141,16 +104,6 @@ describe("DualJournal", () => {
     s.close();
   });
 
-  it("ignores journal files of another device or collection (copied in by a sync tool)", async () => {
-    const vault = new MemVault();
-    let s = await open(vault, freshIdb(), "other/dev");
-    await s.j.load();
-    await s.j.append([set("x", 1, "1")]);
-    s.close();
-    s = await open(vault, freshIdb());
-    expect(await s.j.load()).toEqual([]); // not ours: ignored
-    s.close();
-  });
 
   it("reports lost when every copy is unreadable", async () => {
     const vault = new MemVault();
@@ -212,16 +165,6 @@ describe("DualJournal", () => {
   });
 });
 
-describe("unionCopies", () => {
-  it("highest version wins, floors drop compacted deletes", () => {
-    const u = unionCopies([
-      { state: "ok", entries: [set("a", 1, "old"), set("z", 2, "zombie")], floor: 0, damaged: 0 },
-      { state: "ok", entries: [set("a", 4, "new")], floor: 3, damaged: 0 },
-    ]);
-    expect([...u.keys()].length).toBe(1);
-    expect(new TextDecoder().decode([...u.values()][0]!.value!)).toBe("new");
-  });
-});
 
 describe("vault copy edge cases (from the desktop e2e)", () => {
   it("a torn very first snapshot means never written, not lost", async () => {

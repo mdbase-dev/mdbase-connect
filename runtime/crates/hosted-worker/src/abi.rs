@@ -26,8 +26,10 @@ use mdbn_store_file::{LogCache, SqlStoreLimits};
 use mdbn_wire::cbor::{self, Cbor};
 use mdbn_wire::common::{B16, B32, Uuid};
 
+use crate::cpp_claim_ticket::{CppClaimTicketSlot, handle as cpp_handle};
 use crate::do_index::{DoIndex, SqlHost};
-use crate::runtime::{Engine, OpenConfig, Out};
+use crate::migration_action_ledger::{JournalDriver, PreparedAction};
+use crate::runtime::{ConfiguredCppAudience, Engine, OpenConfig, Out};
 
 #[link(wasm_import_module = "env")]
 unsafe extern "C" {
@@ -42,6 +44,15 @@ type Live = Engine<LogCache<DoIndex>>;
 
 struct State {
     engine: Live,
+    cpp_claim: Option<CppClaimTicketSlot>,
+    migration: Option<JournalDriver<SharedMigrationIndex>>,
+    migration_index: Rc<RefCell<DoIndex>>,
+    migration_target: Option<crate::runtime::ObservedNativeTarget>,
+    migration_ticket: Option<(u64, PreparedAction)>,
+    migration_result: Option<B32>,
+    migration_physical: Option<(u64, u64, Option<B32>)>,
+    migration_confirmed: Option<(u64, Option<B32>)>,
+    next_migration_physical: u64,
     collection: Uuid,
     /// Method of each outstanding log call, to decode its reply.
     calls: BTreeMap<u64, &'static str>,
@@ -66,6 +77,11 @@ impl Drop for State {
 
 // One engine per instance (one DO); JS is single-threaded per instance.
 static mut STATE: Option<State> = None;
+// Never reset on State replacement, so detached native handles cannot collide.
+static mut CPP_NEXT: u64 = 0;
+// Irreversible once-instance initialization; ordinary opens cannot enable CPP.
+static mut CPP_OPEN_ATTEMPTED: bool = false;
+static mut MIGRATION_NEXT: u64 = 0;
 
 fn give(out: Vec<u8>) -> u64 {
     let mut out = std::mem::ManuallyDrop::new(out);
@@ -78,6 +94,27 @@ unsafe fn take(ptr: *mut u8, len: usize) -> Vec<u8> {
         return Vec::new();
     }
     unsafe { Vec::from_raw_parts(ptr, len, len) }
+}
+
+/// Borrow the exact same index allocation as this Engine's LogCache. Migration
+/// metadata cannot reset the replica cache or reclassify its durability.
+struct SharedMigrationIndex(Rc<RefCell<DoIndex>>);
+impl mdbn_store_file::index::IndexStorage for SharedMigrationIndex {
+    fn info(&self) -> mdbn_store_file::index::IndexInfo {
+        mdbn_store_file::index::IndexStorage::info(&*self.0.borrow())
+    }
+    fn run(
+        &mut self,
+        batch: &mdbn_store_file::index::Batch,
+    ) -> Result<Vec<mdbn_store_file::index::StmtResult>, mdbn_store_file::index::IndexError> {
+        mdbn_store_file::index::IndexStorage::run(&mut *self.0.borrow_mut(), batch)
+    }
+    fn reset(&mut self) -> Result<(), mdbn_store_file::index::IndexError> {
+        Err(mdbn_store_file::index::IndexError::new(
+            mdbn_store_file::index::IndexErrorKind::Other,
+            "migration index cannot reset",
+        ))
+    }
 }
 
 struct ImportSql;
@@ -206,6 +243,51 @@ pub unsafe extern "C" fn hd_verify_hosted_genesis(ptr: *mut u8, len: usize) -> u
 /// `ptr` must come from `alloc(len)` and hold `len` initialised bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hd_open(ptr: *mut u8, len: usize) -> u64 {
+    unsafe {
+        CPP_OPEN_ATTEMPTED = true;
+        open_native(ptr, len, None)
+    }
+}
+
+/// Trusted host configuration ONLY, separate from secret OpenConfig and all
+/// signing inputs. Host must establish actual owned ControlClient provenance.
+/// # Safety
+/// Both inputs must come from alloc with their lengths initialized.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hd_open_cpp_claim(
+    ptr: *mut u8,
+    len: usize,
+    aptr: *mut u8,
+    alen: usize,
+) -> u64 {
+    let audience = unsafe { take_secret(aptr, alen) };
+    let already_opened = unsafe { CPP_OPEN_ATTEMPTED };
+    unsafe { CPP_OPEN_ATTEMPTED = true };
+    if already_opened {
+        let _cfg = unsafe { take_secret(ptr, len) };
+        unsafe { STATE = None };
+        return give(b"CPP configuration refused".to_vec());
+    }
+    let parsed = if alen <= 255 {
+        std::str::from_utf8(&audience.0)
+            .ok()
+            .and_then(|s| ConfiguredCppAudience::from_owned_origin(s).ok())
+    } else {
+        None
+    };
+    match parsed {
+        Some(a) => unsafe { open_native(ptr, len, Some(a)) },
+        None => {
+            let _cfg = unsafe { take_secret(ptr, len) };
+            unsafe { STATE = None };
+            give(b"CPP configuration refused".to_vec())
+        }
+    }
+}
+
+unsafe fn open_native(ptr: *mut u8, len: usize, audience: Option<ConfiguredCppAudience>) -> u64 {
+    // A reopen attempt is terminal for old observations, even if it refuses.
+    unsafe { STATE = None };
     let mut cfg = unsafe { take(ptr, len) };
     let parsed = OpenConfig::decode(&cfg);
     crate::runtime::wipe(&mut cfg);
@@ -213,15 +295,28 @@ pub unsafe extern "C" fn hd_open(ptr: *mut u8, len: usize) -> u64 {
         let collection = c.cfg.collection;
         let http = crate::log_http::LogHttpSigner::new(&c.secrets.sign_sk);
         let index = Rc::new(RefCell::new(DoIndex::new(Box::new(ImportSql))));
-        let store = LogCache::open(index, SqlStoreLimits::default())
+        let store = LogCache::open(index.clone(), SqlStoreLimits::default())
             .map_err(|e| crate::runtime::OpenFailure(format!("cache: {e}")))?;
         let host = Host {
             clock: Box::new(HostClock),
             entropy: Box::new(HostEntropy),
             zones: Box::new(HostZones),
         };
-        Engine::open(c, store, host, HostedProfile::default()).map(|engine| State {
+        let engine = match audience {
+            Some(a) => Engine::open_for_cpp_claim(c, store, host, HostedProfile::default(), a),
+            None => Engine::open(c, store, host, HostedProfile::default()),
+        };
+        engine.map(|engine| State {
             engine,
+            cpp_claim: None,
+            migration: None,
+            migration_index: index,
+            migration_target: None,
+            migration_ticket: None,
+            migration_result: None,
+            migration_physical: None,
+            migration_confirmed: None,
+            next_migration_physical: 0,
             collection,
             calls: BTreeMap::new(),
             http,
@@ -240,6 +335,398 @@ pub unsafe extern "C" fn hd_open(ptr: *mut u8, len: usize) -> u64 {
         }
         Err(e) => give(e.0.into_bytes()),
     }
+}
+
+/// Begin one native observation; null on refusal/busy, no replacement/renewal.
+/// Output [opaque handle, native collection16, native device16] is DATA only.
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_cpp_claim_begin() -> u64 {
+    let result = with(|s| {
+        if s.cpp_claim.is_some() {
+            return None;
+        }
+        let id = unsafe { CPP_NEXT.checked_add(1).filter(|n| *n < (1_u64 << 53))? };
+        unsafe { CPP_NEXT = id };
+        let slot = CppClaimTicketSlot::begin(&mut s.engine, id).ok()?;
+        let (id, col, dev) = slot.subject();
+        s.cpp_claim = Some(slot);
+        Some(Cbor::Array(vec![
+            Cbor::Uint(id),
+            Cbor::Bytes(col.0.to_vec()),
+            Cbor::Bytes(dev.0.to_vec()),
+        ]))
+    })
+    .flatten()
+    .unwrap_or(Cbor::Null);
+    give(cbor::encode(&result).unwrap_or_default())
+}
+
+/// VOID predicate: no physical check, CPP freshness, lease or effect result.
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_cpp_claim_current(h: f64) -> u32 {
+    let Some(id) = cpp_handle(h) else {
+        return 0;
+    };
+    with(|s| {
+        u32::from(
+            s.cpp_claim
+                .as_ref()
+                .is_some_and(|slot| slot.assert_current(&mut s.engine, id).is_ok()),
+        )
+    })
+    .unwrap_or(0)
+}
+
+/// One closed challenge signature attempt per ticket, raw signature64 or empty.
+/// # Safety
+/// Input must come from alloc with len initialized; consumed and wiped.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hd_cpp_claim_sign(h: f64, ptr: *mut u8, len: usize) -> u64 {
+    let challenge = unsafe { take_secret(ptr, len) };
+    let Some(id) = cpp_handle(h) else {
+        return give(Vec::new());
+    };
+    let output = with(|s| {
+        let slot = s.cpp_claim.as_mut()?;
+        if !slot.matches(id) {
+            return None;
+        }
+        if len != 32 {
+            s.cpp_claim = None;
+            return None;
+        }
+        let bytes = <[u8; 32]>::try_from(challenge.0.as_slice()).ok()?;
+        slot.sign(&mut s.engine, id, B32(bytes))
+            .ok()
+            .map(|sig| sig.0.to_vec())
+    })
+    .flatten()
+    .unwrap_or_default();
+    give(output)
+}
+
+/// Terminal cleanup only for this exact ticket; cannot finish its successor.
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_cpp_claim_finish(h: f64) {
+    let Some(id) = cpp_handle(h) else {
+        return;
+    };
+    with(|s| {
+        if s.cpp_claim.as_ref().is_some_and(|slot| slot.matches(id)) {
+            s.cpp_claim = None;
+        }
+    });
+}
+
+/// Bind native Driver correlation from the closed owned-Control CPP exchange.
+/// This writes run metadata but issues no effect/H1 authority.
+/// # Safety
+/// Input is alloc-owned initialized CBOR [owner16, exact started_us string,
+/// root16, sign32, kem32, noise32], all matched against native accepted originals.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hd_migration_open(h: f64, ptr: *mut u8, len: usize) -> u32 {
+    let input = unsafe { take(ptr, len) };
+    if len > 256 {
+        return 0;
+    }
+    let Some(id) = cpp_handle(h) else {
+        return 0;
+    };
+    let Ok(Cbor::Array(fields)) = cbor::decode(&input) else {
+        return 0;
+    };
+    let [
+        Cbor::Bytes(owner),
+        Cbor::Text(start),
+        Cbor::Bytes(root),
+        Cbor::Bytes(sign),
+        Cbor::Bytes(kem),
+        Cbor::Bytes(noise),
+    ] = fields.as_slice()
+    else {
+        return 0;
+    };
+    let Ok(owner) = <[u8; 16]>::try_from(owner.as_slice()) else {
+        return 0;
+    };
+    let (Ok(root), Ok(sign), Ok(kem), Ok(noise)) = (
+        <[u8; 16]>::try_from(root.as_slice()),
+        <[u8; 32]>::try_from(sign.as_slice()),
+        <[u8; 32]>::try_from(kem.as_slice()),
+        <[u8; 32]>::try_from(noise.as_slice()),
+    ) else {
+        return 0;
+    };
+    with(|s| {
+        let Some(slot) = s.cpp_claim.as_ref() else {
+            return 0;
+        };
+        let Ok(binding) = slot.migration_binding(
+            &mut s.engine,
+            id,
+            B16(owner),
+            start.clone(),
+            (B16(root), B32(sign), B32(kem), B32(noise)),
+        ) else {
+            return 0;
+        };
+        if let Some(driver) = s.migration.as_ref() {
+            return u32::from(driver.matches_binding(&binding));
+        }
+        let Ok(target) = s.engine.observe_native_target() else {
+            return 0;
+        };
+        let index = SharedMigrationIndex(s.migration_index.clone());
+        let Ok(driver) = JournalDriver::resume(index, binding, &mut HostEntropy) else {
+            return 0;
+        };
+        s.migration = Some(driver);
+        s.migration_target = Some(target);
+        1
+    })
+    .unwrap_or(0)
+}
+
+fn migration_current(s: &mut State, id: u64) -> bool {
+    let Some(target) = s.migration_target.as_ref() else {
+        return false;
+    };
+    if s.engine.recheck_native_target(target).is_err() {
+        return false;
+    }
+    let Some((handle, ticket)) = s.migration_ticket.as_ref() else {
+        return false;
+    };
+    if *handle != id {
+        return false;
+    }
+    s.migration
+        .as_mut()
+        .is_some_and(|driver| driver.assert_prepared(ticket).is_ok())
+}
+
+/// Native sequencing DATA only, persisted before any effect dispatch.
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_migration_pending_begin() -> u64 {
+    let result = with(|s| {
+        if s.migration_ticket.is_some() {
+            return None;
+        }
+        let target = s.migration_target.as_ref()?;
+        s.engine.recheck_native_target(target).ok()?;
+        let id = unsafe {
+            MIGRATION_NEXT
+                .checked_add(1)
+                .filter(|n| *n < (1_u64 << 53))?
+        };
+        unsafe {
+            MIGRATION_NEXT = id;
+        }
+        let driver = s.migration.as_mut()?;
+        let (ticket, _) = driver.prepare(&mut HostEntropy).ok()?;
+        let p = ticket.data();
+        let output = Cbor::Array(vec![
+            Cbor::Uint(id),
+            Cbor::Bytes(driver.collection().0.to_vec()),
+            Cbor::Bytes(driver.driver_id().0.to_vec()),
+            Cbor::Bytes(p.action.0.to_vec()),
+            Cbor::Uint(p.sequence),
+            Cbor::Uint(p.kind),
+            Cbor::Bytes(p.fingerprint.0.to_vec()),
+        ]);
+        s.migration_ticket = Some((id, ticket));
+        Some(output)
+    })
+    .flatten()
+    .unwrap_or(Cbor::Null);
+    give(cbor::encode(&result).unwrap_or_default())
+}
+
+/// VOID saved pending/actual native target recheck; not a physical ACK.
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_migration_pending_current(h: f64) -> u32 {
+    let Some(id) = cpp_handle(h) else {
+        return 0;
+    };
+    with(|s| u32::from(migration_current(s, id))).unwrap_or(0)
+}
+
+/// Native negative H1 evaluation only. No Created.verified=true ingress.
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_migration_keying_wait(h: f64) -> u64 {
+    let Some(id) = cpp_handle(h) else {
+        return 0;
+    };
+    with(|s| {
+        if !migration_current(s, id) || s.migration_confirmed != Some((id, None)) {
+            return 0;
+        }
+        let Some(driver) = s.migration.as_mut() else {
+            return 0;
+        };
+        if s.migration_result.is_some() {
+            return 0;
+        }
+        let Some((_, ticket)) = s.migration_ticket.as_ref() else {
+            return 0;
+        };
+        if !matches!(
+            driver.prepared_action(ticket),
+            Ok(mdbn_migrate_portable::hosted_import::Action::CreateCollection)
+        ) {
+            return 0;
+        }
+        match driver.settle(
+            ticket,
+            mdbn_migrate_portable::hosted_import::Outcome::Created { verified: false },
+        ) {
+            Ok(result) => {
+                s.migration_result = Some(result);
+                give(result.0.to_vec())
+            }
+            Err(_) => 0,
+        }
+    })
+    .unwrap_or(0)
+}
+
+/// VOID exact original settlement readback, not physical completion ACK.
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_migration_settlement_current(h: f64) -> u32 {
+    let Some(id) = cpp_handle(h) else {
+        return 0;
+    };
+    with(|s| u32::from(migration_settled(s, id))).unwrap_or(0)
+}
+fn migration_settled(s: &mut State, id: u64) -> bool {
+    let Some(target) = s.migration_target.as_ref() else {
+        return false;
+    };
+    if s.engine.recheck_native_target(target).is_err() {
+        return false;
+    }
+    let Some((handle, ticket)) = s.migration_ticket.as_ref() else {
+        return false;
+    };
+    let Some(result) = s.migration_result else {
+        return false;
+    };
+    *handle == id
+        && s.migration
+            .as_mut()
+            .is_some_and(|d| d.assert_settled(ticket, result).is_ok())
+}
+
+/// Native one-slot sequencing for the closed host's actual storage.sync await.
+/// IDs correlate only. No ACK Boolean/payload is accepted and this alone grants
+/// no migration/H1/external-effect permission; the actual host barrier is required.
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_migration_physical_begin(h: f64) -> f64 {
+    let Some(action) = cpp_handle(h) else {
+        return 0.0;
+    };
+    with(|s| {
+        if s.migration_physical.is_some() {
+            return 0.0;
+        }
+        let current = if s.migration_result.is_none() {
+            migration_current(s, action)
+        } else {
+            migration_settled(s, action)
+        };
+        if !current {
+            return 0.0;
+        }
+        let Some(next) = s
+            .next_migration_physical
+            .checked_add(1)
+            .filter(|n| *n < (1_u64 << 53))
+        else {
+            return 0.0;
+        };
+        s.next_migration_physical = next;
+        s.migration_physical = Some((next, action, s.migration_result));
+        next as f64
+    })
+    .unwrap_or(0.0)
+}
+fn migration_physical_current(s: &mut State, id: u64) -> bool {
+    let Some((handle, action, result)) = s.migration_physical else {
+        return false;
+    };
+    handle == id
+        && result == s.migration_result
+        && if result.is_none() {
+            migration_current(s, action)
+        } else {
+            migration_settled(s, action)
+        }
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_migration_physical_current(h: f64) -> u32 {
+    let Some(id) = cpp_handle(h) else {
+        return 0;
+    };
+    with(|s| u32::from(migration_physical_current(s, id))).unwrap_or(0)
+}
+/// Called ONLY by closed host continuation after actual physical ACK + checks.
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_migration_physical_finish(h: f64) -> u32 {
+    let Some(id) = cpp_handle(h) else {
+        return 0;
+    };
+    with(|s| {
+        if !migration_physical_current(s, id) {
+            return 0;
+        }
+        let Some((_, action, result)) = s.migration_physical.take() else {
+            return 0;
+        };
+        s.migration_confirmed = Some((action, result));
+        1
+    })
+    .unwrap_or(0)
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_migration_physical_close(h: f64) {
+    let Some(id) = cpp_handle(h) else {
+        return;
+    };
+    with(|s| {
+        if s.migration_physical.is_some_and(|(h, _, _)| h == id) {
+            s.migration_physical = None;
+        }
+    });
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_migration_settlement_confirmed(h: f64) -> u32 {
+    let Some(id) = cpp_handle(h) else {
+        return 0;
+    };
+    with(|s| {
+        u32::from(
+            s.migration_result.is_some()
+                && s.migration_confirmed == Some((id, s.migration_result))
+                && migration_settled(s, id),
+        )
+    })
+    .unwrap_or(0)
+}
+
+/// Exact RAM cleanup leaves original durable pending UNKNOWN; never abandons it.
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_migration_pending_finish(h: f64) {
+    let Some(id) = cpp_handle(h) else {
+        return;
+    };
+    with(|s| {
+        if s.migration_ticket.as_ref().is_some_and(|(n, _)| *n == id) {
+            s.migration_ticket = None;
+            s.migration_result = None;
+            s.migration_physical = None;
+            s.migration_confirmed = None;
+        }
+    });
 }
 
 /// 1 when the engine serves sessions (rebuilt from the log), else 0.
@@ -783,6 +1270,28 @@ pub unsafe extern "C" fn hd_noise_read1(h: u32, ptr: *mut u8, len: usize) -> u64
             ok_secret(vec![Cbor::Bytes(payload), Cbor::Bytes(peer.to_vec())])
         }
         _ => failed(),
+    }
+}
+
+/// READ-ONLY original app CP-query metadata from THIS State's actual Noise handle
+/// and Engine. Fixed five-field public array or `[]` on refusal; no native proof
+/// export/installation, current CP result, before-key barrier or serving hook.
+/// Host declarations <=512 bytes before CBOR decode; ABI allocation predates cap.
+/// Recheck current native/CP/phase after I/O before keys/effects/final output.
+///
+/// # Safety
+/// `ptr` must come from `alloc(len)` and be initialised for that exact length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hd_pitr_app_query(h: u32, ptr: *mut u8, len: usize) -> u64 {
+    let declarations = unsafe { take(ptr, len) };
+    let result = with(|s| {
+        let caller = s.noise.app_caller(h)?;
+        s.engine.original_app_query(&caller, &declarations).ok()
+    })
+    .flatten();
+    match result {
+        Some(bytes) => give(bytes),
+        None => failed(),
     }
 }
 

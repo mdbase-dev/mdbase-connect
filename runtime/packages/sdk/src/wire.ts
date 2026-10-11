@@ -6,6 +6,7 @@
  * `conformance/wire/client/` and `conformance/wire/mutation/` check both sides agree.
  */
 import type { CborValue } from "./cbor.js";
+import { runtimeOp, type RuntimeOp } from "./runtime-wire.js";
 import { attachmentContentV1, type AttachmentContentV1 } from "./attachment-wire.js";
 import {
   any,
@@ -169,7 +170,8 @@ export interface GrantInfo {
   role: Role;
   /** The account the session acts for (absent: local-only, or a service device). */
   account?: Uuid;
-  /** The grant's folder scope of the file namespace (absent: unrestricted). */
+  /** The grant's folder scope of the file namespace (API 1.2; absent: unrestricted).
+   * Before API 1.2 absence says nothing: use `fileGrant`. */
   fileFolders?: string[];
 }
 
@@ -645,6 +647,9 @@ export interface Change {
   kind: "put" | "remove";
   version: number;
   author?: AuthorRef;
+  /** What changed (API 1.2). Absent when the producer cannot tell, as for a
+   * removal that left no tombstone; older producers never send it. */
+  entity?: "record" | "file";
 }
 
 export const change = struct<Change>("change", [
@@ -653,6 +658,7 @@ export const change = struct<Change>("change", [
   [2, "kind", enumOf("change-kind", ["put", "remove"] as const)],
   [3, "version", uint],
   [4, "author", authorRef, "opt"],
+  [5, "entity", enumOf("change-entity", ["record", "file"] as const), "opt"],
 ]);
 
 export interface ChangesResult {
@@ -1080,6 +1086,8 @@ export interface FileView {
   hold?: HoldRef;
   /** Capture time of the last change to the content (§3.1). */
   mtime?: number;
+  /** IANA media type from the path's extension (Core-derived, never sniffed); absent when unknown or from an older replica. */
+  mediaType?: string;
 }
 
 export const fileView = struct<FileView>("file-view", [
@@ -1092,6 +1100,7 @@ export const fileView = struct<FileView>("file-view", [
   [6, "confirmedSeq", uint],
   [7, "hold", holdRef, "opt"],
   [8, "mtime", int, "opt"],
+  [9, "mediaType", tstr, "opt"],
 ]);
 
 export interface ListFilesResult {
@@ -1131,6 +1140,8 @@ export interface OpenUploadResult {
   chunkSize: number;
   received: number[];
   expiresAt: number;
+  /** Native-owned file identity (API 1.1); absent on older producers. */
+  fileId?: Uuid;
 }
 
 export const openUploadResult = struct<OpenUploadResult>("open-upload-result", [
@@ -1138,6 +1149,7 @@ export const openUploadResult = struct<OpenUploadResult>("open-upload-result", [
   [1, "chunkSize", uint],
   [2, "received", list(uint)],
   [3, "expiresAt", int],
+  [4, "fileId", uuid, "opt"],
 ]);
 
 export interface UploadChunkParams {
@@ -1527,12 +1539,22 @@ export interface ContractImplementation {
   /** Contract field reference → record field reference. */
   fields: Map<string, string>;
   binding?: Value;
+  /** Implementation digest (spec 05A). Its type version is the owning summary's `version`. */
+  digest?: Hash;
 }
 
 export interface TypeSummary {
   name: string;
   path: string;
   implements: ContractImplementation[];
+  /** The type's declared `version`. */
+  version?: number;
+  /** Revision of the type source in the local view; equals `resources.get(path).revision`. */
+  revision?: Hash;
+  /** The whole type frontmatter; only with `describe({ definitions: true })`. */
+  definition?: Value;
+  /** The resolved schema the type validates with; only with `describe({ definitions: true })`. */
+  schema?: Value;
 }
 
 export interface ContractSummary {
@@ -1542,7 +1564,20 @@ export interface ContractSummary {
   digest: Hash;
   contractType: string;
   implementedBy: string[];
+  /** Resolved schemas by member (`record_schema`, ...); only with `describe({ definitions: true })`. */
+  schemas?: Map<string, Value>;
 }
+
+/** Where a new type file goes (`new_type_file`), derived by Core from its source. */
+export interface NewTypeFile {
+  name: string;
+  path: string;
+}
+
+export const newTypeFile = struct<NewTypeFile>("new-type-file", [
+  [0, "name", tstr],
+  [1, "path", tstr],
+]);
 
 export interface DescribeResult {
   specVersion: string;
@@ -1571,9 +1606,14 @@ export const describeResult = struct<DescribeResult>("describe-result", [
               [1, "version", tstr],
               [2, "fields", dataMap(tstr)],
               [3, "binding", value, "opt"],
+              [4, "digest", hash, "opt"],
             ]),
           ),
         ],
+        [3, "version", int, "opt"],
+        [4, "revision", hash, "opt"],
+        [5, "definition", value, "opt"],
+        [6, "schema", value, "opt"],
       ]),
     ),
   ],
@@ -1591,6 +1631,7 @@ export const describeResult = struct<DescribeResult>("describe-result", [
         [3, "digest", hash],
         [4, "contractType", tstr],
         [5, "implementedBy", list(tstr)],
+        [6, "schemas", dataMap(value), "opt"],
       ]),
     ),
   ],
@@ -1599,8 +1640,16 @@ export const describeResult = struct<DescribeResult>("describe-result", [
 export interface PendingMutation {
   receipt: Receipt;
   captured: number;
-  ops: Op[];
+  /** Actual capture evidence, not legacy Submit admission. */
+  ops: RuntimeOp[];
 }
+// Defer the cross-family codec reference until use: either wire family can be
+// imported first. This does not widen the legacy op or Submit codecs.
+const pendingOp: Codec<RuntimeOp> = {
+  name: "pending-runtime-op",
+  enc: v => runtimeOp.enc(v),
+  dec: c => runtimeOp.dec(c),
+};
 
 export const listPendingResult = struct<{ pending: PendingMutation[]; next?: Uuid }>("list-pending-result", [
   [
@@ -1610,7 +1659,7 @@ export const listPendingResult = struct<{ pending: PendingMutation[]; next?: Uui
       struct<PendingMutation>("pending-mutation", [
         [0, "receipt", receipt],
         [1, "captured", int],
-        [2, "ops", list(op, { nonEmpty: true }), "req1"],
+        [2, "ops", list(pendingOp, { nonEmpty: true }), "req1"],
       ]),
     ),
   ],

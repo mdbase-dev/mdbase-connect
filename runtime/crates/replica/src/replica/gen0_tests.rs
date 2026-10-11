@@ -95,6 +95,7 @@ fn streamed_state_digest_equals_the_store_digest() {
                 content: content.clone(),
                 media: MediaClass::Other,
                 modified_seq: 0,
+                mtime: None,
                 bucket: bucket16(fid),
                 local: FileLocal::Remote,
             });

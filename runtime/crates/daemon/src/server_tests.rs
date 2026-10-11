@@ -40,6 +40,7 @@ pub(super) fn daemon(dir: &crate::testutil::TestDir) -> Arc<Daemon> {
         readiness: watch::channel(readiness(true, None)).0,
         changes: watch::channel(0).0,
         access_events: tokio::sync::broadcast::channel(64).0,
+        activity: crate::activity::ActivityLog::open(dir.path().join("activity.jsonl")),
         control_key: std::sync::OnceLock::new(),
         account: std::sync::Mutex::new(Account::default()),
         account_gate: Mutex::new(()),
@@ -64,6 +65,7 @@ pub(super) fn daemon(dir: &crate::testutil::TestDir) -> Arc<Daemon> {
                     replica_id: "r".into(),
                     mode: SyncMode::Local,
                     origin: crate::registry::Origin::Created,
+                    description: None,
                     added_at_ms: 0,
                     paused: false,
                     ever_e2e: false,
@@ -757,7 +759,8 @@ async fn join_and_enable_refuse_without_sign_in_or_the_pinned_control_plane() {
     let e = d
         .enable_sync(crate::control::EnableSync {
             collection: "44444444-4444-4444-8444-444444444444".into(),
-            mode: SyncMode::Synced,
+            mode: Some(SyncMode::Synced),
+            accept_takeover_holds: false,
         })
         .await
         .unwrap_err();
@@ -850,4 +853,159 @@ async fn private_join_needs_the_keychain_journal_before_any_io() {
             .is_none()
     );
     assert_eq!(std::fs::read_dir(&folder).unwrap().count(), 0);
+}
+
+#[tokio::test]
+async fn loopback_port_busy_only_after_the_old_service_was_fenced() {
+    let held = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = held.local_addr().unwrap();
+    let busy = loopback_check(true, addr).await;
+    assert_eq!(busy.status, "warn");
+    assert!(busy.detail.starts_with("loopback_port_busy"));
+    assert_eq!(loopback_check(false, addr).await.status, "ok");
+    drop(held);
+    assert_eq!(loopback_check(true, addr).await.status, "ok");
+}
+
+/// `collection.update` renames and describes a collection, persists it, and
+/// refuses names that could mislead an approval screen.
+#[tokio::test]
+async fn update_renames_and_describes_and_persists() {
+    let dir = crate::testutil::TestDir::new("update-collection");
+    let folder = crate::testutil::TestDir::new("update-collection-folder");
+    let d = paired_daemon(&dir).await;
+    let added = d
+        .add(crate::control::AddCollection {
+            path: folder.path().to_path_buf(),
+            name: None,
+        })
+        .await
+        .unwrap();
+    let id = added["id"].as_str().unwrap().to_string();
+    let update = |name: Option<&str>, description: Option<&str>| crate::control::UpdateCollection {
+        collection: id.clone(),
+        name: name.map(Into::into),
+        description: description.map(Into::into),
+    };
+    let s = d
+        .update_collection(update(Some("  Workouts "), Some("Lifting log")))
+        .await
+        .unwrap();
+    assert_eq!(
+        (s["name"].as_str(), s["description"].as_str()),
+        (Some("Workouts"), Some("Lifting log"))
+    );
+    // Omitted fields are unchanged; an empty description clears it.
+    let s = d.update_collection(update(None, Some(""))).await.unwrap();
+    assert_eq!(s["name"], "Workouts");
+    assert!(s.get("description").is_none());
+    for bad in ["", "   ", "Notes\u{202e}gpj", "a\nb", &"x".repeat(101)] {
+        let e = d
+            .update_collection(update(Some(bad), None))
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, "invalid_request", "{bad:?}");
+    }
+    let saved = Registry::load(&d.profile.registry_file()).unwrap();
+    assert_eq!(saved.get(&id).unwrap().name, "Workouts");
+    let mut inner = d.inner.lock().await;
+    for host in inner.hosts.iter_mut() {
+        host.close().await;
+    }
+}
+
+/// Changes made through the control API land in `activity.list`, newest first,
+/// with the collection's name even after it is removed.
+#[tokio::test]
+async fn control_changes_are_logged_as_activity() {
+    let dir = crate::testutil::TestDir::new("activity-log");
+    let folder = crate::testutil::TestDir::new("activity-log-folder");
+    let d = paired_daemon(&dir).await;
+    let call = |method: &str, params: Value| {
+        let d = d.clone();
+        let req = Request {
+            v: PROTOCOL,
+            id: 1,
+            method: method.into(),
+            params,
+        };
+        async move { d.handle_and_note(&req, &mut ConnAuth::default()).await }
+    };
+    let added = call(
+        Method::COLLECTION_ADD,
+        json!({"path": folder.path(), "name": "Notes"}),
+    )
+    .await
+    .unwrap();
+    let id = added["id"].as_str().unwrap().to_string();
+    call(
+        Method::COLLECTION_UPDATE,
+        json!({"collection": id, "name": "Journal"}),
+    )
+    .await
+    .unwrap();
+    call(Method::COLLECTION_REMOVE, json!({"collection": id}))
+        .await
+        .unwrap();
+    assert!(
+        call(Method::COLLECTION_REMOVE, json!({"collection": id}))
+            .await
+            .is_err()
+    );
+    let log = call(Method::ACTIVITY_LIST, json!({})).await.unwrap();
+    let seen: Vec<(String, String)> = log
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| {
+            (
+                e["kind"].as_str().unwrap().into(),
+                e["collection_name"].as_str().unwrap().into(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        seen,
+        [
+            ("collection_removed".into(), "Journal".into()),
+            ("collection_updated".into(), "Journal".into()),
+            ("collection_added".into(), "Notes".into()),
+        ],
+        "a failed call adds nothing"
+    );
+}
+
+/// Adopt is refused while files the takeover held are unreviewed (only an
+/// explicit acceptance passes) and while the local replica has holds or
+/// conflicts, with the command to run.
+#[test]
+fn adopt_is_refused_while_takeover_or_replica_holds_are_open() {
+    use crate::takeover::record::{Collection, CollectionState, Record, SCHEMA_VERSION, State};
+    let dir = crate::testutil::TestDir::new("adopt-holds");
+    let state = dir.path();
+    assert!(adopt_holds_refusal(state, "c", false, Some((0, 0))).is_ok());
+    let mut held = Collection::new(CollectionState::Held);
+    held.holds = 2;
+    Record {
+        schema_version: SCHEMA_VERSION,
+        state: State::Complete,
+        updated_at: "2026-10-11T00:00:00Z".into(),
+        old_state_dir: state.join("old"),
+        collections: [("c".to_string(), held)].into(),
+    }
+    .save(&state.join("takeover.json"))
+    .unwrap();
+    let e = adopt_holds_refusal(state, "c", false, None).unwrap_err();
+    assert_eq!(e.reason.as_deref(), Some("takeover_holds"));
+    assert!(
+        e.message.contains("--accept-takeover-holds"),
+        "{}",
+        e.message
+    );
+    assert!(adopt_holds_refusal(state, "c", true, Some((0, 0))).is_ok());
+    assert!(adopt_holds_refusal(state, "other", false, None).is_ok());
+    for replica in [(1, 0), (0, 1)] {
+        let e = adopt_holds_refusal(state, "c", true, Some(replica)).unwrap_err();
+        assert_eq!(e.reason.as_deref(), Some("holds_pending"));
+    }
 }

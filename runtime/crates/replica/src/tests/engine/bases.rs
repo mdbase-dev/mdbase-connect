@@ -3,6 +3,7 @@ use crate::{Store, Tx};
 use std::sync::Arc;
 mod execution;
 mod indexed;
+mod local_cut;
 mod run;
 fn fixture() -> serde_json::Value {
     include_str!("../../../../../conformance/determinism/bases-discovery.log")
@@ -130,18 +131,19 @@ fn actual_empty_inventory_requires_installed_contract_and_empty_source_page() {
     );
 }
 #[test]
-fn discovery_refuses_optimistic_or_unhealthy_and_invalid_registry_state() {
+fn discovery_reads_local_pending_and_catchup_but_setup_and_unhealthy_reads_refuse() {
     let (_, mut a, source) = configured();
     a.create(1, "view.base", &source);
-    assert_eq!(
-        a.r.capture_bases_discovery(Some("UTC"))
-            .err()
-            .unwrap()
-            .code(),
-        Some(ErrorCode::Unavailable)
-    );
+    let capture = a.r.capture_bases_discovery(Some("UTC")).unwrap();
+    assert_eq!(capture.views()[0].record, B16([1; 16]));
+    assert_eq!(capture.record_count(), 1);
+    assert!(a.r.collection_setup_capture_fence(None).is_err());
     settle(&mut [&mut a]);
     a.r.caught_up = false;
+    let capture = a.r.capture_bases_discovery(Some("UTC")).unwrap();
+    assert_eq!(capture.record_count(), 1);
+    assert!(a.r.collection_setup_capture_fence(None).is_err());
+    a.r.policy.frozen = true;
     assert_eq!(
         a.r.capture_bases_discovery(Some("UTC"))
             .err()

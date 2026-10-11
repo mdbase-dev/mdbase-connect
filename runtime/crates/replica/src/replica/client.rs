@@ -1,7 +1,12 @@
 //! The in-process client API (`replica-client-api.md`), implemented on [`Replica`].
 
+mod contract_query;
+mod contract_records;
 mod describe;
+pub(crate) mod pending;
+mod projected_query;
 mod resources;
+mod validation;
 
 use mdbn_core::query::{Query, QueryEnv, QueryRecord, Verdict};
 use mdbn_core::state::StateView;
@@ -17,16 +22,17 @@ use super::submit::store_err;
 use super::{Replica, Session};
 use crate::api::{
     ApiResult, CallbackId, ChangesResult, ClientApi, ConflictEntry, Describe, ErrorCode,
-    FenceEditor, FenceResult, FileList, HoldResolution, ListFiles, PendingDevice, Push,
-    SessionAuth, SessionId, StreamId, Target,
+    FenceEditor, FenceResult, FileList, HoldResolution, ListFiles, NewTypeFile, PendingDevice,
+    Push, SessionAuth, SessionId, StreamId, Target,
 };
 use crate::convert;
 use crate::layer::LayerView;
 use crate::plan::StoreView;
 use crate::store::{FileLocal, Page, Store};
 
-/// The client API versions this replica serves (major 1, minors 0..=0).
-pub const API_VERSION: Version = Version { major: 1, minor: 0 };
+/// The client API version this replica serves (and the two previous minors).
+/// 1.1: upload file identity. 1.2: `grant-info` file folder scope and change-feed entity.
+pub const API_VERSION: Version = Version { major: 1, minor: 2 };
 
 /// Every capability (`policy.md` §5), granted to the hosting app.
 pub const ALL_CAPABILITIES: [&str; 8] = [
@@ -350,6 +356,7 @@ impl<S: Store> Replica<S> {
                 id,
                 Push::Closed(ErrorCode::Unauthenticated.problem("the grant was revoked")),
             ));
+            self.client_files_close(id);
             self.sessions.remove(&id);
             self.bases_discovery.remove(id);
             self.query_cursors.close(id);
@@ -466,6 +473,9 @@ impl<S: Store> Replica<S> {
                 .local_date(now, &self.host.zones.default_zone())
                 .unwrap_or_else(|| super::utc_date(now)),
         };
+        if !q.select.is_empty() || !q.projections.is_empty() {
+            return self.run_projected_query(&plan, &view, &lv, &env, include);
+        }
         // Declined queries take the per-record path below, which is complete.
         if try_index && let Ok(result) = self.indexed_query(&plan, &lv, &env, include)? {
             if let Some(e) = view.error() {
@@ -594,6 +604,8 @@ impl<S: Store> Replica<S> {
             },
             confirmed_seq: f.modified_seq,
             hold: None,
+            mtime: f.mtime,
+            media_type: mdbn_core::paths::media_type(&f.path).map(str::to_string),
         }
     }
 }
@@ -628,14 +640,23 @@ impl<S: Store> ClientApi for Replica<S> {
         params: HelloParams,
     ) -> ApiResult<(SessionId, HelloResult)> {
         self.check_apply_health()?;
-        if !params.versions.iter().any(|v| v.major == API_VERSION.major) {
-            return Err(ErrorCode::UpgradeRequired.err("no common API version"));
-        }
+        let version = params
+            .versions
+            .iter()
+            .filter(|v| {
+                v.major == API_VERSION.major
+                    && v.minor <= API_VERSION.minor
+                    && v.minor >= API_VERSION.minor.saturating_sub(2)
+            })
+            .max_by_key(|v| v.minor)
+            .cloned()
+            .ok_or_else(|| ErrorCode::UpgradeRequired.err("no common API version"))?;
         let grant_info = match &auth {
             SessionAuth::Host => GrantInfo {
                 grant: None,
                 capabilities: ALL_CAPABILITIES.iter().map(|s| s.to_string()).collect(),
                 role: Role::Owner,
+                file_folders: None,
             },
             SessionAuth::Grant { grant, client_pk } => {
                 if let Err(why) = self.serves_apps() {
@@ -665,6 +686,7 @@ impl<S: Store> ClientApi for Replica<S> {
                     grant: Some(*grant),
                     capabilities: caps,
                     role: g.role,
+                    file_folders: g.file_folders.clone(),
                 }
             }
         };
@@ -684,6 +706,8 @@ impl<S: Store> ClientApi for Replica<S> {
                 status_sub: false,
                 holds_sub: false,
                 conflicts_sub: false,
+                pending_cursors: Default::default(),
+                pending_time_floor: i64::MIN,
             },
         );
         let wanted = params.features.clone().unwrap_or_default();
@@ -696,7 +720,7 @@ impl<S: Store> ClientApi for Replica<S> {
         Ok((
             id,
             HelloResult {
-                version: API_VERSION,
+                version,
                 runtime_version: self.cfg.runtime_version.clone(),
                 sem: Version {
                     major: mdbn_core::semantics::SEM.major,
@@ -719,6 +743,7 @@ impl<S: Store> ClientApi for Replica<S> {
 
     fn close(&mut self, session: SessionId) {
         self.hosted_drop_session(session);
+        self.client_files_close(session);
         self.sessions.remove(&session);
         self.bases_discovery.remove(session);
         self.query_cursors.close(session);
@@ -728,32 +753,31 @@ impl<S: Store> ClientApi for Replica<S> {
     }
 
     fn describe(&mut self, session: SessionId) -> ApiResult<Describe> {
+        self.describe_view(session, false)
+    }
+
+    fn describe_definitions(&mut self, session: SessionId) -> ApiResult<Describe> {
+        let d = self.describe_view(session, true)?;
+        describe::within_budget(&d)?;
+        Ok(d)
+    }
+
+    fn new_type_file(&mut self, session: SessionId, source: String) -> ApiResult<NewTypeFile> {
         self.require(session, crate::policy::capability::READ)?;
-        let cat = self.catalog.clone();
-        let (types, contracts) = describe::summaries(&cat);
-        Ok(Describe {
-            spec_version: cat.spec_version().unwrap_or("").to_string(),
-            types,
-            contracts,
-            settings: Value::Null,
-            inclusion: self
-                .store
-                .settings()
-                .map_err(store_err)?
-                .unwrap_or_else(|| convert::winclusion(&Default::default())),
-            issues: cat
-                .issues()
-                .iter()
-                .map(|i| Issue {
-                    code: i.code.clone(),
-                    severity: match i.severity {
-                        mdbn_core::validate::Severity::Error => mdbn_wire::client::Severity::Error,
-                        _ => mdbn_wire::client::Severity::Warning,
-                    },
-                    message: i.message.clone(),
-                    details: None,
-                })
-                .collect(),
+        let base = StoreView::new(&self.store, self.catalog.clone());
+        let local = LayerView {
+            base: &base,
+            layer: &self.layer,
+        };
+        let created = mdbn_core::plan::new_type_file(&local, &source);
+        if let Some(error) = base.error() {
+            return Err(store_err(error));
+        }
+        let created = created
+            .map_err(|r| crate::api::ApiError::from(super::submit::rejection_problem(&r)))?;
+        Ok(NewTypeFile {
+            name: created.name,
+            path: created.path,
         })
     }
 
@@ -805,6 +829,31 @@ impl<S: Store> ClientApi for Replica<S> {
         self.query_keyset(session, &query, &include)
     }
 
+    fn query_contract(
+        &mut self,
+        session: SessionId,
+        query: crate::api::ContractQuery,
+    ) -> ApiResult<crate::api::ContractQueryResult> {
+        self.inspect_contract_page(session, query)
+    }
+
+    fn get_contract(
+        &mut self,
+        session: SessionId,
+        target: Target,
+        selection: crate::api::ContractSelection,
+    ) -> ApiResult<crate::api::ContractRecordView> {
+        self.contract_record_view(session, target, selection)
+    }
+
+    fn map_contract_write(
+        &mut self,
+        session: SessionId,
+        request: crate::api::ContractWriteRequest,
+    ) -> ApiResult<crate::api::ContractWritePlan> {
+        self.contract_write_plan(session, request)
+    }
+
     fn subscribe(&mut self, session: SessionId, query: Value, include: Include) -> ApiResult<u64> {
         self.require(session, crate::policy::capability::READ)?;
         if super::query_cursor::supplied(&query)?.is_some() {
@@ -834,10 +883,10 @@ impl<S: Store> ClientApi for Replica<S> {
 
     fn validate(
         &mut self,
-        _session: SessionId,
-        _targets: Option<Vec<Target>>,
-    ) -> ApiResult<Vec<(Uuid, Vec<Issue>)>> {
-        not_yet("validate")
+        session: SessionId,
+        targets: Option<Vec<Target>>,
+    ) -> ApiResult<Vec<crate::api::RecordValidation>> {
+        self.validate_current(session, targets)
     }
 
     fn submit(&mut self, session: SessionId, params: SubmitParams) -> ApiResult<Vec<Receipt>> {
@@ -865,6 +914,14 @@ impl<S: Store> ClientApi for Replica<S> {
             .ok_or_else(|| ErrorCode::NotFound.err("no such mutation"))?;
         self.stamp_published(&mut r);
         Ok(r)
+    }
+
+    fn list_pending(
+        &mut self,
+        session: SessionId,
+        cursor: Option<Uuid>,
+    ) -> ApiResult<crate::api::PendingPage> {
+        self.pending_page(session, cursor)
     }
 
     fn status(&mut self, session: SessionId) -> ApiResult<SyncStatus> {
@@ -1021,50 +1078,53 @@ impl<S: Store> ClientApi for Replica<S> {
 
     fn open_upload(
         &mut self,
-        _session: SessionId,
-        _params: OpenUploadParams,
+        session: SessionId,
+        params: OpenUploadParams,
     ) -> ApiResult<OpenUploadResult> {
-        not_yet("open_upload")
+        self.client_open_upload(session, params)
     }
 
-    fn upload_chunk(&mut self, _session: SessionId, _params: UploadChunkParams) -> ApiResult<u64> {
-        not_yet("upload_chunk")
+    fn upload_chunk(&mut self, session: SessionId, params: UploadChunkParams) -> ApiResult<u64> {
+        self.client_upload_chunk(session, params)
     }
 
-    fn commit_upload(&mut self, _session: SessionId, _transfer: Uuid) -> ApiResult<Receipt> {
-        not_yet("commit_upload")
+    fn commit_upload(&mut self, session: SessionId, transfer: Uuid) -> ApiResult<Receipt> {
+        self.client_commit_upload(session, transfer)
     }
 
-    fn abort_upload(&mut self, _session: SessionId, _transfer: Uuid) -> ApiResult<()> {
-        not_yet("abort_upload")
+    fn abort_upload(&mut self, session: SessionId, transfer: Uuid) -> ApiResult<()> {
+        self.client_abort_upload(session, transfer)
     }
 
     fn read_file(
         &mut self,
-        _session: SessionId,
-        _target: Target,
-        _range: Option<(u64, u64)>,
-        _revision: Option<Hash>,
+        session: SessionId,
+        target: Target,
+        range: Option<(u64, u64)>,
+        revision: Option<Hash>,
     ) -> ApiResult<(StreamId, FileView)> {
-        not_yet("read_file")
+        self.client_read_file(session, target, range, revision)
     }
 
-    fn ack_chunks(
-        &mut self,
-        _session: SessionId,
-        _stream: StreamId,
-        _offset: u64,
-    ) -> ApiResult<()> {
-        not_yet("ack_chunks")
+    fn ack_chunks(&mut self, session: SessionId, stream: StreamId, offset: u64) -> ApiResult<()> {
+        self.client_ack_chunks(session, stream, offset)
     }
 
-    fn fetch_file(&mut self, _session: SessionId, _file: Uuid) -> ApiResult<()> {
-        not_yet("fetch_file")
+    fn cancel_stream(&mut self, session: SessionId, stream: StreamId) -> ApiResult<()> {
+        self.client_cancel_stream(session, stream)
     }
 
-    fn evict_file(&mut self, session: SessionId, _file: Uuid) -> ApiResult<()> {
+    fn fetch_file(&mut self, session: SessionId, file: Uuid) -> ApiResult<()> {
+        // Check live READ authority and folder visibility before touching the
+        // device's materialization queue or reporting its storage capabilities.
+        self.get_file(session, Target::Id(file))?;
+        self.request_attachment_materialization(file)
+    }
+
+    fn evict_file(&mut self, session: SessionId, file: Uuid) -> ApiResult<()> {
         self.host_only(session)?;
-        not_yet("evict_file")
+        self.get_file(session, Target::Id(file))?;
+        self.evict_materialized_file(file)
     }
 
     fn get_materialization(&mut self, session: SessionId) -> ApiResult<Materialization> {
@@ -1137,7 +1197,11 @@ impl<S: Store> ClientApi for Replica<S> {
         } else {
             self.flush_status();
         }
+        let file = self.client_file_push();
         let mut pushes = std::mem::take(&mut self.pushes);
+        if let Some(file) = file {
+            pushes.push(file);
+        }
         for (_, p) in &mut pushes {
             if let Push::Receipt(r) = p {
                 self.stamp_published(r);

@@ -38,6 +38,9 @@ use crate::api::{
     Target,
 };
 
+mod file_uploads;
+use file_uploads::{FileCall, HeldFile};
+
 /// The longest `await`, `wait: confirmed` or `wait: published` is held. At the limit
 /// the request is answered with the current receipt(s), so a held request always answers even if
 /// no receipt push ever reaches this layer (the submitting session closed, or the
@@ -46,6 +49,23 @@ pub const MAX_HOLD_MS: i64 = 5 * 60 * 1000;
 
 /// Request ID of `hello`, the first request of every session.
 pub const HELLO_ID: u64 = 0;
+
+// Unsent plaintext belongs to this queue until transport handoff. The stream
+// tag is minted from FileChunk, so cancel needn't decode/copy its payload.
+struct QueuedFrame {
+    session: SessionId,
+    bytes: zeroize::Zeroizing<Vec<u8>>,
+    file_stream: Option<StreamId>,
+}
+impl std::fmt::Debug for QueuedFrame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("QueuedFrame")
+            .field("session", &self.session)
+            .field("bytes_len", &self.bytes.len())
+            .field("file_stream", &self.file_stream)
+            .finish()
+    }
+}
 
 /// A request held until a receipt settles.
 #[derive(Debug, Clone)]
@@ -78,7 +98,8 @@ struct SessionState {
 pub struct Frames {
     sessions: BTreeMap<SessionId, SessionState>,
     held: Vec<Held>,
-    out: Vec<(SessionId, Vec<u8>)>,
+    file_holds: Vec<HeldFile>,
+    out: Vec<QueuedFrame>,
     closed: Vec<SessionId>,
     now_ms: i64,
     ticked: bool,
@@ -193,28 +214,48 @@ fn describe_cbor(d: Describe) -> Cbor {
                     if let Some(binding) = i.binding {
                         fields.push((3, binding.to_cbor()));
                     }
+                    if let Some(digest) = i.digest {
+                        fields.push((4, digest.to_cbor()));
+                    }
                     smap(fields)
                 })
                 .collect();
-            smap(vec![
+            let mut fields = vec![
                 (0, t.name.to_cbor()),
                 (1, t.path.to_cbor()),
                 (2, Cbor::Array(implements)),
-            ])
+            ];
+            if let Some(version) = t.version {
+                fields.push((3, version.to_cbor()));
+            }
+            if let Some(revision) = t.revision {
+                fields.push((4, revision.to_cbor()));
+            }
+            if let Some(definition) = t.definition {
+                fields.push((5, definition.to_cbor()));
+            }
+            if let Some(schema) = t.schema {
+                fields.push((6, schema.to_cbor()));
+            }
+            smap(fields)
         })
         .collect();
     let contracts = d
         .contracts
         .into_iter()
         .map(|c| {
-            smap(vec![
+            let mut fields = vec![
                 (0, c.id.to_cbor()),
                 (1, c.version.to_cbor()),
                 (2, c.path.to_cbor()),
                 (3, c.digest.to_cbor()),
                 (4, c.contract_type.to_cbor()),
                 (5, c.implemented_by.to_cbor()),
-            ])
+            ];
+            if let Some(schemas) = c.schemas {
+                fields.push((6, schemas.to_cbor()));
+            }
+            smap(fields)
         })
         .collect();
     smap(vec![
@@ -337,6 +378,7 @@ impl Frames {
             });
             self.respond(h.session, h.request, result);
         }
+        self.file_pump(api);
     }
 
     /// Open a session from an encoded `hello` request frame.
@@ -400,8 +442,9 @@ impl Frames {
             api.close(session);
             // Drop already serialized but unsent data when authorization or
             // apply recovery closes a session; never flush stale plaintext.
-            self.out.retain(|(s, _)| *s != session);
+            self.out.retain(|frame| frame.session != session);
             self.held.retain(|h| h.session != session);
+            self.file_close(session);
             self.closed.push(session);
         }
     }
@@ -420,9 +463,23 @@ impl Frames {
                 self.settle(&r);
             }
         }
+        self.file_pump(api);
     }
 
     fn forward(&mut self, api: &mut dyn ClientApi, session: SessionId, push: Push) {
+        if let Push::FileChunk(mut chunk) = push {
+            if self.sessions.contains_key(&session) {
+                let stream = StreamId(chunk.stream);
+                self.out.push(QueuedFrame {
+                    session,
+                    bytes: zeroize::Zeroizing::new(file_chunk_push(chunk)),
+                    file_stream: Some(stream),
+                });
+            } else {
+                zeroize::Zeroize::zeroize(&mut chunk.bytes.0);
+            }
+            return;
+        }
         {
             let Some(state) = self.sessions.get_mut(&session) else {
                 return;
@@ -461,6 +518,9 @@ impl Frames {
     /// Frames to send, per session, in order.
     pub fn take_outgoing(&mut self) -> Vec<(SessionId, Vec<u8>)> {
         std::mem::take(&mut self.out)
+            .into_iter()
+            .map(|mut frame| (frame.session, std::mem::take(&mut *frame.bytes)))
+            .collect()
     }
 
     /// Sessions this layer closed (a `closed` push, or a malformed frame). The host
@@ -504,7 +564,11 @@ impl Frames {
         // Encoding our own well-formed values cannot fail; if it ever does, the
         // client sees the session close rather than a corrupt frame.
         if let Ok(b) = f.to_bytes() {
-            self.out.push((session, b));
+            self.out.push(QueuedFrame {
+                session,
+                bytes: zeroize::Zeroizing::new(b),
+                file_stream: None,
+            });
         }
     }
 
@@ -512,7 +576,11 @@ impl Frames {
         if !self.sessions.contains_key(&session) {
             return;
         }
-        self.out.push((session, response_bytes(id, r)));
+        self.out.push(QueuedFrame {
+            session,
+            bytes: zeroize::Zeroizing::new(response_bytes(id, r)),
+            file_stream: None,
+        });
     }
 
     fn on_response(&mut self, api: &mut dyn ClientApi, session: SessionId, r: ClientResponse) {
@@ -536,6 +604,18 @@ impl Frames {
     fn on_request(&mut self, api: &mut dyn ClientApi, session: SessionId, r: ClientRequest) {
         let id = r.id;
         match r.method.as_str() {
+            "cancel_stream" => {
+                let result = fields(&r.params)
+                    .and_then(|m| dec::<u64>(req(m, 0)?))
+                    .and_then(|stream| {
+                        api.cancel_stream(session, StreamId(stream))?;
+                        self.out.retain(|frame| {
+                            frame.session != session || frame.file_stream != Some(StreamId(stream))
+                        });
+                        Ok(Cbor::Null)
+                    });
+                self.respond(session, id, result);
+            }
             "cancel" => {
                 let target = fields(&r.params)
                     .and_then(|m| req(m, 0).cloned())
@@ -553,8 +633,23 @@ impl Frames {
                         Err(ErrorCode::Cancelled.err("cancelled by the client")),
                     );
                 }
+                if let Ok(t) = target {
+                    self.file_cancel(session, t);
+                }
                 self.respond(session, id, Ok(Cbor::Null));
             }
+            "open_upload" => match dec::<OpenUploadParams>(&r.params) {
+                Ok(params) => self.file_request(api, session, id, FileCall::Open(params)),
+                Err(error) => self.respond(session, id, Err(error)),
+            },
+            "upload_chunk" => match dec::<UploadChunkParams>(&r.params) {
+                Ok(params) => self.file_request(api, session, id, FileCall::Chunk(params)),
+                Err(error) => self.respond(session, id, Err(error)),
+            },
+            "commit_upload" => match fields(&r.params).and_then(|m| dec::<Uuid>(req(m, 0)?)) {
+                Ok(transfer) => self.file_request(api, session, id, FileCall::Commit(transfer)),
+                Err(error) => self.respond(session, id, Err(error)),
+            },
             "submit" => match SubmitParams::from_cbor(&r.params).map_err(schema) {
                 Err(e) => self.respond(session, id, Err(e)),
                 Ok(p) => {
@@ -673,7 +768,29 @@ fn unit(r: ApiResult<()>) -> ApiResult<Cbor> {
 fn dispatch(api: &mut dyn ClientApi, s: SessionId, method: &str, params: &Cbor) -> ApiResult<Cbor> {
     let m = fields(params);
     match method {
-        "describe" => api.describe(s).map(describe_cbor),
+        "describe" => {
+            let m = m?;
+            if m.iter().any(|(key, _)| *key != Cbor::Uint(0)) {
+                return Err(ErrorCode::InvalidRequest
+                    .err_with_reason("unknown_param", "describe supports only param 0"));
+            }
+            if opt::<bool>(m, 0)?.unwrap_or(false) {
+                api.describe_definitions(s).map(describe_cbor)
+            } else {
+                api.describe(s).map(describe_cbor)
+            }
+        }
+        "new_type_file" => {
+            let m = m?;
+            if m.len() != 1 {
+                return Err(bad("new_type_file requires exactly one source field"));
+            }
+            let created = api.new_type_file(s, dec(req(m, 0)?)?)?;
+            Ok(smap(vec![
+                (0, Cbor::Text(created.name)),
+                (1, Cbor::Text(created.path)),
+            ]))
+        }
         "get_resource" => {
             let m = m?;
             if m.len() != 1 {
@@ -763,6 +880,67 @@ fn dispatch(api: &mut dyn ClientApi, s: SessionId, method: &str, params: &Cbor) 
             let q: Value = dec(req(m, 0)?)?;
             Ok(api.query(s, q, include(m, 1)?)?.to_cbor())
         }
+        "query_contract_v1" => {
+            let m = m?;
+            if m.iter().any(|(key, _)| !matches!(key, Cbor::Uint(0..=5)))
+                || dec::<u64>(req(m, 0)?)? != 1
+            {
+                return Err(bad("Unsupported contract query envelope."));
+            }
+            let contract: String = dec(req(m, 1)?)?;
+            let version: String = dec(req(m, 2)?)?;
+            let limit = field(m, 3).map(u32_of).transpose()?.unwrap_or(128);
+            let cursor = field(m, 4).map(dec::<String>).transpose()?;
+            let where_ = field(m, 5).map(dec::<String>).transpose()?;
+            Ok(api
+                .query_contract(
+                    s,
+                    crate::api::ContractQuery {
+                        contract,
+                        version,
+                        limit,
+                        cursor,
+                        where_,
+                    },
+                )?
+                .to_cbor())
+        }
+        "get_contract_v1" => {
+            let m = m?;
+            if m.iter().any(|(key, _)| !matches!(key, Cbor::Uint(0..=4)))
+                || dec::<u64>(req(m, 0)?)? != 1
+            {
+                return Err(bad("Unsupported contract record envelope."));
+            }
+            let selection = crate::api::ContractSelection {
+                contract: dec(req(m, 2)?)?,
+                version: dec(req(m, 3)?)?,
+                type_name: opt(m, 4)?,
+            };
+            Ok(api
+                .get_contract(s, target(req(m, 1)?)?, selection)?
+                .to_cbor())
+        }
+        "map_contract_write_v1" => {
+            let m = m?;
+            if m.iter().any(|(key, _)| !matches!(key, Cbor::Uint(0..=7)))
+                || dec::<u64>(req(m, 0)?)? != 1
+            {
+                return Err(bad("Unsupported contract write envelope."));
+            }
+            let request = crate::api::ContractWriteRequest {
+                selection: crate::api::ContractSelection {
+                    contract: dec(req(m, 1)?)?,
+                    version: dec(req(m, 2)?)?,
+                    type_name: opt(m, 3)?,
+                },
+                target: field(m, 4).map(target).transpose()?,
+                fields: opt(m, 5)?.unwrap_or(Value::Map(vec![])),
+                unset: opt(m, 6)?.unwrap_or_default(),
+                promote: opt(m, 7)?.unwrap_or(false),
+            };
+            Ok(api.map_contract_write(s, request)?.to_cbor())
+        }
         "subscribe" => {
             let m = m?;
             let q: Value = dec(req(m, 0)?)?;
@@ -782,17 +960,32 @@ fn dispatch(api: &mut dyn ClientApi, s: SessionId, method: &str, params: &Cbor) 
         }
         "validate" => {
             let m = m?;
+            if m.iter().any(|(key, _)| !matches!(key, Cbor::Uint(0))) {
+                return Err(bad("validate accepts only targets"));
+            }
             let targets = match field(m, 0) {
                 None | Some(Cbor::Null) => None,
-                Some(Cbor::Array(a)) => Some(a.iter().map(target).collect::<ApiResult<_>>()?),
+                Some(Cbor::Array(a)) if a.len() <= 1000 => {
+                    Some(a.iter().map(target).collect::<ApiResult<_>>()?)
+                }
+                Some(Cbor::Array(_)) => {
+                    return Err(ErrorCode::TooLarge.err("Too many validation targets."));
+                }
                 Some(_) => return Err(bad("validate targets must be a list")),
             };
             let out = api.validate(s, targets)?;
             Ok(Cbor::Array(
-                out.into_iter()
-                    .map(|(id, issues)| smap(vec![(0, id.to_cbor()), (1, issues.to_cbor())]))
+                out.iter()
+                    .map(crate::api::RecordValidation::to_cbor)
                     .collect(),
             ))
+        }
+        "list_pending" => {
+            let m = m?;
+            if m.iter().any(|(key, _)| !matches!(key, Cbor::Uint(0))) {
+                return Err(bad("list_pending accepts only its cursor"));
+            }
+            Ok(api.list_pending(s, opt::<Uuid>(m, 0)?)?.to_cbor())
         }
         "receipt" => Ok(api.receipt(s, dec(req(m?, 0)?)?)?.to_cbor()),
         "get_status" => Ok(api.status(s)?.to_cbor()),
@@ -851,9 +1044,6 @@ fn dispatch(api: &mut dyn ClientApi, s: SessionId, method: &str, params: &Cbor) 
             Ok(smap(e))
         }
         "get_file" => Ok(api.get_file(s, target(req(m?, 0)?)?)?.to_cbor()),
-        "open_upload" => Ok(api
-            .open_upload(s, dec::<OpenUploadParams>(params)?)?
-            .to_cbor()),
         "upload_chunk" => {
             let n = api.upload_chunk(s, dec::<UploadChunkParams>(params)?)?;
             Ok(smap(vec![(0, Cbor::Uint(n))]))
@@ -868,8 +1058,12 @@ fn dispatch(api: &mut dyn ClientApi, s: SessionId, method: &str, params: &Cbor) 
                 Some(_) => return Err(bad("range must be [offset, length]")),
             };
             let rev: Option<Hash> = opt(m, 2)?;
-            let (StreamId(stream), view) = api.read_file(s, target(req(m, 0)?)?, range, rev)?;
-            Ok(smap(vec![(0, Cbor::Uint(stream)), (1, view.to_cbor())]))
+            Ok(file_read_result(api.read_file(
+                s,
+                target(req(m, 0)?)?,
+                range,
+                rev,
+            )?))
         }
         "ack_chunks" => {
             let m = m?;
@@ -911,6 +1105,12 @@ fn dispatch(api: &mut dyn ClientApi, s: SessionId, method: &str, params: &Cbor) 
         _ => Err(ErrorCode::InvalidRequest
             .err_with_reason("unknown_method", format!("unknown method {method}"))),
     }
+}
+
+/// Encode the typed ClientApi read result at the canonical frame boundary.
+/// Native stream drivers return this same tuple without knowing its CBOR slots.
+pub fn file_read_result((StreamId(stream), view): (StreamId, mdbn_wire::client::FileView)) -> Cbor {
+    smap(vec![(0, Cbor::Uint(stream)), (1, view.to_cbor())])
 }
 
 /// Existing file-read wire requests, decoded by the shared frame codec for a

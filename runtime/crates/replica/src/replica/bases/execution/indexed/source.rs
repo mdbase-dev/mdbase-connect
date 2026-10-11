@@ -30,10 +30,12 @@ impl<S: Store> Replica<S> {
         selection: BasesViewSelection,
         budget: &mut QueryBudget,
         ledger: &mut IncrementalBasesBudget,
-    ) -> ApiResult<RecordRow> {
+    ) -> ApiResult<LocalRecord> {
+        ledger.retain(16 * 1024).map_err(failure)?;
+        let source_bytes =
+            self.bases_local_source_bytes(selection, self.indexed_bases_state()?.head)?;
         let mut rows = self
-            .store
-            .hydrate_query_at(&[selection.record], self.head, budget)
+            .bases_local_hydrate(&[selection.record], self.head, budget)
             .map_err(|error| match error {
                 crate::store::StoreError::Full => {
                     failure(EvaluationFailure::BudgetExceeded("selected_source_reads"))
@@ -48,6 +50,7 @@ impl<S: Store> Replica<S> {
             || row.revision != selection.revision
             || row.path.len() > 4096
             || row.doc.len() > 1 << 20
+            || row.doc.len() as u64 > source_bytes
         {
             return Err(invalid());
         }

@@ -54,6 +54,8 @@ async fn local_only_write_is_confirmed_once_published() {
         device_id: [3; 16],
         root: folder.clone(),
         private_dir: root.join("state"),
+        adopt: None,
+        id_hints: vec![],
         sync: None,
     };
     let secrets = DeviceSecrets {
@@ -183,6 +185,8 @@ async fn local_only_external_edit_is_ingested() {
         device_id: [8; 16],
         root: folder.clone(),
         private_dir: root.join("state"),
+        adopt: None,
+        id_hints: vec![],
         sync: None,
     };
     let secrets = DeviceSecrets {
@@ -221,6 +225,8 @@ async fn a_watched_external_edit_is_ingested_promptly() {
         device_id: [11; 16],
         root: folder.clone(),
         private_dir: root.join("state"),
+        adopt: None,
+        id_hints: vec![],
         sync: None,
     };
     let secrets = DeviceSecrets {

@@ -8,6 +8,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { appPolicyPinsFixture } from "../packages/sdk/scripts/app-policy-pins-fixture.mjs";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync, mkdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { build } from "../packages/sdk/node_modules/esbuild/lib/main.js";
 
 const file = process.argv[2];
@@ -15,7 +16,14 @@ if (!file) throw new Error("explicit app-runtime artifact required");
 const dir = new URL("../target/app-wasm-smoke/", import.meta.url);
 mkdirSync(dir, { recursive: true });
 // Bundle source, never silently consume stale installed SDK/index artifacts.
-await build({ stdin: { contents: 'export * from "../../packages/sdk/src/cbor.ts"; export * from "../../packages/obsidian-runtime/src/index/appIndexHost.ts";', resolveDir: new URL(".", dir).pathname }, bundle: true, platform: "node", format: "esm", outfile: new URL("helpers.mjs", dir).pathname });
+await build({
+  stdin: { contents: 'export * from "../../packages/sdk/src/cbor.ts"; export * from "../../packages/obsidian-runtime/src/index/appIndexHost.ts";', resolveDir: new URL(".", dir).pathname },
+  // Runtime compatibility reexports resolve to this checkout's canonical engine,
+  // even in the standalone WASM lane (SDK dependencies only, no runtime install
+  // or SDK dist build). Never fall back to a stale installed SDK artifact.
+  alias: { "@mdbase-dev/sdk/app-storage": fileURLToPath(new URL("../packages/sdk/src/app-storage/index.ts", import.meta.url)) },
+  bundle: true, platform: "node", format: "esm", outfile: new URL("helpers.mjs", dir).pathname,
+});
 const { encode, decode, AppBinaryIndexHost, appSqlHost } = await import(new URL("helpers.mjs", dir));
 const wasm = readFileSync(file);
 const module = await WebAssembly.compile(wasm);
@@ -95,6 +103,34 @@ try {
   assert.equal(sqlCalls, 0);
   assert.equal(a.open(config()), "");
   assert(sqlCalls > 0);
+  // Real native frame dispatch must answer missing data, not absent methods.
+  // API 1.0 hello keeps this regression independent of newer hello metadata.
+  const hello = encode(new Map([[0, 0], [1, 1], [2, "hello"], [3, new Map([[0, [[1, 0]]], [1, "app-contract-artifact-test"], [2, "1"]])]]));
+  const [session] = decode(a.take(a.x.rt_hello(0, 0, a.put(hello), hello.length)));
+  assert(BigInt(session) > 0n, "actual native owner hello refused");
+  function method(id, name, params) {
+    const input = encode(new Map([[0, 0], [1, id], [2, name], [3, params]]));
+    a.x.rt_frame(BigInt(session), a.put(input), input.length);
+    const replies = decode(a.take(a.x.rt_poll())).filter(row => BigInt(row[0]) === BigInt(session) && row[1]);
+    const response = replies.map(row => decode(row[1])).find(frame => frame.get(0) === 1 && frame.get(1) === id);
+    assert(response, `missing actual native response for ${name}`);
+    return response;
+  }
+  const read = method(2, "get_contract_v1", new Map([[0, 1], [1, "missing.md"], [2, "artifact.missing"], [3, "1.0.0"]]));
+  assert.equal(read.get(3)?.get(0), "not_found", "get_contract_v1 actual native dispatch");
+  const write = method(3, "map_contract_write_v1", new Map([[0, 1], [1, "artifact.missing"], [2, "1.0.0"], [5, new Map()]]));
+  assert.equal(write.get(3)?.get(0), "not_found", "map_contract_write_v1 actual native dispatch");
+  assert.equal(write.get(3)?.get(3), "data_contract_not_found");
+  const filtered = method(4, "query_contract_v1", new Map([[0, 1], [1, "artifact.missing"], [2, "1.0.0"], [5, "true"]]));
+  assert.equal(filtered.get(3)?.get(0), "not_found", "query_contract_v1 where actual native dispatch");
+  assert.equal(filtered.get(3)?.get(3), "data_contract_not_found");
+  const replace = method(5, "open_upload", new Map([[0, new Uint8Array(16).fill(9)], [1, "missing.bin"], [2, 0], [4, new Uint8Array(16).fill(10)]]));
+  assert.equal(replace.get(3)?.get(0), "invalid_request", "file replacement requires the original revision");
+  assert.equal(replace.get(3)?.get(3), "attachment_replace_requires_revision");
+  const promote = method(6, "map_contract_write_v1", new Map([[0, 1], [1, "artifact.missing"], [2, "1.0.0"], [5, new Map()], [7, true]]));
+  assert.equal(promote.get(3)?.get(0), "not_found", "contract promote actual native envelope");
+  assert.equal(promote.get(3)?.get(3), "data_contract_not_found");
+  a.x.rt_close(BigInt(session));
   const observation = decode(a.take(a.x.rt_app_observations()));
   assert.equal(observation.get(3), true); // actual typed staging support
   assert.equal(observation.get(4), false); // no reopen fence

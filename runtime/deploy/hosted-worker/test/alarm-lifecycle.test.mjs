@@ -163,8 +163,10 @@ const { HostedCollection } = await import(`data:text/javascript;base64,${Buffer.
 const collection = "0e0e0e0e-0e0e-4e0e-8e0e-0e0e0e0e0e0e";
 function object(escrow) {
   const stored = storage(); const o = Object.create(HostedCollection.prototype);
-  Object.assign(o, { escrow, ctx: { storage: stored.s, getWebSockets: () => [] }, env: {},
-    logGen: 0, readers: new Map(), lastRefresh: 0 });
+  const physical = { equals(other) { return other === physical; } };
+  const collections = { idFromName(name) { assert.equal(name, collection); return physical; } };
+  Object.assign(o, { escrow, ctx: { id: physical, storage: stored.s, getWebSockets: () => [] },
+    env: { COLLECTIONS: collections }, logGen: 0, readers: new Map(), lastRefresh: 0 });
   return { o, ...stored };
 }
 

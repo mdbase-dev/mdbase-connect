@@ -56,7 +56,7 @@ impl<S: Store> Replica<S> {
             .ok_or_else(|| ErrorCode::Internal.err("no hosted upload lifetime"))?
             .check(self.now())
     }
-    pub(super) fn hosted_upload_capacity(&mut self, grant: Uuid) -> ApiResult<()> {
+    pub(super) fn hosted_upload_capacity(&mut self, grant: Option<Uuid>) -> ApiResult<()> {
         // Called only AFTER native authorization, before writer/decryption work.
         self.prune_hosted_uploads();
         let delegated = self

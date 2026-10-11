@@ -29,6 +29,7 @@ fn entry(dir: &Path, mode: SyncMode) -> Entry {
         replica_id: "55555555-5555-4555-8555-555555555555".into(),
         mode,
         origin: Origin::Created,
+        description: None,
         added_at_ms: 0,
         paused: false,
         ever_e2e: false,
@@ -216,6 +217,8 @@ async fn mirror_closed_sqlite_startup_reports_counts_without_opening_folder() {
                 device_id: [3; 16],
                 root: dir.join("folder"),
                 private_dir: private.clone(),
+                adopt: None,
+                id_hints: vec![],
                 sync: None,
             },
             mdbn_replica::DeviceSecrets {
@@ -888,6 +891,8 @@ fn a_refused_cache_is_refused_before_the_folder_is_opened() {
         device_id: [6; 16],
         root: dir.join("no-such-folder"),
         private_dir: state,
+        adopt: None,
+        id_hints: vec![],
         sync: Some(crate::runtime::Synced {
             log_url: "https://log.lab.example".into(),
             chosen_state: mdbn_wire::policy::CState::CloudCopy,

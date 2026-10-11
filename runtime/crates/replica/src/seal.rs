@@ -18,8 +18,7 @@ use mdbn_wire::envelope::{Item, KeyGrantPayload, RekeyPayload, RekeyReason};
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::crypto::chunked_blob::upload_resume::{
-    self, AuthenticatedUploadResumeV1, UploadResumeMetadataV1, UploadResumeOwnerV1,
-    UploadResumeRefV1,
+    self, AuthenticatedUploadResumeV1, UploadResumeMetadataV1, UploadResumeOwner, UploadResumeRefV1,
 };
 use crate::crypto::chunked_blob::{
     self, AttachmentLimits, AttachmentRefV1, ChunkContextV1, ChunkRefV1, ExpectedFileV1,
@@ -188,7 +187,7 @@ pub trait Sealer {
             "in-place attachment writer unsupported".into(),
         ))
     }
-    /// Server-only purpose-separated encrypted resume journal under CURRENT
+    /// Native purpose-separated encrypted Grant V1 / Host V2 journal under CURRENT
     /// held epoch. Native owner/policy checks and confirmed staged commits are
     /// the caller's responsibility; custody is NOT a durable-progress permit.
     /// Unsupported sealers refuse without falling back to a legacy Blob.
@@ -205,7 +204,7 @@ pub trait Sealer {
     fn open_hosted_upload_resume(
         &self,
         _reference: &UploadResumeRefV1,
-        _owner: UploadResumeOwnerV1,
+        _owner: UploadResumeOwner,
         region: &mut [u8],
     ) -> Result<AuthenticatedUploadResumeV1, OpenError> {
         region.zeroize();
@@ -615,7 +614,7 @@ impl Sealer for KeyringSealer {
     fn open_hosted_upload_resume(
         &self,
         reference: &UploadResumeRefV1,
-        owner: UploadResumeOwnerV1,
+        owner: UploadResumeOwner,
         region: &mut [u8],
     ) -> Result<AuthenticatedUploadResumeV1, OpenError> {
         let result = (|| {

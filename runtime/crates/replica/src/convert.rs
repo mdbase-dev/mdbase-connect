@@ -252,6 +252,7 @@ pub fn attachment_effect(p: &wa::PutAttachmentFile) -> cp::Effect {
         id: uuid(&p.id),
         path: p.path.clone(),
         content: attachment_content(&p.content),
+        mtime: p.mtime,
     }
 }
 
@@ -259,10 +260,16 @@ pub fn attachment_effect(p: &wa::PutAttachmentFile) -> cp::Effect {
 /// effect (those go through [`weffect`]).
 pub fn wattachment_effect(e: &cp::Effect) -> Option<wa::PutAttachmentFile> {
     match e {
-        cp::Effect::PutAttachmentFile { id, path, content } => Some(wa::PutAttachmentFile {
+        cp::Effect::PutAttachmentFile {
+            id,
+            path,
+            content,
+            mtime,
+        } => Some(wa::PutAttachmentFile {
             id: wuuid(id),
             path: path.clone(),
             content: wattachment_content(content),
+            mtime: *mtime,
         }),
         _ => None,
     }
@@ -594,6 +601,7 @@ pub fn runtime_op(o: &wr::Op, t: TextResolver<'_>) -> CResult<ci::Op> {
             content: attachment_content(&f.content),
             if_revision: f.if_revision.as_ref().map(hash),
             base: f.base.as_ref().map(hash),
+            mtime: f.mtime,
         })),
         wr::Op::UnindexedMarkdownPut(f) => {
             Ok(ci::Op::UnindexedMarkdownPut(ci::UnindexedMarkdownPut {

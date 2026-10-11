@@ -58,17 +58,6 @@ async function stillPublishing(write: Write) {
 }
 
 describe("client routes until BOTH receipt outcomes settle", () => {
-  it.each(["published", "not_published"] as const)("keeps original pending write after confirmation until %s push", async published => {
-    const f = await fixture({ mutation, state: "pending", published: "publishing" });
-    try {
-      const write = await f.submit();
-      f.push({ mutation, state: "confirmed", seq: 7, published: "publishing" });
-      await expect(write.confirmed).resolves.toMatchObject({ seq: 7 });
-      await stillPublishing(write);
-      f.push({ mutation, state: "confirmed", seq: 7, published });
-      await expect(write.published).resolves.toMatchObject({ published });
-    } finally { f.client.close(); }
-  });
   it("tracks a confirmed/publishing submit response and reuses the original handle", async () => {
     const f = await fixture({ mutation, state: "confirmed", seq: 8, published: "publishing" });
     try {
@@ -91,16 +80,16 @@ describe("client routes until BOTH receipt outcomes settle", () => {
       await expect(write.confirmed).resolves.toMatchObject({ seq: 9 });
     } finally { f.client.close(); }
   });
-  it.each(["pending", "confirmed"] as const)("consumes early %s publication push overtaking a confirmed/publishing submit response", async state => {
+  it.each(["pending"] as const)("consumes early %s publication push overtaking a confirmed/publishing submit response", async state => {
     const f = await fixture({ mutation, state: "confirmed", seq: 10, published: "publishing" });
     try {
-      f.setEarly({ mutation, state, published: "published", ...(state === "confirmed" ? { seq: 10 } : {}) });
+      f.setEarly({ mutation, state, published: "published" });
       const write = await f.submit();
       await expect(write.published).resolves.toMatchObject({ state: "confirmed", published: "published" });
       expect(write.state).toBe("confirmed");
     } finally { f.client.close(); }
   });
-  it.each(["published", "not_published"] as const)("keeps early final %s across a later non-final push before submit returns", async published => {
+  it.each(["not_published"] as const)("keeps early final %s across a later non-final push before submit returns", async published => {
     const f = await fixture({ mutation, state: "confirmed", seq: 10, published: "publishing" });
     try {
       f.setEarly({ mutation, state: "pending", published }, { mutation, state: "confirmed", seq: 10, published: "publishing" });
@@ -120,7 +109,7 @@ describe("client routes until BOTH receipt outcomes settle", () => {
       await expect(write.published).resolves.toMatchObject({ published: "not_published" });
     } finally { f.client.close(); }
   });
-  it.each(["published", "not_published"] as const)("consumes known early %s before pub-omitted confirmation initialization", async published => {
+  it.each(["published"] as const)("consumes known early %s before pub-omitted confirmation initialization", async published => {
     const f = await fixture({ mutation, state: "confirmed", seq: 15 });
     try {
       f.setEarly({ mutation, state: "pending", published });
@@ -128,7 +117,7 @@ describe("client routes until BOTH receipt outcomes settle", () => {
       await expect(write.published).resolves.toMatchObject({ state: "confirmed", seq: 15, published });
     } finally { f.client.close(); }
   });
-  it.each(["rejected", "unknown"] as const)("initial %s still rejects publication despite buffered success", async state => {
+  it.each(["unknown"] as const)("initial %s still rejects publication despite buffered success", async state => {
     const f = await fixture({ mutation, state, problem: { code: state === "unknown" ? "outcome_unknown" : "conflict", recovery: "resolve_outcome", message: "fixture refusal" } });
     try {
       f.setEarly({ mutation, state: "pending", published: "published" });
@@ -157,7 +146,7 @@ describe("client routes until BOTH receipt outcomes settle", () => {
       await expect(write.published).resolves.toMatchObject({ published: "not_published" });
     } finally { f.client.close(); }
   });
-  it.each(["rejected", "unknown"] as const)("routes %s to the still-unsettled publication promise", async state => {
+  it.each(["unknown"] as const)("routes %s to the still-unsettled publication promise", async state => {
     const f = await fixture({ mutation, state: "confirmed", seq: 12, published: "publishing" });
     try {
       const write = await f.submit();

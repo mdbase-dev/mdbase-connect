@@ -29,7 +29,7 @@ use crate::control::{
     AccountInfo, AddCollection, ApproveDevice, Check, CollectionRef, CollectionStatus,
     ControlError, DaemonStatus, DeviceInfo, EnableSync, GrantRef, HoldAction, HoldResolved,
     HoldSummary, JoinCollection, Method, NotReady, Notice, PROTOCOL, READINESS_SCHEMA, Readiness,
-    Request, ResolveHold, Response, Settings,
+    Request, ResolveHold, Response, Settings, UpdateCollection,
 };
 use crate::fsutil;
 use crate::instance::{InstanceLock, LockError};
@@ -79,6 +79,7 @@ pub struct Daemon {
     control_key: std::sync::OnceLock<zeroize::Zeroizing<[u8; 32]>>,
     /// Access events for notifications (pushed as `access`).
     access_events: tokio::sync::broadcast::Sender<AccessEvent>,
+    activity: crate::activity::ActivityLog,
     /// The device identity, once loaded (Noise responder key for the replica
     /// endpoint).
     identity: std::sync::OnceLock<Arc<DeviceIdentity>>,
@@ -165,6 +166,7 @@ pub async fn run_with(
         readiness: watch::channel(readiness(false, Some(NotReady::Starting))).0,
         changes: watch::channel(0).0,
         access_events: tokio::sync::broadcast::channel(64).0,
+        activity: crate::activity::ActivityLog::open(profile.activity_file()),
         control_key: std::sync::OnceLock::new(),
         account: std::sync::Mutex::new(Account::default()),
         account_gate: Mutex::new(()),
@@ -525,6 +527,10 @@ impl Daemon {
             }),
             account: {
                 let a = self.account.lock().unwrap_or_else(|p| p.into_inner());
+                let cloud = crate::cloud::CloudConfig::load(&self.profile.cloud_file())
+                    .ok()
+                    .flatten()
+                    .filter(|_| a.signed_in);
                 AccountInfo {
                     signed_in: a.signed_in,
                     online: self.online.load(std::sync::atomic::Ordering::Relaxed),
@@ -534,11 +540,8 @@ impl Daemon {
                         .authority
                         .active_account()
                         .map(|id| secrets::uuid_string(&id.0)),
-                    server: crate::cloud::CloudConfig::load(&self.profile.cloud_file())
-                        .ok()
-                        .flatten()
-                        .filter(|_| a.signed_in)
-                        .map(|c| c.server_url),
+                    server: cloud.as_ref().map(|c| c.server_url.clone()),
+                    computer_name: cloud.and_then(|c| c.computer_name),
                     environment: crate::trust::Environment::embedded().name().into(),
                 }
             },
@@ -578,6 +581,7 @@ impl Daemon {
         drop(inner);
         barrier.wait().await;
         for e in &events {
+            self.note_access_event(e).await;
             let _ = self.access_events.send(e.clone());
         }
         if !events.is_empty() {
@@ -763,10 +767,25 @@ impl Daemon {
         drop(inner);
         barrier.wait().await;
         for event in events {
+            self.note_access_event(&event).await;
             let _ = self.access_events.send(event);
         }
         self.bump();
         Ok(())
+    }
+
+    /// [`Self::handle`], then log what a successful call changed.
+    async fn handle_and_note(
+        self: &Arc<Self>,
+        req: &Request,
+        conn: &mut ConnAuth,
+    ) -> Result<Value, ControlError> {
+        let prior = self
+            .collection_name(req.params.get("collection").and_then(Value::as_str))
+            .await;
+        let v = self.handle(req, conn).await?;
+        self.note_control_call(req, &v, prior).await;
+        Ok(v)
     }
 
     async fn handle(
@@ -859,6 +878,10 @@ impl Daemon {
                 let p: CollectionRef = params(req)?;
                 self.remove(&p.collection).await
             }
+            Method::COLLECTION_UPDATE => {
+                let p: UpdateCollection = params(req)?;
+                self.update_collection(p).await
+            }
             Method::COLLECTION_PAUSE | Method::COLLECTION_RESUME => {
                 let p: CollectionRef = params(req)?;
                 self.set_paused(&p.collection, req.method == Method::COLLECTION_PAUSE)
@@ -876,7 +899,7 @@ impl Daemon {
             }
             Method::SYNC_ENABLE => {
                 let p: EnableSync = params(req)?;
-                if p.mode == SyncMode::Local {
+                if p.mode == Some(SyncMode::Local) {
                     return Err(ControlError::invalid(
                         "invalid_mode",
                         "sync.enable takes mode synced or synced_e2e",
@@ -996,6 +1019,22 @@ impl Daemon {
             }
             Method::ACCOUNT_SIGN_IN => self.sign_in(req).await,
             Method::ACCOUNT_SIGN_OUT => self.sign_out().await,
+            Method::ACTIVITY_LIST => {
+                let limit = req
+                    .params
+                    .get("limit")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(50);
+                to_value(
+                    &self
+                        .activity
+                        .list(limit.min(crate::activity::KEEP as u64) as usize),
+                )
+            }
+            Method::ACCOUNT_RENAME => {
+                let name = req.params.get("name").and_then(Value::as_str).unwrap_or("");
+                self.rename_computer(name).await
+            }
             Method::SETTINGS_GET => {
                 let inner = self.inner.lock().await;
                 to_value(&Settings {
@@ -1157,11 +1196,16 @@ impl Daemon {
                 ),
             ));
         }
-        let name = p.name.unwrap_or_else(|| {
-            root.file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| root.display().to_string())
-        });
+        let name = p
+            .name
+            .as_deref()
+            .map(display_name)
+            .transpose()?
+            .unwrap_or_else(|| {
+                root.file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| root.display().to_string())
+            });
         let (id, replica_id, origin) = match claim {
             FolderClaim::Ours {
                 collection,
@@ -1195,6 +1239,7 @@ impl Daemon {
             replica_id,
             mode: SyncMode::Local,
             origin,
+            description: None,
             added_at_ms: fsutil::now_ms() as u64,
             paused: false,
             ever_e2e: false,
@@ -1407,11 +1452,16 @@ impl Daemon {
             ));
         }
         self.write_link(&id, &collection, &trust, state, log_url, genesis)?;
-        let name = p.name.unwrap_or_else(|| {
-            root.file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| root.display().to_string())
-        });
+        let name = p
+            .name
+            .as_deref()
+            .map(display_name)
+            .transpose()?
+            .unwrap_or_else(|| {
+                root.file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| root.display().to_string())
+            });
         let entry = Entry {
             id: id.clone(),
             name,
@@ -1423,6 +1473,7 @@ impl Daemon {
                 SyncMode::Synced
             },
             origin: Origin::Joined,
+            description: None,
             added_at_ms: fsutil::now_ms() as u64,
             paused: false,
             ever_e2e: p.private,
@@ -1519,20 +1570,19 @@ impl Daemon {
         Ok(commit)
     }
 
-    /// Turn sync on for a registered local collection whose folder is still empty:
-    /// Connect creates the cloud copy (or private collection) from this device, the
-    /// verified genesis is pinned, the local-only store is moved aside (never
-    /// deleted), and the collection reopens synced. A non-empty folder needs the
-    /// adopt path (generation-0 import), which is not here.
+    /// Turn sync on for a registered local collection. Connect creates the cloud
+    /// copy (or private collection) from this device, the verified genesis is
+    /// pinned, the local-only store is moved aside (never deleted), and the
+    /// collection reopens synced.
+    ///
+    /// A folder with files is adopted: the inventory (record IDs,
+    /// paths) is journaled before anything remote happens, and the synced runtime
+    /// seals the folder as generation 0 with those IDs. Every step is resumable: a
+    /// re-run after a crash continues from the journal, and a re-run once linked
+    /// returns the status.
     async fn enable_sync(&self, p: EnableSync) -> Result<Value, ControlError> {
         let _gate = self.account_gate.lock().await;
         let (ctx, trust) = self.sync_parts()?;
-        let e2e = p.mode == SyncMode::SyncedE2e;
-        let state = if e2e {
-            mdbn_wire::policy::CState::E2e
-        } else {
-            mdbn_wire::policy::CState::CloudCopy
-        };
         let entry = self
             .inner
             .lock()
@@ -1543,7 +1593,21 @@ impl Daemon {
             .ok_or_else(|| {
                 ControlError::not_found(format!("no registered collection {}", p.collection))
             })?;
+        let collections = self.profile.state_dir.join("collections");
+        let journal_path = crate::adopt::Journal::path(&collections, &entry.id);
+        let mut journal = crate::adopt::Journal::load(&journal_path)
+            .map_err(|e| ControlError::internal(format!("adopt journal: {e}")))?;
         if entry.mode != SyncMode::Local {
+            if journal.is_some() {
+                // Linked; the synced runtime is adopting the folder.
+                let inner = self.inner.lock().await;
+                let host = inner
+                    .hosts
+                    .iter()
+                    .find(|h| h.entry().id == entry.id)
+                    .ok_or_else(|| ControlError::internal("registry and hosts disagree"))?;
+                return to_value(&host.status());
+            }
             return Err(ControlError::invalid(
                 "already_synced",
                 "this collection already syncs",
@@ -1582,11 +1646,85 @@ impl Daemon {
                 "this account does not own the local registration",
             ));
         }
-        if !local_bootstrap_folder_is_empty(&entry.root)? {
-            return Err(ControlError::not_implemented(
-                "enabling sync on a folder with files (adopt)",
-            ));
-        }
+        let adopting = journal.is_some() || !local_bootstrap_folder_is_empty(&entry.root)?;
+        let migrated = entry.origin == crate::registry::Origin::MigratedLocal;
+        let e2e = match (&journal, p.mode) {
+            (Some(j), asked) => {
+                let started = j.mode == crate::adopt::Mode::Private;
+                if asked.is_some_and(|m| (m == SyncMode::SyncedE2e) != started) {
+                    return Err(ControlError::invalid(
+                        "adopt_in_progress",
+                        format!(
+                            "turning sync on was started as {}; run it again with that mode",
+                            if started { "private" } else { "cloud-copy" }
+                        ),
+                    ));
+                }
+                started
+            }
+            (None, Some(m)) => m == SyncMode::SyncedE2e,
+            // Migrated local-authority collections, and folders with files, become
+            // private unless the user asks for a cloud copy.
+            (None, None) => adopting || migrated,
+        };
+        let mode = if e2e {
+            SyncMode::SyncedE2e
+        } else {
+            SyncMode::Synced
+        };
+        let state = if e2e {
+            mdbn_wire::policy::CState::E2e
+        } else {
+            mdbn_wire::policy::CState::CloudCopy
+        };
+        // Adopt: holds first, then the inventory from the serving local runtime.
+        let inventory = if adopting && journal.is_none() {
+            adopt_holds_refusal(
+                &self.profile.state_dir,
+                &entry.id,
+                p.accept_takeover_holds,
+                None,
+            )?;
+            let rt = {
+                let inner = self.inner.lock().await;
+                inner
+                    .hosts
+                    .iter()
+                    .find(|h| h.entry().id == entry.id && h.is_serving())
+                    .and_then(|h| h.runtime())
+            }
+            .ok_or_else(|| {
+                ControlError::invalid(
+                    "not_serving",
+                    "the collection must be serving to turn sync on; resume it and run again",
+                )
+            })?;
+            let status = rt
+                .status()
+                .await
+                .ok_or_else(|| ControlError::internal("collection stopped"))?;
+            adopt_holds_refusal(
+                &self.profile.state_dir,
+                &entry.id,
+                true,
+                Some((status.holds, status.unresolved)),
+            )?;
+            let (records, resources) = rt
+                .inventory()
+                .await
+                .ok_or_else(|| ControlError::internal("collection inventory unavailable"))?;
+            let records = if migrated {
+                crate::adopt::prefer_legacy_ids(
+                    records,
+                    &crate::adopt::legacy_hints(&self.profile.state_dir, &entry.id),
+                )
+            } else {
+                records
+            };
+            Some((records, resources))
+        } else {
+            None
+        };
         // Join/retain-stop the old actor before enrolment; no local writer may
         // keep serving while bootstrap outcome is uncertain. Do not auto-resume.
         {
@@ -1622,52 +1760,92 @@ impl Daemon {
                 .ok_or_else(|| ControlError::internal("registry and hosts disagree"))?
                 .set_entry(paused);
         }
-        if !local_bootstrap_folder_is_empty(&entry.root)? {
+        if let Some((records, resources)) = inventory {
+            let j = crate::adopt::Journal {
+                schema_version: crate::adopt::SCHEMA_VERSION,
+                mode: if e2e {
+                    crate::adopt::Mode::Private
+                } else {
+                    crate::adopt::Mode::CloudCopy
+                },
+                records: records
+                    .iter()
+                    .map(|(id, path)| (secrets::uuid_string(id), path.clone()))
+                    .collect(),
+                resources,
+                created: None,
+            };
+            j.save(&journal_path)
+                .map_err(|e| ControlError::internal(format!("adopt journal: {e}")))?;
+            journal = Some(j);
+        }
+        if !adopting && !local_bootstrap_folder_is_empty(&entry.root)? {
             return Err(ControlError::invalid(
                 "folder_not_empty",
-                "the folder changed while stopping; use adopt",
+                "the folder changed while stopping; run sync enable again to adopt it",
             ));
         }
-        let identity = self
-            .identity
-            .get()
-            .ok_or_else(|| {
-                ControlError::unavailable("device_identity_missing", "keychain device unavailable")
-            })?
-            .clone();
-        let created = if e2e {
-            ctx.cloud
-                .create_private(&ctx.connector_id, &collection, &identity, &current)
-                .await
-        } else {
-            ctx.cloud
-                .create_cloud_copy(&ctx.connector_id, &collection, &identity, &current)
-                .await
-        }
-        .map_err(cloud_refusal)?;
-        current().map_err(|_| {
-            ControlError::new(
-                "unauthenticated",
-                "account_changed",
-                "account changed during bootstrap",
-            )
-        })?;
-        if created.collection_id != entry.id
-            || crate::trust::origin(&created.log_url).ok().as_deref()
-                != Some(trust.log_origin.as_str())
+        let created = match journal
+            .as_ref()
+            .and_then(|j| Some((j.created.clone()?, j.genesis()?)))
         {
-            return Err(ControlError::unavailable(
-                "sync_integrity",
-                "bootstrap response binding mismatch",
-            ));
-        }
-        // Authenticate the candidate BEFORE moving aside any local state.
-        crate::sync::verify_genesis(&created.genesis_item, &collection, &trust, state)
-            .map_err(|e| ControlError::unavailable("sync_integrity", e.0))?;
-        if !local_bootstrap_folder_is_empty(&entry.root)? {
+            Some((c, genesis)) => (c.log_url, genesis),
+            None => {
+                let identity = self
+                    .identity
+                    .get()
+                    .ok_or_else(|| {
+                        ControlError::unavailable(
+                            "device_identity_missing",
+                            "keychain device unavailable",
+                        )
+                    })?
+                    .clone();
+                let created = if e2e {
+                    ctx.cloud
+                        .create_private(&ctx.connector_id, &collection, &identity, &current)
+                        .await
+                } else {
+                    ctx.cloud
+                        .create_cloud_copy(&ctx.connector_id, &collection, &identity, &current)
+                        .await
+                }
+                .map_err(cloud_refusal)?;
+                current().map_err(|_| {
+                    ControlError::new(
+                        "unauthenticated",
+                        "account_changed",
+                        "account changed during bootstrap",
+                    )
+                })?;
+                if created.collection_id != entry.id
+                    || crate::trust::origin(&created.log_url).ok().as_deref()
+                        != Some(trust.log_origin.as_str())
+                {
+                    return Err(ControlError::unavailable(
+                        "sync_integrity",
+                        "bootstrap response binding mismatch",
+                    ));
+                }
+                // Authenticate the candidate BEFORE moving aside any local state.
+                crate::sync::verify_genesis(&created.genesis_item, &collection, &trust, state)
+                    .map_err(|e| ControlError::unavailable("sync_integrity", e.0))?;
+                if let Some(j) = journal.as_mut() {
+                    j.created = Some(crate::adopt::Created {
+                        log_url: created.log_url.clone(),
+                        genesis: crate::adopt::hex(&created.genesis_item),
+                    });
+                    j.save(&journal_path)
+                        .map_err(|e| ControlError::internal(format!("adopt journal: {e}")))?;
+                }
+                (created.log_url, created.genesis_item)
+            }
+        };
+        let (log_url, genesis) = created;
+        if !adopting && !local_bootstrap_folder_is_empty(&entry.root)? {
             return Err(ControlError::invalid(
                 "folder_not_empty",
-                "the folder changed during bootstrap; use adopt",
+                "the folder changed during bootstrap; run sync enable again to adopt it",
             ));
         }
         let mut inner = self.inner.lock().await;
@@ -1678,30 +1856,19 @@ impl Daemon {
                 "account changed before publication",
             )
         })?;
-        // The local-only store is set aside, never deleted: an empty folder's
-        // store holds no user data, but a mistake must stay recoverable.
-        let dir = self.profile.state_dir.join("collections").join(&entry.id);
+        // The local-only store is set aside, never deleted: a mistake must stay
+        // recoverable (an adopted folder's inventory is already journaled).
+        let dir = collections.join(&entry.id);
         if dir.exists() {
-            let aside = self.profile.state_dir.join("collections").join(format!(
-                "{}.local-{}",
-                entry.id,
-                fsutil::now_ms()
-            ));
+            let aside = collections.join(format!("{}.local-{}", entry.id, fsutil::now_ms()));
             std::fs::rename(&dir, &aside).map_err(|e| ControlError::internal(e.to_string()))?;
         }
-        self.write_link(
-            &entry.id,
-            &collection,
-            &trust,
-            state,
-            &created.log_url,
-            &created.genesis_item,
-        )?;
+        self.write_link(&entry.id, &collection, &trust, state, &log_url, &genesis)?;
         let mut next = inner.registry.clone();
         let updated = next
             .get_mut(&entry.id)
             .ok_or_else(|| ControlError::internal("registry changed"))?;
-        updated.mode = p.mode;
+        updated.mode = mode;
         updated.ever_e2e |= e2e;
         updated.owner_account = Some(secrets::uuid_string(&owner.0));
         updated.paused = false;
@@ -1718,7 +1885,7 @@ impl Daemon {
         let status = host.status();
         drop(inner);
         self.bump();
-        tracing::info!(collection = %status.id, e2e, "sync enabled");
+        tracing::info!(collection = %status.id, e2e, adopting, "sync enabled");
         to_value(&status)
     }
 
@@ -1728,6 +1895,12 @@ impl Daemon {
         let mut next = inner.registry.clone();
         next.remove(id).map_err(registry_error)?;
         self.save_registry(&next)?;
+        if let Err(e) = crate::adopt::Journal::remove(&crate::adopt::Journal::path(
+            &self.profile.state_dir.join("collections"),
+            id,
+        )) {
+            tracing::warn!(collection = %id, error = %e, "adopt journal not removed");
+        }
         inner.registry = next;
         self.authority.publish_registry(&inner.registry);
         if !inner.access.list(Some(id)).is_empty() {
@@ -1750,6 +1923,120 @@ impl Daemon {
         Ok(json!({}))
     }
 
+    async fn collection_name(&self, id: Option<&str>) -> Option<String> {
+        let id = id?;
+        let inner = self.inner.lock().await;
+        inner.registry.get(id).map(|e| e.name.clone())
+    }
+
+    /// Log a successful control call that changed something.
+    async fn note_control_call(&self, req: &Request, result: &Value, prior: Option<String>) {
+        let prior = match prior {
+            Some(n) => Some(n),
+            None => {
+                self.collection_name(result.get("collection").and_then(Value::as_str))
+                    .await
+            }
+        };
+        if let Some(e) = crate::activity::for_control_call(&req.method, &req.params, result, prior)
+        {
+            self.activity.record(e);
+        }
+    }
+
+    /// Log an access change that came from the account (or a new request).
+    async fn note_access_event(&self, event: &AccessEvent) {
+        let (kind, collection, app) = match event {
+            AccessEvent::NewAccess { entry } => (
+                "app_connected",
+                &entry.grant.collection,
+                &entry.grant.app_name,
+            ),
+            AccessEvent::ApprovalRequested { entry } => (
+                "app_requested",
+                &entry.grant.collection,
+                &entry.grant.app_name,
+            ),
+            AccessEvent::Revoked {
+                collection,
+                app_name,
+                ..
+            } => ("app_revoked_in_account", collection, app_name),
+        };
+        let mut e = crate::activity::ActivityEntry::now(kind);
+        e.collection_name = self.collection_name(Some(collection)).await;
+        e.collection = Some(collection.clone());
+        e.app_name = Some(app.clone());
+        self.activity.record(e);
+    }
+
+    /// Rename this computer in the account, then remember the stored name.
+    async fn rename_computer(&self, name: &str) -> Result<Value, ControlError> {
+        let name = checked_name(name, "a computer name")?;
+        let _gate = self.account_gate.lock().await;
+        let path = self.profile.cloud_file();
+        let mut cfg = crate::cloud::CloudConfig::load(&path)
+            .map_err(|e| ControlError::unavailable("account_state", e.to_string()))?
+            .ok_or_else(|| {
+                ControlError::new(
+                    "unauthenticated",
+                    "not_signed_in",
+                    "sign this computer in first",
+                )
+            })?;
+        let ctx = self.sync_ctx().ok_or_else(|| {
+            ControlError::new(
+                "unauthenticated",
+                "not_signed_in",
+                "sign this computer in first",
+            )
+        })?;
+        let stored = ctx.cloud.rename_self(&name).await.map_err(|e| match e {
+            crate::cloud::CloudError::Unauthenticated => {
+                ControlError::new("unauthenticated", "authentication_required", e.to_string())
+            }
+            e => ControlError::unavailable("account_unreachable", e.to_string()),
+        })?;
+        cfg.computer_name = Some(stored.clone());
+        cfg.save(&path)
+            .map_err(|e| ControlError::unavailable("account_state", e.to_string()))?;
+        drop(_gate);
+        self.bump();
+        Ok(json!({ "name": stored }))
+    }
+
+    async fn update_collection(&self, p: UpdateCollection) -> Result<Value, ControlError> {
+        let name = p.name.as_deref().map(display_name).transpose()?;
+        let description = p.description.as_deref().map(description_text).transpose()?;
+        let _gate = self.account_gate.lock().await;
+        let mut inner = self.inner.lock().await;
+        let mut next = inner.registry.clone();
+        let entry = next.get_mut(&p.collection).ok_or_else(|| {
+            ControlError::not_found(format!("no registered collection {}", p.collection))
+        })?;
+        if let Some(name) = name {
+            entry.name = name;
+        }
+        if let Some(description) = description {
+            entry.description = description;
+        }
+        let entry = entry.clone();
+        self.save_registry(&next)?;
+        inner.registry = next;
+        self.authority.publish_registry(&inner.registry);
+        let host = inner
+            .hosts
+            .iter_mut()
+            .find(|h| h.entry().id == p.collection)
+            .ok_or_else(|| ControlError::internal("registry and hosts disagree"))?;
+        host.set_entry(entry);
+        let status = host.status();
+        drop(inner);
+        drop(_gate);
+        self.bump();
+        to_value(&status)
+    }
+
     async fn set_paused(&self, id: &str, paused: bool) -> Result<Value, ControlError> {
         let _gate = self.account_gate.lock().await;
         let mut inner = self.inner.lock().await;
@@ -1757,6 +2044,24 @@ impl Daemon {
         let entry = next
             .get_mut(id)
             .ok_or_else(|| ControlError::not_found(format!("no registered collection {id}")))?;
+        // An adopt stopped before Connect created anything is abandoned by resuming
+        // locally; one whose log exists must be finished, not reopened local-only.
+        if !paused && entry.mode == SyncMode::Local {
+            let journal =
+                crate::adopt::Journal::path(&self.profile.state_dir.join("collections"), &entry.id);
+            match crate::adopt::Journal::load(&journal) {
+                Ok(None) => {}
+                Ok(Some(j)) if j.created.is_none() => crate::adopt::Journal::remove(&journal)
+                    .map_err(|e| ControlError::internal(format!("adopt journal: {e}")))?,
+                Ok(Some(_)) => {
+                    return Err(ControlError::invalid(
+                        "adopt_in_progress",
+                        format!("sync is being turned on; run `mdbase sync enable {id}` to finish"),
+                    ));
+                }
+                Err(e) => return Err(ControlError::internal(format!("adopt journal: {e}"))),
+            }
+        }
         entry.paused = paused;
         let entry = entry.clone();
         self.save_registry(&next)?;
@@ -1870,6 +2175,7 @@ impl Daemon {
         }
         let account_gate = self.account_gate.lock().await;
         if automatic && !self.automatic_takeover_allowed().await {
+            self.refence_old_service(old).await;
             self.takeover
                 .waiting_for_batch
                 .store(true, std::sync::atomic::Ordering::Relaxed);
@@ -1963,6 +2269,37 @@ impl Daemon {
         self.retire_legacy().await;
         self.bump();
         self.takeover_status().await
+    }
+
+    /// Without a run, still keep a started takeover's old service stopped and
+    /// report a revived old connector (the rollout gate only guards starting).
+    async fn refence_old_service(&self, old: std::path::PathBuf) {
+        let paths = self.takeover_paths();
+        let isolated = self.profile.target == crate::paths::Target::IsolatedProfile;
+        let fenced = tokio::task::spawn_blocking(move || {
+            let mut old_service: Box<dyn mdbn_takeover::OldService> = if isolated {
+                Box::new(crate::takeover::IsolatedOldService)
+            } else {
+                Box::new(crate::service::legacy::OldConnectorService::new())
+            };
+            crate::takeover::refence(&paths, &old, old_service.as_mut())
+        })
+        .await;
+        match fenced {
+            Ok(Ok(Some(revived))) => {
+                self.takeover
+                    .revived
+                    .store(revived, std::sync::atomic::Ordering::Relaxed);
+                if revived {
+                    tracing::error!(
+                        "old_connector_revived: the old mdbase Connect daemon is running again"
+                    );
+                }
+            }
+            Ok(Ok(None)) => {}
+            Ok(Err(e)) => tracing::warn!(error = %e, "could not re-fence the old connector"),
+            Err(e) => tracing::warn!(error = %e, "could not re-fence the old connector"),
+        }
     }
 
     /// Full-device retirement is independent of takeover success: until Connect
@@ -2290,6 +2627,9 @@ impl Daemon {
                 ),
                 action,
             });
+            if let Some(c) = adopt_check(&self.profile.state_dir.join("collections"), h.entry()) {
+                checks.push(c);
+            }
             if let Some(diagnostic) = h.mirror_diagnostic() {
                 checks.push(Check {
                     id: format!("mirror_join:{}", s.id),
@@ -2300,6 +2640,26 @@ impl Daemon {
             }
         }
         checks.extend(self.takeover_check());
+        let profile = self.profile.clone();
+        checks.push(
+            tokio::task::spawn_blocking(move || crate::service::doctor_check(&profile))
+                .await
+                .unwrap_or_else(|e| Check {
+                    id: "service".into(),
+                    status: "warn".into(),
+                    detail: format!("service check failed: {e}"),
+                    action: None,
+                }),
+        );
+        checks.push(crate::update::doctor_check(&r.binary_version));
+        if self.profile.target == crate::paths::Target::InstalledService {
+            use crate::takeover::record::Record;
+            let fenced = Record::load(&self.takeover_paths().record)
+                .ok()
+                .flatten()
+                .is_some_and(|rec| rec.state.fences_old_service());
+            checks.push(loopback_check(fenced, CONNECTOR_LOOPBACK).await);
+        }
         if let Some(retirement) = self
             .takeover
             .retirement
@@ -2317,6 +2677,48 @@ impl Daemon {
             });
         }
         checks
+    }
+}
+
+/// The old connector's browser port. The daemon serves it only after the takeover
+/// fenced the old service, and never binds another port in its place.
+const CONNECTOR_LOOPBACK: std::net::SocketAddr = std::net::SocketAddr::V4(
+    std::net::SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, 28485),
+);
+
+/// The `doctor` `loopback_port` check: a connect-only probe (never a bind, which could
+/// race the port's owner). Held after the takeover fenced the old service means
+/// something else, usually a revived old app, has it: `loopback_port_busy`.
+async fn loopback_check(fenced: bool, addr: std::net::SocketAddr) -> Check {
+    let held = matches!(
+        tokio::time::timeout(
+            Duration::from_millis(500),
+            tokio::net::TcpStream::connect(addr)
+        )
+        .await,
+        Ok(Ok(_))
+    );
+    let (status, detail, action) = match (held, fenced) {
+        (true, true) => (
+            "warn",
+            format!("loopback_port_busy: {addr} is held by another process"),
+            Some(format!(
+                "Quit whatever holds port {} (usually the old mdbase Connect app); the daemon never serves browser apps on another port.",
+                addr.port()
+            )),
+        ),
+        (true, false) => (
+            "ok",
+            format!("{addr} is in use, as expected while today's mdbase Connect runs"),
+            None,
+        ),
+        (false, _) => ("ok", format!("{addr} is free"), None),
+    };
+    Check {
+        id: "loopback_port".into(),
+        status: status.into(),
+        detail,
+        action,
     }
 }
 
@@ -2468,6 +2870,73 @@ fn folder_is_empty(root: &std::path::Path) -> Result<bool, ControlError> {
 /// files (`host.lock`, `host.json`: a PID and a diagnostic descriptor, never user
 /// data). Never other files, symlinks or arbitrary hidden user entries.
 /// No file contents are read; inspection is bounded and failures deny.
+/// Adopt is blocked while files the takeover held are unreviewed (the daemon
+/// cannot resolve those; `accept` is the user's explicit review) and while the
+/// local replica has holds or unresolved conflicts (`replica`: holds, conflicts).
+fn adopt_holds_refusal(
+    state_dir: &std::path::Path,
+    id: &str,
+    accept: bool,
+    replica: Option<(u64, u64)>,
+) -> Result<(), ControlError> {
+    let held = crate::adopt::takeover_holds(state_dir, id)
+        .map_err(|e| ControlError::internal(format!("takeover record: {e}")))?;
+    if held > 0 && !accept {
+        return Err(ControlError::invalid(
+            "takeover_holds",
+            format!(
+                "{held} file(s) were held when this collection was taken over; both versions \
+                 are in the folder. Review them, then run `mdbase sync enable {id} \
+                 --accept-takeover-holds`"
+            ),
+        ));
+    }
+    if let Some((holds, conflicts)) = replica
+        && (holds > 0 || conflicts > 0)
+    {
+        return Err(ControlError::invalid(
+            "holds_pending",
+            format!(
+                "{holds} hold(s) and {conflicts} conflict(s) must be resolved first \
+                 (`mdbase holds {id}`)"
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// A taken-over collection whose sync is off, or one whose adopt is unfinished:
+/// what to run.
+fn adopt_check(collections: &std::path::Path, e: &crate::registry::Entry) -> Option<Check> {
+    let journal = crate::adopt::Journal::path(collections, &e.id);
+    let pending = journal.exists();
+    if e.mode != SyncMode::Local {
+        return pending.then(|| Check {
+            id: format!("adopt:{}", e.id),
+            status: "warn".into(),
+            detail: format!("{}: turning sync on, the folder is being adopted", e.name),
+            action: Some("Keep the daemon running; it continues after a restart.".into()),
+        });
+    }
+    if pending {
+        return Some(Check {
+            id: format!("adopt:{}", e.id),
+            status: "warn".into(),
+            detail: format!("{}: turning sync on was interrupted", e.name),
+            action: Some(format!("Run `mdbase sync enable {}` to finish.", e.id)),
+        });
+    }
+    (e.origin == crate::registry::Origin::MigratedLocal).then(|| Check {
+        id: format!("adopt:{}", e.id),
+        status: "warn".into(),
+        detail: format!("{}: taken over from mdbase Connect, sync is off", e.name),
+        action: Some(format!(
+            "Run `mdbase sync enable {}` to sync it (private by default).",
+            e.id
+        )),
+    })
+}
+
 pub(crate) fn local_bootstrap_folder_is_empty(
     root: &std::path::Path,
 ) -> Result<bool, ControlError> {
@@ -2670,7 +3139,7 @@ async fn serve_control(d: Arc<Daemon>, stream: BoxStream) -> std::io::Result<()>
                 .await;
             break;
         }
-        let resp = match d.handle(&req, &mut conn).await {
+        let resp = match d.handle_and_note(&req, &mut conn).await {
             Ok(v) => Response::ok(req.id, v),
             Err(e) => Response::err(req.id, e),
         };
@@ -3070,6 +3539,52 @@ impl Daemon {
     }
 }
 
+/// A collection display name: trimmed, 1 to 100 characters, no control characters
+/// (it is shown on approval screens and in the account).
+fn display_name(value: &str) -> Result<String, ControlError> {
+    checked_name(value, "a collection name")
+}
+
+/// A name shown to people (collection or computer): trimmed, 1 to 100 characters,
+/// no control or direction-changing characters.
+fn checked_name(value: &str, what: &str) -> Result<String, ControlError> {
+    let v = value.trim();
+    if v.is_empty()
+        || v.chars().count() > 100
+        || v.chars().any(|c| c.is_control() || is_bidi_control(c))
+    {
+        return Err(ControlError::invalid(
+            "name",
+            format!(
+                "{what} is 1 to 100 characters, without control or direction-changing characters"
+            ),
+        ));
+    }
+    Ok(v.to_string())
+}
+
+/// Bidirectional formatting characters, which can make a name read differently
+/// from what it is.
+fn is_bidi_control(c: char) -> bool {
+    matches!(c, '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+}
+
+/// A description: trimmed, at most 500 characters; empty clears it. Line breaks
+/// and tabs are allowed, other control characters are not.
+fn description_text(value: &str) -> Result<Option<String>, ControlError> {
+    let v = value.trim();
+    if v.chars().count() > 500
+        || v.chars()
+            .any(|c| (c.is_control() && !matches!(c, '\n' | '\t')) || is_bidi_control(c))
+    {
+        return Err(ControlError::invalid(
+            "description",
+            "a description is at most 500 characters",
+        ));
+    }
+    Ok((!v.is_empty()).then(|| v.to_string()))
+}
+
 /// The collection's `spec_version` from `mdbase.yaml`, for the inventory.
 fn spec_version(root: &std::path::Path) -> String {
     std::fs::read_to_string(root.join("mdbase.yaml"))
@@ -3386,6 +3901,7 @@ impl Daemon {
             .pairing = Some(pairing.verification_uri.clone());
         let d = self.clone();
         let p2 = pairing.clone();
+        let computer_name = name.clone();
         let task = tokio::spawn(async move {
             let deadline =
                 tokio::time::Instant::now() + Duration::from_secs(p2.expires_in.min(3600));
@@ -3407,6 +3923,7 @@ impl Daemon {
                         account_epoch: epoch,
                         server_url: server,
                         connector_id: Some(paired.connector_id),
+                        computer_name: Some(computer_name),
                         ..Default::default()
                     };
                     if let Err(e) = d
@@ -3415,6 +3932,8 @@ impl Daemon {
                     {
                         d.set_epoch_error(epoch, &e.message);
                     } else {
+                        d.activity
+                            .record(crate::activity::ActivityEntry::now("signed_in"));
                         // Taken-over collections wait for an account to register.
                         tokio::spawn(d.clone().takeover_task(false));
                     }

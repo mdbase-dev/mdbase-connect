@@ -78,7 +78,8 @@ remove-file     = { 0: 4, 1: uuid, 2: path }
 put-resource    = { 0: 5, 1: path, 2: text }               ; path, doc
 remove-resource = { 0: 6, 1: path }
 put-settings    = { 0: 7, 1: file-inclusion }                ; the collection's file inclusion policy (intent.md §3.7)
-put-attachment-file-v1 = { 0: 8, 1: uuid, 2: path, 3: attachment-content-v1 }
+put-attachment-file-v1 = { 0: 8, 1: uuid, 2: path, 3: attachment-content-v1, ? 4: int }
+; optional field4: writing-device capture mtime in milliseconds; never sequence-derived
 put-unindexed-markdown-v1 = { 0: 9, 1: uuid, 2: path, 3: unindexed-markdown-payload-v1 }
 reindex-unindexed-markdown-v1 = { 0: 10, 1: uuid, 2: path, 3: text }
 reindex-ordinary-file-v1 = { 0: 11, 1: uuid, 2: path, 3: text }

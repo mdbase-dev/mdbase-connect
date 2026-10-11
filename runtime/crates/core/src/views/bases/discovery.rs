@@ -31,7 +31,7 @@ pub struct BaseFields<'a> {
 pub struct BaseView<'a> {
     /// Stable source ordinal, not its possibly duplicate name.
     pub index: u32,
-    /// Exact rendering type. Unknown renderers are not execution support.
+    /// Exact renderer metadata. Computation is admitted independently of its name.
     pub view_type: &'a str,
     /// Exact optional user name; no guessed default.
     pub name: Option<&'a str>,

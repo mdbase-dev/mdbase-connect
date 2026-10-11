@@ -3,6 +3,7 @@
 
 mod attachment_streams;
 mod attachments;
+mod original_app;
 mod signed_control_plain;
 use signed_control_plain::SignedControlPlain;
 

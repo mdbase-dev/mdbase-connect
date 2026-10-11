@@ -21,11 +21,14 @@ mdbn-wire.workspace = true
 mdbn-replica.workspace = true
 mdbn-store-file.workspace = true
 mdbn-noise.workspace = true
-mdbn-migrate-portable.workspace = true
+mdbn-migrate-portable = { workspace = true, features = ["sql-spill"] }
 zeroize = "1.8"
 
 [dev-dependencies]
 mdbn-replica = { workspace = true, features = ["testing"] }
+# Exercise metadata retention against the existing SQL spill, not a mock Driver.
+mdbn-migrate-portable = { workspace = true, features = ["sql-spill"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
 
 [lints]
 workspace = true

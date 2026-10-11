@@ -8,11 +8,11 @@
 
 use mdbn_wire::cbor::{self, Cbor};
 use mdbn_wire::common::{B16, B32, Uuid};
-use mdbn_wire::envelope::{Item, RekeyPayload};
+use mdbn_wire::envelope::{Item, ItemKind, RekeyPayload};
 use mdbn_wire::hash::{h, sha256};
-use mdbn_wire::policy::{PolicyOp, PolicyPayload};
+use mdbn_wire::policy::{CState, DeviceKind, PolicyOp, PolicyPayload};
 
-use crate::auth::verify_sig;
+use crate::auth::{Principal, VerifiedCaller, verify_sig};
 use crate::error::{Result, ServiceError};
 use crate::model::{AclEntry, CollectionState, device_kind};
 
@@ -29,6 +29,275 @@ fn bad_sig(m: &str) -> ServiceError {
 }
 fn bad_policy(m: &str) -> ServiceError {
     ServiceError::invalid("policy").msg(m.to_string())
+}
+
+/// Declaration supplied by trusted run admission, NOT an authenticated pin or
+/// authority itself. The two raw SHA256 anchors must identify the ORIGINAL
+/// signed records, not request-selected/restored ACL material. No live lookup.
+#[derive(Clone)]
+pub struct OriginalPins {
+    /// Exact admitted collection, never the shared nil registry.
+    pub collection: Uuid,
+    /// Original run owner account.
+    pub owner: Uuid,
+    /// Trusted public root certifying the original policy signer.
+    pub root_pk: B32,
+    /// Admitted public token issuer, distinct from the policy signing key.
+    pub issuer_pk: B32,
+    /// Admitted public transport key of this caller.
+    pub transport_pk: B32,
+    /// SHA256 of the exact original signed genesis envelope bytes.
+    pub genesis_sha256: B32,
+    /// SHA256 of exact original device enrollment policy; CP must use None.
+    pub enrollment_sha256: Option<B32>,
+    /// Exact original enrollment position; present iff its hash is present.
+    pub enrollment_seq: Option<u64>,
+}
+
+/// Historical signed subject, NOT current permission. AppRuntime remains its
+/// actual signed device kind; it is NOT a log-grant/client-key identity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OriginalSubject {
+    /// Actual CP caller whose transport key matches the original certified signer.
+    ControlPlane,
+    /// Actual device caller matching a unique signed enrollment operation.
+    Device {
+        /// Original signed device UUID, not an app grant UUID inference.
+        id: Uuid,
+        /// Original signed account (owner or all-zero service account).
+        account: Uuid,
+        /// Original signed kind, preserved without a serving-role conversion.
+        kind: DeviceKind,
+        /// Original signed Ed25519 key matching actual possession.
+        sign_pk: B32,
+    },
+}
+
+/// Opaque initial caller + signed original binding, relative to supplied pins.
+/// Not deployment/session/method sealed, a whole-history validity proof, current
+/// CP/phase authority, durable replay receipt, grant identity, or serving lease.
+#[derive(Clone)]
+pub struct OriginalCaller {
+    caller: VerifiedCaller,
+    collection: Uuid,
+    owner: Uuid,
+    root: B16,
+    genesis_sha256: B32,
+    subject: OriginalSubject,
+}
+impl std::fmt::Debug for OriginalCaller {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("OriginalCaller { .. }")
+    }
+}
+impl OriginalCaller {
+    /// Initial opaque authentication witness, still not current authority.
+    pub fn caller(&self) -> &VerifiedCaller {
+        &self.caller
+    }
+    /// Exact signed/admitted collection.
+    pub fn collection(&self) -> Uuid {
+        self.collection
+    }
+    /// Exact signed/admitted original owner.
+    pub fn owner(&self) -> Uuid {
+        self.owner
+    }
+    /// Original root key ID verified against the admitted public root.
+    pub fn root(&self) -> B16 {
+        self.root
+    }
+    /// Exact admitted original genesis raw-byte SHA256.
+    pub fn genesis_sha256(&self) -> B32 {
+        self.genesis_sha256
+    }
+    /// Historical signed subject, not an authorization decision.
+    pub fn subject(&self) -> OriginalSubject {
+        self.subject
+    }
+}
+
+/// Check bounded ORIGINAL signed records against a real opaque caller. All
+/// checks are local and side-effect free, never use a restored CollectionState.
+/// Caller supplies fresh time and trusted immutable admission declarations.
+/// Original enrollment must be separately admitted: this verifies its signature
+/// and tuple, NOT that it was the first/valid/committed historical enrollment.
+/// Restricted to run-owner devices or all-zero hosted/escrow service subjects;
+/// recording their signed kind never activates those actors or grants transport.
+/// It does not substitute for fresh CP identity/phase/final-effect checks.
+pub fn bind_original_caller(
+    caller: &VerifiedCaller,
+    pins: &OriginalPins,
+    genesis: &[u8],
+    enrollment: Option<&[u8]>,
+    now: i64,
+    budget: &crate::decode::Budget,
+) -> Result<OriginalCaller> {
+    let refuse = || ServiceError::invalid("original_identity");
+    // Bound total raw work before hashing/decoding any potentially restored bytes.
+    let total = genesis
+        .len()
+        .checked_add(enrollment.map_or(0, <[u8]>::len))
+        .ok_or_else(refuse)?;
+    if total > 128 * 1024
+        || genesis.is_empty()
+        || pins.collection == ZERO_ACCOUNT
+        || pins.owner == ZERO_ACCOUNT
+        || [
+            pins.root_pk,
+            pins.issuer_pk,
+            pins.transport_pk,
+            pins.genesis_sha256,
+        ]
+        .iter()
+        .any(|p| p.0 == [0; 32])
+        || caller.issuer_key() != pins.issuer_pk
+        || caller.transport_key() != pins.transport_pk
+        || pins.enrollment_sha256.is_some() != pins.enrollment_seq.is_some()
+        || pins.enrollment_seq == Some(0)
+        || caller.expires_at() <= now
+        || caller
+            .token_collection()
+            .is_some_and(|c| c != pins.collection)
+        || sha256(genesis) != pins.genesis_sha256
+    {
+        return Err(refuse());
+    }
+    let g = budget.wire::<Item>(genesis)?;
+    g.check_shape().map_err(|_| refuse())?;
+    if g.kind != ItemKind::Policy
+        || g.collection != pins.collection
+        || g.seq != Some(1)
+        || g.prev != Some(mdbn_wire::hash::CHAIN_ZERO)
+    {
+        return Err(refuse());
+    }
+    let payload = budget.wire::<PolicyPayload>(&g.body.0)?;
+    let Some(PolicyOp::Genesis(original)) = payload.ops.first() else {
+        return Err(refuse());
+    };
+    if original.owner != pins.owner
+        || original.root != key_id(&pins.root_pk)
+        || original.state != CState::CloudCopy
+        || payload
+            .ops
+            .iter()
+            .filter(|op| matches!(op, PolicyOp::Genesis(_)))
+            .count()
+            != 1
+    {
+        return Err(refuse());
+    }
+    verify_policy_crypto(&g, &payload, original.root, &[pins.root_pk])?;
+    let subject = match caller.principal() {
+        Principal::ControlPlane => {
+            if enrollment.is_some()
+                || pins.enrollment_sha256.is_some()
+                || payload.cert.policy_pk != caller.transport_key()
+            {
+                return Err(refuse());
+            }
+            OriginalSubject::ControlPlane
+        }
+        Principal::Device { id, sign_pk, .. } => {
+            let bytes = enrollment.ok_or_else(refuse)?;
+            let expected = pins
+                .enrollment_sha256
+                .filter(|p| p.0 != [0; 32])
+                .ok_or_else(refuse)?;
+            if bytes.is_empty() || sha256(bytes) != expected {
+                return Err(refuse());
+            }
+            let item = budget.wire::<Item>(bytes)?;
+            item.check_shape().map_err(|_| refuse())?;
+            if item.kind != ItemKind::Policy
+                || item.collection != pins.collection
+                || item.seq != pins.enrollment_seq
+            {
+                return Err(refuse());
+            }
+            if (item.seq == Some(1) && bytes != genesis)
+                || (item.seq == Some(2) && item.prev != Some(mdbn_wire::hash::chain_hash(genesis)))
+            {
+                return Err(refuse());
+            }
+            let enrolled = budget.wire::<PolicyPayload>(&item.body.0)?;
+            if enrolled.issued_at < payload.issued_at {
+                return Err(refuse());
+            }
+            verify_policy_crypto(&item, &enrolled, original.root, &[pins.root_pk])?;
+            let mut matches = enrolled.ops.iter().filter_map(|op| match op {
+                PolicyOp::DeviceEnrol(d) if d.device == id => Some(d),
+                _ => None,
+            });
+            let d = matches.next().ok_or_else(refuse)?;
+            if matches.next().is_some()
+                || d.sign_pk != sign_pk
+                || d.sign_pk != pins.transport_pk
+                || (matches!(d.kind, DeviceKind::Hosted | DeviceKind::Escrow)
+                    && d.account != ZERO_ACCOUNT)
+                || (!matches!(d.kind, DeviceKind::Hosted | DeviceKind::Escrow)
+                    && d.account != pins.owner)
+            {
+                return Err(refuse());
+            }
+            OriginalSubject::Device {
+                id,
+                account: d.account,
+                kind: d.kind,
+                sign_pk,
+            }
+        }
+    };
+    Ok(OriginalCaller {
+        caller: caller.clone(),
+        collection: pins.collection,
+        owner: pins.owner,
+        root: original.root,
+        genesis_sha256: pins.genesis_sha256,
+        subject,
+    })
+}
+
+// Same root-certificate/item/issuance crypto used by ordinary policy admission.
+// Monotonic/revocation/operation validity remain in apply_policy below.
+fn verify_policy_crypto(
+    item: &Item,
+    payload: &PolicyPayload,
+    root: B16,
+    roots: &[B32],
+) -> Result<B32> {
+    let root_pk = roots
+        .iter()
+        .find(|pk| key_id(pk) == root)
+        .ok_or_else(|| bad_sig("root key not in the pinned set"))?;
+    let cert = &payload.cert;
+    if cert.root != root {
+        return Err(bad_sig("certificate root"));
+    }
+    let cert_digest = cert
+        .signed_digest()
+        .map_err(|_| ServiceError::invalid("shape"))?;
+    if !verify_sig(&root_pk.0, &cert_digest.0, &cert.sig.0) {
+        return Err(bad_sig("certificate signature"));
+    }
+    let kid = key_id(&cert.policy_pk);
+    if item.signer != Some(kid) {
+        return Err(bad_sig("signer is not the certified policy key"));
+    }
+    let digest = item
+        .signed_digest()
+        .map_err(|_| ServiceError::invalid("shape"))?;
+    let Some(sig) = item.sig else {
+        return Err(bad_sig("unsigned"));
+    };
+    if !verify_sig(&cert.policy_pk.0, &digest.0, &sig.0) {
+        return Err(bad_sig("item signature"));
+    }
+    if !(cert.not_before <= payload.issued_at && payload.issued_at <= cert.not_after) {
+        return Err(bad_sig("issued outside the certificate window"));
+    }
+    Ok(*root_pk)
 }
 
 /// Validate a policy item at position `seq` against `state` (policy at `seq − 1`)
@@ -61,38 +330,9 @@ pub fn apply_policy_with_budget(
     } else {
         state.meta.root
     };
-    let root_pk = roots
-        .iter()
-        .find(|pk| key_id(pk) == root)
-        .ok_or_else(|| bad_sig("root key not in the pinned set"))?;
-
-    // policy.md §3, rules 1–5.
-    let cert = &payload.cert;
-    if cert.root != root {
-        return Err(bad_sig("certificate root"));
-    }
-    let cert_digest = cert
-        .signed_digest()
-        .map_err(|_| ServiceError::invalid("shape"))?;
-    if !verify_sig(&root_pk.0, &cert_digest.0, &cert.sig.0) {
-        return Err(bad_sig("certificate signature"));
-    }
-    let kid = key_id(&cert.policy_pk);
-    if item.signer != Some(kid) {
-        return Err(bad_sig("signer is not the certified policy key"));
-    }
-    let digest = item
-        .signed_digest()
-        .map_err(|_| ServiceError::invalid("shape"))?;
-    let Some(sig) = item.sig else {
-        return Err(bad_sig("unsigned"));
-    };
-    if !verify_sig(&cert.policy_pk.0, &digest.0, &sig.0) {
-        return Err(bad_sig("item signature"));
-    }
-    if !(cert.not_before <= payload.issued_at && payload.issued_at <= cert.not_after) {
-        return Err(bad_sig("issued outside the certificate window"));
-    }
+    // policy.md §3, rules 1–5. Shared crypto; state checks still ordinary-only.
+    let root_pk = verify_policy_crypto(item, &payload, root, roots)?;
+    let kid = key_id(&payload.cert.policy_pk);
     if payload.issued_at < state.meta.last_issued_at {
         return Err(bad_sig("issued_at is not monotonic"));
     }

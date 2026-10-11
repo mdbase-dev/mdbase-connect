@@ -816,6 +816,7 @@ impl<S: Store> Replica<S> {
                                 path: f.path.clone(),
                                 content: a.clone(),
                                 media: f.media,
+                                mtime: f.mtime,
                             }
                             .to_cbor(),
                         );
@@ -2074,6 +2075,7 @@ impl<S: Store> Replica<S> {
                         kind: mdbn_wire::unindexed_markdown::FileKindV1::Ordinary,
                         content: FileContent::Blob(f.blob),
                         path: f.path,
+                        mtime: None,
                     });
                 }
             }
@@ -2165,6 +2167,7 @@ impl<S: Store> Replica<S> {
                         kind: mdbn_wire::unindexed_markdown::FileKindV1::Ordinary,
                         content: FileContent::AttachmentV1(f.content),
                         path: f.path,
+                        mtime: f.mtime,
                     });
                 }
             }
@@ -2203,6 +2206,7 @@ impl<S: Store> Replica<S> {
                         local: FileLocal::Remote,
                         kind: mdbn_wire::unindexed_markdown::FileKindV1::UnindexedOversizedMarkdown,
                         content: f.payload.content,
+                        mtime: None,
                     });
                 }
             }

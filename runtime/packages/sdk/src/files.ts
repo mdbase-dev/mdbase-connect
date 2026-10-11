@@ -7,13 +7,15 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import type { CborValue } from "./cbor.js";
 import { hash as hashCodec, hashFromBytes, list, uint, uuid as uuidCodec } from "./codec.js";
-import type { MdbaseClient, Write, WriteOptions } from "./client.js";
+import type { ChangesWatch, MdbaseClient, Write, WriteOptions } from "./client.js";
 import { isMdbaseError, mdbaseError } from "./errors.js";
-import type { Session } from "./session.js";
+import { withMutation, type Session } from "./session.js";
 import { uuidv7 } from "./values.js";
 import {
+  ChangesResult,
   FileChunk,
   fileChunk,
+  HelloResult,
   FileView,
   fileView,
   listFilesResult,
@@ -38,6 +40,45 @@ export const MAX_CONVENIENCE_BYTES = 64 * 1024 * 1024;
 const EARLY_CHUNK_BYTES = 8 * 1024 * 1024;
 
 export type FileRef = Uuid | { path: string } | FileView;
+
+/** What a session may do with files. Same vocabulary as Connect's file capability. */
+export type FileAction = "list" | "read" | "add" | "replace" | "move" | "delete";
+/** Where file actions apply: the whole file namespace, or only these folders
+ * (compared by the replica's path key; records are never folder-scoped). */
+export type FileScope = { readonly kind: "collection" } | { readonly kind: "selected_folders"; readonly folders: readonly string[] };
+export interface FileGrant {
+  readonly actions: readonly FileAction[];
+  readonly scope: FileScope;
+}
+
+// policy.md §5: files have no capability group of their own.
+const FILE_ACTION_CAPABILITY: ReadonlyArray<readonly [FileAction, string]> = [
+  ["list", "collection.read"],
+  ["read", "collection.read"],
+  ["add", "records.create"],
+  ["replace", "records.edit"],
+  ["move", "records.edit"],
+  ["delete", "records.delete"],
+];
+
+/**
+ * The file actions and folder scope of a session, mapped from its native grant.
+ * `null` when the scope is unknown: a grant session on a producer before API 1.2,
+ * which does not report `file_folders`. The replica still checks every call.
+ */
+export function fileGrant(hello: HelloResult): FileGrant | null {
+  const { grant } = hello;
+  if (grant.grant !== undefined && hello.version.major === 1 && hello.version.minor < 2) return null;
+  const held = new Set(grant.capabilities);
+  // A grant is bounded by its member's role: viewers never write.
+  const actions = FILE_ACTION_CAPABILITY
+    .filter(([, capability]) => held.has(capability) && (capability === "collection.read" || grant.role !== "viewer"))
+    .map(([action]) => action);
+  const scope: FileScope = grant.fileFolders === undefined
+    ? Object.freeze({ kind: "collection" as const })
+    : Object.freeze({ kind: "selected_folders" as const, folders: Object.freeze([...grant.fileFolders]) });
+  return Object.freeze({ actions: Object.freeze(actions), scope });
+}
 
 function fileRef(f: FileRef): CborValue {
   if (typeof f === "string") return uuidCodec.enc(f);
@@ -72,6 +113,11 @@ export interface UploadOptions {
 /** Anything the SDK can upload from. */
 export type UploadSource = Uint8Array | Blob | ArrayBuffer;
 
+/** A tracked upload receipt with its original, replica-owned file identity. */
+export interface FileWrite extends Write {
+  readonly fileId: Uuid;
+}
+
 async function sliceBytes(src: UploadSource, start: number, end: number): Promise<Uint8Array> {
   if (src instanceof Uint8Array) return src.subarray(start, end);
   if (src instanceof ArrayBuffer) return new Uint8Array(src, start, end - start);
@@ -92,6 +138,33 @@ export class FilesApi {
 
   constructor(private client: MdbaseClient) {
     client.onSession((s) => this.wire(s));
+  }
+
+  /** The current session's file actions and folder scope ({@link fileGrant}). */
+  get grant(): FileGrant | null {
+    return fileGrant(this.client.hello);
+  }
+
+  /**
+   * Follow non-record file changes: uploads and replacements are puts, a move is
+   * a removal at the old path then a put at the new one, deletions are removals.
+   * It is {@link MdbaseClient.watchChanges} narrowed to files, with the same
+   * lifecycle, reconnect and `reset` (re-read your file cache) semantics; batches
+   * with no file change are skipped. A removal the replica could not classify
+   * is passed on (dropping an unknown ID is harmless); an unclassified put turns
+   * the batch into a reset. Requires API 1.2, else `upgrade_required`.
+   */
+  watch(onChanges: (batch: ChangesResult) => void, options: { cursor?: string } = {}): ChangesWatch {
+    const { version } = this.client.hello;
+    if (version.major !== 1 || version.minor < 2) {
+      throw mdbaseError("upgrade_required", "this replica's change feed does not name files", "change_entity_unsupported");
+    }
+    return this.client.watchChanges(options.cursor, (batch) => {
+      const changes = batch.changes.filter((c) => c.entity === "file" || (c.entity === undefined && c.kind === "remove"));
+      const unclassified = batch.changes.some((c) => c.entity === undefined && c.kind === "put");
+      if (unclassified) onChanges({ changes: [], cursor: batch.cursor, reset: true });
+      else if (changes.length || batch.reset) onChanges({ changes, cursor: batch.cursor, reset: batch.reset });
+    });
   }
 
   private wire(s: Session): void {
@@ -182,7 +255,7 @@ export class FilesApi {
    * the replica lacks. Returns the `file_put` write: `confirmed` means the bytes are
    * durable in the collection.
    */
-  async upload(path: string, source: UploadSource, o: UploadOptions = {}): Promise<Write> {
+  async upload(path: string, source: UploadSource, o: UploadOptions = {}): Promise<FileWrite> {
     const size = sizeOf(source);
     // The client's digest commitment, checked by the replica at commit.
     const h = sha256.create();
@@ -201,18 +274,31 @@ export class FilesApi {
         // Retry after a dropped link; the transfer survives on the replica.
         if (!(isMdbaseError(e, "unavailable") && this.client.link === "reconnecting")) {
           this.progress.delete(transfer);
-          throw e;
+          // Resume under the same transferId and mutationId; never a new identity.
+          throw withMutation(e, "upload", { mutationId: open.mutationId });
         }
       }
     }
   }
 
-  private async uploadOnce(source: UploadSource, size: number, open: OpenUploadParams, o: UploadOptions): Promise<Write> {
+  private async uploadOnce(source: UploadSource, size: number, open: OpenUploadParams, o: UploadOptions): Promise<FileWrite> {
     const s = await this.session(o.signal);
     const sig = o.signal ? { signal: o.signal } : {};
     const opened = await s.request("open_upload", openUploadParams.enc(open), { codec: openUploadResult, ...sig });
+    if (opened.fileId === undefined) {
+      const required = s.hello.version.minor >= 1;
+      throw mdbaseError(required ? "internal" : "upgrade_required", "the replica does not return upload file identity", {
+        reason: required ? "file_upload_identity_missing" : "file_upload_identity_unsupported",
+      });
+    }
+    if (opened.transfer !== open.transfer || (open.fileId !== undefined && opened.fileId !== open.fileId)) {
+      throw mdbaseError("internal", "the replica returned an unrelated upload identity", {
+        reason: "file_upload_identity_mismatch",
+      });
+    }
     const have = new Set(opened.received);
-    const chunks = Math.max(1, Math.ceil(size / opened.chunkSize));
+    // Empty uploads have no input fragments; native commit seals the empty object.
+    const chunks = Math.ceil(size / opened.chunkSize);
     let done = have.size * opened.chunkSize;
     // A few chunks in flight keeps the link busy without unbounded buffering.
     const inflight = new Set<Promise<void>>();
@@ -235,7 +321,7 @@ export class FilesApi {
       codec: receiptCodec,
       ...sig,
     });
-    const w = this.client._track(r);
+    const w = Object.assign(this.client._track(r), { fileId: opened.fileId });
     if (o.onProgress) {
       void w.confirmed.finally(() => this.progress.delete(open.transfer)).catch(() => {});
     } else {

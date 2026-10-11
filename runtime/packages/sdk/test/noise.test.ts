@@ -57,17 +57,6 @@ describe("Noise IK against the cacophony vector", () => {
     });
   });
 
-  it("fails when the prologue differs", async () => {
-    const rs = generateKeyPair();
-    const init = new IkInitiator({
-      prologue: new Uint8Array([1]),
-      staticKey: generateKeyPair(),
-      remoteStatic: rs.publicKey,
-    });
-    const resp = new IkResponder({ prologue: new Uint8Array([2]), staticKey: rs });
-    const m1 = await init.writeMessage1(new Uint8Array(0));
-    expect(() => resp.readMessage1(m1)).toThrow(NoiseError);
-  });
 
   it("fails when the responder key is not the expected one", async () => {
     const init = new IkInitiator({

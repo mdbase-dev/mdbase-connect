@@ -10,7 +10,7 @@ use crate::attachment::{self, AttachmentContentV1, FileAttach, PutAttachmentFile
 use crate::cbor::Cbor;
 use crate::common::{B32, Hash, Sem, Uuid};
 use crate::ordinary_file_promotion::{OrdinaryFileToRecord, ReindexOrdinaryFile};
-use crate::schema::{Ann, SchemaError, Wire, array, check_fmt, discriminator, require, struct_map};
+use crate::schema::{Ann, SchemaError, Wire, array, discriminator, require, struct_map};
 use crate::unindexed_markdown::{self as unindexed, UnindexedMarkdownPayloadV1};
 use crate::{entry, intent, snapshot, wire_struct, wire_tuple};
 
@@ -349,6 +349,21 @@ pub struct ChunkPayload {
     pub rows: Vec<Cbor>,
 }
 impl ChunkPayload {
+    // Tuple extension is incompatible: old four-field rows retain fmt1;
+    // timestamped AttachmentFiles rows require fmt2, never a fmt1 widening.
+    fn format(&self) -> u64 {
+        if self.section == SectionKind::AttachmentFiles
+            && self
+                .rows
+                .iter()
+                .any(|row| matches!(row, Cbor::Array(fields) if fields.len() == 5))
+        {
+            2
+        } else {
+            1
+        }
+    }
+
     /// Decode all rows as the caller's selected row type, or fail the whole list.
     pub fn rows_as<T: Wire>(&self) -> Result<Vec<T>, SchemaError> {
         self.rows.iter().map(T::from_cbor).collect()
@@ -398,7 +413,7 @@ fn validate_row(section: SectionKind, row: &Cbor) -> Result<(), SchemaError> {
 impl Wire for ChunkPayload {
     fn to_cbor(&self) -> Cbor {
         Cbor::Map(vec![
-            (Cbor::Uint(0), Cbor::Uint(1)),
+            (Cbor::Uint(0), Cbor::Uint(self.format())),
             (Cbor::Uint(1), self.section.to_cbor()),
             (Cbor::Uint(2), Cbor::Uint(self.bucket)),
             (Cbor::Uint(3), self.rows.to_cbor()),
@@ -407,24 +422,34 @@ impl Wire for ChunkPayload {
     fn from_cbor(c: &Cbor) -> Result<Self, SchemaError> {
         let ty = "attachment-runtime-v1-chunk-payload";
         let m = struct_map(c, ty)?;
-        check_fmt(m, ty, 1)?;
+        let format = u64::from_cbor(require(m, 0, ty)?)?;
+        if !matches!(format, 1 | 2) {
+            return Err(SchemaError::UnknownFormat { ty, fmt: format });
+        }
         let section = SectionKind::from_cbor(require(m, 1, ty)?)?;
         let bucket = u64::from_cbor(require(m, 2, ty)?)?;
         let rows = array(require(m, 3, ty)?, ty)?;
         for row in rows {
             validate_row(section, row)?;
         }
-        Ok(Self {
+        let chunk = Self {
             section,
             bucket,
             rows: rows.to_vec(),
-        })
+        };
+        if chunk.format() != format {
+            return Err(SchemaError::Invalid {
+                ty,
+                reason: "chunk format does not match attachment mtime rows",
+            });
+        }
+        Ok(chunk)
     }
     fn annotate(&self) -> Ann {
         Ann::Struct(
             "ChunkPayload",
             vec![
-                (0, "fmt", Ann::Leaf(Cbor::Uint(1))),
+                (0, "fmt", Ann::Leaf(Cbor::Uint(self.format()))),
                 (1, "section", self.section.annotate()),
                 (2, "bucket", Ann::Leaf(Cbor::Uint(self.bucket))),
                 (3, "rows", self.rows.annotate()),

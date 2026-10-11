@@ -42,6 +42,7 @@ pub mod conformance;
 pub mod convert;
 pub mod crypto;
 pub mod fake;
+pub mod file_io;
 pub mod file_source;
 pub mod frames;
 pub mod layer;
@@ -71,6 +72,8 @@ pub use api::{ClientApi, ErrorCode, Push, SessionAuth, SessionId};
 pub use log::{LogClient, LogPort};
 pub use mdbn_core::host::{Clock, Entropy};
 pub use plan::{CorePlanner, Planner};
+pub use replica::FileReplacement;
+pub use replica::adopt::{AdoptRecords, AdoptSource, AdoptStatus};
 pub use replica::base::{BaseError, Gen0Base, build_base, check_base};
 pub use replica::{
     AttachmentFetchStatus, AttachmentSource, AttachmentUploadCheckpoint, AttachmentUploadParams,

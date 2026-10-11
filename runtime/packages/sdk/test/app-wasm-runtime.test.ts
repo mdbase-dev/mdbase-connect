@@ -38,6 +38,7 @@ async function fixture(outcome: "success" | "refused" | "trap" | "allocation" | 
     rt_app_device_adopt:vi.fn((p:number,n:number)=>{pins=cbor.decode(new Uint8Array(memory.buffer,p,n)) as Map<cbor.CborValue,cbor.CborValue>;new Uint8Array(memory.buffer,p,n).fill(0);return 0n;}),
     rt_app_device_retire:vi.fn(),
     rt_app_cp_enrol_sign: vi.fn((p: number,n: number) => { new Uint8Array(memory.buffer,p,n).fill(0); return pack(cbor.encode(new Map<number,cbor.CborValue>([[0,new Uint8Array(32).fill(1)],[1,new Uint8Array(32).fill(2)],[2,new Uint8Array(32).fill(3)],[3,new Uint8Array(64).fill(7)]]))); }),
+    rt_app_resources: vi.fn((_session: bigint, p: number, n: number) => { new Uint8Array(memory.buffer,p,n).fill(0); return pack(cbor.encode([1,true,new Map<string,cbor.CborValue>([["status","current"],["assessmentDigest",`sha256:${"ab".repeat(32)}`]])])); }),
     rt_app_bases_execute: vi.fn((_session: bigint, p: number, n: number) => { new Uint8Array(memory.buffer,p,n).fill(0); return pack(cbor.fromHex(basesFixture.success_hex)); }),
     rt_app_bases_list_views: vi.fn((_session:bigint,p:number,n:number)=>{new Uint8Array(memory.buffer,p,n).fill(0);return pack(Uint8Array.of(1));}),
     rt_app_bases_read_view_source: vi.fn((_session:bigint,p:number,n:number)=>{new Uint8Array(memory.buffer,p,n).fill(0);return pack(Uint8Array.of(2));}),
@@ -55,6 +56,39 @@ async function fixture(outcome: "success" | "refused" | "trap" | "allocation" | 
   return { create: () => AppWasmRuntime.create(new Uint8Array(), sql), createDevice:()=>AppWasmRuntime.createDevice(new Uint8Array()), sql, pins: () => pins!, encoded: () => encoded!, imports: () => imports!, x, bind, retire, reply, shutdown, observations };
 }
 describe("optional app artifact host", () => {
+  it("resource planning uses only the original held session and no raw frame fallback (ABI stand-in)", async () => {
+    const f = await fixture(), rt = await f.create(); rt.openAppConsuming(config());
+    const port = rt.connect(), manifest = { id: "org.example.app", requirements: {}, provisions: {} };
+    expect(() => rt.setupResources(port, "assess", manifest)).toThrow(); expect(f.x.rt_app_resources).not.toHaveBeenCalled();
+    port.send(new Map()); await Promise.resolve();
+    expect(rt.setupResources(port, "assess", manifest)).toEqual({ status: "current", assessmentDigest: `sha256:${"ab".repeat(32)}` });
+    expect(f.x.rt_app_resources.mock.calls[0]?.[0]).toBe(8n);
+    expect(manifest).toEqual({ id: "org.example.app", requirements: {}, provisions: {} });
+    expect(() => rt.setupResources({...port}, "assess", manifest)).toThrow();
+    expect(() => rt.setupResources(port, "assess", { id: "x".repeat(512 * 1024) })).toThrow();
+    expect(() => rt.setupResources(port, "apply", manifest, "bad")).toThrow();
+    expect(f.x.rt_app_resources).toHaveBeenCalledOnce();
+    port.close(); expect(() => rt.setupResources(port, "assess", manifest)).toThrow(); await rt.close();
+  });
+  it("missing resource export refuses without fencing SQL or choosing another producer", async () => {
+    const f = await fixture(); delete (f.x as Partial<typeof f.x>).rt_app_resources;
+    const rt = await f.create(); rt.openAppConsuming(config()); const port = rt.connect(); port.send(new Map()); await Promise.resolve();
+    expect(() => rt.setupResources(port, "assess", {})).toThrow(); expect(f.sql.fence).not.toHaveBeenCalled(); await rt.close();
+  });
+  it.each(["trap", "oversize"] as const)("resource %s fences before output copying", async mode => {
+    const f = await fixture(), rt = await f.create(); rt.openAppConsuming(config()); const port = rt.connect(); port.send(new Map()); await Promise.resolve();
+    const dealloc = f.x.dealloc.mock.calls.length;
+    if (mode === "trap") f.x.rt_app_resources.mockImplementationOnce(() => { throw new WebAssembly.RuntimeError("private detail"); });
+    else f.x.rt_app_resources.mockReturnValueOnce(BigInt(512 * 1024 + 1));
+    expect(() => rt.setupResources(port, "assess", {})).toThrow(); expect(f.sql.fence).toHaveBeenCalledOnce();
+    expect(f.x.dealloc.mock.calls.length).toBe(dealloc); await rt.close();
+  });
+  it("resource original session lost during native call suppresses the complete result", async () => {
+    const f = await fixture(), rt = await f.create(); rt.openAppConsuming(config()); const port = rt.connect(); port.send(new Map()); await Promise.resolve();
+    const original = f.x.rt_app_resources.getMockImplementation()!;
+    f.x.rt_app_resources.mockImplementationOnce((s,p,n) => { port.close(); return original(s,p,n); });
+    expect(() => rt.setupResources(port, "assess", {})).toThrow(); expect(f.sql.fence).not.toHaveBeenCalled(); await rt.close();
+  });
   it.each(["list-views","read-view-source"] as const)("discovery %s uses only current actual held native session, not generic frame/execute",async operation=>{
     const f=await fixture(),rt=await f.create();rt.openAppConsuming(config());const port=rt.connect(),request=Uint8Array.of(7);
     expect(()=>rt.discoverBases(port,operation,request)).toThrow();port.send(new Map());await Promise.resolve();

@@ -572,6 +572,22 @@ impl PolicyState {
         }
     }
 
+    /// Whether an active keyed device may serve attachment plaintext. User
+    /// devices require current membership (viewers may read); hosted serves only
+    /// cloud copy. Key-only escrow/recovery devices never serve file bytes.
+    pub fn device_can_read(&self, device: &Uuid) -> bool {
+        let Some(d) = self.active_device(device).filter(|d| d.keyed) else {
+            return false;
+        };
+        match d.kind {
+            DeviceKind::Desktop | DeviceKind::Mobile | DeviceKind::AppRuntime | DeviceKind::Cli => {
+                self.role_of_device(d).is_some()
+            }
+            DeviceKind::Hosted => self.cstate == Some(CState::CloudCopy),
+            DeviceKind::Escrow | DeviceKind::Recovery => false,
+        }
+    }
+
     /// Whether an item's signer device may write content (`entry`) now.
     pub fn device_can_write(&self, device: &Uuid) -> bool {
         let Some(d) = self.active_device(device) else {

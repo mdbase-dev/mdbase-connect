@@ -3,6 +3,7 @@ fn small_row() -> BasesProjectedRow {
     BasesProjectedRow {
         sort: vec![RuntimeValue::Number(1.0)],
         group: None,
+        summary_inputs: vec![],
         cells: (0..12)
             .map(|_| BasesDisplayCell::Value(RuntimeValue::Null))
             .collect(),
@@ -131,6 +132,7 @@ fn output_is_cumulative_not_a_per_row_allowance() {
             Ok(Some(BasesProjectedRow {
                 sort: vec![],
                 group: None,
+                summary_inputs: vec![],
                 cells: (0..64)
                     .map(|_| BasesDisplayCell::Value(RuntimeValue::String("x".repeat(4096))))
                     .collect(),
