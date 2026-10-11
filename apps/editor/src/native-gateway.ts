@@ -4,6 +4,7 @@ import {
   type MdbaseApplication,
   type MdbaseApplicationConnection,
   type MdbaseClient,
+  type TypePackPlan,
   type wire
 } from "@mdbase-dev/sdk";
 import type {
@@ -12,7 +13,9 @@ import type {
   JsonObject,
   MdbaseDiagnostic,
   MdbaseFileSource,
-  PendingMutationSummary
+  PendingMutationSummary,
+  TypePackAssessment,
+  TypePackProvision
 } from "@mdbase-dev/connect";
 import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
 import { NativeNoteObservation } from "./native-note-observation";
@@ -40,15 +43,20 @@ import type {
 
 type CollectionOperation = CollectionDescription["operations"][number];
 
-/** Editor operations a native v2 capability grants. Type definitions are not
- * mapped: the public SDK has no type-document create (name/path derivation)
- * and setup belongs to `application.configure()`, so install/manage stay off. */
+/** Editor operations a native v2 capability grants. Type document create/edit
+ * stay off (the public SDK has no type-document create); type packs install
+ * through the SDK's guarded `typePacks` plan/apply. */
 const CAPABILITY_OPERATIONS: Readonly<Record<string, readonly CollectionOperation[]>> = {
   "collection.read": ["describe", "changes", "read", "query", "validate", "read_type"],
   "records.create": ["create"],
   "records.edit": ["update", "rename"],
-  "records.delete": ["delete"]
+  "records.delete": ["delete"],
+  "definitions.manage": ["assess_type_pack", "apply_type_pack"]
 };
+
+const INSTALLED_BY = "dev.mdbase.editor";
+/** Reviewed plans kept for apply, newest last. */
+const PLAN_MEMORY = 8;
 
 /** The editor's collection gateway over one borrowed public SDK connection.
  * `SdkEditorRoot` owns lifecycle, selection and readiness; this adapter never
@@ -59,6 +67,7 @@ export class NativeEditorGateway implements CollectionGateway {
   private readonly records: NextEditorRecords;
   private readonly listeners = new Set<(snapshot: CollectionSessionSnapshot) => void>();
   private disposed = false;
+  private readonly plans = new Map<string, TypePackPlan>();
 
   constructor(private readonly application: MdbaseApplication, private readonly connection: MdbaseApplicationConnection) {
     this.client = connection.records;
@@ -331,8 +340,41 @@ export class NativeEditorGateway implements CollectionGateway {
 
   async createType(): Promise<TypeDocument> { throw typeManagementUnavailable(); }
   async updateType(): Promise<TypeDocument> { throw typeManagementUnavailable(); }
-  async assessTypePack(): Promise<never> { throw setupUnavailable(); }
-  async applyTypePack(): Promise<TypePackApplyResult> { throw setupUnavailable(); }
+  async assessTypePack(provision: TypePackProvision, adoptResources: Record<string, string> = {}): Promise<TypePackAssessment> {
+    const plan = await this.client.typePacks.plan(provision, { installedBy: INSTALLED_BY, adopt: adoptResources, signal: this.signal() });
+    this.check();
+    this.plans.delete(plan.digest);
+    this.plans.set(plan.digest, plan);
+    for (const digest of [...this.plans.keys()].slice(0, Math.max(0, this.plans.size - PLAN_MEMORY))) this.plans.delete(digest);
+    return assessmentOf(plan);
+  }
+
+  /** Applies exactly the reviewed plan as one guarded mutation and waits for
+   * its receipt; any change since review is refused, never re-planned. */
+  async applyTypePack(provision: TypePackProvision, assessment: TypePackAssessment, adoptResources: Record<string, string> = {}): Promise<TypePackApplyResult> {
+    let plan = this.plans.get(assessment.assessmentDigest);
+    if (!plan) {
+      plan = await this.client.typePacks.plan(provision, { installedBy: INSTALLED_BY, adopt: adoptResources, signal: this.signal() });
+      this.check();
+      if (plan.digest !== assessment.assessmentDigest) {
+        throw new MdbaseError({ code: "conflict", recovery: "refresh", reason: "concurrent_modification", message: "The collection changed since this setup was reviewed. Review it again." });
+      }
+    }
+    const signal = this.signal();
+    const result = await this.client.typePacks.apply(plan, { signal });
+    this.check();
+    this.plans.delete(plan.digest);
+    if (result.write) {
+      const receipt = await this.client.awaitReceipt(result.write.mutationId, 30_000, signal);
+      this.check();
+      if (receipt.state === "rejected") throw receipt.problem ? new MdbaseError(receipt.problem) : new Error("The type pack install was rejected.");
+      if (receipt.status === "conflicted") throw new MdbaseError({ code: "conflict", recovery: "resolve_conflict", message: "The type pack install has a conflict. Resolve it before continuing." });
+      if (receipt.state !== "confirmed") {
+        throw new MdbaseError({ code: "outcome_unknown", recovery: "resolve_outcome", message: "The type pack install is not confirmed yet. Check the collection before trying again." });
+      }
+    }
+    return { ...assessmentOf(plan), receipt: result.receipt, cleanupDeferred: false };
+  }
 
   private summary(): ConnectionSummary {
     return { collectionId: this.connection.id, displayName: this.connection.displayName, operations: this.operations(), fileActions: this.fileActions() };
@@ -387,6 +429,16 @@ function typeManagementUnavailable(): MdbaseError {
   return unsupported("Creating and editing type definitions is not available in mdbase editor for this collection yet.");
 }
 
-function setupUnavailable(): MdbaseError {
-  return unsupported("Collection setup for mdbase editor runs through the mdbase sign-in setup step.");
+/** The editor's assessment shape from the SDK plan (no contract setups). */
+function assessmentOf(plan: TypePackPlan): TypePackAssessment {
+  return {
+    status: plan.status,
+    applicable: plan.canApply,
+    assessmentDigest: plan.digest,
+    ...(plan.current ? { current: plan.current } : {}),
+    desired: plan.desired,
+    resources: plan.resources.map((resource) => ({ ...resource, digest: resource.digest ?? "" })),
+    lock: { target: "mdbase.lock.yaml", action: plan.lock.action, digest: plan.lock.digest },
+    contractSetups: { choices: [], resources: [] }
+  };
 }

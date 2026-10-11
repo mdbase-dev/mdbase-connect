@@ -35,8 +35,8 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     expect(snapshot).toMatchObject({ status: "ready", connection: { collectionId: f.replica.collection, displayName: "Notes" } });
     const permissions = editorPermissions(snapshot.status === "ready" ? snapshot.connection : null);
     expect(permissions).toMatchObject({ canCreateNotes: true, canEditNotes: true, canRenameNotes: true, canDeleteNotes: true });
-    // Type setup remains separate; file actions come from the SDK file grant.
-    expect(permissions).toMatchObject({ canManageTypes: false, canInstallTypes: false, canAttachFiles: true });
+    // definitions.manage installs packs through the SDK; type documents stay off.
+    expect(permissions).toMatchObject({ canManageTypes: false, canInstallTypes: true, canAttachFiles: true });
     expect(f.gateway.selectConnection(f.replica.collection).collectionId).toBe(f.replica.collection);
     expect(() => f.gateway.selectConnection("another-collection")).toThrow("not ready");
     expect(await f.gateway.checkDirectAccess()).toBeNull();
@@ -46,7 +46,7 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     const f = await fixture({ capabilities: ["collection.read"], role: "viewer" });
     const snapshot = f.gateway.sessionSnapshot();
     expect(editorPermissions(snapshot.status === "ready" ? snapshot.connection : null)).toMatchObject({
-      canCreateNotes: false, canEditNotes: false, canRenameNotes: false, canDeleteNotes: false, canAttachFiles: false
+      canCreateNotes: false, canEditNotes: false, canRenameNotes: false, canDeleteNotes: false, canAttachFiles: false, canInstallTypes: false
     });
     const upload = vi.spyOn(f.client.files, "upload");
     await expect(f.gateway.uploadFile("attachments/a.txt", new Blob(["x"]))).rejects.toThrow("not available");
@@ -126,7 +126,7 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     expect(f.gateway.sessionSnapshot().status).toBe("unselected");
   });
 
-  it("reads type sources but refuses type creation and setup without writing", async () => {
+  it("reads type sources but refuses type creation without writing", async () => {
     const f = await fixture({}, (replica) => {
       replica.seedResource("_types/note.md", "---\nname: note\n---\n");
       seedNotes(replica);
@@ -134,8 +134,42 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     const put = vi.spyOn(f.client.resources, "put");
     expect(await f.gateway.readType("note")).toMatchObject({ name: "note", path: "_types/note.md", document: "---\nname: note\n---\n" });
     await expect(f.gateway.createType()).rejects.toThrow("not available");
-    await expect(f.gateway.assessTypePack()).rejects.toThrow("setup");
     expect(put).not.toHaveBeenCalled();
+  });
+
+  it("installs a reviewed type pack through the SDK plan as one confirmed guarded write", async () => {
+    const f = await fixture({}, (replica) => replica.seedResource("_types/note.md", "---\nname: old\n---\n"));
+    const live = `sha256:${"ab".repeat(32)}`;
+    const digest = (n: string) => `sha256:${n.repeat(64)}`;
+    const document = "---\nkind: mdbase.type\nname: note\n---\n";
+    const provision = { manifest: { kind: "mdbase.type-pack", id: "dev.mdbase.notes", version: "1.0.0", resources: [] }, resources: [{ source: "note.md", document }], provides: [] } as unknown as Parameters<typeof f.gateway.assessTypePack>[0];
+    const native = (adopted: boolean, apply: boolean) => {
+      const row = new Map<string, unknown>([["source", "note.md"], ["target", "_types/note.md"], ["kind", "type"], ["mode", "managed"],
+        ["action", adopted ? "update" : "conflict"], ["digest", digest("c")], ["current_digest", live]]);
+      if (adopted) row.set("adopted_from_digest", live);
+      const assessment = new Map<string, unknown>([["status", adopted ? "install" : "conflict"], ["applicable", adopted], ["definitions_manage", true],
+        ["assessment_digest", digest(adopted ? "2" : "1")],
+        ["desired", new Map<string, unknown>([["id", "dev.mdbase.notes"], ["version", "1.0.0"], ["digest", digest("d")], ["installed_by", "dev.mdbase.editor"], ["resources", []]])],
+        ["resources", [row]], ["lock", new Map([["target", "mdbase.lock.yaml"], ["action", "create"], ["digest", digest("e")]])]]);
+      return { version: 1, assessment, ...(apply ? { writes: [{ path: "_types/note.md", doc: document, mustNotExist: false }, { path: "mdbase.lock.yaml", doc: "lock\n", mustNotExist: true }] } : {}) };
+    };
+    const call = f.client.call.bind(f.client);
+    const planned: Array<Map<number, unknown>> = [];
+    vi.spyOn(f.client, "call").mockImplementation(((method: string, params: unknown, options: unknown) => {
+      if (method !== "plan_type_pack_v1") return call(method, params as never, options as never);
+      const p = params as Map<number, unknown>;
+      planned.push(p);
+      return Promise.resolve(native(p.has(3), p.has(7)));
+    }) as typeof f.client.call);
+
+    const conflict = await f.gateway.assessTypePack(provision);
+    expect(conflict).toMatchObject({ status: "conflict", applicable: false, resources: [{ action: "conflict", currentDigest: live }], contractSetups: { choices: [], resources: [] } });
+    const reviewed = await f.gateway.assessTypePack(provision, { "_types/note.md": live });
+    expect(reviewed).toMatchObject({ applicable: true, resources: [{ action: "update", adoptedFromDigest: live }] });
+    await expect(f.gateway.applyTypePack(provision, reviewed, { "_types/note.md": live })).resolves.toMatchObject({ receipt: { id: "dev.mdbase.notes", installedBy: "dev.mdbase.editor" } });
+    expect(planned.map((p) => [p.get(2), p.has(3), p.has(7)])).toEqual([["dev.mdbase.editor", false, false], ["dev.mdbase.editor", true, false], ["dev.mdbase.editor", true, true]]);
+    expect((await f.client.resources.get("mdbase.lock.yaml")).text).toBe("lock\n");
+    expect((await f.client.resources.get("_types/note.md")).text).toBe(document);
   });
 
   it("lists and reads files by native digest and never uploads with an unknown file grant", async () => {
