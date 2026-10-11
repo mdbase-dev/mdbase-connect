@@ -20,8 +20,9 @@ before(async () => {
       response.end(await readFile(file));
     } catch { response.writeHead(404).end(); }
   });
-  await new Promise((ready, reject) => { server.once("error", reject); server.listen(42390, "127.0.0.1", ready); });
-  origin = "http://127.0.0.1:42390";
+  // Port 0: a fixed port in the ephemeral range can already be held by an outbound socket.
+  await new Promise((ready, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", ready); });
+  origin = `http://127.0.0.1:${server.address().port}`;
   browser = await chromium.launch({ headless: true });
 });
 after(async () => {
