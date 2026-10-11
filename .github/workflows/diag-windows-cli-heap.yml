@@ -1,0 +1,114 @@
+name: Diagnose Windows CLI heap corruption
+
+on:
+  push:
+    branches: [diag/windows-cli-heap]
+
+permissions:
+  contents: read
+
+jobs:
+  loop:
+    name: CLI lifecycle loop (page heap ${{ matrix.pageheap }})
+    runs-on: windows-2025
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        pageheap: [off, full]
+    defaults:
+      run:
+        working-directory: mdbase-connect
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: mdbase-connect
+          persist-credentials: false
+      - id: engine
+        shell: bash
+        run: echo "revision=$(tr -d '\r\n' < deploy/docker/mdbase-rs-revision)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: callumalpass/mdbase-rs
+          ref: ${{ steps.engine.outputs.revision }}
+          path: mdbase-rs
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Install Rust
+        shell: bash
+        run: |
+          rustup toolchain install 1.94.0 --profile minimal
+          rustup override set 1.94.0
+      - name: Restore Rust dependency cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: |
+            mdbase-connect -> target
+          shared-key: connect-debug-${{ steps.engine.outputs.revision }}
+          save-if: false
+      - name: Build the CLI
+        shell: pwsh
+        run: |
+          cargo build --locked -p mdbase-cli
+          if ($LASTEXITCODE -ne 0) { throw 'CLI build failed.' }
+      - name: Enable crash dumps (and page heap)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force D:\dumps | Out-Null
+          $wer = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\mdbase.exe'
+          New-Item -Force $wer | Out-Null
+          New-ItemProperty -Force $wer -Name DumpFolder -PropertyType ExpandString -Value 'D:\dumps' | Out-Null
+          New-ItemProperty -Force $wer -Name DumpType -PropertyType DWord -Value 2 | Out-Null
+          New-ItemProperty -Force $wer -Name DumpCount -PropertyType DWord -Value 20 | Out-Null
+          if ('${{ matrix.pageheap }}' -eq 'full') {
+            $ifeo = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\mdbase.exe'
+            New-Item -Force $ifeo | Out-Null
+            New-ItemProperty -Force $ifeo -Name GlobalFlag -PropertyType String -Value '0x02000000' | Out-Null
+            New-ItemProperty -Force $ifeo -Name PageHeapFlags -PropertyType String -Value '0x3' | Out-Null
+          }
+          Get-Service WerSvc | Format-List Name,Status,StartType
+      - name: Loop the lifecycle contract
+        shell: pwsh
+        run: |
+          $failures = 0
+          for ($i = 1; $i -le 30; $i++) {
+            $out = node scripts/diagnostics/windows-cli-lifecycle.mjs target/debug/mdbase.exe 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0) {
+              $failures++
+              $line = ($out -split "`n" | Where-Object { $_ -match 'Command failed|code:' }) -join ' | '
+              Write-Output "iteration $i FAILED: $line"
+              Copy-Item .artifacts/issue428/cli-contract.json "D:\dumps\contract-$i.json" -ErrorAction SilentlyContinue
+            } else {
+              Write-Output "iteration $i ok"
+            }
+            schtasks /End /TN "mdbase connect" 2>$null | Out-Null
+            schtasks /Delete /F /TN "mdbase connect" 2>$null | Out-Null
+            Get-Process mdbase -ErrorAction SilentlyContinue | Stop-Process -Force
+            Start-Sleep -Seconds 1
+          }
+          Write-Output "failures: $failures / 30"
+          Get-ChildItem D:\dumps
+      - name: Analyse dumps
+        if: always()
+        shell: pwsh
+        run: |
+          $cdb = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe'
+          if (-not (Test-Path $cdb)) { Write-Output 'cdb.exe not found'; Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Debuggers' -ErrorAction SilentlyContinue; exit 0 }
+          $symbols = "srv*D:\sym*https://msdl.microsoft.com/download/symbols;$PWD\target\debug;$PWD\target\debug\deps"
+          foreach ($dump in Get-ChildItem D:\dumps -Filter *.dmp | Select-Object -First 4) {
+            Write-Output "===== $($dump.Name)"
+            & $cdb -z $dump.FullName -y $symbols -c '.reload /f mdbase.exe; !analyze -v; .ecxr; kP 80; ~*kb 40; q' 2>&1 | Select-Object -Last 400
+          }
+      - name: Upload dumps
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: heap-dumps-${{ matrix.pageheap }}
+          path: |
+            D:\dumps
+            mdbase-connect/target/debug/mdbase.exe
+            mdbase-connect/target/debug/mdbase.pdb
+          if-no-files-found: warn
+          retention-days: 5
