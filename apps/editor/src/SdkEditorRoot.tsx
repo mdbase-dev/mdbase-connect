@@ -244,6 +244,7 @@ function ApplicationView({ sdk, renderNative, onSignedOut, onFeedbackContext, pr
       if (entry.kind === "private") return <PrivateCollectionRow key={entry.collectionId} entry={entry} working={working}
         waiting={privateWaiting === entry.collectionId} onOpen={() => void actPrivate((signal) => openPrivate(entry, signal))}
         onAuthorize={() => authorizePrivate(entry.collectionId)}
+        onDelete={entry.role === "owner" ? () => setDeleting({ collectionId: entry.collectionId, displayName: entry.displayName }) : undefined}
         onForget={() => void actPrivate(async () => {
           await privates?.forget(entry.collectionId);
           setPrivateList((list) => list.filter((item) => item.collectionId !== entry.collectionId));
@@ -271,19 +272,25 @@ function ApplicationView({ sdk, renderNative, onSignedOut, onFeedbackContext, pr
     {signIn && <button type="button" className="mdbase-connect-action mdbase-button" disabled={working} onClick={() => void act(signOut)}>Sign out</button>}
     <FeedbackButton />
     {deleting && caller.current && <DeleteCollectionDialog application={application} collection={deleting} signal={caller.current.signal}
-      onClose={() => setDeleting(null)} />}
+      onClose={(deleted) => {
+        const removed = deleting.collectionId;
+        setDeleting(null);
+        if (deleted) setPrivateList((list) => list.filter((item) => item.collectionId !== removed));
+      }} />}
   </ConnectLayout>;
 }
 
 /** A Private collection in the chooser: its availability in the SDK's plain copy, and
  * the one action that can change it. Opening waits (bounded) while it isn't available. */
-function PrivateCollectionRow({ entry, working, waiting, onOpen, onAuthorize, onForget }: {
+function PrivateCollectionRow({ entry, working, waiting, onOpen, onAuthorize, onForget, onDelete }: {
   entry: MdbaseCollectionEntry;
   working: boolean;
   waiting: boolean;
   onOpen(): void;
   onAuthorize(): void;
   onForget(): void;
+  /** Owners only (Connect's reported role); the SDK and control plane check again. */
+  onDelete: (() => void) | undefined;
 }) {
   const availability = entry.availability;
   const reason = availability.state === "unavailable" ? availability.reason : null;
@@ -298,6 +305,8 @@ function PrivateCollectionRow({ entry, working, waiting, onOpen, onAuthorize, on
     {copy && <div className="sdk-collection-availability"><strong>{copy.title}</strong><p>{copy.message}</p></div>}
     {reason === "sync_required" && <button type="button" className="mdbase-button" disabled={working} onClick={onAuthorize}>Give access again</button>}
     {reason === "access_removed" && <button type="button" className="mdbase-button is-tertiary" disabled={working} onClick={onForget}>Remove from this browser</button>}
+    {onDelete && reason !== "access_removed" && <button type="button" className="mdbase-button is-tertiary" disabled={working}
+      aria-label={`Delete ${entry.displayName}`} onClick={onDelete}>Delete</button>}
   </div>;
 }
 

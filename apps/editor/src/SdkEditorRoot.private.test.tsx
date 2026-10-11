@@ -13,8 +13,8 @@ const RESEARCH = "0190a5a0-0000-7000-8000-000000000001";
 const clients: MdbaseClient[] = [];
 afterEach(() => { closeNativeFixtures(); for (const client of clients.splice(0)) client.close(); });
 
-function privateEntry(availability: CollectionAvailability, collectionId = RESEARCH, displayName = "Research"): MdbasePrivateCollection {
-  return { collectionId, displayName, operations: ["read"], availability };
+function privateEntry(availability: CollectionAvailability, collectionId = RESEARCH, displayName = "Research", role: MdbasePrivateCollection["role"] = null): MdbasePrivateCollection {
+  return { collectionId, displayName, operations: ["read"], role, availability };
 }
 
 /** A fake grant surface: the real one needs Connect consent and a serving computer. */
@@ -112,6 +112,22 @@ describe("Private collections in the editor chooser", () => {
     expect(within(row("Shared")).queryByRole("button", { name: "Shared" })).toBeNull();
     fireEvent.click(within(row("Research")).getByRole("button", { name: "Give access again" }));
     await waitFor(() => expect(fake.port.authorize).toHaveBeenCalledWith(RESEARCH, expect.anything()));
+  });
+
+  it("offers Delete only on Private collections the account owns, and drops one once deleted", async () => {
+    const h = signedIn();
+    const other = "0190a5a0-0000-7000-8000-000000000002";
+    const fake = fakePrivate([privateEntry({ state: "available" }, RESEARCH, "Research", "owner"),
+      privateEntry({ state: "available" }, other, "Shared", "editor")]);
+    render(<SdkEditorRoot sdk={h.entry} privateCollections={fake.port} />);
+    await screen.findByRole("group", { name: "Research" });
+    expect(within(row("Shared")).queryByRole("button", { name: "Delete Shared" })).toBeNull();
+    fireEvent.click(within(row("Research")).getByRole("button", { name: "Delete Research" }));
+    fireEvent.change(await screen.findByLabelText(/to confirm/), { target: { value: "Research" } });
+    fireEvent.click(screen.getByRole("button", { name: "Delete collection" }));
+    await waitFor(() => expect(h.controls.observedActions().some((call) => call.action === "deleteCollection")).toBe(true));
+    await waitFor(() => expect(screen.queryByRole("group", { name: "Research" })).toBeNull());
+    expect(screen.getByRole("group", { name: "Shared" })).toBeTruthy();
   });
 
   it("adding a Private collection asks Connect, then lists it", async () => {
