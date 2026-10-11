@@ -6,6 +6,10 @@ ALTER TABLE grants ADD COLUMN next_collection_id uuid
   REFERENCES next_collections(collection_id) ON DELETE CASCADE;
 CREATE INDEX grants_next_collection_idx ON grants(next_collection_id)
   WHERE next_collection_id IS NOT NULL;
+-- One live grant per application installation and Private collection.
+CREATE UNIQUE INDEX grants_active_next_application_installation_idx
+  ON grants(user_id, application_id, application_installation_id, next_collection_id)
+  WHERE next_collection_id IS NOT NULL AND revoked_at IS NULL;
 
 -- A native grant carries the same signed application authorization as a
 -- local-connector grant.
@@ -29,8 +33,7 @@ BEGIN
   FOR old_constraint IN
     SELECT c.conname::text FROM pg_constraint c
     WHERE c.contype = 'c' AND c.conrelid = 'grants'::regclass
-      AND pg_get_constraintdef(c.oid) ~ '\(collection_id IS NULL\) <> \(hosted_collection_id IS NULL\)'
-      AND pg_get_constraintdef(c.oid) !~ 'next_collection_id'
+      AND pg_get_constraintdef(c.oid) ~ '^CHECK \(\(\(collection_id IS NULL\) <> \(hosted_collection_id IS NULL\)\)\)$'
   LOOP
     EXECUTE format('ALTER TABLE grants DROP CONSTRAINT %I', old_constraint);
     matches := matches + 1;

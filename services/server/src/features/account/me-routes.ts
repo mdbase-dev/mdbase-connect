@@ -187,7 +187,7 @@ export function registerAccountOverviewRoute(
               a.distribution, a.name AS application_name,
               a.homepage, a.project_url, a.icon, a.requirements,
               COALESCE(col.display_name, hosted.display_name, native.display_name) AS collection_name,
-              CASE WHEN g.hosted_collection_id IS NULL THEN 'local' ELSE 'hosted' END AS collection_kind
+              CASE WHEN g.next_collection_id IS NOT NULL THEN 'private' WHEN g.hosted_collection_id IS NULL THEN 'local' ELSE 'hosted' END AS collection_kind
        FROM grants g
        JOIN applications a ON a.id = g.application_id
        LEFT JOIN collections col ON col.id = g.collection_id

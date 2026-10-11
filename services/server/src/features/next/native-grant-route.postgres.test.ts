@@ -11,7 +11,10 @@ import { grantApprovalTerms } from "./grant-approval.js";
 import { nativeAdmission } from "./native-grant-target.js";
 import { queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
 import { registerNextRouteRoutes } from "./route-routes.js";
-import { testApplicationAuthorization } from "../../application-authorization.test-helper.js";
+import { legacyTimerGrantResolver } from "./timers/grants.js";
+import { createHostedCollectionMembership } from "../../collection-policy.js";
+import { revokeHostedCollectionMembership } from "../../collection-membership-lifecycle.js";
+import { createTestApplicationIdentity, testApplicationAuthorization } from "../../application-authorization.test-helper.js";
 import { registerApplicationManifest } from "../../manifest.js";
 import { registerAuthorizationRoutes } from "../authorizations/routes.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
@@ -217,7 +220,7 @@ describePostgres("Private native collection grants", () => {
     const memberGrant = await nativeGrant(member, shared);
     expect((await memberGrant.route()).json().targets).toHaveLength(1);
     await queueNextPolicy(db, shared, [{ op: "member-remove", account: member }]);
-    expect((await memberGrant.route()).json()).toMatchObject({ targets: [], availability: { state: "unavailable", reason: "sync_required" } });
+    expect((await memberGrant.route()).json()).toMatchObject({ targets: [], availability: { state: "unavailable", reason: "access_removed" } });
     expect(await nativeAdmission(db, tokenHash(memberGrant.token), shared, memberGrant.logGrant, memberDesktop.id)).toBeNull();
   });
 
@@ -253,22 +256,24 @@ describePostgres("Private native collection grants", () => {
     expect(await grantApprovalTerms(db, { id: strangerDesktop.connector, user_id: stranger }, g.logGrant)).toBeNull();
   });
 
-  it("approves a web app on a Private collection as an offer, for members only", async () => {
-    const owner = await user();
-    const desktop = await device(owner);
-    const collection = await privateCollection(owner, [desktop]);
+  /** A registered web app that asks for read access, and its consent requests. */
+  let apps = 0;
+  async function webApp() {
+    const declaration = `dev.mdbase.private-web${++apps}`;
     const files = { actions: ["list", "read"] as Array<"list" | "read">, scope: { kind: "collection" as const } };
-    const manifest = registerApplicationManifest({ manifest_version: 1, id: "dev.mdbase.private-web", name: "Private web", distribution: "web", homepage: "https://app.example", redirect_uris: ["https://app.example/callback"],
+    const manifest = registerApplicationManifest({ manifest_version: 1, id: declaration, name: "Private web", distribution: "web", homepage: "https://app.example", redirect_uris: ["https://app.example/callback"],
       requirements: { contracts: [], access: "full_collection", files: { required: ["list", "read"], scope: files.scope },
         capabilities: { contract_version: 2, required: ["collection.read"] } } });
     const application = randomUUID();
     await db.query(`INSERT INTO applications (id, canonical_identity, family_identity, manifest_digest, distribution, name, homepage, redirect_uris,
       requirements, provisions, notifications, application_declaration)
-      VALUES ($1, $2, 'bundle:dev.mdbase.private-web', $3, 'web', 'Private web', 'https://app.example', '["https://app.example/callback"]'::jsonb,
+      VALUES ($1, $2, $6, $3, 'web', 'Private web', 'https://app.example', '["https://app.example/callback"]'::jsonb,
       $4::jsonb, '{"type_packs":[],"configuration":[]}'::jsonb, '{"criteria":[]}'::jsonb, $5::jsonb)`,
-    [application, `bundle:dev.mdbase.private-web:sha256:${manifest.digest}`, manifest.digest, JSON.stringify(manifest.manifest.requirements), JSON.stringify(manifest.manifest)]);
-    const request = async (account: string) => {
-      const proof = await testApplicationAuthorization({ applicationId: application, applicationDeclarationId: "dev.mdbase.private-web",
+    [application, `bundle:${declaration}:sha256:${manifest.digest}`, manifest.digest, JSON.stringify(manifest.manifest.requirements), JSON.stringify(manifest.manifest), `bundle:${declaration}`]);
+    // One browser profile of the app: every request comes from the same installation.
+    const installationIdentity = createTestApplicationIdentity();
+    return async (account: string, collection: string) => {
+      const proof = await testApplicationAuthorization({ installationIdentity, applicationId: application, applicationDeclarationId: declaration,
         applicationManifestDigest: manifest.digest, flow: "authorization_code", redirectUri: "https://app.example/callback", state: "s",
         codeChallenge: pkceChallenge("private-web-verifier-0000000000000000000000000"), requestedOperations: OPERATIONS as never,
         semanticCapabilityContractVersion: 2, requestedFiles: { ...files, actions: [...files.actions] } });
@@ -291,15 +296,22 @@ describePostgres("Private native collection grants", () => {
           payload: { collection_id: collection, operations: OPERATIONS, file_actions: ["list", "read"] } })
       };
     };
+  }
+
+  it("approves a web app on a Private collection as an offer, for members only", async () => {
+    const owner = await user();
+    const desktop = await device(owner);
+    const collection = await privateCollection(owner, [desktop]);
+    const request = await webApp();
 
     // Someone who is not a member neither sees nor can approve the collection.
-    const stranger = await request(await user());
+    const stranger = await request(await user(), collection);
     const strangerView = await stranger.view();
     expect(strangerView.json().collections, strangerView.body).toEqual([]);
     expect((await stranger.approve()).statusCode).toBe(404);
     expect((await db.query("SELECT 1 FROM grants WHERE next_collection_id = $1", [collection])).rows).toHaveLength(0);
 
-    const consent = await request(owner);
+    const consent = await request(owner, collection);
     const view = await consent.view();
     expect(view.statusCode, view.body).toBe(200);
     expect(view.json().collections).toEqual([expect.objectContaining({ id: collection, kind: "private", display_name: "Journal",
@@ -313,5 +325,52 @@ describePostgres("Private native collection grants", () => {
       JSON.stringify([{ op: "grant", grant: grant[0].log_grant_id }])])).rows;
     expect(ops).toHaveLength(1);
     expect(JSON.stringify(ops[0].ops)).not.toContain("fileFolders");
+    // Approving again replaces the grant: one live grant per installation and collection.
+    expect((await (await request(owner, collection)).approve()).statusCode).toBe(200);
+    expect((await db.query("SELECT id FROM grants WHERE next_collection_id = $1 AND revoked_at IS NULL", [collection])).rows).toHaveLength(1);
+    const live = (await db.query("SELECT * FROM grants WHERE next_collection_id = $1 AND revoked_at IS NULL", [collection])).rows[0];
+    await expect(db.query(`INSERT INTO grants(id,user_id,application_id,next_collection_id,operations,application_installation_id,application_authorization)
+      VALUES($1,$2,$3,$4,'["read"]',$5,$6::jsonb)`, [randomUUID(), owner, live.application_id, collection, live.application_installation_id, live.application_authorization]))
+      .rejects.toThrow(/grants_active_next_application_installation_idx/);
+  });
+
+  it("revokes a member's grant with the membership; re-adding the member needs new consent", async () => {
+    const owner = await user();
+    const member = await user();
+    const memberDesktop = await device(member);
+    const collection = await privateCollection(owner, [memberDesktop]);
+    const membership = await createHostedCollectionMembership(db, { collectionId: collection, ownerUserId: owner, userId: member, role: "editor" });
+    await appendPending(collection);
+    const request = await webApp();
+    expect((await (await request(member, collection)).approve()).statusCode).toBe(200);
+    const [first] = (await db.query("SELECT id, membership_id FROM grants WHERE next_collection_id = $1", [collection])).rows;
+    expect(first.membership_id).toBe(membership.membershipId);
+
+    await revokeHostedCollectionMembership(db, { collectionId: collection, actorUserId: owner, membershipId: membership.membershipId });
+    const revoked = (await db.query("SELECT revoked_at FROM grants WHERE id = $1", [first.id])).rows[0];
+    expect(revoked.revoked_at).not.toBeNull();
+    // The grant-revoke reaches the collection's log.
+    const binding = (await db.query("SELECT log_grant_id FROM next_grant_bindings WHERE grant_id = $1", [first.id])).rows[0];
+    expect((await db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id = $1 AND ops->'ops' @> $2::jsonb", [collection,
+      JSON.stringify([{ op: "grant-revoke", grant: binding.log_grant_id }])])).rows).toHaveLength(1);
+
+    // Re-adding the member does not revive the old grant.
+    await createHostedCollectionMembership(db, { collectionId: collection, ownerUserId: owner, userId: member, role: "editor" });
+    await appendPending(collection);
+    expect((await db.query("SELECT revoked_at FROM grants WHERE id = $1", [first.id])).rows[0].revoked_at).not.toBeNull();
+    expect((await db.query("SELECT 1 FROM grants WHERE next_collection_id = $1 AND revoked_at IS NULL", [collection])).rows).toHaveLength(0);
+    expect((await (await request(member, collection)).approve()).statusCode).toBe(200);
+    expect((await db.query("SELECT id FROM grants WHERE next_collection_id = $1 AND revoked_at IS NULL", [collection])).rows)
+      .toEqual([expect.not.objectContaining({ id: first.id })]);
+  });
+
+  it("never lets reminders use a native grant before the device approval", async () => {
+    const owner = await user();
+    const desktop = await device(owner);
+    const collection = await privateCollection(owner, [desktop]);
+    const g = await nativeGrant(owner, collection);
+    for (const id of [g.grant, g.logGrant]) {
+      expect(await legacyTimerGrantResolver.resolve(db, id)).toMatchObject({ grantId: g.grant, state: "e2e", usable: false, collectionIds: [collection] });
+    }
   });
 });

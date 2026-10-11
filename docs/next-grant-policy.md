@@ -42,7 +42,12 @@ Routing for a Private grant considers only desktop and CLI devices of the granti
 | `unavailable`, `old_connector_running` | The device is online but an older connector still holds its collections (reported by the daemon in `relay_hello`). |
 | `unavailable`, `desktop_update_required` | The device's last relay connection was refused as incompatible. |
 | `unavailable`, `device_offline` | The devices are offline. |
-| `unavailable`, `sync_required` | The grant's legacy collection was taken over by a native collection, or the Private collection is no longer current for this account (sync changed, deleted or membership ended). The app must be set up again. |
+| `unavailable`, `access_removed` | The account is no longer a member of the collection. |
+| `unavailable`, `sync_required` | The grant's legacy collection was taken over by a native collection, or the collection left Private sync or was deleted. The app must be set up again. |
+
+A member's grant is bound to the membership policy it was approved under: removing the member, or changing their role, revokes it (and its log grant). Re-adding the member needs new consent. Token refresh repeats the consent authority check (`application.authorize` on a current Private collection).
+
+**Deploy order.** A server version older than this change refreshes a native grant's tokens without the collection checks (the tokens open nothing on that version, but would on a newer one). Roll the new server out fully before any native grant is created. Any future change that moves a collection from Private to cloud copy must revoke its native grants first.
 
 ## Consumer mapping
 - `/v1/next/collections/:id/route` and `/v1/next/apps/collections`: `grant` is the log UUID used for Noise. When different, `authorization_grant` is the stable Connect UUID used for control-plane lifecycle.

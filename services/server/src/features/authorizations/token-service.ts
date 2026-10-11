@@ -22,7 +22,7 @@ import { authorityUrl } from "../../platform/authority-url.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import { normalizedApplicationOrigin } from "./redirects.js";
 import { CutoverProblemError } from "../next/cutover-problems.js";
-import { CreateError, currentMember } from "../next/bootstrap-common.js";
+import { resolveNativeCollectionAccess } from "./native-approval-service.js";
 import { requireCollectionNotDeleted } from "../next/collection-deletion.js";
 
 export async function issueApplicationTokens(
@@ -143,17 +143,20 @@ export async function issueApplicationTokens(
       "application.authorize"
     );
   } else if (grant.rows[0].next_collection_id) {
-    // A Private native collection: the account must still be a current member.
-    // Reachability (sync changes, devices, approval) is reported by the route.
+    // A Private native collection: the same authority check as consent (a current
+    // member with application.authorize on a synced Private collection).
     try {
       await requireCollectionNotDeleted(db, grant.rows[0].next_collection_id);
-      await currentMember(db, grant.rows[0].next_collection_id, grant.rows[0].user_id);
     } catch (error) {
-      if (error instanceof CreateError || (error instanceof Error && error.message === "collection_deleted")) {
-        throw new RequestValidationError("The application grant no longer matches the current collection membership.");
+      if (error instanceof Error && error.message === "collection_deleted") {
+        throw new RequestValidationError("The application grant no longer matches the current collection.");
       }
       throw error;
     }
+    requireCollectionAction(
+      await resolveNativeCollectionAccess(db, grant.rows[0].user_id, grant.rows[0].next_collection_id),
+      "application.authorize"
+    );
   }
   const accessToken = randomToken("mdb");
   const refreshToken = randomToken("ref");

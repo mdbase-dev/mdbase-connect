@@ -19,18 +19,18 @@ import { hostedClientOrigin, hostedRouteTarget, type RouteTarget } from "./hoste
 export type { RouteTarget } from "./hosted-route-target.js";
 import { pitrCollection, type LabPitrConfig } from "./lab-pitr-config.js";
 import { grantDeviceApproval } from "./grant-approval.js";
-import { nativeDevices, nativeGrant, nativeGrantCurrent, supersededLegacyGrant } from "./native-grant-target.js";
+import { nativeDevices, nativeGrant, nativeGrantStanding, supersededLegacyGrant } from "./native-grant-target.js";
 
 /** Whether the app can open the collection now and, if not, why (SDK describeError reasons). */
 export type RouteAvailability =
   | { state: "available" }
-  | { state: "unavailable"; reason: "device_offline" | "desktop_update_required" | "old_connector_running" | "approval_required" | "sync_required" | "no_device_registered" };
+  | { state: "unavailable"; reason: "device_offline" | "desktop_update_required" | "old_connector_running" | "approval_required" | "sync_required" | "access_removed" | "no_device_registered" };
 
 const routeGrant = (collection: string, row: { grant_id: string; authorization_grant: string }) => ({
   collection, grant: row.grant_id,
   ...(row.authorization_grant && row.authorization_grant !== row.grant_id ? { authorization_grant: row.authorization_grant } : {})
 });
-const unavailableRoute = (collection: string, row: { grant_id: string; authorization_grant: string }, reason: "sync_required") =>
+const unavailableRoute = (collection: string, row: { grant_id: string; authorization_grant: string }, reason: "sync_required" | "access_removed") =>
   ({ ...routeGrant(collection, row), targets: [] as RouteTarget[], availability: { state: "unavailable", reason } satisfies RouteAvailability });
 
 type RouteDevice = { device_id: string; kind: RegisteredDeviceKind; noise_pk: Buffer; connector_id: string; relay_generation: string; last_active_ms: number | null; update_required: boolean; local_id: string };
@@ -142,7 +142,10 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
     if (row.policy_required && !row.policy_active) {
       return reply.code(409).send(apiError("application_reauthorization_required", "This grant has no next policy binding; authorize the application again."));
     }
-    if (native && !await nativeGrantCurrent(options.db, id, native.user_id)) return unavailableRoute(id, native, "sync_required");
+    if (native) {
+      const standing = await nativeGrantStanding(options.db, id, native.user_id);
+      if (standing !== "current") return unavailableRoute(id, native, standing);
+    }
     const devices = native
       ? (await nativeDevices(options.db, id, native.user_id)).map((device) => ({ ...device, local_id: id }))
       : grant.rows.flatMap((target) => target.device_id && target.noise_pk && target.kind
@@ -208,11 +211,12 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
       let availability: RouteAvailability | undefined;
       if (row.superseded) availability = { state: "unavailable", reason: "sync_required" };
       else if (row.native && row.routable) {
-        availability = await nativeGrantCurrent(options.db, row.collection, self.user_id)
+        const standing = await nativeGrantStanding(options.db, row.collection, self.user_id);
+        availability = standing === "current"
           ? await deviceAvailability(options.db, await deviceCandidates(options.broker,
             (await nativeDevices(options.db, row.collection, self.user_id)).map((device) => ({ ...device, local_id: row.collection })),
             relayUrl.toString()), row.authorization_grant)
-          : { state: "unavailable", reason: "sync_required" };
+          : { state: "unavailable", reason: standing };
       }
       return {
         collection: row.collection,

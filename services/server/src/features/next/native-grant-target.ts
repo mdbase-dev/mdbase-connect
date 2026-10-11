@@ -45,25 +45,31 @@ export async function nativeGrant(db: DatabaseQueryable, tokenHash: string, coll
 }
 
 /**
- * The collection is still a synced Private collection, not deleted, and the
- * account is a current member. False means the grant can no longer be served
- * as granted and the app must be set up again for it.
+ * Whether the grant can still be served as granted: `current` when the collection is
+ * still a synced, undeleted Private collection and the account a current member;
+ * `access_removed` when the account is no longer a member; otherwise
+ * `sync_required` (the collection left Private sync or was deleted).
  */
-export async function nativeGrantCurrent(db: DatabaseQueryable, collection: string, account: string): Promise<boolean> {
+export async function nativeGrantStanding(db: DatabaseQueryable, collection: string, account: string): Promise<"current" | "access_removed" | "sync_required"> {
   const current = await db.query(
     `SELECT 1 FROM next_collections WHERE collection_id = $1
      AND runtime = 'next' AND sync = 'private' AND left_sync_at IS NULL`,
     [collection]
   );
-  if (!current.rows.length) return false;
+  if (!current.rows.length) return "sync_required";
   try {
     await requireCollectionNotDeleted(db, collection);
-    await currentMember(db, collection, account);
   } catch (error) {
-    if (error instanceof CreateError || (error instanceof Error && error.message === "collection_deleted")) return false;
+    if (error instanceof Error && error.message === "collection_deleted") return "sync_required";
     throw error;
   }
-  return true;
+  try {
+    await currentMember(db, collection, account);
+  } catch (error) {
+    if (error instanceof CreateError) return "access_removed";
+    throw error;
+  }
+  return "current";
 }
 
 /**
@@ -71,7 +77,7 @@ export async function nativeGrantCurrent(db: DatabaseQueryable, collection: stri
  * in the collection is appended to the log and never revoked (SEC-047: only the
  * granting account's own devices).
  */
-export async function nativeDevices(db: DatabaseQueryable, collection: string, account: string): Promise<NativeDevice[]> {
+export async function nativeDevices(db: DatabaseQueryable, collection: string, account: string, only?: string): Promise<NativeDevice[]> {
   const devices = await db.query<NativeDevice & { sign_pk: Buffer; kem_pk: Buffer }>(
     `SELECT d.id AS device_id, d.kind, d.sign_pk, d.kem_pk, d.noise_pk,
             c.id AS connector_id, c.relay_generation::text AS relay_generation,
@@ -79,9 +85,9 @@ export async function nativeDevices(db: DatabaseQueryable, collection: string, a
             (c.incompatibility_code IS NOT NULL) AS update_required
      FROM next_devices d
      JOIN connectors c ON c.id = d.connector_id AND c.revoked_at IS NULL
-     WHERE d.user_id = $1 AND d.kind IN ('desktop', 'cli')
+     WHERE d.user_id = $1 AND d.kind IN ('desktop', 'cli') AND ($2::uuid IS NULL OR d.id = $2::uuid)
      ORDER BY d.id`,
-    [account]
+    [account, only ?? null]
   );
   const current: NativeDevice[] = [];
   for (const { sign_pk, kem_pk, ...device } of devices.rows) {
@@ -105,8 +111,10 @@ export async function nativeDevices(db: DatabaseQueryable, collection: string, a
 export async function nativeAdmission(db: DatabaseQueryable, tokenHash: string, collection: string, grant: string, device: string): Promise<string | null> {
   const row = await nativeGrant(db, tokenHash, collection);
   if (!row || row.grant_id !== grant || !row.has_client_key || !row.policy_active) return null;
-  if (!await nativeGrantCurrent(db, collection, row.user_id)) return null;
-  const target = (await nativeDevices(db, collection, row.user_id)).find((candidate) => candidate.device_id === device);
+  if (await nativeGrantStanding(db, collection, row.user_id) !== "current") return null;
+  if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(device)) return null;
+  // Only the pinned device is checked, at admission and on every revalidation.
+  const target = (await nativeDevices(db, collection, row.user_id, device)).find((candidate) => candidate.device_id === device);
   return target?.connector_id ?? null;
 }
 

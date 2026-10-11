@@ -17,7 +17,8 @@ import { RequestValidationError } from "../../platform/http-errors.js";
 import { CreateError, currentMember } from "../next/bootstrap-common.js";
 import { copyClientNoiseKeyToGrant } from "../next/client-key.js";
 import { queueNextGrantPolicy } from "../next/grant-policy.js";
-import { assertOperationsAllowedByApplication } from "../grants/policy.js";
+import { membershipBindingForAccess } from "../../collection-membership-binding.js";
+import { assertOperationsAllowedByApplication, requiresHostedCollection } from "../grants/policy.js";
 import { applicationOriginForRedirect } from "./redirects.js";
 
 /**
@@ -102,6 +103,9 @@ export async function approveNativeAuthorization(
     if (pending.collection_id && pending.collection_id !== input.collectionId) {
       throw new RequestValidationError("This authorization request is restricted to a different collection.");
     }
+    if (requiresHostedCollection(pending.requirements)) {
+      throw new RequestValidationError("This application requires an mdbase cloud collection.");
+    }
     if (pending.flow !== "authorization_code" || pending.distribution !== "web") {
       throw new RequestValidationError("Private collections are available to web applications through this approval.");
     }
@@ -142,13 +146,23 @@ export async function approveNativeAuthorization(
         [replaced.rows.map((row) => row.id)]
       );
     }
+    for (const row of replaced.rows) {
+      await audit(connection, input.userId, "grant.revoked", row.id, {
+        next_collection_id: input.collectionId, reason: "replaced", authorization_request_id: input.requestId
+      });
+    }
+    // A member's grant is bound to the membership policy it was approved under, so
+    // removing the member (or changing their role) revokes it with the membership.
+    const membership = membershipBindingForAccess(access);
     const grantId = randomUUID();
     await connection.query(
       `INSERT INTO grants
          (id, user_id, application_id, next_collection_id, operations, scope, encryption,
           proof_public_key, application_origin, file_capability, notification_criteria,
-          application_authorization, application_installation_id, people_permissions)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, NULL, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::jsonb)`,
+          application_authorization, application_installation_id, people_permissions,
+          logical_collection_id, membership_id, membership_policy_id, membership_policy_revision)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, NULL, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::jsonb,
+               $4, $14, $15, $16)`,
       [
         grantId, input.userId, pending.application_id, input.collectionId,
         JSON.stringify(plan.operations), JSON.stringify(plan.scope),
@@ -156,7 +170,8 @@ export async function approveNativeAuthorization(
         plan.fileCapability ? JSON.stringify(plan.fileCapability) : null,
         JSON.stringify(pending.notifications.criteria),
         JSON.stringify(pending.application_authorization), installation,
-        plan.peoplePermissions ? JSON.stringify(plan.peoplePermissions) : null
+        plan.peoplePermissions ? JSON.stringify(plan.peoplePermissions) : null,
+        membership?.membershipId ?? null, membership?.policyId ?? null, membership?.policyRevision ?? null
       ]
     );
     await connection.query(
