@@ -127,6 +127,10 @@ export async function openDatabase(
       // and object CHECK only; origin-shape enforcement requires real PG tests.
       const timerOriginShape = "-- mdbase:next-timer-legacy-import-origin-shape:v1";
       if (sql.includes(timerOriginShape)) return memory.public.many(sql.slice(0, sql.indexOf(timerOriginShape)));
+      // pg-mem lacks the array functions and operators of the file access
+      // CHECKs. Keep the columns; shape enforcement requires real PG tests.
+      const fileAccessShape = "-- mdbase:installation-file-access-shape:v1";
+      if (sql.includes(fileAccessShape)) return memory.public.many(sql.slice(0, sql.indexOf(fileAccessShape)));
       const grantTrigger = "-- mdbase:next-grant-revoke-trigger:v1";
       if (sql.includes(grantTrigger)) return memory.public.many(sql.slice(0, sql.indexOf(grantTrigger)));
       // pg-mem does not use PostgreSQL's automatic CHECK name. Name ONLY the

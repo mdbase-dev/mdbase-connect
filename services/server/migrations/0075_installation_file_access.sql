@@ -10,6 +10,12 @@ ALTER TABLE installation_device_pairings
   ADD COLUMN file_access_reason text,
   ADD COLUMN approved_file_actions text[];
 
+-- The approved optional file actions per installation and collection. Removing
+-- the collection from the installation's scope removes them with the row.
+ALTER TABLE installation_collection_scopes
+  ADD COLUMN file_actions text[] NOT NULL DEFAULT '{}';
+
+-- mdbase:installation-file-access-shape:v1
 -- IS TRUE keeps a NULL comparison from passing a malformed row.
 ALTER TABLE installation_device_pairings
   ADD CONSTRAINT installation_file_access_shape CHECK ((
@@ -25,10 +31,7 @@ ALTER TABLE installation_device_pairings
         AND approved_file_actions <@ requested_file_actions)))
   ) IS TRUE);
 
--- The approved optional file actions per installation and collection. Removing
--- the collection from the installation's scope removes them with the row.
 ALTER TABLE installation_collection_scopes
-  ADD COLUMN file_actions text[] NOT NULL DEFAULT '{}',
   ADD CONSTRAINT installation_scope_file_actions CHECK ((
     array_position(file_actions, NULL) IS NULL
     AND file_actions <@ ARRAY['list','read','add','replace','move','delete']::text[]
