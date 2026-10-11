@@ -1,6 +1,7 @@
 /** Fixed-run LAB CP checks/mutations. No restored state or caller permission flag
  * can authorize. Current responses are point observations, never reusable leases.
  */
+import { sign, verify } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
@@ -11,11 +12,86 @@ import { CreateError, currentMember, currentSession, inTransaction, lock, NIL, r
 import { recordCollectionDeletionIntent, requireCollectionNotDeleted } from "./collection-deletion.js";
 import { originalGenesis } from "./hosted-routes.js";
 import { pitrLabel, type LabPitrConfig } from "./lab-pitr-config.js";
-import type { NextControlPlaneConfig } from "./policy-keys.js";
+import { ed25519PublicKeyObject, verifyCert, type NextControlPlaneConfig } from "./policy-keys.js";
 import type { LogServiceClient } from "./log-service-client.js";
-import { keyId, type DeviceKind } from "./policy-wire.js";
+import { decodeCbor, domainHash, encodeCbor, encodeCert, keyId, policyItemSignedDigest, uuidBytes, type CpCert, type Decoded, type DeviceKind, type PolicySigner } from "./policy-wire.js";
 import { queueNextPolicy } from "./policy-outbox.js";
 import { projectNextGrant, type NextGrantSource } from "./grant-policy.js";
+
+// The CP-only transcript is private to this fixed-purpose source route. Signed
+// data never substitutes for native caller authentication or a one-shot witness.
+interface CpOriginalFacts {
+  audience: string; run: "gate4-pitr-lab-20261009-01"; collection: string; owner: string;
+  rootPublicKey: Uint8Array; issuerPublicKey: Uint8Array; transportPublicKey: Uint8Array;
+  genesisSha256: Uint8Array; challenge: Uint8Array; issuedAt: number;
+}
+const PREKEY_DOMAIN = "mdbase/v1/prekey-original-admission";
+function admissionUuid(value: string): Uint8Array {
+  if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}(?![\s\S])/u.test(value) || value===NIL) throw new Error("invalid_prekey_subject");
+  return uuidBytes(value);
+}
+function admissionAudience(value: string): string {
+  const url = new URL(value);
+  if (value.length>255 || !/^[\x21-\x7e]+$/u.test(value) || url.protocol!=="https:" || url.origin!==value
+      || !/^[a-z0-9.-]+$/u.test(url.hostname) || url.username || url.password || url.search || url.hash) throw new Error("invalid_prekey_audience");
+  return value;
+}
+function nonzero32(value: Uint8Array): Uint8Array {
+  if (!(value instanceof Uint8Array) || value.length!==32 || value.every(v=>v===0)) throw new Error("invalid_prekey_bytes");
+  return value;
+}
+function originalFields(value: Decoded | undefined, keys: number[]): Map<number | string, Decoded> {
+  if (!(value instanceof Map) || value.size!==keys.length || !keys.every(k=>value.has(k))) throw new Error("invalid_prekey_original");
+  return value;
+}
+function originalBytes(value: Decoded | undefined, size: number): Uint8Array {
+  if (!(value instanceof Uint8Array) || value.length!==size) throw new Error("invalid_prekey_original");
+  return value;
+}
+/** Crypto/shape checks only, not a reducer or whole-history acceptance. Native
+ * independently verifies actual caller possession and exact bounded originals. */
+function assertCpOriginalGenesis(raw: Uint8Array, collection: string, owner: string, root: Uint8Array, transport: Uint8Array): void {
+  if (raw.length===0 || raw.length>64*1024) throw new Error("invalid_prekey_original");
+  const item=originalFields(decodeCbor(raw,{maxDepth:32,canonicalStructs:true}),[0,1,2,3,4,6,11,12]),body=item.get(11);
+  if (!(body instanceof Uint8Array)) throw new Error("invalid_prekey_original");
+  const payload=originalFields(decodeCbor(body,{maxDepth:32,canonicalStructs:true}),[0,1,2,3]);
+  const c=originalFields(payload.get(1),[0,1,2,3,4]),ops=payload.get(3),issued=payload.get(2);
+  const cert:CpCert={policyPublicKey:originalBytes(c.get(0),32),notBefore:c.get(1) as number,notAfter:c.get(2) as number,
+    root:originalBytes(c.get(3),16),signature:originalBytes(c.get(4),64)};
+  if (!Array.isArray(ops) || ops.length===0) throw new Error("invalid_prekey_original");
+  const genesis=originalFields(ops[0],[0,1,2,3]);
+  if (item.get(0)!==1 || item.get(1)!==2 || item.get(3)!==1 || payload.get(0)!==1
+      || !Buffer.from(originalBytes(item.get(2),16)).equals(Buffer.from(admissionUuid(collection)))
+      || originalBytes(item.get(4),32).some(v=>v!==0) || genesis.get(0)!==1 || genesis.get(3)!==1
+      || !Buffer.from(originalBytes(genesis.get(1),16)).equals(Buffer.from(admissionUuid(owner)))
+      || !Buffer.from(originalBytes(genesis.get(2),16)).equals(Buffer.from(keyId(nonzero32(root))))
+      || ops.filter(op=>op instanceof Map && op.get(0)===1).length!==1
+      || !Number.isSafeInteger(issued) || (issued as number)<0
+      || !Number.isSafeInteger(cert.notBefore) || !Number.isSafeInteger(cert.notAfter) || cert.notBefore>=cert.notAfter
+      || (issued as number)<cert.notBefore || (issued as number)>cert.notAfter
+      || !Buffer.from(cert.policyPublicKey).equals(Buffer.from(nonzero32(transport)))
+      || !Buffer.from(originalBytes(item.get(6),16)).equals(Buffer.from(keyId(cert.policyPublicKey)))
+      || !verifyCert(cert,root)
+      || !verify(null,policyItemSignedDigest(collection,1,originalBytes(item.get(4),32),originalBytes(item.get(6),16),body),
+        ed25519PublicKeyObject(cert.policyPublicKey),originalBytes(item.get(12),64))) throw new Error("invalid_prekey_original");
+}
+/** Only trusted configuration and locked source facts enter this closed template;
+ * no device branch, arbitrary purpose/message/digest or generic signing API. */
+function signCpOriginalAdmission(signer: PolicySigner, facts: CpOriginalFacts): {admission:Uint8Array;expiresAt:number} {
+  const root=nonzero32(facts.rootPublicKey);
+  if (!Buffer.from(keyId(root)).equals(Buffer.from(signer.cert.root)) || facts.run!=="gate4-pitr-lab-20261009-01") throw new Error("invalid_prekey_root_or_run");
+  const issuedAt=facts.issuedAt,expiresAt=Math.min(issuedAt+10000,signer.cert.notAfter);
+  if (!Number.isSafeInteger(issuedAt) || issuedAt<0 || !Number.isSafeInteger(expiresAt)
+      || issuedAt<signer.cert.notBefore || expiresAt<=issuedAt || expiresAt-issuedAt>10000) throw new Error("invalid_prekey_freshness");
+  const claims=encodeCbor([1,admissionAudience(facts.audience),facts.run,"original-caller-prekey",admissionUuid(facts.collection),admissionUuid(facts.owner),
+    root,nonzero32(facts.issuerPublicKey),nonzero32(facts.transportPublicKey),nonzero32(facts.genesisSha256),1,null,null,null,
+    nonzero32(facts.challenge),issuedAt,expiresAt]);
+  if (claims.length>2048) throw new Error("prekey_claims_too_large");
+  const signature=sign(null,domainHash(PREKEY_DOMAIN,claims),signer.privateKey);
+  const admission=Buffer.concat([Buffer.of(0x84,1),encodeCbor(claims),encodeCert(signer.cert),encodeCbor(signature)]);
+  if (admission.length>4096) throw new Error("prekey_admission_too_large");
+  return {admission,expiresAt};
+}
 
 const uuid = z.string().regex(/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/).refine(v => v !== NIL);
 const hash = z.string().regex(/^[0-9a-f]{64}$/);
@@ -171,12 +247,58 @@ async function currentNilSubjects(client: DatabaseConnection,pitr:LabPitrConfig,
 export function registerLabPitrRoutes(app: FastifyInstance, options: {
   db: DatabasePool; next: NextControlPlaneConfig;
   log: Pick<LogServiceClient, "labPitrCollectionDeletions" | "pitrControlIdentity">; now?: () => number;
+  admission?: { signer: PolicySigner; audience: string; identity: Pick<LogServiceClient, "pitrAdmissionIdentity"> };
 }): void {
   const pitr = options.next.logService.labPitr;
   const token = options.next.pitrAuthorityToken;
   if (!pitr || !token) return; // Parser requires both together; ordinary deployments expose no routes.
   const policyKeyId = Buffer.from(keyId(Buffer.from(options.next.policyCert.policy_public_key, "hex"))).toString("hex");
   const limit = { bodyLimit: 4096, config: { rateLimit: { max: 120, timeWindow: "1 minute" } } };
+  app.post("/internal/v1/next/lab-pitr/original-cp-admission", {...limit,bodyLimit:1024}, async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    const presented = bearerToken(request);
+    if (!presented || !safeEqual(presented, token)) return reply.code(401).send(apiError("invalid_internal_token", "Internal token required."));
+    const input = z.object({collection:uuid,challenge:z.string().regex(/^[0-9a-f]{64}(?![\s\S])/u).refine(v=>v!=="00".repeat(32))}).strict().safeParse(request.body);
+    if (!input.success || !z.object({}).strict().safeParse(request.query).success) return reply.code(400).send(apiError("invalid_request", "Exact collection and challenge required."));
+    const b = input.data;
+    try {
+      const source = options.admission, identity = source?.identity.pitrAdmissionIdentity();
+      if (!source || !identity) throw new Error("prekey_source_unavailable");
+      if (b.collection!==pitr.active && b.collection!==pitr.deleted) denied();
+      const issuer = Buffer.from(identity.issuerPublicKey,"hex"), transport = Buffer.from(identity.transportPublicKey,"hex");
+      const oldIdentity = options.log.pitrControlIdentity();
+      if (!hash.safeParse(identity.issuerPublicKey).success || !hash.safeParse(identity.transportPublicKey).success
+          || !oldIdentity || oldIdentity.transportPublicKey!==identity.transportPublicKey
+          || oldIdentity.issuerKeyId!==Buffer.from(keyId(issuer)).toString("hex")
+          || Buffer.from(source.signer.cert.policyPublicKey).toString("hex")!==options.next.policyCert.policy_public_key
+          || !Buffer.from(source.signer.cert.root).equals(Buffer.from(keyId(options.next.rootPublicKey)))) denied();
+      let issuedAt = -1;
+      const signed = await inTransaction(options.db,async client=>{
+        await lock(client,b.collection);
+        const original = await originalGenesis(client,b.collection,{owner:pitr.owner,root:options.next.policyCert.root_key_id,state:"sending-or-appended"});
+        assertCpOriginalGenesis(Buffer.from(original.item,"base64"),b.collection,pitr.owner,options.next.rootPublicKey,transport);
+        // The final reread still counts complete original history and pending
+        // owner/key denial under the same collection/security locks.
+        await currentCollection(client,pitr,options.next,b.collection,original.hash,(options.now??Date.now)(),"cp-genesis");
+        const originalKeyRevoked = await client.query(`SELECT 1 FROM next_policy_outbox
+          WHERE collection_id=$1 AND ops->'ops' @> $2::jsonb LIMIT 1`,
+          [b.collection,JSON.stringify([{op:"cp-key-revoke",keyId:{$hex:Buffer.from(keyId(transport)).toString("hex")}}])]);
+        if (originalKeyRevoked.rows.length) denied();
+        const currentIdentity = source.identity.pitrAdmissionIdentity();
+        if (!currentIdentity || currentIdentity.issuerPublicKey!==identity.issuerPublicKey || currentIdentity.transportPublicKey!==identity.transportPublicKey) denied();
+        issuedAt = (options.now??Date.now)();
+        return signCpOriginalAdmission(source.signer,{audience:source.audience,run:pitr.run,collection:b.collection,owner:pitr.owner,
+          rootPublicKey:options.next.rootPublicKey,issuerPublicKey:issuer,transportPublicKey:transport,
+          genesisSha256:Buffer.from(original.hash,"hex"),challenge:Buffer.from(b.challenge,"hex"),issuedAt});
+      }); // No signature can escape a failed or unknown COMMIT.
+      const now = (options.now??Date.now)();
+      if (!Number.isSafeInteger(now) || now<issuedAt || now>=signed.expiresAt) denied();
+      return {admission:Buffer.from(signed.admission).toString("base64"),expires_at:signed.expiresAt};
+    } catch(error) {
+      const status = error instanceof CreateError || (error instanceof Error && error.message==="collection_deleted") ? 409 : 503;
+      return reply.code(status).send(apiError(status===409?"lab_pitr_authority_denied":"lab_pitr_authority_unavailable","Original CP admission not established."));
+    }
+  });
   app.post("/internal/v1/next/lab-pitr/current", limit, async (request, reply) => {
     reply.header("cache-control", "no-store");
     const presented = bearerToken(request);

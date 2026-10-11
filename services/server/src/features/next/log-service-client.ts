@@ -90,6 +90,7 @@ export class LogServiceClient {
   private readonly baseUrl: string;
   private readonly pitr: LabPitrConfig | undefined;
   private readonly pitrPublicIdentity: Readonly<{ transportPublicKey: string; issuerKeyId: string }> | undefined;
+  private readonly pitrIssuerPublicKey: string | undefined;
   private requestId = 0;
   private cached: { token: string; expiresAt: number } | undefined;
 
@@ -101,12 +102,22 @@ export class LogServiceClient {
     this.transportPublicKey = ed25519RawPublicKey(this.transport);
     // Public metadata only, captured once from already loaded startup keys. The
     // observer never parses a PEM, signs, mints a token or reads private material.
-    this.pitrPublicIdentity = this.pitr ? Object.freeze({ transportPublicKey: Buffer.from(this.transportPublicKey).toString("hex"),
-      issuerKeyId: Buffer.from(keyId(ed25519RawPublicKey(this.issuer))).toString("hex") }) : undefined;
+    if (this.pitr) {
+      const issuerPublicKey = ed25519RawPublicKey(this.issuer);
+      this.pitrIssuerPublicKey = Buffer.from(issuerPublicKey).toString("hex");
+      this.pitrPublicIdentity = Object.freeze({ transportPublicKey: Buffer.from(this.transportPublicKey).toString("hex"),
+        issuerKeyId: Buffer.from(keyId(issuerPublicKey)).toString("hex") });
+    }
   }
 
   pitrControlIdentity(): Readonly<{ transportPublicKey: string; issuerKeyId: string }> | null {
     return this.pitrPublicIdentity ? { ...this.pitrPublicIdentity } : null;
+  }
+
+  /** Detached public startup observation only; not current admission or a signer. */
+  pitrAdmissionIdentity(): Readonly<{ transportPublicKey: string; issuerPublicKey: string }> | null {
+    return this.pitrPublicIdentity && this.pitrIssuerPublicKey
+      ? { transportPublicKey: this.pitrPublicIdentity.transportPublicKey, issuerPublicKey: this.pitrIssuerPublicKey } : null;
   }
 
   /** Mint a log-service access token. Device tokens name the device and, narrowing them, one collection. */
