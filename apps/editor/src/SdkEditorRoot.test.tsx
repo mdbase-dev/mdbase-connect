@@ -166,6 +166,16 @@ describe("SdkEditorRoot over the public SDK fixture", () => {
     expect(subscriptions.size).toBe(0);
   });
 
+  it.each(["refused", "expired"])("a %s sign-in window says so and the next Sign in starts again through the SDK", (problem) => {
+    const h = applicationFixture({ status: "blocked", problem });
+    render(<SdkEditorRoot sdk={h.entry} />);
+    expect(screen.getByRole("alert")).toHaveTextContent(problem === "refused" ? "Try signing in again." : "Start again");
+    const signIn = screen.getByRole("button", { name: "Sign in" });
+    expect(signIn).toBeEnabled();
+    fireEvent.click(signIn);
+    expect(h.controls.observedActions().filter((call) => call.action === "approve")).toHaveLength(1);
+  });
+
   it("the unavailable shell offers no sign-in, setup or editor", () => {
     const h = applicationFixture({ status: "blocked", problem: "application_not_yet_available" });
     render(<SdkEditorRoot sdk={h.entry} />);
