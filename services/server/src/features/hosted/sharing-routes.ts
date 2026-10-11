@@ -17,6 +17,7 @@ import {
 import { COLLECTION_MEMBERSHIP_ROLES } from "../../collection-policy.js";
 import type { DatabasePool } from "../../db.js";
 import { requireUser } from "../../platform/request-authentication.js";
+import { RequestValidationError } from "../../platform/http-errors.js";
 
 interface HostedSharingRoutesOptions {
   db: DatabasePool;
@@ -128,21 +129,21 @@ export function registerHostedSharingRoutes(
         })
         .strict()
         .parse(request.body);
-      const accepted = await acceptHostedCollectionInvitation(options.db, {
-        userId: user.id,
-        token
-      });
-      return reply
-        .header("cache-control", "no-store")
-        .code(201)
-        .send({
-          membership: {
-            id: accepted.membershipId,
-            collection_id: accepted.collectionId,
-            role: accepted.role,
-            state: "active"
-          }
+      try {
+        const accepted = await acceptHostedCollectionInvitation(options.db, { userId: user.id, token });
+        return reply.header("cache-control", "no-store").code(201).send({
+          membership: { id: accepted.membershipId, collection_id: accepted.collectionId, role: accepted.role, state: "active" }
         });
+      } catch (error) {
+        // This route is CP-only: use its typed refusal, never invent a provider
+        // call/response. The shared error handler owns the canonical 409 body.
+        if (error instanceof RequestValidationError && error.code === "collection_migrating") {
+          const seconds = (error.details as { retry_after_seconds?: unknown } | null)?.retry_after_seconds;
+          if (Number.isSafeInteger(seconds) && Number(seconds) > 0 && Number(seconds) <= 300) reply.header("Retry-After", String(seconds));
+          reply.header("cache-control", "no-store");
+        }
+        throw error;
+      }
     }
   );
 
