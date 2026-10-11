@@ -15,7 +15,7 @@ import {
   type MdbaseApplicationManifest,
   type MdbaseApplicationRequirements,
   type MdbaseApplicationCapabilityId as ApplicationCapabilityId
-} from "./application-contract.js";
+} from "@mdbase-dev/connect-protocol";
 import {
   authorizationCallbackState,
   authorizationReturnToFromProblem,

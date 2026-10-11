@@ -1,21 +1,24 @@
 import {
   APPLICATION_SETUP_OPERATIONS,
-  applicationFileRequest,
   capabilityOperationsForContractVersion,
   type ApplicationCapabilityId,
   type ApplicationCapabilityRequirements,
   type LegacyApplicationCapabilityRequirements,
-  type LegacyApplicationCapabilityId,
-  type ApplicationRequirements,
-  type LegacyApplicationRequirements,
-  type MdbaseAppManifest,
-  type LegacyMdbaseAppManifest,
-  type CollectionOperation
-} from "@mdbase-dev/connect-protocol";
-import { connectError } from "./errors.js";
+  type LegacyApplicationCapabilityId
+} from "./capabilities.js";
+import { applicationFileRequest } from "./files.js";
+import type {
+  ApplicationRequirements,
+  LegacyApplicationRequirements,
+  MdbaseAppManifest,
+  LegacyMdbaseAppManifest
+} from "./application-declaration.js";
+import type { CollectionOperation } from "./operations.js";
+import { connectError } from "./authorization-errors.js";
+
 export const DEFAULT_OPERATIONS: CollectionOperation[] = ["describe", "changes", "read", "query"];
 
-/** SDK input compatibility boundary; protocol ApplicationRequirements remains v2-only. */
+/** Input compatibility boundary; protocol ApplicationRequirements remains v2-only. */
 export type MdbaseApplicationManifest = MdbaseAppManifest | LegacyMdbaseAppManifest;
 export type MdbaseApplicationRequirements = ApplicationRequirements | LegacyApplicationRequirements;
 export type MdbaseApplicationCapabilityRequirements = ApplicationCapabilityRequirements | LegacyApplicationCapabilityRequirements;
@@ -32,7 +35,7 @@ export function semanticContractVersion(requirements: MdbaseApplicationRequireme
   return version;
 }
 
-export function invalidAuthorizationSelection(message: string): never {
+function invalidAuthorizationSelection(message: string): never {
   throw connectError("invalid_application_manifest", message, {
     details: { issues: [{ path: "/requirements/capabilities", keyword: "authorizationSelection", message, params: {} }] }
   });

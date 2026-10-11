@@ -232,7 +232,7 @@ export type {
   MdbaseApplicationRequirements,
   MdbaseApplicationCapabilityId as ApplicationCapabilityId,
   MdbaseApplicationCapabilityRequirements as ApplicationCapabilityRequirements
-} from "./application-contract.js";
+} from "@mdbase-dev/connect-protocol";
 export type {
   ApplicationProvisions,
   ApplicationRequirements,
