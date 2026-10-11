@@ -732,6 +732,69 @@ describePg("installation device sign-in on daemon pairing", () => {
     const result=await app.inject({method:"PUT",url:`${timerPath(f)}/due`,headers:{authorization:`Bearer ${f.token}`},payload:{criterion_id:"synthetic.reminder",fire_at:new Date(Date.now()+(future?3_600_000:-1000)).toISOString()}});
     expect(result.statusCode,result.body).toBe(200);
   }
+  async function waitForWorkerLock(pid:number,query:string) {
+    for(let attempt=0;attempt<200;attempt++) {
+      const row=(await db.query<{waiting:boolean}>(`SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+        WHERE $1=ANY(pg_blocking_pids(pid)) AND query LIKE $2) AS waiting`,[pid,`%${query}%`])).rows[0];
+      if(row.waiting)return;
+      await new Promise(resolve=>setTimeout(resolve,10));
+    }
+    throw new Error("Native timer worker did not wait on the owned PostgreSQL lock.");
+  }
+  it("holds original native consent before timer CAS wait, then withdrawal denies downstream signal admission",async()=>{
+    const f=await currentTimerFixture();await dueNativeTimer(f);
+    const blocker=await db.connect(),probe=await db.connect(),worker=new TimerWorker(db,[],{resolver:f.resolver});let firing:Promise<number>|undefined;
+    try {
+      await blocker.query("BEGIN");await blocker.query("SELECT 1 FROM next_timers WHERE grant_id=$1 FOR UPDATE",[f.grantId]);
+      const pid=(await blocker.query<{pid:number}>("SELECT pg_backend_pid() AS pid")).rows[0].pid;
+      firing=worker.fireDue();void firing.catch(()=>{});await waitForWorkerLock(pid,"UPDATE next_timers");
+      await probe.query("BEGIN");await probe.query("SET LOCAL lock_timeout='100ms'");
+      await expect(probe.query("UPDATE next_background_grants SET revoked_at=clock_timestamp() WHERE id=$1",[f.grantId])).rejects.toMatchObject({code:"55P03"});
+      await probe.query("ROLLBACK");await blocker.query("COMMIT");expect(await firing).toBe(1);
+      await db.query("UPDATE next_background_grants SET revoked_at=clock_timestamp() WHERE id=$1",[f.grantId]);
+      const consumer=notificationsConsumer(()=>undefined,f.resolver);await worker.drainConsumer(consumer);
+      const event=timerEventId(f.grantId,"reminders","due",1);
+      expect((await db.query("SELECT event_id,generation,data FROM next_timer_events WHERE grant_id=$1",[f.grantId])).rows).toEqual([{event_id:event,generation:"1",data:null}]);
+      expect((await db.query("SELECT 1 FROM next_timer_event_receipts WHERE event_id=$1 AND consumer='notifications'",[event])).rows).toHaveLength(1);
+      expect((await db.query("SELECT 1 FROM notification_signals WHERE grant_id=$1",[f.grantId])).rows).toHaveLength(0);
+    } finally {try{await probe.query("ROLLBACK");await blocker.query("ROLLBACK");}finally{probe.release();blocker.release();}if(firing)await firing;}
+  });
+  it("never fires an old native generation after the real timer CAS lock wait replaces it",async()=>{
+    const f=await currentTimerFixture();await dueNativeTimer(f);
+    const blocker=await db.connect(),worker=new TimerWorker(db,[],{resolver:f.resolver});let firing:Promise<number>|undefined;
+    try {
+      await blocker.query("BEGIN");await blocker.query("SELECT 1 FROM next_timers WHERE grant_id=$1 FOR UPDATE",[f.grantId]);
+      const pid=(await blocker.query<{pid:number}>("SELECT pg_backend_pid() AS pid")).rows[0].pid;
+      firing=worker.fireDue();void firing.catch(()=>{});await waitForWorkerLock(pid,"UPDATE next_timers");
+      await blocker.query("UPDATE next_timers SET generation=2,fire_at=clock_timestamp()+interval '1 hour' WHERE grant_id=$1",[f.grantId]);
+      await blocker.query("COMMIT");expect(await firing).toBe(0);
+      expect((await db.query("SELECT generation,status,fired_at FROM next_timers WHERE grant_id=$1",[f.grantId])).rows).toEqual([{generation:"2",status:"scheduled",fired_at:null}]);
+      expect((await db.query("SELECT 1 FROM next_timer_events WHERE grant_id=$1",[f.grantId])).rows).toHaveLength(0);
+    } finally {try{await blocker.query("ROLLBACK");}finally{blocker.release();}if(firing)await firing;}
+  });
+  it.each(["grant-withdrawal","policy-removal"] as const)("holds native policy before receipt uniqueness wait and serializes %s",async mode=>{
+    const f=await currentTimerFixture();await dueNativeTimer(f);const worker=new TimerWorker(db,[],{resolver:f.resolver});expect(await worker.fireDue()).toBe(1);
+    const event=timerEventId(f.grantId,"reminders","due",1),blocker=await db.connect(),probe=await db.connect();let draining:Promise<number>|undefined;
+    const consumer=notificationsConsumer(()=>undefined,f.resolver);
+    try {
+      await blocker.query("BEGIN");await blocker.query("INSERT INTO next_timer_event_receipts(consumer,event_id) VALUES('notifications',$1)",[event]);
+      const pid=(await blocker.query<{pid:number}>("SELECT pg_backend_pid() AS pid")).rows[0].pid;
+      draining=worker.drainConsumer(consumer);void draining.catch(()=>{});await waitForWorkerLock(pid,"INSERT INTO next_timer_event_receipts");
+      await probe.query("BEGIN");await probe.query("SET LOCAL lock_timeout='100ms'");
+      const removal=[f.collection,JSON.stringify({version:1,ops:[{op:"member-remove",account:f.p.owner.user}]})];
+      if(mode==="policy-removal") await expect(probe.query("INSERT INTO next_policy_outbox(collection_id,ops) VALUES($1,$2)",removal)).rejects.toMatchObject({code:"55P03"});
+      else await expect(probe.query("UPDATE next_background_grants SET revoked_at=clock_timestamp() WHERE id=$1",[f.grantId])).rejects.toMatchObject({code:"55P03"});
+      await probe.query("ROLLBACK");await blocker.query("COMMIT");await draining;
+      // A policy FK also waits behind admission: do not manufacture a change
+      // inside a lock interval where the actual PostgreSQL engine forbids it.
+      if(mode==="policy-removal")await db.query("INSERT INTO next_policy_outbox(collection_id,ops) VALUES($1,$2)",removal);
+      else await db.query("UPDATE next_background_grants SET revoked_at=clock_timestamp() WHERE id=$1",[f.grantId]);
+      expect((await f.resolver.resolve(db,f.grantId))?.usable).toBe(false);
+      expect((await db.query("SELECT 1 FROM next_timer_event_receipts WHERE event_id=$1 AND consumer='notifications'",[event])).rows).toHaveLength(1);
+      expect((await db.query("SELECT 1 FROM notification_signals WHERE grant_id=$1",[f.grantId])).rows).toHaveLength(0);
+      expect((await db.query("SELECT 1 FROM grants WHERE id=$1",[f.grantId])).rows).toHaveLength(0);
+    } finally {try{await probe.query("ROLLBACK");await blocker.query("ROLLBACK");}finally{probe.release();blocker.release();}if(draining)await draining;}
+  });
   it("fires one native generation and consumes one receipt into the existing sealed-channel delivery queue",async()=>{
     const f=await currentTimerFixture(); await dueNativeTimer(f);
     const channel=randomUUID(),subscription=randomUUID(),sealer=new PushTargetSealer({keyId:"synthetic",key:Buffer.alloc(32,42),previousKeys:{}});
