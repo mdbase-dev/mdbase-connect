@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { DatabaseQueryable } from "../../../database-types.js";
 import { canonicalJson } from "../../../canonical-json.js";
-import { authorizeTimerOperation, type TimerGrant } from "./grants.js";
+import { authorizeTimerOperation, type TimerGrant, type TimerReceiptAuthority } from "./grants.js";
 import { criterionSchema, namespaceSchema, timerIdSchema, TimerError, type DesiredTimer, type TimerView } from "./model.js";
 import { lockNamespace } from "./store.js";
 
@@ -31,12 +31,6 @@ interface ReceiptRow {
   expected_revision: string | number;
   committed_revision: string | number;
   result_metadata: Result;
-}
-export interface TimerReceiptAuthority {
-  grant: TimerGrant;
-  // Digest of actual retained immutable consent, not a caller's JSON or an
-  // inferred member/owner/backend marker. PRIVATE dependencies still deny.
-  termsDigest: Buffer;
 }
 // Quota and the persisted CHECK charge PostgreSQL's jsonb::text, not compact
 // wire JSON. Measure the SAME representation before the mutator and afterwards.

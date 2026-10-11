@@ -5,7 +5,6 @@ import {
 import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "../../../database-types.js";
 import { createHash } from "node:crypto";
 import { canonicalJson } from "../../../canonical-json.js";
-import type { TimerReceiptAuthority } from "./receipts.js";
 import { InstallationPairingError, installationApp } from "../../connectors/installation-pairing.js";
 import { CreateError, currentCollectionDevice, inTransaction, type Device } from "../bootstrap-common.js";
 import { requireInstallationScope } from "../installation-scope.js";
@@ -42,6 +41,12 @@ export interface TimerGrant {
   usable: boolean;
   operations: ReadonlySet<string>;
   criteria: NotificationCriterion[];
+}
+
+export interface TimerReceiptAuthority {
+  grant: TimerGrant;
+  // Actual immutable consent, not caller JSON or an inferred backend marker.
+  termsDigest: Buffer;
 }
 
 /**

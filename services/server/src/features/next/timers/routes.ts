@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { AuthorityProofError, verifyAuthorityRequestProof } from "../../../authority-proof.js";
 import { canonicalJson } from "../../../canonical-json.js";
-import { lookupTimerReceipt, recordTimerReconcile, type TimerReceiptAuthority } from "./receipts.js";
+import { lookupTimerReceipt, recordTimerReconcile } from "./receipts.js";
 import { z } from "zod";
 import type { DatabasePool, DatabaseQueryable } from "../../../database-types.js";
 import type { HostedProviderClient } from "../../../hosted-provider.js";
@@ -17,6 +17,7 @@ import {
   legacyTimerGrantResolver,
   type TimerGrant,
   type TimerGrantResolver,
+  type TimerReceiptAuthority,
   type TimerOperation
 } from "./grants.js";
 import {
