@@ -173,9 +173,9 @@ export function registerConnectorPairingRoutes(
               "Installation device sign-in is unavailable.",
             ),
           );
-      const { collection_hint } = z.object({ collection_hint: originalUuid.optional() }).parse(request.query);
+      const { collection_hint, return_url } = z.object({ collection_hint: originalUuid.optional(), return_url: z.string().max(2048).optional() }).parse(request.query);
       return installationResult(reply, () =>
-        inspectInstallationPairing(options.db, pairingId, user.id, !!options.cloudCopy, user, collection_hint),
+        inspectInstallationPairing(options.db, pairingId, user.id, !!options.cloudCopy, user, collection_hint, return_url),
       );
     }
     const pairing = await options.db.query<{

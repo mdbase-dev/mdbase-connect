@@ -24,8 +24,10 @@ field in its manifest (both supported contract versions):
 
 Additional origins use only the configured deployment environment and requested
 device kind. They must be exact canonical HTTPS origins, loopback HTTP origins,
-or mobile `capacitor://` origins: no wildcards, paths, credentials, query or
-fragment. Scheme, host and port must match exactly. The field is validated by
+mobile `capacitor://` origins, or app-runtime Chrome extension origins
+(`chrome-extension://` followed by the 32-letter extension ID): no wildcards,
+paths, credentials, query or fragment. Other browser extension schemes are not
+accepted. Scheme, host and port must match exactly. The field is validated by
 the shared manifest validator and persisted in `application_declaration`.
 It participates in the canonical digest: changing an origin creates a different
 registered application identity rather than widening an existing registration.
@@ -41,6 +43,19 @@ for older registrations, including TaskNotes migration0066. Manifest upserts
 without the optional field preserve that data. It is no longer a prerequisite
 for self-registration: the default `{}` permits the app's declared web origins.
 No applied migration or persisted pairing/credential identity is rewritten.
+
+For a `capacitor://` or Chrome extension origin, the approval screen also says
+whether a mobile app or a browser extension is asking.
+
+## Returning to the app after approval
+
+The portal page opened from `verification_uri` may carry `?return_url=<url>`
+(added by the client, URL-encoded). The portal forwards it to
+`GET /v1/pairing-requests/:id`, and the response's `pairing.return_url` is that
+URL only if it exactly equals one of the registered app's declared
+`redirect_uris`; otherwise it is `null`. After the user approves, the portal
+opens that URL once and shows a "Return to" link. The URL carries no credential:
+the app still completes sign-in by polling the pairing channel.
 
 ## Requested collection hints
 

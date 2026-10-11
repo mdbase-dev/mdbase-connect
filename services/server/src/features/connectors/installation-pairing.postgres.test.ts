@@ -481,6 +481,17 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect((await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: owner.headers })).statusCode).toBe(200);
     expect((await inspect()).json().pairing).toMatchObject({ collection_hint: hint, selected_collection_id: null, approved_collection_ids: [] });
   });
+  it("hands back to the app only through a return URL it declared", async () => {
+    const web = `https://reader-${randomUUID()}.example.test`, mobile = "capacitor://reader.example.test", back = "dev.example.reader://paired";
+    const registered = await upsertApplication(db, registerApplicationManifest({ manifest_version: 1, id: "dev.example.reader", name: "Reader",
+      homepage: `${web}/`, redirect_uris: [`${web}/callback`, back], requirements: { access: "full_collection", contracts: [] },
+      installation_origins: { lab: { mobile: [mobile] } } }));
+    apps.set(registered.id, { name: "Reader", web, mobile });
+    const f = await prepared("mobile", false, undefined, undefined, registered.id);
+    const inspect = (returnUrl: string) => app.inject({ method: "GET", url: `${f.flow.base}?return_url=${encodeURIComponent(returnUrl)}`, headers: f.owner.headers });
+    expect((await inspect(back)).json().pairing.return_url).toBe(back);
+    for (const other of [`${back}/x`, "https://attacker.example.test/", `${web}/`]) expect((await inspect(other)).json().pairing.return_url).toBeNull();
+  });
   it("does not distinguish foreign, private, left, revoked or nonexistent collection hints or grant from a hint", async () => {
     const p = await prepared(), target = await scopeCollection(p.owner.user), chosen = await scopeCollection(p.owner.user);
     const other = await account(), foreign = await scopeCollection(other.user), priv = await scopeCollection(p.owner.user), left = await scopeCollection(p.owner.user), revoked = await scopeCollection(p.owner.user);

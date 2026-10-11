@@ -323,8 +323,11 @@ function validateManifestOrigins(
           const web = secureOrAllowedLocal(url, true) && url.origin === origin;
           const native = kind === "mobile" && url.protocol === "capacitor:"
             && /^[a-z0-9.-]+$/u.test(url.hostname) && `${url.protocol}//${url.host}` === origin;
-          if ((!web && !native) || origin.includes("*") || url.username || url.password || url.search || url.hash) {
-            return [issue(path, "origin", "must be an exact HTTPS, loopback HTTP or mobile capacitor origin without wildcards")];
+          // A Chrome extension ID is stable (derived from its key), so it can be
+          // declared exactly. Firefox extension origins are random per profile.
+          const extension = kind === "app-runtime" && /^chrome-extension:\/\/[a-p]{32}$/u.test(origin);
+          if ((!web && !native && !extension) || origin.includes("*") || url.username || url.password || url.search || url.hash) {
+            return [issue(path, "origin", "must be an exact HTTPS, loopback HTTP, mobile capacitor or Chrome extension origin without wildcards")];
           }
         } catch {
           return [issue(path, "origin", "must be an exact installation origin")];

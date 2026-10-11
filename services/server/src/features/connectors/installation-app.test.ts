@@ -115,6 +115,19 @@ describe("self-registered application pairing origins", () => {
     ("refuses a wildcard, URL or unsafe optional origin %s", origin => {
       expect(() => registerApplicationManifest({ ...journal, installation_origins: { production: { "app-runtime": [origin] } } })).toThrow();
     });
+  it("registers an exact Chrome extension origin as an app runtime, and nothing broader", async () => {
+    const extension = `chrome-extension://${"a".repeat(16)}${"p".repeat(16)}`;
+    const db = await createDatabase("memory");
+    try {
+      const app = await upsertApplication(db, registerApplicationManifest({ ...journal, installation_origins: { production: { "app-runtime": [extension] } } }));
+      expect(await installationApp(db, "production", app.id, extension, "app-runtime")).toMatchObject({ id: app.id, origin: extension });
+      for (const [origin, kind] of [[extension, "mobile"], [`chrome-extension://${"b".repeat(32)}`, "app-runtime"]] as const)
+        await expect(installationApp(db, "production", app.id, origin, kind)).rejects.toMatchObject({ code: "installation_app_not_allowed" });
+    } finally { await db.end(); }
+    for (const [origin, kind] of [[`moz-extension://${"a".repeat(32)}`, "app-runtime"], [extension.toUpperCase(), "app-runtime"],
+      [`${extension}/`, "app-runtime"], [`chrome-extension://${"a".repeat(31)}`, "app-runtime"], [extension, "mobile"]] as const)
+      expect(() => registerApplicationManifest({ ...journal, installation_origins: { production: { [kind]: [origin] } } })).toThrow();
+  });
   it("preserves the TaskNotes0066 record and its retained mobile and loopback origins", async () => {
     const db = await createDatabase("memory");
     try {

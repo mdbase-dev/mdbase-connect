@@ -28,8 +28,13 @@ export function installationAccountLabel(pairing: {
 export const NEW_COLLECTION = "new-collection";
 
 export function pairingInspectionPath(pairingId: string, search: string): string {
-  const hint = new URLSearchParams(search).get("collection_hint");
-  return `/v1/pairing-requests/${pairingId}${hint ? `?collection_hint=${encodeURIComponent(hint)}` : ""}`;
+  const incoming = new URLSearchParams(search), query = new URLSearchParams();
+  for (const key of ["collection_hint", "return_url"]) {
+    const value = incoming.get(key);
+    if (value) query.set(key, value);
+  }
+  const encoded = query.toString();
+  return `/v1/pairing-requests/${pairingId}${encoded ? `?${encoded}` : ""}`;
 }
 
 export function initialInstallationCollection(pairing: {
