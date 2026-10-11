@@ -4,12 +4,10 @@ import {
   ApiError,
   type AuthorityTransfer as AuthorityTransferData,
 } from "./api";
-import { installationAccountLabel, message } from "./portal-model";
+import { initialInstallationCollection, installationAccountLabel, message, NEW_COLLECTION, pairingInspectionPath } from "./portal-model";
 import { Loading, PageBrand } from "./portal-ui";
 import { Select } from "@mdbase-dev/ui/select";
 import "@mdbase-dev/ui/screens.css";
-
-const NEW_COLLECTION = "new-collection";
 
 interface DevicePairing {
   connector_name: string;
@@ -25,6 +23,7 @@ interface DevicePairing {
   signed_in_account_provider?: string;
   signed_in_account_login?: string;
   selected_collection_id?: string | null;
+  collection_hint?: string | null;
   can_create_collection?: boolean;
   creation?: {collection_id:string;display_name:string;completed:boolean} | null;
   attested?: boolean;
@@ -55,6 +54,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   const [revokingId,setRevokingId] = useState("");
   const generation = useRef(0);
   const dispatching = useRef(false);
+  const inspectionPath = pairingInspectionPath(pairingId, location.search);
 
   useEffect(() => {
     const current = ++generation.current;
@@ -68,13 +68,12 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     setError("");
     setBusy(false);
     dispatching.current = false;
-    api<{ pairing: DevicePairing }>(`/v1/pairing-requests/${pairingId}`)
+    api<{ pairing: DevicePairing }>(inspectionPath)
       .then((value) => {
         if (current !== generation.current) return;
         setPairing(value.pairing);
-        const createdId = value.pairing.creation?.completed ? value.pairing.creation.collection_id : "";
         setCollectionIds([...new Set([...(value.pairing.retained_collection_ids??[]),...(value.pairing.approved_collection_ids??[])])]);
-        setSelectedCollectionId(value.pairing.creation && !value.pairing.creation.completed ? NEW_COLLECTION : value.pairing.selected_collection_id ?? createdId);
+        setSelectedCollectionId(initialInstallationCollection(value.pairing));
         setNewCollectionName(value.pairing.creation?.display_name ?? "");
         setCreateCollections(value.pairing.retained_create_collections || value.pairing.approved_create_collections || value.pairing.requested_create_collections || false);
         setAllowReminders(value.pairing.timer_consent === true);
@@ -88,7 +87,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     return () => {
       ++generation.current;
     };
-  }, [pairingId, attempt]);
+  }, [pairingId, attempt, inspectionPath]);
 
   // Read-only portal progress: the SDK owns attestation and approval-receipt
   // polling. Do not make the user manually refresh to discover its device key.
@@ -101,7 +100,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       if (cancelled || current!==generation.current) return;
       if (dispatching.current) {timer=setTimeout(()=>void poll(),1000);return;}
       try {
-        const value=await api<{pairing:DevicePairing}>(`/v1/pairing-requests/${pairingId}`);
+        const value=await api<{pairing:DevicePairing}>(inspectionPath);
         if (cancelled || current!==generation.current) return;
         if (value.pairing.attested || value.pairing.approved_at) {setPairing(value.pairing);return;}
         timer=setTimeout(()=>void poll(),1000);
@@ -111,7 +110,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     }
     timer=setTimeout(()=>void poll(),1000);
     return ()=>{cancelled=true;clearTimeout(timer);};
-  },[pairing,pairingId]);
+  },[pairing,pairingId,inspectionPath]);
 
   async function act(action: "approve" | "select-account" | "deny" | "remove-access") {
     if (dispatching.current || !pairing) return;
@@ -124,7 +123,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       if (action === "approve" && pairing.installation_device && selected === NEW_COLLECTION) {
         const created = await api<{collection_id:string}>(`/v1/pairing-requests/${pairingId}/collections`, {method:"POST",body:JSON.stringify({display_name:newCollectionName})});
         if (current !== generation.current) return;
-        const inspected = await api<{pairing:DevicePairing}>(`/v1/pairing-requests/${pairingId}`);
+        const inspected = await api<{pairing:DevicePairing}>(inspectionPath);
         if (current !== generation.current) return;
         setPairing(inspected.pairing);
         if (!inspected.pairing.creation?.completed || inspected.pairing.creation.collection_id !== created.collection_id || !inspected.pairing.collections?.some(collection=>collection.collection_id===created.collection_id)) throw new Error("We couldn't confirm collection creation finished. Please try again.");
@@ -151,7 +150,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       let approved = false;
       if (action === "approve" && pairing.installation_device && current === generation.current) {
         try {
-          const inspected = await api<{pairing:DevicePairing}>(`/v1/pairing-requests/${pairingId}`);
+          const inspected = await api<{pairing:DevicePairing}>(inspectionPath);
           if (current === generation.current) {
             setPairing(inspected.pairing);
             approved = !!inspected.pairing.approved_at;

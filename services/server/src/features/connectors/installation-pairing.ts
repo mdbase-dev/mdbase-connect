@@ -211,7 +211,7 @@ export async function installationPairingExists(
 }
 export async function startInstallationPairing(
   db: DatabasePool,
-  input: { request_id: string; pairing_secret: string; installation_id: string; device_id: string; kind: "app-runtime" | "mobile"; requested_create_collections?: boolean; reconsent?: boolean; renewal?: { request_id: string; pairing_secret: string } },
+  input: { request_id: string; pairing_secret: string; installation_id: string; device_id: string; kind: "app-runtime" | "mobile"; requested_create_collections?: boolean; collection_hint?: string; reconsent?: boolean; renewal?: { request_id: string; pairing_secret: string } },
   app: Awaited<ReturnType<typeof installationApp>>,
   publicUrl: string,
   existingConnector?: ConnectorIdentity,
@@ -271,7 +271,7 @@ export async function startInstallationPairing(
     }
     if (r.installation_id!==input.installation_id || r.device_id!==input.device_id || r.kind!==input.kind || r.app_id!==app.id || r.app_origin!==app.origin || r.previous_pairing_id!==(input.renewal?.request_id??null)) return fail("installation_original_binding_changed");
     if (!r.consumed_at) live(r);
-    return {pairing_id:r.id,pairing_secret:input.pairing_secret,verification_uri:`${publicUrl}/pair/${r.id}`,expires_in:Math.max(0,Math.floor((new Date(r.expires_at).getTime()-Date.now())/1000)),installation_device:true,app_id:r.app_id,app_origin:r.app_origin,app_name:r.connector_name};
+    return {pairing_id:r.id,pairing_secret:input.pairing_secret,verification_uri:`${publicUrl}/pair/${r.id}${input.collection_hint ? `?collection_hint=${encodeURIComponent(input.collection_hint)}` : ""}`,expires_in:Math.max(0,Math.floor((new Date(r.expires_at).getTime()-Date.now())/1000)),installation_device:true,app_id:r.app_id,app_origin:r.app_origin,app_name:r.connector_name};
   });
 }
 export async function inspectInstallationPairing(
@@ -280,6 +280,7 @@ export async function inspectInstallationPairing(
   user: string,
   canCreateCollection: boolean,
   authenticated: User,
+  collectionHint?: string,
 ) {
   if (authenticated.id !== user) fail("installation_account_changed", 403);
   const identity = portalAccountIdentity(authenticated);
@@ -287,6 +288,10 @@ export async function inspectInstallationPairing(
   live(r);
   if (r.user_id && r.user_id !== user)
     fail("installation_account_changed", 403);
+  const collections = r.account_selected_at ? await tx(db, c => installationCollections(c, user, undefined, r.device_id)) : [];
+  // A URL-carried UX hint, not persisted selection or consent. Never look up the
+  // target: unavailable and nonexistent IDs produce the same response.
+  const hint = r.portal_account_confirmed_at && collections.some(collection => collection.collection_id === collectionHint) ? collectionHint : null;
   return {
     pairing: {
       id: r.id,
@@ -316,7 +321,8 @@ export async function inspectInstallationPairing(
       scope_only: r.scope_only,
       retained_collection_ids: r.scope_only ? (await db.query<{collection_id:string}>("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1 ORDER BY collection_id",[r.connector_id])).rows.map(row=>row.collection_id) : [],
       retained_create_collections: r.scope_only ? (await db.query<{create_collections:boolean}>("SELECT create_collections FROM installation_device_credentials WHERE connector_id=$1",[r.connector_id])).rows[0]?.create_collections??false : false,
-      collections: r.account_selected_at ? await tx(db,c=>installationCollections(c,user,undefined,r.device_id)) : [],
+      collections,
+      collection_hint: hint,
     },
   };
 }
