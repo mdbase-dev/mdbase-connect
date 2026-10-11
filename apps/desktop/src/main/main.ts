@@ -9,36 +9,33 @@ import {
   shell,
   Tray
 } from "electron";
-import { execFile as execFileCallback } from "node:child_process";
-import { existsSync } from "node:fs";
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { hostname } from "node:os";
-import { promisify } from "node:util";
-import { ensureAgentReady, type AgentPing } from "./agent-startup";
-import { AgentControlError, requestAgent } from "./control-client";
 import { BootGate } from "./boot-gate";
-import { connectCliEnvironment, launchDaemon, parseDaemonPaths, type DaemonPaths } from "./daemon-lifecycle";
+import { DaemonCli, type DaemonProfile } from "./daemon-cli";
+import { DaemonControlError } from "./daemon-client";
+import { resolveDaemonRuntime, type DaemonRuntime } from "./daemon-runtime";
+import { DaemonSession, healthLabel } from "./daemon-session";
 import { routeForDeepLink, shouldRegisterDeepLinks } from "./deep-link";
 import { buildEditorUrl } from "./editor-url";
-import { ElectronUpdateBackend } from "./electron-update-backend";
 import { createHostedSnapshotLoader, type HostedControlSnapshot } from "./hosted-snapshot";
 import { guardDesktopProcessOutput } from "./process-output";
 import { ComputerPairing } from "./pairing";
 import { selectiveSyncPolicy } from "./selective-sync-input";
 import { createTrayImage } from "./tray-image";
-import { UpdateCoordinator } from "./update-coordinator";
-import { UpdateStateStore } from "./update-state";
-import { bundledNextDaemon, ensureNextDaemon, nextDaemonRunner, rolloutAllowsLocalTakeover } from "./next-daemon";
+import type { DesktopUpdateStatus } from "./update-coordinator";
+import { channelForVersion } from "./update-policy";
 
 guardDesktopProcessOutput();
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let bootGate: BootGate;
-let localHealthLabel = "Local connector starting";
-let daemonPaths: DaemonPaths | null = null;
-let updater: UpdateCoordinator | null = null;
+let localHealthLabel = "mdbase starting";
+let runtime: DaemonRuntime | null = null;
+let profile: DaemonProfile | null = null;
+let session: DaemonSession | null = null;
 let quitting = false;
 const pairing = new ComputerPairing({
   openBrowser: (url) => shell.openExternal(url),
@@ -47,7 +44,18 @@ const pairing = new ComputerPairing({
   }, 10_000),
   completed: () => restartApplication(1_000)
 });
-const execFile = promisify(execFileCallback);
+
+/** The app updater is re-pointed at the new daemon in a later step of the port. */
+function updateStatus(): DesktopUpdateStatus {
+  return {
+    phase: "unavailable",
+    current_version: app.getVersion(),
+    channel: channelForVersion(app.getVersion()),
+    message: "Updates are not available in this development build.",
+    can_check: false,
+    can_install: false
+  };
+}
 
 const userDataOverride = process.env.MDBASE_CONNECT_USER_DATA_DIR;
 if (userDataOverride) app.setPath("userData", resolve(userDataOverride));
@@ -73,73 +81,34 @@ async function registeredCollectionPath(collectionId: unknown): Promise<string> 
   return collection.path;
 }
 
-function stateDirectory(): string {
-  if (!daemonPaths) throw new Error("The connector runtime has not been initialized.");
-  return daemonPaths.stateDir;
+function daemonSession(): DaemonSession {
+  if (!session) throw new Error("mdbase has not been initialized.");
+  return session;
 }
 
-function controlEndpoint(): string {
-  if (!daemonPaths) throw new Error("The connector runtime has not been initialized.");
-  return daemonPaths.endpoint;
-}
-
-function connectBinary(): string {
-  const extension = process.platform === "win32" ? ".exe" : "";
-  const override = process.env.MDBASE_CONNECT_BIN;
-  if (override) return override;
-  if (app.isPackaged) {
-    return join(process.resourcesPath, `mdbase${extension}`);
-  }
-  return resolve(__dirname, `../../../../target/debug/mdbase${extension}`);
-}
-
-async function resolveDaemonPaths(): Promise<void> {
-  const binary = connectBinary();
-  if (!existsSync(binary)) throw new Error(`Connector runtime is missing: ${binary}`);
-  const { stdout } = await execFile(binary, ["--json", "connect", "paths"], {
-    env: connectCliEnvironment(app.isPackaged),
-    timeout: 10_000,
-    windowsHide: true
+async function initializeDaemon(): Promise<void> {
+  runtime = await resolveDaemonRuntime({
+    packaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    platform: process.platform,
+    env: process.env
   });
-  daemonPaths = parseDaemonPaths(JSON.parse(stdout));
+  profile = await DaemonCli.discover(runtime.binary, runtime.isolatedStateDir);
+  const cli = new DaemonCli(() => runtime!.binary, profile.target, profile.stateDir);
+  session = new DaemonSession({ profile, bundled: runtime, cli });
+  session.subscribe((state) => {
+    localHealthLabel = healthLabel(state);
+    refreshTrayMenu();
+    mainWindow?.webContents.send("connect:daemon-state", state);
+  });
 }
-
-// A pairing request that stalls must surface as an error, not wait forever.
 
 async function requestReadyAgent<T>(
   method: string,
   params?: unknown,
   timeoutMs = 5_000
 ): Promise<T> {
-  return bootGate.request(() => requestAgent<T>(controlEndpoint(), method, params, timeoutMs));
-}
-
-function endpointIsUnavailable(error: unknown): boolean {
-  if (!error || typeof error !== "object" || !("code" in error)) return false;
-  const code = (error as { code?: unknown }).code;
-  return code === "ENOENT" || code === "ECONNREFUSED";
-}
-
-function incompatibleDaemon(error: unknown): boolean {
-  return error instanceof AgentControlError && error.code === "unsupported_local_protocol";
-}
-
-async function startAgent(runtime = updater!.daemonStartupRuntime()): Promise<void> {
-  await ensureAgentReady({
-    expectedVersion: runtime.version,
-    ping: (timeoutMs) =>
-      requestAgent<AgentPing>(controlEndpoint(), "ping", undefined, timeoutMs),
-    endpointIsUnavailable,
-    incompatibleDaemon,
-    launch: async () => {
-      // The new daemon may have taken over since startup; never revive the old one.
-      if (!(await updater!.mayStartOldDaemon())) {
-        throw new Error(updater!.daemonStartupBlock() ??
-          "The connector stays stopped while mdbase finishes moving your collections.");
-      }
-      await launchDaemon(runtime.binary ?? connectBinary(), daemonPaths!, app.isPackaged);
-    }
-  });
+  return bootGate.request(() => daemonSession().request<T>(method, params ?? {}, timeoutMs));
 }
 
 function trustedIpc(event: Electron.IpcMainInvokeEvent): void {
@@ -171,18 +140,15 @@ function registerIpc(): void {
   });
   ipcMain.handle("connect:updates:status", (event) => {
     trustedIpc(event);
-    if (!updater) throw new Error("The updater has not been initialized.");
-    return updater.status();
+    return updateStatus();
   });
   ipcMain.handle("connect:updates:check", async (event) => {
     trustedIpc(event);
-    if (!updater) throw new Error("The updater has not been initialized.");
-    return bootGate.check(() => updater!.check(true));
+    return updateStatus();
   });
   ipcMain.handle("connect:updates:install", async (event) => {
     trustedIpc(event);
-    if (!updater) throw new Error("The updater has not been initialized.");
-    return bootGate.install(() => updater!.install());
+    throw new Error("Updates are not available in this development build.");
   });
   ipcMain.handle("connect:collections:list", async (event) => {
     trustedIpc(event);
@@ -198,7 +164,7 @@ function registerIpc(): void {
         collection: await requestReadyAgent("collections.add", { path })
       };
     } catch (error) {
-      if (error instanceof AgentControlError && error.code === "duplicate_collection_identity") {
+      if (error instanceof DaemonControlError && error.code === "duplicate_collection_identity") {
         return { status: "copy_requires_new_identity", path };
       }
       throw error;
@@ -827,34 +793,11 @@ function createTray(): void {
 
 function refreshTrayMenu(): void {
   if (!tray) return;
-  const update = updater?.status();
-  const updateReady = update?.can_install === true;
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: "Show mdbase connect", click: () => mainWindow?.show() },
       { type: "separator" },
       { label: localHealthLabel, enabled: false },
-      {
-        label: updateReady
-          ? update?.phase === "ready"
-            ? `Install ${update.target_version}`
-            : `Open ${update?.target_version ?? "update"}`
-          : "Check for updates",
-        enabled: update?.can_check === true || updateReady,
-        click: () => {
-          if (!updater) return;
-          if (updateReady) {
-            void bootGate.install(() => updater!.install()).catch((error) => {
-              dialog.showErrorBox(
-                "mdbase connect could not install the update",
-                error instanceof Error ? error.message : String(error)
-              );
-            });
-          } else {
-            void bootGate.check(() => updater!.check(true)).catch((error) => dialog.showErrorBox("Could not check for updates", String(error)));
-          }
-        }
-      },
       { type: "separator" },
       {
         label: "Quit mdbase connect",
@@ -875,7 +818,7 @@ app.whenReady().then(async () => {
   });
   registerDeepLinks();
   try {
-    await resolveDaemonPaths();
+    await initializeDaemon();
   } catch (error) {
     dialog.showErrorBox(
       "mdbase connect could not initialize",
@@ -884,54 +827,14 @@ app.whenReady().then(async () => {
     app.quit();
     return;
   }
-  updater = new UpdateCoordinator(
-    new UpdateStateStore(join(app.getPath("userData"), "updates", "state.json")),
-    new ElectronUpdateBackend({
-      currentVersion: app.getVersion(),
-      packaged: app.isPackaged,
-      platform: process.platform,
-      arch: process.arch,
-      userDataDirectory: app.getPath("userData"),
-      binaryPath: connectBinary,
-      stateDirectory,
-      target: () => daemonPaths!.target,
-      endpoint: controlEndpoint
-    })
-  );
   bootGate = new BootGate({
-    initialize: async () => { await updater!.initialize(); },
+    initialize: async () => {},
     start: async () => {
-      localHealthLabel = "Local connector starting";
-      refreshTrayMenu();
-      try {
-        await startAgent();
-        localHealthLabel = "Local connector ready";
-      } catch (error) {
-        localHealthLabel = error instanceof Error ? error.message : "Local connector needs attention";
-        throw error;
-      } finally {
-        refreshTrayMenu();
-      }
+      // The daemon is an OS service (or an isolated development daemon); the app
+      // attaches to it and never starts the old connector.
+      await daemonSession().start();
     },
-    blockedReason: () => updater!.daemonStartupBlock()
-  });
-  let launchAtLoginRetired = false;
-  updater.subscribe((status) => {
-    if (status.phase === "handed_off") {
-      localHealthLabel = "Managed by mdbase";
-      // After a complete takeover this app has nothing left to run at login.
-      if (updater!.takeoverPhase() === "complete" && !launchAtLoginRetired) {
-        launchAtLoginRetired = true;
-        void setLaunchAtLogin(false).catch((error) =>
-          console.warn("Could not turn off launch at login after the mdbase takeover:", error));
-      }
-    } else if (status.phase === "installing" || status.phase === "recovery") {
-      localHealthLabel = "Local connector updating";
-    } else if (status.phase === "failed" && !status.can_check) {
-      localHealthLabel = "Local connector needs attention";
-    }
-    mainWindow?.webContents.send("connect:update-status", status);
-    refreshTrayMenu();
+    blockedReason: () => null
   });
   registerIpc();
   createWindow();
@@ -939,36 +842,14 @@ app.whenReady().then(async () => {
   handleDeepLink(process.argv.find((value) => value.startsWith("mdbase-connect://")));
   try {
     await bootGate.ready();
-    if (app.isPackaged && daemonPaths!.target === "installed_service" &&
-        ["none", "postponed"].includes(updater.takeoverPhase())) {
-      void (async () => {
-        const bundled = await bundledNextDaemon(process.resourcesPath, process.platform);
-        if (!bundled) return;
-        const rollout = await requestAgent<unknown>(controlEndpoint(), "next.rollout", undefined, 20_000);
-        if (!rolloutAllowsLocalTakeover(rollout)) return;
-        const result = await ensureNextDaemon(nextDaemonRunner(bundled.binary), bundled.version);
-        console.info("Bundled mdbase daemon:", result.outcome, result.version);
-        // Installation may complete the takeover during this session.
-        await updater!.mayStartOldDaemon();
-      })().catch((error) => console.warn("Could not install the bundled mdbase daemon:", error));
-    }
   } catch (error) {
-    if (["started", "complete", "postponed"].includes(updater.takeoverPhase())) {
-      // Not a failure: mdbase owns the collections now (or is moving them).
-      refreshTrayMenu();
-    } else {
-      localHealthLabel = "Local connector needs attention";
-      refreshTrayMenu();
-      dialog.showErrorBox(
-        "mdbase connect could not start",
-        error instanceof Error ? error.message : String(error)
-      );
-    }
+    localHealthLabel = "mdbase needs attention";
+    refreshTrayMenu();
+    dialog.showErrorBox(
+      "mdbase connect could not start",
+      error instanceof Error ? error.message : String(error)
+    );
   }
-  const initialUpdateCheck = setTimeout(() => void bootGate.check(() => updater!.check(false)).catch(() => undefined), 30_000);
-  initialUpdateCheck.unref();
-  const updateChecks = setInterval(() => void bootGate.check(() => updater!.check(false)).catch(() => undefined), 6 * 60 * 60 * 1000);
-  updateChecks.unref();
 });
 
 app.on("second-instance", (_event, argv) => {
@@ -989,4 +870,6 @@ app.on("activate", () => {
 
 app.on("before-quit", () => {
   quitting = true;
+  // Detach only: the daemon keeps serving collections after the window closes.
+  session?.stop();
 });

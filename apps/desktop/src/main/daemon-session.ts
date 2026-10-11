@@ -112,8 +112,8 @@ export class DaemonSession {
       return;
     }
     try {
-      const ready = await requestDaemon<Readiness>(profile.control, "ping", {}, 2_000);
-      if (ready.control_protocol === CONTROL_PROTOCOL) return;
+      const { readiness } = await requestDaemon<{ readiness: Readiness }>(profile.control, "ping", {}, 2_000);
+      if (readiness?.control_protocol === CONTROL_PROTOCOL) return;
     } catch (error) {
       if (!daemonNotRunning(error)) throw error;
     }
@@ -124,23 +124,15 @@ export class DaemonSession {
   private async attach(): Promise<void> {
     const connection = await DaemonConnection.connect(this.options.profile.control);
     this.connection = connection;
-    let firstPush!: () => void;
-    const pushed = new Promise<void>((resolve) => { firstPush = resolve; });
     connection.onPush((type, payload) => {
-      if (type !== "status") return;
-      this.publish(payload as DaemonStatus);
-      firstPush();
+      if (type === "status") this.publish(payload as DaemonStatus);
     });
     connection.onClose(() => {
       if (this.connection === connection) this.connection = null;
       if (!this.stopped) this.scheduleReconnect("The connection to mdbase closed.");
     });
-    // `status.subscribe` pushes the current status immediately.
-    await connection.request("status.subscribe");
-    const timeout = new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 5_000).unref?.());
-    if ((await Promise.race([pushed, timeout])) === "timeout") {
-      this.publish(await connection.request<DaemonStatus>("status"));
-    }
+    // `status.subscribe` answers with the current status and pushes every change.
+    this.publish(await connection.request<DaemonStatus>("status.subscribe"));
     this.attempt = 0;
   }
 

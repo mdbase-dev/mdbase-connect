@@ -39,13 +39,12 @@ try {
   assert.equal(session.current.phase, "ready", JSON.stringify(session.current));
   step(`daemon started and attached (${healthLabel(session.current)})`);
 
-  // The daemon pushes status right after status.subscribe; start() waited for it.
   assert.ok(states.some((s) => s.phase === "ready"));
   // Registering needs a signed-in account (the UI asks to sign in first).
   await assert.rejects(session.request("collection.add", { path: folder, name: "Notes" }),
     (error) => error.code === "unauthenticated" && error.reason === "account_identity_missing");
   assert.deepEqual(await session.request("collection.list"), []);
-  step("status push received; collection.add refused until sign-in (typed error); collection.list");
+  step("status.subscribe reported ready; collection.add refused until sign-in (typed error); collection.list");
 
   await assert.rejects(session.request("settings.set", { require_grant_approval: true }),
     (error) => error.code === "permission_denied" || error.code === "unauthenticated" || /auth/i.test(error.message));
