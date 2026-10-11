@@ -25,6 +25,9 @@ const LEGACY_BASELINE_CHECKSUM = createHash("sha256")
 const NON_TRANSACTIONAL_DIRECTIVE = "-- mdbase:no-transaction";
 const SKIP_IF_TABLE_DIRECTIVE = "-- mdbase:skip-if-table ";
 const SKIP_IF_MISSING_TABLE_DIRECTIVE = "-- mdbase:skip-if-missing-table ";
+const QUERY_TIMEOUT_DIRECTIVE = "-- mdbase:query-timeout-ms ";
+const BACKGROUND_VALIDATION_ID = "0071_validate_native_background_grants";
+const MAX_MIGRATION_QUERY_TIMEOUT_MS = 600_000;
 
 interface MigrationOptions {
   lock?: boolean;
@@ -269,6 +272,7 @@ async function applySqlMigrations(
       continue;
     }
     if (id === POST_ROLLOUT_AUTHORITY_REPAIR) continue;
+    const queryTimeoutMs = migrationQueryTimeout(id, sql);
     const skipIfTable = migrationDirectiveValue(
       sql,
       SKIP_IF_TABLE_DIRECTIVE
@@ -295,7 +299,11 @@ async function applySqlMigrations(
     }
     await connection.query("BEGIN");
     try {
-      await connection.query(sql);
+      if (queryTimeoutMs !== undefined) {
+        await connection.query(`SET LOCAL statement_timeout = ${queryTimeoutMs}`);
+      }
+      if (queryTimeoutMs === undefined) await connection.query(sql);
+      else await connection.query(sql, undefined, queryTimeoutMs);
       await recordMigration(connection, id, checksum);
       await connection.query("COMMIT");
     } catch (error) {
@@ -305,22 +313,37 @@ async function applySqlMigrations(
   }
 }
 
-function migrationDirectiveValue(
-  sql: string,
-  directive: string
-): string | undefined {
+function migrationHeaderValue(sql: string, directive: string): string | undefined {
+  let value: string | undefined;
   for (const line of sql.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed.startsWith("--")) break;
     if (trimmed.startsWith(directive)) {
-      const value = trimmed.slice(directive.length).trim();
-      if (!/^[a-z][a-z0-9_]*$/.test(value)) {
-        throw new Error(`Invalid migration directive: ${trimmed}`);
-      }
-      return value;
+      if (value !== undefined) throw new Error(`Duplicate migration directive: ${directive.trim()}`);
+      value = trimmed.slice(directive.length).trim();
     }
   }
-  return undefined;
+  return value;
+}
+
+function migrationDirectiveValue(sql: string, directive: string): string | undefined {
+  const value = migrationHeaderValue(sql, directive);
+  if (value !== undefined && !/^[a-z][a-z0-9_]*$/.test(value)) {
+    throw new Error(`Invalid migration directive: ${directive}${value}`);
+  }
+  return value;
+}
+
+function migrationQueryTimeout(id: string, sql: string): number | undefined {
+  const value = migrationHeaderValue(sql, QUERY_TIMEOUT_DIRECTIVE);
+  if (value === undefined) return undefined;
+  const timeout = Number(value);
+  if (id !== BACKGROUND_VALIDATION_ID || !/^[1-9]\d*$/.test(value)
+    || !Number.isSafeInteger(timeout) || timeout <= 20_000 || timeout > MAX_MIGRATION_QUERY_TIMEOUT_MS
+    || sql.trimStart().startsWith(NON_TRANSACTIONAL_DIRECTIVE)) {
+    throw new Error(`Invalid bounded migration query timeout: ${id}`);
+  }
+  return timeout;
 }
 
 async function tableExists(

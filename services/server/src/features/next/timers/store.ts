@@ -267,7 +267,9 @@ export async function cancelRevokedGrantTimers(db: DatabaseQueryable): Promise<n
   const result = await db.query(
     `UPDATE next_timers SET status = 'cancelled', updated_at = now()
      WHERE status IN ('scheduled', 'firing')
-       AND grant_id IN (SELECT id FROM grants WHERE revoked_at IS NOT NULL)
+       AND (grant_id IN (SELECT id FROM grants WHERE revoked_at IS NOT NULL)
+         OR grant_id IN (SELECT id FROM next_background_grants
+           WHERE principal_kind = 'installation' AND revoked_at IS NOT NULL))
      RETURNING timer_id`
   );
   return result.rows.length;

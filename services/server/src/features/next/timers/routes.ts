@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { AuthorityProofError, verifyAuthorityRequestProof } from "../../../authority-proof.js";
 import { canonicalJson } from "../../../canonical-json.js";
-import { lookupTimerReceipt, recordTimerReconcile, type TimerReceiptAuthority } from "./receipts.js";
+import { lookupTimerReceipt, recordTimerReconcile } from "./receipts.js";
 import { z } from "zod";
 import type { DatabasePool, DatabaseQueryable } from "../../../database-types.js";
 import type { HostedProviderClient } from "../../../hosted-provider.js";
@@ -12,10 +12,12 @@ import { bearerToken } from "../../../platform/request-authentication.js";
 import { tokenHash } from "../../../security.js";
 import {
   authorizeTimerOperation,
+  currentInstallationTimerAuthority,
   grantMayFire,
   legacyTimerGrantResolver,
   type TimerGrant,
   type TimerGrantResolver,
+  type TimerReceiptAuthority,
   type TimerOperation
 } from "./grants.js";
 import {
@@ -96,6 +98,28 @@ export function registerTimerRoutes(app: FastifyInstance, options: TimerRoutesOp
     return grant.grant_id;
   };
 
+  /** The original public consent reference is not authentication. Only this
+   * installation's dedicated credential can name its native background grant. */
+  const installationGrant: GrantSource = async (request, reply) => {
+    const bearer = bearerToken(request);
+    const grantId = z.uuid().safeParse((request.params as { grant: string }).grant);
+    if (!bearer || !grantId.success) {
+      reply.code(401).send(apiError("unauthenticated", "Installation timer credential is invalid."));
+      return null;
+    }
+    const found = await options.db.query(
+      `SELECT b.id FROM next_background_grants b
+       JOIN installation_device_credentials k ON k.connector_id=b.native_connector_id
+       WHERE b.id=$1 AND b.principal_kind='installation' AND k.token_hash=$2`,
+      [grantId.data, tokenHash(bearer)]
+    );
+    if (!found.rows.length) {
+      reply.code(401).send(apiError("unauthenticated", "Installation timer credential is invalid."));
+      return null;
+    }
+    return grantId.data;
+  };
+
   /** The hosted replica's old-SDK shim, acting for a named grant. */
   const hostedShimGrant: GrantSource = async (request, reply) => {
     if (!options.hostedProvider?.authorizesInternalToken(bearerToken(request))) {
@@ -155,9 +179,15 @@ export function registerTimerRoutes(app: FastifyInstance, options: TimerRoutesOp
         await connection.query("SET LOCAL lock_timeout = '5s'");
         await connection.query("SET LOCAL statement_timeout = '5s'");
         checkDeadline();
-        await lockNamespace(connection, grant.grantId, namespace!);
         const currentAuthority = async (): Promise<TimerReceiptAuthority> => {
           checkDeadline();
+          if (source === installationGrant) {
+            const authority = await currentInstallationTimerAuthority(connection, resolver,
+              (request.params as { collection: string }).collection, grantId, tokenHash(bearerToken(request)!));
+            authorizeTimerOperation(authority.grant, operation, criterionId);
+            checkDeadline();
+            return authority;
+          }
           const fields = `g.id, g.user_id, g.application_id, g.collection_id, g.hosted_collection_id,
             g.application_origin, g.application_authorization, g.scope, g.operations, g.notification_criteria,
             g.proof_public_key, u.account_backend`;
@@ -202,6 +232,10 @@ export function registerTimerRoutes(app: FastifyInstance, options: TimerRoutesOp
             installation_id: stored.application_installation_id, noise_consent: stored.next_noise ?? null, state: current.state,
             collection_ids: [...current.collectionIds].sort(), operations: [...current.operations].sort(), criteria: current.criteria })).digest() };
         };
+        // Native policy locks precede timer locks. Preserve the legacy token's
+        // original post-wait authentication (including expiry/revocation).
+        if (source === installationGrant) await currentAuthority();
+        await lockNamespace(connection, grant.grantId, namespace!);
         const authority = await currentAuthority();
         const result = await body(authority.grant, connection, currentAuthority, deadline);
         if (write) await enforceTimerQuota(connection, grant.grantId, namespace!);
@@ -306,6 +340,7 @@ export function registerTimerRoutes(app: FastifyInstance, options: TimerRoutesOp
   };
 
   mount("/v1/next/collections/:collection/timers", appGrant, true);
+  mount("/v1/next/collections/:collection/background-grants/:grant/timers", installationGrant, true);
   mount("/internal/v1/next/timers/:grant", hostedShimGrant, false);
 
   /** Cutover copy of active legacy timers (migration H10 / local takeover). */
