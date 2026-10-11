@@ -11,6 +11,7 @@ import { CreateError, currentIdentity, currentMember, exactEnrolment, inTransact
 import { recordCollectionDeletionIntent, requireCollectionNotDeleted, type CollectionDeletionFact } from "./collection-deletion.js";
 import { collectionDisplayName } from "./collection-display-name.js";
 import { requireInstallationScope } from "./installation-scope.js";
+import { LogServiceError } from "./log-service-client.js";
 import { requireAccountNotMigrationFrozen } from "./migration-topology.js";
 
 const id = z.uuid().transform(value => value.toLowerCase()).refine(value => value !== "00000000-0000-0000-0000-000000000000");
@@ -166,5 +167,10 @@ export function registerCollectionNameRoutes(app: FastifyInstance, db: DatabaseP
 async function recordNativeDeletionFloor(recorder: DeletionFloorRecorder | undefined, fact: CollectionDeletionFact, log: FastifyBaseLogger): Promise<void> {
   if (!recorder) return;
   try { await recorder.recordCollectionDeletion(fact); }
-  catch (error) { log.warn({ err: error, collection: fact.collection }, "native deletion floor outcome unknown; CP denial stays in force"); }
+  catch (error) {
+    // Identifiers and error class only; rerun with `next:deletion-floor rerun <collection>`.
+    log.warn({ collection: fact.collection, deletion_id: fact.deletionId, lifecycle_epoch: fact.lifecycleEpoch.toString(),
+      error_class: error instanceof Error ? error.constructor.name : typeof error, error_code: error instanceof LogServiceError ? error.code : undefined },
+    "native deletion floor outcome unknown; CP denial stays in force");
+  }
 }
