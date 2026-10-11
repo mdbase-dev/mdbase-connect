@@ -5,6 +5,7 @@ import { verify } from "node:crypto";
 import type { FastifyReply } from "fastify";
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { apiError } from "../../platform/http-errors.js";
+import { requireCollectionNotDeleted } from "./collection-deletion.js";
 import { ed25519PublicKeyObject } from "./policy-keys.js";
 import type { PolicyOp, RegisteredDeviceKind } from "./policy-wire.js";
 
@@ -175,4 +176,34 @@ export async function currentMember(client: DatabaseConnection, collection: stri
   );
   if (latest.rows[0]?.op !== "member-set") throw new CreateError(409, "not_member");
   if (requiredRole !== undefined && latest.rows[0].role !== requiredRole) throw new CreateError(403, "not_owner");
+}
+
+/** Exact current native device authority, shared by People and background work.
+ * Caller owns the transaction. Account/owner locks precede the collection lock;
+ * pending removal denies immediately and historical enrolment never revives. */
+export async function currentCollectionDevice(client: DatabaseConnection, connector: Connector, collection: string, deviceId: string, device: Device): Promise<void> {
+  await currentIdentity(client,connector,deviceId,device);
+  const owner = (await client.query<{owner_user_id:string}>(
+    `SELECT n.owner_user_id FROM next_collections n JOIN users u ON u.id=n.owner_user_id
+     WHERE n.collection_id=$1 AND n.runtime='next' AND n.sync IN ('cloud_copy','private') AND n.left_sync_at IS NULL AND u.suspended_at IS NULL FOR SHARE OF u`, [collection]
+  )).rows[0];
+  if (!owner) throw new CreateError(409,"not_current_collection");
+  const current = await client.query(
+    `SELECT 1 FROM next_collections WHERE collection_id=$1 AND owner_user_id=$2
+     AND runtime='next' AND sync IN ('cloud_copy','private') AND left_sync_at IS NULL FOR UPDATE`, [collection,owner.owner_user_id]
+  );
+  if (!current.rows.length) throw new CreateError(409,"not_current_collection");
+  try { await requireCollectionNotDeleted(client,collection); }
+  catch (error) {
+    if (error instanceof Error && error.message === "collection_deleted") throw new CreateError(409,"collection_deleted");
+    throw error;
+  }
+  await currentMember(client,collection,connector.user_id);
+  await refuseRevoked(client,collection,deviceId);
+  const enrolled = await client.query(
+    `SELECT 1 FROM next_policy_outbox o JOIN next_policy_batches b ON b.id=o.batch_id
+     WHERE o.collection_id=$1 AND b.state='appended' AND b.lost_at IS NULL AND o.ops->'ops' @> $2::jsonb LIMIT 1`,
+    [collection,exactEnrolment(deviceId,connector.user_id,device)]
+  );
+  if (!enrolled.rows.length) throw new CreateError(409,"not_enrolled");
 }

@@ -228,11 +228,12 @@ export function registerConnectorPairingRoutes(
             );
         const session = await requireSessionContext(request, reply, options.db);
         if (!session) return;
-        const {fingerprint,collection_ids,create_collections,selected_collection_id}=z.object({
+        const {fingerprint,collection_ids,create_collections,selected_collection_id,timer_consent}=z.object({
           fingerprint:z.string().regex(/^[0-9a-f]{4}(?:-[0-9a-f]{4}){3}$/),
           collection_ids:z.array(originalUuid).max(1000).default([]),
           create_collections:z.boolean().default(false),
           selected_collection_id:originalUuid.optional(),
+          timer_consent:z.boolean().optional(),
         }).strict().parse(request.body);
         return installationResult(reply, () =>
           approveInstallationPairing(
@@ -241,7 +242,7 @@ export function registerConnectorPairingRoutes(
             session.user.id,
             session.sessionId,
             fingerprint,
-            {collection_ids,create_collections,selected_collection_id},
+            {collection_ids,create_collections,selected_collection_id,timer_consent},
           ),
         );
       }

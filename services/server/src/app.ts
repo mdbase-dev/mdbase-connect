@@ -83,7 +83,7 @@ import { registerReferenceSyncRoutes } from "./features/hosted/reference-sync-ro
 import { registerMirrorPairingRoutes } from "./features/mirrors/pairing-routes.js";
 import { registerNotificationRoutes } from "./features/notifications/routes.js";
 import type { PushTargetSealer } from "./features/next/push-target-seal.js";
-import type { TimerGrantResolver } from "./features/next/timers/grants.js";
+import { backgroundTimerGrantResolver, legacyTimerGrantResolver, type TimerGrantResolver } from "./features/next/timers/grants.js";
 import { registerTimerRoutes } from "./features/next/timers/routes.js";
 import { TimerWorker, notificationsConsumer } from "./features/next/timers/worker.js";
 import { registerOnboardingRoutes } from "./features/onboarding/routes.js";
@@ -144,6 +144,14 @@ export async function buildApp(options: BuildOptions) {
   if (options.nextControlPlane?.labFixtures) validateLabFixtureConfig(
     options.nextControlPlane.labFixtures, options.environment, options.publicUrl ?? ""
   );
+  let timerGrantResolver = options.nextTimers?.resolver ?? legacyTimerGrantResolver;
+  if (options.nextControlPlane && options.nextTimers && !options.nextTimers.resolver) {
+    const environment = options.environment;
+    if (environment !== "lab" && environment !== "staging" && environment !== "production") {
+      throw new Error("Native timers require a configured installation registry environment.");
+    }
+    timerGrantResolver = backgroundTimerGrantResolver(options.db, environment);
+  }
   const app = Fastify({
     logger: process.env.NODE_ENV !== "test",
     // OAuth callbacks carry short-lived credentials in the query string.
@@ -172,7 +180,7 @@ export async function buildApp(options: BuildOptions) {
         options.notifications.pollIntervalMs,
         (error) => app.log.error({ err: error }, "notification delivery worker failed"),
         options.notifications.pushTargetSealer,
-        options.nextTimers?.resolver
+        timerGrantResolver
       )
     : undefined;
   const timers = options.nextTimers
@@ -182,10 +190,10 @@ export async function buildApp(options: BuildOptions) {
           void notifications?.drainOnce().catch(
             (error) => app.log.error({ err: error }, "notification delivery worker failed")
           );
-        }, options.nextTimers.resolver)],
+        }, timerGrantResolver)],
         {
           pollIntervalMs: options.nextTimers.pollIntervalMs,
-          resolver: options.nextTimers.resolver,
+          resolver: timerGrantResolver,
           onError: (error) => app.log.error({ err: error }, "timer worker failed"),
           onMetric: (metric) => app.log.warn(metric, "privacy-safe Connect metric")
         }
@@ -500,12 +508,12 @@ export async function buildApp(options: BuildOptions) {
     publicKey: options.notifications?.publicKey,
     transports: options.notifications?.transports,
     hostedProvider: options.hostedProvider,
-    grantResolver: options.nextTimers?.resolver
+    grantResolver: timerGrantResolver
   });
   if (timers) {
     registerTimerRoutes(app, {
       db: options.db,
-      resolver: options.nextTimers?.resolver,
+      resolver: timerGrantResolver,
       hostedProvider: options.hostedProvider,
       onWrite: () => timers.wake()
     });
