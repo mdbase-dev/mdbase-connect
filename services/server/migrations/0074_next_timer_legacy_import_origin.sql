@@ -23,6 +23,22 @@ ALTER TABLE next_timers
         'event_contract', 'event_source', 'source_uri_sha256', 'subject_sha256',
         'runtime_id', 'record_sha256', 'exact_timestamps', 'data_erased'
       ]::text[] = '{}'::jsonb
+      AND (NOT (legacy_import_origin ? 'namespace')
+        OR jsonb_typeof(legacy_import_origin->'namespace') = 'string')
+      AND (NOT (legacy_import_origin ? 'id')
+        OR jsonb_typeof(legacy_import_origin->'id') = 'string')
+      AND (NOT (legacy_import_origin ? 'generation')
+        OR jsonb_typeof(legacy_import_origin->'generation') = 'string')
+      AND (NOT (legacy_import_origin ? 'status')
+        OR jsonb_typeof(legacy_import_origin->'status') = 'string')
+      AND (NOT (legacy_import_origin ? 'fire_at')
+        OR jsonb_typeof(legacy_import_origin->'fire_at') = 'string')
+      AND (NOT (legacy_import_origin ? 'event_contract')
+        OR jsonb_typeof(legacy_import_origin->'event_contract') = 'string')
+      AND (NOT (legacy_import_origin ? 'event_source')
+        OR jsonb_typeof(legacy_import_origin->'event_source') = 'string')
+      AND (NOT (legacy_import_origin ? 'runtime_id')
+        OR jsonb_typeof(legacy_import_origin->'runtime_id') = 'string')
       AND jsonb_typeof(legacy_import_origin->'record_sha256') = 'string'
       AND (legacy_import_origin->>'record_sha256') ~ '^[0-9a-f]{64}$'
       AND (NOT (legacy_import_origin ? 'data_erased')

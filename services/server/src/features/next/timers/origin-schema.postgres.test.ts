@@ -45,6 +45,7 @@ suite("0074 legacy timer origin schema on isolated PostgreSQL", () => {
   it("accepts content-free origin and exact nanoseconds alongside floored operational times", async () => {
     const origin = { namespace: "connect-hosted:test:notifications", id: "old", runtime_id: "scoped:old", generation: "7", status: "fired",
       subject_sha256: "c".repeat(64), source_uri_sha256: "d".repeat(64),
+      event_contract: "contract-identity", event_source: "source-identity",
       fire_at: "2030-01-01T00:00:00.123456789Z", record_sha256: "a".repeat(64),
       exact_timestamps: { fire_at: "2030-01-01T00:00:00.123456789Z", fired_at: "2030-01-01T00:00:01.999999999Z" } };
     await db.query(`INSERT INTO next_timers(grant_id,namespace,timer_id,criterion_id,fire_at,generation,status,fired_at,legacy_import_origin)
@@ -87,6 +88,11 @@ suite("0074 legacy timer origin schema on isolated PostgreSQL", () => {
     ["multibyte byte cap", { id: "🧠".repeat(512) }]
   ] as const)("rejects %s", async (_name, fields) => {
     await expect(db.query("UPDATE next_timers SET legacy_import_origin=$1::jsonb WHERE timer_id='existing'", [JSON.stringify({ record_sha256: "a".repeat(64), ...fields })])).rejects.toMatchObject({ code: "23514", constraint: "next_timers_legacy_import_origin_shape" });
+  });
+  it.each(["namespace", "id", "generation", "status", "fire_at", "event_contract", "event_source", "runtime_id"] as const)("rejects non-string %s metadata", async (key) => {
+    for (const value of [{ data: "private" }, ["private"], null, 7, true]) {
+      await expect(db.query("UPDATE next_timers SET legacy_import_origin=$1::jsonb WHERE timer_id='existing'", [JSON.stringify({ record_sha256: "a".repeat(64), [key]: value })])).rejects.toMatchObject({ code: "23514", constraint: "next_timers_legacy_import_origin_shape" });
+    }
   });
   it("requires the digest even when optional fields are absent", async () => {
     await expect(db.query("UPDATE next_timers SET legacy_import_origin='{}'::jsonb WHERE timer_id='existing'")).rejects.toMatchObject({ code: "23514", constraint: "next_timers_legacy_import_origin_shape" });
