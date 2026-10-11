@@ -49,7 +49,7 @@ async function desktop({ signedIn = true, collections = [], access = [] } = {}) 
     window.mdbaseConnect = {
       status: async () => fixture.status(),
       updateStatus: async () => ({ phase: "unavailable", current_version: "test", channel: "beta", message: "Development build", can_check: false, can_install: false }),
-      migrationStatus: async () => ({ record: null, running: false }),
+      migrationStatus: async () => fixture.migration ?? { record: null, running: false },
       listCollections: async () => fixture.collections,
       getCloudConfig: async () => ({ ...fixture.account }),
       listAccess: async () => fixture.access,
@@ -170,10 +170,34 @@ test("turning on sync defaults to private and removal is confirmed; long paths s
     assert.equal(await dialog.getByRole("radio", { name: /Private/ }).isChecked(), true);
     await dialog.getByRole("button", { name: "Turn on sync" }).click();
     await page.getByText("Notes now syncs privately.", { exact: true }).waitFor();
-    assert.deepEqual(await calls("enableSync"), [["c-notes", "e2e"]]);
+    assert.deepEqual(await calls("enableSync"), [["c-notes", "private", false]]);
     page.once("dialog", (prompt) => prompt.dismiss());
     await card.getByRole("button", { name: "Remove" }).click();
     assert.deepEqual(await calls("removeCollection"), [], "dismissing the confirmation keeps the collection");
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("turning on sync for a taken-over folder shows the files held at takeover and needs them checked", async () => {
+  const { page, errors, calls } = await desktop({ collections: [collection()] });
+  try {
+    await page.evaluate(() => {
+      window.fixture.migration = {
+        record: { state: "complete", collections: { "c-notes": { state: "held", holds: 1 } } },
+        holds: { "c-notes": [{ path: "Inbox/plan.md", reason: "conflict" }] },
+        running: false
+      };
+    });
+    await nav(page, "Collections").click();
+    await page.locator(".collection-card").filter({ hasText: "Notes" }).getByRole("button", { name: "Turn on sync" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByText("Inbox/plan.md", { exact: true }).waitFor();
+    const confirm = dialog.getByRole("button", { name: "Turn on sync" });
+    assert.equal(await confirm.isDisabled(), true, "held files must be checked first");
+    await dialog.getByRole("checkbox", { name: "I have checked these files" }).check();
+    await confirm.click();
+    await page.getByText("Notes now syncs privately.", { exact: true }).waitFor();
+    assert.deepEqual(await calls("enableSync"), [["c-notes", "private", true]]);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });

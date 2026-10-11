@@ -305,10 +305,15 @@ function registerIpc(): void {
   ipcMain.handle("connect:collections:sync-enable", async (event, input: unknown) => {
     trustedIpc(event);
     const value = asObject(input, "Invalid sync input.");
-    if (value.mode !== "e2e" && value.mode !== "synced") throw new Error("Choose how to sync.");
-    return bootGate.request(() => daemonCli().run(
-      ["sync", "enable", collectionIdOf(value.collectionId), "--mode", value.mode as string], 600_000
-    ));
+    const mode = value.mode;
+    if (mode !== "private" && mode !== "cloud-copy") throw new Error("Choose how to sync.");
+    if (typeof value.acceptTakeoverHolds !== "boolean") throw new Error("Invalid sync input.");
+    // A folder with files (for example a taken-over one) is adopted as the first
+    // version. Files held at takeover are accepted only after the user has seen them.
+    return bootGate.request(() => daemonCli().run([
+      "sync", "enable", collectionIdOf(value.collectionId), "--mode", mode,
+      ...(value.acceptTakeoverHolds ? ["--accept-takeover-holds"] : [])
+    ], 600_000));
   });
   ipcMain.handle("connect:collections:sync-disable", async (event, collectionId: unknown) => {
     trustedIpc(event);

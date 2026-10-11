@@ -135,7 +135,7 @@ interface Window {
     createCollection(input: { parent: string; name: string }): Promise<DaemonCollection>;
     removeCollection(collectionId: string): Promise<unknown>;
     setCollectionEnabled(collectionId: string, enabled: boolean): Promise<unknown>;
-    enableSync(collectionId: string, mode: "e2e" | "synced"): Promise<unknown>;
+    enableSync(collectionId: string, mode: "private" | "cloud-copy", acceptTakeoverHolds: boolean): Promise<unknown>;
     disableSync(collectionId: string): Promise<unknown>;
     listHolds(collectionId: string): Promise<HoldSummary[]>;
     resolveHold(collectionId: string, id: string, how: "keep_mine" | "take_theirs" | "keep_both" | "delete"): Promise<unknown>;

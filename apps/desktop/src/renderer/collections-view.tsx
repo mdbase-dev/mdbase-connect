@@ -3,6 +3,7 @@ import { Dialog } from "@mdbase-dev/ui/dialog";
 import { presentCollection } from "./daemon-view.mjs";
 import { Empty, SectionHeading, StatusDot } from "./ui-components";
 import { message, plural, relativeTime } from "./view-model";
+import type { TakeoverHold } from "./takeover-state.mjs";
 
 type Act = (action: () => Promise<unknown>) => Promise<void>;
 
@@ -29,10 +30,10 @@ export function CollectionsView({ collections, busy, onAdd, onCreate, onAct, onN
             <CollectionCard key={collection.id} collection={collection} busy={busy} onAct={onAct} onNotice={onNotice} onTurnOnSync={() => setSyncTarget(collection)} />
           ))}</div>}
       </section>
-      {syncTarget && <TurnOnSyncDialog collection={syncTarget} busy={busy} onClose={() => setSyncTarget(null)} onConfirm={(mode) => onAct(async () => {
-        await window.mdbaseConnect.enableSync(syncTarget.id, mode);
+      {syncTarget && <TurnOnSyncDialog collection={syncTarget} busy={busy} onAct={onAct} onClose={() => setSyncTarget(null)} onConfirm={(mode, acceptTakeoverHolds) => onAct(async () => {
+        await window.mdbaseConnect.enableSync(syncTarget.id, mode, acceptTakeoverHolds);
         setSyncTarget(null);
-        onNotice(mode === "e2e" ? `${syncTarget.name} now syncs privately.` : `${syncTarget.name} now syncs.`);
+        onNotice(mode === "private" ? `${syncTarget.name} now syncs privately.` : `${syncTarget.name} now syncs.`);
       })} />}
     </div>
   );
@@ -156,31 +157,65 @@ function Holds({ collection, busy, onAct }: { collection: DaemonCollection; busy
   );
 }
 
-function TurnOnSyncDialog({ collection, busy, onClose, onConfirm }: {
+/**
+ * Sync starts from the files already in the folder (a taken-over folder included).
+ * Files that are waiting for a decision are shown first: holds must be resolved, and
+ * files held when the folder was taken over must be acknowledged.
+ */
+function TurnOnSyncDialog({ collection, busy, onAct, onClose, onConfirm }: {
   collection: DaemonCollection;
   busy: boolean;
+  onAct: Act;
   onClose(): void;
-  onConfirm(mode: "e2e" | "synced"): Promise<void>;
+  onConfirm(mode: "private" | "cloud-copy", acceptTakeoverHolds: boolean): Promise<void>;
 }) {
-  const [mode, setMode] = useState<"e2e" | "synced">("e2e");
+  const [mode, setMode] = useState<"private" | "cloud-copy">("private");
+  const [takeover, setTakeover] = useState<{ takenOver: boolean; held: TakeoverHold[] } | null>(null);
+  const [reviewed, setReviewed] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  React.useEffect(() => {
+    window.mdbaseConnect.migrationStatus()
+      .then((status) => setTakeover({
+        takenOver: Boolean(status.record?.collections[collection.id]),
+        held: status.holds?.[collection.id] ?? []
+      }))
+      .catch((reason) => setFailure(message(reason)));
+  }, [collection.id]);
+  const holds = collection.sync?.holds ?? 0;
+  const ready = takeover !== null && holds === 0 && (takeover.held.length === 0 || reviewed);
   return (
     <Dialog open onClose={() => !busy && onClose()} title={`Turn on sync for ${collection.name}`} className="modal" closeDisabled={busy}>
       <p className="eyebrow">Sync</p>
-      <p>Your other devices get a copy and stay up to date. The folder stays where it is.</p>
+      <p>Your other devices get a copy and stay up to date. The folder stays where it is{takeover?.takenOver ? ", and the files already in it become the first synced version" : ""}.</p>
+      {failure && <p className="message error-message" role="alert">{failure}</p>}
+      {holds > 0 && <>
+        <p>Resolve these files before turning on sync.</p>
+        <Holds collection={collection} busy={busy} onAct={onAct} />
+      </>}
+      {takeover && takeover.held.length > 0 && (
+        <div className="collection-holds">
+          <p>When this folder moved to the new sync engine, mdbase kept both versions of {takeover.held.length} {plural(takeover.held.length, "file", "files")}. Check them in the folder first: both versions sync as they are.</p>
+          <ul>{takeover.held.map((hold) => <li key={hold.path}><code>{hold.path}</code></li>)}</ul>
+          <label className="takeover-option">
+            <input type="checkbox" checked={reviewed} disabled={busy} onChange={(event) => setReviewed(event.target.checked)} />
+            I have checked these files
+          </label>
+        </div>
+      )}
       <fieldset className="authority-choice">
         <legend>How should it sync?</legend>
-        <label className={mode === "e2e" ? "selected" : ""}>
-          <input type="radio" name="sync-mode" checked={mode === "e2e"} disabled={busy} onChange={() => setMode("e2e")} />
+        <label className={mode === "private" ? "selected" : ""}>
+          <input type="radio" name="sync-mode" checked={mode === "private"} disabled={busy} onChange={() => setMode("private")} />
           <span><strong>Private</strong><small>End-to-end encrypted: mdbase cannot read it. Web apps work only while one of your devices is online.</small></span>
         </label>
-        <label className={mode === "synced" ? "selected" : ""}>
-          <input type="radio" name="sync-mode" checked={mode === "synced"} disabled={busy} onChange={() => setMode("synced")} />
-          <span><strong>Synced</strong><small>mdbase keeps a copy, so web apps and agents can use it while your devices are off.</small></span>
+        <label className={mode === "cloud-copy" ? "selected" : ""}>
+          <input type="radio" name="sync-mode" checked={mode === "cloud-copy"} disabled={busy} onChange={() => setMode("cloud-copy")} />
+          <span><strong>Cloud copy</strong><small>mdbase keeps a copy, so web apps and agents can use it while your devices are off.</small></span>
         </label>
       </fieldset>
       <div className="modal-actions">
         <button className="button secondary" disabled={busy} onClick={onClose}>Cancel</button>
-        <button className="button primary" disabled={busy} onClick={() => void onConfirm(mode)}>{busy ? "Turning on…" : "Turn on sync"}</button>
+        <button className="button primary" disabled={busy || !ready} onClick={() => void onConfirm(mode, reviewed && (takeover?.held.length ?? 0) > 0)}>{busy ? "Turning on…" : "Turn on sync"}</button>
       </div>
     </Dialog>
   );
