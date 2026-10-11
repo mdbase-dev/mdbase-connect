@@ -14,6 +14,14 @@ const HASH_CHUNK_BYTES = 1024 * 1024;
 const DEFAULT_CONCURRENCY = 4;
 const MAX_CONCURRENCY = 8;
 export const MAX_OBJECT_ATTEMPTS = 3;
+export function validUploadAttempts(value: number | undefined, noAutoAbort?: boolean): number | undefined {
+  if ((noAutoAbort !== undefined && typeof noAutoAbort !== "boolean")
+    || (value !== undefined && (!Number.isInteger(value) || value < 1 || value > MAX_TRANSIENT_CHUNK_ATTEMPTS))) {
+    throw connectError("invalid_request", "Invalid upload options.");
+  }
+  return value;
+}
+
 export const MAX_BUFFERED_DOWNLOAD_BYTES = 64 * 1024 * 1024;
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 export const SHA256_DIGEST = /^sha256:[0-9a-f]{64}$/u;
@@ -195,16 +203,17 @@ export function chunkLength(totalSize: number, partSize: number, index: number):
 
 export async function retryChunk<Result>(
   work: () => Promise<Result>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  maxAttempts = MAX_TRANSIENT_CHUNK_ATTEMPTS
 ): Promise<Result> {
-  for (let attempt = 1; attempt <= MAX_TRANSIENT_CHUNK_ATTEMPTS; attempt += 1) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     throwIfAborted(signal);
     try {
       return await work();
     } catch (error) {
       if (
         signal?.aborted
-        || attempt === MAX_TRANSIENT_CHUNK_ATTEMPTS
+        || attempt === maxAttempts
         || (error instanceof MdbaseConnectError && !error.retryable)
       ) throw error;
       await waitForTransientChunkRetry(attempt, signal);

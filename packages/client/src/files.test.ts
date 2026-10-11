@@ -25,6 +25,76 @@ afterEach(() => {
 });
 
 describe("MdbaseFileClient", () => {
+  it.each([undefined, 1, 2])("bounds object PUT attempts (%s) without changing the default", async (maxAttempts) => {
+    const content = bytes("put attempts");
+    let aborts = 0;
+    let commits = 0;
+    const client = fileClient(async (method, path, input) => {
+      if (method === "DELETE") { aborts++; return {}; }
+      if (path === "uploads") return uploadSession(input.transfer_id, { kind: "object_put" }, content.length);
+      if (path?.endsWith("/parts")) return prepared(input.transfer_id, 0, 0, content.length, "PUT", "https://r2.example/upload");
+      if (path?.endsWith("/commit")) { commits++; throw new Error("unexpected commit"); }
+      throw new Error(`Unexpected control path ${path}`);
+    });
+    const put = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("PUT reply lost"));
+    await expect(client.upload("attempts.bin", content, { maxAttempts })).rejects.toBeInstanceOf(MdbaseConnectError);
+    expect(put).toHaveBeenCalledTimes(maxAttempts ?? 3);
+    expect(commits).toBe(0);
+    expect(aborts).toBe(1);
+  });
+
+  it.each([false, true])("single-attempt commit failure stays unconfirmed; noAutoAbort=%s", async (noAutoAbort) => {
+    const content = bytes("unconfirmed commit");
+    let commits = 0;
+    let aborts = 0;
+    const client = fileClient(async (method, path, input) => {
+      if (method === "DELETE") { aborts++; return {}; }
+      if (path === "uploads") return uploadSession(input.transfer_id, { kind: "object_put" }, content.length);
+      if (path?.endsWith("/parts")) return prepared(input.transfer_id, 0, 0, content.length, "PUT", "https://r2.example/upload");
+      if (path?.endsWith("/commit")) { commits++; throw new Error("original commit reply lost"); }
+      throw new Error(`Unexpected control path ${path}`);
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 200 }));
+    await expect(client.uploadStream("unknown.bin", {
+      size: content.length, contentDigest: digest(content),
+      stream: (async function* () { yield content; })()
+    }, { maxAttempts: 1, noAutoAbort })).rejects.toBeInstanceOf(MdbaseConnectError);
+    expect(commits).toBe(1);
+    expect(aborts).toBe(noAutoAbort ? 0 : 1);
+  });
+
+  it.each([undefined, 1])("preserves default framed retries and supports single attempt (%s)", async (maxAttempts) => {
+    vi.useFakeTimers();
+    const content = bytes("framed attempts");
+    let aborts = 0;
+    const uploadChunk = vi.fn(async () => { throw new Error("framed reply lost"); });
+    const client = fileClient(async (method, path, input) => {
+      if (method === "DELETE") { aborts++; return {}; }
+      if (path === "uploads") return framedSession(input.transfer_id, content.length, "upload");
+      throw new Error(`Unexpected control path ${path}`);
+    }, { uploadChunk, downloadChunk: vi.fn() });
+    const result = client.upload("framed.bin", content, { maxAttempts, noAutoAbort: true });
+    const rejection = expect(result).rejects.toBeInstanceOf(MdbaseConnectError);
+    await vi.runAllTimersAsync();
+    await rejection;
+    expect(uploadChunk).toHaveBeenCalledTimes(maxAttempts ?? 10);
+    expect(aborts).toBe(0);
+  });
+
+  it.each([0, -1, 1.5, 11, Infinity, NaN])("rejects invalid maxAttempts %s before remote IO", async (maxAttempts) => {
+    const request = vi.fn();
+    const client = new MdbaseFileClient(() => capability, request);
+    await expect(client.upload("invalid.bin", bytes("test"), { maxAttempts })).rejects.toMatchObject({ code: "invalid_request" });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("rejects nonboolean abort policy before remote IO", async () => {
+    const request = vi.fn();
+    const client = new MdbaseFileClient(() => capability, request);
+    await expect(client.upload("invalid.bin", bytes("test"), { noAutoAbort: "yes" as unknown as boolean })).rejects.toMatchObject({ code: "invalid_request" });
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it.each([200, 412])(
     "uses a replay-safe open bootstrap without status or prepare (PUT %s)",
     async (putStatus) => {
