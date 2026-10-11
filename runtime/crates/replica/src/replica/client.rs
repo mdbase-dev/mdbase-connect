@@ -6,6 +6,7 @@ mod describe;
 pub(crate) mod pending;
 mod projected_query;
 mod resources;
+mod type_packs;
 mod validation;
 
 use mdbn_core::query::{Query, QueryEnv, QueryRecord, Verdict};
@@ -852,6 +853,14 @@ impl<S: Store> ClientApi for Replica<S> {
         request: crate::api::ContractWriteRequest,
     ) -> ApiResult<crate::api::ContractWritePlan> {
         self.contract_write_plan(session, request)
+    }
+
+    fn plan_type_pack(
+        &mut self,
+        session: SessionId,
+        request: crate::api::TypePackRequest,
+    ) -> ApiResult<crate::api::TypePackPlan> {
+        self.type_pack_plan(session, request)
     }
 
     fn subscribe(&mut self, session: SessionId, query: Value, include: Include) -> ApiResult<u64> {

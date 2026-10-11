@@ -32,7 +32,8 @@ export function applicationWorkerSession(
   // declaration metadata. Availability never bypasses the original CP authority.
   const collection=Object.freeze({...assets.collection,people:true});
   const session=new AppWebSignInSession<AppWebNativeCollection>({
-    origin:binding.origin,appId:binding.id,appName:binding.name,
+    // The CP assigns appId; the local slot owner is the declaration's own family.
+    origin:binding.origin,appId:binding.id,owner:`bundle:${compiled.manifest.id}`,appName:binding.name,installationKind:binding.installationKind,
     cpOrigin:assets.environment.cpOrigin,environment:binding.environment,
     release:assets.release,signal,locks,loadRuntime:assets.loadRuntime,
     openPortal:portal,openCollection:createAppWebCollectionAdapter(collection),

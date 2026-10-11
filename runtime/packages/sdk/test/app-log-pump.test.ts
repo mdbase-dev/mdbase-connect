@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { encode, type CborValue } from "../src/cbor.js";
 import { uuidToBytes } from "../src/codec.js";
-import { AppLogPump, type AppLogCall, type AppLogRuntime, type AppLogTransport } from "../src/app-host/index.js";
+import { AppLogPump, AppHttpLogError, type AppLogCall, type AppLogRuntime, type AppLogTransport } from "../src/app-host/index.js";
+import { appServerProblem } from "../src/app-host/cp-problem.js";
 const COLLECTION = "00000000-0000-4000-8000-000000000003";
 const OTHER = "00000000-0000-4000-8000-000000000004";
 function call(id: number | bigint = 1, method = "head", params = new Map<number, CborValue>([[0, uuidToBytes(COLLECTION)]])): AppLogCall {
@@ -56,6 +57,18 @@ describe("app log pump (immutable authenticated binding)", () => {
     expect(await f.pump.pump()).toEqual({ quiet: true });
     expect(vi.mocked(f.runtime.logNoResponse).mock.calls).toEqual([[1n], [2n]]);
     expect(f.pump.fenced).toBe(false); await f.pump.close();
+  });
+  it("keeps a live server refusal visible until a reply is accepted again", async () => {
+    const f = fixture([call(1)]);
+    const server = appServerProblem(409, { error: { code: "collection_migrating", details: { retry_after_seconds: 60 } } });
+    vi.mocked(f.transport.send).mockRejectedValueOnce(new AppHttpLogError("collection_migrating", server))
+      .mockRejectedValueOnce(Object.assign(new Error("lookalike"), { server: { ...server } }));
+    await f.pump.pump();
+    expect(f.pump.serverProblem).toBe(server); expect(f.runtime.logNoResponse).toHaveBeenCalledWith(1n);
+    f.queue.push(call(2)); await f.pump.pump();
+    expect(f.pump.serverProblem).toBe(server); // forged problem objects are ignored
+    f.queue.push(call(3)); await f.pump.pump();
+    expect(f.pump.serverProblem).toBeNull(); await f.pump.close();
   });
   it("bounds remote replies without decoding a remote result tree in JS", async () => {
     const f = fixture();

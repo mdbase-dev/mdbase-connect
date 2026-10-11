@@ -7,12 +7,29 @@ const HEADERS: &str =
     "authorization, content-type, x-mdbase-nonce, x-mdbase-sig, range, x-amz-checksum-sha256";
 const EXPOSE: &str = "content-length, content-range, etag, x-amz-checksum-sha256";
 
+/// An exact `capacitor://<lowercase host>` (iOS app) or
+/// `chrome-extension://<32-letter id>` origin. Their WHATWG origin is opaque, so
+/// the configured string itself is the canonical form; no port, path or wildcard.
+fn app_origin(origin: &str) -> bool {
+    if let Some(host) = origin.strip_prefix("capacitor://") {
+        return !host.is_empty()
+            && host.len() <= 253
+            && !host.starts_with(['.', '-'])
+            && host
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'-');
+    }
+    origin
+        .strip_prefix("chrome-extension://")
+        .is_some_and(|id| id.len() == 32 && id.bytes().all(|b| (b'a'..=b'p').contains(&b)))
+}
+
 pub struct Cors {
     origins: Vec<String>,
 }
 
 impl Cors {
-    /// Comma-separated canonical HTTP(S) origins. Absent/empty means disabled;
+    /// Comma-separated canonical HTTP(S), Capacitor iOS or Chrome extension origins. Absent/empty means disabled;
     /// malformed/oversized configuration refuses, never falls back to reflection.
     pub fn parse(raw: Option<&str>) -> std::result::Result<Self, ()> {
         let raw = raw.unwrap_or("");
@@ -29,11 +46,13 @@ impl Cors {
                 {
                     return Err(());
                 }
-                let url = Url::parse(origin).map_err(|_| ())?;
-                if !matches!(url.scheme(), "http" | "https")
-                    || url.origin().ascii_serialization() != origin
-                {
-                    return Err(());
+                if !app_origin(origin) {
+                    let url = Url::parse(origin).map_err(|_| ())?;
+                    if !matches!(url.scheme(), "http" | "https")
+                        || url.origin().ascii_serialization() != origin
+                    {
+                        return Err(());
+                    }
                 }
                 origins.push(origin.to_owned());
             }
@@ -173,6 +192,41 @@ mod tests {
                 .allowed(Some("https://app.tasknotes.dev")),
             Some("https://app.tasknotes.dev")
         );
+    }
+    #[test]
+    fn exact_native_app_and_extension_origins() {
+        let ext = format!("chrome-extension://{}", "a".repeat(32));
+        let raw = format!("https://app.tasknotes.dev,capacitor://app.tasknotes.dev,{ext}");
+        let c = Cors::parse(Some(&raw)).unwrap();
+        for origin in ["capacitor://app.tasknotes.dev", ext.as_str()] {
+            assert_eq!(c.allowed(Some(origin)), Some(origin));
+        }
+        for origin in [
+            "capacitor://evil.test",
+            "capacitor://app.tasknotes.dev/",
+            "capacitor://APP.tasknotes.dev",
+            "ionic://app.tasknotes.dev",
+            "https://app.tasknotes.dev.evil.test",
+            &format!("chrome-extension://{}", "b".repeat(32)),
+            &format!("{ext}/"),
+        ] {
+            assert_eq!(c.allowed(Some(origin)), None, "{origin}");
+        }
+        for raw in [
+            "capacitor://",
+            "capacitor://app.tasknotes.dev:8080",
+            "capacitor://app.tasknotes.dev/x",
+            "capacitor://u@app.tasknotes.dev",
+            "capacitor://APP.tasknotes.dev",
+            "capacitor://*.tasknotes.dev",
+            "chrome-extension://not-an-extension-id",
+            &format!("chrome-extension://{}", "q".repeat(32)),
+            &format!("chrome-extension://{}", "A".repeat(32)),
+            &format!("{ext}/"),
+            "moz-extension://6f1c3d0e-8a8b-4c3e-9e0f-2a1b3c4d5e6f",
+        ] {
+            assert!(Cors::parse(Some(raw)).is_err(), "{raw}");
+        }
     }
     #[test]
     fn invalid_configuration_closes() {

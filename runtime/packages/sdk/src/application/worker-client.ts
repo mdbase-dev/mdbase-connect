@@ -1,6 +1,6 @@
 import type {AppWebCollectionHandoff} from "../app-host/web-collection.js";
 import type {AppWebSignInPortal,AppWebSignInSnapshot} from "../app-host/web-sign-in-session.js";
-import {APPLICATION_WORKER_MAX_ID,APPLICATION_WORKER_PROTOCOL,ApplicationWorkerError,applicationWorkerBinding,applicationWorkerRequest,type ApplicationWorkerAction} from "./worker-protocol.js";
+import {APPLICATION_WORKER_MAX_ID,APPLICATION_WORKER_PROTOCOL,ApplicationWorkerError,applicationWorkerBinding,applicationWorkerRequest,type ApplicationWorkerAction,type ApplicationWorkerPayload} from "./worker-protocol.js";
 
 /** SDK-private UI transport. These callbacks are SDK owners, never application
  * constructor options. Native physical stop must ACK before releaseWorker. */
@@ -40,11 +40,11 @@ export class ApplicationWorkerClient {
     port.addEventListener("message",this.message);port.addEventListener("messageerror",this.messageError);port.start();
   }
   private id():number {if(this.nextId===APPLICATION_WORKER_MAX_ID)throw new ApplicationWorkerError("application_worker_stop_failed");return ++this.nextId;}
-  private send(id:number,action:ApplicationWorkerAction,payload:string|boolean|null):void {
+  private send(id:number,action:ApplicationWorkerAction,payload:ApplicationWorkerPayload):void {
     const request=applicationWorkerRequest([APPLICATION_WORKER_PROTOCOL,this.binding,id,action,payload],this.binding);
     try{this.port.postMessage(request);}catch{this.quarantine("application_worker_unavailable");throw this.fault;}
   }
-  request(action:Exclude<ApplicationWorkerAction,"close"|"foreground">,payload:string|null,caller:AbortSignal,portal?:AppWebSignInPortal):Promise<AppWebSignInSnapshot>{
+  request(action:Exclude<ApplicationWorkerAction,"close"|"foreground">,payload:Exclude<ApplicationWorkerPayload,boolean>,caller:AbortSignal,portal?:AppWebSignInPortal):Promise<AppWebSignInSnapshot>{
     if(this.fault||this.stopping||caller.aborted)return Promise.reject(this.fault??new ApplicationWorkerError("application_worker_fenced"));
     if(this.active)return Promise.reject(new ApplicationWorkerError("application_worker_busy"));
     let id:number;try{id=this.id();applicationWorkerRequest([APPLICATION_WORKER_PROTOCOL,this.binding,id,action,payload],this.binding);}catch(error){return Promise.reject(error);}

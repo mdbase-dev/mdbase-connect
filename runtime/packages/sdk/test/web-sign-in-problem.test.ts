@@ -4,6 +4,7 @@ import { AppCollectionJoinError } from "../src/app-host/collection-join-ledger.j
 import { AppCollectionControlError } from "../src/app-host/collection-control.js";
 import { AppCloudCopyBootstrapError } from "../src/app-host/cloud-copy-bootstrap.js";
 import { MdbaseError } from "../src/errors.js";
+import { appServerProblem } from "../src/app-host/cp-problem.js";
 
 describe("bounded web sign-in diagnostic vocabulary", () => {
   it.each([new AppCollectionJoinError("recovery_required"), new AppCollectionControlError("recovery_required"), new AppCloudCopyBootstrapError("outcome_unknown")])("preserves explicit SDK predicates", error => {
@@ -15,6 +16,23 @@ describe("bounded web sign-in diagnostic vocabulary", () => {
     expect(JSON.stringify(value)).not.toContain("secret");
     expect(Object.keys(value.detail).sort()).toEqual(["code", "name"]);
     expect(Object.isFrozen(value.detail)).toBe(true);
+  });
+  it("exposes CP outcomes with the sanitized server problem", () => {
+    const server = appServerProblem(409, {error: {code: "collection_migrating", message: "secret", details: {bearer: "secret"}}}, new Headers({"retry-after": "30"}));
+    expect(webSignInProblem(new AppCloudCopyBootstrapError("collection_migrating", false, server))).toEqual({problem: "collection_migrating",
+      detail: {name: "AppCloudCopyBootstrapError", code: "collection_migrating", server: {status: 409, code: "collection_migrating", reason: null, retryAfterMs: 30_000, updateUrl: null}}});
+    expect(appServerProblem(409, {error: {code: "collection_unavailable", details: {reason: "moved_to_next_runtime", update_url: "javascript:alert(1)"}}}).updateUrl).toBeNull();
+  });
+  it("re-validates server detail on an SDK error instead of trusting the class", () => {
+    const forged = {status: 409, code: "collection_migrating", reason: null, retryAfterMs: 1, updateUrl: "javascript:alert(1)"};
+    expect(webSignInProblem(new AppCloudCopyBootstrapError("collection_migrating", false, forged as never)).detail.server)
+      .toEqual({status: 409, code: "collection_migrating", reason: null, retryAfterMs: 5_000, updateUrl: null});
+    for (const bad of [{...forged, message: "secret"}, {...forged, code: "Not A Code"}, {...forged, retryAfterMs: "soon"}, new Map()]) {
+      const value = webSignInProblem(new AppCloudCopyBootstrapError("collection_migrating", false, bad as never));
+      expect(value.detail.server).toBeUndefined(); expect(JSON.stringify(value)).not.toContain("secret");
+    }
+    expect(appServerProblem(409, {error: {code: "collection_unavailable", details: {update_url: "https://evil.example/update", retry_after_ms: 10 ** 9}}}))
+      .toMatchObject({updateUrl: null, retryAfterMs: 600_000});
   });
   it("exports only a known replica code, not its reason/body/custody", () => {
     expect(webSignInProblem(new MdbaseError({code: "unavailable", recovery: "retry", message: "secret", reason: "secret", details: new Map([["bearer", "secret"]])}))).toEqual({problem: "open_failed", detail: {name: "MdbaseError", code: "unavailable"}});

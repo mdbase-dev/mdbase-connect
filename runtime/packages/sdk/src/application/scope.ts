@@ -8,6 +8,8 @@ import {ApplicationReadiness,type ApplicationReadinessFacetSource} from "./readi
 import {createApplicationConfiguration} from "./configuration.js";
 import {createApplicationPeopleReadiness} from "./people-readiness.js";
 import {createApplicationNotificationReadiness} from "./notification-readiness.js";
+import {declaredTimerCriteria} from "./timer-criteria.js";
+import type {MdbaseSetupPlan,MdbaseSetupPlanOptions} from "./setup.js";
 
 /** SDK-private selected scope composition. All borrowed facets share the original
  * UI client/control/journal; neither this owner nor its inputs create a native
@@ -25,7 +27,8 @@ export class ApplicationScope {
   private epoch=0;private opening:Promise<MdbaseApplicationConnection>|null=null;
   private retiring:Promise<void>|null=null;private closing:Promise<void>|null=null;
   constructor(declaration:Readonly<ApplicationDeclarationSnapshot>,app:ClientOptions["app"],signal:AbortSignal){
-    this.compiled=compileApplicationManifest(declaration);this.signal=signal;this.ui=new ApplicationUiConnections(app,signal);
+    this.compiled=compileApplicationManifest(declaration);this.signal=signal;
+    this.ui=new ApplicationUiConnections(app,signal,declaredTimerCriteria(this.compiled.manifest.notifications));
     signal.addEventListener("abort",this.abort,{once:true});
   }
   private readonly changed=()=>{for(const listener of [...this.listeners])try{listener();}catch{/* UI observers cannot alter custody */}};
@@ -77,6 +80,18 @@ export class ApplicationScope {
     const original=this.selected,epoch=this.epoch;
     if(!original||!original.connection.isCurrent()||this.retiring||this.closing)throw new ApplicationUiConnectionError("application_connection_fenced");
     await original.configuration.configure(options);
+    if(options.signal?.aborted||this.epoch!==epoch||this.selected!==original||!original.connection.isCurrent())throw new ApplicationUiConnectionError("application_connection_fenced");
+    return original.readiness.refresh(options);
+  }
+  planSetup(options:MdbaseSetupPlanOptions={}):Promise<MdbaseSetupPlan>{
+    const original=this.selected;
+    if(!original||!original.connection.isCurrent()||this.retiring||this.closing)return Promise.reject(new ApplicationUiConnectionError("application_connection_fenced"));
+    return original.configuration.plan(options);
+  }
+  async applySetup(plan:MdbaseSetupPlan,options:MdbaseApplicationRequestOptions={}):Promise<MdbaseApplicationReadinessSnapshot>{
+    const original=this.selected,epoch=this.epoch;
+    if(!original||!original.connection.isCurrent()||this.retiring||this.closing)throw new ApplicationUiConnectionError("application_connection_fenced");
+    await original.configuration.apply(plan,options);
     if(options.signal?.aborted||this.epoch!==epoch||this.selected!==original||!original.connection.isCurrent())throw new ApplicationUiConnectionError("application_connection_fenced");
     return original.readiness.refresh(options);
   }

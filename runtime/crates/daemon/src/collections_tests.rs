@@ -165,6 +165,7 @@ fn ctx(dir: &Path, server: Option<&str>, trust: Option<crate::trust::Trust>) -> 
         authority,
         notify: Arc::new(|| {}),
         sync,
+        old_connector_running: Default::default(),
     }
 }
 

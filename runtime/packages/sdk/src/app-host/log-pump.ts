@@ -5,6 +5,7 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { decode, type CborValue } from "../cbor.js";
 import { uuidToBytes } from "../codec.js";
+import { appServerOutcome, isAppServerProblem, type AppServerProblem } from "./cp-problem.js";
 
 const MAX_FRAME = 16 * 1024 * 1024;
 const MAX_OBJECT = 9 * 1024 * 1024;
@@ -72,6 +73,7 @@ export class AppLogPump {
   private closed = false;
   private failed = false;
   private retired = false;
+  private problem: AppServerProblem | null = null;
   constructor(
     private readonly runtime: AppLogRuntime,
     private readonly transport: AppLogTransport,
@@ -86,6 +88,9 @@ export class AppLogPump {
     if (!Number.isSafeInteger(this.rounds) || this.rounds < 1 || this.rounds > 64) throw new RangeError("invalid app log pump rounds");
   }
   get fenced(): boolean { return this.failed; }
+  /** The server's latest specific refusal (migrating, moved, suspended) for
+   * this live collection; null once a reply is accepted again. Display only. */
+  get serverProblem(): AppServerProblem | null { return this.problem; }
   private current(): boolean {
     if (this.closed || this.failed) return false;
     if (uint(this.transport.endpoint) !== this.endpoint || !equal(uuidToBytes(this.transport.collection), this.collection)) {
@@ -163,8 +168,10 @@ export class AppLogPump {
             if (!this.current()) return { quiet: true };
             let reply: Uint8Array;
             try { reply = await this.transport.send(c.call, { signal: this.abort.signal }); }
-            catch {
+            catch (e) {
               if (!this.current()) return { quiet: true };
+              let server: unknown = null; try { server = (e as {server?: unknown}).server; } catch { /* hostile getter */ }
+              if (isAppServerProblem(server) && appServerOutcome(server)) this.problem = server;
               this.runtime.logNoResponse(c.id);
               continue;
             }
@@ -177,6 +184,7 @@ export class AppLogPump {
               // No JS decode/materialization of the remote result; Rust remains
               // the policy/schema/correlation authority. It borrows these bytes.
               if (this.runtime.acceptLogReply(c.id, reply) !== true) this.runtime.logNoResponse(c.id);
+              else this.problem = null;
             } finally { if (reply instanceof Uint8Array) reply.fill(0); }
           }
         } finally { for (const c of calls) this.wipe(c); }

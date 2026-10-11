@@ -51,7 +51,9 @@ describe("first-party owned local data facade", () => {
     cleanup.push(attached.close); const signal = new AbortController().signal, manifest = {id: "org.example.app"};
     expect(await attached.resourceSetup.assess(manifest, signal)).toEqual({status: "current", assessmentDigest: `sha256:${"ab".repeat(32)}`});
     expect(producer).toHaveBeenCalledWith(native, "assess", manifest);
-    expect(Object.keys(attached.resourceSetup).sort()).toEqual(["apply", "assess"]);
+    expect(Object.keys(attached.resourceSetup).sort()).toEqual(["apply", "assess", "rejected"]);
+    // No native witness export: a rejection is never assumed.
+    expect(await attached.resourceSetup.rejected!(crypto.randomUUID(), signal)).toBe(false);
     producer.mockImplementationOnce(() => {current = false; return {status: "current", assessmentDigest: `sha256:${"ab".repeat(32)}`};});
     await expect(attached.resourceSetup.assess(manifest, signal)).rejects.toThrow();
     await expect(attached.resourceSetup.assess(manifest, signal)).rejects.toThrow(); expect(producer).toHaveBeenCalledTimes(2);

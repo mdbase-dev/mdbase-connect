@@ -1,6 +1,7 @@
 /** SDK-owned ESM Worker. No application-provided loader/SQL/authority callback.
  * Initialization composes only; the public entry must resolve the registered
  * declaration before boot/start and own the corresponding UI ports/client. */
+import {currentAppOrigin} from "../app-host/app-origin.js";
 import {applicationDeclaration} from "./declaration.js";
 import {packagedApplicationAssets} from "./packaged-assets.js";
 import {ApplicationWorkerHost} from "./worker-host.js";
@@ -17,7 +18,7 @@ function bootstrap(event:MessageEvent<unknown>):void {
     if(!port||event.ports.length!==1||!Array.isArray(value)||value.length!==3||value[0]!==APPLICATION_WORKER_PROTOCOL||!applicationWorkerBinding(value[1]))throw new ApplicationWorkerError("application_worker_binding");
     binding=value[1];
     const declaration=applicationDeclaration(value[2]);
-    if(declaration.origin!==globalThis.location.origin)throw new ApplicationWorkerError("application_worker_binding");
+    if(declaration.origin!==currentAppOrigin())throw new ApplicationWorkerError("application_worker_binding");
     const packaged=packagedApplicationAssets(declaration.environment,declaration.origin);
     owner=new ApplicationWorkerHost(port,binding,declaration,packaged,globalThis.navigator.locks);
   }catch(error){

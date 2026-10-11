@@ -260,12 +260,41 @@ async fn automatic_takeover_waits_for_a_flipped_batch_and_fails_closed() {
     daemon.await.unwrap().unwrap();
     let revived_old = std::fs::File::create(old.join("daemon.lock")).unwrap();
     revived_old.try_lock().unwrap();
-    let p = profile.clone();
-    let daemon = tokio::spawn(async move { server::run(p, Some(Box::new(keys))).await });
+    let (p, k) = (profile.clone(), keys.clone());
+    let daemon = tokio::spawn(async move { server::run(p, Some(Box::new(k))).await });
     wait_ready(&profile).await;
     let mut c = ControlClient::connect(&profile.control).await.unwrap();
-    let v = c.call(Method::COLLECTION_LIST, json!({})).await.unwrap();
-    assert!(v.to_string().contains(old_agent::CID));
+    // While the old daemon runs, the taken-over folder is not opened (an old daemon
+    // from before the marker check would write to it too), and adopt is refused.
+    let collection = |v: Value| -> CollectionStatus {
+        serde_json::from_value::<Vec<CollectionStatus>>(v)
+            .unwrap()
+            .into_iter()
+            .find(|s| s.id == old_agent::CID)
+            .unwrap()
+    };
+    let blocked = collection(c.call(Method::COLLECTION_LIST, json!({})).await.unwrap());
+    assert_eq!(
+        blocked.reason.as_deref(),
+        Some("old_connector_running"),
+        "{blocked:?}"
+    );
+    assert!(
+        blocked
+            .notices
+            .iter()
+            .any(|n| n.code == "old_connector_running")
+    );
+    c.authenticate(keys.as_ref()).await.unwrap();
+    match c
+        .call(Method::SYNC_ENABLE, json!({"collection": old_agent::CID}))
+        .await
+    {
+        Err(ClientError::Remote(e)) => {
+            assert_eq!(e.reason.as_deref(), Some("old_connector_running"))
+        }
+        other => panic!("{other:?}"),
+    }
     let st = status(&profile).await;
     assert_eq!(st["record"]["state"], "complete");
     let st = until("unreachable batch wait", || async {
@@ -275,6 +304,15 @@ async fn automatic_takeover_waits_for_a_flipped_batch_and_fails_closed() {
     .await;
     assert_eq!(st["revived"], true, "{st}");
     drop(revived_old);
+    // Once it stops, the collection reopens on its own.
+    until("reopen after the old daemon stopped", || async {
+        let mut c = ControlClient::connect(&profile.control).await.unwrap();
+        let v = c.call(Method::COLLECTION_LIST, json!({})).await.unwrap();
+        let s = collection(v);
+        (s.reason.is_none() && s.state == mdbn_daemon::control::CollectionState::Ready)
+            .then_some(json!(null))
+    })
+    .await;
     assert_eq!(
         std::fs::read(profile.state_dir.join("takeover.json")).unwrap(),
         evidence

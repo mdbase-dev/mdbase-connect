@@ -1,8 +1,10 @@
 /** Shared first-party browser sign-in lifecycle. The original protected request,
  * installation owner and native device are retained; no app-grant/key loan API.
  * Collection adapters run in the trusted owner Worker, never in a redirect. */
+import { appServerOutcome, isAppServerProblem, sanitizeAppServerProblem, MIN_SERVER_RETRY_MS, MAX_SERVER_RETRY_MS, type AppServerProblem } from "./cp-problem.js";
 import { AppProtectedInstallationSignIn, AppInstallationSignInError, type AppInstallationSignInOptions, type AppInstallationSignInView, type AppInstallationCollection } from "./installation-sign-in.js";
 import { AppWebCloudCopyHost } from "./cloud-copy-host.js";
+import { AppCollectionDeleteError, collectionDeleteError } from "./collection-delete.js";
 import { webSignInProblem, type AppWebSignInProblemDetail } from "./web-sign-in-problem.js";
 import { appBrowserDirectAccess, type AppBrowserDirectAccessOptions, type AppBrowserDirectAccessSnapshot } from "./browser-direct-access.js";
 import { AppCloudCopyBootstrapError, type AppBundledReleaseTrust } from "./cloud-copy-bootstrap.js";
@@ -13,6 +15,9 @@ export interface AppWebCollectionConnection<Connection> {
   /** Actual native/current setup assessment, not discovery or enrollment. */
   readonly state: "ready" | "setup_required";
   readonly connection: Connection;
+  /** The live collection's latest specific server refusal (migrating, moved,
+   * suspended), or null. The connection stays usable for local work. */
+  readonly problem?: AppServerProblem | null;
   /** Close adapter resources. The session retains the collection lease until
    * both this adapter and the original native host have stopped. */
   close(): Promise<void>;
@@ -66,6 +71,7 @@ export interface AppWebSignInSnapshot {
   readonly timing: Readonly<{firstScreenMs: number | null; readyMs: number | null}> | null;
 }
 const failure = (reason: AppInstallationSignInError["reason"]) => new AppInstallationSignInError(reason);
+const liveOutcomes = new Set(["collection_migrating", "account_suspended", "update_required"]);
 // Private one-shot READ intent, never a queue for mutations or another flow.
 type ReceiptRead = Readonly<{
   flow: AppProtectedInstallationSignIn;
@@ -336,6 +342,18 @@ export class AppWebSignInSession<Connection> {
   private schedulePoll(): void {
     if (this.pending && !this.closing && !this.options.signal.aborted) return; // Keep ONE original occupied slot.
     const read = this.foregroundRead; this.foregroundRead = null;
+    const wait = this.retryAfterMs();
+    if (wait !== null && !this.closing && !this.options.signal.aborted && this.timer === null && this.snapshotValue.status === "blocked") {
+      // Server-directed: the collection is being upgraded. Reopen the SAME
+      // selected collection; the app only shows the description.
+      this.timer = setTimeout(() => {
+        this.timer = null;
+        const s = this.snapshotValue, id = s.selectedCollectionId;
+        if (s.status !== "blocked" || s.problem !== "collection_migrating" || id === null || this.flow?.view().state !== "paired") return;
+        void this.operation(() => this.selectCollection(id)).catch(() => {});
+      }, wait);
+      return;
+    }
     if (this.closing || this.options.signal.aborted || this.timer !== null || this.snapshotValue.status !== "authorizing") return;
     const resume = this.foreground && read && this.currentReceipt(read) ? read : null;
     this.timer = setTimeout(() => {
@@ -345,6 +363,13 @@ export class AppWebSignInSession<Connection> {
         await this.advance();
       }).catch(() => {});
     }, resume ? 0 : !this.foreground ? 10000 : this.snapshotValue.problem === "outcome_unknown" ? 5000 : 1000);
+  }
+  /** Server-directed retry (collection_migrating): clamp 5 s..10 min. */
+  private retryAfterMs(): number | null {
+    const s = this.snapshotValue;
+    if (s.problem !== "collection_migrating") return null;
+    let retry: number | null = null; try { retry = sanitizeAppServerProblem(s.problemDetail?.server)?.retryAfterMs ?? null; } catch { retry = null; }
+    return Math.min(MAX_SERVER_RETRY_MS, Math.max(MIN_SERVER_RETRY_MS, retry ?? 30_000));
   }
   /** Owners forward visibility changes; Workers have no ambient document. */
   setForeground(active: boolean): void {
@@ -383,9 +408,16 @@ export class AppWebSignInSession<Connection> {
     this.stopAssessment = selected.subscribe?.(() => {
       if (this.closing || !this.selectionUsable || this.selected !== selected || this.collectionLifetime?.signal.aborted ||
         !this.sameScope(this.selectedScope, this.collectionLeaseScope) || this.selectedScope?.collection !== this.snapshotValue.selectedCollectionId) return;
-      if (selected.state === "ready" || selected.state === "setup_required") this.publish({status: selected.state});
+      if (selected.state === "ready" || selected.state === "setup_required") this.publish({status: selected.state, ...this.liveProblem(selected)});
     }) ?? null;
     this.publish({status: this.selected.state});
+  }
+  /** Live problem of the open collection: shown while it lasts, cleared after. */
+  private liveProblem(selected: AppWebCollectionConnection<Connection>): Partial<AppWebSignInSnapshot> {
+    let server: AppServerProblem | null = null; try { server = selected.problem ?? null; } catch { server = null; }
+    const outcome = isAppServerProblem(server) ? appServerOutcome(server) : null;
+    if (outcome && server) return {problem: outcome, problemDetail: Object.freeze({name: "AppHttpLogError", code: outcome, server})};
+    return liveOutcomes.has(this.snapshotValue.problem ?? "") ? {problem: null} : {};
   }
   private async closeCollection(): Promise<void> {
     // Failed adapter/native shutdown keeps the original adapter/scope and leases
@@ -411,6 +443,23 @@ export class AppWebSignInSession<Connection> {
         ...(this.snapshotValue.selectedCollectionId === collectionId ? {status: "unselected", selectedCollectionId: null} : {})});
       return this.getSnapshot();
     });
+  }
+  /** Owner-only soft delete of a listed collection, for everyone. A refusal
+   * never blocks the session; it rejects with a bounded delete code and
+   * leaves the collection open. On success the caller forgets it locally. */
+  deleteCollection(collectionId: string, confirmName: string): Promise<AppWebSignInSnapshot> {
+    let refusal: AppCollectionDeleteError | null = null;
+    return this.operation(async () => {
+      const entry = this.snapshotValue.collections.find(c => c.collectionId === collectionId);
+      if (!this.flow || !this.installation || !entry) refusal = new AppCollectionDeleteError("collection_delete_not_found");
+      else if (entry.role !== "owner") refusal = new AppCollectionDeleteError("collection_delete_not_owner");
+      else {
+        try { await this.flow.deleteApprovedCollection(this.installation, collectionId, confirmName); }
+        catch (error) { refusal = collectionDeleteError(error); }
+        this.check();
+      }
+      return this.getSnapshot();
+    }).then(snapshot => { if (refusal) throw refusal; return snapshot; });
   }
   close(): Promise<void> {
     if (this.closing) return this.closing;

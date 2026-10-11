@@ -19,6 +19,7 @@ mod resource_list;
 mod resources;
 mod snapshot_attachments;
 mod snapshot_text;
+mod type_packs;
 mod unindexed_async;
 mod unindexed_blob_interop;
 mod unindexed_capture;

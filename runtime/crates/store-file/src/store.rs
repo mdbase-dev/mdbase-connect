@@ -129,6 +129,9 @@ pub struct Stats {
     /// FIFOs, sockets and names that are not UTF-8. Hidden and excluded
     /// entries are not counted.
     pub unsupported_entries: u64,
+    /// Creates whose path already held exactly the new bytes, recorded
+    /// without writing.
+    pub already_held: u64,
 }
 
 /// Content-free local diagnostic for a same-launch retention exception.
@@ -224,8 +227,20 @@ pub struct FileStore<P: FilePlatform, M: Store, D: DiskDb> {
     /// A dropped pending commit is unresolved, not a cancelled operation.
     commit_active: Rc<Cell<bool>>,
     queued: deferred::Deferred,
+    /// The running commit is driven to completion at once ([`Store::commit`]
+    /// over a synchronous platform), not polled by a host IO queue.
+    immediate: bool,
     /// Statistics.
     pub stats: Stats,
+}
+
+/// Creates found already in place during one commit ([`FileStore::already_held`]).
+#[derive(Default)]
+struct AlreadyHeld {
+    /// Their disk rows, applied in one batch.
+    changes: Vec<Change>,
+    /// Parent listings on a case-insensitive volume.
+    names: BTreeMap<RelPath, BTreeSet<String>>,
 }
 
 // Inner transaction rollback cannot certify all preceding outer file state.
@@ -333,6 +348,7 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
             deferred: false,
             commit_active: Rc::new(Cell::new(false)),
             queued: deferred::Deferred::default(),
+            immediate: false,
             stats: Stats::default(),
         };
         s.timers.set_now(s.clock.now_ms());
@@ -2327,12 +2343,93 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
         self.ack(acks, &mut changes).await?;
         self.db.apply(changes).map_err(db_err)?;
         let mut report = CommitReport::default();
+        let mut held = AlreadyHeld::default();
         for p in publishes {
+            if self.already_held(p, &mut held).await? {
+                continue;
+            }
+            self.flush_held(&mut held)?;
             if let Some(d) = self.perform(p).await? {
                 report.drifts.push(d);
             }
         }
+        self.flush_held(&mut held)?;
         Ok(report)
+    }
+
+    /// A create whose path already holds exactly the new bytes (a folder
+    /// adopted with its files in place, an install resumed after a crash):
+    /// record the file as on disk without writing a temp, renaming or
+    /// flushing. Anything less than an exact match (other bytes, a symlink,
+    /// a name that only matches by case or normalization) takes the normal
+    /// publish, which leaves the user's file alone and reports a drift.
+    /// Immediate commits only: a host that queues and polls IO keeps the
+    /// original IO sequence it accounts for.
+    async fn already_held(&mut self, publ: &Publish, held: &mut AlreadyHeld) -> StoreResult<bool> {
+        let Publish::Write {
+            id,
+            path,
+            expect: RExpect::Absent,
+            content,
+        } = publ
+        else {
+            return Ok(false);
+        };
+        if !self.immediate
+            || self.strategy() == ReplaceStrategy::ReadOnly
+            || crate::platform::portable_violation(path).is_some()
+            || self.disk.contains_key(path.as_str())
+        {
+            return Ok(false);
+        }
+        let rp = Self::rel(path)?;
+        let new = self.content_bytes(content)?;
+        let meta = match self.observe_io(|| self.p.stat(&rp)).await? {
+            Ok(m) if m.kind == FileKind::File && m.size == new.len() as u64 => m,
+            _ => return Ok(false),
+        };
+        if self.link_in_path(path).await? || !self.exact_name(&rp, held).await? {
+            return Ok(false);
+        }
+        let read = match self.observe_io(|| self.p.read(&rp)).await? {
+            Ok(r) => r,
+            Err(_) => return Ok(false),
+        };
+        if read.bytes != new || read.meta.size != meta.size || read.meta.mtime_ns != meta.mtime_ns {
+            return Ok(false);
+        }
+        mdbn_replica::mirror_admission::ensure_open(&self.inner)?;
+        let st = self.state_from(*id, revision(&new), &read.meta, false);
+        self.set_disk(&mut held.changes, path, Some(st));
+        self.stats.already_held += 1;
+        Ok(true)
+    }
+
+    /// Whether `path`'s last segment is spelled exactly as on disk. Only a
+    /// case- or normalization-insensitive volume can resolve a different
+    /// spelling to the same file; there the parent is listed once per commit.
+    async fn exact_name(&mut self, path: &RelPath, held: &mut AlreadyHeld) -> StoreResult<bool> {
+        if self.p.capabilities().case != CaseSensitivity::Insensitive {
+            return Ok(true);
+        }
+        let dir = path.parent();
+        if !held.names.contains_key(&dir) {
+            let names = match self.observe_io(|| self.p.list(&dir)).await? {
+                Ok(entries) => entries.into_iter().map(|e| e.name).collect(),
+                Err(_) => BTreeSet::new(),
+            };
+            held.names.insert(dir.clone(), names);
+        }
+        Ok(held.names[&dir].contains(path.file_name()))
+    }
+
+    fn flush_held(&mut self, held: &mut AlreadyHeld) -> StoreResult<()> {
+        if held.changes.is_empty() {
+            return Ok(());
+        }
+        self.db
+            .apply(std::mem::take(&mut held.changes))
+            .map_err(db_err)
     }
 
     async fn ack(&mut self, ids: &[ObservationId], changes: &mut Vec<Change>) -> StoreResult<()> {
@@ -2641,7 +2738,10 @@ impl<P: FilePlatform + 'static, M: Store, D: DiskDb> Store for FileStore<P, M, D
         if self.cfg.queued_publication {
             self.queue_commit(tx)
         } else {
-            self.start_commit(tx).finish_immediate()
+            self.immediate = true;
+            let report = self.start_commit(tx).finish_immediate();
+            self.immediate = false;
+            report
         }
     }
 

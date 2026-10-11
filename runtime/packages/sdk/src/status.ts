@@ -10,7 +10,13 @@
  */
 import type { Receipt, SyncStatus } from "./wire.js";
 
-export type StatusKind = "local" | "synced" | "catching_up" | "offline" | "installing";
+export type StatusKind = "local" | "synced" | "catching_up" | "offline" | "installing"
+  | "collection_migrating" | "update_required" | "account_suspended";
+const SERVER: Readonly<Record<string, string>> = {
+  collection_migrating: "Your collection is being upgraded; changes will sync when it's done",
+  update_required: "Update the app to keep syncing",
+  account_suspended: "Syncing is paused: your account is suspended",
+};
 
 export interface StatusSummary {
   kind: StatusKind;
@@ -23,7 +29,12 @@ export interface StatusSummary {
   confirmedThrough: number | null;
 }
 
-export function summarizeStatus(s: SyncStatus): StatusSummary {
+/**
+ * Pass the application snapshot's `problem` as `problem` so a live server
+ * refusal (collection_migrating, update_required, account_suspended) shows as
+ * that, not as offline or catching up.
+ */
+export function summarizeStatus(s: SyncStatus, problem?: string | null): StatusSummary {
   const base = {
     pending: s.pending,
     holds: s.holds,
@@ -33,6 +44,9 @@ export function summarizeStatus(s: SyncStatus): StatusSummary {
   const waiting = s.pending > 0 ? `, ${s.pending} change${s.pending === 1 ? "" : "s"} waiting` : "";
   if (s.mode === "local_only") {
     return { ...base, kind: "local", text: s.pending ? `Saving${waiting}` : "Saved on this device" };
+  }
+  if (problem && Object.hasOwn(SERVER, problem)) {
+    return { ...base, kind: problem as StatusKind, text: `${SERVER[problem]}${waiting}` };
   }
   if (s.installing) {
     return { ...base, kind: "installing", text: `Loading the collection (${s.installing.done}/${s.installing.total})` };

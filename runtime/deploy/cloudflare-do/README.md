@@ -114,7 +114,9 @@ deployment artifacts; real environment configs enable neither test flag.
 ## Browser CORS
 
 `LOGSVC_CORS_ORIGINS` is a comma-separated list of exact canonical HTTP(S)
-origins (no paths, credentials, wildcard or `null`). Absent/empty disables CORS;
+origins, Capacitor iOS app origins (`capacitor://<lowercase host>`) or Chrome
+extension origins (`chrome-extension://<32-letter id>`), with no ports, paths,
+credentials, wildcard, scheme-wide entry or `null`. Absent/empty disables CORS;
 malformed, duplicate or oversized configuration refuses. It is transport
 visibility only, never authentication, possession, grant or nonce authority.
 

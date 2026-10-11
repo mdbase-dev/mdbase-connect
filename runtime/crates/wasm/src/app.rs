@@ -18,7 +18,7 @@ mod noise_custody_tests;
 mod private_proof;
 #[cfg(test)]
 mod private_proof_tests;
-mod resources;
+pub mod resources;
 
 use crate::{
     app_index::{AppIndex, AppSqlHost},

@@ -86,6 +86,8 @@ libc = "0.2"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Threading", "Win32_System_Pipes", "Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
+# The in-memory file platform for the adopt folder-source tests.
+mdbn-store-file = { workspace = true, features = ["testing"] }
 # Old connector state fixtures for the takeover tests (same version as mdbn-legacy).
 rusqlite = { version = "0.37", features = ["bundled"] }
 # Test tooling only (tests/sync_pair.rs, examples): the real log service, in memory,

@@ -19,6 +19,11 @@ The SDK implements transport, session and typed client-API boundaries.
 | `src/files.ts`, `src/presence.ts` | Files (§10) and presence (§11) |
 | `src/view-sources.ts` | Shared saved-view source create/update helpers over ordinary record intents |
 | `src/records.ts`, `src/records/` | Shared record editor leases, bounded drafts and exact receipt recovery |
+| `src/timers.ts` | Opaque control-plane timers and push channel registration (`connection.timers`) |
+| `src/notifications.ts` (`@mdbase-dev/sdk/notifications`) | The push delivery envelope (`docs/contracts/push-envelope.md`) and service-worker helpers |
+| `src/describe-error.ts` (`@mdbase-dev/sdk/describe`) | `describeError()`: plain-language title, message and suggested action for any SDK error, sign-in/open problem (including `collection_migrating`, `account_suspended`, `update_required`) or readiness facet |
+| `src/collection-availability.ts` | `CollectionAvailability` (`available`, `opening`, `unavailable` + reason): Private collections served by one of the account's computers, and listed cloud copies (`AppInstallationCollection.availability`, absent meaning available) |
+| `src/app-grant/` (`@mdbase-dev/sdk/app-grant`) | `MdbaseAppGrants`: grants for Private collections (OAuth PKCE + an attested client Noise key), listing with availability, bounded waits, relay connector |
 | `src/private.ts` | Device approval and recovery key (private collections) |
 | `src/keys.ts` | Client static keys: non-extractable WebCrypto X25519 in IndexedDB where possible |
 | `src/transport/port.ts` | The transport seam: `FramePort`, `Connector`, `u32be` record framing |
@@ -187,6 +192,232 @@ without a v2 contract). It does not refresh permissions or authorize an
 operation; native operation checks remain authoritative. For write access after
 a read-only grant, show `missing` and call `reauthorize()`. Reauthorization still
 requires user approval and may return another restricted grant.
+
+## Private collections from web apps
+
+`@mdbase-dev/sdk/app-grant` lets a signed-in web app open a Private collection
+through the relay to one of the account's online computers. It is a separate
+entry so apps that only use cloud copies don't load it.
+
+- `new MdbaseAppGrants({declaration, redirectUri})`; `authorize({popup})` from the
+  user gesture asks for a grant (OAuth PKCE, popup, at most 30 minutes). The
+  redirect page calls `deliverAppGrantCallback(location.href)`.
+- `collections()` lists granted Private collections with `availability`;
+  `mergeCollectionEntries(cloud, privates)` merges them with cloud copies.
+- `waitForAvailable(id, {timeoutMs})` polls (default 60 s, at most 10 minutes)
+  and returns the last availability; it never waits on `sync_required` or
+  `access_removed`. `connector(id)` opens; an unavailable collection fails with
+  `collectionUnavailableError(reason)`, and `describeError` gives the copy.
+
+Storage: the installation signing key and each grant's Noise static key are
+non-extractable WebCrypto keys structured-cloned into IndexedDB. The refresh
+token is stored only as AES-256-GCM ciphertext under a per-grant
+non-extractable key, and access tokens stay in memory. Script can use but not
+read these secrets, so it cannot copy them elsewhere; same-origin script running
+while the app is open can still use them, so apps still need a strict CSP.
+The default store belongs to the app's own manifest family (`bundle:<manifest
+id>` from its declaration), never the id Connect assigns: the database name,
+every record and the refresh ciphertext carry it, and records for another owner
+are refused. Grants stored before this labelling are not adopted; the app asks
+for access again and the old records are left in place.
+
+### Listing and opening Private collections in an app
+
+Every launch app follows the same pattern (the Editor's `private-collections.ts`
+and `SdkEditorRoot.tsx` are the reference):
+
+1. **Load it lazily.** Construct one `MdbaseAppGrants` per app, behind
+   `import("@mdbase-dev/sdk/app-grant")` on first use, so the relay and grant code
+   stay out of the initial bundle. `redirectUri` is the manifest redirect URI on
+   the app's own origin.
+2. **Handle the callback page.** When the app loads with `state` and `code` or
+   `error` in its URL, call `deliverAppGrantCallback(location.href)`, then
+   `window.close()`. Don't start the application SDK in that window.
+3. **List.** Once signed in, merge `grants.collections()` into the chooser with
+   `mergeCollectionEntries(snapshot.collections, privates)`. `collections()` is
+   empty until this browser holds a grant, so always offer **Add a Private
+   collection**. It calls `authorize({popup})`; reserve the popup with
+   `window.open` inside the click, before any `await`.
+4. **Show availability.** Every merged entry has one `availability` shape:
+   cloud copies take theirs from `snapshot.collections` (absent there means
+   available), Private ones from `collections()`.
+   `describeError(entry.availability)` gives the title and message for each
+   reason. Actions:
+
+   | Availability | Action |
+   |---|---|
+   | `available` | Open |
+   | `opening`, `device_offline`, `approval_required`, `desktop_update_required`, `old_connector_running`, `no_device_registered` | Open: `waitForAvailable(id, {onAvailability})` (bounded), then open when it reports `available` |
+   | `sync_required` | **Give access again**: `authorize({popup, collection: id})` |
+   | `access_removed` | No open. For a Private entry, offer `forget(id)` to remove it from this browser |
+   | `collection_migrating` | Wait; the collection reopens when the upgrade is done |
+   | `collection_deleted` | No open |
+
+5. **Open.** `connect({connector: grants.connector(id), app})` returns an
+   `MdbaseClient` that the app owns. Check `client.collection === id`, and close
+   the client when the person leaves the collection. A failure carries its
+   availability reason, so pass it to `describeError`.
+
+6. **People.** `grants.people(id, client)` returns the same `MdbasePeopleClient`
+   as cloud copies (`current()`, `members()`, `directory()`), reading Person
+   records over `client` and identity and members from Connect with the grant.
+   Until a computer approves the app, identity and members fail with
+   availability `approval_required`; members also need the person's people
+   approval (`people_permission_declined` otherwise). Needs a Connect server
+   that serves people metadata for Private grants; older ones answer
+   `people_unsupported` or refuse the token.
+
+7. **Setup.** `grants.setup(client)` gives the same plan and review wording as
+   a cloud copy's `setup`. `assess()` answers `ready`, `setup_required` or
+   `incompatible`. `plan({adopt?, records?})` returns an `MdbaseSetupPlan`:
+   show its `summary`, then each `changes[].message` (for example "Add the
+   "task" record type."), and offer `adoptable` conflicts as a choice.
+   `apply(plan)` writes everything in one guarded mutation that the person's
+   computer checks. If anything changed since the review it refuses
+   `setup_changed` and writes nothing, so plan again. The planner is the SDK's
+   packaged runtime, loaded on first use. Type packs alone also work through
+   `client.typePacks`.
+
+Not covered yet for Private collections:
+
+- The `MdbaseApplication` readiness flow (`configure`) doesn't apply; use
+  `grants.setup(client)` and `grants.availability(id)`.
+- Merged entries carry `role` (`owner`, `editor`, `viewer` or `null`). Cloud
+  copies always have one. A Private entry's is `null` when Connect doesn't
+  report it: older servers, or an account whose access needs renewing. Gate
+  owner actions on `role === "owner"`; Connect still checks each action.
+
+## Native shells and browser extensions
+
+A Capacitor app declares its native origin (for example
+`capacitor://app.tasknotes.dev`) as `origin`, and lists it in the manifest under
+`installation_origins.<environment>.mobile`. Pairing then uses installation kind
+`mobile`. `capacitor://` origins default to that kind; an Android shell served
+from https sets `installationKind: "mobile"`. A Chrome extension uses its
+`chrome-extension://<id>` origin under `installation_origins.<environment>.app-runtime`.
+Firefox `moz-extension://` origins differ per profile and are not accepted by
+Connect.
+
+Where a popup is unavailable, pass a sign-in opener:
+
+```ts
+const connect = new MdbaseConnect(declaration, {
+  signIn: {
+    open: url => Browser.open({ url }),            // or chrome.tabs.create({ url })
+    close: () => Browser.close(),
+    returnUrl: "capacitor://app.tasknotes.dev/signed-in", // optional; must be a manifest redirect_uri
+  },
+  followVisibility: true, // re-poll as soon as the app returns to the foreground
+});
+```
+
+The SDK still binds the URL to the environment's Connect origin. The pending
+pairing request is persisted, so a context that closes during sign-in (an
+extension popup) resumes it on the next `start()`. Run extension sign-in from a
+side panel or tab page where possible. Without `followVisibility`, call
+`application().setForeground(active)` from the shell's resume/pause events.
+
+## Collection setup
+
+`application.setup` sets up the open collection from the app's declaration
+with one review screen. `plan(options)` changes no collection data: native Core plans the
+declared types into the collection's configured definition folders (an
+installed pack stays where it is) and the SDK words the result for a
+first-run user. Show `summary`, then `changes[].message` as a list,
+`conflicts[].message` and `refusal.message` as is. No message contains a code.
+
+Before planning, `plan` first settles any earlier setup still in progress
+(for example, records that an interrupted apply was confirmed or finally
+rejected), so it can write the SDK's own local setup journal. It never
+prepares, submits or retries a collection change.
+
+```ts
+let plan = await app.setup.plan({ records: [{ path: "Welcome.md", document: welcome }] });
+if (Object.keys(plan.adoptable).length && userChoseAppVersions) {
+  plan = await app.setup.plan({ adopt: plan.adoptable, records: [{ path: "Welcome.md", document: welcome }] });
+}
+if (plan.canApply) await app.setup.apply(plan);
+```
+
+`status` is `current` (nothing to do), `setup` or `conflict`. A conflict that
+`adoptable` lists is an existing definition with different content: if the
+user chooses the app's version, plan again with `adopt` and that definition is
+replaced over exactly the reviewed revision. `staged` holds the definition
+documents setup would write, for a details view.
+
+Starter `records` (at most 32, 256 KiB in total) are created once, in the
+same mutation as the setup, and only if setup has something to do. A path
+that is already occupied is listed with action `skip` and left alone.
+Creating them needs `records.create`. After apply, each starter record is
+checked by its identity, path and confirmation, not by its exact bytes: Core
+may canonicalize frontmatter on create, and a later edit to that note does not
+make setup fail.
+
+`apply(plan)` takes a plan from `plan` unchanged and writes everything as one
+guarded mutation, all or nothing. If the collection changed since review,
+including a definition or starter path taken in the meantime, it refuses with
+`conflict`/`setup_changed`, nothing is applied, and the next `plan` starts
+afresh. Refusal codes: `setup_forbidden` (no `definitions.manage`),
+`setup_conflict`, `setup_downgrade` (a newer app version set it up) and
+`setup_records_forbidden`.
+
+`configure()` is plan and apply in one step, for collections with nothing to
+review. A conflict leaves the configuration facet `incompatible`; use
+`setup.plan()` to show it.
+
+## Deleting a collection
+
+Owners can delete a collection for everyone with `application.deleteCollection(id, {confirmName})`.
+Show it only when the collection's `role` in `snapshot.collections` is `"owner"`, and only after a
+confirmation where the person types the collection's name. `confirmName` must equal the current name after trimming (`New collection` for an unnamed one);
+the control plane checks ownership and the name, and refuses while an account upgrade is in progress.
+
+Deletion revokes access on every device and app right away and cannot be undone. On success the
+collection leaves `collections` (and closes if it was open). A refusal rejects with a
+`collection_delete_*` code and changes nothing; pass the error to `describeError()` for the copy.
+`collection_delete_outcome_unknown` means the reply was lost: refresh the collections before retrying.
+
+## Type packs
+
+`client.typePacks.plan(pack, options)` asks the replica's Core to plan a type
+pack against the local collection and writes nothing. The plan has `status`
+(`install`, `upgrade`, `downgrade`, `reconfigure`, `current`, `conflict`),
+`canApply`, a `summary` of targets by action for a diff, per-target
+`resources`, `conflicts` with display-ready messages, and `refusal` (`code`,
+`message`) when it cannot be applied. Show `refusal.message` as is.
+
+```ts
+let plan = await client.typePacks.plan(pack, { installedBy: "app.example.notes" });
+if (Object.keys(plan.adoptable).length) {
+  // The user reviewed the existing types: let the pack manage them.
+  plan = await client.typePacks.plan(pack, { installedBy: "app.example.notes", adopt: plan.adoptable });
+}
+if (plan.canApply) {
+  const result = await client.typePacks.apply(plan);
+  // "pending" is accepted locally; wait for the original mutation to confirm.
+  if (result.outcome === "pending") await result.write!.confirmed;
+}
+```
+
+`apply(plan)` re-plans against the reviewed `digest` and submits every write
+as one mutation, so the collection gets all of it or none. Each write,
+including the lock and every adopted unchanged target, is bound to the
+revision the plan reviewed. If anything changed since review, apply refuses
+with `conflict`/`concurrent_modification`; plan again. A pack that is already
+current returns `{ outcome: "already_current" }` and writes nothing.
+Otherwise the outcome is `applied` (confirmed) or `pending` (accepted; await
+`write.confirmed`, which rejects with the original mutation's problem). A
+mutation the replica rejects or cannot settle throws its problem with the
+original `mutationId` and is never reported as applied. `dryRun` returns
+`preview` and installs nothing. Upgrades
+use the pack's seed baselines. An older version is refused
+(`type_pack_downgrade`) unless `allowDowngrade` is set.
+
+Refusal codes: `forbidden` (no `definitions.manage`, reported by `plan`),
+`type_pack_conflict`, `type_pack_downgrade`, `invalid_type_pack`,
+`type_pack_contract_setups_unsupported`, and from apply
+`concurrent_modification`. Older replicas return
+`upgrade_required`/`type_packs_unsupported`.
 
 ## Saved-view sources
 

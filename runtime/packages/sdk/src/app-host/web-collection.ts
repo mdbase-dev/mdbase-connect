@@ -1,6 +1,7 @@
 /** Concrete protected native collection composition. Runs in the original owned
  * Worker. One UI data client, SDK-owned journal/control, no duplicate leases or
  * app-private installation controller. Native host retains SQL close LAST. */
+import { appServerOutcome, type AppServerProblem } from "./cp-problem.js";
 import { MdbaseClient, type ClientOptions } from "../client.js";
 import { TimersApi } from "../timers.js";
 import { appTimerPortClient } from "./timer-port.js";
@@ -75,6 +76,7 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
     let timers: ReturnType<typeof host.openTimersPort> = null;
     let journal: AppCollectionSetupJournal | null = null, data: MessageChannel | null = null, command: MessageChannel | null = null;
     let assessment: "ready" | "setup_required" = "setup_required";
+    let problem: AppServerProblem | null = null;
     const listeners = new Set<() => void>();
     const current = () => {
       try {return !closed && !life.signal.aborted && !parentSignal.aborted && context.signal === parentSignal && context.host === host &&
@@ -108,13 +110,23 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
       life.abort(); changed(); return closing;
     };
     const abort = () => {void close().catch(() => {});};
+    // A live server refusal slows the drive: the server's retry delay while
+    // migrating (5 s..10 min), else 5 min. It clears on the next accepted reply.
+    const delay = () => {
+      const outcome = appServerOutcome(problem);
+      return outcome === null ? 250 : outcome === "collection_migrating" ? Math.min(600_000, Math.max(5_000, problem?.retryAfterMs ?? 30_000)) : 300_000;
+    };
+    const observe = () => {
+      let next: AppServerProblem | null = null; try { next = host.serverProblem(); } catch { next = null; }
+      if (next !== problem) { problem = next; changed(); }
+    };
     const schedule = () => {
       if (!current() || !foreground || timer !== null || driving) return;
       timer = setTimeout(() => {
         timer = null; if (!current() || !foreground) return;
         const work = driving = host.driveCollection({signal: life.signal});
-        void work.then(() => {if (driving === work) driving = null; schedule();}, () => {if (driving === work) driving = null; foreground = false;});
-      }, 250);
+        void work.then(() => {if (driving === work) driving = null; if (current()) observe(); schedule();}, () => {if (driving === work) driving = null; foreground = false;});
+      }, delay());
     };
     const setForeground = (active: boolean) => {check(); foreground = active; if (timer !== null) clearTimeout(timer); timer = null; if (active) schedule();};
     parentSignal.addEventListener("abort", abort, {once: true});
@@ -144,7 +156,8 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
         ...(options.people === true ? {peopleAuthority: host.peopleAuthority()} : {})});
       const connection: AppWebNativeCollection = Object.freeze({scope, generation, isCurrent: current, setForeground});
       const result: AppWebCollectionConnection<AppWebNativeCollection> = {
-        get state() {return current() ? assessment : "setup_required";}, connection, close,
+        get state() {return current() ? assessment : "setup_required";},
+        get problem() {return current() ? problem : null;}, connection, close,
         subscribe(listener) {check(); listeners.add(listener); return () => {listeners.delete(listener);};},
       };
       options.handoff(Object.freeze({schema: "mdbn-app-collection/1", scope, generation, displayName, setupMode, dataPort: data.port2, controlPort: command.port2,
@@ -173,6 +186,8 @@ export interface AppWebCollectionClient {
  * Recovery is bounded UI READ work, not a long Worker control RPC/timer/queue. */
 export async function openAppWebCollectionClient(handoff: AppWebCollectionHandoff, options: {
   app: ClientOptions["app"]; signal: AbortSignal;
+  /** The app's declared timer criteria: the default for channel registrations. */
+  timerCriteria?: readonly string[];
 }): Promise<AppWebCollectionClient> {
   if (handoff.schema !== "mdbn-app-collection/1" || used.has(handoff.dataPort) || used.has(handoff.controlPort) || handoff.dataPort === handoff.controlPort ||
     !["inspect", "approved-new", "reconcile-original"].includes(handoff.setupMode) || (handoff.people !== undefined && handoff.people !== true) || options.signal.aborted) throw fail("binding");
@@ -194,7 +209,7 @@ export async function openAppWebCollectionClient(handoff: AppWebCollectionHandof
     connector = appLocalConnector(dataPort, {...scope, isCurrent: () => !stopped && !signal.aborted});
     control = appCollectionControlClient(controlPort, {scope, generation}, {signal, isCurrent: () => !stopped, onClose: close,
       ...(peopleEnabled ? {people: true} : {})});
-    if(handoff.timerPort)timers=new TimersApi(appTimerPortClient(handoff.timerPort,{scope,generation},{signal,onClose:()=>{}}));
+    if(handoff.timerPort)timers=new TimersApi(appTimerPortClient(handoff.timerPort,{scope,generation},{signal,onClose:()=>{}}),{criteria:options.timerCriteria??[]});
     client = await MdbaseClient.connect({app: options.app, connector, reconnect: false, signal});
     if (stopped || signal.aborted) {
       // An ignored-abort connect may deliver AFTER the earlier closer set

@@ -34,6 +34,18 @@
     "./account": {
       "types": "./dist/account.d.ts",
       "import": "./dist/account.js"
+    },
+    "./notifications": {
+      "types": "./dist/notifications.d.ts",
+      "import": "./dist/notifications.js"
+    },
+    "./app-grant": {
+      "types": "./dist/app-grant/index.d.ts",
+      "import": "./dist/app-grant/index.js"
+    },
+    "./describe": {
+      "types": "./dist/describe-error.d.ts",
+      "import": "./dist/describe-error.js"
     }
   },
   "files": [
@@ -66,7 +78,7 @@
     "@mdbase-dev/connect-protocol"
   ],
   "dependencies": {
-    "@mdbase-dev/connect-protocol": "file:vendor/mdbase-dev-connect-protocol-0.1.0-beta.129-d765e675c3da.tgz",
+    "@mdbase-dev/connect-protocol": "file:vendor/mdbase-dev-connect-protocol-0.1.0-beta.129-3c14fc913a80.tgz",
     "@noble/ciphers": "2.4.0",
     "@noble/curves": "2.4.0",
     "@noble/hashes": "2.4.0"

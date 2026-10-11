@@ -1,3 +1,4 @@
+import {AppCollectionDeleteError} from "../src/app-host/collection-delete.js";
 import {afterEach,describe,expect,it,vi} from "vitest";
 import {applicationDeclaration} from "../src/application/declaration.js";
 import type {PackagedApplicationNativeAssets} from "../src/application/native-assets.js";
@@ -34,6 +35,11 @@ describe("private SDK Worker bounded lifecycle",()=>{
     expect(applicationWorkerRequest([schema,binding,1,"authorize",null],binding)[4]).toBeNull();
     expect(applicationWorkerRequest([schema,binding,1,"authorize",id],binding)[4]).toBe(id);
     expect(()=>applicationWorkerRequest([schema,binding,1,"authorize","00000000-0000-0000-0000-000000000000"],binding)).toThrow(ApplicationWorkerError);
+    const del=applicationWorkerRequest([schema,binding,1,"deleteCollection",[id,"My notes"]],binding);
+    expect(del[4]).toEqual([id,"My notes"]); expect(Object.isFrozen(del[4])).toBe(true);
+    for(const payload of [id,[id],[id,""],["not-a-uuid","My notes"],[id,"x".repeat(1025)],[id,"My notes","extra"],[id,7]])
+      expect(()=>applicationWorkerRequest([schema,binding,1,"deleteCollection",payload],binding)).toThrow(ApplicationWorkerError);
+    expect(applicationWorkerProblem(new AppCollectionDeleteError("collection_delete_not_owner"))).toEqual({code:"collection_delete_not_owner"});
   });
   it("only emits allowlisted error codes, not arbitrary fields/messages/identities",()=>{
     expect(applicationWorkerProblem({code:"secret_account_identifier",reason:"private_bearer",message:"key"})).toEqual({code:"application_worker_unavailable"});

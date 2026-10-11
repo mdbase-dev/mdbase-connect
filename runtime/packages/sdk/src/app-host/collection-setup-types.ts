@@ -5,8 +5,10 @@ export interface ModelSetupScope {
   readonly collection: string;
 }
 
+/** `rejected` is terminal and resource-setup only: the native receipt for the
+ * attempted mutation was finally rejected, so nothing it carried was applied. */
 export type ModelSetupPhase =
-  "prepared" | "attempted" | "confirmed" | "verified";
+  "prepared" | "attempted" | "confirmed" | "verified" | "rejected";
 
 /** Retained solely to recognize the original v1 plaintext. Never submit,
  * convert, clear or replace a legacy intent, including a prepared one.
@@ -181,6 +183,13 @@ export interface ModelResourceSetupJournal extends ModelSetupJournal {
     signal: AbortSignal,
   ): Promise<ResourceSetupIntent>;
   recordResourceVerified(
+    id: string,
+    signal: AbortSignal,
+  ): Promise<ResourceSetupIntent>;
+  /** Settle an attempted intent whose native receipt was finally rejected. A
+   * rejected first intent may be replaced by a fresh one; a rejected round is
+   * superseded by a new round on its verified predecessor. */
+  recordResourceRejected?(
     id: string,
     signal: AbortSignal,
   ): Promise<ResourceSetupIntent>;

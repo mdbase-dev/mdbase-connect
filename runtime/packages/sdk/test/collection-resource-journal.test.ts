@@ -69,11 +69,13 @@ describe("resource setup in the original protected model ledger", () => {
     const oldEncoded = JSON.stringify({ version: 3, scope, mutationId: scope.collection, plan, phase: "prepared" });
     expect(decode(JSON.parse(oldEncoded), scope)).toEqual(JSON.parse(oldEncoded));
     for (const wrong of [
-      { ...config, planKind: undefined }, { ...config, packs: plan.packs }, { ...config, sources: plan.sources },
+      { ...config, planKind: undefined }, { ...config, packs: plan.packs },
       { ...config, resourceOps: plan.resourceOps, resourceReadback: plan.resourceReadback },
       { ...config, sourcePolicy: "current-only" },
       { ...config, resourceOps: [{ kind: "resource_put", path: "mdbase.yaml", doc: "settings: {}\n", mustNotExist: false }] },
     ]) expect(() => modelResourcePlan(wrong)).toThrow();
+    // Starter records may ride along with configuration-only setup.
+    expect(modelResourcePlan({ ...config, sources: plan.sources }).sources).toEqual(plan.sources);
   });
   it("captures exact sources/UUIDs/ops before await and recovers monotonic v3 phases", async () => {
     const mutable = structuredClone(plan);

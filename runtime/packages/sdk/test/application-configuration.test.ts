@@ -290,3 +290,99 @@ describe("scoped application configuration phase", () => {
     finally { stop(); await f.close(); }
   });
 });
+
+describe("reviewable setup plan/apply", () => {
+  const target = "_types/task.md", adopted = `sha256:${"ef".repeat(32)}`;
+  const welcome = "---\ntitle: Welcome\n---\nStart here.\n";
+  // Stand-in for native Core: an unmanaged task type conflicts until adopted.
+  let live = `sha256:${"cd".repeat(32)}`;
+  function reviewing(f: Awaited<ReturnType<typeof fixture>>) {
+    vi.mocked(f.port.assess).mockImplementation(async (_manifest, _signal, decisions) => {
+      const adopt = decisions?.adopt?.[target] === live, done = vi.mocked(f.port.apply).mock.calls.length > 0;
+      const status = done ? "current" as const : adopt ? "provision" as const : "conflict" as const;
+      const assessmentDigest = adopt ? adopted : digest;
+      if (!decisions) return { status, assessmentDigest };
+      return { status, assessmentDigest, review: { configuration: [], staged: adopt ? [{ path: target, document: "Synthetic resource" }] : [],
+        packs: [{ id: "org.example.task", version: "1.0.0", status: done ? "current" as const : "install" as const, installedVersion: null,
+          resources: done ? [] : [{ target, kind: "type", mode: "managed" as const, installed: false, currentDigest: live, action: adopt ? "adopt" as const : "conflict" as const }] }] } };
+    });
+    vi.mocked(f.port.apply).mockImplementation(async () => ({ ...plan, assessmentDigest: adopted,
+      resourceOps: [{ kind: "resource_put", path: target, doc: "Synthetic resource", mustNotExist: false, baseRevision: live }] }));
+  }
+  it("reviews a conflict, adopts it and writes setup plus free starter records in one mutation", async () => {
+    const f = await fixture();
+    try {
+      f.replica.seedResource(target, "user's own type");
+      live = (await f.client.resources.get(target)).revision;
+      reviewing(f);
+      await (await f.client.create({ path: "Taken.md", body: "mine" })).confirmed;
+      const blocked = await f.helper.plan();
+      expect(blocked).toMatchObject({ status: "conflict", canApply: false, adoptable: { [target]: live }, refusal: { code: "setup_conflict" } });
+      expect(blocked.conflicts[0]!.message).toMatch(/already has a "task" record type/);
+      await expect(f.helper.apply(blocked)).rejects.toMatchObject({ reason: "setup_conflict" });
+      const reviewed = await f.helper.plan({ adopt: blocked.adoptable, records: [{ path: "Welcome.md", document: welcome }, { path: "Taken.md", document: welcome }] });
+      expect(reviewed).toMatchObject({ status: "setup", canApply: true, digest: adopted,
+        records: [{ path: "Welcome.md", action: "create" }, { path: "Taken.md", action: "skip" }] });
+      expect(reviewed.changes.map(c => c.message)).toEqual(["Replace your existing \"task\" record type with this app's version.", "Create the starter note \"Welcome\"."]);
+      expect(f.port.apply).not.toHaveBeenCalled();
+      const submit = vi.spyOn(f.client, "submit");
+      await f.helper.apply(reviewed);
+      expect(f.port.apply).toHaveBeenCalledWith(expect.anything(), adopted, expect.anything(), { adopt: { [target]: live } });
+      expect(submit).toHaveBeenCalledTimes(1);
+      expect(submit.mock.calls[0]![0].map(op => op.kind)).toEqual(["resource_put", "create"]);
+      expect((await f.client.get({ path: "Welcome.md" }, { body: true })).body).toBe("Start here.\n");
+      expect((await f.client.get({ path: "Taken.md" }, { body: true })).body).toBe("mine");
+      expect(f.helper.getSnapshot().assessment?.status).toBe("ready");
+      expect((await f.journal.load(f.controller.signal))?.phase).toBe("verified");
+    } finally { await f.close(); }
+  });
+  it("refuses a plan whose collection changed after review, without writing", async () => {
+    const f = await fixture();
+    try {
+      reviewing(f);
+      const reviewed = await f.helper.plan({ adopt: { [target]: live } });
+      vi.mocked(f.port.assess).mockResolvedValue({ status: "provision", assessmentDigest: `sha256:${"01".repeat(32)}` });
+      const submit = vi.spyOn(f.client, "submit");
+      await expect(f.helper.apply(reviewed)).rejects.toMatchObject({ code: "conflict", reason: "setup_changed" });
+      expect(submit).not.toHaveBeenCalled();
+      expect(await f.journal.load(f.controller.signal)).toBeNull();
+    } finally { await f.close(); }
+  });
+  it("treats native refusal of a reviewed adoption (deleted, changed or not adoptable) as setup_changed", async () => {
+    const f = await fixture();
+    try {
+      reviewing(f);
+      const reviewed = await f.helper.plan({ adopt: { [target]: live } });
+      const refused = mdbaseError("unavailable", "resource setup unavailable", "resource_setup_unavailable");
+      vi.mocked(f.port.assess).mockRejectedValue(refused);
+      const submit = vi.spyOn(f.client, "submit");
+      await expect(f.helper.apply(reviewed)).rejects.toMatchObject({ code: "conflict", reason: "setup_changed" });
+      await expect(f.helper.plan({ adopt: { [target]: live } })).rejects.toMatchObject({ code: "conflict", reason: "setup_changed" });
+      // Without decisions the same refusal is not dressed up as a stale review.
+      await expect(f.helper.plan()).rejects.toMatchObject({ reason: "resource_setup_unavailable" });
+      expect(submit).not.toHaveBeenCalled();
+      expect(await f.journal.load(f.controller.signal)).toBeNull();
+    } finally { await f.close(); }
+  });
+  it("settles a rejected setup mutation so a fresh plan can apply", async () => {
+    const f = await fixture();
+    try {
+      reviewing(f);
+      vi.mocked(f.port.apply).mockImplementation(async () => ({ ...plan, assessmentDigest: adopted }));
+      const reviewed = await f.helper.plan({ adopt: { [target]: live } });
+      // The definition appears after review: native refuses the whole mutation.
+      f.replica.seedResource(target, "raced");
+      const rejected = await f.helper.apply(reviewed).catch((error: unknown) => error);
+      expect(rejected).toMatchObject({ code: "conflict", reason: "setup_changed" });
+      const settled = await f.journal.load(f.controller.signal);
+      expect(settled).toMatchObject({ phase: "rejected", mutationId: (rejected as { mutationId: string }).mutationId });
+      const raced = (await f.client.resources.get(target)).revision;
+      vi.mocked(f.port.apply).mockClear().mockImplementation(async () => ({ ...plan, assessmentDigest: adopted,
+        resourceOps: [{ kind: "resource_put", path: target, doc: "Synthetic resource", mustNotExist: false, baseRevision: raced }] }));
+      await f.helper.apply(await f.helper.plan({ adopt: { [target]: live } }));
+      const verified = await f.journal.load(f.controller.signal);
+      expect(verified).toMatchObject({ phase: "verified" });
+      expect(verified!.mutationId).not.toBe(settled!.mutationId);
+    } finally { await f.close(); }
+  });
+});

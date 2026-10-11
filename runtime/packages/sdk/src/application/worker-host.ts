@@ -111,6 +111,7 @@ export class ApplicationWorkerHost {
       case "select":await this.session.select(payload as string);break;
       case "clearSelection":await this.session.clearSelection();break;
       case "forget":await this.session.forget(payload as string);break;
+      case "deleteCollection":{const [id,name]=payload as readonly[string,string];await this.session.deleteCollection(id,name);break;}
       case "foreground":this.foreground=payload as boolean;this.session.setForeground(this.foreground);this.applyForeground();break;
       case "close":throw new ApplicationWorkerError("application_worker_fenced");
     }

@@ -16,6 +16,7 @@
  * (`MdbaseClient`, `confirmed_through`) keeps a switch from serving older data.
  */
 import { uuidToBytes } from "../codec.js";
+import { collectionUnavailableError, parseCollectionAvailability, type CollectionAvailability } from "../collection-availability.js";
 import { isMdbaseError, mdbaseError, type MdbaseError } from "../errors.js";
 import type { Uuid } from "../wire.js";
 import { clientPrologue, KeyPair, StaticKey } from "./noise.js";
@@ -46,6 +47,8 @@ export interface NextRouteResponse {
   readonly collection: string;
   readonly grant: string;
   readonly targets: readonly NextRouteTarget[];
+  /** Private collections: advisory; `unavailable` fails the open with its reason. */
+  readonly availability?: CollectionAvailability;
   readonly reason?: "no_device_registered";
 }
 
@@ -215,6 +218,8 @@ export function nextRelayConnector(o: NextRelayConnectorOptions): Connector & { 
       if (route.collection.toLowerCase() !== collection.toLowerCase() || !UUID.test(route.grant)) {
         throw mdbaseError("unauthenticated", "the route does not match this collection's grant", "route_mismatch");
       }
+      const availability = parseCollectionAvailability(route.availability);
+      if (availability?.state === "unavailable") throw collectionUnavailableError(availability.reason);
       const selected = orderTargets(route, sticky)[0];
       if (!selected) {
         throw mdbaseError(

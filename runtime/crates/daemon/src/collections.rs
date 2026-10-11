@@ -24,7 +24,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use crate::control::{CollectionState, CollectionStatus, LogLocation, Notice};
-use crate::registry::{Entry, SyncMode};
+use crate::registry::{Entry, Origin, SyncMode};
 
 /// One hosted collection.
 pub struct CollectionHost {
@@ -114,6 +114,11 @@ pub struct HostCtx {
     pub notify: Arc<dyn Fn() + Send + Sync>,
     /// What synced collections need; `None` until the daemon is signed in.
     pub sync: Option<SyncCtx>,
+    /// An old mdbase Connect daemon is running on this device (it holds its
+    /// `daemon.lock`). Old daemons before the takeover marker check write to the
+    /// folders they served, and they take no folder host lock, so a taken-over
+    /// collection is not opened while one runs.
+    pub old_connector_running: Arc<AtomicBool>,
 }
 
 /// What a synced collection's runtime needs beyond the device identity.
@@ -128,6 +133,9 @@ pub struct SyncCtx {
     /// The installed environment trust pins, if any.
     pub trust: Option<Arc<crate::trust::Trust>>,
 }
+
+/// Status reason: a taken-over collection is closed while an old connector runs.
+pub const OLD_CONNECTOR_RUNNING: &str = "old_connector_running";
 
 /// A failed background open that never touched user files: Connect refused.
 const INELIGIBLE: &str = "ineligible: ";
@@ -400,6 +408,8 @@ impl CollectionHost {
             (CollectionState::Opening, None) // see current()
         } else if self.ctx.is_none() {
             (CollectionState::Unavailable, Some("runtime_pending"))
+        } else if self.blocked_by_old_connector() {
+            (CollectionState::Unavailable, Some(OLD_CONNECTOR_RUNNING))
         } else if self.entry.mode != SyncMode::Local {
             match self.start_synced() {
                 Ok(()) => (CollectionState::Opening, None),
@@ -423,6 +433,15 @@ impl CollectionHost {
         };
         self.state = state;
         self.reason = reason.map(str::to_string);
+    }
+
+    /// Whether a running old connector keeps this taken-over collection closed.
+    pub fn blocked_by_old_connector(&self) -> bool {
+        self.entry.origin == Origin::MigratedLocal
+            && self
+                .ctx
+                .as_ref()
+                .is_some_and(|c| c.old_connector_running.load(Ordering::SeqCst))
     }
 
     /// Link and start a synced collection, or say why not (a status reason).
@@ -656,6 +675,16 @@ impl CollectionHost {
                 code: "no_other_device_online".into(),
                 message: "No other device with this collection is online. Web apps can \
                           load it only while one of your devices is online."
+                    .into(),
+            });
+        }
+        if self.reason.as_deref() == Some(OLD_CONNECTOR_RUNNING) {
+            notices.push(Notice {
+                code: OLD_CONNECTOR_RUNNING.into(),
+                message: "The old mdbase Connect is running on this computer and could still \
+                          change this folder, so mdbase has stopped using it. Quit mdbase \
+                          Connect (including its menu-bar or tray icon) or update it; mdbase \
+                          resumes on its own."
                     .into(),
             });
         }

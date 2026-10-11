@@ -200,6 +200,7 @@ pub async fn run_with(
     let signals = tokio::spawn(wait_for_signal(daemon.clone()));
     let strict_reports = tokio::spawn(daemon.clone().strict_witness_reports());
     let account_keys = tokio::spawn(daemon.clone().account_key_reconcile());
+    let old_connector = tokio::spawn(daemon.clone().watch_old_connector());
 
     let mut stop = daemon.shutdown.subscribe();
     loop {
@@ -251,6 +252,7 @@ pub async fn run_with(
     signals.abort();
     strict_reports.abort();
     account_keys.abort();
+    old_connector.abort();
     let close = async {
         let mut inner = daemon.inner.lock().await;
         for h in &mut inner.hosts {
@@ -337,6 +339,8 @@ async fn initialize(d: Arc<Daemon>) {
     for e in registry.collections.iter().filter(|e| e.ever_e2e) {
         access.force_approval(&e.id);
     }
+    // Before any host opens: a taken-over folder stays closed while an old daemon runs.
+    d.check_old_connector().await;
     {
         let mut inner = d.inner.lock().await;
         inner.access = access;
@@ -506,11 +510,12 @@ impl Daemon {
 
     async fn status(&self) -> DaemonStatus {
         let inner = self.inner.lock().await;
+        let taken = self.takeover_record();
         let mut collections = Vec::with_capacity(inner.hosts.len());
         for host in &inner.hosts {
-            collections.push(with_access_notices(
-                host.observed_status().await,
-                &inner.access,
+            collections.push(with_takeover_holds(
+                with_access_notices(host.observed_status().await, &inner.access),
+                taken.as_ref(),
             ));
         }
         DaemonStatus {
@@ -864,11 +869,12 @@ impl Daemon {
             }
             Method::COLLECTION_LIST => {
                 let inner = self.inner.lock().await;
+                let taken = self.takeover_record();
                 let mut collections = Vec::with_capacity(inner.hosts.len());
                 for host in &inner.hosts {
-                    collections.push(with_access_notices(
-                        host.observed_status().await,
-                        &inner.access,
+                    collections.push(with_takeover_holds(
+                        with_access_notices(host.observed_status().await, &inner.access),
+                        taken.as_ref(),
                     ));
                 }
                 to_value(&collections)
@@ -1114,11 +1120,155 @@ impl Daemon {
     async fn holds(&self, id: &str) -> Result<Value, ControlError> {
         use mdbn_wire::Wire;
         use mdbn_wire::client::Hold;
-        let rt = self.runtime_of(id).await?;
-        let result = host_call(&rt, "list_holds", mdbn_wire::cbor::Cbor::Null).await?;
-        let holds: Vec<Hold> = Wire::from_cbor(&result)
-            .map_err(|_| ControlError::internal("the replica's holds do not decode"))?;
-        Ok(json!(holds.iter().map(hold_summary).collect::<Vec<_>>()))
+        // Files held at the takeover list beside the replica's own holds, and
+        // even while the collection does not serve.
+        let taken = crate::takeover::held::open(&self.takeover_paths().legacy, id)
+            .map_err(|e| ControlError::internal(format!("takeover holds: {e}")))?;
+        let mut out = match self.runtime_of(id).await {
+            Ok(rt) => {
+                let result = host_call(&rt, "list_holds", mdbn_wire::cbor::Cbor::Null).await?;
+                let holds: Vec<Hold> = Wire::from_cbor(&result)
+                    .map_err(|_| ControlError::internal("the replica's holds do not decode"))?;
+                holds.iter().map(hold_summary).collect::<Vec<_>>()
+            }
+            Err(e) if taken.is_empty() => return Err(e),
+            Err(_) => Vec::new(),
+        };
+        out.extend(taken.iter().map(takeover_hold_summary));
+        Ok(json!(out))
+    }
+
+    /// Resolve a file held at the takeover. Keep this computer's: the folder
+    /// already has it. Take the other: the old engine's version (or its
+    /// delete) is written as this device's edit. Keep both: the old version is
+    /// added beside it as `<name> (old version).md`. Then the hold is cleared.
+    async fn resolve_takeover_hold(&self, p: &ResolveHold) -> Result<Value, ControlError> {
+        use mdbn_wire::intent::{Create, Delete, DocVersion, Document, Op};
+        let _run = self.takeover.run.lock().await;
+        let paths = self.takeover_paths();
+        let held = crate::takeover::held::open(&paths.legacy, &p.collection)
+            .map_err(|e| ControlError::internal(format!("takeover holds: {e}")))?
+            .into_iter()
+            .find(|h| h.id == p.id)
+            .ok_or_else(|| ControlError::not_found(format!("no hold {}", p.id)))?;
+        let ops = match p.how {
+            HoldAction::KeepMine => Vec::new(),
+            HoldAction::Delete => {
+                return Err(ControlError::invalid(
+                    "unsupported",
+                    "files held at the takeover are resolved with keep_mine, take_theirs or keep_both",
+                ));
+            }
+            HoldAction::TakeTheirs | HoldAction::KeepBoth => {
+                let text = match &held.intended {
+                    None => None,
+                    Some(b) => Some(
+                        std::str::from_utf8(b)
+                            .ok()
+                            .filter(|_| is_markdown_path(&held.path))
+                            .ok_or_else(|| {
+                                ControlError::invalid(
+                                    "binary",
+                                    "this file is not a note; keep this computer's version \
+                                     (`keep_mine`) and restore the other one by hand",
+                                )
+                            })?
+                            .to_string(),
+                    ),
+                };
+                let rt = self.runtime_of(&p.collection).await?;
+                let current = record_at(&rt, &held.path).await?;
+                match (p.how, text) {
+                    // The other version is a delete: there is nothing to keep beside.
+                    (HoldAction::KeepBoth, None) => Vec::new(),
+                    (HoldAction::KeepBoth, Some(t)) => {
+                        let root = self.entry_root(&p.collection).await?;
+                        let mut target = None;
+                        for c in crate::takeover::held::keep_both_paths(&held.path) {
+                            if !root.join(&c).exists() && record_at(&rt, &c).await?.is_none() {
+                                target = Some(c);
+                                break;
+                            }
+                        }
+                        let target = target.ok_or_else(|| {
+                            ControlError::new(
+                                "conflict",
+                                "no_free_name",
+                                "no free name for the old version",
+                            )
+                        })?;
+                        vec![Op::Create(Create {
+                            id: mdbn_wire::common::B16(new_uuid_v7()),
+                            path: Some(target),
+                            type_name: None,
+                            frontmatter: None,
+                            body: None,
+                            document: Some(mdbn_wire::common::Text::Inline(t)),
+                        })]
+                    }
+                    (_, Some(t)) => match current {
+                        Some(r) => vec![Op::Document(Document {
+                            id: r.id,
+                            base: r.document.map(|d| DocVersion {
+                                path: r.path.clone(),
+                                doc: mdbn_wire::common::Text::Inline(d),
+                            }),
+                            new: Some(DocVersion {
+                                path: held.path.clone(),
+                                doc: mdbn_wire::common::Text::Inline(t),
+                            }),
+                            if_revision: Some(r.revision),
+                        })],
+                        None => vec![Op::Create(Create {
+                            id: mdbn_wire::common::B16(new_uuid_v7()),
+                            path: Some(held.path.clone()),
+                            type_name: None,
+                            frontmatter: None,
+                            body: None,
+                            document: Some(mdbn_wire::common::Text::Inline(t)),
+                        })],
+                    },
+                    (_, None) => match current {
+                        Some(r) => vec![Op::Delete(Delete {
+                            id: r.id,
+                            base_revision: Some(r.revision),
+                            if_revision: None,
+                        })],
+                        None => Vec::new(),
+                    },
+                }
+            }
+        };
+        let (mutation, state) = if ops.is_empty() {
+            ([0u8; 16], "confirmed")
+        } else {
+            let rt = self.runtime_of(&p.collection).await?;
+            submit_confirmed(&rt, ops).await?
+        };
+        crate::takeover::held::resolve(
+            &paths.record,
+            &paths.legacy,
+            &p.collection,
+            std::slice::from_ref(&held.path),
+        )
+        .map_err(|e| ControlError::internal(format!("takeover holds: {e}")))?;
+        drop(_run);
+        self.bump();
+        Ok(json!(HoldResolved {
+            mutation: secrets::uuid_string(&mutation),
+            state: state.into(),
+        }))
+    }
+
+    /// The registered folder of `id`.
+    async fn entry_root(&self, id: &str) -> Result<std::path::PathBuf, ControlError> {
+        self.inner
+            .lock()
+            .await
+            .registry
+            .get(id)
+            .map(|e| e.root.clone())
+            .ok_or_else(|| ControlError::not_found(format!("no registered collection {id}")))
     }
 
     /// `collection.resolve_hold`: resolve one hold as the hosting app (the user's
@@ -1127,6 +1277,9 @@ impl Daemon {
         use mdbn_wire::Wire;
         use mdbn_wire::cbor::Cbor;
         use mdbn_wire::client::{Receipt, ReceiptState};
+        if p.id.starts_with(crate::takeover::held::ID_PREFIX) {
+            return self.resolve_takeover_hold(&p).await;
+        }
         let id: [u8; 16] = secrets::hex_decode(&p.id.replace('-', ""))
             .ok()
             .and_then(|v| v.try_into().ok())
@@ -1581,7 +1734,35 @@ impl Daemon {
     /// re-run after a crash continues from the journal, and a re-run once linked
     /// returns the status.
     async fn enable_sync(&self, p: EnableSync) -> Result<Value, ControlError> {
+        // Accepting takeover holds clears them: the takeover gate comes first, as
+        // in a takeover run.
+        let _takeover = if p.accept_takeover_holds {
+            Some(self.takeover.run.lock().await)
+        } else {
+            None
+        };
         let _gate = self.account_gate.lock().await;
+        // Before anything else: a running old daemon could write the folder meanwhile.
+        let taken_over = self
+            .inner
+            .lock()
+            .await
+            .registry
+            .get(&p.collection)
+            .is_some_and(|e| e.origin == crate::registry::Origin::MigratedLocal);
+        if taken_over
+            && self
+                .takeover
+                .old_running
+                .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            return Err(ControlError::unavailable(
+                crate::collections::OLD_CONNECTOR_RUNNING,
+                "the old mdbase Connect is running on this computer and could still change \
+                 this folder; quit it (including its menu-bar or tray icon) or update it, \
+                 then turn on sync",
+            ));
+        }
         let (ctx, trust) = self.sync_parts()?;
         let entry = self
             .inner
@@ -1677,7 +1858,9 @@ impl Daemon {
         } else {
             mdbn_wire::policy::CState::CloudCopy
         };
-        // Adopt: holds first, then the inventory from the serving local runtime.
+        // Adopt: takeover holds first; then the serving local runtime is frozen
+        // (writers fenced, inventory and hold counts taken at that one point,
+        // stopped), so no acknowledged write or new hold can fall outside the plan.
         let inventory = if adopting && journal.is_none() {
             adopt_holds_refusal(
                 &self.profile.state_dir,
@@ -1699,20 +1882,47 @@ impl Daemon {
                     "the collection must be serving to turn sync on; resume it and run again",
                 )
             })?;
-            let status = rt
-                .status()
-                .await
-                .ok_or_else(|| ControlError::internal("collection stopped"))?;
-            adopt_holds_refusal(
-                &self.profile.state_dir,
-                &entry.id,
-                true,
-                Some((status.holds, status.unresolved)),
-            )?;
-            let (records, resources) = rt
-                .inventory()
-                .await
-                .ok_or_else(|| ControlError::internal("collection inventory unavailable"))?;
+            let frozen = rt.freeze().await;
+            let refused = match &frozen {
+                None => Some(ControlError::internal("collection inventory unavailable")),
+                Some(f) => adopt_holds_refusal(
+                    &self.profile.state_dir,
+                    &entry.id,
+                    true,
+                    Some((f.holds, f.unresolved)),
+                )
+                .err(),
+            };
+            if let Some(e) = refused {
+                // Nothing was changed: serve the collection again as it was.
+                let mut inner = self.inner.lock().await;
+                if let Some(host) = inner.hosts.iter_mut().find(|h| h.entry().id == entry.id) {
+                    host.close().await;
+                    host.set_entry(entry.clone());
+                }
+                return Err(e);
+            }
+            if p.accept_takeover_holds {
+                // Explicitly accepted: this computer's versions stay, as with
+                // keep_mine, and the holds are cleared.
+                let paths = self.takeover_paths();
+                let accepted: Vec<String> = crate::takeover::held::open(&paths.legacy, &entry.id)
+                    .map_err(|e| ControlError::internal(format!("takeover holds: {e}")))?
+                    .into_iter()
+                    .map(|h| h.path)
+                    .collect();
+                if !accepted.is_empty() {
+                    tracing::info!(collection = %entry.id, files = accepted.len(), "takeover holds accepted as this computer's versions");
+                    crate::takeover::held::resolve(
+                        &paths.record,
+                        &paths.legacy,
+                        &entry.id,
+                        &accepted,
+                    )
+                    .map_err(|e| ControlError::internal(format!("takeover holds: {e}")))?;
+                }
+            }
+            let (records, resources) = frozen.map(|f| f.inventory).unwrap_or_default();
             let records = if migrated {
                 crate::adopt::prefer_legacy_ids(
                     records,
@@ -2111,6 +2321,13 @@ impl Daemon {
         }
     }
 
+    /// The takeover record, if readable (status decoration only).
+    fn takeover_record(&self) -> Option<crate::takeover::record::Record> {
+        crate::takeover::record::Record::load(&self.takeover_paths().record)
+            .ok()
+            .flatten()
+    }
+
     fn takeover_paths(&self) -> crate::takeover::Paths {
         crate::takeover::Paths::new(&self.profile.state_dir, self.profile.store_ids_file())
     }
@@ -2192,6 +2409,7 @@ impl Daemon {
             now: crate::takeover::now_rfc3339(),
         };
         let p2 = paths.clone();
+        let _own = self.takeover.holding_old_lock();
         let ran = tokio::task::spawn_blocking(move || {
             let mut old_service: Box<dyn mdbn_takeover::OldService> = if isolated {
                 Box::new(crate::takeover::IsolatedOldService)
@@ -2344,6 +2562,7 @@ impl Daemon {
         let p2 = plan.clone();
         let paths2 = paths.clone();
         let connector2 = connector.to_owned();
+        let _own = self.takeover.holding_old_lock();
         let locks = tokio::task::spawn_blocking(move || {
             if !isolated {
                 crate::service::legacy::OldConnectorService::new()
@@ -2399,10 +2618,15 @@ impl Daemon {
         let mut holds = serde_json::Map::new();
         if let Some(r) = &record {
             for id in r.collections.keys() {
-                if let Ok(Some(ev)) = crate::takeover::adapter::Evidence::load(&paths.legacy, id)
-                    && !ev.holds.is_empty()
+                // Open ones only: resolved holds are gone from the list.
+                if let Ok(open) = crate::takeover::held::open(&paths.legacy, id)
+                    && !open.is_empty()
                 {
-                    holds.insert(id.clone(), json!(ev.holds));
+                    let open: Vec<Value> = open
+                        .iter()
+                        .map(|h| json!({"id": h.id, "path": h.path, "reason": h.cause}))
+                        .collect();
+                    holds.insert(id.clone(), json!(open));
                 }
             }
         }
@@ -2754,10 +2978,110 @@ fn hold_summary(h: &mdbn_wire::client::Hold) -> HoldSummary {
     }
 }
 
+fn takeover_hold_summary(h: &crate::takeover::held::Held) -> HoldSummary {
+    HoldSummary {
+        id: h.id.clone(),
+        path: h.path.clone(),
+        reason: crate::takeover::held::REASON.into(),
+        since: h.since,
+        saves: 0,
+        has_theirs: true,
+        binary: !is_markdown_path(&h.path)
+            || h.intended
+                .as_ref()
+                .is_some_and(|b| std::str::from_utf8(b).is_err()),
+    }
+}
+
+fn is_markdown_path(path: &str) -> bool {
+    path.rsplit_once('.')
+        .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("md"))
+}
+
+/// A random UUIDv7 (ms timestamp, then random bits).
+fn new_uuid_v7() -> [u8; 16] {
+    let mut b = [0u8; 16];
+    let _ = getrandom::fill(&mut b);
+    let ms = (crate::fsutil::now_ms() as u64).to_be_bytes();
+    b[..6].copy_from_slice(&ms[2..]);
+    b[6] = (b[6] & 0x0f) | 0x70;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    b
+}
+
+/// The record at `path` with its exact source, or `None`.
+async fn record_at(
+    rt: &Arc<crate::runtime::Runtime>,
+    path: &str,
+) -> Result<Option<mdbn_wire::client::RecordView>, ControlError> {
+    use mdbn_wire::Wire;
+    use mdbn_wire::cbor::Cbor;
+    let include = mdbn_wire::client::Include {
+        effective: None,
+        body: None,
+        document: Some(true),
+        diagnostics: None,
+    };
+    let params = Cbor::Map(vec![
+        (Cbor::Uint(0), Cbor::Text(path.into())),
+        (Cbor::Uint(1), include.to_cbor()),
+    ]);
+    match host_call(rt, "get", params).await {
+        Ok(v) => mdbn_wire::client::RecordView::from_cbor(&v)
+            .map(Some)
+            .map_err(|_| ControlError::internal("the replica's record does not decode")),
+        Err(e) if e.code == "not_found" => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// Submit `ops` as the hosting app and wait for confirmation: the mutation ID
+/// and its state. A rejection is an error.
+async fn submit_confirmed(
+    rt: &Arc<crate::runtime::Runtime>,
+    ops: Vec<mdbn_wire::intent::Op>,
+) -> Result<([u8; 16], &'static str), ControlError> {
+    use mdbn_wire::Wire;
+    use mdbn_wire::client::{Receipt, ReceiptState, SubmitParams, WaitFor};
+    let submit = SubmitParams {
+        ops,
+        mutation_id: None,
+        conflict_mode: None,
+        timezone: None,
+        allow_partial: None,
+        mutation_ids: None,
+        dry_run: None,
+        include: None,
+        wait: Some(WaitFor::Confirmed),
+    };
+    let result = host_call(rt, "submit", submit.to_cbor()).await?;
+    let receipts: Vec<Receipt> = Wire::from_cbor(&result)
+        .map_err(|_| ControlError::internal("the replica's receipt does not decode"))?;
+    let r = receipts
+        .into_iter()
+        .next()
+        .ok_or_else(|| ControlError::internal("no receipt"))?;
+    let state = match r.state {
+        ReceiptState::Pending => "pending",
+        ReceiptState::Confirmed => "confirmed",
+        ReceiptState::Unknown => "unknown",
+        ReceiptState::Rejected => {
+            return Err(ControlError::new(
+                "conflict",
+                "rejected",
+                "the change was rejected; the hold stays open",
+            ));
+        }
+    };
+    Ok((r.mutation.0, state))
+}
+
 /// How long a one-shot host call may take.
 const HOST_CALL_TIMEOUT: Duration = Duration::from_secs(20);
 /// How long `collection.resume` waits for the collection to serve again.
 const RESUME_WAIT: Duration = Duration::from_secs(30);
+/// How often the daemon checks whether an old connector daemon has started.
+const OLD_CONNECTOR_POLL: Duration = Duration::from_secs(5);
 
 /// One client-API request on a collection's runtime as the hosting app: a
 /// `SessionAuth::Host` session (the daemon is the host; no grant, so the mutation
@@ -2885,9 +3209,10 @@ fn adopt_holds_refusal(
         return Err(ControlError::invalid(
             "takeover_holds",
             format!(
-                "{held} file(s) were held when this collection was taken over; both versions \
-                 are in the folder. Review them, then run `mdbase sync enable {id} \
-                 --accept-takeover-holds`"
+                "{held} file(s) were held when this collection was taken over: the folder has \
+                 this computer's version and mdbase kept the other. Review them with `mdbase \
+                 holds {id}` and `mdbase resolve`, or accept this computer's versions with \
+                 `mdbase sync enable {id} --accept-takeover-holds`"
             ),
         ));
     }
@@ -3191,6 +3516,31 @@ fn access_error(e: crate::access::AccessError) -> ControlError {
 }
 
 /// Add the access-list notices for one collection.
+/// Files held at the takeover count as holds: they are listed and resolved with
+/// the replica's (`collection.holds`), and sync turns on once none are left.
+fn with_takeover_holds(
+    mut s: CollectionStatus,
+    record: Option<&crate::takeover::record::Record>,
+) -> CollectionStatus {
+    let held = record
+        .and_then(|r| r.collections.get(&s.id))
+        .map_or(0, |c| c.holds);
+    if held > 0 {
+        if let Some(sync) = s.sync.as_mut() {
+            sync.holds += held;
+        }
+        s.notices.push(Notice {
+            code: "takeover_holds".into(),
+            message: format!(
+                "{held} file(s) were held when mdbase took over from the old connector: \
+                 the folder has this computer's version and mdbase kept the other. \
+                 Review them before turning sync on."
+            ),
+        });
+    }
+    s
+}
+
 fn with_access_notices(mut s: CollectionStatus, access: &AccessList) -> CollectionStatus {
     for e in access.list(Some(&s.id)) {
         let (code, verb) = match e.state {
@@ -3645,6 +3995,12 @@ impl crate::relay::RelayHost for Daemon {
         }
         self.bump();
     }
+
+    fn old_connector_running(&self) -> bool {
+        self.takeover
+            .old_running
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
 }
 
 impl Daemon {
@@ -4069,7 +4425,59 @@ impl Daemon {
                 Arc::new(move || changes.send_modify(|n| *n += 1))
             },
             sync: self.sync_ctx(),
+            old_connector_running: self.takeover.old_running.clone(),
         })
+    }
+
+    /// Re-check, every [`OLD_CONNECTOR_POLL`], whether an old connector daemon runs.
+    async fn watch_old_connector(self: Arc<Self>) {
+        loop {
+            tokio::time::sleep(OLD_CONNECTOR_POLL).await;
+            self.check_old_connector().await;
+        }
+    }
+
+    /// Probe the old connector's `daemon.lock`. When an old daemon starts, taken-over
+    /// collections are closed (an old daemon from before the takeover marker check
+    /// writes to them and takes no folder host lock); when it stops, they reopen.
+    async fn check_old_connector(&self) {
+        let Some(old) = crate::takeover::old_state_dir(&self.profile) else {
+            return;
+        };
+        // One non-blocking lock attempt on a local file.
+        let Some(running) = self.takeover.probe_old_connector(&old) else {
+            return;
+        };
+        let ordering = std::sync::atomic::Ordering::SeqCst;
+        if self.takeover.old_running.load(ordering) == running {
+            return;
+        }
+        let _gate = self.account_gate.lock().await;
+        let mut inner = self.inner.lock().await;
+        let inner = &mut *inner;
+        self.takeover.old_running.store(running, ordering);
+        if running {
+            tracing::error!(
+                "old_connector_running: the old mdbase Connect daemon is running; \
+                 taken-over collections are closed until it stops"
+            );
+        } else {
+            tracing::info!(
+                "the old mdbase Connect daemon stopped; reopening taken-over collections"
+            );
+        }
+        for h in inner.hosts.iter_mut() {
+            if h.entry().origin != crate::registry::Origin::MigratedLocal {
+                continue;
+            }
+            if running {
+                h.close().await;
+            }
+            h.refresh();
+            h.publish_grants(&inner.access);
+        }
+        drop(_gate);
+        self.bump();
     }
 
     /// What synced collections need: the signed-in Connect client and connector,

@@ -7,14 +7,22 @@ import { AppCloudCopyBootstrapError } from "./cloud-copy-bootstrap.js";
 import { AppCollectionSetupError } from "./collection-setup-journal.js";
 import { AppCollectionControlError } from "./collection-control.js";
 import { AppCollectionJoinError } from "./collection-join-ledger.js";
+import { AppCpAuthorityError } from "./cp-authority.js";
+import { AppHttpLogError } from "./http-log.js";
+import { sanitizeAppServerProblem, type AppServerProblem } from "./cp-problem.js";
+import type { RegistrationRefusal } from "../application/registration-refusal.js";
 
 export interface AppWebSignInProblemDetail {
   readonly name: string;
   readonly code: string | null;
+  /** Sanitized server refusal (status, problem code/reason, retry, update URL). */
+  readonly server?: AppServerProblem;
+  /** A refused app registration's typed code and manifest paths. */
+  readonly registration?: RegistrationRefusal;
 }
-const reasons = new Set(["binding", "fenced", "busy", "account_confirmation_required", "outcome_unknown", "response", "refused", "expired", "recovery_required", "unavailable"]);
+const reasons = new Set(["binding", "fenced", "busy", "account_confirmation_required", "outcome_unknown", "response", "refused", "expired", "recovery_required", "unavailable", "collection_migrating", "account_suspended", "update_required"]);
 const domCodes = new Set(["AbortError", "ConstraintError", "DataCloneError", "InvalidStateError", "NotAllowedError", "NotFoundError", "NotReadableError", "OperationError", "QuotaExceededError", "SecurityError", "TimeoutError", "TransactionInactiveError", "UnknownError", "VersionError"]);
-const result = (problem: string, name: string, code: string | null) => Object.freeze({problem, detail: Object.freeze({name, code})});
+const result = (problem: string, name: string, code: string | null, server?: AppServerProblem) => Object.freeze({problem, detail: Object.freeze({name, code, ...(server ? {server} : {})})});
 
 export function webSignInProblem(error: unknown): Readonly<{problem: string; detail: AppWebSignInProblemDetail}> {
   try {
@@ -25,10 +33,14 @@ export function webSignInProblem(error: unknown): Readonly<{problem: string; det
       [AppCollectionSetupError, "AppCollectionSetupError"],
       [AppCollectionControlError, "AppCollectionControlError"],
       [AppCollectionJoinError, "AppCollectionJoinError"],
+      [AppCpAuthorityError, "AppCpAuthorityError"],
+      [AppHttpLogError, "AppHttpLogError"],
     ] as const) {
       if (error instanceof type) {
         const code = error.reason;
-        return reasons.has(code) ? result(code, name, code) : result("open_failed", name, null);
+        // An SDK error class does not prove its server detail: re-validate it.
+        const server = ("server" in error ? sanitizeAppServerProblem(error.server) : null) ?? undefined;
+        return reasons.has(code) ? result(code, name, code, server) : result("open_failed", name, null, server);
       }
     }
     if (error instanceof MdbaseError) {

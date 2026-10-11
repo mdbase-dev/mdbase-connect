@@ -1,6 +1,7 @@
 /** First-party protected installation sign-in. Internal until SAME original
  * native-owner/cloud-host composition is qualified. No app-grant authority,
  * ambient cookies, automatic polling/renewal or new-actor retry. */
+import { parseCollectionAvailability, type CollectionAvailability } from "../collection-availability.js";
 import { uuidToBytes } from "../codec.js";
 import { collectionDisplayName } from "./collection-display-name.js";
 import { isAppEnvironmentSelection, type AppEnvironmentSelection } from "./app-environment.js";
@@ -9,9 +10,10 @@ import { isAppInstallationId, type AppInstallationCustodyAuthority } from "./own
 import type { AppCloudCopyHostSession } from "./cloud-copy-host.js";
 import type { AppDeviceCustodyPersistence } from "./device-registration.js";
 import type { AppDeviceKeyCustodyPin } from "./device-key-custody.js";
+import { appServerOutcome, appServerProblem, type AppServerOutcome, type AppServerProblem } from "./cp-problem.js";
 import type { AppNoiseCustodyResult, AppWasmRuntime, AppDeviceRegistrationReceipt } from "./wasm-runtime.js";
 export class AppInstallationSignInError extends Error {
-  constructor(readonly reason: "binding" | "fenced" | "busy" | "account_confirmation_required" | "outcome_unknown" | "response" | "refused" | "expired" | "recovery_required") {
+  constructor(readonly reason: "binding" | "fenced" | "busy" | "account_confirmation_required" | "outcome_unknown" | "response" | "refused" | "expired" | "recovery_required" | AppServerOutcome, readonly server?: AppServerProblem) {
     super(`app installation sign-in: ${reason}`); this.name = "AppInstallationSignInError";
   }
 }
@@ -117,6 +119,8 @@ interface State {
   timerConsent?: AppInstallationTimerConsent;
   timerChannel?: AppInstallationTimerChannel;
   appId: string; kind: "app-runtime" | "mobile";
+  /** Present exactly when the store is owner-labelled; see AppInstallationStoreOptions.owner. */
+  owner?: string;
   origin: string; cpOrigin: string; environment: string;
   selection: Selection | null; confirmed: boolean; nativeStarted: boolean; proof: Proof | null; token: string | null;
 }
@@ -132,6 +136,8 @@ export interface AppInstallationSignInOptions extends AppInstallationStoreOption
   /** Explicit next-app build selection; absent retains the frozen original
    * environment/origin policy, never selects a new origin implicitly. */
   readonly environmentSelection?: AppEnvironmentSelection;
+  /** Pairing kind; "mobile" for Capacitor apps. Bound into the stored request. */
+  readonly installationKind?: "app-runtime" | "mobile";
 }
 export interface AppInstallationCollectionConsentView {
   readonly requestId: string;
@@ -149,6 +155,8 @@ export interface AppInstallationCollection {
   readonly collectionId: string;
   readonly displayName: string;
   readonly role: "owner" | "editor" | "viewer";
+  /** Present only when Connect reports it; absent means available. */
+  readonly availability?: CollectionAvailability;
 }
 export interface AppInstallationSignInView {
   readonly requestId: string; readonly installationId: string; readonly deviceId: string;
@@ -203,8 +211,9 @@ export class AppProtectedInstallationSignIn {
     try {
       if (!["lab", "staging", "production"].includes(p.environment) || !isAppInstallationId(p.appId) ||
           typeof p.appName !== "string" || !p.appName.length || p.appName.length > 100 || p.appName.trim() !== p.appName) throw fail("binding");
-      // Browser host only. Capacitor OS custody and per-environment mobile origins
-      // are not qualified here; do not silently use web storage for mobile.
+      // Capacitor ("mobile") keeps custody in the WebView's origin-bound
+      // IndexedDB, like a browser app; the CP binds the declared native origin.
+      if (p.installationKind !== undefined && p.installationKind !== "app-runtime" && p.installationKind !== "mobile") throw fail("binding");
       const selection = p.environmentSelection;
       if (p.requestedCreateCollections !== undefined && typeof p.requestedCreateCollections !== "boolean") throw fail("binding");
       if (selection !== undefined) {
@@ -218,7 +227,7 @@ export class AppProtectedInstallationSignIn {
         const bytes = crypto.getRandomValues(new Uint8Array(32));
         try {
           const secret = `pair_${btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
-          return new TextEncoder().encode(JSON.stringify({version: 3, renewal: null, requestedCreateCollections: p.requestedCreateCollections ?? false, collectionIds: [], createCollections: false, consentRequest: null, requestId: crypto.randomUUID(), installationId: crypto.randomUUID(), deviceId: crypto.randomUUID(), secret, appId: p.appId, kind: "app-runtime", origin: p.origin, cpOrigin: p.cpOrigin, environment: p.environment, selection: null, confirmed: false, nativeStarted: false, proof: null, token: null} satisfies State));
+          return new TextEncoder().encode(JSON.stringify({version: 3, renewal: null, requestedCreateCollections: p.requestedCreateCollections ?? false, collectionIds: [], createCollections: false, consentRequest: null, requestId: crypto.randomUUID(), installationId: crypto.randomUUID(), deviceId: crypto.randomUUID(), secret, appId: p.appId, ...(p.owner === undefined ? {} : {owner: p.owner}), kind: p.installationKind ?? "app-runtime", origin: p.origin, cpOrigin: p.cpOrigin, environment: p.environment, selection: null, confirmed: false, nativeStarted: false, proof: null, token: null} satisfies State));
         } finally { bytes.fill(0); }
       });
       const state = this.decode(opened.plaintext, p);
@@ -233,8 +242,8 @@ export class AppProtectedInstallationSignIn {
     const fields = `${base},requestedCreateCollections,collectionIds,createCollections,consentRequest`;
     const r = legacy ? {...object(parsed, base), version: 3, renewal: null, requestedCreateCollections: false, collectionIds: [], createCollections: false, consentRequest: null}
       : parsed?.version === 2 ? {...object(parsed, fields), version: 3, renewal: null}
-      : object(parsed, `${fields},renewal${Object.hasOwn(parsed, "collectionSelection") ? ",collectionSelection" : ""}${Object.hasOwn(parsed,"timerConsent") ? ",timerConsent" : ""}${Object.hasOwn(parsed,"timerChannel") ? ",timerChannel" : ""}`);
-    if (r.version !== 3 || r.appId !== p.appId || r.kind !== "app-runtime" || r.origin !== p.origin || r.cpOrigin !== p.cpOrigin || r.environment !== p.environment || typeof r.confirmed !== "boolean" || typeof r.nativeStarted !== "boolean") throw fail("recovery_required");
+      : object(parsed, `${fields},renewal${Object.hasOwn(parsed, "collectionSelection") ? ",collectionSelection" : ""}${Object.hasOwn(parsed,"timerConsent") ? ",timerConsent" : ""}${Object.hasOwn(parsed,"timerChannel") ? ",timerChannel" : ""}${Object.hasOwn(parsed,"owner") ? ",owner" : ""}`);
+    if (r.version !== 3 || r.appId !== p.appId || (r as {owner?: unknown}).owner !== p.owner || r.kind !== (p.installationKind ?? "app-runtime") || r.origin !== p.origin || r.cpOrigin !== p.cpOrigin || r.environment !== p.environment || typeof r.confirmed !== "boolean" || typeof r.nativeStarted !== "boolean") throw fail("recovery_required");
     const s = r as unknown as State;
     if (typeof s.requestedCreateCollections !== "boolean" || typeof s.createCollections !== "boolean" ||
         (p.requestedCreateCollections !== undefined && p.requestedCreateCollections !== s.requestedCreateCollections)) throw fail("binding");
@@ -312,7 +321,7 @@ export class AppProtectedInstallationSignIn {
   }
   /** Single bounded request, no cookie, redirect, ambient auth or automatic retry.
    * A network failure may have committed: only explicit SAME-request reconcile. */
-  private async json(path: string, secret: boolean, body?: unknown, auth?: {bearer: string; get?: boolean; patch?: boolean}): Promise<{status: number; value: Record<string, unknown>}> {
+  private async json(path: string, secret: boolean, body?: unknown, auth?: {bearer: string; get?: boolean; patch?: boolean; delete?: boolean}): Promise<{status: number; value: Record<string, unknown>}> {
     this.check(); const ctrl = new AbortController(), abort = () => ctrl.abort(), timer = setTimeout(abort, 15000);
     this.lifetime.signal.addEventListener("abort", abort, {once: true});
     let response: Response | null = null, reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
@@ -320,7 +329,7 @@ export class AppProtectedInstallationSignIn {
     // bounded names. Reject oversize before accumulating/parsing the body.
     const bytes = new Uint8Array(auth?.get || path.endsWith("/exchange") ? 1024 * 1024 : 64 * 1024); let count = 0;
     try {
-      response = await this.request(`${this.state.cpOrigin}${path}`, {method: auth?.get ? "GET" : auth?.patch ? "PATCH" : "POST", headers: {...(auth ? {authorization: `Bearer ${auth.bearer}`} : secret ? {authorization: `Bearer ${this.state.secret}`} : {}), ...(body === undefined ? {} : {"content-type": "application/json"})}, body: body === undefined ? undefined : JSON.stringify(body), credentials: "omit", redirect: "error", cache: "no-store", referrerPolicy: "no-referrer", signal: ctrl.signal});
+      response = await this.request(`${this.state.cpOrigin}${path}`, {method: auth?.get ? "GET" : auth?.patch ? "PATCH" : auth?.delete ? "DELETE" : "POST", headers: {...(auth ? {authorization: `Bearer ${auth.bearer}`} : secret ? {authorization: `Bearer ${this.state.secret}`} : {}), ...(body === undefined ? {} : {"content-type": "application/json"})}, body: body === undefined ? undefined : JSON.stringify(body), credentials: "omit", redirect: "error", cache: "no-store", referrerPolicy: "no-referrer", signal: ctrl.signal});
       this.check(); if (ctrl.signal.aborted) throw fail("outcome_unknown");
       const length = response.headers.get("content-length");
       // Fetch decodes content-encoding, which CORS may hide. Wire length is
@@ -341,7 +350,8 @@ export class AppProtectedInstallationSignIn {
           this.expiredRequestId = this.state.requestId;
           throw fail("expired");
         }
-        throw fail("refused");
+        const server = appServerProblem(response.status, value, response.headers);
+        throw new AppInstallationSignInError(appServerOutcome(server) ?? "refused", server);
       }
       return {status: response.status, value: value as Record<string, unknown>};
     } catch (e) { this.check(); if (e instanceof AppInstallationSignInError) throw e; throw fail("outcome_unknown"); }
@@ -495,9 +505,10 @@ export class AppProtectedInstallationSignIn {
       object(v, "collections"); if (status !== 200 || !Array.isArray(v.collections) || v.collections.length > 1000) throw fail("response");
       const seen = new Set<string>();
       return Object.freeze(v.collections.map(value => {
-        const r = object(value, "collection_id,display_name,role"), collectionId = id(r.collection_id);
+        const r = object(value, value && typeof value === "object" && "availability" in value ? "collection_id,display_name,role,availability" : "collection_id,display_name,role"), collectionId = id(r.collection_id);
         if (seen.has(collectionId) || typeof r.display_name !== "string" || !r.display_name.length || r.display_name.length > 1024 || (r.role !== "owner" && r.role !== "editor" && r.role !== "viewer")) throw fail("response");
-        seen.add(collectionId); return Object.freeze({collectionId, displayName: r.display_name, role: r.role});
+        const availability = parseCollectionAvailability(r.availability);
+        seen.add(collectionId); return Object.freeze({collectionId, displayName: r.display_name, role: r.role, ...(availability ? {availability} : {})});
       }));
     });
   }
@@ -517,6 +528,22 @@ export class AppProtectedInstallationSignIn {
       const response = object(value, "collection_id,display_name");
       if (status !== 200 || response.collection_id !== collectionId || response.display_name !== name) throw fail("response");
       return Object.freeze({collectionId, displayName: name});
+    });
+  }
+  /** Fresh explicit owner intent only: soft-delete one approved collection for
+   * everyone. `confirmName` must equal the current name (the CP checks it).
+   * The CP is authoritative for ownership, freeze and scope. No retry: a lost
+   * response is UNKNOWN; refresh the catalog, never infer the outcome. */
+  deleteApprovedCollection(installation: AppInstallationCustodyAuthority, collectionId: string, confirmName: string): Promise<Readonly<{collectionId: string; deleted: true}>> {
+    let name: string;
+    try { id(collectionId); name = collectionDisplayName(confirmName); } catch { return Promise.reject(fail("binding")); }
+    const check = this.consentGuard(installation);
+    return this.exclusive(async () => {
+      check(); if (!this.state.collectionIds.includes(collectionId)) throw fail("refused");
+      const {status, value} = await this.json(`/v1/next/collections/${collectionId}`, false, {confirm_name: name}, {bearer: this.state.token!, delete: true}); check();
+      const response = object(value, "collection_id,deleted");
+      if (status !== 200 || response.collection_id !== collectionId || response.deleted !== true) throw fail("response");
+      return Object.freeze({collectionId, deleted: true as const});
     });
   }
   /** Consume only this object's protected current portal-confirmed selection.

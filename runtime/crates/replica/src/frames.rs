@@ -941,6 +941,24 @@ fn dispatch(api: &mut dyn ClientApi, s: SessionId, method: &str, params: &Cbor) 
             };
             Ok(api.map_contract_write(s, request)?.to_cbor())
         }
+        "plan_type_pack_v1" => {
+            let m = m?;
+            if m.iter().any(|(key, _)| !matches!(key, Cbor::Uint(0..=7)))
+                || dec::<u64>(req(m, 0)?)? != 1
+            {
+                return Err(bad("Unsupported type pack envelope."));
+            }
+            let request = crate::api::TypePackRequest {
+                provision: dec(req(m, 1)?)?,
+                installed_by: dec(req(m, 2)?)?,
+                adopt: opt(m, 3)?,
+                preserve_seed_targets: opt(m, 4)?.unwrap_or_default(),
+                target_overrides: opt(m, 5)?,
+                allow_downgrade: opt(m, 6)?.unwrap_or(false),
+                expected: opt(m, 7)?,
+            };
+            Ok(api.plan_type_pack(s, request)?.to_cbor())
+        }
         "subscribe" => {
             let m = m?;
             let q: Value = dec(req(m, 0)?)?;

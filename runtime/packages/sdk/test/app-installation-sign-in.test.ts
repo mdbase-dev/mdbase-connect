@@ -1,3 +1,5 @@
+import { collectionDeleteError } from "../src/app-host/collection-delete.js";
+import { describeError } from "../src/describe-error.js";
 import { webcrypto } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppProtectedInstallationSignIn } from "../src/app-host/installation-sign-in.js";
@@ -8,7 +10,7 @@ const account = "11111111-1111-4111-8111-111111111111", connector = "22222222-22
 const pk = {signPublicKey: new Uint8Array(32).fill(3), kemPublicKey: new Uint8Array(32).fill(4), noisePublicKey: new Uint8Array(32).fill(5)};
 const hex = (b: Uint8Array) => Array.from(b, v => v.toString(16).padStart(2, "0")).join("");
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
-async function fixture(requestedCreateCollections = false) {
+async function fixture(requestedCreateCollections = false, extra: {installationKind?: "app-runtime" | "mobile"; owner?: string} = {}) {
   vi.stubGlobal("crypto", webcrypto); vi.stubGlobal("location", {origin});
   const trace: string[] = [], requests: {path: string; body: unknown; bearer: unknown}[] = [];
   let saved: Uint8Array | null = null, current = true, selected = false, approved = false, commitFailure = false, failHttp = false, oversized = false;
@@ -42,7 +44,7 @@ async function fixture(requestedCreateCollections = false) {
     change(value); if (oversized) value = {padding: "a".repeat(65537)};
     return new Response(JSON.stringify(value), {status});
   }) as unknown as typeof fetch;
-  const options = {origin, cpOrigin, appId: "44444444-4444-4444-8444-444444444444", appName, environment: "lab" as const, mode: "fresh" as "fresh" | "existing", signal: new AbortController().signal, locks: undefined, fetch: request, requestedCreateCollections};
+  const options = {origin, cpOrigin, appId: "44444444-4444-4444-8444-444444444444", appName, environment: "lab" as const, mode: "fresh" as "fresh" | "existing", signal: new AbortController().signal, locks: undefined, fetch: request, requestedCreateCollections, ...extra};
   const flow = await AppProtectedInstallationSignIn.open(options);
   const installation = {scope: {account, installation: flow.view().installationId}, isCurrent: () => true};
   const custody = {...pk, envelope: new Uint8Array([6, 7])};
@@ -51,6 +53,22 @@ async function fixture(requestedCreateCollections = false) {
   return {flow, options, installation, custody, runtime, persistence, trace, requests, read, request, editSaved:(change:(s:Record<string,unknown>)=>void)=>{const s=read();change(s);saved=new TextEncoder().encode(JSON.stringify(s));}, setSelected: () => {selected = true;}, setApproved: () => {approved = true;}, setFailHttp: () => {failHttp = true;}, setCommitFailure: () => {commitFailure = true;}, setOversized: () => {oversized = true;}, change: (fn: typeof change) => {change = fn;}};
 }
 const expiredReply = () => new Response(JSON.stringify({error:{code:"installation_pairing_expired",message:"expired"}}),{status:404});
+describe("installation kind", () => {
+  it("binds mobile into the stored request and pairing body; a different kind cannot reopen it", async () => {
+    const f = await fixture(false, {installationKind: "mobile"});
+    expect(f.read().kind).toBe("mobile");
+    await f.flow.start().catch(() => {});
+    expect((f.requests[0]!.body as {installation: {kind: string}}).installation.kind).toBe("mobile");
+    await expect(AppProtectedInstallationSignIn.open({...f.options, mode: "existing", installationKind: "app-runtime"})).rejects.toMatchObject({reason: "recovery_required"});
+  });
+  it("restores only a record labelled with the same local owner", async () => {
+    const owner = "bundle:dev.example.notes", f = await fixture(false, {owner});
+    expect(f.read().owner).toBe(owner);
+    await expect(AppProtectedInstallationSignIn.open({...f.options, mode: "existing"})).resolves.toBeDefined();
+    for (const other of [{owner: "bundle:dev.example.other"}, {owner: undefined}])
+      await expect(AppProtectedInstallationSignIn.open({...f.options, ...other, mode: "existing"})).rejects.toMatchObject({reason: "recovery_required"});
+  });
+});
 describe("explicit expired-window retry preserves original actor", () => {
   it("commits a new request/parent capability before HTTP, retaining actor and create policy",async()=>{
     const f=await fixture(true), original=f.read();vi.mocked(f.request).mockResolvedValueOnce(expiredReply());
@@ -260,6 +278,32 @@ describe("explicit approved collection rename", () => {
     vi.mocked(f.request).mockImplementationOnce(async () => { f.installation.isCurrent = () => false; return new Response(JSON.stringify({collection_id: collection, display_name: "Research"})); });
     await expect(f.flow.renameApprovedCollection(f.installation, collection, "Research")).rejects.toMatchObject({reason: "fenced"});
     expect(f.request).toHaveBeenCalledTimes(calls + 1);
+  });
+});
+describe("explicit owner collection delete", () => {
+  it("sends one DELETE with the trimmed confirmation and maps CP refusals to bounded codes", async () => {
+    const f = await approvedCollection(), before = f.read();
+    vi.mocked(f.request).mockImplementationOnce(async (input, init) => {
+      expect(String(input)).toBe(`${cpOrigin}/v1/next/collections/${collection}`);
+      expect(init).toMatchObject({method: "DELETE", credentials: "omit", redirect: "error", cache: "no-store"});
+      expect((init!.headers as Record<string,string>).authorization).toBe(`Bearer ${before.token}`);
+      expect(JSON.parse(String(init!.body))).toEqual({confirm_name: "Research"});
+      return new Response(JSON.stringify({collection_id: collection, deleted: true}));
+    });
+    expect(await f.flow.deleteApprovedCollection(f.installation, collection, "  Research  ")).toEqual({collectionId: collection, deleted: true});
+    const calls = vi.mocked(f.request).mock.calls.length;
+    await expect(f.flow.deleteApprovedCollection(f.installation, connector, "Research")).rejects.toMatchObject({reason: "refused"});
+    expect(f.request).toHaveBeenCalledTimes(calls);
+    for (const [status, code, outcome] of [[409, "collection_name_mismatch", "collection_delete_name_mismatch"], [403, "not_owner", "collection_delete_not_owner"],
+      [409, "migration_frozen", "collection_delete_frozen"], [404, "not_found", "collection_delete_not_found"], [403, "constructor", "collection_delete_failed"]] as const) {
+      vi.mocked(f.request).mockResolvedValueOnce(new Response(JSON.stringify({error: {code, message: "server text"}}), {status}));
+      const error = await f.flow.deleteApprovedCollection(f.installation, collection, "Research").catch((e: unknown) => e);
+      expect(collectionDeleteError(error).code).toBe(outcome);
+    }
+    vi.mocked(f.request).mockResolvedValueOnce(new Response(JSON.stringify({collection_id: collection, deleted: false})));
+    await expect(f.flow.deleteApprovedCollection(f.installation, collection, "Research")).rejects.toMatchObject({reason: "response"});
+    vi.mocked(f.request).mockRejectedValueOnce(Error("lost reply"));
+    expect(collectionDeleteError(await f.flow.deleteApprovedCollection(f.installation, collection, "Research").catch((e: unknown) => e)).code).toBe("collection_delete_outcome_unknown");
   });
 });
 async function paired(requestedCreateCollections = false) {
@@ -514,6 +558,23 @@ describe("protected installation lifecycle (stand-in store/CP/native, actual ran
       return new Response(JSON.stringify({collections: [{collection_id: collection, display_name: "Tasks", role: "editor"}]}));
     });
     expect(await f.flow.listApprovedCollections(f.installation)).toEqual([{collectionId: collection, displayName: "Tasks", role: "editor"}]); expect(f.read()).toEqual(before);
+  });
+  it("carries a listed collection's availability, strictly parsed; absent means available", async () => {
+    const f = await paired(), ids = ["0b4c1a52-58f1-4a9e-9f43-6a7f8d2f3e10", "1b4c1a52-58f1-4a9e-9f43-6a7f8d2f3e11", "2b4c1a52-58f1-4a9e-9f43-6a7f8d2f3e12"];
+    vi.mocked(f.request).mockImplementationOnce(async () => new Response(JSON.stringify({collections: [
+      {collection_id: collection, display_name: "Tasks", role: "editor"},
+      {collection_id: ids[0], display_name: "Moving", role: "owner", availability: {state: "unavailable", reason: "collection_migrating"}},
+      {collection_id: ids[1], display_name: "Odd", role: "owner", availability: {state: "unavailable", reason: "something_new"}},
+      {collection_id: ids[2], display_name: "Gone", role: "viewer", availability: {state: "unavailable", reason: "collection_deleted"}},
+    ]})));
+    const listed = await f.flow.listApprovedCollections(f.installation);
+    expect(listed[0]).toEqual({collectionId: collection, displayName: "Tasks", role: "editor"});
+    expect(listed.map(c => c.availability)).toEqual([undefined, {state: "unavailable", reason: "collection_migrating"}, {state: "unavailable", reason: "device_offline"}, {state: "unavailable", reason: "collection_deleted"}]);
+    expect(describeError(listed[3])?.title).toBe("Collection deleted");
+    expect(describeError(listed[1])?.key).toBe("collection_migrating");
+    // Only the availability key is new; anything else still refuses the response.
+    vi.mocked(f.request).mockImplementationOnce(async () => new Response(JSON.stringify({collections: [{collection_id: collection, display_name: "Tasks", role: "editor", ready: true}]})));
+    await expect(f.flow.listApprovedCollections(f.installation)).rejects.toThrow("response");
   });
   it("invalid registry identifier/name refuses before opening pre-account storage", async () => {
     const f = await fixture(), count = vi.mocked(AppInstallationStore.open).mock.calls.length;

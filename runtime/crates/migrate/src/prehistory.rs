@@ -77,6 +77,12 @@ where
     Ok(out)
 }
 
+#[cfg(any(test, feature = "hosted-service"))]
+#[path = "prehistory_seal.rs"]
+mod sealing;
+#[cfg(any(test, feature = "hosted-service"))]
+pub use sealing::{RetainedArchive, RetainedFileVersion, seal_file_version, seal_retained_history};
+
 #[cfg(test)]
 mod tests {
     use super::*;

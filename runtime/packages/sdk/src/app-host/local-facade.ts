@@ -10,7 +10,7 @@ import { mdbaseError } from "../errors.js";
 import { inProcessConnector } from "../transport/inprocess.js";
 import { MAX_FRAME, type Connector, type FramePort } from "../transport/port.js";
 import type { AppWasmRuntime } from "./wasm-runtime.js";
-import type { AppResourceSetupPort } from "./collection-control.js";
+import type { AppResourceDecisions, AppResourceSetupPort } from "./collection-control.js";
 
 export interface AppLocalScope {
   readonly account: string;
@@ -101,7 +101,7 @@ function bridge(channel: MessagePort, source: AppLocalScope, receive: (frame: Cb
 /** Worker-side attachment, AFTER ownership and genuine native bootstrap/adoption.
  * AppWasmRuntime checks the original collection; a caller cannot choose a grant
  * or request a different native authority. No host-control RPC is exposed. */
-export function attachAppLocalFacade(runtime: Pick<AppWasmRuntime, "connect"> & Partial<Pick<AppWasmRuntime, "executeBases" | "discoverBases" | "setupResources">>, channel: MessagePort, source: AppLocalScope): { close(): void; readonly resourceSetup: AppResourceSetupPort } {
+export function attachAppLocalFacade(runtime: Pick<AppWasmRuntime, "connect"> & Partial<Pick<AppWasmRuntime, "executeBases" | "discoverBases" | "setupResources" | "resourceRejected">>, channel: MessagePort, source: AppLocalScope): { close(): void; readonly resourceSetup: AppResourceSetupPort } {
   const original = pin(source);
   if (!original.current()) throw unavailable();
   let native: FramePort;
@@ -123,16 +123,24 @@ export function attachAppLocalFacade(runtime: Pick<AppWasmRuntime, "connect"> & 
     native.onclose = () => wire.close();
   } catch { native.close(); channel.close(); throw unavailable(); }
   const resourceSetup: AppResourceSetupPort = Object.freeze({
-    async assess(manifest: unknown, signal: AbortSignal) {
+    async assess(manifest: unknown, signal: AbortSignal, decisions?: AppResourceDecisions) {
       signal.throwIfAborted(); wire.current();
       if (!runtime.setupResources) throw unavailable();
-      const result = runtime.setupResources(native, "assess", manifest);
+      const result = decisions === undefined ? runtime.setupResources(native, "assess", manifest)
+        : runtime.setupResources(native, "assess", manifest, undefined, decisions);
       wire.current(); signal.throwIfAborted(); return result;
     },
-    async apply(manifest: unknown, assessmentDigest: string, signal: AbortSignal) {
+    async apply(manifest: unknown, assessmentDigest: string, signal: AbortSignal, decisions?: AppResourceDecisions) {
       signal.throwIfAborted(); wire.current();
       if (!runtime.setupResources) throw unavailable();
-      const result = runtime.setupResources(native, "apply", manifest, assessmentDigest);
+      const result = decisions === undefined ? runtime.setupResources(native, "apply", manifest, assessmentDigest)
+        : runtime.setupResources(native, "apply", manifest, assessmentDigest, decisions);
+      wire.current(); signal.throwIfAborted(); return result;
+    },
+    async rejected(mutationId: string, signal: AbortSignal) {
+      signal.throwIfAborted(); wire.current();
+      if (!runtime.resourceRejected) return false;
+      const result = runtime.resourceRejected(native, mutationId);
       wire.current(); signal.throwIfAborted(); return result;
     },
   });

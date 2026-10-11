@@ -92,6 +92,17 @@ pub type ReadinessView = (
 /// resource paths.
 pub type Inventory = (Vec<([u8; 16], String)>, Vec<String>);
 
+/// A local collection's last state before adopt, taken by [`Runtime::freeze`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Frozen {
+    /// Records and resources.
+    pub inventory: Inventory,
+    /// Held files and unresolved conflicts at the same instant.
+    pub holds: u64,
+    /// Unresolved conflicts.
+    pub unresolved: u64,
+}
+
 /// A synced collection's log link and locally persisted trust anchors.
 #[derive(Clone)]
 pub struct Synced {
@@ -150,6 +161,8 @@ enum Cmd {
     Readiness(oneshot::Sender<ReadinessView>),
     /// Rescan, then list the confirmed records and resources.
     Inventory(oneshot::Sender<Option<Inventory>>),
+    /// Stop admitting writes, settle, take the inventory and hold counts, stop.
+    Freeze(oneshot::Sender<Option<Frozen>>),
     /// A content-free digest of the confirmed records.
     Digest(oneshot::Sender<Option<(u64, [u8; 32])>>),
     /// Counters and digests from ONE serialized actor observation.
@@ -412,6 +425,22 @@ impl Runtime {
         let (tx, rx) = oneshot::channel();
         self.tx.send(Cmd::Inventory(tx)).ok()?;
         rx.await.ok().flatten()
+    }
+
+    /// Stop the runtime at a single point for adopt: sessions are closed first,
+    /// so no write is admitted after the snapshot; the folder is rescanned; the
+    /// inventory and hold counts are taken; then the runtime stops as
+    /// [`Runtime::stop`] does. `None` (and still stopped) when it was already
+    /// stopped or the store could not be read.
+    pub async fn freeze(&self) -> Option<Frozen> {
+        let (tx, rx) = oneshot::channel();
+        let sent = self.tx.send(Cmd::Freeze(tx)).is_ok();
+        let frozen = if sent { rx.await.ok().flatten() } else { None };
+        let thread = self.thread.lock().ok().and_then(|mut t| t.take());
+        if let Some(t) = thread {
+            let _ = tokio::task::spawn_blocking(move || t.join()).await;
+        }
+        frozen
     }
 
     /// The replica's sync status (confirmed through, pending, holds, conflicts,
@@ -695,6 +724,7 @@ fn open_replica(
     )
     .map_err(|e| OpenFailed(format!("store: {e}")))?;
     let diagnostics = store.platform().diagnostics();
+    let platform = store.platform().clone();
     if diagnostics.backup_exclusion_failures != 0 {
         tracing::warn!(
             backup_exclusion_failures = diagnostics.backup_exclusion_failures,
@@ -785,7 +815,7 @@ fn open_replica(
     }
     if let Some(plan) = &cfg.adopt {
         rep.begin_adopt(Box::new(crate::adopt::FolderSource::new(
-            &cfg.root,
+            platform,
             plan.clone(),
         )));
     }
@@ -1249,6 +1279,36 @@ fn run(
                         observe_due = Some(std::time::Instant::now() + WATCH_SETTLE);
                     }
                 }
+            }
+            Ok(Cmd::Freeze(reply)) => {
+                // Writers first: every frame queued before this command has been
+                // handled; closing the sessions admits nothing after it.
+                if let Some(session) = active_log.take() {
+                    rep.retire_authenticated_log(session.authenticated());
+                }
+                for s in outs.keys().copied().collect::<Vec<_>>() {
+                    frames.close(&mut rep, s);
+                }
+                drop(watcher);
+                rep.store_mut().inner_mut().request_rescan();
+                let frozen = match rep.observe(None) {
+                    Ok(_) => inventory(&rep).map(|inventory| {
+                        let status = rep.sync_status();
+                        Frozen {
+                            inventory,
+                            holds: status.holds,
+                            unresolved: status.unresolved,
+                        }
+                    }),
+                    Err(e) => {
+                        tracing::warn!(error = ?e, "observe failed");
+                        None
+                    }
+                };
+                drop(link);
+                drop(rep);
+                let _ = reply.send(frozen);
+                return;
             }
             Ok(Cmd::Stop(done)) => {
                 // Classify original in-flight outcomes while the Store is still

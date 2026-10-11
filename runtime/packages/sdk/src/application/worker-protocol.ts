@@ -1,16 +1,19 @@
 import type {ApplicationDeclarationSnapshot} from "./declaration.js";
 import {MdbaseError,isErrorCode} from "../errors.js";
 import {AppInstallationSignInError} from "../app-host/installation-sign-in.js";
+import {AppCollectionDeleteError,COLLECTION_DELETE_CODES} from "../app-host/collection-delete.js";
 import type {AppWebSignInSnapshot} from "../app-host/web-sign-in-session.js";
 import type {AppWebCollectionHandoff} from "../app-host/web-collection.js";
 
 export const APPLICATION_WORKER_PROTOCOL="mdbn-application-worker/1";
 export const APPLICATION_WORKER_MAX_ID=0xffffffff;
-export type ApplicationWorkerAction="start"|"authorize"|"renewExpiredPairing"|"select"|"clearSelection"|"forget"|"foreground"|"close";
+export type ApplicationWorkerAction="start"|"authorize"|"renewExpiredPairing"|"select"|"clearSelection"|"forget"|"deleteCollection"|"foreground"|"close";
+/** `deleteCollection` payload: [collection UUID, typed confirmation name]. */
+export type ApplicationWorkerPayload=string|boolean|null|readonly[string,string];
 export type ApplicationWorkerBootstrap=readonly[typeof APPLICATION_WORKER_PROTOCOL,string,Readonly<ApplicationDeclarationSnapshot>];
 /** ID zero is a bounded one-way visibility signal, not an operation/RPC.
  * Original asynchronous operations retain the sole positive-ID slot. */
-export type ApplicationWorkerRequest=readonly[typeof APPLICATION_WORKER_PROTOCOL,string,number,ApplicationWorkerAction,string|boolean|null];
+export type ApplicationWorkerRequest=readonly[typeof APPLICATION_WORKER_PROTOCOL,string,number,ApplicationWorkerAction,ApplicationWorkerPayload];
 export interface ApplicationWorkerProblem {readonly code:string}
 /** Private transport snapshot, NOT aggregate semantic READY. The SDK UI owner
  * must join current native evidence and all declaration-required facets. */
@@ -31,9 +34,13 @@ export function applicationWorkerRequest(value:unknown,binding:string):Applicati
   if(!Array.isArray(value)||value.length!==5||value[0]!==APPLICATION_WORKER_PROTOCOL||value[1]!==binding||
     !Number.isInteger(value[2])||value[2]<0||value[2]>APPLICATION_WORKER_MAX_ID||(value[2]===0&&value[3]!=="foreground"))return fail();
   const action=value[3],payload=value[4];
-  if(!["start","authorize","renewExpiredPairing","select","clearSelection","forget","foreground","close"].includes(action))fail();
+  if(!["start","authorize","renewExpiredPairing","select","clearSelection","forget","deleteCollection","foreground","close"].includes(action))fail();
   if(action==="select"||action==="forget"){
     if(typeof payload!=="string"||!payload||payload.length>256||/[\u0000-\u001f\u007f]/.test(payload))fail();
+  }else if(action==="deleteCollection"){
+    if(!Array.isArray(payload)||payload.length!==2||typeof payload[0]!=="string"||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(payload[0])||
+      typeof payload[1]!=="string"||!payload[1]||payload[1].length>1024)fail();
+    return Object.freeze([value[0],value[1],value[2],action,Object.freeze([payload[0],payload[1]])]) as ApplicationWorkerRequest;
   }else if(action==="authorize"){
     // Optional transient collection hint (canonical UUID) for Connect preselection.
     if(payload!==null&&(typeof payload!=="string"||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(payload)||payload==="00000000-0000-0000-0000-000000000000"))fail();
@@ -46,6 +53,7 @@ export function applicationWorkerRequest(value:unknown,binding:string):Applicati
 export function applicationWorkerProblem(error:unknown):ApplicationWorkerProblem {
   try {
   if(error instanceof ApplicationWorkerError)return Object.freeze({code:error.code});
+  if(error instanceof AppCollectionDeleteError&&(COLLECTION_DELETE_CODES as readonly string[]).includes(error.code))return Object.freeze({code:error.code});
   if(error instanceof AppInstallationSignInError&&["binding","fenced","busy","account_confirmation_required","outcome_unknown","response","refused","expired","recovery_required"].includes(error.reason))return Object.freeze({code:error.reason});
   if(error instanceof MdbaseError&&isErrorCode(error.code)){
     const allowed=["application_packaged_assets_unavailable","application_production_trust_unavailable","application_asset_binding","application_asset_unavailable","application_asset_fetch","application_asset_response","application_asset_stop_failed","application_asset_fenced"];

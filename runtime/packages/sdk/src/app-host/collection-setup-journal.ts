@@ -246,8 +246,9 @@ export function modelResourcePlan(value: unknown): ModelResourcePlan {
     p.resourceReadback.length + p.sources.length > MODEL_SETUP_LIMITS.readbacks
   )
     fail("binding");
+  // Configuration-only setup may still carry the caller's starter records.
   if (Object.hasOwn(p, "planKind") && (p.planKind !== "configuration-only" || p.packs.length !== 0
-    || p.sources.length !== 0 || !p.resourceOps.length || p.resourceOps.some(op => !op || op.kind !== "resource_put"
+    || !p.resourceOps.length || p.resourceOps.some(op => !op || op.kind !== "resource_put"
       || !["mdbase.yaml", "mdbase.provisions.yaml"].includes(op.path)))) fail("binding");
   const packIds = new Set<string>();
   const packs = p.packs.map((pack) => {
@@ -377,7 +378,8 @@ export function decode(
     typeof v.mutationId !== "string" ||
     !uuid.test(v.mutationId) ||
     v.mutationId === "00000000-0000-0000-0000-000000000000" ||
-    !phases.includes(v.phase)
+    !(phases.includes(v.phase as (typeof phases)[number])
+      || (v.phase === "rejected" && (v.version === 3 || v.version === 4)))
   )
     fail("recovery_required");
   const bound = scopeCopy(v.scope);
@@ -805,8 +807,9 @@ export class AppCollectionSetupJournal implements ModelResourceSetupJournal {
     return this.exclusive(signal, async (db) => {
       const stored = await this.read(db, signal),
         existing = await this.unwrap(stored, signal);
-      if (existing) {
+      if (existing && !(existing.version === 3 && existing.phase === "rejected")) {
         // Only identical v3 recovery; existing v1/v2 can NEVER grow new seeds.
+        // A rejected first intent applied nothing and is replaced below.
         if (existing.version !== 3) fail("recovery_required");
         if (JSON.stringify(existing.plan) !== JSON.stringify(captured))
           fail("binding");
@@ -834,7 +837,10 @@ export class AppCollectionSetupJournal implements ModelResourceSetupJournal {
     const captured = modelResourcePlan(plan);
     return this.exclusive(signal, async (db) => {
       const stored = await this.read(db, signal);
-      const previous = await this.unwrap(stored, signal);
+      let previous = await this.unwrap(stored, signal);
+      // A rejected round applied nothing: chain from its verified predecessor.
+      if (previous?.version === 4 && previous.phase === "rejected")
+        previous = previous.previous;
       if (!previous || previous.mutationId !== previousMutationId)
         fail("binding");
       if (previous.phase !== "verified") fail("recovery_required");
@@ -855,7 +861,7 @@ export class AppCollectionSetupJournal implements ModelResourceSetupJournal {
   }
   private advanceResource(
     id: string,
-    phase: ModelSetupIntent["phase"],
+    phase: (typeof phases)[number],
     signal: AbortSignal,
   ): Promise<ResourceSetupIntent> {
     return this.exclusive(signal, async (db) => {
@@ -864,6 +870,8 @@ export class AppCollectionSetupJournal implements ModelResourceSetupJournal {
       if (!existing || (existing.version !== 3 && existing.version !== 4))
         fail("recovery_required");
       if (existing.mutationId !== id) fail("binding");
+      // A rejected intent is terminal; it never advances.
+      if (existing.phase === "rejected") fail("recovery_required");
       const from = phases.indexOf(existing.phase),
         to = phases.indexOf(phase);
       if (to < from || to > from + 1) fail("recovery_required");
@@ -891,9 +899,26 @@ export class AppCollectionSetupJournal implements ModelResourceSetupJournal {
   ): Promise<ResourceSetupIntent> {
     return this.advanceResource(id, "verified", signal);
   }
+  recordResourceRejected(
+    id: string,
+    signal: AbortSignal,
+  ): Promise<ResourceSetupIntent> {
+    return this.exclusive(signal, async (db) => {
+      const stored = await this.read(db, signal),
+        existing = await this.unwrap(stored, signal);
+      if (!existing || (existing.version !== 3 && existing.version !== 4))
+        fail("recovery_required");
+      if (existing.mutationId !== id) fail("binding");
+      if (existing.phase === "rejected") return existing;
+      if (existing.phase !== "attempted") fail("recovery_required");
+      const value = decode({ ...existing, phase: "rejected" }, this.scope);
+      if (value.version !== 3 && value.version !== 4) fail("binding");
+      return this.commit(db, stored, value, signal);
+    });
+  }
   private advance(
     id: string,
-    phase: ModelSetupIntent["phase"],
+    phase: (typeof phases)[number],
     signal: AbortSignal,
   ): Promise<ModelPackSetupIntent> {
     return this.exclusive(signal, async (db) => {
@@ -902,6 +927,8 @@ export class AppCollectionSetupJournal implements ModelResourceSetupJournal {
       if (!loaded) fail("recovery_required");
       const existing = packIntent(loaded);
       if (existing.mutationId !== id) fail("binding");
+      // A rejected intent is terminal; it never advances.
+      if (existing.phase === "rejected") fail("recovery_required");
       const from = phases.indexOf(existing.phase),
         to = phases.indexOf(phase);
       if (to < from || to > from + 1) fail("recovery_required");

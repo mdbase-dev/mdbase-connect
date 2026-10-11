@@ -2,6 +2,7 @@ import type { ApplicationNotifications } from "@mdbase-dev/connect-protocol";
 import type { AppReplicaScope } from "../app-host/owner.js";
 import { mdbaseError } from "../errors.js";
 import type { TimersApi } from "../timers.js";
+import { declaredTimerCriteria } from "./timer-criteria.js";
 import type {
     MdbaseApplicationFacetSnapshot,
     MdbaseApplicationRequestOptions,
@@ -208,6 +209,11 @@ export function createApplicationNotificationReadiness(
                     }),
                     problem: null,
                 });
+            }
+            // Timers reach the connection only after the user approves them
+            // for this collection. Say so, so the app can ask again.
+            if (!read && declaredTimerCriteria(declaration).length) {
+                return snapshot("notifications_consent_required");
             }
             if (
                 !declaration ||

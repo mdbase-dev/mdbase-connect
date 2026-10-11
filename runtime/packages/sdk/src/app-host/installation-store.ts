@@ -1,6 +1,7 @@
 /** Internal pre-account sign-in ledger. Nonextractable origin AES handle + bounded
  * encrypted operation in ONE strict IDB commit. Not an account KEK, generic KV,
  * OS keychain, XSS boundary or physical durability/collection Saved guarantee. */
+import { currentAppOrigin, isAppOrigin } from "./app-origin.js";
 import { acquireAppSignInLease, isAppInstallationId, AppReplicaOwnerError, type AppLockPort, type AppReplicaLease } from "./owner.js";
 const STORE = "installation-sign-in", KEY = "original", MAX = 128 * 1024; // bounded original + additive consent receipts (<=1000 IDs each)
 export class AppInstallationStorageError extends Error {
@@ -11,6 +12,10 @@ const equal = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every
 function kek(v: unknown): CryptoKey {
   if (typeof CryptoKey !== "function" || !(v instanceof CryptoKey) || v.type !== "secret" || v.extractable || v.algorithm.name !== "AES-GCM" || (v.algorithm as AesKeyAlgorithm).length !== 256 || v.usages.length !== 2 || !v.usages.includes("encrypt") || !v.usages.includes("decrypt")) throw fail();
   return v;
+}
+/** A bounded printable label, e.g. `bundle:<manifest id>`. */
+export function isInstallationOwner(v: unknown): v is string {
+  return typeof v === "string" && v.length > 0 && v.length <= 256 && !/[\u0000-\u001f\u007f]/.test(v);
 }
 interface Stored { version: 1; revision: number; key: CryptoKey; encrypted: Uint8Array }
 function stored(v: unknown): Stored {
@@ -24,6 +29,12 @@ export interface AppInstallationStoreOptions {
   /** Authenticated first-party build context, never supplied by a redirect. */
   readonly cpOrigin: string;
   readonly appId: string;
+  /** Stable local owner of this slot, from the ORIGINAL application declaration
+   * (its manifest family), never the CP-assigned appId. When set, the database
+   * name, AEAD associated data and the sign-in plaintext all carry it, so an
+   * appId that points at another app's slot opens an absent database instead.
+   * Unlabelled slots are never opened for an owner: that caller pairs afresh. */
+  readonly owner?: string;
   /** open creates only an absent database in its atomic upgrade; an occupied,
    * partial or corrupt database is restored or refused, never replaced. */
   readonly mode: "fresh" | "existing" | "open";
@@ -40,18 +51,22 @@ export class AppInstallationStore {
   private closeResult: Promise<void> | null = null;
   private readonly namespace: string;
   private constructor(private readonly options: Readonly<AppInstallationStoreOptions>, private readonly lease: AppReplicaLease) {
-    this.namespace = JSON.stringify(["mdbase.app-installation.v1", options.origin, options.cpOrigin, options.appId]);
+    this.namespace = JSON.stringify(options.owner === undefined
+      ? ["mdbase.app-installation.v1", options.origin, options.cpOrigin, options.appId]
+      : ["mdbase.app-installation.v2", options.origin, options.cpOrigin, options.owner, options.appId]);
   }
   static async open(options: AppInstallationStoreOptions, initial: () => Uint8Array): Promise<{store: AppInstallationStore; plaintext: Uint8Array}> {
     // Snapshot before any ownership/platform wait. No account ID is invented.
-    const p = Object.freeze({ origin: options.origin, cpOrigin: options.cpOrigin, appId: options.appId, mode: options.mode, signal: options.signal, locks: options.locks, allowLoopbackHttp: options.allowLoopbackHttp === true });
+    const p = Object.freeze({ origin: options.origin, cpOrigin: options.cpOrigin, appId: options.appId, ...(options.owner === undefined ? {} : {owner: options.owner}), mode: options.mode, signal: options.signal, locks: options.locks, allowLoopbackHttp: options.allowLoopbackHttp === true });
     let out: AppInstallationStore | null = null, plain: Uint8Array | null = null, fresh: Stored | null = null;
     try {
-      for (const origin of [p.origin, p.cpOrigin]) {
-        const u = new URL(origin), loopback = p.allowLoopbackHttp && u.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
+      if (!isAppOrigin(p.origin, p.allowLoopbackHttp === true)) throw fail();
+      {
+        const origin = p.cpOrigin, u = new URL(origin), loopback = p.allowLoopbackHttp && u.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
         if (u.origin !== origin || u.username || u.password || (u.protocol !== "https:" && !loopback)) throw fail();
       }
-      if (!["fresh", "existing", "open"].includes(p.mode) || !isAppInstallationId(p.appId) || p.signal.aborted || globalThis.location?.origin !== p.origin || !globalThis.indexedDB || !globalThis.crypto?.subtle || typeof CryptoKey !== "function") throw fail();
+      if (p.owner !== undefined && !isInstallationOwner(p.owner)) throw fail();
+      if (!["fresh", "existing", "open"].includes(p.mode) || !isAppInstallationId(p.appId) || p.signal.aborted || currentAppOrigin() !== p.origin || !globalThis.indexedDB || !globalThis.crypto?.subtle || typeof CryptoKey !== "function") throw fail();
       const lease = await acquireAppSignInLease(p.locks, p, p.signal);
       out = new AppInstallationStore(p, lease); out.check();
       if (p.mode !== "existing") {
@@ -72,7 +87,7 @@ export class AppInstallationStore {
   }
   isCurrent(): boolean { try { this.check(); return true; } catch { return false; } }
   private check(): void {
-    if (this.closing || this.options.signal.aborted || globalThis.location?.origin !== this.options.origin) throw fail();
+    if (this.closing || this.options.signal.aborted || currentAppOrigin() !== this.options.origin) throw fail();
   }
   private bound(b: Uint8Array): void { if (!(b instanceof Uint8Array) || !b.length || b.length > MAX) throw fail(); }
   private aad(revision: number): Uint8Array<ArrayBuffer> { return new TextEncoder().encode(`${this.namespace}:${revision}`); }
@@ -94,7 +109,9 @@ export class AppInstallationStore {
   }
   private openDatabase(fresh: Stored | null): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
-      this.check(); const name = `mdbase.app.installation.v1.${encodeURIComponent(this.options.cpOrigin)}.${this.options.appId}`, req = indexedDB.open(name, 1);
+      this.check(); const o = this.options, name = o.owner === undefined
+        ? `mdbase.app.installation.v1.${encodeURIComponent(o.cpOrigin)}.${o.appId}`
+        : `mdbase.app.installation.v2.${encodeURIComponent(o.cpOrigin)}.${encodeURIComponent(o.owner)}.${o.appId}`, req = indexedDB.open(name, 1);
       let abandoned = false, created = false;
       const stop = () => { abandoned = true; try { req.transaction?.abort(); } catch { /* preserve any commit */ } reject(fail()); };
       const finish = () => this.options.signal.removeEventListener("abort", stop);

@@ -18,7 +18,9 @@ use clap::{Parser, Subcommand, ValueEnum};
 use serde_json::{Value, json};
 
 use crate::client::{self, ClientError, ControlClient};
-use crate::control::{Check, CollectionStatus, ControlError, DaemonStatus, Method, PendingDevice};
+use crate::control::{
+    Check, CollectionStatus, ControlError, DaemonStatus, HoldSummary, Method, PendingDevice,
+};
 use crate::paths::Profile;
 use crate::registry::SyncMode;
 use crate::server::{self, RunError};
@@ -157,7 +159,7 @@ enum CollectionCmd {
         #[arg(long)]
         name: Option<String>,
     },
-    /// Join your account's cloud copy into an empty folder on this computer.
+    /// Join one of your account's collections into an empty folder on this computer.
     Join {
         /// The collection's ID (from another of your devices or the web).
         collection: String,
@@ -166,6 +168,10 @@ enum CollectionCmd {
         /// Display name (default: the folder name).
         #[arg(long)]
         name: Option<String>,
+        /// A private (end-to-end) collection: this computer shows a code to
+        /// approve from another of your devices (`mdbase device approve`).
+        #[arg(long)]
+        private: bool,
     },
     /// Unregister a collection. Its files are never touched.
     Remove {
@@ -216,8 +222,8 @@ enum SyncCmd {
         /// or a taken-over collection, `cloud-copy` for an empty folder.
         #[arg(long, value_enum)]
         mode: Option<SyncKind>,
-        /// Turn sync on although files were held when the collection was taken
-        /// over (both versions are in the folder; review them first).
+        /// Turn sync on although files are still held from the takeover, keeping
+        /// this computer's version of each (review them first with `mdbase holds`).
         #[arg(long)]
         accept_takeover_holds: bool,
     },
@@ -674,12 +680,13 @@ async fn run_command(
             collection,
             path,
             name,
+            private,
         }) => {
             let path = std::path::absolute(&path).map_err(ClientError::Io)?;
             let v = call(
                 profile,
                 Method::COLLECTION_JOIN,
-                json!({ "collection": collection, "path": path, "name": name }),
+                json!({ "collection": collection, "path": path, "name": name, "private": private }),
             )
             .await?;
             if out.json {
@@ -812,6 +819,33 @@ async fn run_command(
             mode,
             accept_takeover_holds,
         }) => {
+            if accept_takeover_holds {
+                // Say exactly what is being accepted without review.
+                let id = resolve(profile, &collection).await?;
+                let holds = call(
+                    profile,
+                    Method::COLLECTION_HOLDS,
+                    json!({ "collection": id }),
+                )
+                .await
+                .ok()
+                .and_then(|v| serde_json::from_value::<Vec<HoldSummary>>(v).ok())
+                .unwrap_or_default();
+                let taken: Vec<&HoldSummary> = holds
+                    .iter()
+                    .filter(|h| h.id.starts_with(crate::takeover::held::ID_PREFIX))
+                    .collect();
+                if !taken.is_empty() {
+                    eprintln!(
+                        "Accepting this computer's version of {} file(s) held at the takeover; \
+                         the old connector's versions stay in mdbase's state directory:",
+                        taken.len()
+                    );
+                    for h in taken {
+                        eprintln!("  {}", h.path);
+                    }
+                }
+            }
             let mut params = json!({ "accept_takeover_holds": accept_takeover_holds });
             if let Some(mode) = mode {
                 params["mode"] = json!(match mode {
