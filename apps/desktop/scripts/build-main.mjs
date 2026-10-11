@@ -21,7 +21,10 @@ await build({
     "src/main/update-policy.ts",
     "src/main/update-state.ts",
     "src/main/takeover-handoff.ts",
-    "src/main/next-daemon.ts"
+    "src/main/next-daemon.ts",
+    "src/main/daemon-client.ts",
+    "src/main/daemon-cli.ts",
+    "src/main/daemon-session.ts"
   ],
   bundle: true,
   platform: "node",
