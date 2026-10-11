@@ -6,6 +6,7 @@ import {
 } from "../../account-onboarding.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireUser } from "../../platform/request-authentication.js";
+import { CutoverProblemError } from "../next/cutover-problems.js";
 
 export function registerOnboardingRoutes(
   app: FastifyInstance,
@@ -18,12 +19,7 @@ export function registerOnboardingRoutes(
     const backend = (await options.db.query<{ account_backend: string }>(
       "SELECT account_backend FROM users WHERE id = $1", [user.id]
     )).rows[0]?.account_backend;
-    if (backend === "next") {
-      return reply.code(409).send(apiError(
-        "onboarding_moved",
-        "Open one of your apps to finish setting up your starter collection."
-      ));
-    }
+    if (backend === "next") throw new CutoverProblemError("onboarding_moved");
     if (!options.hostedCollections || !options.hostedProvider) {
       return reply.code(404).send(apiError("not_found", "Not found."));
     }

@@ -149,7 +149,9 @@ describePg("native starter onboarding", () => {
     expect(response.statusCode).toBe(409); expect(response.json().error.code).toBe("migration_frozen");
 
     const legacy = await app.inject({ method: "POST", url: "/v1/onboarding/starter-collection", headers: who.headers });
-    expect(legacy.statusCode).toBe(409); expect(legacy.json().error.code).toBe("onboarding_moved");
+    expect(legacy.statusCode).toBe(409); expect(legacy.json().error).toMatchObject({
+      code: "onboarding_moved", details: { reason: "moved_to_next_runtime", update_url: "https://mdbase.dev/downloads" }
+    });
     expect(await owned(who)).toEqual([]);
     expect(await reservation(who)).toEqual(before);
     expect(port.seal.mock.calls.length).toBe(calls);
