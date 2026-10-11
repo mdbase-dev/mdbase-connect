@@ -1,0 +1,7 @@
+{
+  "reason": "Application people metadata (identity, members) extends to web-app grants on Private native collections. The grant-token people route reuses the existing native access resolution, deletion check and device-approval query, and shares one exported native member query with the device people path instead of duplicating it. Metadata waits for the device-signed approval, as the grant does.",
+  "growth": {
+    "relativeImports": 3,
+    "typeScriptExportDeclarations": 1
+  }
+}

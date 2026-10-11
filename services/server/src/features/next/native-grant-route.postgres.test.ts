@@ -11,6 +11,7 @@ import { grantApprovalTerms } from "./grant-approval.js";
 import { nativeAdmission } from "./native-grant-target.js";
 import { queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
 import { registerNextRouteRoutes } from "./route-routes.js";
+import { registerPeopleRoutes } from "../account/people-routes.js";
 import { legacyTimerGrantResolver } from "./timers/grants.js";
 import { createHostedCollectionMembership } from "../../collection-policy.js";
 import { revokeHostedCollectionMembership } from "../../collection-membership-lifecycle.js";
@@ -44,6 +45,7 @@ describePostgres("Private native collection grants", () => {
     url.searchParams.set("options", `-csearch_path=${schema}`);
     db = await createDatabase(url.toString());
     registerNextRouteRoutes(app, { db, publicUrl: "https://connect.example", broker });
+    registerPeopleRoutes(app, { db, issuer: "https://connect.example", publicUrl: "https://connect.example" });
     await portal.register(cookie);
     registerErrorHandler(portal);
     const relay = { registerAuthorizationHandler: () => {}, authorizationOffers: async () => ({ paused: false, collections: [] }) };
@@ -131,6 +133,28 @@ describePostgres("Private native collection grants", () => {
         value: command.kind === "device_presence" && (command.message as { device_id: string }).device_id === d.id, ...(detail ? { detail } : {}) }),
       handleBinary: async () => ({ version: 1, ok: true, value: new Uint8Array() }), replaced: () => {} });
   }
+
+  it("serves people metadata to a native grant only after a device approves it", async () => {
+    const owner = await user(), desk = await device(owner), collection = await privateCollection(owner, [desk]);
+    const g = await nativeGrant(owner, collection);
+    await db.query("UPDATE applications SET manifest_digest = 'digest' WHERE id = $1", [g.grant]);
+    await db.query(`UPDATE grants SET people_permissions = '["identity","members"]',
+      application_authorization = jsonb_set(application_authorization, '{binding,application_manifest_digest}', '"digest"') WHERE id = $1`, [g.grant]);
+    const people = (resource: string) => app.inject({ method: "GET", url: `/v1/authorities/${collection}/${resource}`, headers: { authorization: `Bearer ${g.token}` } });
+
+    for (const resource of ["identity", "members"]) {
+      const refused = await people(resource);
+      expect(refused.statusCode, refused.body).toBe(403);
+      expect(refused.json().error.code).toBe("approval_required");
+    }
+    await g.approve(desk);
+    const identity = await people("identity");
+    expect(identity.statusCode, identity.body).toBe(200);
+    expect(identity.json()).toMatchObject({ issuer: "https://connect.example", name: "Fixture" });
+    const members = await people("members");
+    expect(members.statusCode, members.body).toBe(200);
+    expect(members.json().members).toEqual([expect.objectContaining({ account_id: owner, role: "owner" })]);
+  });
 
   it("gives every grant exactly one target", async () => {
     const owner = await user();
