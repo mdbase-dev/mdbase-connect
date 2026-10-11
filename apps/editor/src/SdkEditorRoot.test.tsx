@@ -70,6 +70,30 @@ describe("SdkEditorRoot over the public SDK fixture", () => {
     expect(screen.queryByText(/fixture-account/)).toBeNull();
   });
 
+  it("only owners get Delete; it needs the typed name and shows SDK copy for a refusal", async () => {
+    const h = applicationFixture({ status: "unselected", signIn: paired, collections: [
+      { collectionId: "owned-id", displayName: "Research", role: "owner" }, { collectionId: "shared-id", displayName: "Shared", role: "editor" }] });
+    render(<SdkEditorRoot sdk={h.entry} />);
+    expect(screen.queryByRole("button", { name: "Delete Shared" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Research" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Delete Research?" });
+    expect(dialog).toHaveTextContent("Everyone, including you, loses access to it on every device and app right away. This can't be undone.");
+    const confirm = screen.getByRole("button", { name: "Delete collection" });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Type Research to confirm"), { target: { value: "Researc" } });
+    expect(confirm).toBeDisabled();
+    h.controls.setHandler("deleteCollection", () => { throw Object.assign(new Error("refused"), { code: "collection_delete_frozen" }); });
+    fireEvent.change(screen.getByLabelText("Type Research to confirm"), { target: { value: "Research " } });
+    fireEvent.click(confirm);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Your account is being upgraded");
+    expect(h.application.getSnapshot().collections).toHaveLength(2);
+    h.controls.setHandler("deleteCollection", () => undefined);
+    fireEvent.click(screen.getByRole("button", { name: "Delete collection" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(h.controls.observedActions().filter((call) => call.action === "deleteCollection").at(-1)).toMatchObject({ collectionId: "owned-id", confirmName: "Research " });
+    expect(h.application.getSnapshot().collections.map((c) => c.collectionId)).toEqual(["shared-id"]);
+  });
+
   it("unapproved requested collection never falls back to an approved one; approval, reauthorization and chooser use SDK actions", async () => {
     const h = applicationFixture({ status: "unselected", signIn: paired,
       collections: [{ collectionId: "other-id", displayName: "Other", role: "owner" }],

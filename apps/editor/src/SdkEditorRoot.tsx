@@ -4,6 +4,7 @@ import { ConnectLayout, OpeningScreen } from "@mdbase-dev/ui/screens";
 import { FeedbackButton } from "@mdbase-dev/ui/feedback";
 import type { Surface } from "./app-state-types";
 import { NativeEditorGateway } from "./native-gateway";
+import { DeleteCollectionDialog } from "./DeleteCollectionDialog";
 import manifest from "../public/.well-known/mdbase-app.json";
 
 const EditorApp = lazy(() => import("./App").then((module) => ({ default: module.App })));
@@ -62,6 +63,7 @@ function ApplicationView({ sdk, renderNative, onSignedOut, onFeedbackContext }: 
   const busy = useRef(false);
   const [working, setWorking] = useState(false);
   const [problem, setProblem] = useState(false);
+  const [deleting, setDeleting] = useState<{ collectionId: string; displayName: string } | null>(null);
   useEffect(() => {
     const scope = new AbortController();
     caller.current = scope;
@@ -139,9 +141,12 @@ function ApplicationView({ sdk, renderNative, onSignedOut, onFeedbackContext }: 
       onClick={() => void act((signal) => application.reauthorize({ signal }))}>Review access</button>}
     {setup && <button type="button" className="mdbase-connect-action mdbase-button is-primary" disabled={working}
       onClick={() => void act((signal) => application.configure({ signal }))}>Set up mdbase editor</button>}
-    {choosing && !needsApproval && !invalidSelection && snapshot.collections.map((collection) => <button key={collection.collectionId} type="button"
-      className="mdbase-connect-action mdbase-button" disabled={working}
-      onClick={() => void act((signal) => application.select(collection.collectionId, { signal }))}>{collection.displayName}</button>)}
+    {choosing && !needsApproval && !invalidSelection && snapshot.collections.map((collection) => <div key={collection.collectionId} className="sdk-collection-choice">
+      <button type="button" className="mdbase-connect-action mdbase-button" disabled={working}
+        onClick={() => void act((signal) => application.select(collection.collectionId, { signal }))}>{collection.displayName}</button>
+      {collection.role === "owner" && <button type="button" className="mdbase-button is-tertiary" disabled={working}
+        aria-label={`Delete ${collection.displayName}`} onClick={() => setDeleting({ collectionId: collection.collectionId, displayName: collection.displayName })}>Delete</button>}
+    </div>)}
     {snapshot.selectedCollectionId && !closed && <>
       <button type="button" className="mdbase-connect-action mdbase-button" disabled={working} onClick={() => {
         const collectionId = snapshot.selectedCollectionId;
@@ -153,6 +158,8 @@ function ApplicationView({ sdk, renderNative, onSignedOut, onFeedbackContext }: 
         onClick={() => void act((signal) => application.chooseAnother({ signal }))}>Choose another collection</button>}
     {signIn && <button type="button" className="mdbase-connect-action mdbase-button" disabled={working} onClick={() => void act(signOut)}>Sign out</button>}
     <FeedbackButton />
+    {deleting && caller.current && <DeleteCollectionDialog application={application} collection={deleting} signal={caller.current.signal}
+      onClose={() => setDeleting(null)} />}
   </ConnectLayout>;
 }
 
