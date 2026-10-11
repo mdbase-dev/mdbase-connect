@@ -319,4 +319,3 @@
     );
     CREATE INDEX IF NOT EXISTS notification_webhook_deliveries_ready_idx
       ON notification_webhook_deliveries(status, available_at);
-  
