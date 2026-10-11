@@ -6,6 +6,7 @@ import {
 } from "./api";
 import { initialInstallationCollection, installationAccountLabel, installationRefusal, message, NEW_COLLECTION, pairingInspectionPath } from "./portal-model";
 import { Loading, PageBrand } from "./portal-ui";
+import { Checkbox, CheckboxGroup } from "@mdbase-dev/ui/checkbox";
 import { Select } from "@mdbase-dev/ui/select";
 import "@mdbase-dev/ui/screens.css";
 
@@ -348,30 +349,26 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     <p className="mdbase-connect-footnote">Access includes the notes and files in the collection you pick.{createCollections ? ` ${pairing.connector_name} can also create new collections for you.` : ""}{pairing.scope_only ? " Previously approved collections stay available." : ""}</p>
                     {(pairing.collections?.length || pairing.retained_collection_ids?.length || pairing.requested_create_collections || pairing.retained_create_collections) ? <details className="installation-advanced">
                       <summary>Advanced: allow more collections</summary>
-                      <fieldset className="installation-scopes" disabled={busy}>
-                        <legend>Additional collection access</legend>
+                      <CheckboxGroup legend="Additional collection access" disabled={busy}>
                         {(pairing.collections??[]).map(collection=>(
                           <div key={collection.collection_id}>
-                            <label>
-                              <input type="checkbox" className="mdbase-checkbox" checked={collection.collection_id===selectedCollectionId || collectionIds.includes(collection.collection_id)} disabled={collection.collection_id===selectedCollectionId || pairing.retained_collection_ids?.includes(collection.collection_id)} onChange={event=>setCollectionIds(ids=>event.target.checked?[...new Set([...ids,collection.collection_id])]:ids.filter(id=>id!==collection.collection_id))} />
-                              <span>{collection.display_name}{pairing.retained_collection_ids?.includes(collection.collection_id) ? " (already allowed)" : ""}</span>
-                            </label>
+                            <Checkbox checked={collection.collection_id===selectedCollectionId || collectionIds.includes(collection.collection_id)} disabled={collection.collection_id===selectedCollectionId || pairing.retained_collection_ids?.includes(collection.collection_id)} onChange={event=>setCollectionIds(ids=>event.target.checked?[...new Set([...ids,collection.collection_id])]:ids.filter(id=>id!==collection.collection_id))}>
+                              {collection.display_name}{pairing.retained_collection_ids?.includes(collection.collection_id) ? " (already allowed)" : ""}
+                            </Checkbox>
                             {pairing.scope_only && pairing.retained_collection_ids?.includes(collection.collection_id) && <button type="button" className="button secondary installation-account-action" onClick={()=>setRemovingId(collection.collection_id)}>Remove access</button>}
                           </div>
                         ))}
                         {(pairing.retained_collection_ids??[]).filter(id=>!pairing.collections?.some(collection=>collection.collection_id===id)).map(id=><div key={id}><p>Already allowed collection (currently unavailable)</p><button type="button" className="button secondary installation-account-action" onClick={()=>setRemovingId(id)}>Remove access</button></div>)}
-                        {(pairing.requested_create_collections || pairing.retained_create_collections) && <label>
-                          <input type="checkbox" className="mdbase-checkbox" checked={createCollections} disabled={pairing.retained_create_collections} onChange={event=>setCreateCollections(event.target.checked)} />
-                          <span>Allow {pairing.connector_name} to create new collections</span>
-                        </label>}
-                      </fieldset>
+                        {(pairing.requested_create_collections || pairing.retained_create_collections) && <Checkbox checked={createCollections} disabled={pairing.retained_create_collections} onChange={event=>setCreateCollections(event.target.checked)}>
+                          Allow {pairing.connector_name} to create new collections
+                        </Checkbox>}
+                      </CheckboxGroup>
                       {pairing.scope_only && <p>Already-allowed access stays in place. Remove access separately if you no longer want it.</p>}
                     </details> : null}
                     {pairing.timer_declaration && <div className="installation-choice">
-                      <label className="installation-check">
-                        <input type="checkbox" className="mdbase-checkbox" disabled={busy} checked={allowReminders} onChange={event=>setAllowReminders(event.target.checked)} />
-                        <span>Allow {pairing.connector_name} to send you reminders</span>
-                      </label>
+                      <Checkbox disabled={busy} checked={allowReminders} onChange={event=>setAllowReminders(event.target.checked)}>
+                        Allow {pairing.connector_name} to send you reminders
+                      </Checkbox>
                       <p className="field-note">Applies to the collection you chose to open and any new collections selected here. Other collections are not included.</p>
                       {!allowReminders && <p role="status">Reminders will be off. You can finish setup and turn them on later in the app. Collection access stays unchanged.</p>}
                     </div>}

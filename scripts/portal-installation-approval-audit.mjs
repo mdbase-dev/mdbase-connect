@@ -134,7 +134,7 @@ export async function auditPortalInstallationApproval(localPage, origin) {
     const reminders = page.getByRole("checkbox", {name: "Allow TaskNotes to send you reminders", exact: true});
     assert.deepEqual(await reminders.evaluate(element => [element.getBoundingClientRect().height <= 24, element.closest("label").getBoundingClientRect().height >= 44]), [true, true], "reminder checkbox keeps its size; its label is the 44px target");
     await load(); await page.getByText("Advanced: allow more collections", {exact: true}).click();
-    assert.equal(await page.locator(".installation-scopes").evaluate(element => getComputedStyle(element).borderTopStyle), "none", "additional access is not outlined like a text field");
+    assert.equal(await page.getByRole("group", {name: "Additional collection access", exact: true}).evaluate(element => getComputedStyle(element).borderTopStyle), "none", "additional access is not outlined like a text field");
     await page.setViewportSize({width: 640, height: 1000});
     await load(); await choose("Personal notes");
     await page.evaluate(() => {document.documentElement.style.zoom = "2";});

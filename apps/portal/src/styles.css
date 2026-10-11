@@ -952,11 +952,6 @@ select {
   cursor: pointer;
 }
 
-.installation-advanced legend {
-  margin-bottom: var(--space-2);
-  padding: 0;
-}
-
 .installation-details code {
   overflow-wrap: anywhere;
 }
@@ -976,9 +971,7 @@ select {
 }
 
 .installation-choice input:not([type="checkbox"]),
-.installation-choice button,
-.installation-scopes label,
-.installation-check {
+.installation-choice button {
   min-height: 44px;
 }
 
@@ -987,25 +980,6 @@ select {
 }
 
 .installation-account-label {
-  overflow-wrap: anywhere;
-}
-
-.installation-scopes {
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.installation-scopes label,
-.installation-check {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-
-.installation-scopes code {
   overflow-wrap: anywhere;
 }
 

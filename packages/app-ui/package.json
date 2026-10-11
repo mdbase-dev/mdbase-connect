@@ -26,6 +26,10 @@
       "types": "./dist/brand.d.ts",
       "import": "./dist/brand.js"
     },
+    "./checkbox": {
+      "types": "./dist/Checkbox.d.ts",
+      "import": "./dist/Checkbox.js"
+    },
     "./codemirror": {
       "types": "./dist/codemirror.d.ts",
       "import": "./dist/codemirror.js"

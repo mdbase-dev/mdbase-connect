@@ -598,6 +598,31 @@ textarea.mdbase-field {
   outline-offset: 2px;
 }
 
+/* Checkbox row: the label is the 44px target; the box keeps its size. */
+.mdbase-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.mdbase-check:has(.mdbase-checkbox:disabled) {
+  cursor: not-allowed;
+}
+
+.mdbase-check-group {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.mdbase-check-group > legend {
+  margin-bottom: var(--space-2);
+  padding: 0;
+}
+
 @media (pointer: coarse) {
   /* Expand the hit target, not the visual control or its containing row. */
   .mdbase-checkbox::before,
