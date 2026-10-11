@@ -158,7 +158,7 @@ async function archiveClock(client: DatabaseQueryable): Promise<string> {
 }
 
 /** Caller holds this transaction's batch lock through inventory/currentness checks. */
-async function readArchiveBinding(client: DatabaseQueryable, name: string): Promise<{ binding: ArchiveBinding; frozenAt: string }> {
+async function readArchiveBinding(client: DatabaseQueryable, name: string): Promise<{ binding: ArchiveBinding; frozenAt: string; memberCount: number }> {
   const batch = (await client.query<{ revision: string; changed: Date; frozen_at: Date | null }>(
     `SELECT membership_revision::text AS revision, membership_changed_at AS changed, frozen_at
      FROM next_migration_cohorts WHERE name = $1 FOR UPDATE`, [name]
@@ -183,7 +183,7 @@ async function readArchiveBinding(client: DatabaseQueryable, name: string): Prom
     membership_changed_at: new Date(batch.changed).toISOString()
   });
   if (!binding.success) throw new RolloutRefused("backup_missing", "Invalid current batch binding.");
-  return { binding: binding.data, frozenAt: new Date(batch.frozen_at).toISOString() };
+  return { binding: binding.data, frozenAt: new Date(batch.frozen_at).toISOString(), memberCount: inventory.size };
 }
 
 export async function cohortArchiveBinding(db: DatabasePool, name: string): Promise<ArchiveBinding> {
@@ -194,7 +194,8 @@ export async function cohortArchiveBinding(db: DatabasePool, name: string): Prom
 export async function acceptCohortArchive(db: DatabasePool, name: string, body: unknown, environment: string | undefined): Promise<{ accepted_at: string }> {
   const result = parseVerifiedBatchArchive(body);
   const acceptance = await inTransaction(db, async (client) => {
-    const { binding, frozenAt } = await readArchiveBinding(client, name);
+    const { binding, frozenAt, memberCount } = await readArchiveBinding(client, name);
+    if (memberCount === 0) throw new RolloutRefused("backup_missing", "A nonempty frozen migration cohort is required.");
     if (Date.parse(result.archive_created_at) < Date.parse(frozenAt)) {
       throw new RolloutRefused("backup_missing", "Archive capture must follow the topology freeze.");
     }
@@ -227,7 +228,8 @@ export async function acceptCohortArchive(db: DatabasePool, name: string, body: 
 }
 
 async function requireCurrentCohortArchive(client: DatabaseQueryable, name: string, environment: string | undefined): Promise<void> {
-  const { binding, frozenAt } = await readArchiveBinding(client, name);
+  const { binding, frozenAt, memberCount } = await readArchiveBinding(client, name);
+  if (memberCount === 0) throw new RolloutRefused("backup_missing", "A nonempty frozen migration cohort is required.");
   const accepted = (await client.query<{ verified_result: unknown; accepted_at: Date }>(
     `SELECT verified_result, accepted_at FROM next_migration_archive_acceptances
      WHERE cohort = $1 AND membership_revision = $2::bigint`, [name, binding.membership_revision]
