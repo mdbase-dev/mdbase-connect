@@ -1,0 +1,9 @@
+{
+  "reason": "The native starter seam creates an account's reserved starter collection after its move to the next control plane, through the shared service cloud-copy creator with the starter template sealed as its first content. It reuses the existing reservation row, session checks and creator; the route stays unmounted until the hosted starter content client exists.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 8,
+    "typeScriptExportDeclarations": 3,
+    "services/server": 1
+  }
+}

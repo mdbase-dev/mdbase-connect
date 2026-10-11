@@ -14,6 +14,16 @@ export function registerOnboardingRoutes(
   app.post("/v1/onboarding/starter-collection", async (request, reply) => {
     const user = await requireUser(request, reply, options.db);
     if (!user) return;
+    // A moved account's starter is created natively; never claim it here.
+    const backend = (await options.db.query<{ account_backend: string }>(
+      "SELECT account_backend FROM users WHERE id = $1", [user.id]
+    )).rows[0]?.account_backend;
+    if (backend === "next") {
+      return reply.code(409).send(apiError(
+        "onboarding_moved",
+        "Open one of your apps to finish setting up your starter collection."
+      ));
+    }
     if (!options.hostedCollections || !options.hostedProvider) {
       return reply.code(404).send(apiError("not_found", "Not found."));
     }
