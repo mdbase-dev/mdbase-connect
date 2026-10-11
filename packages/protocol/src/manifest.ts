@@ -1,4 +1,5 @@
-import { createHash } from "node:crypto";
+import { sha256 as sha256Bytes } from "@noble/hashes/sha2.js";
+import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import { Ajv2020, type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
 import addFormatsModule from "ajv-formats";
 import { isMap, parseDocument } from "yaml";
@@ -521,7 +522,7 @@ function typeFrontmatter(document: string): Record<string, unknown> | undefined 
 }
 
 function sha256(document: string): string {
-  return `sha256:${createHash("sha256").update(document).digest("hex")}`;
+  return `sha256:${bytesToHex(sha256Bytes(utf8ToBytes(document)))}`;
 }
 
 function validateConfigurationSetup(value: unknown): ManifestValidationIssue[] {
