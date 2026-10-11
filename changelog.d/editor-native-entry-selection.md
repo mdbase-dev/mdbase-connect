@@ -1,0 +1,1 @@
+The Editor now uses the public SDK application entry for sign-in, requested collection approval, reauthorization and collection selection. It keeps the bundled registration declaration unchanged and opens the editor only for the SDK's usable, current, ready collection. Demo and Connect-management routes are preserved.

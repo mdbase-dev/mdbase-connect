@@ -8,15 +8,15 @@ import manifest from "../public/.well-known/mdbase-app.json";
 
 const EditorApp = lazy(() => import("./App").then((module) => ({ default: module.App })));
 
-/** App declaration only, built with the public SDK helper. The ID must be the
- * actual registered native binding. Collection selection, consent, its URL and
- * setup are SDK-owned; no storage, Worker/SQL/trust callbacks or overrides. */
+/** The exact bundled declaration goes to SDK self-registration unchanged.
+ * Runtime origin is separate from its canonical HTTPS homepage. Registration,
+ * consent, Worker/native assets and collection selection remain SDK-owned. */
 export function createEditorApplication(input: {
-  registeredApplicationId: string;
+  origin: string;
   environment: MdbaseApplicationDeclaration["environment"];
 }): MdbaseConnect {
-  return new MdbaseConnect({ id: input.registeredApplicationId, name: manifest.name,
-    origin: new URL(manifest.homepage).origin, environment: input.environment, manifest });
+  return new MdbaseConnect({ id: manifest.id, name: manifest.name,
+    origin: input.origin, environment: input.environment, manifest });
 }
 
 export type EditorSdk = MdbaseApplicationEntry;
@@ -89,7 +89,8 @@ function ApplicationView({ sdk, renderNative, onSignedOut, onFeedbackContext }: 
 
   const selected = snapshot.collections.find((collection) => collection.collectionId === snapshot.selectedCollectionId);
   const connection = selected && snapshot.status === "ready" ? sdk.connection(selected.collectionId) : null;
-  const ready = Boolean(connection && connection.id === selected?.collectionId && connection.records.hello.collection === connection.id && connection.isCurrent()
+  const ready = Boolean(snapshot.selection.state === "usable" && snapshot.selection.usable?.collectionId === selected?.collectionId
+    && connection && connection.id === selected?.collectionId && connection.records.hello.collection === connection.id && connection.isCurrent()
     && !snapshot.readiness.checking && snapshot.readiness.problem === null
     && snapshot.readiness.assessment?.status === "ready" && snapshot.readiness.assessment.problem === null);
   if (ready && connection) {
@@ -99,17 +100,22 @@ function ApplicationView({ sdk, renderNative, onSignedOut, onFeedbackContext }: 
 
   const unavailable = snapshot.problem === "application_not_yet_available";
   const closed = snapshot.status === "closed";
-  const waiting = snapshot.status === "authorizing";
+  const selection = snapshot.selection;
+  const waiting = snapshot.status === "authorizing" || selection.state === "approving";
+  const needsApproval = selection.state === "approval_required";
+  const invalidSelection = selection.state === "invalid";
   const opening = snapshot.status === "starting" || snapshot.status === "opening" || snapshot.readiness.checking;
   const setup = !closed && !unavailable && (snapshot.status === "setup_required" || snapshot.readiness.assessment?.status === "setup_required");
   const signIn = !closed && snapshot.signIn?.state === "paired" ? snapshot.signIn : null;
   const identity = signIn?.accountEmail ? `Signed in as ${signIn.accountEmail}`
     : signIn?.accountProvider === "github" && signIn.accountLogin ? `Signed in as ${signIn.accountLogin} on GitHub` : null;
-  const error = problem || snapshot.status === "blocked";
+  const error = problem || snapshot.status === "blocked" || invalidSelection;
   const message = unavailable ? "Opening collections isn't available in this build yet."
     : closed ? "mdbase editor has signed out. Reload to sign in again."
+    : invalidSelection ? "This collection link is invalid. Choose another collection."
     : error ? "This action could not be completed. Please try again."
     : waiting ? "Waiting for approval in the mdbase tab…"
+    : needsApproval ? "This collection needs approval for mdbase editor."
     : setup ? "This collection needs mdbase editor setup before editing."
     : opening || snapshot.status === "ready" ? `Opening ${selected?.displayName ?? "your collection"}…`
     : signIn ? "Choose the collection you want to write in."
@@ -118,11 +124,15 @@ function ApplicationView({ sdk, renderNative, onSignedOut, onFeedbackContext }: 
   return <ConnectLayout app="editor" title={<>Your notes,<br />as files.</>}
     status={error || unavailable ? undefined : message} error={error || unavailable ? message : undefined}>
     {identity && <p className="mdbase-connect-status">{identity}</p>}
-    {choosing && !signIn && <button type="button" className="mdbase-connect-action mdbase-button is-primary" disabled={working}
-      onClick={() => void act((signal) => application.authorize({ signal }))}>Sign in</button>}
+    {choosing && !signIn && !invalidSelection && !needsApproval && <button type="button" className="mdbase-connect-action mdbase-button is-primary" disabled={working}
+      onClick={() => void act((signal) => application.approve(undefined, { signal }))}>Sign in</button>}
+    {choosing && needsApproval && <button type="button" className="mdbase-connect-action mdbase-button is-primary" disabled={working}
+      onClick={() => void act((signal) => application.approve(selection.requested.collectionId, { signal }))}>Approve collection</button>}
+    {choosing && signIn && !needsApproval && !invalidSelection && <button type="button" className="mdbase-connect-action mdbase-button" disabled={working}
+      onClick={() => void act((signal) => application.reauthorize({ signal }))}>Review access</button>}
     {setup && <button type="button" className="mdbase-connect-action mdbase-button is-primary" disabled={working}
       onClick={() => void act((signal) => application.configure({ signal }))}>Set up mdbase editor</button>}
-    {choosing && snapshot.collections.map((collection) => <button key={collection.collectionId} type="button"
+    {choosing && !needsApproval && !invalidSelection && snapshot.collections.map((collection) => <button key={collection.collectionId} type="button"
       className="mdbase-connect-action mdbase-button" disabled={working}
       onClick={() => void act((signal) => application.select(collection.collectionId, { signal }))}>{collection.displayName}</button>)}
     {snapshot.selectedCollectionId && !closed && <>
@@ -130,9 +140,10 @@ function ApplicationView({ sdk, renderNative, onSignedOut, onFeedbackContext }: 
         const collectionId = snapshot.selectedCollectionId;
         if (collectionId) void act((signal) => application.forget(collectionId, { signal }));
       }}>Forget collection</button>
-      <button type="button" className="mdbase-connect-action mdbase-button" disabled={working}
-        onClick={() => void act((signal) => application.clearSelection({ signal }))}>Choose another collection</button>
     </>}
+    {!closed && !unavailable && !waiting && (snapshot.selectedCollectionId || selection.requested.collectionId || invalidSelection) &&
+      <button type="button" className="mdbase-connect-action mdbase-button" disabled={working}
+        onClick={() => void act((signal) => application.chooseAnother({ signal }))}>Choose another collection</button>}
     {signIn && <button type="button" className="mdbase-connect-action mdbase-button" disabled={working} onClick={() => void act(signOut)}>Sign out</button>}
     <FeedbackButton />
   </ConnectLayout>;

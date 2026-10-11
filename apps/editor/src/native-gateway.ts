@@ -100,8 +100,8 @@ export class NativeEditorGateway implements CollectionGateway {
 
   async authorize(target: CollectionAuthorizationTarget, options: CollectionAuthorizationOptions = {}): Promise<void> {
     const request = options.signal ? { signal: options.signal } : {};
-    if (target === "choose") await this.application.clearSelection(request);
-    else if (target === "selected") await this.application.authorize(request);
+    if (target === "choose") await this.application.chooseAnother(request);
+    else if (target === "selected") await this.application.reauthorize(request);
     else await this.application.select(target.collectionId, request);
   }
 

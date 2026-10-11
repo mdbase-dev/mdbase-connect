@@ -3,7 +3,7 @@ import { StrictMode, useEffect, type ReactNode } from "react";
 import { isMdbaseError } from "@mdbase-dev/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createEditorApplication, SdkEditorRoot, type EditorNativeScope } from "./SdkEditorRoot";
-import { applicationFixture, closeNativeFixtures, paired, readyFixture } from "./test/native-fixture";
+import { applicationFixture, closeNativeFixtures, paired, readyFixture, signedOut } from "./test/native-fixture";
 
 vi.mock("./CodeEditor", () => ({
   CodeEditor: ({ value, onChange, label, readOnly, footer }: { value: string; onChange?: (value: string) => void; label: string; readOnly?: boolean; footer?: ReactNode }) =>
@@ -17,7 +17,7 @@ vi.mock("@tanstack/react-virtual", () => ({
   })
 }));
 
-afterEach(() => closeNativeFixtures());
+afterEach(() => { closeNativeFixtures(); vi.unstubAllGlobals(); });
 
 function Capture({ scope, publish }: { scope: EditorNativeScope; publish(scope: EditorNativeScope): void }) {
   useEffect(() => { publish(scope); }, [scope, publish]);
@@ -51,12 +51,12 @@ describe("SdkEditorRoot over the public SDK fixture", () => {
     expect(h.controls.observedActions().some((call) => call.action === "close")).toBe(false);
   });
 
-  it("sign in calls SDK authorize in the gesture and opens no app popup", () => {
+  it("sign in calls SDK approve in the gesture and opens no app popup", () => {
     const h = applicationFixture();
     const open = vi.spyOn(window, "open");
     render(<SdkEditorRoot sdk={h.entry} />);
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
-    expect(h.controls.observedActions().filter((call) => call.action === "authorize")).toHaveLength(1);
+    expect(h.controls.observedActions().filter((call) => call.action === "approve")).toHaveLength(1);
     expect(h.controls.observedActions().some((call) => call.action === "start")).toBe(false);
     expect(open).not.toHaveBeenCalled();
   });
@@ -68,6 +68,24 @@ describe("SdkEditorRoot over the public SDK fixture", () => {
     fireEvent.click(screen.getByRole("button", { name: "Notes" }));
     expect(h.controls.observedActions().find((call) => call.action === "select")).toMatchObject({ collectionId: "selected-id", signal: expect.any(AbortSignal) });
     expect(screen.queryByText(/fixture-account/)).toBeNull();
+  });
+
+  it("unapproved requested collection never falls back to an approved one; approval, reauthorization and chooser use SDK actions", async () => {
+    const h = applicationFixture({ status: "unselected", signIn: paired,
+      collections: [{ collectionId: "other-id", displayName: "Other", role: "owner" }],
+      selection: { state: "approval_required", requested: { collectionId: "requested-id", source: "url", displayName: null, approved: false }, usable: null, problem: null } });
+    render(<SdkEditorRoot sdk={h.entry} />);
+    expect(screen.queryByRole("button", { name: "Other" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Approve collection" }));
+    expect(h.controls.observedActions().find((call) => call.action === "approve")).toMatchObject({ collectionId: "requested-id", signal: expect.any(AbortSignal) });
+    await act(async () => undefined);
+    fireEvent.click(screen.getByRole("button", { name: "Choose another collection" }));
+    await act(async () => undefined);
+    expect(h.controls.observedActions().some((call) => call.action === "chooseAnother")).toBe(true);
+    await act(async () => h.publish({ selection: signedOut.selection }));
+    fireEvent.click(screen.getByRole("button", { name: "Review access" }));
+    await act(async () => undefined);
+    expect(h.controls.observedActions().some((call) => call.action === "reauthorize")).toBe(true);
   });
 
   it("a failed close does not report sign-out or leak its detail", async () => {
@@ -158,10 +176,13 @@ describe("SdkEditorRoot over the public SDK fixture", () => {
 });
 
 describe("createEditorApplication", () => {
-  it("builds the public declaration from the checked-in manifest and stays an explicit unavailable shell", () => {
-    const sdk = createEditorApplication({ registeredApplicationId: "dev.mdbase.editor", environment: "lab" });
+  it("constructs the live singleton from the unchanged manifest without allocating a Worker or claiming READY", () => {
+    const worker = vi.fn();
+    vi.stubGlobal("Worker", worker);
+    const sdk = createEditorApplication({ origin: location.origin, environment: "lab" });
     expect(sdk.connection("any")).toBeNull();
-    render(<SdkEditorRoot sdk={sdk} />);
+    expect(sdk.application().getSnapshot()).toMatchObject({ status: "not_started", problem: null, selection: { state: "none" }, readiness: { assessment: null } });
+    expect(worker).not.toHaveBeenCalled();
     expect(screen.queryByRole("textbox", { name: "Note body" })).toBeNull();
   });
 });

@@ -58,7 +58,7 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     await f.gateway.authorize({ collectionId: f.replica.collection }, { signal });
     await f.gateway.forgetConnection(f.replica.collection);
     expect(f.controls.observedActions().map((call) => [call.action, call.collectionId, call.signal === signal]))
-      .toEqual(expect.arrayContaining([["authorize", undefined, true], ["clearSelection", undefined, true],
+      .toEqual(expect.arrayContaining([["reauthorize", undefined, true], ["chooseAnother", undefined, true],
         ["select", f.replica.collection, true], ["forget", f.replica.collection, false]]));
   });
 

@@ -14,6 +14,7 @@ export function closeNativeFixtures(): void {
 const facet = { checking: false, assessment: null, problem: null };
 export const signedOut: MdbaseApplicationSnapshot = {
   status: "signed_out", signIn: null, collections: [], selectedCollectionId: null, problem: null, timing: null,
+  selection: { state: "none", requested: { collectionId: null, source: "none", displayName: null, approved: false }, usable: null, problem: null },
   readiness: { ...facet, facets: { capabilities: facet, contracts: facet, configuration: facet, files: facet, people: facet, notifications: facet } }
 };
 export const paired: NonNullable<MdbaseApplicationSnapshot["signIn"]> = {
@@ -57,7 +58,9 @@ export async function readyFixture(options: MemoryReplicaOptions = {}, seed?: (r
   seed?.(native.replica);
   const app = applicationFixture({
     status: "ready", signIn: paired, selectedCollectionId: native.replica.collection,
-    collections: [{ collectionId: native.replica.collection, displayName: "Notes", role: "owner" }]
+    collections: [{ collectionId: native.replica.collection, displayName: "Notes", role: "owner" }],
+    selection: { state: "usable", requested: { collectionId: native.replica.collection, source: "user", displayName: "Notes", approved: true },
+      usable: { collectionId: native.replica.collection, displayName: "Notes", role: "owner" }, problem: null }
   });
   app.publish({ readiness: { ...app.application.getSnapshot().readiness, assessment: { status: "ready", problem: null } } });
   app.controls.setConnections([native.connection]);

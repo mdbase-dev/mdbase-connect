@@ -10,7 +10,7 @@ import type { Surface } from "./app-state-types";
 import { createRoot } from "react-dom/client";
 import { AppErrorBoundary } from "./AppErrorBoundary";
 import { DemoCollectionGateway } from "./demo-gateway";
-import { ConnectCollectionGateway } from "./gateway";
+import { createEditorApplication, SdkEditorRoot } from "./SdkEditorRoot";
 import { EnvironmentBadge } from "./EnvironmentBadge";
 import "@mdbase-dev/ui/motion.css";
 import "./styles.css";
@@ -26,9 +26,11 @@ const demoCount = !connectWorkspace && (import.meta.env.DEV || import.meta.env.V
 const demoDelay = demoCount > 0
   ? Number(new URL(location.href).searchParams.get("delay") ?? 0)
   : 0;
-const gateway = demoCount > 0
-  ? new DemoCollectionGateway(demoCount, demoDelay)
-  : new ConnectCollectionGateway();
+const demoGateway = demoCount > 0 ? new DemoCollectionGateway(demoCount, demoDelay) : null;
+const environment = import.meta.env.VITE_MDBASE_ENV ?? (import.meta.env.DEV ? "lab" : "production");
+if (environment !== "lab" && environment !== "production") throw new Error("Invalid Editor application environment");
+// One SDK owner for the module lifetime; construction does no registration IO.
+const sdk = !connectWorkspace && !demoGateway ? createEditorApplication({ origin: location.origin, environment }) : null;
 
 function EditorWorkspace() {
   const [context, setContext] = useState<{ surface: Surface; collectionName?: string }>({ surface: "notes" });
@@ -36,7 +38,8 @@ function EditorWorkspace() {
     setContext((previous) => previous.surface === surface && previous.collectionName === collectionName ? previous : { surface, collectionName });
   }, []);
   return <FeedbackProvider endpoint={feedbackEndpoint()} turnstileSiteKey={turnstileSiteKey()} application={feedbackApplication("mdbase editor", context.surface, import.meta.env.VITE_MDBASE_REVISION, import.meta.env.VITE_MDBASE_ENV ?? (import.meta.env.DEV ? "development" : "production"))} collectionName={context.collectionName}>
-    <AppErrorBoundary><EditorApp gateway={gateway} onFeedbackContext={updateContext} /></AppErrorBoundary>
+    <AppErrorBoundary>{sdk ? <SdkEditorRoot sdk={sdk} onFeedbackContext={updateContext} />
+      : demoGateway ? <EditorApp gateway={demoGateway} onFeedbackContext={updateContext} /> : null}</AppErrorBoundary>
   </FeedbackProvider>;
 }
 

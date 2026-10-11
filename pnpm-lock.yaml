@@ -170,8 +170,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/protocol
       '@mdbase-dev/sdk':
-        specifier: file:vendor/mdbase-dev-sdk-dev-ad69a506.tgz
-        version: file:apps/editor/vendor/mdbase-dev-sdk-dev-ad69a506.tgz
+        specifier: file:vendor/mdbase-dev-sdk-dev-7193fd0d.tgz
+        version: file:apps/editor/vendor/mdbase-dev-sdk-dev-7193fd0d.tgz
       '@mdbase-dev/ui':
         specifier: workspace:*
         version: link:../../packages/app-ui
@@ -1830,8 +1830,8 @@ packages:
     resolution: {integrity: sha512-PFG1qmAzmcyJjmZLmGz4eoOOZRDgvTvDZATf6IGBccNHRc1eGZtMm7ZUA7gNAxuO5KerrN6mDIB9qQnpojyOAg==, tarball: file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.129-d765e675c3da.tgz}
     version: 0.1.0-beta.129
 
-  '@mdbase-dev/sdk@file:apps/editor/vendor/mdbase-dev-sdk-dev-ad69a506.tgz':
-    resolution: {integrity: sha512-c27Z3oUPQw6o2WnAUxC1Sw8gEjeWBGKKfmYngvWD6u7HClH/zlmVoLw4F1msEPrqi3MvHa6SNGUtP7ymIdyE3w==, tarball: file:apps/editor/vendor/mdbase-dev-sdk-dev-ad69a506.tgz}
+  '@mdbase-dev/sdk@file:apps/editor/vendor/mdbase-dev-sdk-dev-7193fd0d.tgz':
+    resolution: {integrity: sha512-+Q8ErMBAFA7xHLLuxO+H0E9j64wJITgyGcTAbg2AULgCgOy9LLV+m3eGTgxSp95AhC4tEZvL/QcJV9lLOk+DmA==, tarball: file:apps/editor/vendor/mdbase-dev-sdk-dev-7193fd0d.tgz}
     version: 0.0.0
     engines: {node: '>=20'}
 
@@ -6905,7 +6905,7 @@ snapshots:
       ajv-formats: 3.0.1(ajv@8.20.0)
       yaml: 2.9.1
 
-  '@mdbase-dev/sdk@file:apps/editor/vendor/mdbase-dev-sdk-dev-ad69a506.tgz':
+  '@mdbase-dev/sdk@file:apps/editor/vendor/mdbase-dev-sdk-dev-7193fd0d.tgz':
     dependencies:
       '@mdbase-dev/connect-protocol': file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.129-d765e675c3da.tgz
       '@noble/ciphers': 2.4.0
