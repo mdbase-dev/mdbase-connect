@@ -170,8 +170,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/protocol
       '@mdbase-dev/sdk':
-        specifier: file:vendor/mdbase-dev-sdk-0.0.0-b9965703.tgz
-        version: file:apps/editor/vendor/mdbase-dev-sdk-0.0.0-b9965703.tgz
+        specifier: file:vendor/mdbase-dev-sdk-dev-ad69a506.tgz
+        version: file:apps/editor/vendor/mdbase-dev-sdk-dev-ad69a506.tgz
       '@mdbase-dev/ui':
         specifier: workspace:*
         version: link:../../packages/app-ui
@@ -1826,8 +1826,12 @@ packages:
   '@marijn/find-cluster-break@1.0.4':
     resolution: {integrity: sha512-Wy0V7+SGUjnF9/TkiM1hKVDPj7jKXduPNboMVtHTA8dySMURWqfg/JZ9E2Sq8JgSJmkl7k7Qe9FLeMSrSraWmQ==}
 
-  '@mdbase-dev/sdk@file:apps/editor/vendor/mdbase-dev-sdk-0.0.0-b9965703.tgz':
-    resolution: {integrity: sha512-38+zfiaytqIqDOkLMKZ26eM7VrHExm9z/eDrWmBXkdUZwqOCo/cFKqakPpguOJe4joOgt/FYPAbM42UEcTxW/A==, tarball: file:apps/editor/vendor/mdbase-dev-sdk-0.0.0-b9965703.tgz}
+  '@mdbase-dev/connect-protocol@file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.129-d765e675c3da.tgz':
+    resolution: {integrity: sha512-PFG1qmAzmcyJjmZLmGz4eoOOZRDgvTvDZATf6IGBccNHRc1eGZtMm7ZUA7gNAxuO5KerrN6mDIB9qQnpojyOAg==, tarball: file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.129-d765e675c3da.tgz}
+    version: 0.1.0-beta.129
+
+  '@mdbase-dev/sdk@file:apps/editor/vendor/mdbase-dev-sdk-dev-ad69a506.tgz':
+    resolution: {integrity: sha512-c27Z3oUPQw6o2WnAUxC1Sw8gEjeWBGKKfmYngvWD6u7HClH/zlmVoLw4F1msEPrqi3MvHa6SNGUtP7ymIdyE3w==, tarball: file:apps/editor/vendor/mdbase-dev-sdk-dev-ad69a506.tgz}
     version: 0.0.0
     engines: {node: '>=20'}
 
@@ -6894,8 +6898,16 @@ snapshots:
 
   '@marijn/find-cluster-break@1.0.4': {}
 
-  '@mdbase-dev/sdk@file:apps/editor/vendor/mdbase-dev-sdk-0.0.0-b9965703.tgz':
+  '@mdbase-dev/connect-protocol@file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.129-d765e675c3da.tgz':
     dependencies:
+      '@noble/hashes': 2.4.0
+      ajv: 8.20.0
+      ajv-formats: 3.0.1(ajv@8.20.0)
+      yaml: 2.9.1
+
+  '@mdbase-dev/sdk@file:apps/editor/vendor/mdbase-dev-sdk-dev-ad69a506.tgz':
+    dependencies:
+      '@mdbase-dev/connect-protocol': file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.129-d765e675c3da.tgz
       '@noble/ciphers': 2.4.0
       '@noble/curves': 2.4.0
       '@noble/hashes': 2.4.0

@@ -1,20 +1,24 @@
 {
   "package": "@mdbase-dev/sdk",
   "version": "0.0.0",
-  "artifact": "mdbase-dev-sdk-0.0.0-b9965703.tgz",
-  "sourceCommit": "b9965703230091004f17e1632fbc91bdb9edb533",
-  "sha256": "501d07be2e2a94ea29c35c382735edbbfebd3c6b09f59f78c95f71c33a49a3df",
-  "integrity": "sha512-38+zfiaytqIqDOkLMKZ26eM7VrHExm9z/eDrWmBXkdUZwqOCo/cFKqakPpguOJe4joOgt/FYPAbM42UEcTxW/A==",
-  "includesSessionFix808": true,
-  "includesRecordLeases809": true,
-  "includesMemoryDocumentCreate811": true,
-  "includesReadHelpers814": true,
-  "includesEnvironment816": true,
-  "includesSharedNativeFactory819": true,
-  "includesProviderReceipt827": true,
-  "includesProblemDetail832": true,
-  "includesCallerSignalRootFix837": true,
+  "artifact": "mdbase-dev-sdk-dev-ad69a506.tgz",
+  "sourceCommit": "ad69a506471764ad85bf2044c3429ba44428147d",
+  "label": "dev intake, not release-qualified",
+  "sha256": "118a027331d4511fb8d1d382dc559734f39382347da35d943e6953a614fbe732",
+  "integrity": "sha512-c27Z3oUPQw6o2WnAUxC1Sw8gEjeWBGKKfmYngvWD6u7HClH/zlmVoLw4F1msEPrqi3MvHa6SNGUtP7ymIdyE3w==",
+  "localDependencies": [
+    {
+      "package": "@mdbase-dev/connect-protocol",
+      "version": "0.1.0-beta.129",
+      "artifact": "mdbase-dev-connect-protocol-0.1.0-beta.129-d765e675c3da.tgz",
+      "sourceCommit": "d765e675c3da29fe1693deab53c4c2a922bb86f1",
+      "sha256": "2769616d8ba1a9cbb3dd689fa1ca0b1e2b42e5442634635f2cd4a87f5ec9020f",
+      "integrity": "sha512-PFG1qmAzmcyJjmZLmGz4eoOOZRDgvTvDZATf6IGBccNHRc1eGZtMm7ZUA7gNAxuO5KerrN6mDIB9qQnpojyOAg=="
+    }
+  ],
+  "includesPublicApplicationEntry": true,
+  "includesPublicApplicationFixture": true,
   "sourceOnly": true,
-  "nativeFilesProducerQualified": false,
+  "nativeRuntimeQualified": false,
   "perAppRuntimeTrustOriginAndOperationsQualified": false
 }
