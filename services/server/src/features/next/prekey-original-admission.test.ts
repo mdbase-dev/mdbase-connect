@@ -13,9 +13,10 @@ import { NIL } from "./bootstrap-common.js";
 const privateSource=stripTypeScriptTypes(readFileSync(new URL("./lab-pitr-routes.ts",import.meta.url),"utf8"),{mode:"transform"})
   .replace(/^import[\s\S]*?;\n/gm,"").replace("export function registerLabPitrRoutes","function registerLabPitrRoutes");
 const deps={z,NIL,sign,verify,decodeCbor,domainHash,encodeCbor,encodeCert,keyId,policyItemSignedDigest,uuidBytes,ed25519PublicKeyObject,verifyCert};
-const {assertCpOriginalGenesis,signCpOriginalAdmission}=new Function(...Object.keys(deps),privateSource+"\nreturn {assertCpOriginalGenesis,signCpOriginalAdmission};")(...Object.values(deps)) as {
+const {assertCpOriginalGenesis,signCpOriginalAdmission,nonceExpiry}=new Function(...Object.keys(deps),privateSource+"\nreturn {assertCpOriginalGenesis,signCpOriginalAdmission,nonceExpiry};")(...Object.values(deps)) as {
   assertCpOriginalGenesis:(raw:Uint8Array,collection:string,owner:string,root:Uint8Array,transport:Uint8Array)=>void;
-  signCpOriginalAdmission:(signer:PolicySigner,facts:typeof facts)=>{admission:Uint8Array;expiresAt:number};
+  signCpOriginalAdmission:(signer:PolicySigner,facts:typeof facts&{replay?:{nonce:Uint8Array;transcriptHash:Uint8Array}})=>{admission:Uint8Array;expiresAt:number};
+  nonceExpiry:(nonce:Uint8Array,now:number)=>number;
 };
 
 // PUBLIC SYNTHETIC TEST SEEDS ONLY; no deployed keys or release trust assets.
@@ -39,6 +40,31 @@ function decoded(raw:Uint8Array) {
   return {outer,bytes:outer[1],cert:outer[2],signature:outer[3],claims};
 }
 describe("CP-only original admission transcript",()=>{
+  it("pins independent v2 outer/domain/19 claims and signed nonce/transcript binding, never v1 fallback",()=>{
+    const golden=JSON.parse(readFileSync(new URL("./fixtures/prekey-original-admission-v2.json",import.meta.url),"utf8"));
+    const replay={nonce:Buffer.from(golden.httpNonceHex,"hex"),transcriptHash:Buffer.from(golden.transcriptHashHex,"hex")};
+    const {admission}=signCpOriginalAdmission(signer,{...facts,replay}),d=decoded(admission),pk=ed25519PublicKeyObject(signer.cert.policyPublicKey);
+    expect(Buffer.from(admission).toString("hex")).toBe(golden.admissionHex);expect(Buffer.from(d.bytes).toString("hex")).toBe(golden.claimsHex);
+    expect(d.outer[0]).toBe(2);expect(d.claims).toHaveLength(19);expect(d.claims[0]).toBe(2);
+    expect(d.claims.slice(1,17)).toEqual(decoded(signCpOriginalAdmission(signer,facts).admission).claims.slice(1));
+    expect(d.claims.slice(17)).toEqual([Uint8Array.from(replay.nonce),Uint8Array.from(replay.transcriptHash)]);
+    expect(Buffer.from(domainHash("mdbase/v2/prekey-original-admission",d.bytes)).toString("hex")).toBe(golden.digestHex);
+    expect(verify(null,domainHash("mdbase/v2/prekey-original-admission",d.bytes),pk,d.signature)).toBe(true);
+    for(const domain of ["mdbase/v1/prekey-original-admission","mdbase-next/migration-source/v1","mdbase/v1/ls-token"])
+      expect(verify(null,domainHash(domain,d.bytes),pk,d.signature)).toBe(false);
+    for(let i=0;i<19;i++){const claims=[...d.claims];claims[i]=[11,12,13].includes(i)?1:null;
+      expect(verify(null,domainHash("mdbase/v2/prekey-original-admission",encodeCbor(claims as Parameters<typeof encodeCbor>[0])),pk,d.signature)).toBe(false);}
+    for(const invalid of [{nonce:Buffer.alloc(31),transcriptHash:replay.transcriptHash},{nonce:Buffer.alloc(32),transcriptHash:replay.transcriptHash},
+      {nonce:replay.nonce,transcriptHash:Buffer.alloc(33)},{nonce:replay.nonce,transcriptHash:Buffer.alloc(32)}])
+      expect(()=>signCpOriginalAdmission(signer,{...facts,replay:invalid})).toThrow();
+  });
+  it("derives nonce expiry from safe metadata with unchanged inclusive age/future boundaries; not MAC verification",()=>{
+    const nonce=(time:bigint)=>{const n=Buffer.alloc(32,0x36);n.writeBigUInt64BE(time);return n;};
+    expect(nonceExpiry(nonce(BigInt(NOW-60000)),NOW)).toBe(NOW);
+    expect(nonceExpiry(nonce(BigInt(NOW+5000)),NOW)).toBe(NOW+65000);
+    for(const time of [BigInt(NOW-60001),BigInt(NOW+5001),BigInt(Number.MAX_SAFE_INTEGER),18446744073709551615n])
+      expect(()=>nonceExpiry(nonce(time),NOW)).toThrow();
+  });
   it("pins exact golden framing, claims and independently root-certified signature",()=>{
     const golden=JSON.parse(readFileSync(new URL("./fixtures/prekey-original-admission-v1.json",import.meta.url),"utf8"));
     const {admission,expiresAt}=signCpOriginalAdmission(signer,facts),d=decoded(admission),hex=(b:Uint8Array)=>Buffer.from(b).toString("hex");
