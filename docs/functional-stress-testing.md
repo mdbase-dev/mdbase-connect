@@ -56,7 +56,7 @@ The runner checks these invariants:
 
 The runner is intentionally lightweight. The HTTP mode starts a real server but
 does not start Docker, PostgreSQL, NATS, Electron, or the Rust hosted provider.
-Use the existing `e2e:ecosystem`, `e2e:relay`, `e2e:provider`,
+Use the existing `e2e:container`, `e2e:relay`, `e2e:provider`,
 `e2e:authority:stress`, and `e2e:provider:stress` commands for those boundaries.
 True OS process-kill testing and upgrade-from-previous-release fixtures remain
 separate future extensions; server reconstruction in this runner verifies the

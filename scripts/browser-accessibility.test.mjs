@@ -29,7 +29,6 @@ try {
   await auditPortalDeviceAuthorization();
   await auditPortalInstallationApproval(localPage, servers[0].origin);
   if (!process.argv.includes("--portal-only")) {
-    await auditDesktopResumedAuthorization();
     await auditDesktopRoutes();
   }
   console.log(
@@ -230,7 +229,7 @@ async function auditPortalDevLogin() {
     return route.fulfill({ status: 404, json: { error: "not_found" } });
   });
   await page.goto(`${servers[0].origin}${pairingPath}`);
-  // Stable selectors consumed by portal-smoke, Docker E2E, and portal-lifecycle.
+  // Stable selectors consumed by Docker E2E and portal-lifecycle.
   await page.getByRole("heading", { name: "Open your account", exact: true }).waitFor();
   await auditPage(page, "portal development login", { keyboard: true });
   await page.getByLabel("Name", { exact: true }).fill("Portal Test");
@@ -937,307 +936,94 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
   await page.close();
 }
 
-async function auditDesktopResumedAuthorization() {
-  const page = await localPage();
-  const errors = watchPageErrors(page);
-  const requestId = "33333333-3333-4333-8333-333333333333";
-  await page.addInitScript((authorizationId) => {
-    localStorage.setItem("mdbase:resume-authorization", authorizationId);
-    const status = {
-      protocol_version: 1,
-      state: "connected",
-      registered_collections: 0,
-      paused: false,
-      direct_access_available: true
-    };
-    const updateStatus = {
-      phase: "idle",
-      current_version: "0.1.0",
-      channel: "beta",
-      message: "Up to date",
-      can_check: true,
-      can_install: false
-    };
-    window.mdbaseConnect = {
-      status: async () => status,
-      updateStatus: async () => updateStatus,
-      listCollections: async () => [],
-      getLaunchAtLogin: async () => ({ enabled: false, available: true }),
-      getCloudConfig: async () => ({ configured: false, serverUrl: null }),
-      accessSnapshot: async () => ({
-        configured: false,
-        online: false,
-        grants: [],
-        pending_authorizations: [],
-        authority_conflicts: []
-      }),
-      listActivity: async () => [],
-      hostedSnapshot: async () => ({
-        online: false,
-        hosted_collections_available: false,
-        hosted_collections: [],
-        grants: [],
-        pending_authorizations: []
-      }),
-      listMirrors: async () => [],
-      onNavigate: () => () => undefined,
-      onUpdateStatus: () => () => undefined
-    };
-  }, requestId);
-  await page.goto(servers[1].origin);
-  await page.getByRole("heading", { name: "Decide what apps can do." }).waitFor();
-  await page.getByRole("heading", { name: "Connect this computer to continue." }).waitFor();
-  const serverAddress = page.getByLabel("Server address");
-  assert.equal(await serverAddress.isVisible(), false, "desktop pairing: server address starts hidden");
-  await page.getByText("Use another Connect server", { exact: true }).click();
-  await serverAddress.waitFor({ state: "visible" });
-  await auditPage(page, "desktop resumed authorization", { keyboard: true });
-  await page.evaluate(() => {
-    window.__pairingBegins = 0;
-    window.__pairingChecks = [];
-    window.__pairingReopens = 0;
-    window.mdbaseConnect.beginPairing = async () => {
-      window.__pairingBegins++;
-      return { pairingId: "same-request", verificationUri: "https://connect.mdbase.dev/pair/same-request", expiresIn: 600 };
-    };
-    window.mdbaseConnect.pairingStatus = async (id) => {
-      window.__pairingChecks.push(id);
-      if (window.__pairingChecks.length === 1) throw new Error("Network request failed");
-      return { status: window.__pairingApproved ? "paired" : "pending" };
-    };
-    window.mdbaseConnect.reopenPairing = async (id) => {
-      if (id !== "same-request") throw new Error("Wrong pairing request");
-      window.__pairingReopens++;
-    };
-  });
-  await page.getByRole("button", { name: "Continue in browser" }).click();
-  await page.getByText("Connection interrupted", { exact: true }).waitFor();
-  await page.getByRole("button", { name: "Open browser again" }).click();
-  await page.getByRole("button", { name: "Retry connection" }).click();
-  await page.getByText("Waiting for browser approval", { exact: true }).waitFor();
-  await page.evaluate(() => { window.__pairingApproved = true; });
-  await page.getByText("Computer approved. Connecting securely…", { exact: true }).waitFor();
-  assert.equal(await page.evaluate(() => window.__pairingBegins), 1);
-  assert.equal(await page.evaluate(() => window.__pairingReopens), 2);
-  assert.ok((await page.evaluate(() => window.__pairingChecks)).every((id) => id === "same-request"));
-  assert.deepEqual(errors, []);
-  await page.close();
-}
-
 async function auditDesktopRoutes() {
   const page = await localPage();
   const errors = watchPageErrors(page);
-  await page.addInitScript((pendingAuthorization) => {
-    localStorage.setItem("mdbase:collection-completion", JSON.stringify({
-      collectionId: "55555555-5555-4555-8555-555555555555",
-      collectionName: "Personal notes",
-      authority: "local",
-      path: "/home/example/Personal notes"
-    }));
-    const status = {
-      protocol_version: 1,
-      state: "connected",
-      registered_collections: 0,
-      paused: false,
-      direct_access_available: true
+  await page.addInitScript(() => {
+    const collection = {
+      id: "55555555-5555-4555-8555-555555555555", name: "Personal notes", root: "/home/example/Personal notes",
+      mode: "synced_e2e", origin: "local", log: "hosted", state: "ready", notices: [],
+      sync: { confirmed_through: 4, head_known: 4, pending: 0, holds: 1, unresolved: 0, connection: "online" }
     };
-    const updateStatus = {
-      phase: "idle",
-      current_version: "0.1.0",
-      channel: "beta",
-      message: "Up to date",
-      can_check: true,
-      can_install: false
-    };
-    const access = {
-      configured: true,
-      online: true,
-      account: {
-        connector_id: "11111111-1111-4111-8111-111111111111",
-        connector_name: "Test computer",
-        user_name: "Example User",
-        user_email: "user@example.com"
-      },
-      grants: [],
-      pending_authorizations: [pendingAuthorization],
-      authority_conflicts: []
-    };
+    const grant = (overrides) => ({
+      grant: "g", collection: collection.id, app_id: "app-workout-journal", app_name: "Workout journal", client_pk: "pk",
+      capabilities: ["read", "write"], state: "active", first_seen_ms: Date.parse("2026-01-01T00:00:00Z"), acknowledged: true, ...overrides
+    });
+    const updateStatus = { phase: "idle", current_version: "1.0.0", channel: "stable", message: "Up to date", can_check: true, can_install: false };
     window.mdbaseConnect = {
-      status: async () => status,
+      status: async () => ({ target: "isolated_profile", state_dir: "/home/example/.mdbase", account: { signed_in: true, online: true }, collections: [collection] }),
       updateStatus: async () => updateStatus,
-      listCollections: async () => [],
-      getLaunchAtLogin: async () => ({ enabled: false, available: true }),
-      getCloudConfig: async () => ({
-        configured: true,
-        serverUrl: "https://connect.mdbase.dev"
-      }),
-      accessSnapshot: async () => access,
-      listActivity: async () => [],
-      hostedSnapshot: async () => ({
-        online: true,
-        hosted_collections_available: true,
-        hosted_collections: [],
-        grants: [],
-        pending_authorizations: []
-      }),
-      listMirrors: async () => [],
-      onNavigate: () => () => undefined,
-      onUpdateStatus: () => () => undefined,
-      setAccessPaused: async () => undefined,
-      setLaunchAtLogin: async () => ({ enabled: false, available: true }),
       checkForUpdates: async () => updateStatus,
       installUpdate: async () => updateStatus,
-      openAuthorization: async () => undefined,
+      migrationStatus: async () => ({ record: null, running: false }),
+      listCollections: async () => [collection],
+      listHolds: async () => [{ id: "h1", path: "Inbox.md", reason: "conflict", since: Date.parse("2026-01-01T00:00:00Z"), saves: 1, has_theirs: true, binary: false }],
+      getCloudConfig: async () => ({ configured: true, serverUrl: "https://connect.mdbase.dev", online: true, pairing: null, lastError: null }),
+      listAccess: async () => [
+        grant({ grant: "pending", app_id: "app-planner", app_name: "Planner", state: "pending_approval", source: "log", fingerprint: "3f9a0c41d27e8b56" }),
+        grant({ grant: "new", acknowledged: false }),
+        grant({ grant: "old", app_id: "app-old", app_name: "Old app", state: "revoked_locally" })
+      ],
+      listPendingDevices: async () => [{ collection: collection.id, device: "d-laptop", account: "a", kind: "desktop", code: "482913" }],
+      getSettings: async () => ({ require_grant_approval: true }),
+      listActivity: async () => [{ at_ms: Date.parse("2026-01-01T00:00:00Z"), kind: "collection_added", collection_name: "Personal notes" }],
+      getLaunchAtLogin: async () => ({ enabled: false, available: true }),
+      setLaunchAtLogin: async () => ({ enabled: false, available: true }),
+      chooseCreateFolder: async () => "/home/example/new",
+      createCollection: async () => { throw new Error("This folder already has a collection. Choose another folder."); },
       openCollectionFolder: async () => undefined,
-      openEditor: async () => undefined
+      onNavigate: () => () => undefined,
+      onUpdateStatus: () => () => undefined
     };
-  }, desktopAuthorizationFixture("44444444-4444-4444-8444-444444444444"));
+  });
   await page.goto(servers[1].origin);
   await page.getByRole("heading", { name: "Your local connection." }).waitFor();
-  await page.getByRole("button", { name: "Add existing folder" }).waitFor();
-  await page.getByRole("button", { name: "Create collection" }).waitFor();
-  await page.getByRole("button", { name: "Pause app access" }).waitFor();
-  await page.getByRole("heading", { name: "Personal notes is connected." }).waitFor();
-  await page.getByRole("button", { name: "Open folder" }).waitFor();
-  await page.getByRole("button", { name: "Use in application" }).waitFor();
-  await page.getByText("The folder path stays private.", { exact: true }).waitFor();
+  await page.getByText("Connected securely", { exact: true }).first().waitFor();
   await auditPage(page, "desktop overview", { keyboard: true });
 
+  const nav = (name) => page.locator(".product-sidebar-link").filter({ hasText: name });
   for (const route of [
     ["Collections", "Your collections."],
     ["App access", "Decide what apps can do."],
     ["Activity", "What reached this computer."],
-    ["Settings", "Connection and startup."]
+    ["Settings", "Account and startup."]
   ]) {
-    await page.getByRole("button", { name: route[0] }).click();
+    await nav(route[0]).click();
     await page.getByRole("heading", { name: route[1] }).waitFor();
-    if (route[0] === "App access") {
-      await page.getByRole("button", { name: "Review in Connect" }).waitFor();
-      assert.equal(await page.getByRole("button", { name: "Reject" }).count(), 0);
+    if (route[0] === "Collections") {
+      await page.getByRole("button", { name: "Review 1 file" }).click();
+      await page.getByRole("button", { name: "Keep both" }).waitFor();
     }
-    await auditPage(page, `desktop ${route[0].toLowerCase()}`);
+    if (route[0] === "App access") {
+      await page.getByRole("button", { name: "Approve…" }).waitFor();
+      await page.getByRole("button", { name: "Mark as seen" }).waitFor();
+    }
+    await auditPage(page, `desktop ${route[0].toLowerCase()}`, { keyboard: route[0] !== "Activity" });
   }
-  await auditDesktopCreationDialog(page);
-  await auditDesktopConflictReview(page);
-  await auditDesktopTransferRecovery(page);
+  await auditDesktopCreationDialog(page, nav);
   assert.deepEqual(errors, []);
   await page.close();
 }
 
-async function auditDesktopCreationDialog(page) {
-  await page.evaluate(() => {
-    window.mdbaseConnect.chooseCreateFolder = async () => "/home/example/new";
-    window.mdbaseConnect.createCollection = async () => { throw new Error("This folder already has a collection. Choose another folder."); };
-  });
-  await page.getByRole("button", { name: "Collections" }).click();
-  const opener = page.getByRole("button", { name: "Create collection", exact: true });
+async function auditDesktopCreationDialog(page, nav) {
+  await nav("Collections").click();
+  const opener = page.getByRole("button", { name: "Create", exact: true });
   await opener.click();
-  const dialog = page.getByRole("dialog", { name: "Create an mdbase collection" });
+  const dialog = page.getByRole("dialog", { name: "Create a collection" });
   await dialog.waitFor();
   await dialog.getByLabel("Collection name").fill("New notes");
   await dialog.locator(".folder-picker").click();
+  await dialog.locator(".folder-picker").getByText("/home/example/new", { exact: true }).waitFor();
   await dialog.getByRole("button", { name: "Create collection", exact: true }).click();
   await dialog.getByRole("alert").filter({ hasText: "This folder already has a collection" }).waitFor();
   assert.equal(await dialog.getByLabel("Collection name").inputValue(), "New notes");
   for (let index = 0; index < 12; index++) {
     await page.keyboard.press("Tab");
-    assert.equal(await dialog.evaluate((element) => element.matches(":modal") && (element.contains(document.activeElement) || document.activeElement === document.body)), true, "native creation dialog never focuses background controls");
+    assert.equal(await dialog.evaluate((element) => element.matches(":modal") && (element.contains(document.activeElement) || document.activeElement === document.body)), true, "creation dialog never focuses background controls");
   }
   await page.keyboard.press("Escape");
   await dialog.waitFor({ state: "hidden" });
   assert.equal(await opener.evaluate((element) => document.activeElement === element), true, "closing restores focus to the opener");
-}
-
-async function auditDesktopConflictReview(page) {
-  await page.evaluate(() => {
-    const conflict = { entity: "record", object_id: "record", decision_id: "exact", path: "note.md", kind: "conflicted", message: "Local and hosted changes need a decision." };
-    const mirror = {
-      collection_id: "hosted-preview", replica_id: "mirror-preview", name: "Notes", mode: "read_write",
-      selective_sync: { file_classes: [], excluded_folders: [] }, path: "/home/example/Notes", state: "attention", pending: 0,
-      conflicts: [conflict], local_issues: [], cursor: 1, last_synced_at: null, syncing: false, promotion_pending: false
-    };
-    window.__conflictResolutions = [];
-    window.mdbaseConnect.listMirrors = async () => [mirror];
-    window.mdbaseConnect.hostedSnapshot = async () => ({
-      online: true, hosted_collections_available: true, grants: [], pending_authorizations: [],
-      hosted_collections: [{ id: "hosted-preview", display_name: "Preview notes", template: "mdbase", sync_url: "https://storage.example", spec_version: "0.3.0", contracts: [], authority_state: "active", authority_epoch: 1, transferred_collection_id: null, created_at: new Date().toISOString(), replicas: [] }]
-    });
-    window.mdbaseConnect.reviewMirrorConflict = async () => ({
-      review_version: 1, decision_id: "exact",
-      local: { path: "note.md", revision: "sha256:computer", size: 42, document: "---\ntitle: Computer\n---\n\nLocal writing" },
-      remote: { path: "renamed.md", revision: "sha256:hosted", size: 44, document: "---\ntitle: Hosted\n---\n\nHosted writing" }
-    });
-    window.mdbaseConnect.resolveMirrorConflict = async (input) => {
-      window.__conflictResolutions.push(input);
-      mirror.conflicts = [];
-      mirror.state = "up_to_date";
-      return mirror;
-    };
-  });
-  const row = page.locator(".hosted-collection").filter({ hasText: "Preview notes" });
-  await row.getByRole("button", { name: "Sync", exact: true }).click();
-  assert.equal(await row.getByRole("button", { name: "Keep computer version" }).count(), 0, "conflict decisions require a preview");
-  await row.getByRole("button", { name: "Review versions" }).click();
-  await row.getByText("Local writing", { exact: true }).waitFor();
-  await row.getByText("Hosted writing", { exact: true }).waitFor();
-  await row.getByText("title: Computer", { exact: true }).waitFor();
-  await row.getByText("renamed.md", { exact: true }).waitFor();
-  await row.getByRole("button", { name: "Use hosted version" }).click();
-  await row.getByText("Up to date", { exact: true }).waitFor();
-  assert.deepEqual(await page.evaluate(() => window.__conflictResolutions), [{ replicaId: "mirror-preview", objectId: "record", decisionId: "exact", resolution: "remote" }]);
-}
-
-async function auditDesktopTransferRecovery(page) {
-  await page.evaluate(() => {
-    const collection = {
-      id: "55555555-5555-4555-8555-555555555555",
-      display_name: "[test] transfer recovery",
-      path: "/test/Tasks",
-      spec_version: "0.3.0",
-      enabled: true,
-      contracts: [],
-      authority_transfer: {
-        transfer_id: "66666666-6666-4666-8666-666666666666",
-        state: "fenced"
-      }
-    };
-    let cancellationAttempts = 0;
-    window.mdbaseConnect.listCollections = async () => [collection];
-    window.mdbaseConnect.transferCollectionAuthority = async (id) => {
-      if (id !== collection.id) throw new Error("Wrong recovery collection");
-      throw new Error("[test] Move still needs recovery");
-    };
-    window.mdbaseConnect.cancelCollectionAuthorityTransfer = async (id, transferId) => {
-      if (id !== collection.id || transferId !== collection.authority_transfer.transfer_id) {
-        throw new Error("Wrong recovery identity");
-      }
-      if (++cancellationAttempts === 1) throw new Error("[test] Cancellation not confirmed");
-      delete collection.authority_transfer;
-      return { status: "cancelled", collection_id: id, transfer_id: transferId };
-    };
-  });
-  await page.getByRole("button", { name: /^Collections\b/ }).click();
-  await page.getByText("Main-copy move needs attention", { exact: true }).waitFor();
-  const row = page.locator("article.collection-card").filter({ hasText: "[test] transfer recovery" });
-  await row.getByRole("button", { name: "Details", exact: true }).click();
-  const disable = row.getByRole("button", { name: "Disable", exact: true });
-  const remove = row.getByRole("button", { name: "Remove from mdbase connect", exact: true });
-  assert.equal(await disable.isDisabled(), true);
-  assert.equal(await remove.isDisabled(), true);
-  await auditPage(page, "desktop transfer recovery", { keyboard: true });
-  await row.getByRole("button", { name: "Resume move", exact: true }).click();
-  await page.getByText("[test] Move still needs recovery", { exact: true }).waitFor();
-  assert.equal(await remove.isDisabled(), true);
-  page.once("dialog", (dialog) => dialog.accept());
-  await row.getByRole("button", { name: "Cancel move safely", exact: true }).click();
-  await page.getByText("[test] Cancellation not confirmed", { exact: true }).waitFor();
-  assert.equal(await disable.isDisabled(), true);
-  assert.equal(await remove.isDisabled(), true);
-  page.once("dialog", (dialog) => dialog.accept());
-  await row.getByRole("button", { name: "Cancel move safely", exact: true }).click();
-  await page.getByText("Main-copy move needs attention", { exact: true }).waitFor({ state: "hidden" });
-  assert.equal(await disable.isEnabled(), true);
-  assert.equal(await remove.isEnabled(), true);
 }
 
 function portalAuthorizationFixture(id) {
@@ -1281,24 +1067,6 @@ function portalAtomicAuthorizationFixture(id) {
   };
 }
 
-function desktopAuthorizationFixture(id) {
-  return {
-    id,
-    application_id: "app-workout-journal",
-    application_name: "Workout journal",
-    application_distribution: "web",
-    application_homepage: "https://journal.example",
-    flow: "authorization_code",
-    requested_operations: ["read", "create", "delete"],
-    requirements: { contracts: [], access: "full_collection" },
-    provisions: { type_packs: [] },
-    notifications: { criteria: [] },
-    compatible_collection_ids: [],
-    provisionable_collection_ids: [],
-    collection_types: [],
-    expires_at: "2099-08-01T00:00:00.000Z"
-  };
-}
 
 async function expectText(page, value) {
   await page.getByText(value, { exact: true }).waitFor();

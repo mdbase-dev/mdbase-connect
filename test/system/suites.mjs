@@ -43,12 +43,6 @@ export const systemSuites = Object.freeze({
     description: "RPM and DEB CLI entry-point installation, upgrade, and removal",
     prepare: [],
     command: ["node", "apps/desktop/test/linux-packages/run.mjs"]
-  },
-  desktop: {
-    description: "Native Electron client against the packaged environment",
-    prepare: ["desktop", "cli-binary"],
-    command: ["node", "apps/desktop/scripts/docker-server-e2e.mjs"],
-    headless: true
   }
 });
 
@@ -60,9 +54,6 @@ export const preparationSteps = Object.freeze({
   ],
   "provider-binary": [
     "cargo", "build", "-p", "mdbase-connect-hosted-provider"
-  ],
-  desktop: [
-    "pnpm", "--filter", "@mdbase/connect-desktop", "build:standalone"
   ],
   "cli-binary": ["cargo", "build", "-p", "mdbase-cli"]
 });

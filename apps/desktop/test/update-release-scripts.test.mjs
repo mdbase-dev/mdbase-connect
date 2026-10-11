@@ -52,6 +52,10 @@ test("release scripts emit a deterministic, digest-bound platform manifest", asy
       "25",
       "--blocked-versions",
       "0.1.0-beta.7,0.1.0-beta.8",
+      "--minimum-version",
+      "0.1.0-beta.9",
+      "--published-versions",
+      "0.1.0-beta.10 0.1.0-beta.8 0.1.0-beta.9 0.1.0-beta.5",
       "--published-at",
       "2026-07-28T00:00:00.000Z"
     ],
@@ -60,7 +64,8 @@ test("release scripts emit a deterministic, digest-bound platform manifest", asy
   const manifest = JSON.parse(await readFile(output, "utf8"));
   const target = manifest.targets["darwin-arm64"];
   assert.equal(manifest.rollout.percentage, 25);
-  assert.deepEqual(manifest.blocked_versions, ["0.1.0-beta.7", "0.1.0-beta.8"]);
+  // Every published version below the minimum is blocked (numeric prerelease order).
+  assert.deepEqual(manifest.blocked_versions, ["0.1.0-beta.5", "0.1.0-beta.7", "0.1.0-beta.8"]);
   assert.equal(target.mode, "automatic");
   assert.equal(target.artifacts[0].size, bytes.length);
   assert.equal(

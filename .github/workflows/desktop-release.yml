@@ -18,6 +18,7 @@ on:
       - ".cargo/**"
       - "rust-toolchain*"
       - "deploy/docker/mdbase-rs-revision"
+      - "runtime/**"
       - "package.json"
       - "apps/editor/**"
       - "apps/desktop/**"
@@ -123,16 +124,6 @@ jobs:
           test "v$package_version" = "$GITHUB_REF_NAME"
           echo "value=$package_version" >> "$GITHUB_OUTPUT"
 
-      - id: mdbase_revision
-        shell: bash
-        run: echo "revision=$(tr -d '\r\n' < deploy/docker/mdbase-rs-revision)" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: callumalpass/mdbase-rs
-          ref: ${{ steps.mdbase_revision.outputs.revision }}
-          path: mdbase-rs
-
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
           version: 11.15.1
@@ -142,12 +133,6 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: mdbase-connect/pnpm-lock.yaml
-
-      - name: Install Rust
-        shell: bash
-        run: |
-          rustup toolchain install 1.94.0 --profile minimal
-          rustup override set 1.94.0
 
       - name: Install Linux packaging tools
         if: matrix.platform == 'linux'
@@ -251,6 +236,23 @@ jobs:
             pnpm check:release-readiness -- --stable
           fi
       - run: pnpm build
+      # The bundled daemon and headless CLI: one package from runtime/, stamped
+      # with the app version so `mdbase --version` and readiness report it.
+      - name: Build the mdbase daemon from runtime/
+        shell: bash
+        working-directory: mdbase-connect/runtime
+        env:
+          MDBN_RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          rustup toolchain install
+          scripts/check-release-features.sh mdbn-daemon
+          cargo build --release --locked -p mdbn-daemon --bin mdbase
+          binary="$PWD/target/release/mdbase"
+          if [ "$RUNNER_OS" = "Windows" ]; then binary="$(cygpath -w "$binary.exe")"; fi
+          "$binary" --version | grep -qF "$MDBN_RELEASE_VERSION"
+          echo "MDBN_DAEMON_BIN=$binary" >> "$GITHUB_ENV"
+          echo "MDBN_DAEMON_VERSION=$MDBN_RELEASE_VERSION" >> "$GITHUB_ENV"
+
       - run: pnpm --filter @mdbase/connect-desktop make
 
       - name: Verify Linux package CLI lifecycle
@@ -361,17 +363,22 @@ jobs:
       - name: Stage canonical headless CLI and daemon
         shell: bash
         run: |
-          binary="target/release/mdbase"
+          binary="$MDBN_DAEMON_BIN"
           filename_mode=standard
           if [ "${{ matrix.platform }}" = "windows" ]; then
-            binary="target/release/mdbase.exe"
             filename_mode=unsigned-preview
           elif [ "${{ matrix.platform }}" = "macos" ]; then
+            # Publish the copy the app's signing covered, not the unsigned build output.
             app_path="$(find apps/desktop/out -type d -name 'mdbase connect.app' -print -quit)"
             test -n "$app_path"
-            binary="$app_path/Contents/Resources/mdbase"
+            binary="$app_path/Contents/Resources/mdbase-next/mdbase"
             if [ "$MACOS_RELEASE_MODE" = "signed" ]; then
               codesign --verify --strict --verbose=2 "$binary"
+              team() { codesign -dv "$1" 2>&1 | sed -n 's/^TeamIdentifier=//p'; }
+              app_team="$(team "$app_path")"
+              test -n "$app_team"
+              test "$(team "$binary")" = "$app_team" \
+                || { echo "The bundled daemon is not signed by the app's Team ID." >&2; exit 1; }
             else
               filename_mode=unsigned-preview
             fi
@@ -522,13 +529,20 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           rollout="${UPDATE_ROLLOUT_PERCENTAGE:-100}"
+          # Versions below the committed minimum must update (they bypass rollout).
+          minimum="$(node -p "require('./config/desktop-update-minimum.json').minimum_version")"
+          published="$(git ls-remote --tags --refs origin 'v*' | sed -n 's|.*refs/tags/v||p' \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' | tr '\n' ' ')"
+          test -n "$published"
           node scripts/generate-update-manifest.mjs \
             --directory release-artifacts \
             --output release-artifacts/mdbase-connect-channel-v1.json \
             --version "$version" \
             --repository "$GITHUB_REPOSITORY" \
             --rollout "$rollout" \
-            --blocked-versions "${UPDATE_BLOCKED_VERSIONS:-}"
+            --blocked-versions "${UPDATE_BLOCKED_VERSIONS:-}" \
+            --minimum-version "$minimum" \
+            --published-versions "$published"
           cp \
             release-artifacts/mdbase-connect-channel-v1.json \
             release-artifacts/mdbase-connect-update.json
@@ -626,7 +640,7 @@ jobs:
             platform: macos
             arch: x64
           # Windows is exercised by windows-package-smoke, which already
-          # builds the same release CLI for the Store package.
+          # builds the same daemon for the Store package.
           - label: Headless Linux smoke test
             os: ubuntu-24.04
             platform: linux
@@ -640,40 +654,43 @@ jobs:
         with:
           path: mdbase-connect
 
-      - id: mdbase_revision
-        shell: bash
-        run: echo "revision=$(tr -d '\r\n' < deploy/docker/mdbase-rs-revision)" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: callumalpass/mdbase-rs
-          ref: ${{ steps.mdbase_revision.outputs.revision }}
-          path: mdbase-rs
-
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-
-      - name: Install Rust
-        shell: bash
-        run: |
-          rustup toolchain install 1.94.0 --profile minimal
-          rustup override set 1.94.0
 
       # Restore only: rust-caches.yml saves from main.
       - name: Restore Rust dependency cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: |
-            mdbase-connect -> target
-          shared-key: mdbase-cli-release-${{ steps.mdbase_revision.outputs.revision }}
+            mdbase-connect/runtime -> target
+          shared-key: mdbase-daemon-release-${{ hashFiles('mdbase-connect/runtime/Cargo.lock') }}
           save-if: false
 
-      - name: Build and exercise the standalone release
+      - id: version
         shell: bash
+        run: echo "value=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      # The bundled daemon and headless CLI: one package from runtime/, stamped
+      # with the app version so `mdbase --version` and readiness report it.
+      - name: Build the mdbase daemon from runtime/
+        shell: bash
+        working-directory: mdbase-connect/runtime
+        env:
+          MDBN_RELEASE_VERSION: ${{ steps.version.outputs.value }}
         run: |
-          cargo build --locked --release -p mdbase-cli
-          scripts/ci/smoke-headless-cli.sh "${{ matrix.platform }}" "${{ matrix.arch }}"
+          rustup toolchain install
+          scripts/check-release-features.sh mdbn-daemon
+          cargo build --release --locked -p mdbn-daemon --bin mdbase
+          binary="$PWD/target/release/mdbase"
+          if [ "$RUNNER_OS" = "Windows" ]; then binary="$(cygpath -w "$binary.exe")"; fi
+          "$binary" --version | grep -qF "$MDBN_RELEASE_VERSION"
+          echo "MDBN_DAEMON_BIN=$binary" >> "$GITHUB_ENV"
+          echo "MDBN_DAEMON_VERSION=$MDBN_RELEASE_VERSION" >> "$GITHUB_ENV"
+
+      - name: Exercise the standalone release
+        shell: bash
+        run: scripts/ci/smoke-headless-cli.sh "${{ matrix.platform }}" "${{ matrix.arch }}"
 
   bundle-check:
     needs: select-tests
@@ -756,16 +773,6 @@ jobs:
         with:
           path: mdbase-connect
 
-      - id: mdbase_revision
-        shell: bash
-        run: echo "revision=$(tr -d '\r\n' < deploy/docker/mdbase-rs-revision)" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: callumalpass/mdbase-rs
-          ref: ${{ steps.mdbase_revision.outputs.revision }}
-          path: mdbase-rs
-
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
           version: 11.15.1
@@ -776,19 +783,13 @@ jobs:
           cache: pnpm
           cache-dependency-path: mdbase-connect/pnpm-lock.yaml
 
-      - name: Install Rust
-        shell: bash
-        run: |
-          rustup toolchain install 1.94.0 --profile minimal
-          rustup override set 1.94.0
-
       # Restore only: rust-caches.yml saves from main.
       - name: Restore Rust dependency cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: |
-            mdbase-connect -> target
-          shared-key: mdbase-cli-release-${{ steps.mdbase_revision.outputs.revision }}
+            mdbase-connect/runtime -> target
+          shared-key: mdbase-daemon-release-${{ hashFiles('mdbase-connect/runtime/Cargo.lock') }}
           save-if: false
 
       - name: Configure smoke-test Store identity
@@ -801,10 +802,31 @@ jobs:
             -PackageVersion "1.0.${{ github.run_number }}.0"
 
       - run: pnpm install --frozen-lockfile
+      - id: version
+        shell: bash
+        run: echo "value=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      # The bundled daemon and headless CLI: one package from runtime/, stamped
+      # with the app version so `mdbase --version` and readiness report it.
+      - name: Build the mdbase daemon from runtime/
+        shell: bash
+        working-directory: mdbase-connect/runtime
+        env:
+          MDBN_RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          rustup toolchain install
+          scripts/check-release-features.sh mdbn-daemon
+          cargo build --release --locked -p mdbn-daemon --bin mdbase
+          binary="$PWD/target/release/mdbase"
+          if [ "$RUNNER_OS" = "Windows" ]; then binary="$(cygpath -w "$binary.exe")"; fi
+          "$binary" --version | grep -qF "$MDBN_RELEASE_VERSION"
+          echo "MDBN_DAEMON_BIN=$binary" >> "$GITHUB_ENV"
+          echo "MDBN_DAEMON_VERSION=$MDBN_RELEASE_VERSION" >> "$GITHUB_ENV"
+
       - run: pnpm --filter @mdbase/connect-desktop make
 
-      # make builds the same release CLI that headless-package-smoke builds
-      # on the other platforms.
+      # The same daemon build that headless-package-smoke checks on the other
+      # platforms.
       - name: Exercise the standalone Windows release
         if: github.event_name == 'workflow_dispatch' || needs.select-tests.outputs.headless == 'true'
         shell: bash

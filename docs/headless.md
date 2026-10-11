@@ -1,8 +1,7 @@
 # Headless mdbase installation
 
-The standalone `mdbase` archive contains the same native CLI and local
-authorization daemon that ships inside the matching mdbase connect desktop
-release. It does not contain Electron and does not introduce a second trust or
+The standalone `mdbase` archive contains the same native CLI and daemon that
+ships inside the matching mdbase connect desktop release. It does not contain Electron and does not introduce a second trust or
 collection implementation.
 
 ## Verify before installing
@@ -27,35 +26,39 @@ path on `PATH`, for example:
 
 ```bash
 install -m 0755 mdbase ~/.local/bin/mdbase
-mdbase connect daemon install
-mdbase connect daemon status
+mdbase service install
+mdbase service status
 ```
 
 On Windows, extract `mdbase.exe` to a stable per-user directory, add that
-directory to `PATH`, then run the same `mdbase connect daemon install` and
-`status` commands from PowerShell.
+directory to `PATH`, then run the same `mdbase service install` and `status`
+commands from PowerShell.
 
-`daemon install` copies the exact invoking executable into mdbase's private
-runtime directory and registers the per-user service. Run it again after
-installing an upgrade. For containers, SSH sessions, or supervisors that should
-own the process lifecycle, use the canonical foreground entry point instead:
+`service install` copies the exact invoking executable into mdbase's private
+runtime directory (keeping the copy it replaces as `mdbase.previous`), registers
+the per-user service and waits until it is ready. Run it again after installing
+an upgrade. For containers, SSH sessions, or supervisors that should own the
+process lifecycle, use the foreground entry point with an isolated profile
+instead:
 
 ```bash
-mdbase --state-dir /secure/persistent/state connect daemon run
+mdbase --state-dir /secure/persistent/state daemon run
 ```
 
-The daemon is the final authorization boundary for local collections. Portal
-approval selects the collection and permissions; the daemon then verifies the
-application installation signature and persists the exact signed grant without
-an additional local ceremony. Reauthorizing the same installation updates its
-grant keys, while a different installation key produces a different identity.
-This behavior is identical in desktop and fully headless sessions.
+Sign the computer in with `mdbase account sign-in`. The daemon is the final
+authorization boundary for local collections: apps reach a collection only
+after you approve them (`mdbase access`), the same in desktop and fully headless
+sessions.
 
 Do not expose the local control socket or named pipe over a network. Back up the
 state directory and OS credential store according to the recovery guidance for
 your platform.
 
 ## Hosted read canary
+
+The canary drives the previous connector CLI's `connect login` and
+`connect hosted` commands, which the mdbase daemon CLI does not have; run it with
+a CLI from an earlier mdbase connect release.
 
 `scripts/hosted-read-canary.mjs` registers the exact portable CLI manifest,
 then checks one immutable Markdown marker through the native hosted CLI path.
