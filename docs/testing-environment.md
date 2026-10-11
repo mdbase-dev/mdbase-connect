@@ -124,31 +124,9 @@ checks health and portal assets, creates a development identity, completes
 pairing, rejects an invalid connector credential, restarts the server, and
 proves the genuine credential remains valid.
 
-Run the native desktop against that packaged server:
-
-```bash
-pnpm e2e:desktop:container
-```
-
-On headless Linux:
-
-```bash
-xvfb-run -a pnpm e2e:desktop:container
-```
-
-The desktop suite launches Electron, Chromium, and the real Rust agent outside
-Docker. It uses a temporary profile, signs into the packaged portal, approves
-the computer there, checks the connected account, creates a real fixture
-collection through Electron, and authorizes a consumer through the portal. It
-then routes an operation through the Docker relay, verifies application access
-in both Electron and the portal, revokes it in the portal, exercises the local
-pause boundary, restarts the Docker server, and verifies recovery.
-
-Run both boundaries with:
-
-```bash
-pnpm e2e:ecosystem
-```
+The native desktop app runs on mdbn-daemon and is not part of this packaged
+environment. Its Electron smoke runs against an isolated debug daemon:
+`MDBN_DAEMON_BIN=<mdbase-next debug mdbase> MDBASE_DESKTOP_SMOKE_DIR=<abs scratch> xvfb-run -a node apps/desktop/scripts/next-electron-smoke.mjs`.
 
 The existing `pnpm e2e:provider` suite remains the production hosted-authority
 boundary. Its browser scenarios live under `scripts/system/provider/`, while

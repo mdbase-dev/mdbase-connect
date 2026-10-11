@@ -46,8 +46,6 @@
     "deploy:lab": "node scripts/deploy-lab-local.mjs",
     "e2e": "node test/system/run.mjs --suite local",
     "e2e:container": "node test/system/run.mjs --suite container",
-    "e2e:desktop:container": "node test/system/run.mjs --suite desktop",
-    "e2e:ecosystem": "node test/system/run.mjs --suite container,desktop",
     "e2e:relay": "node test/system/run.mjs --suite relay",
     "e2e:sync": "node test/system/run.mjs --suite sync",
     "e2e:provider": "node test/system/run.mjs --suite provider",

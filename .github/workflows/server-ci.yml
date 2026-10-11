@@ -621,10 +621,10 @@ jobs:
             suites: projection-scale
             browser: false
             timeout: 35
-          - shard: desktop
-            suites: desktop,linux-packages
-            browser: true
-            timeout: 60
+          - shard: linux-packages
+            suites: linux-packages
+            browser: false
+            timeout: 35
     defaults:
       run:
         working-directory: mdbase-connect
