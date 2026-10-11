@@ -112,8 +112,8 @@ suite("staging receiving-v1 (isolated real PostgreSQL; synthetic verifier metada
   it.each(["?view=other", "?view=receiving-v1&limit=1", "?view=receiving-v1&view=receiving-v1"])("refuses caller selectors/duplicate view: %s", async query => {
     const f = await fixture(), app = await front(); try { expect((await request(app, f.name, query)).statusCode).toBe(400); } finally { await app.close(); }
   });
-  it.each(["production", "lab", ""])("refuses the bulk variant outside configured staging: %s", async environment => {
-    const f = await fixture(), app = await front(db, environment); try { expect((await request(app, f.name)).statusCode).toBe(503); } finally { await app.close(); }
+  it.each([{environment:"production",status:503},{environment:"lab",status:409},{environment:"",status:503}])("refuses unsupported environment or mismatched accepted archive: $environment", async ({environment,status}) => {
+    const f = await fixture(), app = await front(db, environment); try { expect((await request(app, f.name)).statusCode).toBe(status); } finally { await app.close(); }
   });
   it.each(["membership", "owner", "coverage"])("refuses stale accepted archive after raw topology drift: %s", async change => {
     const f = await fixture(), app = await front(); try {

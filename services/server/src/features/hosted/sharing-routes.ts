@@ -128,21 +128,20 @@ export function registerHostedSharingRoutes(
         })
         .strict()
         .parse(request.body);
+      // Typed migration refusals and Retry-After belong to the shared handler.
+      reply.header("cache-control", "no-store");
       const accepted = await acceptHostedCollectionInvitation(options.db, {
         userId: user.id,
         token
       });
-      return reply
-        .header("cache-control", "no-store")
-        .code(201)
-        .send({
-          membership: {
-            id: accepted.membershipId,
-            collection_id: accepted.collectionId,
-            role: accepted.role,
-            state: "active"
-          }
-        });
+      return reply.code(201).send({
+        membership: {
+          id: accepted.membershipId,
+          collection_id: accepted.collectionId,
+          role: accepted.role,
+          state: "active"
+        }
+      });
     }
   );
 

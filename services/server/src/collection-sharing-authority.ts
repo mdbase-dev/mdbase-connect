@@ -1,6 +1,8 @@
 import type { DatabaseConnection, DatabaseQueryable } from "./database-types.js";
 import { requireCollectionNotDeleted } from "./features/next/collection-deletion.js";
 import { requireAccountNotMigrationFrozen } from "./features/next/migration-topology.js";
+import { InvitationMigrationPending, requireCompletedMigrationInvitation } from "./features/next/migration-sharing.js";
+import { RequestValidationError } from "./platform/http-errors.js";
 
 export interface CollectionSharingAuthority {
   kind: "native" | "hosted";
@@ -29,6 +31,25 @@ export async function lockCollectionSharingAuthority(
   await requireAccountNotMigrationFrozen(db, discovered.user_id);
   const held = await readAuthority(db, collectionId, " FOR UPDATE");
   if (!held || held.user_id !== discovered.user_id) return null;
+  return held;
+}
+
+/** Original emailed invitation acceptance only; other sharing/topology writes
+ * retain the original global freeze. A terminal label is never sufficient. */
+export async function lockCollectionInvitationAcceptance(
+  db: DatabaseConnection,
+  collectionId: string
+): Promise<CollectionSharingAuthority | null> {
+  const discovered = await resolveCollectionSharingAuthority(db, collectionId);
+  if (!discovered) return null;
+  try { await requireAccountNotMigrationFrozen(db, discovered.user_id); }
+  catch (error) {
+    if (!(error instanceof RequestValidationError) || error.code !== "migration_frozen") throw error;
+    if (discovered.kind !== "native") throw new InvitationMigrationPending();
+  }
+  await requireCompletedMigrationInvitation(db, collectionId, discovered.user_id);
+  const held = await readAuthority(db, collectionId, " FOR UPDATE");
+  if (!held || held.user_id !== discovered.user_id || held.kind !== discovered.kind) return null;
   return held;
 }
 
