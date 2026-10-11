@@ -118,6 +118,20 @@
   gap: var(--space-2);
 }
 
+.sdk-collection-choice.is-private > :not(button):not(.sdk-collection-name):not(.sdk-collection-kind) {
+  grid-column: 1 / -1;
+}
+
+.sdk-collection-kind,
+.sdk-collection-availability p {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+}
+
+.sdk-collection-availability p {
+  margin: 0;
+}
+
 .delete-collection-dialog form {
   display: grid;
   gap: var(--space-2);

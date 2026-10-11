@@ -12,6 +12,7 @@ import { AppErrorBoundary } from "./AppErrorBoundary";
 import { DemoCollectionGateway } from "./demo-gateway";
 import { createEditorApplication, SdkEditorRoot } from "./SdkEditorRoot";
 import { EnvironmentBadge } from "./EnvironmentBadge";
+import { deliverAppGrantCallbackFrom, isAppGrantCallback } from "./private-collections";
 import "@mdbase-dev/ui/motion.css";
 import "./styles.css";
 import "./environment-badge.css";
@@ -30,8 +31,14 @@ const demoDelay = demoCount > 0
 const demoGateway = demoCount > 0 ? new DemoCollectionGateway(demoCount, demoDelay) : null;
 const environment = import.meta.env.VITE_MDBASE_ENV ?? (import.meta.env.DEV ? "lab" : "production");
 if (environment !== "lab" && environment !== "production") throw new Error("Invalid Editor application environment");
+// The Private collection consent popup returns here: hand its result to the
+// waiting editor tab and close, without starting a second SDK owner.
+const grantCallback = isAppGrantCallback(new URL(location.href));
+if (grantCallback) {
+  void deliverAppGrantCallbackFrom(new URL(location.href)).catch(() => {}).finally(() => window.close());
+}
 // One SDK owner for the module lifetime; construction does no registration IO.
-const sdk = !demoGateway ? createEditorApplication({ origin: location.origin, environment }) : null;
+const sdk = !demoGateway && !grantCallback ? createEditorApplication({ origin: location.origin, environment }) : null;
 
 function EditorWorkspace() {
   const [context, setContext] = useState<{ surface: Surface; collectionName?: string }>({ surface: "notes" });
@@ -39,7 +46,8 @@ function EditorWorkspace() {
     setContext((previous) => previous.surface === surface && previous.collectionName === collectionName ? previous : { surface, collectionName });
   }, []);
   return <FeedbackProvider endpoint={feedbackEndpoint()} turnstileSiteKey={turnstileSiteKey()} application={feedbackApplication("mdbase editor", context.surface, import.meta.env.VITE_MDBASE_REVISION, import.meta.env.VITE_MDBASE_ENV ?? (import.meta.env.DEV ? "development" : "production"))} collectionName={context.collectionName}>
-    <AppErrorBoundary>{sdk ? <SdkEditorRoot sdk={sdk} onFeedbackContext={updateContext} />
+    <AppErrorBoundary>{grantCallback ? <p className="mdbase-connect-status">You can close this window.</p>
+      : sdk ? <SdkEditorRoot sdk={sdk} onFeedbackContext={updateContext} />
       : demoGateway ? <EditorApp gateway={demoGateway} onFeedbackContext={updateContext} /> : null}</AppErrorBoundary>
   </FeedbackProvider>;
 }

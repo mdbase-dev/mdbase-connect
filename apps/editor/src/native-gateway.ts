@@ -63,6 +63,15 @@ const INSTALLED_BY = "dev.mdbase.editor";
 const PLAN_MEMORY = 8;
 const RECEIPT_TIMEOUT_MS = 30_000;
 
+/** What the gateway needs from its scope's owner: the SDK application for cloud
+ * copies, or the editor's own Private collection session. */
+export type EditorScopeActions = Pick<MdbaseApplication, "chooseAnother" | "reauthorize" | "select" | "forget">;
+
+/** One open collection. A Private collection opened through an app grant has no
+ * people client: the app-grant API exposes no people authority yet. */
+export type EditorConnection = Pick<MdbaseApplicationConnection, "id" | "displayName" | "generation" | "records" | "files" | "isCurrent">
+  & { readonly people?: MdbaseApplicationConnection["people"] };
+
 /** The editor's collection gateway over one borrowed public SDK connection.
  * `SdkEditorRoot` owns lifecycle, selection and readiness; this adapter never
  * closes the client, never retries a write under a fresh identity, and stops
@@ -77,14 +86,23 @@ export class NativeEditorGateway implements CollectionGateway {
   /** `declaration` is the bundled app declaration; with it the summary reports
    * declared capabilities this grant lacks, for the "update access" prompts. */
   constructor(
-    private readonly application: MdbaseApplication,
-    private readonly connection: MdbaseApplicationConnection,
+    private readonly application: EditorScopeActions,
+    private readonly connection: EditorConnection,
     private readonly declaration?: MdbaseApplicationDeclaration
   ) {
     this.client = connection.records;
     if (connection.id !== this.client.collection) throw new Error("The editor requires its original SDK collection client.");
     this.records = new NextEditorRecords(this.client, () => this.current());
+    const people = connection.people;
+    if (people) this.peopleDirectory = async (options: { signal?: AbortSignal } = {}) => {
+      const directory = await people.directory({ members: "omit", signal: this.signal(options.signal) });
+      this.check();
+      return directory;
+    };
   }
+
+  /** Absent when the connection has no people client (Private collections). */
+  readonly peopleDirectory?: CollectionGateway["peopleDirectory"];
 
   /** Retire this scope. The borrowed client stays open for its SDK owner. */
   dispose(): void {
@@ -179,12 +197,6 @@ export class NativeEditorGateway implements CollectionGateway {
         };
       })
     };
-  }
-
-  async peopleDirectory(options: { signal?: AbortSignal } = {}) {
-    const directory = await this.connection.people.directory({ members: "omit", signal: this.signal(options.signal) });
-    this.check();
-    return directory;
   }
 
   async queryContract(contract: DataContractSelector, options: { signal?: AbortSignal } = {}): Promise<Array<{ path: string; values: JsonObject }>> {
