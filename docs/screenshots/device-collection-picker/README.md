@@ -2,7 +2,7 @@
 
 Synthetic TaskNotes request, Personal notes and Work notes; no real account or device data. Captured with an isolated headless browser against a local production portal build. Browser/server were closed after each run.
 
-The same request and viewport settings are used before and after. The old 390px page overflowed horizontally; its image is cropped to the actual 390px viewport. Desktop is 1440px.
+The same request and viewport settings are used before and after. The old 390px page overflowed horizontally; its image is cropped to the actual 390px viewport. Desktop is 1440px. Refreshed after images assert the action is enabled and wait for styling to settle; the earlier desktop capture caught the disabled-to-enabled color transition. Enabled primary colors now appear immediately after a valid choice.
 
 | Viewport | Before | After |
 | --- | --- | --- |
