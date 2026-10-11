@@ -346,7 +346,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                       {pairing.creation && <small role="status">Creation hasn't finished. Approve continues the same named collection.</small>}
                     </div>}
                     <p className="mdbase-connect-footnote">Access includes the notes and files in the collection you pick.{createCollections ? ` ${pairing.connector_name} can also create new collections for you.` : ""}{pairing.scope_only ? " Previously approved collections stay available." : ""}</p>
-                    <details className="installation-advanced">
+                    {(pairing.collections?.length || pairing.retained_collection_ids?.length || pairing.requested_create_collections || pairing.retained_create_collections) ? <details className="installation-advanced">
                       <summary>Advanced: allow more collections</summary>
                       <fieldset className="installation-scopes" disabled={busy}>
                         <legend>Additional collection access</legend>
@@ -366,9 +366,9 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                         </label>}
                       </fieldset>
                       {pairing.scope_only && <p>Already-allowed access stays in place. Remove access separately if you no longer want it.</p>}
-                    </details>
+                    </details> : null}
                     {pairing.timer_declaration && <div className="installation-choice">
-                      <label>
+                      <label className="installation-check">
                         <input type="checkbox" className="mdbase-checkbox" disabled={busy} checked={allowReminders} onChange={event=>setAllowReminders(event.target.checked)} />
                         <span>Allow {pairing.connector_name} to send you reminders</span>
                       </label>
