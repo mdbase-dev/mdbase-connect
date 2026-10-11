@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore, type
 import { MdbaseConnect, type MdbaseApplication, type MdbaseApplicationConnection, type MdbaseApplicationDeclaration, type MdbaseApplicationEntry, type MdbaseClient } from "@mdbase-dev/sdk";
 import { ConnectLayout, OpeningScreen } from "@mdbase-dev/ui/screens";
 import { FeedbackButton } from "@mdbase-dev/ui/feedback";
+import { describeError } from "@mdbase-dev/sdk/describe";
 import type { Surface } from "./app-state-types";
 import { NativeEditorGateway } from "./native-gateway";
 import { DeleteCollectionDialog } from "./DeleteCollectionDialog";
@@ -64,6 +65,9 @@ function ApplicationView({ sdk, renderNative, onSignedOut, onFeedbackContext }: 
   const [working, setWorking] = useState(false);
   const [problem, setProblem] = useState(false);
   const [deleting, setDeleting] = useState<{ collectionId: string; displayName: string } | null>(null);
+  // Developer-only detail (e.g. which manifest fields a registration refusal named): logs, never the screen.
+  const developerMessage = snapshot.status === "blocked" ? describeError(snapshot)?.developerMessage ?? null : null;
+  useEffect(() => { if (developerMessage) console.warn(`mdbase editor: ${developerMessage}`); }, [developerMessage]);
   useEffect(() => {
     const scope = new AbortController();
     caller.current = scope;
@@ -108,6 +112,7 @@ function ApplicationView({ sdk, renderNative, onSignedOut, onFeedbackContext }: 
   }
 
   const unavailable = snapshot.problem === "application_not_yet_available";
+  const blocked = snapshot.status === "blocked" && !unavailable ? describeError(snapshot) : null;
   const closed = snapshot.status === "closed";
   const selection = snapshot.selection;
   const waiting = snapshot.status === "authorizing" || selection.state === "approving";
@@ -122,6 +127,7 @@ function ApplicationView({ sdk, renderNative, onSignedOut, onFeedbackContext }: 
   const message = unavailable ? "Opening collections isn't available in this build yet."
     : closed ? "mdbase editor has signed out. Reload to sign in again."
     : invalidSelection ? "This collection link is invalid. Choose another collection."
+    : blocked ? blocked.message
     : error ? "This action could not be completed. Please try again."
     : waiting ? "Waiting for approval in the mdbase tab…"
     : needsApproval ? "This collection needs approval for mdbase editor."

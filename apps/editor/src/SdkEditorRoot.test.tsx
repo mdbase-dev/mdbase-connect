@@ -146,6 +146,17 @@ describe("SdkEditorRoot over the public SDK fixture", () => {
     expect(screen.queryByRole("button", { name: "Set up mdbase editor" })).toBeNull();
   });
 
+  it("a refused registration shows the end-user copy and logs only the developer detail", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const h = applicationFixture({ status: "blocked", problem: "application_registration_refused",
+      problemDetail: { name: "MdbaseError", code: "forbidden", registration: { code: "invalid_application_manifest", paths: ["/homepage"] } } });
+    render(<SdkEditorRoot sdk={h.entry} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Contact the app's developer.");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("/homepage");
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("invalid manifest: /homepage"));
+    warn.mockRestore();
+  });
+
   it("setup delegates to SDK configure without treating its success as ready", async () => {
     const h = applicationFixture({ status: "setup_required" });
     const native = vi.fn(() => <p>Never ready</p>);
