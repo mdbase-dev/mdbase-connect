@@ -65,7 +65,8 @@ export async function installationApp(db: DatabaseQueryable, environment: string
   if (!declaredOrigin && !allowed.includes(origin)) return fail("installation_app_not_allowed", 403);
   if (!app.name || !app.family_identity) throw new Error("Invalid registered installation identity.");
   const timerDeclaration = installationTimerDeclaration(app, { environment: environment as InstallationTimerBinding["environment"], app_origin: origin, kind });
-  return Object.freeze({ id: app.id, origin, name: app.name, requirements: app.requirements, ...(timerDeclaration ? { timerDeclaration } : {}) });
+  const optionalFileActions = [...declaredOptionalFileActions(app.requirements)];
+  return Object.freeze({ id: app.id, origin, name: app.name, ...(timerDeclaration ? { timerDeclaration } : {}), ...(optionalFileActions.length ? { optionalFileActions } : {}) });
 }
 type Connection = Awaited<ReturnType<DatabasePool["connect"]>>;
 interface Row {
@@ -234,7 +235,7 @@ export async function startInstallationPairing(
   if (input.file_access) {
     // One collection, declared optional actions, a single-line reason, and only
     // as a re-consent of an existing installation credential.
-    const {actions, reason} = input.file_access, declared = declaredOptionalFileActions(app.requirements);
+    const {actions, reason} = input.file_access, declared = new Set<string>(app.optionalFileActions ?? []);
     if (!input.reconsent || input.renewal || input.requested_create_collections || !actions.length || new Set(actions).size !== actions.length)
       return fail("installation_invalid_scope",400);
     if (actions.some(action => !declared.has(action))) return fail("installation_file_access_undeclared",403);
