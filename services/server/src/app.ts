@@ -46,6 +46,7 @@ import { registerNextDeviceRoutes } from "./features/next/device-routes.js";
 import { registerLocalRollbackBindingRoutes } from "./features/next/local-rollback-bindings.js";
 import { registerLocalTakeoverRoutes } from "./features/next/local-takeover.js";
 import { registerNextRouteRoutes } from "./features/next/route-routes.js";
+import { registerClientKeyAttachRoute } from "./features/next/client-key-attach.js";
 import type { HostedProviderClient } from "./hosted-provider.js";
 import { NotificationService, type NotificationTransports } from "./notifications.js";
 import { RelayHub } from "./relay.js";
@@ -601,6 +602,7 @@ export async function buildApp(options: BuildOptions) {
     });
     registerPolicyRecoveryRoutes(app, options.db, nextPolicyEmitter!);
     registerNextRouteRoutes(app, { db: options.db, publicUrl, broker: relayBroker, hostedClientUrl: options.nextControlPlane.hostedClientUrl, labPitr: options.nextControlPlane.logService.labPitr });
+    registerClientKeyAttachRoute(app, { db: options.db });
     if (options.nextControlPlane.labFixtures) registerLabFixtureRoutes(app, {
       db: options.db, config: options.nextControlPlane.labFixtures, next: options.nextControlPlane,
       environment: options.environment, publicUrl, emitter: nextPolicyEmitter!
