@@ -7,6 +7,20 @@ const origin = (process.env.MDBASE_EDITOR_ORIGIN ?? defaultOrigin).replace(/\/$/
 const basePath = normalizeBasePath(process.env.MDBASE_EDITOR_BASE_PATH ?? defaultBasePath);
 const appUrl = new URL(basePath, `${origin}/`).href;
 const connectUrl = process.env.MDBASE_CONNECT_URL?.trim();
+const labOrigin = process.env.MDBASE_EDITOR_LAB_ORIGIN;
+let installationOrigins;
+if (labOrigin !== undefined) {
+  const url = new URL(labOrigin);
+  if (process.env.MDBASE_ENV !== "lab" || url.origin !== labOrigin
+    || url.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
+    || url.username || url.password || url.search || url.hash) {
+    throw new Error("Editor LAB installation origin must be an exact loopback HTTP origin in LAB");
+  }
+  if (new URL(appUrl).protocol !== "https:") {
+    throw new Error("Editor LAB declaration must retain an HTTPS homepage");
+  }
+  installationOrigins = { lab: { "app-runtime": [labOrigin] } };
+}
 const localCallback = connectUrl ? new URL(appUrl) : null;
 if (localCallback) {
   localCallback.searchParams.set("server", new URL(connectUrl).origin);
@@ -20,6 +34,7 @@ await writeFile(target, `${JSON.stringify({
   name: "mdbase editor",
   homepage: appUrl,
   redirect_uris: [appUrl, ...(localCallback ? [localCallback.href] : [])],
+  ...(installationOrigins ? { installation_origins: installationOrigins } : {}),
   requirements: {
     people: { version: 1, optional: ["identity"] },
     contracts: [],
