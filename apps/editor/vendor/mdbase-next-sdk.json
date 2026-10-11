@@ -1,24 +1,24 @@
 {
   "package": "@mdbase-dev/sdk",
   "version": "0.0.0",
-  "artifact": "mdbase-dev-sdk-dev-ad69a506.tgz",
-  "sourceCommit": "ad69a506471764ad85bf2044c3429ba44428147d",
+  "artifact": "mdbase-dev-sdk-dev-4b955381.tgz",
+  "sourceCommit": "4b9553819ddb769ff1487170c05494321d23ab8b",
   "label": "dev intake, not release-qualified",
-  "sha256": "118a027331d4511fb8d1d382dc559734f39382347da35d943e6953a614fbe732",
-  "integrity": "sha512-c27Z3oUPQw6o2WnAUxC1Sw8gEjeWBGKKfmYngvWD6u7HClH/zlmVoLw4F1msEPrqi3MvHa6SNGUtP7ymIdyE3w==",
-  "localDependencies": [
-    {
-      "package": "@mdbase-dev/connect-protocol",
-      "version": "0.1.0-beta.129",
-      "artifact": "mdbase-dev-connect-protocol-0.1.0-beta.129-d765e675c3da.tgz",
-      "sourceCommit": "d765e675c3da29fe1693deab53c4c2a922bb86f1",
-      "sha256": "2769616d8ba1a9cbb3dd689fa1ca0b1e2b42e5442634635f2cd4a87f5ec9020f",
-      "integrity": "sha512-PFG1qmAzmcyJjmZLmGz4eoOOZRDgvTvDZATf6IGBccNHRc1eGZtMm7ZUA7gNAxuO5KerrN6mDIB9qQnpojyOAg=="
-    }
-  ],
+  "sha256": "9874074d6a68287780de2092a069c1cb4e81d3558e432b719b7525974eb6b0ad",
+  "integrity": "sha512-1935zBydG8X//I36KdFnTfY+PddEF5GQ/6363l9FrdARiFu1b/26K7Ai3P9NcuZF/VYh91Qs+j673T7af2AWkA==",
   "includesPublicApplicationEntry": true,
   "includesPublicApplicationFixture": true,
   "sourceOnly": true,
   "nativeRuntimeQualified": false,
-  "perAppRuntimeTrustOriginAndOperationsQualified": false
+  "perAppRuntimeTrustOriginAndOperationsQualified": false,
+  "bundledDependencies": [
+    {
+      "package": "@mdbase-dev/connect-protocol",
+      "version": "0.1.0-beta.129",
+      "artifact": "mdbase-dev-connect-protocol-0.1.0-beta.129-3c14fc913a80.tgz",
+      "sourceCommit": "3c14fc913a8066a23f889e38559c9bb5ff7422e4",
+      "sha256": "3dc48b6b9dbf8651b6c300ab5896408ff90a0e1a7b8f1312e27442914b50ca83",
+      "integrity": "sha512-1cGQC+RKazMrL6NVkt6gFR6vElOruPJb0wLYjtVZU69C88FChTzkr9o12UvoKMFVFUpi0JDa4RPD/iNHUb7d7A=="
+    }
+  ]
 }
