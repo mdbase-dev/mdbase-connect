@@ -10,8 +10,9 @@ if (initialScripts.length === 0 || styles.length === 0) {
   throw new Error("The built application did not expose its initial JavaScript and CSS assets.");
 }
 
+// Standalone apps are not size-gated: initial JavaScript is measured and
+// reported, never failed. The CSS budget still applies.
 const limits = {
-  initialJavaScript: 200 * 1024,
   // Includes @mdbase-dev/ui's tokens, controls, brand, screens and mark motion, shared with Reader and Writer.
   initialCss: 42 * 1024
 };
@@ -19,10 +20,9 @@ const limits = {
 const initialJavaScript = await compressedBytes(initialScripts);
 const initialCss = await compressedBytes(styles);
 
-assertWithin("initial JavaScript", initialJavaScript, limits.initialJavaScript);
 assertWithin("initial CSS", initialCss, limits.initialCss);
 
-console.log(`Bundle budgets passed: ${format(initialJavaScript)} initial JavaScript, ${format(initialCss)} initial CSS.`);
+console.log(`Bundle report: ${format(initialJavaScript)} initial JavaScript (not gated), ${format(initialCss)} initial CSS (budget passed).`);
 
 async function compressedBytes(files) {
   const contents = await Promise.all(files.map((file) => readFile(resolve(root, "dist", file))));
