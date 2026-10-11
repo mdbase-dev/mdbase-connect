@@ -105,6 +105,14 @@ describe("contract query output", () => {
   });
 });
 
+describe("list_changes reset", () => {
+  it("states the reset and that records must be re-read", () => {
+    expect(changesOutput({ changes: [], cursor: "10:3", reset: true }, 100)).toMatchObject({
+      events: [], cursor: "10:3", has_more: false, reset: true, reset_reason: expect.stringMatching(/re-read/)
+    });
+  });
+});
+
 describe("list_changes mapping", () => {
   it("passes opaque cursors with the legacy default page size; no after asks only for the current cursor", () => {
     expect(changesInput({})).toEqual({ limit: 100 });

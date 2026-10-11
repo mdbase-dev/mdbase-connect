@@ -62,7 +62,7 @@ export function createMcpServer(
 
   server.registerTool("list_changes", {
     title: "List collection changes",
-    description: "List changes after an optional collection change cursor. Includes typed_events with record revisions, changed fields and body-change hints when supplied by the authority; unknown events retain their raw payload.",
+    description: "List changes after an optional collection change cursor. Without after, returns no events and the current cursor. Includes typed_events with record revisions, changed fields and body-change hints when supplied by the authority; unknown events retain their raw payload. If reset is true, the cursor is no longer valid and changes may have been missed: re-read (query_records) whatever you rely on, then continue from the returned cursor.",
     inputSchema: {
       connection_id: connectionId,
       after: z.union([z.number().int().nonnegative(), z.string().min(1).max(200)]).optional()

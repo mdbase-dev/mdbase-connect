@@ -210,7 +210,8 @@ export function changesOutput(result: ChangesResult, limit: number): Json {
     cursor: result.cursor,
     // The replica does not report more; a full page may be followed by an empty one.
     has_more: result.changes.length >= limit,
-    reset: result.reset
+    reset: result.reset,
+    ...(result.reset ? { reset_reason: "The change cursor is no longer valid (the collection restarted or the cursor is too old). Changes may have been missed: re-read the records you rely on, then continue from cursor." } : {})
   };
 }
 
