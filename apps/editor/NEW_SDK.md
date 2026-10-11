@@ -40,10 +40,14 @@ validation and the gateway session bridge still need qualification/integration.
 The launch uses relay/hosted routes only. Browser direct-access controls must
 consume the shared unsupported compatibility port and hide/skip gracefully.
 
-The SDK is release's qualified `729b5391` packed artifact, recorded in
-`vendor/mdbase-next-sdk.json` with verified SHA256/SHA512. The original archive
-bytes include the actual SDK819 shared native factory and SDK827 provider-receipt
-helpers, plus earlier session, lease, fixture, read-helper and environment fixes.
+The SDK is release's qualified `b9965703` packed artifact, recorded in
+`vendor/mdbase-next-sdk.json` with verified SHA256/SHA512. Its original 750928
+bytes include SDK837's host/caller lifetime composition fix and SDK832's optional
+bounded `problemDetail`, plus the earlier public factory/provider-receipt helpers.
+Release verified all 278 regular members, 1678 SDK tests and five browser checks
+(with three existing runtime-gated skips). The editor consumes SDK snapshots
+directly without a new diagnostic parser, raw-error logging or retry authority.
+This pin enables no new factory or per-app native composition.
 Both Docker dependency-install contexts copy this same file before installation. This
 source/package pin is not per-app trust/origin/runtime/session/operation approval;
 the old gateway remains active and the earlier unsafe SDK807 archive is not reused.

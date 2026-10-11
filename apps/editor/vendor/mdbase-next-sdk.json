@@ -1,10 +1,10 @@
 {
   "package": "@mdbase-dev/sdk",
   "version": "0.0.0",
-  "artifact": "mdbase-dev-sdk-0.0.0-729b5391.tgz",
-  "sourceCommit": "729b5391f9e8e8c192d93a7112324ce65078d106",
-  "sha256": "fad2206e0a744ac5e801917831ee580ccbd2cf09df8bd4b3bd58bc76632bbeca",
-  "integrity": "sha512-2KKV/f44MbSePCpR6ACXxiiKNbw3c2Cj91cdXyItBeQcBGpz+DNviUl+6zw34ztzwyb7k7d6UpcaDgr5VfwFLw==",
+  "artifact": "mdbase-dev-sdk-0.0.0-b9965703.tgz",
+  "sourceCommit": "b9965703230091004f17e1632fbc91bdb9edb533",
+  "sha256": "501d07be2e2a94ea29c35c382735edbbfebd3c6b09f59f78c95f71c33a49a3df",
+  "integrity": "sha512-38+zfiaytqIqDOkLMKZ26eM7VrHExm9z/eDrWmBXkdUZwqOCo/cFKqakPpguOJe4joOgt/FYPAbM42UEcTxW/A==",
   "includesSessionFix808": true,
   "includesRecordLeases809": true,
   "includesMemoryDocumentCreate811": true,
@@ -12,6 +12,8 @@
   "includesEnvironment816": true,
   "includesSharedNativeFactory819": true,
   "includesProviderReceipt827": true,
+  "includesProblemDetail832": true,
+  "includesCallerSignalRootFix837": true,
   "sourceOnly": true,
   "nativeFilesProducerQualified": false,
   "perAppRuntimeTrustOriginAndOperationsQualified": false
