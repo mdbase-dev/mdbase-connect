@@ -100,6 +100,7 @@ export function registerConnectorPairingRoutes(
       const input = z
         .object({
           connector_name: z.string().trim().min(1).max(100).optional(),
+          collection_hint: originalUuid.optional(),
           installation: z
             .object({
               request_id: originalUuid,
@@ -121,7 +122,7 @@ export function registerConnectorPairingRoutes(
       return installationResult(reply, async () => {
         const result = await startInstallationPairing(
           options.db,
-          input.installation,
+          { ...input.installation, collection_hint: input.collection_hint },
           await installationApp(options.db,options.installationEnvironment,input.installation.app_id,request.headers.origin,input.installation.kind),
           options.publicUrl,
           existingConnector??undefined,
@@ -172,8 +173,9 @@ export function registerConnectorPairingRoutes(
               "Installation device sign-in is unavailable.",
             ),
           );
+      const { collection_hint } = z.object({ collection_hint: originalUuid.optional() }).parse(request.query);
       return installationResult(reply, () =>
-        inspectInstallationPairing(options.db, pairingId, user.id, !!options.cloudCopy, user),
+        inspectInstallationPairing(options.db, pairingId, user.id, !!options.cloudCopy, user, collection_hint),
       );
     }
     const pairing = await options.db.query<{

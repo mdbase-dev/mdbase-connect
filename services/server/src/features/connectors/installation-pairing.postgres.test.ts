@@ -465,6 +465,55 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect((await p.flow.exchange()).statusCode).toBe(409);
     expect((await db.query("SELECT connector_id FROM installation_device_credentials WHERE connector_id=$1",[p.selected.connector_id])).rows).toEqual([]);
   });
+  it("carries a collection hint in the verification URL without resolving or granting it at START", async () => {
+    for (const hint of [randomUUID(), await scopeCollection((await account()).user)]) {
+      const input = original();
+      const result = await app.inject({ method: "POST", url: "/v1/pairing-requests", headers: originHeaders(input), payload: { ...input, collection_hint: hint } });
+      expect(result.statusCode, result.body).toBe(201);
+      expect(result.json().verification_uri).toBe(`https://connect.test/pair/${input.installation.request_id}?collection_hint=${hint}`);
+      expect((await channel(input).exchange()).json()).toEqual({ status: "pending" });
+    }
+  });
+  it("surfaces a collection hint only after explicit account confirmation and only from its approvable list", async () => {
+    const owner = await account(), hint = await scopeCollection(owner.user), input = original(), flow = await start(input);
+    const inspect = () => app.inject({ method: "GET", url: `${flow.base}?collection_hint=${hint}`, headers: owner.headers });
+    expect((await inspect()).json().pairing).toMatchObject({ collections: [], collection_hint: null, selected_collection_id: null });
+    expect((await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: owner.headers })).statusCode).toBe(200);
+    expect((await inspect()).json().pairing).toMatchObject({ collection_hint: hint, selected_collection_id: null, approved_collection_ids: [] });
+  });
+  it("does not distinguish foreign, private, left, revoked or nonexistent collection hints or grant from a hint", async () => {
+    const p = await prepared(), target = await scopeCollection(p.owner.user), chosen = await scopeCollection(p.owner.user);
+    const other = await account(), foreign = await scopeCollection(other.user), priv = await scopeCollection(p.owner.user), left = await scopeCollection(p.owner.user), revoked = await scopeCollection(p.owner.user);
+    await db.query("UPDATE next_collections SET sync='private' WHERE collection_id=$1", [priv]);
+    await db.query("UPDATE next_collections SET left_sync_at=now() WHERE collection_id=$1", [left]);
+    await db.query("INSERT INTO next_policy_outbox(collection_id,ops) VALUES($1,$2)", [revoked, JSON.stringify({ version: 1, ops: [{ op: "device-revoke", device: p.input.installation.device_id }] })]);
+    const inspect = (hint?: string) => app.inject({ method: "GET", url: `${p.flow.base}${hint ? `?collection_hint=${hint}` : ""}`, headers: p.owner.headers });
+    const baseline = await inspect(); expect(baseline.statusCode).toBe(200); expect(baseline.json().pairing.collection_hint).toBeNull();
+    for (const hint of [foreign, priv, left, revoked, randomUUID()]) {
+      const result = await inspect(hint); expect(result.statusCode).toBe(200); expect(result.body).toBe(baseline.body);
+    }
+    expect((await inspect(target)).json().pairing.collection_hint).toBe(target);
+    expect((await db.query("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1", [p.selected.connector_id])).rows).toEqual([]);
+    expect((await app.inject({ method: "POST", url: `${p.flow.base}/approve`, headers: p.owner.headers, payload: { fingerprint: clientFingerprint(Buffer.from(p.proof.payload.sign_pk, "hex")), collection_ids: [chosen], create_collections: false, selected_collection_id: chosen } })).statusCode).toBe(200);
+    expect((await p.flow.exchange()).json().selected_collection_id).toBe(chosen);
+    expect((await db.query("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1", [p.selected.connector_id])).rows).toEqual([{ collection_id: chosen }]);
+  });
+  it("carries a collection hint for reconsent but still requires fresh account confirmation", async () => {
+    const p = await prepared(); expect((await approveDevice(p.flow, p.owner)).statusCode).toBe(200);
+    const credential = (await p.flow.exchange()).json(), hint = await scopeCollection(p.owner.user);
+    const input = { ...p.input, installation: { ...p.input.installation, request_id: randomUUID(), pairing_secret: randomToken("pair"), reconsent: true } };
+    const started = await app.inject({ method: "POST", url: "/v1/pairing-requests", headers: { ...originHeaders(input), authorization: `Bearer ${credential.token}` }, payload: { ...input, collection_hint: hint } });
+    expect(started.statusCode, started.body).toBe(201); expect(new URL(started.json().verification_uri).searchParams.get("collection_hint")).toBe(hint);
+    const flow = channel(input), url = `${flow.base}?collection_hint=${hint}`;
+    expect((await app.inject({ method: "GET", url, headers: p.owner.headers })).json().pairing.collection_hint).toBeNull();
+    expect((await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: p.owner.headers })).statusCode).toBe(200);
+    expect((await app.inject({ method: "GET", url, headers: p.owner.headers })).json().pairing.collection_hint).toBe(hint);
+  });
+  it.each(["not-a-uuid", "00000000-0000-0000-0000-000000000000", "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"])("rejects malformed collection hint %s before creating a request", async hint => {
+    const input = original();
+    expect((await app.inject({ method: "POST", url: "/v1/pairing-requests", headers: originHeaders(input), payload: { ...input, collection_hint: hint } })).statusCode).toBe(400);
+    expect((await db.query("SELECT id FROM pairing_requests WHERE id=$1", [input.installation.request_id])).rows).toEqual([]);
+  });
   async function rescope(p:Awaited<ReturnType<typeof prepared>>,token:string,create=false,origin=originHeaders(p.input).origin) {
     const input={...p.input,installation:{...p.input.installation,request_id:randomUUID(),pairing_secret:randomToken("pair"),reconsent:true,requested_create_collections:create}};
     const result=await app.inject({method:"POST",url:"/v1/pairing-requests",headers:{origin,authorization:`Bearer ${token}`},payload:input});

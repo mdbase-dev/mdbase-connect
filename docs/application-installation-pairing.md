@@ -42,6 +42,26 @@ without the optional field preserve that data. It is no longer a prerequisite
 for self-registration: the default `{}` permits the app's declared web origins.
 No applied migration or persisted pairing/credential identity is rewritten.
 
+## Requested collection hints
+
+Installation and reconsent `POST /v1/pairing-requests` accept an optional top-level
+`collection_hint`: a canonical, lowercase, non-nil collection UUID. START does
+not look up that collection. Its returned `verification_uri` carries the hint as
+`?collection_hint=<uuid>`; this is transient URL metadata, not persisted selection
+or consent. Clients should open the returned URI unchanged.
+
+The portal forwards only this hint to `GET /v1/pairing-requests/:id`. After explicit
+account confirmation, the response's `pairing.collection_hint` is the UUID only
+if it appears in that account's current approvable collection list; otherwise it
+is `null`. Foreign, private, left, device-revoked and nonexistent targets have the
+same response as no hint. No target-specific existence lookup or error is made.
+
+An eligible hint preselects the picker. The user can choose another collection;
+existing approved choices or in-progress/completed creation take precedence. An
+unavailable hint does not silently pick another or the only available collection.
+Explicit Approve and its authoritative `selected_collection_id`/collection scope
+remain required and revalidated. Changing a URL hint never grants access.
+
 Explicit Remove access resolves the request's registered application family and
 revokes that family's grants and installation device access for the selected
 account/collection. Other families and accounts are not changed. A removal does

@@ -23,7 +23,10 @@ export async function auditPortalInstallationApproval(localPage, origin) {
   page.on("pageerror", error => errors.push(String(error)));
   await page.route("**/v1/pairing-requests/**", async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
-    if (request.method() === "GET") return route.fulfill({json: {pairing}});
+    if (request.method() === "GET") {
+      const hint = new URL(request.url()).searchParams.get("collection_hint");
+      return route.fulfill({json: {pairing: {...pairing, collection_hint: pairing.account_selection_confirmed && pairing.collections.some(collection => collection.collection_id === hint) ? hint : null}}});
+    }
     const body = request.postDataJSON();
     posts.push({path, body});
     if (path.endsWith("/collections")) {
@@ -40,9 +43,9 @@ export async function auditPortalInstallationApproval(localPage, origin) {
   const url = `${origin}/pair/00000000-0000-4000-8000-000000000001`;
   const picker = () => page.getByRole("combobox", {name: "Open in TaskNotes", exact: true});
   const approve = () => page.getByRole("button", {name: "Approve", exact: true});
-  const load = async () => {
+  const load = async hint => {
     pairing = structuredClone(base); posts = []; failCreation = false; loseApproval = false;
-    await page.goto(url); await picker().waitFor();
+    await page.goto(`${url}${hint ? `?collection_hint=${hint}` : ""}`); await picker().waitFor();
   };
   const choose = async name => {
     await picker().click(); await page.getByRole("option", {name, exact: true}).click();
@@ -72,6 +75,20 @@ export async function auditPortalInstallationApproval(localPage, origin) {
         assert.ok(await approve().evaluate(element => element.getBoundingClientRect().height) >= 44);
       }
     }
+    await load(first);
+    assert.match(await picker().innerText(), /Personal notes/, "eligible link target is preselected");
+    assert.equal(posts.length, 0, "a hint never triggers approval");
+    await choose("Work notes"); await approve().click(); await done();
+    assert.deepEqual(posts.map(post => post.body), [{fingerprint: base.fingerprint, collection_ids: [second], create_collections: true, selected_collection_id: second}], "choose another overrides the requested hint without granting it");
+    await load(created);
+    assert.match(await picker().innerText(), /Choose a collection/, "unavailable hint does not reveal a name or select another collection");
+    assert.equal(await approve().isEnabled(), false);
+    assert.equal(posts.length, 0);
+    await load(first);
+    pairing.creation = {collection_id: created, display_name: "Original name", completed: false};
+    await page.reload(); await picker().waitFor();
+    assert.match(await picker().innerText(), /New collection/, "original creation overrides a hint");
+    assert.equal(posts.length, 0);
     await load();
     pairing.account_email = null; pairing.account_provider = "github"; pairing.account_login = "original";
     await page.reload(); await picker().waitFor();

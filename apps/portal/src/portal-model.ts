@@ -25,6 +25,27 @@ export function installationAccountLabel(pairing: {
   return email || (provider === "github" && login ? `GitHub account @${login}` : null);
 }
 
+export const NEW_COLLECTION = "new-collection";
+
+export function pairingInspectionPath(pairingId: string, search: string): string {
+  const hint = new URLSearchParams(search).get("collection_hint");
+  return `/v1/pairing-requests/${pairingId}${hint ? `?collection_hint=${encodeURIComponent(hint)}` : ""}`;
+}
+
+export function initialInstallationCollection(pairing: {
+  account_selection_confirmed?: boolean;
+  selected_collection_id?: string | null;
+  collection_hint?: string | null;
+  creation?: { collection_id: string; completed: boolean } | null;
+  collections?: Array<{ collection_id: string }>;
+}): string {
+  if (pairing.creation && !pairing.creation.completed) return NEW_COLLECTION;
+  if (pairing.selected_collection_id) return pairing.selected_collection_id;
+  if (pairing.creation?.completed) return pairing.creation.collection_id;
+  return pairing.account_selection_confirmed && pairing.collections?.some(collection => collection.collection_id === pairing.collection_hint)
+    ? pairing.collection_hint! : "";
+}
+
 export function initials(value: string) { return value.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase(); }
 export function message(value: unknown) {
   let detail = value instanceof Error ? value.message : String(value);
