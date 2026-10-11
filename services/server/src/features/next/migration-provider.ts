@@ -106,7 +106,8 @@ async function action(collection: string, fence: boolean, options: Options) {
   // Never re-fence a retained/cut-over collection through this launch front.
   // A missing run identity for a fenced source is not an active migration.
   if (!["active", "migrating"].includes(source.state) || source.retain_until !== null
-      || (source.state === "migrating" && (!source.migration_id || !source.started_at))) {
+      || (source.state === "migrating" && (!source.migration_id || !source.started_at))
+      || (source.state === "active" && (source.migration_id != null || source.started_at !== null))) {
     throw new RolloutRefused("migration_source_not_current", "The legacy source is not pre-cutover.");
   }
   if (source.collection_id !== collection) throw new RolloutRefused("migration_source_unavailable", "The source identity does not match.", 503);
@@ -116,9 +117,20 @@ async function action(collection: string, fence: boolean, options: Options) {
   if (current.account !== before.account || current.started_us !== before.started_us) {
     throw new RolloutRefused("migration_source_changed", "The migration claim changed.");
   }
+  // The existing provider client owns strict reply decoding; do not add another
+  // codec here. This layer additionally binds its outcome to the observed run.
   const result = fence ? await options.provider.legacyMigrationFence(collection, { deadline }) : source;
-  if (result.collection_id !== collection || (fence && result.retain_until !== null)) {
+  if (result.collection_id !== collection || (fence && (result.retain_until !== null
+      || result.state !== "migrating" || !result.migration_id
+      || result.migration_id === "00000000-0000-0000-0000-000000000000" || !result.started_at))) {
     throw new RolloutRefused("migration_source_unavailable", "The provider outcome is not a current source.", 503);
+  }
+  // A retry may observe this run, never silently adopt a replacement after a
+  // provider rollback/restart during the await. The fence response is state DATA,
+  // not an original-effect receipt or all-writer/external-I/O settlement ACK.
+  if (fence && source.state === "migrating"
+      && (result.migration_id !== source.migration_id || result.started_at !== source.started_at)) {
+    throw new RolloutRefused("migration_source_changed", "The provider migration run changed.");
   }
   return inTransaction(options.db, async client => {
     const after = await claim(client, collection, true);
