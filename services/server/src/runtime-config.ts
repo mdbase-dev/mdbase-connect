@@ -7,6 +7,7 @@ import type { WebhookSigningConfig } from "./webhook.js";
 import { parsePushTargetSealerEnv, type PushTargetSealerConfig } from "./features/next/push-target-seal.js";
 import { loadPolicySigner, parseNextControlPlaneEnv, type NextControlPlaneConfig } from "./features/next/policy-keys.js";
 
+import { DEFAULT_CLIENT_UPDATE_POLICY, type ClientUpdatePolicy } from "./features/next/cutover-problems.js";
 import { parsePasswordSignupIpMaxAttempts, passwordSignupIpRule } from "./features/auth/password-signup-limit.js";
 
 export type RegistrationMode = "closed" | "invite" | "open";
@@ -60,6 +61,8 @@ export interface RuntimeConfig {
   nextTimers?: boolean;
   /** Push targets sealed at rest (MDBASE_NEXT_PUSH_TOKEN_KEY); null when off. */
   pushTargetSeal?: PushTargetSealerConfig | null;
+  /** Update link and optional minimum version shown to clients of moved collections. */
+  clientUpdate?: ClientUpdatePolicy;
 }
 
 export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
@@ -406,8 +409,19 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
       : null,
     nextControlPlane: parseNextControlPlaneEnv(env),
     nextTimers: parseNextTimersEnv(env),
-    pushTargetSeal: parsePushTargetSealerEnv(env)
+    pushTargetSeal: parsePushTargetSealerEnv(env),
+    clientUpdate: parseClientUpdateEnv(env)
   });
+}
+
+function parseClientUpdateEnv(env: NodeJS.ProcessEnv): ClientUpdatePolicy {
+  const updateUrl = env.MDBASE_CONNECT_CLIENT_UPDATE_URL?.trim() || DEFAULT_CLIENT_UPDATE_POLICY.updateUrl;
+  validatePublicDocumentUrl(updateUrl, "MDBASE_CONNECT_CLIENT_UPDATE_URL");
+  const minimumClientVersion = env.MDBASE_CONNECT_MINIMUM_CLIENT_VERSION?.trim() || null;
+  if (minimumClientVersion && !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(minimumClientVersion)) {
+    throw new Error("MDBASE_CONNECT_MINIMUM_CLIENT_VERSION must be a semantic version, such as 1.2.0.");
+  }
+  return { updateUrl, minimumClientVersion };
 }
 
 export function hostedProviderConfigFromEnv(

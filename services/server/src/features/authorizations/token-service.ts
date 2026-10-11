@@ -21,6 +21,7 @@ import { randomToken, tokenHash } from "../../security.js";
 import { authorityUrl } from "../../platform/authority-url.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import { normalizedApplicationOrigin } from "./redirects.js";
+import { CutoverProblemError } from "../next/cutover-problems.js";
 
 export async function issueApplicationTokens(
   db: DatabaseQueryable,
@@ -70,6 +71,8 @@ export async function issueApplicationTokens(
     replica_membership_policy_id: string | null;
     replica_membership_policy_revision: number | null;
     allowed_types: string[] | null;
+    suspended: boolean;
+    hosted_cut_over: boolean;
   }>(
     `SELECT g.user_id,
             COALESCE(col.local_id, g.hosted_collection_id) AS collection_id,
@@ -85,7 +88,9 @@ export async function issueApplicationTokens(
             replica.membership_policy_revision AS replica_membership_policy_revision,
             replica.allowed_types,
             CASE WHEN g.application_origin = '' THEN app.homepage
-                 ELSE g.application_origin END AS application_origin
+                 ELSE g.application_origin END AS application_origin,
+            u.suspended_at IS NOT NULL AS suspended,
+            moved.collection_id IS NOT NULL AS hosted_cut_over
      FROM grants g
      JOIN users u ON u.id = g.user_id
      JOIN applications app ON app.id = g.application_id
@@ -93,13 +98,19 @@ export async function issueApplicationTokens(
      LEFT JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
      LEFT JOIN next_collections nc ON nc.collection_id = COALESCE(col.local_id, g.hosted_collection_id)
      LEFT JOIN hosted_replicas replica ON replica.id = g.hosted_replica_id
+     LEFT JOIN next_migration_collections moved ON moved.collection_id = g.hosted_collection_id
      WHERE g.id = $1 AND g.revoked_at IS NULL
        AND g.activated_at IS NOT NULL
-       AND u.suspended_at IS NULL
        AND (g.hosted_replica_id IS NULL OR replica.revoked_at IS NULL)`,
     [grantId]
   );
   if (!grant.rows[0]) throw new RequestValidationError("The application grant is no longer active.");
+  if (grant.rows[0].suspended) throw new CutoverProblemError("suspended");
+  // The hosted provider no longer serves a collection that completed its move to
+  // mdbase-next (the account's backend follows once all its collections move).
+  if (grant.rows[0].hosted_collection_id && grant.rows[0].hosted_cut_over) {
+    throw new CutoverProblemError("moved");
+  }
   if (
     !isCanonicalCollectionGrantScope(grant.rows[0].scope)
     || (grant.rows[0].hosted_replica_id

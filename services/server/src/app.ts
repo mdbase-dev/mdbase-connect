@@ -92,6 +92,7 @@ import { registerLocalOperationRoutes } from "./features/operations/local-routes
 import { registerSystemRoutes } from "./features/system/routes.js";
 import { registerLifecycleDiagnosticRoute } from "./features/system/lifecycle-diagnostics.js";
 import { registerErrorHandler } from "./platform/error-handler.js";
+import type { ClientUpdatePolicy } from "./features/next/cutover-problems.js";
 import { authorityUrl } from "./platform/authority-url.js";
 import { apiError } from "./platform/http-errors.js";
 import { sessionToken } from "./platform/session-cookies.js";
@@ -119,6 +120,8 @@ interface BuildOptions {
   hostedProvider?: HostedProviderClient;
   hostedReferenceAuthority?: boolean;
   publicUrl?: string;
+  /** Where old clients are told to update once their collection moves to mdbase-next. */
+  clientUpdate?: ClientUpdatePolicy;
   /** Validated by runtime configuration; loopback tests default to publicUrl. */
   identityIssuer?: string;
   portalDist?: string;
@@ -383,7 +386,7 @@ export async function buildApp(options: BuildOptions) {
     }
   });
 
-  registerErrorHandler(app);
+  registerErrorHandler(app, options.clientUpdate);
   registerSystemRoutes(app, {
     db: options.db,
     relay,

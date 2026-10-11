@@ -319,6 +319,9 @@ export async function inspectInstallationPairing(
       approved_create_collections: r.approved_create_collections,
       approved_collection_ids: r.approved_collection_ids,
       scope_only: r.scope_only,
+      // Returning users whose account moved to the new runtime approve each app
+      // once more; the portal says why instead of looking like a fresh sign-in.
+      account_upgraded: !r.scope_only && (await db.query("SELECT 1 FROM next_migration_account_flips WHERE account_id=$1",[user])).rows.length > 0,
       retained_collection_ids: r.scope_only ? (await db.query<{collection_id:string}>("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1 ORDER BY collection_id",[r.connector_id])).rows.map(row=>row.collection_id) : [],
       retained_create_collections: r.scope_only ? (await db.query<{create_collections:boolean}>("SELECT create_collections FROM installation_device_credentials WHERE connector_id=$1",[r.connector_id])).rows[0]?.create_collections??false : false,
       collections,

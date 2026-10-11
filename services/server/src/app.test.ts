@@ -527,6 +527,13 @@ describe("mdbase connect server", () => {
       publicUrl: "http://connect.test"
     });
     resources.push(() => app.close());
+    // The startup scan revokes this undeclared fixture app's grant at a racy
+    // moment; settle it and restore the grant so suspension is what refuses.
+    await (app as typeof app & { drainApplicationReconciliation(): Promise<void> })
+      .drainApplicationReconciliation();
+    await db.query("UPDATE grants SET revoked_at = NULL WHERE id = $1", [grantId]);
+    await db.query("UPDATE refresh_tokens SET revoked_at = NULL WHERE grant_id = $1", [grantId]);
+    await db.query("UPDATE access_tokens SET revoked_at = NULL WHERE grant_id = $1", [grantId]);
 
     const connector = await app.inject({
       method: "GET",
@@ -544,7 +551,6 @@ describe("mdbase connect server", () => {
     });
     expect(operation.statusCode).toBe(401);
     expect(operation.json().error.code).toBe("invalid_token");
-
     const refresh = await app.inject({
       method: "POST",
       url: "/oauth/token",
@@ -555,8 +561,11 @@ describe("mdbase connect server", () => {
         client_id: applicationId
       }).toString()
     });
-    expect(refresh.statusCode).toBe(400);
-    expect(refresh.json().error.code).toBe("invalid_grant");
+    expect(refresh.statusCode).toBe(403);
+    expect(refresh.json().error).toMatchObject({
+      code: "account_suspended",
+      message: expect.stringContaining("Contact mdbase support")
+    });
 
     const code = await app.inject({
       method: "POST",
@@ -570,8 +579,8 @@ describe("mdbase connect server", () => {
         code_verifier: verifier
       }).toString()
     });
-    expect(code.statusCode).toBe(400);
-    expect(code.json().error.code).toBe("invalid_grant");
+    expect(code.statusCode).toBe(403);
+    expect(code.json().error.code).toBe("account_suspended");
 
     const pairing = await app.inject({
       method: "POST",

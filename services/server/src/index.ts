@@ -37,6 +37,7 @@ const { app } = await buildApp({
   db,
   revision: process.env.MDBASE_CONNECT_REVISION ?? process.env.RENDER_GIT_COMMIT,
   publicUrl: runtime.publicUrl,
+  clientUpdate: runtime.clientUpdate,
   identityIssuer: runtime.identityIssuer,
   environment: runtime.environment,
   portalDist,
