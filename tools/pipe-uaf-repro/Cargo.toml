@@ -1,0 +1,10 @@
+[package]
+name = "pipe-uaf-repro"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+tokio = { version = "1.53", features = ["rt-multi-thread", "net", "io-util", "time", "macros"] }

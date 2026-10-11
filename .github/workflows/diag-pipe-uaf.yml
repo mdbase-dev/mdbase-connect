@@ -1,0 +1,53 @@
+name: Diagnose named pipe use-after-free
+
+on:
+  push:
+    branches: [diag/windows-cli-heap]
+
+permissions:
+  contents: read
+
+jobs:
+  repro:
+    name: mio ${{ matrix.mio }} page heap ${{ matrix.pageheap }}
+    runs-on: windows-2025
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        mio: [1.2.2, 1.2.4]
+        pageheap: [off, full]
+    defaults:
+      run:
+        working-directory: tools/pipe-uaf-repro
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build against mio ${{ matrix.mio }}
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.94.0 --profile minimal
+          cargo +1.94.0 generate-lockfile
+          cargo +1.94.0 update -p mio --precise ${{ matrix.mio }}
+          cargo +1.94.0 build --release
+          if ($LASTEXITCODE -ne 0) { throw 'build failed' }
+          Select-String -Path Cargo.lock -Pattern 'name = "mio"' -Context 0,1
+      - name: Page heap
+        if: matrix.pageheap == 'full'
+        shell: pwsh
+        run: |
+          $ifeo = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\pipe-uaf-repro.exe'
+          New-Item -Force $ifeo | Out-Null
+          New-ItemProperty -Force $ifeo -Name GlobalFlag -PropertyType String -Value '0x02000000' | Out-Null
+          New-ItemProperty -Force $ifeo -Name PageHeapFlags -PropertyType String -Value '0x3' | Out-Null
+      - name: Race client reads against closing servers (10 runs)
+        shell: pwsh
+        run: |
+          $crashes = 0
+          for ($run = 1; $run -le 10; $run++) {
+            & .\target\release\pipe-uaf-repro.exe 20000 | Select-Object -Last 1
+            $code = $LASTEXITCODE
+            if ($code -ne 0) { $crashes++; Write-Output ("run {0}: exit 0x{1:x8}" -f $run, $code) }
+          }
+          Write-Output "crashed runs: $crashes / 10"
