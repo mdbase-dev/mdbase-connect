@@ -2,7 +2,7 @@ name: Diagnose Windows CLI heap corruption
 
 on:
   push:
-    branches: [diag/windows-cli-heap]
+    branches: ['diag/windows-cli-heap*']
 
 permissions:
   contents: read
@@ -63,9 +63,20 @@ jobs:
           New-ItemProperty -Force $wer -Name DumpFolder -PropertyType ExpandString -Value $dumps | Out-Null
           New-ItemProperty -Force $wer -Name DumpType -PropertyType DWord -Value 2 | Out-Null
           New-ItemProperty -Force $wer -Name DumpCount -PropertyType DWord -Value 20 | Out-Null
+          foreach ($key in 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting', 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Error Reporting') {
+            if (Test-Path $key) { Get-ItemProperty $key | Format-List | Out-String | Write-Output }
+            New-Item -Force $key -ErrorAction SilentlyContinue | Out-Null
+            New-ItemProperty -Force $key -Name Disabled -PropertyType DWord -Value 0 | Out-Null
+            New-ItemProperty -Force $key -Name DontShowUI -PropertyType DWord -Value 1 | Out-Null
+          }
+          Set-Service WerSvc -StartupType Automatic
+          Start-Service WerSvc
+          Get-Service WerSvc | Format-List Name,Status,StartType
           Test-Path 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe'
       - name: Loop the lifecycle
-        run: node scripts/diagnostics/windows-cli-stop-hammer.mjs target/debug/mdbase.exe 200
+        env:
+          DIAG_CDB: '0'
+        run: node scripts/diagnostics/windows-cli-stop-hammer.mjs target/debug/mdbase.exe 300
       - name: Analyse dumps
         if: always()
         shell: pwsh

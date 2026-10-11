@@ -38,9 +38,13 @@ for (let i = 1; i <= cycles; i++) {
   const args = ['-g', '-G', '-y', symbols, '-c',
     `sxe -c "${handler}" c0000374; sxe -c "${handler}" av; sxe -c "${handler}" bpe; g`,
     binary, '--json', 'connect', 'daemon', 'stop'];
-  const r = await exec(cdb, args, { env, timeout: 300_000, maxBuffer: 64 << 20 }).then((v) => v, (e) => e);
+  const direct = process.env.DIAG_CDB === '0';
+  const r = direct
+    ? await exec(binary, ['--json', 'connect', 'daemon', 'stop'], { env, timeout: 60_000 }).then((v) => ({ ...v, code: 0 }), (e) => e)
+    : await exec(cdb, args, { env, timeout: 300_000, maxBuffer: 64 << 20 }).then((v) => v, (e) => e);
   const text = `${r.stdout ?? ''}${r.stderr ?? ''}`;
-  if (/CRASH|c0000374|Critical error detected/i.test(text)) {
+  if (direct ? r.code !== 0 : /CRASH|c0000374|Critical error detected/i.test(text)) {
+    if (direct) console.log(`c${i}: stop exited ${r.code} (0x${(Number(r.code) >>> 0).toString(16)})`);
     crashes++;
     await writeFile(`${out}\\stop-${i}.txt`, text);
     console.log(`c${i}: CRASH captured`);
