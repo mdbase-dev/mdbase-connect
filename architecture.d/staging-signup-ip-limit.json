@@ -1,0 +1,9 @@
+{
+  "reason": "co0283m/co0286m authorize one staging/LAB-only bounded signup IP maximum, with unchanged unset behavior and mandatory refusal outside those environments. One internal pure auth policy module is shared by central environment parsing/validation and the existing password route registration so direct app composition cannot skip the environment guard. It replaces the old route-global constant, preserves all other limiter fields and buckets, and adds no endpoint, credential, SQL, operator, native permission or SDK surface. Three relative imports wire this existing startup/route boundary; two internal exports are its pure parser and rule resolver.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 3,
+    "typeScriptExportDeclarations": 2,
+    "services/server": 1
+  }
+}

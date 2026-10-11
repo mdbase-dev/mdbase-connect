@@ -106,6 +106,7 @@ interface BuildOptions {
   googleAuth?: GoogleAuthConfig;
   registration?: RegistrationMode;
   authRateLimitSecret?: string;
+  passwordSignupIpMaxAttempts?: number;
   betaAccessOrigin?: string;
   managementOrigins?: string[];
   editorOrigin?: string;
@@ -406,6 +407,8 @@ export async function buildApp(options: BuildOptions) {
   }
   registerPasswordAuthRoutes(app, {
     db: options.db,
+    environment: options.environment,
+    passwordSignupIpMaxAttempts: options.passwordSignupIpMaxAttempts,
     publicUrl,
     authenticationPolicy,
     authRateLimitSecret: options.authRateLimitSecret,
