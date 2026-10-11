@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import test from "node:test";
 
 const require = createRequire(import.meta.url);
-const { UpdateStateStore, parsePersistedState } = require("../dist/main/update-state.js");
+const { UpdateStateStore, parsePersistedState, removeOldRuntimeCopies } = require("../dist/main/update-state.js");
 
 test("state creation is durable and installation identity is stable", async () => {
   const directory = await mkdtemp(join(tmpdir(), "mdbase-update-state-"));
@@ -73,4 +73,17 @@ test("an invalid held-back daemon version is rejected", () => {
     }),
     /Invalid semantic version/
   );
+});
+
+test("removing the old connector's runtime copies keeps the update state", async () => {
+  const userData = await mkdtemp(join(tmpdir(), "mdbase-update-state-"));
+  const copy = join(userData, "updates", "runtimes", "0.1.0-beta.128");
+  await mkdir(copy, { recursive: true });
+  await writeFile(join(copy, "mdbase"), "old");
+  const store = new UpdateStateStore(join(userData, "updates", "state.json"));
+  const { installation_id } = await store.load();
+  await removeOldRuntimeCopies(userData);
+  await removeOldRuntimeCopies(userData);
+  assert.deepEqual(await readdir(join(userData, "updates")), ["state.json"]);
+  assert.equal((await new UpdateStateStore(store.path).load()).installation_id, installation_id);
 });

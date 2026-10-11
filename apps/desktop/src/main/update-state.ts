@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { compareVersions } from "./update-policy";
 
 /**
@@ -21,6 +21,15 @@ export interface PersistedUpdateState {
     version: string;
     reason: string;
   };
+}
+
+/**
+ * Apps that managed the old connector kept rollback copies of its binary in
+ * `<userData>/updates/runtimes`. Nothing runs from there once the mdbase daemon has
+ * taken over and is ready, so the copies are removed then.
+ */
+export async function removeOldRuntimeCopies(userDataDirectory: string): Promise<void> {
+  await rm(join(userDataDirectory, "updates", "runtimes"), { recursive: true, force: true });
 }
 
 export class UpdateStateStore {

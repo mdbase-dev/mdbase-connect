@@ -28,7 +28,7 @@ import { createTrayImage } from "./tray-image";
 import { ElectronUpdateBackend } from "./electron-update-backend";
 import { ensureNextDaemon, nextDaemonRunner } from "./next-daemon";
 import { UpdateCoordinator } from "./update-coordinator";
-import { UpdateStateStore } from "./update-state";
+import { removeOldRuntimeCopies, UpdateStateStore } from "./update-state";
 
 guardDesktopProcessOutput();
 
@@ -147,7 +147,13 @@ async function initializeDaemon(): Promise<void> {
     cli,
     ensureInstalled: () => ensureBundledDaemon(runtime!, profile!)
   });
+  let oldRuntimeCopiesRemoved = false;
   session.subscribe((state) => {
+    if (state.phase === "ready" && !oldRuntimeCopiesRemoved) {
+      oldRuntimeCopiesRemoved = true;
+      removeOldRuntimeCopies(app.getPath("userData"))
+        .catch((error) => console.warn("Could not remove the old connector's runtime copies:", error));
+    }
     localHealthLabel = healthLabel(state);
     refreshTrayMenu();
     mainWindow?.webContents.send("connect:daemon-state", state);
