@@ -1,7 +1,7 @@
 // Golden mapping of every legacy query_records input onto the mdbase-next query.
 import { describe, expect, it } from "vitest";
 import type { RecordView } from "@mdbase-dev/sdk";
-import { changesInput, changesOutput, nextQueryPlan, queryOutput, recordDocument } from "./next-mapping.js";
+import { changesInput, changesOutput, contractQueryOutput, implementationDigests, nextQueryPlan, queryOutput, recordDocument } from "./next-mapping.js";
 
 const effective = { effective: true, body: false };
 
@@ -86,11 +86,30 @@ describe("query_records output mapping", () => {
   });
 });
 
+describe("contract query output", () => {
+  it("names the contract and implementation digests of each valid projection", () => {
+    const plan = nextQueryPlan({ contract: { id: "dev.tasks/task", version: "1.0.0" } }) as Extract<ReturnType<typeof nextQueryPlan>, { kind: "contract" }>;
+    const digests = implementationDigests(plan.contract, { types: [
+      { name: "task", path: "_types/task.md", implements: [{ contract: "dev.tasks/task", version: "1.0.0", fields: new Map(), digest: "impl-digest" }] },
+      { name: "note", path: "_types/note.md", implements: [] }
+    ] } as never);
+    const record = view({ types: ["task"] });
+    const output = contractQueryOutput(plan, {
+      version: 1, contractDigest: "contract-digest", page: { records: [record], complete: true, asOf: 1 },
+      records: [{ id: record.id, implementations: [{ typeName: "task", fields: new Map([["title", "Persisted" as never]]), issues: [] }] }]
+    } as never, digests) as { results: Array<Record<string, unknown>> };
+    expect(output.results[0]).toMatchObject({
+      path: "notes/a.md", frontmatter: { title: "Persisted" },
+      contract: { id: "dev.tasks/task", version: "1.0.0", digest: "contract-digest", type: "task", implementation_digest: "impl-digest" }
+    });
+  });
+});
+
 describe("list_changes mapping", () => {
-  it("passes opaque cursors; a legacy integer cursor becomes a cursor the replica resets", () => {
-    expect(changesInput({})).toEqual({});
+  it("passes opaque cursors with the legacy default page size; no after asks only for the current cursor", () => {
+    expect(changesInput({})).toEqual({ limit: 100 });
     expect(changesInput({ after: "12:40", limit: 5 })).toEqual({ cursor: "12:40", limit: 5 });
-    expect(changesInput({ after: 2 })).toEqual({ cursor: "2" });
+    expect(changesInput({ after: 2 })).toEqual({ cursor: "2", limit: 100 });
   });
 
   it("maps changes to legacy events with typed kinds", () => {

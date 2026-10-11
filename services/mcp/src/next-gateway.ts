@@ -8,7 +8,7 @@ import type { GrantKeyStore } from "@mdbase-dev/connect/crypto";
 import { GatewayOperationError } from "./errors.js";
 import { clientKeyAttachBody, type NoiseKeyStore } from "./next-keys.js";
 import {
-  changesInput, changesOutput, collectionDescription, contractQueryOutput, nextQueryPlan, queryOutput,
+  changesInput, changesOutput, collectionDescription, contractQueryOutput, implementationDigests, nextQueryPlan, queryOutput,
   recordDocument, typeDocument, validationOutput
 } from "./next-mapping.js";
 
@@ -187,10 +187,14 @@ async function execute(client: MdbaseClient, connection: NextConnection, operati
       if (typeof input.release_cursor === "string") return { released: true };
       const plan = nextQueryPlan(input);
       if (plan.kind === "contract") {
-        return contractQueryOutput(plan, await client.queryContract(plan.contract, {
-          ...(plan.pageSize ? { pageSize: plan.pageSize } : {}), ...(plan.cursor ? { cursor: plan.cursor } : {}),
-          ...(plan.where ? { where: plan.where } : {}), ...(signal ? { signal } : {})
-        }));
+        const [result, description] = await Promise.all([
+          client.queryContract(plan.contract, {
+            ...(plan.pageSize ? { pageSize: plan.pageSize } : {}), ...(plan.cursor ? { cursor: plan.cursor } : {}),
+            ...(plan.where ? { where: plan.where } : {}), ...(signal ? { signal } : {})
+          }),
+          client.describe(signal ? { signal } : {})
+        ]);
+        return contractQueryOutput(plan, result, implementationDigests(plan.contract, description));
       }
       return queryOutput(plan, await client.query(plan.query as Parameters<MdbaseClient["query"]>[0], plan.include, signal));
     }

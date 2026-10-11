@@ -124,7 +124,17 @@ export function queryOutput(plan: Extract<NextQueryPlan, { kind: "query" }>, res
   return { results: result.records.map((view) => queryRecord(view, plan.mode)), meta: meta(result) };
 }
 
-export function contractQueryOutput(plan: Extract<NextQueryPlan, { kind: "contract" }>, result: ContractQueryResult): Json {
+/** Implementation digests by implementing type name for one contract, from describe. */
+export function implementationDigests(contract: ContractSelector, description: DescribeResult): Map<string, string> {
+  const digests = new Map<string, string>();
+  for (const type of description.types) {
+    const implementation = type.implements.find((candidate) => candidate.contract === contract.id && candidate.version === contract.version);
+    if (implementation?.digest) digests.set(type.name, implementation.digest);
+  }
+  return digests;
+}
+
+export function contractQueryOutput(plan: Extract<NextQueryPlan, { kind: "contract" }>, result: ContractQueryResult, digests: ReadonlyMap<string, string>): Json {
   const projections = new Map(result.records.map((record) => [record.id, record.implementations]));
   return {
     results: result.page.records.flatMap((view) => {
@@ -133,7 +143,10 @@ export function contractQueryOutput(plan: Extract<NextQueryPlan, { kind: "contra
       return [{
         path: view.path, revision: view.revision, types: view.types, file: file(view),
         frontmatter: plain(projection.fields),
-        contract: { id: plan.contract.id, version: plan.contract.version, digest: result.contractDigest, type: projection.typeName }
+        contract: {
+          id: plan.contract.id, version: plan.contract.version, digest: result.contractDigest, type: projection.typeName,
+          ...(digests.has(projection.typeName) ? { implementation_digest: digests.get(projection.typeName) } : {})
+        }
       }];
     }),
     meta: meta(result.page)
@@ -165,23 +178,26 @@ export function collectionDescription(input: { collectionId: string; displayName
         .filter((implementation) => implementation.contract === contract.id && implementation.version === contract.version)
         .map((implementation) => ({
           type_name: type.name, type_version: type.version ?? 1, type_path: type.path,
-          digest: contract.digest, fields: Object.fromEntries(implementation.fields)
+          ...(implementation.digest ? { digest: implementation.digest } : {}), fields: Object.fromEntries(implementation.fields)
         })))
     })),
     ...(result.settings === null || result.settings === undefined ? {} : { configuration: plain(result.settings) })
   };
 }
 
-/** Legacy changes page. `after` was a hosted integer cursor; next cursors are opaque
- * replica view versions, so an integer `after` simply answers `reset: true`. */
-export function changesInput(input: { after?: number | string; limit?: number }): { cursor?: string; limit?: number } {
+/** Legacy changes page. As on the legacy authorities, no `after` answers no events
+ * and the current cursor, and pages default to 100 events. `after` was an integer
+ * cursor; next cursors are opaque replica view versions, so an integer `after`
+ * answers `reset: true`. */
+export const CHANGES_DEFAULT_LIMIT = 100;
+export function changesInput(input: { after?: number | string; limit?: number }): { cursor?: string; limit: number } {
   return {
     ...(input.after === undefined ? {} : { cursor: String(input.after) }),
-    ...(input.limit === undefined ? {} : { limit: input.limit })
+    limit: input.limit ?? CHANGES_DEFAULT_LIMIT
   };
 }
 
-export function changesOutput(result: ChangesResult, limit: number | undefined): Json {
+export function changesOutput(result: ChangesResult, limit: number): Json {
   return {
     events: result.changes.map((change) => ({
       cursor: change.version,
@@ -192,7 +208,8 @@ export function changesOutput(result: ChangesResult, limit: number | undefined):
       payload: { path: change.path }
     })),
     cursor: result.cursor,
-    has_more: limit !== undefined && result.changes.length >= limit,
+    // The replica does not report more; a full page may be followed by an empty one.
+    has_more: result.changes.length >= limit,
     reset: result.reset
   };
 }
