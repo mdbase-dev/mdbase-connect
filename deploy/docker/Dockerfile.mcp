@@ -8,6 +8,7 @@ COPY patches patches
 COPY packages/protocol/package.json packages/protocol/package.json
 COPY packages/client/package.json packages/client/package.json
 COPY services/mcp/package.json services/mcp/package.json
+COPY services/mcp/vendor services/mcp/vendor
 
 RUN pnpm install --frozen-lockfile --filter @mdbase/connect-mcp...
 
