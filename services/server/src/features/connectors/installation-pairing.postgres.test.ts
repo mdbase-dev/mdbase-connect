@@ -490,7 +490,27 @@ describePg("installation device sign-in on daemon pairing", () => {
     const f = await prepared("mobile", false, undefined, undefined, registered.id);
     const inspect = (returnUrl: string) => app.inject({ method: "GET", url: `${f.flow.base}?return_url=${encodeURIComponent(returnUrl)}`, headers: f.owner.headers });
     expect((await inspect(back)).json().pairing.return_url).toBe(back);
-    for (const other of [`${back}/x`, "https://attacker.example.test/", `${web}/`]) expect((await inspect(other)).json().pairing.return_url).toBeNull();
+    for (const other of [`${back}/x`, "https://attacker.example.test/", `${web}/`, "dev.example.other://paired", "com.attacker.app://paired",
+      `http://reader.example.test/callback`, web.replace("https:", "http:") + "/callback", "dev.example.reader://*", mobile])
+      expect((await inspect(other)).json().pairing.return_url).toBeNull();
+  });
+  it("never hands back through a wildcard, even one stored before manifests refused them", async () => {
+    const web = `https://reader-${randomUUID()}.example.test`, mobile = "capacitor://reader.example.test", wildcard = "dev.example.reader://*";
+    const registered = await upsertApplication(db, registerApplicationManifest({ manifest_version: 1, id: "dev.example.reader", name: "Reader",
+      homepage: `${web}/`, redirect_uris: [`${web}/callback`], requirements: { access: "full_collection", contracts: [] },
+      installation_origins: { lab: { mobile: [mobile] } } }));
+    await db.query("UPDATE applications SET redirect_uris=$2::jsonb, application_declaration=jsonb_set(application_declaration,'{redirect_uris}',$2::jsonb) WHERE id=$1",
+      [registered.id, JSON.stringify([`${web}/callback`, wildcard])]);
+    apps.set(registered.id, { name: "Reader", web, mobile });
+    const f = await prepared("mobile", false, undefined, undefined, registered.id);
+    const inspect = (returnUrl: string) => app.inject({ method: "GET", url: `${f.flow.base}?return_url=${encodeURIComponent(returnUrl)}`, headers: f.owner.headers });
+    for (const other of [wildcard, "dev.example.reader://paired"]) expect((await inspect(other)).json().pairing.return_url).toBeNull();
+    expect((await inspect(`${web}/callback`)).json().pairing.return_url).toBe(`${web}/callback`);
+  });
+  it("hands back to no URL for an app that never declared one", async () => {
+    const f = await prepared("mobile");
+    const r = await app.inject({ method: "GET", url: `${f.flow.base}?return_url=${encodeURIComponent("dev.example.reader://paired")}`, headers: f.owner.headers });
+    expect(r.json().pairing.return_url).toBeNull();
   });
   it("does not distinguish foreign, private, left, revoked or nonexistent collection hints or grant from a hint", async () => {
     const p = await prepared(), target = await scopeCollection(p.owner.user), chosen = await scopeCollection(p.owner.user);

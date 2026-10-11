@@ -356,6 +356,10 @@ function validateManifestOrigins(
       )];
     }
     for (const [index, redirect] of (manifest.redirect_uris as unknown[]).entries()) {
+      // Redirects match exactly (RFC 8252 §8.10); a wildcard is never a pattern.
+      if (String(redirect).includes("*")) {
+        return [issue(`/redirect_uris/${index}`, "url", "must be an exact URI without wildcards")];
+      }
       const url = new URL(String(redirect));
       if (url.origin === homepage.origin && !secureOrAllowedLocal(url, allowLocal)) {
         return [issue(
