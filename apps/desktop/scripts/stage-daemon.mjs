@@ -5,7 +5,7 @@
 // staged directory into the package (forge.config.cjs); the app installs it as the
 // OS service at launch (src/main/next-daemon.ts).
 //
-//   MDBN_DAEMON_BIN=<abs path to an mdbase-next release build of mdbase> \
+//   MDBN_DAEMON_BIN=<abs path to a runtime/ release build of mdbase> \
 //   [MDBN_DAEMON_VERSION=<expected version>] node scripts/stage-daemon.mjs
 
 import { execFileSync } from "node:child_process";

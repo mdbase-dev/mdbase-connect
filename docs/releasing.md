@@ -1,7 +1,7 @@
 # Beta release checklist
 
 mdbase connect desktop bundles contain the Electron client and the matching
-mdbase daemon/CLI (an mdbn-daemon build from mdbase-next). A release is one
+mdbase daemon/CLI (the mdbn-daemon built from `runtime/`). A release is one
 tested unit; mixing desktop and daemon versions is unsupported.
 
 Until the stable `0.1.0` contract is ready, releases use
@@ -45,7 +45,7 @@ pnpm e2e:container
 pnpm e2e:relay
 pnpm e2e:sync
 pnpm e2e:provider
-MDBN_DAEMON_BIN=<absolute path to the mdbase-next release build of mdbase> \
+MDBN_DAEMON_BIN=<absolute path to a release build of runtime/ mdbase> \
   pnpm --filter @mdbase/connect-desktop package
 ```
 
@@ -53,11 +53,20 @@ The package command stages that daemon build as `Resources/mdbase-next/`
 (`mdbase` plus a `VERSION` file from its `--version`; set `MDBN_DAEMON_VERSION`
 to require an exact version), creates the platform Electron bundle, and verifies
 that `app.asar` and the bundled daemon are present, that the daemon reports its
-`VERSION`, and that the old connector binary is not shipped. The release
-workflow does not yet obtain the daemon build: until it does, desktop release
-builds stop at the staging step. The release workflow also smoke-tests that exact native
-executable's CLI and foreground-daemon entry points, then publishes it as a
-standalone headless archive with the same tag-bound provenance and checksums.
+`VERSION`, and that the old connector binary is not shipped.
+
+The release workflow builds the daemon from [`runtime/`](../runtime/) in this
+repository on each platform runner:
+`cargo build --release --locked -p mdbn-daemon --bin mdbase` with
+`MDBN_RELEASE_VERSION` set to the app version, after
+`runtime/scripts/check-release-features.sh` confirms that no test-only feature
+reaches the shipped package. On macOS the app's signing covers the nested
+`Resources/mdbase-next/mdbase`, and the workflow requires that binary to carry
+the app's Team ID.
+
+The release workflow also smoke-tests that exact native executable's CLI and
+foreground-daemon entry points, then publishes it as a standalone headless
+archive with the same tag-bound provenance and checksums.
 Run the packaged application once with a fresh user-data directory and complete
 pairing, collection registration, encrypted application authorization, one write,
 pause/resume, and revocation.

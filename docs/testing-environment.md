@@ -97,7 +97,7 @@ Launch Electron against an mdbn-daemon build in a persistent development-only
 profile:
 
 ```bash
-MDBN_DAEMON_BIN=<absolute path to an mdbase-next build of mdbase> pnpm dev:desktop:isolated
+MDBN_DAEMON_BIN=<absolute path to a runtime/ build of mdbase> pnpm dev:desktop:isolated
 ```
 
 The profile lives in `.tmp/desktop-development-profile`: the daemon runs with
@@ -128,7 +128,7 @@ proves the genuine credential remains valid.
 
 The native desktop app runs on mdbn-daemon and is not part of this packaged
 environment. Its Electron smoke runs against an isolated debug daemon:
-`MDBN_DAEMON_BIN=<mdbase-next debug mdbase> MDBASE_DESKTOP_SMOKE_DIR=<abs scratch> xvfb-run -a node apps/desktop/scripts/next-electron-smoke.mjs`.
+`MDBN_DAEMON_BIN=<runtime/ debug build of mdbase> MDBASE_DESKTOP_SMOKE_DIR=<abs scratch> xvfb-run -a node apps/desktop/scripts/next-electron-smoke.mjs`.
 
 The existing `pnpm e2e:provider` suite remains the production hosted-authority
 boundary. Its browser scenarios live under `scripts/system/provider/`, while

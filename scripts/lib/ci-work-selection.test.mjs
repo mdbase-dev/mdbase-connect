@@ -23,7 +23,7 @@ test("bundled workspace inputs use cheap builds and retain JS release regression
 });
 
 test("shared, native, unknown, empty and mixed inputs retain native checks", () => {
-  for (const path of ["Cargo.lock", "Cargo.toml", "crates/cli/src/main.rs", "deploy/docker/mdbase-rs-revision",
+  for (const path of ["Cargo.lock", "Cargo.toml", "crates/cli/src/main.rs", "deploy/docker/mdbase-rs-revision", "runtime/crates/daemon/src/main.rs",
     "packages/sdk/src/index.ts", "pnpm-lock.yaml", "pnpm-workspace.yaml", "package.json",
     ".github/workflows/desktop-release.yml", "scripts/ci/desktop-test-plan.mjs",
     "scripts/package-headless-cli.mjs", "scripts/ci/smoke-headless-cli.sh", "unknown/input"]) {
@@ -188,7 +188,7 @@ test("Rust caches are restored by CI jobs and written only by rust-caches.yml fr
   assert.equal(consumers, 7);
 });
 
-test("Windows headless smoke reuses the Store package job's release CLI", () => {
+test("Windows headless smoke reuses the Store package job's daemon build", () => {
   const desktop = workflow("desktop-release");
   const headless = desktop.split("  headless-package-smoke:\n")[1].split("  cross-platform-release-tests:\n")[0];
   assert.doesNotMatch(headless, /os: windows-2025/);
