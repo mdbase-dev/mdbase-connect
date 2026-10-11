@@ -1,0 +1,87 @@
+name: Shared Rust compiler cache
+description: >-
+  Installs sccache against the shared R2 bucket and, on Linux, aligns the
+  compile environment with the development builder VM so dependency crates
+  compiled there are cache hits here. Without credentials (fork pull
+  requests) nothing is installed and cargo runs uncached.
+inputs:
+  access-key-id:
+    description: R2 S3 access key id. Empty disables the cache.
+    default: ""
+  secret-access-key:
+    description: R2 S3 secret access key.
+    default: ""
+  endpoint:
+    description: R2 S3 endpoint URL.
+    default: ""
+  bucket:
+    description: R2 bucket name.
+    default: ""
+runs:
+  using: composite
+  steps:
+    # sccache keys a crate on rustc's arguments, the toolchain and every
+    # CARGO_* variable rustc sees. Registry crates carry CARGO_MANIFEST_DIR
+    # under the cargo home, so the home path and the rustflags must equal
+    # the builder VM's (~/projects/builder README, "Shared compiler cache").
+    # The VM has no CARGO_HOME or CARGO_INCREMENTAL in rustc's environment;
+    # here cargo needs CARGO_HOME for the path, rust-cache exports
+    # CARGO_INCREMENTAL=0 and scripts/ci/cargo-test.mjs sets CARGO_TERM_COLOR,
+    # so a wrapper drops those before sccache hashes.
+    - name: Align the Linux compile environment with the builder VM
+      if: runner.os == 'Linux' && inputs.access-key-id != ''
+      shell: bash
+      env:
+        MOLD_VERSION: 2.42.1
+        MOLD_SHA256: 6ff270c9bf07d2bec5c98aa324eb7c4daf6a1a4d815c05ff1708049616047855
+      run: |
+        sudo mkdir -p /home/calluma && sudo chown "$(id -u):$(id -g)" /home/calluma
+        mkdir -p /home/calluma/.cargo
+        echo 'CARGO_HOME=/home/calluma/.cargo' >> "$GITHUB_ENV"
+        sudo tee /usr/local/bin/sccache-aligned >/dev/null <<'SH'
+        #!/bin/sh
+        exec env -u CARGO_HOME -u CARGO_INCREMENTAL -u CARGO_TERM_COLOR sccache "$@"
+        SH
+        sudo chmod +x /usr/local/bin/sccache-aligned
+        echo 'RUSTC_WRAPPER=sccache-aligned' >> "$GITHUB_ENV"
+        curl -fsSL --retry 3 -o "$RUNNER_TEMP/mold.tgz" \
+          "https://github.com/rui314/mold/releases/download/v$MOLD_VERSION/mold-$MOLD_VERSION-x86_64-linux.tar.gz"
+        echo "$MOLD_SHA256  $RUNNER_TEMP/mold.tgz" | sha256sum -c -
+        sudo tar xzf "$RUNNER_TEMP/mold.tgz" -C /usr/local --strip-components=1
+        cat > /home/calluma/.cargo/config.toml <<'TOML'
+        [target.x86_64-unknown-linux-gnu]
+        rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+        TOML
+    - name: Install sccache
+      if: inputs.access-key-id != ''
+      uses: mozilla-actions/sccache-action@fd02668681acd5f960e1372061bee5e3e987195c # v0.0.11
+      with:
+        version: v0.18.0
+    - name: Point sccache at the shared bucket
+      if: inputs.access-key-id != ''
+      shell: bash
+      env:
+        ACCESS_KEY_ID: ${{ inputs.access-key-id }}
+        SECRET_ACCESS_KEY: ${{ inputs.secret-access-key }}
+        ENDPOINT: ${{ inputs.endpoint }}
+        BUCKET: ${{ inputs.bucket }}
+      run: |
+        {
+          [ "$RUNNER_OS" = Linux ] || echo "RUSTC_WRAPPER=sccache"
+          echo "SCCACHE_BUCKET=$BUCKET"
+          echo "SCCACHE_ENDPOINT=$ENDPOINT"
+          echo "SCCACHE_REGION=auto"
+          echo "SCCACHE_S3_KEY_PREFIX=rust/"
+          # R2 rate-limits writes to one object; the per-write .sccache_check
+          # probe would silently drop most uploads. sccache >= 0.18.0.
+          echo "SCCACHE_SKIP_CACHE_CHECK=1"
+          # The server otherwise exits after ten idle minutes, so a long test
+          # phase would leave the statistics step reading a fresh, empty one.
+          echo "SCCACHE_IDLE_TIMEOUT=0"
+          if [ "$RUNNER_OS" = Windows ]; then
+            echo "SCCACHE_ERROR_LOG=$RUNNER_TEMP/sccache.log"
+            echo "SCCACHE_LOG=info"
+          fi
+          echo "AWS_ACCESS_KEY_ID=$ACCESS_KEY_ID"
+          echo "AWS_SECRET_ACCESS_KEY=$SECRET_ACCESS_KEY"
+        } >> "$GITHUB_ENV"

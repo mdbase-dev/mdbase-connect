@@ -128,6 +128,12 @@ jobs:
         run: |
           rustup toolchain install 1.94.0 --profile minimal
           rustup override set 1.94.0
+      - uses: ./mdbase-connect/.github/actions/sccache
+        with:
+          access-key-id: ${{ secrets.SCCACHE_R2_ACCESS_KEY_ID }}
+          secret-access-key: ${{ secrets.SCCACHE_R2_SECRET_ACCESS_KEY }}
+          endpoint: ${{ vars.SCCACHE_R2_ENDPOINT }}
+          bucket: ${{ vars.SCCACHE_R2_BUCKET }}
       - name: Restore Rust dependency cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -180,6 +186,12 @@ jobs:
           node-version: 24
       - run: rustup toolchain install 1.94.0 --profile minimal
       - run: rustup override set 1.94.0
+      - uses: ./mdbase-connect/.github/actions/sccache
+        with:
+          access-key-id: ${{ secrets.SCCACHE_R2_ACCESS_KEY_ID }}
+          secret-access-key: ${{ secrets.SCCACHE_R2_SECRET_ACCESS_KEY }}
+          endpoint: ${{ vars.SCCACHE_R2_ENDPOINT }}
+          bucket: ${{ vars.SCCACHE_R2_BUCKET }}
       - name: Restore Rust dependency cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -204,6 +216,9 @@ jobs:
           --adapter-arg --
           --scenario runtime.application-execution
           --timeout-ms 120000
+      - name: Compiler cache statistics
+        if: always() && startsWith(env.RUSTC_WRAPPER, 'sccache')
+        run: sccache --show-stats
 
   node:
     needs: classify
@@ -524,6 +539,12 @@ jobs:
           --component clippy
       - run: rustup override set 1.94.0
       - run: cp deploy/docker/Cargo.lock.hosted-provider Cargo.lock
+      - uses: ./mdbase-connect/.github/actions/sccache
+        with:
+          access-key-id: ${{ secrets.SCCACHE_R2_ACCESS_KEY_ID }}
+          secret-access-key: ${{ secrets.SCCACHE_R2_SECRET_ACCESS_KEY }}
+          endpoint: ${{ vars.SCCACHE_R2_ENDPOINT }}
+          bucket: ${{ vars.SCCACHE_R2_BUCKET }}
       - name: Restore Rust dependency cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -563,6 +584,9 @@ jobs:
           compression-level: 1
           retention-days: 1
           if-no-files-found: error
+      - name: Compiler cache statistics
+        if: always() && startsWith(env.RUSTC_WRAPPER, 'sccache')
+        run: sccache --show-stats
 
   # Measurement only: does not supply qualification inputs or replace builds.
   # Compare producer wait + transfer with the parallel shard build timings.
@@ -654,6 +678,12 @@ jobs:
           --component clippy
       - run: rustup override set 1.94.0
       - run: cp deploy/docker/Cargo.lock.hosted-provider Cargo.lock
+      - uses: ./mdbase-connect/.github/actions/sccache
+        with:
+          access-key-id: ${{ secrets.SCCACHE_R2_ACCESS_KEY_ID }}
+          secret-access-key: ${{ secrets.SCCACHE_R2_SECRET_ACCESS_KEY }}
+          endpoint: ${{ vars.SCCACHE_R2_ENDPOINT }}
+          bucket: ${{ vars.SCCACHE_R2_BUCKET }}
       - name: Restore Rust dependency cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -694,6 +724,9 @@ jobs:
         env:
           MDBASE_CONNECT_ENV: test
           MDBASE_CONNECT_SECRET_BACKEND: insecure-test-file
+      - name: Compiler cache statistics
+        if: always() && startsWith(env.RUSTC_WRAPPER, 'sccache')
+        run: sccache --show-stats
 
   qualification:
     name: Qualification

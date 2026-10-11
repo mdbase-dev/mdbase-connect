@@ -100,5 +100,9 @@ async function main() {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  main().then((code) => { process.exitCode = code; }).catch((error) => { console.error(error); process.exitCode = 1; });
+  // The shared compiler cache's counters live in a server that Windows kills
+  // with this process tree, so report them before exiting.
+  const stats = () => process.env.RUSTC_WRAPPER?.startsWith("sccache")
+    ? run("sccache", ["--show-stats"], "sccache-stats").then(() => undefined, () => undefined) : Promise.resolve();
+  main().then((code) => { process.exitCode = code; }).catch((error) => { console.error(error); process.exitCode = 1; }).then(stats);
 }

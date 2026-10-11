@@ -88,6 +88,12 @@ jobs:
             rustup toolchain install 1.94.0 --profile minimal
           fi
           rustup override set 1.94.0
+      - uses: ./mdbase-connect/.github/actions/sccache
+        with:
+          access-key-id: ${{ secrets.SCCACHE_R2_ACCESS_KEY_ID }}
+          secret-access-key: ${{ secrets.SCCACHE_R2_SECRET_ACCESS_KEY }}
+          endpoint: ${{ vars.SCCACHE_R2_ENDPOINT }}
+          bucket: ${{ vars.SCCACHE_R2_BUCKET }}
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: |
@@ -113,3 +119,6 @@ jobs:
               cargo build --locked --release -p mdbase-cli
               ;;
           esac
+      - name: Compiler cache statistics
+        if: always() && startsWith(env.RUSTC_WRAPPER, 'sccache')
+        run: sccache --show-stats

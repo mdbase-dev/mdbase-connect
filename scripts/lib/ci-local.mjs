@@ -36,6 +36,7 @@ export const ciOnlySteps = [
   { prefix: "echo \"revision=$(tr -d", reason: "exports the mdbase-rs pin for checkout; local builds use the sibling ../mdbase-rs" },
   { prefix: "pnpm check:mdbase-rs-pin", reason: "merge queue only; a PR may pin an engine commit that is not on mdbase-rs main yet" },
   { prefix: "rustup ", reason: "toolchain setup; rust-toolchain.toml selects it locally" },
+  { prefix: "sccache --show-stats", reason: "reports the shared compiler cache's hit rate for the job; the local sccache service keeps its own counters" },
   { prefix: "node scripts/ci/server-test-plan.mjs", reason: "pull-request path selection; ci:local runs the Rust tier on request" },
   { prefix: "node scripts/ci/cargo-test.mjs --locked ${{ matrix.packages }}", reason: "macOS and Windows filesystem lanes; covered on Linux by cargo test --workspace" },
   { prefix: "npm ci", reason: "installs the portable testbed runner from the pinned mdbase-spec checkout" },
