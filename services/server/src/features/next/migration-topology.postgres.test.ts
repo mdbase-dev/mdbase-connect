@@ -1,3 +1,4 @@
+import { migratedTimerGate } from "./legacy-provider.test-helper.js";
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -161,14 +162,14 @@ describePg("migration topology freeze (isolated real PostgreSQL; synthetic refer
     expect(await migrationCandidates(db, 100)).not.toContain(a);
     await expect(startAccountMigration(db, a, "production")).rejects.toMatchObject({ code: "account_deletion_accepted" });
     await expect(recordCollectionCutover(db, collection.id, { s_final: 3, cutover_seq: 10, barrier_f: 10, final_digest: "a".repeat(64) })).rejects.toMatchObject({ code: "account_deletion_accepted" });
-    await expect(flipAccountBackend(db, a, [collection.id], flipEvidenceDigest([]))).rejects.toMatchObject({ code: "account_deletion_accepted" });
+    await expect(flipAccountBackend(db, a, [collection.id], flipEvidenceDigest([]), await migratedTimerGate(db, a, [collection.id]))).rejects.toMatchObject({ code: "account_deletion_accepted" });
     expect(await drainDeferredAccountDeletions(db)).toBe(0);
     expect((await db.query("SELECT 1 FROM hosted_collections WHERE id=$1", [collection.id])).rowCount).toBe(1);
     expect((await db.query("SELECT 1 FROM provider_collection_deletion_jobs WHERE collection_id=$1", [collection.id])).rowCount).toBe(0);
     const connect = db.connect.bind(db);
     const fault = vi.spyOn(db, "connect").mockImplementationOnce(connect).mockRejectedValueOnce(new Error("synthetic interruption after batch completion"));
     try {
-      await expect(flipAccountBackend(db, b, [], flipEvidenceDigest([]))).rejects.toThrow("synthetic interruption");
+      await expect(flipAccountBackend(db, b, [], flipEvidenceDigest([]), { enabled: true })).rejects.toThrow("synthetic interruption");
     } finally { fault.mockRestore(); }
     const work = (await db.query("SELECT ready_at,ready_revision::text FROM next_migration_deferred_account_deletions WHERE account_id=$1", [a])).rows[0];
     expect(work.ready_at).not.toBeNull(); expect(work.ready_revision).toBe(body.migration_batch.membership_revision);
@@ -189,7 +190,7 @@ describePg("migration topology freeze (isolated real PostgreSQL; synthetic refer
     const a = await user(), b = await user(), collection = await hosted(a);
     const { name, body } = await acceptedBatch([a, b]);
     await startAccountMigration(db, b, "production");
-    await flipAccountBackend(db, b, [], flipEvidenceDigest([]));
+    await flipAccountBackend(db, b, [], flipEvidenceDigest([]), { enabled: true });
     await deletion(a); // Never started: even discovery/start must exclude it.
     expect(await cohortArchiveBinding(db, name)).toEqual(body.migration_batch);
     expect(await migrationCandidates(db, 100)).not.toContain(a);
@@ -226,7 +227,7 @@ describePg("migration topology freeze (isolated real PostgreSQL; synthetic refer
     const { name, body } = await acceptedBatch([excluded, account]);
     await deletion(excluded);
     await startAccountMigration(db, account, "production");
-    await flipAccountBackend(db, account, [], flipEvidenceDigest([]));
+    await flipAccountBackend(db, account, [], flipEvidenceDigest([]), { enabled: true });
     expect((await db.query("SELECT 1 FROM users WHERE id=$1", [excluded])).rowCount).toBe(0);
     const batchState = (await db.query("SELECT frozen_at,completed_at,completed_revision::text,membership_revision::text FROM next_migration_cohorts WHERE name=$1", [name])).rows[0];
     expect(batchState.frozen_at).not.toBeNull(); expect(batchState.completed_at).not.toBeNull();

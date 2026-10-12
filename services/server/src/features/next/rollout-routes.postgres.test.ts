@@ -1,3 +1,4 @@
+import { migratedTimerGate } from "./legacy-provider.test-helper.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import Fastify, { type FastifyInstance } from "fastify";
 import pg from "pg";
@@ -110,7 +111,7 @@ describePg("GET /v1/next/rollout (dedicated local Postgres)", () => {
     const second = await cutOver(a.user, a.ids[1]!, 1);
     // Every collection cut over but not flipped: still closed.
     expect(await answer(a.token)).toEqual({ local_takeover: false, account_backend: "legacy" });
-    await flipAccountBackend(db, a.user, a.ids, flipEvidenceDigest([first, second]));
+    await flipAccountBackend(db, a.user, a.ids, flipEvidenceDigest([first, second]), await migratedTimerGate(db, a.user, a.ids));
     expect(await answer(a.token)).toEqual({ local_takeover: true, account_backend: "next" });
     await setPaused(db, true, "test done", OP);
   });

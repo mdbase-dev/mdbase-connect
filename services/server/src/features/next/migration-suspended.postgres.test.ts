@@ -9,7 +9,7 @@ import { tokenHash } from "../../security.js";
 import { deviceRegistrationDigest, issueDeviceChallenge, registerDevice } from "./devices.js";
 import { registerCollectionMigrationRecordRoute } from "./migration-record-routes.js";
 import { registerMigrationSourceWitnessRoutes } from "./migration-source.js";
-import { fakeLegacyProvider } from "./legacy-provider.test-helper.js";
+import { fakeLegacyProvider, recordEmptyTimerImport } from "./legacy-provider.test-helper.js";
 import {
   acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, flipEvidenceDigest,
   localTakeoverAllowed, registerMigrationRolloutRoutes, releaseCohort, setCohortFrozen, setPaused
@@ -101,7 +101,7 @@ describePg("suspended account migration service boundary (isolated PostgreSQL)",
     await setPaused(db, false, "synthetic migration start", actor);
     const service = Fastify();
     const legacy = fakeLegacyProvider(collection);
-    registerMigrationRolloutRoutes(service, { db, token, environment: "staging", provider: legacy });
+    registerMigrationRolloutRoutes(service, { db, token, environment: "staging", provider: legacy, timers: true });
     registerCollectionMigrationRecordRoute(service, db);
     let calls = 0, reads = 0, during: (() => Promise<void>) | undefined;
     const source = { collection_id: collection, state: "migrating", head: 42, started_at: clock, retain_until: null,
@@ -163,6 +163,7 @@ describePg("suspended account migration service boundary (isolated PostgreSQL)",
       const cut = await f.request("POST", `collections/${f.collection}/cutover`, cutover); expect(cut.statusCode, cut.body).toBe(200);
       expect((await f.request("POST", `collections/${f.collection}/cutover`, cutover)).json()).toEqual(cut.json());
       expect(f.legacy.source.state).toBe("migrated");
+      await recordEmptyTimerImport(db, f.account, f.legacy.source);
       const body = { collections: [f.collection], evidence_digest: evidence(f) };
       const flip = await f.request("POST", `accounts/${f.account}/flip`, body); expect(flip.statusCode, flip.body).toBe(200);
       expect((await f.request("POST", `accounts/${f.account}/flip`, body)).json()).toEqual(flip.json());

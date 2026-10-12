@@ -13,7 +13,9 @@
 // - The flip is the only setter of `users.account_backend = 'next'`
 //   (docs/account-backend.md). It requires a started account, every current hosted
 //   collection settled and cut over, and an evidence digest that this server
-//   recomputes from those cutover records.
+//   recomputes from those cutover records. It also requires the next timer
+//   service, each legacy source `migrated`, and each collection's timer import
+//   still matching the source watermark and the target rows (timers/hosted-import.ts).
 // - A deleted account is terminal: its rows cascade away and
 //   every route answers not found; nothing restores it.
 // - Routes accept only the dedicated migration token; every change is audited.
@@ -30,6 +32,8 @@ import { completeMigrationBatch, releaseDeferredDeletions } from "./migration-to
 import { flipEvidenceDigest, recordAccountFlip } from "./account-backend-flip.js";
 import { HostedProviderResponseError, HostedProviderUnavailableError, type HostedProviderClient,
   type LegacyMigrationDrain } from "../../hosted-provider.js";
+import type { LegacyMigrationSource } from "../../hosted-provider-legacy-migration.js";
+import { readFencedTimerSource, TimerImportRefused, timerFlipRefusal, type TimerSourceProvider } from "./timers/hosted-import.js";
 
 export { flipEvidenceDigest };
 
@@ -582,12 +586,45 @@ export async function cutOverCollection(
  * `evidence_digest` must equal [`flipEvidenceDigest`] over their records.
  * Idempotent for the same evidence. Pause does not apply (the account started).
  */
+export interface TimerFlipGate {
+  /** The next timer service runs here (MDBASE_NEXT_TIMERS=1). */
+  enabled: boolean;
+  provider?: TimerSourceProvider;
+}
+
+const TIMER_FLIP_REFUSALS = {
+  timers_not_imported: "A hosted collection's timers have not been imported.",
+  timers_source_changed: "A hosted collection's legacy timers changed since their import; import them again.",
+  timers_identity_mismatch: "A hosted collection's imported timers no longer match their import."
+} as const;
+
+/** Fresh provider reads taken immediately before the flip transaction. Each
+ * source must be `migrated` (cutover recorded, retention started). */
+async function migratedTimerSources(gate: TimerFlipGate, collections: readonly string[]): Promise<Map<string, LegacyMigrationSource>> {
+  if (!gate.enabled) throw new RolloutRefused("next_timers_disabled", "The next timer service is not enabled; the account cannot flip.");
+  const sources = new Map<string, LegacyMigrationSource>();
+  for (const collection of collections) {
+    let source: LegacyMigrationSource;
+    try { source = await readFencedTimerSource(gate.provider, collection); } catch (error) {
+      if (error instanceof TimerImportRefused) throw new RolloutRefused(error.code, error.message, error.status);
+      throw error;
+    }
+    if (source.drain.state !== "migrated") throw new RolloutRefused("migration_source_not_migrated", "A legacy source has not moved to migrated.");
+    sources.set(collection, source);
+  }
+  return sources;
+}
+
 export async function flipAccountBackend(
-  db: DatabasePool, account: string, collections: readonly string[], evidenceDigest: string
+  db: DatabasePool, account: string, collections: readonly string[], evidenceDigest: string, timers: TimerFlipGate
 ): Promise<{ account_id: string; backend: "next"; flipped_at: string }> {
   const named = [...new Set(collections.map((c) => c.toLowerCase()))].sort();
   if (named.length !== collections.length) throw new RolloutRefused("collections_duplicated", "A collection is named twice.");
   if (!HEX64.test(evidenceDigest)) throw new RolloutRefused("invalid_request", "A hex evidence_digest is required.", 400);
+  // An already flipped account answers its idempotent retry without timer reads:
+  // after the flip, imported timers may legitimately fire and change.
+  const current = (await db.query<{ backend: string }>("SELECT account_backend AS backend FROM users WHERE id = $1", [account])).rows[0];
+  const sources = current && current.backend !== "next" ? await migratedTimerSources(timers, named) : null;
   const result = await inTransaction(db, async (client) => {
     const user = (await client.query<{ backend: string; started: boolean | null; terminal_excluded_at: Date | null }>(
       `SELECT u.account_backend AS backend, m.started_at IS NOT NULL AS started,m.terminal_excluded_at
@@ -635,6 +672,11 @@ export async function flipAccountBackend(
     }
     const expected = flipEvidenceDigest(held.map((c) => ({ collection_id: c.id, barrier_f: c.barrier_f!, final_digest: c.final_digest! })));
     if (expected !== evidenceDigest) throw new RolloutRefused("evidence_mismatch", "The evidence digest does not match the recorded cutovers.");
+    if (!sources) throw new Error("Timer sources were not read for an unflipped account.");
+    for (const collection of held) {
+      const refusal = await timerFlipRefusal(client, account, collection.id, sources.get(collection.id)!);
+      if (refusal) throw new RolloutRefused(refusal, TIMER_FLIP_REFUSALS[refusal]);
+    }
     const flippedAt = await recordAccountFlip(client, account, named, evidenceDigest);
     // Every member must have a validated final flip OR accepted terminal
     // exclusion. An excluded account never needs a witness/cutover/flip.
@@ -781,7 +823,9 @@ export async function setCohortFrozen(db: DatabasePool, name: string, frozen: bo
 
 /** Routes for the hosted migrator: the dedicated migration token only. */
 export function registerMigrationRolloutRoutes(app: FastifyInstance, options: {
-  db: DatabasePool; token: string; environment?: string; provider?: LegacyRetentionProvider;
+  db: DatabasePool; token: string; environment?: string; provider?: LegacyRetentionProvider & TimerSourceProvider;
+  /** The next timer service runs here (MDBASE_NEXT_TIMERS=1); the flip requires it. */
+  timers?: boolean;
 }): void {
   const migrator = (request: FastifyRequest) => {
     const presented = bearerToken(request);
@@ -881,7 +925,8 @@ export function registerMigrationRolloutRoutes(app: FastifyInstance, options: {
     const body = z.object({ collections: z.array(z.uuid()).max(1000), evidence_digest: z.string() }).strict().safeParse(request.body);
     if (!p.success || !body.success) return reply.code(400).send(apiError("invalid_request", "collections and evidence_digest are required."));
     try {
-      return await flipAccountBackend(options.db, p.data.id.toLowerCase(), body.data.collections, body.data.evidence_digest);
+      return await flipAccountBackend(options.db, p.data.id.toLowerCase(), body.data.collections, body.data.evidence_digest,
+        { enabled: options.timers === true, provider: options.provider });
     } catch (e) { return refused(reply, e); }
   });
 }

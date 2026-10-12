@@ -33,8 +33,7 @@ before the original flip, re-read the authenticated watermark: missing, changed
 or format-mismatched data aborts the flip. DTOs, headers and readback are DATA,
 not permission, native admission, completion receipts or authority to replay.
 
-`next-timers copy-hosted` now fails with the typed
-`timer_import_requires_strict_importer` error before opening a database. Its
-former target importer reset generation/status and could replay terminal rows.
-The command stays closed until strict import and authenticated paged caller
-integration replace that path. Push-target seal/unseal commands are unchanged.
+`next-timers copy-hosted` is the paged caller: it binds every page to one
+provider run and an unchanged watermark, and records the manifest the account
+flip re-checks (see `legacy-timer-import-target.md`). Push-target seal/unseal
+commands are unchanged.

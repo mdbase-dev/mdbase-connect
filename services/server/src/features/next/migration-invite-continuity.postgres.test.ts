@@ -13,7 +13,7 @@ import {createCohort,addToCohort,setCohortFrozen,releaseCohort,setPaused,cohortA
 import {registerNextCollection} from "./policy-outbox.js";
 import {requireCompletedAccountMigration} from "./migration-sharing.js";
 import {provisionNewAccountBackend} from "./account-backend-flip.js";
-import {fakeLegacyProvider,type FakeLegacyProvider} from "./legacy-provider.test-helper.js";
+import {fakeLegacyProvider,recordEmptyTimerImport,type FakeLegacyProvider} from "./legacy-provider.test-helper.js";
 
 const testUrl=process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved=process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL==="I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -22,6 +22,8 @@ const actor="synthetic-invite-continuity",migrationToken="public-fixed-migration
 suite("original emailed invite continuity (CP counterexamples, NOT native migration)",()=>{
   let db:DatabasePool,admin:pg.Pool,schema:string;
   const app=Fastify();
+  const legacy=new Map<string,FakeLegacyProvider>();
+  const fake=(id:string)=>legacy.get(id)??legacy.set(id,fakeLegacyProvider(id)).get(id)!;
   beforeAll(async()=>{
     const url=new URL(testUrl!);
     if(!["localhost","127.0.0.1","::1","[::1]"].includes(url.hostname)||!/test/i.test(url.pathname))throw Error("Dedicated local test PostgreSQL required");
@@ -30,11 +32,10 @@ suite("original emailed invite continuity (CP counterexamples, NOT native migrat
     url.searchParams.set("options",`-csearch_path=${schema}`);db=await createDatabase(url.toString());
     await app.register(cookie);registerErrorHandler(app);
     registerHostedSharingRoutes(app,{db,hostedCollections:true,hostedSharing:true});
-    const legacy=new Map<string,FakeLegacyProvider>();
-    const fake=(id:string)=>legacy.get(id)??legacy.set(id,fakeLegacyProvider(id)).get(id)!;
     registerMigrationRolloutRoutes(app,{db,token:migrationToken,environment:"lab",provider:{
       legacyMigrationDrain:(id,options)=>fake(id).legacyMigrationDrain(id,options),
-      legacyMigrationRetain:(id,until,options)=>fake(id).legacyMigrationRetain(id,until,options)}});
+      legacyMigrationRetain:(id,until,options)=>fake(id).legacyMigrationRetain(id,until,options),
+      legacyMigrationSource:(id,options)=>fake(id).legacyMigrationSource(id,options)},timers:true});
   },60_000);
   afterAll(async()=>{await app.close();await db?.end();if(admin&&schema)await admin.query(`DROP SCHEMA "${schema}" CASCADE`);await admin?.end();});
   async function account(owner=false){
@@ -82,6 +83,7 @@ suite("original emailed invite continuity (CP counterexamples, NOT native migrat
   async function guardedFlip(f:Fixture){
     const headers={authorization:`Bearer ${migrationToken}`},facts={s_final:7,cutover_seq:11,barrier_f:13,final_digest:"e".repeat(64)};
     const recorded=await app.inject({method:"POST",url:`/internal/v1/next/migration/collections/${f.collection}/cutover`,headers,payload:facts});expect(recorded.statusCode).toBe(200);
+    await recordEmptyTimerImport(db,f.owner.id,fake(f.collection).source);
     const flipped=await app.inject({method:"POST",url:`/internal/v1/next/migration/accounts/${f.owner.id}/flip`,headers,payload:{collections:[f.collection],evidence_digest:flipEvidenceDigest([{collection_id:f.collection,barrier_f:facts.barrier_f,final_digest:facts.final_digest}])}});
     expect(flipped.statusCode).toBe(200);
   }

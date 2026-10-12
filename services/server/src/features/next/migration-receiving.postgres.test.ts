@@ -1,3 +1,4 @@
+import { migratedTimerGate } from "./legacy-provider.test-helper.js";
 import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import pg from "pg";
@@ -93,7 +94,7 @@ suite("staging receiving-v1 (isolated real PostgreSQL; synthetic verifier metada
       expect(member.started_at).toBe(started.started_at); expect(member.cutovers).toHaveLength(2);
       expect(member.cutovers.every((c: any) => Object.keys(c).length === 8 && typeof c.barrier_f === "string")).toBe(true);
       const evidence = flipEvidenceDigest(member.cutovers); expect(result.cutover_evidence_digest).toBe(evidence);
-      const flipped = await flipAccountBackend(db, f.accounts[0]!, f.ids, evidence);
+      const flipped = await flipAccountBackend(db, f.accounts[0]!, f.ids, evidence, await migratedTimerGate(db, f.accounts[0]!, f.ids));
       result = (await request(app, f.name)).json();
       expect(result.members.find((m: any) => m.view.account_id === f.accounts[0]).flip).toEqual({ collections: f.ids, evidence_digest: evidence, flipped_at: flipped.flipped_at });
       expect(result.cutover_evidence_digest).toBe(evidence);

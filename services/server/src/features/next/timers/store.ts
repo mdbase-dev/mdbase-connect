@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
-import type { DatabaseQueryable } from "../../../database-types.js";
+import type { DatabasePool, DatabaseQueryable } from "../../../database-types.js";
+import { InvitationMigrationPending } from "../migration-sharing.js";
 import { dataPermitted, type TimerGrant } from "./grants.js";
+import { importInstant, validateTimerImport } from "./import-original.js";
+import { requireTimerMigrationEffects } from "./migration-effects.js";
 import {
   ACTIVE_STATUSES,
   LIST_RETENTION_MS,
@@ -108,6 +111,7 @@ export async function putTimer(
   criterionId: string,
   desired: DesiredTimer
 ): Promise<TimerView> {
+  await requireTimerMigrationEffects(db, grant.grantId);
   assertData(grant, desired.data);
   await advanceTimerIntent(db, grant.grantId, namespace);
   return putTimerRow(db, grant, namespace, criterionId, desired);
@@ -169,6 +173,7 @@ export async function cancelTimer(
   timerId: string,
   generation?: number
 ): Promise<boolean> {
+  await requireTimerMigrationEffects(db, grant.grantId);
   await advanceTimerIntent(db, grant.grantId, namespace);
   const existing = await selectTimer(db, grant.grantId, namespace, timerId);
   if (!existing || !(ACTIVE_STATUSES as readonly string[]).includes(existing.status)) return false;
@@ -197,6 +202,7 @@ export async function reconcileTimers(
 ): Promise<{ namespace: string; timers: TimerView[]; cancelled_ids: string[] }> {
   const checkDeadline = () => { if (Date.now() >= deadline) throw new TimerError(503, "busy", "Timer metadata deadline exceeded."); };
   checkDeadline();
+  await requireTimerMigrationEffects(db, grant.grantId);
   const ids = new Set<string>();
   for (const timer of desired) {
     if (ids.has(timer.id)) {
@@ -263,16 +269,43 @@ export async function enforceTimerQuota(
 }
 
 /** Cancel every active timer of grants that are revoked. Returns timers cancelled. */
-export async function cancelRevokedGrantTimers(db: DatabaseQueryable): Promise<number> {
-  const result = await db.query(
-    `UPDATE next_timers SET status = 'cancelled', updated_at = now()
-     WHERE status IN ('scheduled', 'firing')
-       AND (grant_id IN (SELECT id FROM grants WHERE revoked_at IS NOT NULL)
-         OR grant_id IN (SELECT id FROM next_background_grants
-           WHERE principal_kind = 'installation' AND revoked_at IS NOT NULL))
-     RETURNING timer_id`
-  );
-  return result.rows.length;
+export async function cancelRevokedGrantTimers(db: DatabasePool): Promise<number> {
+  const revoked = `(grant_id IN (SELECT id FROM grants WHERE revoked_at IS NOT NULL)
+    OR grant_id IN (SELECT id FROM next_background_grants
+      WHERE principal_kind = 'installation' AND revoked_at IS NOT NULL))`;
+  let cancelled = 0;
+  let cursor: string | null = null;
+  while (true) {
+    const grants: { rows: { grant_id: string }[] } = await db.query<{ grant_id: string }>(
+      `SELECT DISTINCT grant_id FROM next_timers WHERE status IN ('scheduled','firing')
+       AND ${revoked} AND ($1::uuid IS NULL OR grant_id>$1)
+       ORDER BY grant_id LIMIT 100`, [cursor]
+    );
+    if (!grants.rows.length) break;
+    cursor = grants.rows[grants.rows.length - 1].grant_id;
+    for (const { grant_id } of grants.rows) {
+      const connection = await db.connect();
+      try {
+        await connection.query("BEGIN");
+        await connection.query("SET LOCAL lock_timeout = '5s'");
+        await connection.query("SET LOCAL statement_timeout = '5s'");
+        await requireTimerMigrationEffects(connection, grant_id);
+        const result = await connection.query(
+          `UPDATE next_timers SET status='cancelled',updated_at=now()
+           WHERE grant_id=$1 AND status IN ('scheduled','firing') AND ${revoked}
+           RETURNING timer_id`, [grant_id]
+        );
+        await connection.query("COMMIT");
+        cancelled += result.rows.length;
+      } catch (error) {
+        await connection.query("ROLLBACK");
+        if (!(error instanceof InvitationMigrationPending)) throw error;
+      } finally {
+        connection.release();
+      }
+    }
+  }
+  return cancelled;
 }
 
 /**
@@ -288,8 +321,12 @@ export async function eraseTimerData(
     WHERE hosted_collection_id = $1 OR collection_id = $1
        OR collection_id IN (SELECT id FROM collections WHERE local_id = $1)`;
   const timers = await db.query(
-    `UPDATE next_timers SET data = NULL, updated_at = now()
-     WHERE data IS NOT NULL AND grant_id IN (${grants})
+    `UPDATE next_timers SET data = NULL, updated_at = now(),
+       legacy_import_origin = CASE WHEN legacy_import_origin IS NULL THEN NULL
+         ELSE jsonb_set(legacy_import_origin, '{data_erased}', 'true'::jsonb) END
+     WHERE (data IS NOT NULL OR (legacy_import_origin IS NOT NULL
+       AND legacy_import_origin->>'data_erased' IS DISTINCT FROM 'true'))
+       AND grant_id IN (${grants})
      RETURNING timer_id`,
     [collectionId]
   );
@@ -301,37 +338,52 @@ export async function eraseTimerData(
   return timers.rows.length;
 }
 
-export interface ImportedTimer {
-  grant_id: string;
-  namespace: string;
-  id: string;
-  criterion_id: string;
-  fire_at: string;
-  data?: unknown;
-}
-
-/**
- * Cutover copy of active legacy timers. Idempotent: a timer that already exists
- * is left alone. Data is kept only for cloud-copy grants.
- */
+/** Strict original import: every mandatory original field is validated at this
+ * boundary. The caller owns source fence/watermark binding (hosted-import.ts);
+ * metadata grants no authority. */
 export async function importTimer(
   db: DatabaseQueryable,
   grant: TimerGrant,
-  timer: ImportedTimer
+  input: unknown
 ): Promise<boolean> {
-  const data = dataPermitted(grant) && timer.data !== undefined && timer.data !== null
-    ? JSON.stringify(timer.data)
-    : null;
+  const { timer, origin } = validateTimerImport(input);
+  if (timer.grant_id !== grant.grantId) {
+    throw new TimerError(409, "timer_import_conflict", "The original timer grant does not match.");
+  }
+  assertData(grant, timer.data);
+  const values = [grant.grantId, timer.namespace, timer.id, timer.criterion_id,
+    importInstant(timer.fire_at), timer.generation, timer.status,
+    timer.data === null ? null : JSON.stringify(timer.data),
+    importInstant(timer.created_at), importInstant(timer.updated_at),
+    timer.fired_at === null ? null : importInstant(timer.fired_at), JSON.stringify(origin)];
   await lockNamespace(db, grant.grantId, timer.namespace);
-  if (await selectTimer(db, grant.grantId, timer.namespace, timer.id)) return false;
+  const identicalExisting = async (): Promise<boolean | null> => {
+    const existing = await db.query<{ identical: boolean }>(
+      `SELECT (criterion_id = $4 AND fire_at = $5::timestamptz
+         AND generation = $6::bigint AND status = $7
+         AND data IS NOT DISTINCT FROM $8::jsonb
+         AND created_at = $9::timestamptz AND updated_at = $10::timestamptz
+         AND fired_at IS NOT DISTINCT FROM $11::timestamptz
+         AND legacy_import_origin = $12::jsonb) AS identical
+       FROM next_timers WHERE grant_id = $1 AND namespace = $2 AND timer_id = $3
+       FOR UPDATE`, values);
+    if (!existing.rows.length) return null;
+    if (existing.rows[0].identical !== true) {
+      // Includes native-origin collisions, post-import drift and content erasure.
+      throw new TimerError(409, "timer_import_conflict", "The original timer differs from the existing target.");
+    }
+    return true;
+  };
+  if (await identicalExisting()) return false;
   await advanceTimerIntent(db, grant.grantId, timer.namespace);
   const inserted = await db.query(
     `INSERT INTO next_timers
-       (grant_id, namespace, timer_id, criterion_id, fire_at, generation, status, data)
-     VALUES ($1, $2, $3, $4, $5, 1, 'scheduled', $6::jsonb)
-     ON CONFLICT (grant_id, namespace, timer_id) DO NOTHING
-     RETURNING timer_id`,
-    [grant.grantId, timer.namespace, timer.id, timer.criterion_id, new Date(timer.fire_at).toISOString(), data]
-  );
-  return inserted.rows.length > 0;
+       (grant_id, namespace, timer_id, criterion_id, fire_at, generation, status,
+        data, created_at, updated_at, fired_at, legacy_import_origin)
+     VALUES ($1, $2, $3, $4, $5::timestamptz, $6::bigint, $7,
+       $8::jsonb, $9::timestamptz, $10::timestamptz, $11::timestamptz, $12::jsonb)
+     ON CONFLICT (grant_id, namespace, timer_id) DO NOTHING RETURNING timer_id`, values);
+  if (inserted.rows.length) return true;
+  if (await identicalExisting()) return false;
+  throw new TimerError(409, "timer_import_conflict", "The original timer target could not be verified.");
 }

@@ -1,7 +1,8 @@
-// Invitation acceptance only. The original global topology/archive freeze is
-// unchanged. SQL terminal labels alone are not a validated account flip.
+// Original completion readback for invitation continuity and imported timers.
+// Global topology/archive freeze stays unchanged. Terminal SQL labels alone
+// are not a validated account flip; callers retain their original transaction.
 import { createHash } from "node:crypto";
-import type { DatabaseConnection } from "../../database-types.js";
+import type { DatabaseConnection, DatabaseQueryable } from "../../database-types.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
@@ -50,7 +51,7 @@ export async function requireCompletedMigrationInvitation(client:DatabaseConnect
 /** Strict original terminal-ledger readback, never the ordinary-account early
  * return. Caller retains its normal locks/authority/freeze checks separately;
  * this read-only observation does not authorize another freeze exception. */
-export async function requireCompletedAccountMigration(client:DatabaseConnection,collection:string,owner:string):Promise<void> {
+export async function requireCompletedAccountMigration(client:DatabaseQueryable,collection:string,owner:string):Promise<void> {
   const terminal=(await client.query<Terminal>(
     `SELECT m.started_at,c.completed_at,f.flipped_at,f.collections::text[] AS collections,f.evidence_digest,
        c.name AS cohort,a.verified_result->'migration_batch'->>'membership_digest' AS archive_digest
