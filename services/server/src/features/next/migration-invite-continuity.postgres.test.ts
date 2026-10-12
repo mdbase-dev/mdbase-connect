@@ -11,7 +11,8 @@ import {registerErrorHandler} from "../../platform/error-handler.js";
 import {tokenHash} from "../../security.js";
 import {createCohort,addToCohort,setCohortFrozen,releaseCohort,setPaused,cohortArchiveBinding,registerMigrationRolloutRoutes,acceptCohortArchive,flipEvidenceDigest} from "./migration-rollout.js";
 import {registerNextCollection} from "./policy-outbox.js";
-import {requireCompletedAccountMigration} from "./migration-sharing.js";
+import {labCohortCompletionEvidence,requireCompletedAccountMigration} from "./migration-sharing.js";
+import {completeMigrationBatch} from "./migration-topology.js";
 import {provisionNewAccountBackend} from "./account-backend-flip.js";
 import {fakeLegacyProvider,recordEmptyTimerImport,type FakeLegacyProvider} from "./legacy-provider.test-helper.js";
 
@@ -80,11 +81,11 @@ suite("original emailed invite continuity (CP counterexamples, NOT native migrat
   async function shadow(f:Fixture){
     await registerNextCollection(db,{collectionId:f.collection,ownerUserId:f.owner.id,runtime:"shadow",sync:"cloud_copy",rootKeyId:Buffer.alloc(16,17),ops:[{op:"genesis",owner:f.owner.id,root:Buffer.alloc(16,17),state:"cloud-copy"},{op:"member-set",account:f.owner.id,role:"owner"}]});
   }
-  async function guardedFlip(f:Fixture){
+  async function guardedFlip(f:Fixture,via=app){
     const headers={authorization:`Bearer ${migrationToken}`},facts={s_final:7,cutover_seq:11,barrier_f:13,final_digest:"e".repeat(64)};
-    const recorded=await app.inject({method:"POST",url:`/internal/v1/next/migration/collections/${f.collection}/cutover`,headers,payload:facts});expect(recorded.statusCode).toBe(200);
+    const recorded=await via.inject({method:"POST",url:`/internal/v1/next/migration/collections/${f.collection}/cutover`,headers,payload:facts});expect(recorded.statusCode).toBe(200);
     await recordEmptyTimerImport(db,f.owner.id,fake(f.collection).source);
-    const flipped=await app.inject({method:"POST",url:`/internal/v1/next/migration/accounts/${f.owner.id}/flip`,headers,payload:{collections:[f.collection],evidence_digest:flipEvidenceDigest([{collection_id:f.collection,barrier_f:facts.barrier_f,final_digest:facts.final_digest}])}});
+    const flipped=await via.inject({method:"POST",url:`/internal/v1/next/migration/accounts/${f.owner.id}/flip`,headers,payload:{collections:[f.collection],evidence_digest:flipEvidenceDigest([{collection_id:f.collection,barrier_f:facts.barrier_f,final_digest:facts.final_digest}])}});
     expect(flipped.statusCode).toBe(200);
   }
   async function originalPending(f:Fixture){
@@ -158,9 +159,70 @@ suite("original emailed invite continuity (CP counterexamples, NOT native migrat
     const refused=await f.accept();expect(refused.statusCode).toBe(409);expect(refused.json().error.code).toBe("collection_migrating");
     expect((await db.query("SELECT id FROM collection_memberships WHERE collection_id=$1 AND user_id=$2",[f.collection,f.target.id])).rows).toHaveLength(0);
   });
-  it("tiny guarded CP flip and freeform audited unfreeze cannot replace native verify/recovery completion",async()=>{
-    const f=await fixture("viewer",false);await shadow(f);await guardedFlip(f);await retryable(f);
-    await setCohortFrozen(db,f.cohort,false,"native verification complete (freeform text NOT proof)",actor);await retryable(f);
-    expect((await db.query("SELECT completed_at FROM next_migration_cohorts WHERE name=$1",[f.cohort])).rows[0].completed_at).toBeNull();
+  const completion=async(cohort:string)=>(await db.query("SELECT completed_at,completed_revision::text,membership_revision::text FROM next_migration_cohorts WHERE name=$1",[cohort])).rows[0]!;
+  const labCompletions=async(cohort:string)=>(await db.query("SELECT metadata FROM audit_events WHERE event_type='next_migration.lab_complete' AND subject_id=$1",[cohort])).rows;
+  async function guarded<T>(body:(client:pg.PoolClient)=>Promise<T>):Promise<T>{
+    const client=await db.connect();try{await client.query("BEGIN");const r=await body(client);await client.query("ROLLBACK");return r;}finally{client.release();}
+  }
+  it("a LAB-profile cohort completes in environment lab on its verified flip, without an archive acceptance",async()=>{
+    const f=await fixture("viewer",false);await shadow(f);await retryable(f);await guardedFlip(f);
+    const batch=await completion(f.cohort);
+    expect(batch.completed_at).not.toBeNull();expect(batch.completed_revision).toBe(batch.membership_revision);
+    expect((await db.query("SELECT 1 FROM next_migration_archive_acceptances WHERE cohort=$1",[f.cohort])).rows).toHaveLength(0);
+    const binding=await cohortArchiveBinding(db,f.cohort);
+    expect(await labCompletions(f.cohort)).toEqual([{metadata:{cohort:f.cohort,membership_revision:batch.membership_revision,membership_digest:binding.membership_digest,
+      evidence_digest:flipEvidenceDigest([{collection_id:f.collection,barrier_f:13,final_digest:"e".repeat(64)}])}}]);
+    await guarded(client=>requireCompletedAccountMigration(client,f.collection,f.owner.id));
+    const accepted=await accept(f);expect(accepted.statusCode,accepted.body).toBe(201);
+    // Completion is not undone by a free-text unfreeze.
+    await expect(setCohortFrozen(db,f.cohort,false,"freeform text after completion",actor)).rejects.toMatchObject({code:"migration_frozen"});
+    expect((await completion(f.cohort)).completed_at).not.toBeNull();
+  });
+  it.each(["staging","production","LAB",undefined])("LAB-profile completion is unreachable outside environment lab: %s",async environment=>{
+    // The LAB start itself is refused outside lab; start in lab to model a
+    // LAB-profile cohort that a non-LAB server then flips.
+    const f=await fixture("viewer",false),other=Fastify();
+    registerMigrationRolloutRoutes(other,{db,token:migrationToken,environment,provider:{
+      legacyMigrationDrain:(id,options)=>fake(id).legacyMigrationDrain(id,options),
+      legacyMigrationRetain:(id,until,options)=>fake(id).legacyMigrationRetain(id,until,options),
+      legacyMigrationSource:(id,options)=>fake(id).legacyMigrationSource(id,options)},timers:true});
+    try{await shadow(f);await guardedFlip(f,other);}finally{await other.close();}
+    expect((await completion(f.cohort)).completed_at).toBeNull();expect(await labCompletions(f.cohort)).toHaveLength(0);
+    // The evidence holds; only the environment refuses it, including on a direct call.
+    const batch=(await db.query("SELECT frozen_at,membership_revision::text AS revision FROM next_migration_cohorts WHERE name=$1",[f.cohort])).rows[0]!;
+    expect(await guarded(client=>labCohortCompletionEvidence(client,f.cohort,batch.revision))).not.toBeNull();
+    const client=await db.connect();
+    try{await client.query("BEGIN");await completeMigrationBatch(client,f.cohort,batch.revision,batch.frozen_at,environment);await client.query("COMMIT");}finally{client.release();}
+    expect((await completion(f.cohort)).completed_at).toBeNull();expect(await labCompletions(f.cohort)).toHaveLength(0);
+    await guarded(client=>expect(requireCompletedAccountMigration(client,f.collection,f.owner.id)).rejects.toMatchObject({code:"collection_migrating"}));
+    await retryable(f);
+  });
+  it("LAB completion requires the start audit binding to the current inventory",async()=>{
+    const f=await fixture("viewer",false);await shadow(f);
+    await db.query("UPDATE audit_events SET metadata=jsonb_set(metadata,'{inventory,membership_digest}',to_jsonb($2::text)) WHERE event_type='next_migration.start' AND subject_id=$1",[f.owner.id,"0".repeat(64)]);
+    await guardedFlip(f);
+    expect((await completion(f.cohort)).completed_at).toBeNull();expect(await labCompletions(f.cohort)).toHaveLength(0);await retryable(f);
+  });
+  it("LAB completion evidence refuses changed cutovers after the flip",async()=>{
+    const f=await fixture("viewer",false);await shadow(f);await guardedFlip(f);
+    await db.query("UPDATE next_migration_collections SET final_digest=$2 WHERE collection_id=$1",[f.collection,"d".repeat(64)]);
+    const revision=(await completion(f.cohort)).membership_revision;
+    expect(await guarded(client=>labCohortCompletionEvidence(client,f.cohort,revision))).toBeNull();
+  });
+  it("forged completion with a LAB completion event needs the owner's LAB start binding and the completed revision",async()=>{
+    const f=await fixture("viewer",false),staging=Fastify();
+    registerMigrationRolloutRoutes(staging,{db,token:migrationToken,environment:"staging",provider:{
+      legacyMigrationDrain:(id,options)=>fake(id).legacyMigrationDrain(id,options),
+      legacyMigrationRetain:(id,until,options)=>fake(id).legacyMigrationRetain(id,until,options),
+      legacyMigrationSource:(id,options)=>fake(id).legacyMigrationSource(id,options)},timers:true});
+    try{await shadow(f);await guardedFlip(f,staging);}finally{await staging.close();}
+    const revision=(await completion(f.cohort)).membership_revision,binding=await cohortArchiveBinding(db,f.cohort);
+    // Deliberate negative corruption, NEVER positive terminal qualification.
+    await db.query("UPDATE next_migration_cohorts SET completed_at=now(),completed_revision=membership_revision WHERE name=$1",[f.cohort]);
+    const forge=(rev:string)=>db.query("INSERT INTO audit_events(id,user_id,event_type,subject_id,metadata) VALUES($1,NULL,'next_migration.lab_complete',$2,$3::jsonb)",
+      [randomUUID(),f.cohort,JSON.stringify({cohort:f.cohort,membership_revision:rev,membership_digest:binding.membership_digest,evidence_digest:"0".repeat(64)})]);
+    await forge(String(BigInt(revision)+1n));await retryable(f);
+    await db.query("UPDATE audit_events SET metadata=jsonb_set(metadata,'{profile}','\"other\"') WHERE event_type='next_migration.start' AND subject_id=$1",[f.owner.id]);
+    await forge(revision);await retryable(f);
   });
 });
