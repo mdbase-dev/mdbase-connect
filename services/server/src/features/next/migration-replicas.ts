@@ -1,5 +1,5 @@
 // Migration-token fronts for the fence-first Driver's replica, rollback and
-// cutover-policy steps. Every route is bound to the presented migration claim
+// cutover-policy and member-policy steps. Every route is bound to the presented migration claim
 // (owner account + start) AND the provider run its fence settled, and rechecks
 // both around every await and inside the final transaction. Provider bodies are
 // passed through unchanged for the native settlement mirror.
@@ -8,6 +8,7 @@
 // dedicated connection with NO open transaction, so a revoke can never land
 // between the cutover's revoked-set read and its queued policy. Once a cutover is
 // queued, revoke, unrevoke and unfence refuse: rollback is pre-cutover only.
+// The cutover also refuses until the target's queued members match Connect's.
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "../../database-types.js";
@@ -18,6 +19,7 @@ import { bearerToken } from "../../platform/request-authentication.js";
 import { safeEqual } from "../../security.js";
 import { CreateError, inTransaction } from "./bootstrap-common.js";
 import type { LogServiceClient } from "./log-service-client.js";
+import { migrationMemberPlan, queueMigrationMembers } from "./migration-members.js";
 import { claim } from "./migration-provider.js";
 import { RolloutRefused } from "./migration-rollout.js";
 import { queueNextPolicy, type PolicyEmitter } from "./policy-outbox.js";
@@ -27,7 +29,7 @@ type Provider = Pick<HostedProviderClient, "legacyMigrationDrain" | "legacyMigra
   | "legacyMigrationRestoreReplicas" | "legacyMigrationRevokedReplicas" | "legacyMigrationUnfence">;
 interface Options {
   db: DatabasePool; token: string; provider?: Provider;
-  /** Cutover policy only: the log head (base landed) and a best-effort wake. */
+  /** Cutover and member policy: the log head (base landed) and a best-effort wake. */
   log?: Pick<LogServiceClient, "head">; emitter?: Pick<PolicyEmitter, "drainCollection">;
 }
 
@@ -42,6 +44,7 @@ const bodies = {
   "replicas/revoke": binding.extend({ replica_ids: ids(1) }).strict(),
   "replicas/unrevoke": binding.extend({ replica_ids: ids(1) }).strict(),
   unfence: binding,
+  "members-policy": binding,
   "cutover-policy": binding.extend({ revoked: ids(0), base_seq: z.number().int().positive().max(Number.MAX_SAFE_INTEGER) }).strict()
 } as const;
 type Kind = keyof typeof bodies;
@@ -112,6 +115,7 @@ async function step(kind: Kind, collection: string, body: Record<string, unknown
   }
   return serialized(options.db, collection, async () => {
     if (kind === "cutover-policy") return cutoverPolicy(collection, body as Binding & { revoked: string[]; base_seq: number }, options, deadline);
+    if (kind === "members-policy") return membersPolicy(collection, presented, options);
     await refuseQueuedCutover(options.db, collection);
     const replicas = (body as { replica_ids?: string[] }).replica_ids ?? [];
     let result: unknown, metadata: Record<string, unknown>;
@@ -167,6 +171,10 @@ async function cutoverPolicy(collection: string, body: Binding & { revoked: stri
     if (!await existingCloudCopy(client, collection, current.account)) throw new RolloutRefused("migration_target_unavailable", "No SHADOW target for this collection.");
     // existingCloudCopy row-locks next_collections, so a concurrent find waits here.
     if (await existing(client)) return false;
+    // Members follow the cutover in no log: the native comparison runs before Route.
+    if ((await migrationMemberPlan(client, collection, current.account)).ops.length) {
+      throw new RolloutRefused("migration_members_not_queued", "Queue the collection's current members before the cutover.");
+    }
     const queued = await queueNextPolicy(client, collection, [
       { op: "migration-cutover", legacyCollection: collection, revoked: body.revoked, cutoverAt: Date.now() },
       { op: "freeze", frozen: false }
@@ -178,6 +186,30 @@ async function cutoverPolicy(collection: string, body: Binding & { revoked: stri
   });
   if (created) await options.emitter?.drainCollection(collection).catch(() => undefined);
   return reply(created);
+}
+
+/** Queue a member policy item for each current member the SHADOW target's queue
+ * does not already hold, and remove any it holds that is no longer a member.
+ * Returns the exact owner-inclusive member map for the native comparison. */
+async function membersPolicy(collection: string, body: Binding, options: Options) {
+  const result = await inTransaction(options.db, async client => {
+    const current = await bound(client, collection, body, true);
+    await refuseQueuedCutover(client, collection);
+    const shadow = await existingCloudCopy(client, collection, current.account)
+      && (await client.query("SELECT 1 FROM next_collections WHERE collection_id=$1 AND runtime='shadow'", [collection])).rows.length === 1;
+    if (!shadow) throw new RolloutRefused("migration_target_unavailable", "No SHADOW target for this collection.");
+    const plan = await migrationMemberPlan(client, collection, current.account);
+    if (!plan.ownerQueued) throw new RolloutRefused("migration_target_unavailable", "The target's genesis owner is not queued.");
+    await queueMigrationMembers(client, collection, plan.ops);
+    const set = plan.ops.filter(op => op.op === "member-set").length;
+    if (plan.ops.length) {
+      await audit(client, current.account, "next_migration.members_policy", collection,
+        { migration_id: body.migration_id, set, removed: plan.ops.length - set });
+    }
+    return { collection_id: collection, migration_id: body.migration_id, members: plan.members, queued: plan.ops.length };
+  });
+  if (result.queued) await options.emitter?.drainCollection(collection).catch(() => undefined);
+  return result;
 }
 
 export function registerMigrationReplicaRoutes(app: FastifyInstance, options: Options): void {

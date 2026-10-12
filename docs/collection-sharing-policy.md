@@ -24,6 +24,12 @@ identity rather than restoring a revoked historical enrollment.
 Deleting an account publishes the same `member-remove` to every current native
 collection it belongs to, and records a permanent deletion denial for each native
 collection it owns before those rows are erased.
+Migrating a hosted collection carries its members into the new target's policy
+before the cutover: `member-set` with the current role for each active member,
+`viewer` for a member whose role change is still pending provider cleanup, and
+nothing for revoking or revoked members or pending invitations, which stay in
+Connect. A repeat queues only the difference, including `member-remove` for a
+member who left during the migration.
 
 Policy publication is not key delivery. After authorized device enrollment, the
 existing hosted/escrow or private-device keying mechanism supplies encrypted keys.
