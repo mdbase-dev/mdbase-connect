@@ -20,13 +20,15 @@ import { hostedReplicaCollectionOperations } from "./hosted-replica-policy.js";
 import { safeEqual } from "./security.js";
 import { collectionContractDescriptorSchema } from "./protocol-schemas.js";
 import { z } from "zod";
-import { readBoundedJson } from "./platform/bounded-json.js";
 import { asProviderError, readResponse, HostedProviderResponseError, HostedProviderUnavailableError,
-  migrationUuid, legacyMigrationDrainSchema, migrationFenceSchema, type LegacyMigrationDrain, type LegacyMigrationFence,
-  legacyMigrationRollbackRequestSchema, legacyMigrationRollbackReceiptSchema,
-  type LegacyMigrationRollbackRequest, type LegacyMigrationRollbackReceipt } from "./hosted-provider-replies.js";
+  type LegacyMigrationDrain, type LegacyMigrationFence, type LegacyMigrationRollbackRequest,
+  type LegacyMigrationRollbackReceipt, type LegacyMigrationRetained } from "./hosted-provider-replies.js";
+import * as legacy from "./hosted-provider-legacy-migration.js";
+import type { LegacyMigrationRequest, LegacyMigrationSource } from "./hosted-provider-legacy-migration.js";
 export { HostedProviderResponseError, HostedProviderUnavailableError, type LegacyMigrationDrain, type LegacyMigrationFence,
-  type LegacyMigrationRollbackRequest, type LegacyMigrationRollbackReceipt } from "./hosted-provider-replies.js";
+  type LegacyMigrationRollbackRequest, type LegacyMigrationRollbackReceipt,
+  type LegacyNotificationWatermark, type LegacyMigrationRetained } from "./hosted-provider-replies.js";
+export type { LegacyMigrationSource } from "./hosted-provider-legacy-migration.js";
 
 export interface HostedProviderConfig {
   url: string;
@@ -305,42 +307,27 @@ export class HostedProviderClient {
     return requiredProjectionStatus(result?.projection, collectionId);
   }
 
-  async legacyMigrationDrain(collectionId: string, options?: HostedProviderOperationOptions): Promise<LegacyMigrationDrain> {
-    const id = migrationUuid.parse(collectionId);
-    const result = legacyMigrationDrainSchema.parse(await this.request("GET", `/internal/v1/collections/${id}/legacy-migration`, undefined, true, options, response => readBoundedJson(response, 4096)));
-    if (result.collection_id !== id) throw new HostedProviderResponseError(502, "invalid_provider_response", "Migration source identity does not match.");
-    return result;
+  private readonly legacyRequest = (options?: HostedProviderOperationOptions): LegacyMigrationRequest =>
+    (method, path, body, readReply, attempts) => this.request(method, path, body, true, options, readReply, attempts);
+  legacyMigrationDrain(collectionId: string, options?: HostedProviderOperationOptions): Promise<LegacyMigrationDrain> {
+    return legacy.legacyMigrationDrain(this.legacyRequest(options), collectionId);
   }
-
-  /** Deny-first fence; retries reuse the provider's existing migration identity. */
-  async legacyMigrationFence(collectionId: string, options?: HostedProviderOperationOptions): Promise<LegacyMigrationFence> {
-    const id = migrationUuid.parse(collectionId);
-    const result = migrationFenceSchema.parse(await this.request("PUT", `/internal/v1/collections/${id}/legacy-migration`, { state: "migrating" }, true, options, response => readBoundedJson(response, 4096)));
-    if (result.collection_id !== id) throw new HostedProviderResponseError(502, "invalid_provider_response", "Migration fence identity does not match.");
-    return result;
+  legacyMigrationSource(collectionId: string, options?: HostedProviderOperationOptions): Promise<LegacyMigrationSource> {
+    return legacy.legacyMigrationSource(this.legacyRequest(options), collectionId);
   }
-
-  /** Native rollback guards required; lost response is UNKNOWN, never auto-retried. */
-  async legacyMigrationRollback(collectionId: string, binding: LegacyMigrationRollbackRequest,
+  legacyMigrationFence(collectionId: string, options?: HostedProviderOperationOptions): Promise<LegacyMigrationFence> {
+    return legacy.legacyMigrationFence(this.legacyRequest(options), collectionId);
+  }
+  legacyMigrationRetain(collectionId: string, retainUntil: Date, options?: HostedProviderOperationOptions): Promise<LegacyMigrationRetained> {
+    return legacy.legacyMigrationRetain(this.legacyRequest(options), collectionId, retainUntil);
+  }
+  legacyMigrationRollback(collectionId: string, binding: LegacyMigrationRollbackRequest,
     options?: HostedProviderOperationOptions): Promise<LegacyMigrationRollbackReceipt> {
-    return this.legacyMigrationRollbackRequest("rollback", collectionId, binding, options);
+    return legacy.legacyMigrationRollback(this.legacyRequest(options), "rollback", collectionId, binding);
   }
-  /** Lookup ORIGINAL binding, not later Unfence ID; missing/active-only is not success. */
-  async legacyMigrationRollbackReceipt(collectionId: string, binding: LegacyMigrationRollbackRequest,
+  legacyMigrationRollbackReceipt(collectionId: string, binding: LegacyMigrationRollbackRequest,
     options?: HostedProviderOperationOptions): Promise<LegacyMigrationRollbackReceipt> {
-    return this.legacyMigrationRollbackRequest("rollback-receipt", collectionId, binding, options);
-  }
-  private async legacyMigrationRollbackRequest(action: "rollback" | "rollback-receipt", collectionId: string,
-    binding: LegacyMigrationRollbackRequest, options?: HostedProviderOperationOptions): Promise<LegacyMigrationRollbackReceipt> {
-    const id = migrationUuid.parse(collectionId);
-    const input = legacyMigrationRollbackRequestSchema.parse(binding);
-    const result = legacyMigrationRollbackReceiptSchema.parse(await this.request("POST",
-      `/internal/v1/collections/${id}/legacy-migration/${action}`, input, true, options,
-      response => readBoundedJson(response, 128 * 1024), 1));
-    if (result.collection_id !== id || JSON.stringify(result.binding) !== JSON.stringify(input)) {
-      throw new HostedProviderResponseError(502, "invalid_provider_response", "Rollback receipt binding does not match.");
-    }
-    return result;
+    return legacy.legacyMigrationRollback(this.legacyRequest(options), "rollback-receipt", collectionId, binding);
   }
   async advanceProjection(
     collectionId: string,

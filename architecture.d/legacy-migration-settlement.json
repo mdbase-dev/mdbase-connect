@@ -1,0 +1,9 @@
+{
+  "reason": "Legacy migration calls move out of the hosted provider client into their own module so the client stays inside its line budget while gaining the source watermark read and the post-cutover retention transition. The module only shapes and checks provider exchanges over the existing transport. Typed reply schemas for the watermark and the retained state, and a shared fake legacy provider for cutover tests, account for the remaining growth; no new endpoint, crypto, data operation or fallback is added.",
+  "growth": {
+    "productionFiles": 2,
+    "relativeImports": 5,
+    "typeScriptExportDeclarations": 16,
+    "services/server": 2
+  }
+}

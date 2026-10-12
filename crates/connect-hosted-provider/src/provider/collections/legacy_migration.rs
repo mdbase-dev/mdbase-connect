@@ -20,6 +20,13 @@ const LEGACY_RETENTION_MIN_DAYS: i64 = 90;
 
 // Count blocking rows, not distinct reminders. Expiry cannot settle a dispatch.
 // Missing runtime schema fails closed; migration must never initialize it.
+//
+// A terminal `failed` run is settled only while it holds no lease, has no active
+// attempt and every recorded attempt has a durable outcome (`succeeded` or
+// `failed`). The runtime records an interrupted or unknown dispatch as
+// `indeterminate`, never `failed`, and effect admission requires a running,
+// leased run, so such a run can never deliver again. Any other shape blocks.
+// `timers/hosted-copy.ts` in the server applies the same run rule.
 const NOTIFICATION_BLOCKERS_SQL: &str = r#"
     SELECT CASE WHEN (SELECT version FROM mdbase_runtime_schema WHERE singleton = TRUE) = 2 THEN
       (SELECT count(*) FROM mdbase_runtime_timers t
@@ -28,8 +35,15 @@ const NOTIFICATION_BLOCKERS_SQL: &str = r#"
            OR t.lease_worker IS NOT NULL OR t.lease_expires_at IS NOT NULL))
       + (SELECT count(*) FROM mdbase_runtime_runs r
          WHERE r.namespace = 'connect-hosted:' || ($1::uuid)::text || ':notifications'
-           AND (r.status NOT IN ('succeeded','cancelled') OR r.lease_token IS NOT NULL
-             OR r.lease_worker IS NOT NULL OR r.lease_expires_at IS NOT NULL))
+           AND (r.status NOT IN ('succeeded','cancelled','failed') OR r.lease_token IS NOT NULL
+             OR r.lease_worker IS NOT NULL OR r.lease_expires_at IS NOT NULL
+             OR (r.status = 'failed' AND (
+               jsonb_typeof(r.record_json->'attempts') IS DISTINCT FROM 'array'
+               OR COALESCE(jsonb_typeof(r.record_json->'active_attempt'), 'null') <> 'null'
+               OR EXISTS (SELECT 1 FROM jsonb_array_elements(
+                   CASE WHEN jsonb_typeof(r.record_json->'attempts') = 'array'
+                     THEN r.record_json->'attempts' ELSE '[]'::jsonb END) a
+                 WHERE (a->>'status') IS NULL OR (a->>'status') NOT IN ('succeeded','failed'))))))
       + (SELECT count(*) FROM hosted_provider_runtime_outbox o
          WHERE o.collection_id = $1 AND (o.processed_at IS NULL
            OR o.lease_token IS NOT NULL OR o.leased_until IS NOT NULL))
@@ -110,7 +124,8 @@ pub struct LegacyMigrationDrain {
     /// cannot apply once the collection is fenced: every apply path requires
     /// `state = 'active'` under the collection row lock that the fence takes.
     /// Also includes notification firing/unfinished delivery/lease rows, even
-    /// when their lease expired or the runtime labels an UNKNOWN terminal.
+    /// when their lease expired or the runtime labels an UNKNOWN terminal. An
+    /// unleased `failed` run whose attempts all have outcomes is settled.
     pub in_flight: i64,
     /// Accepted mutations and notification work not yet resolved, live or not.
     pub unresolved: i64,

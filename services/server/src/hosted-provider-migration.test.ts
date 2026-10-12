@@ -59,4 +59,35 @@ describe("typed bounded legacy migration provider actions", () => {
       await expect(provider().legacyMigrationDrain(id)).rejects.toThrow();
       expect(fetchMock).not.toHaveBeenCalled();
     });
+  const watermark = `"mdbase-legacy-notifications-v1:${"ab".repeat(32)}"`;
+  const withEtag = (body: unknown, etag?: string) => Response.json(body, etag === undefined ? {} : { headers: { etag } });
+  it("passes the provider notification watermark through exactly, from the same reply as the drain", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(withEtag(drain, watermark));
+    await expect(provider().legacyMigrationSource(collection)).resolves.toEqual({ drain, notificationWatermark: watermark });
+  });
+  it.each([undefined, "", watermark.slice(1, -1), `W/${watermark}`, watermark.toUpperCase(),
+    `"mdbase-legacy-notifications-v2:${"ab".repeat(32)}"`, `"mdbase-legacy-notifications-v1:${"ab".repeat(33)}"`,
+    `"mdbase-legacy-notifications-v1:${"ab".repeat(31)}a"`, `${watermark}, ${watermark}`
+  ])("refuses a missing, weak, foreign or malformed watermark (%j) instead of treating it as unchanged", async etag => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(withEtag(drain, etag));
+    await expect(provider().legacyMigrationSource(collection)).rejects.toMatchObject({ code: "invalid_provider_response" });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(withEtag(drain, etag));
+    await expect(provider().legacyMigrationDrain(collection)).resolves.toEqual(drain);
+  });
+  const retained = { collection_id: collection, state: "migrated", migration_id: run,
+    started_at: drain.started_at, retain_until: "2027-01-10T12:00:00.000Z", restored: [] };
+  it("starts retention with the existing migrated transition and only caller-chosen retention", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json(retained));
+    await expect(provider().legacyMigrationRetain(collection, new Date("2027-01-10T12:00:00Z"))).resolves.toEqual(retained);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe(`https://provider.example/internal/v1/collections/${collection}/legacy-migration`);
+    expect(init?.method).toBe("PUT");
+    expect(JSON.parse(String(init?.body))).toEqual({ state: "migrated", retain_until: "2027-01-10T12:00:00.000Z" });
+  });
+  it.each([{ ...retained, collection_id: run }, { ...retained, state: "migrating" }, { ...retained, retain_until: null },
+    { ...retained, retain_until: "2027-01-10T11:59:59Z" }, { ...retained, migration_id: null }, { ...retained, restored: [run] },
+    { ...retained, extra: 1 }, {}])("never acknowledges an invalid or shortened retention (%j)", async body => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json(body));
+    await expect(provider().legacyMigrationRetain(collection, new Date("2027-01-10T12:00:00Z"))).rejects.toThrow();
+  });
 });

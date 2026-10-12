@@ -31,6 +31,14 @@ preservation or grant ordinary access.
    {barrier_f, final_digest}` records one hosted collection's completed cutover.
    It requires a started account and the control plane's cloud copy with the
    preserved ID, owned by that account. It sets that copy's runtime to `next`.
+   The legacy source must be fenced and drained (`migrating`, `in_flight` 0) or
+   already `migrated`, otherwise nothing is recorded. Only after the record
+   commits does the route move legacy to `migrated` on the same provider run,
+   which starts its retention of at least 90 days. If that step fails or the
+   process stops in between, legacy stays `migrating` (frozen and retained) and
+   the route answers `legacy_retention_pending`; retrying the same cutover
+   repeats only the idempotent provider step. Without a configured provider the
+   route refuses with 503 before recording.
 3. **Flip.** `POST …/accounts/{id}/flip {collections, evidence_digest}` is the
    only setter of `next` for an existing account. It requires a started account. The collections must be
    exactly its hosted collections (transferred ones excluded), none may be mid

@@ -54,6 +54,8 @@ function refuse(why: string): never { throw new Error(`Legacy timer snapshot ref
 /**
  * One SELECT-only statement/snapshot, all statuses, original namespace. Requires
  * existing schema2 and a drained fence; does not initialize runtime storage.
+ * Run settlement matches the provider's drain rule: an unleased `failed` run
+ * whose attempts all have outcomes is settled.
  * The authenticated original caller must independently bind returned fence DATA
  * to its original source session, and re-read the provider watermark pre-flip.
  * Keyset pages preserve the original fence and reserve native envelope bytes.
@@ -72,8 +74,15 @@ export async function readHostedLegacyTimers(
        to_char(c.legacy_migration_started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS started_at,
        c.head::text AS head,
        EXISTS (SELECT 1 FROM mdbase_runtime_runs r WHERE r.namespace=$2
-         AND (r.status NOT IN ('succeeded','cancelled') OR r.lease_token IS NOT NULL
-           OR r.lease_worker IS NOT NULL OR r.lease_expires_at IS NOT NULL))
+         AND (r.status NOT IN ('succeeded','cancelled','failed') OR r.lease_token IS NOT NULL
+           OR r.lease_worker IS NOT NULL OR r.lease_expires_at IS NOT NULL
+           OR (r.status='failed' AND (
+             jsonb_typeof(r.record_json->'attempts') IS DISTINCT FROM 'array'
+             OR COALESCE(jsonb_typeof(r.record_json->'active_attempt'),'null')<>'null'
+             OR EXISTS (SELECT 1 FROM jsonb_array_elements(
+                 CASE WHEN jsonb_typeof(r.record_json->'attempts')='array'
+                   THEN r.record_json->'attempts' ELSE '[]'::jsonb END) a
+               WHERE (a->>'status') IS NULL OR (a->>'status') NOT IN ('succeeded','failed'))))))
        OR EXISTS (SELECT 1 FROM hosted_provider_runtime_outbox o WHERE o.collection_id=c.id
          AND (o.processed_at IS NULL OR o.lease_token IS NOT NULL OR o.leased_until IS NOT NULL))
        OR EXISTS (SELECT 1 FROM hosted_provider_mutation_journal j WHERE j.collection_id=c.id
@@ -93,7 +102,9 @@ export async function readHostedLegacyTimers(
     [collectionId, runtimeNamespace, cursor?.runtime_id ?? null]
   );
   const first = result.rows[0];
-  if (!first || first.schema_version !== 2 || first.state !== "migrating"
+  // `migrated` (after a recorded cutover) keeps the same fence: same run, head
+  // frozen. The cursor binds the run, not the state, so pages span the move.
+  if (!first || first.schema_version !== 2 || (first.state !== "migrating" && first.state !== "migrated")
       || !first.migration_id || !UUID.test(first.migration_id) || !first.started_at
       || first.unsettled !== false || !/^\d+$/.test(first.head)) refuse("source fence/schema/drain unavailable");
   const fence = { collection_id: collectionId, migration_id: first.migration_id,

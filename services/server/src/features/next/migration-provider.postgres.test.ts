@@ -3,7 +3,7 @@ import Fastify from "fastify";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import { HostedProviderResponseError, type LegacyMigrationDrain, type LegacyMigrationFence } from "../../hosted-provider.js";
+import { HostedProviderResponseError, type LegacyMigrationDrain, type LegacyMigrationFence, type LegacyNotificationWatermark } from "../../hosted-provider.js";
 import { registerMigrationProviderRoutes } from "./migration-provider.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
@@ -33,9 +33,17 @@ suite("migration provider fronts (isolated real PostgreSQL, synthetic provider)"
     const fenced: LegacyMigrationFence = { collection_id: collection, state: "migrating", migration_id: run,
       started_at: new Date().toISOString(), retain_until: null, restored: [] };
     let reads = 0, fences = 0, readAwait: (() => Promise<void>) | undefined, fenceAwait: (() => Promise<void>) | undefined, unavailable = false;
+    let watermark: LegacyNotificationWatermark | null = `"mdbase-legacy-notifications-v1:${"c".repeat(64)}"` as LegacyNotificationWatermark;
+    const drain = async (id: string, options?: { deadline?: number }) => { expect(id).toBe(collection); expect(options?.deadline).toBeGreaterThan(Date.now()); reads++; await readAwait?.(); if (unavailable) throw new HostedProviderResponseError(503, "synthetic", "private-provider-error"); return { ...source }; };
     const app = Fastify();
     registerMigrationProviderRoutes(app, { db, token, provider: {
-      legacyMigrationDrain: async (id, options) => { expect(id).toBe(collection); expect(options?.deadline).toBeGreaterThan(Date.now()); reads++; await readAwait?.(); if (unavailable) throw new HostedProviderResponseError(503, "synthetic", "private-provider-error"); return { ...source }; },
+      legacyMigrationDrain: drain,
+      // The real client refuses a missing/malformed watermark as an invalid reply.
+      legacyMigrationSource: async (id, options) => {
+        const observed = await drain(id, options);
+        if (!watermark) throw new HostedProviderResponseError(502, "invalid_provider_response", "no watermark");
+        return { drain: observed, notificationWatermark: watermark };
+      },
       legacyMigrationFence: async (id, options) => { expect(id).toBe(collection); expect(options?.deadline).toBeGreaterThan(Date.now()); fences++; Object.assign(source, { state: fenced.state, migration_id: fenced.migration_id, started_at: fenced.started_at, retain_until: fenced.retain_until }); await fenceAwait?.(); return { ...fenced }; }
     } });
     const request = (fence = true, authorization = `Bearer ${token}`, body: unknown = {}) => app.inject({
@@ -43,6 +51,7 @@ suite("migration provider fronts (isolated real PostgreSQL, synthetic provider)"
       headers: { authorization }, ...(fence ? { payload: body } : {})
     });
     return { account, collection, app, request, source, fenced, get reads() { return reads; }, get fences() { return fences; },
+      get watermark() { return watermark; }, set watermark(value: LegacyNotificationWatermark | null) { watermark = value; },
       set readAwait(value: (() => Promise<void>) | undefined) { readAwait = value; }, set fenceAwait(value: (() => Promise<void>) | undefined) { fenceAwait = value; },
       set unavailable(value: boolean) { unavailable = value; } };
   }
@@ -56,6 +65,24 @@ suite("migration provider fronts (isolated real PostgreSQL, synthetic provider)"
       expect(f.fences).toBe(2);
       expect((await db.query("SELECT event_type FROM audit_events WHERE subject_id=$1 ORDER BY created_at", [f.collection])).rows)
         .toEqual([{ event_type: "next_migration.fence" }, { event_type: "next_migration.fence" }, { event_type: "next_migration.source" }]);
+    } finally { await f.app.close(); }
+  });
+  it("passes the provider notification watermark through as the source ETag, never in the body, and fails closed without it", async () => {
+    const f = await fixture(); try {
+      expect((await f.request()).statusCode).toBe(200);
+      const read = await f.request(false); expect(read.statusCode, read.body).toBe(200);
+      expect(read.headers.etag).toBe(f.watermark);
+      // Native decodes the source body with an exact key set.
+      expect(Object.keys(read.json()).sort()).toEqual(["applied_unreceipted", "collection_id", "head", "in_flight",
+        "migration_id", "retain_until", "started_at", "state", "unresolved"]);
+      const fence = await f.request(); expect(fence.headers.etag).toBeUndefined();
+      expect((await db.query("SELECT metadata FROM audit_events WHERE subject_id=$1 AND event_type='next_migration.source'", [f.collection])).rows)
+        .toEqual([{ metadata: { migration_id: f.fenced.migration_id, state: "migrating", notification_watermark: f.watermark } }]);
+      f.watermark = null;
+      const refused = await f.request(false);
+      expect(refused.statusCode).toBe(503); expect(refused.json().error.code).toBe("migration_source_unavailable");
+      expect(refused.headers.etag).toBeUndefined();
+      expect((await db.query("SELECT count(*)::int AS n FROM audit_events WHERE subject_id=$1 AND event_type='next_migration.source'", [f.collection])).rows[0].n).toBe(1);
     } finally { await f.app.close(); }
   });
   it("refuses ordinary credentials, caller facts, and unstarted claims before provider calls", async () => {

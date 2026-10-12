@@ -34,7 +34,7 @@ suite("hosted timer source real PostgreSQL (synthetic schema2 rows, not native m
         status text NOT NULL,fire_at timestamptz NOT NULL,lease_worker text,lease_token text,
         lease_expires_at timestamptz,record_json jsonb NOT NULL,PRIMARY KEY(namespace,id));
       CREATE TABLE mdbase_runtime_runs(namespace text NOT NULL,id text NOT NULL,status text NOT NULL,
-        lease_worker text,lease_token text,lease_expires_at timestamptz,PRIMARY KEY(namespace,id));
+        lease_worker text,lease_token text,lease_expires_at timestamptz,record_json jsonb,PRIMARY KEY(namespace,id));
       CREATE TABLE hosted_provider_runtime_outbox(collection_id uuid NOT NULL,processed_at timestamptz,
         lease_token text,leased_until timestamptz);
       CREATE TABLE hosted_provider_mutation_journal(collection_id uuid NOT NULL,state text NOT NULL);
@@ -126,6 +126,42 @@ suite("hosted timer source real PostgreSQL (synthetic schema2 rows, not native m
     }
     await writer.query("INSERT INTO mdbase_runtime_runs VALUES('other-original-namespace','foreign','unknown',NULL,NULL,NULL)");
     expect((await readHostedLegacyTimers(source(), f.collection)).timers).toHaveLength(1);
+  });
+  it("treats only an unleased failed run with resolved attempts as settled, like the provider drain", async () => {
+    const f = await fixture();
+    const record = (active: number | null, statuses: string[]) =>
+      JSON.stringify({ active_attempt: active, attempts: statuses.map(status => ({ invocation_id: "x", status })) });
+    const run = (status: string, lease: string | null, json: string | null) => writer.query(
+      "INSERT INTO mdbase_runtime_runs VALUES($1,'run',$2,NULL,$3,NULL,$4::jsonb)", [f.namespace, status, lease, json]);
+    for (const [status, lease, json] of [
+      ["failed", "synthetic", record(null, ["failed"])], ["failed", null, record(0, ["failed"])],
+      ["failed", null, record(null, ["dispatching"])], ["failed", null, record(null, ["indeterminate"])],
+      ["failed", null, JSON.stringify({ active_attempt: null })], ["failed", null, null],
+      ["indeterminate", null, record(null, ["failed"])], ["FAILED", null, record(null, ["failed"])],
+    ] as const) {
+      await run(status, lease, json);
+      await expect(readHostedLegacyTimers(source(), f.collection), `${status} ${lease} ${json}`).rejects.toThrow("source fence/schema/drain unavailable");
+      await writer.query("DELETE FROM mdbase_runtime_runs WHERE namespace=$1", [f.namespace]);
+    }
+    for (const json of [record(null, []), record(null, ["succeeded", "failed"])]) {
+      await run("failed", null, json);
+      expect((await readHostedLegacyTimers(source(), f.collection)).timers).toHaveLength(1);
+      await writer.query("DELETE FROM mdbase_runtime_runs WHERE namespace=$1", [f.namespace]);
+    }
+  });
+  it("keeps paging across the cutover move to migrated on the same run, never another run", async () => {
+    const f = await fixture(65);
+    const first = await readHostedLegacyTimers(source(), f.collection);
+    expect(first.nextCursor).not.toBeNull();
+    await writer.query("UPDATE hosted_provider_collections SET state='migrated' WHERE id=$1", [f.collection]);
+    const rest = await readHostedLegacyTimers(source(), f.collection, first.nextCursor);
+    expect([...first.timers, ...rest.timers].map(timer => timer.runtime_id)).toEqual(f.records.map(record => record.id));
+    await writer.query("UPDATE hosted_provider_collections SET legacy_migration_id=$2 WHERE id=$1", [f.collection, randomUUID()]);
+    await expect(readHostedLegacyTimers(source(), f.collection, first.nextCursor)).rejects.toThrow("original fence changed");
+    for (const state of ["active", "deleted", "MIGRATED"]) {
+      await writer.query("UPDATE hosted_provider_collections SET state=$2 WHERE id=$1", [f.collection, state]);
+      await expect(readHostedLegacyTimers(source(), f.collection)).rejects.toThrow("source fence/schema/drain unavailable");
+    }
   });
   it("refuses pending/expired outbox and unfinished mutation work", async () => {
     const f = await fixture();

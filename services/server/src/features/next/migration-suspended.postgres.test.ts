@@ -9,6 +9,7 @@ import { tokenHash } from "../../security.js";
 import { deviceRegistrationDigest, issueDeviceChallenge, registerDevice } from "./devices.js";
 import { registerCollectionMigrationRecordRoute } from "./migration-record-routes.js";
 import { registerMigrationSourceWitnessRoutes } from "./migration-source.js";
+import { fakeLegacyProvider } from "./legacy-provider.test-helper.js";
 import {
   acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, flipEvidenceDigest,
   localTakeoverAllowed, registerMigrationRolloutRoutes, releaseCohort, setCohortFrozen, setPaused
@@ -99,7 +100,8 @@ describePg("suspended account migration service boundary (isolated PostgreSQL)",
     }, "staging");
     await setPaused(db, false, "synthetic migration start", actor);
     const service = Fastify();
-    registerMigrationRolloutRoutes(service, { db, token, environment: "staging" });
+    const legacy = fakeLegacyProvider(collection);
+    registerMigrationRolloutRoutes(service, { db, token, environment: "staging", provider: legacy });
     registerCollectionMigrationRecordRoute(service, db);
     let calls = 0, reads = 0, during: (() => Promise<void>) | undefined;
     const source = { collection_id: collection, state: "migrating", head: 42, started_at: clock, retain_until: null,
@@ -131,7 +133,7 @@ describePg("suspended account migration service boundary (isolated PostgreSQL)",
       device: (await db.query("SELECT * FROM next_devices WHERE id=$1", [nativeDevice])).rows
     });
     const sessionStart = () => service.inject({ method: "POST", url: `/internal/v1/next/migration/accounts/${account}/start`, headers: { cookie } });
-    return { account, collection, cohort, nativeToken, sessionStart, request, nativeRead, me, inventory,
+    return { account, collection, cohort, nativeToken, sessionStart, request, nativeRead, me, inventory, legacy,
       get calls() { return calls; }, get reads() { return reads; }, set during(value: (() => Promise<void>) | undefined) { during = value; },
       close: async () => { await userApp.close(); await service.close(); } };
   }
@@ -160,6 +162,7 @@ describePg("suspended account migration service boundary (isolated PostgreSQL)",
       expect(f.calls).toBe(1); expect(f.reads).toBe(2);
       const cut = await f.request("POST", `collections/${f.collection}/cutover`, cutover); expect(cut.statusCode, cut.body).toBe(200);
       expect((await f.request("POST", `collections/${f.collection}/cutover`, cutover)).json()).toEqual(cut.json());
+      expect(f.legacy.source.state).toBe("migrated");
       const body = { collections: [f.collection], evidence_digest: evidence(f) };
       const flip = await f.request("POST", `accounts/${f.account}/flip`, body); expect(flip.statusCode, flip.body).toBe(200);
       expect((await f.request("POST", `accounts/${f.account}/flip`, body)).json()).toEqual(flip.json());
@@ -218,6 +221,7 @@ describePg("suspended account migration service boundary (isolated PostgreSQL)",
         expect(result.statusCode, result.body).toBe(409); expect(result.body).not.toContain('"witness"');
       }
       expect(f.calls).toBe(0); expect(f.reads).toBe(0);
+      expect(f.legacy.calls.filter(call => call.startsWith("retain"))).toEqual([]); expect(f.legacy.source.state).toBe("migrating");
       expect((await db.query("SELECT 1 FROM next_migration_account_flips WHERE account_id=$1", [f.account])).rowCount).toBe(0);
     } finally { await f.close(); }
   });
