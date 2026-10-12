@@ -48,7 +48,9 @@ const ids = (min: number) => z.array(uuid).min(min).max(1000).refine(list => lis
 const binding = z.object({ owner_account: uuid, started_us: z.string().regex(/^[1-9][0-9]{0,23}(?![\s\S])/u), migration_id: uuid }).strict();
 const counter = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const rollbackBody = binding.extend({
-  fixed_head: counter, driver_id: uuid, action_id: uuid, replica_ids: ids(0)
+  fixed_head: counter, driver_id: uuid, action_id: uuid, replica_ids: ids(0),
+  /** Only to re-read a recorded rollback; it must equal that binding's epoch. */
+  authority_epoch: counter.min(1).optional()
 }).strict();
 const bodies = {
   replicas: binding,
@@ -204,7 +206,13 @@ async function rollback(kind: "rollback" | "rollback-receipt", collection: strin
     await refuseQueuedCutover(options.db, collection);
     const input = providerBinding(body, await currentEpoch(options.db, collection));
     const known = await intended(options.db, collection, body.owner_account, input);
-    if (kind === "rollback-receipt" && !known) throw new RolloutRefused("migration_rollback_unknown", "No rollback with this exact binding was dispatched.", 404);
+    // A presented epoch names a recorded original binding; it is never authority for a fresh dispatch.
+    if ((kind === "rollback-receipt" || body.authority_epoch !== undefined) && !known) {
+      throw new RolloutRefused("migration_rollback_unknown", "No rollback with this exact binding was dispatched.", 404);
+    }
+    if (body.authority_epoch !== undefined && body.authority_epoch !== input.authority_epoch) {
+      throw new RolloutRefused("migration_rollback_binding_conflict", "The presented epoch is not the recorded binding's.");
+    }
     if (!known) {
       await onRun(options.provider, collection, body, deadline);
       const owned = await options.provider.legacyMigrationRevokedReplicas(collection, { deadline });
