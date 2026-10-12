@@ -1,9 +1,9 @@
 import { useId, useLayoutEffect, useEffect, useRef, useState, useSyncExternalStore, type JSX, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 
 import { anchoredPlacement } from "../popover.js";
-import { RowDialogs, SignOutDialog, type RowDialog } from "./dialogs.js";
+import { RowDialogs, SignOutDialog } from "./dialogs.js";
 import type { CollectionRow } from "./model.js";
-import { AccountLine, ActionButton, CollectionMark, ItemCopy, NoticeBlock, RowCopy, RowMore } from "./parts.js";
+import { AccountLine, ActionButton, CollectionMark, ItemCopy, ItemMore, NoticeBlock, RowCopy, RowMore, type RowDialog } from "./parts.js";
 import { useCollectionUi, type CollectionSection, type CollectionUi, type CollectionUiOptions } from "./use-collection-ui.js";
 
 /** Collections worth a filter box; fewer fit at a glance. */
@@ -44,8 +44,16 @@ export function CollectionSwitcher({ variant = "full", className, icon, ...optio
     setOpen(false);
     if (refocus) trigger.current?.focus();
   };
-  const toDialog = (kind: "forget" | "delete") => (row: CollectionRow) => { setOpen(false); setDialog({ kind, row }); };
-  const content = <SwitcherContent ui={ui} onDone={() => close(false)} onForget={toDialog("forget")} onDelete={toDialog("delete")} />;
+  const toDialog = (next: NonNullable<RowDialog>): void => { setOpen(false); setDialog(next); };
+  // The popover that held the row is gone: a closed row dialog hands focus to the trigger.
+  const returnFocus = useRef(false);
+  useEffect(() => {
+    if (dialog || !returnFocus.current) return;
+    returnFocus.current = false;
+    const active = document.activeElement;
+    if (!active || active === document.body) trigger.current?.focus();
+  }, [dialog]);
+  const content = <SwitcherContent ui={ui} onDone={() => close(false)} onDialog={toDialog} />;
   return <span className={["mdbase-collections", "mdbase-collections-switcher", className].filter(Boolean).join(" ")} data-variant={variant}>
     <button
       ref={trigger}
@@ -70,17 +78,17 @@ export function CollectionSwitcher({ variant = "full", className, icon, ...optio
     {open && (narrow
       ? <SwitcherSheet id={panelId} ui={ui} onClose={close}>{content}</SwitcherSheet>
       : <SwitcherPopover id={panelId} ui={ui} triggerRef={trigger} onClose={close}>{content}</SwitcherPopover>)}
-    <RowDialogs ui={ui} dialog={dialog} onClose={() => setDialog(null)} />
+    <RowDialogs ui={ui} dialog={dialog} onClose={() => { returnFocus.current = true; setDialog(null); }} />
     <SignOutDialog ui={ui} />
   </span>;
 }
 
 /** The switcher's list and actions, also shown inline by `CollectionPanel`. */
-export function SwitcherContent({ ui, onDone, onForget, onDelete }: {
+export function SwitcherContent({ ui, onDone, onDialog }: {
   readonly ui: CollectionUi;
   readonly onDone: () => void;
-  readonly onForget: (row: CollectionRow) => void;
-  readonly onDelete: (row: CollectionRow) => void;
+  /** Open a row's dialog (remove from list, delete), for an SDK collection or an app section item. */
+  readonly onDialog: (dialog: NonNullable<RowDialog>) => void;
 }): JSX.Element {
   const { view, copy, say, busy, actions } = ui;
   const [query, setQuery] = useState("");
@@ -100,7 +108,7 @@ export function SwitcherContent({ ui, onDone, onForget, onDelete }: {
     </div>
   </>;
   const appSections = sections.map((section) => <SwitcherSection key={section.id} ui={ui} section={section} matches={matches}
-    focused={focused} onFocusItem={setFocused} onDone={onDone} />);
+    focused={focused} onFocusItem={setFocused} onDone={onDone} onDialog={onDialog} />);
   if (!view.signedIn) {
     return <div className="mdbase-collections-switcher-content">
       {signIn}
@@ -170,7 +178,7 @@ export function SwitcherContent({ ui, onDone, onForget, onDelete }: {
                 <RowCopy row={row} ui={ui} current={checked} {...(detailId ? { detailId } : {})} />
                 {checked && <CheckGlyph />}
               </button>
-              <RowMore row={row} ui={ui} onForget={onForget} onDelete={onDelete} tabbable={sdkKey(row) === rovingId} />
+              <RowMore row={row} ui={ui} onDialog={onDialog} tabbable={sdkKey(row) === rovingId} />
             </div>;
           })}
         </div>
@@ -192,13 +200,14 @@ export function SwitcherContent({ ui, onDone, onForget, onDelete }: {
 }
 
 /** One app section as its own labelled radio group. */
-function SwitcherSection({ ui, section, matches, focused, onFocusItem, onDone }: {
+function SwitcherSection({ ui, section, matches, focused, onFocusItem, onDone, onDialog }: {
   ui: CollectionUi;
   section: CollectionSection;
   matches: (name: string) => boolean;
   focused: string | null;
   onFocusItem: (key: string) => void;
   onDone: () => void;
+  onDialog: (dialog: NonNullable<RowDialog>) => void;
 }): JSX.Element | null {
   const label = useId();
   const items = section.items.filter((item) => matches(item.name));
@@ -229,6 +238,7 @@ function SwitcherSection({ ui, section, matches, focused, onFocusItem, onDone }:
             <ItemCopy item={item} ui={ui} />
             {item.current && <CheckGlyph />}
           </button>
+          <ItemMore item={item} ui={ui} onDialog={onDialog} tabbable={key(item.id) === roving} />
         </div>)}
       </div>}
   </div>;

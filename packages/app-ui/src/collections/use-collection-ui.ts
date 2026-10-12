@@ -23,6 +23,34 @@ export interface CollectionSectionItem {
   readonly current?: boolean | undefined;
   /** Listed but not selectable; say why in `detail`. */
   readonly disabled?: boolean | undefined;
+  /** The row's menu, like an SDK collection's: shown when there is at least one. */
+  readonly actions?: readonly CollectionSectionItemAction[] | undefined;
+}
+
+/** An entry in an app section item's row menu. */
+export interface CollectionSectionItemAction {
+  readonly id: string;
+  readonly label: string;
+  /** Runs in the click, after the menu closes and focus is back on the row's menu button. */
+  readonly onSelect: (item: CollectionSectionItem, context: CollectionSectionItemActionContext) => void;
+  /** Destructive: shown in the danger colour. Confirm before acting, for example with `confirmDelete`. */
+  readonly danger?: boolean | undefined;
+  readonly disabled?: boolean | undefined;
+}
+
+/**
+ * How the delete dialog ended: `deleted`; `cancelled` with no attempt; `failed`
+ * when the person closed it after a delete was refused.
+ */
+export type DeleteCollectionOutcome = "deleted" | "cancelled" | "failed";
+
+/** What a section item action can ask of the screen that shows its menu. */
+export interface CollectionSectionItemActionContext {
+  /**
+   * Open `DeleteCollectionDialog` for the item: the person types its name, then
+   * the SDK deletes it by the item's id. `onClose` gets the outcome.
+   */
+  readonly confirmDelete: (onClose?: (outcome: DeleteCollectionOutcome) => void) => void;
 }
 
 /**

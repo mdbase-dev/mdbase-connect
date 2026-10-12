@@ -280,6 +280,70 @@ describe("app slots", () => {
   });
 });
 
+describe("section item actions", () => {
+  const withActions = (rename = vi.fn(), onDeleted = vi.fn()): CollectionSection => ({
+    id: "private", title: "Private collections", onSelect: vi.fn(),
+    items: [{ id: "p1", name: "Journal", actions: [
+      { id: "rename", label: "Rename…", onSelect: rename },
+      { id: "archive", label: "Archive", onSelect: vi.fn(), disabled: true },
+      { id: "delete", label: "Delete collection…", danger: true, onSelect: (_item, { confirmDelete }) => confirmDelete(onDeleted) },
+    ] }],
+  });
+
+  it("shows the row menu with roles, moves by keyboard and returns focus on Escape", () => {
+    const { entry } = fakeMdbase({ kind: "choosing", lastApproval: null });
+    const rename = vi.fn();
+    render(<CollectionGate mdbase={entry} app={app} sections={[withActions(rename)]}>{() => null}</CollectionGate>);
+    const more = button("More for Journal");
+    expect(more.getAttribute("aria-haspopup")).toBe("menu");
+    act(() => more.click());
+    expect(more.getAttribute("aria-expanded")).toBe("true");
+    const items = [...document.querySelectorAll<HTMLButtonElement>("[role=menu] [role=menuitem]")];
+    expect(items.map((item) => item.textContent)).toEqual(["Rename…", "Archive", "Delete collection…"]);
+    expect(items.map((item) => item.classList.contains("is-danger"))).toEqual([false, false, true]);
+    expect(items[1]!.disabled).toBe(true);
+    expect(document.activeElement).toBe(items[0]);
+    key(items[0]!, "ArrowDown");
+    expect(document.activeElement).toBe(items[2]);
+    key(document.activeElement!, "Escape");
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(more);
+
+    act(() => more.click());
+    act(() => button("Rename…").click());
+    expect(rename).toHaveBeenCalledWith(expect.objectContaining({ id: "p1" }), expect.anything());
+    expect(document.activeElement).toBe(more);
+  });
+
+  it("reaches the menu from a switcher row with ArrowRight, and a danger action asks before deleting", async () => {
+    const { mdbase, entry } = fakeMdbase({ kind: "ready", collectionId: B, collection: { collectionId: B, displayName: "Beta", role: "editor" }, connection: {} as never, rechecking: false, problem: null, unavailableTypes: [] },
+      { status: "ready", selectedCollectionId: B });
+    const onDeleted = vi.fn();
+    render(<CollectionSwitcher mdbase={entry} app={app} sections={[withActions(vi.fn(), onDeleted)]} />);
+    act(() => button("Switch collection, current: Beta").click());
+    const row = button(/Journal/);
+    key(row, "ArrowRight");
+    expect(document.activeElement).toBe(button("More for Journal"));
+    act(() => button("More for Journal").click());
+    act(() => button("Delete collection…").click());
+
+    expect(mdbase.deleteCollection).not.toHaveBeenCalled();
+    const dialog = document.querySelector("dialog")!;
+    expect(dialog.textContent).toContain("Delete Journal?");
+    mdbase.deleteCollection.mockImplementationOnce(() => Promise.resolve(entry.getSnapshot()));
+    act(() => {
+      const input = dialog.querySelector<HTMLInputElement>("input")!;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Journal");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => { button("Delete collection").click(); });
+    expect(mdbase.deleteCollection).toHaveBeenCalledWith("p1", { confirmName: "Journal" });
+    expect(onDeleted).toHaveBeenCalledWith("deleted");
+    expect(document.querySelector("dialog")).toBeNull();
+    expect(document.activeElement).toBe(button("Switch collection, current: Beta"));
+  });
+});
+
 describe("styles", () => {
   it("defines every collections class the components use", () => {
     const css = readFileSync(join(import.meta.dirname, "../../css/collections.css"), "utf8");
