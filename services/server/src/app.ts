@@ -601,7 +601,8 @@ export async function buildApp(options: BuildOptions) {
       admission: { signer: nextPolicySigner!, audience: new URL(publicUrl).origin, identity: nextLog } });
     registerCollectionMigrationRecordRoute(app, options.db);
     if (options.nextControlPlane.migrationToken) {
-      registerMigrationRolloutRoutes(app, { db: options.db, token: options.nextControlPlane.migrationToken, environment: options.environment, provider: options.hostedProvider });
+      registerMigrationRolloutRoutes(app, { db: options.db, token: options.nextControlPlane.migrationToken, environment: options.environment, provider: options.hostedProvider,
+        timers: options.nextTimers !== undefined });
       registerMigrationSourceWitnessRoutes(app, { db: options.db, next: options.nextControlPlane, signer: nextPolicySigner!, provider: options.hostedProvider });
       registerMigrationProviderRoutes(app, { db: options.db, token: options.nextControlPlane.migrationToken, provider: options.hostedProvider,
         ...(options.nextControlPlane.serviceTokens.hosted && new URL(publicUrl).protocol === "https:"

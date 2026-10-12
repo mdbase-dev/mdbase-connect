@@ -4,7 +4,7 @@ import rawBody from "fastify-raw-body";
 import { AUTHORITY_PROOF_HEADERS, AUTHORITY_PROOF_VERSION, MDBASE_TIMER_FIRED_CONTRACT } from "@mdbase-dev/connect-protocol";
 import { authorityProofMessage } from "../../../authority-proof.js";
 import { tokenHash } from "../../../security.js";
-import { importLegacyTimers, registerTimerRoutes } from "./routes.js";
+import { registerTimerRoutes } from "./routes.js";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../../db.js";
@@ -411,30 +411,6 @@ suite("timer service on PostgreSQL", () => {
     } finally {
       await blocker.query("ROLLBACK"); blocker.release(); await f.app.close();
     }
-  });
-
-  it.each(["revocation", "suspension", "private"])('skips an import after %s during a real namespace lock wait', async kind => {
-    const f = await recoveryFixture();
-    const owner = (await db.query<{ user_id: string; local_id: string }>(
-      "SELECT g.user_id, c.local_id FROM grants g JOIN collections c ON c.id = g.collection_id WHERE g.id = $1", [f.grantId])).rows[0];
-    const blocker = await db.connect();
-    try {
-      await blocker.query("BEGIN");
-      await lockNamespace(blocker, f.grantId, "receipts");
-      const pending = importLegacyTimers(db, legacyTimerGrantResolver, [{ grant_id: f.grantId,
-        namespace: "receipts", id: "legacy", criterion_id: f.input.criterionId, fire_at: f.desired[0].fireAt.toISOString() }]);
-      await waitForMetadataLock();
-      if (kind === "revocation") await db.query("UPDATE grants SET revoked_at = clock_timestamp() WHERE id = $1", [f.grantId]);
-      else if (kind === "suspension") await db.query("UPDATE users SET suspended_at = clock_timestamp() WHERE id = $1", [owner.user_id]);
-      else await db.query("INSERT INTO next_collections(collection_id, owner_user_id, runtime, sync, root_key_id) VALUES($1,$2,'next','private',$3)",
-        [owner.local_id, owner.user_id, Buffer.alloc(16)]); // source-state fixture, not applied approval/genesis
-      await blocker.query("COMMIT");
-      expect(await pending).toEqual({ imported: 0, existing: 0, skipped: 1 });
-      const timers = await db.query("SELECT count(*) FROM next_timers WHERE grant_id = $1", [f.grantId]);
-      const revisions = await db.query("SELECT count(*) FROM next_timer_namespace_intents WHERE grant_id = $1", [f.grantId]);
-      expect(Number(timers.rows[0].count)).toBe(0);
-      expect(Number(revisions.rows[0].count)).toBe(0);
-    } finally { await blocker.query("ROLLBACK"); blocker.release(); }
   });
 
   it("fires each due generation exactly once across concurrent workers", async () => {

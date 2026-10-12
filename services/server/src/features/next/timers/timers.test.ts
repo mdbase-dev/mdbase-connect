@@ -332,14 +332,6 @@ describe("security conditions before MDBASE_NEXT_TIMERS=1 (#598)", () => {
       headers: { authorization: `Bearer ${INTERNAL_TOKEN}` }
     });
     expect(privateGrant.statusCode).toBe(403);
-
-    const imported = await local.app.inject({
-      method: "POST",
-      url: "/internal/v1/next/timers/import",
-      headers: { authorization: `Bearer ${INTERNAL_TOKEN}` },
-      payload: { timers: [{ grant_id: local.grantId, namespace: "ns", id: "t", criterion_id: "task.reminder", fire_at: future(60_000) }] }
-    });
-    expect(imported.json()).toEqual({ imported: 0, existing: 0, skipped: 1 });
   });
 });
 
@@ -559,31 +551,6 @@ describe("timer service: firing and the fired-timer event", () => {
     await f.timers!.tick();
     const rows = await f.db.query<{ status: string }>("SELECT status FROM next_timers");
     expect(rows.rows[0].status).toBe("cancelled");
-  });
-});
-
-describe("timer service: cutover copy", () => {
-  it("imports legacy cloud-copy timers idempotently", async () => {
-    const f = await fixture({ hosted: true });
-    // Existing target-route regression only, not an original-source import.
-    // Complete original DTO projection/refusals live in hosted-copy.test.ts;
-    // copy-hosted cannot call this old lossy target path.
-    const timer = {
-      grant_id: f.grantId, criterion_id: "task.reminder", namespace: "task-reminders",
-      id: "ab", fire_at: "2030-01-01T00:00:00Z", data: { secret: 1 }
-    };
-
-    const send = () => f.app.inject({
-      method: "POST",
-      url: "/internal/v1/next/timers/import",
-      headers: { authorization: `Bearer ${INTERNAL_TOKEN}` },
-      payload: { timers: [timer, { ...timer!, grant_id: randomUUID() }] }
-    });
-    expect((await send()).json()).toEqual({ imported: 1, existing: 0, skipped: 1 });
-    expect((await send()).json()).toEqual({ imported: 0, existing: 1, skipped: 1 });
-    const rows = await f.db.query<{ data: unknown; fire_at: Date | string }>("SELECT data, fire_at FROM next_timers");
-    expect(rows.rows[0].data).toEqual({ secret: 1 });
-    expect(new Date(rows.rows[0].fire_at).toISOString()).toBe("2030-01-01T00:00:00.000Z");
   });
 });
 

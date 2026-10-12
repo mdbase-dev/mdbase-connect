@@ -32,7 +32,6 @@ import {
 import {
   cancelTimer,
   enforceTimerQuota,
-  importTimer,
   listTimers,
   lockNamespace,
   putTimer,
@@ -342,113 +341,6 @@ export function registerTimerRoutes(app: FastifyInstance, options: TimerRoutesOp
   mount("/v1/next/collections/:collection/timers", appGrant, true);
   mount("/v1/next/collections/:collection/background-grants/:grant/timers", installationGrant, true);
   mount("/internal/v1/next/timers/:grant", hostedShimGrant, false);
-
-  /** Cutover copy of active legacy timers (migration H10 / local takeover). */
-  app.post("/internal/v1/next/timers/import", async (request, reply) => {
-    if (!options.hostedProvider?.authorizesInternalToken(bearerToken(request))) {
-      return reply.code(401).send(apiError("unauthenticated", "Internal credential is invalid."));
-    }
-    const input = parseOr400(importBodySchema, request.body, reply);
-    if (!input) return reply;
-    // Same scope as the shim: the provider credential imports cloud-copy timers only.
-    try {
-      return await importLegacyTimers(options.db, resolver, input.timers, "cloud_copy", () => {
-        if (!options.hostedProvider?.authorizesInternalToken(bearerToken(request))) {
-          throw new TimerError(401, "unauthenticated", "Internal credential is no longer current.");
-        }
-      });
-    } catch (error) {
-      if (["55P03", "57014"].includes(String((error as { code?: string })?.code))) return reply.code(503).send(apiError("busy", "Timer import is temporarily unavailable."));
-      if (error instanceof TimerError) return reply.code(error.statusCode).send(apiError(error.code, error.message, error.details));
-      throw error;
-    }
-  });
-}
-
-export const importBodySchema = z.object({
-  timers: z.array(z.object({
-    grant_id: z.uuid(),
-    namespace: namespaceSchema,
-    id: timerIdSchema,
-    criterion_id: criterionSchema,
-    fire_at: z.string().refine((value) => Number.isFinite(Date.parse(value))),
-    data: z.unknown().optional()
-  }).strict()).max(10_000)
-}).strict();
-
-/** Import legacy timers. Unknown or unusable grants are skipped, not errors. */
-export async function importLegacyTimers(
-  db: DatabasePool,
-  resolver: TimerGrantResolver,
-  timers: z.infer<typeof importBodySchema>["timers"],
-  onlyState?: TimerGrant["state"],
-  // Direct H10/local-takeover callers own their authenticated boundary; the
-  // HTTP shim supplies its retained service-credential check explicitly.
-  checkCaller?: () => void
-): Promise<{ imported: number; existing: number; skipped: number }> {
-  let imported = 0;
-  let existing = 0;
-  let skipped = 0;
-  const deadline = Date.now() + 9_000;
-  const connection = await db.connect();
-  try {
-    await connection.query("BEGIN");
-    await connection.query("SET LOCAL lock_timeout = '5s'");
-    await connection.query("SET LOCAL statement_timeout = '5s'");
-    const check = () => {
-      if (Date.now() >= deadline) throw new TimerError(503, "busy", "Timer import deadline exceeded.");
-      checkCaller?.();
-    };
-    const current = async (id: string): Promise<TimerGrant | null> => {
-      check();
-      const locked = await connection.query(
-        `/* mdbase:timer-authority-current:v1 */ SELECT g.id FROM grants g JOIN users u ON u.id = g.user_id
-         WHERE g.id = $1 AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL
-           AND u.suspended_at IS NULL AND g.user_id <> '00000000-0000-0000-0000-000000000000'::uuid
-         FOR SHARE OF g, u`, [id]);
-      if (!locked.rows.length) return null;
-      const grant = await resolver.resolve(connection, id);
-      if (!grant) return null;
-      // Hold any existing collection mode row too, so a PRIVATE transition
-      // cannot race the data projection or COMMIT. Missing approval still denies.
-      for (const collection of grant.collectionIds) {
-        await connection.query("SELECT collection_id FROM next_collections WHERE collection_id = $1 FOR SHARE", [collection]);
-      }
-      const fresh = await resolver.resolve(connection, id);
-      check();
-      return fresh && fresh.usable && (!onlyState || fresh.state === onlyState) ? fresh : null;
-    };
-    const accepted = new Map<string, { state: TimerGrant["state"]; criteria: Set<string>; namespaces: Set<string> }>();
-    // Global grant locks precede namespace locks; imports acquire them in a
-    // deterministic order so multi-grant batches cannot invert the lock order.
-    for (const timer of [...timers].sort((a, b) => a.grant_id.localeCompare(b.grant_id)
-      || a.namespace.localeCompare(b.namespace) || a.id.localeCompare(b.id))) {
-      check();
-      await lockNamespace(connection, timer.grant_id, timer.namespace);
-      const grant = await current(timer.grant_id); // never borrow a pre-wait snapshot
-      if (!grant || !grantMayFire(grant, timer.criterion_id)) { skipped += 1; continue; }
-      const seen = accepted.get(timer.grant_id) ?? { state: grant.state, criteria: new Set<string>(), namespaces: new Set<string>() };
-      if (seen.state !== grant.state) throw new TimerError(403, "forbidden", "Timer import authority changed.");
-      seen.criteria.add(timer.criterion_id); seen.namespaces.add(timer.namespace); accepted.set(timer.grant_id, seen);
-      if (await importTimer(connection, grant, timer)) imported += 1;
-      else existing += 1;
-    }
-    for (const [id, seen] of accepted) {
-      const grant = await current(id);
-      if (!grant || grant.state !== seen.state || [...seen.criteria].some(c => !grantMayFire(grant, c))) {
-        throw new TimerError(403, "forbidden", "Timer import authority changed.");
-      }
-      for (const namespace of seen.namespaces) await enforceTimerQuota(connection, id, namespace);
-    }
-    check();
-    await connection.query("COMMIT");
-  } catch (error) {
-    await connection.query("ROLLBACK");
-    throw error;
-  } finally {
-    connection.release();
-  }
-  return { imported, existing, skipped };
 }
 
 function parseOr400<T extends z.ZodType>(

@@ -1,0 +1,9 @@
+{
+  "reason": "Strict original timer import target, a read-only effect guard that holds imported timer side effects until the original account completes, and the paged import caller with the account-flip timer gate. The caller replaces the closed copy-hosted command and the lossy internal import route (both removed). Import completion is derived from rows: timer rows plus a content-free audit manifest written in the verifying transaction. No SQL migration, completion flag or new signing domain.",
+  "growth": {
+    "productionFiles": 3,
+    "relativeImports": 29,
+    "typeScriptExportDeclarations": 14,
+    "services/server": 3
+  }
+}

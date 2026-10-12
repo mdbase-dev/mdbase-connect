@@ -8,6 +8,8 @@ import {
   type TimerGrantResolver
 } from "./grants.js";
 import { cancelRevokedGrantTimers } from "./store.js";
+import { requireTimerMigrationEffects } from "./migration-effects.js";
+import { InvitationMigrationPending } from "../migration-sharing.js";
 
 /**
  * Fires due timers and hands each fired generation to consumers through the
@@ -182,7 +184,7 @@ export class TimerWorker {
     const due = await this.db.query<DueRow>(
       `SELECT grant_id, namespace, timer_id, generation FROM next_timers
        WHERE status IN ('scheduled', 'firing') AND fire_at <= now()
-       ORDER BY fire_at, grant_id, namespace, timer_id
+       ORDER BY (legacy_import_origin IS NOT NULL), fire_at, grant_id, namespace, timer_id
        LIMIT $1`,
       [this.options.batchSize ?? 100]
     );
@@ -193,6 +195,7 @@ export class TimerWorker {
         await connection.query("BEGIN");
         await connection.query("SET LOCAL lock_timeout = '5s'");
         await connection.query("SET LOCAL statement_timeout = '5s'");
+        await requireTimerMigrationEffects(connection, row.grant_id);
         // Native resolution holds current principal/policy/consent locks before
         // any timer row is written; legacy resolution retains its own semantics.
         await resolver.resolve(connection, row.grant_id);
@@ -234,7 +237,9 @@ export class TimerWorker {
           `INSERT INTO next_timer_events
              (event_id, grant_id, criterion_id, namespace, timer_id, generation,
               scheduled_for, fired_at, late_by_ms, data)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
+           SELECT $1, $2, $3, $4, $5, generation, fire_at, fired_at, $7::bigint, $8::jsonb
+           FROM next_timers WHERE grant_id=$2 AND namespace=$4 AND timer_id=$5
+             AND generation=$6 AND status='fired'
            ON CONFLICT (event_id) DO NOTHING`,
           [
             timerEventId(row.grant_id, row.namespace, row.timer_id, generation),
@@ -243,8 +248,6 @@ export class TimerWorker {
             row.namespace,
             row.timer_id,
             generation,
-            scheduledFor.toISOString(),
-            firedAt.toISOString(),
             Math.max(0, firedAt.getTime() - scheduledFor.getTime()),
             dataPermitted(grant) && timer.data !== null && timer.data !== undefined
               ? JSON.stringify(timer.data)
@@ -255,6 +258,7 @@ export class TimerWorker {
         fired += 1;
       } catch (error) {
         await connection.query("ROLLBACK");
+        if (error instanceof InvitationMigrationPending) continue;
         throw error;
       } finally {
         connection.release();
@@ -284,6 +288,7 @@ export class TimerWorker {
         await connection.query("BEGIN");
         await connection.query("SET LOCAL lock_timeout = '5s'");
         await connection.query("SET LOCAL statement_timeout = '5s'");
+        await requireTimerMigrationEffects(connection, row.grant_id);
         // Receipt insertion is a write too. Hold native policy first, including
         // when consuming an unusable event without producing a signal.
         await resolver.resolve(connection, row.grant_id);
@@ -312,6 +317,7 @@ export class TimerWorker {
         handled += 1;
       } catch (error) {
         await connection.query("ROLLBACK");
+        if (error instanceof InvitationMigrationPending) continue;
         throw error;
       } finally {
         connection.release();
@@ -329,8 +335,8 @@ export class TimerWorker {
     await this.enforceCeiling(now);
     await this.reportLag(now);
     if (this.consumers.length === 0) return;
-    const old = await this.db.query<{ event_id: string }>(
-      `SELECT event_id FROM next_timer_events WHERE created_at < $1
+    const old = await this.db.query<{ event_id: string; grant_id: string }>(
+      `SELECT event_id, grant_id FROM next_timer_events WHERE created_at < $1
        ORDER BY created_at LIMIT 500`,
       [new Date(now - EVENT_RETENTION_MS).toISOString()]
     );
@@ -350,28 +356,29 @@ export class TimerWorker {
       handled.set(row.event_id, set);
     }
     const done = ids.filter((id) => (handled.get(id)?.size ?? 0) === names.size);
-    if (done.length > 0) {
-      const list = placeholders(done.length);
-      await this.db.query(`DELETE FROM next_timer_event_receipts WHERE event_id IN (${list})`, done);
-      await this.db.query(`DELETE FROM next_timer_events WHERE event_id IN (${list})`, done);
+    for (const grantId of new Set(old.rows.filter(row => done.includes(row.event_id)).map(row => row.grant_id))) {
+      const selected = old.rows.filter(row => row.grant_id === grantId && done.includes(row.event_id)).map(row => row.event_id);
+      await this.mutateGrant(grantId, async connection => {
+        const list = placeholders(selected.length);
+        await connection.query(`DELETE FROM next_timer_event_receipts WHERE event_id IN (${list})`, selected);
+        await connection.query(`DELETE FROM next_timer_events WHERE event_id IN (${list})`, selected);
+        return selected.length;
+      });
     }
   }
 
   /** Delete every event older than the hard ceiling, handled or not. */
   private async enforceCeiling(now: number): Promise<void> {
     const cutoff = new Date(now - EVENT_HARD_CEILING_MS).toISOString();
-    await this.db.query(
-      `DELETE FROM next_timer_event_receipts WHERE event_id IN (
-         SELECT event_id FROM next_timer_events WHERE created_at < $1)`,
-      [cutoff]
-    );
-    const deleted = await this.db.query(
-      "DELETE FROM next_timer_events WHERE created_at < $1 RETURNING event_id",
-      [cutoff]
-    );
-    if (deleted.rows.length > 0) {
-      this.options.onMetric?.({ metric: "timer_event_hard_ceiling_deleted", events: deleted.rows.length });
-    }
+    let deleted = 0;
+    for await (const grant_id of this.expiredGrants("next_timer_events", cutoff)) deleted += await this.mutateGrant(grant_id, async connection => {
+      await connection.query(
+        `DELETE FROM next_timer_event_receipts WHERE event_id IN (
+          SELECT event_id FROM next_timer_events WHERE grant_id=$1 AND created_at < $2)`, [grant_id, cutoff]
+      );
+      return (await connection.query("DELETE FROM next_timer_events WHERE grant_id=$1 AND created_at < $2 RETURNING event_id", [grant_id, cutoff])).rows.length;
+    });
+    if (deleted > 0) this.options.onMetric?.({ metric: "timer_event_hard_ceiling_deleted", events: deleted });
   }
 
   /** Report each consumer whose oldest unhandled event exceeds the lag threshold. */
@@ -400,11 +407,48 @@ export class TimerWorker {
 
   /** Delete fired and cancelled timers past the debug window. */
   private async pruneTimers(now: number): Promise<void> {
-    await this.db.query(
-      `DELETE FROM next_timers
-       WHERE status IN ('fired', 'cancelled') AND updated_at < $1`,
-      [new Date(now - EVENT_RETENTION_MS).toISOString()]
-    );
+    const cutoff = new Date(now - EVENT_RETENTION_MS).toISOString();
+    for await (const grant_id of this.expiredGrants("next_timers", cutoff)) await this.mutateGrant(grant_id, async connection => {
+      return (await connection.query(
+        `DELETE FROM next_timers WHERE grant_id=$1 AND status IN ('fired','cancelled') AND updated_at < $2
+         RETURNING timer_id`, [grant_id, cutoff]
+      )).rows.length;
+    });
+  }
+
+  /** Keyset pages retain the original full cleanup scope without a resident
+   * grant inventory or a pending migration starving later ordinary grants. */
+  private async *expiredGrants(table: "next_timers" | "next_timer_events", cutoff: string): AsyncGenerator<string> {
+    const expired = table === "next_timers" ? "status IN ('fired','cancelled') AND updated_at" : "created_at";
+    let cursor: string | null = null;
+    while (true) {
+      const rows: { rows: { grant_id: string }[] } = await this.db.query<{ grant_id: string }>(
+        `SELECT DISTINCT grant_id FROM ${table} WHERE ${expired} < $1
+         AND ($2::uuid IS NULL OR grant_id>$2) ORDER BY grant_id LIMIT 500`, [cutoff,cursor]
+      );
+      if (!rows.rows.length) return;
+      cursor = rows.rows[rows.rows.length - 1].grant_id;
+      for (const row of rows.rows) yield row.grant_id;
+    }
+  }
+
+  private async mutateGrant(grantId: string, mutate: (db: DatabaseQueryable) => Promise<number>): Promise<number> {
+    const connection = await this.db.connect();
+    try {
+      await connection.query("BEGIN");
+      await connection.query("SET LOCAL lock_timeout = '5s'");
+      await connection.query("SET LOCAL statement_timeout = '5s'");
+      await requireTimerMigrationEffects(connection, grantId);
+      const changed = await mutate(connection);
+      await connection.query("COMMIT");
+      return changed;
+    } catch (error) {
+      await connection.query("ROLLBACK");
+      if (error instanceof InvitationMigrationPending) return 0;
+      throw error;
+    } finally {
+      connection.release();
+    }
   }
 }
 

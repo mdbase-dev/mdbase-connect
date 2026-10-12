@@ -1,3 +1,4 @@
+import { fakeLegacyProvider, migratedTimerGate, recordEmptyTimerImport } from "./legacy-provider.test-helper.js";
 import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import pg from "pg";
@@ -119,7 +120,7 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
     const a = await account(["active", "active", "transferred"]);
     await released([a.user]);
     await setPaused(db, false, "go", OP);
-    expect(await code(flipAccountBackend(db, a.user, a.ids, digest(0)))).toBe("account_not_started");
+    expect(await code(flipAccountBackend(db, a.user, a.ids, digest(0), await migratedTimerGate(db, a.user, a.ids)))).toBe("account_not_started");
     expect(await code(recordCollectionCutover(db, a.ids[0]!, facts(10, digest(1))))).toBe("account_not_started");
     await startAccountMigration(db, a.user);
     await setPaused(db, true, "paused mid-cutover", OP);
@@ -131,7 +132,7 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
     expect(await code(recordCollectionCutover(db, a.ids[0]!, facts(11, digest(1))))).toBe("cutover_conflict");
     expect(await collectionMigrationRecord(db, a.ids[0]!, a.user)).toMatchObject({ ids_preserved: true, s_final: "3", cutover_seq: "10", barrier_f: "10" });
     expect(await localTakeoverAllowed(db, a.user)).toEqual({ local_takeover: false, account_backend: "legacy" });
-    expect(await code(flipAccountBackend(db, a.user, a.ids, digest(0)))).toBe("collections_not_cut_over");
+    expect(await code(flipAccountBackend(db, a.user, a.ids, digest(0), await migratedTimerGate(db, a.user, a.ids)))).toBe("collections_not_cut_over");
     await cloudCopy(a.ids[1]!, a.user);
     await recordCollectionCutover(db, a.ids[1]!, facts(11, digest(2)));
     expect((await db.query("SELECT runtime FROM next_collections WHERE collection_id=$1", [a.ids[1]])).rows[0].runtime).toBe("next");
@@ -139,13 +140,13 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
       { collection_id: a.ids[0]!, barrier_f: 10, final_digest: digest(1) },
       { collection_id: a.ids[1]!, barrier_f: 11, final_digest: digest(2) }
     ]);
-    expect(await code(flipAccountBackend(db, a.user, a.ids.slice(1), evidence))).toBe("collections_mismatch");
-    expect(await code(flipAccountBackend(db, a.user, [a.ids[0]!, a.ids[0]!], evidence))).toBe("collections_duplicated");
-    expect(await code(flipAccountBackend(db, a.user, a.ids, digest(7)))).toBe("evidence_mismatch");
-    const flipped = await flipAccountBackend(db, a.user, [...a.ids].reverse(), evidence);
+    expect(await code(flipAccountBackend(db, a.user, a.ids.slice(1), evidence, await migratedTimerGate(db, a.user, a.ids)))).toBe("collections_mismatch");
+    expect(await code(flipAccountBackend(db, a.user, [a.ids[0]!, a.ids[0]!], evidence, await migratedTimerGate(db, a.user, a.ids)))).toBe("collections_duplicated");
+    expect(await code(flipAccountBackend(db, a.user, a.ids, digest(7), await migratedTimerGate(db, a.user, a.ids)))).toBe("evidence_mismatch");
+    const flipped = await flipAccountBackend(db, a.user, [...a.ids].reverse(), evidence, await migratedTimerGate(db, a.user, a.ids));
     expect(flipped.backend).toBe("next");
-    expect((await flipAccountBackend(db, a.user, a.ids, evidence)).flipped_at).toBe(flipped.flipped_at);
-    expect(await code(flipAccountBackend(db, a.user, a.ids, digest(9)))).toBe("account_already_next");
+    expect((await flipAccountBackend(db, a.user, a.ids, evidence, await migratedTimerGate(db, a.user, a.ids))).flipped_at).toBe(flipped.flipped_at);
+    expect(await code(flipAccountBackend(db, a.user, a.ids, digest(9), await migratedTimerGate(db, a.user, a.ids)))).toBe("account_already_next");
     expect(await migrationsInProgress(db, 100)).not.toContain(a.user);
     expect(await localTakeoverAllowed(db, a.user)).toEqual({ local_takeover: true, account_backend: "next" });
     expect(await localTakeoverAllowed(db, randomUUID())).toEqual({ local_takeover: false, account_backend: null });
@@ -160,8 +161,8 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
     await startAccountMigration(db, a.user);
     await startAccountMigration(db, empty.user);
     expect((await accountMigrationView(db, a.user))!.unsettled_collections).toHaveLength(1);
-    expect(await code(flipAccountBackend(db, a.user, a.ids, digest(0)))).toBe("collections_unsettled");
-    expect((await flipAccountBackend(db, empty.user, [], flipEvidenceDigest([]))).backend).toBe("next");
+    expect(await code(flipAccountBackend(db, a.user, a.ids, digest(0), await migratedTimerGate(db, a.user, a.ids)))).toBe("collections_unsettled");
+    expect((await flipAccountBackend(db, empty.user, [], flipEvidenceDigest([]), { enabled: true })).backend).toBe("next");
   });
 
   it("a deleted account is terminal mid-migration; a migrating account is never quarantined", async () => {
@@ -178,14 +179,17 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
     expect(await migrationsInProgress(db, 100)).not.toContain(a.user);
     expect(await accountMigrationView(db, a.user)).toBeNull();
     expect(await code(startAccountMigration(db, a.user))).toBe("account_not_found");
-    expect(await code(flipAccountBackend(db, a.user, [], flipEvidenceDigest([])))).toBe("account_not_found");
+    expect(await code(flipAccountBackend(db, a.user, [], flipEvidenceDigest([]), { enabled: true }))).toBe("account_not_found");
     expect(await code(recordCollectionCutover(db, a.ids[0]!, facts(1, digest(1))))).toBe("collection_not_found");
   });
 
   it("serves the dedicated migration token only", async () => {
-    const app = Fastify();
-    registerMigrationRolloutRoutes(app, { db, token, environment: "production" });
     const a = await account(["active"]);
+    const legacy = fakeLegacyProvider(a.ids[0]!, { state: "migrated", retain_until: "2027-01-12T00:00:00.000Z" });
+    const app = Fastify();
+    registerMigrationRolloutRoutes(app, { db, token, environment: "production", provider: legacy, timers: true });
+    const untimed = Fastify();
+    registerMigrationRolloutRoutes(untimed, { db, token, environment: "production", provider: legacy });
     await released([a.user]);
     await setPaused(db, false, "go", OP);
     const call = (method: "GET" | "POST", url: string, auth?: string, payload?: object) =>
@@ -201,10 +205,14 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
     expect((await call("POST", `/internal/v1/next/migration/accounts/${a.user}/flip`, token, { collections: a.ids })).statusCode).toBe(400);
     expect((await call("POST", `/internal/v1/next/migration/accounts/${a.user}/flip`, token, { collections: a.ids, evidence_digest: digest(5) })).statusCode).toBe(409);
     expect((await call("POST", `/internal/v1/next/migration/collections/${a.ids[0]}/cutover`, token, { barrier_f: 1, final_digest: digest(1) })).statusCode).toBe(400);
+    await recordEmptyTimerImport(db, a.user, legacy.source);
+    const disabled = await untimed.inject({ method: "POST", url: `/internal/v1/next/migration/accounts/${a.user}/flip`,
+      headers: { authorization: `Bearer ${token}` }, payload: { collections: a.ids, evidence_digest: evidence } });
+    expect(disabled.json().error.code).toBe("next_timers_disabled");
     const ok = await call("POST", `/internal/v1/next/migration/accounts/${a.user}/flip`, token, { collections: a.ids, evidence_digest: evidence });
     expect(ok.statusCode).toBe(200);
     expect(ok.json()).toMatchObject({ backend: "next" });
-    await app.close();
+    await app.close(); await untimed.close();
   });
 
   async function insertLegacyHostedCollection(db: DatabasePool, row: Parameters<typeof insertOnClient>[1]) {
@@ -243,6 +251,6 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
     await released([b.user]);
     await setPaused(db, false, "go", OP);
     await startAccountMigration(db, b.user);
-    expect(await code(flipAccountBackend(db, b.user, [], flipEvidenceDigest([])))).toBe("collections_mismatch");
+    expect(await code(flipAccountBackend(db, b.user, [], flipEvidenceDigest([]), { enabled: true }))).toBe("collections_mismatch");
   });
 });
