@@ -1,0 +1,9 @@
+{
+  "reason": "LAB-only, claim-bound cleanup of a rolled-back provider run's imported timers (one route module) and per-page run provenance recorded with each import page. The timer origin JSONB shape is closed by migration 0074, so provenance is an audit event in the page transaction; no SQL migration.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 12,
+    "typeScriptExportDeclarations": 2,
+    "services/server": 1
+  }
+}

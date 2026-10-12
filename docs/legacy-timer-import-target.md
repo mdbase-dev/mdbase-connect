@@ -34,3 +34,15 @@ Backend NEXT, current grant consent, origin metadata or a synthetic CP flip alon
 A repeat imports nothing new and records the same manifest. Completion is derived from these rows; there is no completion flag or schema.
 
 `flipAccountBackend` adds, for an account not yet flipped: the next timer service is enabled (`MDBASE_NEXT_TIMERS=1`); immediately before the flip transaction, each named collection's provider source is re-read and must be `migrated`; inside the transaction, each collection's latest manifest must name the same run and watermark, and the recomputed target identity must equal it. The idempotent retry of a completed flip skips these reads, because imported timers may fire after the flip.
+
+## Run provenance and rollback cleanup (LAB)
+
+Each imported page also records, in its own transaction, a `next_migration.timers_page_imported` audit event: the provider run (`migration_id`, `started_at`) and the origin record digests of that page's timers. An unfinished import's pages are recorded too. The timer origin JSONB itself is unchanged; its shape is closed by migration 0074.
+
+A pre-cutover rollback leaves the earlier run's imported rows behind, and the strict import refuses the next run's changed timers with `timer_import_conflict`. In environment `lab` only, `POST /internal/v1/next/migration/collections/{id}/timers/rollback-cleanup {owner_account, started_us, migration_id}` (migration token) deletes that run's rows when:
+
+- the presented claim is current: still legacy, no cutover, no flip, and no queued cutover policy;
+- Connect recorded `next_migration.unfence` for that run, and the provider reports the source `active` with no run;
+- every row the run's page events name is unchanged: generation and status equal to its origin, no data erasure, no `firing`, and no emitted event.
+
+The deletion runs in one transaction under the namespace locks, advances each namespace's intent, and appends `next_migration.timers_rollback_cleanup` (run, count, digest). Manifests and page events stay. Native rows, rows of another run, and rows no page event names are never selected. A drifted row stops the cleanup with `timer_cleanup_drifted` and nothing is deleted; reconcile it explicitly. Other environments refuse with `migration_lab_only`.
