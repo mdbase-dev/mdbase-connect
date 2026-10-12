@@ -1,9 +1,10 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+// @vitest-environment-options {"url": "https://editor.mdbase.dev/"}
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { StrictMode, useEffect, type ReactNode } from "react";
-import { isMdbaseError } from "@mdbase-dev/sdk";
+import { isMdbaseError, type Mdbase } from "@mdbase-dev/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createEditorApplication, SdkEditorRoot, type EditorNativeScope } from "./SdkEditorRoot";
-import { applicationFixture, closeNativeFixtures, paired, readyFixture, signedOut } from "./test/native-fixture";
+import { createEditorMdbase, SdkEditorRoot, type EditorNativeScope } from "./SdkEditorRoot";
+import { applicationFixture, closeNativeFixtures, paired, readyFixture } from "./test/native-fixture";
 
 vi.mock("./CodeEditor", () => ({
   CodeEditor: ({ value, onChange, label, readOnly, footer }: { value: string; onChange?: (value: string) => void; label: string; readOnly?: boolean; footer?: ReactNode }) =>
@@ -24,238 +25,97 @@ function Capture({ scope, publish }: { scope: EditorNativeScope; publish(scope: 
   return <p role="status">Native test consumer</p>;
 }
 
-/** Public subscription instrumentation only; state and actions stay SDK-fixture owned. */
-function observed(fixture: ReturnType<typeof applicationFixture>) {
+/** Counts live subscriptions through the public front door. */
+function observed(mdbase: Mdbase) {
   const subscriptions = new Set<() => void>();
-  const application = {
-    ...fixture.application,
-    subscribe(listener: () => void) {
-      const stop = fixture.application.subscribe(listener);
-      subscriptions.add(stop);
-      return () => { subscriptions.delete(stop); stop(); };
-    }
-  };
-  return { sdk: { ...fixture.entry, application: () => application }, subscriptions };
+  const sdk: Mdbase = { ...mdbase, subscribe(listener) {
+    const stop = mdbase.subscribe(listener);
+    subscriptions.add(stop);
+    return () => { subscriptions.delete(stop); stop(); };
+  } };
+  return { sdk, subscriptions };
 }
 
-describe("SdkEditorRoot over the public SDK fixture", () => {
-  it("StrictMode starts once, aborts the caller signal on unmount and never closes the SDK", async () => {
+const calls = (h: ReturnType<typeof applicationFixture>, action: string) => h.controls.observedActions().filter((call) => call.action === action);
+
+describe("SdkEditorRoot behind the shared collection gate", () => {
+  it("StrictMode starts the SDK and unmounting never closes it", async () => {
     const h = applicationFixture({ status: "not_started" });
-    const { sdk, subscriptions } = observed(h);
+    const { sdk, subscriptions } = observed(h.mdbase);
     const view = render(<StrictMode><SdkEditorRoot sdk={sdk} /></StrictMode>);
-    await waitFor(() => expect(h.controls.observedActions().filter((call) => call.action === "start")).toHaveLength(1));
-    const signal = h.controls.observedActions().find((call) => call.action === "start")?.signal;
+    await waitFor(() => expect(calls(h, "start").length).toBeGreaterThan(0));
     view.unmount();
-    expect(signal?.aborted).toBe(true);
     expect(subscriptions.size).toBe(0);
-    expect(h.controls.observedActions().some((call) => call.action === "close")).toBe(false);
+    expect(calls(h, "close")).toHaveLength(0);
   });
 
-  it("sign in calls SDK approve in the gesture and opens no app popup", () => {
-    const h = applicationFixture();
-    const open = vi.spyOn(window, "open");
-    render(<SdkEditorRoot sdk={h.entry} />);
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
-    expect(h.controls.observedActions().filter((call) => call.action === "approve")).toHaveLength(1);
-    expect(h.controls.observedActions().some((call) => call.action === "start")).toBe(false);
-    expect(open).not.toHaveBeenCalled();
-  });
-
-  it("shows the SDK account and selects the original collection ID", () => {
-    const h = applicationFixture({ status: "unselected", signIn: paired, collections: [{ collectionId: "selected-id", displayName: "Notes", role: "owner" }] });
-    render(<SdkEditorRoot sdk={h.entry} />);
-    expect(screen.getByText("Signed in as editor-user on GitHub")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Notes" }));
-    expect(h.controls.observedActions().find((call) => call.action === "select")).toMatchObject({ collectionId: "selected-id", signal: expect.any(AbortSignal) });
-    expect(screen.queryByText(/fixture-account/)).toBeNull();
-  });
-
-  it("only owners get Delete; it needs the typed name and shows SDK copy for a refusal", async () => {
-    const h = applicationFixture({ status: "unselected", signIn: paired, collections: [
-      { collectionId: "owned-id", displayName: "Research", role: "owner" }, { collectionId: "shared-id", displayName: "Shared", role: "editor" }] });
-    render(<SdkEditorRoot sdk={h.entry} />);
-    expect(screen.queryByRole("button", { name: "Delete Shared" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Delete Research" }));
-    const dialog = await screen.findByRole("alertdialog", { name: "Delete Research?" });
-    expect(dialog).toHaveTextContent("Everyone, including you, loses access to it on every device and app right away. This can't be undone.");
-    const confirm = screen.getByRole("button", { name: "Delete collection" });
-    expect(confirm).toBeDisabled();
-    fireEvent.change(screen.getByLabelText("Type Research to confirm"), { target: { value: "Researc" } });
-    expect(confirm).toBeDisabled();
-    h.controls.setHandler("deleteCollection", () => { throw Object.assign(new Error("refused"), { code: "collection_delete_frozen" }); });
-    fireEvent.change(screen.getByLabelText("Type Research to confirm"), { target: { value: "Research " } });
-    fireEvent.click(confirm);
-    expect(await screen.findByRole("alert")).toHaveTextContent("Your account is being upgraded");
-    expect(h.application.getSnapshot().collections).toHaveLength(2);
-    h.controls.setHandler("deleteCollection", () => undefined);
-    fireEvent.click(screen.getByRole("button", { name: "Delete collection" }));
-    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
-    expect(h.controls.observedActions().filter((call) => call.action === "deleteCollection").at(-1)).toMatchObject({ collectionId: "owned-id", confirmName: "Research " });
-    expect(h.application.getSnapshot().collections.map((c) => c.collectionId)).toEqual(["shared-id"]);
-  });
-
-  it("unapproved requested collection never falls back to an approved one; approval, reauthorization and chooser use SDK actions", async () => {
-    const h = applicationFixture({ status: "unselected", signIn: paired,
-      collections: [{ collectionId: "other-id", displayName: "Other", role: "owner" }],
-      selection: { state: "approval_required", requested: { collectionId: "requested-id", source: "url", displayName: null, approved: false }, usable: null, problem: null } });
-    render(<SdkEditorRoot sdk={h.entry} />);
-    expect(screen.queryByRole("button", { name: "Other" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Approve collection" }));
-    expect(h.controls.observedActions().find((call) => call.action === "approve")).toMatchObject({ collectionId: "requested-id", signal: expect.any(AbortSignal) });
-    await act(async () => undefined);
-    fireEvent.click(screen.getByRole("button", { name: "Choose another collection" }));
-    await act(async () => undefined);
-    expect(h.controls.observedActions().some((call) => call.action === "chooseAnother")).toBe(true);
-    await act(async () => h.publish({ selection: signedOut.selection }));
-    fireEvent.click(screen.getByRole("button", { name: "Review access" }));
-    await act(async () => undefined);
-    expect(h.controls.observedActions().some((call) => call.action === "reauthorize")).toBe(true);
-  });
-
-  it("a new account with no collections says so and offers one way to choose a collection", async () => {
-    const h = applicationFixture({ status: "unselected", signIn: paired, collections: [] });
-    render(<SdkEditorRoot sdk={h.entry} />);
-    expect(screen.getByText("mdbase editor doesn't have a collection yet. Choose one in mdbase to start writing.")).toBeInTheDocument();
-    expect(screen.queryByText("Choose the collection you want to write in.")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Review access" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Choose a collection" }));
-    await act(async () => undefined);
-    const approve = h.controls.observedActions().find((call) => call.action === "approve");
-    expect(approve).toMatchObject({ signal: expect.any(AbortSignal) });
-    expect(approve?.collectionId).toBeUndefined(); // no collection named: choose in mdbase
-  });
-
-  it("slow opening says it is taking longer instead of waiting silently", () => {
-    vi.useFakeTimers();
-    try {
-      const id = "selected-id";
-      const h = applicationFixture({ status: "opening", signIn: paired, selectedCollectionId: id, collections: [{ collectionId: id, displayName: "Notes", role: "owner" }],
-        selection: { state: "usable", requested: { collectionId: id, source: "user", displayName: "Notes", approved: true }, usable: { collectionId: id, displayName: "Notes", role: "owner" }, problem: null },
-        readiness: { ...signedOut.readiness, checking: true } });
-      render(<SdkEditorRoot sdk={h.entry} />);
-      expect(screen.getByText("Opening Notes…")).toBeInTheDocument();
-      act(() => { vi.advanceTimersByTime(15_000); });
-      expect(screen.getByText("Opening Notes is taking longer than usual. You can keep waiting or choose another collection.")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Choose another collection" })).toBeEnabled();
-    } finally { vi.useRealTimers(); }
-  });
-
-  it("a failed close does not report sign-out or leak its detail", async () => {
-    const h = applicationFixture({ status: "unselected", signIn: paired });
-    const signedOut = vi.fn();
-    h.controls.setHandler("close", () => { throw new Error("private-detail"); });
-    render(<SdkEditorRoot sdk={h.entry} onSignedOut={signedOut} />);
-    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
-    await screen.findByRole("alert");
-    expect(signedOut).not.toHaveBeenCalled();
-    expect(screen.queryByText("private-detail")).toBeNull();
-  });
-
-  it("a late close on a retired owner cannot sign out its replacement", async () => {
-    const h = applicationFixture({ status: "unselected", signIn: paired });
-    const { sdk, subscriptions } = observed(h);
-    const next = applicationFixture();
-    const signedOut = vi.fn();
-    let finish!: () => void;
-    h.controls.setHandler("close", () => new Promise<void>((resolve) => { finish = resolve; }));
-    const view = render(<SdkEditorRoot sdk={sdk} onSignedOut={signedOut} />);
-    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
-    view.rerender(<SdkEditorRoot sdk={next.entry} onSignedOut={signedOut} />);
-    await act(async () => finish());
-    expect(signedOut).not.toHaveBeenCalled();
-    expect(subscriptions.size).toBe(0);
-  });
-
-  it.each(["refused", "expired"])("a %s sign-in window says so and the next Sign in starts again through the SDK", (problem) => {
-    const h = applicationFixture({ status: "blocked", problem });
-    render(<SdkEditorRoot sdk={h.entry} />);
-    expect(screen.getByRole("alert")).toHaveTextContent(problem === "refused" ? "Try signing in again." : "Start again");
-    const signIn = screen.getByRole("button", { name: "Sign in" });
-    expect(signIn).toBeEnabled();
-    fireEvent.click(signIn);
-    expect(h.controls.observedActions().filter((call) => call.action === "approve")).toHaveLength(1);
-  });
-
-  it("the unavailable shell offers no sign-in, setup or editor", () => {
-    const h = applicationFixture({ status: "blocked", problem: "application_not_yet_available" });
-    render(<SdkEditorRoot sdk={h.entry} />);
-    expect(screen.getByRole("alert")).toHaveTextContent("isn't available");
-    expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Set up mdbase editor" })).toBeNull();
-  });
-
-  it("a refused registration shows the end-user copy and logs only the developer detail", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const h = applicationFixture({ status: "blocked", problem: "application_registration_refused",
-      problemDetail: { name: "MdbaseError", code: "forbidden", registration: { code: "invalid_application_manifest", paths: ["/homepage"] } } });
-    render(<SdkEditorRoot sdk={h.entry} />);
-    expect(screen.getByRole("alert")).toHaveTextContent("Contact the app's developer.");
-    expect(screen.getByRole("alert")).not.toHaveTextContent("/homepage");
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("invalid manifest: /homepage"));
-    warn.mockRestore();
-  });
-
-  it("setup delegates to SDK configure without treating its success as ready", async () => {
-    const h = applicationFixture({ status: "setup_required" });
+  it("signs out with signOut and never closes the shared entry", async () => {
+    const h = applicationFixture({ status: "unselected", signIn: paired, collections: [{ collectionId: "c1", displayName: "Drafts", role: "owner" }] });
+    const close = vi.spyOn(h.mdbase, "close");
     const native = vi.fn(() => <p>Never ready</p>);
-    render(<SdkEditorRoot sdk={h.entry} renderNative={native} />);
-    fireEvent.click(screen.getByRole("button", { name: "Set up mdbase editor" }));
-    await waitFor(() => expect(h.controls.observedActions().some((call) => call.action === "configure")).toBe(true));
+    render(<SdkEditorRoot sdk={h.mdbase} renderNative={native} />);
+    expect(await screen.findByText("Drafts")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    await waitFor(() => expect(calls(h, "signOut")).toHaveLength(1));
+    expect(close).not.toHaveBeenCalled();
     expect(native).not.toHaveBeenCalled();
   });
 
-  it("ready hands the editor a gateway over the same client; losing readiness retires it", async () => {
+  it("a refused registration logs only the developer detail", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const h = applicationFixture({ status: "blocked", problem: "application_registration_refused",
+      problemDetail: { name: "MdbaseError", code: "forbidden", registration: { code: "invalid_application_manifest", paths: ["/homepage"] } } });
+    render(<SdkEditorRoot sdk={h.mdbase} />);
+    await waitFor(() => expect(warn).toHaveBeenCalledWith(expect.stringContaining("invalid manifest: /homepage")));
+    expect(document.body).not.toHaveTextContent("/homepage");
+    warn.mockRestore();
+  });
+
+  it("the gate hands the editor a gateway over the ready connection; losing readiness retires it", async () => {
     const h = await readyFixture({}, (replica) => replica.seed({ path: "notes/plan.md", frontmatter: { title: "Plan" }, body: "# Plan\n" }));
     const close = vi.spyOn(h.client, "close");
     const scopes: EditorNativeScope[] = [];
     const publish = (scope: EditorNativeScope) => scopes.push(scope);
-    render(<StrictMode><SdkEditorRoot sdk={h.entry} renderNative={(scope) => <Capture scope={scope} publish={publish} />} /></StrictMode>);
+    render(<StrictMode><SdkEditorRoot sdk={h.mdbase} renderNative={(scope) => <Capture scope={scope} publish={publish} />} /></StrictMode>);
     await screen.findByText("Native test consumer");
     const scope = scopes.at(-1);
     if (!scope) throw new Error("Missing native scope");
     expect(scope.connection.records).toBe(h.client);
     expect((await scope.gateway.read("notes/plan.md")).body).toBe("# Plan\n");
-    await act(async () => h.publish({ readiness: { ...h.application.getSnapshot().readiness, checking: true, assessment: null } }));
+    await act(async () => h.publish({ status: "unselected", selectedCollectionId: null,
+      selection: { state: "none", requested: { collectionId: null, source: "none", displayName: null, approved: false }, usable: null, problem: null } }));
     expect(screen.queryByText("Native test consumer")).toBeNull();
     await expect(scope.gateway.read("notes/plan.md")).rejects.toSatisfy((error: unknown) => isMdbaseError(error, "cancelled"));
     expect(close).not.toHaveBeenCalled();
     expect(h.metadata).not.toHaveBeenCalled();
   });
 
-  it("unknown readiness and a retired connection never render the native editor", async () => {
-    const h = await readyFixture();
-    const native = vi.fn(() => <p>Not permitted</p>);
-    h.current.mockReturnValue(false);
-    const view = render(<SdkEditorRoot sdk={h.entry} renderNative={native} />);
-    await act(async () => undefined);
-    expect(native).not.toHaveBeenCalled();
-    h.current.mockReturnValue(true);
-    await act(async () => h.publish({ readiness: { ...h.application.getSnapshot().readiness, assessment: null } }));
-    view.rerender(<SdkEditorRoot sdk={h.entry} renderNative={native} />);
-    await act(async () => undefined);
-    expect(native).not.toHaveBeenCalled();
-  });
-
-  it("ready opens the existing editor over the native gateway and switches collection through the SDK", async () => {
-    const h = await readyFixture({}, (replica) => {
-      replica.seed({ path: "notes/plan.md", frontmatter: { title: "Plan" }, body: "# Plan\n\nNative body\n" });
-    });
-    const close = vi.spyOn(h.client, "close");
-    render(<SdkEditorRoot sdk={h.entry} />);
+  it("opens the editor with the shared switcher in the rail, and switching selects through the SDK", async () => {
+    const h = await readyFixture({}, (replica) => replica.seed({ path: "notes/plan.md", frontmatter: { title: "Plan" }, body: "# Plan\n\nNative body\n" }));
+    h.publish({ collections: [...h.application.getSnapshot().collections, { collectionId: "archive-id", displayName: "Archive", role: "editor" }] });
+    const { container } = render(<SdkEditorRoot sdk={h.mdbase} />);
     expect(await screen.findByRole("textbox", { name: "Note body" }, { timeout: 10_000 })).toHaveValue("Native body\n");
-    expect(screen.getAllByText("Plan").length).toBeGreaterThan(0);
-    expect(close).not.toHaveBeenCalled();
+    const trigger = container.querySelector<HTMLButtonElement>(".collection-rail .mdbase-collections-trigger");
+    if (!trigger) throw new Error("No collection switcher in the rail");
+    expect(trigger).toHaveAccessibleName("Switch collection, current: Notes");
+    fireEvent.click(trigger);
+    const archive = [...document.querySelectorAll<HTMLElement>("[role=radio]")].find((row) => within(row).queryByText("Archive"));
+    if (!archive) throw new Error("No Archive row in the switcher");
+    fireEvent.click(archive);
+    await waitFor(() => expect(calls(h, "select").at(-1)).toMatchObject({ collectionId: "archive-id" }));
   });
 });
 
-describe("createEditorApplication", () => {
-  it("constructs the live singleton from the unchanged manifest without allocating a Worker or claiming READY", () => {
+describe("createEditorMdbase", () => {
+  it("constructs on the editor's own origin without allocating a Worker or claiming READY", () => {
     const worker = vi.fn();
+    const channel = vi.fn();
     vi.stubGlobal("Worker", worker);
-    const sdk = createEditorApplication({ origin: location.origin, environment: "lab" });
+    vi.stubGlobal("MessageChannel", channel);
+    const sdk = createEditorMdbase({ origin: location.origin, environment: "lab" });
     expect(sdk.connection("any")).toBeNull();
-    expect(sdk.application().getSnapshot()).toMatchObject({ status: "not_started", problem: null, selection: { state: "none" }, readiness: { assessment: null } });
+    expect(sdk.getSnapshot()).toMatchObject({ status: "not_started", problem: null, selection: { state: "none" }, readiness: { assessment: null } });
     expect(worker).not.toHaveBeenCalled();
-    expect(screen.queryByRole("textbox", { name: "Note body" })).toBeNull();
+    expect(channel).not.toHaveBeenCalled();
   });
 });

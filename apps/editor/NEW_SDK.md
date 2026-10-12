@@ -1,27 +1,30 @@
 # Native SDK mode
 
-`SdkEditorRoot` runs the editor against the public SDK `MdbaseApplicationEntry`.
-`main.tsx` still constructs the Connect gateway, so production is unchanged;
-wiring the root into the entry point waits for qualified runtime composition.
-The source is developed on the non-deploy `next/new-sdk` integration lane; no
-staging or production publication is implied.
+`SdkEditorRoot` runs the editor over the SDK's `createMdbase` entry, behind the
+shared collection screens from `@mdbase-dev/ui/collections`. The source is
+developed on the non-deploy integration lane; no staging or production
+publication is implied.
 
 ## Public entry and lifecycle
 
-- `createEditorApplication` builds the declaration with the public
-  `MdbaseConnect` helper from the checked-in `.well-known/mdbase-app.json`. The
-  SDK constructor is still an explicit unavailable shell, so the root shows
-  "isn't available" and no sign-in.
-- `SdkEditorRoot` subscribes to the application snapshot, starts it once (StrictMode
-  safe) with the caller's signal, forwards foreground state, and calls the SDK's
-  `authorize`, `select`, `configure`, `clearSelection`, `forget` and `close`.
-  Sign-in, consent popup, setup and collection selection are SDK-owned; the editor
-  opens no popup of its own. A failed or late `close` never reports sign-out.
-- The editor opens only when the selected connection is current, its client
-  reports the same collection and readiness is assessed `ready` with no problem.
+- `createEditorMdbase` builds the declaration from the checked-in
+  `.well-known/mdbase-app.json` and calls `createMdbase`. `main.tsx` constructs
+  one entry for the module lifetime; construction does no registration IO.
+- `SdkEditorRoot` starts the entry (StrictMode safe) and renders `CollectionGate`.
+  The gate owns sign-in, choosing, approval, setup, problems, deletion and
+  sign-out (`signOut()`, never `close()`). The editor never closes the entry.
+- The editor opens only for the connection the gate hands over in phase `ready`.
   The native scope is keyed by connection ID and generation; losing readiness or
   currentness unmounts it and retires its gateway. The borrowed client is never
   closed by the editor.
+- In the editor, the rail header holds `CollectionSwitcher` (`variant="full"`,
+  `allowDelete`). Its `onBeforeLeave` confirms unsaved type or creation drafts
+  and, for a switch, drains pending saves and mutations first. Adding a
+  collection resolves inside the click so its Connect window keeps the gesture.
+- Private collections (app grants relayed to a computer) are listed in a section
+  beside the gate while choosing, because the gate lists only the installation's
+  collections. An opened Private collection owns its own client and closes it
+  when the editor leaves it; owners delete through the shared delete dialog.
 
 ## Native gateway
 

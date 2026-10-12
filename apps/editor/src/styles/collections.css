@@ -143,7 +143,3 @@
   margin: 0;
 }
 
-.delete-collection-dialog form {
-  display: grid;
-  gap: var(--space-2);
-}

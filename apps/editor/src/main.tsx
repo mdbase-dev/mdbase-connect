@@ -10,7 +10,7 @@ import type { Surface } from "./app-state-types";
 import { createRoot } from "react-dom/client";
 import { AppErrorBoundary } from "./AppErrorBoundary";
 import { DemoCollectionGateway } from "./demo-gateway";
-import { createEditorApplication, SdkEditorRoot } from "./SdkEditorRoot";
+import { createEditorMdbase, SdkEditorRoot } from "./SdkEditorRoot";
 import { EnvironmentBadge } from "./EnvironmentBadge";
 import { deliverAppGrantCallbackFrom, isAppGrantCallback } from "./private-collections";
 import "@mdbase-dev/ui/motion.css";
@@ -38,7 +38,7 @@ if (grantCallback) {
   void deliverAppGrantCallbackFrom(new URL(location.href)).catch(() => {}).finally(() => window.close());
 }
 // One SDK owner for the module lifetime; construction does no registration IO.
-const sdk = !demoGateway && !grantCallback ? createEditorApplication({ origin: location.origin, environment }) : null;
+const sdk = !demoGateway && !grantCallback ? createEditorMdbase({ origin: location.origin, environment }) : null;
 
 function EditorWorkspace() {
   const [context, setContext] = useState<{ surface: Surface; collectionName?: string }>({ surface: "notes" });

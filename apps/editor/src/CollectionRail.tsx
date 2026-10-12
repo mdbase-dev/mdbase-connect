@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import {
   CaretDownIcon as ChevronDown,
@@ -19,7 +19,7 @@ import { folderTree, type FolderTreeNode } from "./note";
 import type { NoteFilter } from "./note-list-view";
 
 
-export function CollectionRail({ collectionId, name, count, types, activeFilter, notes, files, foldersLoading, surface, connectionState, connectionIssue, directAccess, directAccessBusy, onFilter, onCreateFolder, onCreateNoteInFolder, onCreateSubfolder, onMoveNotes, onCopyFacet, onTypes, onSettings, onReconnect, onRequestDirectAccess, onSwitch, onCollapse, onPlanFolderChange, onChangeFolder }: {
+export function CollectionRail({ collectionId, name, count, types, activeFilter, notes, files, foldersLoading, surface, connectionState, connectionIssue, directAccess, directAccessBusy, onFilter, onCreateFolder, onCreateNoteInFolder, onCreateSubfolder, onMoveNotes, onCopyFacet, onTypes, onSettings, onReconnect, onRequestDirectAccess, switcher, onCollapse, onPlanFolderChange, onChangeFolder }: {
   collectionId: string;
   name: string;
   count: number;
@@ -43,7 +43,7 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
   onSettings: () => void;
   onReconnect: () => void;
   onRequestDirectAccess: () => void;
-  onSwitch: () => void;
+  switcher?: ReactNode;
   onCollapse: () => void;
 } & FolderChangeActions) {
   const [folderChange, setFolderChange] = useState<{ from: string; parent?: string; mode: "rename" | "move" }>();
@@ -57,7 +57,7 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
     notes={{ onClick: () => onFilter(undefined) }}
     types={{ onClick: onTypes }}
     settings={{ onClick: onSettings }}
-    onSwitch={onSwitch}
+    switcher={switcher}
     onCollapse={onCollapse}
     onMoveNotes={onMoveNotes}
     onMoveFolder={moveFolder}

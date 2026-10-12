@@ -38,7 +38,9 @@ import { useCollectionBrowserEntries } from "./collection-browser";
 import { CollectionRail, ConnectionStatus } from "./CollectionRail";
 import { folderChangeMoves, type FolderChangePlan, type FolderChangeProgress, type FolderChangeResult } from "./folder-change";
 import { useFeedback } from "@mdbase-dev/ui/feedback";
-import { CollectionSwitcher, ConnectScreen } from "./ConnectionScreens";
+import { ConnectScreen } from "./ConnectionScreens";
+import type { LeaveIntent } from "@mdbase-dev/ui/collections";
+import type { EditorCollectionSwitcher } from "./editor-collections";
 import { ConflictResolver } from "./ConflictResolver";
 import { DraftRecovery, frontmatterPatch } from "./draft-recovery";
 import { connectServerUrl } from "./connect-endpoint";
@@ -154,6 +156,8 @@ interface Confirmation {
   tone?: "default" | "danger";
   initialFocus?: "confirm" | "cancel";
   onConfirm: () => void | Promise<void>;
+  /** Called whenever the dialog closes, also after confirming. */
+  onDismiss?: () => void;
 }
 
 interface NoteNavigationHistory {
@@ -167,11 +171,13 @@ interface NoteNavigationOptions {
 
 interface CollectionAppProps {
   gateway: CollectionGateway;
+  /** The shared collection switcher for the rail header (SDK mode). */
+  collectionSwitcher?: EditorCollectionSwitcher;
   onFeedbackContext?(surface: Surface, collectionName?: string): void;
 }
 /** The editor over a collection gateway: Connect by default, or the native
  * SDK gateway supplied by `SdkEditorRoot` once its scope is ready. */
-export function App({ gateway, onFeedbackContext }: CollectionAppProps) {
+export function App({ gateway, collectionSwitcher, onFeedbackContext }: CollectionAppProps) {
   const { reportError } = useFeedback();
   const { controller: indexController, state: collectionIndex } = useCollectionIndex(gateway);
   const { controller: fileController, state: fileInventory } = useFileInventory(gateway);
@@ -235,7 +241,6 @@ export function App({ gateway, onFeedbackContext }: CollectionAppProps) {
   const [quickOpenCommandMode, setQuickOpenCommandMode] = useState(false);
   const [editorAutoFocus, setEditorAutoFocus] = useState(true);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const [collectionSwitcherOpen, setCollectionSwitcherOpen] = useState(false);
   const [confirmation, setConfirmation] = useState<Confirmation>();
   const [recentPaths, setRecentPaths] = useState(loadRecentPaths);
   const [noteHistoryState, setNoteHistoryState] = useState<NoteNavigationHistory>({ paths: [], index: -1 });
@@ -1006,7 +1011,6 @@ export function App({ gateway, onFeedbackContext }: CollectionAppProps) {
 
   async function openSavedCollection(collectionId: string) {
     setNotice(undefined);
-    setCollectionSwitcherOpen(false);
     try {
       await transitionCollection(async () => {
         const selected = gateway.selectConnection(collectionId);
@@ -1017,43 +1021,46 @@ export function App({ gateway, onFeedbackContext }: CollectionAppProps) {
     } catch (error) { setNotice(gatewayError(error)); }
   }
 
-  function requestOpenSavedCollection(collectionId: string) {
-    if (collectionId === connectionSummary?.collectionId) {
-      setCollectionSwitcherOpen(false);
-      return;
-    }
-    if (!typeDraftDirty() && !creationDirty) {
-      void openSavedCollection(collectionId);
-      return;
-    }
-    setConfirmation({
-      title: "Switch collections?",
-      body: <p>{creationDirty
-        ? "The unfinished note or folder will be discarded. Saved note and property changes will finish first."
-        : "Unsaved type definition changes will be discarded. Saved note and property changes will finish first."}</p>,
-      confirmLabel: "Switch collection",
-      onConfirm: () => openSavedCollection(collectionId)
-    });
+  /** The shared switcher asks before leaving: unsaved type or creation drafts are
+   * confirmed, and switching drains saves and mutations first. Adding a collection
+   * resolves inside the click so its Connect window keeps the gesture. */
+  function beforeCollectionLeave(intent: LeaveIntent): boolean | Promise<boolean> {
+    const drain = intent === "switch" || intent === "choose_another";
+    if (!typeDraftDirty() && !creationDirty) return drain ? drainBeforeLeave() : true;
+    const copy = intent === "add"
+      ? { title: "Connect another collection?", body: "Unsaved type or creation changes will be discarded when the new collection opens. Note and property changes will finish saving first.", confirmLabel: "Continue" }
+      : intent === "sign_out"
+        ? { title: "Sign out?", body: "Unsaved type or creation changes will be discarded.", confirmLabel: "Sign out" }
+        : { title: "Switch collections?", body: creationDirty
+          ? "The unfinished note or folder will be discarded. Saved note and property changes will finish first."
+          : "Unsaved type definition changes will be discarded. Saved note and property changes will finish first.", confirmLabel: "Switch collection" };
+    return new Promise<boolean>((resolve) => setConfirmation({
+      title: copy.title,
+      body: <p>{copy.body}</p>,
+      confirmLabel: copy.confirmLabel,
+      onConfirm: () => { resolve(drain ? drainBeforeLeave() : true); },
+      onDismiss: () => resolve(false)
+    }));
   }
 
-  async function connectAnotherCollection() {
-    setNotice(undefined);
-    setCollectionSwitcherOpen(false);
-    try { await authorizeCollection("choose"); }
-    catch (error) { setNotice(gatewayError(error)); }
+  async function drainBeforeLeave(): Promise<boolean> {
+    mutationScope.current.freeze();
+    setMutationsFrozen(true);
+    try {
+      await flushCollectionWork();
+      return true;
+    } catch (error) {
+      setNotice(gatewayError(error));
+      return false;
+    } finally {
+      mutationScope.current.unfreeze();
+      setMutationsFrozen(false);
+    }
   }
 
-  function requestConnectAnotherCollection() {
-    if (!typeDraftDirty() && !creationDirty) {
-      void connectAnotherCollection();
-      return;
-    }
-    setConfirmation({
-      title: "Connect another collection?",
-      body: <p>Unsaved type or creation changes will be discarded when the new collection opens. Note and property changes will finish saving first.</p>,
-      confirmLabel: "Continue",
-      onConfirm: connectAnotherCollection
-    });
+  function openCollectionSwitcher() {
+    if (layout.collectionCollapsed) setLayout((current) => ({ ...current, collectionCollapsed: false }));
+    requestAnimationFrame(() => window.document.querySelector<HTMLButtonElement>(".collection-rail .mdbase-collections-trigger")?.click());
   }
 
   function beginCreation(mode: "note" | "folder", context: CreationContext = {}) {
@@ -1500,7 +1507,6 @@ export function App({ gateway, onFeedbackContext }: CollectionAppProps) {
     try {
       if (active) await transitionCollection(() => gateway.forgetConnection(collectionId));
       else await gateway.forgetConnection(collectionId);
-      setCollectionSwitcherOpen(false);
       setNotice(undefined);
     } catch (error) { setNotice(gatewayError(error)); }
   }
@@ -1639,7 +1645,7 @@ export function App({ gateway, onFeedbackContext }: CollectionAppProps) {
       tone={confirmation.tone}
       initialFocus={confirmation.initialFocus}
       onConfirm={confirmation.onConfirm}
-      onClose={() => setConfirmation(undefined)}
+      onClose={() => { confirmation.onDismiss?.(); setConfirmation(undefined); }}
     />}
   </>;
   if (phase === "loading" || !description) return <OpeningScreen />;
@@ -1689,7 +1695,7 @@ export function App({ gateway, onFeedbackContext }: CollectionAppProps) {
     types: () => selectSurface("types"),
     settings: () => selectSurface("settings"),
     connect: () => { location.href = `/connect?collection=${encodeURIComponent(description.collectionId)}`; },
-    "switch-collection": () => setCollectionSwitcherOpen(true),
+    "switch-collection": collectionSwitcher ? openCollectionSwitcher : undefined,
     ...(bulkCommandsAvailable ? {
       "move-selected": canRenameNotes ? () => setMovePaths(listSelection.paths) : undefined,
       "delete-selected": canDeleteNotes ? () => void deleteSelectedNotes(listSelection.paths) : undefined,
@@ -1776,7 +1782,7 @@ export function App({ gateway, onFeedbackContext }: CollectionAppProps) {
       directAccessBusy={directAccessBusy}
       onRequestDirectAccess={() => void requestDirectAccess()}
       onReconnect={() => void refreshAfterConnectionGap()}
-      onSwitch={() => setCollectionSwitcherOpen(true)}
+      switcher={collectionSwitcher?.(beforeCollectionLeave)}
       onCollapse={() => setLayout((current) => ({ ...current, collectionCollapsed: true }))}
     />}
 
@@ -2098,14 +2104,6 @@ export function App({ gateway, onFeedbackContext }: CollectionAppProps) {
     />}
     {shortcutsOpen && <ShortcutHelp onClose={() => setShortcutsOpen(false)} />}
     {movePaths && <MoveNoteDialog paths={movePaths} folders={[...new Set([...allNotes.map((note) => note.path), ...fileInventory.files.map((file) => file.path)].flatMap((path) => { const parts = path.split("/"); return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/")); }))].sort()} onMove={onMoveNotes} onClose={() => setMovePaths(undefined)} />}
-    {collectionSwitcherOpen && <CollectionSwitcher
-      activeCollectionId={connectionSummary?.collectionId}
-      connections={sessionSnapshot.connections}
-      displayName={description.displayName}
-      onOpen={requestOpenSavedCollection}
-      onConnect={requestConnectAnotherCollection}
-      onClose={() => setCollectionSwitcherOpen(false)}
-    />}
     {confirmation && <ConfirmDialog
       title={confirmation.title}
       body={confirmation.body}
@@ -2114,7 +2112,7 @@ export function App({ gateway, onFeedbackContext }: CollectionAppProps) {
       tone={confirmation.tone}
       initialFocus={confirmation.initialFocus}
       onConfirm={confirmation.onConfirm}
-      onClose={() => setConfirmation(undefined)}
+      onClose={() => { confirmation.onDismiss?.(); setConfirmation(undefined); }}
     />}
     {openFileAsset && <Suspense fallback={null}><FileViewer asset={openFileAsset} onClose={() => setOpenFileAsset(undefined)} /></Suspense>}
     <NotePreviewCard preview={notePreviewController.preview} />

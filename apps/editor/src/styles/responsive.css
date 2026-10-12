@@ -750,21 +750,19 @@
   .property-string-list > div { grid-template-columns: minmax(0, 1fr) 44px; }
   .schema-array-item { grid-template-columns: 18px minmax(0, 1fr) 44px; }
 
-  .confirm-dialog,
-  .collection-switcher {
+  .confirm-dialog {
     align-self: end;
     width: 100%;
     max-height: calc(100dvh - max(18px, env(safe-area-inset-top)));
     border-radius: var(--radius-md) var(--radius-md) 0 0;
   }
 
-  .dialog-scrim:has(.confirm-dialog, .collection-switcher) {
+  .dialog-scrim:has(.confirm-dialog) {
     place-items: end center;
     padding: max(18px, env(safe-area-inset-top)) 0 0;
   }
 
-  .confirm-dialog > footer button,
-  .collection-switcher > footer button {
+  .confirm-dialog > footer button {
     min-height: 44px;
   }
 

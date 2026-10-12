@@ -93,10 +93,9 @@ Types reuse the list-and-document rhythm; settings are one quiet document
 rather than a dashboard. Section headings sit above their content; preference
 rows share a steady rhythm, collection facts stay compact, and technical facts
 live behind Details. In the collection rail, All notes, Types, and
-Settings remain the primary editing group. One header trigger combines the brand
-lockup and current collection and opens the collection switcher; it includes
-recent collections, connecting another collection, the Connect workspace, and
-Send feedback. Feedback is not squeezed beside the connection status.
+Settings remain the primary editing group. The header shows the brand lockup above the
+shared collection switcher, which names the current collection and lists the
+account's collections, adding a collection, managing access and sign-out. Feedback is not squeezed beside the connection status.
 The independently scrolling middle contains All notes, the folder tree without
 a section heading, and a quiet New folder action. Types, Settings, and Connect
 form a fixed bottom group above connection status, so large folder trees never

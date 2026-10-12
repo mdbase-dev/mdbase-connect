@@ -1,4 +1,4 @@
-import { connect, MdbasePeopleClient, type MdbaseApplicationConnection, type MdbaseApplicationSnapshot, type MdbaseClient } from "@mdbase-dev/sdk";
+import { connect, MdbasePeopleClient, type Mdbase, type MdbaseApplicationConnection, type MdbaseApplicationEntry, type MdbaseApplicationSnapshot, type MdbaseClient, type MdbaseSnapshot } from "@mdbase-dev/sdk";
 import { createApplicationFixture, MemoryReplica, type MemoryReplicaOptions } from "@mdbase-dev/sdk/testing";
 import { vi } from "vitest";
 import manifest from "../../public/.well-known/mdbase-app.json";
@@ -23,6 +23,25 @@ export const paired: NonNullable<MdbaseApplicationSnapshot["signIn"]> = {
   collectionIds: [], createCollections: false, requestedCreateCollections: false
 };
 
+/** Test-only: the SDK fixture's application behind the `createMdbase` front door,
+ * mirroring how `createMdbase` maps each call onto the application. */
+export function fixtureMdbase(entry: MdbaseApplicationEntry): Mdbase {
+  const app = entry.application();
+  const view = () => app.getSnapshot() as MdbaseSnapshot;
+  const settle = async (pending: Promise<unknown>) => { await pending; return view(); };
+  return {
+    getSnapshot: view, subscribe: (listener) => app.subscribe(listener),
+    start: (options) => settle(app.start(options)), signIn: (options) => settle(app.authorize(options)),
+    addCollection: (options) => settle(app.approve(null, options)), approve: (id, options) => settle(app.approve(id, options)),
+    select: (id, options) => settle(app.select(id, options)), chooseAnother: (options) => settle(app.chooseAnother(options)),
+    forget: (id, options) => settle(app.forget(id, options)), deleteCollection: (id, options) => settle(app.deleteCollection(id, options)),
+    requestAccess: (request, options) => app.requestAccess(request, options), assess: (options) => app.assess(options),
+    setup: { plan: (options) => app.setup.plan(options), apply: async (plan, options) => ({ outcome: "applied", snapshot: await settle(app.setup.apply(plan, options)) }) },
+    connection: (id) => entry.connection(id), setForeground: (active) => app.setForeground(active),
+    signOut: (options) => app.signOut ? settle(app.signOut(options)) : Promise.reject(new Error("No signOut")), close: () => app.close(), application: app
+  };
+}
+
 export function applicationFixture(initial: Partial<MdbaseApplicationSnapshot> = {}) {
   const fixture = createApplicationFixture({
     declaration: { id: "editor.fixture", name: "Editor fixture", origin: "https://editor.mdbase.dev", environment: "lab", manifest },
@@ -32,8 +51,11 @@ export function applicationFixture(initial: Partial<MdbaseApplicationSnapshot> =
   owned.push(fixture.controls);
   const application = fixture.entry.application();
   const publish = (patch: Partial<MdbaseApplicationSnapshot>) => fixture.controls.publishSnapshot({ ...application.getSnapshot(), ...patch });
-  fixture.controls.setHandler("start", () => ({ ...application.getSnapshot(), status: "signed_out" }));
-  return { entry: fixture.entry, application, publish, controls: fixture.controls };
+  fixture.controls.setHandler("start", () => {
+    const current = application.getSnapshot();
+    return current.status === "not_started" ? { ...current, status: "signed_out" } : current;
+  });
+  return { entry: fixture.entry, mdbase: fixtureMdbase(fixture.entry), application, publish, controls: fixture.controls };
 }
 
 export async function nativeConnection(options: MemoryReplicaOptions = {}) {

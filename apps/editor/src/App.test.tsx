@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { MdbaseConnectError, normalizeCollectionChange, type CollectionChange, type DirectAccessStatus, type WatchStatus } from "@mdbase-dev/connect";
 import { connectProblem } from "@mdbase-dev/connect-testing";
 import { App } from "./App";
+import type { LeaveIntent } from "@mdbase-dev/ui/collections";
 import { DemoCollectionGateway } from "./demo-gateway";
 import type {
   CollectionGateway,
@@ -97,10 +98,6 @@ describe("mdbase editor", () => {
     await screen.findByRole("heading", { name: "All notes" });
     const collectionRail = screen.getByRole("complementary", { name: "Collection navigation" });
     expect(within(collectionRail).getByRole("status", { name: "Collection connected" })).toHaveTextContent("Connected");
-    await user.click(within(collectionRail).getByRole("button", { name: "Switch collection, current collection Writing" }));
-    expect(screen.getByRole("dialog", { name: "Choose a collection" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Forget/ })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Close collection switcher" }));
     await user.click(screen.getByRole("button", { name: "Hide collections sidebar" }));
     expect(screen.queryByRole("complementary", { name: "Collection navigation" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Show collections sidebar" }));
@@ -266,6 +263,27 @@ describe("mdbase editor", () => {
     const created = await gateway.read("Notes/A useful note.md");
     expect(created.frontmatter.title).toBe("A useful note");
     expect(created.body).toBe("The opening paragraph is already here.");
+  });
+
+  it("the shared switcher asks before an unfinished note is discarded, and drains before switching", async () => {
+    const gateway = new DemoCollectionGateway(2);
+    const user = userEvent.setup();
+    let beforeLeave: ((intent: LeaveIntent) => boolean | Promise<boolean>) | undefined;
+    render(<App gateway={gateway} collectionSwitcher={(onBeforeLeave) => { beforeLeave = onBeforeLeave; return <span>Shared switcher</span>; }} />);
+    await screen.findByRole("heading", { name: "All notes" });
+    expect(within(screen.getByRole("complementary", { name: "Collection navigation" })).getByText("Shared switcher")).toBeInTheDocument();
+    await expect(Promise.resolve(beforeLeave?.("switch"))).resolves.toBe(true);
+    await user.click(screen.getByRole("button", { name: "New note" }));
+    await user.type(await screen.findByRole("textbox", { name: "Title" }), "Half written");
+    let leaving!: Promise<boolean>;
+    act(() => { leaving = Promise.resolve(beforeLeave?.("switch") ?? true); });
+    const dialog = await screen.findByRole("alertdialog", { name: "Switch collections?" });
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await expect(leaving).resolves.toBe(false);
+    expect(screen.getByRole("textbox", { name: "Title" })).toHaveValue("Half written");
+    act(() => { leaving = Promise.resolve(beforeLeave?.("switch") ?? true); });
+    await user.click(within(await screen.findByRole("alertdialog", { name: "Switch collections?" })).getByRole("button", { name: "Switch collection" }));
+    await expect(leaving).resolves.toBe(true);
   });
 
   it("creates untyped notes at the collection root", async () => {

@@ -41,7 +41,7 @@ function fakePrivate(entries: MdbasePrivateCollection[]) {
 }
 
 function signedIn() {
-  return applicationFixture({ status: "signed_out", signIn: paired,
+  return applicationFixture({ status: "unselected", signIn: paired,
     collections: [{ collectionId: "0190a5a0-0000-7000-8000-0000000000aa", displayName: "Notes", role: "editor" }] });
 }
 
@@ -53,21 +53,22 @@ function Capture({ scope, publish }: { scope: EditorNativeScope; publish(scope: 
 const row = (name: string) => screen.getByRole("group", { name });
 
 describe("Private collections in the editor chooser", () => {
-  it("lists cloud copies and Private collections together, by name", async () => {
+  it("lists Private collections beside the shared gate's collections", async () => {
     const h = signedIn();
     const fake = fakePrivate([privateEntry({ state: "available" }, RESEARCH, "Archive")]);
-    render(<SdkEditorRoot sdk={h.entry} privateCollections={fake.port} />);
+    render(<SdkEditorRoot sdk={h.mdbase} privateCollections={fake.port} />);
     const archive = await screen.findByRole("group", { name: "Archive" });
     expect(within(archive).getByText("Private")).toBeTruthy();
-    const names = screen.getAllByRole("group").map((group) => group.getAttribute("aria-label"));
-    expect(names).toEqual(["Archive", "Notes"]);
+    const section = screen.getByRole("region", { name: "Private collections" });
+    expect(within(section).queryByText("Notes")).toBeNull();
+    expect(screen.getByText("Notes")).toBeTruthy();
   });
 
   it.each(COLLECTION_UNAVAILABLE_REASONS)("shows the plain copy for %s", async (reason) => {
     const h = signedIn();
     const availability: CollectionAvailability = { state: "unavailable", reason };
     const fake = fakePrivate([privateEntry(availability)]);
-    render(<SdkEditorRoot sdk={h.entry} privateCollections={fake.port} />);
+    render(<SdkEditorRoot sdk={h.mdbase} privateCollections={fake.port} />);
     await screen.findByRole("group", { name: "Research" });
     const copy = describeError(availability);
     if (!copy) throw new Error("missing copy");
@@ -79,7 +80,7 @@ describe("Private collections in the editor chooser", () => {
     const h = signedIn();
     const fake = fakePrivate([privateEntry({ state: "unavailable", reason: "approval_required" })]);
     const scopes: EditorNativeScope[] = [];
-    render(<SdkEditorRoot sdk={h.entry} privateCollections={fake.port}
+    render(<SdkEditorRoot sdk={h.mdbase} privateCollections={fake.port}
       renderNative={(scope) => <Capture scope={scope} publish={(next) => scopes.push(next)} />} />);
     fireEvent.click(within(await screen.findByRole("group", { name: "Research" })).getByRole("button", { name: "Research" }));
     await screen.findByText("Private native consumer");
@@ -94,7 +95,7 @@ describe("Private collections in the editor chooser", () => {
     const h = signedIn();
     const fake = fakePrivate([privateEntry({ state: "available" })]);
     const scopes: EditorNativeScope[] = [];
-    render(<SdkEditorRoot sdk={h.entry} privateCollections={fake.port}
+    render(<SdkEditorRoot sdk={h.mdbase} privateCollections={fake.port}
       renderNative={(scope) => <Capture scope={scope} publish={(next) => scopes.push(next)} />} />);
     fireEvent.click(within(await screen.findByRole("group", { name: "Research" })).getByRole("button", { name: "Research" }));
     await screen.findByText("Private native consumer");
@@ -109,7 +110,7 @@ describe("Private collections in the editor chooser", () => {
     const fake = fakePrivate([privateEntry({ state: "unavailable", reason: "sync_required" }),
       privateEntry({ state: "unavailable", reason: "access_removed" }, other, "Shared"),
       privateEntry({ state: "unavailable", reason: "desktop_update_required" }, third, "Laptop")]);
-    render(<SdkEditorRoot sdk={h.entry} privateCollections={fake.port} />);
+    render(<SdkEditorRoot sdk={h.mdbase} privateCollections={fake.port} />);
     await screen.findByRole("group", { name: "Research" });
     expect(within(row("Shared")).queryByRole("button", { name: "Shared" })).toBeNull();
     expect(within(row("Laptop")).getByRole("link", { name: "Get the update" }).getAttribute("href")).toMatch(/^https:\/\//);
@@ -122,9 +123,11 @@ describe("Private collections in the editor chooser", () => {
     const other = "0190a5a0-0000-7000-8000-000000000002";
     const fake = fakePrivate([privateEntry({ state: "available" }, RESEARCH, "Research", "owner"),
       privateEntry({ state: "available" }, other, "Shared", "editor")]);
-    render(<SdkEditorRoot sdk={h.entry} privateCollections={fake.port} />);
+    render(<SdkEditorRoot sdk={h.mdbase} privateCollections={fake.port} />);
     await screen.findByRole("group", { name: "Research" });
     expect(within(row("Shared")).queryByRole("button", { name: "Delete Shared" })).toBeNull();
+    // The relay stops listing a deleted collection; the section re-reads the list after the dialog.
+    h.controls.setHandler("deleteCollection", () => { fake.set([privateEntry({ state: "available" }, other, "Shared", "editor")]); });
     fireEvent.click(within(row("Research")).getByRole("button", { name: "Delete Research" }));
     fireEvent.change(await screen.findByLabelText(/to confirm/), { target: { value: "Research" } });
     fireEvent.click(screen.getByRole("button", { name: "Delete collection" }));
@@ -136,8 +139,8 @@ describe("Private collections in the editor chooser", () => {
   it("adding a Private collection asks Connect, then lists it", async () => {
     const h = signedIn();
     const fake = fakePrivate([]);
-    render(<SdkEditorRoot sdk={h.entry} privateCollections={fake.port} />);
-    await screen.findByRole("group", { name: "Notes" });
+    render(<SdkEditorRoot sdk={h.mdbase} privateCollections={fake.port} />);
+    await screen.findByText("Notes");
     fake.set([privateEntry({ state: "unavailable", reason: "approval_required" })]);
     fake.port.waitForAvailable.mockResolvedValueOnce({ state: "unavailable", reason: "approval_required" });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add a Private collection" })); });

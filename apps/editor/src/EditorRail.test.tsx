@@ -14,7 +14,7 @@ function renderRail(links = false, mobileReturn = false) {
     notes={links ? { href: "/notes" } : { onClick: vi.fn() }}
     types={links ? { href: "/types" } : { onClick: onTypes }}
     settings={links ? { href: "/settings" } : { onClick: onSettings }}
-    onSwitch={vi.fn()}
+    switcher={<button>Shared switcher</button>}
     mobileReturn={mobileReturn ? { href: "/note", label: "Return to note" } : undefined}
     footer={<p role="status">Connected</p>}
   ><button>Notes folder</button><button>New folder</button></EditorRail>);
@@ -40,7 +40,7 @@ describe("collection rail regions", () => {
     const user = userEvent.setup();
     const { onTypes, onSettings } = renderRail();
     const order = [
-      screen.getByRole("button", { name: "Switch collection, current collection Writing" }),
+      screen.getByRole("button", { name: "Shared switcher" }),
       screen.getByRole("button", { name: "All notes, 300 total" }),
       screen.getByRole("button", { name: "Notes folder" }),
       screen.getByRole("button", { name: "New folder" }),
