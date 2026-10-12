@@ -3,13 +3,17 @@
  * `@mdbase-dev/ui/collections.css` once. The SDK (`createMdbase`) is a peer.
  */
 export { CollectionGate, CollectionPanel, CollectionProblem } from "./collections/CollectionGate.js";
-export type { CollectionGateProps, CollectionProblemProps } from "./collections/CollectionGate.js";
+export type { AppCollectionContext, CollectionExtraActions, CollectionGateOwnProps, CollectionGateProps, CollectionPanelProps, CollectionProblemProps } from "./collections/CollectionGate.js";
 export { CollectionSwitcher } from "./collections/CollectionSwitcher.js";
 export type { CollectionSwitcherProps } from "./collections/CollectionSwitcher.js";
 export { SetupReview as CollectionSetupReview } from "./collections/SetupReview.js";
 export { DeleteCollectionDialog, ForgetCollectionDialog } from "./collections/dialogs.js";
-export { useCollectionUi } from "./collections/use-collection-ui.js";
-export type { CollectionActionName, CollectionActions, CollectionAppIdentity, CollectionUi, CollectionUiOptions, LeaveIntent } from "./collections/use-collection-ui.js";
+export type { DeleteCollectionOutcome } from "./collections/dialogs.js";
+export { useAutoStart, useCollectionUi } from "./collections/use-collection-ui.js";
+export type {
+  CollectionActionName, CollectionActions, CollectionAppIdentity, CollectionSection, CollectionSectionItem, CollectionUi, CollectionUiOptions,
+  LeaveIntent, OpenSectionItem,
+} from "./collections/use-collection-ui.js";
 export { collectionView, collectionRows, problemControl, accountLabel } from "./collections/model.js";
 export type { CollectionNotice, CollectionRole, CollectionRow, CollectionView, CollectionViewKind, CollectionViewOptions, ProblemControl } from "./collections/model.js";
 export { defaultCollectionCopy } from "./collections/copy.js";

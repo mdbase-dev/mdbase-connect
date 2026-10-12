@@ -2,11 +2,11 @@
 import type { Mdbase, MdbasePhase, MdbaseSnapshot } from "@mdbase-dev/sdk";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CollectionGate, CollectionSwitcher } from "../collections.js";
+import { CollectionGate, CollectionSwitcher, DeleteCollectionDialog, useCollectionUi, type CollectionSection, type DeleteCollectionOutcome } from "../collections.js";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -181,6 +181,102 @@ describe("sign out", () => {
     expect(dialog.textContent).toContain("Changes are still saving");
     act(() => button("Sign out anyway").click());
     expect(mdbase.signOut).toHaveBeenLastCalledWith(expect.objectContaining({ discard: true }));
+  });
+});
+
+describe("auto start", () => {
+  it("starts a front door that hasn't started, once across gates, and not when off or already started", () => {
+    const { mdbase, entry } = fakeMdbase({ kind: "starting" }, { status: "not_started", signIn: null });
+    render(<StrictMode>
+      <CollectionGate mdbase={entry} app={app}>{() => null}</CollectionGate>
+      <CollectionGate mdbase={entry} app={app}>{() => null}</CollectionGate>
+    </StrictMode>);
+    expect(mdbase.start).toHaveBeenCalledTimes(1);
+
+    const off = fakeMdbase({ kind: "starting" }, { status: "not_started", signIn: null });
+    render(<CollectionGate mdbase={off.entry} app={app} autoStart={false}>{() => null}</CollectionGate>);
+    const started = fakeMdbase({ kind: "choosing", lastApproval: null });
+    render(<CollectionGate mdbase={started.entry} app={app}>{() => null}</CollectionGate>);
+    expect(off.mdbase.start).not.toHaveBeenCalled();
+    expect(started.mdbase.start).not.toHaveBeenCalled();
+  });
+});
+
+describe("delete outcome", () => {
+  function Host({ entry, onClose }: { entry: Mdbase; onClose: (outcome: DeleteCollectionOutcome) => void }) {
+    const ui = useCollectionUi({ mdbase: entry, app });
+    return <DeleteCollectionDialog ui={ui} collection={{ id: A, name: "Alpha" }} onClose={onClose} />;
+  }
+  const typeName = () => act(() => {
+    const input = document.querySelector<HTMLInputElement>("dialog input")!;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Alpha");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+
+  it("reports failed after a refused delete, and deleted after one that worked", async () => {
+    const { mdbase, entry } = fakeMdbase({ kind: "choosing", lastApproval: null });
+    const onClose = vi.fn();
+    mdbase.deleteCollection.mockImplementationOnce(() => Promise.reject(Object.assign(new Error("no"), { code: "forbidden" })));
+    render(<Host entry={entry} onClose={onClose} />);
+    typeName();
+    await act(async () => { button("Delete collection").click(); });
+    act(() => button("Cancel").click());
+    expect(onClose).toHaveBeenLastCalledWith("failed");
+
+    mdbase.deleteCollection.mockImplementationOnce(() => Promise.resolve(entry.getSnapshot()));
+    render(<Host key="again" entry={entry} onClose={onClose} />);
+    typeName();
+    await act(async () => { button("Delete collection").click(); });
+    expect(onClose).toHaveBeenLastCalledWith("deleted");
+  });
+});
+
+describe("app slots", () => {
+  const privateSection = (onSelect = vi.fn(), onClose = vi.fn(), current = false): CollectionSection => ({
+    id: "private", title: "Private collections", onSelect, onClose,
+    items: [{ id: "p1", name: "Journal", detail: "On this device", current }],
+  });
+
+  it("puts app actions in the footer on every screen but signed out, and lists app sections", () => {
+    const { entry } = fakeMdbase({ kind: "choosing", lastApproval: null });
+    const onSelect = vi.fn();
+    render(<CollectionGate mdbase={entry} app={app} extraActions={(view) => <a href="#help">Help for {view.kind}</a>} sections={[privateSection(onSelect)]}>{() => null}</CollectionGate>);
+    expect(container.querySelector("footer")?.textContent).toContain("Help for choosing");
+    const section = container.querySelector("[data-section=private]")!;
+    expect(section.querySelector("h2")?.textContent).toBe("Private collections");
+    expect(section.textContent).toContain("On this device");
+    act(() => button(/Journal/).click());
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "p1" }));
+  });
+
+  it("renders an open app collection in place of the gate, with a way back to the list", () => {
+    const { mdbase, entry } = fakeMdbase({ kind: "choosing", lastApproval: null });
+    const onClose = vi.fn();
+    let back!: () => void;
+    render(<CollectionGate mdbase={entry} app={app} sections={[privateSection(vi.fn(), onClose, true)]}
+      renderAppCollection={(item, context) => { back = context.chooseAnother; return <p id="app">{item.name} open</p>; }}>{() => null}</CollectionGate>);
+    expect(container.querySelector("#app")?.textContent).toBe("Journal open");
+    expect(container.querySelector(".mdbase-collections-gate")).toBeNull();
+    act(() => back());
+    expect(onClose).toHaveBeenCalledWith(expect.objectContaining({ id: "p1" }));
+    expect(mdbase.chooseAnother).not.toHaveBeenCalled();
+  });
+
+  it("shows app sections, row details and the collection's mark in the switcher", () => {
+    const { mdbase, entry } = fakeMdbase({ kind: "ready", collectionId: B, collection: { collectionId: B, displayName: "Beta", role: "editor" }, connection: {} as never, rechecking: false, problem: null, unavailableTypes: [] },
+      { status: "ready", selectedCollectionId: B });
+    const onSelect = vi.fn();
+    render(<CollectionSwitcher mdbase={entry} app={app} icon="mark" sections={[privateSection(onSelect)]} rowDetail={(row) => `Detail ${row.entry.collectionId.slice(0, 2)}`} />);
+    const trigger = button("Switch collection, current: Beta");
+    expect(trigger.querySelector(".mdbase-collections-mark")?.textContent).toBe("B");
+    act(() => trigger.click());
+    expect(document.querySelector("[role=dialog]")?.textContent).toContain("Detail 22");
+    const groups = [...document.querySelectorAll("[role=radiogroup]")];
+    expect(groups.map((group) => group.getAttribute("aria-labelledby") && document.getElementById(group.getAttribute("aria-labelledby")!)?.textContent))
+      .toEqual(["Your collections", "Private collections"]);
+    act(() => button(/Journal/).click());
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(mdbase.select).not.toHaveBeenCalled();
   });
 });
 

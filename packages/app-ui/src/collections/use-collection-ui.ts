@@ -1,9 +1,9 @@
 import type { Mdbase, MdbaseProblem } from "@mdbase-dev/sdk";
 import { describeError } from "@mdbase-dev/sdk/describe";
-import { useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import { defaultCollectionCopy, fill, type CollectionCopy } from "./copy.js";
-import { actionNotice, collectionView, type CollectionNotice, type CollectionView, type ProblemControl } from "./model.js";
+import { actionNotice, collectionView, type CollectionNotice, type CollectionRow, type CollectionView, type ProblemControl } from "./model.js";
 
 /** The only app-specific input: what the app is called, and its mark. */
 export interface CollectionAppIdentity {
@@ -12,6 +12,40 @@ export interface CollectionAppIdentity {
 }
 
 export type LeaveIntent = "switch" | "add" | "choose_another" | "sign_out";
+
+/** A collection the app lists itself (one the SDK doesn't), in an app section. */
+export interface CollectionSectionItem {
+  readonly id: string;
+  readonly name: string;
+  /** A second line under the name: where it lives, or which account. */
+  readonly detail?: string | null | undefined;
+  /** Open in the app now. With `renderAppCollection`, the gate shows the app instead of its screens. */
+  readonly current?: boolean | undefined;
+  /** Listed but not selectable; say why in `detail`. */
+  readonly disabled?: boolean | undefined;
+}
+
+/**
+ * A titled group of app-listed collections, shown after "Your collections" on
+ * the gate's choosing and signed-out screens and in the switcher.
+ */
+export interface CollectionSection {
+  readonly id: string;
+  readonly title: string;
+  readonly items: readonly CollectionSectionItem[];
+  /** Open an item. Runs in the click, after `onBeforeLeave("switch")` when something else is open. */
+  readonly onSelect: (item: CollectionSectionItem) => void;
+  /** Close the open item: the person chose another collection or went back to the list. */
+  readonly onClose?: ((item: CollectionSectionItem) => void) | undefined;
+  /** Shown when there are no items. Without it an empty section is hidden. */
+  readonly empty?: string | undefined;
+}
+
+/** The app section item that is open, if any. */
+export interface OpenSectionItem {
+  readonly section: CollectionSection;
+  readonly item: CollectionSectionItem;
+}
 
 export interface CollectionUiOptions {
   /** The app's entry from `createMdbase`. */
@@ -28,6 +62,10 @@ export interface CollectionUiOptions {
   readonly allowDelete?: boolean | undefined;
   /** Replacement or translated copy by key. */
   readonly copy?: Partial<CollectionCopy> | undefined;
+  /** App-listed collections, in sections after the SDK's own list. */
+  readonly sections?: readonly CollectionSection[] | undefined;
+  /** A second line for an SDK collection row (where it lives, which account), from the row and its SDK entry. */
+  readonly rowDetail?: ((row: CollectionRow) => string | null | undefined) | undefined;
 }
 
 export type CollectionActionName = "sign_in" | "add" | "approve" | "select" | "choose_another" | "assess" | "start" | "sign_out" | "setup";
@@ -45,6 +83,8 @@ export interface CollectionUi {
   readonly error: CollectionNotice | null;
   /** Set when sign-out found unsaved changes: the SDK's copy for the confirm. */
   readonly signOutPrompt: MdbaseProblem | null;
+  /** The open app section item, which takes the place of the SDK's current collection. */
+  readonly appOpen: OpenSectionItem | null;
   readonly actions: CollectionActions;
 }
 
@@ -53,6 +93,9 @@ export interface CollectionActions {
   addCollection(): void;
   approve(collectionId: string | null): void;
   select(collectionId: string): void;
+  /** Open an app section item, closing whatever app item was open. */
+  selectItem(section: CollectionSection, item: CollectionSectionItem): void;
+  /** Back to the list: closes the open app item, or the SDK's collection. */
   chooseAnother(): void;
   /** Open the Connect window again for the authorization in progress. */
   reopen(): void;
@@ -70,6 +113,33 @@ export interface CollectionActions {
 }
 
 const popupActions: ReadonlySet<CollectionActionName> = new Set(["sign_in", "add", "approve"]);
+
+/** The first current item across the app's sections. */
+export function appOpenItem(sections: readonly CollectionSection[] | undefined): OpenSectionItem | null {
+  for (const section of sections ?? []) {
+    const item = section.items.find((candidate) => candidate.current);
+    if (item) return { section, item };
+  }
+  return null;
+}
+
+const starting = new WeakSet<Mdbase>();
+
+/**
+ * Start the front door once it is rendered, while it has not started. `start()`
+ * is safe to call again; this also skips calls while one is in flight, so
+ * several gates and StrictMode's double effects make one call.
+ */
+export function useAutoStart(mdbase: Mdbase, enabled = true): void {
+  const notStarted = useSyncExternalStore(mdbase.subscribe, () => mdbase.getSnapshot().status === "not_started", () => false);
+  useEffect(() => {
+    if (!enabled || !notStarted || starting.has(mdbase)) return;
+    starting.add(mdbase);
+    const done = (): void => { starting.delete(mdbase); };
+    // A failed start shows as the snapshot's problem.
+    new Promise((resolve) => { resolve(mdbase.start()); }).then(done, done);
+  }, [mdbase, enabled, notStarted]);
+}
 
 /** Subscribe to the app's mdbase entry and get its view plus gesture-safe actions. */
 export function useCollectionUi(options: CollectionUiOptions): CollectionUi {
@@ -115,7 +185,8 @@ export function useCollectionUi(options: CollectionUiOptions): CollectionUi {
     /** Ask the app first when leaving the open collection; continue in the same task when it agrees. */
     const leave = (intent: LeaveIntent, go: () => void): void => {
       const { options: current, view: now } = latest.current;
-      const answer = now.current && current.onBeforeLeave ? current.onBeforeLeave(intent) : true;
+      const open = now.current !== null || appOpenItem(current.sections) !== null;
+      const answer = open && current.onBeforeLeave ? current.onBeforeLeave(intent) : true;
       if (answer === true) go();
       else if (answer !== false) void answer.then((ok) => { if (ok) go(); }, () => {});
     };
@@ -124,10 +195,26 @@ export function useCollectionUi(options: CollectionUiOptions): CollectionUi {
       addCollection: () => leave("add", () => { void run("add", (signal) => mdbase.addCollection({ signal })); }),
       approve: (id) => { void run("approve", (signal) => mdbase.approve(id ?? undefined, { signal })); },
       select: (id) => {
-        if (latest.current.view.current?.id === id) return;
-        leave("switch", () => { void run("select", (signal) => mdbase.select(id, { signal })); });
+        const app = appOpenItem(latest.current.options.sections);
+        if (!app && latest.current.view.current?.id === id) return;
+        leave("switch", () => {
+          app?.section.onClose?.(app.item);
+          void run("select", (signal) => mdbase.select(id, { signal }));
+        });
       },
-      chooseAnother: () => leave("choose_another", () => { void run("choose_another", (signal) => mdbase.chooseAnother({ signal })); }),
+      selectItem: (section, item) => {
+        if (item.current || item.disabled) return;
+        leave("switch", () => {
+          const app = appOpenItem(latest.current.options.sections);
+          if (app && app.item.id !== item.id) app.section.onClose?.(app.item);
+          section.onSelect(item);
+        });
+      },
+      chooseAnother: () => leave("choose_another", () => {
+        const app = appOpenItem(latest.current.options.sections);
+        app?.section.onClose?.(app.item);
+        if (!app || latest.current.view.current) void run("choose_another", (signal) => mdbase.chooseAnother({ signal }));
+      }),
       reopen: () => {
         const now = latest.current.view;
         if (now.kind !== "authorizing") return;
@@ -170,6 +257,7 @@ export function useCollectionUi(options: CollectionUiOptions): CollectionUi {
 
   return {
     view, copy, say, options, busy, signOutPrompt, actions,
+    appOpen: appOpenItem(options.sections),
     error: error && error.kind === view.kind ? error.notice : null,
   };
 }
