@@ -1,4 +1,4 @@
-import { MdbaseError, revisionOf, toPlain, type MdbaseClient, type PlainValue, type Write, type wire } from "@mdbase-dev/sdk";
+import { isMdbaseError, MdbaseError, revisionOf, toPlain, type MdbaseClient, type PlainValue, type Write, type wire } from "@mdbase-dev/sdk";
 import type { JsonObject } from "@mdbase-dev/connect";
 import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
 import type { CreateNoteInput, NoteDocument } from "./model";
@@ -11,16 +11,22 @@ export interface NextEditorPendingMutation {
   createdAt: string;
 }
 
+/** How long a save waits for the log before it counts as saved on this device (as `client.save()`). */
+const RECEIPT_WAIT_MS = 3_000;
+
 /** Native record operations for the existing note-session boundary. The session
- * store still owns serialization/drafts; this adapter owns no second record index
- * and never reports an optimistic receipt as a saved note. Sign-in owns client. */
+ * store still owns serialization/drafts; this adapter owns no second record index.
+ * A write the replica captured is saved: confirmed, or saved on this device when
+ * the log hasn't confirmed it within the wait; the SDK's write ledger keeps and
+ * settles those. Only an unknown outcome is kept here, for recovery by its exact
+ * ID. Sign-in owns the client. */
 export class NextEditorRecords {
   private readonly lifetime = new AbortController();
   private readonly seen = new Map<string, { record: wire.RecordView; bytes: number }>();
   private seenBytes = 0;
-  private readonly pending = new Map<string, NextEditorPendingMutation>();
-  /** Writes this session is still awaiting a receipt for (e.g. while offline): pending, not interrupted. */
-  private readonly inFlight = new Set<string>();
+  /** Captured writes this adapter couldn't settle (unknown outcome, failed readback). */
+  private readonly unknown = new Map<string, NextEditorPendingMutation>();
+  private writing = false;
 
   /** `isCurrent` is the borrowed SDK connection's currentness; a retired
    * connection fences every later await, including receipt readback. */
@@ -98,27 +104,10 @@ export class NextEditorRecords {
     return result;
   }
 
-  pendingMutations(): readonly NextEditorPendingMutation[] { return [...this.pending.values()].filter((mutation) => !this.inFlight.has(mutation.mutationId)); }
-
-  /** Restore only native record mutations whose exact target is unambiguous.
-   * Resources/setup batches are not silently converted into note operations. */
-  async restorePending(signal?: AbortSignal): Promise<void> {
-    const current = this.signal(signal);
-    const pending = await this.client.pendingWrites(current);
-    this.check(current);
-    for (const mutation of pending) {
-      if (mutation.ops.length !== 1) continue;
-      const op = mutation.ops[0];
-      const operation = op.kind === "document" ? "update" : op.kind;
-      if (operation !== "create" && operation !== "update" && operation !== "rename" && operation !== "delete") continue;
-      if (!("id" in op)) continue;
-      this.pending.set(mutation.receipt.mutation, { mutationId: mutation.receipt.mutation,
-        operation, recordId: op.id, createdAt: new Date(mutation.captured).toISOString() });
-    }
-  }
+  pendingMutations(): readonly NextEditorPendingMutation[] { return [...this.unknown.values()]; }
 
   async recover(mutationId: string, signal?: AbortSignal): Promise<NoteDocument | undefined> {
-    const mutation = this.pending.get(mutationId);
+    const mutation = this.unknown.get(mutationId);
     if (!mutation) throw new Error("The exact interrupted note operation is unavailable. No new write was attempted.");
     return this.confirm(mutation, this.signal(signal));
   }
@@ -141,47 +130,58 @@ export class NextEditorRecords {
   private async write(operation: NextEditorPendingMutation["operation"], recordId: string,
     submit: (options: { mutationId: string; signal: AbortSignal }) => Promise<Write>, signal?: AbortSignal): Promise<NoteDocument | undefined> {
     const current = this.signal(signal);
-    if (this.pending.size) throw new Error(this.inFlight.size === this.pending.size
-      ? "Your previous change is still being confirmed. Try again in a moment."
-      : "Check your unconfirmed change before making another one. Nothing new was saved.");
-    const mutationId = crypto.randomUUID();
-    const mutation = { mutationId, operation, recordId, createdAt: new Date().toISOString() };
-    this.pending.set(mutationId, mutation);
-    this.inFlight.add(mutationId);
+    if (this.unknown.size) throw new Error("Check your unconfirmed change before making another one. Nothing new was saved.");
+    if (this.writing) throw new Error("Your previous change is still being saved. Try again in a moment.");
+    const mutation = { mutationId: crypto.randomUUID(), operation, recordId, createdAt: new Date().toISOString() };
+    this.writing = true;
     try {
-      // An error code alone does not prove non-capture: even an internal SDK
-      // response error can follow an accepted write. Only an exact native receipt
-      // can settle this identity, so submission failures retain it for recovery.
-      const write = await submit({ mutationId, signal: current });
-      this.check(current);
-      if (write.mutationId !== mutationId) throw new Error("The native write changed its mutation identity.");
-      return await this.confirm(mutation, current);
-    } finally { this.inFlight.delete(mutationId); }
+      try {
+        const write = await submit({ mutationId: mutation.mutationId, signal: current });
+        this.check(current);
+        if (write.mutationId !== mutation.mutationId) throw new Error("The native write changed its mutation identity.");
+      } catch (error) {
+        // An error code alone does not prove non-capture: only the exact receipt
+        // settles it. No receipt for this ID means nothing was written.
+        if (!await this.captured(mutation.mutationId)) throw error;
+      }
+      try { return await this.confirm(mutation, current); }
+      catch (error) {
+        // Captured but not settled here: keep the exact ID for recovery, never a new write.
+        if (!(error instanceof Refused)) this.unknown.set(mutation.mutationId, mutation);
+        throw error;
+      }
+    } finally { this.writing = false; }
+  }
+
+  private async captured(mutationId: string): Promise<boolean> {
+    try { await this.client.receipt(mutationId, AbortSignal.timeout(10_000)); return true; }
+    catch (error) { return !isMdbaseError(error, "not_found"); }
   }
 
   private async confirm(mutation: NextEditorPendingMutation, signal: AbortSignal): Promise<NoteDocument | undefined> {
-    const receipt = await this.client.awaitReceipt(mutation.mutationId, 30_000, signal);
+    // Still pending after the wait is saved on this device, not a failure.
+    const receipt = await this.client.awaitReceipt(mutation.mutationId, RECEIPT_WAIT_MS, signal).catch((error: unknown) => {
+      if (isMdbaseError(error, "cancelled")) throw error;
+      this.check(signal);
+      return this.client.receipt(mutation.mutationId, signal);
+    });
     this.check(signal);
     if (receipt.mutation !== mutation.mutationId) throw new Error("The native receipt changed its mutation identity.");
-    if (receipt.state === "pending" || receipt.state === "unknown")
+    if (receipt.state === "unknown")
       throw new MdbaseError({ code: "outcome_unknown", recovery: "resolve_outcome", message: "This note change is not confirmed. Check the interrupted operation before trying again." });
-    if (receipt.state === "rejected") {
-      this.pending.delete(mutation.mutationId);
-      throw receipt.problem ? new MdbaseError(receipt.problem) : new Error("The note change was rejected.");
-    }
-    if (receipt.status === "conflicted") {
-      this.pending.delete(mutation.mutationId);
-      throw new MdbaseError({ code: "conflict", recovery: "resolve_conflict", message: "This note change has a conflict. Resolve it before continuing." });
-    }
-    if (mutation.operation === "delete") { this.pending.delete(mutation.mutationId); this.clearSeen(); return undefined; }
+    if (receipt.state === "rejected" || receipt.status === "conflicted") this.unknown.delete(mutation.mutationId);
+    if (receipt.state === "rejected")
+      throw new Refused(receipt.problem ?? { code: "conflict", recovery: "resolve_conflict", message: "The note change was rejected." });
+    if (receipt.status === "conflicted")
+      throw new Refused({ code: "conflict", recovery: "resolve_conflict", message: "This note change has a conflict. Resolve it before continuing." });
+    if (mutation.operation === "delete") { this.unknown.delete(mutation.mutationId); this.clearSeen(); return undefined; }
     const record = await this.client.get(mutation.recordId, noteInclude, signal);
     this.check(signal);
     if (record.id !== mutation.recordId) throw new Error("The saved note changed its record identity.");
-    if (record.state.state !== "confirmed" || record.state.hold || record.state.unresolved)
-      throw new MdbaseError({ code: "outcome_unknown", reason: "unqualified_readback", recovery: "resolve_outcome", message: "The current note is pending or protected. Keep the original operation for recovery before reporting it as saved." });
-    const document = this.remember(record);
-    this.pending.delete(mutation.mutationId);
-    return document;
+    if (record.state.hold || record.state.unresolved)
+      throw new MdbaseError({ code: "outcome_unknown", reason: "unqualified_readback", recovery: "resolve_outcome", message: "The current note is protected. Keep the original operation for recovery before reporting it as saved." });
+    this.unknown.delete(mutation.mutationId);
+    return this.remember(record);
   }
 
   private remember(record: wire.RecordView): NoteDocument {
@@ -232,4 +232,6 @@ function completeSource(record: wire.RecordView): asserts record is wire.RecordV
 }
 /** Plain JSON view of native frontmatter, for the editor's JSON domain model. */
 export function plain(value: wire.FmMap): JsonObject { return Object.fromEntries([...value].map(([key, item]) => [key, toPlain(item)])) as JsonObject; }
+/** The log refused the write: a plain failure, nothing to recover. */
+class Refused extends MdbaseError {}
 function unsupported(message: string): MdbaseError { return new MdbaseError({ code: "invalid_request", recovery: "fix_request", reason: "unsupported", message }); }
