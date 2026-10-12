@@ -32,28 +32,37 @@ export function ForgetCollectionDialog({ ui, collection, onClose }: {
   </CollectionDialog>;
 }
 
+/**
+ * How the delete dialog ended: `deleted`; `cancelled` with no attempt; `failed`
+ * when the person closed it after a delete was refused.
+ */
+export type DeleteCollectionOutcome = "deleted" | "cancelled" | "failed";
+
 /** Owner only: type the name to delete a collection for everyone. The SDK and server check both again. */
 export function DeleteCollectionDialog({ ui, collection, onClose }: {
   readonly ui: CollectionUi;
   readonly collection: Target;
-  readonly onClose: () => void;
+  readonly onClose: (outcome: DeleteCollectionOutcome) => void;
 }): JSX.Element {
   const id = useId();
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
   const matches = typed.trim() === collection.name.trim();
+  const dismiss = (): void => onClose(failed ? "failed" : "cancelled");
   const remove = (): void => {
     if (!matches || busy) return;
     setBusy(true);
     setError(null);
-    ui.options.mdbase.deleteCollection(collection.id, { confirmName: typed }).then(onClose, (cause: unknown) => {
+    ui.options.mdbase.deleteCollection(collection.id, { confirmName: typed }).then(() => onClose("deleted"), (cause: unknown) => {
       setBusy(false);
+      setFailed(true);
       setError(describeError(cause)?.message ?? null);
     });
   };
-  return <CollectionDialog alert title={ui.say("deleteTitle", { collection: collection.name })} busy={busy} onClose={onClose} footer={<>
-    <ActionButton tone="quiet" inert={busy} onClick={onClose}>{ui.copy.cancel}</ActionButton>
+  return <CollectionDialog alert title={ui.say("deleteTitle", { collection: collection.name })} busy={busy} onClose={dismiss} footer={<>
+    <ActionButton tone="quiet" inert={busy} onClick={dismiss}>{ui.copy.cancel}</ActionButton>
     <ActionButton tone="danger" inert={!matches} progress={busy ? ui.copy.deleting : null} onClick={remove}>{ui.copy.deleteConfirm}</ActionButton>
   </>}>
     <p>{ui.copy.deleteBody}</p>

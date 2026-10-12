@@ -38,6 +38,10 @@
       "types": "./dist/collections.d.ts",
       "import": "./dist/collections.js"
     },
+    "./collections/testing": {
+      "types": "./dist/collections/testing.d.ts",
+      "import": "./dist/collections/testing.js"
+    },
     "./command-palette": {
       "types": "./dist/CommandPalette.d.ts",
       "import": "./dist/CommandPalette.js"

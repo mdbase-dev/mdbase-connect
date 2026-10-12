@@ -2,7 +2,7 @@ import { useId, useLayoutEffect, useRef, useState, type CSSProperties, type JSX,
 
 import { moveMenuFocus, useMenuPopover } from "../popover.js";
 import type { CollectionNotice, CollectionRow, ProblemControl } from "./model.js";
-import type { CollectionUi } from "./use-collection-ui.js";
+import type { CollectionSectionItem, CollectionUi } from "./use-collection-ui.js";
 
 export type ButtonTone = "primary" | "secondary" | "quiet" | "danger";
 
@@ -62,22 +62,39 @@ function ControlButton({ control, ui, onSetUp }: { control: ProblemControl; ui: 
 }
 
 /** Initials on a hue that stays the same for a collection across sessions. */
-export function CollectionMark({ row }: { readonly row: CollectionRow }): JSX.Element {
+export function CollectionMark({ row }: { readonly row: Pick<CollectionRow, "id" | "name"> }): JSX.Element {
   return <span className="mdbase-collections-mark" aria-hidden="true" style={{ "--mdbase-collections-hue": hueOf(row.id) } as CSSProperties}>
     {initials(row.name)}
   </span>;
 }
 
-/** The name (wrapping, never truncated) and one line of role and availability. */
-export function RowCopy({ row, ui, detailId }: { readonly row: CollectionRow; readonly ui: CollectionUi; readonly detailId?: string }): JSX.Element {
-  const meta = [row.current ? ui.copy.openNow : null, row.roleLabel, row.status].filter(Boolean).join(" · ");
+/** The name (wrapping, never truncated), the app's optional second line, then one line of role and availability. */
+export function RowCopy({ row, ui, detailId, current = row.current }: {
+  readonly row: CollectionRow;
+  readonly ui: CollectionUi;
+  readonly detailId?: string;
+  /** Overrides `row.current` (an app section item is open instead). */
+  readonly current?: boolean;
+}): JSX.Element {
+  const meta = [current ? ui.copy.openNow : null, row.roleLabel, row.status].filter(Boolean).join(" · ");
+  const secondary = ui.options.rowDetail?.(row);
   return <span className="mdbase-collections-row-copy">
     <span className="mdbase-collections-row-name">
       {row.name}
       {row.disambiguator && <span className="mdbase-collections-row-hint"> {row.disambiguator}</span>}
     </span>
+    {secondary && <span className="mdbase-collections-row-secondary">{secondary}</span>}
     <span className="mdbase-collections-row-meta">{meta}</span>
     {row.statusDetail && <span className="mdbase-collections-row-detail" id={detailId}>{row.statusDetail}</span>}
+  </span>;
+}
+
+/** An app section item: its name and optional second line. */
+export function ItemCopy({ item, ui }: { readonly item: CollectionSectionItem; readonly ui: CollectionUi }): JSX.Element {
+  return <span className="mdbase-collections-row-copy">
+    <span className="mdbase-collections-row-name">{item.name}</span>
+    {item.detail && <span className="mdbase-collections-row-secondary">{item.detail}</span>}
+    {item.current && <span className="mdbase-collections-row-meta">{ui.copy.openNow}</span>}
   </span>;
 }
 
@@ -130,11 +147,13 @@ function RowMenu({ id, triggerRef, onClose, children }: {
     onKeyDown={(event) => moveMenuFocus(event, menu.current)}>{children}</div>;
 }
 
-/** Choose a different collection, Manage access, the account and Sign out: never under an error. */
-export function GateFooter({ ui, chooseAnother }: { readonly ui: CollectionUi; readonly chooseAnother: boolean }): JSX.Element | null {
+/** The app's actions, Choose a different collection, Manage access, the account and Sign out: never under an error. */
+export function GateFooter({ ui, chooseAnother, extra }: { readonly ui: CollectionUi; readonly chooseAnother: boolean; readonly extra?: ReactNode }): JSX.Element | null {
   const { view, copy, busy, actions } = ui;
-  if (!view.signedIn && !chooseAnother) return null;
+  const hasExtra = extra !== undefined && extra !== null && extra !== false;
+  if (!view.signedIn && !chooseAnother && !hasExtra) return null;
   return <footer className="mdbase-collections-footer">
+    {hasExtra && <span className="mdbase-collections-footer-extra">{extra}</span>}
     {chooseAnother && <ActionButton tone="quiet" inert={busy !== null} progress={busy === "choose_another" ? copy.chooseAnother : null}
       onClick={actions.chooseAnother}>{copy.chooseAnother}</ActionButton>}
     {view.signedIn && view.links && <a className="mdbase-collections-link" href={view.links.manageAccess} target="_blank" rel="noopener noreferrer">{copy.manageAccess}</a>}

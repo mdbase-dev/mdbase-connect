@@ -38,9 +38,10 @@ applyThemePreference(loadThemePreference());
 
 ## Collections
 
-Import `@mdbase-dev/ui/collections` and `@mdbase-dev/ui/collections.css`,
-alongside `tokens.css`. Every component takes the SDK front door from
-`createMdbase` (an optional peer dependency) and `app: { name, mark? }`.
+Import `@mdbase-dev/ui/collections` and `@mdbase-dev/ui/collections.css`.
+`tokens.css` is optional: without it every value falls back to a built-in one.
+Every component takes the SDK front door from `createMdbase` (an optional peer
+dependency) and `app: { name, mark? }`.
 
 ```tsx
 import { CollectionGate, CollectionSwitcher } from "@mdbase-dev/ui/collections";
@@ -55,8 +56,31 @@ import "@mdbase-dev/ui/collections.css";
   problems, and renders its children once the phase is `ready`. A live problem
   then shows as a banner above them. `layout="panel"` fits inside a shell or a
   dialog.
+- The gate calls `mdbase.start()` itself while the front door hasn't started
+  (`autoStart`, default `true`). It makes one call however many gates render,
+  and none once the app has started it, so apps can drop their own `start()`.
+  Pass `autoStart={false}` to start it yourself. `CollectionPanel` does the same.
+- `extraActions` holds the app's own actions. On the signed-out screen they sit
+  beside Sign in. On every other gate screen they lead the footer, never under
+  a problem. Pass a function `(view) => node` to vary them by `view.kind`, or
+  return `null` to hide them.
 - `CollectionSwitcher` (`variant` `full`, `compact` or `icon`) is the header
-  switcher: a popover, and a bottom sheet below 640px.
+  switcher: a popover, and a bottom sheet below 640px. `icon` puts the app's
+  icon before the name, or `icon="mark"` the open collection's initials. In
+  the `icon` variant it replaces the folder glyph.
+- `rowDetail(row)` adds a second line to each collection row, such as where it
+  lives or which account it belongs to. `row.entry` is the SDK's entry.
+- `sections` lists collections the app knows about and the SDK doesn't (local
+  or private ones). Each section is `{ id, title, items, onSelect, onClose?,
+  empty? }`, and each item is `{ id, name, detail?, current?, disabled? }`.
+  Sections appear after "Your collections" on the gate's choosing and
+  signed-out screens and in the switcher. Selecting an item asks
+  `onBeforeLeave("switch")` when something is open, closes any other open
+  item, then calls `onSelect` from the click. Mark the open item `current`.
+  The gate then renders `renderAppCollection(item, { section, chooseAnother })`
+  instead of its screens, and `chooseAnother()` (or "Choose a different
+  collection" in the switcher) calls `onClose` to return to the list. Choosing
+  an SDK collection also calls `onClose` first.
 - `CollectionPanel` combines the gate screens with the switcher list, for
   settings dialogs. `CollectionProblem` shows one problem with its fix, either
   the current one or an error the app passes in.
@@ -64,15 +88,67 @@ import "@mdbase-dev/ui/collections.css";
   another collection or signing out. Return `true` or a promise. The Connect
   window opens straight after it, with no other await in between.
 - `allowDelete` enables "Delete collection…" for owners. `copy` overrides
-  strings from `defaultCollectionCopy`.
+  strings from `defaultCollectionCopy`. `DeleteCollectionDialog`'s
+  `onClose(outcome)` reports `"deleted"`, `"cancelled"` (closed without trying)
+  or `"failed"` (closed after a refused delete).
 - `collectionView(snapshot)` is the headless model behind the components:
   heading, rows and a notice with its control.
 - Hosts that don't use React call
   `mountCollectionUi(element, { part: "panel" | "switcher" | "problem", ...options })`,
   which returns `{ update, unmount }`. React and react-dom must be installed.
-- To restyle, map `--mdbase-collections-accent`, `-on-accent`, `-surface`,
-  `-canvas`, `-text`, `-text-soft`, `-border`, `-danger`, `-radius`, `-font`
-  and `-control-height`. Each falls back to an app-ui token.
+
+### Testing
+
+The focus and popover code reads the global `window` and `document`, not the
+rendered element's document. Test files that use a jsdom environment
+(`// @vitest-environment jsdom`) already have them. A Node test that creates
+its own window has to make it global before rendering:
+
+```ts
+import { shareTestDocument } from "@mdbase-dev/ui/collections/testing";
+import { JSDOM } from "jsdom";
+
+const restore = shareTestDocument(new JSDOM("<!doctype html><body></body>").window);
+afterAll(restore);
+```
+
+### Restyling
+
+Map these properties anywhere up the tree (`:root` is fine) instead of
+overriding internals. Each one falls back to the app-ui token, then to the
+built-in value.
+
+| Property (`--mdbase-collections-…`) | Used for | app-ui token | Built-in |
+| --- | --- | --- | --- |
+| `accent` | filled actions, focus, the current row | `--color-accent` | blue |
+| `on-accent` | text on the accent | `--color-on-accent` | near white |
+| `surface` | popovers, sheets, dialogs, rows | `--color-surface` | near white |
+| `canvas` | the gate page background | `--color-canvas` | near white |
+| `text` | primary text | `--color-text` | near black |
+| `text-soft` | secondary text | `--color-text-soft` | grey |
+| `border` | hairlines | `--color-border-strong` | light grey |
+| `danger` | errors and destructive actions | `--color-danger` | red |
+| `warning` | warning text | `--color-warning-text` | amber |
+| `warning-edge` | the warning notice's edge | `--color-warning` | amber |
+| `scrim` | behind dialogs and sheets | `--color-scrim` | `rgb(0 0 0 / 0.3)` |
+| `current-bg` | the open collection's row | (none) | accent 9% into surface, mixed in oklab |
+| `font` | font family | `--sans` | `system-ui, sans-serif` |
+| `font-size` | body text | `--font-size-ui` | `0.8125rem` |
+| `font-size-caption` | row details, chips, labels | `--font-size-caption` | `0.75rem` |
+| `font-size-section` | leads, panel headings | `--font-size-section` | `0.9375rem` |
+| `font-size-heading` | the gate heading | `--font-size-heading` | `1.5rem` |
+| `font-weight-strong` | names, headings, buttons | `--font-weight-semibold` | `600` |
+| `radius-sm` | rows, buttons, fields | `--radius-sm` | `4px` |
+| `radius` | lists and cards | `--radius-md` | `8px` |
+| `radius-lg` | popovers, dialogs, sheets | `--radius-lg` | `12px` |
+| `elevation-low` | menus | `--elevation-low` | soft shadow |
+| `elevation-high` | popovers and dialogs | `--elevation-high` | deeper shadow |
+| `control-height` | button and row height | (none) | `36px`, `44px` on touch |
+
+Motion reads `--ease-standard`, `--motion-quick` and `--motion-spin`
+(`150ms` and `700ms` built in), and reduced motion slows the spinner. The
+built-in colours are light-theme values: an app with a dark theme and no
+`tokens.css` maps the colour properties.
 
 ## Shared feedback
 

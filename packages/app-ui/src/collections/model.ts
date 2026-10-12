@@ -26,6 +26,8 @@ export interface CollectionRow {
   readonly status: string | null;
   /** The longer explanation for an unavailable collection. */
   readonly statusDetail: string | null;
+  /** The SDK's entry, for app-derived details (see `rowDetail`). */
+  readonly entry: MdbaseSnapshot["collections"][number];
 }
 
 /** What a problem's own button does. Every SDK action maps to one control or none. */
@@ -251,6 +253,7 @@ export function collectionRows(
       available: !unavailable,
       status: availability.state === "opening" ? copy.rowOpening : described?.title ?? null,
       statusDetail: described?.message ?? null,
+      entry: c,
     };
   });
   return rows.sort((a, b) => Number(b.current) - Number(a.current) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));

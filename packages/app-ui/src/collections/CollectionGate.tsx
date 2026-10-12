@@ -5,17 +5,40 @@ import { describeError } from "@mdbase-dev/sdk/describe";
 import { SwitcherContent } from "./CollectionSwitcher.js";
 import { RowDialogs, SignOutDialog, type RowDialog } from "./dialogs.js";
 import { problemControl, actionNotice, type CollectionRow, type CollectionView } from "./model.js";
-import { ActionButton, CollectionMark, GateFooter, NoticeBlock, RowCopy, RowMore } from "./parts.js";
+import { ActionButton, CollectionMark, GateFooter, ItemCopy, NoticeBlock, RowCopy, RowMore } from "./parts.js";
 import { SetupReview } from "./SetupReview.js";
-import { useCollectionUi, type CollectionUi, type CollectionUiOptions } from "./use-collection-ui.js";
+import { useAutoStart, useCollectionUi, type CollectionSection, type CollectionSectionItem, type CollectionUi, type CollectionUiOptions } from "./use-collection-ui.js";
 
-export interface CollectionGateProps extends CollectionUiOptions {
-  /** The app, rendered only once a collection is open and usable. */
-  readonly children: (connection: MdbaseApplicationConnection) => ReactNode;
-  /** App content beside Sign in on the signed-out screen ("Try sample tasks"). */
-  readonly extraActions?: ReactNode;
+/**
+ * The app's own actions on the gate's screens ("Try sample tasks"). A function
+ * gets the screen's view, to vary them by `view.kind` or return null.
+ */
+export type CollectionExtraActions = ReactNode | ((view: CollectionView) => ReactNode);
+
+/** What `renderAppCollection` gets besides the open item. */
+export interface AppCollectionContext {
+  readonly section: CollectionSection;
+  /** Close the item and return to the gate's list (with `onBeforeLeave("choose_another")`). */
+  readonly chooseAnother: () => void;
+}
+
+export interface CollectionGateOwnProps {
+  /** The app's actions: beside Sign in when signed out, in the footer on every other screen. */
+  readonly extraActions?: CollectionExtraActions;
   /** "page" takes the viewport; "panel" sits inside the app's shell or a dialog. */
   readonly layout?: "page" | "panel";
+  /** Call `mdbase.start()` when it hasn't started. Default true; safe with several gates. */
+  readonly autoStart?: boolean;
+}
+
+export interface CollectionGateProps extends CollectionUiOptions, CollectionGateOwnProps {
+  /** The app, rendered only once a collection is open and usable. */
+  readonly children: (connection: MdbaseApplicationConnection) => ReactNode;
+  /**
+   * The app, while one of its section items is open (`current`). Without it
+   * the gate keeps showing its screens. It takes precedence over the SDK's phase.
+   */
+  readonly renderAppCollection?: ((item: CollectionSectionItem, context: AppCollectionContext) => ReactNode) | undefined;
 }
 
 /**
@@ -23,8 +46,15 @@ export interface CollectionGateProps extends CollectionUiOptions {
  * review and problems. In phase `ready` it renders the app, with a banner
  * above it for a live problem (migrating, update required, access removed).
  */
-export function CollectionGate({ children, extraActions, layout = "page", ...options }: CollectionGateProps): JSX.Element {
+export function CollectionGate({ children, renderAppCollection, extraActions, layout = "page", autoStart = true, ...options }: CollectionGateProps): JSX.Element {
   const ui = useCollectionUi(options);
+  useAutoStart(options.mdbase, autoStart);
+  if (ui.appOpen && renderAppCollection) {
+    return <>
+      {renderAppCollection(ui.appOpen.item, { section: ui.appOpen.section, chooseAnother: ui.actions.chooseAnother })}
+      <SignOutDialog ui={ui} />
+    </>;
+  }
   if (ui.view.kind === "ready") {
     return <>
       {ui.view.notice && <div className="mdbase-collections"><NoticeBlock notice={ui.view.notice} ui={ui} variant="banner" /></div>}
@@ -35,14 +65,17 @@ export function CollectionGate({ children, extraActions, layout = "page", ...opt
   return <GateScreen ui={ui} layout={layout} extraActions={extraActions} />;
 }
 
+export interface CollectionPanelProps extends CollectionUiOptions, Omit<CollectionGateOwnProps, "layout"> {}
+
 /**
  * For write-first apps and settings dialogs: the gate's screens in a panel and,
  * once a collection is open, the switcher's list inline.
  */
-export function CollectionPanel(options: CollectionUiOptions): JSX.Element {
+export function CollectionPanel({ extraActions, autoStart = true, ...options }: CollectionPanelProps): JSX.Element {
   const ui = useCollectionUi(options);
+  useAutoStart(options.mdbase, autoStart);
   const [dialog, setDialog] = useState<RowDialog>(null);
-  if (ui.view.kind !== "ready") return <GateScreen ui={ui} layout="panel" />;
+  if (ui.view.kind !== "ready") return <GateScreen ui={ui} layout="panel" extraActions={extraActions} />;
   return <div className="mdbase-collections mdbase-collections-panel">
     {ui.view.notice && <NoticeBlock notice={ui.view.notice} ui={ui} variant="inline" />}
     <SwitcherContent ui={ui} onDone={() => {}} onForget={(row) => setDialog({ kind: "forget", row })} onDelete={(row) => setDialog({ kind: "delete", row })} />
@@ -73,8 +106,13 @@ export function CollectionProblem({ problem, variant = "banner", ...options }: C
   return <div className="mdbase-collections"><NoticeBlock notice={notice} ui={ui} variant={variant} /></div>;
 }
 
-function GateScreen({ ui, layout, extraActions }: { ui: CollectionUi; layout: "page" | "panel"; extraActions?: ReactNode }): JSX.Element {
+function GateScreen({ ui, layout, extraActions }: { ui: CollectionUi; layout: "page" | "panel"; extraActions?: CollectionExtraActions | undefined }): JSX.Element {
   const { view, options } = ui;
+  const extra = typeof extraActions === "function" ? extraActions(view) : extraActions;
+  // An empty SDK list is not "no collections" when the app lists its own.
+  const appListed = view.kind === "choosing" && view.collections.length === 0 && (options.sections ?? []).some((section) => section.items.length > 0);
+  const headingText = appListed ? ui.say("chooseHeading") : view.heading;
+  const lead = appListed ? null : view.lead;
   const heading = useRef<HTMLHeadingElement>(null);
   const root = useRef<HTMLDivElement>(null);
   const [dialog, setDialog] = useState<RowDialog>(null);
@@ -95,11 +133,11 @@ function GateScreen({ ui, layout, extraActions }: { ui: CollectionUi; layout: "p
         {options.app.mark && <span className="mdbase-collections-brand-mark" aria-hidden="true">{options.app.mark}</span>}
         <span>{options.app.name}</span>
       </p>
-      <Heading ref={heading} tabIndex={-1} className="mdbase-collections-heading">{view.heading}</Heading>
-      {view.lead && <p className="mdbase-collections-lead">{view.lead}</p>}
-      <GateBody ui={ui} extraActions={extraActions} onForget={(row) => setDialog({ kind: "forget", row })} onDelete={(row) => setDialog({ kind: "delete", row })} />
+      <Heading ref={heading} tabIndex={-1} className="mdbase-collections-heading">{headingText}</Heading>
+      {lead && <p className="mdbase-collections-lead">{lead}</p>}
+      <GateBody ui={ui} extraActions={view.kind === "signed_out" ? extra : undefined} onForget={(row) => setDialog({ kind: "forget", row })} onDelete={(row) => setDialog({ kind: "delete", row })} />
       {ui.error && <NoticeBlock notice={ui.error} ui={ui} variant="inline" />}
-      <GateFooter ui={ui} chooseAnother={showsChooseAnother(view)} />
+      <GateFooter ui={ui} chooseAnother={showsChooseAnother(view)} extra={view.kind === "signed_out" ? undefined : extra} />
     </div>
     <p className="mdbase-collections-visually-hidden" role="status">{announce}</p>
     <RowDialogs ui={ui} dialog={dialog} onClose={() => setDialog(null)} />
@@ -137,6 +175,7 @@ function GateBody({ ui, extraActions, onForget, onDelete }: {
           <ActionButton tone="primary" inert={inert} progress={busy === "sign_in" ? copy.addingCollection : null} onClick={actions.signIn}>{copy.signIn}</ActionButton>
           {extraActions}
         </div>
+        <AppSections ui={ui} />
       </>;
     case "authorizing":
       return <div className="mdbase-collections-actions">
@@ -148,6 +187,7 @@ function GateBody({ ui, extraActions, onForget, onDelete }: {
       return <>
         {view.notice && <NoticeBlock notice={view.notice} ui={ui} variant="inline" />}
         {view.collections.length > 0 && <CollectionList ui={ui} onForget={onForget} onDelete={onDelete} />}
+        <AppSections ui={ui} />
         <div className="mdbase-collections-actions">
           <ActionButton tone={view.collections.length > 0 ? "secondary" : "primary"} inert={inert} progress={busy === "add" ? copy.addingCollection : null}
             onClick={actions.addCollection}>{copy.addCollection}</ActionButton>
@@ -199,5 +239,36 @@ function CollectionList({ ui, onForget, onDelete }: { ui: CollectionUi; onForget
         </li>;
       })}
     </ul>
+  </section>;
+}
+
+/** The app's own sections ("Private collections"), after the SDK's list. */
+function AppSections({ ui }: { ui: CollectionUi }): JSX.Element | null {
+  const sections = (ui.options.sections ?? []).filter((section) => section.items.length > 0 || section.empty);
+  if (sections.length === 0) return null;
+  return <>{sections.map((section) => <AppSection key={section.id} ui={ui} section={section} />)}</>;
+}
+
+function AppSection({ ui, section }: { ui: CollectionUi; section: CollectionSection }): JSX.Element {
+  const id = useId();
+  const { busy, actions } = ui;
+  return <section className="mdbase-collections-section" aria-labelledby={id} data-section={section.id}>
+    <h2 id={id} className="mdbase-collections-section-title">{section.title}</h2>
+    {section.items.length === 0
+      ? <p className="mdbase-collections-empty">{section.empty}</p>
+      : <ul className="mdbase-collections-list">
+        {section.items.map((item) => <li key={item.id} className="mdbase-collections-item">
+          <button
+            type="button"
+            className="mdbase-collections-row"
+            aria-disabled={item.disabled || busy !== null || undefined}
+            aria-current={item.current || undefined}
+            onClick={() => { if (busy === null) actions.selectItem(section, item); }}
+          >
+            <CollectionMark row={item} />
+            <ItemCopy item={item} ui={ui} />
+          </button>
+        </li>)}
+      </ul>}
   </section>;
 }

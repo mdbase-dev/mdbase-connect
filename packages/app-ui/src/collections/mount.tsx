@@ -11,6 +11,10 @@ export interface MountCollectionUiOptions extends CollectionUiOptions {
   /** "panel": sign-in, choosing and the list (a settings dialog); "switcher": the header trigger; "problem": the current problem with its fix. */
   readonly part: CollectionUiPart;
   readonly variant?: CollectionSwitcherProps["variant"];
+  /** "switcher": leading content in the trigger ("mark" for the collection's initials). */
+  readonly icon?: CollectionSwitcherProps["icon"];
+  /** "panel": call `mdbase.start()` when it hasn't started. Default true. */
+  readonly autoStart?: boolean;
 }
 
 export interface MountedCollectionUi {
@@ -30,10 +34,10 @@ export function mountCollectionUi(element: Element, options: MountCollectionUiOp
   };
 }
 
-function Part({ part, variant, ...options }: MountCollectionUiOptions): JSX.Element | null {
+function Part({ part, variant, icon, autoStart, ...options }: MountCollectionUiOptions): JSX.Element | null {
   switch (part) {
-    case "panel": return <CollectionPanel {...options} />;
-    case "switcher": return <CollectionSwitcher {...options} {...(variant ? { variant } : {})} />;
+    case "panel": return <CollectionPanel {...options} {...(autoStart === undefined ? {} : { autoStart })} />;
+    case "switcher": return <CollectionSwitcher {...options} {...(variant ? { variant } : {})} {...(icon === undefined ? {} : { icon })} />;
     case "problem": return <CollectionProblem {...options} />;
   }
 }
