@@ -170,8 +170,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/protocol
       '@mdbase-dev/sdk':
-        specifier: file:vendor/mdbase-dev-sdk-dev-cf294bdb.tgz
-        version: file:apps/editor/vendor/mdbase-dev-sdk-dev-cf294bdb.tgz
+        specifier: file:vendor/mdbase-dev-sdk-dev-a965bd26.tgz
+        version: file:apps/editor/vendor/mdbase-dev-sdk-dev-a965bd26.tgz
       '@mdbase-dev/ui':
         specifier: workspace:*
         version: link:../../packages/app-ui
@@ -1820,8 +1820,8 @@ packages:
   '@marijn/find-cluster-break@1.0.4':
     resolution: {integrity: sha512-Wy0V7+SGUjnF9/TkiM1hKVDPj7jKXduPNboMVtHTA8dySMURWqfg/JZ9E2Sq8JgSJmkl7k7Qe9FLeMSrSraWmQ==}
 
-  '@mdbase-dev/sdk@file:apps/editor/vendor/mdbase-dev-sdk-dev-cf294bdb.tgz':
-    resolution: {integrity: sha512-Gr40XybIqzTDLlhFCCyffzmokNbA8vvNk2qwy1T83QjPR1O3nBn7pcYmqmTUfpcgPE7N6k6pmuPhlj7kV5YufA==, tarball: file:apps/editor/vendor/mdbase-dev-sdk-dev-cf294bdb.tgz}
+  '@mdbase-dev/sdk@file:apps/editor/vendor/mdbase-dev-sdk-dev-a965bd26.tgz':
+    resolution: {integrity: sha512-A0XWGcpsp//iQu39ocx60vGs3ExiGT7QZ7VpePgiD7i6Z9yA2DFOY3mLUS8GWnZ4knn0SZqzKJ7GVHzjSoDr3Q==, tarball: file:apps/editor/vendor/mdbase-dev-sdk-dev-a965bd26.tgz}
     version: 0.0.0
     engines: {node: '>=20'}
     bundledDependencies:
@@ -6890,7 +6890,7 @@ snapshots:
 
   '@marijn/find-cluster-break@1.0.4': {}
 
-  '@mdbase-dev/sdk@file:apps/editor/vendor/mdbase-dev-sdk-dev-cf294bdb.tgz':
+  '@mdbase-dev/sdk@file:apps/editor/vendor/mdbase-dev-sdk-dev-a965bd26.tgz':
     dependencies:
       '@noble/ciphers': 2.4.0
       '@noble/curves': 2.4.0
