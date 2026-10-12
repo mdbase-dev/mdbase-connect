@@ -11,6 +11,7 @@
     "migrate": "node dist/migrate.js",
     "next:cp-cert": "node dist/features/next/cp-cert-cli.js",
     "next:deletion-floor": "node dist/features/next/deletion-floor-cli.js",
+    "next:migration-lab": "node dist/features/next/migration-lab-cli.js",
     "next:migration-rollout": "node dist/features/next/migration-rollout-cli.js",
     "next:timers": "node dist/features/next/timers/cli.js",
     "start": "node dist/index.js",

@@ -23,3 +23,5 @@ A cohort normally completes when its accepted archive exists for the current mem
 - each member's flip names exactly its current hosted collections, each cut over and routed as a cloud copy, and its evidence digest equals the digest recomputed from those cutover records.
 
 Completion writes `completed_at`/`completed_revision` and a `next_migration.lab_complete` audit event with the membership digest and the cohort's cutover evidence digest. The completion readback (invitation acceptance and imported-timer effects) accepts that event only when the cohort has no archive acceptance, the event names the completed revision, and the owner's LAB start binding carries the same membership digest; every other readback check is unchanged. Any other configured environment, including `staging`, `production`, `LAB` or none, never writes the event, so a fixture-profile cohort there stays incomplete. A completed revision cannot be unfrozen.
+
+The [LAB migration run](lab-migration-run.md) command drives this profile end to end and exercises route-back.
