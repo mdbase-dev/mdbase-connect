@@ -39,6 +39,14 @@ describe("note sessions", () => {
     expect(note.reproject()).toBe(false);
   });
 
+  it("saves a body-only edit to a heading-less record without adding a heading", async () => {
+    const { session: note, update } = session(document("tasks/20261012150909.md", { body: "", frontmatter: { title: "Task" } }));
+    note.edit({ ...note.draft, body: "Editor wrote this body" });
+    await note.record.flush();
+    expect(update).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ revision: "1" }), { body: "Editor wrote this body" });
+    expect(note.reproject()).toBe(false);
+  });
+
   it("updates a nested display field without replacing its sibling properties", async () => {
     const profile = { display_name: "Ada Lovelace", timezone: "Europe/London" };
     const { session: note, update } = session(document("People/ada.md", {

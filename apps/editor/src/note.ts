@@ -39,11 +39,14 @@ export function editableNote(
     return { title: heading[1].trim(), body: content, source: { kind: "heading" } };
   }
 
-  return { title: basename(note.path), body, source: { kind: "heading" } };
+  const title = basename(note.path);
+  return { title, body, source: { kind: "path", title } };
 }
 
 export function persistedBody(title: string, body: string, source: TitleSource): string {
   if (source.kind === "frontmatter") return body;
+  // A filename stand-in is never written into another app's record unless the person retitles it.
+  if (source.kind === "path" && title.trim() === source.title) return body;
   const cleanTitle = title.trim() || "Untitled";
   const cleanBody = body.replace(/^\s*\n/, "");
   return cleanBody ? `# ${cleanTitle}\n\n${cleanBody}` : `# ${cleanTitle}\n`;

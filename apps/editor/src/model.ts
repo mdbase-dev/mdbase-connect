@@ -98,7 +98,9 @@ export interface MutationOperationOptions {
 
 export type TitleSource =
   | { kind: "frontmatter"; field: string }
-  | { kind: "heading" };
+  | { kind: "heading" }
+  /** No title in the record: the filename stands in until the person changes it. */
+  | { kind: "path"; title: string };
 
 export interface EditableNote {
   title: string;

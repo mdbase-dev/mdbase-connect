@@ -34,10 +34,11 @@ describe("note editing", () => {
     expect(persistedBody("Changed", editable.body, editable.source)).toBe("# Changed\n\nFirst paragraph.\n");
   });
 
-  it("falls back to the filename and promotes it to a heading on save", () => {
-    const editable = editableNote({ ...document({}, "Plain body"), path: "Notes/Fallback.md" });
-    expect(editable.title).toBe("Fallback");
-    expect(persistedBody(editable.title, editable.body, editable.source)).toBe("# Fallback\n\nPlain body");
+  it("shows the filename for a heading-less record without writing it unless retitled", () => {
+    const editable = editableNote({ ...document({ title: "Owned by another app" }, ""), path: "tasks/20261012150909.md" });
+    expect(editable.title).toBe("20261012150909");
+    expect(persistedBody(editable.title, "Editor wrote this body", editable.source)).toBe("Editor wrote this body");
+    expect(persistedBody("Named", "Editor wrote this body", editable.source)).toBe("# Named\n\nEditor wrote this body");
   });
 
   it("reads and safely patches a nested declared display field", () => {
