@@ -34,6 +34,10 @@ export function fixtureMdbase(entry: MdbaseApplicationEntry): Mdbase {
     start: (options) => settle(app.start(options)), signIn: (options) => settle(app.authorize(options)),
     addCollection: (options) => settle(app.approve(null, options)), approve: (id, options) => settle(app.approve(id, options)),
     select: (id, options) => settle(app.select(id, options)), chooseAnother: (options) => settle(app.chooseAnother(options)),
+    refreshCollectionList: (options) =>
+      app.refreshCollectionList ? settle(app.refreshCollectionList(options)) : Promise.reject(new Error("No refreshCollectionList")),
+    reauthorize: (options) => settle(app.reauthorize(options)),
+    configure: (options) => settle(app.configure(options)),
     forget: (id, options) => settle(app.forget(id, options)), deleteCollection: (id, options) => settle(app.deleteCollection(id, options)),
     requestAccess: (request, options) => app.requestAccess(request, options), assess: (options) => app.assess(options),
     setup: { plan: (options) => app.setup.plan(options), apply: async (plan, options) => ({ outcome: "applied", snapshot: await settle(app.setup.apply(plan, options)) }) },
