@@ -36,13 +36,15 @@ and the same body:
 ```
 POST /internal/v1/next/migration/collections/:id/rollback
 POST /internal/v1/next/migration/collections/:id/rollback-receipt
-{ owner_account, started_us, migration_id, authority_epoch, fixed_head,
+{ owner_account, started_us, migration_id, fixed_head,
   driver_id, action_id, replica_ids }
 ```
 
-`owner_account` + `started_us` must be the current claim, `authority_epoch` the
-collection's current epoch, and `replica_ids` canonical, sorted and unique (may be
-empty). Both refuse once the cutover policy is queued. The provider binding is
+`owner_account` + `started_us` must be the current claim, `migration_id` the exact
+provider run, and `replica_ids` canonical, sorted and unique (may be empty). The
+caller never supplies the authority epoch: Connect adds the collection's current
+hosted authority epoch, and the provider refuses one that is not its own. Both
+refuse once the cutover policy is queued. The provider binding is
 `{owner_account_id: owner_account, provider_migration_id: migration_id,
 authority_epoch, fixed_head, driver_id, action_id, replica_ids}`.
 
@@ -61,8 +63,8 @@ names this collection, echoes the exact binding and restores only requested
 replicas (`503 migration_source_unavailable` otherwise). The first verified
 receipt is recorded once as `next_migration.rollback`. Any other binding for a
 recorded run (driver, action, head, scope) is refused with
-`409 migration_rollback_binding_conflict`; a stale epoch with
-`409 migration_epoch_not_current`. A lost reply stays UNKNOWN until a receipt
+`409 migration_rollback_binding_conflict`; an epoch that moved since the binding
+was recorded with `409 migration_epoch_not_current`. A lost reply stays UNKNOWN until a receipt
 read answers.
 
 ## Deliberately not exposed yet

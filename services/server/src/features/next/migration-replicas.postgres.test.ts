@@ -45,7 +45,7 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
   async function fixture() {
     const sources = new Map<string, Source>(), effects: string[] = [];
     const receipts = new Map<string, LegacyMigrationRollbackReceipt>();
-    let head = 10, tamper: ((r: LegacyMigrationRollbackReceipt) => LegacyMigrationRollbackReceipt) | null = null;
+    let head = 10, providerEpoch = 1, tamper: ((r: LegacyMigrationRollbackReceipt) => LegacyMigrationRollbackReceipt) | null = null;
     const owner = await account(), a = await collection(owner, sources), b = await collection(owner, sources);
     const src = (id: string) => sources.get(id)!;
     const owned = (id: string) => sorted([...src(id).replicas].filter(([, by]) => by !== null && by === src(id).run).map(([r]) => r));
@@ -79,7 +79,7 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
         effects.push(`unfence:${id}`); Object.assign(src(id), { state: "active", run: null });
         return { collection_id: id, state: "active", migration_id: null, started_at: null, retain_until: null, restored: [] };
       },
-      // Provider semantics: owner + epoch 1, one receipt per run, exact binding on replay/read.
+      // Provider semantics: owner + its own epoch, one receipt per run, exact binding on replay/read.
       async legacyMigrationRollback(id, binding) {
         effects.push(`rollback:${id}`);
         const existing = receipt(id, binding); if (existing) return existing;
@@ -101,7 +101,7 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
     };
     function conflict(): never { throw new HostedProviderResponseError(409, "legacy_rollback_binding_conflict", "x"); }
     function receipt(id: string, binding: LegacyMigrationRollbackRequest) {
-      if (binding.authority_epoch !== 1) conflict();
+      if (binding.authority_epoch !== providerEpoch) conflict();
       const found = receipts.get(`${id}:${binding.provider_migration_id}`);
       if (found && JSON.stringify(found.binding) !== JSON.stringify(binding)) conflict();
       return found;
@@ -118,12 +118,12 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
     const replicas = (id = a) => sorted([...src(id).replicas.keys()]);
     const cutovers = async (id = a) => (await db.query<{ ops: { ops: unknown[] } }>(
       `SELECT ops FROM next_policy_outbox WHERE collection_id=$1 AND ops->'ops' @> '[{"op":"migration-cutover"}]'::jsonb`, [id])).rows;
-    const rollbackBody = (id = a, extra: Record<string, unknown> = {}) => ({ ...binding(id), authority_epoch: 1, fixed_head: 42,
+    const rollbackBody = (id = a, extra: Record<string, unknown> = {}) => ({ ...binding(id), fixed_head: 42,
       driver_id: driver, action_id: action, replica_ids: replicas(id), ...extra });
     const events = async (type: string, id = a) => (await db.query<{ metadata: Record<string, unknown> }>(
       "SELECT metadata FROM audit_events WHERE event_type=$1 AND subject_id=$2 ORDER BY id", [type, id])).rows.map(r => r.metadata);
     return { owner, a, b, src, app, call, binding, replicas, cutovers, effects, rollbackBody, events,
-      set head(v: number) { head = v; }, set tamper(v: typeof tamper) { tamper = v; } };
+      set head(v: number) { head = v; }, set providerEpoch(v: number) { providerEpoch = v; }, set tamper(v: typeof tamper) { tamper = v; } };
   }
   type F = Awaited<ReturnType<typeof fixture>>;
   const revokeAll = async (f: F, id = f.a) => {
@@ -300,7 +300,7 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
       const foreign = await account(), stale = String(BigInt(f.binding().started_us) - 1n);
       const refusals: Array<[Record<string, unknown>, string]> = [
         [{ started_us: stale }, "migration_claim_not_current"], [{ owner_account: foreign }, "migration_claim_not_current"],
-        [{ authority_epoch: 2 }, "migration_epoch_not_current"], [{ migration_id: randomUUID() }, "migration_run_not_current"],
+        [{ migration_id: randomUUID() }, "migration_run_not_current"],
         [{ replica_ids: f.replicas().slice(1) }, "migration_revoked_set_mismatch"]];
       for (const [change, code] of refusals) {
         const r = await f.call("rollback", f.rollbackBody(f.a, change)); expect(r.statusCode, r.body).toBe(409);
@@ -311,7 +311,7 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
       const wrong = await f.app.inject({ method: "POST", url: `/internal/v1/next/migration/collections/${f.a}/rollback`,
         headers: { authorization: "Bearer session" }, payload: f.rollbackBody() });
       expect(wrong.statusCode).toBe(401);
-      for (const extra of [{ replica_ids: [...f.replicas()].reverse() }, { authority_epoch: 0 }, { fixed_head: -1 }, { driver_id: "x" }, { extra: 1 }]) {
+      for (const extra of [{ replica_ids: [...f.replicas()].reverse() }, { authority_epoch: 1 }, { fixed_head: -1 }, { driver_id: "x" }, { extra: 1 }]) {
         expect((await f.call("rollback", f.rollbackBody(f.a, extra))).statusCode).toBe(400);
       }
       expect(f.effects.filter(e => !e.startsWith("revoke"))).toEqual([]);
@@ -328,8 +328,10 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
       await revokeAll(f);
       const body = f.rollbackBody();
       expect((await f.call("rollback", body)).statusCode).toBe(200);
-      const changed = { ...body, [field]: { driver_id: randomUUID(), action_id: randomUUID(), fixed_head: 41,
-        replica_ids: f.replicas().slice(1), authority_epoch: 2, migration_id: randomUUID() }[field] };
+      // The epoch is never presented: it moves under the recorded binding instead.
+      if (field === "authority_epoch") await db.query("UPDATE hosted_collections SET authority_epoch=2 WHERE id=$1", [f.a]);
+      const changed = field === "authority_epoch" ? body : { ...body, [field]: { driver_id: randomUUID(), action_id: randomUUID(), fixed_head: 41,
+        replica_ids: f.replicas().slice(1), migration_id: randomUUID() }[field] };
       const effects = f.effects.length;
       for (const kind of ["rollback", "rollback-receipt"]) {
         const r = await f.call(kind, changed);
@@ -339,6 +341,7 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
       }
       expect(f.effects).toHaveLength(effects);
       expect(await f.events("next_migration.rollback_intent")).toHaveLength(1);
+      if (field === "authority_epoch") await db.query("UPDATE hosted_collections SET authority_epoch=1 WHERE id=$1", [f.a]);
       expect((await f.call("rollback-receipt", body)).statusCode).toBe(200);
     } finally { await f.app.close(); }
   });
@@ -359,6 +362,27 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
       f.tamper = null;
       expect((await f.call("rollback-receipt", body)).statusCode).toBe(200);
       expect(await f.events("next_migration.rollback")).toHaveLength(1);
+    } finally { await f.app.close(); }
+  });
+  it("derives the epoch from the collection's current provider binding, never from the caller", async () => {
+    const f = await fixture(); try {
+      await revokeAll(f);
+      await db.query("UPDATE hosted_collections SET authority_epoch=5 WHERE id=$1", [f.a]); f.providerEpoch = 7;
+      const body = f.rollbackBody();
+      // Connect's binding is not the provider's: refused, nothing restored.
+      const stale = await f.call("rollback", body); expect(stale.statusCode, stale.body).toBe(409);
+      expect(stale.json().error.code).toBe("migration_rollback_binding_conflict");
+      expect(f.src(f.a).state).toBe("migrating");
+      await db.query("UPDATE hosted_collections SET authority_epoch=7 WHERE id=$1", [f.a]);
+      // The recorded epoch-5 binding stays the run's binding until the epoch is 5 again.
+      expect((await f.call("rollback", body)).json().error.code).toBe("migration_epoch_not_current");
+      const g = await fixture(); try {
+        await revokeAll(g);
+        await db.query("UPDATE hosted_collections SET authority_epoch=7 WHERE id=$1", [g.a]); g.providerEpoch = 7;
+        const done = await g.call("rollback", g.rollbackBody()); expect(done.statusCode, done.body).toBe(200);
+        expect(done.json().binding.authority_epoch).toBe(7);
+        expect((await g.call("rollback-receipt", g.rollbackBody(g.a, { migration_id: done.json().binding.provider_migration_id }))).json()).toEqual(done.json());
+      } finally { await g.app.close(); }
     } finally { await f.app.close(); }
   });
 });

@@ -48,7 +48,7 @@ const ids = (min: number) => z.array(uuid).min(min).max(1000).refine(list => lis
 const binding = z.object({ owner_account: uuid, started_us: z.string().regex(/^[1-9][0-9]{0,23}(?![\s\S])/u), migration_id: uuid }).strict();
 const counter = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const rollbackBody = binding.extend({
-  authority_epoch: counter.min(1), fixed_head: counter, driver_id: uuid, action_id: uuid, replica_ids: ids(0)
+  fixed_head: counter, driver_id: uuid, action_id: uuid, replica_ids: ids(0)
 }).strict();
 const bodies = {
   replicas: binding,
@@ -163,15 +163,22 @@ async function step(kind: Kind, collection: string, body: Record<string, unknown
 
 const ROLLBACK_INTENT = "next_migration.rollback_intent", ROLLBACK_DONE = "next_migration.rollback";
 type ProviderBinding = Parameters<Provider["legacyMigrationRollback"]>[1];
-const providerBinding = (b: RollbackBody): ProviderBinding => ({ owner_account_id: b.owner_account, provider_migration_id: b.migration_id,
-  authority_epoch: b.authority_epoch, fixed_head: b.fixed_head, driver_id: b.driver_id, action_id: b.action_id, replica_ids: b.replica_ids });
+const providerBinding = (b: RollbackBody, epoch: number): ProviderBinding => ({ owner_account_id: b.owner_account, provider_migration_id: b.migration_id,
+  authority_epoch: epoch, fixed_head: b.fixed_head, driver_id: b.driver_id, action_id: b.action_id, replica_ids: b.replica_ids });
 const sameBinding = (a: Record<string, unknown>, b: ProviderBinding) => (Object.keys(b) as Array<keyof ProviderBinding>)
   .every(key => JSON.stringify(a[key]) === JSON.stringify(b[key])) && Object.keys(a).length === Object.keys(b).length;
 
-async function epochCurrent(db: DatabaseQueryable, collection: string, body: RollbackBody) {
-  const epoch = (await db.query<{ epoch: string }>("SELECT authority_epoch::text AS epoch FROM hosted_collections WHERE id=$1", [collection])).rows[0]?.epoch;
-  if (epoch !== String(body.authority_epoch)) throw new RolloutRefused("migration_epoch_not_current", "The presented authority epoch is not current.");
+/** The collection's current provider authority epoch, as Connect binds it: never
+ * caller-supplied, and never assumed. */
+async function currentEpoch(db: DatabaseQueryable, collection: string, locked = false) {
+  const epoch = (await db.query<{ epoch: string }>(
+    `SELECT authority_epoch::text AS epoch FROM hosted_collections WHERE id=$1${locked ? " FOR SHARE" : ""}`, [collection])).rows[0]?.epoch;
+  if (!epoch || !/^[1-9][0-9]{0,15}$/u.test(epoch) || !Number.isSafeInteger(Number(epoch))) {
+    throw new RolloutRefused("migration_source_not_current", "No current hosted authority epoch.");
+  }
+  return Number(epoch);
 }
+const epochMoved = () => new RolloutRefused("migration_epoch_not_current", "The collection's authority epoch changed since the rollback was recorded.");
 
 /** Whether Connect recorded this exact binding for the run; any other binding
  * for the same run (another driver, action, epoch, head or scope) refuses. */
@@ -179,21 +186,23 @@ async function intended(db: DatabaseQueryable, collection: string, account: stri
   const rows = (await db.query<{ binding: Record<string, unknown> }>(
     `SELECT metadata->'binding' AS binding FROM audit_events WHERE user_id=$1 AND event_type=$2 AND subject_id=$3 AND metadata->>'migration_id'=$4`,
     [account, ROLLBACK_INTENT, collection, input.provider_migration_id])).rows;
-  if (rows.some(row => !row.binding || typeof row.binding !== "object" || !sameBinding(row.binding, input))) {
+  for (const { binding: recorded } of rows) {
+    if (recorded && typeof recorded === "object" && sameBinding(recorded, input)) continue;
+    if (recorded && typeof recorded === "object" && sameBinding({ ...recorded, authority_epoch: input.authority_epoch }, input)) throw epochMoved();
     throw new RolloutRefused("migration_rollback_binding_conflict", "A different rollback binding was recorded for this run.");
   }
   return rows.length > 0;
 }
 
 /** Atomic receipted pre-cutover rollback, or a read of its receipt. The first
- * dispatch needs the presented fenced run, a current epoch and a scope covering
- * every revocation the run owns; Connect records the binding before dispatch. */
+ * dispatch needs the presented fenced run and a scope covering every revocation
+ * the run owns; Connect adds the current epoch and records the binding before
+ * dispatch. A replay or read presents the rest of that binding again. */
 async function rollback(kind: "rollback" | "rollback-receipt", collection: string, body: RollbackBody,
   options: Options & { provider: Provider }, deadline: number) {
-  const input = providerBinding(body);
   return serialized(options.db, collection, async () => {
     await refuseQueuedCutover(options.db, collection);
-    await epochCurrent(options.db, collection, body);
+    const input = providerBinding(body, await currentEpoch(options.db, collection));
     const known = await intended(options.db, collection, body.owner_account, input);
     if (kind === "rollback-receipt" && !known) throw new RolloutRefused("migration_rollback_unknown", "No rollback with this exact binding was dispatched.", 404);
     if (!known) {
@@ -206,7 +215,7 @@ async function rollback(kind: "rollback" | "rollback-receipt", collection: strin
       await inTransaction(options.db, async client => {
         const current = await bound(client, collection, body, true);
         await refuseQueuedCutover(client, collection);
-        await epochCurrent(client, collection, body);
+        if (await currentEpoch(client, collection, true) !== input.authority_epoch) throw epochMoved();
         if (await intended(client, collection, current.account, input)) return;
         await audit(client, current.account, ROLLBACK_INTENT, collection, { migration_id: body.migration_id, binding: input });
       });
