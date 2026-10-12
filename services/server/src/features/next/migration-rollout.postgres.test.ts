@@ -215,6 +215,68 @@ describePg("staged hosted migration rollout (dedicated local Postgres)", () => {
     await app.close(); await untimed.close();
   });
 
+  it("carries the starter reservation unchanged and refuses the flip when it drifted since start", async () => {
+    const a = await account(["active"]), b = await account(["active"]);
+    const reserve = (user: string, claimed: boolean) => db.query(
+      `INSERT INTO account_onboarding(user_id,starter_collection_id,template_version,timezone,provisioning_started_at)
+       VALUES($1,$2,'starter-v1','Pacific/Chatham',CASE WHEN $3 THEN now() END)`, [user, randomUUID(), claimed]);
+    const reservation = async (user: string) => (await db.query(
+      "SELECT starter_collection_id::text,template_version,timezone,provisioned_at,provisioning_started_at FROM account_onboarding WHERE user_id=$1", [user])).rows[0];
+    await reserve(a.user, false); await reserve(b.user, true);
+    await released([a.user, b.user]);
+    await setPaused(db, false, "go", OP);
+    await startAccountMigration(db, a.user); await startAccountMigration(db, b.user);
+    const original = await reservation(a.user);
+    const evidence = await cutAll(a), gate = await migratedTimerGate(db, a.user, a.ids);
+    const restore = () => db.query(
+      `INSERT INTO account_onboarding(user_id,starter_collection_id,template_version,timezone,provisioned_at,provisioning_started_at) VALUES($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (user_id) DO UPDATE SET starter_collection_id=EXCLUDED.starter_collection_id,template_version=EXCLUDED.template_version,
+         timezone=EXCLUDED.timezone,provisioned_at=EXCLUDED.provisioned_at,provisioning_started_at=EXCLUDED.provisioning_started_at`,
+      [a.user, original.starter_collection_id, original.template_version, original.timezone, original.provisioned_at, original.provisioning_started_at]);
+    for (const drift of [
+      ["UPDATE account_onboarding SET starter_collection_id=$2 WHERE user_id=$1", [randomUUID()]],
+      ["UPDATE account_onboarding SET timezone='UTC' WHERE user_id=$1", []],
+      ["UPDATE account_onboarding SET template_version='starter-v2' WHERE user_id=$1", []],
+      ["UPDATE account_onboarding SET provisioned_at=now() WHERE user_id=$1", []],
+      ["UPDATE account_onboarding SET provisioning_started_at=now() WHERE user_id=$1", []],
+      ["DELETE FROM account_onboarding WHERE user_id=$1", []]
+    ] as const) {
+      await db.query(drift[0], [a.user, ...drift[1]]);
+      expect(await code(flipAccountBackend(db, a.user, a.ids, evidence, gate))).toBe("starter_reservation_changed");
+      await restore();
+    }
+    // A start that recorded no reservation is not evidence of an unchanged one.
+    await db.query("UPDATE audit_events SET metadata=metadata-'starter_reservation' WHERE event_type='next_migration.start' AND user_id=$1", [a.user]);
+    expect(await code(flipAccountBackend(db, a.user, a.ids, evidence, gate))).toBe("starter_reservation_changed");
+    await db.query("UPDATE audit_events SET metadata=metadata||jsonb_build_object('starter_reservation',NULL) WHERE event_type='next_migration.start' AND user_id=$1", [a.user]);
+    expect(await code(flipAccountBackend(db, a.user, a.ids, evidence, gate))).toBe("starter_reservation_changed");
+    await db.query("DELETE FROM account_onboarding WHERE user_id=$1", [a.user]);
+    // Recorded as none, but a reservation appeared after the start.
+    await reserve(a.user, false);
+    expect(await code(flipAccountBackend(db, a.user, a.ids, evidence, gate))).toBe("starter_reservation_changed");
+    await restore();
+    await db.query("UPDATE audit_events SET metadata=metadata||jsonb_build_object('starter_reservation',$2::text) WHERE event_type='next_migration.start' AND user_id=$1",
+      [a.user, "0".repeat(64)]);
+    expect(await code(flipAccountBackend(db, a.user, a.ids, evidence, gate))).toBe("starter_reservation_changed");
+    expect((await db.query("SELECT account_backend FROM users WHERE id=$1", [a.user])).rows[0].account_backend).toBe("legacy");
+    // A provisioning attempt in flight at start stays refused, not reset.
+    const bEvidence = await cutAll(b);
+    expect(await code(flipAccountBackend(db, b.user, b.ids, bEvidence, await migratedTimerGate(db, b.user, b.ids)))).toBe("starter_provisioning_in_flight");
+    expect((await reservation(b.user)).provisioning_started_at).not.toBeNull();
+  });
+
+  it("flips with the starter reservation the start recorded and leaves it in place", async () => {
+    const a = await account(["active"]);
+    await db.query("INSERT INTO account_onboarding(user_id,starter_collection_id,template_version,timezone) VALUES($1,$2,'starter-v1','Pacific/Chatham')", [a.user, randomUUID()]);
+    const before = (await db.query("SELECT * FROM account_onboarding WHERE user_id=$1", [a.user])).rows[0];
+    await released([a.user]);
+    await setPaused(db, false, "go", OP);
+    await startAccountMigration(db, a.user);
+    const evidence = await cutAll(a);
+    expect((await flipAccountBackend(db, a.user, a.ids, evidence, await migratedTimerGate(db, a.user, a.ids))).backend).toBe("next");
+    expect((await db.query("SELECT * FROM account_onboarding WHERE user_id=$1", [a.user])).rows[0]).toEqual(before);
+  });
+
   async function insertLegacyHostedCollection(db: DatabasePool, row: Parameters<typeof insertOnClient>[1]) {
     const client = await db.connect();
     try {

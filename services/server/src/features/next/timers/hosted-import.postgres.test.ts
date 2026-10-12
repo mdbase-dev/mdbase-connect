@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, openDatabase, type DatabasePool } from "../../../db.js";
 import type { LegacyMigrationDrain } from "../../../hosted-provider.js";
 import type { LegacyNotificationWatermark } from "../../../hosted-provider-replies.js";
+import { audit } from "../../../platform/audit-events.js";
 import { registerNextCollection } from "../policy-outbox.js";
 import { flipAccountBackend, flipEvidenceDigest, recordCollectionCutover, type TimerFlipGate } from "../migration-rollout.js";
 import { legacyTimerGrantResolver } from "./grants.js";
@@ -70,6 +71,8 @@ suite("strict hosted timer import and the account-flip timer gate (synthetic Pos
     const cohort = `c${randomUUID().replaceAll("-", "").slice(0, 20)}`;
     await db.query("INSERT INTO next_migration_cohorts(name,released_at) VALUES($1,now())", [cohort]);
     await db.query("INSERT INTO next_migration_cohort_members(account_id,cohort,started_at) VALUES($1,$2,now())", [user, cohort]);
+    // The start's audit event: this account has no starter reservation.
+    await audit(db, user, "next_migration.start", user, { starter_reservation: null });
     const namespace = `connect-hosted:${collection}:notifications`;
     await writer.query("INSERT INTO hosted_provider_collections VALUES($1,'migrating',$2,$3,7)", [collection, migration, started]);
     for (let index = 0; index < count; index++) await sourceTimer(namespace, grant, index);

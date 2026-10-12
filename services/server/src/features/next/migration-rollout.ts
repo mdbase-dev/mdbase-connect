@@ -16,6 +16,8 @@
 //   recomputes from those cutover records. It also requires the next timer
 //   service, each legacy source `migrated`, and each collection's timer import
 //   still matching the source watermark and the target rows (timers/hosted-import.ts).
+//   The account's starter reservation must equal what the start recorded, with
+//   no provisioning in flight; the flip carries it unchanged.
 // - A deleted account is terminal: its rows cascade away and
 //   every route answers not found; nothing restores it.
 // - Routes accept only the dedicated migration token; every change is audited.
@@ -457,9 +459,41 @@ export async function startAccountMigration(db: DatabasePool, account: string, e
     const started = (await client.query<{ started_at: Date }>(
       "UPDATE next_migration_cohort_members SET started_at = now() WHERE account_id = $1 RETURNING started_at", [account]
     )).rows[0]!;
-    await audit(client, account, "next_migration.start", account, labFixture ? { profile: "lab-fixture-v1", inventory: labFixture } : {});
+    const starter_reservation = (await starterReservation(client, account)).digest;
+    await audit(client, account, "next_migration.start", account,
+      labFixture ? { profile: "lab-fixture-v1", inventory: labFixture, starter_reservation } : { starter_reservation });
     return { account_id: account, started_at: new Date(started.started_at).toISOString() };
   });
+}
+
+/** The account's starter reservation (`account_onboarding`), carried unchanged
+ * through the flip: a content-free digest of every field, or null when the
+ * account has none. Locked; the start records it and the flip compares it. */
+async function starterReservation(client: DatabaseQueryable, account: string): Promise<{ digest: string | null; inFlight: boolean }> {
+  const row = (await client.query<{ starter: string; template: string; timezone: string; provisioned: string | null; claimed: string | null }>(
+    `SELECT starter_collection_id::text AS starter, template_version AS template, timezone,
+       (extract(epoch FROM provisioned_at) * 1000000)::bigint::text AS provisioned,
+       (extract(epoch FROM provisioning_started_at) * 1000000)::bigint::text AS claimed
+     FROM account_onboarding WHERE user_id = $1 FOR UPDATE`, [account]
+  )).rows[0];
+  if (!row) return { digest: null, inFlight: false };
+  const digest = createHash("sha256").update("mdbase-starter-reservation/v1\n", "ascii")
+    .update(JSON.stringify([account, row.starter, row.template, row.timezone, row.provisioned, row.claimed]), "utf8").digest("hex");
+  return { digest, inFlight: row.claimed !== null };
+}
+
+/** Re-read the starter reservation under the flip's locks: it must equal what the
+ * start recorded, and no provisioning attempt may be in flight. */
+async function requireStarterReservationUnchanged(client: DatabaseQueryable, account: string): Promise<void> {
+  const recorded = (await client.query<{ value: string | null }>(
+    `SELECT metadata->>'starter_reservation' AS value FROM audit_events
+     WHERE user_id = $1 AND event_type = 'next_migration.start' AND subject_id = $1::text AND metadata ? 'starter_reservation'`, [account]
+  )).rows;
+  const current = await starterReservation(client, account);
+  if (recorded.length !== 1 || recorded[0]!.value !== current.digest) {
+    throw new RolloutRefused("starter_reservation_changed", "The account's starter reservation changed since its migration started.");
+  }
+  if (current.inFlight) throw new RolloutRefused("starter_provisioning_in_flight", "The account's starter collection is being provisioned.");
 }
 
 /**
@@ -673,6 +707,7 @@ export async function flipAccountBackend(
     }
     const expected = flipEvidenceDigest(held.map((c) => ({ collection_id: c.id, barrier_f: c.barrier_f!, final_digest: c.final_digest! })));
     if (expected !== evidenceDigest) throw new RolloutRefused("evidence_mismatch", "The evidence digest does not match the recorded cutovers.");
+    await requireStarterReservationUnchanged(client, account);
     if (!sources) throw new Error("Timer sources were not read for an unflipped account.");
     for (const collection of held) {
       const refusal = await timerFlipRefusal(client, account, collection.id, sources.get(collection.id)!);
