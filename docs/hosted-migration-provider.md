@@ -37,13 +37,16 @@ and the same body:
 POST /internal/v1/next/migration/collections/:id/rollback
 POST /internal/v1/next/migration/collections/:id/rollback-receipt
 { owner_account, started_us, migration_id, fixed_head,
-  driver_id, action_id, replica_ids }
+  driver_id, action_id, replica_ids, authority_epoch? }
 ```
 
 `owner_account` + `started_us` must be the current claim, `migration_id` the exact
 provider run, and `replica_ids` canonical, sorted and unique (may be empty). The
-caller never supplies the authority epoch: Connect adds the collection's current
-hosted authority epoch, and the provider refuses one that is not its own. Both
+authority epoch for a fresh rollback is never caller-supplied: Connect adds the
+collection's current hosted authority epoch, and the provider refuses one that
+is not its own. `authority_epoch` may be presented only to re-read a recorded
+rollback and must equal that original binding's epoch; with no recorded binding
+it is `404 migration_rollback_unknown`. Both
 refuse once the cutover policy is queued. The provider binding is
 `{owner_account_id: owner_account, provider_migration_id: migration_id,
 authority_epoch, fixed_head, driver_id, action_id, replica_ids}`.

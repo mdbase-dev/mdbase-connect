@@ -276,9 +276,14 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
       const done = await f.call("rollback", body); expect(done.statusCode, done.body).toBe(200);
       expect(done.json()).toEqual({ collection_id: f.a, binding: expected, restored_ids: f.replicas(), recorded_at: expect.any(String) });
       expect(f.src(f.a)).toMatchObject({ state: "active", run: null });
-      for (const kind of ["rollback-receipt", "rollback-receipt", "rollback"]) {
-        const again = await f.call(kind, body); expect(again.statusCode, again.body).toBe(200);
+      // Re-reads with or without the original receipt's epoch return it unchanged.
+      for (const [kind, extra] of [["rollback-receipt", {}], ["rollback-receipt", { authority_epoch: 1 }], ["rollback", {}],
+        ["rollback", { authority_epoch: 1 }]] as const) {
+        const again = await f.call(kind, { ...body, ...extra }); expect(again.statusCode, again.body).toBe(200);
         expect(again.json()).toEqual(done.json());
+      }
+      for (const kind of ["rollback", "rollback-receipt"]) {
+        expect((await f.call(kind, { ...body, authority_epoch: 2 })).json().error.code).toBe("migration_rollback_binding_conflict");
       }
       expect(await f.events("next_migration.rollback_intent")).toEqual([{ migration_id: body.migration_id, binding: expected }]);
       expect(await f.events("next_migration.rollback")).toEqual([{ migration_id: body.migration_id, binding: expected,
@@ -306,12 +311,17 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
         const r = await f.call("rollback", f.rollbackBody(f.a, change)); expect(r.statusCode, r.body).toBe(409);
         expect(r.json().error.code).toBe(code);
       }
-      const unknown = await f.call("rollback-receipt", f.rollbackBody()); expect(unknown.statusCode).toBe(404);
-      expect(unknown.json().error.code).toBe("migration_rollback_unknown");
+      // An epoch is never authority for a fresh rollback, nor names a receipt that does not exist.
+      for (const kind of ["rollback-receipt", "rollback"]) {
+        for (const extra of kind === "rollback" ? [{ authority_epoch: 1 }] : [{}, { authority_epoch: 1 }]) {
+          const unknown = await f.call(kind, f.rollbackBody(f.a, extra)); expect(unknown.statusCode, unknown.body).toBe(404);
+          expect(unknown.json().error.code).toBe("migration_rollback_unknown");
+        }
+      }
       const wrong = await f.app.inject({ method: "POST", url: `/internal/v1/next/migration/collections/${f.a}/rollback`,
         headers: { authorization: "Bearer session" }, payload: f.rollbackBody() });
       expect(wrong.statusCode).toBe(401);
-      for (const extra of [{ replica_ids: [...f.replicas()].reverse() }, { authority_epoch: 1 }, { fixed_head: -1 }, { driver_id: "x" }, { extra: 1 }]) {
+      for (const extra of [{ replica_ids: [...f.replicas()].reverse() }, { authority_epoch: 0 }, { authority_epoch: "1" }, { fixed_head: -1 }, { driver_id: "x" }, { extra: 1 }]) {
         expect((await f.call("rollback", f.rollbackBody(f.a, extra))).statusCode).toBe(400);
       }
       expect(f.effects.filter(e => !e.startsWith("revoke"))).toEqual([]);
