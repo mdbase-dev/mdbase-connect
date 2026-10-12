@@ -1,0 +1,836 @@
+/*
+ * Shared collection screens (@mdbase-dev/ui/collections). Every rule reads app-ui
+ * roles from tokens.css. Apps with their own design system map these properties
+ * (anywhere up the tree, :root is fine) instead of overriding internals:
+ *
+ *   --mdbase-collections-accent        filled actions, focus, the current row
+ *   --mdbase-collections-on-accent     text on the accent
+ *   --mdbase-collections-surface       popovers, sheets, dialogs, rows
+ *   --mdbase-collections-canvas        the gate page background
+ *   --mdbase-collections-text          primary text
+ *   --mdbase-collections-text-soft     secondary text
+ *   --mdbase-collections-border        hairlines
+ *   --mdbase-collections-danger        errors and destructive actions
+ *   --mdbase-collections-radius        corners
+ *   --mdbase-collections-font          font family
+ *   --mdbase-collections-control-height  button and row height (44px on touch)
+ */
+.mdbase-collections {
+  --_accent: var(--mdbase-collections-accent, var(--color-accent, oklch(47% 0.1 238)));
+  --_on-accent: var(--mdbase-collections-on-accent, var(--color-on-accent, oklch(98% 0.004 245)));
+  --_surface: var(--mdbase-collections-surface, var(--color-surface, oklch(99.5% 0.002 255)));
+  --_canvas: var(--mdbase-collections-canvas, var(--color-canvas, oklch(99.5% 0.002 255)));
+  --_subtle: color-mix(in oklch, var(--_text) 5%, var(--_surface));
+  --_text: var(--mdbase-collections-text, var(--color-text, oklch(21% 0.018 255)));
+  --_text-soft: var(--mdbase-collections-text-soft, var(--color-text-soft, oklch(50% 0.014 255)));
+  --_border: var(--mdbase-collections-border, var(--color-border-strong, oklch(82% 0.008 255)));
+  --_danger: var(--mdbase-collections-danger, var(--color-danger, oklch(50% 0.11 28)));
+  --_warning: var(--color-warning-text, oklch(43% 0.055 69));
+  --_radius: var(--mdbase-collections-radius, var(--radius-md, 8px));
+  --_control: var(--mdbase-collections-control-height, 36px);
+  --_ease: var(--ease-standard, ease);
+  --_fast: var(--motion-quick, 150ms);
+  color: var(--_text);
+  font-family: var(--mdbase-collections-font, var(--sans, system-ui, sans-serif));
+  font-size: var(--font-size-ui);
+  line-height: 1.45;
+}
+
+@media (pointer: coarse) {
+  .mdbase-collections {
+    --_control: var(--mdbase-collections-control-height, 44px);
+  }
+}
+
+.mdbase-collections *,
+.mdbase-collections *::before,
+.mdbase-collections *::after {
+  box-sizing: border-box;
+}
+
+.mdbase-collections-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Gate: one column, heading, lead, the screen's own content, then the footer. */
+.mdbase-collections-gate {
+  display: grid;
+  place-items: start center;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+}
+
+.mdbase-collections-gate[data-layout="page"] {
+  min-height: 100dvh;
+  padding-top: max(10vh, 32px);
+  background: var(--_canvas);
+}
+
+.mdbase-collections-gate-body {
+  width: min(100%, 560px);
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.mdbase-collections-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--_text-soft);
+  font-weight: var(--font-weight-semibold, 600);
+}
+
+.mdbase-collections-brand-mark {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+}
+
+.mdbase-collections-brand-mark > * {
+  width: 100%;
+  height: 100%;
+}
+
+.mdbase-collections-heading {
+  margin: 8px 0 0;
+  color: var(--_text);
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-semibold, 600);
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  overflow-wrap: anywhere;
+}
+
+.mdbase-collections-gate[data-layout="panel"] .mdbase-collections-heading {
+  font-size: var(--font-size-section);
+}
+
+.mdbase-collections-heading:focus {
+  outline: none;
+}
+
+.mdbase-collections-heading:focus-visible {
+  outline: 2px solid var(--_accent);
+  outline-offset: 4px;
+  border-radius: var(--radius-sm);
+}
+
+.mdbase-collections-lead {
+  max-width: 52ch;
+  margin: 0;
+  color: var(--_text-soft);
+  font-size: var(--font-size-section);
+}
+
+.mdbase-collections-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.mdbase-collections-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  color: var(--_text-soft);
+}
+
+/* Buttons: one filled action per screen, tonal secondary, text-led quiet. */
+.mdbase-collections-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: var(--_control);
+  padding: 0 14px;
+  border: 1px solid var(--_border);
+  border-radius: var(--_radius);
+  color: var(--_text);
+  background: var(--_surface);
+  font: inherit;
+  font-weight: var(--font-weight-medium, 500);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background var(--_fast) var(--_ease), border-color var(--_fast) var(--_ease);
+}
+
+.mdbase-collections-button:hover:not([aria-disabled="true"]) {
+  background: var(--_subtle);
+}
+
+.mdbase-collections-button.is-primary {
+  border-color: var(--_accent);
+  color: var(--_on-accent);
+  background: var(--_accent);
+}
+
+.mdbase-collections-button.is-primary:hover:not([aria-disabled="true"]) {
+  background: color-mix(in oklch, var(--_accent) 88%, var(--_text));
+}
+
+.mdbase-collections-button.is-quiet {
+  min-height: auto;
+  padding: 4px 2px;
+  border-color: transparent;
+  color: var(--_accent);
+  background: transparent;
+}
+
+.mdbase-collections-button.is-quiet:hover:not([aria-disabled="true"]) {
+  background: transparent;
+  text-decoration: underline;
+}
+
+.mdbase-collections-button.is-danger {
+  border-color: var(--_danger);
+  color: var(--_on-accent);
+  background: var(--_danger);
+}
+
+.mdbase-collections-button[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.mdbase-collections-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+.mdbase-collections-link {
+  color: var(--_accent);
+  text-underline-offset: 2px;
+}
+
+.mdbase-collections-button:focus-visible,
+.mdbase-collections-link:focus-visible,
+.mdbase-collections-row:focus-visible,
+.mdbase-collections-more:focus-visible,
+.mdbase-collections-trigger:focus-visible,
+.mdbase-collections-menu-item:focus-visible,
+.mdbase-collections-field:focus-visible {
+  outline: 2px solid var(--_accent);
+  outline-offset: 2px;
+}
+
+/* A problem and its fix in one block, with the fix inside. */
+.mdbase-collections-notice {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--_border);
+  border-left-width: 3px;
+  border-radius: var(--_radius);
+  background: var(--_surface);
+}
+
+.mdbase-collections-notice[data-tone="warning"] {
+  border-left-color: var(--color-warning, oklch(60% 0.09 75));
+}
+
+.mdbase-collections-notice[data-tone="error"] {
+  border-left-color: var(--_danger);
+}
+
+.mdbase-collections-notice[data-tone="info"] {
+  border-left-color: var(--_accent);
+}
+
+.mdbase-collections-notice.is-inline {
+  padding: 8px 12px;
+}
+
+.mdbase-collections-notice.is-banner {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  border-width: 0 0 1px;
+  border-radius: 0;
+}
+
+.mdbase-collections-notice-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.mdbase-collections-notice-title {
+  margin: 0;
+  font-weight: var(--font-weight-semibold, 600);
+}
+
+.mdbase-collections-notice-message {
+  margin: 0;
+  color: var(--_text-soft);
+  overflow-wrap: anywhere;
+}
+
+.mdbase-collections-notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Collections are a list, not buttons among actions. */
+.mdbase-collections-section {
+  display: grid;
+  gap: 8px;
+}
+
+.mdbase-collections-section-title {
+  margin: 0;
+  color: var(--_text-soft);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-semibold, 600);
+}
+
+.mdbase-collections-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--_border);
+  border-radius: var(--_radius);
+  list-style: none;
+}
+
+.mdbase-collections-list > .mdbase-collections-item + .mdbase-collections-item {
+  border-top: 1px solid var(--_border);
+}
+
+.mdbase-collections-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding-right: 4px;
+  background: var(--_surface);
+}
+
+.mdbase-collections-row {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: calc(var(--_control) + 12px);
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.mdbase-collections-row:hover:not([aria-disabled="true"]) {
+  background: var(--_subtle);
+}
+
+.mdbase-collections-row[aria-disabled="true"] {
+  cursor: default;
+}
+
+.mdbase-collections-row[aria-disabled="true"] .mdbase-collections-row-name {
+  color: var(--_text-soft);
+}
+
+.mdbase-collections-row[aria-checked="true"] {
+  background: color-mix(in oklch, var(--_accent) 9%, var(--_surface));
+}
+
+.mdbase-collections-mark {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  color: oklch(36% 0.08 var(--mdbase-collections-hue));
+  background: oklch(92% 0.045 var(--mdbase-collections-hue));
+  font-size: var(--font-size-caption);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+:root[data-theme="dark"] .mdbase-collections-mark {
+  color: oklch(88% 0.06 var(--mdbase-collections-hue));
+  background: oklch(34% 0.06 var(--mdbase-collections-hue));
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .mdbase-collections-mark {
+    color: oklch(88% 0.06 var(--mdbase-collections-hue));
+    background: oklch(34% 0.06 var(--mdbase-collections-hue));
+  }
+}
+
+.mdbase-collections-row-copy {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 1px;
+  min-width: 0;
+}
+
+/* Names wrap; they are never cut to an ellipsis in a list. */
+.mdbase-collections-row-name {
+  font-weight: var(--font-weight-semibold, 600);
+  overflow-wrap: anywhere;
+}
+
+.mdbase-collections-row-hint,
+.mdbase-collections-row-meta,
+.mdbase-collections-row-detail {
+  color: var(--_text-soft);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-regular, 400);
+}
+
+.mdbase-collections-row-detail {
+  overflow-wrap: anywhere;
+}
+
+.mdbase-collections-check {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: var(--_accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mdbase-collections-more {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: var(--_control);
+  height: var(--_control);
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--_text-soft);
+  background: transparent;
+  cursor: pointer;
+}
+
+.mdbase-collections-more:hover,
+.mdbase-collections-more[aria-expanded="true"] {
+  color: var(--_text);
+  background: var(--_subtle);
+}
+
+.mdbase-collections-more svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+.mdbase-collections-menu {
+  position: fixed;
+  inset: auto;
+  min-width: 200px;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--_border);
+  border-radius: var(--_radius);
+  color: var(--_text);
+  background: var(--_surface);
+  box-shadow: var(--elevation-low);
+}
+
+.mdbase-collections-menu-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: var(--_control);
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.mdbase-collections-menu-item:hover,
+.mdbase-collections-menu-item:focus-visible {
+  background: var(--_subtle);
+}
+
+.mdbase-collections-menu-item.is-danger {
+  color: var(--_danger);
+}
+
+.mdbase-collections-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--_border);
+  color: var(--_text-soft);
+}
+
+.mdbase-collections-account {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+}
+
+.mdbase-collections-account-label {
+  overflow-wrap: anywhere;
+}
+
+.mdbase-collections-spinner {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  border: 2px solid color-mix(in oklch, var(--_text-soft) 35%, transparent);
+  border-top-color: var(--_accent);
+  border-radius: 50%;
+  animation: mdbase-collections-spin var(--motion-spin, 700ms) linear infinite;
+}
+
+@keyframes mdbase-collections-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mdbase-collections-spinner {
+    animation-duration: 2.4s;
+  }
+}
+
+/* Panel: the switcher's list inline (settings dialogs, write-first apps). */
+.mdbase-collections-panel {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* Setup review. */
+.mdbase-collections-setup {
+  display: grid;
+  gap: 12px;
+}
+
+.mdbase-collections-setup-summary {
+  margin: 0;
+}
+
+.mdbase-collections-setup-section {
+  display: grid;
+  gap: 4px;
+}
+
+.mdbase-collections-setup-section h3 {
+  margin: 0;
+  color: var(--_text-soft);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-semibold, 600);
+}
+
+.mdbase-collections-setup-list {
+  display: grid;
+  gap: 4px;
+  max-height: 40vh;
+  margin: 0;
+  padding: 8px 12px 8px 28px;
+  overflow: auto;
+  border: 1px solid var(--_border);
+  border-radius: var(--_radius);
+  overflow-wrap: anywhere;
+}
+
+/* Switcher trigger: truncates the name; the full name is in its label and title. */
+.mdbase-collections-switcher {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.mdbase-collections-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  min-height: var(--_control);
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  transition: background var(--_fast) var(--_ease), border-color var(--_fast) var(--_ease);
+}
+
+.mdbase-collections-trigger:hover,
+.mdbase-collections-trigger[aria-expanded="true"] {
+  border-color: var(--_border);
+  background: var(--_surface);
+}
+
+.mdbase-collections-trigger-name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: var(--font-weight-semibold, 600);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mdbase-collections-trigger-role {
+  flex: 0 0 auto;
+  color: var(--_text-soft);
+  font-size: var(--font-size-caption);
+}
+
+.mdbase-collections-chevron,
+.mdbase-collections-glyph {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: var(--_text-soft);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform var(--_fast) var(--_ease);
+}
+
+.mdbase-collections-glyph {
+  width: 18px;
+  height: 18px;
+}
+
+.mdbase-collections-trigger[aria-expanded="true"] .mdbase-collections-chevron {
+  transform: rotate(180deg);
+}
+
+@media (max-width: 680px) {
+  .mdbase-collections-switcher[data-variant="full"] .mdbase-collections-trigger-role {
+    display: none;
+  }
+}
+
+.mdbase-collections-popover {
+  position: fixed;
+  inset: auto;
+  z-index: 80;
+  margin: 0;
+  padding: 6px;
+  overflow: auto;
+  border: 1px solid var(--_border);
+  border-radius: var(--radius-lg);
+  outline: 0;
+  color: var(--_text);
+  background: var(--_surface);
+  box-shadow: var(--elevation-high);
+  overscroll-behavior: contain;
+}
+
+.mdbase-collections-switcher-content {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.mdbase-collections-switcher-header {
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+}
+
+.mdbase-collections-eyebrow {
+  color: var(--_text-soft);
+  font-size: var(--font-size-caption);
+  font-weight: 700;
+}
+
+.mdbase-collections-switcher-current {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  overflow-wrap: anywhere;
+}
+
+.mdbase-collections-chip {
+  padding: 1px 6px;
+  border: 1px solid var(--_border);
+  border-radius: var(--radius-lg);
+  color: var(--_text-soft);
+  font-size: var(--font-size-caption);
+}
+
+.mdbase-collections-field {
+  width: 100%;
+  min-height: var(--_control);
+  padding: 0 10px;
+  border: 1px solid var(--_border);
+  border-radius: var(--radius-sm);
+  color: var(--_text);
+  background: var(--_canvas);
+  font: inherit;
+}
+
+.mdbase-collections-filter {
+  margin: 0 2px;
+  width: auto;
+}
+
+.mdbase-collections-switcher-list {
+  display: grid;
+  gap: 1px;
+}
+
+.mdbase-collections-switcher-list .mdbase-collections-item {
+  padding-right: 0;
+  background: transparent;
+}
+
+.mdbase-collections-switcher-list .mdbase-collections-row {
+  min-height: var(--_control);
+  padding: 6px 8px;
+}
+
+.mdbase-collections-empty {
+  margin: 4px 8px;
+  color: var(--_text-soft);
+}
+
+.mdbase-collections-switcher-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 6px 8px 2px;
+  border-top: 1px solid var(--_border);
+}
+
+.mdbase-collections-switcher-actions .is-add {
+  padding-left: 0;
+}
+
+.mdbase-collections-switcher-footer {
+  padding: 6px 8px 2px;
+  border-top: 1px solid var(--_border);
+  color: var(--_text-soft);
+}
+
+/* Narrow screens: the switcher is a bottom sheet. */
+.mdbase-collections-sheet {
+  width: 100%;
+  max-width: 100%;
+  max-height: 85dvh;
+  margin: auto 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  color: var(--_text);
+  background: var(--_surface);
+}
+
+.mdbase-collections-sheet::backdrop {
+  background: var(--color-scrim, rgb(0 0 0 / 0.3));
+}
+
+.mdbase-collections-sheet-body {
+  display: grid;
+  gap: 6px;
+  padding: 8px 12px max(12px, env(safe-area-inset-bottom));
+}
+
+.mdbase-collections-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0 0 8px;
+}
+
+.mdbase-collections-sheet-title {
+  font-weight: var(--font-weight-semibold, 600);
+}
+
+/* Confirmations. */
+.mdbase-collections-dialog {
+  width: min(100% - 32px, 440px);
+  padding: 20px;
+  border: 1px solid var(--_border);
+  border-radius: var(--radius-lg);
+  color: var(--_text);
+  background: var(--_surface);
+  box-shadow: var(--elevation-high);
+}
+
+.mdbase-collections-dialog::backdrop {
+  background: var(--color-scrim, rgb(0 0 0 / 0.3));
+}
+
+.mdbase-collections-dialog-title {
+  margin: 0 0 8px;
+  font-size: var(--font-size-section);
+  overflow-wrap: anywhere;
+}
+
+.mdbase-collections-dialog-body {
+  display: grid;
+  gap: 10px;
+  color: var(--_text-soft);
+}
+
+.mdbase-collections-dialog-body p {
+  margin: 0;
+}
+
+.mdbase-collections-dialog-body form {
+  display: grid;
+  gap: 6px;
+}
+
+.mdbase-collections-field-label {
+  color: var(--_text);
+}
+
+.mdbase-collections-dialog-error {
+  color: var(--_danger);
+}
+
+.mdbase-collections-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+@media (max-width: 479.98px) {
+  .mdbase-collections-gate .mdbase-collections-actions > .mdbase-collections-button:not(.is-quiet) {
+    flex: 1 1 100%;
+  }
+
+  .mdbase-collections-dialog-actions > .mdbase-collections-button {
+    flex: 1 1 auto;
+  }
+}

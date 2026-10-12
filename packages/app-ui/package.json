@@ -34,6 +34,10 @@
       "types": "./dist/codemirror.d.ts",
       "import": "./dist/codemirror.js"
     },
+    "./collections": {
+      "types": "./dist/collections.d.ts",
+      "import": "./dist/collections.js"
+    },
     "./command-palette": {
       "types": "./dist/CommandPalette.d.ts",
       "import": "./dist/CommandPalette.js"
@@ -83,6 +87,7 @@
       "import": "./dist/ThemeSelect.js"
     },
     "./brand.css": "./css/brand.css",
+    "./collections.css": "./css/collections.css",
     "./controls.css": "./css/controls.css",
     "./fonts.css": "./css/fonts.css",
     "./feedback.css": "./css/feedback.css",
@@ -107,12 +112,16 @@
   },
   "peerDependencies": {
     "@codemirror/view": "^6.0.0",
-    "react": "^19.2.0"
+    "@mdbase-dev/sdk": "*",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
   },
   "devDependencies": {
     "@codemirror/view": "^6.43.12",
+    "@mdbase-dev/sdk": "file:vendor/mdbase-dev-sdk-0.0.0-b1c47a32.tgz",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "jsdom": "^29.1.1",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "typescript": "^7.0.2",
@@ -120,6 +129,12 @@
   },
   "peerDependenciesMeta": {
     "@codemirror/view": {
+      "optional": true
+    },
+    "@mdbase-dev/sdk": {
+      "optional": true
+    },
+    "react-dom": {
       "optional": true
     }
   }
