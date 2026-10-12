@@ -1,0 +1,9 @@
+{
+  "reason": "The fence-first migration must carry every current collection member into the SHADOW target's policy before the cutover, so the native member comparison matches Connect. One module computes the member plan (current memberships against the target's queued member ops in log order) for both the new claim-bound member-policy route and the cutover gate in the existing migration route module; it reuses the claim, lock and policy outbox, with no new table, transport or credential.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 5,
+    "typeScriptExportDeclarations": 2,
+    "services/server": 1
+  }
+}

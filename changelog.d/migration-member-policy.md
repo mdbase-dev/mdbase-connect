@@ -1,0 +1,3 @@
+## Added
+
+- Migration-token route that queues a member policy item for each current member of a migrating collection on its new target, bound to the current migration claim and provider run. Active members keep their role, members with a pending role change are carried as viewers, and revoked or revoking members and pending invitations are not carried. Repeating the request queues only what changed since, including removing members who left during the migration, and the route returns the exact member map the new backend must hold. The cutover policy now refuses until the target's queued members match.
