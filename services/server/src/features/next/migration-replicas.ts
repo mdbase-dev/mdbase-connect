@@ -9,6 +9,12 @@
 // between the cutover's revoked-set read and its queued policy. Once a cutover is
 // queued, revoke, unrevoke and unfence refuse: rollback is pre-cutover only.
 // The cutover also refuses until the target's queued members match Connect's.
+//
+// Rollback fronts the provider's receipted pre-cutover rollback for the native
+// rollback adapter, which holds no provider credentials. Connect records the
+// exact binding before the first dispatch; a retry or receipt read must present
+// that same binding, and the provider receipt is returned only after its echo
+// of the binding is verified (hosted-provider-legacy-migration.ts).
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "../../database-types.js";
@@ -26,7 +32,8 @@ import { queueNextPolicy, type PolicyEmitter } from "./policy-outbox.js";
 import { existingCloudCopy } from "./service-cloud-copy.js";
 
 type Provider = Pick<HostedProviderClient, "legacyMigrationDrain" | "legacyMigrationReplicas" | "legacyMigrationRevokeReplicas"
-  | "legacyMigrationRestoreReplicas" | "legacyMigrationRevokedReplicas" | "legacyMigrationUnfence">;
+  | "legacyMigrationRestoreReplicas" | "legacyMigrationRevokedReplicas" | "legacyMigrationUnfence"
+  | "legacyMigrationRollback" | "legacyMigrationRollbackReceipt">;
 interface Options {
   db: DatabasePool; token: string; provider?: Provider;
   /** Cutover and member policy: the log head (base landed) and a best-effort wake. */
@@ -39,16 +46,23 @@ const uuid = z.string().regex(UUID).refine(id => id !== NIL);
 /** Canonical, sorted and unique as given: never normalized for the caller. */
 const ids = (min: number) => z.array(uuid).min(min).max(1000).refine(list => list.every((id, i) => i === 0 || list[i - 1]! < id));
 const binding = z.object({ owner_account: uuid, started_us: z.string().regex(/^[1-9][0-9]{0,23}(?![\s\S])/u), migration_id: uuid }).strict();
+const counter = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
+const rollbackBody = binding.extend({
+  authority_epoch: counter.min(1), fixed_head: counter, driver_id: uuid, action_id: uuid, replica_ids: ids(0)
+}).strict();
 const bodies = {
   replicas: binding,
   "replicas/revoke": binding.extend({ replica_ids: ids(1) }).strict(),
   "replicas/unrevoke": binding.extend({ replica_ids: ids(1) }).strict(),
   unfence: binding,
   "members-policy": binding,
-  "cutover-policy": binding.extend({ revoked: ids(0), base_seq: z.number().int().positive().max(Number.MAX_SAFE_INTEGER) }).strict()
+  "cutover-policy": binding.extend({ revoked: ids(0), base_seq: z.number().int().positive().max(Number.MAX_SAFE_INTEGER) }).strict(),
+  rollback: rollbackBody,
+  "rollback-receipt": rollbackBody
 } as const;
 type Kind = keyof typeof bodies;
 type Binding = z.infer<typeof binding>;
+type RollbackBody = z.infer<typeof rollbackBody>;
 const LOCK_CLASS = 20261012;
 
 const sameSet = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((id, i) => id === b[i]);
@@ -106,6 +120,7 @@ async function serialized<T>(db: DatabasePool, collection: string, run: () => Pr
 async function step(kind: Kind, collection: string, body: Record<string, unknown>, options: Options & { provider: Provider }): Promise<unknown> {
   const presented = body as Binding, provider = options.provider, deadline = Date.now() + 25_000;
   await bound(options.db, collection, presented);
+  if (kind === "rollback" || kind === "rollback-receipt") return rollback(kind, collection, body as RollbackBody, options, deadline);
   await onRun(provider, collection, presented, deadline);
   if (kind === "replicas") {
     const listed = await provider.legacyMigrationReplicas(collection, { deadline });
@@ -142,6 +157,87 @@ async function step(kind: Kind, collection: string, body: Record<string, unknown
       await refuseQueuedCutover(client, collection);
       await audit(client, current.account, `next_migration.${kind === "unfence" ? "unfence" : kind === "replicas/revoke" ? "revoke" : "unrevoke"}`, collection, metadata);
       return result;
+    });
+  });
+}
+
+const ROLLBACK_INTENT = "next_migration.rollback_intent", ROLLBACK_DONE = "next_migration.rollback";
+type ProviderBinding = Parameters<Provider["legacyMigrationRollback"]>[1];
+const providerBinding = (b: RollbackBody): ProviderBinding => ({ owner_account_id: b.owner_account, provider_migration_id: b.migration_id,
+  authority_epoch: b.authority_epoch, fixed_head: b.fixed_head, driver_id: b.driver_id, action_id: b.action_id, replica_ids: b.replica_ids });
+const sameBinding = (a: Record<string, unknown>, b: ProviderBinding) => (Object.keys(b) as Array<keyof ProviderBinding>)
+  .every(key => JSON.stringify(a[key]) === JSON.stringify(b[key])) && Object.keys(a).length === Object.keys(b).length;
+
+async function epochCurrent(db: DatabaseQueryable, collection: string, body: RollbackBody) {
+  const epoch = (await db.query<{ epoch: string }>("SELECT authority_epoch::text AS epoch FROM hosted_collections WHERE id=$1", [collection])).rows[0]?.epoch;
+  if (epoch !== String(body.authority_epoch)) throw new RolloutRefused("migration_epoch_not_current", "The presented authority epoch is not current.");
+}
+
+/** Whether Connect recorded this exact binding for the run; any other binding
+ * for the same run (another driver, action, epoch, head or scope) refuses. */
+async function intended(db: DatabaseQueryable, collection: string, account: string, input: ProviderBinding) {
+  const rows = (await db.query<{ binding: Record<string, unknown> }>(
+    `SELECT metadata->'binding' AS binding FROM audit_events WHERE user_id=$1 AND event_type=$2 AND subject_id=$3 AND metadata->>'migration_id'=$4`,
+    [account, ROLLBACK_INTENT, collection, input.provider_migration_id])).rows;
+  if (rows.some(row => !row.binding || typeof row.binding !== "object" || !sameBinding(row.binding, input))) {
+    throw new RolloutRefused("migration_rollback_binding_conflict", "A different rollback binding was recorded for this run.");
+  }
+  return rows.length > 0;
+}
+
+/** Atomic receipted pre-cutover rollback, or a read of its receipt. The first
+ * dispatch needs the presented fenced run, a current epoch and a scope covering
+ * every revocation the run owns; Connect records the binding before dispatch. */
+async function rollback(kind: "rollback" | "rollback-receipt", collection: string, body: RollbackBody,
+  options: Options & { provider: Provider }, deadline: number) {
+  const input = providerBinding(body);
+  return serialized(options.db, collection, async () => {
+    await refuseQueuedCutover(options.db, collection);
+    await epochCurrent(options.db, collection, body);
+    const known = await intended(options.db, collection, body.owner_account, input);
+    if (kind === "rollback-receipt" && !known) throw new RolloutRefused("migration_rollback_unknown", "No rollback with this exact binding was dispatched.", 404);
+    if (!known) {
+      await onRun(options.provider, collection, body, deadline);
+      const owned = await options.provider.legacyMigrationRevokedReplicas(collection, { deadline });
+      if (owned.migration_id !== body.migration_id) throw new RolloutRefused("migration_run_not_current", "The provider run changed.");
+      if (owned.revoked.some(id => !body.replica_ids.includes(id))) {
+        throw new RolloutRefused("migration_revoked_set_mismatch", "The rollback scope must cover every revocation the run owns.");
+      }
+      await inTransaction(options.db, async client => {
+        const current = await bound(client, collection, body, true);
+        await refuseQueuedCutover(client, collection);
+        await epochCurrent(client, collection, body);
+        if (await intended(client, collection, current.account, input)) return;
+        await audit(client, current.account, ROLLBACK_INTENT, collection, { migration_id: body.migration_id, binding: input });
+      });
+    }
+    let receipt;
+    try {
+      receipt = kind === "rollback" ? await options.provider.legacyMigrationRollback(collection, input, { deadline })
+        : await options.provider.legacyMigrationRollbackReceipt(collection, input, { deadline });
+    } catch (error) {
+      if (error instanceof HostedProviderResponseError && error.code === "legacy_rollback_binding_conflict") {
+        throw new RolloutRefused("migration_rollback_binding_conflict", "The provider source or receipt does not match this binding.");
+      }
+      if (error instanceof HostedProviderResponseError && error.code === "legacy_rollback_receipt_unknown") {
+        throw new RolloutRefused("migration_rollback_unknown", "The provider holds no receipt for this exact binding.", 404);
+      }
+      throw error;
+    }
+    if (receipt.collection_id !== collection || !sameBinding(receipt.binding, input) || receipt.restored_ids.some(id => !input.replica_ids.includes(id))) {
+      throw new RolloutRefused("migration_source_unavailable", "The provider receipt does not echo this binding.", 503);
+    }
+    // Evidence of the provider's receipt, once; a repeated read records nothing.
+    return inTransaction(options.db, async client => {
+      const current = await bound(client, collection, body, true);
+      const recorded = await client.query(
+        "SELECT 1 FROM audit_events WHERE user_id=$1 AND event_type=$2 AND subject_id=$3 AND metadata->>'migration_id'=$4 LIMIT 1",
+        [current.account, ROLLBACK_DONE, collection, body.migration_id]);
+      if (!recorded.rows.length) {
+        await audit(client, current.account, ROLLBACK_DONE, collection,
+          { migration_id: body.migration_id, binding: input, restored_ids: receipt.restored_ids, recorded_at: receipt.recorded_at });
+      }
+      return receipt;
     });
   });
 }

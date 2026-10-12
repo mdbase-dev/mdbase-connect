@@ -5,7 +5,7 @@
 // Bound to the presented migration claim (owner account + start, still legacy,
 // no cutover, flip or queued cutover policy) and to a verified, settled
 // pre-cutover rollback of the presented run: Connect recorded that run's
-// unfence, and the provider now reports the source active with no run. Only
+// unfence or receipted rollback, and the provider now reports the source active with no run. Only
 // rows that run's page provenance names (timers/hosted-import.ts) are deleted,
 // in one transaction under the namespace locks. Native rows, other runs' rows
 // and unattributed rows are never selected. A named row that drifted (changed
@@ -43,7 +43,7 @@ async function bound(db: DatabaseQueryable, collection: string, presented: Bindi
 
 async function requireSettledRollback(db: DatabaseQueryable, collection: string, presented: Binding): Promise<void> {
   const unfenced = await db.query(
-    `SELECT 1 FROM audit_events WHERE user_id=$1 AND event_type='next_migration.unfence' AND subject_id=$2
+    `SELECT 1 FROM audit_events WHERE user_id=$1 AND event_type IN ('next_migration.unfence','next_migration.rollback') AND subject_id=$2
        AND metadata->>'migration_id'=$3 LIMIT 1`, [presented.owner_account, collection, presented.migration_id]);
   const queued = await db.query(
     `SELECT 1 FROM next_policy_outbox WHERE collection_id=$1 AND ops->'ops' @> '[{"op":"migration-cutover"}]'::jsonb LIMIT 1`, [collection]);
