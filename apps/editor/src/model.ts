@@ -174,6 +174,9 @@ export interface CollectionGateway {
     contract: import("@mdbase-dev/connect").DataContractSelector,
     options?: { signal?: AbortSignal }
   ): Promise<Array<{ path: string; values: import("@mdbase-dev/connect").JsonObject }>>;
+  /** Absent where sync is not the gateway's to report (demo, Connect). */
+  syncState?(): import("./app-state-types").EditorSyncState;
+  onSyncState?(listener: () => void): () => void;
   observe(): NoteObservation;
   mostRecentNote(): Promise<string | undefined>;
   read(path: string): Promise<NoteDocument>;

@@ -14,7 +14,7 @@ import { FOLDER_PATH_MIME } from "./folder-change";
 import { RailDropTarget } from "./RailDropTarget";
 import { EditorRail } from "./EditorRail";
 import type { CollectionFile, ConnectionSummary, NoteSummary } from "./model";
-import type { ConnectionState } from "./app-state-types";
+import type { ConnectionState, EditorSyncState } from "./app-state-types";
 import { folderTree, type FolderTreeNode } from "./note";
 import type { NoteFilter } from "./note-list-view";
 
@@ -29,7 +29,7 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
   files: CollectionFile[];
   foldersLoading: boolean;
   surface: "notes" | "types" | "settings";
-  connectionState: ConnectionState;
+  connectionState: ShownConnectionState;
   connectionIssue?: string;
   directAccess?: ConnectionSummary["directAccess"];
   directAccessBusy: boolean;
@@ -294,9 +294,20 @@ function facetCountLabel(kind: NoteFilter["kind"], item: { name: string; count: 
 
 
 /** The collection link state and its retry; the rail shows it always, the mobile note bar only when not connected. */
-export function ConnectionStatus({ state, issue, onReconnect }: { state: ConnectionState; issue?: string | undefined; onReconnect: () => void }) {
+export function ConnectionStatus({ state, issue, onReconnect }: { state: ShownConnectionState; issue?: string | undefined; onReconnect: () => void }) {
+  const label = connectionLabels[state];
   return <>
-    <p role="status" aria-label={`Collection ${state}`} title={issue}><span className={`status-dot ${state}`} aria-hidden="true" /><span>{state === "connected" ? "Connected" : state === "reconnecting" ? "Reconnecting" : "Sync stopped"}</span></p>
-    {state !== "connected" && <button className="reconnect-action" aria-label="Retry connection" onClick={onReconnect}>Retry</button>}
+    <p role="status" aria-label={`Collection ${state === "saved_on_device" ? "changes saved on this device; waiting for sync" : state}`} title={issue ?? label}><span className={`status-dot ${state === "connected" ? state : state === "stopped" ? "stopped" : "reconnecting"}`} aria-hidden="true" /><span>{label}</span></p>
+    {(state === "reconnecting" || state === "stopped") && <button className="reconnect-action" aria-label="Retry connection" onClick={onReconnect}>Retry</button>}
   </>;
 }
+
+/** The link state, or what the SDK says about syncing while the link is up. */
+export type ShownConnectionState = ConnectionState | Exclude<EditorSyncState, "synced">;
+const connectionLabels: Record<ShownConnectionState, string> = {
+  connected: "Connected",
+  reconnecting: "Reconnecting",
+  stopped: "Sync stopped",
+  offline: "Offline",
+  saved_on_device: "Saved on this device; waiting for sync"
+};

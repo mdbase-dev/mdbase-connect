@@ -25,6 +25,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   Suspense,
   type CSSProperties,
   type ReactNode
@@ -35,7 +36,7 @@ import { bulkFields, type BulkPropertyChange } from "./bulk-note-actions";
 import { useNoteActions } from "./use-note-actions";
 import { AttachmentTransfer, attachmentMenuItem, useAttachmentUpload } from "./AttachmentUpload";
 import { useCollectionBrowserEntries } from "./collection-browser";
-import { CollectionRail, ConnectionStatus } from "./CollectionRail";
+import { CollectionRail, ConnectionStatus, type ShownConnectionState } from "./CollectionRail";
 import { folderChangeMoves, type FolderChangePlan, type FolderChangeProgress, type FolderChangeResult } from "./folder-change";
 import { useFeedback } from "@mdbase-dev/ui/feedback";
 import { ConnectScreen } from "./ConnectionScreens";
@@ -148,6 +149,7 @@ const NewNoteComposer = lazy(() => import("./NewNoteComposer").then((module) => 
 const FileViewer = lazy(() => import("./FileViewer").then((module) => ({ default: module.FileViewer })));
 const FileWorkspace = lazy(() => import("./FileViewer").then((module) => ({ default: module.FileWorkspace })));
 const emptyTypeDescriptors: CollectionTypeDescriptor[] = [];
+const noop = () => undefined;
 interface Confirmation {
   title: string;
   body: ReactNode;
@@ -199,6 +201,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const connectionSummary = sessionSnapshot.status === "ready" ? sessionSnapshot.connection : null;
   const [connectionState, setConnectionState] = useState<ConnectionState>("connected");
   const [connectionIssue, setConnectionIssue] = useState<string>();
+  const subscribeSyncState = useCallback((listener: () => void) => gateway.onSyncState?.(listener) ?? noop, [gateway]);
+  const syncState = useSyncExternalStore(subscribeSyncState, () => gateway.syncState?.() ?? "synced");
+  // The link can be up while the SDK can't sync: never say Connected then.
+  const shownConnection: ShownConnectionState = connectionState === "connected" && syncState !== "synced" ? syncState : connectionState;
   const [directAccessBusy, setDirectAccessBusy] = useState(false);
   const [selectedPath, setSelectedPath] = useState<string>();
   const [selection, setSelection] = useState<NoteSelection>();
@@ -1739,6 +1745,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     identity={noteSessions.current.active?.editorSessionKey ?? document?.path}
     onRetry={canEditNotes ? () => { void noteSessions.current.active?.record.save(); } : undefined}
     state={pendingNoteMutations.length > 0 ? "recovery" : saveState}
+    savedOnDevice={syncState === "saved_on_device"}
     activity={noteSessions.current.active?.activity}
     detail={noteSessions.current.active?.activityDetail}
     onCancel={noteSessions.current.active?.mutationCancellable ? cancelActiveMutation : undefined}
@@ -1776,7 +1783,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       onCopyFacet={copyFacet}
       onTypes={() => selectSurface("types")}
       onSettings={() => selectSurface("settings")}
-      connectionState={connectionState}
+      connectionState={shownConnection}
       connectionIssue={connectionIssue}
       directAccess={connectionSummary?.directAccess}
       directAccessBusy={directAccessBusy}
@@ -1886,8 +1893,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             {!mobileLayout && noteLoading && <span role="status" className="note-opening-status" title={pendingNotePath}>Opening “{pendingNotePath}”…</span>}
             {!mobileLayout && !canEditNotes && <span className="connect-muted">Read only</span>}
             {!mobileLayout && noteSaveIndicator}
-            {mobileLayout && connectionState !== "connected" && <div className="mobile-connection">
-              <ConnectionStatus state={connectionState} issue={connectionIssue} onReconnect={() => void refreshAfterConnectionGap()} />
+            {mobileLayout && shownConnection !== "connected" && <div className="mobile-connection">
+              <ConnectionStatus state={shownConnection} issue={connectionIssue} onReconnect={() => void refreshAfterConnectionGap()} />
             </div>}
             {!mobileLayout && <button className={`icon-button${propertiesOpen ? " active" : ""}`} aria-label="Note properties" aria-pressed={propertiesOpen} onClick={() => {
               setPropertiesOpen((value) => {

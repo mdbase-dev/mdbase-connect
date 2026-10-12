@@ -43,6 +43,7 @@ import type {
   TypeDocument,
   TypePackApplyResult
 } from "./model";
+import type { EditorSyncState } from "./app-state-types";
 
 type CollectionOperation = CollectionDescription["operations"][number];
 
@@ -65,7 +66,8 @@ const RECEIPT_TIMEOUT_MS = 30_000;
 
 /** What the gateway needs from its scope's owner: the SDK application for cloud
  * copies, or the editor's own Private collection session. */
-export type EditorScopeActions = Pick<MdbaseApplication, "chooseAnother" | "reauthorize" | "select" | "forget">;
+export type EditorScopeActions = Pick<MdbaseApplication, "chooseAnother" | "reauthorize" | "select" | "forget">
+  & Partial<Pick<MdbaseApplication, "getSnapshot" | "subscribe">>;
 
 /** One open collection. A Private collection opened through an app grant has no
  * people client: the app-grant API exposes no people authority yet. */
@@ -131,6 +133,23 @@ export class NativeEditorGateway implements CollectionGateway {
   selectConnection(collectionId: string): ConnectionSummary {
     if (collectionId !== this.connection.id || !this.current()) throw new Error("The selected collection is not ready.");
     return this.summary();
+  }
+
+  /** The SDK's own sync state: its write ledger keeps changes on this device
+   * while the collection can't be reached; the application's sync summary (or,
+   * for a Private collection, the client's link) reports being offline. */
+  syncState(): EditorSyncState {
+    if (!this.current()) return "synced";
+    if (this.client.ledger.getSnapshot().saveState === "saved_on_device") return "saved_on_device";
+    const phase = this.application.getSnapshot?.().phase;
+    const sync = phase?.kind === "ready" && phase.collectionId === this.connection.id ? this.application.getSnapshot?.().sync : null;
+    return sync?.kind === "offline" || this.client.status.connection === "offline" || this.client.link !== "open" ? "offline" : "synced";
+  }
+
+  onSyncState(listener: () => void): () => void {
+    const stops = [this.client.ledger.subscribe(listener), this.client.onStatus(listener), this.client.onLink(listener),
+      this.application.subscribe?.(listener)];
+    return () => { for (const stop of stops) stop?.(); };
   }
 
   /** Browser apps reach a collection through relay or hosted access only; the
