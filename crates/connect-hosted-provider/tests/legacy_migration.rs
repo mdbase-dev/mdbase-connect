@@ -1536,3 +1536,65 @@ async fn failed_unleased_notification_runs_settle_and_every_other_shape_blocks()
         .unwrap();
     assert_eq!(state_of(&fixture).await, "migrated");
 }
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn revoked_replicas_read_names_only_the_current_runs_own_revocations() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let provider = &fixture.provider;
+    let id = fixture.collection_id;
+    let mirror = mirror_id(&fixture).await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let token = "internal-legacy-migration-test-token-".repeat(2);
+    let state = AppState::new(fixture.provider.clone(), &token).unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app(state)).await.unwrap() });
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let client = reqwest::Client::new();
+    let url =
+        format!("http://{address}/internal/v1/collections/{id}/legacy-migration/revoked-replicas");
+    let read = || async { client.get(&url).bearer_auth(&token).send().await.unwrap() };
+    let unauthorized = client.get(&url).send().await.unwrap();
+    assert_eq!(unauthorized.status(), reqwest::StatusCode::UNAUTHORIZED);
+    // No run while active: nothing to name in a cutover.
+    let early = read().await;
+    assert_eq!(early.status(), reqwest::StatusCode::CONFLICT);
+
+    fenced(&fixture).await;
+    let run: Uuid = sqlx::query_scalar(
+        "SELECT legacy_migration_id FROM hosted_provider_collections WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    provider
+        .revoke_migration_replicas(id, &[mirror])
+        .await
+        .unwrap();
+    let body: Value = read().await.json().await.unwrap();
+    assert_eq!(
+        body,
+        json!({ "collection_id": id, "migration_id": run, "revoked": [mirror] })
+    );
+    provider
+        .restore_migration_revoked_replicas(id, &[mirror])
+        .await
+        .unwrap();
+    let body: Value = read().await.json().await.unwrap();
+    assert_eq!(body["revoked"], json!([]));
+    // A revocation rewritten by another path is no longer this run's.
+    provider
+        .revoke_migration_replicas(id, &[mirror])
+        .await
+        .unwrap();
+    sqlx::query("UPDATE hosted_provider_replicas SET revoked_at = revoked_at + interval '1 second' WHERE id = $1")
+        .bind(mirror)
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+    let body: Value = read().await.json().await.unwrap();
+    assert_eq!(body["revoked"], json!([]));
+    server.abort();
+}

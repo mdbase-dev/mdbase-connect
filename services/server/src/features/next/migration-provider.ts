@@ -27,7 +27,7 @@ interface Options {
 /** Current migration claim, not target/key readiness. Internal migration may
  * preserve an existing suspension; nothing here enables ordinary user access.
  * The locked form is for the final publication/audit, never a network await. */
-async function claim(db: DatabaseQueryable, collection: string, locked = false): Promise<Claim> {
+export async function claim(db: DatabaseQueryable, collection: string, locked = false): Promise<Claim> {
   const row = (await db.query<Claim>(
     `SELECT h.user_id::text AS account, h.display_name, (extract(epoch FROM m.started_at)*1000000)::bigint::text AS started_us
      FROM hosted_collections h JOIN users u ON u.id=h.user_id
