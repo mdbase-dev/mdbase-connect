@@ -127,4 +127,25 @@ describe("Private collections in the editor chooser", () => {
     expect(fake.port.authorize).toHaveBeenCalledWith(undefined, expect.anything());
     expect(await row("Research")).toBeTruthy();
   });
+
+  it("offers Delete only on Private collections the account owns, confirms by name, and drops one once deleted", async () => {
+    const h = await signedIn();
+    const other = "0190a5a0-0000-7000-8000-000000000002";
+    const fake = fakePrivate([privateEntry({ state: "available" }, RESEARCH, "Research", "owner"),
+      privateEntry({ state: "available" }, other, "Shared", "editor")]);
+    render(<SdkEditorRoot sdk={h.mdbase} privateCollections={fake.port} />);
+    await row("Research");
+    const region = await section();
+    expect(within(region).queryByRole("button", { name: "More for Shared" })).toBeNull();
+    // The relay stops listing a deleted collection; the section re-reads the list after the dialog.
+    h.controls.setHandler("deleteCollection", () => { fake.set([privateEntry({ state: "available" }, other, "Shared", "editor")]); });
+    fireEvent.click(within(region).getByRole("button", { name: "More for Research" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete collection…" }));
+    expect(h.calls("deleteCollection")).toHaveLength(0);
+    fireEvent.change(await screen.findByLabelText(/to confirm/), { target: { value: "Research" } });
+    fireEvent.click(screen.getByRole("button", { name: "Delete collection" }));
+    await waitFor(() => expect(h.calls("deleteCollection")).toHaveLength(1));
+    await waitFor(() => expect(within(region).queryByRole("button", { name: /^Research/ })).toBeNull());
+    expect(await row("Shared")).toBeTruthy();
+  });
 });

@@ -1,6 +1,6 @@
-import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createMdbase, type Mdbase, type MdbaseApplicationDeclaration, type MdbaseClient } from "@mdbase-dev/sdk";
-import { CollectionGate, CollectionSwitcher, type CollectionSection, type CollectionSectionItem, type CollectionView } from "@mdbase-dev/ui/collections";
+import { CollectionGate, CollectionSwitcher, defaultCollectionCopy, type CollectionSection, type CollectionSectionItem, type CollectionSectionItemAction, type CollectionView } from "@mdbase-dev/ui/collections";
 import { OpeningScreen } from "@mdbase-dev/ui/screens";
 import { FeedbackButton } from "@mdbase-dev/ui/feedback";
 import { describeError } from "@mdbase-dev/sdk/describe";
@@ -88,7 +88,8 @@ export function SdkEditorRoot({ sdk, renderNative, onFeedbackContext, privateCol
 
 /** The "Private collections" section: this browser's grants, opened through the relay.
  * Selecting a row does what its availability needs: open (waiting, bounded, for the
- * computer), approve again, get the update, or remove one that is gone. */
+ * computer), approve again, get the update, or remove one that is gone. Owners get
+ * "Delete collection…" in the row's menu, through the shared typed-name dialog. */
 function usePrivateSection(sdk: Mdbase, privates: PrivateCollections | null) {
   const caller = useRef<AbortController | null>(null);
   const busy = useRef(false);
@@ -104,13 +105,16 @@ function usePrivateSection(sdk: Mdbase, privates: PrivateCollections | null) {
   }, []);
   // The editor owns an open Private collection's client: close it with the root.
   useEffect(() => () => { scope?.actions.chooseAnother().catch(() => {}); }, [scope]);
-  useEffect(() => {
+  const load = useCallback((signal: AbortSignal) => {
     if (!privates) return;
-    const controller = new AbortController();
-    privates.collections({ signal: controller.signal }).then((next) => { if (!controller.signal.aborted) setList(next); },
-      (error: unknown) => { if (!controller.signal.aborted) setFailure({ id: null, message: describeError(error)?.message ?? "Private collections couldn't be loaded." }); });
-    return () => controller.abort();
+    privates.collections({ signal }).then((next) => { if (!signal.aborted) setList(next); },
+      (error: unknown) => { if (!signal.aborted) setFailure({ id: null, message: describeError(error)?.message ?? "Private collections couldn't be loaded." }); });
   }, [privates]);
+  useEffect(() => {
+    const controller = new AbortController();
+    load(controller.signal);
+    return () => controller.abort();
+  }, [load]);
   if (!privates) return { section: null, scope: null, problem: null, add: () => {} };
 
   /** One action at a time; it reports its own problem with the SDK's copy. */
@@ -180,10 +184,25 @@ function usePrivateSection(sdk: Mdbase, privates: PrivateCollections | null) {
     });
     else void act(entry.collectionId, (signal) => open(entry, signal));
   };
-  const items = list.map((entry): CollectionSectionItem => ({
-    id: entry.collectionId, name: entry.displayName, current: scope?.connection.id === entry.collectionId,
-    detail: failure?.id === entry.collectionId ? failure.message : waiting === entry.collectionId ? "Waiting for your computer…" : privateDetail(entry.availability),
-  }));
+  /** Owners only (Connect's reported role); the SDK and control plane check again. The dialog asks for the name first. */
+  const deleteAction = (entry: MdbasePrivateCollection): CollectionSectionItemAction => ({
+    id: "delete", label: defaultCollectionCopy.deleteCollection, danger: true,
+    onSelect: (_item, { confirmDelete }) => confirmDelete((outcome) => {
+      if (outcome === "cancelled") return;
+      if (outcome === "deleted" && scope?.connection.id === entry.collectionId) void scope.actions.chooseAnother().catch(() => {});
+      // The relay stops listing a deleted collection.
+      if (caller.current) load(caller.current.signal);
+    }),
+  });
+  const items = list.map((entry): CollectionSectionItem => {
+    const reason = entry.availability.state === "unavailable" ? entry.availability.reason : null;
+    const deletable = entry.role === "owner" && reason !== "access_removed" && reason !== "collection_deleted";
+    return {
+      id: entry.collectionId, name: entry.displayName, current: scope?.connection.id === entry.collectionId,
+      detail: failure?.id === entry.collectionId ? failure.message : waiting === entry.collectionId ? "Waiting for your computer…" : privateDetail(entry.availability),
+      actions: deletable ? [deleteAction(entry)] : undefined,
+    };
+  });
   return {
     section: { id: "private", title: "Private collections", items, onSelect: select, onClose: () => scope?.actions.chooseAnother().catch(() => {}) } satisfies CollectionSection,
     scope,
