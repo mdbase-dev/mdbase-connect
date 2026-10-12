@@ -9,48 +9,6 @@
   --mdbase-collections-danger: var(--danger);
 }
 
-/* The gate and the Private collections beside it share one page. */
-.editor-collections {
-  min-height: 100dvh;
-  background: var(--canvas);
-}
-.editor-collections > .mdbase-collections-gate[data-layout="page"] { min-height: auto; }
-
-.editor-private-collections {
-  width: min(100% - 32px, 560px);
-  margin: 0 auto;
-  padding-bottom: 48px;
-  display: grid;
-  gap: var(--space-2);
-  justify-items: start;
-}
-.editor-private-collections > h2 {
-  margin: var(--space-4) 0 0;
-  color: var(--muted);
-  font-size: var(--font-size-caption);
-  font-weight: 600;
-}
-/* Private rows match the gate's collection rows: name, kind, and Delete on one line. */
-.editor-private-collections > .sdk-collection-choice {
-  width: 100%;
-  margin-top: 0;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--white);
-}
-.editor-private-collections .sdk-collection-choice > .mdbase-connect-action {
-  justify-self: start;
-  min-height: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  font-weight: 600;
-  text-align: left;
-}
-.editor-private-collections .sdk-collection-choice > .mdbase-connect-action:hover { text-decoration: underline; }
-.editor-private-collections .sdk-collection-choice > [aria-label^="Delete "] { grid-row: 1; grid-column: 3; }
 .editor-private-problem { margin: 0; color: var(--danger); }
 
 /* In the rail header the switcher names the open collection. */

@@ -111,35 +111,9 @@
 
 
 
-.sdk-collection-choice {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-2);
-  /* Rows without an open button (deleted, removed) keep the same rhythm. */
-  margin-top: var(--space-6);
-}
-
-.sdk-collection-choice > .mdbase-connect-action {
-  margin-top: 0;
-}
-
 /* Side-by-side screen actions must not touch. */
 .mdbase-connect-screen .mdbase-connect-action:not(:last-child) {
   margin-right: var(--space-2);
 }
 
-.sdk-collection-choice.is-private > :not(button):not(.sdk-collection-name):not(.sdk-collection-kind) {
-  grid-column: 1 / -1;
-}
-
-.sdk-collection-kind,
-.sdk-collection-availability p {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-caption);
-}
-
-.sdk-collection-availability p {
-  margin: 0;
-}
 

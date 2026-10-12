@@ -1,6 +1,6 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createMdbase, type Mdbase, type MdbaseApplicationDeclaration, type MdbaseClient } from "@mdbase-dev/sdk";
-import { CollectionGate, CollectionSwitcher, DeleteCollectionDialog, useCollectionUi } from "@mdbase-dev/ui/collections";
+import { CollectionGate, CollectionSwitcher, type CollectionSection, type CollectionSectionItem, type CollectionView } from "@mdbase-dev/ui/collections";
 import { OpeningScreen } from "@mdbase-dev/ui/screens";
 import { FeedbackButton } from "@mdbase-dev/ui/feedback";
 import { describeError } from "@mdbase-dev/sdk/describe";
@@ -57,10 +57,11 @@ interface PrivateScope {
 }
 let privateGeneration = 0;
 
-/** The editor over the SDK's mdbase entry. The shared collection gate owns sign-in,
- * choosing, approval, setup, problems, deletion and sign-out; the editor opens only
- * the connection the gate hands over in phase `ready`, and never closes the entry.
- * Private collections still come from app grants beside the gate. */
+/** The editor over the SDK's mdbase entry. The shared collection gate starts it
+ * and owns sign-in, choosing, approval, setup, problems, deletion and sign-out;
+ * the editor opens only the connection the gate hands over in phase `ready`, and
+ * never closes the entry. Private collections come from app grants, listed as the
+ * gate's and switcher's "Private collections" section. */
 export function SdkEditorRoot({ sdk, renderNative, onFeedbackContext, privateCollections }: SdkEditorRootProps) {
   const declaration = declarations.get(sdk);
   const privates = privateCollections ?? privateSources.get(sdk) ?? null;
@@ -68,73 +69,62 @@ export function SdkEditorRoot({ sdk, renderNative, onFeedbackContext, privateCol
   // Developer-only detail (e.g. which manifest fields a registration refusal named): logs, never the screen.
   const developerMessage = snapshot.status === "blocked" ? describeError(snapshot)?.developerMessage ?? null : null;
   useEffect(() => { if (developerMessage) console.warn(`mdbase editor: ${developerMessage}`); }, [developerMessage]);
-  useEffect(() => {
-    // Safe to call again (StrictMode); failures surface as the snapshot's phase.
-    sdk.start().catch(() => undefined);
-  }, [sdk]);
-  const [privateScope, setPrivateScope] = useState<PrivateScope | null>(null);
-  // Choosing a hosted collection from the rail leaves an open Private collection.
-  useEffect(() => { if (privateScope && snapshot.phase.kind !== "choosing") void privateScope.actions.chooseAnother().catch(() => {}); }, [privateScope, snapshot.phase.kind]);
-  useEffect(() => () => { privateScope?.actions.chooseAnother().catch(() => {}); }, [privateScope]);
-  const leavePrivate = useCallback((generation: string) => setPrivateScope((current) => current?.connection.generation === generation ? null : current), []);
+  const priv = usePrivateSection(sdk, privates);
+  const sections = priv.section ? [priv.section] : undefined;
   const switcher: EditorCollectionSwitcher = (onBeforeLeave) => <CollectionSwitcher mdbase={sdk} app={editorCollectionApp} allowDelete
-    variant="full" className="editor-collection-switcher" onBeforeLeave={onBeforeLeave} />;
-
-  if (privateScope) {
-    return <NativeScopeView key={privateScope.connection.generation} application={privateScope.actions} connection={privateScope.connection}
-      declaration={declaration} switcher={switcher} renderNative={renderNative} onFeedbackContext={onFeedbackContext} />;
-  }
-  const choosing = snapshot.phase.kind === "choosing" && privates !== null;
-  return <div className="editor-collections">
-    <CollectionGate mdbase={sdk} app={editorCollectionApp} allowDelete extraActions={<FeedbackButton />}>
-      {(connection) => <NativeScopeView key={`${connection.id}:${connection.generation}`} application={sdk.application} connection={connection}
-        declaration={declaration} switcher={switcher} renderNative={renderNative} onFeedbackContext={onFeedbackContext} />}
-    </CollectionGate>
-    {choosing && <PrivateCollectionsSection sdk={sdk} privates={privates} onOpen={setPrivateScope} onLeave={leavePrivate} />}
-  </div>;
+    variant="full" className="editor-collection-switcher" sections={sections} onBeforeLeave={onBeforeLeave} />;
+  const extraActions = (view: CollectionView) => <>
+    {priv.section && view.kind === "choosing" && <button type="button" className="mdbase-button" onClick={priv.add}>Add a Private collection</button>}
+    {priv.problem && <p className="editor-private-problem" role="alert">{priv.problem}</p>}
+    <FeedbackButton />
+  </>;
+  return <CollectionGate mdbase={sdk} app={editorCollectionApp} allowDelete extraActions={extraActions} sections={sections}
+    renderAppCollection={() => priv.scope && <NativeScopeView key={priv.scope.connection.generation} application={priv.scope.actions}
+      connection={priv.scope.connection} declaration={declaration} switcher={switcher} renderNative={renderNative} onFeedbackContext={onFeedbackContext} />}>
+    {(connection) => <NativeScopeView key={`${connection.id}:${connection.generation}`} application={sdk.application} connection={connection}
+      declaration={declaration} switcher={switcher} renderNative={renderNative} onFeedbackContext={onFeedbackContext} />}
+  </CollectionGate>;
 }
 
-/** Private collections, listed from this browser's grants and opened through the relay.
- * The shared gate lists only the installation's collections, so these sit beside it. */
-function PrivateCollectionsSection({ sdk, privates, onOpen, onLeave }: { sdk: Mdbase; privates: PrivateCollections; onOpen(scope: PrivateScope): void; onLeave(generation: string): void }) {
-  const ui = useCollectionUi({ mdbase: sdk, app: editorCollectionApp, allowDelete: true });
+/** The "Private collections" section: this browser's grants, opened through the relay.
+ * Selecting a row does what its availability needs: open (waiting, bounded, for the
+ * computer), approve again, get the update, or remove one that is gone. */
+function usePrivateSection(sdk: Mdbase, privates: PrivateCollections | null) {
   const caller = useRef<AbortController | null>(null);
   const busy = useRef(false);
-  const [working, setWorking] = useState(false);
   const [list, setList] = useState<readonly MdbasePrivateCollection[]>([]);
-  const [problem, setProblem] = useState<string | null>(null);
+  const [scope, setScope] = useState<PrivateScope | null>(null);
   const [waiting, setWaiting] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState<{ id: string; name: string } | null>(null);
+  /** The last failure, on its row when it has one. */
+  const [failure, setFailure] = useState<{ id: string | null; message: string } | null>(null);
   useEffect(() => {
-    const scope = new AbortController();
-    caller.current = scope;
-    return () => scope.abort();
+    const controller = new AbortController();
+    caller.current = controller;
+    return () => controller.abort();
   }, []);
-  const refresh = useCallback(async (signal: AbortSignal) => {
-    try {
-      const next = await privates.collections({ signal });
-      if (!signal.aborted) { setList(next); setProblem(null); }
-    } catch (error) {
-      if (!signal.aborted) setProblem(describeError(error)?.message ?? "Private collections couldn't be loaded.");
-    }
-  }, [privates]);
+  // The editor owns an open Private collection's client: close it with the root.
+  useEffect(() => () => { scope?.actions.chooseAnother().catch(() => {}); }, [scope]);
   useEffect(() => {
-    const scope = new AbortController();
-    void refresh(scope.signal);
-    return () => scope.abort();
-  }, [refresh]);
-  /** Private actions report their own problem with the SDK's copy. */
-  const act = async (action: (signal: AbortSignal) => Promise<unknown>) => {
-    const scope = caller.current;
-    if (!scope || scope.signal.aborted || busy.current) return;
-    busy.current = true; setWorking(true); setProblem(null);
-    try { await action(scope.signal); }
-    catch (error) { if (!scope.signal.aborted) setProblem(describeError(error)?.message ?? "The collection couldn't be opened. Try again."); }
-    finally { if (!scope.signal.aborted) { busy.current = false; setWorking(false); } }
+    if (!privates) return;
+    const controller = new AbortController();
+    privates.collections({ signal: controller.signal }).then((next) => { if (!controller.signal.aborted) setList(next); },
+      (error: unknown) => { if (!controller.signal.aborted) setFailure({ id: null, message: describeError(error)?.message ?? "Private collections couldn't be loaded." }); });
+    return () => controller.abort();
+  }, [privates]);
+  if (!privates) return { section: null, scope: null, problem: null, add: () => {} };
+
+  /** One action at a time; it reports its own problem with the SDK's copy. */
+  const act = async (id: string | null, action: (signal: AbortSignal) => Promise<unknown>) => {
+    const controller = caller.current;
+    if (!controller || controller.signal.aborted || busy.current) return;
+    busy.current = true; setFailure(null);
+    try { await action(controller.signal); }
+    catch (error) { if (!controller.signal.aborted) setFailure({ id, message: describeError(error)?.message ?? "The collection couldn't be opened. Try again." }); }
+    finally { busy.current = false; }
   };
   const setAvailability = (collectionId: string, availability: CollectionAvailability) =>
     setList((current) => current.map((entry) => entry.collectionId === collectionId ? { ...entry, availability } : entry));
-  const open = async (entry: Pick<MdbasePrivateCollection, "collectionId" | "displayName" | "availability">, signal: AbortSignal) => {
+  const open = async (entry: MdbasePrivateCollection, signal: AbortSignal) => {
     let availability = entry.availability;
     if (availability.state !== "available") {
       setWaiting(entry.collectionId);
@@ -149,9 +139,9 @@ function PrivateCollectionsSection({ sdk, privates, onOpen, onLeave }: { sdk: Md
     if (signal.aborted || client.collection !== entry.collectionId) { client.close(); if (!signal.aborted) throw new Error("The collection that opened isn't the one you chose."); return; }
     let live = true;
     const application = sdk.application;
-    const leave = () => { if (!live) return; live = false; client.close(); onLeave(connection.generation); };
     const connection: EditorConnection = { id: client.collection, displayName: entry.displayName, generation: `private:${++privateGeneration}`,
       records: client, files: client.files, isCurrent: () => live };
+    const leave = () => { if (!live) return; live = false; client.close(); setScope((current) => current?.connection === connection ? null : current); };
     const actions: EditorScopeActions = {
       chooseAnother: async () => { leave(); return application.getSnapshot(); },
       reauthorize: async (options) => { await privates.authorize(entry.collectionId, options); leave(); return application.getSnapshot(); },
@@ -162,14 +152,14 @@ function PrivateCollectionsSection({ sdk, privates, onOpen, onLeave }: { sdk: Md
         return application.getSnapshot();
       }
     };
-    onOpen({ connection, actions });
+    setScope({ connection, actions });
   };
   const authorize = (collectionId?: string) => {
     if (busy.current) return;
     // Reserve the consent popup inside the click, before act's first await.
     const granted = privates.authorize(collectionId, caller.current ? { signal: caller.current.signal } : {});
     granted.catch(() => {});
-    void act(async (signal) => {
+    void act(collectionId ?? null, async (signal) => {
       const { collectionId: approved } = await granted;
       const next = await privates.collections({ signal });
       if (signal.aborted) return;
@@ -178,55 +168,38 @@ function PrivateCollectionsSection({ sdk, privates, onOpen, onLeave }: { sdk: Md
       if (entry) await open(entry, signal);
     });
   };
-  return <section className="editor-private-collections" aria-labelledby="editor-private-collections-title">
-    <h2 id="editor-private-collections-title">Private collections</h2>
-    {list.map((entry) => <PrivateCollectionRow key={entry.collectionId} entry={entry} working={working}
-      waiting={waiting === entry.collectionId} onOpen={() => void act((signal) => open(entry, signal))}
-      onAuthorize={() => authorize(entry.collectionId)}
-      onDelete={entry.role === "owner" ? () => setDeleting({ id: entry.collectionId, name: entry.displayName }) : undefined}
-      onForget={() => void act(async () => {
-        await privates.forget(entry.collectionId);
-        setList((current) => current.filter((item) => item.collectionId !== entry.collectionId));
-      })} />)}
-    <button type="button" className="mdbase-button" disabled={working} onClick={() => authorize()}>Add a Private collection</button>
-    {problem && <p className="editor-private-problem" role="alert">{problem}</p>}
-    {deleting && <DeleteCollectionDialog ui={ui} collection={deleting} onClose={() => {
-      setDeleting(null);
-      if (caller.current) void refresh(caller.current.signal);
-    }} />}
-  </section>;
+  const select = (item: CollectionSectionItem) => {
+    const entry = list.find((candidate) => candidate.collectionId === item.id);
+    if (!entry) return;
+    const copy = entry.availability.state === "unavailable" ? describeError(entry.availability) : null;
+    if (copy?.action === "approve") authorize(entry.collectionId);
+    else if (copy?.action === "update_app") { if (copy.updateUrl) window.open(copy.updateUrl, "_blank", "noreferrer"); }
+    else if (copy?.action === "choose_collection") void act(entry.collectionId, async () => {
+      await privates.forget(entry.collectionId);
+      setList((current) => current.filter((candidate) => candidate.collectionId !== entry.collectionId));
+    });
+    else void act(entry.collectionId, (signal) => open(entry, signal));
+  };
+  const items = list.map((entry): CollectionSectionItem => ({
+    id: entry.collectionId, name: entry.displayName, current: scope?.connection.id === entry.collectionId,
+    detail: failure?.id === entry.collectionId ? failure.message : waiting === entry.collectionId ? "Waiting for your computer…" : privateDetail(entry.availability),
+  }));
+  return {
+    section: { id: "private", title: "Private collections", items, onSelect: select, onClose: () => scope?.actions.chooseAnother().catch(() => {}) } satisfies CollectionSection,
+    scope,
+    problem: failure?.id === null ? failure.message : null,
+    add: () => authorize(),
+  };
 }
 
-/** A Private collection: its availability in the SDK's plain copy, and the one action
- * that can change it. Opening waits (bounded) while it isn't available. */
-function PrivateCollectionRow({ entry, working, waiting, onOpen, onAuthorize, onForget, onDelete }: {
-  entry: MdbasePrivateCollection;
-  working: boolean;
-  waiting: boolean;
-  onOpen(): void;
-  onAuthorize(): void;
-  onForget(): void;
-  /** Owners only (Connect's reported role); the SDK and control plane check again. */
-  onDelete: (() => void) | undefined;
-}) {
-  const availability = entry.availability;
-  const reason = availability.state === "unavailable" ? availability.reason : null;
-  const copy = reason ? describeError(availability) : null;
-  // Approval, deletion and removal can't be fixed by opening; the row offers the SDK's action instead.
-  const openable = copy?.action !== "approve" && copy?.action !== "choose_collection";
-  return <div className="sdk-collection-choice is-private" role="group" aria-label={entry.displayName}>
-    {openable && <button type="button" className="mdbase-connect-action mdbase-button" disabled={working} onClick={onOpen}>{entry.displayName}</button>}
-    {!openable && <span className="sdk-collection-name">{entry.displayName}</span>}
-    <span className="sdk-collection-kind">Private</span>
-    {waiting && <p className="mdbase-connect-status" role="status">Waiting for your computer…</p>}
-    {availability.state === "opening" && !waiting && <p className="mdbase-connect-status">Getting this collection ready…</p>}
-    {copy && <div className="sdk-collection-availability"><strong>{copy.title}</strong><p>{copy.message}</p></div>}
-    {copy?.action === "approve" && <button type="button" className="mdbase-button" disabled={working} onClick={onAuthorize}>{copy.actionLabel}</button>}
-    {copy?.action === "update_app" && copy.updateUrl && <a className="mdbase-button" href={copy.updateUrl} target="_blank" rel="noreferrer">{copy.actionLabel}</a>}
-    {copy?.action === "choose_collection" && <button type="button" className="mdbase-button is-tertiary" disabled={working} onClick={onForget}>Remove from this browser</button>}
-    {onDelete && reason !== "access_removed" && reason !== "collection_deleted" && <button type="button" className="mdbase-button is-tertiary" disabled={working}
-      aria-label={`Delete ${entry.displayName}`} onClick={onDelete}>Delete</button>}
-  </div>;
+/** A Private row's second line: its availability, and what selecting it does when that isn't opening. */
+function privateDetail(availability: CollectionAvailability): string | null {
+  if (availability.state === "opening") return "Getting this collection ready…";
+  const copy = availability.state === "unavailable" ? describeError(availability) : null;
+  if (!copy) return null;
+  const fix = copy.action === "choose_collection" ? "Remove from this browser"
+    : copy.action === "approve" || copy.action === "update_app" ? copy.actionLabel : null;
+  return fix ? `${copy.title} · ${fix}` : copy.title;
 }
 
 function NativeScopeView({ application, connection, declaration, switcher, renderNative, onFeedbackContext }: {
