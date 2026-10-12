@@ -1,5 +1,7 @@
 import type { DatabaseConnection, DatabaseQueryable } from "../../database-types.js";
+import { audit } from "../../platform/audit-events.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
+import { LAB_COMPLETION_EVENT, labCohortCompletionEvidence } from "./migration-sharing.js";
 
 /** Read-only legacy-missing classification; freeze permission is a separate
  * locked check below. Kept here so cleanup never depends on rollout commands.
@@ -34,16 +36,22 @@ export async function releaseDeferredDeletions(client: DatabaseQueryable, name: 
 /** Under the same parent lock as acceptance/flip: exclusion is terminal work,
  * never a migration or archive-membership edit. Pre-acceptance cancellation
  * still requires audited unfreeze; no incomplete capture is discarded here.
+ *
+ * A cohort completes on an accepted archive for this revision. Only in
+ * environment `lab`, a LAB-profile cohort with no acceptance completes instead
+ * on its verified flips (labCohortCompletionEvidence), recorded by an audit
+ * event that the completion readback requires. No other environment reaches it.
  */
-export async function completeMigrationBatch(client: DatabaseQueryable, name: string, revision: string, frozenAt: Date): Promise<void> {
+export async function completeMigrationBatch(client: DatabaseQueryable, name: string, revision: string, frozenAt: Date, environment?: string): Promise<void> {
   const batch = (await client.query<{ frozen_at: Date | null; completed_at: Date | null }>(
     "SELECT frozen_at,completed_at FROM next_migration_cohorts WHERE name=$1 FOR UPDATE", [name]
   )).rows[0];
   if (!batch?.frozen_at || new Date(batch.frozen_at).getTime() !== new Date(frozenAt).getTime()) throw new Error("Migration completion freeze changed.");
   if (!batch.completed_at) {
-    if (!(await client.query(
+    const accepted = (await client.query(
       "SELECT 1 FROM next_migration_archive_acceptances WHERE cohort=$1 AND membership_revision=$2::bigint", [name, revision]
-    )).rows.length) return;
+    )).rows.length > 0;
+    if (!accepted && environment !== "lab") return;
     const unfinished = (await client.query(
       `SELECT 1 FROM next_migration_cohort_members m JOIN users u ON u.id=m.account_id
        LEFT JOIN next_migration_account_flips f ON f.account_id=m.account_id
@@ -51,7 +59,10 @@ export async function completeMigrationBatch(client: DatabaseQueryable, name: st
          AND (u.account_backend<>'next' OR f.account_id IS NULL) LIMIT 1`, [name]
     )).rows.length;
     if (unfinished) return;
+    const lab = accepted ? null : await labCohortCompletionEvidence(client, name, revision);
+    if (!accepted && !lab) return;
     await client.query("UPDATE next_migration_cohorts SET completed_at=now(),completed_revision=$2::bigint WHERE name=$1", [name, revision]);
+    if (lab) await audit(client, null, LAB_COMPLETION_EVENT, name, { cohort: name, membership_revision: revision, ...lab });
   }
   // Completion remains durable when earlier erasures increment membership
   // revision. Late requests in this same freeze never need a future flip.

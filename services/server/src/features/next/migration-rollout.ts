@@ -616,7 +616,8 @@ async function migratedTimerSources(gate: TimerFlipGate, collections: readonly s
 }
 
 export async function flipAccountBackend(
-  db: DatabasePool, account: string, collections: readonly string[], evidenceDigest: string, timers: TimerFlipGate
+  db: DatabasePool, account: string, collections: readonly string[], evidenceDigest: string, timers: TimerFlipGate,
+  environment?: string
 ): Promise<{ account_id: string; backend: "next"; flipped_at: string }> {
   const named = [...new Set(collections.map((c) => c.toLowerCase()))].sort();
   if (named.length !== collections.length) throw new RolloutRefused("collections_duplicated", "A collection is named twice.");
@@ -680,7 +681,7 @@ export async function flipAccountBackend(
     const flippedAt = await recordAccountFlip(client, account, named, evidenceDigest);
     // Every member must have a validated final flip OR accepted terminal
     // exclusion. An excluded account never needs a witness/cutover/flip.
-    if (batch.frozen_at !== null) await completeMigrationBatch(client, member.cohort, batch.revision, batch.frozen_at);
+    if (batch.frozen_at !== null) await completeMigrationBatch(client, member.cohort, batch.revision, batch.frozen_at, environment);
     return { account_id: account, backend: "next" as const, flipped_at: new Date(flippedAt).toISOString() };
   });
   await drainDeferredAccountDeletions(db);
@@ -791,15 +792,18 @@ export async function addToCohort(db: DatabasePool, name: string, accounts: read
   });
 }
 
-/** Freeze once; unfreeze is audited and forbidden after acceptance of the current revision. */
+/** Freeze once; unfreeze is audited and forbidden after acceptance or completion of the current revision. */
 export async function setCohortFrozen(db: DatabasePool, name: string, frozen: boolean, reason: string, actor: string): Promise<{ frozen_at: string | null }> {
   const by = actorOf(actor);
   if (!reason.trim() || reason.length > 500) throw new Error("A reason of 1-500 characters is required.");
   const result = await inTransaction(db, async (client) => {
-    const batch = (await client.query<{ frozen_at: Date | null; revision: string }>(
-      "SELECT frozen_at, membership_revision::text AS revision FROM next_migration_cohorts WHERE name = $1 FOR UPDATE", [name]
+    const batch = (await client.query<{ frozen_at: Date | null; revision: string; completed: boolean }>(
+      `SELECT frozen_at, membership_revision::text AS revision, completed_revision = membership_revision AS completed
+       FROM next_migration_cohorts WHERE name = $1 FOR UPDATE`, [name]
     )).rows[0];
     if (!batch) throw new RolloutRefused("cohort_not_found", "Migration cohort not found.", 404);
+    // A completed revision (accepted archive or LAB completion) stays frozen.
+    if (!frozen && batch.completed) throw new RolloutRefused("migration_frozen", "Migration topology is frozen.");
     if (!frozen && (await client.query(
       "SELECT 1 FROM next_migration_archive_acceptances WHERE cohort = $1 AND membership_revision = $2::bigint", [name, batch.revision]
     )).rows.length) throw new RolloutRefused("migration_frozen", "Migration topology is frozen.");
@@ -926,7 +930,7 @@ export function registerMigrationRolloutRoutes(app: FastifyInstance, options: {
     if (!p.success || !body.success) return reply.code(400).send(apiError("invalid_request", "collections and evidence_digest are required."));
     try {
       return await flipAccountBackend(options.db, p.data.id.toLowerCase(), body.data.collections, body.data.evidence_digest,
-        { enabled: options.timers === true, provider: options.provider });
+        { enabled: options.timers === true, provider: options.provider }, options.environment);
     } catch (e) { return refused(reply, e); }
   });
 }

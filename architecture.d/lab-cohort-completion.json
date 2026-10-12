@@ -1,0 +1,7 @@
+{
+  "reason": "LAB-only completion of a tiny fixture cohort from its verified flips (start audit binding, every member flipped, recomputed cutover digest), since a LAB fixture cohort never has an archive acceptance. The evidence check lives beside the completion readback, which shares its membership digest; completion imports it. No SQL migration.",
+  "growth": {
+    "relativeImports": 3,
+    "typeScriptExportDeclarations": 2
+  }
+}
