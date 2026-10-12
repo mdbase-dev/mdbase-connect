@@ -110,6 +110,8 @@ describe("mdbase connect server", () => {
       expect(methods).toContain(method);
       const headers = String(response.headers["access-control-allow-headers"]).split(",").map((value) => value.trim().toLowerCase());
       expect(headers).toEqual(expect.arrayContaining(["authorization", "content-type"]));
+      // Cached by the browser so warm app opens skip the OPTIONS round trip.
+      expect(response.headers["access-control-max-age"]).toBe("7200");
     }
   });
 

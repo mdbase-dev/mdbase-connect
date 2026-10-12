@@ -319,7 +319,10 @@ export async function buildApp(options: BuildOptions) {
   await app.register(cors, {
     origin: true,
     credentials: true,
-    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    // Let browsers reuse a preflight for 2 hours (Chromium's cap) instead of
+    // paying an OPTIONS round trip before every cross-origin app call.
+    maxAge: 7200
   });
   await app.register(websocket);
   app.addContentTypeParser(
