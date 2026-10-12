@@ -2,8 +2,8 @@ import { describeError } from "@mdbase-dev/sdk/describe";
 import { useId, useState, type JSX } from "react";
 
 import type { CollectionRow } from "./model.js";
-import { ActionButton, CollectionDialog } from "./parts.js";
-import type { CollectionUi } from "./use-collection-ui.js";
+import { ActionButton, CollectionDialog, type RowDialog } from "./parts.js";
+import type { CollectionUi, DeleteCollectionOutcome } from "./use-collection-ui.js";
 
 type Target = Pick<CollectionRow, "id" | "name">;
 
@@ -31,12 +31,6 @@ export function ForgetCollectionDialog({ ui, collection, onClose }: {
     {error && <p className="mdbase-collections-dialog-error" role="alert">{error}</p>}
   </CollectionDialog>;
 }
-
-/**
- * How the delete dialog ended: `deleted`; `cancelled` with no attempt; `failed`
- * when the person closed it after a delete was refused.
- */
-export type DeleteCollectionOutcome = "deleted" | "cancelled" | "failed";
 
 /** Owner only: type the name to delete a collection for everyone. The SDK and server check both again. */
 export function DeleteCollectionDialog({ ui, collection, onClose }: {
@@ -87,12 +81,9 @@ export function SignOutDialog({ ui }: { readonly ui: CollectionUi }): JSX.Elemen
   </CollectionDialog>;
 }
 
-/** Which row dialog is open, shared by the gate and the switcher. */
-export type RowDialog = { readonly kind: "forget" | "delete"; readonly row: Target } | null;
-
 export function RowDialogs({ ui, dialog, onClose }: { readonly ui: CollectionUi; readonly dialog: RowDialog; readonly onClose: () => void }): JSX.Element | null {
   if (!dialog) return null;
   return dialog.kind === "forget"
     ? <ForgetCollectionDialog ui={ui} collection={dialog.row} onClose={onClose} />
-    : <DeleteCollectionDialog ui={ui} collection={dialog.row} onClose={onClose} />;
+    : <DeleteCollectionDialog ui={ui} collection={dialog.row} onClose={(outcome) => { onClose(); dialog.onClose?.(outcome); }} />;
 }

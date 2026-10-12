@@ -8,10 +8,10 @@ export { CollectionSwitcher } from "./collections/CollectionSwitcher.js";
 export type { CollectionSwitcherProps } from "./collections/CollectionSwitcher.js";
 export { SetupReview as CollectionSetupReview } from "./collections/SetupReview.js";
 export { DeleteCollectionDialog, ForgetCollectionDialog } from "./collections/dialogs.js";
-export type { DeleteCollectionOutcome } from "./collections/dialogs.js";
 export { useAutoStart, useCollectionUi } from "./collections/use-collection-ui.js";
 export type {
-  CollectionActionName, CollectionActions, CollectionAppIdentity, CollectionSection, CollectionSectionItem, CollectionUi, CollectionUiOptions,
+  CollectionActionName, CollectionActions, CollectionAppIdentity, CollectionSection, CollectionSectionItem, CollectionSectionItemAction,
+  CollectionSectionItemActionContext, CollectionUi, CollectionUiOptions, DeleteCollectionOutcome,
   LeaveIntent, OpenSectionItem,
 } from "./collections/use-collection-ui.js";
 export { collectionView, collectionRows, problemControl, accountLabel } from "./collections/model.js";

@@ -3,9 +3,9 @@ import { useId, useLayoutEffect, useRef, useState, type JSX, type ReactNode } fr
 
 import { describeError } from "@mdbase-dev/sdk/describe";
 import { SwitcherContent } from "./CollectionSwitcher.js";
-import { RowDialogs, SignOutDialog, type RowDialog } from "./dialogs.js";
-import { problemControl, actionNotice, type CollectionRow, type CollectionView } from "./model.js";
-import { ActionButton, CollectionMark, GateFooter, ItemCopy, NoticeBlock, RowCopy, RowMore } from "./parts.js";
+import { RowDialogs, SignOutDialog } from "./dialogs.js";
+import { problemControl, actionNotice, type CollectionView } from "./model.js";
+import { ActionButton, CollectionMark, GateFooter, ItemCopy, ItemMore, NoticeBlock, RowCopy, RowMore, type RowDialog } from "./parts.js";
 import { SetupReview } from "./SetupReview.js";
 import { useAutoStart, useCollectionUi, type CollectionSection, type CollectionSectionItem, type CollectionUi, type CollectionUiOptions } from "./use-collection-ui.js";
 
@@ -78,7 +78,7 @@ export function CollectionPanel({ extraActions, autoStart = true, ...options }: 
   if (ui.view.kind !== "ready") return <GateScreen ui={ui} layout="panel" extraActions={extraActions} />;
   return <div className="mdbase-collections mdbase-collections-panel">
     {ui.view.notice && <NoticeBlock notice={ui.view.notice} ui={ui} variant="inline" />}
-    <SwitcherContent ui={ui} onDone={() => {}} onForget={(row) => setDialog({ kind: "forget", row })} onDelete={(row) => setDialog({ kind: "delete", row })} />
+    <SwitcherContent ui={ui} onDone={() => {}} onDialog={setDialog} />
     <RowDialogs ui={ui} dialog={dialog} onClose={() => setDialog(null)} />
     <SignOutDialog ui={ui} />
   </div>;
@@ -135,7 +135,7 @@ function GateScreen({ ui, layout, extraActions }: { ui: CollectionUi; layout: "p
       </p>
       <Heading ref={heading} tabIndex={-1} className="mdbase-collections-heading">{headingText}</Heading>
       {lead && <p className="mdbase-collections-lead">{lead}</p>}
-      <GateBody ui={ui} extraActions={view.kind === "signed_out" ? extra : undefined} onForget={(row) => setDialog({ kind: "forget", row })} onDelete={(row) => setDialog({ kind: "delete", row })} />
+      <GateBody ui={ui} extraActions={view.kind === "signed_out" ? extra : undefined} onDialog={setDialog} />
       {ui.error && <NoticeBlock notice={ui.error} ui={ui} variant="inline" />}
       <GateFooter ui={ui} chooseAnother={showsChooseAnother(view)} extra={view.kind === "signed_out" ? undefined : extra} />
     </div>
@@ -156,11 +156,10 @@ function showsChooseAnother(view: CollectionView): boolean {
   }
 }
 
-function GateBody({ ui, extraActions, onForget, onDelete }: {
+function GateBody({ ui, extraActions, onDialog }: {
   ui: CollectionUi;
   extraActions?: ReactNode;
-  onForget: (row: CollectionRow) => void;
-  onDelete: (row: CollectionRow) => void;
+  onDialog: (dialog: NonNullable<RowDialog>) => void;
 }): JSX.Element | null {
   const { view, copy, busy, actions } = ui;
   const inert = busy !== null;
@@ -175,7 +174,7 @@ function GateBody({ ui, extraActions, onForget, onDelete }: {
           <ActionButton tone="primary" inert={inert} progress={busy === "sign_in" ? copy.addingCollection : null} onClick={actions.signIn}>{copy.signIn}</ActionButton>
           {extraActions}
         </div>
-        <AppSections ui={ui} />
+        <AppSections ui={ui} onDialog={onDialog} />
       </>;
     case "authorizing":
       return <div className="mdbase-collections-actions">
@@ -186,8 +185,8 @@ function GateBody({ ui, extraActions, onForget, onDelete }: {
     case "choosing":
       return <>
         {view.notice && <NoticeBlock notice={view.notice} ui={ui} variant="inline" />}
-        {view.collections.length > 0 && <CollectionList ui={ui} onForget={onForget} onDelete={onDelete} />}
-        <AppSections ui={ui} />
+        {view.collections.length > 0 && <CollectionList ui={ui} onDialog={onDialog} />}
+        <AppSections ui={ui} onDialog={onDialog} />
         <div className="mdbase-collections-actions">
           <ActionButton tone={view.collections.length > 0 ? "secondary" : "primary"} inert={inert} progress={busy === "add" ? copy.addingCollection : null}
             onClick={actions.addCollection}>{copy.addCollection}</ActionButton>
@@ -216,7 +215,7 @@ function GateBody({ ui, extraActions, onForget, onDelete }: {
 }
 
 /** The approved collections as a labelled list: one row per collection, never mixed with actions. */
-function CollectionList({ ui, onForget, onDelete }: { ui: CollectionUi; onForget: (row: CollectionRow) => void; onDelete: (row: CollectionRow) => void }): JSX.Element {
+function CollectionList({ ui, onDialog }: { ui: CollectionUi; onDialog: (dialog: NonNullable<RowDialog>) => void }): JSX.Element {
   const id = useId();
   const { view, copy, busy, actions } = ui;
   return <section className="mdbase-collections-section" aria-labelledby={id}>
@@ -235,7 +234,7 @@ function CollectionList({ ui, onForget, onDelete }: { ui: CollectionUi; onForget
             <CollectionMark row={row} />
             <RowCopy row={row} ui={ui} {...(detailId ? { detailId } : {})} />
           </button>
-          <RowMore row={row} ui={ui} onForget={onForget} onDelete={onDelete} />
+          <RowMore row={row} ui={ui} onDialog={onDialog} />
         </li>;
       })}
     </ul>
@@ -243,13 +242,13 @@ function CollectionList({ ui, onForget, onDelete }: { ui: CollectionUi; onForget
 }
 
 /** The app's own sections ("Private collections"), after the SDK's list. */
-function AppSections({ ui }: { ui: CollectionUi }): JSX.Element | null {
+function AppSections({ ui, onDialog }: { ui: CollectionUi; onDialog: (dialog: NonNullable<RowDialog>) => void }): JSX.Element | null {
   const sections = (ui.options.sections ?? []).filter((section) => section.items.length > 0 || section.empty);
   if (sections.length === 0) return null;
-  return <>{sections.map((section) => <AppSection key={section.id} ui={ui} section={section} />)}</>;
+  return <>{sections.map((section) => <AppSection key={section.id} ui={ui} section={section} onDialog={onDialog} />)}</>;
 }
 
-function AppSection({ ui, section }: { ui: CollectionUi; section: CollectionSection }): JSX.Element {
+function AppSection({ ui, section, onDialog }: { ui: CollectionUi; section: CollectionSection; onDialog: (dialog: NonNullable<RowDialog>) => void }): JSX.Element {
   const id = useId();
   const { busy, actions } = ui;
   return <section className="mdbase-collections-section" aria-labelledby={id} data-section={section.id}>
@@ -268,6 +267,7 @@ function AppSection({ ui, section }: { ui: CollectionUi; section: CollectionSect
             <CollectionMark row={item} />
             <ItemCopy item={item} ui={ui} />
           </button>
+          <ItemMore item={item} ui={ui} onDialog={onDialog} />
         </li>)}
       </ul>}
   </section>;

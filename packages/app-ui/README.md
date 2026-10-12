@@ -81,6 +81,17 @@ import "@mdbase-dev/ui/collections.css";
   instead of its screens, and `chooseAnother()` (or "Choose a different
   collection" in the switcher) calls `onClose` to return to the list. Choosing
   an SDK collection also calls `onClose` first.
+- A section item's `actions` fill its row menu, the same "…" menu SDK
+  collections have: `{ id, label, onSelect(item, context), danger?, disabled? }`.
+  `danger` actions show in the danger colour; confirm before acting.
+  `context.confirmDelete(onClose?)` opens `DeleteCollectionDialog` for the
+  item (the person types its name; the SDK deletes it by the item's `id`), and
+  `onClose(outcome)` reports how it ended:
+
+  ```tsx
+  actions: isOwner ? [{ id: "delete", label: "Delete collection…", danger: true,
+    onSelect: (_item, { confirmDelete }) => confirmDelete((outcome) => { if (outcome === "deleted") reload(); }) }] : []
+  ```
 - `CollectionPanel` combines the gate screens with the switcher list, for
   settings dialogs. `CollectionProblem` shows one problem with its fix, either
   the current one or an error the app passes in.
