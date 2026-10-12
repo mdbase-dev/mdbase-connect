@@ -1,39 +1,59 @@
 /*
- * Shared collection screens (@mdbase-dev/ui/collections). Every rule reads app-ui
- * roles from tokens.css. Apps with their own design system map these properties
- * (anywhere up the tree, :root is fine) instead of overriding internals:
- *
- *   --mdbase-collections-accent        filled actions, focus, the current row
- *   --mdbase-collections-on-accent     text on the accent
- *   --mdbase-collections-surface       popovers, sheets, dialogs, rows
- *   --mdbase-collections-canvas        the gate page background
- *   --mdbase-collections-text          primary text
- *   --mdbase-collections-text-soft     secondary text
- *   --mdbase-collections-border        hairlines
- *   --mdbase-collections-danger        errors and destructive actions
- *   --mdbase-collections-radius        corners
- *   --mdbase-collections-font          font family
- *   --mdbase-collections-control-height  button and row height (44px on touch)
+ * Shared collection screens (@mdbase-dev/ui/collections). Every rule reads
+ * private --_* properties defined below. Each one takes, in order: the public
+ * --mdbase-collections-* property, the app-ui token from tokens.css, then a
+ * built-in value, so collections.css renders on its own. Apps with their own
+ * design system map the public properties (anywhere up the tree, :root is
+ * fine) instead of overriding internals. The README lists them all.
  */
 .mdbase-collections {
+  /* Colour */
   --_accent: var(--mdbase-collections-accent, var(--color-accent, oklch(47% 0.1 238)));
   --_on-accent: var(--mdbase-collections-on-accent, var(--color-on-accent, oklch(98% 0.004 245)));
   --_surface: var(--mdbase-collections-surface, var(--color-surface, oklch(99.5% 0.002 255)));
   --_canvas: var(--mdbase-collections-canvas, var(--color-canvas, oklch(99.5% 0.002 255)));
-  --_subtle: color-mix(in oklch, var(--_text) 5%, var(--_surface));
   --_text: var(--mdbase-collections-text, var(--color-text, oklch(21% 0.018 255)));
   --_text-soft: var(--mdbase-collections-text-soft, var(--color-text-soft, oklch(50% 0.014 255)));
   --_border: var(--mdbase-collections-border, var(--color-border-strong, oklch(82% 0.008 255)));
   --_danger: var(--mdbase-collections-danger, var(--color-danger, oklch(50% 0.11 28)));
-  --_warning: var(--color-warning-text, oklch(43% 0.055 69));
+  --_warning: var(--mdbase-collections-warning, var(--color-warning-text, oklch(43% 0.055 69)));
+  --_warning-edge: var(--mdbase-collections-warning-edge, var(--color-warning, oklch(60% 0.09 75)));
+  --_scrim: var(--mdbase-collections-scrim, var(--color-scrim, rgb(0 0 0 / 0.3)));
+  /*
+   * Mixes are in oklab, which has no hue: in oklch an achromatic surface
+   * written as oklch(L 0 0) carries hue 0 (red) into the mix and tints it pink.
+   */
+  --_subtle: color-mix(in oklab, var(--_text) 5%, var(--_surface));
+  --_current-bg: var(--mdbase-collections-current-bg, color-mix(in oklab, var(--_accent) 9%, var(--_surface)));
+  /* Type */
+  --_font-size: var(--mdbase-collections-font-size, var(--font-size-ui, 0.8125rem));
+  --_font-size-caption: var(--mdbase-collections-font-size-caption, var(--font-size-caption, 0.75rem));
+  --_font-size-section: var(--mdbase-collections-font-size-section, var(--font-size-section, 0.9375rem));
+  --_font-size-heading: var(--mdbase-collections-font-size-heading, var(--font-size-heading, 1.5rem));
+  --_weight-regular: var(--font-weight-regular, 400);
+  --_weight-medium: var(--font-weight-medium, 500);
+  --_weight-semibold: var(--mdbase-collections-font-weight-strong, var(--font-weight-semibold, 600));
+  /* Shape */
+  --_radius-sm: var(--mdbase-collections-radius-sm, var(--radius-sm, 4px));
   --_radius: var(--mdbase-collections-radius, var(--radius-md, 8px));
+  --_radius-lg: var(--mdbase-collections-radius-lg, var(--radius-lg, 12px));
+  --_elevation-low: var(--mdbase-collections-elevation-low, var(--elevation-low, 0 4px 12px rgb(0 0 0 / 0.1)));
+  --_elevation-high: var(--mdbase-collections-elevation-high, var(--elevation-high, 0 12px 32px rgb(0 0 0 / 0.16)));
   --_control: var(--mdbase-collections-control-height, 36px);
+  /* Motion */
   --_ease: var(--ease-standard, ease);
   --_fast: var(--motion-quick, 150ms);
+  --_spin: var(--motion-spin, 700ms);
   color: var(--_text);
   font-family: var(--mdbase-collections-font, var(--sans, system-ui, sans-serif));
-  font-size: var(--font-size-ui);
+  font-size: var(--_font-size);
   line-height: 1.45;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mdbase-collections {
+    --_fast: var(--motion-quick, 0ms);
+  }
 }
 
 @media (pointer: coarse) {
@@ -83,7 +103,7 @@
   gap: 8px;
   margin: 0;
   color: var(--_text-soft);
-  font-weight: var(--font-weight-semibold, 600);
+  font-weight: var(--_weight-semibold);
 }
 
 .mdbase-collections-brand-mark {
@@ -100,15 +120,15 @@
 .mdbase-collections-heading {
   margin: 8px 0 0;
   color: var(--_text);
-  font-size: var(--font-size-heading);
-  font-weight: var(--font-weight-semibold, 600);
+  font-size: var(--_font-size-heading);
+  font-weight: var(--_weight-semibold);
   line-height: 1.2;
   letter-spacing: -0.015em;
   overflow-wrap: anywhere;
 }
 
 .mdbase-collections-gate[data-layout="panel"] .mdbase-collections-heading {
-  font-size: var(--font-size-section);
+  font-size: var(--_font-size-section);
 }
 
 .mdbase-collections-heading:focus {
@@ -118,14 +138,14 @@
 .mdbase-collections-heading:focus-visible {
   outline: 2px solid var(--_accent);
   outline-offset: 4px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--_radius-sm);
 }
 
 .mdbase-collections-lead {
   max-width: 52ch;
   margin: 0;
   color: var(--_text-soft);
-  font-size: var(--font-size-section);
+  font-size: var(--_font-size-section);
 }
 
 .mdbase-collections-actions {
@@ -156,7 +176,7 @@
   color: var(--_text);
   background: var(--_surface);
   font: inherit;
-  font-weight: var(--font-weight-medium, 500);
+  font-weight: var(--_weight-medium);
   text-decoration: none;
   cursor: pointer;
   transition: background var(--_fast) var(--_ease), border-color var(--_fast) var(--_ease);
@@ -173,7 +193,7 @@
 }
 
 .mdbase-collections-button.is-primary:hover:not([aria-disabled="true"]) {
-  background: color-mix(in oklch, var(--_accent) 88%, var(--_text));
+  background: color-mix(in oklab, var(--_accent) 88%, var(--_text));
 }
 
 .mdbase-collections-button.is-quiet {
@@ -237,7 +257,7 @@
 }
 
 .mdbase-collections-notice[data-tone="warning"] {
-  border-left-color: var(--color-warning, oklch(60% 0.09 75));
+  border-left-color: var(--_warning-edge);
 }
 
 .mdbase-collections-notice[data-tone="error"] {
@@ -267,7 +287,7 @@
 
 .mdbase-collections-notice-title {
   margin: 0;
-  font-weight: var(--font-weight-semibold, 600);
+  font-weight: var(--_weight-semibold);
 }
 
 .mdbase-collections-notice-message {
@@ -291,8 +311,8 @@
 .mdbase-collections-section-title {
   margin: 0;
   color: var(--_text-soft);
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-semibold, 600);
+  font-size: var(--_font-size-caption);
+  font-weight: var(--_weight-semibold);
 }
 
 .mdbase-collections-list {
@@ -327,7 +347,7 @@
   min-height: calc(var(--_control) + 12px);
   padding: 8px 10px;
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: var(--_radius-sm);
   color: inherit;
   background: transparent;
   font: inherit;
@@ -347,8 +367,9 @@
   color: var(--_text-soft);
 }
 
-.mdbase-collections-row[aria-checked="true"] {
-  background: color-mix(in oklch, var(--_accent) 9%, var(--_surface));
+.mdbase-collections-row[aria-checked="true"],
+.mdbase-collections-row[aria-current="true"] {
+  background: var(--_current-bg);
 }
 
 .mdbase-collections-mark {
@@ -357,10 +378,10 @@
   place-items: center;
   width: 28px;
   height: 28px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--_radius-sm);
   color: oklch(36% 0.08 var(--mdbase-collections-hue));
   background: oklch(92% 0.045 var(--mdbase-collections-hue));
-  font-size: var(--font-size-caption);
+  font-size: var(--_font-size-caption);
   font-weight: 700;
   letter-spacing: 0.02em;
 }
@@ -386,18 +407,20 @@
 
 /* Names wrap; they are never cut to an ellipsis in a list. */
 .mdbase-collections-row-name {
-  font-weight: var(--font-weight-semibold, 600);
+  font-weight: var(--_weight-semibold);
   overflow-wrap: anywhere;
 }
 
 .mdbase-collections-row-hint,
 .mdbase-collections-row-meta,
+.mdbase-collections-row-secondary,
 .mdbase-collections-row-detail {
   color: var(--_text-soft);
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-regular, 400);
+  font-size: var(--_font-size-caption);
+  font-weight: var(--_weight-regular);
 }
 
+.mdbase-collections-row-secondary,
 .mdbase-collections-row-detail {
   overflow-wrap: anywhere;
 }
@@ -420,7 +443,7 @@
   width: var(--_control);
   height: var(--_control);
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: var(--_radius-sm);
   color: var(--_text-soft);
   background: transparent;
   cursor: pointer;
@@ -451,7 +474,7 @@
   border-radius: var(--_radius);
   color: var(--_text);
   background: var(--_surface);
-  box-shadow: var(--elevation-low);
+  box-shadow: var(--_elevation-low);
 }
 
 .mdbase-collections-menu-item {
@@ -461,7 +484,7 @@
   min-height: var(--_control);
   padding: 0 10px;
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: var(--_radius-sm);
   color: inherit;
   background: transparent;
   font: inherit;
@@ -488,6 +511,15 @@
   color: var(--_text-soft);
 }
 
+/* The app's own actions lead the footer. */
+.mdbase-collections-footer-extra {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+}
+
 .mdbase-collections-account {
   display: inline-flex;
   flex-wrap: wrap;
@@ -504,10 +536,10 @@
   width: 16px;
   height: 16px;
   flex: 0 0 auto;
-  border: 2px solid color-mix(in oklch, var(--_text-soft) 35%, transparent);
+  border: 2px solid color-mix(in oklab, var(--_text-soft) 35%, transparent);
   border-top-color: var(--_accent);
   border-radius: 50%;
-  animation: mdbase-collections-spin var(--motion-spin, 700ms) linear infinite;
+  animation: mdbase-collections-spin var(--_spin) linear infinite;
 }
 
 @keyframes mdbase-collections-spin {
@@ -545,8 +577,8 @@
 .mdbase-collections-setup-section h3 {
   margin: 0;
   color: var(--_text-soft);
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-semibold, 600);
+  font-size: var(--_font-size-caption);
+  font-weight: var(--_weight-semibold);
 }
 
 .mdbase-collections-setup-list {
@@ -577,7 +609,7 @@
   min-height: var(--_control);
   padding: 0 8px;
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border-radius: var(--_radius-sm);
   color: inherit;
   background: transparent;
   font: inherit;
@@ -591,10 +623,30 @@
   background: var(--_surface);
 }
 
+.mdbase-collections-trigger-icon {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+}
+
+.mdbase-collections-trigger-icon > svg,
+.mdbase-collections-trigger-icon > img {
+  width: 100%;
+  height: 100%;
+}
+
+.mdbase-collections-trigger-icon > .mdbase-collections-mark {
+  width: 20px;
+  height: 20px;
+  font-size: 0.625rem;
+}
+
 .mdbase-collections-trigger-name {
   min-width: 0;
   overflow: hidden;
-  font-weight: var(--font-weight-semibold, 600);
+  font-weight: var(--_weight-semibold);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -602,7 +654,7 @@
 .mdbase-collections-trigger-role {
   flex: 0 0 auto;
   color: var(--_text-soft);
-  font-size: var(--font-size-caption);
+  font-size: var(--_font-size-caption);
 }
 
 .mdbase-collections-chevron,
@@ -641,11 +693,11 @@
   padding: 6px;
   overflow: auto;
   border: 1px solid var(--_border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--_radius-lg);
   outline: 0;
   color: var(--_text);
   background: var(--_surface);
-  box-shadow: var(--elevation-high);
+  box-shadow: var(--_elevation-high);
   overscroll-behavior: contain;
 }
 
@@ -663,7 +715,7 @@
 
 .mdbase-collections-eyebrow {
   color: var(--_text-soft);
-  font-size: var(--font-size-caption);
+  font-size: var(--_font-size-caption);
   font-weight: 700;
 }
 
@@ -678,9 +730,9 @@
 .mdbase-collections-chip {
   padding: 1px 6px;
   border: 1px solid var(--_border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--_radius-lg);
   color: var(--_text-soft);
-  font-size: var(--font-size-caption);
+  font-size: var(--_font-size-caption);
 }
 
 .mdbase-collections-field {
@@ -688,7 +740,7 @@
   min-height: var(--_control);
   padding: 0 10px;
   border: 1px solid var(--_border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--_radius-sm);
   color: var(--_text);
   background: var(--_canvas);
   font: inherit;
@@ -697,6 +749,20 @@
 .mdbase-collections-filter {
   margin: 0 2px;
   width: auto;
+}
+
+.mdbase-collections-switcher-lists {
+  display: grid;
+  gap: 10px;
+}
+
+.mdbase-collections-switcher-section {
+  display: grid;
+  gap: 4px;
+}
+
+.mdbase-collections-switcher-section > .mdbase-collections-section-title {
+  padding: 0 8px;
 }
 
 .mdbase-collections-switcher-list {
@@ -747,13 +813,13 @@
   margin: auto 0 0;
   padding: 0;
   border: 0;
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  border-radius: var(--_radius-lg) var(--_radius-lg) 0 0;
   color: var(--_text);
   background: var(--_surface);
 }
 
 .mdbase-collections-sheet::backdrop {
-  background: var(--color-scrim, rgb(0 0 0 / 0.3));
+  background: var(--_scrim);
 }
 
 .mdbase-collections-sheet-body {
@@ -770,7 +836,7 @@
 }
 
 .mdbase-collections-sheet-title {
-  font-weight: var(--font-weight-semibold, 600);
+  font-weight: var(--_weight-semibold);
 }
 
 /* Confirmations. */
@@ -778,19 +844,19 @@
   width: min(100% - 32px, 440px);
   padding: 20px;
   border: 1px solid var(--_border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--_radius-lg);
   color: var(--_text);
   background: var(--_surface);
-  box-shadow: var(--elevation-high);
+  box-shadow: var(--_elevation-high);
 }
 
 .mdbase-collections-dialog::backdrop {
-  background: var(--color-scrim, rgb(0 0 0 / 0.3));
+  background: var(--_scrim);
 }
 
 .mdbase-collections-dialog-title {
   margin: 0 0 8px;
-  font-size: var(--font-size-section);
+  font-size: var(--_font-size-section);
   overflow-wrap: anywhere;
 }
 
