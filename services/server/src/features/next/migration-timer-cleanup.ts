@@ -52,8 +52,9 @@ async function requireSettledRollback(db: DatabaseQueryable, collection: string,
   }
 }
 
-/** Delete the presented rolled-back run's imported timer rows; see the file header. */
-async function cleanUpRolledBackTimerImport(
+/** Delete the presented rolled-back run's imported timer rows; see the file header.
+ * Also called directly by the LAB route-back command (migration-lab.ts). */
+export async function cleanUpRolledBackTimerImport(
   db: DatabasePool, provider: Provider | undefined, environment: string | undefined, collection: string, presented: Binding
 ): Promise<{ collection_id: string; migration_id: string; deleted: number }> {
   if (environment !== "lab") throw new RolloutRefused("migration_lab_only", "Timer rollback cleanup is available in LAB only.", 403);
