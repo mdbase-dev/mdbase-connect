@@ -54,7 +54,7 @@ type BatchUndo = { kind: "delete"; document: NoteDocument } | { kind: "propertie
 type RecoveryAction =
   | { kind: "mention"; path: string; before: string; after: string }
   | { kind: "batch"; changes: BatchUndo[]; message: string }
-  | { kind: "delete"; document: NoteDocument }
+  | { kind: "delete"; document: NoteDocument; pending?: boolean }
   | { kind: "rename"; from: string; to: string }
   | { kind: "move"; paths: Array<{ from: string; to: string }>; references: number; message?: string };
 
@@ -482,6 +482,10 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
       setSelectedPath(undefined);
       if (next) void openNote(next.path);
     }
+      // Acknowledge the delete at once: confirmation can take seconds, and the
+      // note has already left the list. Undo becomes available once confirmed.
+      const pendingRecovery: RecoveryAction | undefined = reportUndo ? { kind: "delete", document: session.document, pending: true } : undefined;
+      if (pendingRecovery) setRecoveryAction(pendingRecovery);
       try {
         let deletedDocument: NoteDocument | undefined;
         await runNoteOperation(session, "deleting", async (token) => {
@@ -497,9 +501,11 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
         noteSessions.current.delete(path);
         indexController.commitRemoval(path);
         setRecentPaths((current) => forgetRecentPath(current, path));
-        if (deletedDocument && reportUndo) setRecoveryAction({ kind: "delete", document: deletedDocument });
+        const confirmed = deletedDocument;
+        if (pendingRecovery) setRecoveryAction((current) => current !== pendingRecovery ? current : confirmed ? { kind: "delete", document: confirmed } : undefined);
         return deletedDocument;
       } catch (error) {
+        if (pendingRecovery) setRecoveryAction((current) => current === pendingRecovery ? undefined : current);
         if (!mutationScope.current.isCurrent(token)) return;
         session.deleted = false;
         indexController.rollbackRemoval(summaryFromDocument(session.document));
@@ -512,7 +518,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
 
   async function undoRecovery() {
     const action = recoveryAction;
-    if (!action || recoveryBusy || mutationScope.current.isFrozen) return;
+    if (!action || recoveryBusy || mutationScope.current.isFrozen || (action.kind === "delete" && action.pending)) return;
     const token = mutationScope.current.token();
     setRecoveryBusy(true);
     setNotice(undefined);

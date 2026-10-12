@@ -961,6 +961,26 @@ describe("mdbase editor", () => {
     expect(gateway.listCalls).toBe(listCalls);
   });
 
+  it("acknowledges a delete at once while it confirms, then offers a 30-second Undo that restores it", async () => {
+    const gateway = new SlowDeleteGateway();
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    await screen.findByRole("textbox", { name: "Note title" });
+    await user.click(screen.getByLabelText("More note actions"));
+    await user.click(screen.getByRole("menuitem", { name: "Delete" }));
+    const deleting = await screen.findByText("Deleting “The shape of useful tools”…");
+    expect(deleting.closest('[role="status"]')).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
+
+    gateway.releaseDelete();
+    const undo = await screen.findByRole("button", { name: "Undo" });
+    expect(undo.closest('[role="status"]')).toHaveTextContent("Deleted “The shape of useful tools”.");
+    await user.click(undo);
+    expect(await screen.findByRole("option", { name: /The shape of useful tools/ })).toBeInTheDocument();
+    expect((await gateway.read("Notes/the-shape-of-useful-tools.md")).body).toContain("Good tools leave room");
+  });
+
   it("renders an explicit full-access explanation before authorization", async () => {
     const gateway = new DemoCollectionGateway(1);
     const disconnected = Object.create(gateway) as CollectionGateway;
@@ -1647,6 +1667,20 @@ class SaveCountingGateway extends DemoCollectionGateway {
     this.markWatching?.();
     await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
     this.listener = undefined;
+  }
+}
+
+class SlowDeleteGateway extends DemoCollectionGateway {
+  releaseDelete!: () => void;
+  private readonly blockedDelete = new Promise<void>((resolve) => { this.releaseDelete = resolve; });
+
+  constructor() {
+    super(3);
+  }
+
+  override async delete(...input: Parameters<DemoCollectionGateway["delete"]>): Promise<void> {
+    await this.blockedDelete;
+    return super.delete(...input);
   }
 }
 
