@@ -7,7 +7,9 @@
 // - Each hosted collection's cutover is recorded (`POST …/collections/:id/cutover`)
 //   only for a started account and a control-plane cloud copy with the preserved
 //   ID owned by that account. The record routes it (`next_collections.runtime =
-//   'next'`).
+//   'next'`). After that record commits, the route moves the legacy source to
+//   `migrated`, which starts its retention; a retry of the same cutover repeats
+//   only that idempotent step.
 // - The flip is the only setter of `users.account_backend = 'next'`
 //   (docs/account-backend.md). It requires a started account, every current hosted
 //   collection settled and cut over, and an evidence digest that this server
@@ -26,6 +28,8 @@ import { safeEqual } from "../../security.js";
 import { drainDeferredAccountDeletions } from "../../account-management.js";
 import { completeMigrationBatch, releaseDeferredDeletions } from "./migration-topology.js";
 import { flipEvidenceDigest, recordAccountFlip } from "./account-backend-flip.js";
+import { HostedProviderResponseError, HostedProviderUnavailableError, type HostedProviderClient,
+  type LegacyMigrationDrain } from "../../hosted-provider.js";
 
 export { flipEvidenceDigest };
 
@@ -462,14 +466,19 @@ export async function startAccountMigration(db: DatabasePool, account: string, e
  */
 export interface CutoverFacts { s_final: number; cutover_seq: number; barrier_f: number; final_digest: string }
 
-export async function recordCollectionCutover(
-  db: DatabasePool, collection: string, facts: CutoverFacts
-): Promise<{ collection_id: string; account_id: string }> {
+function checkCutoverFacts(facts: CutoverFacts): void {
   const { s_final: sFinal, cutover_seq: cutoverSeq, barrier_f: barrierF, final_digest: finalDigest } = facts;
   if (![sFinal, cutoverSeq, barrierF].every(Number.isSafeInteger) || sFinal < 0 || cutoverSeq <= 0
       || barrierF < cutoverSeq || !HEX64.test(finalDigest)) {
     throw new RolloutRefused("invalid_request", "s_final, cutover_seq <= barrier_f and a hex final_digest are required.", 400);
   }
+}
+
+export async function recordCollectionCutover(
+  db: DatabasePool, collection: string, facts: CutoverFacts
+): Promise<{ collection_id: string; account_id: string }> {
+  const { s_final: sFinal, cutover_seq: cutoverSeq, barrier_f: barrierF, final_digest: finalDigest } = facts;
+  checkCutoverFacts(facts);
   return inTransaction(db, async (client) => {
     const owner = (await client.query<{ account: string }>(
       "SELECT user_id::text AS account FROM hosted_collections WHERE id = $1 AND authority_state = 'active'", [collection]
@@ -507,6 +516,64 @@ export async function recordCollectionCutover(
     await audit(client, account, "next_migration.cutover", collection, facts);
     return { collection_id: collection, account_id: account };
   });
+}
+
+/** Legacy retention after cutover: the provider requires at least 90 days from
+ * its own clock, so request one more day as clock margin. Never shortened. */
+const LEGACY_RETENTION_MS = 91 * 24 * 60 * 60 * 1000;
+export type LegacyRetentionProvider = Pick<HostedProviderClient, "legacyMigrationDrain" | "legacyMigrationRetain">;
+
+/** Legacy is fenced on one provider run: drained and `migrating` before the
+ * first record, or already `migrated` when a retry follows the transition. */
+function fencedSource(source: LegacyMigrationDrain, collection: string): void {
+  const run = source.collection_id === collection && Boolean(source.migration_id) && Boolean(source.started_at);
+  const migrating = source.state === "migrating" && source.retain_until === null && source.in_flight === 0;
+  const migrated = source.state === "migrated" && source.retain_until !== null;
+  if (!run || !(migrating || migrated)) {
+    throw new RolloutRefused("migration_source_not_drained", "The legacy source is not fenced and drained.");
+  }
+}
+
+function providerUnavailable(error: unknown): unknown {
+  return error instanceof HostedProviderResponseError || error instanceof HostedProviderUnavailableError || error instanceof z.ZodError
+    ? new RolloutRefused("migration_source_unavailable", "No verified legacy provider outcome; retry the same cutover.", 503)
+    : error;
+}
+
+/**
+ * The `/cutover` route: record the cutover, then start legacy retention.
+ *
+ * 1. Read the legacy source; it must be fenced and drained (or already migrated).
+ * 2. Commit the cutover record ([`recordCollectionCutover`], idempotent).
+ * 3. Only after that commit, move legacy to `migrated` on the same provider run.
+ *
+ * Legacy is never `migrated` without a committed record. If step 3 fails or the
+ * process dies after step 2, the collection stays `migrating` (still frozen and
+ * retained) and the same cutover retried completes step 3 alone.
+ */
+export async function cutOverCollection(
+  db: DatabasePool, provider: LegacyRetentionProvider | undefined, collection: string, facts: CutoverFacts,
+  now: () => number = Date.now
+): Promise<{ collection_id: string; account_id: string }> {
+  checkCutoverFacts(facts);
+  if (!provider) throw new RolloutRefused("migration_source_unavailable", "The legacy provider is unavailable.", 503);
+  let source: LegacyMigrationDrain;
+  try { source = await provider.legacyMigrationDrain(collection, { deadline: Date.now() + 25_000 }); }
+  catch (error) { throw providerUnavailable(error); }
+  fencedSource(source, collection);
+  const recorded = await recordCollectionCutover(db, collection, facts);
+  let retained: Awaited<ReturnType<LegacyRetentionProvider["legacyMigrationRetain"]>>;
+  try {
+    retained = await provider.legacyMigrationRetain(collection, new Date(now() + LEGACY_RETENTION_MS), { deadline: Date.now() + 25_000 });
+  } catch (error) {
+    throw new RolloutRefused("legacy_retention_pending", "The cutover is recorded; retry the same cutover to start legacy retention.",
+      error instanceof HostedProviderResponseError && error.status === 409 ? 409 : 503);
+  }
+  // A different run means legacy was unfenced and fenced again in between.
+  if (retained.migration_id !== source.migration_id || retained.started_at !== source.started_at) {
+    throw new RolloutRefused("migration_source_changed", "The legacy provider run changed during cutover.");
+  }
+  return recorded;
 }
 
 /**
@@ -713,7 +780,9 @@ export async function setCohortFrozen(db: DatabasePool, name: string, frozen: bo
 }
 
 /** Routes for the hosted migrator: the dedicated migration token only. */
-export function registerMigrationRolloutRoutes(app: FastifyInstance, options: { db: DatabasePool; token: string; environment?: string }): void {
+export function registerMigrationRolloutRoutes(app: FastifyInstance, options: {
+  db: DatabasePool; token: string; environment?: string; provider?: LegacyRetentionProvider;
+}): void {
   const migrator = (request: FastifyRequest) => {
     const presented = bearerToken(request);
     return Boolean(presented) && safeEqual(presented!, options.token);
@@ -803,7 +872,7 @@ export function registerMigrationRolloutRoutes(app: FastifyInstance, options: { 
     }).strict().safeParse(request.body);
     if (!p.success || !body.success) return reply.code(400).send(apiError("invalid_request", "s_final, cutover_seq, barrier_f and final_digest are required."));
     try {
-      return await recordCollectionCutover(options.db, p.data.id.toLowerCase(), body.data);
+      return await cutOverCollection(options.db, options.provider, p.data.id.toLowerCase(), body.data);
     } catch (e) { return refused(reply, e); }
   });
   app.post("/internal/v1/next/migration/accounts/:id/flip", async (request, reply) => {

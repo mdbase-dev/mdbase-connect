@@ -3,7 +3,10 @@
 The dedicated migration token can call these bounded, audited control-plane routes:
 
 - `GET /internal/v1/next/migration/collections/:id/source`: exact provider lifecycle,
-  migration run, head, hold/retention timestamps and journal counters.
+  migration run, head, hold/retention timestamps and journal counters. The
+  provider's notification watermark from the same snapshot is returned unchanged
+  as the strong `ETag` header (never in the body) and recorded in the source
+  audit event. A missing or malformed provider watermark is refused with 503.
 - `POST /internal/v1/next/migration/collections/:id/fence` with `{}`: the existing
   provider `active → migrating` transition, or the same current fence on retry.
 

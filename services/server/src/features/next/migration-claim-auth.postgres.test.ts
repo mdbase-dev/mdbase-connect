@@ -50,7 +50,7 @@ suite("hosted own-collection migration proof (isolated PostgreSQL)", () => {
     } : null };
     const app = Fastify();
     const forbidden = async () => { throw new Error("read attempted provider effect"); };
-    registerMigrationProviderRoutes(app, { db: database, token: adminToken, hostedRead: { token, audience }, provider: { legacyMigrationDrain: forbidden, legacyMigrationFence: forbidden } });
+    registerMigrationProviderRoutes(app, { db: database, token: adminToken, hostedRead: { token, audience }, provider: { legacyMigrationDrain: forbidden, legacyMigrationSource: forbidden, legacyMigrationFence: forbidden } });
     const request = (kind: "challenge" | "read", payload: object, auth = token, suffix = "") => app.inject({ method: "POST",
       url: `/internal/v1/next/migration/collections/${collection}/claim/${kind}${suffix}`, headers: { authorization: `Bearer ${auth}` }, payload });
     const nonce = async () => {

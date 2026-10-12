@@ -40,6 +40,19 @@ export const migrationFenceSchema = z.object({
   restored: z.array(migrationUuid).max(0)
 }).strict();
 export type LegacyMigrationFence = z.infer<typeof migrationFenceSchema>;
+/** The provider's notification watermark ETag over one drain snapshot: DATA for a
+ * later equality re-read (before the account flip), never a permission. Exact
+ * strong-ETag form and length; anything else is refused, not normalized. */
+export const legacyNotificationWatermarkSchema = z.string().max(97)
+  .regex(/^"mdbase-legacy-notifications-v1:[0-9a-f]{64}"$/u).brand<"LegacyNotificationWatermark">();
+export type LegacyNotificationWatermark = z.infer<typeof legacyNotificationWatermarkSchema>;
+/** `migrated` transition reply: same provider run, retention set, nothing restored. */
+export const migrationRetainedSchema = z.object({
+  collection_id: migrationUuid, state: z.literal("migrated"), migration_id: migrationUuid,
+  started_at: z.iso.datetime({ offset: true }), retain_until: z.iso.datetime({ offset: true }),
+  restored: z.array(migrationUuid).max(0)
+}).strict();
+export type LegacyMigrationRetained = z.infer<typeof migrationRetainedSchema>;
 
 // Metadata correlation only, not native rollback/currentness authority. Refuse
 // counters outside the JS safe-integer range rather than rounding native u64s.

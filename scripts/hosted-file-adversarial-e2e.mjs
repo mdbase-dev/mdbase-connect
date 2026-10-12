@@ -30,7 +30,8 @@ try {
   // the registered CI suite rather than relying on ordinary workspace tests.
   for (const target of [["--lib", "atomic_runner"], ["--test", "semantic_migration"],
     ["--test", "setup_evidence"], ["--test", "fresh_issuance"], ["--test", "file_stat"],
-    ["--test", "hosted_write_validation"], ["--test", "legacy_migration"]]) {
+    ["--test", "hosted_write_validation"], ["--test", "legacy_migration"],
+    ["--test", "legacy_notification_watermark"], ["--lib", "notifications::migration_tests"]]) {
     await run("cargo", [
       "test", "--locked", "-p", "mdbase-connect-hosted-provider", ...target,
       "--", "--ignored", "--nocapture", "--test-threads=1"

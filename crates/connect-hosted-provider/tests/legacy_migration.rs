@@ -38,7 +38,8 @@ impl FileLifecycleFixture {
             CREATE TABLE IF NOT EXISTS mdbase_runtime_runs (
                 namespace text, id text, revision bigint, status text, executor text,
                 workflow text, trigger_id text, created_at timestamptz, not_before timestamptz,
-                lease_token text, lease_worker text, lease_expires_at timestamptz, PRIMARY KEY(namespace,id));
+                lease_token text, lease_worker text, lease_expires_at timestamptz, record_json jsonb,
+                PRIMARY KEY(namespace,id));
             CREATE TABLE IF NOT EXISTS mdbase_runtime_events (namespace text, cursor bigint, PRIMARY KEY(namespace,cursor));
         "#).execute(&fixture.pool).await.unwrap();
         let version: i32 =
@@ -1321,4 +1322,217 @@ async fn refused_old_clients_learn_their_collection_is_upgrading_or_moved() {
         "https://mdbase.dev/downloads"
     );
     server.abort();
+}
+
+/// Run lease columns: token, worker, expiry.
+type RunLease<'a> = (
+    Option<&'a str>,
+    Option<&'a str>,
+    Option<chrono::DateTime<Utc>>,
+);
+/// A run row shape: status, lease, `record_json`.
+type RunShape<'a> = (&'a str, RunLease<'a>, Option<Value>);
+
+/// One notification run row in the collection's runtime namespace.
+async fn put_notification_run(
+    fixture: &FileLifecycleFixture,
+    status: &str,
+    lease: RunLease<'_>,
+    record: Option<Value>,
+) {
+    sqlx::query("DELETE FROM mdbase_runtime_runs WHERE namespace = $1")
+        .bind(format!(
+            "connect-hosted:{}:notifications",
+            fixture.collection_id
+        ))
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        r#"INSERT INTO mdbase_runtime_runs
+           (namespace,id,revision,status,executor,workflow,trigger_id,created_at,not_before,
+            lease_token,lease_worker,lease_expires_at,record_json)
+           VALUES ($1,'run',1,$2,'notify','workflow','trigger',now(),now(),$3,$4,$5,$6)"#,
+    )
+    .bind(format!(
+        "connect-hosted:{}:notifications",
+        fixture.collection_id
+    ))
+    .bind(status)
+    .bind(lease.0)
+    .bind(lease.1)
+    .bind(lease.2)
+    .bind(record)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+}
+
+fn run_record(active_attempt: Value, attempt_statuses: &[&str]) -> Value {
+    json!({
+        "active_attempt": active_attempt,
+        "attempts": attempt_statuses.iter()
+            .map(|status| json!({"invocation_id": "fixture-invocation", "status": status}))
+            .collect::<Vec<_>>(),
+    })
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn failed_unleased_notification_runs_settle_and_every_other_shape_blocks() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let id = fixture.collection_id;
+    let live = Utc::now() + Duration::minutes(5);
+    let expired = Utc::now() - Duration::days(1);
+    let none = (None, None, None);
+    let settled = run_record(Value::Null, &["succeeded", "failed"]);
+    // Each shape keeps the collection active and reports a drain blocker.
+    let blocking: Vec<RunShape> = vec![
+        (
+            "failed",
+            (Some("lease"), Some("worker"), Some(live)),
+            Some(settled.clone()),
+        ),
+        (
+            "failed",
+            (Some("lease"), Some("worker"), Some(expired)),
+            Some(settled.clone()),
+        ),
+        ("failed", (Some("lease"), None, None), Some(settled.clone())),
+        (
+            "failed",
+            (None, Some("worker"), None),
+            Some(settled.clone()),
+        ),
+        ("failed", (None, None, Some(expired)), Some(settled.clone())),
+        ("running", none, Some(settled.clone())),
+        ("queued", none, Some(settled.clone())),
+        ("waiting", none, Some(settled.clone())),
+        ("indeterminate", none, Some(settled.clone())),
+        ("FAILED", none, Some(settled.clone())),
+        ("failed ", none, Some(settled.clone())),
+        ("failed", none, Some(run_record(json!(0), &["failed"]))),
+        (
+            "failed",
+            none,
+            Some(run_record(Value::Null, &["failed", "dispatching"])),
+        ),
+        (
+            "failed",
+            none,
+            Some(run_record(Value::Null, &["indeterminate"])),
+        ),
+        (
+            "failed",
+            none,
+            Some(json!({"active_attempt": null, "attempts": [{"invocation_id": "x"}]})),
+        ),
+        (
+            "failed",
+            none,
+            Some(json!({"active_attempt": null, "attempts": ["failed"]})),
+        ),
+        ("failed", none, Some(json!({"active_attempt": null}))),
+        (
+            "failed",
+            none,
+            Some(json!({"active_attempt": null, "attempts": {"0": "failed"}})),
+        ),
+        ("failed", none, Some(json!("failed"))),
+        ("failed", none, None),
+    ];
+    for (status, lease, record) in &blocking {
+        put_notification_run(&fixture, status, *lease, record.clone()).await;
+        let drain = fixture.provider.legacy_migration_drain(id).await.unwrap();
+        assert!(
+            drain.in_flight > 0 && drain.unresolved > 0,
+            "{status:?} {lease:?} {record:?}"
+        );
+        assert_eq!(
+            fixture
+                .provider
+                .set_legacy_migration_state(id, "migrating", None, false, &[])
+                .await
+                .unwrap_err()
+                .code,
+            "legacy_notifications_not_drained",
+            "{status:?} {lease:?} {record:?}"
+        );
+        assert_eq!(state_of(&fixture).await, "active");
+    }
+
+    // A terminal failed run with no lease and only durable attempt outcomes is
+    // settled: no attempt is pending and the runtime cannot admit another.
+    for record in [run_record(Value::Null, &[]), settled.clone()] {
+        put_notification_run(&fixture, "failed", none, Some(record)).await;
+        let drain = fixture.provider.legacy_migration_drain(id).await.unwrap();
+        assert_eq!((drain.in_flight, drain.unresolved), (0, 0));
+    }
+    // Fence, drain and atomic rollback all treat it as settled.
+    fenced(&fixture).await;
+    let drain = fixture.provider.legacy_migration_drain(id).await.unwrap();
+    assert_eq!((drain.state.as_str(), drain.in_flight), ("migrating", 0));
+    let mirror = mirror_id(&fixture).await;
+    fixture
+        .provider
+        .revoke_migration_replicas(id, &[mirror])
+        .await
+        .unwrap();
+    let input = rollback_input(&fixture, vec![mirror]).await;
+    fixture
+        .provider
+        .rollback_legacy_migration(id, &input)
+        .await
+        .unwrap();
+    assert_eq!(state_of(&fixture).await, "active");
+
+    // While fenced, a blocking run refuses cutover and rollback; once it is a
+    // settled failed run, cutover proceeds.
+    fenced(&fixture).await;
+    let retain = Utc::now() + Duration::days(91);
+    for (status, lease, record) in [
+        ("indeterminate", none, Some(settled.clone())),
+        (
+            "failed",
+            (Some("lease"), Some("worker"), Some(expired)),
+            Some(settled.clone()),
+        ),
+        (
+            "failed",
+            none,
+            Some(run_record(Value::Null, &["dispatching"])),
+        ),
+    ] {
+        put_notification_run(&fixture, status, lease, record.clone()).await;
+        assert_eq!(
+            fixture
+                .provider
+                .set_legacy_migration_state(id, "migrated", Some(retain), false, &[])
+                .await
+                .unwrap_err()
+                .code,
+            "legacy_notifications_not_drained",
+            "{status:?} {lease:?} {record:?}"
+        );
+        let input = rollback_input(&fixture, vec![]).await;
+        assert_eq!(
+            fixture
+                .provider
+                .rollback_legacy_migration(id, &input)
+                .await
+                .unwrap_err()
+                .code,
+            "legacy_notifications_not_drained",
+            "{status:?} {lease:?} {record:?}"
+        );
+        assert_eq!(state_of(&fixture).await, "migrating");
+    }
+    put_notification_run(&fixture, "failed", none, Some(settled)).await;
+    fixture
+        .provider
+        .set_legacy_migration_state(id, "migrated", Some(retain), false, &[])
+        .await
+        .unwrap();
+    assert_eq!(state_of(&fixture).await, "migrated");
 }

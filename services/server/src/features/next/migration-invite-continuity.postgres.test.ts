@@ -13,6 +13,7 @@ import {createCohort,addToCohort,setCohortFrozen,releaseCohort,setPaused,cohortA
 import {registerNextCollection} from "./policy-outbox.js";
 import {requireCompletedAccountMigration} from "./migration-sharing.js";
 import {provisionNewAccountBackend} from "./account-backend-flip.js";
+import {fakeLegacyProvider,type FakeLegacyProvider} from "./legacy-provider.test-helper.js";
 
 const testUrl=process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved=process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL==="I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -29,7 +30,11 @@ suite("original emailed invite continuity (CP counterexamples, NOT native migrat
     url.searchParams.set("options",`-csearch_path=${schema}`);db=await createDatabase(url.toString());
     await app.register(cookie);registerErrorHandler(app);
     registerHostedSharingRoutes(app,{db,hostedCollections:true,hostedSharing:true});
-    registerMigrationRolloutRoutes(app,{db,token:migrationToken,environment:"lab"});
+    const legacy=new Map<string,FakeLegacyProvider>();
+    const fake=(id:string)=>legacy.get(id)??legacy.set(id,fakeLegacyProvider(id)).get(id)!;
+    registerMigrationRolloutRoutes(app,{db,token:migrationToken,environment:"lab",provider:{
+      legacyMigrationDrain:(id,options)=>fake(id).legacyMigrationDrain(id,options),
+      legacyMigrationRetain:(id,until,options)=>fake(id).legacyMigrationRetain(id,until,options)}});
   },60_000);
   afterAll(async()=>{await app.close();await db?.end();if(admin&&schema)await admin.query(`DROP SCHEMA "${schema}" CASCADE`);await admin?.end();});
   async function account(owner=false){

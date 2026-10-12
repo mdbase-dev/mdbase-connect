@@ -3,7 +3,8 @@
 The existing authenticated `GET /internal/v1/collections/{id}/legacy-migration`
 returns its original drain body plus `Cache-Control: no-store` and a strong
 `ETag: "mdbase-legacy-notifications-v1:<64 lowercase hex>"`. No CPP or native
-wire field is added. The caller must capture and compare this ETag immediately
+wire field is added. The control plane's migration `source` route passes this
+ETag through unchanged. The caller must capture and compare this ETag immediately
 before cutover; missing, unsupported or changed observations require abort and
 return to legacy ACTIVE, never an inferred unchanged result.
 
@@ -40,7 +41,12 @@ existing recovery-loop guard is additional protection, not a substitute for
 this admission or the immediate preflip watermark comparison.
 
 Expired leases, unknown work and terminal labels with occupied leases do not
-settle delivery. Pending outbox entries, firing timers and unfinished delivery
+settle delivery. A terminal `failed` run is settled when it holds no lease, has
+no active attempt and every recorded attempt is `succeeded` or `failed`: the
+runtime records an interrupted dispatch as `indeterminate`, and effect admission
+requires a running, leased run, so it cannot deliver again. Fence, drain,
+cutover and rollback all apply this rule, as does the control plane's legacy
+timer reader. Pending outbox entries, firing timers and unfinished delivery
 runs block fencing/cutover. Genuine completion belongs to the original runtime;
 no synthetic completion, trigger, runtime seam or migration initializer is added.
 

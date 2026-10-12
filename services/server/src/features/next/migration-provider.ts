@@ -18,7 +18,7 @@ import { loadServiceDevice } from "./service-devices.js";
 interface Claim { account: string; started_us: string; display_name: string }
 interface Options {
   db: DatabasePool; token: string;
-  provider?: Pick<HostedProviderClient, "legacyMigrationDrain" | "legacyMigrationFence">;
+  provider?: Pick<HostedProviderClient, "legacyMigrationDrain" | "legacyMigrationSource" | "legacyMigrationFence">;
   bootstrap?: Omit<CloudCopyBootstrapOptions, "db">;
   /** Existing hosted-role credential + OWN canonical configured CP origin. */
   hostedRead?: { token: string; audience: string };
@@ -102,7 +102,12 @@ async function action(collection: string, fence: boolean, options: Options) {
   const before = await claim(options.db, collection);
   if (!options.provider) throw new RolloutRefused("migration_source_unavailable", "The legacy provider is unavailable.", 503);
   const deadline = Date.now() + 25_000;
-  const source = await options.provider.legacyMigrationDrain(collection, { deadline });
+  // The source read carries the provider's notification watermark from the same
+  // snapshot, passed through unchanged as DATA for the pre-flip re-read.
+  const observed = fence
+    ? { drain: await options.provider.legacyMigrationDrain(collection, { deadline }), notificationWatermark: null }
+    : await options.provider.legacyMigrationSource(collection, { deadline });
+  const source = observed.drain;
   // Never re-fence a retained/cut-over collection through this launch front.
   // A missing run identity for a fenced source is not an active migration.
   if (!["active", "migrating"].includes(source.state) || source.retain_until !== null
@@ -138,8 +143,9 @@ async function action(collection: string, fence: boolean, options: Options) {
       throw new RolloutRefused("migration_source_changed", "The migration claim changed.");
     }
     await audit(client, after.account, fence ? "next_migration.fence" : "next_migration.source", collection,
-      { migration_id: result.migration_id ?? null, state: result.state });
-    return result;
+      { migration_id: result.migration_id ?? null, state: result.state,
+        ...(observed.notificationWatermark ? { notification_watermark: observed.notificationWatermark } : {}) });
+    return { body: result, notificationWatermark: observed.notificationWatermark };
   });
 }
 
@@ -200,7 +206,11 @@ export function registerMigrationProviderRoutes(app: FastifyInstance, options: O
         }
         try {
           if (kind === "claim") return await inTransaction(options.db, client => currentClaim(client, p.data.id));
-          return kind === "target" ? await target(p.data.id, options) : await action(p.data.id, kind === "fence", options);
+          if (kind === "target") return await target(p.data.id, options);
+          const outcome = await action(p.data.id, kind === "fence", options);
+          // The body stays the exact provider shape; the watermark is a header.
+          if (outcome.notificationWatermark) reply.header("etag", outcome.notificationWatermark);
+          return outcome.body;
         }
         catch (error) {
           if (error instanceof RolloutRefused) return reply.code(error.status).send(apiError(error.code, error.message));

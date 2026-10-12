@@ -21,7 +21,7 @@ async fn projection(f: &FileLifecycleFixture) {
           namespace text, id text, revision bigint, status text,
           executor text, workflow text, trigger_id text, created_at timestamptz,
           not_before timestamptz, lease_token text, lease_worker text, lease_expires_at timestamptz,
-          PRIMARY KEY(namespace, id));
+          record_json jsonb, PRIMARY KEY(namespace, id));
         CREATE TABLE mdbase_runtime_events (namespace text, cursor bigint, PRIMARY KEY(namespace, cursor));
     "#).execute(&f.pool).await.unwrap();
 }
