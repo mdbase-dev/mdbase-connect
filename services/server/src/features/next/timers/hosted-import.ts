@@ -20,6 +20,9 @@ import { enforceTimerQuota, importTimer, lockNamespace } from "./store.js";
 
 export type TimerSourceProvider = Pick<HostedProviderClient, "legacyMigrationSource">;
 export const TIMER_IMPORT_EVENT = "next_migration.timers_imported";
+/** One per imported page, in that page's transaction: which provider run imported
+ * which rows (by origin record digest), including pages of an unfinished import. */
+export const TIMER_PAGE_EVENT = "next_migration.timers_page_imported";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 
 const manifestSchema = z.object({
@@ -88,7 +91,8 @@ async function targetIdentity(db: DatabaseQueryable, collection: string): Promis
 }
 
 /** One page in one transaction: every timer imports exactly, or nothing does. */
-async function importPage(db: DatabasePool, resolver: TimerGrantResolver, collection: string, timers: readonly HostedLegacyTimer[]): Promise<void> {
+async function importPage(db: DatabasePool, resolver: TimerGrantResolver, collection: string, owner: string,
+  run: { migration_id: string; started_at: string }, timers: readonly HostedLegacyTimer[]): Promise<void> {
   if (!timers.length) return;
   const connection = await db.connect();
   try {
@@ -112,6 +116,10 @@ async function importPage(db: DatabasePool, resolver: TimerGrantResolver, collec
       touched.set(timer.grant_id, namespaces);
     }
     for (const [grant, namespaces] of touched) for (const namespace of namespaces) await enforceTimerQuota(connection, grant, namespace);
+    await audit(connection, owner, TIMER_PAGE_EVENT, collection, {
+      collection_id: collection, migration_id: run.migration_id, started_at: microseconds(run.started_at),
+      records: timers.map(timer => validateTimerImport(timer).origin.record_sha256).sort()
+    });
     await connection.query("COMMIT");
   } catch (error) {
     await connection.query("ROLLBACK");
@@ -166,7 +174,7 @@ export async function importHostedCollectionTimers(options: {
       const page: Awaited<ReturnType<typeof readHostedLegacyTimers>> = await readHostedLegacyTimers(snapshot, collection, cursor);
       if (!sameRun(before, page.fence)) throw new TimerImportRefused("timer_source_changed", "The legacy source run changed during the timer import.");
       fence = page.fence;
-      await importPage(options.db, options.resolver, collection, page.timers);
+      await importPage(options.db, options.resolver, collection, owner, page.fence, page.timers);
       for (const timer of page.timers) {
         entries.push([timer.runtime_id, timer.generation, timer.status, validateTimerImport(timer).origin.record_sha256]);
       }

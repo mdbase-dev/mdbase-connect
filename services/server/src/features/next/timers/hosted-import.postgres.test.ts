@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import Fastify from "fastify";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, openDatabase, type DatabasePool } from "../../../db.js";
@@ -9,6 +10,7 @@ import { registerNextCollection } from "../policy-outbox.js";
 import { flipAccountBackend, flipEvidenceDigest, recordCollectionCutover, type TimerFlipGate } from "../migration-rollout.js";
 import { legacyTimerGrantResolver } from "./grants.js";
 import { importHostedCollectionTimers, type TimerSourceProvider } from "./hosted-import.js";
+import { registerMigrationTimerCleanupRoute } from "../migration-timer-cleanup.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -187,5 +189,103 @@ suite("strict hosted timer import and the account-flip timer gate (synthetic Pos
     await run(stale);
     await writer.query("DELETE FROM mdbase_runtime_timers WHERE namespace=$1 AND id=(SELECT min(id) FROM mdbase_runtime_timers WHERE namespace=$1)", [stale.namespace]);
     expect(await failure(run(stale))).toBe("timer_import_mismatch");
+  });
+
+  // ---- LAB rollback cleanup of one provider run's imported rows ----
+  const token = "t".repeat(40);
+  type F = Awaited<ReturnType<typeof fixture>>;
+  async function cleanupApp(f: F, environment: string | undefined) {
+    const app = Fastify();
+    registerMigrationTimerCleanupRoute(app, { db, token, environment, provider: { async legacyMigrationDrain() { return { ...f.provider.drain }; } } });
+    return app;
+  }
+  async function cleanup(f: F, options: { environment?: string; auth?: string; migration?: string; startedUs?: string } = {}) {
+    const app = await cleanupApp(f, "environment" in options ? options.environment : "lab");
+    const startedUs = options.startedUs ?? (await db.query("SELECT (extract(epoch FROM started_at)*1000000)::bigint::text AS us FROM next_migration_cohort_members WHERE account_id=$1", [f.user])).rows[0].us;
+    try {
+      return await app.inject({ method: "POST", url: `/internal/v1/next/migration/collections/${f.collection}/timers/rollback-cleanup`,
+        headers: options.auth === "" ? {} : { authorization: `Bearer ${options.auth ?? token}` },
+        payload: { owner_account: f.user, started_us: startedUs, migration_id: options.migration ?? f.migration } });
+    } finally { await app.close(); }
+  }
+  /** Move the provider (and its physical row) to another fenced run. */
+  async function refence(f: F, migration = randomUUID()) {
+    await writer.query("UPDATE hosted_provider_collections SET state='migrating',legacy_migration_id=$2,legacy_migration_started_at=$3 WHERE id=$1", [f.collection, migration, started]);
+    f.provider.drain = { ...f.provider.drain, state: "migrating", migration_id: migration, started_at: started };
+    return migration;
+  }
+  /** A settled pre-cutover rollback of `migration`: Connect recorded its unfence, and the source is active with no run. */
+  async function rolledBack(f: F, migration: string) {
+    await audit(db, f.user, "next_migration.unfence", f.collection, { migration_id: migration });
+    f.provider.drain = { ...f.provider.drain, state: "active", migration_id: null, started_at: null };
+  }
+  const allRows = async (grant: string) => (await db.query("SELECT timer_id, generation::text, legacy_import_origin IS NULL AS native FROM next_timers WHERE grant_id=$1 ORDER BY timer_id", [grant])).rows;
+
+  it("deletes only the rolled-back run's imported rows, keeps evidence, and lets a later run re-import", async () => {
+    const f = await fixture(70);
+    await run(f);
+    await db.query("INSERT INTO next_timers(grant_id,namespace,timer_id,criterion_id,fire_at) VALUES($1,'reminders','native-timer','reminder',now()+interval '1 day')", [f.grant]);
+    // A second run imports one more timer (the others are identical and stay).
+    const second = await refence(f);
+    await sourceTimer(f.namespace, f.grant, 70);
+    await run(f);
+    await rolledBack(f, f.migration);
+    // The source changed after the rollback: without cleanup a new run conflicts.
+    await writer.query(`UPDATE mdbase_runtime_timers SET generation=8, record_json=jsonb_set(record_json,'{generation}','8')
+      WHERE namespace=$1 AND id=(SELECT min(id) FROM mdbase_runtime_timers WHERE namespace=$1)`, [f.namespace]);
+    await refence(f);
+    expect(await failure(run(f))).toBe("timer_import_conflict");
+    await rolledBack(f, second);
+    const manifests = (await db.query("SELECT id FROM audit_events WHERE subject_id=$1 AND event_type LIKE 'next_migration.timers_%' ORDER BY id", [f.collection])).rows;
+    const cleaned = await cleanup(f);
+    expect(cleaned.statusCode, cleaned.body).toBe(200);
+    expect(cleaned.json()).toEqual({ collection_id: f.collection, migration_id: f.migration, deleted: 70 });
+    // The other run's timer and the native timer survive; all earlier evidence stays.
+    expect(await allRows(f.grant)).toEqual([{ timer_id: "native-timer", generation: "1", native: true }, { timer_id: "timer-0070", generation: "7", native: false }]);
+    const after = (await db.query("SELECT id FROM audit_events WHERE subject_id=$1 AND event_type LIKE 'next_migration.timers_%' ORDER BY id", [f.collection])).rows;
+    expect(after).toEqual(expect.arrayContaining(manifests));
+    expect((await db.query("SELECT metadata FROM audit_events WHERE subject_id=$1 AND event_type='next_migration.timers_rollback_cleanup'", [f.collection])).rows)
+      .toEqual([{ metadata: expect.objectContaining({ migration_id: f.migration, deleted: 70 }) }]);
+    // Idempotent: nothing more to delete, no second cleanup event.
+    expect((await cleanup(f)).json().deleted).toBe(0);
+    await refence(f);
+    expect((await run(f)).timers).toBe(71);
+    expect((await allRows(f.grant)).find(row => row.timer_id === "timer-0000")!.generation).toBe("8");
+  });
+
+  it("refuses an unauthenticated, non-LAB, unbound or unsettled cleanup and deletes nothing", async () => {
+    const f = await fixture(3);
+    await run(f);
+    expect((await cleanup(f, { auth: "" })).statusCode).toBe(401);
+    expect((await cleanup(f, { auth: "x".repeat(40) })).statusCode).toBe(401);
+    for (const environment of ["staging", "production", "LAB", undefined]) {
+      const refused = await cleanup(f, { environment });
+      expect(refused.statusCode).toBe(403); expect(refused.json().error.code).toBe("migration_lab_only");
+    }
+    // Still fenced on the run, no recorded unfence: not a settled rollback.
+    expect((await cleanup(f)).json().error.code).toBe("migration_rollback_not_settled");
+    await audit(db, f.user, "next_migration.unfence", f.collection, { migration_id: f.migration });
+    expect((await cleanup(f)).json().error.code).toBe("migration_rollback_not_settled");
+    // Source settled, but the recorded unfence names another run.
+    const other = await fixture(0);
+    f.provider.drain = { ...f.provider.drain, state: "active", migration_id: null, started_at: null };
+    expect((await cleanup(f, { migration: other.migration })).json().error.code).toBe("migration_rollback_not_settled");
+    expect((await cleanup(f, { startedUs: "1" })).json().error.code).toBe("migration_claim_not_current");
+    expect(await targetRows(f.grant)).toBe(3);
+  });
+
+  it("stops without deleting when a run's row drifted or emitted an event", async () => {
+    for (const drift of ["status", "event"] as const) {
+      const f = await fixture(3);
+      await run(f);
+      await rolledBack(f, f.migration);
+      const row = (await db.query("SELECT namespace,timer_id,criterion_id FROM next_timers WHERE grant_id=$1 AND status='scheduled' LIMIT 1", [f.grant])).rows[0];
+      if (drift === "status") await db.query("UPDATE next_timers SET status='cancelled' WHERE grant_id=$1 AND timer_id=$2", [f.grant, row.timer_id]);
+      else await db.query(`INSERT INTO next_timer_events(event_id,grant_id,criterion_id,namespace,timer_id,generation,scheduled_for,fired_at,late_by_ms)
+        VALUES($1,$2,$3,$4,$5,7,now(),now(),0)`, [randomUUID(), f.grant, row.criterion_id, row.namespace, row.timer_id]);
+      const refused = await cleanup(f);
+      expect(refused.statusCode).toBe(409); expect(refused.json().error.code).toBe("timer_cleanup_drifted");
+      expect(await targetRows(f.grant)).toBe(3);
+    }
   });
 });
