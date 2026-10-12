@@ -79,6 +79,15 @@ pub struct LegacyMigrationStatus {
     pub restored: Vec<Uuid>,
 }
 
+/// The current provider run and the replicas whose unchanged revocation it
+/// owns: exactly the set a control-plane `migration-cutover` must name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub(crate) struct MigrationRevokedReplicas {
+    collection_id: Uuid,
+    migration_id: Uuid,
+    revoked: Vec<Uuid>,
+}
+
 /// Exact provider-local rollback binding. Driver/action IDs are correlation,
 /// never authority; the caller must separately qualify native rollback guards.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -522,6 +531,41 @@ impl HostedProvider {
             .bind(collection_id).bind(replica_ids).bind(run).fetch_all(&mut *transaction).await?;
         transaction.commit().await?;
         Ok(owned)
+    }
+
+    /// Read-only: the revocations the CURRENT run owns, under a share lock on
+    /// the collection row so no revoke, restore or run change interleaves.
+    /// Independent and pre-existing revocations are never included.
+    pub(crate) async fn migration_revoked_replicas(
+        &self,
+        collection_id: Uuid,
+    ) -> ApiResult<MigrationRevokedReplicas> {
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query("SET LOCAL lock_timeout = '5s'")
+            .execute(&mut *transaction)
+            .await?;
+        let row = sqlx::query("SELECT state, legacy_migration_id FROM hosted_provider_collections WHERE id = $1 FOR SHARE")
+            .bind(collection_id).fetch_optional(&mut *transaction).await?.ok_or_else(not_found)?;
+        let run = match (
+            row.get::<String, _>("state").as_str(),
+            row.get::<Option<Uuid>, _>("legacy_migration_id"),
+        ) {
+            ("migrating", Some(run)) => run,
+            _ => {
+                return Err(ApiError::conflict(
+                    "legacy_migration_not_started",
+                    "Migration revocations are read only for a fenced, uncut collection.",
+                ))
+            }
+        };
+        let revoked = sqlx::query_scalar("SELECT id FROM hosted_provider_replicas WHERE collection_id = $1 AND revoked_by_migration = $2 AND revoked_at IS NOT NULL AND revoked_at = migration_revoked_at ORDER BY id")
+            .bind(collection_id).bind(run).fetch_all(&mut *transaction).await?;
+        transaction.commit().await?;
+        Ok(MigrationRevokedReplicas {
+            collection_id,
+            migration_id: run,
+            revoked,
+        })
     }
 
     /// Rollback: restore only listed replicas whose current revocation is owned

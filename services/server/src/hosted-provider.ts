@@ -321,6 +321,12 @@ export class HostedProviderClient {
   legacyMigrationRetain(collectionId: string, retainUntil: Date, options?: HostedProviderOperationOptions): Promise<LegacyMigrationRetained> {
     return legacy.legacyMigrationRetain(this.legacyRequest(options), collectionId, retainUntil);
   }
+  // Migration replica fronts and pre-cutover unfence; shapes are checked in `legacy`.
+  legacyMigrationReplicas = (id: string, options?: HostedProviderOperationOptions) => legacy.legacyMigrationReplicas(this.legacyRequest(options), id);
+  legacyMigrationRevokeReplicas = (id: string, ids: string[], options?: HostedProviderOperationOptions) => legacy.legacyMigrationRevokeReplicas(this.legacyRequest(options), id, ids);
+  legacyMigrationRestoreReplicas = (id: string, ids: string[], options?: HostedProviderOperationOptions) => legacy.legacyMigrationRestoreReplicas(this.legacyRequest(options), id, ids);
+  legacyMigrationRevokedReplicas = (id: string, options?: HostedProviderOperationOptions) => legacy.legacyMigrationRevokedReplicas(this.legacyRequest(options), id);
+  legacyMigrationUnfence = (id: string, options?: HostedProviderOperationOptions) => legacy.legacyMigrationUnfence(this.legacyRequest(options), id);
   legacyMigrationRollback(collectionId: string, binding: LegacyMigrationRollbackRequest,
     options?: HostedProviderOperationOptions): Promise<LegacyMigrationRollbackReceipt> {
     return legacy.legacyMigrationRollback(this.legacyRequest(options), "rollback", collectionId, binding);

@@ -5,7 +5,7 @@ use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
-    routing::{post, put},
+    routing::{get, post, put},
     Json, Router,
 };
 use chrono::{DateTime, Utc};
@@ -47,6 +47,10 @@ pub(super) fn legacy_migration_routes() -> Router<AppState> {
         .route(
             "/internal/v1/collections/{collection_id}/legacy-migration/revoke-replicas",
             post(revoke_replicas),
+        )
+        .route(
+            "/internal/v1/collections/{collection_id}/legacy-migration/revoked-replicas",
+            get(migration_revoked_replicas),
         )
         .route(
             "/internal/v1/collections/{collection_id}/legacy-migration/restore-replicas",
@@ -110,6 +114,19 @@ async fn revoke_replicas(
         .revoke_migration_replicas(collection_id, &input.replica_ids)
         .await?;
     Ok(Json(json!({ "revoked": revoked })))
+}
+
+async fn migration_revoked_replicas(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(collection_id): Path<Uuid>,
+) -> ApiResult<impl IntoResponse> {
+    state.authorize_internal(&headers)?;
+    let revoked = state
+        .provider
+        .migration_revoked_replicas(collection_id)
+        .await?;
+    Ok(([("cache-control", "no-store")], Json(json!(revoked))))
 }
 
 async fn restore_replicas(
