@@ -4,7 +4,7 @@ import { StrictMode, useEffect, type ReactNode } from "react";
 import { isMdbaseError, type Mdbase } from "@mdbase-dev/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createEditorMdbase, SdkEditorRoot, type EditorNativeScope } from "./SdkEditorRoot";
-import { applicationFixture, closeNativeFixtures, paired, readyFixture } from "./test/native-fixture";
+import { closeNativeFixtures, readyFixture, testApp } from "./test/native-fixture";
 
 vi.mock("./CodeEditor", () => ({
   CodeEditor: ({ value, onChange, label, readOnly, footer }: { value: string; onChange?: (value: string) => void; label: string; readOnly?: boolean; footer?: ReactNode }) =>
@@ -36,34 +36,34 @@ function observed(mdbase: Mdbase) {
   return { sdk, subscriptions };
 }
 
-const calls = (h: ReturnType<typeof applicationFixture>, action: string) => h.controls.observedActions().filter((call) => call.action === action);
+const ARCHIVE = "0190a5a0-0000-7000-8000-0000000000ab";
 
 describe("SdkEditorRoot behind the shared collection gate", () => {
-  it("StrictMode starts the SDK and unmounting never closes it", async () => {
-    const h = applicationFixture({ status: "not_started" });
+  it("StrictMode unmounting releases its subscriptions and never closes the SDK", async () => {
+    const h = await testApp({ phase: "signed_out" });
     const { sdk, subscriptions } = observed(h.mdbase);
     const view = render(<StrictMode><SdkEditorRoot sdk={sdk} /></StrictMode>);
-    await waitFor(() => expect(calls(h, "start").length).toBeGreaterThan(0));
+    await waitFor(() => expect(subscriptions.size).toBeGreaterThan(0));
     view.unmount();
     expect(subscriptions.size).toBe(0);
-    expect(calls(h, "close")).toHaveLength(0);
+    expect(h.calls("close")).toHaveLength(0);
   });
 
   it("signs out with signOut and never closes the shared entry", async () => {
-    const h = applicationFixture({ status: "unselected", signIn: paired, collections: [{ collectionId: "c1", displayName: "Drafts", role: "owner" }] });
-    const close = vi.spyOn(h.mdbase, "close");
+    const h = await testApp({ collections: [{ name: "Drafts" }], phase: "choosing" });
     const native = vi.fn(() => <p>Never ready</p>);
     render(<SdkEditorRoot sdk={h.mdbase} renderNative={native} />);
     expect(await screen.findByText("Drafts")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
-    await waitFor(() => expect(calls(h, "signOut")).toHaveLength(1));
-    expect(close).not.toHaveBeenCalled();
+    await waitFor(() => expect(h.calls("signOut")).toHaveLength(1));
+    expect(h.calls("close")).toHaveLength(0);
     expect(native).not.toHaveBeenCalled();
   });
 
   it("a refused registration logs only the developer detail", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const h = applicationFixture({ status: "blocked", problem: "application_registration_refused",
+    const h = await testApp({ phase: { problem: "application_registration_refused" } });
+    h.controls.publishSnapshot({ ...h.application.getSnapshot(),
       problemDetail: { name: "MdbaseError", code: "forbidden", registration: { code: "invalid_application_manifest", paths: ["/homepage"] } } });
     render(<SdkEditorRoot sdk={h.mdbase} />);
     await waitFor(() => expect(warn).toHaveBeenCalledWith(expect.stringContaining("invalid manifest: /homepage")));
@@ -82,8 +82,7 @@ describe("SdkEditorRoot behind the shared collection gate", () => {
     if (!scope) throw new Error("Missing native scope");
     expect(scope.connection.records).toBe(h.client);
     expect((await scope.gateway.read("notes/plan.md")).body).toBe("# Plan\n");
-    await act(async () => h.publish({ status: "unselected", selectedCollectionId: null,
-      selection: { state: "none", requested: { collectionId: null, source: "none", displayName: null, approved: false }, usable: null, problem: null } }));
+    act(() => h.set("choosing"));
     expect(screen.queryByText("Native test consumer")).toBeNull();
     await expect(scope.gateway.read("notes/plan.md")).rejects.toSatisfy((error: unknown) => isMdbaseError(error, "cancelled"));
     expect(close).not.toHaveBeenCalled();
@@ -91,8 +90,8 @@ describe("SdkEditorRoot behind the shared collection gate", () => {
   });
 
   it("opens the editor with the shared switcher in the rail, and switching selects through the SDK", async () => {
-    const h = await readyFixture({}, (replica) => replica.seed({ path: "notes/plan.md", frontmatter: { title: "Plan" }, body: "# Plan\n\nNative body\n" }));
-    h.publish({ collections: [...h.application.getSnapshot().collections, { collectionId: "archive-id", displayName: "Archive", role: "editor" }] });
+    const h = await readyFixture({}, (replica) => replica.seed({ path: "notes/plan.md", frontmatter: { title: "Plan" }, body: "# Plan\n\nNative body\n" }),
+      [{ id: ARCHIVE, name: "Archive", role: "editor" }]);
     const { container } = render(<SdkEditorRoot sdk={h.mdbase} />);
     expect(await screen.findByRole("textbox", { name: "Note body" }, { timeout: 10_000 })).toHaveValue("Native body\n");
     const trigger = container.querySelector<HTMLButtonElement>(".collection-rail .mdbase-collections-trigger");
@@ -102,7 +101,7 @@ describe("SdkEditorRoot behind the shared collection gate", () => {
     const archive = [...document.querySelectorAll<HTMLElement>("[role=radio]")].find((row) => within(row).queryByText("Archive"));
     if (!archive) throw new Error("No Archive row in the switcher");
     fireEvent.click(archive);
-    await waitFor(() => expect(calls(h, "select").at(-1)).toMatchObject({ collectionId: "archive-id" }));
+    await waitFor(() => expect(h.calls("select").at(-1)).toMatchObject({ collectionId: ARCHIVE }));
   });
 });
 

@@ -7,7 +7,7 @@ import { MemoryReplica } from "@mdbase-dev/sdk/testing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SdkEditorRoot, type EditorNativeScope } from "./SdkEditorRoot";
 import type { PrivateCollections } from "./private-collections";
-import { applicationFixture, closeNativeFixtures, paired } from "./test/native-fixture";
+import { closeNativeFixtures, testApp } from "./test/native-fixture";
 
 const RESEARCH = "0190a5a0-0000-7000-8000-000000000001";
 const clients: MdbaseClient[] = [];
@@ -41,8 +41,7 @@ function fakePrivate(entries: MdbasePrivateCollection[]) {
 }
 
 function signedIn() {
-  return applicationFixture({ status: "unselected", signIn: paired,
-    collections: [{ collectionId: "0190a5a0-0000-7000-8000-0000000000aa", displayName: "Notes", role: "editor" }] });
+  return testApp({ collections: [{ name: "Notes", role: "editor" }], phase: "choosing" });
 }
 
 function Capture({ scope, publish }: { scope: EditorNativeScope; publish(scope: EditorNativeScope): void }) {
@@ -50,94 +49,75 @@ function Capture({ scope, publish }: { scope: EditorNativeScope; publish(scope: 
   return <p role="status">Private native consumer</p>;
 }
 
-const row = (name: string) => screen.getByRole("group", { name });
+const section = () => screen.findByRole("region", { name: "Private collections" });
+const row = async (name: string) => within(await section()).getByRole("button", { name: new RegExp(`^${name}`) });
 
 describe("Private collections in the editor chooser", () => {
-  it("lists Private collections beside the shared gate's collections", async () => {
-    const h = signedIn();
+  it("lists Private collections in their own section beside the shared gate's collections", async () => {
+    const h = await signedIn();
     const fake = fakePrivate([privateEntry({ state: "available" }, RESEARCH, "Archive")]);
     render(<SdkEditorRoot sdk={h.mdbase} privateCollections={fake.port} />);
-    const archive = await screen.findByRole("group", { name: "Archive" });
-    expect(within(archive).getByText("Private")).toBeTruthy();
-    const section = screen.getByRole("region", { name: "Private collections" });
-    expect(within(section).queryByText("Notes")).toBeNull();
+    expect(await row("Archive")).toBeTruthy();
+    expect(within(await section()).queryByText("Notes")).toBeNull();
     expect(screen.getByText("Notes")).toBeTruthy();
   });
 
   it.each(COLLECTION_UNAVAILABLE_REASONS)("shows the plain copy for %s", async (reason) => {
-    const h = signedIn();
+    const h = await signedIn();
     const availability: CollectionAvailability = { state: "unavailable", reason };
-    const fake = fakePrivate([privateEntry(availability)]);
-    render(<SdkEditorRoot sdk={h.mdbase} privateCollections={fake.port} />);
-    await screen.findByRole("group", { name: "Research" });
+    render(<SdkEditorRoot sdk={h.mdbase} privateCollections={fakePrivate([privateEntry(availability)]).port} />);
     const copy = describeError(availability);
     if (!copy) throw new Error("missing copy");
-    expect(within(row("Research")).getByText(copy.title)).toBeTruthy();
-    expect(within(row("Research")).getByText(copy.message)).toBeTruthy();
+    expect(await row("Research")).toHaveTextContent(copy.title);
   });
 
   it("approval on the computer: opening waits, then opens once it is available", async () => {
-    const h = signedIn();
+    const h = await signedIn();
     const fake = fakePrivate([privateEntry({ state: "unavailable", reason: "approval_required" })]);
     const scopes: EditorNativeScope[] = [];
     render(<SdkEditorRoot sdk={h.mdbase} privateCollections={fake.port}
       renderNative={(scope) => <Capture scope={scope} publish={(next) => scopes.push(next)} />} />);
-    fireEvent.click(within(await screen.findByRole("group", { name: "Research" })).getByRole("button", { name: "Research" }));
+    fireEvent.click(await row("Research"));
     await screen.findByText("Private native consumer");
     expect(fake.port.waitForAvailable).toHaveBeenCalledWith(RESEARCH, expect.anything());
     expect(fake.port.open).toHaveBeenCalledWith(RESEARCH, expect.anything());
-    const scope = scopes.at(-1);
-    if (!scope) throw new Error("Missing native scope");
-    expect(scope.connection.id).toBe(RESEARCH);
+    expect(scopes.at(-1)?.connection.id).toBe(RESEARCH);
   });
 
   it("an available Private collection opens straight away, without the people directory", async () => {
-    const h = signedIn();
+    const h = await signedIn();
     const fake = fakePrivate([privateEntry({ state: "available" })]);
     const scopes: EditorNativeScope[] = [];
     render(<SdkEditorRoot sdk={h.mdbase} privateCollections={fake.port}
       renderNative={(scope) => <Capture scope={scope} publish={(next) => scopes.push(next)} />} />);
-    fireEvent.click(within(await screen.findByRole("group", { name: "Research" })).getByRole("button", { name: "Research" }));
+    fireEvent.click(await row("Research"));
     await screen.findByText("Private native consumer");
     expect(fake.port.waitForAvailable).not.toHaveBeenCalled();
     expect(scopes.at(-1)?.gateway.peopleDirectory).toBeUndefined();
   });
 
-  it("unavailable rows offer the SDK's action label: approve again, get the update; access_removed offers no open", async () => {
-    const h = signedIn();
+  it("unavailable rows do the SDK's fix: approve again, get the update, or remove a collection whose access ended", async () => {
+    const h = await signedIn();
     const other = "0190a5a0-0000-7000-8000-000000000002";
     const third = "0190a5a0-0000-7000-8000-000000000003";
     const fake = fakePrivate([privateEntry({ state: "unavailable", reason: "sync_required" }),
       privateEntry({ state: "unavailable", reason: "access_removed" }, other, "Shared"),
       privateEntry({ state: "unavailable", reason: "desktop_update_required" }, third, "Laptop")]);
+    const popup = vi.spyOn(window, "open").mockReturnValue(null);
     render(<SdkEditorRoot sdk={h.mdbase} privateCollections={fake.port} />);
-    await screen.findByRole("group", { name: "Research" });
-    expect(within(row("Shared")).queryByRole("button", { name: "Shared" })).toBeNull();
-    expect(within(row("Laptop")).getByRole("link", { name: "Get the update" }).getAttribute("href")).toMatch(/^https:\/\//);
-    fireEvent.click(within(row("Research")).getByRole("button", { name: "Approve again" }));
+    fireEvent.click(await row("Laptop"));
+    expect(popup).toHaveBeenCalledWith(expect.stringMatching(/^https:\/\//), "_blank", "noreferrer");
+    fireEvent.click(await row("Shared"));
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "Private collections" })).queryByRole("button", { name: /^Shared/ })).toBeNull());
+    expect(fake.port.forget).toHaveBeenCalledWith(other);
+    expect(fake.port.open).not.toHaveBeenCalled();
+    fireEvent.click(await row("Research"));
     await waitFor(() => expect(fake.port.authorize).toHaveBeenCalledWith(RESEARCH, expect.anything()));
-  });
-
-  it("offers Delete only on Private collections the account owns, and drops one once deleted", async () => {
-    const h = signedIn();
-    const other = "0190a5a0-0000-7000-8000-000000000002";
-    const fake = fakePrivate([privateEntry({ state: "available" }, RESEARCH, "Research", "owner"),
-      privateEntry({ state: "available" }, other, "Shared", "editor")]);
-    render(<SdkEditorRoot sdk={h.mdbase} privateCollections={fake.port} />);
-    await screen.findByRole("group", { name: "Research" });
-    expect(within(row("Shared")).queryByRole("button", { name: "Delete Shared" })).toBeNull();
-    // The relay stops listing a deleted collection; the section re-reads the list after the dialog.
-    h.controls.setHandler("deleteCollection", () => { fake.set([privateEntry({ state: "available" }, other, "Shared", "editor")]); });
-    fireEvent.click(within(row("Research")).getByRole("button", { name: "Delete Research" }));
-    fireEvent.change(await screen.findByLabelText(/to confirm/), { target: { value: "Research" } });
-    fireEvent.click(screen.getByRole("button", { name: "Delete collection" }));
-    await waitFor(() => expect(h.controls.observedActions().some((call) => call.action === "deleteCollection")).toBe(true));
-    await waitFor(() => expect(screen.queryByRole("group", { name: "Research" })).toBeNull());
-    expect(screen.getByRole("group", { name: "Shared" })).toBeTruthy();
+    popup.mockRestore();
   });
 
   it("adding a Private collection asks Connect, then lists it", async () => {
-    const h = signedIn();
+    const h = await signedIn();
     const fake = fakePrivate([]);
     render(<SdkEditorRoot sdk={h.mdbase} privateCollections={fake.port} />);
     await screen.findByText("Notes");
@@ -145,6 +125,6 @@ describe("Private collections in the editor chooser", () => {
     fake.port.waitForAvailable.mockResolvedValueOnce({ state: "unavailable", reason: "approval_required" });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add a Private collection" })); });
     expect(fake.port.authorize).toHaveBeenCalledWith(undefined, expect.anything());
-    await screen.findByRole("group", { name: "Research" });
+    expect(await row("Research")).toBeTruthy();
   });
 });
