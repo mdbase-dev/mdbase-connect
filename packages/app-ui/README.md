@@ -36,6 +36,44 @@ applyThemePreference(loadThemePreference());
   collection in another app. Lab and local builds pass their own URLs to
   `withAppUrls`.
 
+## Collections
+
+Import `@mdbase-dev/ui/collections` and `@mdbase-dev/ui/collections.css`,
+alongside `tokens.css`. Every component takes the SDK front door from
+`createMdbase` (an optional peer dependency) and `app: { name, mark? }`.
+
+```tsx
+import { CollectionGate, CollectionSwitcher } from "@mdbase-dev/ui/collections";
+import "@mdbase-dev/ui/collections.css";
+
+<CollectionGate mdbase={mdbase} app={{ name: "Reader" }} extraActions={<TrySample />}>
+  {(connection) => <Shell header={<CollectionSwitcher mdbase={mdbase} app={app} />} />}
+</CollectionGate>;
+```
+
+- `CollectionGate` covers sign-in, choosing, approval, setup review and
+  problems, and renders its children once the phase is `ready`. A live problem
+  then shows as a banner above them. `layout="panel"` fits inside a shell or a
+  dialog.
+- `CollectionSwitcher` (`variant` `full`, `compact` or `icon`) is the header
+  switcher: a popover, and a bottom sheet below 640px.
+- `CollectionPanel` combines the gate screens with the switcher list, for
+  settings dialogs. `CollectionProblem` shows one problem with its fix, either
+  the current one or an error the app passes in.
+- `onBeforeLeave(intent)` lets the app confirm before a switch, an add, choosing
+  another collection or signing out. Return `true` or a promise. The Connect
+  window opens straight after it, with no other await in between.
+- `allowDelete` enables "Delete collection…" for owners. `copy` overrides
+  strings from `defaultCollectionCopy`.
+- `collectionView(snapshot)` is the headless model behind the components:
+  heading, rows and a notice with its control.
+- Hosts that don't use React call
+  `mountCollectionUi(element, { part: "panel" | "switcher" | "problem", ...options })`,
+  which returns `{ update, unmount }`. React and react-dom must be installed.
+- To restyle, map `--mdbase-collections-accent`, `-on-accent`, `-surface`,
+  `-canvas`, `-text`, `-text-soft`, `-border`, `-danger`, `-radius`, `-font`
+  and `-control-height`. Each falls back to an app-ui token.
+
 ## Shared feedback
 
 Import `@mdbase-dev/ui/feedback` and `@mdbase-dev/ui/feedback.css`, alongside

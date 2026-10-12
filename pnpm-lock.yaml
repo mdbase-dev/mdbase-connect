@@ -292,12 +292,18 @@ importers:
       '@codemirror/view':
         specifier: ^6.43.12
         version: 6.43.12
+      '@mdbase-dev/sdk':
+        specifier: file:vendor/mdbase-dev-sdk-0.0.0-b1c47a32.tgz
+        version: file:packages/app-ui/vendor/mdbase-dev-sdk-0.0.0-b1c47a32.tgz
       '@types/react':
         specifier: ^19.3.0
         version: 19.3.0
       '@types/react-dom':
         specifier: ^19.3.0
         version: 19.3.0(@types/react@19.3.0)
+      jsdom:
+        specifier: ^29.1.1
+        version: 29.1.1(@noble/hashes@2.4.0)
       react:
         specifier: ^19.3.0
         version: 19.3.0
@@ -1822,6 +1828,13 @@ packages:
 
   '@mdbase-dev/sdk@file:apps/editor/vendor/mdbase-dev-sdk-dev-fb3308a8.tgz':
     resolution: {integrity: sha512-oVSg1StZ1TYXOvYDcsmkaU3Kjbasj2P7DFVMaDq+biCDfuBvvXNPxdf8UA37QgdqLYu+lPXJl/ohBU3iXOrAuQ==, tarball: file:apps/editor/vendor/mdbase-dev-sdk-dev-fb3308a8.tgz}
+    version: 0.0.0
+    engines: {node: '>=20'}
+    bundledDependencies:
+      - '@mdbase-dev/connect-protocol'
+
+  '@mdbase-dev/sdk@file:packages/app-ui/vendor/mdbase-dev-sdk-0.0.0-b1c47a32.tgz':
+    resolution: {integrity: sha512-7qB3yMpla5BB5VpJ1SfbQwqVUTFUGGOkx23ozkkJKTeYjYe9VZw1qArSuVoU9txHVttasax0E9ow14fdl5VqhA==, tarball: file:packages/app-ui/vendor/mdbase-dev-sdk-0.0.0-b1c47a32.tgz}
     version: 0.0.0
     engines: {node: '>=20'}
     bundledDependencies:
@@ -6891,6 +6904,12 @@ snapshots:
   '@marijn/find-cluster-break@1.0.4': {}
 
   '@mdbase-dev/sdk@file:apps/editor/vendor/mdbase-dev-sdk-dev-fb3308a8.tgz':
+    dependencies:
+      '@noble/ciphers': 2.4.0
+      '@noble/curves': 2.4.0
+      '@noble/hashes': 2.4.0
+
+  '@mdbase-dev/sdk@file:packages/app-ui/vendor/mdbase-dev-sdk-0.0.0-b1c47a32.tgz':
     dependencies:
       '@noble/ciphers': 2.4.0
       '@noble/curves': 2.4.0
