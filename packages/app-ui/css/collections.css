@@ -401,8 +401,18 @@
 .mdbase-collections-row-copy {
   display: grid;
   flex: 1 1 auto;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1px;
   min-width: 0;
+}
+
+/* Rows are buttons, and hosts often style `button > span` to one ellipsized
+ * line (a navigation rail, a toolbar). A list row's copy still wraps. */
+.mdbase-collections .mdbase-collections-row-copy,
+.mdbase-collections .mdbase-collections-row-copy > span {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 /* Names wrap; they are never cut to an ellipsis in a list. */
@@ -598,7 +608,8 @@
   overflow-wrap: anywhere;
 }
 
-/* Switcher trigger: truncates the name; the full name is in its label and title. */
+/* Switcher trigger: the name wraps to two lines, and only a longer one is cut
+ * short; the full name is always in the trigger's label and title. */
 .mdbase-collections-switcher {
   display: inline-flex;
   min-width: 0;
@@ -612,7 +623,7 @@
   min-width: 0;
   max-width: 100%;
   min-height: var(--_control);
-  padding: 0 8px;
+  padding: 2px 8px;
   border: 1px solid transparent;
   border-radius: var(--_radius-sm);
   color: inherit;
@@ -648,12 +659,19 @@
   font-size: 0.625rem;
 }
 
-.mdbase-collections-trigger-name {
+.mdbase-collections .mdbase-collections-trigger-name {
+  display: -webkit-box;
   min-width: 0;
   overflow: hidden;
   font-weight: var(--_weight-semibold);
+  line-height: 1.2;
+  text-align: start;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
 .mdbase-collections-trigger-role {
