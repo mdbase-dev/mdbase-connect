@@ -25,6 +25,23 @@ export function installationAccountLabel(pairing: {
   return email || (provider === "github" && login ? `GitHub account @${login}` : null);
 }
 
+/** Where a denied pairing leaves this window. An app's sign-in or consent
+ * window ends here: the app reads the denial as a cancelled outcome, so the
+ * window closes (the app opened it) and otherwise shows "Sign-in cancelled" in
+ * place. It never navigates into another app, such as the Editor. Only the
+ * legacy computer pairing returns to the portal home. */
+export function finishDeniedPairing(
+  pairing: { installation_device?: boolean },
+  target: { close(): void; location: { href: string } }
+): "cancelled" | "home" {
+  if (!pairing.installation_device) {
+    target.location.href = "/";
+    return "home";
+  }
+  try { target.close(); } catch { /* A window the browser keeps open shows the cancelled page. */ }
+  return "cancelled";
+}
+
 export const NEW_COLLECTION = "new-collection";
 
 export function pairingInspectionPath(pairingId: string, search: string): string {

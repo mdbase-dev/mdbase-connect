@@ -46,3 +46,18 @@ test("account refusals no retry can fix cancel the window in plain words; others
     assert.equal(model.installationRefusal(reason, "Reader").cancel, false);
   assert.match(model.installationRefusal(new TypeError("Failed to fetch"), "Reader").message, /try again/i);
 });
+
+test("Cancel on an app's sign-in window closes it and never navigates into the Editor", () => {
+  const calls = [];
+  const target = { close: () => calls.push("close"), location: { href: "https://connect.example/pair/x" } };
+  assert.equal(model.finishDeniedPairing({ installation_device: true }, target), "cancelled");
+  assert.deepEqual(calls, ["close"]);
+  assert.equal(target.location.href, "https://connect.example/pair/x");
+  const stubborn = { close: () => { throw new Error("blocked"); }, location: { href: "unchanged" } };
+  assert.equal(model.finishDeniedPairing({ installation_device: true }, stubborn), "cancelled");
+  assert.equal(stubborn.location.href, "unchanged");
+  const computer = { close: () => calls.push("computer-close"), location: { href: "" } };
+  assert.equal(model.finishDeniedPairing({ installation_device: false }, computer), "home");
+  assert.equal(computer.location.href, "/");
+  assert.deepEqual(calls, ["close"]);
+});

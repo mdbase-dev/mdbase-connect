@@ -4,7 +4,7 @@ import {
   ApiError,
   type AuthorityTransfer as AuthorityTransferData,
 } from "./api";
-import { initialInstallationCollection, installationAccountLabel, installationRefusal, message, NEW_COLLECTION, pairingInspectionPath } from "./portal-model";
+import { finishDeniedPairing, initialInstallationCollection, installationAccountLabel, installationRefusal, message, NEW_COLLECTION, pairingInspectionPath } from "./portal-model";
 import { Loading, PageBrand } from "./portal-ui";
 import { Checkbox, CheckboxGroup } from "@mdbase-dev/ui/checkbox";
 import { Select } from "@mdbase-dev/ui/select";
@@ -176,7 +176,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
         return;
       }
       if (action === "deny") {
-        location.href = "/";
+        if (finishDeniedPairing(pairing, window) === "cancelled") setSignInCancelled(true);
         return;
       }
       if (action === "approve") handBack.current = true;
