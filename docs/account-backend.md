@@ -49,6 +49,15 @@ preservation or grant ordinary access.
    with an empty list once started. There is no un-flip: rollback is only
    possible before cutover.
 
+   The account's starter reservation (`account_onboarding`) is carried, not
+   provisioned. The start records a content-free digest of the whole row (or
+   that there is none) in its `next_migration.start` audit event. The flip
+   re-reads and locks the row and refuses with `starter_reservation_changed`
+   when it differs from that digest, appeared, disappeared, or the start
+   recorded none, and with `starter_provisioning_in_flight` while a
+   provisioning claim is set. The flip leaves the row unchanged; native
+   onboarding consumes it afterwards.
+
 Operators run the `next:migration-rollout` CLI (`MDBASE_OPERATOR` names them) to
 release cohorts, pause and resume. A flipped account cannot create legacy hosted
 collections. Collections of an account whose migration started are never
