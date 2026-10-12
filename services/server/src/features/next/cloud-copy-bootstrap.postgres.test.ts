@@ -751,7 +751,9 @@ describePg("cloud-copy bootstrap", () => {
     const result=await create(who,await proof(who,collection));expect(result.statusCode,result.body).toBe(200);
     expect((await db.query("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1",[who.connector.id])).rows).toEqual([{collection_id:collection}]);
     const other=randomUUID();expect((await serviceCreate(await session(who.connector.user_id),other)).statusCode).toBe(200);
-    const list=await listed(who);expect(list.statusCode,list.body).toBe(200);expect(list.json().collections).toEqual([{collection_id:collection,display_name:"New collection",role:"owner"}]);
+    const list=await listed(who);expect(list.statusCode,list.body).toBe(200);
+    // Browser SDKs fetch the list with the default cache mode (so CORS preflights are reused); no-store keeps it out of the HTTP cache.
+    expect(list.headers["cache-control"]).toBe("no-store");expect(list.json().collections).toEqual([{collection_id:collection,display_name:"New collection",role:"owner"}]);
     expect((await join(who,other,await joinProof(who,other))).statusCode).toBe(403);
     expect((await refresh(who,other)).statusCode).toBe(403);expect((await people(who,other)).statusCode).toBe(403);
     expect((await create(who,await proof(who,collection))).statusCode).toBe(200);
