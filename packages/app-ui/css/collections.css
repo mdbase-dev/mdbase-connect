@@ -492,13 +492,18 @@
   cursor: pointer;
 }
 
-.mdbase-collections-menu-item:hover,
+.mdbase-collections-menu-item:hover:not(:disabled),
 .mdbase-collections-menu-item:focus-visible {
   background: var(--_subtle);
 }
 
 .mdbase-collections-menu-item.is-danger {
   color: var(--_danger);
+}
+
+.mdbase-collections-menu-item:disabled {
+  color: var(--_text-soft);
+  cursor: default;
 }
 
 .mdbase-collections-footer {

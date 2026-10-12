@@ -2,7 +2,14 @@ import { useId, useLayoutEffect, useRef, useState, type CSSProperties, type JSX,
 
 import { moveMenuFocus, useMenuPopover } from "../popover.js";
 import type { CollectionNotice, CollectionRow, ProblemControl } from "./model.js";
-import type { CollectionSectionItem, CollectionUi } from "./use-collection-ui.js";
+import type { CollectionSectionItem, CollectionSectionItemActionContext, CollectionUi, DeleteCollectionOutcome } from "./use-collection-ui.js";
+
+/** Which row dialog is open, shared by the gate and the switcher. `onClose` hears a delete's outcome. */
+export type RowDialog = {
+  readonly kind: "forget" | "delete";
+  readonly row: Pick<CollectionRow, "id" | "name">;
+  readonly onClose?: ((outcome: DeleteCollectionOutcome) => void) | undefined;
+} | null;
 
 export type ButtonTone = "primary" | "secondary" | "quiet" | "danger";
 
@@ -99,23 +106,69 @@ export function ItemCopy({ item, ui }: { readonly item: CollectionSectionItem; r
 }
 
 /** "Remove from this list" and, for owners when allowed, "Delete collection…". */
-export function RowMore({ row, ui, onForget, onDelete, tabbable = true }: {
+export function RowMore({ row, ui, onDialog, tabbable = true }: {
   readonly row: CollectionRow;
   readonly ui: CollectionUi;
-  readonly onForget: (row: CollectionRow) => void;
-  readonly onDelete: (row: CollectionRow) => void;
+  readonly onDialog: (dialog: NonNullable<RowDialog>) => void;
   readonly tabbable?: boolean;
+}): JSX.Element {
+  const canDelete = ui.options.allowDelete === true && row.role === "owner";
+  const entries: MenuEntry[] = [{ id: "forget", label: ui.copy.removeFromList, onSelect: () => onDialog({ kind: "forget", row }) }];
+  if (canDelete) entries.push({ id: "delete", label: ui.copy.deleteCollection, danger: true, onSelect: () => onDialog({ kind: "delete", row }) });
+  return <RowMenuButton label={ui.say("moreFor", { collection: row.name })} entries={entries} tabbable={tabbable} />;
+}
+
+/** An app section item's own actions, in the same row menu as an SDK collection's. */
+export function ItemMore({ item, ui, onDialog, tabbable = true }: {
+  readonly item: CollectionSectionItem;
+  readonly ui: CollectionUi;
+  readonly onDialog: (dialog: NonNullable<RowDialog>) => void;
+  readonly tabbable?: boolean;
+}): JSX.Element | null {
+  const actions = item.actions ?? [];
+  if (actions.length === 0) return null;
+  const context: CollectionSectionItemActionContext = {
+    confirmDelete: (onClose) => onDialog({ kind: "delete", row: item, onClose }),
+  };
+  const entries = actions.map((action): MenuEntry => ({
+    id: action.id, label: action.label, danger: action.danger, disabled: action.disabled,
+    onSelect: () => action.onSelect(item, context),
+  }));
+  return <RowMenuButton label={ui.say("moreFor", { collection: item.name })} entries={entries} tabbable={tabbable} refocus />;
+}
+
+interface MenuEntry {
+  readonly id: string;
+  readonly label: string;
+  readonly danger?: boolean | undefined;
+  readonly disabled?: boolean | undefined;
+  readonly onSelect: () => void;
+}
+
+/**
+ * A row's "…" button and its menu. Arrow keys move between enabled entries,
+ * Escape closes it and returns focus to the button; with `refocus`, choosing an
+ * entry returns focus there too, so a dialog it opens hands focus back to it.
+ */
+function RowMenuButton({ label, entries, tabbable, refocus = false }: {
+  label: string;
+  entries: readonly MenuEntry[];
+  tabbable: boolean;
+  refocus?: boolean;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const menuId = useId();
-  const canDelete = ui.options.allowDelete === true && row.role === "owner";
+  const close = (focus: boolean): void => {
+    setOpen(false);
+    if (focus) trigger.current?.focus();
+  };
   return <>
     <button
       ref={trigger}
       type="button"
       className="mdbase-collections-more"
-      aria-label={ui.say("moreFor", { collection: row.name })}
+      aria-label={label}
       aria-haspopup="menu"
       aria-expanded={open}
       aria-controls={open ? menuId : undefined}
@@ -124,13 +177,12 @@ export function RowMore({ row, ui, onForget, onDelete, tabbable = true }: {
     >
       <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.5" cy="8" r="1.3" /><circle cx="8" cy="8" r="1.3" /><circle cx="12.5" cy="8" r="1.3" /></svg>
     </button>
-    {open && <RowMenu id={menuId} triggerRef={trigger} onClose={(refocus) => { setOpen(false); if (refocus) trigger.current?.focus(); }}>
-      <button type="button" role="menuitem" className="mdbase-collections-menu-item" onClick={() => { setOpen(false); onForget(row); }}>
-        {ui.copy.removeFromList}
-      </button>
-      {canDelete && <button type="button" role="menuitem" className="mdbase-collections-menu-item is-danger" onClick={() => { setOpen(false); onDelete(row); }}>
-        {ui.copy.deleteCollection}
-      </button>}
+    {open && <RowMenu id={menuId} triggerRef={trigger} onClose={close}>
+      {entries.map((entry) => <button key={entry.id} type="button" role="menuitem" disabled={entry.disabled}
+        className={entry.danger ? "mdbase-collections-menu-item is-danger" : "mdbase-collections-menu-item"}
+        onClick={() => { if (entry.disabled) return; close(refocus); entry.onSelect(); }}>
+        {entry.label}
+      </button>)}
     </RowMenu>}
   </>;
 }
