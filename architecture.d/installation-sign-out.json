@@ -1,0 +1,9 @@
+{
+  "reason": "An installation can end its own device session with only its installation bearer. One route module exports a single registrar and composes existing helpers only (installation authentication, collection lock, policy outbox, audit, relay fence); no new store, crypto, transport or schema.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 8,
+    "typeScriptExportDeclarations": 1,
+    "services/server": 1
+  }
+}

@@ -18,6 +18,7 @@ import { registerNextDeviceRoutes } from "../next/device-routes.js";
 import { registerApplicationManifest } from "../../manifest.js";
 import { upsertApplication } from "../applications/store.js";
 import { registerConnectorPairingRoutes } from "./pairing-routes.js";
+import { registerInstallationSignOutRoute } from "./installation-signout.js";
 import { backgroundTimerGrantResolver, dataPermitted } from "../next/timers/grants.js";
 import { registerTimerRoutes } from "../next/timers/routes.js";
 import { lockNamespace } from "../next/timers/store.js";
@@ -40,6 +41,7 @@ describePg("installation device sign-in on daemon pairing", () => {
   let admin: pg.Pool;
   let schema: string;
   const app = Fastify();
+  const fenced: [string, string][] = [];
   const channelSealer = new PushTargetSealer({keyId:"synthetic",key:Buffer.alloc(32,42),previousKeys:{}});
   const transports = {webPush:{send:async()=>undefined},fcm:{send:async()=>undefined}};
   beforeAll(async () => {
@@ -54,6 +56,7 @@ describePg("installation device sign-in on daemon pairing", () => {
     registerErrorHandler(app);
     registerConnectorPairingRoutes(app, { db, publicUrl: "https://connect.test", installationDevices: true, installationEnvironment: "lab" });
     registerNextDeviceRoutes(app, { db, log: { controlItemAt: async () => null } });
+    registerInstallationSignOutRoute(app, { db, relay: { fenceConnector: async (id, generation) => { fenced.push([id, generation]); return "closed"; } } });
     const resolver = backgroundTimerGrantResolver(db,"lab");
     registerTimerRoutes(app, { db, resolver });
     registerNotificationRoutes(app,{db,grantResolver:resolver,transports,
@@ -1312,6 +1315,26 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect((await db.query("SELECT create_collections FROM installation_device_credentials WHERE connector_id=$1",[p.selected.connector_id])).rows[0].create_collections).toBe(true);
     expect((await p.flow.exchange()).statusCode).toBe(200); // receipt replay cannot reapply removed scope
     expect((await db.query("SELECT connector_id FROM installation_collection_scopes WHERE collection_id=$1",[collection])).rows).toEqual([{connector_id:other.selected.connector_id}]);
+  });
+  it("an installation signs itself out: device revoked where enrolled, scopes gone, bearer dead; ordinary connectors refused",async()=>{
+    const p=await prepared(),collection=await scopeCollection(p.owner.user),device=p.input.installation.device_id,keys=p.proof.payload;
+    expect((await approveDevice(p.flow,p.owner,undefined,{collection_ids:[collection],create_collections:false})).statusCode).toBe(200);
+    const token=(await p.flow.exchange()).json().token as string, bearer={authorization:`Bearer ${token}`};
+    await db.query("INSERT INTO next_policy_outbox(collection_id,ops) VALUES($1,$2)",[collection,JSON.stringify({version:1,ops:[{op:"device-enrol",device,account:p.owner.user,kind:p.input.installation.kind,signPublicKey:{$hex:keys.sign_pk},kemPublicKey:{$hex:keys.kem_pk},noisePublicKey:{$hex:keys.noise_pk}}]})]);
+    const ordinary=randomToken("con");
+    await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'Desktop',$3)",[randomUUID(),p.owner.user,tokenHash(ordinary)]);
+    const refused=await app.inject({method:"DELETE",url:"/v1/next/installation",headers:{authorization:`Bearer ${ordinary}`}});
+    expect(refused.statusCode).toBe(403); expect(refused.json().error.code).toBe("installation_required");
+    const out=await app.inject({method:"DELETE",url:"/v1/next/installation",headers:bearer});
+    expect(out.statusCode,out.body).toBe(200); expect(out.json()).toEqual({ok:true,revoked:true,collections:1,fence:"closed"});
+    expect(fenced.map(([id])=>id)).toContain(p.selected.connector_id);
+    expect((await db.query("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1",[p.selected.connector_id])).rows).toEqual([]);
+    const revokes=(await db.query("SELECT ops FROM next_policy_outbox WHERE collection_id=$1",[collection])).rows.flatMap(row=>row.ops.ops).filter((op:{op:string})=>op.op==="device-revoke");
+    expect(revokes).toEqual([{op:"device-revoke",device}]);
+    const dead=await app.inject({method:"POST",url:"/v1/next/devices/challenge",headers:bearer});
+    expect(dead.statusCode).toBe(401); expect(dead.json().error.code).toBe("invalid_connector");
+    const again=await app.inject({method:"DELETE",url:"/v1/next/installation",headers:bearer});
+    expect(again.statusCode).toBe(401); expect(again.json().error.code).toBe("invalid_connector");
   });
   it("keeps original daemon pairing response and one-shot exchange semantics", async () => {
     const owner = await account();

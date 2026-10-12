@@ -76,6 +76,7 @@ import { registerConnectorControlRoutes } from "./features/connectors/control-ro
 import { registerConnectorInventoryRoutes } from "./features/connectors/inventory-routes.js";
 import { registerConnectorManagementRoutes } from "./features/connectors/management-routes.js";
 import { registerConnectorPairingRoutes } from "./features/connectors/pairing-routes.js";
+import { registerInstallationSignOutRoute } from "./features/connectors/installation-signout.js";
 import { registerConnectorRelayRoute } from "./features/connectors/relay-route.js";
 import { registerConnectorGrantRoutes } from "./features/grants/connector-routes.js";
 import { registerConnectorHostedRoutes } from "./features/hosted/connector-routes.js";
@@ -452,6 +453,8 @@ export async function buildApp(options: BuildOptions) {
       log:new LogServiceClient(options.nextControlPlane.logService),
     } : undefined,
   });
+  // Installation devices exist only with next control-plane support.
+  if (options.nextControlPlane) registerInstallationSignOutRoute(app, { db: options.db, relay });
   registerAccountSessionRoutes(app, {
     db: options.db,
     publicUrl,
