@@ -25,6 +25,12 @@ const REQUEST_TIMEOUT_MS = 10_000;
  */
 export interface LogPlacement { timezone?: string; ownerTimezones?: readonly string[] }
 
+/** The regions a collection can be stored in (mdbase-next `crates/log-service/src/placement.rs`). */
+const LOG_REGIONS = ["oc", "apac", "wnam", "enam", "weur"] as const;
+export type LogRegion = (typeof LOG_REGIONS)[number];
+export const isLogRegion = (value: unknown): value is LogRegion =>
+  typeof value === "string" && (LOG_REGIONS as readonly string[]).includes(value);
+
 // The log service refuses (and so would park the genesis on) a timezone over
 // 64 bytes or more than 1000 owner timezones; anything else unmappable falls
 // back to its default, so only wire-safe IANA-shaped names are sent.
@@ -252,9 +258,13 @@ export class LogServiceClient {
   }
 
   /** `create_log`: idempotent for the same genesis bytes; `invalid`/`exists` for a different genesis.
-   * The placement only matters on the call that creates the log. */
-  async createLog(collection: string, genesis: Uint8Array, placement?: LogPlacement): Promise<void> {
-    await this.rpc("create_log", struct([[0, uuidBytes(collection)], [1, genesis], [2, placementField(placement)]]));
+   * The placement only matters on the call that creates the log. The reply's key 2 is the
+   * region the log service recorded (on a retry too); absent for a collection with no region,
+   * and anything that is not a known region is treated as absent. */
+  async createLog(collection: string, genesis: Uint8Array, placement?: LogPlacement): Promise<{ region?: LogRegion }> {
+    const result = await this.rpc("create_log", struct([[0, uuidBytes(collection)], [1, genesis], [2, placementField(placement)]]));
+    const region = field(result, 2);
+    return isLogRegion(region) ? { region } : {};
   }
 
   async setQuota(collection: string, quotas: { storageBytes: number; itemsPerSecond: number; bytesPerSecond: number; burstItems: number }): Promise<void> {
