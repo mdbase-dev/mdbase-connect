@@ -224,7 +224,7 @@ export class NativeEditorGateway implements CollectionGateway {
     const cursors = new Set<string>();
     let cursor: string | undefined;
     do {
-      const result = await this.client.queryContract({ id: contract.id, version: contract.version }, { pageSize: 500, signal, ...(cursor ? { cursor } : {}) });
+      const result = await this.client.queryContract({ id: contract.id, version: contract.version }, { pageSize: 128, signal, ...(cursor ? { cursor } : {}) });
       this.check();
       for (const record of result.records) {
         const projection = contract.type

@@ -94,6 +94,29 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     expect(outdatedPersonStarter(description)).toMatchObject({ typeVersion: 2 });
   });
 
+  it("pages Person contract records through the real SDK's bounded selection", async () => {
+    const f = await fixture();
+    const original = f.client.call.bind(f.client);
+    const pages = [
+      { version: 1, contractDigest: "sha256:test", page: { records: [{ id: "person-a", path: "people/a.md" }], cursor: "next-person-page", complete: true }, records: [{ id: "person-a", implementations: [{ typeName: "person", fields: new Map([["name", "Ada"]]), issues: [] }] }] },
+      { version: 1, contractDigest: "sha256:test", page: { records: [{ id: "person-b", path: "people/b.md" }], complete: true }, records: [{ id: "person-b", implementations: [{ typeName: "person", fields: new Map([["name", "Bea"]]), issues: [] }] }] },
+    ];
+    const selections: Array<Map<number, unknown>> = [];
+    vi.spyOn(f.client, "call").mockImplementation(((method: string, params: unknown, options: unknown) => {
+      if (method !== "query_contract_v1") return original(method, params as never, options as never);
+      selections.push(params as Map<number, unknown>);
+      return Promise.resolve(pages[selections.length - 1]);
+    }) as typeof f.client.call);
+    // queryContract itself is NOT mocked: its SDK validation rejects pageSize
+    // above 128 before call(), exactly the original Your person record failure.
+    await expect(f.gateway.queryContract({ id: "mdbase.person", version: "2.0.0", type: "person" })).resolves.toEqual([
+      { path: "people/a.md", values: { name: "Ada" } }, { path: "people/b.md", values: { name: "Bea" } },
+    ]);
+    expect(selections.map(p => [p.get(1), p.get(2), p.get(3), p.get(4)])).toEqual([
+      ["mdbase.person", "2.0.0", 128, undefined], ["mdbase.person", "2.0.0", 128, "next-person-page"],
+    ]);
+  });
+
   it("falls back to names-only when the replica cannot describe definitions", async () => {
     const f = await fixture({}, seedNotes);
     const describe = f.client.describe.bind(f.client);
