@@ -11,6 +11,9 @@ type State =
   | { readonly status: "ready"; readonly plan: MdbaseSetupPlan; readonly notice: CollectionNotice | null }
   | { readonly status: "failed"; readonly notice: CollectionNotice | null };
 
+/** Quiet re-plans after a transient refusal (about a minute in all). */
+const TRANSIENT_REPLANS = 15;
+
 /**
  * Reviewable setup: `setup.plan()` (read-only, so it starts at once), then
  * `setup.apply(plan)` only from the person's click. Never configures silently.
@@ -23,11 +26,25 @@ export function SetupReview({ ui }: { readonly ui: CollectionUi }): JSX.Element 
 
   useEffect(() => {
     const controller = new AbortController();
-    mdbase.setup.plan({ ...request.options, signal: controller.signal }).then(
-      (plan) => { if (!controller.signal.aborted) setState({ status: "ready", plan, notice: request.notice }); },
-      (cause: unknown) => { if (!controller.signal.aborted) setState({ status: "failed", notice: actionNotice(describeError(cause)) }); },
-    );
-    return () => controller.abort();
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    // A transient refusal (another tab is finishing setup, the SDK is busy)
+    // clears by itself: plan again quietly, with backoff, before giving up.
+    const attempt = (n: number): void => {
+      mdbase.setup.plan({ ...request.options, signal: controller.signal }).then(
+        (plan) => { if (!controller.signal.aborted) setState({ status: "ready", plan, notice: request.notice }); },
+        (cause: unknown) => {
+          if (controller.signal.aborted) return;
+          const described = describeError(cause);
+          if (described?.transient && n < TRANSIENT_REPLANS) {
+            timer = setTimeout(() => attempt(n + 1), described.retryAfterMs ?? Math.min(500 * 2 ** n, 5000));
+            return;
+          }
+          setState({ status: "failed", notice: actionNotice(described) });
+        },
+      );
+    };
+    attempt(0);
+    return () => { controller.abort(); if (timer !== null) clearTimeout(timer); };
   }, [mdbase, request]);
 
   const replan = (options: MdbaseSetupPlanOptions, notice: CollectionNotice | null = null): void => {
