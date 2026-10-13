@@ -10,6 +10,16 @@ describe("schema date fields", () => {
     expect(schemaDateInputType("date-time")).toBe("datetime-local");
   });
 
+  it("recognizes declared temporal unions without inferring dates from arbitrary text", () => {
+    const dateUnion = { anyOf: [{ type: "string", format: "date" }, { type: "string", format: "date-time" }] };
+    expect(schemaDateFormat(dateUnion, "2026-10-23")).toBe("date");
+    expect(schemaDateFormat(dateUnion, "2026-10-14T22:00:00Z")).toBe("date-time");
+    expect(schemaDateFormat(dateUnion, "")).toBe("date");
+    expect(schemaDateFormat(dateUnion, "not a date")).toBeUndefined();
+    expect(schemaDateFormat({ anyOf: [...dateUnion.anyOf, { type: "string" }] }, "2026-10-23")).toBeUndefined();
+    expect(schemaDateFormat({ oneOf: [...dateUnion.anyOf, { type: "null" }] }, "2026-10-23")).toBe("date");
+  });
+
   it("keeps dates timezone-free", () => {
     expect(schemaDateInputValue("2026-07-21", "date")).toBe("2026-07-21");
     expect(schemaDateValue("2026-07-22", "date")).toBe("2026-07-22");

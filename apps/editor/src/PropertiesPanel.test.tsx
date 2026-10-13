@@ -15,6 +15,24 @@ vi.mock("./CodeEditor", () => ({
 afterEach(() => vi.useRealTimers());
 
 describe("typed note properties", () => {
+  it("omits unavailable filesystem facts without treating frontmatter as file metadata", () => {
+    const { container } = render(<PropertiesPanel note={{ ...eventNote, file: {},
+      frontmatter: { dateModified: "2026-10-13T16:00:00Z" } }} types={[]} onClose={vi.fn()} onSave={vi.fn()} />);
+    const facts = within(container.querySelector(".file-facts") as HTMLElement);
+    expect(facts.getByText("Words")).toBeVisible();
+    expect(facts.queryByText("Size")).toBeNull();
+    expect(facts.queryByText("Modified")).toBeNull();
+    expect(facts.queryByText("Unknown")).toBeNull();
+  });
+
+  it("shows available zero-byte size and valid modification time", () => {
+    const { container } = render(<PropertiesPanel note={{ ...eventNote,
+      file: { ...eventNote.file!, size: 0, mtime: "2026-10-13T16:00:00Z" } }} types={[]} onClose={vi.fn()} onSave={vi.fn()} />);
+    const facts = within(container.querySelector(".file-facts") as HTMLElement);
+    expect(facts.getByText("Size").nextElementSibling).toHaveTextContent("0 B");
+    expect(facts.getByText("Modified").nextElementSibling).not.toHaveTextContent("Unknown");
+  });
+
   it("keeps property saves silent until slow, preserves input focus, and retries failures", async () => {
     vi.useFakeTimers();
     let reject!: (error: Error) => void;

@@ -53,11 +53,12 @@ export function SchemaValueEditor({ name, schema, rootSchema, value, required = 
       if (choice !== undefined || next === choiceKey(null)) onChange(structuredClone(choice));
     }}
   /></label>;
-  const dateFormat = schemaDateFormat(resolved);
+  const dateFormat = schemaDateFormat(resolved, value);
   if (dateFormat) return <label className="schema-value">{label}<input
     aria-label={name}
     type={schemaDateInputType(dateFormat)}
     step={dateFormat === "date-time" ? 1 : undefined}
+    title={dateFormat === "date-time" ? `Local time (${Intl.DateTimeFormat().resolvedOptions().timeZone})` : undefined}
     value={schemaDateInputValue(value, dateFormat)}
     onChange={(event) => onChange(schemaDateValue(event.target.value, dateFormat))}
   /></label>;

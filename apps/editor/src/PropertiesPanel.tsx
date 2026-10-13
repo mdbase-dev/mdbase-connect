@@ -231,8 +231,8 @@ export function PropertiesPanel({
 
     <dl className="file-facts">
       <div><dt>Words</dt><dd>{wordCount.toLocaleString()}</dd></div>
-      <div><dt>Size</dt><dd>{formatBytes(note.file?.size)}</dd></div>
-      <div><dt>Modified</dt><dd>{formatDate(note.file?.mtime)}</dd></div>
+      {note.file?.size !== undefined && <div><dt>Size</dt><dd>{formatBytes(note.file.size)}</dd></div>}
+      {note.file?.mtime && !Number.isNaN(Date.parse(note.file.mtime)) && <div><dt>Modified</dt><dd>{formatDate(note.file.mtime)}</dd></div>}
     </dl>
 
     <div className="property-view-controls">
@@ -312,15 +312,12 @@ function mergedSchema(typeNames: string[], types: CollectionTypeDescriptor[]): {
   return { properties, required: [...required] };
 }
 
-function formatBytes(value?: number): string {
-  if (value === undefined) return "Unknown";
+function formatBytes(value: number): string {
   if (value < 1_000) return `${value} B`;
   if (value < 1_000_000) return `${(value / 1_000).toFixed(1)} KB`;
   return `${(value / 1_000_000).toFixed(1)} MB`;
 }
 
-function formatDate(value?: string): string {
-  if (!value) return "Unknown";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "Unknown" : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
+function formatDate(value: string): string {
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }
