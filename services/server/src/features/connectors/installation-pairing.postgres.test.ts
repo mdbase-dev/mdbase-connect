@@ -150,7 +150,7 @@ describePg("installation device sign-in on daemon pairing", () => {
   function original(kind: "app-runtime" | "mobile" = "app-runtime") {
     return { connector_name: "Caller-supplied name is not app identity", installation: { request_id: randomUUID(), pairing_secret: randomToken("pair"), installation_id: randomUUID(), device_id: randomUUID(), kind, app_id: tasknotesId, requested_create_collections:false, reconsent:false } };
   }
-  type Input = ReturnType<typeof original> & {installation: ReturnType<typeof original>["installation"] & {renewal?: {request_id:string;pairing_secret:string}}};
+  type Input = ReturnType<typeof original> & {installation: ReturnType<typeof original>["installation"] & {renewal?: {request_id:string;pairing_secret:string}; recovery_collection_id?:string}};
   const originHeaders = (input:Input) => ({origin:input.installation.kind === "mobile" ? apps.get(input.installation.app_id)!.mobile : apps.get(input.installation.app_id)!.web});
   function channel(input: Input) {
     const base = `/v1/pairing-requests/${input.installation.request_id}`;
@@ -165,7 +165,7 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect(result.headers["cache-control"]).toBe("no-store");
     return channel(input);
   }
-  async function approveDevice(flow: ReturnType<typeof channel>, owner: Awaited<ReturnType<typeof account>>, fingerprint?:string, consent={collection_ids:[] as string[],create_collections:false}) {
+  async function approveDevice(flow: ReturnType<typeof channel>, owner: Awaited<ReturnType<typeof account>>, fingerprint?:string, consent:{collection_ids:string[];create_collections:boolean;selected_collection_id?:string}={collection_ids:[],create_collections:false}) {
     const inspected = await app.inject({method:"GET",url:flow.base,headers:owner.headers});
     return app.inject({method:"POST",url:`${flow.base}/approve`,headers:owner.headers,payload:{fingerprint:fingerprint??inspected.json().pairing?.fingerprint??"0000-0000-0000-0000",...consent}});
   }
@@ -177,8 +177,9 @@ describePg("installation device sign-in on daemon pairing", () => {
     const result = await app.inject({ method: "POST", url: `${flow.base}/attest`, headers: flow.bearer, payload });
     return { payload, result };
   }
-  async function prepared(kind: "app-runtime" | "mobile" = "app-runtime", create=false, existingOwner?:Awaited<ReturnType<typeof account>>, origin?:string, appId=tasknotesId) {
-    const owner = existingOwner??await account(), input = original(kind);
+  async function prepared(kind: "app-runtime" | "mobile" = "app-runtime", create=false, existingOwner?:Awaited<ReturnType<typeof account>>, origin?:string, appId=tasknotesId, recoveryCollection?:string) {
+    const owner = existingOwner??await account(), input:Input = original(kind);
+    if (recoveryCollection) input.installation.recovery_collection_id=recoveryCollection;
     input.installation.app_id=appId;
     input.installation.requested_create_collections=create;
     const flow = await start(input, origin);
@@ -477,6 +478,99 @@ describePg("installation device sign-in on daemon pairing", () => {
     await db.query("INSERT INTO next_policy_outbox(collection_id,ops,batch_id) VALUES($1,$2,$3)",[collection,JSON.stringify({version:1,ops}),batch]);
     return collection;
   }
+  it("recovery target echoes its original CID before proof and credential commit", async () => {
+    const owner=await account(), target=await scopeCollection(owner.user);
+    const p=await prepared("app-runtime",false,owner,undefined,tasknotesId,target);
+    expect(p.selected.recovery_collection_id).toBe(target);
+    expect((await app.inject({method:"GET",url:p.flow.base,headers:owner.headers})).json().pairing).toMatchObject({recovery_collection_id:target,can_create_collection:false});
+    expect((await p.flow.exchange()).json()).toMatchObject({status:"awaiting_approval",recovery_collection_id:target});
+    expect((await approveDevice(p.flow,owner,undefined,{collection_ids:[target],create_collections:false,selected_collection_id:target})).statusCode).toBe(200);
+    expect((await p.flow.exchange()).json()).toMatchObject({status:"paired",recovery_collection_id:target,collection_ids:[target],selected_collection_id:target,created_collection_ids:[],create_collections:false});
+  });
+  it.each(["wrong","additional","omitted","unselected","create"])("recovery target rejects %s consent before mutations", async variant => {
+    const owner=await account(), target=await scopeCollection(owner.user), other=await scopeCollection(owner.user);
+    const p=await prepared("app-runtime",false,owner,undefined,tasknotesId,target);
+    const consent:{collection_ids:string[];selected_collection_id?:string;create_collections:boolean}={collection_ids:[target],selected_collection_id:target,create_collections:false};
+    if(variant==="wrong"){consent.collection_ids=[other];consent.selected_collection_id=other;}
+    if(variant==="additional")consent.collection_ids=[target,other];
+    if(variant==="omitted")consent.collection_ids=[];
+    if(variant==="unselected")delete consent.selected_collection_id;
+    if(variant==="create")consent.create_collections=true;
+    const refused=await approveDevice(p.flow,owner,undefined,consent);
+    expect(refused.statusCode).toBe(409);expect(refused.json().error.code).toBe("installation_recovery_target_changed");
+    expect((await db.query("SELECT approved_at FROM pairing_requests WHERE id=$1",[p.input.installation.request_id])).rows[0].approved_at).toBeNull();
+    expect((await db.query("SELECT approved_collection_ids,selected_collection_id,timer_consent FROM installation_device_pairings WHERE pairing_id=$1",[p.input.installation.request_id])).rows[0]).toEqual({approved_collection_ids:[],selected_collection_id:null,timer_consent:null});
+    expect((await db.query("SELECT id FROM next_devices WHERE id=$1",[p.input.installation.device_id])).rows).toEqual([]);
+    expect((await db.query("SELECT connector_id FROM installation_collection_scopes WHERE connector_id=$1",[p.selected.connector_id])).rows).toEqual([]);
+  });
+  it("recovery target rejects changed START retry and renewal intent", async () => {
+    const input:Input=original();input.installation.recovery_collection_id=randomUUID();await start(input);
+    for(const target of [undefined,randomUUID()]){
+      const changed={...input,installation:{...input.installation,recovery_collection_id:target}};
+      const result=await app.inject({method:"POST",url:"/v1/pairing-requests",headers:originHeaders(input),payload:changed});
+      expect(result.statusCode).toBe(409);expect(result.json().error.code).toBe("installation_recovery_target_changed");
+    }
+    await db.query("UPDATE pairing_requests SET expires_at=now()-interval '1 minute' WHERE id=$1",[input.installation.request_id]);
+    const next=renewal(input);next.installation.recovery_collection_id=randomUUID();
+    const result=await app.inject({method:"POST",url:"/v1/pairing-requests",headers:originHeaders(next),payload:next});
+    expect(result.statusCode).toBe(409);expect(result.json().error.code).toBe("installation_recovery_target_changed");
+    expect((await db.query("SELECT id FROM pairing_requests WHERE id=$1",[next.installation.request_id])).rows).toEqual([]);
+  });
+  it("recovery target cannot race another otherwise authorized collection into approval", async () => {
+    const owner=await account(), target=await scopeCollection(owner.user), other=await scopeCollection(owner.user);
+    const p=await prepared("app-runtime",false,owner,undefined,tasknotesId,target);
+    const [right,wrong]=await Promise.all([target,other].map(id=>approveDevice(p.flow,owner,undefined,{collection_ids:[id],create_collections:false,selected_collection_id:id})));
+    expect(right.statusCode).toBe(200);expect(wrong.statusCode).toBe(409);
+    expect((await p.flow.exchange()).json().collection_ids).toEqual([target]);
+  });
+  it("recovery target refuses a switched account or epoch after attestation before approval", async () => {
+    const owner=await account(), other=await account(), target=await scopeCollection(owner.user,other.user);
+    const p=await prepared("app-runtime",false,owner,undefined,tasknotesId,target);
+    const consent={collection_ids:[target],create_collections:false,selected_collection_id:target};
+    expect((await approveDevice(p.flow,other,undefined,consent)).statusCode).toBeGreaterThanOrEqual(400);
+    await db.query("UPDATE users SET session_epoch=session_epoch+1 WHERE id=$1",[owner.user]);
+    expect((await approveDevice(p.flow,owner,undefined,consent)).statusCode).toBeGreaterThanOrEqual(400);
+    expect((await db.query("SELECT approved_at FROM pairing_requests WHERE id=$1",[p.input.installation.request_id])).rows[0].approved_at).toBeNull();
+    expect((await db.query("SELECT id FROM next_devices WHERE id=$1",[p.input.installation.device_id])).rows).toEqual([]);
+  });
+  it("recovery target START echoes intent without target lookup or pending authority", async () => {
+    const input:Input=original(), target=randomUUID();input.installation.recovery_collection_id=target;
+    const result=await app.inject({method:"POST",url:"/v1/pairing-requests",headers:originHeaders(input),payload:input});
+    expect(result.statusCode).toBe(201);expect(result.json().recovery_collection_id).toBe(target);
+    const pending=await channel(input).exchange();expect(pending.statusCode).toBe(202);expect(pending.json()).toEqual({status:"pending"});
+    expect((await db.query("SELECT user_id,approved_at FROM pairing_requests WHERE id=$1",[input.installation.request_id])).rows[0]).toEqual({user_id:null,approved_at:null});
+  });
+  it.each(["create","file"])("recovery target rejects %s expansion at START without a row", async variant => {
+    const input:Input=original();input.installation.recovery_collection_id=randomUUID();
+    const installation={...input.installation,...(variant==="create"?{requested_create_collections:true}:{file_access:{collection_id:input.installation.recovery_collection_id,actions:["read"],reason:"[test] recovery"}})};
+    const result=await app.inject({method:"POST",url:"/v1/pairing-requests",headers:originHeaders(input),payload:{...input,installation}});
+    expect(result.statusCode).toBe(400);expect(result.json().error.code).toBe("installation_invalid_scope");
+    expect((await db.query("SELECT id FROM pairing_requests WHERE id=$1",[input.installation.request_id])).rows).toEqual([]);
+  });
+  it("recovery target refuses Private targets without hosted scope or credentials", async () => {
+    const owner=await account(), target=await scopeCollection(owner.user);await db.query("UPDATE next_collections SET sync='private' WHERE collection_id=$1",[target]);
+    const p=await prepared("app-runtime",false,owner,undefined,tasknotesId,target);
+    expect((await approveDevice(p.flow,owner,undefined,{collection_ids:[target],create_collections:false,selected_collection_id:target})).statusCode).toBeGreaterThanOrEqual(400);
+    expect((await db.query("SELECT approved_at FROM pairing_requests WHERE id=$1",[p.input.installation.request_id])).rows[0].approved_at).toBeNull();
+    expect((await db.query("SELECT id FROM next_devices WHERE id=$1",[p.input.installation.device_id])).rows).toEqual([]);
+  });
+  it("recovery target has immutable SQL intent and complete approved scope constraints", async () => {
+    const owner=await account(), target=await scopeCollection(owner.user), other=await scopeCollection(owner.user);
+    const p=await prepared("app-runtime",false,owner,undefined,tasknotesId,target);
+    for(const changed of [null,other])await expect(db.query("UPDATE installation_device_pairings SET recovery_collection_id=$2 WHERE pairing_id=$1",[p.input.installation.request_id,changed])).rejects.toMatchObject({code:"23514",constraint:"installation_recovery_target_immutable"});
+    expect((await approveDevice(p.flow,owner,undefined,{collection_ids:[target],create_collections:false,selected_collection_id:target})).statusCode).toBe(200);
+    for(const fields of ["selected_collection_id=NULL","approved_collection_ids='{}'::uuid[]","approved_create_collections=true","requested_create_collections=true","created_collection_ids=ARRAY[selected_collection_id]"])
+      await expect(db.query(`UPDATE installation_device_pairings SET ${fields} WHERE pairing_id=$1`,[p.input.installation.request_id])).rejects.toMatchObject({code:"23514",constraint:"installation_recovery_scope"});
+    expect((await p.flow.exchange()).json().collection_ids).toEqual([target]);
+  });
+  it("recovery target fields remain omitted from all ordinary Add responses", async () => {
+    const input=original(), started=await app.inject({method:"POST",url:"/v1/pairing-requests",headers:originHeaders(input),payload:input});
+    expect(started.statusCode).toBe(201);expect(started.json()).not.toHaveProperty("recovery_collection_id");
+    const p=await prepared();expect(p.selected).not.toHaveProperty("recovery_collection_id");
+    expect((await app.inject({method:"GET",url:p.flow.base,headers:p.owner.headers})).json().pairing).not.toHaveProperty("recovery_collection_id");
+    expect((await p.flow.exchange()).json()).not.toHaveProperty("recovery_collection_id");
+    expect((await approveDevice(p.flow,p.owner)).statusCode).toBe(200);expect((await p.flow.exchange()).json()).not.toHaveProperty("recovery_collection_id");
+  });
   it("persists only explicit UUIDs/create consent and refuses changed or undeclared approval",async()=>{
     const p=await prepared(); const approved=await scopeCollection(p.owner.user), other=await scopeCollection(p.owner.user);
     expect((await approveDevice(p.flow,p.owner,undefined,{collection_ids:[approved],create_collections:true})).statusCode).toBe(400);
