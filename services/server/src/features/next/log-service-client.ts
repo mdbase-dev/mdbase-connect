@@ -16,6 +16,31 @@ import { pitrLogUrl, type LabPitrConfig } from "./lab-pitr-config.js";
 export const LOG_TOKEN_LIFETIME_MS = 15 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 10_000;
 
+/**
+ * Inputs the log service chooses a new collection's storage region from
+ * (`create_log` key 2; mdbase-next `crates/log-service/src/placement.rs`):
+ * the collection's IANA timezone and the owner's timezones on their other
+ * collections. Connect sends no location: its users do not reach it through
+ * Cloudflare, and its own address says nothing about theirs.
+ */
+export interface LogPlacement { timezone?: string; ownerTimezones?: readonly string[] }
+
+// The log service refuses (and so would park the genesis on) a timezone over
+// 64 bytes or more than 1000 owner timezones; anything else unmappable falls
+// back to its default, so only wire-safe IANA-shaped names are sent.
+const PLACEMENT_TIMEZONE = /^[A-Za-z][A-Za-z0-9_+\-/]*$/;
+const MAX_OWNER_TIMEZONES = 1000;
+const wireTimezone = (value: unknown): value is string =>
+  typeof value === "string" && Buffer.byteLength(value) <= 64 && PLACEMENT_TIMEZONE.test(value);
+
+/** The placement map `{4: timezone, 5: [owner timezone]}`, or nothing (the Worker default). */
+function placementField(placement: LogPlacement | undefined): Cbor | undefined {
+  const timezone = wireTimezone(placement?.timezone) ? placement!.timezone : undefined;
+  const owners = (placement?.ownerTimezones ?? []).filter(wireTimezone).slice(0, MAX_OWNER_TIMEZONES);
+  if (timezone === undefined && owners.length === 0) return undefined;
+  return struct([[4, timezone], [5, owners.length ? owners : undefined]]);
+}
+
 export type AppendResult =
   | { kind: "appended"; first: number; last: number }
   | { kind: "head-moved"; head: number; chain: Uint8Array }
@@ -226,9 +251,10 @@ export class LogServiceClient {
     }
   }
 
-  /** `create_log`: idempotent for the same genesis bytes; `invalid`/`exists` for a different genesis. */
-  async createLog(collection: string, genesis: Uint8Array): Promise<void> {
-    await this.rpc("create_log", struct([[0, uuidBytes(collection)], [1, genesis]]));
+  /** `create_log`: idempotent for the same genesis bytes; `invalid`/`exists` for a different genesis.
+   * The placement only matters on the call that creates the log. */
+  async createLog(collection: string, genesis: Uint8Array, placement?: LogPlacement): Promise<void> {
+    await this.rpc("create_log", struct([[0, uuidBytes(collection)], [1, genesis], [2, placementField(placement)]]));
   }
 
   async setQuota(collection: string, quotas: { storageBytes: number; itemsPerSecond: number; bytesPerSecond: number; burstItems: number }): Promise<void> {

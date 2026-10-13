@@ -315,6 +315,9 @@ export class HostedProviderClient {
   legacyMigrationSource(collectionId: string, options?: HostedProviderOperationOptions): Promise<LegacyMigrationSource> {
     return legacy.legacyMigrationSource(this.legacyRequest(options), collectionId);
   }
+  legacyMigrationPlacement(collectionId: string, options?: HostedProviderOperationOptions): Promise<{ timezone: string; ownerTimezones: string[] }> {
+    return legacy.legacyMigrationPlacement(this.legacyRequest(options), collectionId);
+  }
   legacyMigrationFence(collectionId: string, options?: HostedProviderOperationOptions): Promise<LegacyMigrationFence> {
     return legacy.legacyMigrationFence(this.legacyRequest(options), collectionId);
   }

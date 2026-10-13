@@ -1,0 +1,7 @@
+{
+  "reason": "The log service now chooses a collection's storage region from timezones. Connect forwards them on create_log: one placement input type shared by the outbox and the creators, and one read-only internal provider route (with its reply type) that returns a migrating collection's legacy timezone and its owner's other collection timezones. No new state, table or migration.",
+  "growth": {
+    "rustPublicDeclarations": 5,
+    "typeScriptExportDeclarations": 2
+  }
+}

@@ -9,7 +9,7 @@
 // - any other refusal parks the collection's queue (order matters) until an operator
 //   looks at it. Nothing is dropped silently.
 import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
-import { LogServiceError, type LogServiceClient } from "./log-service-client.js";
+import { LogServiceError, type LogPlacement, type LogServiceClient } from "./log-service-client.js";
 import { signPolicyItem, type PolicyOp, type PolicySigner } from "./policy-wire.js";
 import { recoverLostPolicy, withPolicyLock } from "./policy-recovery.js";
 import { DEFAULT_COLLECTION_DISPLAY_NAME } from "./collection-display-name.js";
@@ -19,10 +19,12 @@ const MAX_ROWS_PER_ITEM = 64;
 const ZERO_CHAIN = new Uint8Array(32);
 
 // Persisted form: `{version, ops}` with byte fields as `{"$hex": "…"}`. This is
-// database state, so any change to it needs a data migration.
-function serializeOps(ops: PolicyOp[]): string {
+// database state, so any change to it needs a data migration. The genesis row
+// may also carry an optional `placement` (`create_log` key 2), which readers of
+// `ops` ignore.
+function serializeOps(ops: PolicyOp[], placement?: LogPlacement): string {
   // The holder's raw value, because Buffer.toJSON runs before a replacer sees it.
-  return JSON.stringify({ version: OUTBOX_FORMAT, ops }, function (this: Record<string, unknown>, key, value: unknown) {
+  return JSON.stringify({ version: OUTBOX_FORMAT, ops, ...(placement ? { placement } : {}) }, function (this: Record<string, unknown>, key, value: unknown) {
     const raw = this[key];
     return raw instanceof Uint8Array ? { $hex: Buffer.from(raw).toString("hex") } : value;
   });
@@ -37,16 +39,38 @@ function deserializeOps(value: unknown): PolicyOp[] {
 
 export type HostedSync = "private" | "cloud_copy";
 
+/** The genesis row's stored placement; anything malformed is no placement. */
+function storedPlacement(value: unknown): LogPlacement | undefined {
+  const parsed = (typeof value === "string" ? JSON.parse(value) : value) as { placement?: unknown } | null;
+  const placement = parsed?.placement as { timezone?: unknown; ownerTimezones?: unknown } | undefined;
+  if (!placement || typeof placement !== "object") return undefined;
+  return {
+    ...(typeof placement.timezone === "string" ? { timezone: placement.timezone } : {}),
+    ...(Array.isArray(placement.ownerTimezones) ? { ownerTimezones: placement.ownerTimezones.filter((zone): zone is string => typeof zone === "string") } : {}),
+  };
+}
+
+/** A new collection's placement: the timezone its owner's device reported at signup. */
+async function ownerPlacement(client: DatabaseQueryable, ownerUserId: string): Promise<LogPlacement | undefined> {
+  const row = (await client.query<{ timezone: string }>("SELECT timezone FROM account_onboarding WHERE user_id = $1", [ownerUserId])).rows[0];
+  return row ? { timezone: row.timezone } : undefined;
+}
+
 /**
  * Register a collection whose log the control plane creates on the hosted log
  * service. `ops` must start with its `genesis`, in the state matching `sync`; they
  * become the item at seq 1 (`create_log`). A private collection may not enrol a
  * hosted or escrow device: mdbase never receives its key. Call inside the transaction
  * that creates or converts the collection.
+ *
+ * `placement` picks the collection's storage region. A migrated (`shadow`)
+ * collection passes its legacy timezones; a new one defaults to its owner's
+ * signup timezone, and to nothing (the log service's default) without one.
  */
 export async function registerNextCollection(
   client: DatabaseQueryable,
-  input: { collectionId: string; ownerUserId: string; runtime: "shadow" | "next"; sync: HostedSync; rootKeyId: Uint8Array; ops: PolicyOp[]; displayName?: string }
+  input: { collectionId: string; ownerUserId: string; runtime: "shadow" | "next"; sync: HostedSync; rootKeyId: Uint8Array; ops: PolicyOp[]; displayName?: string;
+    placement?: LogPlacement }
 ): Promise<void> {
   const genesis = input.ops[0];
   if (genesis?.op !== "genesis" || input.ops.slice(1).some((op) => op.op === "genesis")) throw new Error("a new log starts with exactly one genesis op");
@@ -61,7 +85,8 @@ export async function registerNextCollection(
      VALUES ($1, $2, $3, $4, $5, $6)`,
     [input.collectionId, input.ownerUserId, input.runtime, input.sync, Buffer.from(input.rootKeyId), displayName]
   );
-  await client.query("INSERT INTO next_policy_outbox (collection_id, ops) VALUES ($1, $2)", [input.collectionId, serializeOps(input.ops)]);
+  const placement = input.placement ?? (input.runtime === "next" ? await ownerPlacement(client, input.ownerUserId) : undefined);
+  await client.query("INSERT INTO next_policy_outbox (collection_id, ops) VALUES ($1, $2)", [input.collectionId, serializeOps(input.ops, placement)]);
 }
 
 /**
@@ -244,7 +269,11 @@ export class PolicyEmitter {
     const seq = Number(batch.seq);
     try {
       if (seq === 1) {
-        await this.log.createLog(collectionId, batch.item);
+        // The genesis row is the collection's first outbox row.
+        const genesis = await this.db.query<{ ops: unknown }>(
+          "SELECT ops FROM next_policy_outbox WHERE collection_id = $1 ORDER BY id LIMIT 1", [collectionId]
+        );
+        await this.log.createLog(collectionId, batch.item, storedPlacement(genesis.rows[0]?.ops));
       } else {
         const result = await this.log.append(collectionId, seq, batch.prev, [batch.item]);
         if (result.kind === "head-moved") {

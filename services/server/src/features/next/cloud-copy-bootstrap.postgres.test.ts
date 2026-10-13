@@ -76,6 +76,8 @@ function configuration(): NextControlPlaneConfig {
 /** The log service: control items per collection, with create, append, head and read. */
 class Log {
   readonly logs = new Map<string, Buffer[]>();
+  /** Each collection's `create_log` key 2, as decoded. */
+  readonly placements = new Map<string, Decoded | undefined>();
   /** Runs once, while the route awaits a read-back. */
   onRead: (() => Promise<void>) | undefined;
   readonly fetch: typeof fetch = async (input, init) => {
@@ -88,7 +90,7 @@ class Log {
     const chain = () => chainHash(items![items!.length - 1]!);
     let result: Cbor;
     if (method === "create_log") {
-      if (!items) this.logs.set(id, [Buffer.from(field(params, 1) as Uint8Array)]);
+      if (!items) { this.logs.set(id, [Buffer.from(field(params, 1) as Uint8Array)]); this.placements.set(id, field(params, 2)); }
       result = { struct: [[0, 1], [1, chainHash(this.logs.get(id)![0]!)]] };
     } else if (method === "head") {
       result = { struct: [[0, items!.length], [1, chain()], [2, 1]] };
@@ -172,7 +174,10 @@ describePg("cloud-copy bootstrap", () => {
     registerConnectorPairingRoutes(app,{db,publicUrl:"https://connect.test",installationDevices:true,installationEnvironment:"lab",cloudCopy:{db,next:config,emitter,log:client,fetchImpl:deployments.fetch}});
     registerCloudCopyRoutes(app, { db, next: config, emitter, log: client, fetchImpl: deployments.fetch,
       deletionFloor: { recordCollectionDeletion: async fact => { floors.push(fact.collection); return { fact, generation: 1n }; } } });
-    registerMigrationProviderRoutes(app, { db, token: "synthetic-migration-target-token", bootstrap: { next: config, emitter, log: client, fetchImpl: deployments.fetch } });
+    const unused = async (): Promise<never> => { throw new Error("unexpected provider call"); };
+    registerMigrationProviderRoutes(app, { db, token: "synthetic-migration-target-token", bootstrap: { next: config, emitter, log: client, fetchImpl: deployments.fetch },
+      provider: { legacyMigrationDrain: unused, legacyMigrationSource: unused, legacyMigrationFence: unused,
+        legacyMigrationPlacement: async () => ({ timezone: "UTC", ownerTimezones: ["Europe/Berlin", "America/Denver"] }) } });
     registerCollectionLogTokenRoute(app,{db,log:client});
     registerPeopleRoutes(app,{db,issuer:"https://identity.test",publicUrl:"https://connect.test"});
   }, 60_000);
@@ -234,6 +239,11 @@ describePg("cloud-copy bootstrap", () => {
     for (const service of result.service_devices) {
       expect(response.body).not.toContain(deployments.devices.get(`${service.kind}/${f.collection}`)!.wrapped_keys);
     }
+  });
+  it("places a migrated collection by its legacy timezones (create_log keys 4 and 5)", async () => {
+    const f = await migration();
+    expect((await f.request()).statusCode).toBe(200);
+    expect(log.placements.get(f.collection.replaceAll("-", ""))).toEqual(new Map<number, Decoded>([[4, "UTC"], [5, ["Europe/Berlin", "America/Denver"]]]));
   });
   it("refuses ordinary credentials/caller runtime/owner/readiness facts before generation", async () => {
     const f = await migration(), calls = deployments.calls;
@@ -366,6 +376,16 @@ describePg("cloud-copy bootstrap", () => {
     expect((await collectionDirectory(db, [collection]))[0]!.state).toBe("standard");
     const stored = await db.query<{ kind: string; wrapped_keys: Buffer }>("SELECT kind, wrapped_keys FROM next_service_devices WHERE collection_id = $1 ORDER BY kind", [collection]);
     expect(stored.rows.map((row) => [row.kind, row.wrapped_keys.toString("base64")])).toEqual([["escrow", escrow.wrapped_keys], ["hosted", hosted.wrapped_keys]]);
+  });
+
+  it("places a new collection by its owner's signup timezone, and sends no placement without one", async () => {
+    const placed = await identity(), unplaced = await identity(), first = randomUUID(), second = randomUUID();
+    await db.query("INSERT INTO account_onboarding(user_id,starter_collection_id,template_version,timezone) VALUES($1,$2,'v1','Australia/Melbourne')", [placed.connector.user_id, randomUUID()]);
+    expect((await create(placed, await proof(placed, first))).statusCode).toBe(200);
+    expect((await create(unplaced, await proof(unplaced, second))).statusCode).toBe(200);
+    expect(log.placements.get(first.replaceAll("-", ""))).toEqual(new Map([[4, "Australia/Melbourne"]]));
+    expect(log.placements.has(second.replaceAll("-", ""))).toBe(true);
+    expect(log.placements.get(second.replaceAll("-", ""))).toBeUndefined();
   });
 
   it("answers a retry from the enrolled device without generating again", async () => {

@@ -42,6 +42,19 @@ export async function legacyMigrationSource(request: LegacyMigrationRequest, col
   return { drain, notificationWatermark: watermark.data };
 }
 
+const placementSchema = z.object({
+  collection_id: migrationUuid, timezone: z.string().max(256), owner_timezones: z.array(z.string().max(256)).max(1000)
+}).strict();
+
+/** The legacy timezones a migrated collection's storage region is chosen from:
+ * its own (`UTC` when unknown) and its owner's other collections', newest first. */
+export async function legacyMigrationPlacement(request: LegacyMigrationRequest, collectionId: string): Promise<{ timezone: string; ownerTimezones: string[] }> {
+  const id = migrationUuid.parse(collectionId);
+  const result = placementSchema.parse(await request("GET", path(id, "/placement"), undefined, response => readBoundedJson(response, 512 * 1024)));
+  if (result.collection_id !== id) throw invalid("Migration placement identity does not match.");
+  return { timezone: result.timezone, ownerTimezones: result.owner_timezones };
+}
+
 /** Deny-first fence; retries reuse the provider's existing migration identity. */
 export async function legacyMigrationFence(request: LegacyMigrationRequest, collectionId: string): Promise<LegacyMigrationFence> {
   const id = migrationUuid.parse(collectionId);
