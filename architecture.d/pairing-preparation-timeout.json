@@ -1,0 +1,9 @@
+{
+  "reason": "Extract the existing app preparation inspection loop into one portal-local lifecycle module so its deadline, cancellation and late-response fencing are independently regression-tested. This replaces the unbounded component loop; it adds no protocol, persistence, authority or alternate retry mechanism.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 1,
+    "typeScriptExportDeclarations": 2,
+    "apps/portal": 1
+  }
+}

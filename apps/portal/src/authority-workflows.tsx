@@ -6,6 +6,7 @@ import {
 } from "./api";
 import { finishDeniedPairing, initialInstallationCollection, installationAccountLabel, installationRefusal, message, NEW_COLLECTION, pairingInspectionPath } from "./portal-model";
 import { Loading, PageBrand } from "./portal-ui";
+import { watchPairingPreparation } from "./pairing-progress";
 import { Checkbox, CheckboxGroup } from "@mdbase-dev/ui/checkbox";
 import { Select } from "@mdbase-dev/ui/select";
 import "@mdbase-dev/ui/screens.css";
@@ -69,6 +70,8 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   const [deepLink, setDeepLink] = useState("");
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
+  const [preparationAttempt, setPreparationAttempt] = useState(0);
+  const [preparationError, setPreparationError] = useState("");
   const [busy, setBusy] = useState(false);
   // The step to repeat after a retryable refusal; cancelled once a refusal no retry can fix.
   const [retry, setRetry] = useState<"select-account" | "approve" | null>(null);
@@ -125,25 +128,16 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   // Read-only portal progress: the SDK owns attestation and approval-receipt
   // polling. Do not make the user manually refresh to discover its device key.
   useEffect(() => {
-    if (!pairing?.installation_device || !pairing.account_selection_confirmed || pairing.attested || pairing.approved_at) return;
-    const current = generation.current;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
-    async function poll() {
-      if (cancelled || current!==generation.current) return;
-      if (dispatching.current) {timer=setTimeout(()=>void poll(),1000);return;}
-      try {
-        const value=await api<{pairing:DevicePairing}>(inspectionPath);
-        if (cancelled || current!==generation.current) return;
-        if (value.pairing.attested || value.pairing.approved_at) {setPairing(value.pairing);return;}
-        timer=setTimeout(()=>void poll(),1000);
-      } catch (reason) {
-        if (!cancelled && current===generation.current) setError(message(reason));
-      }
-    }
-    timer=setTimeout(()=>void poll(),1000);
-    return ()=>{cancelled=true;clearTimeout(timer);};
-  },[pairing,pairingId,inspectionPath]);
+    setPreparationError("");
+    if (!pairing?.installation_device || !pairing.account_selection_confirmed || pairing.attested || pairing.approved_at || signInCancelled) return;
+    return watchPairingPreparation<DevicePairing>({
+      read: async signal => (await api<{pairing:DevicePairing}>(inspectionPath, {signal})).pairing,
+      isDispatching: () => dispatching.current,
+      onReady: setPairing,
+      onError: reason => setPreparationError(message(reason)),
+      onTimeout: () => setPreparationError(`We couldn't prepare ${pairing.connector_name}.`),
+    });
+  },[pairing,pairingId,inspectionPath,preparationAttempt,signInCancelled]);
 
   async function act(action: "approve" | "select-account" | "deny" | "remove-access") {
     if (dispatching.current || !pairing) return;
@@ -330,7 +324,11 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                   </>
                 ) : !pairing.attested ? (
                   <>
-                    <p role="status">Preparing {pairing.connector_name}… This page updates automatically.</p>
+                    {preparationError ? <>
+                      <p role="alert">{preparationError}</p>
+                      <p>Keep {pairing.connector_name} open and check your internet connection. If you use mdbase desktop, make sure it's running and up to date. Then try again.</p>
+                      <button className="mdbase-button is-primary" disabled={busy} onClick={() => setPreparationAttempt(value => value + 1)}>Try again</button>
+                    </> : <p role="status">Preparing {pairing.connector_name}… This page updates automatically.</p>}
                   </>
                 ) : (
                   <>
