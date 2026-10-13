@@ -3,7 +3,7 @@
 The existing dedicated migration-token route
 `GET /internal/v1/next/migration/cohorts/{name}/archive-binding?view=receiving-v1`
 returns complete bounded receiving metadata. Without the query, its original
-four-field archive binding is unchanged. The variant requires configured staging,
+four-field archive binding is unchanged. The variant requires configured LAB or staging,
 a strict query, an empty body and ordinary dedicated-token authentication; all
 responses are `no-store`. It does not accept origin, credential or resource selectors.
 
@@ -25,6 +25,9 @@ with schema `mdbase-migration-receiving/1`:
   nonempty, settled cutover records; otherwise it uses the canonical sorted
   `collection:barrier_f:final_digest\n` digest. An empty SHA-256 is never positive
   receiving evidence. Sequence strings are lossless; numeric write limits remain.
+
+Before acceptance, the separate [capture inventory view](migration-capture.md)
+provides complete metadata without starting accounts or authorizing exports.
 
 One repeatable-read transaction holds the existing batch lock. Other receiving
 queries do not acquire user/hosted row locks afterward, avoiding lock inversion
