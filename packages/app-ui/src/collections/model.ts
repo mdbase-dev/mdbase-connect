@@ -19,6 +19,9 @@ export interface CollectionRow {
   readonly disambiguator: string | null;
   readonly role: CollectionRole;
   readonly roleLabel: string;
+  /** A Private collection: kept on the person's computers and reached through
+   * the relay (the SDK entry's `kind: "private"`), not a hosted one. */
+  readonly private: boolean;
   /** The collection that is open, or opening. */
   readonly current: boolean;
   readonly available: boolean;
@@ -249,6 +252,7 @@ export function collectionRows(
       disambiguator: (counts.get(c.displayName.trim().toLocaleLowerCase()) ?? 0) > 1 ? fill(copy.idHint, { id: c.collectionId.slice(0, 8) }) : null,
       role: c.role,
       roleLabel: roles[c.role],
+      private: (c as { readonly kind?: unknown }).kind === "private",
       current: c.collectionId === currentId,
       available: !unavailable,
       status: availability.state === "opening" ? copy.rowOpening : described?.title ?? null,
