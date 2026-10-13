@@ -113,6 +113,26 @@ describe("popup calls run inside the click", () => {
   });
 });
 
+describe("setup review", () => {
+  it("plans again by itself while setup is busy elsewhere, instead of stopping at Try again", async () => {
+    vi.useFakeTimers();
+    try {
+      const { mdbase, entry } = fakeMdbase({ kind: "needs_setup", collectionId: A, collection: { collectionId: A, displayName: "Alpha", role: "owner" } } as MdbasePhase, { status: "setup_required", selectedCollectionId: A });
+      const plan = { status: "setup", canApply: true, digest: "d", summary: "This app will make 1 change to this collection.", changes: [{ kind: "create", target: "_types/task.md", message: "Add the task type." }],
+        conflicts: [], adoptable: {}, packs: [], staged: [], records: [] };
+      // Another tab is finishing setup: the SDK reports a transient busy first.
+      mdbase.setup.plan.mockRejectedValueOnce(Object.assign(new Error("busy"), { code: "unavailable", reason: "configuration_busy" })).mockResolvedValue(plan as never);
+      render(<CollectionGate mdbase={entry} app={app}>{() => null}</CollectionGate>);
+      await act(async () => { await Promise.resolve(); });
+      expect(() => button("Try again")).toThrow();
+      await act(async () => { await vi.advanceTimersByTimeAsync(600); });
+      expect(mdbase.setup.plan).toHaveBeenCalledTimes(2);
+      expect(container.textContent).toContain("Add the task type.");
+      expect(() => button("Try again")).toThrow();
+    } finally { vi.useRealTimers(); }
+  });
+});
+
 describe("blocked screen", () => {
   it("shows the problem with its fix inside, collections never as actions, and navigation in the footer", () => {
     const { mdbase, entry } = fakeMdbase({
