@@ -2960,6 +2960,8 @@ describe("mdbase connect server", () => {
       payload: { operations: [...READ_OPERATIONS, "create", "sync"] }
     });
     expect(broadened.statusCode).toBe(400);
+    await db.query(`UPDATE grants SET reauthorization_required_at=now(),
+      reauthorization_reason='application_manifest_change' WHERE id=$1`, [grantId]);
     revokeReplica.mockRejectedValueOnce(new Error("provider unavailable"));
     const pendingRevocation = await app.inject({
       method: "POST",
@@ -2986,7 +2988,10 @@ describe("mdbase connect server", () => {
       headers: { cookie }
     });
     expect(pendingOverview.json().grants).toContainEqual(
-      expect.objectContaining({ id: grantId, revocation_status: "revoking" })
+      expect.objectContaining({
+        id: grantId, revocation_status: "revoking",
+        reauthorization_required_at: null, reauthorization_reason: null
+      })
     );
     await db.query(
       "UPDATE provider_revocation_jobs SET available_at = now() - interval '1 second'"
