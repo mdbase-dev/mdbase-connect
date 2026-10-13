@@ -162,7 +162,7 @@ test.describe("responsive themed view readiness", () => {
         await expect(page.getByRole("complementary", { name: "Note properties" })).toBeVisible();
         await expect(page.getByRole("dialog", { name: "Note properties" })).toHaveCount(0);
       }
-      await expect(page.getByRole("tab", { name: "Fields", exact: true })).toBeVisible();
+      await expect(page.getByRole("tab", { name: "Properties", exact: true })).toBeVisible();
       await checkView("Properties");
 
       await openDemoForLayout(page);

@@ -103,7 +103,7 @@ export interface MutationOperationOptions {
 export type TitleSource =
   | { kind: "frontmatter"; field: string }
   | { kind: "heading" }
-  /** No title in the record: the filename stands in until the person changes it. */
+  /** No declared title: a filename or readable body line stands in until retitled. */
   | { kind: "path"; title: string };
 
 export interface EditableNote {

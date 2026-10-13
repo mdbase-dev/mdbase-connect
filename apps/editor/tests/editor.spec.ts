@@ -1083,7 +1083,7 @@ test("edits complete type membership, choices, and multiple required fields", as
   await page.getByRole("button", { name: "Types (1)" }).click();
   await expect(page.getByRole("heading", { name: "Type membership" })).toBeVisible();
   await page.getByRole("heading", { name: "Type membership" }).click();
-  await expect(page.getByText("Explicit assignment", { exact: true })).toBeVisible();
+  await expect(page.getByText("Assigned by name", { exact: true })).toBeVisible();
   await expect(page.getByText("Automatic matching", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Add path pattern" }).click();
@@ -1220,8 +1220,8 @@ test("builds and saves a recursive list-of-objects field", async ({ page }) => {
   const fieldName = page.locator(".visual-field-name input").last();
   await fieldName.fill("contacts");
   await fieldName.press("Tab");
-  await chooseOption(page.getByRole("combobox", { name: "contacts field kind" }), "array");
-  await chooseOption(page.getByRole("combobox", { name: "contacts[] kind" }), "object");
+  await chooseOption(page.getByRole("combobox", { name: "contacts field type" }), "array");
+  await chooseOption(page.getByRole("combobox", { name: "contacts[] field type" }), "object");
   await page.getByRole("button", { name: "Add nested field" }).last().click();
 
   const nestedName = page.locator(".visual-field-name input").last();
@@ -1460,7 +1460,7 @@ test("adds schema properties and edits the complete Markdown record", async ({ p
   await panel.getByRole("button", { name: "Add property" }).click();
   await panel.getByRole("searchbox", { name: "Find a property" }).fill("title");
   await panel.locator(".property-options button").filter({ hasText: "title" }).click();
-  await expect(panel.getByLabel("title property kind")).toHaveCount(0);
+  await expect(panel.getByLabel("title property type")).toHaveCount(0);
   await panel.getByRole("textbox", { name: "title value" }).fill("Source-backed title");
   const propertySaveState = panel.locator(".property-save-state");
   await expect(propertySaveState).toBeEmpty();

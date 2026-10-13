@@ -39,13 +39,13 @@ export function editableNote(
     return { title: heading[1].trim(), body: content, source: { kind: "heading" } };
   }
 
-  const title = basename(note.path);
+  const title = unnamedRecordTitle(note.path, body);
   return { title, body, source: { kind: "path", title } };
 }
 
 export function persistedBody(title: string, body: string, source: TitleSource): string {
   if (source.kind === "frontmatter") return body;
-  // A filename stand-in is never written into another app's record unless the person retitles it.
+  // A display stand-in is never written into another app's record unless the person retitles it.
   if (source.kind === "path" && title.trim() === source.title) return body;
   const cleanTitle = title.trim() || "Untitled";
   const cleanBody = body.replace(/^\s*\n/, "");
@@ -67,7 +67,7 @@ export function noteTitle(
   if (typeof value === "string" && value.trim()) return value.trim();
   const heading = markdownHeading(note.body ?? "");
   if (heading) return heading;
-  return basename(note.path);
+  return field ? basename(note.path) : unnamedRecordTitle(note.path, note.body ?? "");
 }
 
 const excerptCache = new WeakMap<NoteSummary, { typeKey: CollectionTypeDescriptor[]; value: string }>();
@@ -90,7 +90,7 @@ function markdownExcerpt(body: string, title = "", maximumLength = 160): string 
 }
 
 /** Readable prose for excerpts/snippets, without Markdown presentation syntax. */
-export function markdownPlainText(body: string, title = "", maximumLength = Number.POSITIVE_INFINITY): string {
+export function markdownPlainText(body: string, title = "", maximumLength = Number.POSITIVE_INFINITY, maximumLines = Number.POSITIVE_INFINITY): string {
   const lines: string[] = [];
   let length = 0;
   let fenced = false;
@@ -113,7 +113,7 @@ export function markdownPlainText(body: string, title = "", maximumLength = Numb
     if (!lines.length && title && line.toLocaleLowerCase() === title.toLocaleLowerCase()) continue;
     lines.push(line);
     length += line.length + 1;
-    if (length >= maximumLength) break;
+    if (length >= maximumLength || lines.length >= maximumLines) break;
   }
   const text = lines.join(" ");
   return text.length > maximumLength ? `${text.slice(0, maximumLength).replace(/\s+\S*$/, "")}…` : text;
@@ -141,6 +141,14 @@ export function folder(path: string): string {
 
 export function basename(path: string): string {
   return path.split("/").at(-1)?.replace(/\.[^.]+$/, "") || "Untitled";
+}
+
+/** Generated UUID filenames aren't useful names. A readable body line is only
+ * a display stand-in: TitleSource keeps body-only edits from persisting it. */
+function unnamedRecordTitle(path: string, body: string): string {
+  const filename = basename(path);
+  const opaque = /^(?:[a-z][a-z\d]*[_-])?[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(filename);
+  return opaque ? markdownPlainText(body, "", 80, 1) || filename : filename;
 }
 
 function markdownHeading(body: string): string | undefined {
@@ -191,10 +199,6 @@ export function folderTree(notes: NoteSummary[], additionalPaths: readonly strin
       }));
 
   return freeze(roots);
-}
-
-export function folders(notes: NoteSummary[]): Array<{ name: string; count: number }> {
-  return folderTree(notes).map(({ name, count }) => ({ name, count }));
 }
 
 export function noteTags(note: NoteSummary): string[] {

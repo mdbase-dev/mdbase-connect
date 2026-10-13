@@ -140,16 +140,33 @@
   font-size: var(--font-size-ui);
 }
 
-.type-inspector-bar > span:not(.mdbase-save-notice) {
+.type-file-details {
   min-width: 0;
   flex: 1;
+  padding-block: var(--space-2);
+}
+
+.type-file-details > summary {
+  cursor: pointer;
+}
+
+.type-file-details > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.type-file-details .path-label {
+  display: block;
+  margin-top: var(--space-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: var(--mono);
+  font-size: var(--font-size-caption);
 }
 
-.type-inspector-bar > .path-label {
-  font-family: var(--mono);
+.type-file-details p {
+  margin-block: var(--space-1) 0;
   font-size: var(--font-size-caption);
 }
 

@@ -150,9 +150,11 @@ between note actions, document views (outline and Linked from), insertion
 (Attach file), and help (shortcuts and Check note). Mobile puts New note and
 Quick open first; there is only one Rename path and one Attach file action.
 Menus scroll when viewport space is limited, and keyboard focus stays visible.
-Frontmatter opens as typed rows first, with JSON available as an
-escape hatch for nested or unfamiliar values. The inspector offers quiet Fields
-and JSON tabs; complete Markdown source lives behind the property options menu,
+Frontmatter opens as typed rows first, with underlying values available as an
+escape hatch for nested or unfamiliar values. The inspector offers quiet Properties
+and Advanced tabs. On typed notes, properties not described by the type sit under
+Additional properties; they remain editable and are not assumed to be system fields.
+Complete Markdown source lives behind the property options menu,
 not a third primary tab. Sizes and dates use the UI family at the normal chrome
 size. An empty inspector explains what properties are useful for, with a direct
 Add property action.
@@ -191,9 +193,8 @@ reminders and decorative folder-name placeholders are omitted.
 Type editing uses the same quiet document grammar. Field names are inline
 editable in the UI family, with compact kind selects, labelled shared Required
 checkboxes, and removal in each row's options menu. Row details and YAML remain
-available without surrounding every field name in a permanent input box. The
-path takes the flexible space in the type bar; its save notice stays at the
-trailing edge, never stretched into the centre. The redundant Type definition
+available without surrounding every field name in a permanent input box. The type bar keeps its path and version behind Details; its save notice stays at
+the trailing edge, never stretched into the centre. The redundant Type definition
 eyebrow and table-like column headers are omitted. Application compatibility
 appears as a disclosure within the type, not as a separate dashboard. Each
 contract implementation keeps its direct field mapping, JSON Schema-driven

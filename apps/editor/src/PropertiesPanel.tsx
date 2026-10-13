@@ -245,8 +245,8 @@ export function PropertiesPanel({
         setMode(next);
         document.getElementById(`properties-${next}-tab`)?.focus();
       }}>
-        <button id="properties-fields-tab" role="tab" aria-controls={mode === "fields" ? "properties-fields-panel" : undefined} aria-selected={mode === "fields"} tabIndex={mode !== "json" ? 0 : -1} onClick={() => setMode("fields")}>Fields</button>
-        <button id="properties-json-tab" role="tab" aria-controls={mode === "json" ? "properties-json-panel" : undefined} aria-selected={mode === "json"} tabIndex={mode === "json" ? 0 : -1} onClick={() => setMode("json")}>JSON</button>
+        <button id="properties-fields-tab" role="tab" aria-controls={mode === "fields" ? "properties-fields-panel" : undefined} aria-selected={mode === "fields"} tabIndex={mode !== "json" ? 0 : -1} onClick={() => setMode("fields")}>Properties</button>
+        <button id="properties-json-tab" role="tab" aria-controls={mode === "json" ? "properties-json-panel" : undefined} aria-selected={mode === "json"} tabIndex={mode === "json" ? 0 : -1} onClick={() => setMode("json")}>Advanced</button>
       </div>
       <ActionMenu label="Property options" items={[
         { label: mode === "source" ? "Back to fields" : "Edit as source", icon: <FileCode2 aria-hidden="true" />, onSelect: () => setMode(mode === "source" ? "fields" : "source") }
@@ -255,6 +255,7 @@ export function PropertiesPanel({
 
     {mode === "fields" ? <fieldset disabled={readOnly} id="properties-fields-panel" className="property-fields" role="tabpanel" aria-labelledby="properties-fields-tab">
       <StructuredPropertiesEditor readOnly={readOnly}
+        groupUndeclared={note.types.length > 0}
         value={draft}
         contract={contract}
         effectiveValues={note.effectiveFrontmatter}
@@ -264,7 +265,7 @@ export function PropertiesPanel({
         emptyMessage="Add a property to keep details like tags, dates, or a status with this note."
       />
     </fieldset> : mode === "json" ? <div id="properties-json-panel" className="raw-properties" role="tabpanel" aria-labelledby="properties-json-tab">
-      <p className="raw-properties-note">Frontmatter only, without the note body.</p>
+      <p className="raw-properties-note">Edit the underlying property values. Other apps use these values too.</p>
       <CodeEditor value={raw} onChange={updateRaw} label="Raw frontmatter JSON" language="json" lineWrapping={false} readOnly={readOnly} />
       {rawError && <p className="property-error" role="alert">{rawError}</p>}
     </div> : <div id="properties-source-panel" className="record-source" role="region" aria-label="Record source">

@@ -265,7 +265,11 @@ export function TypeInspector({ readOnly = false, type, availableTypes = [], con
     <header className="type-inspector-bar mdbase-settle-host">
       <button className="mobile-back icon-button" aria-label="Back to types" onClick={onBack}><ArrowLeft aria-hidden="true" /></button>
       {leadingActions}
-      <PathLabel path={path} />
+      <details className="type-file-details">
+        <summary>Details</summary>
+        <PathLabel path={path} />
+        {!creating && <p>{typeHeadingFacts(type!, contractState.implementations.length)}</p>}
+      </details>
       {(error || slowSave) && <SaveNotice tone={error ? "attention" : "saving"} label={error ? "Needs attention" : "Saving…"} />}
     </header>
     <section className="type-heading">
@@ -274,7 +278,7 @@ export function TypeInspector({ readOnly = false, type, availableTypes = [], con
         <h1>{name}</h1>
       </div>
       {creating ? <p>Give the type a name, then add the fields its notes need.</p> : type!.description && <p>{type!.description}</p>}
-      {!creating && <p className="type-heading-facts">{typeHeadingFacts(type!, contractState.implementations.length)}</p>}
+      {!creating && <p className="type-heading-facts">{countSummary(propertyCount(type!), "field")}</p>}
     </section>
     <section className="type-source">
       {reviewing ? <div className="type-source-context reviewing">
@@ -372,13 +376,13 @@ function VisualTypeEditor({ definition, source, impact, typeNames, contracts, ty
     </section>
     <TypeEditorDisclosure
       className="type-match-section"
-      title="Type membership"
+      title="Which notes use this type"
       description="How notes are assigned to this type."
       summary={typeMembershipSummary(definition)}
     >
       <div className="type-membership-method type-explicit-membership">
         <div>
-          <strong>Explicit assignment</strong>
+          <strong>Assigned by name</strong>
           {explicitTypeKeys.length
             ? <p>Notes can name <code>{definition.name}</code> through {explicitTypeKeys.map((key, index) => <span key={key}>{index ? ", " : ""}<code>{key}</code></span>)}. When any configured key is present, automatic rules are skipped.</p>
             : <p>This collection has explicit type assignment disabled. Every note is classified by automatic rules.</p>}
@@ -1232,7 +1236,7 @@ function typeMembershipSummary(definition: VisualTypeDefinition): string {
     countSummary(definition.fieldsPresent.length, "field selector"),
     countSummary(definition.advancedMatchKeys.length, "YAML rule")
   ].filter((value): value is string => Boolean(value));
-  return rules.length ? rules.join(" · ") : "Explicit declarations only";
+  return rules.length ? rules.join(" · ") : "No automatic matching rules";
 }
 
 function membershipFieldSuggestions(
@@ -1650,7 +1654,7 @@ function VisualFieldRow({ field, source, depth, typeKey = false, activeField, on
         {expanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
       </button>
       <label className={`visual-field-name${typeKey ? " type-key" : ""}`}><span className="sr-only">Field name</span><input aria-label={`${fieldLabel} field name`} type="text" defaultValue={field.name} readOnly={typeKey} aria-describedby={typeKey ? `type-key-note-${fieldLabel}` : undefined} onBlur={(event) => { if (!typeKey) onChange((current) => renameTypeField(current, field.path, event.target.value)); }} spellCheck="false" />{typeKey && <small id={`type-key-note-${fieldLabel}`} title="Notes use this field to declare their type. Edit it in YAML if you need to change it.">Type key</small>}</label>
-      <label className="visual-field-kind"><span className="sr-only">{fieldLabel} field kind</span><Select aria-label={`${fieldLabel} field kind`} value={field.kind} disabled={typeKey} options={kindOptions(field.kind)} onChange={chooseKind} /></label>
+      <label className="visual-field-kind"><span className="sr-only">{fieldLabel} field type</span><Select aria-label={`${fieldLabel} field type`} value={field.kind} disabled={typeKey} options={kindOptions(field.kind)} onChange={chooseKind} /></label>
       <label className="visual-field-required"><input className="mdbase-checkbox" type="checkbox" checked={field.required} onChange={(event) => onChange((current) => setTypeFieldRequired(current, field.path, event.target.checked))} /><span>Required</span></label>
       <div className="type-field-actions">{!typeKey && <ActionMenu label={`${fieldLabel} field options`} items={[
         { label: `Remove ${fieldLabel} field`, icon: <Trash2 aria-hidden="true" />, tone: "danger", onSelect: () => onChange((current) => removeTypeField(current, field.path)) }
@@ -1712,7 +1716,7 @@ function ListItemEditor({ item, source, depth, activeField, onActivate, onChange
   return <div className="list-item-editor">
     <div className="list-item-heading">
       <div><strong>List items</strong><span>{itemLabel}</span></div>
-      <label><span className="sr-only">{itemLabel} kind</span><Select aria-label={`${itemLabel} kind`} value={item.kind} options={kindOptions(item.kind)} onChange={(kind) => {
+      <label><span className="sr-only">{itemLabel} field type</span><Select aria-label={`${itemLabel} field type`} value={item.kind} options={kindOptions(item.kind)} onChange={(kind) => {
         if (kind === "advanced" || kind === item.kind) return;
         const nextKind = kind as Exclude<TypeFieldKind, "advanced">;
         if (typeFieldConversionImpact(source, item.path, nextKind).length) setPendingKind(nextKind);
