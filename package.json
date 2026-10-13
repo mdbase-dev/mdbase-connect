@@ -76,6 +76,7 @@
     "test:stress-regressions": "pnpm stress:prepare && node scripts/stress/replay-regressions.mjs",
     "pretest": "pnpm build:packages",
     "test": "node --test scripts/deploy-editor-dev.test.mjs scripts/deploy-lab-local.test.mjs scripts/lib/*.test.mjs && pnpm --filter @mdbase/connect-desktop test && pnpm --filter '!@mdbase/connect-desktop' -r test",
+    "test:release-trust": "pnpm --filter @mdbase-dev/connect-protocol build && node --test scripts/lib/release-trust-*.test.mjs",
     "test:fast": "pnpm test && node test/rust/run.mjs",
     "test:integration": "pnpm test:browser-storage && pnpm test:accessibility",
     "test:system": "node test/system/run.mjs",
