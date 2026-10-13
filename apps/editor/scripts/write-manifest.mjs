@@ -48,9 +48,11 @@ await writeFile(target, `${JSON.stringify({
         "definitions.manage"
       ]
     },
+    // Next accounts approve each record capability together with its file
+    // actions, so each optional record capability declares its pair.
     files: {
       required: ["list", "read"],
-      optional: ["add"],
+      optional: ["add", "replace", "move", "delete"],
       scope: { kind: "collection" }
     },
     access: "full_collection"
