@@ -105,6 +105,20 @@ describe("NextEditorRecords (SDK stand-in, not LAB)", () => {
     expect(restored.frontmatter).toEqual(created.frontmatter);
   });
 
+  it("a create retried with the same ID after a lost reply lands once", async () => {
+    const f = await fixture();
+    const original = f.client.create.bind(f.client);
+    vi.spyOn(f.client, "create").mockImplementationOnce(async (input, options) => {
+      await original(input, options);
+      throw new Error("Reply lost");
+    });
+    const input = { id: crypto.randomUUID(), title: "Once", body: "", path: "notes/once.md", properties: {} };
+    await expect(f.adapter.create(input)).rejects.toThrow("Reply lost");
+    const created = await f.adapter.create(input);
+    expect(created.path).toBe("notes/once.md");
+    expect((await f.client.query({})).records.filter(r => r.path.startsWith("notes/once")).map(r => r.id)).toEqual([input.id]);
+  });
+
   it("retains outcome-unknown for exact receipt recovery without a new update", async () => {
     const f = await fixture();
     const base = await f.adapter.read(f.record.path);

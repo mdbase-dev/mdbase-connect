@@ -40,12 +40,12 @@ export class NextEditorRecords {
   }
 
   create(input: CreateNoteInput, signal?: AbortSignal): Promise<NoteDocument> {
-    const id = crypto.randomUUID();
+    const id = input.id ?? crypto.randomUUID();
     return this.write("create", id, current => this.client.create({
       id, path: input.path, ...(input.type ? { type: input.type } : {}),
       frontmatter: input.properties as Record<string, PlainValue>,
       body: input.titleField ? input.body : persistedBody(input.title, input.body, { kind: "heading" }),
-    }, current), signal) as Promise<NoteDocument>;
+    }, current), signal, input.id) as Promise<NoteDocument>;
   }
 
   restore(document: NoteDocument, signal?: AbortSignal): Promise<NoteDocument> {
@@ -127,22 +127,27 @@ export class NextEditorRecords {
     return record;
   }
 
+  /** With `intent`, the SDK derives the mutation ID from it, so a retried
+   * action resubmits the same mutation; it is learned from the write or error. */
   private async write(operation: NextEditorPendingMutation["operation"], recordId: string,
-    submit: (options: { mutationId: string; signal: AbortSignal }) => Promise<Write>, signal?: AbortSignal): Promise<NoteDocument | undefined> {
+    submit: (options: { mutationId?: string; intent?: string; signal: AbortSignal }) => Promise<Write>, signal?: AbortSignal,
+    intent?: string): Promise<NoteDocument | undefined> {
     const current = this.signal(signal);
     if (this.unknown.size) throw new Error("Check your unconfirmed change before making another one. Nothing new was saved.");
     if (this.writing) throw new Error("Your previous change is still being saved. Try again in a moment.");
-    const mutation = { mutationId: crypto.randomUUID(), operation, recordId, createdAt: new Date().toISOString() };
+    const mutation = { mutationId: intent === undefined ? crypto.randomUUID() : "", operation, recordId, createdAt: new Date().toISOString() };
     this.writing = true;
     try {
       try {
-        const write = await submit({ mutationId: mutation.mutationId, signal: current });
+        const write = await submit(intent === undefined ? { mutationId: mutation.mutationId, signal: current } : { intent, signal: current });
+        if (intent !== undefined) mutation.mutationId = write.mutationId;
         this.check(current);
         if (write.mutationId !== mutation.mutationId) throw new Error("The native write changed its mutation identity.");
       } catch (error) {
+        if (!mutation.mutationId && error instanceof MdbaseError && error.mutationId) mutation.mutationId = error.mutationId;
         // An error code alone does not prove non-capture: only the exact receipt
         // settles it. No receipt for this ID means nothing was written.
-        if (!await this.captured(mutation.mutationId)) throw error;
+        if (!mutation.mutationId || !await this.captured(mutation.mutationId)) throw error;
       }
       try { return await this.confirm(mutation, current); }
       catch (error) {

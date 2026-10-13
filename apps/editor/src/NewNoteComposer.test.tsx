@@ -42,6 +42,7 @@ describe("new note schema fields", () => {
 
     await waitFor(() => expect(onCreate).toHaveBeenCalledOnce());
     expect(onCreate).toHaveBeenCalledWith({
+      id: expect.any(String),
       title: "Planning session",
       body: "Decide what ships next.",
       path: "Events/Planning session.md",
@@ -73,6 +74,7 @@ describe("new note schema fields", () => {
 
     await waitFor(() => expect(onCreate).toHaveBeenCalledOnce());
     expect(onCreate).toHaveBeenCalledWith({
+      id: expect.any(String),
       title: "Reading list",
       body: "",
       path: "Research/Ideas/Reading list.md",
@@ -99,6 +101,7 @@ describe("new note schema fields", () => {
 
     await waitFor(() => expect(onCreate).toHaveBeenCalledOnce());
     expect(onCreate).toHaveBeenCalledWith({
+      id: expect.any(String),
       title: "Ada Lovelace",
       body: "Met at the analytical engine meetup.",
       path: "People/Ada Lovelace.md",
@@ -199,6 +202,7 @@ describe("new note schema fields", () => {
 
     await waitFor(() => expect(onCreate).toHaveBeenCalledOnce());
     expect(onCreate).toHaveBeenCalledWith({
+      id: expect.any(String),
       title: "The document heading",
       body: "",
       path: "The document heading.md",
@@ -226,6 +230,7 @@ describe("new note schema fields", () => {
 
     await waitFor(() => expect(onCreate).toHaveBeenCalledOnce());
     expect(onCreate).toHaveBeenCalledWith({
+      id: expect.any(String),
       title: "Ada Lovelace",
       body: "",
       path: "People/Ada Lovelace.md",

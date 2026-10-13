@@ -72,6 +72,9 @@ export type CollectionAuthorizationTarget =
   | { collectionId: string };
 
 export interface CreateNoteInput {
+  /** Client-generated record ID (a UUID) for this one creation. Reuse it when the
+   * same creation is retried: it names the write's intent, so it lands once. */
+  id?: string;
   title: string;
   body: string;
   path: string;
