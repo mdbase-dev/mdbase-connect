@@ -57,6 +57,70 @@ describe("ConnectApp", () => {
     expect(screen.getByLabelText("New password")).toHaveValue("");
   });
 
+  it("filters registered computers without revoking them and distinguishes duplicate names", async () => {
+    const now = new Date().toISOString();
+    overview.connectors = [
+      { ...overview.connectors[0], name: "Desk" },
+      { id: "offline-11111111", name: "Desk", created_at: "2026-01-01T12:00:00Z", last_seen_at: new Date(Date.now() - 120_000).toISOString() },
+      { id: "pending-22222222", name: "Never connected", created_at: now, last_seen_at: null },
+      { id: "upgrade-33333333", name: "Old computer", created_at: now, last_seen_at: now, compatibility: "upgrade_required" }
+    ];
+    const user = userEvent.setup();
+    const { container } = render(<ConnectApp />);
+    await user.click(await screen.findByRole("link", { name: "Computers" }));
+    const rows = () => [...container.querySelectorAll(".connect-main .connect-row")];
+    expect(screen.getByRole("heading", { name: "Registered computers" })).toBeInTheDocument();
+    expect(rows()).toHaveLength(4);
+    expect(screen.getByText(/ID 11111111/)).toBeInTheDocument();
+    expect(screen.getByText(/ID computer/)).toBeInTheDocument();
+    const search = screen.getByRole("searchbox", { name: "Find a computer" });
+    await user.type(search, "dEsK");
+    expect(rows()).toHaveLength(2);
+    await user.clear(search);
+    await user.type(search, "11111111");
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]).toHaveTextContent("ID 11111111");
+    await chooseOption(user, screen.getByRole("combobox", { name: "Computer status" }), "Online");
+    expect(screen.getByText("No computers match")).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Computer filter results" })).toHaveTextContent("Showing 0 of 4 registered computers.");
+    await user.clear(search);
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]).toHaveTextContent("ID computer");
+    await chooseOption(user, screen.getByRole("combobox", { name: "Computer status" }), "Offline");
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]).toHaveTextContent("ID 11111111");
+    await chooseOption(user, screen.getByRole("combobox", { name: "Computer status" }), "Not connected yet");
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]).toHaveTextContent("ID 22222222");
+    await chooseOption(user, screen.getByRole("combobox", { name: "Computer status" }), "Update required");
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]).toHaveTextContent("ID 33333333");
+    expect(vi.mocked(fetch).mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+  });
+
+  it("labels duplicate browser sessions and signs out only the explicitly chosen session", async () => {
+    const sessions = ["current-11111111", "other-22222222"].map((id, index) => ({
+      id, client_name: "Chrome on Linux", provider: "password", created_at: `2026-01-0${index + 1}T12:00:00Z`,
+      last_seen_at: new Date().toISOString(), expires_at: "2027-01-01T12:00:00Z", current: index === 0
+    }));
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/v1/account/sessions") return Response.json({ sessions });
+      if (path === "/v1/account") return Response.json(accountFixture());
+      if (init?.method === "DELETE") return Response.json({ ok: true });
+      return Response.json(overview);
+    });
+    const user = userEvent.setup();
+    const { container } = render(<ConnectApp />);
+    await user.click(await screen.findByRole("link", { name: "Open account and sessions" }));
+    expect(await screen.findByText(/ID 22222222/)).toBeInTheDocument();
+    expect(screen.getByText(/ID 11111111/)).toBeInTheDocument();
+    expect([...container.querySelectorAll("time")].map(time => time.dateTime)).toEqual(sessions.map(session => session.created_at));
+    expect(screen.getAllByRole("button", { name: /^Sign out$/ })).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: /^Sign out$/ }));
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "DELETE").map(([input]) => new URL(String(input)).pathname)).toEqual(["/v1/account/sessions/other-22222222"]));
+  });
+
   it("opens account management without requesting a collection grant", async () => {
     const user = userEvent.setup();
     render(<ConnectApp />);
@@ -179,8 +243,8 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
 
     await user.click(await screen.findByRole("link", { name: "Computers" }));
-    expect(screen.getByText("Online")).toBeInTheDocument();
-    expect(screen.queryByText("Update required")).not.toBeInTheDocument();
+    expect(screen.getByText("Online", { selector: ".connect-status" })).toBeInTheDocument();
+    expect(screen.queryByText("Update required", { selector: ".connect-status" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", {
       name: "Update recommended for current policy protection"
     })).toHaveAttribute("href", "https://example.test/connect-update");
