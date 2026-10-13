@@ -1,4 +1,4 @@
-# Authenticated NEXT trust release extension (LAB)
+# Authenticated NEXT trust release extension
 
 An image release stays immutable. `release-trust-bundle.json` is a **supplemental
 signed inventory**, not a replacement image manifest or a new signing anchor.
@@ -8,7 +8,12 @@ environment, CP/log origins and the original release repository/commit/version.
 The separately recorded `publication.publisherCommit` identifies the reviewed
 main-branch producer, which may be newer than the original image release.
 
-## Protected publication
+The shared inventory validator/schema and reference consumer support LAB and
+staging as separate exact environment/path pairs. Production inventory is still
+refused. This is verification support, not staging signing authority or a staged
+candidate; the fixed publisher below remains LAB-only.
+
+## Protected publication (LAB only)
 
 After owner/security review, ordinary merge queue and successful full Server CI,
 dispatch **the existing `publish-images.yml` on `main`** with:
@@ -56,7 +61,11 @@ supplemental signature and calls the existing image-bundle verifier unchanged
 It checks exact copied image bytes, independently supplied LAB origins and release
 source, the producer's own qualified main commit/tree/input fingerprints, and uses
 `verify-release-trust-asset.mts` from that exact clean qualified checkout for the
-reference payload/certificate validation.
+reference payload/certificate validation. The same reference consumer also
+accepts independently supplied staging context and `next-trust/staging.json`
+through the private staging verifier. A LAB asset/context cannot be substituted
+for staging; mixed environment assets and paths are refused. The qualified
+publisher checkout used by ops must contain this staging consumer support.
 
 Daemon release packaging embeds **those verified bytes** and records original image
 and supplemental trust publication IDs/attempts plus asset SHA-256. It must not
@@ -64,6 +73,13 @@ substitute a runtime override, self-derived digest, server response, unsigned LA
 file or arbitrary Cosign identity. Engineering explicit-root tests are not ordinary
 acceptance. Staging/production publication is deliberately disabled until their
 public pins, authority and review gates exist; there is no unsigned exception.
+
+Run the bounded offline inventory/reference CLI suite with
+`pnpm test:release-trust`. These tests use public synthetic context only and do
+not authenticate a release or qualify staging. Before enabling any protected
+staging publisher, obtain independently reviewed staging pins, canonical asset,
+origins and full publisher qualification; there is no dispatch override to
+relocate or relabel the fixed LAB asset.
 
 See [payload contract](next-trust-payload.md) and
 [inventory schema](../config/release-trust-bundle.schema.json).

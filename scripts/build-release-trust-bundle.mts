@@ -13,6 +13,7 @@ const info = await lstat(file);
 if (!info.isFile() || info.isSymbolicLink() || info.size > 65536) throw new Error('Invalid fixed LAB asset');
 const bytes = await readFile(file);
 const asset = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+if (asset.environment !== 'lab') throw new Error('Only the approved LAB publisher is enabled');
 if (!Buffer.from(encodeNextTrustPayload(asset)).equals(bytes)) throw new Error('Noncanonical LAB asset');
 const imageBundleBytes = await readFile(input);
 if (imageBundleBytes.length > 65536) throw new Error('Image bundle size');

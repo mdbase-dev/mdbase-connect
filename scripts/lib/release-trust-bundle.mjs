@@ -9,6 +9,7 @@ const commit = s => typeof s === 'string' && /^[0-9a-f]{40}$/.test(s);
 const digest = s => typeof s === 'string' && /^[0-9a-f]{64}$/.test(s);
 const origin = s => { try { const u = new URL(s); return u.protocol === 'https:' && u.origin === s && !u.username && !u.password; } catch { return false; } };
 function need(ok, message) { if (!ok) throw new Error(message); }
+const environment = s => s === 'lab' || s === 'staging';
 
 /** Caller authenticates the original image bundle BEFORE invoking this builder. */
 export function buildTrustBundle({ imageBundleBytes, assetBytes, publication, qualification }) {
@@ -18,7 +19,7 @@ export function buildTrustBundle({ imageBundleBytes, assetBytes, publication, qu
   need(release.publication.workflow === 'publish-images.yml' && positive(release.publication.runId) && positive(release.publication.runAttempt), 'image publication');
   // Crypto/canonical payload validation belongs to the reference encoder, invoked
   // by the fixed publisher CLI. Never treat the calculated hash as authentication.
-  need(asset.environment === 'lab', 'only the approved LAB publisher is enabled');
+  need(environment(asset.environment), 'only LAB or staging trust inventory is supported');
   need(assetBytes.length > 0 && assetBytes.length <= 65536, 'asset size');
   need(origin(asset.control_plane_origin) && origin(asset.log_origin), 'asset origins');
   need(exact(asset.source, ['repository', 'commit', 'version']) && asset.source.repository === release.repository && asset.source.commit === release.commit && asset.source.version === release.version, 'asset release binding');
@@ -28,7 +29,7 @@ export function buildTrustBundle({ imageBundleBytes, assetBytes, publication, qu
     imageBundle: { path: 'image-release-bundle.json', length: imageBundleBytes.length, sha256: sha(imageBundleBytes),
       publicationRunId: release.publication.runId, publicationRunAttempt: release.publication.runAttempt },
     publication, qualification,
-    trustAssets: [{ path: 'next-trust/lab.json', length: assetBytes.length, sha256: sha(assetBytes),
+    trustAssets: [{ path: `next-trust/${asset.environment}.json`, length: assetBytes.length, sha256: sha(assetBytes),
       environment: asset.environment, controlPlaneOrigin: asset.control_plane_origin, logOrigin: asset.log_origin, source: asset.source }],
   };
   validateTrustBundle(manifest);
@@ -44,6 +45,6 @@ export function validateTrustBundle(m) {
   need(exact(m.qualification, ['workflow','runId','runAttempt']) && m.qualification.workflow === 'server-ci.yml' && positive(m.qualification.runId) && positive(m.qualification.runAttempt), 'publisher qualification');
   need(Array.isArray(m.trustAssets) && m.trustAssets.length === 1, 'exact approved asset set');
   const a = m.trustAssets[0];
-  need(exact(a, ['path','length','sha256','environment','controlPlaneOrigin','logOrigin','source']) && a.path === 'next-trust/lab.json' && a.environment === 'lab' && positive(a.length) && a.length <= 65536 && digest(a.sha256) && origin(a.controlPlaneOrigin) && origin(a.logOrigin), 'asset binding');
+  need(exact(a, ['path','length','sha256','environment','controlPlaneOrigin','logOrigin','source']) && environment(a.environment) && a.path === `next-trust/${a.environment}.json` && positive(a.length) && a.length <= 65536 && digest(a.sha256) && origin(a.controlPlaneOrigin) && origin(a.logOrigin), 'asset binding');
   need(exact(a.source, ['repository','commit','version']) && a.source.repository === m.repository && a.source.commit === m.commit && a.source.version === m.version, 'asset source');
 }
