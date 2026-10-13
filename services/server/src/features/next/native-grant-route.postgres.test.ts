@@ -11,6 +11,8 @@ import { grantApprovalTerms } from "./grant-approval.js";
 import { nativeAdmission } from "./native-grant-target.js";
 import { queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
 import { registerNextRouteRoutes } from "./route-routes.js";
+import { buildPolicySnapshot, type LeasePolicySnapshot } from "../../relay-policy.js";
+import { registerConnectorGrantRoutes } from "../grants/connector-routes.js";
 import { registerPeopleRoutes } from "../account/people-routes.js";
 import { legacyTimerGrantResolver } from "./timers/grants.js";
 import { createHostedCollectionMembership } from "../../collection-policy.js";
@@ -45,6 +47,7 @@ describePostgres("Private native collection grants", () => {
     url.searchParams.set("options", `-csearch_path=${schema}`);
     db = await createDatabase(url.toString());
     registerNextRouteRoutes(app, { db, publicUrl: "https://connect.example", broker });
+    registerConnectorGrantRoutes(app, { db, relay: { pushPolicy: async () => {} } as unknown as RelayHub });
     registerPeopleRoutes(app, { db, issuer: "https://connect.example", publicUrl: "https://connect.example" });
     await portal.register(cookie);
     registerErrorHandler(portal);
@@ -192,11 +195,42 @@ describePostgres("Private native collection grants", () => {
     }
   });
 
+  it("feeds the native grant to next-device daemons of the account only, and revokes it by log id", async () => {
+    const owner = await user();
+    const desktop = await device(owner);
+    const collection = await privateCollection(owner, [desktop]);
+    const g = await nativeGrant(owner, collection);
+    await db.query("UPDATE applications SET application_declaration = '{\"id\":\"dev.mdbase.journal\"}'::jsonb WHERE id = $1", [g.grant]);
+    const stranger = await device(await user());
+    const snapshot = async (connector: string, nextDevice: boolean) =>
+      await buildPolicySnapshot(db, connector, 55_000, undefined, () => true, "lease_v1", true, nextDevice, nextDevice) as LeasePolicySnapshot;
+    // Old connectors never receive native grants.
+    expect((await snapshot(desktop.connector, false)).grants.map((row) => row.id)).not.toContain(g.logGrant);
+    const fed = (await snapshot(desktop.connector, true)).grants.find((row) => row.id === g.logGrant);
+    const clientPk = (await db.query<{ client_pk: Buffer }>("SELECT client_pk FROM next_grant_client_keys WHERE grant_id = $1", [g.grant])).rows[0]!.client_pk;
+    expect(fed).toMatchObject({
+      collection_id: collection, application_id: g.grant, collection_name: "Journal",
+      capabilities: ["collection.read"], client_pk: clientPk.toString("hex"), account_id: owner
+    });
+    // Another account's daemon is never offered the grant.
+    expect((await snapshot(stranger.connector, true)).grants.map((row) => row.id)).not.toContain(g.logGrant);
+    // The daemon revokes the grant it refused, naming it by its log UUID.
+    await db.query("UPDATE connectors SET token_hash = $2 WHERE id = $1", [desktop.connector, tokenHash("desktop-token")]);
+    const refused = await app.inject({ method: "DELETE", url: `/v1/connectors/grants/${g.logGrant}`, headers: { authorization: "Bearer desktop-token" } });
+    expect(refused.statusCode, refused.body).toBe(200);
+    expect(refused.json()).toEqual({ ok: true, revocation_status: "revoked" });
+    expect((await db.query("SELECT revoked_at FROM grants WHERE id = $1", [g.grant])).rows[0].revoked_at).not.toBeNull();
+    expect((await snapshot(desktop.connector, true)).grants.map((row) => row.id)).not.toContain(g.logGrant);
+  });
+
   it("reports an offline desktop, an outdated desktop and a legacy connector still running", async () => {
     const owner = await user();
     const desktop = await device(owner);
     const collection = await privateCollection(owner, [desktop]);
     const g = await nativeGrant(owner, collection);
+    // Offline and not yet approved: presence wins over approval, so the app
+    // says the computer is offline instead of asking for approval on it.
+    expect((await g.route()).json().availability).toEqual({ state: "unavailable", reason: "device_offline" });
     await g.approve(desktop);
     const offline = (await g.route()).json();
     expect(offline.availability).toEqual({ state: "unavailable", reason: "device_offline" });

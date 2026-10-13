@@ -69,6 +69,12 @@ async function deviceCandidates(broker: Pick<RelayBroker, "request">, devices: r
 /** Why the app can or cannot open the collection through these devices now. */
 async function deviceAvailability(db: DatabaseQueryable, candidates: readonly Candidate[], authorizationGrant: string): Promise<RouteAvailability> {
   if (candidates.length === 0) return { state: "unavailable", reason: "no_device_registered" };
+  // Presence first: with no computer online the app must say so, not ask the
+  // user to approve on a computer that is not there.
+  if (!candidates.some((candidate) => candidate.value.online)) {
+    if (candidates.some((candidate) => candidate.updateRequired)) return { state: "unavailable", reason: "desktop_update_required" };
+    return { state: "unavailable", reason: "device_offline" };
+  }
   // Private collections: the replica admits the app only after a device approves the grant.
   const approval = await grantDeviceApproval(db, authorizationGrant);
   if (approval.required && !approval.approved) return { state: "unavailable", reason: "approval_required" };

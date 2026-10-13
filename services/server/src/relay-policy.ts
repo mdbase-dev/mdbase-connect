@@ -353,11 +353,59 @@ export async function buildPolicySnapshot(
        ORDER BY g.id`,
       [connectorId]
     ));
+    // Native Private grants target no legacy collection row, so the inventory
+    // above never sees them. A next-device daemon also needs its account's
+    // native grants: they arrive as pending approvals, and the daemon keeps
+    // only the collections it hosts. Old connectors never receive them.
+    const nativeGrants = nextDevice ? await observeConnectorPolicyStage("grant_inventory", () => connection.query<{
+      id: string; user_id: string; application_id: string; application_name: string;
+      application_distribution: "web" | "portable"; application_homepage: string;
+      application_project_url: string | null; application_origin: string;
+      application_icon: string | null; local_id: string; collection_name: string;
+      operations: string[]; scope: GrantScope; encryption: unknown | null;
+      file_capability: unknown | null;
+      application_authorization: ApplicationAuthorizationProof;
+      application_declaration: unknown | null;
+      notification_criteria: unknown[]; created_at: Date | string; client_pk: Buffer | null; client_key_signature: Buffer | null;
+    }>(
+      `SELECT COALESCE(binding.log_grant_id, g.id) AS id,
+              g.user_id, g.application_id, a.name AS application_name,
+              a.distribution AS application_distribution,
+              a.homepage AS application_homepage,
+              a.project_url AS application_project_url,
+              CASE WHEN g.application_origin = '' THEN a.homepage
+                   ELSE g.application_origin END AS application_origin,
+              a.icon AS application_icon,
+              g.next_collection_id::text AS local_id,
+              COALESCE(nc.display_name, 'New collection') AS collection_name,
+              g.operations, g.scope,
+              g.encryption, g.file_capability, g.application_authorization,
+              a.application_declaration,
+              g.notification_criteria, g.created_at,
+              k.client_pk, k.signature AS client_key_signature
+       FROM grants g
+       JOIN connectors con ON con.id = $1 AND con.user_id = g.user_id AND con.revoked_at IS NULL
+       JOIN applications a ON a.id = g.application_id
+       JOIN next_collections nc ON nc.collection_id = g.next_collection_id
+         AND nc.runtime = 'next' AND nc.sync = 'private' AND nc.left_sync_at IS NULL
+       LEFT JOIN next_grant_client_keys k ON k.grant_id = g.id
+       LEFT JOIN next_grant_bindings binding ON binding.grant_id = g.id
+       WHERE g.next_collection_id IS NOT NULL AND g.revoked_at IS NULL
+         AND g.activated_at IS NOT NULL
+         AND g.scope->>'access' = 'full_collection'
+         AND g.scope->'contracts' = '[]'::jsonb
+         AND binding.active = true
+       ORDER BY g.id`,
+      [connectorId]
+    )) : null;
+    const grantRows = nativeGrants
+      ? [...grants.rows, ...nativeGrants.rows].sort((a, b) => String(a.id).localeCompare(String(b.id)))
+      : grants.rows;
     const sequenceValue = BigInt(active.rows[0].policy_sequence);
     if (sequenceValue > MAX_POLICY_SEQUENCE) throw new PolicySequenceExhaustedError();
     const sequence = Number(sequenceValue);
     const leaseIssuedAtMs = new Date(active.rows[0].database_now).getTime();
-    const policyGrants = grants.rows.map((grant) => {
+    const policyGrants = grantRows.map((grant) => {
       const normalized = normalizePolicyGrant({ ...grant, collection_id: grant.local_id }, declarationEvidence);
       const projected = nextDevice ? { ...normalized, ...nextDeviceGrantFields(grant) } : normalized;
       return nextAccount ? withAccountId(projected, grant.user_id) : projected;
