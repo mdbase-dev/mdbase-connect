@@ -5,6 +5,7 @@ import type { DatabaseQueryable } from "../../database-types.js";
 import type { NextControlPlaneConfig } from "./policy-keys.js";
 import type { ServiceKind } from "./service-devices.js";
 import { pitrCollection, pitrDeployments, type LabPitrConfig } from "./lab-pitr-config.js";
+import { isLogRegion } from "./log-service-client.js";
 
 const LIMIT = 4;
 const TIMEOUT_MS = 8_000;
@@ -60,8 +61,12 @@ export async function activatePendingServices(
     values.push(collectionId);
     selection = `AND device.collection_id = $${values.length}::uuid`;
   }
-  const pending = await db.query<{ collection_id: string; kind: ServiceKind; batch_id: string }>(
-    `SELECT device.collection_id::text, device.kind, latest.id::text AS batch_id FROM next_service_devices device
+  // `region`: the log's recorded region on the genesis outbox row (policy-outbox.ts).
+  const pending = await db.query<{ collection_id: string; kind: ServiceKind; batch_id: string; region: string | null }>(
+    `SELECT device.collection_id::text, device.kind, latest.id::text AS batch_id,
+       (SELECT genesis.ops->>'region' FROM next_policy_outbox genesis WHERE genesis.collection_id = device.collection_id
+         ORDER BY genesis.id LIMIT 1) AS region
+     FROM next_service_devices device
      JOIN next_collections parent ON parent.collection_id = device.collection_id
      JOIN (SELECT batch.collection_id, max(batch.id) AS id FROM next_policy_batches batch
        WHERE batch.state = 'appended' AND batch.lost_at IS NULL GROUP BY batch.collection_id)
@@ -75,11 +80,13 @@ export async function activatePendingServices(
      ${selection}
      ORDER BY device.activation_next_at, device.collection_id, device.kind LIMIT $1`, values
   );
-  await Promise.all(pending.rows.map(async ({ collection_id: collection, kind, batch_id: batch }) => {
+  await Promise.all(pending.rows.map(async ({ collection_id: collection, kind, batch_id: batch, region: stored }) => {
     // Do not manufacture an activation ACK for an intentionally stateless record.
     if (kind === "escrow" && pitrCollection(pitr, collection)) return;
     const deployment = pitrDeployments(deployments, pitr, collection)[kind];
     const url = new URL("internal/v1/collections/activate", `${deployment.url.replace(/\/+$/u, "")}/`);
+    // The log's recorded region places a new actor next to it; absent, the Worker's default.
+    const region = isLogRegion(stored) ? stored : undefined;
     let ok = false;
     let status: number | undefined;
     const started = Date.now();
@@ -88,7 +95,7 @@ export async function activatePendingServices(
       wakeLog(collection, kind, "sent");
       const response = await fetchImpl(url, { method: "POST", redirect: "manual",
         headers: { authorization: `Bearer ${deployment.token}`, "content-type": "application/json" },
-        body: JSON.stringify({ collection }), signal: AbortSignal.timeout(TIMEOUT_MS) });
+        body: JSON.stringify({ collection, ...(region ? { region } : {}) }), signal: AbortSignal.timeout(TIMEOUT_MS) });
       status = response.status;
       ok = await accepted(response);
     } catch { /* Fixed persisted retry facts only; no response/URL/token/errors stored. */ }

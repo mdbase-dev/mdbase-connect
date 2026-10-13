@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { LogServiceClient } from "./log-service-client.js";
 import { PolicyEmitter, queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
+import { activatePendingServices } from "./service-activation.js";
 import { certDigest, chainHash, decodeCbor, domainHash, encodeCbor, keyId, policyItemSignedDigest, type Cbor, type Decoded, type PolicyOp, type PolicySigner } from "./policy-wire.js";
 import { ed25519PublicKeyObject, ed25519RawPublicKey } from "./policy-keys.js";
 
@@ -48,6 +49,9 @@ class FakeLogService {
   failNextRead = false;
   failNextAppend = false;
   failReadCollection: string | undefined;
+  /** The region recorded for the next log created; each log answers its own on every create_log. */
+  region: string | undefined;
+  readonly regions = new Map<string, string>();
   constructor(private readonly issuer: Uint8Array) {}
 
   readonly fetch: typeof fetch = async (input, init) => {
@@ -77,8 +81,12 @@ class FakeLogService {
     if (method === "create_log") {
       const genesis = bytes(field(params, 1));
       if (log && !log[0]!.equals(genesis)) return this.reply({ error: "invalid" });
-      if (!log) this.logs.set(collection, [genesis]);
-      result = st([0, 1], [1, chainHash(genesis)]);
+      if (!log) {
+        this.logs.set(collection, [genesis]);
+        if (this.region) this.regions.set(collection, this.region);
+      }
+      const region = this.regions.get(collection);
+      result = region ? st([0, 1], [1, chainHash(genesis)], [2, region]) : st([0, 1], [1, chainHash(genesis)]);
     } else if (method === "head") {
       if (!log) return this.reply({ error: "not_found" });
       result = st([0, head().seq], [1, head().chain], [2, 1]);
@@ -215,6 +223,39 @@ describePostgres("mdbase-next policy outbox", () => {
     expect(service.policyOps(collectionId, signer.cert.policyPublicKey)).toEqual([["1", "4", "2", "2"], ["4", "7"]]);
     const issued = await database.db.query<{ issued_at: string }>("SELECT issued_at FROM next_policy_batches WHERE collection_id = $1 ORDER BY seq", [collectionId]);
     expect(Number(issued.rows[1]!.issued_at)).toBeGreaterThan(Number(issued.rows[0]!.issued_at));
+  });
+
+  it("forwards the region from the create_log reply on activation, also after a lost reply; none without one", async () => {
+    const deployments = { hosted: { url: "https://hosted.test", token: "h".repeat(40) }, escrow: { url: "https://escrow.test", token: "e".repeat(40) } };
+    const activations = async (collectionId: string) => {
+      for (const kind of ["hosted", "escrow"]) {
+        await database.db.query(`INSERT INTO next_service_devices(collection_id,kind,device_id,sign_pk,kem_pk,noise_pk,wrapped_keys,kms_key_arn)
+          VALUES($1,$2,$3,$4,$4,$4,$5,'arn:test:key')`, [collectionId, kind, randomUUID(), Buffer.alloc(32, 1), Buffer.from([1])]);
+      }
+      const bodies: unknown[] = [];
+      await activatePendingServices(database.db, deployments, async (_url, init) => { bodies.push(JSON.parse(String(init?.body))); return Response.json({ activated: true }); }, collectionId);
+      return bodies;
+    };
+    const emitter = new PolicyEmitter(database.db, client, signer);
+    try {
+      service.region = "wnam";
+      const placed = await register(await newUser(database.db));
+      expect(await emitter.drainCollection(placed)).toBe(1);
+      expect(await activations(placed)).toEqual([{ collection: placed, region: "wnam" }, { collection: placed, region: "wnam" }]);
+
+      // The log is created but its reply is lost; the retry answers the stored region, not today's default.
+      const retried = await register(await newUser(database.db));
+      service.dropNextResponse = true;
+      await expect(emitter.drainCollection(retried)).rejects.toThrow(/fetch failed/);
+      service.region = "oc";
+      expect(await emitter.drainCollection(retried)).toBe(1);
+      expect(await activations(retried)).toEqual([{ collection: retried, region: "wnam" }, { collection: retried, region: "wnam" }]);
+
+      service.region = undefined;
+      const regionless = await register(await newUser(database.db));
+      expect(await emitter.drainCollection(regionless)).toBe(1);
+      expect(await activations(regionless)).toEqual([{ collection: regionless }, { collection: regionless }]);
+    } finally { service.region = undefined; }
   });
 
   it("never lets a private collection enrol a hosted or escrow device", async () => {

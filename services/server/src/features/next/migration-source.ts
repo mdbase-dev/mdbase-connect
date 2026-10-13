@@ -14,6 +14,7 @@ import { safeEqual } from "../../security.js";
 import type { NextControlPlaneConfig } from "./policy-keys.js";
 import { keyId, type PolicySigner } from "./policy-wire.js";
 import { signMigrationSourceWitness } from "./migration-source-witness.js";
+import { collectionRegion } from "./policy-outbox.js";
 
 const NIL = "00000000-0000-0000-0000-000000000000";
 const uuid = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u).refine(value => value !== NIL);
@@ -78,9 +79,11 @@ async function observe(collection: string, device: string, options: Options) {
   const url = new URL("internal/v1/migration-admission", `${deployment.url.replace(/\/+$/u, "")}/`);
   if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || deployment.token.length < 32) throw new Refused("migration_source_unavailable",503);
   const challenge = randomBytes(32).toString("base64");
+  // The log's recorded region places a new actor next to it; absent, the Worker's default.
+  const region = await collectionRegion(options.db, collection);
   const response = await (options.fetchImpl ?? fetch)(url, { method:"POST",redirect:"manual",signal:AbortSignal.timeout(10_000),
     headers:{authorization:`Bearer ${deployment.token}`,"content-type":"application/json","cache-control":"no-store"},
-    body:JSON.stringify({collection,challenge}),
+    body:JSON.stringify({collection,challenge,...(region?{region}:{})}),
   });
   if (!response.ok || !response.body) { void response.body?.cancel().catch(()=>undefined); throw new Refused("migration_source_unavailable",503); }
   const parsed = admission.parse(await readBoundedJson(response,4096));

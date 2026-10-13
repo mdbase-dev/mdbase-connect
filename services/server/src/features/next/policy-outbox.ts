@@ -9,7 +9,7 @@
 // - any other refusal parks the collection's queue (order matters) until an operator
 //   looks at it. Nothing is dropped silently.
 import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
-import { LogServiceError, type LogPlacement, type LogServiceClient } from "./log-service-client.js";
+import { isLogRegion, LogServiceError, type LogPlacement, type LogRegion, type LogServiceClient } from "./log-service-client.js";
 import { signPolicyItem, type PolicyOp, type PolicySigner } from "./policy-wire.js";
 import { recoverLostPolicy, withPolicyLock } from "./policy-recovery.js";
 import { DEFAULT_COLLECTION_DISPLAY_NAME } from "./collection-display-name.js";
@@ -20,8 +20,9 @@ const ZERO_CHAIN = new Uint8Array(32);
 
 // Persisted form: `{version, ops}` with byte fields as `{"$hex": "…"}`. This is
 // database state, so any change to it needs a data migration. The genesis row
-// may also carry an optional `placement` (`create_log` key 2), which readers of
-// `ops` ignore.
+// may also carry an optional `placement` (`create_log` key 2) and, once the log
+// exists, the `region` the log service recorded (`create_log` reply key 2). Readers
+// of `ops` ignore both.
 function serializeOps(ops: PolicyOp[], placement?: LogPlacement): string {
   // The holder's raw value, because Buffer.toJSON runs before a replacer sees it.
   return JSON.stringify({ version: OUTBOX_FORMAT, ops, ...(placement ? { placement } : {}) }, function (this: Record<string, unknown>, key, value: unknown) {
@@ -48,6 +49,18 @@ function storedPlacement(value: unknown): LogPlacement | undefined {
     ...(typeof placement.timezone === "string" ? { timezone: placement.timezone } : {}),
     ...(Array.isArray(placement.ownerTimezones) ? { ownerTimezones: placement.ownerTimezones.filter((zone): zone is string => typeof zone === "string") } : {}),
   };
+}
+
+/**
+ * The region the log service recorded for the collection, from its `create_log`
+ * reply; undefined before the log exists and for a collection with no region. The
+ * hosted Worker places a new actor there (activation, migration admission).
+ */
+export async function collectionRegion(client: DatabaseQueryable, collectionId: string): Promise<LogRegion | undefined> {
+  const region = (await client.query<{ region: string | null }>(
+    "SELECT ops->>'region' AS region FROM next_policy_outbox WHERE collection_id = $1 ORDER BY id LIMIT 1", [collectionId]
+  )).rows[0]?.region;
+  return isLogRegion(region) ? region : undefined;
 }
 
 /** A new collection's placement: the timezone its owner's device reported at signup. */
@@ -270,10 +283,15 @@ export class PolicyEmitter {
     try {
       if (seq === 1) {
         // The genesis row is the collection's first outbox row.
-        const genesis = await this.db.query<{ ops: unknown }>(
-          "SELECT ops FROM next_policy_outbox WHERE collection_id = $1 ORDER BY id LIMIT 1", [collectionId]
-        );
-        await this.log.createLog(collectionId, batch.item, storedPlacement(genesis.rows[0]?.ops));
+        const genesis = (await this.db.query<{ id: string; ops: unknown }>(
+          "SELECT id, ops FROM next_policy_outbox WHERE collection_id = $1 ORDER BY id LIMIT 1", [collectionId]
+        )).rows[0];
+        const { region } = await this.log.createLog(collectionId, batch.item, storedPlacement(genesis?.ops));
+        // Recorded before the batch counts as appended, so activation (which waits for
+        // an appended genesis) always sees it. A retry answers the same stored region.
+        if (region && genesis) {
+          await this.db.query("UPDATE next_policy_outbox SET ops = jsonb_set(ops, '{region}', to_jsonb($2::text)) WHERE id = $1", [genesis.id, region]);
+        }
       } else {
         const result = await this.log.append(collectionId, seq, batch.prev, [batch.item]);
         if (result.kind === "head-moved") {
