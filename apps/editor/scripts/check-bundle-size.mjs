@@ -1,11 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { gzipSync } from "node:zlib";
+import { loadBundleAssets } from "./bundle-assets.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const html = await readFile(resolve(root, "dist/index.html"), "utf8");
-const initialScripts = assetPaths(html, /<(?:script|link)[^>]+(?:src|href)="([^"]+\.js)"/g);
-const styles = assetPaths(html, /<link[^>]+href="([^"]+\.css)"/g);
+const initialScripts = await loadBundleAssets(root, assetPaths(html, /<(?:script|link)[^>]+(?:src|href)="([^"]+\.(?:m?js)(?:[?#][^"]*)?)"/g));
+const styles = await loadBundleAssets(root, assetPaths(html, /<link[^>]+href="([^"]+\.css(?:[?#][^"]*)?)"/g));
 if (initialScripts.length === 0 || styles.length === 0) {
   throw new Error("The built application did not expose its initial JavaScript and CSS assets.");
 }
@@ -17,26 +18,20 @@ const limits = {
   initialCss: 42 * 1024
 };
 
-const initialJavaScript = await compressedBytes(initialScripts);
-const initialCss = await compressedBytes(styles);
+const initialJavaScript = compressedBytes(initialScripts);
+const initialCss = compressedBytes(styles);
 
 assertWithin("initial CSS", initialCss, limits.initialCss);
 
-console.log(`Bundle report: ${format(initialJavaScript)} initial JavaScript (not gated), ${format(initialCss)} initial CSS (budget passed).`);
+const categories = ["bundle", "public", "generated"].map(kind => `${format(compressedBytes(initialScripts.filter(asset => asset.kind === kind)))} ${kind}`).join(", ");
+console.log(`Bundle report: ${format(initialJavaScript)} initial JavaScript (${categories}; not gated), ${format(initialCss)} initial CSS (budget passed).`);
 
-async function compressedBytes(files) {
-  const contents = await Promise.all(files.map((file) => readFile(resolve(root, "dist", file))));
-  return contents.reduce((total, content) => total + gzipSync(content).byteLength, 0);
+function compressedBytes(files) {
+  return files.reduce((total, { content }) => total + gzipSync(content).byteLength, 0);
 }
 
 function assetPaths(source, pattern) {
-  return [...source.matchAll(pattern)].map((match) => {
-    const value = match[1];
-    const marker = value.lastIndexOf("/assets/");
-    if (marker >= 0) return value.slice(marker + 1);
-    if (value.startsWith("assets/")) return value;
-    throw new Error(`Built asset is outside the distribution asset directory: ${value}`);
-  });
+  return [...source.matchAll(pattern)].map(match => match[1]);
 }
 
 function assertWithin(label, actual, maximum) {

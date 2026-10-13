@@ -7,7 +7,7 @@
     "dev": "pnpm manifest && vite --host 127.0.0.1",
     "build": "pnpm check:styles && pnpm manifest && pnpm manifest:validate && tsc -b && vite build",
     "build:e2e": "pnpm check:styles && pnpm manifest && pnpm manifest:validate && tsc -b && vite build --mode e2e",
-    "check:bundle": "node scripts/check-bundle-size.mjs",
+    "check:bundle": "node --test scripts/bundle-assets.test.mjs && node scripts/check-bundle-size.mjs",
     "check:csp": "node scripts/check-csp.mjs",
     "check:styles": "node scripts/check-style-tokens.mjs",
     "typecheck": "tsc -b --pretty false",
