@@ -27,6 +27,7 @@ import { CreateError, inTransaction } from "./bootstrap-common.js";
 import type { LogServiceClient } from "./log-service-client.js";
 import { migrationMemberPlan, queueMigrationMembers } from "./migration-members.js";
 import { claim } from "./migration-provider.js";
+import { migrationServiceRateLimit } from "./migration-rate-limit.js";
 import { RolloutRefused } from "./migration-rollout.js";
 import { queueNextPolicy, type PolicyEmitter } from "./policy-outbox.js";
 import { existingCloudCopy } from "./service-cloud-copy.js";
@@ -329,7 +330,7 @@ export function registerMigrationReplicaRoutes(app: FastifyInstance, options: Op
   const params = z.object({ id: uuid }).strict(), empty = z.object({}).strict();
   for (const kind of Object.keys(bodies) as Kind[]) {
     app.post(`/internal/v1/next/migration/collections/:id/${kind}`, {
-      bodyLimit: 64 * 1024, config: { rateLimit: { max: 20, timeWindow: "1 minute" } }
+      bodyLimit: 64 * 1024, config: { rateLimit: migrationServiceRateLimit(options.token, `service:migration:${kind}`) }
     }, async (request, reply) => {
       reply.header("cache-control", "no-store");
       const token = bearerToken(request);

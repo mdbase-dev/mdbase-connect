@@ -30,6 +30,7 @@ import { apiError } from "../../platform/http-errors.js";
 import { bearerToken } from "../../platform/request-authentication.js";
 import { safeEqual } from "../../security.js";
 import { drainDeferredAccountDeletions } from "../../account-management.js";
+import { migrationServiceRateLimit } from "./migration-rate-limit.js";
 import { completeMigrationBatch, releaseDeferredDeletions } from "./migration-topology.js";
 import { flipEvidenceDigest, recordAccountFlip } from "./account-backend-flip.js";
 import { HostedProviderResponseError, HostedProviderUnavailableError, type HostedProviderClient,
@@ -946,7 +947,9 @@ export function registerMigrationRolloutRoutes(app: FastifyInstance, options: {
     try { return await startAccountMigration(options.db, p.data.id.toLowerCase(), options.environment,
       "inventory" in body.data ? body.data.inventory : undefined); } catch (e) { return refused(reply, e); }
   });
-  app.post("/internal/v1/next/migration/collections/:id/cutover", async (request, reply) => {
+  app.post("/internal/v1/next/migration/collections/:id/cutover", {
+    config: { rateLimit: migrationServiceRateLimit(options.token, "service:migration:cutover") }
+  }, async (request, reply) => {
     if (!migrator(request)) return deny(reply);
     const p = idParam.safeParse(request.params);
     const body = z.object({
