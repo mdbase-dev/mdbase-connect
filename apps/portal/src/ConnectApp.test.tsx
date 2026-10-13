@@ -80,6 +80,13 @@ describe("ConnectApp", () => {
     expect(vi.mocked(fetch).mock.calls.some(([input]) => new URL(String(input)).pathname.startsWith("/v1/grants"))).toBe(false);
   });
 
+  it("opens Reader's existing manage-access route on Applications", async () => {
+    history.replaceState(null, "", "/account/applications");
+    render(<ConnectApp />);
+    expect(await screen.findByRole("heading", { name: "Applications" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Browser sessions" })).not.toBeInTheDocument();
+  });
+
   it("opens /account directly on Connect and retains browser-session controls", async () => {
     history.replaceState(null, "", "/account");
     render(<ConnectApp />);
