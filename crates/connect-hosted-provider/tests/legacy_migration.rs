@@ -1361,7 +1361,7 @@ async fn refused_old_clients_learn_their_collection_is_upgrading_or_moved() {
             )
             .bearer_auth(&fixture.token)
             .json(&json!({
-                "protocol_version": 5,
+                "protocol_version": LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION,
                 "request_id": Uuid::now_v7(),
                 "input": { "path": "note.md" }
             }))
