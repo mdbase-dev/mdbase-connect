@@ -1,0 +1,4 @@
+{
+  "reason": "One data-only capture projection separates bounded inventory/terminal-selection validation from migration effect handlers, keeping migration-rollout.ts within its unchanged 1000-line budget. One internal helper import/export; no new public package export, source-read capability or mutation authority.",
+  "growth": { "productionFiles": 1, "relativeImports": 1, "typeScriptExportDeclarations": 1, "services/server": 1 }
+}
