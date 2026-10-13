@@ -28,7 +28,7 @@ import { activatePendingServices } from "./features/next/service-activation.js";
 import { registerCloudCopyRoutes } from "./features/next/cloud-copy-bootstrap.js";
 import { registerAccountKeyRoutes } from "./features/next/account-keys.js";
 import { registerPrivateCollectionRoutes } from "./features/next/private-collections.js";
-import { registerNextHostedRoutes } from "./features/next/hosted-routes.js";
+import { globalRateLimitKeying, registerNextHostedRoutes } from "./features/next/hosted-routes.js";
 import { registerLabPitrRoutes } from "./features/next/lab-pitr-routes.js";
 import { validatePitrCollections } from "./features/next/lab-pitr-config.js";
 import { registerMigrationRolloutRoutes } from "./features/next/migration-rollout.js";
@@ -309,7 +309,7 @@ export async function buildApp(options: BuildOptions) {
   });
   await app.register(rateLimit, {
     global: true,
-    max: 600,
+    ...globalRateLimitKeying(options.nextControlPlane?.serviceTokens),
     timeWindow: "1 minute"
   });
   await app.register(formbody);

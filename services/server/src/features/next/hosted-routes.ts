@@ -3,6 +3,7 @@
 // has its own bearer token, accepted only on these routes; neither is the provider's
 // internal token.
 import { createHash } from "node:crypto";
+import { normalizeIP } from "@fastify/rate-limit";
 import { decodeCbor, uuidBytes, type Decoded } from "./policy-wire.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -60,6 +61,31 @@ export function serviceKind(request: FastifyRequest, tokens: { hosted?: string; 
   if (tokens.hosted && safeEqual(presented, tokens.hosted)) return "hosted";
   if (tokens.escrow && safeEqual(presented, tokens.escrow)) return "escrow";
   return null;
+}
+
+// The global limiter counts public traffic per client IP. Hosted and escrow
+// deployments call these internal routes from shared Cloudflare egress addresses, one
+// Durable Object per collection, so an internal request carrying a valid service token
+// is counted against that service's own bucket instead. Each hosted collection reads
+// its service-device record at most once a minute and refreshes its log token about
+// every 14 minutes; a deployment without the record cache makes 4 requests a minute.
+// 12,000 a minute covers 2,000 uncached collections with 50% headroom. Requests without
+// a valid token, and routes with their own `config.rateLimit`, keep the per-IP limit.
+const PUBLIC_REQUESTS_PER_MINUTE = 600;
+const SERVICE_REQUESTS_PER_MINUTE = 12_000;
+const SERVICE_BUCKET = "service:";
+
+/** `keyGenerator` and `max` for the global one-minute limiter. */
+export function globalRateLimitKeying(tokens: { hosted?: string; escrow?: string } | undefined) {
+  return {
+    keyGenerator(request: FastifyRequest): string {
+      const kind = tokens && request.url.startsWith("/internal/") && request.routeOptions.config?.rateLimit === undefined
+        ? serviceKind(request, tokens) : null;
+      return kind ? SERVICE_BUCKET + kind : normalizeIP(request.ip);
+    },
+    max: (_request: FastifyRequest, key: string): number =>
+      key.startsWith(SERVICE_BUCKET) ? SERVICE_REQUESTS_PER_MINUTE : PUBLIC_REQUESTS_PER_MINUTE
+  };
 }
 
 /**
