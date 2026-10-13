@@ -18,7 +18,6 @@ import { RelayBrokerUnavailableError, type RelayBroker } from "../../relay-broke
 import { hostedClientOrigin, hostedRouteTarget, type RouteTarget } from "./hosted-route-target.js";
 export type { RouteTarget } from "./hosted-route-target.js";
 import { pitrCollection, type LabPitrConfig } from "./lab-pitr-config.js";
-import { grantDeviceApproval } from "./grant-approval.js";
 import { nativeDevices, nativeGrant, nativeGrantStanding, supersededLegacyGrant } from "./native-grant-target.js";
 import type { LabMigrationRouting } from "./lab-migration-routing.js";
 import { CreateError, currentMember } from "./bootstrap-common.js";
@@ -26,7 +25,7 @@ import { CreateError, currentMember } from "./bootstrap-common.js";
 /** Whether the app can open the collection now and, if not, why (SDK describeError reasons). */
 export type RouteAvailability =
   | { state: "available" }
-  | { state: "unavailable"; reason: "device_offline" | "desktop_update_required" | "old_connector_running" | "approval_required" | "sync_required" | "access_removed" | "no_device_registered" };
+  | { state: "unavailable"; reason: "device_offline" | "desktop_update_required" | "old_connector_running" | "sync_required" | "access_removed" | "no_device_registered" };
 
 const routeGrant = (collection: string, row: { grant_id: string; authorization_grant: string }) => ({
   collection, grant: row.grant_id,
@@ -68,7 +67,7 @@ async function deviceCandidates(broker: Pick<RelayBroker, "request">, devices: r
 }
 
 /** Why the app can or cannot open the collection through these devices now. */
-async function deviceAvailability(db: DatabaseQueryable, candidates: readonly Candidate[], authorizationGrant: string): Promise<RouteAvailability> {
+function deviceAvailability(candidates: readonly Candidate[]): RouteAvailability {
   if (candidates.length === 0) return { state: "unavailable", reason: "no_device_registered" };
   // Presence first: with no computer online the app must say so, not ask the
   // user to approve on a computer that is not there.
@@ -76,9 +75,6 @@ async function deviceAvailability(db: DatabaseQueryable, candidates: readonly Ca
     if (candidates.some((candidate) => candidate.updateRequired)) return { state: "unavailable", reason: "desktop_update_required" };
     return { state: "unavailable", reason: "device_offline" };
   }
-  // Private collections: the replica admits the app only after a device approves the grant.
-  const approval = await grantDeviceApproval(db, authorizationGrant);
-  if (approval.required && !approval.approved) return { state: "unavailable", reason: "approval_required" };
   if (candidates.some((candidate) => candidate.serving)) return { state: "available" };
   if (candidates.some((candidate) => candidate.oldConnectorRunning)) return { state: "unavailable", reason: "old_connector_running" };
   if (candidates.some((candidate) => candidate.updateRequired)) return { state: "unavailable", reason: "desktop_update_required" };
@@ -164,7 +160,7 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
     // ordering/fallbacks below it are unchanged.
     if (hosted?.target) targets.unshift(hosted.target);
     const availability: RouteAvailability = hosted?.target ? { state: "available" }
-      : await deviceAvailability(options.db, candidates, row.authorization_grant);
+      : deviceAvailability(candidates);
     return { ...routeGrant(id, row), targets, availability, ...(targets.length === 0 ? { reason: "no_device_registered" } : {}) };
   });
 
@@ -229,9 +225,9 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
           });
         }
         availability = standing === "current"
-          ? await deviceAvailability(options.db, await deviceCandidates(options.broker,
+          ? deviceAvailability(await deviceCandidates(options.broker,
             (await nativeDevices(options.db, row.collection, self.user_id)).map((device) => ({ ...device, local_id: row.collection })),
-            relayUrl.toString()), row.authorization_grant)
+            relayUrl.toString()))
           : { state: "unavailable", reason: standing };
       }
       return {

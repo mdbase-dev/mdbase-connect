@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import cookie from "@fastify/cookie";
 import Fastify from "fastify";
 import { capabilityOperations } from "@mdbase-dev/connect-protocol";
@@ -119,14 +119,7 @@ describePostgres("Private native collection grants", () => {
     await db.query("INSERT INTO access_tokens(id,token_hash,grant_id,expires_at) VALUES($1,$2,$3,now() + interval '1 hour')", [randomUUID(), tokenHash(token), grant]);
     const route = async () => (await app.inject({ method: "GET", url: `/v1/next/collections/${collection}/route`, headers: { authorization: `Bearer ${token}` } }));
     const list = async () => (await app.inject({ method: "GET", url: "/v1/next/apps/collections", headers: { authorization: `Bearer ${token}` } })).json().collections as Array<Record<string, unknown>>;
-    /** What a device reports after signing the grant approval into the log. */
-    const approve = async (by: Device) => {
-      const files = (await db.query("SELECT file_capability FROM grants WHERE id = $1", [grant])).rows[0].file_capability;
-      const terms = createHash("sha256").update(JSON.stringify([logGrant, grant, [...OPERATIONS].sort(), files, clientPk.toString("hex")])).digest();
-      await db.query("INSERT INTO next_grant_approvals(grant_id,device_id,approved_seq,capabilities,terms_digest,signature) VALUES($1,$2,9,'{}',$3,$4)",
-        [grant, by.id, terms, Buffer.alloc(64)]);
-    };
-    return { grant, logGrant, token, route, list, approve };
+    return { grant, logGrant, token, route, list };
   }
 
   /** The relay owner for `d` answers presence (online, optionally with a legacy connector still running). */
@@ -137,7 +130,7 @@ describePostgres("Private native collection grants", () => {
       handleBinary: async () => ({ version: 1, ok: true, value: new Uint8Array() }), replaced: () => {} });
   }
 
-  it("serves people metadata to a native grant only after a device approves it", async () => {
+  it("serves people metadata after account consent without a device report", async () => {
     const owner = await user(), desk = await device(owner), collection = await privateCollection(owner, [desk]);
     const g = await nativeGrant(owner, collection);
     await db.query("UPDATE applications SET manifest_digest = 'digest' WHERE id = $1", [g.grant]);
@@ -145,18 +138,19 @@ describePostgres("Private native collection grants", () => {
       application_authorization = jsonb_set(application_authorization, '{binding,application_manifest_digest}', '"digest"') WHERE id = $1`, [g.grant]);
     const people = (resource: string) => app.inject({ method: "GET", url: `/v1/authorities/${collection}/${resource}`, headers: { authorization: `Bearer ${g.token}` } });
 
-    for (const resource of ["identity", "members"]) {
-      const refused = await people(resource);
-      expect(refused.statusCode, refused.body).toBe(403);
-      expect(refused.json().error.code).toBe("approval_required");
-    }
-    await g.approve(desk);
+    expect((await db.query("SELECT 1 FROM next_grant_approvals WHERE grant_id = $1", [g.grant])).rows).toHaveLength(0);
     const identity = await people("identity");
     expect(identity.statusCode, identity.body).toBe(200);
     expect(identity.json()).toMatchObject({ issuer: "https://connect.example", name: "Fixture" });
     const members = await people("members");
     expect(members.statusCode, members.body).toBe(200);
     expect(members.json().members).toEqual([expect.objectContaining({ account_id: owner, role: "owner" })]);
+    await db.query("UPDATE grants SET people_permissions = '[]' WHERE id = $1", [g.grant]);
+    expect((await people("identity")).statusCode).toBe(403);
+    await db.query("UPDATE grants SET revoked_at = now() WHERE id = $1", [g.grant]);
+    for (const resource of ["identity", "members"]) {
+      expect((await people(resource)).statusCode).toBe(401);
+    }
   });
 
   it("gives every grant exactly one target", async () => {
@@ -179,9 +173,7 @@ describePostgres("Private native collection grants", () => {
     const g = await nativeGrant(owner, collection);
     const binding = await online(desktop);
     try {
-      // The device has not approved the grant yet: the replica would refuse the app.
-      expect((await g.route()).json().availability).toEqual({ state: "unavailable", reason: "approval_required" });
-      await g.approve(desktop);
+      // Account consent is enough: no computer approval report is required.
       expect((await g.route()).json()).toEqual({
         collection, grant: g.logGrant, authorization_grant: g.grant,
         targets: [{ kind: "desktop", device: desktop.id, noise_pk: desktop.noise_pk.toString("hex"), url: "wss://connect.example/v1/next/relay/client", online: true, relay_collection: collection }],
@@ -228,10 +220,7 @@ describePostgres("Private native collection grants", () => {
     const desktop = await device(owner);
     const collection = await privateCollection(owner, [desktop]);
     const g = await nativeGrant(owner, collection);
-    // Offline and not yet approved: presence wins over approval, so the app
-    // says the computer is offline instead of asking for approval on it.
-    expect((await g.route()).json().availability).toEqual({ state: "unavailable", reason: "device_offline" });
-    await g.approve(desktop);
+    // Account-approved access still needs a running computer.
     const offline = (await g.route()).json();
     expect(offline.availability).toEqual({ state: "unavailable", reason: "device_offline" });
     expect(offline.targets[0]).toMatchObject({ device: desktop.id, online: false });
@@ -441,7 +430,7 @@ describePostgres("Private native collection grants", () => {
       .toEqual([expect.not.objectContaining({ id: first.id })]);
   });
 
-  it("never lets reminders use a native grant before the device approval", async () => {
+  it("keeps the legacy timer resolver unusable for native Private grants", async () => {
     const owner = await user();
     const desktop = await device(owner);
     const collection = await privateCollection(owner, [desktop]);

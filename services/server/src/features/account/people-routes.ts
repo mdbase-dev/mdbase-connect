@@ -8,7 +8,6 @@ import { bearerToken, requireInstallationDeviceConnector } from "../../platform/
 import { inTransaction, refuse } from "../next/bootstrap-common.js";
 import { nativeCollectionMembers, nextDevicePeople } from "../next/people.js";
 import { requireCollectionNotDeleted } from "../next/collection-deletion.js";
-import { grantDeviceApproval } from "../next/grant-approval.js";
 import { resolveNativeCollectionAccess } from "../authorizations/native-approval-service.js";
 import { apiError } from "../../platform/http-errors.js";
 import { tokenHash } from "../../security.js";
@@ -93,8 +92,8 @@ export function registerPeopleRoutes(app: FastifyInstance, options: PeopleRoutes
       if (!grant.people_permissions?.includes(permission)) {
         return reply.code(403).send(apiError("insufficient_access", "This application was not approved to read this identity information."));
       }
-      // A Private collection's grant is only an offer until a device of the account
-      // approves it, so its people metadata waits for that approval too.
+      // Private grants use the same account-consent and current-membership
+      // boundary as cloud grants; there is no second computer-side decision.
       if (grant.next_collection_id) {
         try { await requireCollectionNotDeleted(options.db, grant.next_collection_id); }
         catch { return reply.code(401).send(apiError("invalid_token", "The collection was deleted.")); }
@@ -110,10 +109,6 @@ export function registerPeopleRoutes(app: FastifyInstance, options: PeopleRoutes
         || !access.actions.has("application.authorize")
         || !matchesMembershipBinding(grant, membershipBindingForAccess(access))) {
         return reply.code(401).send(apiError("invalid_token", "Current collection membership no longer permits this authorization."));
-      }
-      if (grant.next_collection_id) {
-        const approval = await grantDeviceApproval(options.db, grant.grant_id);
-        if (!approval.approved) return reply.code(403).send(apiError("approval_required", "Approve this app on a computer that has this collection first."));
       }
       const owner = await options.db.query<{ id: string; public_subject: string; name: string }>(
         "SELECT id, public_subject, name FROM users WHERE id = $1 AND suspended_at IS NULL",

@@ -233,7 +233,7 @@ export function Authorization({ requestId }: { requestId: string }) {
         error={error}
       />
       <section className="decision-panel authorization-panel">
-        <RequestIdentity request={authorization} />
+        <RequestIdentity request={authorization} showClientKey={!request.collections.some((collection) => collection.kind === "private")} />
         {status === "pending" && continuingInDesktop ? (
           <DesktopContinuation
             request={authorization}
@@ -318,7 +318,7 @@ export function RequestOutcome({ status, applicationName, portable = false, retu
   </div>;
 }
 
-export function RequestIdentity({ request }: { request: PendingAuthorization }) {
+export function RequestIdentity({ request, showClientKey = true }: { request: PendingAuthorization; showClientKey?: boolean }) {
   const [failedIcon, setFailedIcon] = useState<string | null>(null);
   const portable = request.distribution === "portable";
   return (
@@ -334,7 +334,7 @@ export function RequestIdentity({ request }: { request: PendingAuthorization }) 
         {portable
           ? <p className="request-guidance portable-authorization-warning" role="note"><strong>Application origin unverified.</strong> Continue only if you started this connection intentionally{request.user_code ? <> and it shows <code>{request.user_code}</code></> : null}.{request.project_url ? <> {host(request.project_url)} does not verify its origin.</> : null}</p>
           : <p className="request-guidance">Only continue if you recognize this exact site.</p>}
-        {request.client_fingerprint
+        {showClientKey && request.client_fingerprint
           ? <p className="request-fingerprint">App key <code>{request.client_fingerprint}</code>. Your computer will show this key when you approve the app.</p>
           : null}
         <p className="request-expiry">Request expires {relativeTime(request.expires_at)}</p>
@@ -960,7 +960,7 @@ function SupportedApprovalForm({
           <p>{request.distribution === "portable"
             ? `${request.application_name} can use ${selected?.display_name ?? "this collection"} while it remains connected. You can revoke access in mdbase connect.`
             : `${request.application_name} can use ${selected?.display_name ?? "this collection"} until you revoke access in mdbase connect.`}</p>
-          {privateCollection && <p>This is a Private collection. The mdbase desktop app on one of your computers will ask you to approve {request.application_name} before it can open it.</p>}
+          {privateCollection && <p>This is a Private collection: it stays on your computer. {request.application_name} can use it while a computer that has it is running mdbase and is signed in to your account.</p>}
           {higherImpactLabels.length > 0 && <p className="receipt-impact"><i aria-hidden="true" />Includes {higherImpactLabels.join(", ")}.</p>}
           {approvalBlocker && <p className="receipt-blocker" id={blockerId}>{approvalBlocker}</p>}
         </div>
