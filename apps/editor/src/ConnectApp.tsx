@@ -678,22 +678,40 @@ function Computers({ data, busy, perform }: {
   busy: BusyOperations;
   perform: PerformOperation;
 }) {
-  return <Page title="Computers" intro="Computers make local collections available. Revoking one also invalidates grants routed through it.">
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("all");
+  const status = (connector: ManagementOverview["connectors"][number]) => connector.compatibility === "upgrade_required"
+    ? "upgrade_required" : !connector.last_seen_at ? "not_connected" : isConnectorOnline(connector.last_seen_at) ? "online" : "offline";
+  const query = search.trim().toLowerCase();
+  const visible = data.connectors.filter((connector) => (filter === "all" || status(connector) === filter)
+    && (!query || connector.name.toLowerCase().includes(query) || connector.id.toLowerCase().includes(query)));
+  return <Page title="Computers" intro="Registered computers stay listed when offline. Revoking one also invalidates grants routed through it.">
     <section>
-      <SectionTitle title="Connected computers" count={data.connectors.length} />
-      {data.connectors.map((connector) => {
+      <SectionTitle title="Registered computers" count={data.connectors.length} />
+      {data.connectors.length > 0 && <>
+        <div className="connect-computer-tools">
+          <label><span>Find a computer</span><input type="search" value={search} onChange={(event) => setSearch(event.currentTarget.value)} placeholder="Name or registration ID" /></label>
+          <label><span>Status</span><Select aria-label="Computer status" value={filter} onChange={setFilter} options={[
+            { value: "all", label: "All statuses" }, { value: "online", label: "Online" }, { value: "offline", label: "Offline" },
+            { value: "not_connected", label: "Not connected yet" }, { value: "upgrade_required", label: "Update required" }
+          ]} /></label>
+        </div>
+        <p className="connect-muted" role="status" aria-label="Computer filter results">Showing {visible.length} of {data.connectors.length} registered computers.</p>
+      </>}
+      {visible.map((connector) => {
         const upgradeRequired = connector.compatibility === "upgrade_required";
         const updateRecommended = connector.update_recommended === true;
         const online = !upgradeRequired && isConnectorOnline(connector.last_seen_at);
         const collections = data.collections.filter((collection) => collection.connector_id === connector.id);
         return <div className="connect-row" key={connector.id}>
-          <div><strong>{connector.name}</strong><small>{collections.length} {collections.length === 1 ? "collection" : "collections"} · {connector.last_seen_at ? `Seen ${relativeTime(connector.last_seen_at)}` : "Not connected yet"}</small></div>
-          <span className={`connect-status ${online ? "online" : "idle"}`}><i />{upgradeRequired ? "Update required" : online ? "Online" : "Offline"}</span>
+          <div><strong>{connector.name}</strong><small>{collections.length} {collections.length === 1 ? "collection" : "collections"} · {connector.last_seen_at ? `Seen ${relativeTime(connector.last_seen_at)}` : "Not connected yet"}</small><small>Registered {new Date(connector.created_at).toLocaleString()} · ID {connector.id.slice(-8)}</small></div>
+          <span className={`connect-status ${online ? "online" : "idle"}`}><i />{upgradeRequired ? "Update required" : online ? "Online" : connector.last_seen_at ? "Offline" : "Not connected yet"}</span>
           {upgradeRequired && <a href={connector.update_url ?? desktopReleaseUrl} target="_blank" rel="noreferrer">Install {connector.minimum_connector_version ? `version ${connector.minimum_connector_version} or later` : "the latest release"}</a>}
           {!upgradeRequired && updateRecommended && <a href={connector.update_url ?? desktopReleaseUrl} target="_blank" rel="noreferrer">Update recommended for current policy protection</a>}
           <div className="connect-row-actions"><InlineRename value={connector.name} inputLabel={`Rename ${connector.name}`} busy={busy.has(`computer-${connector.id}`)} onSubmit={(name) => perform(`computer-${connector.id}`, (options) => management.renameConnector(connector.id, name, options))} /><ConfirmAction className="danger" label="Revoke" question={`Revoke ${connector.name} and the application grants routed through it?`} confirmLabel="Revoke computer" busy={busy.has(`computer-${connector.id}`)} onConfirm={() => void perform(`computer-${connector.id}`, (options) => management.revokeConnector(connector.id, options))} /></div>
         </div>;
       })}
+      {data.connectors.length > 0 && visible.length === 0 && <Empty title="No computers match" body="Try a different name, registration ID or status. Filtering does not revoke access." />}
       {data.connectors.length === 0 && <Empty title="No computers connected" body="Open the mdbase connect desktop app and choose Connect this computer." action={<span className="connect-empty-actions"><a href="mdbase-connect://open">Open mdbase connect</a><a href={desktopReleaseUrl} target="_blank" rel="noreferrer">Install the latest release</a></span>} />}
     </section>
   </Page>;

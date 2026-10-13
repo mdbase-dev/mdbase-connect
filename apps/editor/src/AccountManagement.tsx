@@ -248,7 +248,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
       <SectionTitle title="Browser sessions" count={sessions?.length} action={otherSessions.length > 0 && <button className="danger" disabled={busy.has("sessions-others")} onClick={() => void run("sessions-others", () => client.revokeOtherSessions())}>Sign out other sessions</button>} />
       {!sessions && <p className="connect-muted">Checking active sessions…</p>}
       {sessions?.map((session) => <div className="connect-row" key={session.id}>
-        <div><strong>{session.client_name}</strong><small>{session.current ? "This browser, active now" : `Last used ${relativeTime(session.last_seen_at)}`}</small></div>
+        <div><strong>{session.client_name}</strong><small>{session.current ? "This browser, active now" : `Last used ${relativeTime(session.last_seen_at)}`}</small><small>Signed in <time dateTime={session.created_at}>{new Date(session.created_at).toLocaleString()}</time> · ID {session.id.slice(-8)}</small></div>
         <span>{providerLabel(session.provider)}</span>
         {session.current ? <span className="connect-current">Current</span> : <button className="danger" disabled={busy.has(`session-${session.id}`)} onClick={() => void run(`session-${session.id}`, () => client.revokeSession(session.id))}>Sign out</button>}
       </div>)}

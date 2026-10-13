@@ -286,6 +286,25 @@
   height: 14px;
 }
 
+.connect-computer-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+.connect-computer-tools label {
+  display: grid;
+  gap: var(--space-2);
+  flex: 1 1 180px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: var(--font-size-ui);
+}
+
+.connect-computer-tools input {
+  width: 100%;
+}
+
 .connect-row {
   min-height: 66px;
   display: grid;
@@ -438,6 +457,7 @@ button.danger:disabled {
   font-size: var(--font-size-ui);
 }
 
+.connect-computer-tools input,
 .connect-inline-form input,
 .connect-inline-form .mdbase-select,
 .connect-role-select .mdbase-select {
