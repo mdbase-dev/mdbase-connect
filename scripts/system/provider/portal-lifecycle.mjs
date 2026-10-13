@@ -169,7 +169,7 @@ export async function portalLifecycleE2E({
     )).toBeVisible();
     await page.getByLabel("Type DELETE to confirm").fill("DELETE");
     await page.getByRole("button", { name: "Delete account permanently" }).click();
-    await expect(page).toHaveURL(/\/connect\/account-deleted(?:\?.*)?$/);
+    await expect(page).toHaveURL(new URL("/account-deleted", controlUrl).href);
     await expect(page.getByRole("heading", { name: "Your account has been deleted." }))
       .toBeVisible();
     await expect(page.getByText(/Hosted data deletion continues automatically/))
