@@ -575,6 +575,10 @@ export function registerAuthorizationRoutes(
     const { request_id: requestId } = z.object({
       request_id: z.uuid()
     }).strict().parse(request.query);
+    // Apps open this route in a popup and watch its WindowProxy. Any hop in
+    // the navigation with a stricter opener policy severs it, so the redirects
+    // keep the opener just like the approval page they lead to.
+    reply.header("Cross-Origin-Opener-Policy", "unsafe-none");
     const user = await authenticatedUser(request, options.db, options.tailscaleAuth);
     if (!user) {
       const returnTo = `${publicUrl}${request.url}`;
