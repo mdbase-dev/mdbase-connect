@@ -186,6 +186,45 @@ describe("ConnectApp", () => {
     await waitFor(() => expect(vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "DELETE").map(([input]) => new URL(String(input)).pathname)).toEqual(["/v1/account/sessions/other-22222222"]));
   });
 
+  it("puts current-browser sign-out above sessions and signs out only this browser once", async () => {
+    const client = new ConnectManagementClient("http://127.0.0.1:8787");
+    let complete!: () => void;
+    const logout = vi.spyOn(client, "logout").mockImplementation(() => new Promise<void>(resolve => { complete = resolve; }));
+    const revoke = vi.spyOn(client, "revokeSession");
+    const others = vi.spyOn(client, "revokeOtherSessions");
+    const refresh = vi.fn();
+    const destination = { href: "http://127.0.0.1:8787/account", search: "", hash: "" };
+    vi.stubGlobal("location", destination);
+    const { container } = render(<AccountManagement client={client} overview={overview}
+      sessions={[{id:"current",client_name:"This test browser",provider:"password",
+        created_at:"2026-01-01T12:00:00Z",last_seen_at:"2026-01-01T12:00:00Z",
+        expires_at:"2027-01-01T12:00:00Z",current:true}]}
+      onOverviewRefresh={refresh} onDeleted={vi.fn()} />);
+    const signOut = await screen.findByRole("button", { name: "Sign out of this browser" });
+    expect(signOut.compareDocumentPosition(container.querySelector(".connect-row")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(signOut);
+    fireEvent.click(signOut);
+    expect(logout).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Signing out…" })).toBeDisabled();
+    await act(async () => complete());
+    expect(destination.href).toBe("http://127.0.0.1:8787/login?return_to=%2Faccount");
+    expect(revoke).not.toHaveBeenCalled();
+    expect(others).not.toHaveBeenCalled();
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("keeps sign-out available without session results and makes failure retryable", async () => {
+    const client = new ConnectManagementClient("http://127.0.0.1:8787");
+    const logout = vi.spyOn(client, "logout").mockRejectedValue(new Error("Sign-out failed. Try again."));
+    render(<AccountManagement client={client} overview={overview} onOverviewRefresh={vi.fn()} onDeleted={vi.fn()} />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Sign out of this browser" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Sign-out failed. Try again.");
+    expect(screen.getByRole("button", { name: "Sign out of this browser" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Sign out of this browser" }));
+    expect(logout).toHaveBeenCalledTimes(2);
+  });
+
   it("opens account management without requesting a collection grant", async () => {
     const user = userEvent.setup();
     render(<ConnectApp />);

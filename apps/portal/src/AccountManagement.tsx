@@ -104,6 +104,19 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
     setBusy(new Set(busyRef.current));
   }
 
+  async function signOutCurrentBrowser() {
+    if (!beginOperation("logout")) return;
+    setError("");
+    setNotice("");
+    try {
+      await client.logout();
+      location.href = loginUrl(client);
+    } catch (reason) {
+      setError(errorMessage(reason));
+      finishOperation("logout");
+    }
+  }
+
   async function createSharingCode() {
     if (!beginOperation("sharing-code")) return;
     setError("");
@@ -246,13 +259,15 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
 
     {account.authentication.managed && <section>
       <SectionTitle title="Browser sessions" count={sessions?.length} action={otherSessions.length > 0 && <button className="danger" disabled={busy.has("sessions-others")} onClick={() => void run("sessions-others", () => client.revokeOtherSessions())}>Sign out other sessions</button>} />
+      <div className="connect-row-actions connect-session-actions" role="group" aria-label="Browser session actions">
+        <button className="danger" disabled={busy.has("logout")} aria-busy={busy.has("logout") || undefined} onClick={() => void signOutCurrentBrowser()}>{busy.has("logout") ? "Signing out…" : "Sign out of this browser"}</button>
+      </div>
       {!sessions && <p className="connect-muted">Checking active sessions…</p>}
       {sessions?.map((session) => <div className="connect-row" key={session.id}>
         <div><strong>{session.client_name}</strong><small>{session.current ? "This browser, active now" : `Last used ${relativeTime(session.last_seen_at)}`}</small><small>Signed in <time dateTime={session.created_at}>{new Date(session.created_at).toLocaleString()}</time> · ID {session.id.slice(-8)}</small></div>
         <span>{providerLabel(session.provider)}</span>
         {session.current ? <span className="connect-current">Current</span> : <button className="danger" disabled={busy.has(`session-${session.id}`)} onClick={() => void run(`session-${session.id}`, () => client.revokeSession(session.id))}>Sign out</button>}
       </div>)}
-      <button className="connect-sign-out" onClick={() => void client.logout().then(() => { location.href = loginUrl(client); })}>Sign out of this browser</button>
     </section>}
 
     <section>
