@@ -11,7 +11,7 @@ import { resolveActiveMembershipPolicy } from "../../collection-policy.js";
 import { lockCollectionSharingAuthority, resolveCollectionSharingAuthority } from "../../collection-sharing-authority.js";
 import type { DatabaseQueryable } from "../../database-types.js";
 import type { DatabasePool } from "../../db.js";
-import { planCollectionGrant } from "../../grant-planner.js";
+import { planFreshNextGrant } from "../next/fresh-authorization.js";
 import { audit } from "../../platform/audit-events.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import { CreateError, currentMember } from "../next/bootstrap-common.js";
@@ -121,7 +121,7 @@ export async function approveNativeAuthorization(
       await resolveNativeCollectionAccess(connection, input.userId, input.collectionId),
       "application.authorize"
     );
-    const plan = planCollectionGrant({
+    const { plan, legacy } = await planFreshNextGrant(connection, input.collectionId, {
       requestedOperations: input.operations,
       applicationOperationCeiling: pending.requested_operations as CollectionOperation[],
       requestedFileActions: input.fileActions,
@@ -179,7 +179,7 @@ export async function approveNativeAuthorization(
       [input.requestId, grantId]
     );
     await copyClientNoiseKeyToGrant(connection, input.requestId, grantId);
-    if (!await queueNextGrantPolicy(connection, grantId)) {
+    if (!await queueNextGrantPolicy(connection, grantId, legacy)) {
       throw new RequestValidationError("This collection is not available for application authorization.");
     }
     await audit(connection, input.userId, "authorization.approved", input.requestId, {

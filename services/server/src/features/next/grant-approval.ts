@@ -50,6 +50,7 @@ export function grantApprovalReportDigest(collection: string, grant: string, seq
 interface GrantContext {
   id: string;
   log_grant_id: string;
+  next_bound: boolean;
   user_id: string;
   active: boolean;
   collection: string | null;
@@ -64,6 +65,7 @@ interface GrantContext {
 async function grantContext(db: DatabaseQueryable, grantId: string): Promise<GrantContext | null> {
   const result = await db.query<GrantContext>(
     `SELECT g.id, COALESCE(binding.log_grant_id, g.id) AS log_grant_id, g.user_id,
+            (binding.grant_id IS NOT NULL) AS next_bound,
             (g.revoked_at IS NULL AND g.activated_at IS NOT NULL AND u.suspended_at IS NULL
              AND (nc.runtime IS DISTINCT FROM 'next' OR binding.active = true)) AS active,
             COALESCE(col.local_id::text, g.hosted_collection_id::text, g.next_collection_id::text) AS collection, nc.sync,
@@ -117,7 +119,7 @@ export async function reportGrantApproval(
   if (!grant.client_pk || !Buffer.from(clientKeyDigest(grant.client_pk)).equals(clientFp)) {
     throw new GrantApprovalReportError(409, "client_key_mismatch", "The approval names another app key than the grant's.");
   }
-  const offered = new Set(grantCapabilityGroups(grant.semantic_capabilities ?? undefined, grant.operations) ?? []);
+  const offered = new Set(grantCapabilityGroups(grant.semantic_capabilities ?? undefined, grant.operations, grant.next_bound, grant.file_capability as FileCapability | null) ?? []);
   if (!capabilities.every((capability) => offered.has(capability))) {
     throw new GrantApprovalReportError(409, "capabilities_not_offered", "The approved capabilities must be a subset of the grant's.");
   }
@@ -246,7 +248,7 @@ export async function grantApprovalTerms(db: DatabaseQueryable, connector: { id:
     authorization_grant: grant.id,
     collection: grant.collection,
     app,
-    capabilities: exactNextGrantCapabilities(grant.semantic_capabilities, grant.operations, files),
+    capabilities: exactNextGrantCapabilities(grant.semantic_capabilities, grant.operations, files, grant.next_bound),
     folders: files?.scope.kind === "selected_folders" ? [...files.scope.folders].sort() : null,
     client_fp: Buffer.from(clientKeyDigest(grant.client_pk)).toString("hex")
   };

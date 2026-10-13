@@ -269,7 +269,7 @@ async function assertPitrAppGrant(db: DatabaseConnection, pitr: LabPitrConfig,
       || !row.client_pk || row.client_pk.length !== 32 || row.client_pk.every(b => b === 0)
       || row.client_pk.toString("hex") !== clientPublicKey) return denied();
   let projected: ReturnType<typeof projectNextGrant>;
-  try { projected = projectNextGrant(row); } catch { return denied(); }
+  try { projected = projectNextGrant({ ...row, next_bound: true }); } catch { return denied(); }
   if (!row.terms_digest.equals(projected.terms)) return denied();
   // Pending or delivered revoke closes the original immutable log identity.
   const revoked = await db.query(`SELECT 1 FROM next_policy_outbox

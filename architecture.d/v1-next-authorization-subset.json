@@ -1,0 +1,10 @@
+{
+  "reason": "Replace duplicate portal/server next permission mapping with one shared protocol projection. One fresh-only server approval boundary preserves signed V1 declarations and fixed rights; existing binding provenance controls later policy projection, without persisted state or SQL migration. Seven exports comprise the shared map, group type, two pure projections, fresh input type and two fresh planning functions.",
+  "growth": {
+    "productionFiles": 2,
+    "relativeImports": 10,
+    "typeScriptExportDeclarations": 7,
+    "packages/protocol": 1,
+    "services/server": 1
+  }
+}
