@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   authorizationOperationLabel,
+  applicationAccessOriginLabel,
   groupApplicationAccess,
   groupAuthorizationOperations
 } from "./access.ts";
@@ -113,10 +114,31 @@ test("keeps application timers in a distinct permission category", () => {
     label: "Schedule app activity",
     description: "View and manage timers owned by this application.",
     operations: [
-      { id: "list_timers", label: "List application timers" },
-      { id: "put_timer", label: "Create or update timers" }
+      { id: "list_timers", label: "See this app's scheduled activity" },
+      { id: "put_timer", label: "Create or update this app's scheduled activity" }
     ]
   }]);
+});
+
+test("record definitions, setup and scheduled work have concrete permission labels without changing operation IDs", () => {
+  const labels = {
+    read_type: "View record types", create_type: "Add record types", update_type: "Change record types",
+    assess_type_pack: "Check available record types", apply_type_pack: "Install or update record types",
+    assess_collection_setup: "Check what this app needs to set up", apply_collection_setup: "Set up this app in the collection",
+    list_timers: "See this app's scheduled activity", put_timer: "Create or update this app's scheduled activity",
+    cancel_timer: "Cancel this app's scheduled activity", reconcile_timers: "Replace this app's scheduled activity"
+  };
+  const operations = Object.keys(labels);
+  for (const [operation, label] of Object.entries(labels)) assert.equal(authorizationOperationLabel(operation), label);
+  assert.deepEqual(new Set(groupAuthorizationOperations(operations).flatMap(group => group.operations.map(row => row.id))), new Set(operations));
+});
+
+test("loopback web origins are identified as local development without trusting lookalike hosts or mobile schemes", () => {
+  for (const origin of ["http://127.0.0.1:48220", "http://localhost:48220", "http://[::1]:48220"])
+    assert.equal(applicationAccessOriginLabel(origin), `Local development (${new URL(origin).host})`);
+  assert.equal(applicationAccessOriginLabel("https://lab.tasknotes-app.pages.dev"), "lab.tasknotes-app.pages.dev");
+  assert.equal(applicationAccessOriginLabel("https://127.0.0.1.example.com"), "127.0.0.1.example.com");
+  assert.equal(applicationAccessOriginLabel("capacitor://localhost"), "localhost");
 });
 
 function grant(id: string, applicationId: string, collectionName: string, collectionId: string, createdAt: string) {

@@ -74,12 +74,12 @@ for (const status of ["approved", "denied"]) {
 for (const version of [undefined, 1]) {
   test(`v1 (${version ?? "absent"}) renders and selects only exact requested operations`, () => {
     const requirements = { contracts: [], ...(version ? { capabilities: { contract_version: version, required: ["records.update"] } } : {}) };
-    for (const [operation, label] of [["read", "Read records"], ["update", "Change records"], ["put_timer", "Create or update timers"]]) {
+    for (const [operation, label] of [["read", "Read records"], ["update", "Change records"], ["put_timer", "Create or update this app's scheduled activity"]]) {
       const groups = authorizationCapabilityGroups(requirements, [operation]);
       assert.deepEqual(groups.flatMap(g => g.operations), [operation]);
       const selected = selectedOperationsForCapabilityGroups(groups);
       const html = list({ groups, selected });
-      assert.match(html, new RegExp(label));
+      assert.match(html, new RegExp(label.replaceAll("'", "&#x27;")));
       assert.doesNotMatch(html, /Rename|Search and query|records.edit|Allow the/);
       assert.equal(checkboxes(html), 1);
       assert.equal(checked(html), 1);

@@ -10,6 +10,7 @@ import {
 } from "@mdbase/connect-management";
 import {
   authorizationOperationLabel,
+  applicationAccessOriginLabel,
   groupApplicationAccess,
   type ApplicationAccessGroup
 } from "@mdbase/connect-ui/access";
@@ -661,12 +662,12 @@ function GrantEditor({ grant, busy, perform }: {
   const ordered = [...allOperations.filter((operation) => grant.operations.includes(operation)), ...grant.operations.filter((operation) => !allOperations.includes(operation))];
   const changed = ordered.some((operation) => operations.has(operation) !== grant.operations.includes(operation));
   return <details className="connect-grant">
-    <summary><span><strong>{grant.collection_name}</strong><small>{grant.operations.length} permissions · {host(grant.homepage)}</small></span><b>Permissions</b></summary>
+    <summary><span><strong>{grant.collection_name}</strong><small>{grant.operations.length} permissions · {applicationAccessOriginLabel(grant.application_origin)}</small></span><b>Permissions</b></summary>
     <div className="connect-grant-body">
       {needsReview && <p role="status">Access changed elsewhere. Review the current permissions before saving. <button onClick={acknowledge}>Review current access</button></p>}
       <div className="connect-permissions">{ordered.map((operation) => <label key={operation}><input className="mdbase-checkbox" type="checkbox" checked={operations.has(operation)} onChange={() => setSelected((current) => current.includes(operation)
         ? current.filter((value) => value !== operation) : [...current, operation])} /><span>{authorizationOperationLabel(operation)}</span></label>)}</div>
-      <div className="connect-grant-meta"><span>Scope</span><strong>Entire collection</strong><span>Origin</span><strong>{grant.application_origin}</strong></div>
+      <div className="connect-grant-meta"><span>Collection ID</span><strong>{grant.collection_id}</strong><span>Scope</span><strong>Entire collection</strong><span>Origin</span><strong>{grant.application_origin}</strong></div>
       <div className="connect-row-actions"><button className="connect-primary-action mdbase-button is-primary" disabled={needsReview || !changed || operations.size === 0 || busy.has(`grant-${grant.id}`)} onClick={() => void perform(`grant-${grant.id}`, (options) => management.updateGrant(grant.id, ordered.filter((operation) => operations.has(operation)), options))}>Save narrower access</button><ConfirmAction className="danger" label="Revoke" question={`Revoke access to ${grant.collection_name}?`} confirmLabel="Revoke" busy={busy.has(`grant-${grant.id}`)} onConfirm={() => void perform(`grant-${grant.id}`, (options) => management.revokeGrant(grant.id, options))} /></div>
     </div>
   </details>;
