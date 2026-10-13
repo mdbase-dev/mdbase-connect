@@ -24,6 +24,7 @@ import { normalizedApplicationOrigin } from "./redirects.js";
 import { CutoverProblemError } from "../next/cutover-problems.js";
 import { resolveNativeCollectionAccess } from "./native-approval-service.js";
 import { requireCollectionNotDeleted } from "../next/collection-deletion.js";
+import { nativeTokenCompletion, type NativeTokenCompletion } from "./native-credential-reconciliation.js";
 
 export async function issueApplicationTokens(
   db: DatabaseQueryable,
@@ -43,6 +44,7 @@ export async function issueApplicationTokens(
   encryption: GrantEncryption | null;
   file_capability: FileCapability | null;
   application_origin: string;
+  native_completion?: NativeTokenCompletion;
   authority?: {
     operations_url: string;
     sync_url: string;
@@ -165,6 +167,13 @@ export async function issueApplicationTokens(
       "application.authorize"
     );
   }
+  const nativeCompletion = grant.rows[0].next_collection_id
+    ? await nativeTokenCompletion(db, grantId, {
+      accountId: grant.rows[0].user_id,
+      collectionId: grant.rows[0].collection_id,
+      origin: normalizedApplicationOrigin(grant.rows[0].application_origin)
+    })
+    : undefined;
   const accessToken = randomToken("mdb");
   const refreshToken = randomToken("ref");
   let authority: {
@@ -228,6 +237,7 @@ export async function issueApplicationTokens(
     encryption: grant.rows[0].encryption,
     file_capability: grant.rows[0].file_capability,
     application_origin: normalizedApplicationOrigin(grant.rows[0].application_origin),
+    ...(nativeCompletion ? { native_completion: nativeCompletion } : {}),
     ...(authority ? { authority } : {})
   };
 }
