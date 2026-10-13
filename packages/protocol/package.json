@@ -20,6 +20,10 @@
       "types": "./dist/manifest.d.ts",
       "import": "./dist/manifest.js"
     },
+    "./next-authorization": {
+      "types": "./dist/next-authorization.d.ts",
+      "import": "./dist/next-authorization.js"
+    },
     "./schemas/*": "./schemas/*"
   },
   "files": [

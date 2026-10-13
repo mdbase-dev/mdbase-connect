@@ -1,4 +1,5 @@
 import { groupAuthorizationOperations } from "@mdbase/connect-ui/access";
+import { projectNextAuthorizationGroups } from "@mdbase-dev/connect-protocol/next-authorization";
 import {
   APPLICATION_CAPABILITY_V1_DEFINITIONS,
   capabilityOperations,
@@ -153,10 +154,6 @@ export function selectedOperationsForCapabilityGroups(
   ));
 }
 
-const NEXT_FILES: Partial<Record<ApplicationCapabilityId, readonly ApplicationFileAction[]>> = {
-  "collection.read": ["list", "read"], "records.create": ["add"],
-  "records.edit": ["replace", "move"], "records.delete": ["delete"]
-};
 const NEXT_COPY: Partial<Record<ApplicationCapabilityId, { label: string; description: string }>> = {
   "collection.read": { label: "Read records and files", description: "Open, search, validate, and follow records and saved views; list file names and read file contents." },
   "records.create": { label: "Create records and add files", description: "Add new records and files to this collection." },
@@ -166,28 +163,15 @@ const NEXT_COPY: Partial<Record<ApplicationCapabilityId, { label: string; descri
 
 /** Offer only representable groups; never manufacture file or record consent. */
 export function nextAuthorizationGroups(requirements: ApplicationRequirements, requested: readonly string[]): { groups: AuthorizationCapabilityGroup[]; error?: string } {
-  const groups = authorizationCapabilityGroups(requirements, requested);
-  const refuse = { groups: [], error: UPDATE_REQUIRED_MESSAGE };
-  if (authorizationRequirementsError(requirements) || requirements.capabilities?.contract_version !== 2) return refuse;
-  const files = requirements.files;
-  if (files && "actions" in files) return refuse;
-  const declaredFiles = new Set(files ? [...files.required, ...(files.optional ?? [])] : []);
-  const requiredFiles = new Set(files?.required ?? []);
-  const requestedOperations = new Set(requested);
-  const result: (AuthorizationCapabilityGroup & { fileActions: readonly ApplicationFileAction[] })[] = [];
-  for (const group of groups) {
-    const id = group.id as ApplicationCapabilityId;
-    const fileActions = NEXT_FILES[id] ?? [];
-    const required = group.required || fileActions.some(action => requiredFiles.has(action));
-    if (id === "offline.replica" || !group.operations.every(operation => requestedOperations.has(operation))
-        || !fileActions.every(action => declaredFiles.has(action))) {
-      if (required) return refuse;
-      continue;
-    }
-    result.push({ ...group, ...NEXT_COPY[id], fileActions, required });
-  }
-  if ([...requiredFiles].some(action => !result.some(group => group.fileActions.includes(action)))) return refuse;
-  return { groups: result };
+  if (authorizationRequirementsError(requirements)) return { groups: [], error: UPDATE_REQUIRED_MESSAGE };
+  const projection = projectNextAuthorizationGroups(requirements, requested);
+  return {
+    ...projection,
+    groups: projection.groups.map(group => ({
+      ...PRESENTATION[group.id], ...NEXT_COPY[group.id], ...group,
+      higherImpact: PRESENTATION[group.id].higherImpact === true
+    }))
+  };
 }
 
 /** Optional saved groups restore only when both halves were explicitly approved. */

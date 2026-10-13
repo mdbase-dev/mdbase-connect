@@ -9,8 +9,9 @@ import { randomBytes, verify as edVerify } from "node:crypto";
 import type { WebSocket } from "ws";
 import {
   APPLICATION_CAPABILITY_DEFINITIONS,
-  type ApplicationCapabilityId
+  type ApplicationCapabilityId, type FileCapability
 } from "@mdbase-dev/connect-protocol";
+import { exactNextPermissionCapabilities } from "@mdbase-dev/connect-protocol/next-authorization";
 import type { DatabasePool } from "../../database-types.js";
 import type { RelayBrokerReply } from "../../relay-broker.js";
 import { ConnectorOperationError } from "../../relay-errors.js";
@@ -273,10 +274,12 @@ export class NextRelayDevices {
 
 /**
  * The v2 capability groups a grant's operations cover exactly, for the daemon's access
- * list. `offline.replica` is never offered for a local collection. Undefined for v1
- * bindings, which work only through the envelope compatibility layer.
+ * list. `offline.replica` is never offered for a local collection. V1 requires
+ * a published next binding and an exact record/file pair; unbound grants retain
+ * their envelope compatibility behavior.
  */
-export function grantCapabilityGroups(semanticCapabilities: number | undefined, operations: readonly string[]): string[] | undefined {
+export function grantCapabilityGroups(semanticCapabilities: number | undefined, operations: readonly string[], nextBound = false, files?: FileCapability | null): string[] | undefined {
+  if (semanticCapabilities === 1 && nextBound) return exactNextPermissionCapabilities(operations, files?.actions ?? []);
   if (semanticCapabilities !== 2) return undefined;
   const granted = new Set(operations);
   return (Object.keys(APPLICATION_CAPABILITY_DEFINITIONS) as ApplicationCapabilityId[]).filter((group) =>

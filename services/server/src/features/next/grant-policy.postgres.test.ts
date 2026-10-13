@@ -4,6 +4,7 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { APPLICATION_CAPABILITY_DEFINITIONS, type FileCapability } from "@mdbase-dev/connect-protocol";
 import { createDatabase, type DatabasePool, type DatabaseQueryable } from "../../db.js";
+import type { ApplicationRequirements } from "../../application-requirements.js";
 import { tokenHash } from "../../security.js";
 import { registerAuthorizationRoutes } from "../authorizations/routes.js";
 import type { AuthorizationRouteOptions } from "../authorizations/route-options.js";
@@ -73,6 +74,29 @@ pgDescribe("next grant policy lifecycle (real Postgres)", () => {
     expect(await pending(id)).toEqual([{ op: "grant", grant: logId, installation,
       appId: "dev.example.reader", account: id, capabilities: ["background.schedule", "collection.read"],
       clientPublicKey: { $hex: clientPk.toString("hex") } }]);
+  });
+
+  it("publishes fresh exact v1 only with validated approval, then reuses its durable binding without rewriting proof", async () => {
+    const { id } = await fixture("cloud_copy", [...READ, "create"], files(["list", "read", "add"]));
+    const proof = { binding: { application_declaration_id: "dev.example.reader", contracts: { semantic_capabilities: 1 } } };
+    await db.query("UPDATE grants SET application_authorization=$2 WHERE id=$1", [id, JSON.stringify(proof)]);
+    const requirements: ApplicationRequirements = {
+      contracts: [], access: "full_collection",
+      capabilities: { contract_version: 1, required: ["collection.inspect", "records.watch", "records.read", "records.query", "views.list", "views.execute", "views.source.read", "records.validate", "definitions.read"], optional: ["records.create", "records.update", "records.rename", "records.delete"] },
+      files: { actions: ["list", "read", "add"], scope: { kind: "collection" } }
+    };
+    await expect(transaction(c => queueNextGrantPolicy(c, id))).rejects.toMatchObject({ code: "application_reauthorization_required" });
+    expect(await pending(id)).toEqual([]);
+    const logId = await transaction(c => queueNextGrantPolicy(c, id, { requirements, requestedOperations: [...READ, "create", "update", "rename", "delete"] }));
+    expect(logId).not.toBe(id);
+    expect(await transaction(c => queueNextGrantPolicy(c, id))).toBe(logId);
+    expect(await pending(id)).toMatchObject([{ op: "grant", capabilities: ["collection.read", "records.create"] }]);
+    expect((await db.query("SELECT application_authorization FROM grants WHERE id=$1", [id])).rows[0]?.application_authorization).toEqual(proof);
+    await expect(transaction(async c => {
+      await c.query("UPDATE grants SET operations=$2 WHERE id=$1", [id, JSON.stringify([...READ, "create", "update", "rename"])]);
+      return queueNextGrantPolicy(c, id);
+    })).rejects.toMatchObject({ code: "application_reauthorization_required" });
+    expect(await pending(id)).toHaveLength(1);
   });
 
   it("narrows by revoke+new identity in ONE outbox row", async () => {
@@ -225,9 +249,15 @@ pgDescribe("next grant policy lifecycle (real Postgres)", () => {
     } finally { await app.close(); }
   });
 
-  it("private reports sign the actual log UUID, not the OAuth ID; narrowing invalidates old approval", async () => {
+  it.each([1, 2])("private v%d reports sign the actual log UUID; narrowing invalidates old approval", async semantic => {
     const { id, clientPk } = await fixture("private");
-    const old = (await transaction(c => queueNextGrantPolicy(c, id)))!;
+    const requirements: ApplicationRequirements = {
+      contracts: [], access: "full_collection",
+      capabilities: { contract_version: 1, required: ["collection.inspect", "records.watch", "records.read", "records.query", "views.list", "views.execute", "views.source.read", "records.validate", "definitions.read"], optional: ["timers.list", "timers.put", "timers.cancel", "timers.reconcile"] },
+      files: { actions: ["list", "read"], scope: { kind: "collection" } }
+    };
+    if (semantic === 1) await db.query("UPDATE grants SET application_authorization=jsonb_set(application_authorization,'{binding,contracts,semantic_capabilities}','1') WHERE id=$1", [id]);
+    const old = (await transaction(c => queueNextGrantPolicy(c, id, semantic === 1 ? { requirements, requestedOperations: [...READ, ...SCHEDULE] } : undefined)))!;
     const device = randomUUID(); const { privateKey } = generateKeyPairSync("ed25519");
     await db.query("INSERT INTO next_devices(id,connector_id,user_id,kind,sign_pk,kem_pk,noise_pk) VALUES($1,$2,$2,'desktop',$3,$4,$5)",
       [device, id, Buffer.from(ed25519RawPublicKey(privateKey)), randomBytes(32), randomBytes(32)]);

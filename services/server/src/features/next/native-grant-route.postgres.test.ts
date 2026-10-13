@@ -324,12 +324,15 @@ describePostgres("Private native collection grants", () => {
 
   /** A registered web app that asks for read access, and its consent requests. */
   let apps = 0;
-  async function webApp() {
+  async function webApp(legacy = false) {
     const declaration = `dev.mdbase.private-web${++apps}`;
     const files = { actions: ["list", "read"] as Array<"list" | "read">, scope: { kind: "collection" as const } };
     const manifest = registerApplicationManifest({ manifest_version: 1, id: declaration, name: "Private web", distribution: "web", homepage: "https://app.example", redirect_uris: ["https://app.example/callback"],
-      requirements: { contracts: [], access: "full_collection", files: { required: ["list", "read"], scope: files.scope },
-        capabilities: { contract_version: 2, required: ["collection.read"] } } });
+      requirements: legacy
+        ? { contracts: [], access: "full_collection", files,
+            capabilities: { contract_version: 1, required: ["collection.inspect", "records.watch", "records.read", "records.query", "views.list", "views.execute", "views.source.read", "records.validate", "definitions.read"], optional: ["records.update", "records.rename"] } }
+        : { contracts: [], access: "full_collection", files: { required: ["list", "read"], scope: files.scope },
+            capabilities: { contract_version: 2, required: ["collection.read"] } } });
     const application = randomUUID();
     await db.query(`INSERT INTO applications (id, canonical_identity, family_identity, manifest_digest, distribution, name, homepage, redirect_uris,
       requirements, provisions, notifications, application_declaration)
@@ -339,16 +342,17 @@ describePostgres("Private native collection grants", () => {
     // One browser profile of the app: every request comes from the same installation.
     const installationIdentity = createTestApplicationIdentity();
     return async (account: string, collection: string) => {
+      const requested = legacy ? [...OPERATIONS, "update", "rename"] : OPERATIONS;
       const proof = await testApplicationAuthorization({ installationIdentity, applicationId: application, applicationDeclarationId: declaration,
         applicationManifestDigest: manifest.digest, flow: "authorization_code", redirectUri: "https://app.example/callback", state: "s",
-        codeChallenge: pkceChallenge("private-web-verifier-0000000000000000000000000"), requestedOperations: OPERATIONS as never,
-        semanticCapabilityContractVersion: 2, requestedFiles: { ...files, actions: [...files.actions] } });
+        codeChallenge: pkceChallenge("private-web-verifier-0000000000000000000000000"), requestedOperations: requested as never,
+        semanticCapabilityContractVersion: legacy ? 1 : 2, requestedFiles: { ...files, actions: [...files.actions] } });
       const id = proof.binding.authorization_id;
       await db.query(`INSERT INTO authorization_requests (id, user_id, application_id, flow, redirect_uri, state, code_challenge, requested_operations,
         operation_transport_protocol, application_agreement_public_key, application_signing_public_key, application_authorization,
         application_installation_id, expires_at)
         VALUES ($1, $2, $3, 'authorization_code', 'https://app.example/callback', 's', $4, $5::jsonb, $6, $7, $8, $9::jsonb, $10, now() + interval '10 minutes')`,
-      [id, account, application, proof.binding.code_challenge, JSON.stringify(OPERATIONS), proof.binding.contracts.operation_transport,
+      [id, account, application, proof.binding.code_challenge, JSON.stringify(requested), proof.binding.contracts.operation_transport,
         proof.binding.grant_agreement_public_key, proof.binding.grant_signing_public_key, JSON.stringify(proof), proof.binding.application_installation_id]);
       await db.query("INSERT INTO next_authorization_client_keys (request_id, client_pk, signature) VALUES ($1, $2, $3)", [id, randomBytes(32), randomBytes(64)]);
       const session = randomUUID();
@@ -359,10 +363,28 @@ describePostgres("Private native collection grants", () => {
         id,
         view: () => portal.inject({ method: "GET", url: `/v1/authorization-requests/${id}`, headers }),
         approve: () => portal.inject({ method: "POST", url: `/v1/authorization-requests/${id}/approve`, headers,
-          payload: { collection_id: collection, operations: OPERATIONS, file_actions: ["list", "read"] } })
+          payload: { collection_id: collection, operations: requested, file_actions: ["list", "read"] } })
       };
     };
   }
+
+  it("approves a signed v1 exact subset and feeds the same original binding to the Private daemon", async () => {
+    const owner = await user(), desktop = await device(owner);
+    const collection = await privateCollection(owner, [desktop]);
+    const consent = await (await webApp(true))(owner, collection);
+    const proof = (await db.query("SELECT application_authorization FROM authorization_requests WHERE id=$1", [consent.id])).rows[0].application_authorization;
+    expect(proof.binding.contracts.semantic_capabilities).toBe(1);
+    expect(proof.binding.requested_operations).toEqual([...OPERATIONS, "update", "rename"]);
+    const approved = await consent.approve();
+    expect(approved.statusCode, approved.body).toBe(200);
+    const grant = (await db.query("SELECT g.*, b.log_grant_id FROM grants g JOIN next_grant_bindings b ON b.grant_id=g.id WHERE g.next_collection_id=$1", [collection])).rows[0];
+    expect(grant.operations).toEqual(OPERATIONS);
+    expect(grant.application_authorization).toEqual(proof);
+    expect(grant.file_capability.actions).toEqual(["list", "read"]);
+    expect(await grantApprovalTerms(db, { id: desktop.connector, user_id: owner }, grant.log_grant_id)).toMatchObject({ capabilities: ["collection.read"] });
+    const snapshot = await buildPolicySnapshot(db, desktop.connector, 55_000, undefined, () => true, "lease_v1", true, true, true) as LeasePolicySnapshot;
+    expect(snapshot.grants.find(row => row.id === grant.log_grant_id)).toMatchObject({ capabilities: ["collection.read"], application_authorization: proof });
+  });
 
   it("approves a web app on a Private collection as an offer, for members only", async () => {
     const owner = await user();

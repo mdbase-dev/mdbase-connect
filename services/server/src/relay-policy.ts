@@ -242,8 +242,8 @@ export function normalizePolicyGrant(
  * 2026-10-04-control-daemon-grant-feed-and-relay.md §3). Absent fields mean the grant
  * works only through the envelope compatibility layer.
  */
-function nextDeviceGrantFields(grant: { operations: string[]; client_pk: Buffer | null; client_key_signature: Buffer | null; application_authorization: ApplicationAuthorizationProof }): Record<string, unknown> {
-  const capabilities = grantCapabilityGroups(grant.application_authorization.binding.contracts.semantic_capabilities, grant.operations);
+function nextDeviceGrantFields(grant: { operations: string[]; file_capability: unknown; next_bound: boolean; client_pk: Buffer | null; client_key_signature: Buffer | null; application_authorization: ApplicationAuthorizationProof }): Record<string, unknown> {
+  const capabilities = grantCapabilityGroups(grant.application_authorization.binding.contracts.semantic_capabilities, grant.operations, grant.next_bound, grant.file_capability as import("@mdbase-dev/connect-protocol").FileCapability | null);
   return {
     ...(capabilities ? { capabilities } : {}),
     ...(grant.client_pk ? { client_pk: grant.client_pk.toString("hex"), client_fingerprint: clientFingerprint(grant.client_pk) } : {}),
@@ -318,6 +318,7 @@ export async function buildPolicySnapshot(
       [connectorId, String(active.rows[0].policy_sequence)]
     );
     const grants = await observeConnectorPolicyStage("grant_inventory", () => connection.query<{
+      next_bound: boolean;
       id: string; user_id: string; application_id: string; application_name: string;
       application_distribution: "web" | "portable"; application_homepage: string;
       application_project_url: string | null; application_origin: string;
@@ -329,6 +330,7 @@ export async function buildPolicySnapshot(
       notification_criteria: unknown[]; created_at: Date | string; client_pk: Buffer | null; client_key_signature: Buffer | null;
     }>(
       `SELECT ${nextDevice ? "COALESCE(binding.log_grant_id, g.id)" : "g.id"} AS id,
+              ${nextDevice ? "(binding.grant_id IS NOT NULL)" : "false"} AS next_bound,
               g.user_id, g.application_id, a.name AS application_name,
               a.distribution AS application_distribution,
               a.homepage AS application_homepage,
@@ -358,6 +360,7 @@ export async function buildPolicySnapshot(
     // native grants: they arrive as pending approvals, and the daemon keeps
     // only the collections it hosts. Old connectors never receive them.
     const nativeGrants = nextDevice ? await observeConnectorPolicyStage("grant_inventory", () => connection.query<{
+      next_bound: boolean;
       id: string; user_id: string; application_id: string; application_name: string;
       application_distribution: "web" | "portable"; application_homepage: string;
       application_project_url: string | null; application_origin: string;
@@ -369,6 +372,7 @@ export async function buildPolicySnapshot(
       notification_criteria: unknown[]; created_at: Date | string; client_pk: Buffer | null; client_key_signature: Buffer | null;
     }>(
       `SELECT COALESCE(binding.log_grant_id, g.id) AS id,
+              (binding.grant_id IS NOT NULL) AS next_bound,
               g.user_id, g.application_id, a.name AS application_name,
               a.distribution AS application_distribution,
               a.homepage AS application_homepage,

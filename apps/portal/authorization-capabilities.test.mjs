@@ -119,7 +119,22 @@ test("next omits unpaired optional groups without manufacturing rights or droppi
   assert.ok(missingRequiredOperation.error, "required collection.read cannot invent unrequested operations");
 });
 
-test("next refuses missing required pairs, required files without record rights and v1", () => {
+test("next offers legacy complete groups as joint consent without relabeling the declaration", () => {
+  const input = {
+    contracts: [], access: "full_collection",
+    capabilities: { contract_version: 1, required: ["collection.inspect", "records.watch", "records.read", "records.query", "views.list", "views.execute", "views.source.read", "records.validate", "definitions.read"], optional: ["records.create", "records.update", "records.rename", "records.delete"] },
+    files: { actions: ["list", "read", "add"], scope: { kind: "collection" } }
+  };
+  const original = structuredClone(input);
+  const result = nextAuthorizationGroups(input, [...read, "create", "update", "rename", "delete"]);
+  assert.equal(result.error, undefined);
+  assert.deepEqual(result.groups.map(group => group.id), ["collection.read", "records.create"]);
+  assert.deepEqual([...selectedNextAuthorizationOperations(result.groups)], [...read, "create"]);
+  assert.ok(result.groups.every(group => group.required), "legacy files.actions are fixed, not optional");
+  assert.deepEqual(input, original);
+});
+
+test("next refuses missing required pairs, required files without record rights and unrepresentable v1", () => {
   for (const input of [requirements,
     { ...jointRequirements, files: { ...jointRequirements.files, required: ["read"] } },
     { contracts: [], capabilities: { contract_version: 1, required: ["records.read"] }, files: { actions: ["read"], scope: { kind: "collection" } } },

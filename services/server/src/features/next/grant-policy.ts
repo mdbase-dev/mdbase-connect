@@ -1,53 +1,40 @@
 // Connect grant lifecycle -> immutable policy grants (control-plane.md §2.2).
 // Call on the caller's transaction client after activation/key copy/narrowing.
 import { createHash, randomUUID } from "node:crypto";
-import { APPLICATION_CAPABILITY_DEFINITIONS, APPLICATION_SETUP_OPERATIONS, type FileCapability, type GrantScope } from "@mdbase-dev/connect-protocol";
+import { type FileCapability, type GrantScope } from "@mdbase-dev/connect-protocol";
+import { exactNextPermissionCapabilities } from "@mdbase-dev/connect-protocol/next-authorization";
+import { freshLegacyNextOperations, type FreshLegacyAuthorization } from "./fresh-authorization.js";
 import type { DatabaseQueryable } from "../../database-types.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import { queueNextPolicy } from "./policy-outbox.js";
 import type { PolicyOp } from "./policy-wire.js";
 
-type Capability = keyof typeof APPLICATION_CAPABILITY_DEFINITIONS;
-const FILE_ACTIONS: Partial<Record<Capability, readonly string[]>> = {
-  "collection.read": ["list", "read"], "records.create": ["add"],
-  "records.edit": ["replace", "move"], "records.delete": ["delete"]
-};
-const equalSet = (a: readonly string[], b: readonly string[]) => {
-  const left = new Set(a); const right = new Set(b);
-  return left.size === right.size && [...left].every((value) => right.has(value));
-};
 function refusal(): never {
-  throw new RequestValidationError("These permissions cannot be represented exactly by the next runtime. Authorize the application again using collection capability groups.", {
+  throw new RequestValidationError("This app needs an update before it can connect. Try again after it updates.", {
     statusCode: 409, code: "application_reauthorization_required"
   });
 }
 
 /** Never add record capabilities to satisfy files, or file rights to satisfy records. */
-export function exactNextGrantCapabilities(semantic: number | null, operations: readonly string[], files: FileCapability | null): string[] {
-  if (semantic !== 2) return refusal();
-  const groups = (Object.keys(APPLICATION_CAPABILITY_DEFINITIONS) as Capability[]).filter((group) =>
-    group !== "offline.replica" && APPLICATION_CAPABILITY_DEFINITIONS[group].every((operation) => operations.includes(operation)));
-  const expected = groups.flatMap((group) => [...APPLICATION_CAPABILITY_DEFINITIONS[group]] as string[]);
-  const setup = APPLICATION_SETUP_OPERATIONS.filter((operation) => operations.includes(operation));
-  if (setup.length) {
-    if (setup.length !== APPLICATION_SETUP_OPERATIONS.length || !groups.includes("definitions.manage")) return refusal();
-    expected.push(...setup);
-  }
-  if (!groups.length || !equalSet(expected, operations)
-      || !equalSet(groups.flatMap((group) => [...(FILE_ACTIONS[group] ?? [])]), files?.actions ?? [])) return refusal();
-  return groups.sort();
+export function exactNextGrantCapabilities(semantic: number | null, operations: readonly string[], files: FileCapability | null, nextBound = false): string[] {
+  // Only a previously published next binding (or validated fresh approval below)
+  // admits semantic1. Retained predecessor grants do not acquire new authority.
+  if (semantic !== 2 && !(semantic === 1 && nextBound)) return refusal();
+  return exactNextPermissionCapabilities(operations, files?.actions ?? []) ?? refusal();
 }
 
 /** Check a permission proposal before any external provider policy change. */
 export async function assertNextGrantPermissions(db: DatabaseQueryable, grantId: string, operations: readonly string[]): Promise<void> {
-  const result = await db.query<{ semantic: number | null; file_capability: FileCapability | null }>(
-    `SELECT (g.application_authorization->'binding'->'contracts'->>'semantic_capabilities')::int AS semantic, g.file_capability
+  const result = await db.query<{ semantic: number | null; file_capability: FileCapability | null; next_bound: boolean }>(
+    `SELECT (g.application_authorization->'binding'->'contracts'->>'semantic_capabilities')::int AS semantic, g.file_capability,
+       (b.grant_id IS NOT NULL) AS next_bound
      FROM grants g LEFT JOIN collections col ON col.id = g.collection_id
      JOIN next_collections nc ON nc.collection_id::text = COALESCE(col.local_id::text, g.hosted_collection_id::text, g.next_collection_id::text)
+     LEFT JOIN next_grant_bindings b ON b.grant_id = g.id AND b.collection_id = nc.collection_id
      WHERE g.id = $1 AND nc.runtime = 'next' AND nc.left_sync_at IS NULL`, [grantId]
   );
   const row = result.rows[0];
-  if (row) exactNextGrantCapabilities(row.semantic, operations, row.file_capability);
+  if (row) exactNextGrantCapabilities(row.semantic, operations, row.file_capability, row.next_bound);
 }
 
 export interface NextGrantSource {
@@ -55,6 +42,8 @@ export interface NextGrantSource {
   user_id: string; application_id: string; application_installation_id: string;
   operations: string[]; file_capability: FileCapability | null; scope: GrantScope;
   semantic: number | null; declaration: string | null; client_pk: Buffer | null;
+  /** Derived from existing next_grant_bindings, never an application claim. */
+  next_bound?: boolean;
 }
 
 /** Canonical current terms shared by publication and the isolated PITR observation.
@@ -62,7 +51,7 @@ export interface NextGrantSource {
 export function projectNextGrant(row: NextGrantSource): {
   terms: Buffer; policy: Omit<Extract<PolicyOp, { op: "grant" }>, "grant">;
 } {
-  const capabilities = exactNextGrantCapabilities(row.semantic, row.operations, row.file_capability);
+  const capabilities = exactNextGrantCapabilities(row.semantic, row.operations, row.file_capability, row.next_bound);
   if (row.scope.access !== "full_collection" || row.scope.contracts.length !== 0 || !row.declaration
       || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.application_installation_id)
       || row.client_pk?.length !== 32) return refusal();
@@ -78,7 +67,7 @@ export function projectNextGrant(row: NextGrantSource): {
 }
 
 /** No-op for legacy/shadow/device-log grants. Refuse unrepresentable next grants. */
-export async function queueNextGrantPolicy(db: DatabaseQueryable, grantId: string): Promise<string | null> {
+export async function queueNextGrantPolicy(db: DatabaseQueryable, grantId: string, freshLegacy?: FreshLegacyAuthorization): Promise<string | null> {
   // Lock before the read: a concurrent narrowing/revoke must be observed after
   // waiting, never projected from a pre-lock snapshot. The caller owns the tx.
   await db.query("SELECT id FROM grants WHERE id = $1 FOR UPDATE", [grantId]);
@@ -96,10 +85,13 @@ export async function queueNextGrantPolicy(db: DatabaseQueryable, grantId: strin
   );
   const row = result.rows[0];
   if (!row) return null;
-  const { terms, policy } = projectNextGrant(row);
   const prior = (await db.query<{ collection_id: string; log_grant_id: string; terms_digest: Buffer; active: boolean }>(
     "SELECT collection_id, log_grant_id, terms_digest, active FROM next_grant_bindings WHERE grant_id = $1 FOR UPDATE", [grantId]
   )).rows[0];
+  if (row.semantic === 1 && freshLegacy) freshLegacyNextOperations(freshLegacy, row.operations);
+  // The binding table's sole publisher is this function. Its existence proves
+  // that a semantic1 grant went through fresh validation, without a new marker.
+  const { terms, policy } = projectNextGrant({ ...row, next_bound: !!prior || (row.semantic === 1 && !!freshLegacy) });
   if (prior?.active && prior.terms_digest.equals(terms)) return prior.log_grant_id;
   const logGrantId = randomUUID();
   const ops: PolicyOp[] = [];
