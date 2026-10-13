@@ -1285,6 +1285,19 @@ async fn refused_old_clients_learn_their_collection_is_upgrading_or_moved() {
     let body: Value = migrating.json().await.unwrap();
     assert_eq!(body["error"]["code"], "collection_migrating");
 
+    let anonymous = client.get(&files).send().await.unwrap();
+    assert_eq!(anonymous.status(), reqwest::StatusCode::UNAUTHORIZED);
+    let mismatched = client
+        .get(format!(
+            "http://{address}/v1/authorities/{}/files?protocol_version={FILE_PROTOCOL_VERSION}",
+            Uuid::now_v7()
+        ))
+        .bearer_auth(&fixture.token)
+        .send()
+        .await
+        .unwrap();
+    assert_ne!(mismatched.status(), reqwest::StatusCode::CONFLICT);
+
     let stranger = client
         .get(&files)
         .bearer_auth("t".repeat(40))
@@ -1321,6 +1334,50 @@ async fn refused_old_clients_learn_their_collection_is_upgrading_or_moved() {
         body["error"]["details"]["update_url"],
         "https://mdbase.dev/downloads"
     );
+    let guidance = "mdbase has been updated. Copy any unsaved work somewhere safe, \
+                    then reload this page to continue.";
+    assert!(body["error"]["message"]
+        .as_str()
+        .unwrap()
+        .starts_with(guidance));
+
+    // The same revoked historical bearer receives the refusal on every old
+    // authority route family, before any data operation can run.
+    let snapshot = format!("sync/snapshot?snapshot_id={}", Uuid::now_v7());
+    let file_snapshot = format!("sync/files/snapshot?snapshot_id={}", Uuid::now_v7());
+    for (method, suffix) in [
+        (reqwest::Method::POST, "operations/describe"),
+        (reqwest::Method::POST, "operations/read"),
+        (reqwest::Method::POST, "operations/query"),
+        (reqwest::Method::POST, "sync/sessions"),
+        (reqwest::Method::GET, snapshot.as_str()),
+        (reqwest::Method::GET, file_snapshot.as_str()),
+        (reqwest::Method::GET, "sync/changes?after=0"),
+    ] {
+        let response = client
+            .request(
+                method,
+                format!("http://{address}/v1/authorities/{id}/{suffix}"),
+            )
+            .bearer_auth(&fixture.token)
+            .json(&json!({
+                "protocol_version": LEGACY_OPERATION_TRANSPORT_PROTOCOL_VERSION,
+                "request_id": Uuid::now_v7(),
+                "input": { "path": "note.md" }
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::CONFLICT, "{suffix}");
+        assert!(response.headers().get("retry-after").is_none());
+        let body: Value = response.json().await.unwrap();
+        assert_eq!(body["error"]["code"], "collection_unavailable", "{suffix}");
+        assert!(body["error"]["message"]
+            .as_str()
+            .unwrap()
+            .starts_with(guidance));
+        assert_eq!(body["error"]["details"]["reason"], "moved_to_next_runtime");
+    }
     server.abort();
 }
 

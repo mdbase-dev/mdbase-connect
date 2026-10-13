@@ -44,9 +44,9 @@ export function cutoverProblem(error: CutoverProblemError, policy: ClientUpdateP
     return {
       status: 409,
       code: "collection_unavailable",
-      message: "mdbase was upgraded, and this app needs to update to keep syncing. "
-        + "Reload the page, or download the latest version from "
-        + `${policy.updateUrl} if you use the desktop or mobile app.`,
+      message: "mdbase has been updated. Copy any unsaved work somewhere safe, "
+        + "then reload this page to continue. If you use the desktop or mobile app, "
+        + `download the latest version from ${policy.updateUrl}.`,
       details: moved
     };
   }
@@ -54,9 +54,9 @@ export function cutoverProblem(error: CutoverProblemError, policy: ClientUpdateP
     return {
       status: 409,
       code: "onboarding_moved",
-      message: "mdbase was upgraded. Open one of your apps to finish setting up your "
-        + `starter collection, or download the latest version from ${policy.updateUrl} `
-        + "if you use the desktop or mobile app.",
+      message: "mdbase has been updated. Copy any unsaved work somewhere safe, "
+        + "then reload this page to continue. Open an updated app to finish setting "
+        + `up your starter collection. For desktop or mobile, update from ${policy.updateUrl}.`,
       details: moved
     };
   }
