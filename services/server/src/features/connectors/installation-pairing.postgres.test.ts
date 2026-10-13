@@ -604,12 +604,13 @@ describePg("installation device sign-in on daemon pairing", () => {
   it("recovery target rechecks the session epoch after waiting for the account lock post-attestation", async () => {
     const owner=await account(), target=await scopeCollection(owner.user);
     const p=await prepared("app-runtime",false,owner,undefined,tasknotesId,target), blocker=await db.connect();
+    const blockerPid=(await blocker.query<{pid:number}>("SELECT pg_backend_pid() AS pid")).rows[0].pid;
     await blocker.query("BEGIN");await blocker.query("UPDATE users SET session_epoch=session_epoch+1 WHERE id=$1",[owner.user]);
     const pending=approveDevice(p.flow,owner,undefined,{collection_ids:[target],create_collections:false,selected_collection_id:target});
     try {
       let waiting=false;
       for(let i=0;i<200&&!waiting;i++){
-        waiting=(await db.query<{waiting:boolean}>("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'SELECT account_backend FROM users%FOR UPDATE%') AS waiting")).rows[0].waiting;
+        waiting=(await db.query<{waiting:boolean}>("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'SELECT account_backend FROM users%FOR UPDATE%' AND $1=ANY(pg_blocking_pids(pid))) AS waiting",[blockerPid])).rows[0].waiting;
         if(!waiting)await new Promise(resolve=>setTimeout(resolve,10));
       }
       expect(waiting,"approval must pass cookie authentication and block on its account FOR UPDATE").toBe(true);
