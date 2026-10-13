@@ -23,7 +23,12 @@ dispatch **the existing `publish-images.yml` on `main`** with:
 - the existing signed image release's exact `source_commit`, `image_publication_run_id`;
 - `release_tag: v<the existing image bundle version>` (a version selector; this
   does not create a tag or authorize production promotion);
-- the normal audit `reason`.
+- the normal audit `reason`;
+- for `staging-trust` only, independently approved `expected_publisher_commit`
+  and `expected_trust_asset_sha256` (lowercase 40/64-hex). Missing or changed
+  publisher/asset hashes refuse before qualification, release fetch or signing.
+  The hash inputs bind bytes; they do not grant approval or supply new trust.
+  LAB keeps its original inputs and qualification.
 
 The job independently checks the main producer's exact qualification, authenticates
 the old image manifest, verifies its successful publication run/attempt and exact
@@ -91,6 +96,8 @@ publisher, the fixed dispatch syntax is:
 ```bash
 gh workflow run publish-images.yml --repo mdbase-dev/mdbase-connect --ref main \
   -f operation=staging-trust \
+  -f expected_publisher_commit="$APPROVED_PUBLISHER_COMMIT" \
+  -f expected_trust_asset_sha256="$APPROVED_STAGING_ASSET_SHA256" \
   -f source_commit="$APPROVED_IMAGE_SOURCE_COMMIT" \
   -f image_publication_run_id="$APPROVED_IMAGE_PUBLICATION_RUN_ID" \
   -f release_tag="$APPROVED_IMAGE_RELEASE_TAG" \
@@ -100,7 +107,9 @@ gh workflow run publish-images.yml --repo mdbase-dev/mdbase-connect --ref main \
 These are independently frozen packet values, not values learned from an
 unauthenticated payload. A recipe with variables is not a concrete approved
 invocation. Recheck the qualified main publisher and canonical staging asset
-immediately before the separately approved dispatch. Signing/publication is a
+immediately before the separately approved dispatch. The job also compares its
+actual main checkout and canonical asset bytes with those independent expected
+hashes; no asset path/content override is available. Signing/publication is a
 Callum operation; agents only prepare/test source. Do not dispatch to probe a
 missing asset, republish on an uncertain outcome, tag a new release, or treat a
 signed trust extension as an integrated staging candidate/deployment/recovery
