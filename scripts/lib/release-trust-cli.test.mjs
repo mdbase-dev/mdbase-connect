@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { buildReleaseBundle } from './release-components.mjs';
+import { buildTrustBundle } from './release-trust-bundle.mjs';
+const canonical=value=>Array.isArray(value)?`[${value.map(canonical).join(',')}]`:value&&typeof value==='object'?`{${Object.keys(value).sort().map(k=>JSON.stringify(k)+':'+canonical(value[k])).join(',')}}`:JSON.stringify(value);
 const root=path.resolve(import.meta.dirname,'../..');
 const runner=path.join(root,'services/server/node_modules/.bin/tsx');
 const assetPath=path.join(root,'config/next-trust/lab.json');
@@ -27,7 +29,7 @@ test('reference CLI preserves exact LAB bytes and refuses wrong externally suppl
   symlinkSync(path.join(root,'services'),path.join(sandbox,'services'));
   symlinkSync(path.join(root,'scripts/lib'),path.join(sandbox,'scripts/lib'));
   const missing=path.join(dir,'missing-stage-output');
-  const invokeSandbox=environment=>spawnSync(runner,[path.join(sandbox,'scripts/build-release-trust-bundle.mts'),input,missing,environment],{cwd:root,encoding:'utf8',env:{...process.env,SOURCE_COMMIT:asset.source.commit}});
+  const invokeSandbox=environment=>spawnSync(runner,[path.join(sandbox,'scripts/build-release-trust-bundle.mts'),input,missing,environment],{cwd:root,encoding:'utf8',env:{...process.env,SOURCE_COMMIT:asset.source.commit,GITHUB_SHA:'c'.repeat(40),GITHUB_RUN_ID:'12',GITHUB_RUN_ATTEMPT:'1',PUBLISHER_QUALIFICATION_RUN_ID:'13',PUBLISHER_QUALIFICATION_RUN_ATTEMPT:'1'}});
   assert.notEqual(invokeSandbox('staging').status,0);assert.equal(existsSync(missing),false);
   copyFileSync(assetPath,path.join(sandbox,'config/next-trust/staging.json'));
   assert.notEqual(invokeSandbox('staging').status,0);assert.equal(existsSync(missing),false); // LAB relabel refused
@@ -42,5 +44,24 @@ test('reference CLI preserves exact LAB bytes and refuses wrong externally suppl
    const bad=[...args];bad[position]=value;assert.notEqual(invoke('verify-release-trust-asset.mts',bad).status,0);
   }
   writeFileSync(payload,readFileSync(payload).toString()+' ');assert.notEqual(invoke('verify-release-trust-asset.mts',args).status,0);
+  // OFFLINE structure/certificate test only. Reusing public LAB fixture pins here
+  // creates no staging authority; the real manifest must be independently signed.
+  const stageBytes=Buffer.from(canonical({...asset,environment:'staging',control_plane_origin:'https://stage.example'}));
+  writeFileSync(path.join(sandbox,'config/next-trust/staging.json'),stageBytes);
+  const stageBuilt=invokeSandbox('staging');assert.equal(stageBuilt.status,0,stageBuilt.stderr);
+  assert.deepEqual(readFileSync(path.join(missing,'next-trust/staging.json')),stageBytes);
+  const builtStageInventory=JSON.parse(readFileSync(path.join(missing,'release-trust-bundle.json')));
+  assert.equal(builtStageInventory.trustAssets[0].path,'next-trust/staging.json');
+  assert.equal(builtStageInventory.trustAssets[0].environment,'staging');
+  const stageManifest=buildTrustBundle({imageBundleBytes:Buffer.from(JSON.stringify(release)),assetBytes:stageBytes,
+   publication:{workflow:'publish-images.yml',runId:12,runAttempt:1,publisherCommit:'c'.repeat(40)},
+   qualification:{workflow:'server-ci.yml',runId:13,runAttempt:1}});
+  const stagePayload=path.join(dir,'staging.json'),stageInventory=path.join(dir,'staging-manifest.json');
+  writeFileSync(stagePayload,stageBytes);writeFileSync(stageInventory,JSON.stringify(stageManifest));
+  const stageArgs=[stageInventory,stagePayload,asset.source.commit,asset.source.version,'staging','https://stage.example',asset.log_origin];
+  assert.equal(invoke('verify-release-trust-asset.mts',stageArgs).status,0);
+  for(const [position,value] of [[4,'lab'],[4,'production'],[5,asset.control_plane_origin],[6,'https://wrong.example']]){
+   const bad=[...stageArgs];bad[position]=value;assert.notEqual(invoke('verify-release-trust-asset.mts',bad).status,0);
+  }
  } finally {rmSync(dir,{recursive:true,force:true});}
 });
