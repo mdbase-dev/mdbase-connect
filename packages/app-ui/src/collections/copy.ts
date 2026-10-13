@@ -61,6 +61,8 @@ export const defaultCollectionCopy = {
   rowOpening: "Opening…",
   openNow: "Open now",
   idHint: "ID {id}",
+  privateCollection: "Private",
+  privateCollectionHint: "Kept on your computers, not stored by mdbase",
   collectionLabel: "Collection",
   collectionsLabel: "Collections",
   switchCollection: "Switch collection, current: {collection}",

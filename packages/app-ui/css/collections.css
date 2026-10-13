@@ -758,6 +758,25 @@
   font-size: var(--_font-size-caption);
 }
 
+/* A Private collection's label: the lock and the word, never colour alone. */
+.mdbase-collections-private {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  vertical-align: 1px;
+  font-weight: var(--_weight-regular);
+  white-space: nowrap;
+}
+
+.mdbase-collections-private svg {
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
 .mdbase-collections-field {
   width: 100%;
   min-height: var(--_control);

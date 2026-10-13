@@ -3,7 +3,7 @@ import { useId, useLayoutEffect, useEffect, useRef, useState, useSyncExternalSto
 import { anchoredPlacement } from "../popover.js";
 import { RowDialogs, SignOutDialog } from "./dialogs.js";
 import type { CollectionRow } from "./model.js";
-import { AccountLine, ActionButton, CollectionMark, ItemCopy, ItemMore, NoticeBlock, RowCopy, RowMore, type RowDialog } from "./parts.js";
+import { AccountLine, ActionButton, CollectionMark, ItemCopy, ItemMore, NoticeBlock, PrivateMark, RowCopy, RowMore, type RowDialog } from "./parts.js";
 import { useCollectionUi, type CollectionSection, type CollectionUi, type CollectionUiOptions } from "./use-collection-ui.js";
 
 /** Collections worth a filter box; fewer fit at a glance. */
@@ -131,6 +131,7 @@ export function SwitcherContent({ ui, onDone, onDialog }: {
         : view.current
           ? <span className="mdbase-collections-switcher-current">
             <strong>{view.current.name}</strong>
+            {view.current.private && <PrivateMark ui={ui} />}
             <span className="mdbase-collections-chip">{view.current.roleLabel}</span>
             {view.current.status && <span className="mdbase-collections-row-meta">{view.current.status}</span>}
           </span>
