@@ -527,6 +527,10 @@ export class ConnectManagementClient {
     return this.request(`/v1/grants/${encodeURIComponent(id)}`, { method: "DELETE" }, options);
   }
 
+  uiConfiguration(options?: ManagementRequestOptions): Promise<{ editor_url: string | null }> {
+    return this.request("/v1/ui-configuration", {}, options);
+  }
+
   async revokeInstallation(connectorId: string, options?: ManagementRequestOptions): Promise<void> {
     await this.request(`/v1/account/installations/${encodeURIComponent(connectorId)}`, { method: "DELETE" }, options);
   }

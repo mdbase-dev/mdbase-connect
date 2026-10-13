@@ -14,6 +14,7 @@ beforeEach(() => {
   overview = overviewFixture();
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = new URL(String(input)).pathname;
+    if (path === "/v1/ui-configuration") return Response.json({ editor_url: "https://editor.example.test/connect" });
     if (path === "/v1/account/sessions") {
       return Response.json({ sessions: [] });
     }
@@ -217,14 +218,25 @@ describe("ConnectApp", () => {
     expect(navigation).toHaveTextContent("All collections");
     expect(navigation).toHaveTextContent("Account & sessions");
     expect(screen.queryByRole("complementary", { name: "Collection navigation" })).not.toBeInTheDocument();
-    const editor = new URL(screen.getByRole("link", { name: "Open editor" }).getAttribute("href")!);
-    expect(editor.origin).not.toBe(location.origin);
+    const editor = new URL((await screen.findByRole("link", { name: "Open editor" })).getAttribute("href")!);
+    expect(editor.origin).toBe("https://editor.example.test");
+    expect(editor.pathname).toBe("/");
     expect(editor.searchParams.get("collection")).toBe("collection");
     expect(editor.searchParams.get("server")).toBe(location.origin);
     await user.click(screen.getByRole("link", { name: "Storage & sync" }));
     await waitFor(() => expect(location.pathname).toBe("/storage"));
     expect(screen.getByRole("heading", { name: "Storage & sync" })).toHaveFocus();
     expect(document.title).toBe("Storage & sync - mdbase connect");
+  });
+
+  it("does not fall back to a production Editor when none is configured", async () => {
+    const original = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((input, init) => new URL(String(input)).pathname === "/v1/ui-configuration" ? Promise.resolve(Response.json({ editor_url: null })) : original(input, init));
+    render(<ConnectApp />);
+    expect(await screen.findByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input]) => new URL(String(input)).pathname === "/v1/account/sessions")).toBe(true));
+    expect(screen.queryByRole("link", { name: "Open editor" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Choose or create my person record" })).not.toBeInTheDocument();
   });
 
   it("opens the only collection directly and records its context in the URL", async () => {

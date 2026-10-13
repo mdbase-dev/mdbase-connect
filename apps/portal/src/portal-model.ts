@@ -5,8 +5,6 @@ import type {
   TypePackProvision
 } from "./api";
 
-export const editorBaseUrl = import.meta.env?.VITE_MDBASE_EDITOR_URL ?? "https://editor.mdbase.dev/";
-
 export function installationAccountLabel(pairing: {
   account_selection_confirmed?: boolean;
   account_email?: string | null; account_provider?: string | null; account_login?: string | null;

@@ -13,6 +13,9 @@ export default defineConfig({
   reporter: "line",
   use: {
     baseURL,
+    // Fixture tests never contact real services. Page-level mocks still fulfill
+    // synthetic external URLs, while Chromium cannot send unmatched traffic out.
+    launchOptions: { args: ["--proxy-server=http://127.0.0.1:9", "--proxy-bypass-list=127.0.0.1;localhost;[::1]"] },
     trace: "retain-on-failure"
   },
   webServer: {
@@ -22,6 +25,8 @@ export default defineConfig({
     timeout: 120_000
   },
   projects: [
-    { name: "chromium", use: { ...devices["Desktop Chrome"] } }
+    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    // Management lives on Portal; keep its migrated coverage in the existing CI browser gate.
+    { name: "portal", testDir: "../portal/tests", use: { ...devices["Desktop Chrome"] } }
   ]
 });

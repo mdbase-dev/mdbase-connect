@@ -12,7 +12,6 @@ import { AppAccess, applicationGroups } from "./ApplicationAccess";
 import { useCallback, useEffect, useRef, useState, Component, type FormEvent, type MouseEvent, type ReactNode } from "react";
 import { AccountManagement, DeletedAccount } from "./AccountManagement";
 import { Brand, ThemeMenu } from "./portal-ui";
-import { editorBaseUrl } from "./portal-model";
 import { MdbaseMark } from "@mdbase-dev/ui/brand";
 
 import {
@@ -78,6 +77,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   const [accountDeleted, setAccountDeleted] = useState(location.pathname === "/account-deleted");
   const [view, setView] = useState<ConnectView>(viewFromPath);
   const [data, setData] = useState<ManagementOverview>();
+  const [editorOrigin, setEditorOrigin] = useState<string>();
   const [sessions, setSessions] = useState<Awaited<ReturnType<typeof management.sessions>>["sessions"]>();
   const [refreshError, setRefreshError] = useState("");
   const [mutationError, setMutationError] = useState("");
@@ -103,6 +103,9 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
         if (generation !== refreshGenerationRef.current) return;
         setData(next);
         setRefreshError("");
+        const configuration = await management.uiConfiguration({ signal });
+        if (generation !== refreshGenerationRef.current) return;
+        setEditorOrigin(configuration.editor_url ? new URL(configuration.editor_url).origin : undefined);
         if (next.authentication.provider !== "tailscale") {
           const sessionResult = await management.sessions({ signal });
           if (generation !== refreshGenerationRef.current) return;
@@ -278,7 +281,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
           <FeedbackButton className="connect-feedback-mobile-link" />
         </section>
       </nav>
-      <footer className="connect-nav-footer"><ThemeMenu /><FeedbackButton /><a href={editorCollectionUrl(selectedCollection?.id)}>Open editor</a><RouteLink view="account" navigate={navigate} ariaLabel="Open account and sessions"><strong>{data.user.name}</strong><small>{data.user.login ? `@${data.user.login}` : data.user.email}</small></RouteLink></footer>
+      <footer className="connect-nav-footer"><ThemeMenu /><FeedbackButton />{editorOrigin && <a href={editorCollectionUrl(selectedCollection?.id, editorOrigin)}>Open editor</a>}<RouteLink view="account" navigate={navigate} ariaLabel="Open account and sessions"><strong>{data.user.name}</strong><small>{data.user.login ? `@${data.user.login}` : data.user.email}</small></RouteLink></footer>
     </aside>
     <main className="connect-main">
       {(mutationError || refreshError) && <div className="connect-notice error" role="alert"><Warning aria-hidden="true" />{mutationError || refreshError}<button onClick={() => mutationError ? setMutationError("") : setRefreshError("")}>Dismiss</button></div>}
@@ -289,11 +292,11 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
       />}
       {pendingRequest && <PendingRequestBanner request={pendingRequest} collectionName={pendingCollection?.name} count={data.pending_authorizations.length} />}
       {activeView === "overview" && (selectedCollection
-        ? <CollectionOverview sharingAvailable={data.collection_sharing_available === true} collection={selectedCollection} applications={selectedApplications} busy={busy} perform={perform} navigate={navigate} />
-        : <Collections data={data} busy={busy} perform={perform} navigate={navigate} />)}
-      {activeView === "storage" && selectedCollection && <Storage collection={selectedCollection} busy={busy} perform={perform} />}
+        ? <CollectionOverview editorOrigin={editorOrigin} sharingAvailable={data.collection_sharing_available === true} collection={selectedCollection} applications={selectedApplications} busy={busy} perform={perform} navigate={navigate} />
+        : <Collections editorOrigin={editorOrigin} data={data} busy={busy} perform={perform} navigate={navigate} />)}
+      {activeView === "storage" && selectedCollection && <Storage editorOrigin={editorOrigin} collection={selectedCollection} busy={busy} perform={perform} />}
       {activeView === "access" && selectedCollection && <AppAccess collectionName={selectedCollection.name} groups={selectedApplications} client={management} busy={busy} perform={perform} />}
-      {activeView === "collections" && <Collections data={data} busy={busy} perform={perform} navigate={navigate} />}
+      {activeView === "collections" && <Collections editorOrigin={editorOrigin} data={data} busy={busy} perform={perform} navigate={navigate} />}
       {activeView === "applications" && <AppAccess groups={applications} client={management} busy={busy} perform={perform} />}
       {activeView === "computers" && <Computers data={data} busy={busy} perform={perform} />}
       {activeView === "account" && <AccountManagement client={management} overview={data} sessions={sessions} onOverviewRefresh={refresh} onDeleted={() => setAccountDeleted(true)} />}
@@ -331,7 +334,8 @@ function PendingRequestBanner({ request, collectionName, count }: {
   </a>;
 }
 
-function CollectionOverview({ collection, applications, busy, perform, navigate, sharingAvailable }: {
+function CollectionOverview({ collection, applications, busy, perform, navigate, sharingAvailable, editorOrigin }: {
+  editorOrigin?: string;
   sharingAvailable: boolean;
   collection: CollectionRow;
   applications: ReturnType<typeof applicationGroups>;
@@ -349,7 +353,7 @@ function CollectionOverview({ collection, applications, busy, perform, navigate,
       {applications.map((application) => <div className="connect-row connect-application-row" key={application.applicationId}><div><strong>{application.applicationName}</strong><small>{host(application.grants[0]?.homepage ?? application.installations[0].application_origin)}</small></div><span>{application.installations.length ? "Access as your account" : permissionSummary(application.grants)}</span><RouteLink view="access" collectionId={collection.id} navigate={navigate}>Review</RouteLink></div>)}
       {applications.length === 0 && <Empty title="No connected applications" body="Applications appear after you approve access to this collection." />}
     </section>
-    <section><SectionTitle title="Your person record" /><div className="connect-row"><div><strong>Use an existing person or create a note</strong><small>Link your account to an editable record in this collection. Collection access is approved separately.</small></div><a href={`${editorSurfaceUrls(collection.id).settings}#your-person`}>Choose or create my person record</a></div></section>
+    <section><SectionTitle title="Your person record" /><div className="connect-row"><div><strong>Use an existing person or create a note</strong><small>Link your account to an editable record in this collection. Collection access is approved separately.</small></div>{editorOrigin && <a href={`${editorSurfaceUrls(collection.id, editorOrigin).settings}#your-person`}>Choose or create my person record</a>}</div></section>
     {collection.kind !== "local" && collection.source.access.can_manage_members && <CollectionSharingPanel key={collection.id} sharingAvailable={sharingAvailable} collection={collection.source} busy={busy} perform={perform} />}
     <section>
       <SectionTitle title="Connection" />
@@ -473,7 +477,8 @@ function CollectionSharingPanel({ collection, busy, perform, sharingAvailable }:
   </section>;
 }
 
-function Storage({ collection, busy, perform }: {
+function Storage({ collection, busy, perform, editorOrigin }: {
+  editorOrigin?: string;
   collection: CollectionRow;
   busy: BusyOperations;
   perform: PerformOperation;
@@ -488,7 +493,7 @@ function Storage({ collection, busy, perform }: {
     return <Page title="Storage & sync" intro={`Manage the main copy of ${collection.name} and its synced Markdown folders.`}>
       <section>
         <SectionTitle title="Main copy" />
-        <HostedCollectionRow collection={collection.source} busy={busy} perform={perform} showReplicas={false} />
+        <HostedCollectionRow editorOrigin={editorOrigin} collection={collection.source} busy={busy} perform={perform} showReplicas={false} />
       </section>
       <section>
         <SectionTitle title="Synced folders" count={replicas.length} action={<a href={`mdbase-connect://mirror?collection=${encodeURIComponent(collection.source.id)}`}><Plus aria-hidden="true" />Sync a folder</a>} />
@@ -507,7 +512,8 @@ function Storage({ collection, busy, perform }: {
   </Page>;
 }
 
-function Collections({ data, busy, perform, navigate }: {
+function Collections({ data, busy, perform, navigate, editorOrigin }: {
+  editorOrigin?: string;
   data: ManagementOverview;
   busy: BusyOperations;
   perform: PerformOperation;
@@ -537,15 +543,16 @@ function Collections({ data, busy, perform, navigate }: {
         <div><button type="button" onClick={() => setCreating(false)}>Cancel</button><button className="connect-primary-action mdbase-button is-primary" disabled={busy.has("create-collection") || !name.trim()}>{busy.has("create-collection") ? "Creating…" : "Create"}</button></div>
       </form>}
       {rows.map((collection) => collection.kind === "hosted"
-        ? <HostedCollectionRow key={collection.id} collection={collection.source} busy={busy} perform={perform} manage={{ collectionId: collection.id, navigate }} />
-        : <CollectionSummary key={collection.id} collection={collection} navigate={navigate} />)}
+        ? <HostedCollectionRow editorOrigin={editorOrigin} key={collection.id} collection={collection.source} busy={busy} perform={perform} manage={{ collectionId: collection.id, navigate }} />
+        : <CollectionSummary editorOrigin={editorOrigin} key={collection.id} collection={collection} navigate={navigate} />)}
       {rows.length === 0 && <Empty title="No collections" body="Connect a computer or create a hosted collection to get started." />}
       {rows.some((collection) => collection.kind === "hosted" && collection.source.authority_state === "active") && <DesktopRecoveryHelp action="sync a folder" />}
     </section>
   </Page>;
 }
 
-function HostedCollectionRow({ collection, busy, perform, manage, showReplicas = true }: {
+function HostedCollectionRow({ collection, busy, perform, manage, showReplicas = true, editorOrigin }: {
+  editorOrigin?: string;
   collection: HostedCollection;
   busy: BusyOperations;
   perform: PerformOperation;
@@ -560,7 +567,7 @@ function HostedCollectionRow({ collection, busy, perform, manage, showReplicas =
     <span className={`connect-status ${active ? "online" : "idle"}`}><i />{active ? "Hosted" : "Moved"}</span>
     <div className="connect-row-actions">
       {manage && <RouteLink view="overview" collectionId={manage.collectionId} navigate={manage.navigate}>Manage</RouteLink>}
-      {editorId && <a href={editorCollectionUrl(editorId)}>Open</a>}
+      {editorId && editorOrigin && <a href={editorCollectionUrl(editorId, editorOrigin)}>Open</a>}
       {active && <a href={`mdbase-connect://mirror?collection=${encodeURIComponent(collection.id)}`}>Sync folder</a>}
       {active && collection.access.can_rename_collection && <InlineRename value={collection.display_name} inputLabel={`Rename ${collection.display_name}`} busy={busy.has(`collection-${collection.id}`)} onSubmit={(name) => perform(`collection-${collection.id}`, (options) => management.renameHostedCollection(collection.id, name, options))} />}
       {collection.access.can_delete_collection && <ConfirmAction className="danger" label="Delete" question={`Delete ${collection.display_name} and all of its hosted data? This cannot be undone.`} confirmLabel="Delete permanently" busy={busy.has(`collection-${collection.id}`)} onConfirm={() => void perform(`collection-${collection.id}`, (options) => management.deleteHostedCollection(collection.id, options))} />}
@@ -668,8 +675,8 @@ function collectionRows(data: ManagementOverview): CollectionRow[] {
   return [...native, ...hosted, ...local].sort((left, right) => left.name.localeCompare(right.name));
 }
 
-function CollectionSummary({ collection, navigate }: { collection: CollectionRow; navigate(view: ConnectView, collectionId?: string): void }) {
-  return <div className="connect-row"><div><strong>{collection.name}</strong><small>{collection.detail}</small></div><span className={`connect-status ${collection.available ? "online" : "idle"}`}><i />{collection.status}</span><div className="connect-row-actions"><RouteLink view="overview" collectionId={collection.id} navigate={navigate}>Manage</RouteLink><a href={editorCollectionUrl(collection.id)}>Open in editor</a></div></div>;
+function CollectionSummary({ collection, navigate, editorOrigin }: { editorOrigin?: string; collection: CollectionRow; navigate(view: ConnectView, collectionId?: string): void }) {
+  return <div className="connect-row"><div><strong>{collection.name}</strong><small>{collection.detail}</small></div><span className={`connect-status ${collection.available ? "online" : "idle"}`}><i />{collection.status}</span><div className="connect-row-actions"><RouteLink view="overview" collectionId={collection.id} navigate={navigate}>Manage</RouteLink>{editorOrigin && <a href={editorCollectionUrl(collection.id, editorOrigin)}>Open in editor</a>}</div></div>;
 }
 
 function connectionDescription(collection: CollectionRow): string {
@@ -821,9 +828,9 @@ function connectViewUrl(view: ConnectView, collectionId?: string): string {
   return `${url.pathname}${url.search}`;
 }
 
-function editorSurfaceUrls(collectionId?: string): { notes: string; types: string; settings: string } {
+function editorSurfaceUrls(collectionId: string | undefined, editorOrigin: string): { notes: string; types: string; settings: string } {
   const surface = (name?: "types" | "settings") => {
-    const url = new URL(editorBaseUrl);
+    const url = new URL("/", editorOrigin);
     url.searchParams.set("server", new URL(management.baseUrl).origin);
     if (collectionId) url.searchParams.set("collection", collectionId);
     if (name) url.searchParams.set("surface", name);
@@ -831,7 +838,7 @@ function editorSurfaceUrls(collectionId?: string): { notes: string; types: strin
   };
   return { notes: surface(), types: surface("types"), settings: surface("settings") };
 }
-function editorCollectionUrl(collectionId?: string): string { return editorSurfaceUrls(collectionId).notes; }
+function editorCollectionUrl(collectionId: string | undefined, editorOrigin: string): string { return editorSurfaceUrls(collectionId, editorOrigin).notes; }
 
 function errorMessage(value: unknown): string {
   const detail = value instanceof Error ? value.message : String(value);

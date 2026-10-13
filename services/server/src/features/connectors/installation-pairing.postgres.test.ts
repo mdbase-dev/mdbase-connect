@@ -1339,7 +1339,7 @@ describePg("installation device sign-in on daemon pairing", () => {
   });
 
   it("account management withdraws creation-only authority without deleting collections or creating grants", async () => {
-    const p=await prepared(), collection=await scopeCollection(p.owner.user);
+    const p=await prepared("app-runtime",true), collection=await scopeCollection(p.owner.user);
     expect((await approveDevice(p.flow,p.owner,undefined,{collection_ids:[],create_collections:true})).statusCode).toBe(200);
     expect((await p.flow.exchange()).statusCode).toBe(200);
     const path=`/v1/account/installations/${p.selected.connector_id}`;
