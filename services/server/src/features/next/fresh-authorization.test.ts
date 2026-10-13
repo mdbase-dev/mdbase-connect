@@ -4,13 +4,14 @@ import type { ApplicationRequirements } from "../../application-requirements.js"
 import { ownerAccess } from "../../collection-access.js";
 import type { DatabaseQueryable } from "../../database-types.js";
 import { planCollectionGrant } from "../../grant-planner.js";
+import { registerApplicationManifest } from "../../manifest.js";
 import { exactNextGrantCapabilities } from "./grant-policy.js";
 import { freshLegacyNextOperations, planFreshNextGrant } from "./fresh-authorization.js";
 
 const read = [...APPLICATION_CAPABILITY_DEFINITIONS["collection.read"]];
 const requirements: ApplicationRequirements = {
   contracts: [], access: "full_collection",
-  capabilities: { contract_version: 1, required: ["collection.inspect", "records.watch", "records.read", "records.query", "views.list", "views.execute", "views.source.read", "records.validate", "definitions.read"], optional: ["records.create", "records.update", "records.rename", "records.delete"] },
+  capabilities: { contract_version: 1, required: ["collection.inspect", "records.watch", "records.read", "records.query", "views.list", "views.execute", "views.source.read", "records.validate", "definitions.read", "files.list", "files.read", "files.add"], optional: ["records.create", "records.update", "records.rename", "records.delete"] },
   files: { actions: ["list", "read", "add"], scope: { kind: "selected_folders", folders: ["attachments"] } }
 };
 const requestedOperations: CollectionOperation[] = [...read, "create", "update", "rename", "delete"];
@@ -18,6 +19,7 @@ const owner = ownerAccess({ collectionId: "collection", authorityKind: "hosted",
 
 describe("fresh legacy next approval", () => {
   it("drops only optional unrepresentable rights and keeps the signed v1 requirements intact", async () => {
+    expect(() => registerApplicationManifest({ manifest_version: 1, id: "dev.example.reader", name: "Reader", distribution: "web", homepage: "https://reader.example", redirect_uris: ["https://reader.example/callback"], requirements })).not.toThrow();
     const original = structuredClone(requirements);
     const input = { requirements, requestedOperations, applicationOperationCeiling: requestedOperations, access: owner };
     const db = { query: async () => ({ rows: [{}] }) } as unknown as DatabaseQueryable;

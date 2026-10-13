@@ -82,7 +82,7 @@ pgDescribe("next grant policy lifecycle (real Postgres)", () => {
     await db.query("UPDATE grants SET application_authorization=$2 WHERE id=$1", [id, JSON.stringify(proof)]);
     const requirements: ApplicationRequirements = {
       contracts: [], access: "full_collection",
-      capabilities: { contract_version: 1, required: ["collection.inspect", "records.watch", "records.read", "records.query", "views.list", "views.execute", "views.source.read", "records.validate", "definitions.read"], optional: ["records.create", "records.update", "records.rename", "records.delete"] },
+      capabilities: { contract_version: 1, required: ["collection.inspect", "records.watch", "records.read", "records.query", "views.list", "views.execute", "views.source.read", "records.validate", "definitions.read", "files.list", "files.read", "files.add"], optional: ["records.create", "records.update", "records.rename", "records.delete"] },
       files: { actions: ["list", "read", "add"], scope: { kind: "collection" } }
     };
     await expect(transaction(c => queueNextGrantPolicy(c, id))).rejects.toMatchObject({ code: "application_reauthorization_required" });
@@ -253,7 +253,7 @@ pgDescribe("next grant policy lifecycle (real Postgres)", () => {
     const { id, clientPk } = await fixture("private");
     const requirements: ApplicationRequirements = {
       contracts: [], access: "full_collection",
-      capabilities: { contract_version: 1, required: ["collection.inspect", "records.watch", "records.read", "records.query", "views.list", "views.execute", "views.source.read", "records.validate", "definitions.read"], optional: ["timers.list", "timers.put", "timers.cancel", "timers.reconcile"] },
+      capabilities: { contract_version: 1, required: ["collection.inspect", "records.watch", "records.read", "records.query", "views.list", "views.execute", "views.source.read", "records.validate", "definitions.read", "files.list", "files.read"], optional: ["timers.list", "timers.put", "timers.cancel", "timers.reconcile"] },
       files: { actions: ["list", "read"], scope: { kind: "collection" } }
     };
     if (semantic === 1) await db.query("UPDATE grants SET application_authorization=jsonb_set(application_authorization,'{binding,contracts,semantic_capabilities}','1') WHERE id=$1", [id]);

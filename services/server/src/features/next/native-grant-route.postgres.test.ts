@@ -330,7 +330,7 @@ describePostgres("Private native collection grants", () => {
     const manifest = registerApplicationManifest({ manifest_version: 1, id: declaration, name: "Private web", distribution: "web", homepage: "https://app.example", redirect_uris: ["https://app.example/callback"],
       requirements: legacy
         ? { contracts: [], access: "full_collection", files,
-            capabilities: { contract_version: 1, required: ["collection.inspect", "records.watch", "records.read", "records.query", "views.list", "views.execute", "views.source.read", "records.validate", "definitions.read"], optional: ["records.update", "records.rename"] } }
+            capabilities: { contract_version: 1, required: ["collection.inspect", "records.watch", "records.read", "records.query", "views.list", "views.execute", "views.source.read", "records.validate", "definitions.read", "files.list", "files.read"], optional: ["records.update", "records.rename"] } }
         : { contracts: [], access: "full_collection", files: { required: ["list", "read"], scope: files.scope },
             capabilities: { contract_version: 2, required: ["collection.read"] } } });
     const application = randomUUID();

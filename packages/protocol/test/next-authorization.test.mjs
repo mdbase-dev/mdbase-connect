@@ -7,7 +7,7 @@ const read = [...APPLICATION_CAPABILITY_DEFINITIONS["collection.read"]];
 const readCaps = ["collection.inspect", "records.watch", "records.read", "records.query", "views.list", "views.execute", "views.source.read", "records.validate", "definitions.read"];
 const legacy = {
   contracts: [], access: "full_collection",
-  capabilities: { contract_version: 1, required: readCaps, optional: ["records.create", "records.update", "records.rename", "records.delete", "sync.offline-replica"] },
+  capabilities: { contract_version: 1, required: [...readCaps, "files.list", "files.read", "files.add"], optional: ["records.create", "records.update", "records.rename", "records.delete", "sync.offline-replica"] },
   files: { actions: ["list", "read", "add"], scope: { kind: "selected_folders", folders: ["attachments"] } }
 };
 const requested = [...read, "create", "update", "rename", "delete", "sync"];
@@ -49,7 +49,7 @@ test("v1 partial required groups and mixed/unknown declarations remain refused",
 test("v1 setup is representable only alongside its complete declared definition group", () => {
   const definitions = [...APPLICATION_CAPABILITY_DEFINITIONS["definitions.manage"]];
   const setup = ["assess_collection_setup", "apply_collection_setup"];
-  const input = { ...legacy, files: { ...legacy.files, actions: ["list", "read"] }, capabilities: { contract_version: 1, required: [...readCaps, "definitions.create", "definitions.update", "definitions.type-pack.apply", "collection.setup.apply"] } };
+  const input = { ...legacy, files: { ...legacy.files, actions: ["list", "read"] }, capabilities: { contract_version: 1, required: [...readCaps, "files.list", "files.read", "definitions.create", "definitions.update", "definitions.type-pack.apply", "collection.setup.apply"] } };
   const result = projectNextAuthorizationGroups(input, [...read, ...definitions, ...setup]);
   assert.equal(result.error, undefined);
   assert.deepEqual(exactNextPermissionCapabilities(result.groups.flatMap(group => group.operations), ["list", "read"]), ["collection.read", "definitions.manage"]);
