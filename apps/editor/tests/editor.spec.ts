@@ -1081,8 +1081,8 @@ test("edits complete type membership, choices, and multiple required fields", as
   // The collection rail starts hidden at small laptop widths.
   await page.getByRole("button", { name: "Show collections sidebar" }).first().click();
   await page.getByRole("button", { name: "Types (1)" }).click();
-  await expect(page.getByRole("heading", { name: "Type membership" })).toBeVisible();
-  await page.getByRole("heading", { name: "Type membership" }).click();
+  await expect(page.getByRole("heading", { name: "Which notes use this type" })).toBeVisible();
+  await page.getByRole("heading", { name: "Which notes use this type" }).click();
   await expect(page.getByText("Assigned by name", { exact: true })).toBeVisible();
   await expect(page.getByText("Automatic matching", { exact: true })).toBeVisible();
 
@@ -1447,7 +1447,7 @@ test("edits structured frontmatter without exposing an undifferentiated textarea
   await expect(panel).not.toBeVisible();
   await expect(page.getByRole("main", { name: "Note editor" })).toHaveAttribute("data-save-state", "saved");
   await page.getByRole("button", { name: "Note properties" }).click();
-  await panel.getByRole("tab", { name: /JSON/ }).click();
+  await panel.getByRole("tab", { name: "Advanced" }).click();
   await expect(panel.getByRole("textbox", { name: "Frontmatter JSON" })).toContainText('"nested editing"');
 });
 
