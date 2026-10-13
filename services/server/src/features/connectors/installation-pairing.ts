@@ -660,14 +660,34 @@ export async function denyInstallationPairing(
 /** Separate explicit removal, never an implicit re-consent side effect. One
  * registered app family, one account and one collection; all its installations.
  * Native revocation is permanent for these device/collection pairs. */
-export async function removeInstallationAccess(db:DatabasePool,id:string,user:string,session:string,collection:string) {
+export async function removeInstallationAccess(db:DatabasePool,source:string|{applicationId:string},user:string,session:string,collection:string) {
   return tx(db,async c=>{
     await currentSession(c,session,user);
-    const r=await row(c,id,undefined,true);
-    live(r);
-    if (!r.scope_only || r.user_id!==user) return fail("installation_account_changed",403);
-    const app = await findInstallationApplication(c,r.app_id);
+    let appId: string;
+    if (typeof source === "string") {
+      const r=await row(c,source,undefined,true);
+      live(r);
+      if (!r.scope_only || r.user_id!==user) return fail("installation_account_changed",403);
+      appId = r.app_id;
+    } else {
+      // Account management is authenticated independently of the expiring
+      // original pairing window. It still names registered, owned authority.
+      appId = source.applicationId;
+    }
+    const app = await findInstallationApplication(c,appId);
     if (!app?.family_identity) return fail("installation_app_not_allowed",403);
+    if (typeof source !== "string") {
+      const owned = await c.query(
+        `SELECT k.connector_id FROM installation_collection_scopes scope
+         JOIN installation_device_credentials k ON k.connector_id=scope.connector_id
+         JOIN connectors connector ON connector.id=k.connector_id
+         JOIN applications application ON application.id::text=k.app_id
+         WHERE connector.user_id=$1 AND application.family_identity=$2
+           AND scope.collection_id=$3 LIMIT 1`,
+        [user,app.family_identity,collection]);
+      // Idempotent no-op, without probing another account's collection registry.
+      if (!owned.rows.length) return {ok:true,state:"revoking" as const,collection_id:collection};
+    }
     await lock(c,collection);
     const target=await c.query("SELECT 1 FROM next_collections WHERE collection_id=$1 AND runtime='next' FOR UPDATE",[collection]);
     if (!target.rows.length) return fail("installation_collection_unavailable",404);
@@ -676,7 +696,7 @@ export async function removeInstallationAccess(db:DatabasePool,id:string,user:st
     await c.query(`UPDATE grants g SET revoked_at=now() FROM applications a
       WHERE a.id=g.application_id AND a.family_identity=$3
         AND g.user_id=$1 AND g.revoked_at IS NULL
-        AND (g.hosted_collection_id=$2 OR g.collection_id IN (SELECT id FROM collections WHERE local_id=$2))`,[user,collection,app.family_identity]);
+        AND (g.hosted_collection_id=$2 OR g.next_collection_id=$2 OR g.collection_id IN (SELECT id FROM collections WHERE local_id=$2))`,[user,collection,app.family_identity]);
     const installations=await c.query<{connector_id:string;device_id:string}>(
       `SELECT k.connector_id,k.device_id FROM installation_device_credentials k JOIN connectors c ON c.id=k.connector_id
        JOIN applications a ON a.id::text=k.app_id
@@ -689,7 +709,7 @@ export async function removeInstallationAccess(db:DatabasePool,id:string,user:st
       }
       await c.query("DELETE FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2",[k.connector_id,collection]);
     }
-    await audit(c,user,"device.installation_access_removed",collection,{app_id:r.app_id});
+    await audit(c,user,"device.installation_access_removed",collection,{app_id:appId});
     return {ok:true,state:"revoking" as const,collection_id:collection};
   });
 }

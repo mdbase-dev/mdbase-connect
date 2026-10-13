@@ -157,7 +157,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
         reauthenticationToken: reauthenticationToken || undefined
       });
       const url = new URL(location.href);
-      url.pathname = "/connect/account-deleted";
+      url.pathname = "/account-deleted";
       url.searchParams.delete("collection");
       url.searchParams.delete("linked");
       url.hash = "";

@@ -1,8 +1,8 @@
 .connect-shell {
   width: 100%;
-  height: 100%;
+  height: 100dvh;
   display: grid;
-  grid-template-columns: 188px 244px minmax(480px, 1fr);
+  grid-template-columns: 244px minmax(480px, 1fr);
   background: var(--canvas);
   color: var(--ink);
 }
@@ -21,6 +21,13 @@
   align-items: center;
   padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--line);
+}
+
+.connect-nav-footer {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-top: 1px solid var(--line);
 }
 
 .connect-nav > header strong {
@@ -982,13 +989,9 @@ button.danger:disabled {
   color: var(--muted);
 }
 
-.connect-shell .mobile-editor-return {
-  display: none;
-}
-
 @media (max-width: 1020px) {
   .connect-shell {
-    grid-template-columns: 156px 210px minmax(0, 1fr);
+    grid-template-columns: 210px minmax(0, 1fr);
   }
 
   .connect-page {
@@ -1034,81 +1037,6 @@ button.danger:disabled {
     min-height: 100%;
     height: auto;
     display: block;
-  }
-
-  .connect-shell > .collection-rail {
-    position: sticky;
-    inset: auto;
-    display: flex;
-    height: 58px;
-    z-index: 4;
-    top: 0;
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 14px;
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-  }
-
-  .connect-shell > .collection-rail .rail-header {
-    flex: 0 0 auto;
-    padding: 0;
-  }
-
-  .connect-shell .rail-current-collection {
-    display: none;
-  }
-
-  .connect-shell > .collection-rail nav {
-    flex: 1;
-    margin: 0 var(--space-1);
-    overflow: visible;
-  }
-
-  .connect-shell > .collection-rail nav > :not(.mobile-editor-return) {
-    display: none;
-  }
-
-  .connect-shell .mobile-editor-return {
-    min-height: 44px;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    margin: 0 auto;
-    padding: var(--space-2) 2px;
-    color: var(--accent-strong);
-    font-size: var(--font-size-ui);
-    font-weight: var(--font-weight-semibold);
-    text-decoration: none;
-    white-space: nowrap;
-  }
-
-  .connect-shell .mobile-editor-return svg {
-    width: 16px;
-    height: 16px;
-  }
-
-  .connect-shell > .collection-rail .connection-footer {
-    width: 44px;
-    min-height: 44px;
-    display: block;
-    padding: 0;
-    border: 0;
-  }
-
-  .connect-shell > .collection-rail .connection-footer > p,
-  .connect-shell > .collection-rail .connect-rail-feedback,
-  .connect-rail-account > span:last-child {
-    display: none;
-  }
-
-  .connect-rail-account {
-    width: 44px;
-    height: 44px;
-    display: grid;
-    grid-template-columns: 1fr;
-    padding: 2px;
   }
 
   .connect-nav {

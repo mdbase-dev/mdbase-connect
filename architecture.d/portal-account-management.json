@@ -1,0 +1,7 @@
+{
+  "reason": "Move the five existing account-management React modules and their tests/styles from Editor to Portal, delete the Editor redirect adapter, and extract genuine grant/installation access review into one Portal boundary. Total production files do not grow. Two access-review exports replace the deleted redirect export. Coordinator ACK 2026-10-13T14:02Z permits Portal +6 and TS exports +1; actual Portal growth is +5.",
+  "growth": {
+    "apps/portal": 5,
+    "typeScriptExportDeclarations": 1
+  }
+}

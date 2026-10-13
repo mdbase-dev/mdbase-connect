@@ -13,6 +13,7 @@ import { FolderChangeDialog, type FolderChangeActions } from "./FolderChangeDial
 import { FOLDER_PATH_MIME } from "./folder-change";
 import { RailDropTarget } from "./RailDropTarget";
 import { EditorRail } from "./EditorRail";
+import { connectServerUrl } from "./connect-endpoint";
 import type { CollectionFile, ConnectionSummary, NoteSummary } from "./model";
 import type { ConnectionState } from "./app-state-types";
 import { folderTree, type FolderTreeNode } from "./note";
@@ -295,10 +296,7 @@ function facetCountLabel(kind: NoteFilter["kind"], item: { name: string; count: 
 
 
 export function connectWorkspaceUrl(collectionId: string): string {
-  const url = new URL("/connect", location.origin);
-  const source = new URLSearchParams(location.search);
-  const server = source.get("server");
-  if (server) url.searchParams.set("server", server);
+  const url = new URL("/", connectServerUrl());
   url.searchParams.set("collection", collectionId);
-  return `${url.pathname}${url.search}`;
+  return url.href;
 }

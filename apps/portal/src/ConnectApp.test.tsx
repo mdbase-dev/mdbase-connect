@@ -10,7 +10,7 @@ let overview: ManagementOverview;
 
 beforeEach(() => {
   localStorage.clear();
-  history.replaceState(null, "", "/connect?server=http%3A%2F%2F127.0.0.1%3A8787&collection=collection");
+  history.replaceState(null, "", "/?collection=collection");
   overview = overviewFixture();
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = new URL(String(input)).pathname;
@@ -31,6 +31,63 @@ afterEach(() => {
 });
 
 describe("ConnectApp", () => {
+  it("counts native collections without legacy shadow rows or content authorization", async () => {
+    overview.collections = [];
+    overview.hosted_collections = [];
+    overview.grants = [];
+    overview.native_collections = [
+      { id: "native", display_name: "Native notes", sync: "cloud_copy", access: { relationship: "owner", role: "owner", can_manage_members: false } },
+      { id: "private", display_name: "Private notes", sync: "private", access: { relationship: "member", role: "viewer", can_manage_members: false } }
+    ];
+    history.replaceState(null, "", "/collections?server=https%3A%2F%2Funtrusted.example");
+    const { container } = render(<ConnectApp />);
+    expect(await screen.findByRole("heading", { name: "Collections" })).toBeInTheDocument();
+    expect(screen.getByText("Native notes")).toBeInTheDocument();
+    expect(screen.getByText("Private notes")).toBeInTheDocument();
+    expect(container.querySelector(".connect-section-title")).toHaveTextContent("All collections2");
+    expect(vi.mocked(fetch).mock.calls.every(([input, init]) => new URL(String(input)).origin === location.origin && (!init?.method || init.method === "GET"))).toBe(true);
+  });
+
+  it("reviews and revokes genuine installation scope without manufacturing a grant", async () => {
+    overview.grants = [];
+    overview.installation_access = [installationFixture()];
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    await user.click(await screen.findByRole("link", { name: "Applications" }));
+    expect(await screen.findByText("Reader app")).toBeInTheDocument();
+    expect(screen.getByText("Entire collection · Access as your account (owner)")).toBeInTheDocument();
+    expect(screen.queryByText(/permissions ·/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Revoke collection access" }));
+    expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+    await user.click(screen.getByRole("button", { name: "Revoke collection access" }));
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input, init]) => new URL(String(input)).pathname === "/v1/account/applications/registered-app/remove-installation-access" && init?.body === JSON.stringify({ collection_id: "collection", confirm: true }))).toBe(true));
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => new URL(String(input)).pathname.startsWith("/v1/grants"))).toBe(false);
+  });
+
+  it("can revoke a creation-only app registration through canonical installation sign-out", async () => {
+    overview.grants = [];
+    overview.installation_access = [{ ...installationFixture(), collection_id: null, collection_name: null, sync: null, role: null, create_collections: true }];
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    await user.click(await screen.findByRole("link", { name: "Applications" }));
+    expect(await screen.findByText("No collection access")).toBeInTheDocument();
+    expect(screen.getByText("Can create collections for your account")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Revoke application" }));
+    expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
+    await user.click(screen.getByRole("button", { name: "Revoke application" }));
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input, init]) => new URL(String(input)).pathname === "/v1/account/installations/installation-connector" && init?.method === "DELETE")).toBe(true));
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => new URL(String(input)).pathname.startsWith("/v1/grants"))).toBe(false);
+  });
+
+  it("opens /account directly on Connect and retains browser-session controls", async () => {
+    history.replaceState(null, "", "/account");
+    render(<ConnectApp />);
+    expect(await screen.findByRole("heading", { name: "Account" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Browser sessions" })).toBeInTheDocument();
+    expect(location.pathname).toBe("/account");
+    expect(screen.queryByRole("complementary", { name: "Collection navigation" })).not.toBeInTheDocument();
+  });
+
   it("orbits the mark while Connect is opening", () => {
     vi.mocked(fetch).mockImplementation(() => new Promise<Response>(() => {}));
     const { container } = render(<ConnectApp />);
@@ -131,7 +188,7 @@ describe("ConnectApp", () => {
     expect(calls.some((path) => path.includes("authorization"))).toBe(false);
 
     await user.click(screen.getByRole("link", { name: /Applications/ }));
-    await waitFor(() => expect(location.pathname).toBe("/connect/applications"));
+    await waitFor(() => expect(location.pathname).toBe("/applications"));
     expect(screen.getByRole("heading", { name: "Applications" })).toBeInTheDocument();
   });
 
@@ -143,7 +200,7 @@ describe("ConnectApp", () => {
     await screen.findByRole("heading", { name: "Garden notes" });
     await user.click(screen.getAllByRole("button", { name: "Send feedback" })[0]);
 
-    expect(location.pathname).toBe("/connect");
+    expect(location.pathname).toBe("/");
     expect(screen.getByRole("dialog", { name: "Send feedback" })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: /What happened/ })).toHaveFocus();
     await user.click(screen.getByText("What gets sent"));
@@ -152,33 +209,26 @@ describe("ConnectApp", () => {
     expect(screen.getByText("Private feedback to the mdbase team.")).toBeInTheDocument();
   });
 
-  it("keeps Connect inside the editor collection shell", async () => {
+  it("manages collections on the portal without mounting the Editor shell", async () => {
     const user = userEvent.setup();
     render(<ConnectApp />);
-
     expect(await screen.findByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
-    const collectionNavigation = screen.getByRole("complementary", { name: "Collection navigation" });
-    expect(collectionNavigation).toHaveTextContent("All notes");
-    expect(collectionNavigation).toHaveTextContent("Types");
-    expect(collectionNavigation).toHaveTextContent("Settings");
-    expect(collectionNavigation).not.toHaveTextContent("Manage");
-    expect(screen.getByRole("link", { name: /Connect/ })).toHaveAttribute("aria-current", "page");
-    expect(screen.queryByRole("complementary", { name: "Product navigation" })).not.toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Garden notes" })).toBeInTheDocument();
-    expect(screen.getByText("Account", { selector: "p" })).toBeInTheDocument();
-
-    const notes = screen.getByRole("link", { name: "All notes" });
-    expect(new URL(notes.getAttribute("href")!).searchParams.get("collection")).toBe("collection");
-
+    const navigation = screen.getByRole("complementary", { name: "mdbase connect navigation" });
+    expect(navigation).toHaveTextContent("All collections");
+    expect(navigation).toHaveTextContent("Account & sessions");
+    expect(screen.queryByRole("complementary", { name: "Collection navigation" })).not.toBeInTheDocument();
+    const editor = new URL(screen.getByRole("link", { name: "Open editor" }).getAttribute("href")!);
+    expect(editor.origin).not.toBe(location.origin);
+    expect(editor.searchParams.get("collection")).toBe("collection");
+    expect(editor.searchParams.get("server")).toBe(location.origin);
     await user.click(screen.getByRole("link", { name: "Storage & sync" }));
-    await waitFor(() => expect(location.pathname).toBe("/connect/storage"));
-    expect(screen.getByRole("heading", { name: "Storage & sync" })).toBeInTheDocument();
+    await waitFor(() => expect(location.pathname).toBe("/storage"));
     expect(screen.getByRole("heading", { name: "Storage & sync" })).toHaveFocus();
     expect(document.title).toBe("Storage & sync - mdbase connect");
   });
 
   it("opens the only collection directly and records its context in the URL", async () => {
-    history.replaceState(null, "", "/connect?server=http%3A%2F%2F127.0.0.1%3A8787");
+    history.replaceState(null, "", "/");
     render(<ConnectApp />);
 
     expect(await screen.findByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
@@ -187,19 +237,19 @@ describe("ConnectApp", () => {
 
   it("opens all collections when a direct entry has no unambiguous collection", async () => {
     overview.collections.push(secondCollection());
-    history.replaceState(null, "", "/connect?server=http%3A%2F%2F127.0.0.1%3A8787");
+    history.replaceState(null, "", "/");
     render(<ConnectApp />);
 
     expect(await screen.findByRole("heading", { name: "Collections" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "All collections" })).toHaveAttribute("aria-current", "page");
-    await waitFor(() => expect(location.pathname).toBe("/connect/collections"));
+    await waitFor(() => expect(location.pathname).toBe("/collections"));
     expect(new URLSearchParams(location.search).has("collection")).toBe(false);
   });
 
   it("restores the last selected collection on direct entry", async () => {
     overview.collections.push(secondCollection());
-    localStorage.setItem("mdbase-connect:last-collection:http://127.0.0.1:8787", "collection-two");
-    history.replaceState(null, "", "/connect?server=http%3A%2F%2F127.0.0.1%3A8787");
+    localStorage.setItem(`mdbase-connect:last-collection:${location.origin}`, "collection-two");
+    history.replaceState(null, "", "/");
     render(<ConnectApp />);
 
     expect(await screen.findByRole("heading", { name: "Research notes" })).toBeInTheDocument();
@@ -347,7 +397,7 @@ describe("ConnectApp", () => {
   it("invites and manages collection members from the collection overview", async () => {
     overview.collections = [];
     overview.hosted_collections = [hostedCollection()];
-    history.replaceState(null, "", "/connect?server=http%3A%2F%2F127.0.0.1%3A8787&collection=hosted");
+    history.replaceState(null, "", "/?collection=hosted");
     const originalFetch = vi.mocked(fetch).getMockImplementation()!;
     vi.mocked(fetch).mockImplementation(async (input, init) => {
       const path = new URL(String(input)).pathname;
@@ -416,7 +466,7 @@ describe("ConnectApp", () => {
     };
     overview.collections = [];
     overview.hosted_collections = [hosted];
-    history.replaceState(null, "", "/connect/collections?server=http%3A%2F%2F127.0.0.1%3A8787&collection=hosted");
+    history.replaceState(null, "", "/collections?collection=hosted");
     render(<ConnectApp />);
 
     expect(await screen.findByRole("heading", { name: "Collections" })).toBeInTheDocument();
@@ -427,7 +477,7 @@ describe("ConnectApp", () => {
   });
 
   it("accepts a fragment-bound collection invitation without retaining the token", async () => {
-    history.replaceState(null, "", "/connect?server=http%3A%2F%2F127.0.0.1%3A8787&collection=collection#delete_token=keep&collection-invitation=cinv_private-token");
+    history.replaceState(null, "", "/?collection=collection#delete_token=keep&collection-invitation=cinv_private-token");
     const originalFetch = vi.mocked(fetch).getMockImplementation()!;
     vi.mocked(fetch).mockImplementation(async (input, init) => {
       const path = new URL(String(input)).pathname;
@@ -866,10 +916,14 @@ describe("ConnectApp", () => {
     await user.click(screen.getByRole("button", { name: "Delete account permanently" }));
 
     expect(await screen.findByRole("heading", { name: "Your account has been deleted." })).toBeInTheDocument();
-    expect(location.pathname).toBe("/connect/account-deleted");
+    expect(location.pathname).toBe("/account-deleted");
     expect(screen.getByText(/local collection and mirror files remain/i)).toBeInTheDocument();
   });
 });
+
+function installationFixture(): NonNullable<ManagementOverview["installation_access"]>[number] {
+  return { application_id: "registered-app", application_family_id: "reader-family", application_name: "Reader app", application_origin: "https://reader.example", icon: null, connector_id: "installation-connector", installation_id: "installation-11111111", device_kind: "app-runtime", created_at: "2026-01-01T12:00:00Z", create_collections: false, collection_id: "collection", collection_name: "Garden notes", sync: "cloud_copy", available: true, role: "owner", approved_optional_file_actions: [] };
+}
 
 function overviewFixture(): ManagementOverview {
   const now = new Date().toISOString();
