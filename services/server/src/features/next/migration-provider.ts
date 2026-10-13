@@ -18,7 +18,9 @@ import { loadServiceDevice } from "./service-devices.js";
 interface Claim { account: string; started_us: string; display_name: string }
 interface Options {
   db: DatabasePool; token: string;
-  provider?: Pick<HostedProviderClient, "legacyMigrationDrain" | "legacyMigrationSource" | "legacyMigrationFence">;
+  /** Without `legacyMigrationPlacement`, a target gets the log service's default region. */
+  provider?: Pick<HostedProviderClient, "legacyMigrationDrain" | "legacyMigrationSource" | "legacyMigrationFence">
+    & Partial<Pick<HostedProviderClient, "legacyMigrationPlacement">>;
   bootstrap?: Omit<CloudCopyBootstrapOptions, "db">;
   /** Existing hosted-role credential + OWN canonical configured CP origin. */
   hostedRead?: { token: string; audience: string };
@@ -86,10 +88,14 @@ async function target(collection: string, options: Options) {
       throw new RolloutRefused("migration_source_changed", "The migration claim changed.");
     }
   };
+  // The storage region comes from the legacy timezones, as the migration plan
+  // counted them; it only matters when this call registers the collection.
+  const legacy = await options.provider?.legacyMigrationPlacement?.(collection, { deadline: Date.now() + 25_000 });
   // Runtime and owner are composed here, never selected by caller input. The
   // shared creator rechecks current around awaits and preserves committed keys.
   const result = await createServiceCloudCopy({ ...options.bootstrap, db: options.db }, {
-    collection, owner: before.account, runtime: "shadow", displayName: before.display_name, current
+    collection, owner: before.account, runtime: "shadow", displayName: before.display_name, current,
+    placement: legacy && { timezone: legacy.timezone, ownerTimezones: legacy.ownerTimezones }
   });
   return inTransaction(options.db, async client => {
     await current(client);

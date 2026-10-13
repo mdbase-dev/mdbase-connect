@@ -45,6 +45,10 @@ pub(super) fn legacy_migration_routes() -> Router<AppState> {
             put(set_legacy_migration_state).get(legacy_migration_drain),
         )
         .route(
+            "/internal/v1/collections/{collection_id}/legacy-migration/placement",
+            get(legacy_migration_placement),
+        )
+        .route(
             "/internal/v1/collections/{collection_id}/legacy-migration/revoke-replicas",
             post(revoke_replicas),
         )
@@ -100,6 +104,19 @@ async fn legacy_migration_drain(
         ],
         Json(json!(drain)),
     ))
+}
+
+async fn legacy_migration_placement(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(collection_id): Path<Uuid>,
+) -> ApiResult<impl IntoResponse> {
+    state.authorize_internal(&headers)?;
+    let placement = state
+        .provider
+        .legacy_migration_placement(collection_id)
+        .await?;
+    Ok(([("cache-control", "no-store")], Json(json!(placement))))
 }
 
 async fn revoke_replicas(

@@ -6,7 +6,7 @@ mod support;
 mod test_postgres;
 
 use chrono::{Duration, Utc};
-use mdbase_connect_hosted_provider::{app, AppState, LegacyRollbackRequest};
+use mdbase_connect_hosted_provider::{app, AppState, LegacyRollbackRequest, ProviderAccountLimits};
 use mdbase_connect_protocol::*;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -1597,4 +1597,63 @@ async fn revoked_replicas_read_names_only_the_current_runs_own_revocations() {
     let body: Value = read().await.json().await.unwrap();
     assert_eq!(body["revoked"], json!([]));
     server.abort();
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn placement_reports_the_collection_and_owner_timezones_only() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let provider = &fixture.provider;
+    let id = fixture.collection_id;
+    let account: Uuid =
+        sqlx::query_scalar("SELECT account_id FROM hosted_provider_collections WHERE id = $1")
+            .bind(id)
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
+    for timezone in ["Europe/Berlin", "Australia/Sydney"] {
+        provider
+            .create_collection(account, Uuid::now_v7(), "mdbase", "Other", timezone)
+            .await
+            .unwrap();
+    }
+    // Another account's collection never counts.
+    let stranger = Uuid::now_v7();
+    provider
+        .upsert_account(
+            stranger,
+            1,
+            ProviderAccountLimits {
+                hosted_storage_bytes: 1024 * 1024 * 1024,
+                retained_file_bytes: 1024 * 1024 * 1024,
+                max_document_bytes: 2 * 1024 * 1024,
+                max_single_file_bytes: 250 * 1024 * 1024,
+                max_mirror_replicas_per_collection: 10,
+                max_application_replicas_per_collection: 50,
+                max_hosted_collections: 10,
+                max_files_per_collection: 10_000,
+            },
+        )
+        .await
+        .unwrap();
+    provider
+        .create_collection(stranger, Uuid::now_v7(), "mdbase", "Theirs", "Asia/Tokyo")
+        .await
+        .unwrap();
+
+    let placement = provider.legacy_migration_placement(id).await.unwrap();
+    assert_eq!(placement.collection_id, id);
+    assert_eq!(placement.timezone, "UTC");
+    // Newest first.
+    assert_eq!(
+        placement.owner_timezones,
+        vec!["Australia/Sydney".to_string(), "Europe/Berlin".to_string()]
+    );
+
+    let missing = provider
+        .legacy_migration_placement(Uuid::now_v7())
+        .await
+        .unwrap_err();
+    assert_eq!(missing.status.as_u16(), 404);
 }

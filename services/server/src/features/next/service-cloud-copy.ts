@@ -6,7 +6,7 @@ import { RequestValidationError } from "../../platform/http-errors.js";
 import { CreateError, enrolOp, inTransaction, lock, SERVICE_ACCOUNT } from "./bootstrap-common.js";
 import { requireCollectionNotDeleted } from "./collection-deletion.js";
 import { requireAccountNotMigrationFrozen } from "./migration-topology.js";
-import type { LogServiceClient } from "./log-service-client.js";
+import type { LogPlacement, LogServiceClient } from "./log-service-client.js";
 import type { NextControlPlaneConfig } from "./policy-keys.js";
 import { registerNextCollection, type PolicyEmitter } from "./policy-outbox.js";
 import { generateServiceDevice, loadServiceDevice, storeServiceDevice, type ServiceDeviceRecord } from "./service-devices.js";
@@ -106,8 +106,10 @@ export async function createServiceCloudCopy(options: CloudCopyBootstrapOptions,
   /** Seals the collection's initial content after genesis, on every call. It must be
    * idempotent per collection, so a retry converges on the same content. */
   initialContent?: () => Promise<unknown>;
+  /** Storage-region inputs; see `registerNextCollection`. */
+  placement?: LogPlacement;
 }) {
-  const { collection, owner, runtime, displayName, current, initialContent } = input;
+  const { collection, owner, runtime, displayName, current, initialContent, placement } = input;
   const rootKeyId = Buffer.from(options.next.policyCert.root_key_id, "hex");
   const pitr = options.next.logService.labPitr;
   if (pitrCollection(pitr, collection) && (runtime !== "next" || owner !== pitr!.owner || displayName !== pitrLabel(pitr!, collection))) throw new CreateError(403, "lab_pitr_fixture_required");
@@ -135,7 +137,7 @@ export async function createServiceCloudCopy(options: CloudCopyBootstrapOptions,
       // A concurrent creator's committed keys win; retry reads them rather than
       // replacing them with the generated candidate tuple.
       if (await check(client)) throw new CreateError(503, "not_ready");
-      await registerNextCollection(client, { collectionId: collection, ownerUserId: owner, runtime, sync: "cloud_copy", rootKeyId, displayName,
+      await registerNextCollection(client, { collectionId: collection, ownerUserId: owner, runtime, sync: "cloud_copy", rootKeyId, displayName, placement,
         ops: [{ op: "genesis", owner, root: rootKeyId, state: "cloud-copy" }, { op: "member-set", account: owner, role: "owner" },
           ...generated.map(record => enrolOp(record.device_id, SERVICE_ACCOUNT, record))] });
       for (const record of generated) await storeServiceDevice(client, collection, record);

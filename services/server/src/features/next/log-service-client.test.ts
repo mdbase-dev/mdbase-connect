@@ -130,4 +130,23 @@ describe("log HTTP PoP client interoperability", () => {
     await expect(call()).rejects.toMatchObject({ code: "not_found" });
     expect(f.request().method).toBe(method);
   });
+  it("encodes create_log placement as key 2 {4: timezone, 5: [owner timezones]}, omitted when there is none", async () => {
+    const f = fixture();
+    const id = "22222222-2222-4222-8222-222222222222";
+    const placement = async (value?: Parameters<LogServiceClient["createLog"]>[2]) => {
+      await expect(f.client.createLog(id, Buffer.of(1), value)).rejects.toMatchObject({ code: "not_found" });
+      return ((decodeCbor(f.request().body) as Map<number, unknown>).get(3) as Map<number, unknown>).get(2);
+    };
+    expect(await placement({ timezone: "Australia/Sydney", ownerTimezones: ["Europe/Berlin", "America/Denver"] }))
+      .toEqual(new Map<number, unknown>([[4, "Australia/Sydney"], [5, ["Europe/Berlin", "America/Denver"]]]));
+    expect(await placement({ timezone: "America/Argentina/Buenos_Aires" })).toEqual(new Map([[4, "America/Argentina/Buenos_Aires"]]));
+    // The server answers UTC/unknown with the owner timezones, then its default.
+    expect(await placement({ timezone: "UTC", ownerTimezones: [] })).toEqual(new Map([[4, "UTC"]]));
+    expect(await placement()).toBeUndefined();
+    expect(await placement({})).toBeUndefined();
+    // Names the log service would refuse (and so park the genesis on) are never sent.
+    expect(await placement({ timezone: "x".repeat(65), ownerTimezones: ["", "Etc/GMT+10", "+10:00"] })).toEqual(new Map([[5, ["Etc/GMT+10"]]]));
+    expect(await placement({ ownerTimezones: Array.from({ length: 1001 }, () => "Asia/Tokyo") }))
+      .toEqual(new Map([[5, Array.from({ length: 1000 }, () => "Asia/Tokyo")]]));
+  });
 });

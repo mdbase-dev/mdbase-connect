@@ -862,6 +862,50 @@ pub(in crate::provider) async fn ensure_legacy_data_disposable(
     Ok(())
 }
 
+/// The log service accepts at most this many owner timezones.
+const MAX_OWNER_TIMEZONES: i64 = 1000;
+
+/// The legacy timezones a migrated collection's storage region is chosen from
+/// (mdbase-next `crates/log-service/src/timezone.rs`): the collection's own
+/// creator-device timezone (`UTC` when unknown) and the owner's timezones across
+/// their other hosted collections. Read-only and content-free.
+#[derive(Debug, Clone, Serialize)]
+pub struct LegacyMigrationPlacement {
+    pub collection_id: Uuid,
+    pub timezone: String,
+    /// Newest first; empty when the collection has no provider account.
+    pub owner_timezones: Vec<String>,
+}
+
+impl HostedProvider {
+    pub async fn legacy_migration_placement(
+        &self,
+        collection_id: Uuid,
+    ) -> ApiResult<LegacyMigrationPlacement> {
+        let row = sqlx::query(
+            r#"SELECT c.timezone,
+                      COALESCE(ARRAY(
+                        SELECT o.timezone FROM hosted_provider_collections o
+                        WHERE o.account_id = c.account_id AND o.id <> c.id
+                        ORDER BY o.created_at DESC, o.id
+                        LIMIT $2
+                      ), ARRAY[]::text[]) AS owner_timezones
+               FROM hosted_provider_collections c
+               WHERE c.id = $1"#,
+        )
+        .bind(collection_id)
+        .bind(MAX_OWNER_TIMEZONES)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(not_found)?;
+        Ok(LegacyMigrationPlacement {
+            collection_id,
+            timezone: row.get("timezone"),
+            owner_timezones: row.get("owner_timezones"),
+        })
+    }
+}
+
 #[cfg(test)]
 mod rollback_binding_tests {
     use super::*;
