@@ -672,7 +672,8 @@ export async function buildApp(options: BuildOptions) {
         if (!approval && returnTo && ["/login", "/signup", "/reset-password"].includes(page.pathname)) {
           try {
             const target = new URL(returnTo, publicUrl);
-            approval = target.origin === new URL(publicUrl).origin && approvalPath(target.pathname);
+            approval = target.origin === new URL(publicUrl).origin
+              && (approvalPath(target.pathname) || target.pathname === "/oauth/authorize");
           } catch { /* malformed return targets retain the ordinary policy */ }
         }
         if (approval) reply.header("Cross-Origin-Opener-Policy", "unsafe-none");

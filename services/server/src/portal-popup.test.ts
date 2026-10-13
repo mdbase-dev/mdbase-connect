@@ -28,7 +28,13 @@ describe("approval HTML opener policy",()=>{
     const reply=await app.inject({url:`${path}?return_to=${encodeURIComponent(`${publicUrl}/pair/${id}`)}`,headers:{accept:"text/html"}});
     expect(reply.statusCode).toBe(200);expect(reply.headers["cross-origin-opener-policy"]).toBe("unsafe-none");
   });
-  it.each(["/","/login","/settings",`/pair/${id}/extra`,`/pair/not-an-id`,`/pairing/${id}`,`/authorize/not-an-id`,"/login?return_to=https%3A%2F%2Fforeign.example%2Fpair%2F"+id,"/signup?return_to=%2Fsettings"])("keeps ordinary isolation for %s",async url=>{
+  it("retains app opener across the authorization redirect and its sign-in return",async()=>{
+    const redirect=await app.inject({url:`/oauth/authorize?request_id=${id}`,headers:{accept:"text/html"}});
+    expect(redirect.statusCode).toBe(302);expect(redirect.headers["cross-origin-opener-policy"]).toBe("unsafe-none");
+    const login=await app.inject({url:String(redirect.headers.location),headers:{accept:"text/html"}});
+    expect(login.statusCode).toBe(200);expect(login.headers["cross-origin-opener-policy"]).toBe("unsafe-none");
+  });
+  it.each(["/","/login","/settings",`/pair/${id}/extra`,`/pair/not-an-id`,`/pairing/${id}`,`/authorize/not-an-id`,"/login?return_to=https%3A%2F%2Fforeign.example%2Fpair%2F"+id,"/signup?return_to=%2Fsettings","/login?return_to="+encodeURIComponent(`${publicUrl}/oauth/authorized`)])("keeps ordinary isolation for %s",async url=>{
     const reply=await app.inject({url,headers:{accept:"text/html"}});
     expect(reply.headers["cross-origin-opener-policy"]).toBe("same-origin");
   });
