@@ -31,6 +31,7 @@ import { bearerToken } from "../../platform/request-authentication.js";
 import { safeEqual } from "../../security.js";
 import { drainDeferredAccountDeletions } from "../../account-management.js";
 import { migrationServiceRateLimit } from "./migration-rate-limit.js";
+import { captureProjection } from "./migration-capture.js";
 import { completeMigrationBatch, releaseDeferredDeletions } from "./migration-topology.js";
 import { flipEvidenceDigest, recordAccountFlip } from "./account-backend-flip.js";
 import { HostedProviderResponseError, HostedProviderUnavailableError, type HostedProviderClient,
@@ -172,13 +173,13 @@ async function archiveClock(client: DatabaseQueryable): Promise<string> {
 }
 
 /** Caller holds this transaction's batch lock through inventory/currentness checks. */
-async function readArchiveBinding(client: DatabaseQueryable, name: string): Promise<{ binding: ArchiveBinding; frozenAt: string; memberCount: number; inventory: [string, string[]][] }> {
+async function readCohortBinding(client: DatabaseQueryable, name: string, requireFrozen: boolean): Promise<{ binding: ArchiveBinding; frozenAt: string | null; memberCount: number; inventory: [string, string[]][] }> {
   const batch = (await client.query<{ revision: string; changed: Date; frozen_at: Date | null }>(
     `SELECT membership_revision::text AS revision, membership_changed_at AS changed, frozen_at
      FROM next_migration_cohorts WHERE name = $1 FOR UPDATE`, [name]
   )).rows[0];
   if (!batch) throw new RolloutRefused("cohort_not_found", "Migration cohort not found.", 404);
-  if (batch.frozen_at === null) throw new RolloutRefused("backup_missing", "Migration topology must be frozen before archive capture.");
+  if (requireFrozen && batch.frozen_at === null) throw new RolloutRefused("backup_missing", "Migration topology must be frozen before archive capture.");
   const members = (await client.query<{ account: string; collection: string | null }>(
     `SELECT m.account_id::text AS account, h.id::text AS collection
      FROM next_migration_cohort_members m
@@ -197,7 +198,31 @@ async function readArchiveBinding(client: DatabaseQueryable, name: string): Prom
     membership_changed_at: new Date(batch.changed).toISOString()
   });
   if (!binding.success) throw new RolloutRefused("backup_missing", "Invalid current batch binding.");
-  return { binding: binding.data, frozenAt: new Date(batch.frozen_at).toISOString(), memberCount: inventory.size, inventory: [...inventory] };
+  return { binding: binding.data, frozenAt: batch.frozen_at === null ? null : new Date(batch.frozen_at).toISOString(), memberCount: inventory.size, inventory: [...inventory] };
+}
+
+async function readArchiveBinding(client: DatabaseQueryable, name: string) {
+  const current = await readCohortBinding(client, name, true);
+  if (current.frozenAt === null) throw new Error("Frozen cohort binding invariant failed.");
+  return { ...current, frozenAt: current.frozenAt };
+}
+
+/** Pre-acceptance inventory DATA only; never source/fence/restore permission. */
+async function cohortCaptureSnapshot(db: DatabasePool, name: string, environment: string | undefined) {
+  if (environment !== "staging" && environment !== "lab") throw new RolloutRefused("capture_unavailable", "The rehearsal capture view is unavailable.", 503);
+  return inTransaction(db, async client => {
+    await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+    await client.query("SET LOCAL statement_timeout = '5s'");
+    const current = await readCohortBinding(client, name, false);
+    const refuse = (): never => { throw new RolloutRefused("capture_unavailable", "No complete bounded capture inventory.", 503); };
+    const project = captureProjection(name, current, refuse);
+    const records = new Map((await client.query<{ account: string; suspended: boolean; terminal_excluded_at: Date | null }>(
+      `SELECT u.id::text AS account, u.suspended_at IS NOT NULL AS suspended, m.terminal_excluded_at
+       FROM users u JOIN next_migration_cohort_members m ON m.account_id=u.id WHERE m.cohort=$1`, [name])).rows.map(row => [row.account, row]));
+    const observations = [];
+    for (const [account] of current.inventory) observations.push({ view: await accountMigrationView(client, account), record: records.get(account) });
+    return project(observations, await archiveClock(client));
+  });
 }
 
 export async function cohortArchiveBinding(db: DatabasePool, name: string): Promise<ArchiveBinding> {
@@ -895,10 +920,11 @@ export function registerMigrationRolloutRoutes(app: FastifyInstance, options: {
     reply.header("cache-control", "no-store");
     if (!migrator(request)) return deny(reply);
     const p = cohortParam.safeParse(request.params);
-    const q = z.object({ view: z.literal("receiving-v1").optional() }).strict().safeParse(request.query);
+    const q = z.object({ view: z.enum(["receiving-v1", "capture-v1"]).optional() }).strict().safeParse(request.query);
     const hasBody = (request.headers["content-length"] ?? "0") !== "0" || request.headers["transfer-encoding"] !== undefined;
     if (!p.success || !q.success || hasBody) return reply.code(400).send(apiError("invalid_request", "A canonical batch and optional receiving view, without a body, are required."));
     try {
+      if (q.data.view === "capture-v1") return await cohortCaptureSnapshot(options.db, p.data.name, options.environment);
       return q.data.view ? await cohortReceivingSnapshot(options.db, p.data.name, options.environment)
         : await cohortArchiveBinding(options.db, p.data.name);
     } catch (e) { return refused(reply, e); }
