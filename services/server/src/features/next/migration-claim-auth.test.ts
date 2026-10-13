@@ -1,5 +1,6 @@
 import { createPrivateKey, sign, verify, createPublicKey } from "node:crypto";
 import { readFileSync } from "node:fs";
+import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
 import { configuredClaimAudience, serviceClaimReadDigest, type ServiceClaimFacts } from "./migration-claim-auth.js";
@@ -60,5 +61,32 @@ describe("closed hosted migration claim authentication DATA", () => {
     const db = {} as DatabasePool, app = Fastify();
     expect(() => registerMigrationProviderRoutes(app, { db, token: "same", hostedRead: { token: "same", audience } })).toThrow();
     await app.close();
+  });
+  it("counts hosted-role claim calls against one service budget, not the caller's IP", async () => {
+    const forbidden = async () => { throw new Error("no database work expected"); };
+    const db = { query: forbidden, connect: forbidden, end: forbidden } as DatabasePool;
+    const app = Fastify();
+    await app.register(rateLimit, { global: true, max: 600, timeWindow: "1 minute" });
+    registerMigrationProviderRoutes(app, { db, token: "operator-only", hostedRead: { token: "hosted-only", audience } });
+    const challenge = (credential: string | undefined, remoteAddress: string) => app.inject({
+      method: "POST", url: `/internal/v1/next/migration/collections/${facts.collection_id}/claim/challenge`, remoteAddress,
+      headers: { "content-type": "application/json", ...(credential ? { authorization: `Bearer ${credential}` } : {}) }, payload: {}
+    });
+    try {
+      // A malformed body is refused after the limiter and before any database work.
+      for (let i = 0; i < 4_800; i++) expect((await challenge("hosted-only", i % 2 ? "10.0.0.1" : "10.0.0.2")).statusCode).toBe(400);
+      const over = await challenge("hosted-only", "10.0.0.3");
+      expect(over.statusCode).toBe(429);
+      expect(Number(over.headers["x-ratelimit-limit"])).toBe(4_800);
+      // Without the hosted role credential: refused before the limiter, never in the service bucket.
+      for (const credential of [undefined, "operator-only", "hosted-only-x"]) {
+        const refused = await challenge(credential, "10.0.0.1");
+        expect(refused.statusCode).toBe(401); expect(refused.headers["x-ratelimit-limit"]).toBeUndefined();
+      }
+      // The read route keeps its own bucket.
+      const read = await app.inject({ method: "POST", url: `/internal/v1/next/migration/collections/${facts.collection_id}/claim/read`,
+        headers: { "content-type": "application/json", authorization: "Bearer hosted-only" }, payload: {} });
+      expect(read.statusCode).toBe(400); expect(Number(read.headers["x-ratelimit-remaining"])).toBe(4_799);
+    } finally { await app.close(); }
   });
 });

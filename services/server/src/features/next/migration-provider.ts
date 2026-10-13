@@ -1,7 +1,8 @@
 // Dedicated migration-token fronts for provider fence/drain and canonical
 // SHADOW bootstrap. Public target facts are not native H1/key readiness; these
 // routes never grant serving authority, cut over, restore or unfreeze a source.
-import type { FastifyInstance } from "fastify";
+import { normalizeIP } from "@fastify/rate-limit";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import { HostedProviderResponseError, HostedProviderUnavailableError, type HostedProviderClient } from "../../hosted-provider.js";
@@ -155,6 +156,36 @@ async function action(collection: string, fence: boolean, options: Options) {
   });
 }
 
+// The hosted Worker's migration executor reads the claim before every action:
+// each prepare is one challenge and one read, so each route sees one request per
+// action. A collection's run is about 20 fixed actions plus one per page of at
+// most 64 source rows, and the executor runs them back to back (up to 64 per
+// wake, re-armed after 100 ms), so its rate is bounded by latency: with at least
+// two sequential control-plane transactions and an effect per action, no more
+// than about 300 actions a minute. Every collection's DO calls from shared
+// Cloudflare egress, so a per-IP 20 a minute caps all running collections at 20
+// actions a minute together, each refused prepare waits 30 s and five in a row
+// stop the run. Requests carrying the hosted role credential use one
+// service bucket per route: 4,800 a minute covers 16 collections at that ceiling
+// (the batch runner starts accounts one at a time; the rollout plan allows 8
+// workers). Anything else keeps the per-IP 20 a minute; the role check in
+// onRequest refuses it before the limiter counts it.
+const CLAIM_IP_REQUESTS_PER_MINUTE = 20;
+const CLAIM_SERVICE_REQUESTS_PER_MINUTE = 4_800;
+const CLAIM_SERVICE_BUCKET = "service:hosted:migration-claim";
+
+function claimRateLimit(hostedToken: string) {
+  return {
+    timeWindow: "1 minute",
+    keyGenerator(request: FastifyRequest): string {
+      const token = bearerToken(request);
+      return token && safeEqual(token, hostedToken) ? CLAIM_SERVICE_BUCKET : normalizeIP(request.ip);
+    },
+    max: (_request: FastifyRequest, key: string): number =>
+      key === CLAIM_SERVICE_BUCKET ? CLAIM_SERVICE_REQUESTS_PER_MINUTE : CLAIM_IP_REQUESTS_PER_MINUTE
+  };
+}
+
 export function registerMigrationProviderRoutes(app: FastifyInstance, options: Options): void {
   const params = z.object({ id: z.string().regex(/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}(?![\s\S])/u)
     .refine(id => id !== "00000000-0000-0000-0000-000000000000") }).strict();
@@ -168,7 +199,7 @@ export function registerMigrationProviderRoutes(app: FastifyInstance, options: O
     const readBody = challengeBody.extend({ challenge: z.string().regex(/^[0-9a-f]{64}(?![\s\S])/u), sig: z.string().regex(/^[0-9a-f]{128}(?![\s\S])/u) }).strict();
     for (const kind of ["challenge", "read"] as const) {
       app.post(`/internal/v1/next/migration/collections/:id/claim/${kind}`, {
-        bodyLimit: 1024, config: { rateLimit: { max: 20, timeWindow: "1 minute" } },
+        bodyLimit: 1024, config: { rateLimit: claimRateLimit(hostedRead.token) },
         onRequest: async (request, reply) => {
           reply.header("cache-control", "no-store");
           const token = bearerToken(request);
