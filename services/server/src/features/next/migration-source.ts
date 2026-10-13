@@ -15,6 +15,7 @@ import type { NextControlPlaneConfig } from "./policy-keys.js";
 import { keyId, type PolicySigner } from "./policy-wire.js";
 import { signMigrationSourceWitness } from "./migration-source-witness.js";
 import { collectionRegion } from "./policy-outbox.js";
+import { migrationServiceRateLimit } from "./migration-rate-limit.js";
 
 const NIL = "00000000-0000-0000-0000-000000000000";
 const uuid = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u).refine(value => value !== NIL);
@@ -124,7 +125,7 @@ async function issue(collection: string, options: Options) {
 export function registerMigrationSourceWitnessRoutes(app:FastifyInstance,options:Options):void {
   const token=options.next.migrationToken;
   if(!token) throw new Error("Migration witness registration needs the dedicated migration token.");
-  app.post<{Params:{id:string}}>("/internal/v1/next/migration/collections/:id/source-witness",{bodyLimit:4096,config:{rateLimit:{max:20,timeWindow:"1 minute"}}},async(request,reply)=>{
+  app.post<{Params:{id:string}}>("/internal/v1/next/migration/collections/:id/source-witness",{bodyLimit:4096,config:{rateLimit:migrationServiceRateLimit(token,"service:migration:source-witness")}},async(request,reply)=>{
     reply.header("cache-control","no-store");
     const presented=bearerToken(request);
     if(!presented||!safeEqual(presented,token))return reply.code(401).send(apiError("invalid_internal_token","The migration token is required."));

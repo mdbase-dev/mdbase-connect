@@ -1,8 +1,7 @@
 // Dedicated migration-token fronts for provider fence/drain and canonical
 // SHADOW bootstrap. Public target facts are not native H1/key readiness; these
 // routes never grant serving authority, cut over, restore or unfreeze a source.
-import { normalizeIP } from "@fastify/rate-limit";
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import { HostedProviderResponseError, HostedProviderUnavailableError, type HostedProviderClient } from "../../hosted-provider.js";
@@ -12,6 +11,7 @@ import { bearerToken } from "../../platform/request-authentication.js";
 import { safeEqual } from "../../security.js";
 import { CreateError, inTransaction, lock, refuseRevoked } from "./bootstrap-common.js";
 import { configuredClaimAudience, consumeServiceClaimChallenge, issueServiceClaimChallenge, sameServiceClaim } from "./migration-claim-auth.js";
+import { migrationServiceRateLimit } from "./migration-rate-limit.js";
 import { RolloutRefused } from "./migration-rollout.js";
 import { createServiceCloudCopy, existingCloudCopy, type CloudCopyBootstrapOptions } from "./service-cloud-copy.js";
 import { loadServiceDevice } from "./service-devices.js";
@@ -170,21 +170,7 @@ async function action(collection: string, fence: boolean, options: Options) {
 // (the batch runner starts accounts one at a time; the rollout plan allows 8
 // workers). Anything else keeps the per-IP 20 a minute; the role check in
 // onRequest refuses it before the limiter counts it.
-const CLAIM_IP_REQUESTS_PER_MINUTE = 20;
-const CLAIM_SERVICE_REQUESTS_PER_MINUTE = 4_800;
 const CLAIM_SERVICE_BUCKET = "service:hosted:migration-claim";
-
-function claimRateLimit(hostedToken: string) {
-  return {
-    timeWindow: "1 minute",
-    keyGenerator(request: FastifyRequest): string {
-      const token = bearerToken(request);
-      return token && safeEqual(token, hostedToken) ? CLAIM_SERVICE_BUCKET : normalizeIP(request.ip);
-    },
-    max: (_request: FastifyRequest, key: string): number =>
-      key === CLAIM_SERVICE_BUCKET ? CLAIM_SERVICE_REQUESTS_PER_MINUTE : CLAIM_IP_REQUESTS_PER_MINUTE
-  };
-}
 
 export function registerMigrationProviderRoutes(app: FastifyInstance, options: Options): void {
   const params = z.object({ id: z.string().regex(/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}(?![\s\S])/u)
@@ -199,7 +185,7 @@ export function registerMigrationProviderRoutes(app: FastifyInstance, options: O
     const readBody = challengeBody.extend({ challenge: z.string().regex(/^[0-9a-f]{64}(?![\s\S])/u), sig: z.string().regex(/^[0-9a-f]{128}(?![\s\S])/u) }).strict();
     for (const kind of ["challenge", "read"] as const) {
       app.post(`/internal/v1/next/migration/collections/:id/claim/${kind}`, {
-        bodyLimit: 1024, config: { rateLimit: claimRateLimit(hostedRead.token) },
+        bodyLimit: 1024, config: { rateLimit: migrationServiceRateLimit(hostedRead.token, CLAIM_SERVICE_BUCKET) },
         onRequest: async (request, reply) => {
           reply.header("cache-control", "no-store");
           const token = bearerToken(request);
@@ -230,7 +216,7 @@ export function registerMigrationProviderRoutes(app: FastifyInstance, options: O
   }
   for (const kind of ["source", "fence", "target", "claim"] as const) {
     app.route({ method: kind === "source" || kind === "claim" ? "GET" : "POST", url: `/internal/v1/next/migration/collections/:id/${kind}`,
-      bodyLimit: 4096, config: { rateLimit: { max: 20, timeWindow: "1 minute" } },
+      bodyLimit: 4096, config: { rateLimit: migrationServiceRateLimit(options.token, `service:migration:${kind}`) },
       handler: async (request, reply) => {
         reply.header("cache-control", "no-store");
         const token = bearerToken(request);

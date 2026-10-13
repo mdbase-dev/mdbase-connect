@@ -1,0 +1,9 @@
+{
+  "reason": "The migration executor and Driver call the fence, source, replica, policy and cutover fronts from shared egress addresses, so their per-IP limits throttled every running collection together. One small module holds the service-bucket limiter the claim routes already had inline (now deleted there), keyed by each route's own credential; the four route files import it. No new route, credential, store or configuration.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 6,
+    "typeScriptExportDeclarations": 1,
+    "services/server": 1
+  }
+}
