@@ -1,3 +1,4 @@
+import { offlineShellPlugin } from "@mdbase-dev/sdk/offline-shell/build";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
@@ -9,7 +10,7 @@ const buildId = (process.env.MDBASE_EDITOR_BUILD_ID ?? process.env.GITHUB_SHA ??
 
 export default defineConfig({
   base: basePath,
-  plugins: [react()],
+  plugins: [react(), offlineShellPlugin()],
   // hoistingLimits gives each workspace package its own copies; @mdbase-dev/ui must use the app's
   // React and CodeMirror (two @codemirror/state instances cannot share an editor).
   resolve: { dedupe: ["react", "react-dom", "@codemirror/state", "@codemirror/view"] },

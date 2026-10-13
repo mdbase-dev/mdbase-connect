@@ -43,7 +43,7 @@ import { ConnectScreen } from "./ConnectionScreens";
 import type { LeaveIntent } from "@mdbase-dev/ui/collections";
 import type { EditorCollectionSwitcher } from "./editor-collections";
 import { ConflictResolver } from "./ConflictResolver";
-import { DraftRecovery, frontmatterPatch } from "./draft-recovery";
+import { DraftRecovery, frontmatterPatch, recoveryDraftMatchesRecord } from "./draft-recovery";
 import { connectServerUrl } from "./connect-endpoint";
 import { ConfirmDialog } from "./Dialog";
 import {
@@ -507,11 +507,14 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     noteSessions.current.set(next.path, session);
     let previous = session.record.snapshot;
     const collection = mutationScope.current.token().collectionId!;
-    try { session.recoveryDraft = draftRecovery?.read(collection, next.path); }
+    try { session.recoveryDraft = draftRecovery?.read(collection, next.path, next); }
     catch { session.recoveryError = "Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes."; }
     if (!draftRecovery) session.recoveryError = "Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes.";
     session.record.subscribe(() => {
       const current = session.record.snapshot;
+      if (session.recoveryDraft && current.state === "saved" && recoveryDraftMatchesRecord(session.recoveryDraft, current.record)) {
+        session.recoveryDraft = undefined;
+      }
       if (!session.recoveryDraft) {
         try {
           if (current.dirty) draftRecovery?.write(collection, current.record.path, {
@@ -519,8 +522,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             patch: frontmatterPatch(current.record.frontmatter, current.frontmatter),
             baseFrontmatter: current.record.frontmatter
           });
-          else draftRecovery?.remove(collection, current.record.path);
-          if (previous.record.path !== current.record.path) draftRecovery?.remove(collection, previous.record.path);
+          else draftRecovery?.remove(collection, current.record.path, current.record);
+          if (previous.record.path !== current.record.path) draftRecovery?.remove(collection, previous.record.path, current.record);
           if (draftRecovery) session.recoveryError = undefined;
         } catch { session.recoveryError = "Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes."; }
       }
@@ -1930,7 +1933,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           {noteSessions.current.active?.recoveryError && <p role="alert">{noteSessions.current.active.recoveryError}</p>}
           {noteSessions.current.active?.recoveryDraft && <section className="conflict-resolver" role="status" aria-label="Unsaved draft found">
             <strong>Unsaved edits from an earlier session are available.</strong>
-            <p>They stay in this browser for up to seven days, or until saved or discarded. Restoring does not overwrite a newer version without review.</p>
+            <p>Editing is paused until you restore or discard these edits. They stay in this browser for up to seven days, or until saved or discarded. Restoring does not overwrite a newer version without review.</p>
             <details><summary>Review recovered text</summary><pre>{noteSessions.current.active.recoveryDraft.body}</pre>
               {Object.keys(noteSessions.current.active.recoveryDraft.patch).length > 0 && <pre>{JSON.stringify(noteSessions.current.active.recoveryDraft.patch, null, 2)}</pre>}
             </details>
@@ -1940,7 +1943,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
               session.recoveryDraft = undefined;
               session.record.restore(recovered);
               if (!sessionDirty(session)) {
-                try { draftRecovery?.remove(mutationScope.current.token().collectionId!, session.document.path); }
+                try { draftRecovery?.remove(mutationScope.current.token().collectionId!, session.document.path, session.document); }
                 catch { setNotice("The recovery copy could not be removed from this browser."); }
               }
               session.record.autosave();
