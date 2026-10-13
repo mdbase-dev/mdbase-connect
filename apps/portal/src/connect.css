@@ -30,6 +30,30 @@
   border-top: 1px solid var(--line);
 }
 
+.connect-nav-footer > a {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  color: var(--muted);
+  font-size: var(--font-size-ui);
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+
+.connect-nav-footer > a:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.connect-nav-footer > a strong { font-weight: var(--font-weight-semibold); }
+.connect-nav-footer > a small { color: var(--faint); font-size: var(--font-size-caption); }
+
+.connect-installation-details { margin-top: var(--space-2); }
+.connect-installation-details > summary { cursor: pointer; font-size: var(--font-size-ui); }
+.connect-installation-details > div { margin-top: var(--space-2); }
+
 .connect-nav > header strong {
   font-size: var(--font-size-section);
   letter-spacing: -0.01em;

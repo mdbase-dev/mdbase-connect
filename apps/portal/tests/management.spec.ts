@@ -46,6 +46,32 @@ test("manages collections on the portal and links to the configured Editor witho
   await expect(page.getByRole("heading", { name: "Storage & sync" })).toBeVisible();
 });
 
+test("styles footer links and separates account details on desktop and mobile", async ({ page }) => {
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto(`${portalOrigin}/collections`);
+    await expect(page.getByRole("heading", { name: "Collections", exact: true })).toBeVisible();
+    const footer = page.locator(".connect-nav-footer");
+    for (const colorScheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme });
+      const styles = await footer.locator(":scope > a").evaluateAll(links => links.map(link => {
+        const style = getComputedStyle(link), name = link.querySelector("strong"), email = link.querySelector("small");
+        return { decoration: style.textDecorationLine, display: style.display, font: style.fontFamily,
+          separateLines: !name || !email || email.getBoundingClientRect().top >= name.getBoundingClientRect().bottom };
+      }));
+      expect(styles).toHaveLength(2);
+      for (const style of styles) { expect(style.decoration).toBe("none"); expect(style.display).toBe("grid"); expect(style.font).toMatch(/Atkinson/); expect(style.separateLines).toBe(true); }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    }
+  }
+});
+
+test("opens Reader's manage-access route on Applications", async ({ page }) => {
+  await page.goto(`${portalOrigin}/account/applications`);
+  await expect(page.getByRole("heading", { name: "Applications", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Browser sessions" })).toHaveCount(0);
+});
+
 test("gives Connect navigation distinct icons and section counts the UI face", async ({ page }) => {
   await page.goto(`${portalOrigin}/?collection=collection`);
   await expect(page.getByRole("heading", { name: "Garden notes" })).toBeVisible();

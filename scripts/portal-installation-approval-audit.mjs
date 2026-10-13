@@ -115,7 +115,9 @@ export async function auditPortalInstallationApproval(localPage, origin) {
     await load(first);
     pairing.creation = {collection_id: created, display_name: "Original name", completed: false};
     await page.reload(); await picker().waitFor();
-    assert.match(await picker().innerText(), /New collection/, "original creation overrides a hint");
+    assert.equal(await picker().innerText(), "Create a new collection…", "original creation overrides a hint");
+    assert.equal(await page.getByLabel("New collection name", {exact: true}).inputValue(), "Original name", "original creation keeps the server's name");
+    assert.equal(await page.getByLabel("New collection name", {exact: true}).getAttribute("readonly"), "");
     assert.equal(posts.length, 0);
     await load();
     pairing.account_email = null; pairing.account_provider = "github"; pairing.account_login = "original";
@@ -134,14 +136,14 @@ export async function auditPortalInstallationApproval(localPage, origin) {
     await page.reload(); await picker().waitFor(); await choose("Work notes");
     await approve().click(); await done();
     assert.deepEqual(posts.map(post => post.body), [{fingerprint: base.fingerprint, collection_ids: [second], create_collections: false, selected_collection_id: second}], "additive consent neither withdraws nor re-grants retained access");
-    await load(); await choose("New collection…");
+    await load(); await choose("Create a new collection…");
     await page.getByLabel("New collection name", {exact: true}).fill("New notes");
     await approve().click(); await done();
     assert.equal(posts.length, 2);
     assert.ok(posts[0].path.endsWith("/collections"));
     assert.deepEqual(posts[0].body, {display_name: "New notes"});
     assert.deepEqual(posts[1].body, {fingerprint: base.fingerprint, collection_ids: [created], create_collections: true, selected_collection_id: created});
-    await load(); await choose("New collection…");
+    await load(); await choose("Create a new collection…");
     await page.getByLabel("New collection name").fill("Original name");
     failCreation = true; await approve().click(); await page.getByRole("alert").waitFor();
     assert.equal(posts.length, 1);
