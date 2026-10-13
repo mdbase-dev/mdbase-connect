@@ -80,6 +80,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   const [createCollections,setCreateCollections] = useState(false);
   const [allowReminders,setAllowReminders] = useState(false);
   const [selectedCollectionId,setSelectedCollectionId] = useState("");
+  const [collectionSearch,setCollectionSearch] = useState("");
   const [newCollectionName,setNewCollectionName] = useState("");
   const [removingId,setRemovingId] = useState("");
   const [revokingId,setRevokingId] = useState("");
@@ -96,6 +97,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     setCreateCollections(false);
     setAllowReminders(false);
     setSelectedCollectionId("");
+    setCollectionSearch("");
     setNewCollectionName("");
     setDeepLink("");
     setError("");
@@ -235,6 +237,10 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       />
     );
   const installation = pairing.installation_device === true;
+  const collectionQuery = collectionSearch.trim().toLocaleLowerCase();
+  const matchingCollections = (pairing.collections ?? []).filter(collection => collection.display_name.toLocaleLowerCase().includes(collectionQuery));
+  // Searching narrows candidates, never changes the user's current approval choice.
+  const visibleCollections = (pairing.collections ?? []).filter(collection => collection.collection_id === selectedCollectionId || matchingCollections.includes(collection));
   if (installation && pairing.file_access) {
     const request = pairing.file_access, app = pairing.connector_name;
     const collection = request.collection_name ?? "this collection";
@@ -333,11 +339,16 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                 ) : (
                   <>
                     <label className="installation-choice">
+                      <span>Find a collection</span>
+                      <input type="search" value={collectionSearch} disabled={busy} placeholder="Search by name" onChange={event => setCollectionSearch(event.currentTarget.value)} />
+                    </label>
+                    <label className="installation-choice">
                       <span>Open in {pairing.connector_name}</span>
-                      <Select aria-label={`Open in ${pairing.connector_name}`} disabled={busy} value={selectedCollectionId}
-                        options={[{value:"",label:"Choose a collection"},...(pairing.collections??[]).map(collection=>({value:collection.collection_id,label:collection.display_name})),...(pairing.can_create_collection && !pairing.creation?.completed ? [{value:NEW_COLLECTION,label:"New collection…"}] : [])]}
+                      <Select aria-label={`Open in ${pairing.connector_name}`} disabled={busy} value={selectedCollectionId} placeholder="Choose a collection"
+                        options={[...(pairing.can_create_collection && !pairing.creation?.completed ? [{value:NEW_COLLECTION,label:"Create a new collection…"}] : []),...visibleCollections.map(collection=>({value:collection.collection_id,label:collection.display_name}))]}
                         onChange={setSelectedCollectionId} />
                     </label>
+                    {collectionQuery && matchingCollections.length === 0 && <p role="status">No collections match. Try another name; your current choice stays selected.</p>}
                     {selectedCollectionId === NEW_COLLECTION && <div className="installation-choice">
                       <label htmlFor="installation-collection-name">New collection name</label>
                       <input id="installation-collection-name" aria-describedby="installation-collection-note" value={newCollectionName} maxLength={200} disabled={busy} readOnly={!!pairing.creation} onChange={event=>setNewCollectionName(event.target.value)} />

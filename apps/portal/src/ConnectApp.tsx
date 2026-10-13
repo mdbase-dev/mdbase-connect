@@ -743,6 +743,8 @@ function DesktopRecoveryHelp({ action }: { action: string }) {
 }
 
 function viewFromPath(): ConnectView {
+  // Reader/SDK manage-access links still use this route; keep until those clients use /applications.
+  if (location.pathname === "/account/applications") return "applications";
   const segment = location.pathname.split("/")[1];
   return segment === "storage" || segment === "access" || segment === "collections" || segment === "applications" || segment === "computers" || segment === "account" || segment === "feedback" ? segment : "overview";
 }

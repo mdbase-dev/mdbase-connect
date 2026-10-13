@@ -30,6 +30,16 @@ export function applicationGroups(grants: Grant[], installations: Installation[]
   })).sort((a, b) => a.applicationName.localeCompare(b.applicationName));
 }
 
+function installationScopes(installations: Installation[]) {
+  const scopes = new Map<string | null, Installation[]>();
+  for (const entry of installations) {
+    const entries = scopes.get(entry.collection_id) ?? [];
+    entries.push(entry);
+    scopes.set(entry.collection_id, entries);
+  }
+  return [...scopes].map(([collectionId, entries]) => ({ collectionId, entries }));
+}
+
 export function AppAccess({ groups, client, busy, perform, collectionName }: {
   groups: ReturnType<typeof applicationGroups>;
   client: ConnectManagementClient;
@@ -42,19 +52,28 @@ export function AppAccess({ groups, client, busy, perform, collectionName }: {
       {groups.map(group => <details className="connect-application" key={group.applicationId}>
         <summary><span><strong>{group.applicationName}</strong><small>{group.collectionCount} {group.collectionCount === 1 ? "collection" : "collections"}</small></span><b>Review</b></summary>
         <div className="connect-application-body">
-          {group.installations.map(entry => <div className="connect-grant connect-row" key={`${entry.connector_id}:${entry.collection_id ?? "creation"}`}>
-            <span><strong>{entry.collection_name ?? "No collection access"}</strong><small>{entry.application_origin} · {entry.device_kind === "mobile" ? "Mobile app" : "App installation"} · ID {entry.installation_id.slice(-8)}</small>
-              <small>{entry.collection_id ? entry.available ? `Entire collection · Access as your account (${entry.role})` : "Previously approved · Collection no longer visible to your account" : "This installation has no approved collections."}</small>
-              {entry.create_collections && <small>Can create collections for your account</small>}
-              {entry.approved_optional_file_actions.length > 0 && <small>Additional file actions approved: {entry.approved_optional_file_actions.join(", ")}</small>}
-            </span>
-            {entry.collection_id && <ConfirmAction className="danger" label="Revoke collection access" question={`Revoke ${group.applicationName} access to ${entry.collection_name} across all its installations?`} confirmLabel="Revoke collection access" busy={busy.has(`scope-${group.applicationId}-${entry.collection_id}`)} onConfirm={() => void perform(`scope-${group.applicationId}-${entry.collection_id}`, async options => { await client.removeInstallationAccess(entry.application_id, entry.collection_id!, options); })} />}
+          {installationScopes(group.installations).map(({ collectionId, entries }) => <div className="connect-grant connect-row" key={collectionId ?? "creation"}>
+            <div><strong>{entries[0]!.collection_name ?? "No collection access"}</strong><small>{entries.length} {entries.length === 1 ? "installation" : "installations"}</small>
+              <details className="connect-installation-details"><summary>Installation details</summary>
+                {entries.map(entry => <div key={entry.connector_id}>
+                  <small>{entry.application_origin} · {entry.device_kind === "mobile" ? "Mobile app" : "App installation"} · ID {entry.installation_id.slice(-8)}</small>
+                  <small>Registered <time dateTime={entry.created_at}>{new Date(entry.created_at).toLocaleString()}</time></small>
+                  <small>{entry.collection_id ? entry.available ? `Entire collection · Access as your account (${entry.role})` : "Previously approved · Collection no longer visible to your account" : "This installation has no approved collections."}</small>
+                  {entry.create_collections && <small>Can create collections for your account</small>}
+                  {entry.approved_optional_file_actions.length > 0 && <small>Additional file actions approved: {entry.approved_optional_file_actions.join(", ")}</small>}
+                </div>)}
+              </details>
+            </div>
+            {collectionId && <ConfirmAction className="danger" label="Revoke collection access" question={`Revoke ${group.applicationName} access to ${entries[0]!.collection_name} across all its installations?`} confirmLabel="Revoke collection access" busy={busy.has(`scope-${group.applicationId}-${collectionId}`)} onConfirm={() => void perform(`scope-${group.applicationId}-${collectionId}`, async options => {
+              for (const applicationId of new Set(entries.map(entry => entry.application_id))) await client.removeInstallationAccess(applicationId, collectionId, options);
+            })} />}
           </div>)}
           {group.grants.map(grant => <GrantEditor key={grant.id} grant={grant} client={client} busy={busy} perform={perform} />)}
           <ConfirmAction className="danger connect-revoke-application" label={collectionName ? "Revoke access" : "Revoke application"} question={collectionName ? `Revoke ${group.applicationName} access to ${collectionName}?` : `Revoke all ${group.applicationName} access and collection creation permission?`} confirmLabel={collectionName ? "Revoke access" : "Revoke application"} busy={busy.has(`application-${group.applicationId}`)} onConfirm={() => void perform(`application-${group.applicationId}`, async options => {
             if (collectionName) {
-              const scopes = new Map(group.installations.filter(i => i.collection_id).map(i => [i.collection_id!, i.application_id]));
-              for (const [collection, app] of scopes) await client.removeInstallationAccess(app, collection, options);
+              for (const { collectionId, entries } of installationScopes(group.installations)) {
+                if (collectionId) for (const applicationId of new Set(entries.map(entry => entry.application_id))) await client.removeInstallationAccess(applicationId, collectionId, options);
+              }
             } else {
               for (const connector of new Set(group.installations.map(i => i.connector_id))) await client.revokeInstallation(connector, options);
             }
