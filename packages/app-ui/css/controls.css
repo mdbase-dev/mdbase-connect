@@ -702,7 +702,7 @@ textarea.mdbase-field {
 }
 
 @keyframes mdbase-popover-in {
-  from { opacity: 0; transform: translateY(-3px); }
+  from { transform: translateY(-3px); }
 }
 
 /* Save notices: small, quiet, and gone once there is nothing to act on. */
