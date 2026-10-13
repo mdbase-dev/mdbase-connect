@@ -11,14 +11,15 @@ main-branch producer, which may be newer than the original image release.
 The shared inventory validator/schema and reference consumer support LAB and
 staging as separate exact environment/path pairs. Production inventory is still
 refused. This is verification support, not staging signing authority or a staged
-candidate; the fixed publisher below remains LAB-only.
+candidate. The fixed publisher below accepts LAB/staging, but refuses until the
+matching independently reviewed canonical asset exists.
 
-## Protected publication (LAB only)
+## Protected publication (LAB/staging only)
 
 After owner/security review, ordinary merge queue and successful full Server CI,
 dispatch **the existing `publish-images.yml` on `main`** with:
 
-- `operation: lab-trust`;
+- `operation: lab-trust` or `operation: staging-trust`;
 - the existing signed image release's exact `source_commit`, `image_publication_run_id`;
 - `release_tag: v<the existing image bundle version>` (a version selector; this
   does not create a tag or authorize production promotion);
@@ -27,10 +28,13 @@ dispatch **the existing `publish-images.yml` on `main`** with:
 The job independently checks the main producer's exact qualification, authenticates
 the old image manifest, verifies its successful publication run/attempt and exact
 full source qualification, and checks the version/source binding. The fixed,
-reviewed `config/next-trust/lab.json` is passed through the existing reference
+reviewed `config/next-trust/lab.json` or `config/next-trust/staging.json` is passed through the existing reference
 encoder: closed shape, legal signing points, key IDs, certificate signature/window,
 canonical bytes and size limit. No dispatch input supplies roots, URLs, certificates,
-asset contents or an arbitrary asset path. The existing image-build/publication jobs
+asset contents or an arbitrary asset path. The fixed operation derives exactly
+one environment/path pair; the job refuses absent, symlink or mismatched assets
+before fetching/signing release inputs. There is no LAB fallback for staging.
+The existing image-build/publication jobs
 are skipped in this mode. Ordinary image publication is unchanged.
 
 The resulting `release-trust-bundle` artifact contains exactly:
@@ -40,7 +44,7 @@ release-trust-bundle.json
 release-trust-bundle.sigstore.json
 image-release-bundle.json
 image-release-bundle.sigstore.json
-next-trust/lab.json
+next-trust/lab.json OR next-trust/staging.json (exactly one)
 ```
 
 Cosign signs the inventory with the unchanged anchor:
@@ -71,13 +75,48 @@ Daemon release packaging embeds **those verified bytes** and records original im
 and supplemental trust publication IDs/attempts plus asset SHA-256. It must not
 substitute a runtime override, self-derived digest, server response, unsigned LAB
 file or arbitrary Cosign identity. Engineering explicit-root tests are not ordinary
-acceptance. Staging/production publication is deliberately disabled until their
-public pins, authority and review gates exist; there is no unsigned exception.
+acceptance. Production publication remains disabled. Staging publication has a
+fixed selector but is BLOCKED until its independently authenticated public pins,
+canonical asset and qualified main publisher exist. No staging asset is added by
+this change. Shared staging manifest/reference-consumer support must be merged
+before an independently approved staging asset can be published; no unsigned
+exception or runtime override exists.
+
+## Staging signing operation (Callum only, not authorization)
+
+After a separately approved immutable operation packet binds the real source,
+image publication run, version, reviewed asset SHA-256 and exact qualified main
+publisher, the fixed dispatch syntax is:
+
+```bash
+gh workflow run publish-images.yml --repo mdbase-dev/mdbase-connect --ref main \
+  -f operation=staging-trust \
+  -f source_commit="$APPROVED_IMAGE_SOURCE_COMMIT" \
+  -f image_publication_run_id="$APPROVED_IMAGE_PUBLICATION_RUN_ID" \
+  -f release_tag="$APPROVED_IMAGE_RELEASE_TAG" \
+  -f reason="$APPROVED_OPERATION_REASON"
+```
+
+These are independently frozen packet values, not values learned from an
+unauthenticated payload. A recipe with variables is not a concrete approved
+invocation. Recheck the qualified main publisher and canonical staging asset
+immediately before the separately approved dispatch. Signing/publication is a
+Callum operation; agents only prepare/test source. Do not dispatch to probe a
+missing asset, republish on an uncertain outcome, tag a new release, or treat a
+signed trust extension as an integrated staging candidate/deployment/recovery
+pair. Observe the exact new run/attempt before retrying any ambiguous dispatch.
+The original image manifest and image signatures are unchanged.
+
+The private `release staging verify-trust` front door authenticates the retained
+artifact using the SAME verifier/identity and exact qualified consumer checkout.
+Only those verified staging bytes may be embedded by native/Worker/client
+packaging. Runtime CP equality, grant/Noise admission and actual app-origin/log
+acceptance remain separate gates.
 
 Run the bounded offline inventory/reference CLI suite with
 `pnpm test:release-trust`. These tests use public synthetic context only and do
-not authenticate a release or qualify staging. Before enabling any protected
-staging publisher, obtain independently reviewed staging pins, canonical asset,
+not authenticate a release or qualify staging. Before any staging dispatch,
+obtain independently reviewed staging pins, canonical asset,
 origins and full publisher qualification; there is no dispatch override to
 relocate or relabel the fixed LAB asset.
 

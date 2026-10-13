@@ -6,15 +6,17 @@ import { encodeNextTrustPayload } from '../services/server/src/features/next/tru
 import { validateReleaseBundle } from './lib/release-components.mjs';
 import { buildTrustBundle } from './lib/release-trust-bundle.mjs';
 const root = path.resolve(import.meta.dirname, '..');
-const input = process.argv[2], output = process.argv[3];
-if (!input || !output || process.argv.length !== 4) throw new Error('Expected authenticated image bundle and new output directory');
-const file = path.join(root, 'config/next-trust/lab.json');
+const input = process.argv[2], output = process.argv[3], environment = process.argv[4];
+if (!input || !output || process.argv.length !== 5 || (environment !== 'lab' && environment !== 'staging')) throw new Error('Expected authenticated image bundle, new output directory and fixed lab|staging environment');
+// No caller-selected path, origin, root or fallback. Absent staging asset refuses.
+const assetPath = `next-trust/${environment}.json`;
+const file = path.join(root, 'config', assetPath);
 const info = await lstat(file);
-if (!info.isFile() || info.isSymbolicLink() || info.size > 65536) throw new Error('Invalid fixed LAB asset');
+if (!info.isFile() || info.isSymbolicLink() || info.size > 65536) throw new Error('Invalid fixed environment asset');
 const bytes = await readFile(file);
 const asset = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
-if (asset.environment !== 'lab') throw new Error('Only the approved LAB publisher is enabled');
-if (!Buffer.from(encodeNextTrustPayload(asset)).equals(bytes)) throw new Error('Noncanonical LAB asset');
+if (asset.environment !== environment) throw new Error('Fixed asset environment mismatch');
+if (!Buffer.from(encodeNextTrustPayload(asset)).equals(bytes)) throw new Error('Noncanonical environment asset');
 const imageBundleBytes = await readFile(input);
 if (imageBundleBytes.length > 65536) throw new Error('Image bundle size');
 const release = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(imageBundleBytes));
@@ -27,8 +29,9 @@ const manifest = buildTrustBundle({ imageBundleBytes, assetBytes: bytes,
     runAttempt:Number(process.env.GITHUB_RUN_ATTEMPT), publisherCommit:process.env.GITHUB_SHA },
   qualification: { workflow:'server-ci.yml', runId:Number(process.env.PUBLISHER_QUALIFICATION_RUN_ID),
     runAttempt:Number(process.env.PUBLISHER_QUALIFICATION_RUN_ATTEMPT) } });
-await mkdir(path.join(output, 'next-trust'), { recursive: true });
-await writeFile(path.join(output, 'next-trust/lab.json'), bytes, { flag:'wx' });
+await mkdir(output);
+await mkdir(path.join(output, 'next-trust'));
+await writeFile(path.join(output, assetPath), bytes, { flag:'wx' });
 await writeFile(path.join(output, 'image-release-bundle.json'), imageBundleBytes, { flag:'wx' });
 await writeFile(path.join(output, 'release-trust-bundle.json'), JSON.stringify(manifest, null, 2)+'\n', { flag:'wx' });
-console.log('LAB trust asset and release-linked manifest built; authentication is supplied by the protected signing job.');
+console.log('Fixed environment trust asset and release-linked manifest built; authentication is supplied by the protected signing job.');

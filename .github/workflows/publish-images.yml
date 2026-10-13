@@ -9,13 +9,13 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Publish images or sign the reviewed LAB trust extension
+        description: Publish images or sign the reviewed fixed LAB/staging trust extension
         required: true
         default: images
         type: choice
-        options: [images, lab-trust]
+        options: [images, lab-trust, staging-trust]
       image_publication_run_id:
-        description: Existing successful image-bundle run (lab-trust only)
+        description: Existing successful image-bundle run (trust extensions only)
         required: false
         type: string
       source_commit:
@@ -45,7 +45,7 @@ env:
 jobs:
   changes:
     if: >-
-      (github.event_name == 'workflow_dispatch' && inputs.operation != 'lab-trust') ||
+      (github.event_name == 'workflow_dispatch' && inputs.operation == 'images') ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'main' &&
       github.event.workflow_run.conclusion == 'success')
@@ -329,9 +329,9 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-  lab-trust-bundle:
-    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'lab-trust'
-    name: Sign reviewed LAB trust assets
+  trust-bundle:
+    if: github.event_name == 'workflow_dispatch' && (inputs.operation == 'lab-trust' || inputs.operation == 'staging-trust')
+    name: Sign reviewed fixed environment trust assets
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -342,6 +342,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       IMAGE_PUBLICATION_RUN_ID: ${{ inputs.image_publication_run_id }}
       RELEASE_TAG: ${{ inputs.release_tag }}
+      TRUST_ENVIRONMENT: ${{ inputs.operation == 'staging-trust' && 'staging' || 'lab' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -358,6 +359,11 @@ jobs:
           [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
           [[ "$IMAGE_PUBLICATION_RUN_ID" =~ ^[1-9][0-9]*$ ]]
           [[ "$RELEASE_TAG" =~ ^v0\.1\.0-beta\.[1-9][0-9]*$ ]]
+          [[ "$TRUST_ENVIRONMENT" == lab || "$TRUST_ENVIRONMENT" == staging ]]
+          # Fixed reviewed asset only. No creation, LAB fallback or dispatch override.
+          asset="config/next-trust/$TRUST_ENVIRONMENT.json"
+          test -f "$asset" && test ! -L "$asset"
+          test "$(jq -er .environment "$asset")" = "$TRUST_ENVIRONMENT"
           scripts/ci/verify-qualified-commit "$GITHUB_SHA"
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: Authenticate the existing immutable image release bundle
@@ -412,7 +418,7 @@ jobs:
           PUBLISHER_QUALIFICATION_RUN_ATTEMPT=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PUBLISHER_QUALIFICATION_RUN_ID" --jq .run_attempt)
           pnpm --filter @mdbase/connect-server exec tsx \
             ../../scripts/build-release-trust-bundle.mts \
-            "$RUNNER_TEMP/image-release/release-bundle.json" "$RUNNER_TEMP/release-trust"
+            "$RUNNER_TEMP/image-release/release-bundle.json" "$RUNNER_TEMP/release-trust" "$TRUST_ENVIRONMENT"
           cp "$RUNNER_TEMP/image-release/release-bundle.sigstore.json" \
             "$RUNNER_TEMP/release-trust/image-release-bundle.sigstore.json"
       - name: Sign trust inventory using the existing protected workflow identity
