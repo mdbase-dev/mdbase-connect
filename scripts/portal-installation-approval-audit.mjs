@@ -52,6 +52,34 @@ export async function auditPortalInstallationApproval(localPage, origin) {
   };
   const done = () => page.getByRole("heading", {name: "Access approved", exact: true}).waitFor();
   try {
+    // A long list must cover the approval heading opaquely even in its first
+    // animation frame. The default short popup can only fit it above the field.
+    for (const colorScheme of ["light", "dark"]) {
+      await page.emulateMedia({colorScheme, reducedMotion: "no-preference"});
+      for (const viewport of [{width: 639, height: 444}, {width: 390, height: 844}]) {
+        await page.setViewportSize(viewport); await load();
+        pairing.collections.push(...Array.from({length: 61}, (_, index) => ({
+          collection_id: `${index.toString(16).padStart(8, "0")}-4444-4444-8444-444444444444`,
+          display_name: `Fixture collection ${index}`, role: "owner"
+        })));
+        await page.reload(); await picker().waitFor(); await picker().click();
+        const appearance = await page.locator('[role="listbox"]:popover-open').evaluate(list => {
+          const animations = list.getAnimations();
+          for (const animation of animations) {animation.pause(); animation.currentTime = 0;}
+          const style = getComputedStyle(list), box = list.getBoundingClientRect();
+          const observed = {opacity: style.opacity, display: style.display, width: box.width, height: box.height,
+            fits: box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight};
+          for (const animation of animations) animation.finish();
+          return observed;
+        });
+        assert.equal(appearance.opacity, "1", "first-frame popover never shows approval text through its surface");
+        assert.equal(appearance.display, "block");
+        assert.ok(appearance.width > 0 && appearance.height > 0 && appearance.fits, "long picker is open and bounded by the popup viewport");
+        await page.keyboard.press("Escape");
+        assert.equal(await picker().getAttribute("aria-expanded"), "false");
+        assert.equal(posts.length, 0, "opening and dismissing the picker never approves or creates a collection");
+      }
+    }
     for (const colorScheme of ["light", "dark"]) {
       await page.emulateMedia({colorScheme});
       for (const width of [320, 390, 1440]) {
