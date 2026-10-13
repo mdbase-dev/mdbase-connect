@@ -7,6 +7,7 @@ import { HostedProviderResponseError, type HostedProviderClient } from "../../ho
 import { registerErrorHandler } from "../../platform/error-handler.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import { tokenHash } from "../../security.js";
+import { CutoverProblemError } from "./cutover-problems.js";
 // The published old client's own refresh and error decoding, not a re-creation.
 import { performAuthorizationRefresh } from "../../../../../packages/client/src/authorization-refresh.js";
 import { apiError as legacyClientError } from "../../../../../packages/client/src/runtime-utils.js";
@@ -17,6 +18,23 @@ afterEach(async () => {
 });
 
 describe("cutover refusals old clients can explain", () => {
+  const reloadGuidance = "mdbase has been updated. Copy any unsaved work somewhere safe, "
+    + "then reload this page to continue.";
+
+  it.each(["moved", "onboarding_moved"] as const)("preserves safe reload guidance through the old SDK for %s", async (kind) => {
+    const app = Fastify();
+    resources.push(() => app.close());
+    registerErrorHandler(app);
+    app.get("/cutover", async () => { throw new CutoverProblemError(kind); });
+    const response = await app.inject({ method: "GET", url: "/cutover" });
+    expect(response.statusCode).toBe(409);
+    const body = response.json();
+    expect(body.error.code).toBe(kind === "moved" ? "collection_unavailable" : "onboarding_moved");
+    expect(body.error.message.startsWith(reloadGuidance)).toBe(true);
+    expect(body.error.message).not.toMatch(/collection_unavailable|onboarding_moved|moved_to_next_runtime/);
+    expect(response.headers["retry-after"]).toBeUndefined();
+    expect(legacyClientError(body, "request_failed", "fallback", 409).message).toBe(body.error.message);
+  });
   it("tells an old client its moved collection needs an app update", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
@@ -97,6 +115,7 @@ describe("cutover refusals old clients can explain", () => {
         minimum_client_version: "2.0.0"
       }
     });
+    expect(refresh.json().error.message.startsWith(reloadGuidance)).toBe(true);
     expect(refresh.json().error.message).not.toMatch(/collection_unavailable|moved_to_next_runtime/);
     expect(rotateReplicaToken).not.toHaveBeenCalled();
   });
@@ -194,6 +213,7 @@ describe("cutover refusals old clients can explain", () => {
     });
     expect(operation.statusCode, operation.body).toBe(409);
     expect(operation.json().error.code).toBe("collection_unavailable");
+    expect(operation.json().error.message.startsWith(reloadGuidance)).toBe(true);
     expect(legacyClientError(operation.json(), "request_failed", "fallback", 409)).toMatchObject(moved);
 
     // The old client's refresh after that refusal.

@@ -91,9 +91,9 @@ fn cutover_refusal(
             (
                 "collection_unavailable",
                 format!(
-                    "mdbase was upgraded, and this app needs to update to keep syncing. \
-                     Reload the page, or download the latest version from {} if you use \
-                     the desktop or mobile app.",
+                    "mdbase has been updated. Copy any unsaved work somewhere safe, \
+                     then reload this page to continue. If you use the desktop or mobile app, \
+                     download the latest version from {}.",
                     policy.update_url
                 ),
                 details,
@@ -140,10 +140,14 @@ mod tests {
         assert_eq!(body["error"]["code"], "collection_unavailable");
         assert_eq!(body["error"]["details"]["reason"], "moved_to_next_runtime");
         assert_eq!(body["error"]["details"]["minimum_client_version"], "2.0.0");
-        assert!(body["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("https://example.test/get"));
+        let message = body["error"]["message"].as_str().unwrap();
+        assert!(message.starts_with(
+            "mdbase has been updated. Copy any unsaved work somewhere safe, \
+             then reload this page to continue."
+        ));
+        assert!(message.contains("https://example.test/get"));
+        assert!(!message.contains("collection_unavailable"));
+        assert!(!message.contains("moved_to_next_runtime"));
 
         let (_, headers, Json(body)) =
             cutover_refusal("migrating", &ClientUpdatePolicy::default()).unwrap();
