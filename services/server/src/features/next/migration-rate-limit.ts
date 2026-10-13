@@ -25,12 +25,12 @@ const MIGRATION_IP_REQUESTS_PER_MINUTE = 20;
 const MIGRATION_SERVICE_REQUESTS_PER_MINUTE = 4_800;
 
 /** Route `config.rateLimit`: `token` holders share `bucket`; others are per-IP. */
-export function migrationServiceRateLimit(token: string, bucket: string) {
+export function migrationServiceRateLimit(token: string, bucket: string, additionalTokens: readonly string[] = []) {
   return {
     timeWindow: "1 minute",
     keyGenerator(request: FastifyRequest): string {
       const presented = bearerToken(request);
-      return presented && safeEqual(presented, token) ? bucket : normalizeIP(request.ip);
+      return presented && [token, ...additionalTokens].some(expected => safeEqual(presented, expected)) ? bucket : normalizeIP(request.ip);
     },
     max: (_request: FastifyRequest, key: string): number =>
       key === bucket ? MIGRATION_SERVICE_REQUESTS_PER_MINUTE : MIGRATION_IP_REQUESTS_PER_MINUTE

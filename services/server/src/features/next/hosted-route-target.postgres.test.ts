@@ -14,6 +14,8 @@ import { parseServiceDevice, storeServiceDevice } from "./service-devices.js";
 import { queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
 import { certDigest, chainHash, keyId, signPolicyItem, type PolicyOp } from "./policy-wire.js";
 import { ed25519RawPublicKey } from "./policy-keys.js";
+import { migrationCollection, type LabMigrationRouting } from "./lab-migration-routing.js";
+import { registerNextHostedRoutes } from "./hosted-routes.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -88,6 +90,41 @@ suite("hosted Noise discovery (real Postgres, not serving qualification)", () =>
     expect(response.json().targets[0]).toEqual({ kind: "hosted", device: f.record.device_id, noise_pk: f.record.noise_pk.toString("hex"), url: `wss://hosted.example/v1/hosted/app?collection=${f.id}`, online: false });
     await db.query("UPDATE next_service_devices SET activated_at=now(),activation_batch_id=$2 WHERE collection_id=$1", [f.id, f.batch]);
     expect((await f.route()).json().targets[0].online).toBe(false);
+  });
+
+  it("routes only the authoritative rehearsal owner; account spoof and foreign grants cannot redirect", async () => {
+    const own = await fixture({ hostedOnly: true });
+    const other = await fixture({ hostedOnly: true });
+    const routing: LabMigrationRouting = { account: own.id, hosted: { url: "https://mdbase-next-hosted-mig-lab.example.workers.dev", token: "m".repeat(40) }, inboundToken: "i".repeat(40) };
+    const scoped = Fastify();
+    registerNextRouteRoutes(scoped, { db, publicUrl: "https://connect.example", broker, hostedClientUrl: "https://hosted.example", labMigrationRouting: routing });
+    try {
+      const route = (id: string, token: string, query = "") => scoped.inject({ method: "GET", url: `/v1/next/collections/${id}/route${query}`, headers: { authorization: `Bearer ${token}` } });
+      expect((await route(own.id, own.token)).json().targets[0].url).toBe(`wss://mdbase-next-hosted-mig-lab.example.workers.dev/v1/hosted/app?collection=${own.id}`);
+      expect((await route(other.id, other.token, `?account=${own.id}`)).json().targets[0].url).toBe(`wss://hosted.example/v1/hosted/app?collection=${other.id}`);
+      expect((await route(other.id, own.token)).statusCode).toBe(401);
+      expect((await route(own.id, other.token)).statusCode).toBe(401);
+      expect(await migrationCollection(db, routing, own.id)).toBe(true);
+      expect(await migrationCollection(db, routing, other.id)).toBe(false);
+      await expect(migrationCollection(db, routing, other.id, own.id)).rejects.toThrow("foreign_collection_owner");
+    } finally { await scoped.close(); }
+  });
+
+  it("isolates real authoritative inbound state batches by deployment credential", async () => {
+    const own = await fixture({ hostedOnly: true });
+    const other = await fixture({ hostedOnly: true });
+    const routing: LabMigrationRouting = { account: own.id, hosted: { url: "https://mdbase-next-hosted-mig-lab.example.workers.dev", token: "m".repeat(40) }, inboundToken: "i".repeat(40) };
+    const scoped = Fastify();
+    const normalToken = "H".repeat(40);
+    registerNextHostedRoutes(scoped, { db, tokens: { hosted: normalToken }, labMigrationRouting: routing });
+    try {
+      const state = (ids: string[], token: string) => scoped.inject({ method: "POST", url: "/internal/v1/next/collections/states", headers: { authorization: `Bearer ${token}` }, payload: { ids } });
+      expect((await state([own.id], routing.inboundToken)).statusCode).toBe(200);
+      expect((await state([other.id], normalToken)).statusCode).toBe(200);
+      for (const token of [normalToken, routing.inboundToken]) expect((await state([own.id, other.id], token)).statusCode).toBe(403);
+      expect((await state([other.id], routing.inboundToken)).statusCode).toBe(403);
+      expect((await state([own.id], normalToken)).statusCode).toBe(403);
+    } finally { await scoped.close(); }
   });
 
   it("supports hosted-only grants without a daemon authority row", async () => {

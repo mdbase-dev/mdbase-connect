@@ -15,6 +15,7 @@ import { LOG_TOKEN_LIFETIME_MS, type LogServiceClient } from "./log-service-clie
 import { loadServiceDevice, serviceDeviceWire, type ServiceDeviceRecord, type ServiceKind } from "./service-devices.js";
 import { CreateError, inTransaction, lock, NIL, refuseRevoked } from "./bootstrap-common.js";
 import { requireCollectionNotDeleted } from "./collection-deletion.js";
+import { migrationCollection, type LabMigrationRouting } from "./lab-migration-routing.js";
 
 export type CollectionDirectoryState = "standard" | "private" | "local" | "unknown";
 
@@ -76,12 +77,14 @@ const SERVICE_REQUESTS_PER_MINUTE = 12_000;
 const SERVICE_BUCKET = "service:";
 
 /** `keyGenerator` and `max` for the global one-minute limiter. */
-export function globalRateLimitKeying(tokens: { hosted?: string; escrow?: string } | undefined) {
+export function globalRateLimitKeying(tokens: { hosted?: string; escrow?: string } | undefined, migrationToken?: string) {
   return {
     keyGenerator(request: FastifyRequest): string {
       const kind = tokens && request.url.startsWith("/internal/") && request.routeOptions.config?.rateLimit === undefined
         ? serviceKind(request, tokens) : null;
-      return kind ? SERVICE_BUCKET + kind : normalizeIP(request.ip);
+      const presented = bearerToken(request);
+      const migration = migrationToken && presented && request.url.startsWith("/internal/") && request.routeOptions.config?.rateLimit === undefined && safeEqual(presented, migrationToken);
+      return migration ? SERVICE_BUCKET + "migration-hosted" : kind ? SERVICE_BUCKET + kind : normalizeIP(request.ip);
     },
     max: (_request: FastifyRequest, key: string): number =>
       key.startsWith(SERVICE_BUCKET) ? SERVICE_REQUESTS_PER_MINUTE : PUBLIC_REQUESTS_PER_MINUTE
@@ -161,9 +164,23 @@ export async function originalGenesis(db: DatabaseQueryable, collection: string,
 
 export function registerNextHostedRoutes(
   app: FastifyInstance,
-  options: { db: DatabasePool; tokens: { hosted?: string; escrow?: string }; log?: LogServiceClient; now?: () => number }
+  options: { db: DatabasePool; tokens: { hosted?: string; escrow?: string }; log?: LogServiceClient; now?: () => number; labMigrationRouting?: LabMigrationRouting }
 ): void {
-  const authorize = (request: FastifyRequest) => serviceKind(request, options.tokens) !== null;
+  const callerKind = (request: FastifyRequest) => {
+    const token = bearerToken(request);
+    return token && options.labMigrationRouting && safeEqual(token, options.labMigrationRouting.inboundToken)
+      ? "hosted" as const : serviceKind(request, options.tokens);
+  };
+  const scoped = async (request: FastifyRequest, ids: string[]) => {
+    const kind = callerKind(request);
+    if (!kind) return false;
+    if (kind === "escrow" || !options.labMigrationRouting) return true;
+    const migrationCaller = safeEqual(bearerToken(request)!, options.labMigrationRouting.inboundToken);
+    for (const id of ids) {
+      if (await migrationCollection(options.db, options.labMigrationRouting, id) !== migrationCaller) return false;
+    }
+    return true;
+  };
   // The record lookup itself requires a current cloud copy; this only picks the answer
   // for a miss: 409 when the collection is not (or no longer) a cloud copy, else 404.
   const notCurrent = async (reply: FastifyReply, collection: string, missing: string) =>
@@ -172,14 +189,16 @@ export function registerNextHostedRoutes(
       : reply.code(404).send(apiError("service_device_not_found", missing));
   app.get("/internal/v1/next/collections/:id/state", async (request, reply) => {
     reply.header("cache-control", "no-store");
-    if (!authorize(request)) return reply.code(401).send(apiError("invalid_internal_token", "Internal token required."));
+    if (!callerKind(request)) return reply.code(401).send(apiError("invalid_internal_token", "Internal token required."));
     const { id } = z.object({ id: z.uuid() }).parse(request.params);
+    if (!await scoped(request, [id])) return reply.code(403).send(apiError("wrong_service_scope", "This deployment does not own this account route."));
     return (await collectionDirectory(options.db, [id]))[0];
   });
   app.post("/internal/v1/next/collections/states", async (request, reply) => {
     reply.header("cache-control", "no-store");
-    if (!authorize(request)) return reply.code(401).send(apiError("invalid_internal_token", "Internal token required."));
+    if (!callerKind(request)) return reply.code(401).send(apiError("invalid_internal_token", "Internal token required."));
     const { ids } = z.object({ ids: z.array(z.uuid()).min(1).max(500) }).strict().parse(request.body);
+    if (!await scoped(request, [...new Set(ids)])) return reply.code(403).send(apiError("wrong_service_scope", "This deployment does not own these account routes."));
     return { collections: await collectionDirectory(options.db, [...new Set(ids)]) };
   });
 
@@ -187,9 +206,10 @@ export function registerNextHostedRoutes(
   // standard: a collection that left sync, or never was cloud copy, has no service device.
   app.get("/internal/v1/next/collections/:id/service-devices/:kind", async (request, reply) => {
     reply.header("cache-control", "no-store");
-    const caller = serviceKind(request, options.tokens);
+    const caller = callerKind(request);
     if (!caller) return reply.code(401).send(apiError("invalid_internal_token", "Internal token required."));
     const { id, kind } = z.object({ id: z.uuid(), kind: z.enum(["hosted", "escrow"]) }).parse(request.params);
+    if (!await scoped(request, [id])) return reply.code(403).send(apiError("wrong_service_scope", "This deployment does not own this account route."));
     if (kind !== caller) return reply.code(403).send(apiError("wrong_service_kind", "This token reads only its own kind of service device."));
     try {
       const wire = await withCurrentRecord(options.db, id, { kind }, async (record, client) => {
@@ -209,13 +229,14 @@ export function registerNextHostedRoutes(
   const log = options.log;
   if (log) app.post("/internal/v1/next/service-devices/:device/log-token", async (request, reply) => {
     reply.header("cache-control", "no-store");
-    const caller = serviceKind(request, options.tokens);
+    const caller = callerKind(request);
     if (!caller) return reply.code(401).send(apiError("invalid_internal_token", "Internal token required."));
     const params = z.object({ device: z.uuid() }).safeParse(request.params);
     const body = z.object({ collection: z.uuid() }).strict().safeParse(request.body);
     if (!params.success || !body.success) return reply.code(400).send(apiError("invalid_request", "A device and collection are required."));
     const { device } = params.data;
     const { collection } = body.data;
+    if (!await scoped(request, [collection])) return reply.code(403).send(apiError("wrong_service_scope", "This deployment does not own this account route."));
     const minted = await withCurrentRecord(options.db, collection, { device: device.toLowerCase() }, (record) => {
       if (record.kind !== caller) return "wrong_kind" as const;
       const expiresAt = (options.now ?? Date.now)() + LOG_TOKEN_LIFETIME_MS;
