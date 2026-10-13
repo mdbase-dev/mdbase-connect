@@ -107,6 +107,7 @@ export function registerConnectorPairingRoutes(
               request_id: originalUuid,
               app_id: z.string().min(1).max(64),
               requested_create_collections: z.boolean().optional(),
+              recovery_collection_id: originalUuid.optional(),
               reconsent: z.boolean().optional(),
               renewal: z.object({request_id:originalUuid,pairing_secret:z.string().regex(/^pair_[A-Za-z0-9_-]{43}$/)}).strict().optional(),
               pairing_secret: z.string().regex(/^pair_[A-Za-z0-9_-]{43}$/),

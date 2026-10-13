@@ -95,6 +95,7 @@ interface Row {
   portal_account_session_id: string | null;
   portal_account_session_epoch: string | number | null;
   selected_collection_id: string | null;
+  recovery_collection_id: string | null;
   created_collection_ids: string[];
   sign_pk: Buffer | null;
   kem_pk: Buffer | null;
@@ -133,7 +134,7 @@ async function row(
   includeRevoked = false,
 ): Promise<Row> {
   const found = await c.query<Row>(
-    `SELECT p.*, i.installation_id,i.previous_pairing_id,i.app_id,i.app_origin,i.device_id,i.connector_id,i.kind,i.challenge,i.account_selected_at,COALESCE(i.sign_pk,k.sign_pk) AS sign_pk,COALESCE(i.kem_pk,k.kem_pk) AS kem_pk,COALESCE(i.noise_pk,k.noise_pk) AS noise_pk,i.registration_sig,i.attested_at,i.requested_create_collections,i.approved_create_collections,i.approved_collection_ids,i.scope_only,i.approved_session_epoch,i.portal_account_confirmed_at,i.portal_account_email,i.portal_account_provider,i.portal_account_login,i.portal_account_session_id,i.portal_account_session_epoch,i.selected_collection_id,i.created_collection_ids,i.timer_declaration,i.timer_consent,i.file_access_collection_id,i.requested_file_actions,i.file_access_reason,i.approved_file_actions FROM pairing_requests p JOIN installation_device_pairings i ON i.pairing_id=p.id LEFT JOIN installation_device_credentials k ON k.connector_id=i.connector_id AND i.scope_only WHERE p.id=$1 ${includeRevoked ? "" : "AND p.revoked_at IS NULL"} ${secret === undefined ? "" : "AND p.secret_hash=$2"} ${lock ? "FOR UPDATE OF p,i" : ""}`,
+    `SELECT p.*, i.installation_id,i.previous_pairing_id,i.app_id,i.app_origin,i.device_id,i.connector_id,i.kind,i.challenge,i.account_selected_at,COALESCE(i.sign_pk,k.sign_pk) AS sign_pk,COALESCE(i.kem_pk,k.kem_pk) AS kem_pk,COALESCE(i.noise_pk,k.noise_pk) AS noise_pk,i.registration_sig,i.attested_at,i.requested_create_collections,i.approved_create_collections,i.approved_collection_ids,i.scope_only,i.approved_session_epoch,i.portal_account_confirmed_at,i.portal_account_email,i.portal_account_provider,i.portal_account_login,i.portal_account_session_id,i.portal_account_session_epoch,i.selected_collection_id,i.recovery_collection_id,i.created_collection_ids,i.timer_declaration,i.timer_consent,i.file_access_collection_id,i.requested_file_actions,i.file_access_reason,i.approved_file_actions FROM pairing_requests p JOIN installation_device_pairings i ON i.pairing_id=p.id LEFT JOIN installation_device_credentials k ON k.connector_id=i.connector_id AND i.scope_only WHERE p.id=$1 ${includeRevoked ? "" : "AND p.revoked_at IS NULL"} ${secret === undefined ? "" : "AND p.secret_hash=$2"} ${lock ? "FOR UPDATE OF p,i" : ""}`,
     [id, ...(secret === undefined ? [] : [tokenHash(secret)])],
   );
   const r = found.rows[0];
@@ -219,6 +220,7 @@ function collectionSelection(r: Row) {
 function selection(r: Row) {
   return {
     ...portalConfirmation(r),
+    ...(r.recovery_collection_id ? {recovery_collection_id:r.recovery_collection_id} : {}),
     request_id: r.id,
     account_id: r.user_id,
     connector_id: r.connector_id,
@@ -245,11 +247,12 @@ export async function installationPairingExists(
 }
 export async function startInstallationPairing(
   db: DatabasePool,
-  input: { request_id: string; pairing_secret: string; installation_id: string; device_id: string; kind: "app-runtime" | "mobile"; requested_create_collections?: boolean; collection_hint?: string; reconsent?: boolean; renewal?: { request_id: string; pairing_secret: string }; file_access?: InstallationFileAccessInput },
+  input: { request_id: string; pairing_secret: string; installation_id: string; device_id: string; kind: "app-runtime" | "mobile"; requested_create_collections?: boolean; recovery_collection_id?: string; collection_hint?: string; reconsent?: boolean; renewal?: { request_id: string; pairing_secret: string }; file_access?: InstallationFileAccessInput },
   app: Awaited<ReturnType<typeof installationApp>>,
   publicUrl: string,
   existingConnector?: ConnectorIdentity,
 ) {
+  if (input.recovery_collection_id && (input.requested_create_collections || input.file_access)) fail("installation_invalid_scope",400);
   if (input.file_access) {
     // One collection, declared optional actions, a single-line reason, and only
     // as a re-consent of an existing installation credential.
@@ -282,7 +285,7 @@ export async function startInstallationPairing(
         // Re-consent uses the current authenticated credential, not a fabricated
         // device attestation or a second registration. The public keys are read
         // from that credential even if the original pairing window was pruned.
-        await c.query("INSERT INTO installation_device_pairings(pairing_id,installation_id,device_id,connector_id,app_id,app_origin,kind,challenge,account_selected_at,requested_create_collections,scope_only,timer_declaration) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now(),$9,true,$10::jsonb)",[input.request_id,input.installation_id,input.device_id,k.connector_id,app.id,app.origin,input.kind,randomBytes(32),input.requested_create_collections??false,app.timerDeclaration ? JSON.stringify(app.timerDeclaration) : null]);
+        await c.query("INSERT INTO installation_device_pairings(pairing_id,installation_id,device_id,connector_id,app_id,app_origin,kind,challenge,account_selected_at,requested_create_collections,scope_only,timer_declaration,recovery_collection_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now(),$9,true,$10::jsonb,$11)",[input.request_id,input.installation_id,input.device_id,k.connector_id,app.id,app.origin,input.kind,randomBytes(32),input.requested_create_collections??false,app.timerDeclaration ? JSON.stringify(app.timerDeclaration) : null,input.recovery_collection_id??null]);
         if (input.file_access) {
           const scoped = await c.query("SELECT 1 FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2 FOR SHARE",[existingConnector.id,input.file_access.collection_id]);
           if (!scoped.rows.length) return fail("installation_collection_unavailable",403);
@@ -296,6 +299,7 @@ export async function startInstallationPairing(
         if (!input.renewal) return fail("installation_original_window_required");
         prior = await row(c,input.renewal.request_id,input.renewal.pairing_secret,true,true);
         if (prior.consumed_at || (!prior.revoked_at && new Date(prior.expires_at).getTime()>Date.now())) return fail("installation_window_not_closed");
+        if (prior.recovery_collection_id !== (input.recovery_collection_id??null)) fail("installation_recovery_target_changed");
         if (prior.scope_only || prior.requested_create_collections!==(input.requested_create_collections??false) || prior.installation_id!==input.installation_id || prior.device_id!==input.device_id || prior.kind!==input.kind || prior.app_id!==app.id || prior.app_origin!==app.origin) return fail("installation_original_binding_changed");
         // Only the latest closed window can be renewed. An already-created
         // successor blocks a parallel renewal, even if its parent was denied.
@@ -308,11 +312,12 @@ export async function startInstallationPairing(
       // A renewed window retains the SAME attested key, challenge, connector,
       // account and signature. A denial requires explicit SAME-account selection
       // again before approval; expiry alone retains the previous selection.
-      await c.query("INSERT INTO installation_device_pairings(pairing_id,previous_pairing_id,installation_id,device_id,connector_id,app_id,app_origin,kind,challenge,account_selected_at,sign_pk,kem_pk,noise_pk,registration_sig,attested_at,timer_declaration) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb)", [input.request_id,prior?.id??null,input.installation_id,input.device_id,prior?.connector_id??randomUUID(),app.id,app.origin,input.kind,prior?.challenge??randomBytes(32),prior?.revoked_at?null:prior?.account_selected_at??null,prior?.sign_pk??null,prior?.kem_pk??null,prior?.noise_pk??null,prior?.registration_sig??null,prior?.attested_at??null,app.timerDeclaration ? JSON.stringify(app.timerDeclaration) : null]);
+      await c.query("INSERT INTO installation_device_pairings(pairing_id,previous_pairing_id,installation_id,device_id,connector_id,app_id,app_origin,kind,challenge,account_selected_at,sign_pk,kem_pk,noise_pk,registration_sig,attested_at,timer_declaration,recovery_collection_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17)", [input.request_id,prior?.id??null,input.installation_id,input.device_id,prior?.connector_id??randomUUID(),app.id,app.origin,input.kind,prior?.challenge??randomBytes(32),prior?.revoked_at?null:prior?.account_selected_at??null,prior?.sign_pk??null,prior?.kem_pk??null,prior?.noise_pk??null,prior?.registration_sig??null,prior?.attested_at??null,app.timerDeclaration ? JSON.stringify(app.timerDeclaration) : null,input.recovery_collection_id??null]);
       await c.query("UPDATE installation_device_pairings SET requested_create_collections=$2 WHERE pairing_id=$1",[input.request_id,input.requested_create_collections??false]);
       }
     }
     const r = await row(c,input.request_id,input.pairing_secret,true);
+    if (r.recovery_collection_id !== (input.recovery_collection_id??null)) fail("installation_recovery_target_changed");
     if (r.scope_only!==(input.reconsent??false) || r.requested_create_collections!==(input.requested_create_collections??false)) return fail("installation_original_binding_changed");
     const fileAccess = input.file_access;
     if (r.file_access_collection_id!==(fileAccess?.collection_id??null) || r.file_access_reason!==(fileAccess?.reason??null) ||
@@ -323,7 +328,7 @@ export async function startInstallationPairing(
     }
     if (r.installation_id!==input.installation_id || r.device_id!==input.device_id || r.kind!==input.kind || r.app_id!==app.id || r.app_origin!==app.origin || r.previous_pairing_id!==(input.renewal?.request_id??null)) return fail("installation_original_binding_changed");
     if (!r.consumed_at) live(r);
-    return {pairing_id:r.id,pairing_secret:input.pairing_secret,verification_uri:`${publicUrl}/pair/${r.id}${input.collection_hint ? `?collection_hint=${encodeURIComponent(input.collection_hint)}` : ""}`,expires_in:Math.max(0,Math.floor((new Date(r.expires_at).getTime()-Date.now())/1000)),installation_device:true,app_id:r.app_id,app_origin:r.app_origin,app_name:r.connector_name};
+    return {pairing_id:r.id,pairing_secret:input.pairing_secret,verification_uri:`${publicUrl}/pair/${r.id}${input.collection_hint ? `?collection_hint=${encodeURIComponent(input.collection_hint)}` : ""}`,expires_in:Math.max(0,Math.floor((new Date(r.expires_at).getTime()-Date.now())/1000)),installation_device:true,app_id:r.app_id,app_origin:r.app_origin,app_name:r.connector_name,...(r.recovery_collection_id ? {recovery_collection_id:r.recovery_collection_id} : {})};
   });
 }
 export async function inspectInstallationPairing(
@@ -341,7 +346,9 @@ export async function inspectInstallationPairing(
   live(r);
   if (r.user_id && r.user_id !== user)
     fail("installation_account_changed", 403);
-  const collections = r.account_selected_at ? await tx(db, c => installationCollections(c, user, undefined, r.device_id)) : [];
+  const eligible = r.account_selected_at ? await tx(db, c => installationCollections(c, user, undefined, r.device_id)) : [];
+  const collections = r.recovery_collection_id ? eligible.filter(collection => collection.collection_id===r.recovery_collection_id) : eligible;
+  if (r.recovery_collection_id && r.account_selected_at && !collections.length) fail("installation_collection_unavailable",403);
   // A URL-carried UX hint, not persisted selection or consent. Never look up the
   // target: unavailable and nonexistent IDs produce the same response.
   const hint = r.portal_account_confirmed_at && collections.some(collection => collection.collection_id === collectionHint) ? collectionHint : null;
@@ -364,6 +371,7 @@ export async function inspectInstallationPairing(
       signed_in_account_email: identity?.email ?? null,
       ...(identity?.provider ? {signed_in_account_provider:identity.provider,signed_in_account_login:identity.login} : {}),
       selected_collection_id: r.selected_collection_id,
+      ...(r.recovery_collection_id ? {recovery_collection_id:r.recovery_collection_id} : {}),
       creation: (await db.query<{collection_id:string;display_name:string;completed:boolean}>("SELECT collection_id,display_name,completed_at IS NOT NULL AS completed FROM installation_pairing_collection_creations WHERE pairing_id=$1",[id])).rows[0] ?? null,
       attested: r.scope_only || !!r.attested_at,
       fingerprint: r.sign_pk ? clientFingerprint(r.sign_pk) : null,
@@ -537,6 +545,8 @@ export async function approveInstallationPairing(
     if (r.user_id !== user || !r.account_selected_at || (!r.attested_at && !r.scope_only))
       fail("installation_attestation_required");
     if (!r.sign_pk || fingerprint !== clientFingerprint(r.sign_pk)) return fail("installation_fingerprint_changed", 403);
+    if (r.recovery_collection_id && (r.file_access_collection_id || consent.file_actions)) fail("installation_recovery_target_changed");
+    requireRecoveryScope(r,consent.collection_ids,consent.selected_collection_id??null,consent.create_collections);
     if (r.file_access_collection_id || consent.file_actions) return approveFileAccess(c, r, user, consent);
     const selected = consent.selected_collection_id ?? null;
     // Manual legacy approval remains supported, but can never fabricate the
@@ -737,10 +747,15 @@ function credential(r: Row, secret: string): string {
     )
     .digest("base64url")}`;
 }
+/** The original recovery CID is a constraint, never a grant or UX hint. */
+function requireRecoveryScope(r: Row, ids=r.approved_collection_ids, selected=r.selected_collection_id, create=r.approved_create_collections): void {
+  if (r.recovery_collection_id && (ids.length!==1 || ids[0]!==r.recovery_collection_id || selected!==r.recovery_collection_id || create || r.created_collection_ids.length)) fail("installation_recovery_target_changed");
+}
 /** Add only after explicit consent, under the same credential lock used by
  * creates/mints. Recheck membership at exchange, not just at portal approval.
  * Re-consent never removes collection access or revokes a device as a hidden side effect. */
 async function persistScope(c: Connection, r: Row): Promise<void> {
+  requireRecoveryScope(r);
   await c.query("UPDATE installation_device_credentials SET create_collections=create_collections OR $2 WHERE connector_id=$1",[r.connector_id,r.approved_create_collections]);
   if (r.scope_only && r.selected_collection_id && !r.approved_collection_ids.includes(r.selected_collection_id)) {
     const retained = await c.query("SELECT 1 FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2",[r.connector_id,r.selected_collection_id]);
@@ -828,6 +843,7 @@ export async function exchangeInstallationPairing(
       return { status: "account_selected" as const, ...selection(r) };
     if (!r.approved_at)
       return { status: "awaiting_approval" as const, ...selection(r) };
+    requireRecoveryScope(r);
     if (r.scope_only) {
       const identity = {id:r.connector_id,user_id:r.user_id!,installation_device_id:r.device_id};
       await requireInstallationScope(c,identity);
