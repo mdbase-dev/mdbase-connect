@@ -27,6 +27,8 @@ export class NextEditorRecords {
   /** Captured writes this adapter couldn't settle (unknown outcome, failed readback). */
   private readonly unknown = new Map<string, NextEditorPendingMutation>();
   private writing = false;
+  /** Per create ID until confirmed: the first request, and every property key requested since. */
+  private readonly creates = new Map<string, { first: string; keys: Set<string> }>();
 
   /** `isCurrent` is the borrowed SDK connection's currentness; a retired
    * connection fences every later await, including receipt readback. */
@@ -39,19 +41,43 @@ export class NextEditorRecords {
     return this.remember(record);
   }
 
-  create(input: CreateNoteInput, signal?: AbortSignal): Promise<NoteDocument> {
-    const id = input.id ?? crypto.randomUUID();
-    return this.write("create", id, current => this.client.create({
+  /** With `input.id`, a retry lands once. The same intent keeps the first landed
+   * attempt's content, so a retry with edited input then applies the edit as an
+   * update (and rename) of the created note. */
+  async create(input: CreateNoteInput, signal?: AbortSignal): Promise<NoteDocument> {
+    const intent = input.id;
+    const id = intent ?? crypto.randomUUID();
+    const body = input.titleField ? input.body : persistedBody(input.title, input.body, { kind: "heading" });
+    const request = JSON.stringify([input.path, body, input.properties]);
+    const attempt = intent === undefined ? undefined : this.creates.get(intent) ?? { first: request, keys: new Set<string>() };
+    if (intent !== undefined && attempt) {
+      for (const key of Object.keys(input.properties)) attempt.keys.add(key);
+      this.creates.set(intent, attempt);
+    }
+    let created = await this.write("create", id, current => this.client.create({
       id, path: input.path, ...(input.type ? { type: input.type } : {}),
-      frontmatter: input.properties as Record<string, PlainValue>,
-      body: input.titleField ? input.body : persistedBody(input.title, input.body, { kind: "heading" }),
-    }, current), signal, input.id) as Promise<NoteDocument>;
+      frontmatter: input.properties as Record<string, PlainValue>, body,
+    }, current), signal, intent) as NoteDocument;
+    if (intent === undefined || !attempt) return created;
+    if (attempt.first !== request) {
+      const current = this.signal(signal);
+      const record = await this.base(created.path, created.revision, current);
+      const unset = [...attempt.keys].filter(key => !(key in input.properties) && key in created.frontmatter);
+      created = await this.write("update", id, options => this.client.update(record, {
+        patch: input.properties as Record<string, PlainValue>, ...(unset.length ? { unset } : {}),
+        ...(created.body === body ? {} : { body }), ifRevision: record.revision,
+      }, options), current) as NoteDocument;
+      if (created.path !== input.path) created = await this.rename(created.path, input.path, created.revision, false, signal);
+    }
+    this.creates.delete(intent);
+    return created;
   }
 
-  restore(document: NoteDocument, signal?: AbortSignal): Promise<NoteDocument> {
+  /** With `requestedId`, a restore retried after a lost reply lands once. */
+  restore(document: NoteDocument, requestedId?: string, signal?: AbortSignal): Promise<NoteDocument> {
     if (document.document === undefined) throw unsupported("The original complete note source is unavailable.");
-    const id = crypto.randomUUID();
-    return this.write("create", id, current => this.client.create({ id, path: document.path, document: document.document }, current), signal) as Promise<NoteDocument>;
+    const id = requestedId ?? crypto.randomUUID();
+    return this.write("create", id, current => this.client.create({ id, path: document.path, document: document.document }, current), signal, requestedId) as Promise<NoteDocument>;
   }
 
   async update(base: NoteDocument, change: MdbaseRecordChange, signal?: AbortSignal): Promise<NoteDocument> {

@@ -261,6 +261,17 @@ describe("note navigation ownership and recovery", () => {
     expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("A quiet interface 3");
   });
 
+  it("retries a failed linked creation with the same record ID", async () => {
+    const { gateway } = await harness();
+    const created = vi.spyOn(gateway, "create").mockRejectedValueOnce(new Error("Reply lost"));
+    fireEvent.click(screen.getByRole("button", { name: "Create linked note" }));
+    await screen.findByText(/Reply lost/);
+    fireEvent.click(screen.getByRole("button", { name: "Create linked note" }));
+    await screen.findByDisplayValue("Linked");
+    expect(created.mock.calls[1]![0].id).toEqual(expect.any(String));
+    expect(created.mock.calls[1]![0].id).toBe(created.mock.calls[0]![0].id);
+  });
+
   it("still adopts a created link when it remains the latest navigation", async () => {
     const { gateway } = await harness();
     const created = vi.spyOn(gateway, "create");

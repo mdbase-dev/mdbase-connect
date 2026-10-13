@@ -49,8 +49,9 @@ export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType,
   const [optionalPropertiesValid, setOptionalPropertiesValid] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string>();
-  /** One record ID per creation: a retry of the same input reuses it, so the write lands once. */
-  const attempt = useRef<{ input: string; id: string }>(undefined);
+  /** One record ID per creation, kept across edits until the create is confirmed:
+   * a retry reuses it, so the note lands once and later edits apply as an update. */
+  const attempt = useRef<string>(undefined);
   const type = types.find((candidate) => candidate.name === typeName);
   const declaredDisplayField = collectionDisplayField(type, "name_field");
   const displaySchema = schemaAtFieldReference(type?.schema, declaredDisplayField);
@@ -135,10 +136,9 @@ export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType,
       titleField: displayField,
       properties: nextProperties
     };
-    const key = JSON.stringify(input);
-    if (attempt.current?.input !== key) attempt.current = { input: key, id: crypto.randomUUID() };
+    attempt.current ??= crypto.randomUUID();
     try {
-      await onCreate({ ...input, id: attempt.current.id });
+      await onCreate({ ...input, id: attempt.current });
       attempt.current = undefined;
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "The note could not be created.");

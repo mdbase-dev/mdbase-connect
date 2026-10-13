@@ -273,6 +273,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   });
   const noteHistory = useRef<NoteNavigationHistory>({ paths: [], index: -1 });
   const linkCreations = useRef(new Set<string>());
+  /** One record ID per link target until its create is confirmed: following the
+   * same link after a lost reply reuses it as the intent, so the note lands once. */
+  const linkCreationIds = useRef(new Map<string, string>());
   const searchIndexCache = useRef(new IncrementalNoteSearchIndex());
   useEffect(() => () => noteSessions.current.clear(), []);
   const mobileHistoryInitialized = useRef(false);
@@ -979,6 +982,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     noteSessions.current.clear();
     publishNoteHistory({ paths: [], index: -1 });
     linkCreations.current.clear();
+    linkCreationIds.current.clear();
     typeDescriptorsRef.current = emptyTypeDescriptors;
     workspaceCollectionId.current = undefined;
     setDescription(undefined);
@@ -1156,12 +1160,16 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setPendingNotePath(linked.path);
     setNotice(undefined);
     const token = mutationScope.current.token();
+    let id = linkCreationIds.current.get(linked.path);
+    if (!id) linkCreationIds.current.set(linked.path, id = crypto.randomUUID());
     void mutationScope.current.register(token, gateway.create({
+      id,
       title: linked.title,
       body: "",
       path: linked.path,
       properties: {}
     })).then((created) => {
+      if (linkCreationIds.current.get(linked.path) === id) linkCreationIds.current.delete(linked.path);
       if (!mutationScope.current.isCurrent(token)) return;
       indexController.create(summaryFromDocument(created));
       // Creation still belongs to the collection, but only the latest navigation

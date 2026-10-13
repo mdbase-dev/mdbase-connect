@@ -72,8 +72,9 @@ export type CollectionAuthorizationTarget =
   | { collectionId: string };
 
 export interface CreateNoteInput {
-  /** Client-generated record ID (a UUID) for this one creation. Reuse it when the
-   * same creation is retried: it names the write's intent, so it lands once. */
+  /** Client-generated record ID (a UUID) for this one creation. Reuse it whenever
+   * the creation is retried, even with edited input, until it is confirmed: it
+   * names the write's intent, so it lands once, and an edit applies as an update. */
   id?: string;
   title: string;
   body: string;
@@ -187,7 +188,9 @@ export interface CollectionGateway {
   readFile(file: CollectionFile, options?: FileReadRequest): Promise<Blob>;
   uploadFile(path: string, source: MdbaseFileSource, options?: FileUploadRequest): Promise<CollectionFile>;
   create(input: CreateNoteInput): Promise<NoteDocument>;
-  restore(document: NoteDocument): Promise<NoteDocument>;
+  /** `id` names this one restore (the record ID and write intent): reuse it when
+   * the same restore is retried, so it lands once. */
+  restore(document: NoteDocument, id?: string): Promise<NoteDocument>;
   /** Revision-checked write of only the changed parts, against `base`. */
   update(base: NoteDocument, change: import("@mdbase-dev/connect/advanced").MdbaseRecordChange): Promise<NoteDocument>;
   updateProperties(path: string, patch: JsonObject, revision: string): Promise<NoteDocument>;

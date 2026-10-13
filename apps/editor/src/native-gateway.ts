@@ -328,7 +328,7 @@ export class NativeEditorGateway implements CollectionGateway {
   }
 
   create(input: CreateNoteInput): Promise<NoteDocument> { return this.records.create(input); }
-  restore(document: NoteDocument): Promise<NoteDocument> { return this.records.restore(document); }
+  restore(document: NoteDocument, id?: string): Promise<NoteDocument> { return this.records.restore(document, id); }
   update(base: NoteDocument, change: MdbaseRecordChange): Promise<NoteDocument> { return this.records.update(base, change); }
   updateProperties(path: string, patch: JsonObject, revision: string): Promise<NoteDocument> { return this.records.updateProperties(path, patch, revision); }
   updateDocument(path: string, document: string, revision: string): Promise<NoteDocument> { return this.records.updateDocument(path, document, revision); }

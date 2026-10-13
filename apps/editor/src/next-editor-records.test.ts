@@ -119,6 +119,20 @@ describe("NextEditorRecords (SDK stand-in, not LAB)", () => {
     expect((await f.client.query({})).records.filter(r => r.path.startsWith("notes/once")).map(r => r.id)).toEqual([input.id]);
   });
 
+  it("an edited create retried after a lost reply lands once, then applies the edit", async () => {
+    const f = await fixture();
+    const original = f.client.create.bind(f.client);
+    vi.spyOn(f.client, "create").mockImplementationOnce(async (input, options) => {
+      await original(input, options);
+      throw new Error("Reply lost");
+    });
+    const id = crypto.randomUUID();
+    await expect(f.adapter.create({ id, title: "Draft", body: "first", path: "notes/draft.md", titleField: "title", properties: { title: "Draft", stale: true } })).rejects.toThrow("Reply lost");
+    const created = await f.adapter.create({ id, title: "Final", body: "edited", path: "notes/final.md", titleField: "title", properties: { title: "Final" } });
+    expect([created.path, created.body, created.frontmatter]).toEqual(["notes/final.md", "edited", { title: "Final" }]);
+    expect((await f.client.query({})).records.filter(r => r.path !== "notes/plan.md").map(r => r.id)).toEqual([id]);
+  });
+
   it("retains outcome-unknown for exact receipt recovery without a new update", async () => {
     const f = await fixture();
     const base = await f.adapter.read(f.record.path);
