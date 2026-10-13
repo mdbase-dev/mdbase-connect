@@ -494,6 +494,33 @@ describe("ConnectApp", () => {
     expect(screen.queryByRole("button", { name: "Revoke" })).not.toBeInTheDocument();
   });
 
+  it("distinguishes same-named grants by their actual origin and collection ID with plain permission labels", async () => {
+    const operations = ["read_type", "assess_collection_setup", "apply_collection_setup", "list_timers"];
+    overview.grants = applicationGrants().map((grant, index) => ({
+      ...grant, operations, collection_name: "New collection", collection_id: index === 0 ? "collection" : "collection-two",
+      homepage: "https://homepage.example", application_origin: index === 0 ? "https://lab.tasknotes-app.pages.dev" : "http://127.0.0.1:48220"
+    }));
+    const user = userEvent.setup();
+    const { container } = render(<ConnectApp />);
+    await screen.findByRole("heading", { name: "Garden notes" });
+    await user.click(screen.getByRole("link", { name: /Applications/ }));
+    const grants = [...container.querySelectorAll("details.connect-grant")];
+    expect(grants).toHaveLength(2);
+    expect(grants.map(grant => grant.querySelector("summary")?.textContent)).toEqual(expect.arrayContaining([
+      "New collection4 permissions · lab.tasknotes-app.pages.devPermissions",
+      "New collection4 permissions · Local development (127.0.0.1:48220)Permissions"
+    ]));
+    expect(grants.every(grant => grant.textContent?.includes("Collection ID"))).toBe(true);
+    expect(grants.map(grant => grant.querySelector(".connect-grant-meta strong")?.textContent).sort()).toEqual(["collection", "collection-two"]);
+    for (const grant of grants) {
+      expect(grant.textContent).toContain("View record types");
+      expect(grant.textContent).toContain("Check what this app needs to set up");
+      expect(grant.textContent).toContain("Set up this app in the collection");
+      expect(grant.textContent).toContain("See this app's scheduled activity");
+      expect(grant.textContent).not.toContain("homepage.example");
+    }
+  });
+
   it("revokes every application grant through one batch and refreshes", async () => {
     const now = new Date().toISOString();
     overview.grants = ["grant-a", "grant-b"].map((id, index) => ({
