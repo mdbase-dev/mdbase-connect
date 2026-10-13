@@ -6,7 +6,8 @@ or routes it back before cutover. It refuses to start unless `MDBASE_CONNECT_ENV
 is exactly `lab`, and the account must have started with the `lab-fixture-v1` profile.
 
 ```sh
-pnpm --filter @mdbase/connect-server next:migration-lab lab-run <account id> <backup hold id>
+pnpm --filter @mdbase/connect-server next:migration-lab lab-run <account id> <backup hold id> [--stop-before-flip]
+pnpm --filter @mdbase/connect-server next:migration-lab resume <account id>
 pnpm --filter @mdbase/connect-server next:migration-lab route-back <account id>
 pnpm --filter @mdbase/connect-server next:migration-lab status <account id>
 ```
@@ -56,6 +57,35 @@ After an unknown outcome a mutation is never sent again; a rerun reads state fir
 | timer import `timer_source_changed` | retry (up to 5 times) |
 | flip `timers_source_changed` | re-import, then retry the flip (up to 5 times) |
 | any other refusal or error at any step | stop |
+
+## Verified H1 pause and resume
+
+`lab-run ... --stop-before-flip` requests a hosted scheduling pause **after actual
+native H1 verification (step 8), before preparation of revoke/cutover intent**.
+This is not a CLI-only stop immediately before the account flip: by then native
+cutover intent would already make route-back unsafe. Normal runs are unchanged.
+The CLI imports drained timers, stops with `operator_pause_before_cutover`, and
+prints `resume <account id>`; it does not call cutover or flip while paused.
+
+Run intent is immutable for same-run retries. A conflicting pause mode refuses;
+older Workers must not be treated as having accepted the option. The Worker
+persists requested mode and the immutable run sequence whose pause was consumed.
+Restart preserves requested mode but clears consumed resume intent for the fresh
+run, so a previous run's resume cannot release the new run's pause.
+
+`resume` requires legacy backend, exact stopped pause reason/mode, verified
+checkpoint, no outstanding action, and an available native run sequence. It sends
+one bounded operator request `{collection, operation:"resume", expected_run_sequence}`.
+The Worker obtains a genuine owned CPP claim, checks physical binding and current
+native state around actual `storage.sync()`, then saves continuation and arms its
+alarm. SQL status is scheduling DATA, not effect or settlement authority; subsequent
+native prepare still checks authority independently. Stale, duplicate or drifted
+resume refuses. Lost output stops without retry or adoption. After a confirmed
+resume the CLI continues using the original pause mode through cutover, flip and
+completion. At the pause, `route-back` remains the supported alternative.
+
+Deploy compatible hosted code before using the new option or resume command.
+No new native ABI, action kind, KMS bypass or provider recovery behavior is added.
 
 ## route-back
 

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  decidePoll, decideRouteBack, labRun, labWorkerClient, routeBack, STEP,
+  decidePoll, decideRouteBack, labRun, resumeLab, labWorkerClient, routeBack, PAUSE_REASON, STEP,
   type LabConnect, type LabWorker, type RouteBackPhase, type WorkerReply, type WorkerStatus
 } from "./migration-lab.js";
 
@@ -65,7 +65,7 @@ describe("route-back decision table", () => {
 });
 
 /** A Worker that answers status from a script (sticking on the last entry) and records calls. */
-function fakeWorker(script: WorkerReply[], operator: Partial<Record<"rollback" | "restart" | "resolve", (seq: number) => WorkerReply>> = {}) {
+function fakeWorker(script: WorkerReply[], operator: Partial<Record<"rollback" | "restart" | "resolve" | "resume", (seq: number) => WorkerReply>> = {}) {
   const calls: string[] = [];
   let index = 0;
   const next = () => script[Math.min(index++, script.length - 1)]!;
@@ -75,6 +75,7 @@ function fakeWorker(script: WorkerReply[], operator: Partial<Record<"rollback" |
     async status() { calls.push("status"); return next(); },
     async rollback(_c, seq) { calls.push(`rollback:${seq}`); return operator.rollback?.(seq) ?? ok(st("running", STEP.rollingBack)); },
     async restart(_c, seq) { calls.push(`restart:${seq}`); return operator.restart?.(seq) ?? ok(st("running", 0, { seq: seq + 1 })); },
+    async resume(_c, seq) { calls.push(`resume:${seq}`); return operator.resume?.(seq) ?? ok(st("running", STEP.verified)); },
     async resolve(_c, seq) { calls.push(`resolve:${seq}`); return operator.resolve?.(seq) ?? ok(st("running", STEP.rollingBack)); }
   };
   return { worker, calls };
@@ -164,6 +165,68 @@ describe("lab-run", () => {
     expect(c.calls).toEqual(["preflight", "completion"]);
     expect(w.calls).toEqual([]);
   });
+});
+
+describe("pre-cutover pause and explicit resume", () => {
+  const paused = (): WorkerStatus => {
+    const status = st("stopped", STEP.verified, { reason: PAUSE_REASON });
+    status.run!.stop_before_flip = true; status.run!.resumed_run_sequence = null;
+    return status;
+  };
+  const resumed = (): WorkerStatus => {
+    const status = st("running", STEP.verified);
+    status.run!.stop_before_flip = true; status.run!.resumed_run_sequence = 1;
+    return status;
+  };
+  it("stops after H1 and timer import without cutover or flip; names explicit resume", async () => {
+    const w = fakeWorker([ok(paused())]), c = fakeConnect();
+    w.worker.run = vi.fn(async () => ok(paused()));
+    expect(await labRun(account, hold, deps(w.worker, c.connect), true)).toMatchObject({ stopped: {
+      reason: PAUSE_REASON, resume: `${CLI} resume ${account}`
+    } });
+    expect(w.worker.run).toHaveBeenCalledWith(collection, hold, true);
+    expect(c.calls).toEqual(["preflight", "importTimers"]);
+  });
+  it("refuses a Worker which does not acknowledge requested pause mode", async () => {
+    const c = fakeConnect();
+    expect(await labRun(account, hold, deps(fakeWorker(happy).worker, c.connect), true)).toMatchObject({
+      stopped: { reason: "migration_pause_mode_conflict" }
+    });
+    expect(c.calls).toEqual(["preflight"]);
+  });
+  it("dispatches resume once on the observed run sequence and then finishes with the original mode", async () => {
+    const w = fakeWorker([ok(paused()), ok(st("done", STEP.routed))], { resume: () => ok(resumed()) }), c = fakeConnect();
+    w.worker.run = vi.fn(async () => ok(resumed()));
+    c.connect.preflight = vi.fn(async () => ({ collection, backend: "legacy" as const }));
+    expect(await resumeLab(account, deps(w.worker, c.connect))).toMatchObject({ done: { lab_complete: true } });
+    expect(c.connect.preflight).toHaveBeenCalledTimes(1);
+    expect(w.calls.filter(call => call.startsWith("resume:"))).toEqual(["resume:1"]);
+    expect(w.worker.run).toHaveBeenCalledWith(collection, hold, true);
+  });
+  it("lost resume output stops, with no retry, adoption or account flip", async () => {
+    const w = fakeWorker([ok(paused())], { resume: () => ({ kind: "unknown", reason: "worker_unreachable" }) }), c = fakeConnect();
+    expect(await resumeLab(account, deps(w.worker, c.connect))).toMatchObject({ stopped: {
+      reason: "operator_outcome_unknown:worker_unreachable"
+    } });
+    expect(w.calls).toEqual(["status", "resume:1"]);
+    expect(c.calls).toEqual(["preflight"]);
+  });
+  it.each(["checkpoint", "outstanding", "reason", "sequence", "mode", "consumed"])(
+    "refuses resume for drifted %s", async field => {
+      const status = paused();
+      if ("error" in status.native) throw new Error("test invariant");
+      if (field === "checkpoint") status.native.checkpoint!.step = STEP.cutoverIntent;
+      if (field === "outstanding") status.native.outstanding = { sequence: 8, kind: 6 };
+      if (field === "reason") status.run!.reason = "effect_unknown:Fence";
+      if (field === "sequence") status.native.run_sequence = null;
+      if (field === "mode") delete status.run!.stop_before_flip;
+      if (field === "consumed") status.run!.resumed_run_sequence = 1;
+      const w = fakeWorker([ok(status)]), c = fakeConnect();
+      expect(await resumeLab(account, deps(w.worker, c.connect))).toHaveProperty("stopped");
+      expect(w.calls).toEqual(["status"]);
+      expect(c.calls).toEqual(["preflight"]);
+    }
+  );
 });
 
 describe("route-back", () => {

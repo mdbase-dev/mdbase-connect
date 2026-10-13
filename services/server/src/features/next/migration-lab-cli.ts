@@ -1,7 +1,8 @@
 // Operator CLI for the LAB one-account migration rehearsal (migration-lab.ts).
 // Runs only with MDBASE_CONNECT_ENVIRONMENT exactly `lab`.
 //
-//   next-migration-lab lab-run <account id> <backup hold id>
+//   next-migration-lab lab-run <account id> <backup hold id> [--stop-before-flip]
+//   next-migration-lab resume <account id>
 //   next-migration-lab route-back <account id>
 //   next-migration-lab status <account id>
 //
@@ -16,15 +17,17 @@
 import { createDatabase, openDatabase } from "../../db.js";
 import { HostedProviderClient } from "../../hosted-provider.js";
 import { hostedProviderConfigFromEnv } from "../../runtime-config.js";
-import { labRun, labStatus, labWorkerClient, postgresLabConnect, routeBack, type LabOutcome } from "./migration-lab.js";
+import { labRun, resumeLab, labStatus, labWorkerClient, postgresLabConnect, routeBack, type LabOutcome } from "./migration-lab.js";
 
-const USAGE = "usage: next-migration-lab lab-run <account id> <backup hold id> | route-back <account id> | status <account id>";
+const USAGE = "usage: next-migration-lab lab-run <account id> <backup hold id> [--stop-before-flip] | resume <account id> | route-back <account id> | status <account id>";
 
 async function main(argv: string[]): Promise<void> {
   // The environment is checked before anything else is read or opened.
   if (process.env.MDBASE_CONNECT_ENVIRONMENT !== "lab") throw new Error("next-migration-lab runs only with MDBASE_CONNECT_ENVIRONMENT=lab.");
-  const [command, account, hold] = argv;
-  if (!account || (command === "lab-run" ? !hold || argv.length !== 3 : argv.length !== 2 || !["route-back", "status"].includes(command!))) {
+  const [command, account, hold, flag] = argv;
+  const stopBeforeFlip = flag === "--stop-before-flip";
+  if (!account || (command === "lab-run" ? !hold || !(argv.length === 3 || argv.length === 4 && stopBeforeFlip)
+    : argv.length !== 2 || !["route-back", "resume", "status"].includes(command!))) {
     throw new Error(USAGE);
   }
   const sourceUrl = process.env.MDBASE_LEGACY_PROVIDER_DATABASE_URL?.trim();
@@ -43,7 +46,8 @@ async function main(argv: string[]): Promise<void> {
     if (command === "status") { console.log(JSON.stringify(await labStatus(account.toLowerCase(), { worker, connect }))); return; }
     const deps = { worker, connect, log: (event: Record<string, unknown>) => console.log(JSON.stringify(event)) };
     const outcome: LabOutcome = command === "lab-run"
-      ? await labRun(account.toLowerCase(), hold!.toLowerCase(), deps)
+      ? await labRun(account.toLowerCase(), hold!.toLowerCase(), deps, stopBeforeFlip)
+      : command === "resume" ? await resumeLab(account.toLowerCase(), deps)
       : await routeBack(account.toLowerCase(), deps);
     console.log(JSON.stringify(outcome));
     if ("stopped" in outcome) {

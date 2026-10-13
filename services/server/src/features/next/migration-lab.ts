@@ -29,12 +29,14 @@ const CLI = "pnpm --filter @mdbase/connect-server next:migration-lab";
 const MAX_REPLY_BYTES = 64 * 1024;
 
 /** Native Driver steps (`hosted_import::Step`, mirrored by the Worker's status). */
-export const STEP = { fenced: 6, drained: 7, cutoverIntent: 10, routed: 13, rollingBack: 20, rolledBack: 21, failed: 22, gone: 23 } as const;
+export const PAUSE_REASON = "operator_pause_before_cutover";
+export const STEP = { fenced: 6, drained: 7, verified: 8, cutoverIntent: 10, routed: 13, rollingBack: 20, rolledBack: 21, failed: 22, gone: 23 } as const;
 /** Native rollback action kinds whose lost reply the Worker resolves from the provider receipt. */
 const ROLLBACK_KINDS: Readonly<Record<number, string>> = { 20: "Unrevoke", 21: "Unfence" };
 
 const statusSchema = z.object({
-  run: z.object({ state: z.string(), reason: z.string().nullable(), backup_hold: z.string(), migration_id: z.string().nullable() }).nullable(),
+  run: z.object({ state: z.string(), reason: z.string().nullable(), backup_hold: z.string(), migration_id: z.string().nullable(),
+    stop_before_flip: z.boolean().optional(), resumed_run_sequence: z.number().int().positive().nullable().optional() }).nullable(),
   native: z.union([
     z.object({ error: z.string() }),
     z.object({
@@ -62,11 +64,12 @@ export type WorkerReply =
 export interface WorkerOperator {
   rollback(collection: string, expectedRunSequence: number): Promise<WorkerReply>;
   restart(collection: string, expectedRunSequence: number): Promise<WorkerReply>;
+  resume(collection: string, expectedRunSequence: number): Promise<WorkerReply>;
   /** Settle a lost rollback reply from the provider's rollback receipt. */
   resolve(collection: string, expectedActionSequence: number): Promise<WorkerReply>;
 }
 export interface LabWorker extends WorkerOperator {
-  run(collection: string, backupHold: string): Promise<WorkerReply>;
+  run(collection: string, backupHold: string, stopBeforeFlip?: boolean): Promise<WorkerReply>;
   status(collection: string): Promise<WorkerReply>;
 }
 
@@ -128,10 +131,13 @@ export function labWorkerClient(config: { url: string; token: string }, fetchImp
   const operator = (collection: string, operation: string, key: string, sequence: number) =>
     post("/internal/v1/migration/operator", { collection, operation, [key]: sequence });
   return {
-    run: (collection, backupHold) => post("/internal/v1/migration/run", { collection, backup_hold: backupHold }),
+    run: (collection, backupHold, stopBeforeFlip = false) => post("/internal/v1/migration/run", {
+      collection, backup_hold: backupHold, ...(stopBeforeFlip ? { stop_before_flip: true } : {})
+    }),
     status: collection => post("/internal/v1/migration/status", { collection }),
     rollback: (collection, sequence) => operator(collection, "rollback", "expected_run_sequence", sequence),
     restart: (collection, sequence) => operator(collection, "restart", "expected_run_sequence", sequence),
+    resume: (collection, sequence) => operator(collection, "resume", "expected_run_sequence", sequence),
     resolve: (collection, sequence) => operator(collection, "resolve", "expected_action_sequence", sequence)
   };
 }
@@ -229,6 +235,11 @@ export function decidePoll(status: WorkerStatus, timersImported: boolean): PollD
   if (!run) return stopWith("worker_run_missing");
   const step = checkpoint?.step ?? null;
   if (run.state === "stopped") {
+    if (run.reason === PAUSE_REASON) {
+      if (run.stop_before_flip !== true || run.resumed_run_sequence !== null || !status.native.run_sequence
+          || step !== STEP.verified || !checkpoint?.fenced || status.native.outstanding) return stopWith("migration_pause_not_current");
+      if (!timersImported) return { action: "import_timers" };
+    }
     const reason = run.reason ?? "stopped";
     return stopWith(reason, ROLLBACK_REASONS.test(reason) || step === STEP.rollingBack || step === STEP.rolledBack);
   }
@@ -279,6 +290,7 @@ export function decideRouteBack(status: WorkerStatus, phase: RouteBackPhase): Ro
 const commands = (account: string, hold?: string) => ({
   inspect: `${CLI} status ${account}`,
   labRun: `${CLI} lab-run ${account} ${hold ?? "<backup-hold-id>"}`,
+  resume: `${CLI} resume ${account}`,
   routeBack: `${CLI} route-back ${account}`
 });
 
@@ -313,13 +325,23 @@ async function readStatus(deps: LabDeps, collection: string, pace: Awaited<Retur
  * preflight → start the Worker run → poll → import timers once drained →
  * confirm cutover → flip → read back the LAB completion.
  */
-export async function labRun(account: string, backupHold: string, deps: LabDeps): Promise<LabOutcome> {
+export async function labRun(account: string, backupHold: string, deps: LabDeps, stopBeforeFlip = false): Promise<LabOutcome> {
+  const cmd = commands(account, backupHold);
+  const stop = (reason: string): LabOutcome => ({ stopped: { step: "preflight", reason,
+    inspect: cmd.inspect, resume: cmd.labRun + (stopBeforeFlip ? " --stop-before-flip" : "") } });
+  if (!UUID.test(account) || !UUID.test(backupHold)) return stop("invalid_request");
+  let pre: Awaited<ReturnType<LabConnect["preflight"]>>;
+  try { pre = await deps.connect.preflight(account); } catch (error) { return stop(codeOf(error)); }
+  return driveLabRun(account, backupHold, pre, deps, stopBeforeFlip);
+}
+
+/** Continue the one preflight-bound collection, including after explicit resume. */
+async function driveLabRun(account: string, backupHold: string, pre: Awaited<ReturnType<LabConnect["preflight"]>>,
+  deps: LabDeps, stopBeforeFlip: boolean): Promise<LabOutcome> {
   const cmd = commands(account, backupHold), log = deps.log ?? (() => undefined);
   const stop = (step: string, reason: string, routeBack = false): LabOutcome =>
-    ({ stopped: { step, reason, inspect: cmd.inspect, resume: routeBack ? cmd.routeBack : cmd.labRun } });
-  if (!UUID.test(account) || !UUID.test(backupHold)) return stop("preflight", "invalid_request");
-  let pre: Awaited<ReturnType<LabConnect["preflight"]>>;
-  try { pre = await deps.connect.preflight(account); } catch (error) { return stop("preflight", codeOf(error)); }
+    ({ stopped: { step, reason, inspect: cmd.inspect, resume: reason === PAUSE_REASON ? cmd.resume
+      : routeBack ? cmd.routeBack : cmd.labRun + (stopBeforeFlip ? " --stop-before-flip" : "") } });
   const { collection } = pre;
   log({ step: "preflight", collection, backend: pre.backend });
   const pace = await poller(deps);
@@ -336,12 +358,15 @@ export async function labRun(account: string, backupHold: string, deps: LabDeps)
   };
 
   if (pre.backend === "legacy") {
-    const started = await deps.worker.run(collection, backupHold);
+    const started = await deps.worker.run(collection, backupHold, stopBeforeFlip);
     if (started.kind === "refused") return stop("worker_run", started.code);
     // A lost reply is resolved by reading the run back, never by sending it again.
     const confirmed = started.kind === "ok" ? started : await readStatus(deps, collection, pace);
     if (confirmed.kind !== "ok") return stop("worker_run", confirmed.kind === "refused" ? confirmed.code : confirmed.reason);
     if (confirmed.status.run?.backup_hold !== backupHold) return stop("worker_run", confirmed.status.run ? "migration_run_exists" : "worker_run_missing");
+    if (stopBeforeFlip ? confirmed.status.run.stop_before_flip !== true : confirmed.status.run.stop_before_flip === true) {
+      return stop("worker_run", "migration_pause_mode_conflict");
+    }
     log({ step: "worker_run", state: confirmed.status.run.state });
 
     let timersImported = false;
@@ -379,6 +404,35 @@ export async function labRun(account: string, backupHold: string, deps: LabDeps)
   return { done: { account_id: account, collection_id: collection, backend: "next", lab_complete: true } };
 }
 
+/** Explicit, sequence-bound resume; a lost operator reply is never retried or adopted. */
+export async function resumeLab(account: string, deps: LabDeps): Promise<LabOutcome> {
+  const cmd = commands(account);
+  const stop = (reason: string): LabOutcome => ({ stopped: { step: "resume", reason, inspect: cmd.inspect, resume: cmd.resume } });
+  if (!UUID.test(account)) return stop("invalid_request");
+  let pre: Awaited<ReturnType<LabConnect["preflight"]>>;
+  try { pre = await deps.connect.preflight(account); } catch (error) { return stop(codeOf(error)); }
+  if (pre.backend !== "legacy") return stop("account_already_next");
+  const before = await readStatus(deps, pre.collection, await poller(deps));
+  if (before.kind !== "ok") return stop(before.kind === "refused" ? before.code : before.reason);
+  const { run, native } = before.status;
+  if ("error" in native) return stop(`native_state:${native.error}`);
+  const sequence = native.run_sequence;
+  if (!sequence) return stop("run_sequence_unavailable");
+  if (!run || run.state !== "stopped" || run.reason !== PAUSE_REASON || run.stop_before_flip !== true
+      || run.resumed_run_sequence !== null || native.checkpoint?.step !== STEP.verified
+      || !native.checkpoint.fenced || native.outstanding || !UUID.test(run.backup_hold)) return stop("migration_pause_not_current");
+  const resumed = await deps.worker.resume(pre.collection, sequence);
+  if (resumed.kind !== "ok") return stop(resumed.kind === "refused"
+    ? `operator_refused:${resumed.code}` : `operator_outcome_unknown:${resumed.reason}`);
+  const after = resumed.status;
+  if ("error" in after.native || after.native.run_sequence !== sequence || after.run?.resumed_run_sequence !== sequence
+      || after.run.stop_before_flip !== true || after.run.backup_hold !== run.backup_hold
+      || !["running", "waiting", "done"].includes(after.run.state)) {
+    return stop("operator_outcome_unknown:resume_unconfirmed");
+  }
+  return driveLabRun(account, run.backup_hold, pre, deps, true);
+}
+
 /**
  * rollback → resolve a lost rollback reply from the receipt → timer cleanup →
  * restart with the expected run sequence (re-import) → wait for the re-fence.
@@ -410,7 +464,7 @@ export async function routeBack(account: string, deps: LabDeps): Promise<LabOutc
       case "done": return { done: {
         account_id: account, collection_id: collection, refenced: true,
         run_sequence: "error" in status.native ? null : status.native.run_sequence ?? null,
-        next: commands(account, status.run!.backup_hold).labRun
+        next: commands(account, status.run!.backup_hold).labRun + (status.run!.stop_before_flip ? " --stop-before-flip" : "")
       } };
       case "wait":
         if (pace.expired()) return stop(phase === "restarted" ? "refence" : "rollback", "poll_timeout");
