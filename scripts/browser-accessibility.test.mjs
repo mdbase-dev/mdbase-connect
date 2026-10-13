@@ -22,7 +22,7 @@ try {
   await auditPortalSignup();
   await auditPortalRecovery();
   await auditPortalUnsubscribe();
-  if (!process.argv.includes("--portal-only")) await auditEditorConnect();
+  await auditPortalManagement();
   await auditPortalColdStartAuthorization();
   await auditPortalColdStartAuthorization({ atomic: true });
   await auditPortalExpiredAuthorization();
@@ -442,7 +442,7 @@ async function auditPortalUnsubscribe() {
   await page.close();
 }
 
-async function auditEditorConnect() {
+async function auditPortalManagement() {
   const page = await localPage();
   const errors = watchPageErrors(page);
   const now = new Date().toISOString();
@@ -547,6 +547,10 @@ async function auditEditorConnect() {
       });
       return;
     }
+    if (pathname === "/v1/ui-configuration") {
+      await route.fulfill({ json: { editor_url: `${servers[2].origin}/connect` } });
+      return;
+    }
     if (pathname === "/v1/account/sessions") {
       await route.fulfill({ json: { sessions: [{
         id: "current-session",
@@ -603,26 +607,26 @@ async function auditEditorConnect() {
     }
     await route.fulfill({ json: {} });
   });
-  await page.goto(`${servers[2].origin}/connect`);
+  await page.goto(servers[0].origin);
   await page.getByRole("heading", { name: "Accessibility collection" }).waitFor();
-  await auditPage(page, "editor Connect workspace", { keyboard: true });
+  await auditPage(page, "portal management workspace", { keyboard: true });
 
-  await page.getByRole("link", { name: "App access" }).click();
+  await page.getByRole("link", { name: "Applications", exact: true }).click();
   await page.getByRole("heading", { name: "Application access" }).waitFor();
   await page.getByText("Photo catalog", { exact: true }).click();
   await page.getByText("Permissions", { exact: true }).click();
-  await auditPage(page, "editor Connect expanded permissions", { keyboard: true });
+  await auditPage(page, "portal management expanded permissions", { keyboard: true });
 
   await page.getByRole("link", { name: "Account & sessions" }).click();
   await page.getByRole("heading", { name: "Hosted storage" }).waitFor();
   await page.getByRole("button", { name: "Change password" }).click();
   await page.getByRole("button", { name: "Delete account…" }).click();
-  await auditPage(page, "editor Connect account forms", { keyboard: true });
+  await auditPage(page, "portal management account forms", { keyboard: true });
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: /Account & sessions.*Open menu/ }).click();
-  await page.getByRole("link", { name: "Back to editor" }).waitFor();
-  await auditPage(page, "editor Connect mobile navigation", { keyboard: true });
+  await page.getByRole("link", { name: "Open editor" }).waitFor();
+  await auditPage(page, "portal management mobile navigation", { keyboard: true });
   assert.deepEqual(errors, []);
   await page.close();
 }

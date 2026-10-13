@@ -40,9 +40,16 @@ export async function portalLifecycleE2E({
     const collectionId = dashboard.hosted_collections.find(
       (collection) => collection.display_name === "Browser E2E collection"
     ).id;
-    const editorUrl = new URL("/", page.url());
-    editorUrl.searchParams.set("collection", collectionId);
+    const uiConfiguration = await page.evaluate(async (server) => {
+      const response = await fetch(`${server}/v1/ui-configuration`, { credentials: "include" });
+      if (!response.ok) throw new Error("Editor configuration unavailable");
+      return response.json();
+    }, controlUrl);
+    assert.ok(uiConfiguration.editor_url, "The fixture must configure a separate Editor");
+    const editorUrl = new URL("/", uiConfiguration.editor_url);
+    assert.notEqual(editorUrl.origin, new URL(controlUrl).origin, "Editor and management are distinct origins");
     editorUrl.searchParams.set("server", controlUrl);
+    editorUrl.searchParams.set("collection", collectionId);
     await expect(row.getByRole("link", { name: "Open", exact: true }))
       .toHaveAttribute("href", editorUrl.href);
     await expect(row.getByRole("link", { name: "Sync folder" }))
