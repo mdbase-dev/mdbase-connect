@@ -94,13 +94,40 @@ test("next capabilities display and select record/file rights jointly without ad
   assert.match(groups[1].description, /replace, move, and rename/);
 });
 
-test("next refuses missing paired declarations, required files without record rights and v1", () => {
+test("next omits unpaired optional groups without manufacturing rights or dropping required ones", () => {
+  const input = {
+    contracts: [],
+    capabilities: { contract_version: 2, required: ["collection.read"], optional: ["records.create", "records.edit", "records.delete", "offline.replica"] },
+    files: { required: ["list", "read"], optional: ["add"], scope: { kind: "collection" } }
+  };
+  const requested = [...read, "create", "update", "rename", "delete", "sync"];
+  const { groups, error } = nextAuthorizationGroups(input, requested);
+  assert.equal(error, undefined);
+  assert.deepEqual(groups.map(group => group.id), ["collection.read", "records.create"]);
+  assert.deepEqual(groups.flatMap(group => group.fileActions), ["list", "read", "add"]);
+  assert.deepEqual([...selectedNextAuthorizationOperations(groups, requested, ["list", "read", "add", "replace", "move", "delete"])], [...read, "create"]);
+  for (const required of ["records.edit", "records.delete", "offline.replica"]) {
+    const result = nextAuthorizationGroups({ ...input, capabilities: { ...input.capabilities, required: ["collection.read", required] } }, requested);
+    assert.deepEqual(result.groups, []);
+    assert.equal(result.error, "This app needs an update before it can connect. Try again after it updates.");
+  }
+  const incompleteRequiredFiles = nextAuthorizationGroups({ ...input, files: { ...input.files, required: ["list", "read", "replace"] } }, requested);
+  assert.deepEqual(incompleteRequiredFiles.groups, []);
+  assert.ok(incompleteRequiredFiles.error, "requiring replace cannot invent the missing move action");
+  const missingRequiredOperation = nextAuthorizationGroups(input, ["read", "create"]);
+  assert.deepEqual(missingRequiredOperation.groups, []);
+  assert.ok(missingRequiredOperation.error, "required collection.read cannot invent unrequested operations");
+});
+
+test("next refuses missing required pairs, required files without record rights and v1", () => {
   for (const input of [requirements,
     { ...jointRequirements, files: { ...jointRequirements.files, required: ["read"] } },
+    { contracts: [], capabilities: { contract_version: 1, required: ["records.read"] }, files: { actions: ["read"], scope: { kind: "collection" } } },
+    { contracts: [], capabilities: { contract_version: 2, required: ["collection.read"] }, files: { actions: ["list", "read"], scope: { kind: "collection" } } },
     { contracts: [], capabilities: { contract_version: 2, required: ["views.manage"] }, files: { required: ["delete"], scope: { kind: "collection" } } },
     { contracts: [] }]) {
     const result = nextAuthorizationGroups(input, [...read, "update", "rename", "delete"]);
-    assert.match(result.error, /must update its permissions/);
+    assert.equal(result.error, "This app needs an update before it can connect. Try again after it updates.");
     assert.deepEqual(result.groups, []);
   }
 });

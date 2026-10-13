@@ -178,7 +178,7 @@ test("the pre-choice summary names requested access without controls", () => {
 test("next record-only request has a visible reauthorization blocker and no approval control", () => {
   const html = render(ApprovalForm, { request: { account_backend: "next", requirements: { contracts: [], capabilities: { contract_version: 2, required: ["collection.read"] } }, requested_operations: ["read"] } });
   assert.match(html, /role="alert"/);
-  assert.match(html, /records and their matching file actions/);
+  assert.match(html, /This app needs an update before it can connect\. Try again after it updates\./);
   assert.doesNotMatch(html, /button|checkbox/);
 });
 
@@ -194,6 +194,6 @@ for (const requirements of [
   assert.deepEqual(authorizationCapabilityGroups(requirements, ["update"]), []);
   const html = render(ApprovalForm, { request: { requirements } });
   assert.match(html, /role="alert"/);
-  assert.match(html, /Access cannot be approved/);
+  assert.match(html, /This app needs an update before it can connect\. Try again after it updates\./);
   assert.doesNotMatch(html, /button|checkbox/);
 });
