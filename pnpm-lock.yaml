@@ -170,8 +170,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/protocol
       '@mdbase-dev/sdk':
-        specifier: file:vendor/mdbase-dev-sdk-dev-1629d11e.tgz
-        version: file:apps/editor/vendor/mdbase-dev-sdk-dev-1629d11e.tgz
+        specifier: file:vendor/mdbase-dev-sdk-dev-e00c1ff8.tgz
+        version: file:apps/editor/vendor/mdbase-dev-sdk-dev-e00c1ff8.tgz
       '@mdbase-dev/ui':
         specifier: workspace:*
         version: link:../../packages/app-ui
@@ -293,8 +293,8 @@ importers:
         specifier: ^6.43.12
         version: 6.43.12
       '@mdbase-dev/sdk':
-        specifier: file:../../apps/editor/vendor/mdbase-dev-sdk-dev-1629d11e.tgz
-        version: file:apps/editor/vendor/mdbase-dev-sdk-dev-1629d11e.tgz
+        specifier: file:../../apps/editor/vendor/mdbase-dev-sdk-dev-e00c1ff8.tgz
+        version: file:apps/editor/vendor/mdbase-dev-sdk-dev-e00c1ff8.tgz
       '@types/react':
         specifier: ^19.3.0
         version: 19.3.0
@@ -1826,8 +1826,8 @@ packages:
   '@marijn/find-cluster-break@1.0.4':
     resolution: {integrity: sha512-Wy0V7+SGUjnF9/TkiM1hKVDPj7jKXduPNboMVtHTA8dySMURWqfg/JZ9E2Sq8JgSJmkl7k7Qe9FLeMSrSraWmQ==}
 
-  '@mdbase-dev/sdk@file:apps/editor/vendor/mdbase-dev-sdk-dev-1629d11e.tgz':
-    resolution: {integrity: sha512-2m/EqrTvLBv/Pu9l94XTY4sTiUKuUm6CDChfTFm2UJumJuWwI1H0N8tHK9W5/81RfxxJE6d0roXOqbJrTPDddQ==, tarball: file:apps/editor/vendor/mdbase-dev-sdk-dev-1629d11e.tgz}
+  '@mdbase-dev/sdk@file:apps/editor/vendor/mdbase-dev-sdk-dev-e00c1ff8.tgz':
+    resolution: {integrity: sha512-dKy0j9ldPPH1JiZovOay5hwZEsMgqtioeEy5OF1yahERb6ARJPBunGs949vcpu9iD5ERPUAZbsAhf4AsTu7K+w==, tarball: file:apps/editor/vendor/mdbase-dev-sdk-dev-e00c1ff8.tgz}
     version: 0.0.0
     engines: {node: '>=20'}
     bundledDependencies:
@@ -6896,7 +6896,7 @@ snapshots:
 
   '@marijn/find-cluster-break@1.0.4': {}
 
-  '@mdbase-dev/sdk@file:apps/editor/vendor/mdbase-dev-sdk-dev-1629d11e.tgz':
+  '@mdbase-dev/sdk@file:apps/editor/vendor/mdbase-dev-sdk-dev-e00c1ff8.tgz':
     dependencies:
       '@noble/ciphers': 2.4.0
       '@noble/curves': 2.4.0
