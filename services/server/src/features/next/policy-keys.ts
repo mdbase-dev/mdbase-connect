@@ -156,7 +156,7 @@ export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPla
     }
   }
   if (labMigrationRouting) {
-    if (!cloudCopyBootstrap || !env.MDBASE_NEXT_HOSTED_CLIENT_URL?.trim() || !migration || labPitr) throw new Error("LAB migration routing requires factories, client routing and migration token, without PITR.");
+    if (!cloudCopyBootstrap || !migration || labPitr) throw new Error("LAB migration routing requires factories and migration token, without PITR.");
     const tokens = [hosted, escrow, migration, cloudCopyBootstrap.hosted.token, cloudCopyBootstrap.escrow.token, labMigrationRouting.hosted.token, labMigrationRouting.inboundToken];
     if (new Set(tokens).size !== tokens.length) throw new Error("LAB migration credentials must all differ.");
   }

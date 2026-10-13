@@ -15,9 +15,11 @@ Configure all four settings together:
   credential; matches that Worker's `CP_INBOUND_TOKEN`.
 
 Startup refuses partial configuration, non-LAB identity, the ordinary hosted
-Worker origin, shared credentials, disabled factories/client discovery/migration
-fronts, or concurrent isolated PITR routing. Existing `MDBASE_NEXT_HOSTED_*`
-settings remain the default. Escrow routing is unchanged. The dedicated migration
+Worker origin, shared credentials, disabled factories/migration fronts, or
+concurrent isolated PITR routing. The default `MDBASE_NEXT_HOSTED_CLIENT_URL`
+remains optional: authenticated discovery for this account uses the validated
+scoped origin without enabling or supplying a default for other accounts.
+Existing `MDBASE_NEXT_HOSTED_*` settings remain the default. Escrow routing is unchanged. The dedicated migration
 credential remains `MDBASE_NEXT_MIGRATION_INTERNAL_TOKEN` on CP and
 `CP_MIGRATION_TOKEN` on the Worker, distinct from both directions above.
 

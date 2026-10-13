@@ -42,7 +42,8 @@ interface HostedRouteGrant {
  * recorded service device, an appended enrolment nor an activation ACK is readiness.
  * The last appended device op must still be enrolment of this exact hosted key.
  */
-export async function hostedRouteTarget(db: DatabaseQueryable, tokenDigest: string, collection: string, origin: string, migrationRouting?: LabMigrationRouting): Promise<{ grant: HostedRouteGrant; target: RouteTarget | null } | null> {
+export async function hostedRouteTarget(db: DatabaseQueryable, tokenDigest: string, collection: string, origin: string | undefined, migrationRouting?: LabMigrationRouting): Promise<{ grant: HostedRouteGrant; target: RouteTarget | null } | null> {
+  if (!origin && !migrationRouting) return null;
   const rows = await db.query<HostedRouteGrant>(
     `SELECT parent.owner_user_id::text AS owner_account, COALESCE(binding.log_grant_id, g.id) AS grant_id, g.id AS authorization_grant,
             true AS policy_required, COALESCE(binding.active, false) AS policy_active,
@@ -90,10 +91,12 @@ export async function hostedRouteTarget(db: DatabaseQueryable, tokenDigest: stri
   );
   const grant = rows.rows[0];
   if (!grant) return null;
+  const selected = migrationRouting && grant.owner_account === migrationRouting.account ? migrationRouting.hosted.url : origin;
+  // A scoped destination never supplies a missing default for other accounts.
+  if (!selected) return null;
   const pk = grant.hosted_noise_pk;
   if (!grant.policy_active || !grant.hosted_device || /^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(grant.hosted_device)
       || !pk || pk.length !== 32 || pk.every(byte => byte === 0)) return { grant, target: null };
-  const selected = migrationRouting && grant.owner_account === migrationRouting.account ? migrationRouting.hosted.url : origin;
   const url = new URL("/v1/hosted/app", hostedClientOrigin(selected));
   url.searchParams.set("collection", collection.toLowerCase());
   return { grant, target: { kind: "hosted", device: grant.hosted_device, noise_pk: pk.toString("hex"), url: url.toString(), online: false } };

@@ -94,7 +94,7 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
     const token = bearerToken(request);
     if (!token) return reply.code(401).send(apiError("invalid_token", "Bearer token required."));
     const origin = pitrCollection(options.labPitr, id) ? options.labPitr!.hostedUrl : hostedOrigin;
-    const hosted = origin ? await hostedRouteTarget(options.db, tokenHash(token), id, origin, options.labMigrationRouting) : null;
+    const hosted = origin || options.labMigrationRouting ? await hostedRouteTarget(options.db, tokenHash(token), id, origin, options.labMigrationRouting) : null;
     const hash = tokenHash(token);
     const grant = await options.db.query<{ grant_id: string; authorization_grant: string; policy_required: boolean; policy_active: boolean; has_client_key: boolean; device_id: string | null; kind: RegisteredDeviceKind | null; noise_pk: Buffer | null; local_id: string; connector_id: string; relay_generation: string; last_active_ms: number | null; update_required: boolean }>(
       `SELECT COALESCE(binding.log_grant_id, g.id) AS grant_id, g.id AS authorization_grant,
