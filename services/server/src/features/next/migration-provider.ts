@@ -15,6 +15,7 @@ import { migrationServiceRateLimit } from "./migration-rate-limit.js";
 import { RolloutRefused } from "./migration-rollout.js";
 import { createServiceCloudCopy, existingCloudCopy, type CloudCopyBootstrapOptions } from "./service-cloud-copy.js";
 import { loadServiceDevice } from "./service-devices.js";
+import type { LabMigrationRouting } from "./lab-migration-routing.js";
 
 interface Claim { account: string; started_us: string; display_name: string }
 interface Options {
@@ -24,7 +25,7 @@ interface Options {
     & Partial<Pick<HostedProviderClient, "legacyMigrationPlacement">>;
   bootstrap?: Omit<CloudCopyBootstrapOptions, "db">;
   /** Existing hosted-role credential + OWN canonical configured CP origin. */
-  hostedRead?: { token: string; audience: string };
+  hostedRead?: { token: string; audience: string; migrationRouting?: LabMigrationRouting };
 }
 
 /** Current migration claim, not target/key readiness. Internal migration may
@@ -185,11 +186,11 @@ export function registerMigrationProviderRoutes(app: FastifyInstance, options: O
     const readBody = challengeBody.extend({ challenge: z.string().regex(/^[0-9a-f]{64}(?![\s\S])/u), sig: z.string().regex(/^[0-9a-f]{128}(?![\s\S])/u) }).strict();
     for (const kind of ["challenge", "read"] as const) {
       app.post(`/internal/v1/next/migration/collections/:id/claim/${kind}`, {
-        bodyLimit: 1024, config: { rateLimit: migrationServiceRateLimit(hostedRead.token, CLAIM_SERVICE_BUCKET) },
+        bodyLimit: 1024, config: { rateLimit: migrationServiceRateLimit(hostedRead.token, CLAIM_SERVICE_BUCKET, hostedRead.migrationRouting ? [hostedRead.migrationRouting.inboundToken] : []) },
         onRequest: async (request, reply) => {
           reply.header("cache-control", "no-store");
           const token = bearerToken(request);
-          if (!token || !safeEqual(token, hostedRead.token)) return reply.code(401).send(apiError("invalid_internal_token", "The hosted role credential is required."));
+          if (!token || !(safeEqual(token, hostedRead.token) || (hostedRead.migrationRouting && safeEqual(token, hostedRead.migrationRouting.inboundToken)))) return reply.code(401).send(apiError("invalid_internal_token", "The hosted role credential is required."));
         }
       }, async (request, reply) => {
         const p = params.safeParse(request.params), body = (kind === "read" ? readBody : challengeBody).safeParse(request.body);
@@ -197,6 +198,9 @@ export function registerMigrationProviderRoutes(app: FastifyInstance, options: O
         try {
           return await inTransaction(options.db, async client => {
             const before = await currentClaim(client, p.data.id, true);
+            const routing = hostedRead.migrationRouting;
+            const expected = routing && before.owner_account === routing.account ? routing.inboundToken : hostedRead.token;
+            if (!safeEqual(bearerToken(request)!, expected)) throw new CreateError(403, "wrong_service_scope");
             let nonce: { challenge: string } | undefined;
             if (kind === "challenge") nonce = await issueServiceClaimChallenge(client, audience, before, body.data.device_id);
             else await consumeServiceClaimChallenge(client, audience, before, readBody.parse(body.data));

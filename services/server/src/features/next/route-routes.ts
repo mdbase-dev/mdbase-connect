@@ -20,6 +20,7 @@ export type { RouteTarget } from "./hosted-route-target.js";
 import { pitrCollection, type LabPitrConfig } from "./lab-pitr-config.js";
 import { grantDeviceApproval } from "./grant-approval.js";
 import { nativeDevices, nativeGrant, nativeGrantStanding, supersededLegacyGrant } from "./native-grant-target.js";
+import type { LabMigrationRouting } from "./lab-migration-routing.js";
 import { CreateError, currentMember } from "./bootstrap-common.js";
 
 /** Whether the app can open the collection now and, if not, why (SDK describeError reasons). */
@@ -84,7 +85,7 @@ async function deviceAvailability(db: DatabaseQueryable, candidates: readonly Ca
   return { state: "unavailable", reason: "device_offline" };
 }
 
-export function registerNextRouteRoutes(app: FastifyInstance, options: { db: DatabaseQueryable; publicUrl: string; broker: Pick<RelayBroker, "request">; hostedClientUrl?: string; labPitr?: LabPitrConfig }): void {
+export function registerNextRouteRoutes(app: FastifyInstance, options: { db: DatabaseQueryable; publicUrl: string; broker: Pick<RelayBroker, "request">; hostedClientUrl?: string; labPitr?: LabPitrConfig; labMigrationRouting?: LabMigrationRouting }): void {
   const hostedOrigin = options.hostedClientUrl ? hostedClientOrigin(options.hostedClientUrl) : undefined;
   // Always `wss:`, except for a loopback development server (SDK request).
   const relayUrl = new URL("/v1/next/relay/client", options.publicUrl);
@@ -97,7 +98,7 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
     const token = bearerToken(request);
     if (!token) return reply.code(401).send(apiError("invalid_token", "Bearer token required."));
     const origin = pitrCollection(options.labPitr, id) ? options.labPitr!.hostedUrl : hostedOrigin;
-    const hosted = origin ? await hostedRouteTarget(options.db, tokenHash(token), id, origin) : null;
+    const hosted = origin ? await hostedRouteTarget(options.db, tokenHash(token), id, origin, options.labMigrationRouting) : null;
     const hash = tokenHash(token);
     const grant = await options.db.query<{ grant_id: string; authorization_grant: string; policy_required: boolean; policy_active: boolean; has_client_key: boolean; device_id: string | null; kind: RegisteredDeviceKind | null; noise_pk: Buffer | null; local_id: string; connector_id: string; relay_generation: string; last_active_ms: number | null; update_required: boolean }>(
       `SELECT COALESCE(binding.log_grant_id, g.id) AS grant_id, g.id AS authorization_grant,

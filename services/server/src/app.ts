@@ -276,7 +276,7 @@ export async function buildApp(options: BuildOptions) {
         2_000,
         Date.now,
         serviceDeployments
-          ? (collectionId) => activatePendingServices(options.db, serviceDeployments, undefined, collectionId, options.nextControlPlane!.logService.labPitr)
+          ? (collectionId) => activatePendingServices(options.db, serviceDeployments, undefined, collectionId, options.nextControlPlane!.logService.labPitr, options.nextControlPlane!.labMigrationRouting)
           : undefined
       )
     : undefined;
@@ -309,7 +309,7 @@ export async function buildApp(options: BuildOptions) {
   });
   await app.register(rateLimit, {
     global: true,
-    ...globalRateLimitKeying(options.nextControlPlane?.serviceTokens),
+    ...globalRateLimitKeying(options.nextControlPlane?.serviceTokens, options.nextControlPlane?.labMigrationRouting?.inboundToken),
     timeWindow: "1 minute"
   });
   await app.register(formbody);
@@ -597,7 +597,7 @@ export async function buildApp(options: BuildOptions) {
     registerNextRolloutRoutes(app, options.db);
     registerCollectionLogTokenRoute(app, { db: options.db, log: nextLog });
     registerNoisePipeClientRoute(app, { db: options.db, broker: relayBroker });
-    registerNextHostedRoutes(app, { db: options.db, tokens: options.nextControlPlane.serviceTokens, log: nextLog });
+    registerNextHostedRoutes(app, { db: options.db, tokens: options.nextControlPlane.serviceTokens, log: nextLog, labMigrationRouting: options.nextControlPlane.labMigrationRouting });
     registerLabPitrRoutes(app, { db: options.db, next: options.nextControlPlane, log: nextLog,
       admission: { signer: nextPolicySigner!, audience: new URL(publicUrl).origin, identity: nextLog } });
     registerCollectionMigrationRecordRoute(app, options.db);
@@ -607,7 +607,7 @@ export async function buildApp(options: BuildOptions) {
       registerMigrationSourceWitnessRoutes(app, { db: options.db, next: options.nextControlPlane, signer: nextPolicySigner!, provider: options.hostedProvider });
       registerMigrationProviderRoutes(app, { db: options.db, token: options.nextControlPlane.migrationToken, provider: options.hostedProvider,
         ...(options.nextControlPlane.serviceTokens.hosted && new URL(publicUrl).protocol === "https:"
-          ? { hostedRead: { token: options.nextControlPlane.serviceTokens.hosted, audience: new URL(publicUrl).origin } } : {}),
+          ? { hostedRead: { token: options.nextControlPlane.serviceTokens.hosted, audience: new URL(publicUrl).origin, migrationRouting: options.nextControlPlane.labMigrationRouting } } : {}),
         ...(options.nextControlPlane.cloudCopyBootstrap ? { bootstrap: { next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog } } : {}) });
       registerMigrationReplicaRoutes(app, { db: options.db, token: options.nextControlPlane.migrationToken, provider: options.hostedProvider,
         log: nextLog, emitter: nextPolicyEmitter! });
@@ -621,7 +621,7 @@ export async function buildApp(options: BuildOptions) {
       db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, rateLimitSecret: options.authRateLimitSecret
     });
     registerPolicyRecoveryRoutes(app, options.db, nextPolicyEmitter!);
-    registerNextRouteRoutes(app, { db: options.db, publicUrl, broker: relayBroker, hostedClientUrl: options.nextControlPlane.hostedClientUrl, labPitr: options.nextControlPlane.logService.labPitr });
+    registerNextRouteRoutes(app, { db: options.db, publicUrl, broker: relayBroker, hostedClientUrl: options.nextControlPlane.hostedClientUrl, labPitr: options.nextControlPlane.logService.labPitr, labMigrationRouting: options.nextControlPlane.labMigrationRouting });
     registerClientKeyAttachRoute(app, { db: options.db });
     if (options.nextControlPlane.labFixtures) registerLabFixtureRoutes(app, {
       db: options.db, config: options.nextControlPlane.labFixtures, next: options.nextControlPlane,

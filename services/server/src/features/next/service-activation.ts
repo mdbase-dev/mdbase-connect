@@ -5,6 +5,7 @@ import type { DatabaseQueryable } from "../../database-types.js";
 import type { NextControlPlaneConfig } from "./policy-keys.js";
 import type { ServiceKind } from "./service-devices.js";
 import { pitrCollection, pitrDeployments, type LabPitrConfig } from "./lab-pitr-config.js";
+import { migrationDeployments, type LabMigrationRouting } from "./lab-migration-routing.js";
 import { isLogRegion } from "./log-service-client.js";
 
 const LIMIT = 4;
@@ -48,7 +49,8 @@ export async function activatePendingServices(
   deployments: NonNullable<NextControlPlaneConfig["cloudCopyBootstrap"]>,
   fetchImpl: typeof fetch = fetch,
   collectionId?: string,
-  pitr?: LabPitrConfig
+  pitr?: LabPitrConfig,
+  migrationRouting?: LabMigrationRouting
 ): Promise<void> {
   const values: unknown[] = [LIMIT];
   let exclusion = "";
@@ -83,7 +85,7 @@ export async function activatePendingServices(
   await Promise.all(pending.rows.map(async ({ collection_id: collection, kind, batch_id: batch, region: stored }) => {
     // Do not manufacture an activation ACK for an intentionally stateless record.
     if (kind === "escrow" && pitrCollection(pitr, collection)) return;
-    const deployment = pitrDeployments(deployments, pitr, collection)[kind];
+    const deployment = (await migrationDeployments(db, pitrDeployments(deployments, pitr, collection), migrationRouting, collection))[kind];
     const url = new URL("internal/v1/collections/activate", `${deployment.url.replace(/\/+$/u, "")}/`);
     // The log's recorded region places a new actor next to it; absent, the Worker's default.
     const region = isLogRegion(stored) ? stored : undefined;

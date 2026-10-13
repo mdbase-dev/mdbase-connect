@@ -15,6 +15,7 @@ import type { NextControlPlaneConfig } from "./policy-keys.js";
 import { keyId, type PolicySigner } from "./policy-wire.js";
 import { signMigrationSourceWitness } from "./migration-source-witness.js";
 import { collectionRegion } from "./policy-outbox.js";
+import { migrationDeployments } from "./lab-migration-routing.js";
 import { migrationServiceRateLimit } from "./migration-rate-limit.js";
 
 const NIL = "00000000-0000-0000-0000-000000000000";
@@ -75,8 +76,9 @@ function drained(source: LegacyMigrationDrain): void {
 }
 
 async function observe(collection: string, device: string, options: Options) {
-  const deployment = options.next.cloudCopyBootstrap?.hosted;
-  if (!deployment) throw new Refused("migration_source_unavailable",503);
+  const normal = options.next.cloudCopyBootstrap;
+  if (!normal) throw new Refused("migration_source_unavailable",503);
+  const deployment = (await migrationDeployments(options.db, normal, options.next.labMigrationRouting, collection)).hosted;
   const url = new URL("internal/v1/migration-admission", `${deployment.url.replace(/\/+$/u, "")}/`);
   if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || deployment.token.length < 32) throw new Refused("migration_source_unavailable",503);
   const challenge = randomBytes(32).toString("base64");

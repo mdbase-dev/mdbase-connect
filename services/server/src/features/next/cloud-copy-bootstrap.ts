@@ -182,7 +182,7 @@ export function registerCloudCopyRoutes(app: FastifyInstance, options: {
         return { device: owner, exists };
       }));
       if (!exists) {
-        const generated = await generateFor(collection);
+        const generated = await generateFor(collection, connector.user_id);
         // 2. Recheck the identity and the collection, then register genesis and store
         // the records together. The first committed record wins.
         await inTransaction(options.db, async (client) => {

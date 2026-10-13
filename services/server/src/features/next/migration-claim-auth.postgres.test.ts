@@ -82,6 +82,28 @@ suite("hosted own-collection migration proof (isolated PostgreSQL)", () => {
       expect((await f.request("read", f.proof(challenge))).statusCode).toBe(409);
     } finally { await f.app.close(); }
   });
+  it("scopes the migration hosted credential to the authoritative account before nonce or proof effects", async () => {
+    const own = await fixture(), other = await fixture();
+    const migrationToken = "synthetic-migration-hosted-role-".repeat(3);
+    const scoped = Fastify();
+    registerMigrationProviderRoutes(scoped, { db, token: adminToken, hostedRead: { token, audience, migrationRouting: {
+      account: own.account, hosted: { url: "https://mdbase-next-hosted-mig-lab.example.workers.dev", token: "outbound".repeat(6) }, inboundToken: migrationToken
+    } } });
+    const request = (f: typeof own, kind: "challenge" | "read", payload: object, credential: string) => scoped.inject({ method: "POST",
+      url: `/internal/v1/next/migration/collections/${f.collection}/claim/${kind}`, headers: { authorization: `Bearer ${credential}` }, payload });
+    try {
+      expect((await request(own, "challenge", { device_id: own.device }, token)).statusCode).toBe(403);
+      expect((await request(other, "challenge", { device_id: other.device }, migrationToken)).statusCode).toBe(403);
+      expect((await db.query("SELECT count(*)::int AS n FROM next_device_challenges WHERE service_device_id=ANY($1::uuid[])", [[own.device, other.device]])).rows[0].n).toBe(0);
+      const challenge = (await request(own, "challenge", { device_id: own.device }, migrationToken)).json().challenge as string;
+      expect(challenge).toMatch(/^[0-9a-f]{64}$/u);
+      expect((await request(own, "read", own.proof(challenge), token)).statusCode).toBe(403);
+      expect(await unused(challenge)).toBe(true);
+      expect((await request(own, "read", own.proof(challenge), migrationToken)).statusCode).toBe(200);
+      expect((await request(other, "challenge", { device_id: other.device }, token)).statusCode).toBe(200);
+    } finally { await scoped.close(); await own.app.close(); await other.app.close(); }
+  });
+
   it("never overwrites/renews an outstanding live nonce and permits a new one only after expiry", async () => {
     const f = await fixture();
     try {
