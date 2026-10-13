@@ -6,6 +6,7 @@ import { parseNextControlPlaneEnv } from "./policy-keys.js";
 import { activatePendingServices } from "./service-activation.js";
 import { hostedRouteTarget } from "./hosted-route-target.js";
 import { registerNextHostedRoutes } from "./hosted-routes.js";
+import { registerNextRouteRoutes } from "./route-routes.js";
 
 const account = "11111111-1111-4111-8111-111111111111";
 const foreign = "22222222-2222-4222-8222-222222222222";
@@ -45,6 +46,11 @@ describe("exact LAB account routing", () => {
       MDBASE_NEXT_HOSTED_SERVICE_URL: normal.hosted.url, MDBASE_NEXT_HOSTED_SERVICE_TOKEN: normal.hosted.token,
       MDBASE_NEXT_ESCROW_SERVICE_URL: normal.escrow.url, MDBASE_NEXT_ESCROW_SERVICE_TOKEN: normal.escrow.token };
     expect(parseNextControlPlaneEnv(full)?.labMigrationRouting).toEqual(routing);
+    const noGlobal = parseNextControlPlaneEnv({ ...full, MDBASE_NEXT_HOSTED_CLIENT_URL: undefined });
+    expect(noGlobal?.labMigrationRouting).toEqual(routing);
+    expect(noGlobal?.hostedClientUrl).toBeUndefined();
+    expect(noGlobal?.cloudCopyBootstrap).toEqual(normal);
+    expect(() => parseNextControlPlaneEnv({ ...full, MDBASE_NEXT_MIGRATION_INTERNAL_TOKEN: undefined })).toThrow();
     for (const name of ["MDBASE_NEXT_HOSTED_INTERNAL_TOKEN", "MDBASE_NEXT_ESCROW_INTERNAL_TOKEN", "MDBASE_NEXT_MIGRATION_INTERNAL_TOKEN", "MDBASE_NEXT_HOSTED_SERVICE_TOKEN", "MDBASE_NEXT_ESCROW_SERVICE_TOKEN"]) {
       expect(() => parseNextControlPlaneEnv({ ...full, MDBASE_NEXT_LAB_MIGRATION_INBOUND_TOKEN: full[name as keyof typeof full] })).toThrow();
     }
@@ -83,6 +89,29 @@ describe("exact LAB account routing", () => {
     expect(db.query.mock.calls[0]![0]).toContain("tok.token_hash = $1");
     db.query.mockResolvedValueOnce(result([]));
     expect(await hostedRouteTarget(db, "foreign-token-hash", collection, normal.hosted.url, routing)).toBeNull();
+  });
+  it.each([[account, undefined, 200], [foreign, undefined, 401], [foreign, normal.hosted.url, 200]] as const)("HTTP discovery preserves an absent/configured default for %s/%s", async (owner, globalUrl, status) => {
+    const db = database([]);
+    db.query.mockImplementation(async sql => sql.includes("parent.owner_user_id::text AS owner_account")
+      ? result([{ owner_account: owner, grant_id: "grant", authorization_grant: "grant", policy_required: true, policy_active: true,
+        has_client_key: true, hosted_device: collection, hosted_noise_pk: Buffer.alloc(32, 1) }]) : result([]));
+    const app = Fastify();
+    const broker = { request: vi.fn() };
+    registerNextRouteRoutes(app, { db, broker, publicUrl: "https://connect-lab.mdbase.dev", hostedClientUrl: globalUrl, labMigrationRouting: routing });
+    try {
+      const response = await app.inject({ method: "GET", url: `/v1/next/collections/${collection}/route`, headers: { authorization: "Bearer opaque" } });
+      expect(response.statusCode).toBe(status);
+      if (status === 200) {
+        const origin = owner === account ? routing.hosted.url : normal.hosted.url;
+        expect(response.json().targets[0].url).toBe(`${origin.replace("https:", "wss:")}/v1/hosted/app?collection=${collection}`);
+      }
+      expect(broker.request).not.toHaveBeenCalled();
+    } finally { await app.close(); }
+    db.query.mockResolvedValue(result([]));
+    expect(await hostedRouteTarget(db, "foreign-token-hash", collection, globalUrl, routing)).toBeNull();
+    const disabled = database([]);
+    expect(await hostedRouteTarget(disabled, "opaque", collection, undefined)).toBeNull();
+    expect(disabled.query).not.toHaveBeenCalled();
   });
   it.each([[account, "normal", 403], [foreign, "migration", 403], [account, "migration", 200], [foreign, "normal", 200]] as const)("inbound %s/%s is account scoped", async (owner, caller, status) => {
     const db = database([owner]);

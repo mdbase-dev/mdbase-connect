@@ -1,0 +1,1 @@
+LAB reserved-account migration routing no longer requires or changes an unrelated default hosted client URL. Authenticated owned discovery uses the validated scoped destination; other accounts retain their configured default or existing missing-default behavior.
