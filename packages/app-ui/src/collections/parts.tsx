@@ -89,10 +89,19 @@ export function RowCopy({ row, ui, detailId, current = row.current }: {
     <span className="mdbase-collections-row-name">
       {row.name}
       {row.disambiguator && <span className="mdbase-collections-row-hint"> {row.disambiguator}</span>}
+      {row.private && <> <PrivateMark ui={ui} /></>}
     </span>
     {secondary && <span className="mdbase-collections-row-secondary">{secondary}</span>}
     <span className="mdbase-collections-row-meta">{meta}</span>
     {row.statusDetail && <span className="mdbase-collections-row-detail" id={detailId}>{row.statusDetail}</span>}
+  </span>;
+}
+
+/** Marks a Private collection: a visible label, read with the row's name. */
+export function PrivateMark({ ui }: { readonly ui: CollectionUi }): JSX.Element {
+  return <span className="mdbase-collections-chip mdbase-collections-private" title={ui.copy.privateCollectionHint}>
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 7.5h7v5.5h-7zM6 7.5V5.5a2 2 0 0 1 4 0v2" /></svg>
+    {ui.copy.privateCollection}
   </span>;
 }
 

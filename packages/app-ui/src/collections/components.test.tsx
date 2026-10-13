@@ -191,6 +191,35 @@ describe("switcher keyboard", () => {
   });
 });
 
+describe("Private collections", () => {
+  it("marks a Private row, visibly and in its accessible name, in the switcher and the chooser", () => {
+    const P = "44444444-4444-4444-8444-444444444444";
+    const collections = [
+      { collectionId: A, displayName: "Alpha", role: "owner" },
+      { collectionId: P, displayName: "Home notes", role: "owner", kind: "private" },
+    ];
+    const ready = { kind: "ready", collectionId: P, collection: collections[1], connection: {} as never, rechecking: false, problem: null, unavailableTypes: [] } as unknown as MdbasePhase;
+    const { entry } = fakeMdbase(ready, { status: "ready", selectedCollectionId: P, collections } as unknown as Partial<MdbaseSnapshot>);
+    render(<CollectionSwitcher mdbase={entry} app={app} />);
+    act(() => button("Switch collection, current: Home notes").click());
+    const [privateRow, hostedRow] = [...document.querySelectorAll<HTMLElement>("[role=radio]")];
+    // The word is text in the radio (its accessible name), not hidden and not colour alone.
+    expect(privateRow!.querySelector(".mdbase-collections-row-name")?.textContent).toBe("Home notes Private");
+    expect(privateRow!.querySelector(".mdbase-collections-private")?.closest("[aria-hidden]")).toBeNull();
+    expect(privateRow!.querySelector(".mdbase-collections-private svg")?.getAttribute("aria-hidden")).toBe("true");
+    expect(hostedRow!.querySelector(".mdbase-collections-row-name")?.textContent).toBe("Alpha");
+    expect(hostedRow!.textContent).not.toContain("Private");
+    expect(document.querySelector(".mdbase-collections-switcher-current")?.textContent).toContain("Private");
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    const choosing = fakeMdbase({ kind: "choosing", lastApproval: null } as unknown as MdbasePhase, { collections } as unknown as Partial<MdbaseSnapshot>);
+    render(<CollectionGate mdbase={choosing.entry} app={app}>{() => null}</CollectionGate>);
+    expect(button(/Home notes/).textContent).toContain("Private");
+    expect(button(/Alpha/).textContent).not.toContain("Private");
+  });
+});
+
 describe("sign out", () => {
   it("asks before losing unsaved changes, with the SDK's copy", async () => {
     const { mdbase, entry } = fakeMdbase({ kind: "choosing", lastApproval: null });
