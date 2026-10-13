@@ -1,7 +1,7 @@
 // Discovery and relay admission for application grants on a Private native
-// collection (grants.next_collection_id). The CP grant is only an offer: the
-// collection's replica on the serving device admits the app only under the
-// device-signed grant approval. These checks decide where the app may connect.
+// collection (grants.next_collection_id). Account consent is the only user
+// approval. The serving device materializes the exact signed grant and sealed
+// Private folder scope automatically; these checks locate that account's device.
 import type { DatabaseQueryable } from "../../database-types.js";
 import { CreateError, ENROLMENT, currentMember, exactEnrolment, refuseRevoked } from "./bootstrap-common.js";
 import { requireCollectionNotDeleted } from "./collection-deletion.js";
