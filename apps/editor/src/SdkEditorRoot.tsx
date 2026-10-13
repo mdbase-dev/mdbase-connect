@@ -74,13 +74,13 @@ export function SdkEditorRoot({ sdk, renderNative, onFeedbackContext, privateCol
   const priv = usePrivateSection(sdk, privates);
   const sections = priv.section ? [priv.section] : undefined;
   const switcher: EditorCollectionSwitcher = (onBeforeLeave) => <CollectionSwitcher mdbase={sdk} app={editorCollectionApp} allowDelete
-    variant="full" className="editor-collection-switcher" sections={sections} onBeforeLeave={onBeforeLeave} />;
+    variant="full" allowPrivate={false} className="editor-collection-switcher" sections={sections} onBeforeLeave={onBeforeLeave} />;
   const extraActions = (view: CollectionView) => <>
     {priv.section && view.kind === "choosing" && <button type="button" className="mdbase-button" onClick={priv.add}>Add a Private collection</button>}
     {priv.problem && <p className="editor-private-problem" role="alert">{priv.problem}</p>}
     <FeedbackButton />
   </>;
-  return <CollectionGate mdbase={sdk} app={editorCollectionApp} allowDelete extraActions={extraActions} sections={sections}
+  return <CollectionGate mdbase={sdk} app={editorCollectionApp} allowPrivate={false} allowDelete extraActions={extraActions} sections={sections}
     renderAppCollection={() => priv.scope && <NativeScopeView key={priv.scope.connection.generation} application={priv.scope.actions}
       connection={priv.scope.connection} declaration={declaration} switcher={switcher} renderNative={renderNative} onFeedbackContext={onFeedbackContext} />}>
     {(connection) => <NativeScopeView key={`${connection.id}:${connection.generation}`} application={sdk.application} connection={connection}

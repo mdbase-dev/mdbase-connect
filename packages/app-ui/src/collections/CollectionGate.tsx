@@ -2,6 +2,7 @@ import type { MdbaseApplicationConnection } from "@mdbase-dev/sdk";
 import { useId, useLayoutEffect, useRef, useState, type JSX, type ReactNode } from "react";
 
 import { describeError } from "@mdbase-dev/sdk/describe";
+import { CollectionMdbaseContext } from "./CollectionSaveWarning.js";
 import { SwitcherContent } from "./CollectionSwitcher.js";
 import { RowDialogs, SignOutDialog } from "./dialogs.js";
 import { problemControl, actionNotice, type CollectionView } from "./model.js";
@@ -50,15 +51,15 @@ export function CollectionGate({ children, renderAppCollection, extraActions, la
   const ui = useCollectionUi(options);
   useAutoStart(options.mdbase, autoStart);
   if (ui.appOpen && renderAppCollection) {
-    return <>
+    return <CollectionMdbaseContext value={options.mdbase}>
       {renderAppCollection(ui.appOpen.item, { section: ui.appOpen.section, chooseAnother: ui.actions.chooseAnother })}
       <SignOutDialog ui={ui} />
-    </>;
+    </CollectionMdbaseContext>;
   }
   if (ui.view.kind === "ready") {
     return <>
       {ui.view.notice && <div className="mdbase-collections"><NoticeBlock notice={ui.view.notice} ui={ui} variant="banner" /></div>}
-      {children(ui.view.phase.connection)}
+      <CollectionMdbaseContext value={options.mdbase}>{children(ui.view.phase.connection)}</CollectionMdbaseContext>
       <SignOutDialog ui={ui} />
     </>;
   }
@@ -190,6 +191,8 @@ function GateBody({ ui, extraActions, onDialog }: {
         <div className="mdbase-collections-actions">
           <ActionButton tone={view.collections.length > 0 ? "secondary" : "primary"} inert={inert} progress={busy === "add" ? copy.addingCollection : null}
             onClick={actions.addCollection}>{copy.addCollection}</ActionButton>
+          {ui.options.allowPrivate !== false && <ActionButton tone="secondary" inert={inert} progress={busy === "add_private" ? copy.addingCollection : null}
+            onClick={actions.addPrivateCollection}>{copy.addPrivateCollection}</ActionButton>}
         </div>
       </>;
     case "needs_approval":
