@@ -1,7 +1,10 @@
 -- Recovery intent constrains an original request; it grants no collection access.
 -- No collection FK: START is unauthenticated and must not reveal target existence.
 ALTER TABLE installation_device_pairings
-  ADD COLUMN recovery_collection_id uuid,
+  ADD COLUMN recovery_collection_id uuid;
+
+-- mdbase:installation-recovery-target-constraints:v1
+ALTER TABLE installation_device_pairings
   ADD CONSTRAINT installation_recovery_scope CHECK (
     recovery_collection_id IS NULL OR (
       NOT requested_create_collections AND NOT approved_create_collections

@@ -131,6 +131,11 @@ export async function openDatabase(
       // CHECKs. Keep the columns; shape enforcement requires real PG tests.
       const fileAccessShape = "-- mdbase:installation-file-access-shape:v1";
       if (sql.includes(fileAccessShape)) return memory.public.many(sql.slice(0, sql.indexOf(fileAccessShape)));
+      // pg-mem lacks recovery array/null-safe CHECKs and deferred triggers.
+      // Schema-only prefix for existing memory consumers; recovery authority
+      // and partial-commit invariants are qualified by real PostgreSQL only.
+      const recoveryShape = "-- mdbase:installation-recovery-target-constraints:v1";
+      if (sql.includes(recoveryShape)) return memory.public.many(sql.slice(0, sql.indexOf(recoveryShape)));
       const grantTrigger = "-- mdbase:next-grant-revoke-trigger:v1";
       if (sql.includes(grantTrigger)) return memory.public.many(sql.slice(0, sql.indexOf(grantTrigger)));
       // pg-mem does not use PostgreSQL's automatic CHECK name. Name ONLY the

@@ -35,6 +35,13 @@ afterEach(async () => {
 });
 
 describe("database migrations", () => {
+  it("keeps nullable recovery intent schema in memory without emulating PostgreSQL authority", async () => {
+    const db=await createDatabase("memory");resources.push(()=>db.end());
+    const request=randomUUID();
+    await db.query("INSERT INTO pairing_requests(id,connector_name,secret_hash,expires_at) VALUES($1,'[test] memory recovery','synthetic',now())",[request]);
+    await db.query("INSERT INTO installation_device_pairings(pairing_id,installation_id,device_id,connector_id,app_id,app_origin,kind,challenge,recovery_collection_id) VALUES($1,$2,$3,$4,$5,'https://app.example.test','app-runtime',$6,NULL)",[request,randomUUID(),randomUUID(),randomUUID(),"5cdfa020-c201-4da8-845a-f2cc9969eade",Buffer.alloc(32)]);
+    expect((await db.query("SELECT recovery_collection_id FROM installation_device_pairings WHERE pairing_id=$1",[request])).rows).toEqual([{recovery_collection_id:null}]);
+  });
   it("round-trips every byte through pool and checked-out memory parameters", async () => {
     const db = await createDatabase("memory");
     const bytes = Buffer.from(Array.from({length:256},(_,i)=>i));
