@@ -8,7 +8,9 @@ COPY patches patches
 COPY packages/protocol/package.json packages/protocol/package.json
 COPY packages/client/package.json packages/client/package.json
 COPY services/mcp/package.json services/mcp/package.json
+# The workspace lockfile names the vendored SDK tarballs of services/mcp and packages/app-ui; frozen installs read them.
 COPY services/mcp/vendor services/mcp/vendor
+COPY packages/app-ui/vendor packages/app-ui/vendor
 
 RUN pnpm install --frozen-lockfile --filter @mdbase/connect-mcp...
 
