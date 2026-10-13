@@ -5,14 +5,6 @@ import type {
   TypePackProvision
 } from "./api";
 
-const editorBaseUrl = import.meta.env?.VITE_MDBASE_EDITOR_URL ?? "https://editor.mdbase.dev/";
-
-export function editorConnectUrl(connectOrigin = location.origin): string {
-  const url = new URL("connect", editorBaseUrl);
-  url.searchParams.set("server", new URL(connectOrigin).origin);
-  return url.href;
-}
-
 export function installationAccountLabel(pairing: {
   account_selection_confirmed?: boolean;
   account_email?: string | null; account_provider?: string | null; account_login?: string | null;

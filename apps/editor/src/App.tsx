@@ -1685,7 +1685,7 @@ export function App({ gateway, onFeedbackContext }: { gateway: CollectionGateway
     theme: switchTheme,
     types: () => selectSurface("types"),
     settings: () => selectSurface("settings"),
-    connect: () => { location.href = `/connect?collection=${encodeURIComponent(description.collectionId)}`; },
+    connect: () => { location.href = connectWorkspaceUrl(description.collectionId); },
     "switch-collection": () => setCollectionSwitcherOpen(true),
     ...(bulkCommandsAvailable ? {
       "move-selected": canRenameNotes ? () => setMovePaths(listSelection.paths) : undefined,

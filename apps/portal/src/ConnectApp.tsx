@@ -8,21 +8,12 @@ import {
   type NativeCollection,
   type ManagementRequestOptions
 } from "@mdbase/connect-management";
-import {
-  authorizationOperationLabel,
-  applicationAccessOriginLabel,
-  groupApplicationAccess,
-  type ApplicationAccessGroup
-} from "@mdbase/connect-ui/access";
-import { useCallback, useEffect, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from "react";
+import { AppAccess, applicationGroups } from "./ApplicationAccess";
+import { useCallback, useEffect, useRef, useState, Component, type FormEvent, type MouseEvent, type ReactNode } from "react";
 import { AccountManagement, DeletedAccount } from "./AccountManagement";
-import { AppErrorBoundary } from "./AppErrorBoundary";
+import { Brand, ThemeMenu } from "./portal-ui";
 import { MdbaseMark } from "@mdbase-dev/ui/brand";
-import { usePermissionSelection } from "@mdbase-dev/ui/permission-selection";
-import {
-  applyConnectServerOverride,
-  connectServerUrl
-} from "./connect-endpoint";
+
 import {
   ConfirmAction,
   ConnectEmpty as Empty,
@@ -30,10 +21,8 @@ import {
   ConnectSectionTitle as SectionTitle,
   InlineRename
 } from "./ConnectPrimitives";
-import { EditorRail } from "./EditorRail";
 import { FeedbackPage } from "./FeedbackPage";
-import { FeedbackButton, FeedbackProvider, feedbackApplication, useFeedback, type FeedbackFailure } from "@mdbase-dev/ui/feedback";
-import { feedbackEndpoint as configuredFeedbackEndpoint, turnstileSiteKey } from "./feedback";
+import { FeedbackButton, FeedbackProvider, feedbackApplication, useFeedback, resolveFeedbackEndpoint, type FeedbackFailure } from "@mdbase-dev/ui/feedback";
 import {
   DesktopIcon as Desktop,
   FolderIcon as Folder,
@@ -45,7 +34,7 @@ import {
   PlusIcon as Plus,
   UserCircleIcon as Account,
   WarningCircleIcon as Warning
-} from "./icons";
+} from "@phosphor-icons/react";
 import "./connect.css";
 import "@mdbase-dev/ui/feedback.css";
 import { Select } from "@mdbase-dev/ui/select";
@@ -63,31 +52,32 @@ type PerformOperation = (
   action: (options: ManagementRequestOptions) => Promise<void>
 ) => Promise<boolean>;
 
-const serverUrl = connectServerUrl();
-const management = new ConnectManagementClient(serverUrl);
+const management = new ConnectManagementClient(location.origin);
 const desktopReleaseUrl = "https://mdbase.dev/downloads/";
-const allOperations = [
-  "describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate",
-  "create", "update", "delete", "rename", "create_view_source", "update_view_source", "delete_view_source",
-  "read_type", "create_type", "update_type", "apply_type_pack", "list_timers", "put_timer", "cancel_timer",
-  "reconcile_timers"
-];
-
 export function ConnectApp() {
   const [context, setContext] = useState<{ view: ConnectView; collectionName?: string }>({ view: viewFromPath() });
   const updateContext = useCallback((view: ConnectView, collectionName?: string) => {
     setContext((previous) => previous.view === view && previous.collectionName === collectionName ? previous : { view, collectionName });
   }, []);
-  return <FeedbackProvider endpoint={configuredFeedbackEndpoint()} turnstileSiteKey={turnstileSiteKey()} application={feedbackApplication("mdbase connect", context.view, import.meta.env.VITE_MDBASE_REVISION, import.meta.env.VITE_MDBASE_ENV ?? (import.meta.env.DEV ? "development" : "production"))} collectionName={context.collectionName}>
-    <AppErrorBoundary product="mdbase connect"><ConnectWorkspace onFeedbackContext={updateContext} /></AppErrorBoundary>
+  return <FeedbackProvider endpoint={resolveFeedbackEndpoint(import.meta.env.VITE_MDBASE_FEEDBACK_URL, import.meta.env.DEV)} turnstileSiteKey={import.meta.env.VITE_MDBASE_TURNSTILE_SITE_KEY?.trim() || null} application={feedbackApplication("mdbase connect", context.view, import.meta.env.VITE_MDBASE_REVISION, import.meta.env.VITE_MDBASE_ENV ?? (import.meta.env.DEV ? "development" : "production"))} collectionName={context.collectionName}>
+    <ManagementErrorBoundary><ConnectWorkspace onFeedbackContext={updateContext} /></ManagementErrorBoundary>
   </FeedbackProvider>;
+}
+
+class ManagementErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  render() {
+    return this.state.failed ? <main className="connect-loading" role="alert"><h1>mdbase connect needs to restart</h1><p>Your collections were not deleted.</p><button onClick={() => location.reload()}>Reload Connect</button><FeedbackButton /></main> : this.props.children;
+  }
 }
 
 function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: ConnectView, collectionName?: string): void }) {
   const { reportError, enabled: feedbackEnabled } = useFeedback();
-  const [accountDeleted, setAccountDeleted] = useState(location.pathname === "/connect/account-deleted");
+  const [accountDeleted, setAccountDeleted] = useState(location.pathname === "/account-deleted");
   const [view, setView] = useState<ConnectView>(viewFromPath);
   const [data, setData] = useState<ManagementOverview>();
+  const [editorOrigin, setEditorOrigin] = useState<string>();
   const [sessions, setSessions] = useState<Awaited<ReturnType<typeof management.sessions>>["sessions"]>();
   const [refreshError, setRefreshError] = useState("");
   const [mutationError, setMutationError] = useState("");
@@ -113,6 +103,9 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
         if (generation !== refreshGenerationRef.current) return;
         setData(next);
         setRefreshError("");
+        const configuration = await management.uiConfiguration({ signal });
+        if (generation !== refreshGenerationRef.current) return;
+        setEditorOrigin(configuration.editor_url ? new URL(configuration.editor_url).origin : undefined);
         if (next.authentication.provider !== "tailscale") {
           const sessionResult = await management.sessions({ signal });
           if (generation !== refreshGenerationRef.current) return;
@@ -204,7 +197,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   }
 
   function navigate(next: ConnectView, collectionId?: string) {
-    const path = next === "overview" ? "/connect" : `/connect/${next}`;
+    const path = next === "overview" ? "/" : `/${next}`;
     const url = new URL(location.href);
     url.pathname = path;
     if (collectionId) {
@@ -240,7 +233,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
     }
     if (isCollectionView(view)) {
       const url = new URL(location.href);
-      url.pathname = "/connect/collections";
+      url.pathname = "/collections";
       url.searchParams.delete("collection");
       history.replaceState(null, "", `${url.pathname}${url.search}`);
       setView("collections");
@@ -259,35 +252,19 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   const activeGrants = data.grants.filter((grant) => grant.revocation_status !== "revoked"
     || (typeof grant.reauthorization_required_at === "string"
       && !freshlyAuthorized.has(`${grant.application_id}\0${grant.collection_id}`)));
-  const applications = groupApplicationAccess(activeGrants);
+  const installations = data.installation_access ?? [];
+  const applications = applicationGroups(activeGrants, installations);
   const selectedGrants = selectedCollection
     ? activeGrants.filter((grant) => grant.collection_id === selectedCollection.id)
     : [];
-  const selectedApplications = groupApplicationAccess(selectedGrants);
+  const selectedApplications = applicationGroups(selectedGrants, installations.filter((entry) => entry.collection_id === selectedCollection?.id));
   const pendingRequest = data.pending_authorizations[0];
   const pendingCollection = pendingRequest?.collection_id
     ? collections.find((collection) => collection.id === pendingRequest.collection_id)
     : undefined;
-  const editorLinks = editorSurfaceUrls(selectedCollection?.id);
   return <div className="connect-shell">
-    <EditorRail
-      collectionName={selectedCollection?.name ?? "Choose a collection"}
-      surface="connect"
-      notes={{ href: editorLinks.notes }}
-      types={{ href: editorLinks.types }}
-      settings={{ href: editorLinks.settings }}
-      connectHref={connectViewUrl(activeView, selectedCollection?.id)}
-      connectCount={data.pending_authorizations.length || undefined}
-      mobileReturn={{ href: editorLinks.notes, label: "Back to editor" }}
-      onSwitch={() => navigate("collections", selectedCollection?.id)}
-      footer={<>
-        {selectedCollection && <p role="status"><span className={`status-dot ${selectedCollection.available ? "connected" : "reconnecting"}`} aria-hidden="true" /><span>{selectedCollection.status}</span></p>}
-        <FeedbackButton className="connect-rail-feedback" />
-        <RouteLink className="connect-rail-account" view="account" collectionId={selectedCollection?.id} navigate={navigate} ariaLabel="Open account and sessions"><span className="connect-avatar" aria-hidden="true">{initials(data.user.name)}</span><span><strong>{data.user.name}</strong><small>{identityLabel(data.user)}</small></span></RouteLink>
-      </>}
-    />
     <aside className="connect-nav" aria-label="mdbase connect navigation">
-      <header><strong>mdbase connect</strong><button className="connect-mobile-nav-toggle" aria-expanded={navigationOpen} aria-controls="connect-section-navigation" onClick={() => setNavigationOpen((open) => !open)}><span>{viewLabel(activeView)}</span><small>{navigationOpen ? "Close menu" : "Open menu"}</small></button></header>
+      <header><Brand productLabel /><button className="connect-mobile-nav-toggle" aria-expanded={navigationOpen} aria-controls="connect-section-navigation" onClick={() => setNavigationOpen((open) => !open)}><span>{viewLabel(activeView)}</span><small>{navigationOpen ? "Close menu" : "Open menu"}</small></button></header>
       <nav id="connect-section-navigation" className={navigationOpen ? "open" : ""}>
         {selectedCollection && <section className="connect-nav-group" aria-labelledby="current-collection-navigation">
           <p id="current-collection-navigation">{selectedCollection.name}</p>
@@ -304,6 +281,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
           <FeedbackButton className="connect-feedback-mobile-link" />
         </section>
       </nav>
+      <footer className="connect-nav-footer"><ThemeMenu /><FeedbackButton />{editorOrigin && <a href={editorCollectionUrl(selectedCollection?.id, editorOrigin)}>Open editor</a>}<RouteLink view="account" navigate={navigate} ariaLabel="Open account and sessions"><strong>{data.user.name}</strong><small>{data.user.login ? `@${data.user.login}` : data.user.email}</small></RouteLink></footer>
     </aside>
     <main className="connect-main">
       {(mutationError || refreshError) && <div className="connect-notice error" role="alert"><Warning aria-hidden="true" />{mutationError || refreshError}<button onClick={() => mutationError ? setMutationError("") : setRefreshError("")}>Dismiss</button></div>}
@@ -314,12 +292,12 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
       />}
       {pendingRequest && <PendingRequestBanner request={pendingRequest} collectionName={pendingCollection?.name} count={data.pending_authorizations.length} />}
       {activeView === "overview" && (selectedCollection
-        ? <CollectionOverview sharingAvailable={data.collection_sharing_available === true} collection={selectedCollection} applications={selectedApplications} busy={busy} perform={perform} navigate={navigate} />
-        : <Collections data={data} busy={busy} perform={perform} navigate={navigate} />)}
-      {activeView === "storage" && selectedCollection && <Storage collection={selectedCollection} busy={busy} perform={perform} />}
-      {activeView === "access" && selectedCollection && <CollectionAccess collection={selectedCollection} groups={selectedApplications} busy={busy} perform={perform} />}
-      {activeView === "collections" && <Collections data={data} busy={busy} perform={perform} navigate={navigate} />}
-      {activeView === "applications" && <Applications groups={applications} busy={busy} perform={perform} />}
+        ? <CollectionOverview editorOrigin={editorOrigin} sharingAvailable={data.collection_sharing_available === true} collection={selectedCollection} applications={selectedApplications} busy={busy} perform={perform} navigate={navigate} />
+        : <Collections editorOrigin={editorOrigin} data={data} busy={busy} perform={perform} navigate={navigate} />)}
+      {activeView === "storage" && selectedCollection && <Storage editorOrigin={editorOrigin} collection={selectedCollection} busy={busy} perform={perform} />}
+      {activeView === "access" && selectedCollection && <AppAccess collectionName={selectedCollection.name} groups={selectedApplications} client={management} busy={busy} perform={perform} />}
+      {activeView === "collections" && <Collections editorOrigin={editorOrigin} data={data} busy={busy} perform={perform} navigate={navigate} />}
+      {activeView === "applications" && <AppAccess groups={applications} client={management} busy={busy} perform={perform} />}
       {activeView === "computers" && <Computers data={data} busy={busy} perform={perform} />}
       {activeView === "account" && <AccountManagement client={management} overview={data} sessions={sessions} onOverviewRefresh={refresh} onDeleted={() => setAccountDeleted(true)} />}
       {activeView === "feedback" && feedbackEnabled && <FeedbackPage onDone={() => navigate("overview", selectedCollection?.id)} />}
@@ -356,10 +334,11 @@ function PendingRequestBanner({ request, collectionName, count }: {
   </a>;
 }
 
-function CollectionOverview({ collection, applications, busy, perform, navigate, sharingAvailable }: {
+function CollectionOverview({ collection, applications, busy, perform, navigate, sharingAvailable, editorOrigin }: {
+  editorOrigin?: string;
   sharingAvailable: boolean;
   collection: CollectionRow;
-  applications: ApplicationAccessGroup<Grant>[];
+  applications: ReturnType<typeof applicationGroups>;
   busy: BusyOperations;
   perform: PerformOperation;
   navigate(view: ConnectView, collectionId?: string): void;
@@ -371,10 +350,10 @@ function CollectionOverview({ collection, applications, busy, perform, navigate,
     </section>
     <section>
       <SectionTitle title="Application access" count={applications.length} action={<RouteLink view="access" collectionId={collection.id} navigate={navigate}>Review all</RouteLink>} />
-      {applications.map((application) => <div className="connect-row connect-application-row" key={application.applicationId}><div><strong>{application.applicationName}</strong><small>{host(application.grants[0].homepage)}</small></div><span>{permissionSummary(application.grants)}</span><RouteLink view="access" collectionId={collection.id} navigate={navigate}>Review</RouteLink></div>)}
+      {applications.map((application) => <div className="connect-row connect-application-row" key={application.applicationId}><div><strong>{application.applicationName}</strong><small>{host(application.grants[0]?.homepage ?? application.installations[0].application_origin)}</small></div><span>{application.installations.length ? "Access as your account" : permissionSummary(application.grants)}</span><RouteLink view="access" collectionId={collection.id} navigate={navigate}>Review</RouteLink></div>)}
       {applications.length === 0 && <Empty title="No connected applications" body="Applications appear after you approve access to this collection." />}
     </section>
-    <section><SectionTitle title="Your person record" /><div className="connect-row"><div><strong>Use an existing person or create a note</strong><small>Link your account to an editable record in this collection. Collection access is approved separately.</small></div><a href={`${editorSurfaceUrls(collection.id).settings}#your-person`}>Choose or create my person record</a></div></section>
+    <section><SectionTitle title="Your person record" /><div className="connect-row"><div><strong>Use an existing person or create a note</strong><small>Link your account to an editable record in this collection. Collection access is approved separately.</small></div>{editorOrigin && <a href={`${editorSurfaceUrls(collection.id, editorOrigin).settings}#your-person`}>Choose or create my person record</a>}</div></section>
     {collection.kind !== "local" && collection.source.access.can_manage_members && <CollectionSharingPanel key={collection.id} sharingAvailable={sharingAvailable} collection={collection.source} busy={busy} perform={perform} />}
     <section>
       <SectionTitle title="Connection" />
@@ -498,7 +477,8 @@ function CollectionSharingPanel({ collection, busy, perform, sharingAvailable }:
   </section>;
 }
 
-function Storage({ collection, busy, perform }: {
+function Storage({ collection, busy, perform, editorOrigin }: {
+  editorOrigin?: string;
   collection: CollectionRow;
   busy: BusyOperations;
   perform: PerformOperation;
@@ -513,7 +493,7 @@ function Storage({ collection, busy, perform }: {
     return <Page title="Storage & sync" intro={`Manage the main copy of ${collection.name} and its synced Markdown folders.`}>
       <section>
         <SectionTitle title="Main copy" />
-        <HostedCollectionRow collection={collection.source} busy={busy} perform={perform} showReplicas={false} />
+        <HostedCollectionRow editorOrigin={editorOrigin} collection={collection.source} busy={busy} perform={perform} showReplicas={false} />
       </section>
       <section>
         <SectionTitle title="Synced folders" count={replicas.length} action={<a href={`mdbase-connect://mirror?collection=${encodeURIComponent(collection.source.id)}`}><Plus aria-hidden="true" />Sync a folder</a>} />
@@ -532,32 +512,8 @@ function Storage({ collection, busy, perform }: {
   </Page>;
 }
 
-function CollectionAccess({ collection, groups, busy, perform }: {
-  collection: CollectionRow;
-  groups: ApplicationAccessGroup<Grant>[];
-  busy: BusyOperations;
-  perform: PerformOperation;
-}) {
-  return <Page title="Application access" intro={`Review the exact actions each application can perform in ${collection.name}.`}>
-    <section>
-      <SectionTitle title="Connected applications" count={groups.length} />
-      {groups.map((group) => <details className="connect-application" key={group.applicationId}>
-        <summary><span><strong>{group.applicationName}</strong><small>{host(group.grants[0].homepage)}</small></span><b>Review</b></summary>
-        <div className="connect-application-body">
-          {group.grants.map((grant) => <GrantEditor key={grant.id} grant={grant} busy={busy} perform={perform} />)}
-          <ConfirmAction className="danger connect-revoke-application" label="Revoke access" question={`Revoke ${group.applicationName} access to ${collection.name}?`} confirmLabel="Revoke access" busy={busy.has(`application-${group.applicationId}`)} onConfirm={() => {
-            void perform(`application-${group.applicationId}`, async (options) => {
-              await management.revokeApplication(group.grants.map((grant) => grant.id), options);
-            });
-          }} />
-        </div>
-      </details>)}
-      {groups.length === 0 && <Empty title="No connected applications" body="Applications appear here after you approve access to this collection." />}
-    </section>
-  </Page>;
-}
-
-function Collections({ data, busy, perform, navigate }: {
+function Collections({ data, busy, perform, navigate, editorOrigin }: {
+  editorOrigin?: string;
   data: ManagementOverview;
   busy: BusyOperations;
   perform: PerformOperation;
@@ -587,15 +543,16 @@ function Collections({ data, busy, perform, navigate }: {
         <div><button type="button" onClick={() => setCreating(false)}>Cancel</button><button className="connect-primary-action mdbase-button is-primary" disabled={busy.has("create-collection") || !name.trim()}>{busy.has("create-collection") ? "Creating…" : "Create"}</button></div>
       </form>}
       {rows.map((collection) => collection.kind === "hosted"
-        ? <HostedCollectionRow key={collection.id} collection={collection.source} busy={busy} perform={perform} manage={{ collectionId: collection.id, navigate }} />
-        : <CollectionSummary key={collection.id} collection={collection} navigate={navigate} />)}
+        ? <HostedCollectionRow editorOrigin={editorOrigin} key={collection.id} collection={collection.source} busy={busy} perform={perform} manage={{ collectionId: collection.id, navigate }} />
+        : <CollectionSummary editorOrigin={editorOrigin} key={collection.id} collection={collection} navigate={navigate} />)}
       {rows.length === 0 && <Empty title="No collections" body="Connect a computer or create a hosted collection to get started." />}
       {rows.some((collection) => collection.kind === "hosted" && collection.source.authority_state === "active") && <DesktopRecoveryHelp action="sync a folder" />}
     </section>
   </Page>;
 }
 
-function HostedCollectionRow({ collection, busy, perform, manage, showReplicas = true }: {
+function HostedCollectionRow({ collection, busy, perform, manage, showReplicas = true, editorOrigin }: {
+  editorOrigin?: string;
   collection: HostedCollection;
   busy: BusyOperations;
   perform: PerformOperation;
@@ -610,7 +567,7 @@ function HostedCollectionRow({ collection, busy, perform, manage, showReplicas =
     <span className={`connect-status ${active ? "online" : "idle"}`}><i />{active ? "Hosted" : "Moved"}</span>
     <div className="connect-row-actions">
       {manage && <RouteLink view="overview" collectionId={manage.collectionId} navigate={manage.navigate}>Manage</RouteLink>}
-      {editorId && <a href={editorCollectionUrl(editorId)}>Open</a>}
+      {editorId && editorOrigin && <a href={editorCollectionUrl(editorId, editorOrigin)}>Open</a>}
       {active && <a href={`mdbase-connect://mirror?collection=${encodeURIComponent(collection.id)}`}>Sync folder</a>}
       {active && collection.access.can_rename_collection && <InlineRename value={collection.display_name} inputLabel={`Rename ${collection.display_name}`} busy={busy.has(`collection-${collection.id}`)} onSubmit={(name) => perform(`collection-${collection.id}`, (options) => management.renameHostedCollection(collection.id, name, options))} />}
       {collection.access.can_delete_collection && <ConfirmAction className="danger" label="Delete" question={`Delete ${collection.display_name} and all of its hosted data? This cannot be undone.`} confirmLabel="Delete permanently" busy={busy.has(`collection-${collection.id}`)} onConfirm={() => void perform(`collection-${collection.id}`, (options) => management.deleteHostedCollection(collection.id, options))} />}
@@ -620,57 +577,6 @@ function HostedCollectionRow({ collection, busy, perform, manage, showReplicas =
       <ConfirmAction className="danger" label={replica.revocation_status === "revoking" ? "Revoking…" : "Revoke"} question={`Revoke ${replica.name}?`} confirmLabel="Revoke" busy={replica.revocation_status === "revoking" || busy.has(`replica-${replica.id}`)} onConfirm={() => void perform(`replica-${replica.id}`, (options) => management.revokeReplica(replica.id, options))} />
     </div>)}</details>}
   </div>;
-}
-
-function Applications({ groups, busy, perform }: {
-  groups: ApplicationAccessGroup<Grant>[];
-  busy: BusyOperations;
-  perform: PerformOperation;
-}) {
-  return <Page title="Applications" intro="Each application receives a separate grant for each collection. Your account session is never shared with it.">
-    <section>
-      <SectionTitle title="Application access" count={groups.length} />
-      {groups.map((group) => <details className="connect-application" key={group.applicationId}>
-        <summary><span><strong>{group.applicationName}</strong><small>{group.collectionCount} {group.collectionCount === 1 ? "collection" : "collections"}</small></span><b>Review</b></summary>
-        <div className="connect-application-body">
-          {group.grants.map((grant) => <GrantEditor key={grant.id} grant={grant} busy={busy} perform={perform} />)}
-          <ConfirmAction className="danger connect-revoke-application" label="Revoke application" question={`Revoke all ${group.applicationName} access?`} confirmLabel="Revoke application" busy={busy.has(`application-${group.applicationId}`)} onConfirm={() => {
-            void perform(`application-${group.applicationId}`, async (options) => {
-              await management.revokeApplication(group.grants.map((grant) => grant.id), options);
-            });
-          }} />
-        </div>
-      </details>)}
-      {groups.length === 0 && <Empty title="No connected applications" body="Applications appear here after you approve their first collection request." />}
-    </section>
-  </Page>;
-}
-
-function GrantEditor({ grant, busy, perform }: {
-  grant: Grant;
-  busy: BusyOperations;
-  perform: PerformOperation;
-}) {
-  const { selected, setSelected, needsReview, acknowledge } = usePermissionSelection(grant.id, grant.operations);
-  const operations = new Set(selected);
-  if (grant.revocation_status === "revoking") {
-    return <div className="connect-grant connect-row"><span><strong>{grant.collection_name}</strong><small>Revocation is pending. Waiting for {grant.collection_kind === "local" ? "the computer holding this collection" : "the hosted authority"} to confirm enforcement.</small></span><b>Revoking…</b></div>;
-  }
-  if (grant.scope.access !== "full_collection" || grant.scope.contracts.length > 0) {
-    return <div className="connect-grant connect-row"><span><strong>{grant.collection_name}</strong><small>Legacy scoped access is revoked. Reauthorize this application for the entire collection.</small></span><b>Reauthorization required</b></div>;
-  }
-  const ordered = [...allOperations.filter((operation) => grant.operations.includes(operation)), ...grant.operations.filter((operation) => !allOperations.includes(operation))];
-  const changed = ordered.some((operation) => operations.has(operation) !== grant.operations.includes(operation));
-  return <details className="connect-grant">
-    <summary><span><strong>{grant.collection_name}</strong><small>{grant.operations.length} permissions · {applicationAccessOriginLabel(grant.application_origin)}</small></span><b>Permissions</b></summary>
-    <div className="connect-grant-body">
-      {needsReview && <p role="status">Access changed elsewhere. Review the current permissions before saving. <button onClick={acknowledge}>Review current access</button></p>}
-      <div className="connect-permissions">{ordered.map((operation) => <label key={operation}><input className="mdbase-checkbox" type="checkbox" checked={operations.has(operation)} onChange={() => setSelected((current) => current.includes(operation)
-        ? current.filter((value) => value !== operation) : [...current, operation])} /><span>{authorizationOperationLabel(operation)}</span></label>)}</div>
-      <div className="connect-grant-meta"><span>Collection ID</span><strong>{grant.collection_id}</strong><span>Scope</span><strong>Entire collection</strong><span>Origin</span><strong>{grant.application_origin}</strong></div>
-      <div className="connect-row-actions"><button className="connect-primary-action mdbase-button is-primary" disabled={needsReview || !changed || operations.size === 0 || busy.has(`grant-${grant.id}`)} onClick={() => void perform(`grant-${grant.id}`, (options) => management.updateGrant(grant.id, ordered.filter((operation) => operations.has(operation)), options))}>Save narrower access</button><ConfirmAction className="danger" label="Revoke" question={`Revoke access to ${grant.collection_name}?`} confirmLabel="Revoke" busy={busy.has(`grant-${grant.id}`)} onConfirm={() => void perform(`grant-${grant.id}`, (options) => management.revokeGrant(grant.id, options))} /></div>
-    </div>
-  </details>;
 }
 
 function Computers({ data, busy, perform }: {
@@ -769,8 +675,8 @@ function collectionRows(data: ManagementOverview): CollectionRow[] {
   return [...native, ...hosted, ...local].sort((left, right) => left.name.localeCompare(right.name));
 }
 
-function CollectionSummary({ collection, navigate }: { collection: CollectionRow; navigate(view: ConnectView, collectionId?: string): void }) {
-  return <div className="connect-row"><div><strong>{collection.name}</strong><small>{collection.detail}</small></div><span className={`connect-status ${collection.available ? "online" : "idle"}`}><i />{collection.status}</span><div className="connect-row-actions"><RouteLink view="overview" collectionId={collection.id} navigate={navigate}>Manage</RouteLink><a href={editorCollectionUrl(collection.id)}>Open in editor</a></div></div>;
+function CollectionSummary({ collection, navigate, editorOrigin }: { editorOrigin?: string; collection: CollectionRow; navigate(view: ConnectView, collectionId?: string): void }) {
+  return <div className="connect-row"><div><strong>{collection.name}</strong><small>{collection.detail}</small></div><span className={`connect-status ${collection.available ? "online" : "idle"}`}><i />{collection.status}</span><div className="connect-row-actions"><RouteLink view="overview" collectionId={collection.id} navigate={navigate}>Manage</RouteLink>{editorOrigin && <a href={editorCollectionUrl(collection.id, editorOrigin)}>Open in editor</a>}</div></div>;
 }
 
 function connectionDescription(collection: CollectionRow): string {
@@ -837,7 +743,7 @@ function DesktopRecoveryHelp({ action }: { action: string }) {
 }
 
 function viewFromPath(): ConnectView {
-  const segment = location.pathname.split("/")[2];
+  const segment = location.pathname.split("/")[1];
   return segment === "storage" || segment === "access" || segment === "collections" || segment === "applications" || segment === "computers" || segment === "account" || segment === "feedback" ? segment : "overview";
 }
 
@@ -876,21 +782,13 @@ function clearInvitationHash(): void {
 }
 
 function collectionInvitationUrl(token: string): string {
-  const url = new URL("/connect", location.origin);
-  url.searchParams.set("server", new URL(management.baseUrl).origin);
+  const url = new URL("/", management.baseUrl);
   url.hash = new URLSearchParams({ "collection-invitation": token }).toString();
   return url.href;
 }
 
 function collectionPreferenceKey(): string {
-  const configuredServer = new URLSearchParams(location.search).get("server");
-  let origin = new URL(management.baseUrl).origin;
-  try {
-    if (configuredServer) origin = new URL(configuredServer).origin;
-  } catch {
-    // The management client reports malformed server URLs elsewhere.
-  }
-  return `mdbase-connect:last-collection:${origin}`;
+  return `mdbase-connect:last-collection:${new URL(management.baseUrl).origin}`;
 }
 
 function readRememberedCollection(): string | null {
@@ -901,7 +799,7 @@ function rememberCollection(collectionId: string): void {
   try { localStorage.setItem(collectionPreferenceKey(), collectionId); } catch { /* Storage is optional. */ }
 }
 
-function permissionSummary(grants: ApplicationAccessGroup<Grant>["grants"]): string {
+function permissionSummary(grants: Grant[]): string {
   const operations = new Set(grants.flatMap((grant) => grant.operations));
   const verbs = [
     operations.has("read") || operations.has("query") || operations.has("changes") ? "read" : "",
@@ -925,47 +823,28 @@ function joinWords(words: string[]): string {
 }
 
 function connectViewUrl(view: ConnectView, collectionId?: string): string {
-  const url = applyConnectServerOverride(
-    new URL(view === "overview" ? "/connect" : `/connect/${view}`, location.origin),
-    management.baseUrl
-  );
+  const url = new URL(view === "overview" ? "/" : `/${view}`, management.baseUrl);
   if (collectionId) url.searchParams.set("collection", collectionId);
   return `${url.pathname}${url.search}`;
 }
 
-function editorSurfaceUrls(collectionId?: string): { notes: string; types: string; settings: string } {
+function editorSurfaceUrls(collectionId: string | undefined, editorOrigin: string): { notes: string; types: string; settings: string } {
   const surface = (name?: "types" | "settings") => {
-    const url = applyConnectServerOverride(
-      new URL("/", location.origin),
-      management.baseUrl
-    );
+    const url = new URL("/", editorOrigin);
+    url.searchParams.set("server", new URL(management.baseUrl).origin);
     if (collectionId) url.searchParams.set("collection", collectionId);
     if (name) url.searchParams.set("surface", name);
     return url.href;
   };
   return { notes: surface(), types: surface("types"), settings: surface("settings") };
 }
-
-function editorCollectionUrl(collectionId: string): string {
-  const url = new URL("/", location.origin);
-  url.searchParams.set("collection", collectionId);
-  applyConnectServerOverride(url, management.baseUrl);
-  return url.href;
-}
+function editorCollectionUrl(collectionId: string | undefined, editorOrigin: string): string { return editorSurfaceUrls(collectionId, editorOrigin).notes; }
 
 function errorMessage(value: unknown): string {
   const detail = value instanceof Error ? value.message : String(value);
   return /failed to fetch|networkerror|network request failed/i.test(detail)
     ? "mdbase connect could not be reached. Check your connection and try again."
     : detail;
-}
-
-function initials(value: string): string {
-  return value.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
-}
-
-function identityLabel(user: ManagementOverview["user"]): string {
-  return user.login ? `@${user.login}` : user.email ?? "Identity unavailable";
 }
 
 function host(value: string): string {

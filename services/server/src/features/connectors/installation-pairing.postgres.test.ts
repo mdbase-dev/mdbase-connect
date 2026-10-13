@@ -1316,7 +1316,45 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect((await p.flow.exchange()).statusCode).toBe(200); // receipt replay cannot reapply removed scope
     expect((await db.query("SELECT connector_id FROM installation_collection_scopes WHERE collection_id=$1",[collection])).rows).toEqual([{connector_id:other.selected.connector_id}]);
   });
-  it("an installation signs itself out: device revoked where enrolled, scopes gone, bearer dead; ordinary connectors refused",async()=>{
+  it("account management removes installed scope after pairing expiry without touching another account or collection",async()=>{
+    const appId=await registeredApp("bundle:managed.installation"), p=await prepared("app-runtime",false,undefined,undefined,appId);
+    const collection=await scopeCollection(p.owner.user), keep=await scopeCollection(p.owner.user), stranger=await account();
+    expect((await approveDevice(p.flow,p.owner,undefined,{collection_ids:[collection,keep],create_collections:false})).statusCode).toBe(200);
+    expect((await p.flow.exchange()).statusCode).toBe(200);
+    const keys=p.proof.payload;
+    await db.query("INSERT INTO next_policy_outbox(collection_id,ops) VALUES($1,$2)",[collection,JSON.stringify({version:1,ops:[{op:"device-enrol",device:p.input.installation.device_id,account:p.owner.user,kind:"app-runtime",signPublicKey:{$hex:keys.sign_pk},kemPublicKey:{$hex:keys.kem_pk},noisePublicKey:{$hex:keys.noise_pk}}]})]);
+    await db.query("UPDATE pairing_requests SET expires_at=now()-interval '1 hour' WHERE id=$1",[p.input.installation.request_id]);
+    const remove=(headers=p.owner.headers,confirm=true)=>app.inject({method:"POST",url:`/v1/account/applications/${appId}/remove-installation-access`,headers,payload:{collection_id:collection,confirm}});
+    expect((await remove({},true)).statusCode).toBe(401);
+    expect((await remove(p.owner.headers,false)).statusCode).toBe(400);
+    expect((await remove(stranger.headers)).statusCode).toBe(200); // opaque no-op, no foreign registry lookup
+    expect((await db.query("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1",[p.selected.connector_id])).rows).toHaveLength(2);
+    const result=await remove(); expect(result.statusCode,result.body).toBe(200);
+    expect(result.json()).toEqual({ok:true,state:"revoking",collection_id:collection});
+    expect((await db.query("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1",[p.selected.connector_id])).rows).toEqual([{collection_id:keep}]);
+    expect((await remove()).statusCode).toBe(200);
+    const revoked=(await db.query("SELECT ops FROM next_policy_outbox WHERE collection_id=$1",[collection])).rows.flatMap(row=>row.ops.ops).filter((op:{op:string})=>op.op==="device-revoke");
+    expect(revoked).toEqual([{op:"device-revoke",device:p.input.installation.device_id}]);
+    expect((await db.query("SELECT id FROM grants WHERE user_id=$1",[p.owner.user])).rows).toEqual([]);
+  });
+
+  it("account management withdraws creation-only authority without deleting collections or creating grants", async () => {
+    const p=await prepared("app-runtime",true), collection=await scopeCollection(p.owner.user);
+    expect((await approveDevice(p.flow,p.owner,undefined,{collection_ids:[],create_collections:true})).statusCode).toBe(200);
+    expect((await p.flow.exchange()).statusCode).toBe(200);
+    const path=`/v1/account/installations/${p.selected.connector_id}`;
+    expect((await app.inject({method:"DELETE",url:path})).statusCode).toBe(401);
+    const removed=await app.inject({method:"DELETE",url:path,headers:p.owner.headers});
+    expect(removed.statusCode,removed.body).toBe(200);
+    expect(removed.json()).toEqual({ok:true,revoked:true,collections:0,fence:"closed"});
+    expect((await db.query("SELECT revoked_at FROM connectors WHERE id=$1",[p.selected.connector_id])).rows[0].revoked_at).not.toBeNull();
+    expect((await db.query("SELECT collection_id FROM next_collections WHERE collection_id=$1",[collection])).rows).toHaveLength(1);
+    expect((await db.query("SELECT id FROM grants WHERE user_id=$1",[p.owner.user])).rows).toEqual([]);
+    expect((await db.query("SELECT id FROM next_policy_outbox WHERE collection_id=$1",[collection])).rows).toHaveLength(1);
+    expect((await p.flow.exchange()).statusCode).toBe(403);
+  });
+
+  it.each(["self", "account"] as const)("%s signs an installation out: device revoked, scopes gone, bearer dead; ordinary connectors refused",async(mode)=>{
     const p=await prepared(),collection=await scopeCollection(p.owner.user),device=p.input.installation.device_id,keys=p.proof.payload;
     expect((await approveDevice(p.flow,p.owner,undefined,{collection_ids:[collection],create_collections:false})).statusCode).toBe(200);
     const token=(await p.flow.exchange()).json().token as string, bearer={authorization:`Bearer ${token}`};
@@ -1325,7 +1363,12 @@ describePg("installation device sign-in on daemon pairing", () => {
     await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'Desktop',$3)",[randomUUID(),p.owner.user,tokenHash(ordinary)]);
     const refused=await app.inject({method:"DELETE",url:"/v1/next/installation",headers:{authorization:`Bearer ${ordinary}`}});
     expect(refused.statusCode).toBe(403); expect(refused.json().error.code).toBe("installation_required");
-    const out=await app.inject({method:"DELETE",url:"/v1/next/installation",headers:bearer});
+    const signOut=()=>app.inject({method:"DELETE",url:mode==="self"?"/v1/next/installation":`/v1/account/installations/${p.selected.connector_id}`,headers:mode==="self"?bearer:p.owner.headers});
+    if(mode==="account") {
+      const stranger=await account();
+      expect((await app.inject({method:"DELETE",url:`/v1/account/installations/${p.selected.connector_id}`,headers:stranger.headers})).statusCode).toBe(404);
+    }
+    const out=await signOut();
     expect(out.statusCode,out.body).toBe(200); expect(out.json()).toEqual({ok:true,revoked:true,collections:1,fence:"closed"});
     expect(fenced.map(([id])=>id)).toContain(p.selected.connector_id);
     expect((await db.query("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1",[p.selected.connector_id])).rows).toEqual([]);
@@ -1333,8 +1376,8 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect(revokes).toEqual([{op:"device-revoke",device}]);
     const dead=await app.inject({method:"POST",url:"/v1/next/devices/challenge",headers:bearer});
     expect(dead.statusCode).toBe(401); expect(dead.json().error.code).toBe("invalid_connector");
-    const again=await app.inject({method:"DELETE",url:"/v1/next/installation",headers:bearer});
-    expect(again.statusCode).toBe(401); expect(again.json().error.code).toBe("invalid_connector");
+    const again=await signOut();
+    expect(again.statusCode).toBe(mode==="self"?401:404); expect(again.json().error.code).toBe(mode==="self"?"invalid_connector":"installation_not_found");
   });
   it("keeps original daemon pairing response and one-shot exchange semantics", async () => {
     const owner = await account();

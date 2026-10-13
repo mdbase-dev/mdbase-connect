@@ -1,11 +1,12 @@
 /** An installation ends its OWN device session with only its idev_ bearer
  * (SDK signOut). Every other revoke route needs a browser session. */
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
+import { z } from "zod";
 import type { DatabasePool } from "../../database-types.js";
 import type { RelayHub } from "../../relay.js";
 import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";
-import { requireInstallationDeviceConnector } from "../../platform/request-authentication.js";
+import { requireInstallationDeviceConnector, requireSessionContext } from "../../platform/request-authentication.js";
 import { inTransaction, isLockTimeout, lock } from "../next/bootstrap-common.js";
 import { queueNextPolicy } from "../next/policy-outbox.js";
 
@@ -53,16 +54,29 @@ async function signOutInstallation(db: DatabasePool, connectorId: string, userId
 }
 
 export function registerInstallationSignOutRoute(app: FastifyInstance, options: { db: DatabasePool; relay: Pick<RelayHub, "fenceConnector"> }): void {
+  app.delete("/v1/account/installations/:connectorId", async (request, reply) => {
+    reply.header("cache-control", "no-store");
+    const session = await requireSessionContext(request, reply, options.db);
+    if (!session) return;
+    const { connectorId } = z.object({ connectorId: z.uuid() }).parse(request.params);
+    const owned = await options.db.query<{ device_id: string }>(
+      `SELECT k.device_id FROM installation_device_credentials k JOIN connectors c ON c.id=k.connector_id
+       WHERE c.id=$1 AND c.user_id=$2 AND c.revoked_at IS NULL`, [connectorId, session.user.id]);
+    if (!owned.rows[0]) return reply.code(404).send(apiError("installation_not_found", "App installation not found."));
+    return finish(reply, connectorId, session.user.id, owned.rows[0].device_id);
+  });
   app.delete("/v1/next/installation", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
     reply.header("cache-control", "no-store");
-    // Unknown or already-revoked credentials get 401 invalid_connector here.
     const connector = await requireInstallationDeviceConnector(request, reply, options.db);
     if (!connector) return reply;
     if (!connector.installation_device_id)
       return reply.code(403).send(apiError("installation_required", "Only an app installation can sign itself out here."));
+    return finish(reply, connector.id, connector.user_id, connector.installation_device_id);
+  });
+  async function finish(reply: FastifyReply, connectorId: string, userId: string, deviceId: string) {
     let result: SignedOut;
     try {
-      result = await signOutInstallation(options.db, connector.id, connector.user_id, connector.installation_device_id);
+      result = await signOutInstallation(options.db, connectorId, userId, deviceId);
     } catch (error) {
       if (error instanceof SignOutError) return reply.code(error.status).send(apiError(error.code, error.message));
       if (isLockTimeout(error) || (error as { code?: unknown } | null)?.code === "40P01")
@@ -72,8 +86,8 @@ export function registerInstallationSignOutRoute(app: FastifyInstance, options: 
     let fence: "closed" | "committed_with_degraded_fence" = "committed_with_degraded_fence";
     try {
       // Revocation, fence generation and audit are already committed.
-      if (await options.relay.fenceConnector(connector.id, result.fenceGeneration) === "closed") fence = "closed";
+      if (await options.relay.fenceConnector(connectorId, result.fenceGeneration) === "closed") fence = "closed";
     } catch { /* degraded fence is still a completed sign-out */ }
     return { ok: true, revoked: true, collections: result.collections, fence };
-  });
+  }
 }

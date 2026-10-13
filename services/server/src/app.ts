@@ -458,8 +458,8 @@ export async function buildApp(options: BuildOptions) {
       log:new LogServiceClient(options.nextControlPlane.logService),
     } : undefined,
   });
-  // Installation devices exist only with next control-plane support.
-  if (options.nextControlPlane) registerInstallationSignOutRoute(app, { db: options.db, relay });
+  // Previously issued installations can be revoked after a feature rollback.
+  registerInstallationSignOutRoute(app, { db: options.db, relay });
   registerAccountSessionRoutes(app, {
     db: options.db,
     publicUrl,

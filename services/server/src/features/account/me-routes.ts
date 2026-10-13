@@ -60,13 +60,19 @@ export function registerAccountOverviewRoute(
     );
     if (!authenticated) return;
     const { authentication_provider: authenticationProvider, ...user } = authenticated;
+    const nativeCollections = await listNativeCollectionsVisibleToUser(options.db, user.id);
     const connectors = await options.db.query<AccountConnectorRow>(
       `SELECT c.id, c.name, c.last_seen_at, c.created_at,
               c.connector_version, c.last_incompatible_at,
               c.incompatibility_code, c.minimum_connector_version,
               c.connector_update_url, c.latest_policy_ack_mode
        FROM connectors c
+       LEFT JOIN installation_device_credentials installation
+         ON installation.connector_id = c.id
+       LEFT JOIN applications installed_app ON installed_app.id::text = installation.app_id
+         AND installed_app.family_identity IS NOT NULL
        WHERE c.user_id = $1 AND c.revoked_at IS NULL
+         AND installed_app.id IS NULL
        ORDER BY c.created_at`,
       [user.id]
     );
@@ -196,6 +202,24 @@ export function registerAccountOverviewRoute(
        WHERE g.user_id = $1
          AND (g.activated_at IS NOT NULL OR g.revoked_at IS NOT NULL)
        ORDER BY g.created_at DESC`,
+      [user.id]
+    );
+    // Installation devices are app authority, not synthetic OAuth grants or
+    // computers. Return only review metadata; never credential/key material.
+    const installationAccess = await options.db.query(
+      `SELECT a.id AS application_id, a.family_identity AS application_family_id,
+              a.name AS application_name, a.icon, k.app_origin AS application_origin,
+              k.connector_id, k.installation_id, k.kind AS device_kind, k.created_at, k.create_collections, scope.collection_id,
+              native.display_name AS collection_name, native.sync,
+              scope.file_actions AS approved_optional_file_actions
+       FROM installation_device_credentials k
+       JOIN connectors c ON c.id = k.connector_id
+       JOIN applications a ON a.id::text = k.app_id
+       LEFT JOIN installation_collection_scopes scope ON scope.connector_id = k.connector_id
+       LEFT JOIN next_collections native ON native.collection_id = scope.collection_id
+       WHERE c.user_id = $1 AND c.revoked_at IS NULL
+         AND a.family_identity IS NOT NULL
+       ORDER BY a.family_identity, scope.collection_id, k.created_at`,
       [user.id]
     );
     const pendingAuthorizations = await options.db.query(
@@ -330,7 +354,13 @@ export function registerAccountOverviewRoute(
             sync_status: hostedReplicaStatuses.get(replica.id) ?? null
           }))
       })),
-      native_collections: (await listNativeCollectionsVisibleToUser(options.db, user.id)).map((collection) => ({
+      installation_access: installationAccess.rows.map((scope) => {
+        const visible = nativeCollections.find((collection) => collection.id === scope.collection_id);
+        return { ...scope, collection_name: scope.collection_id ? visible?.display_name ?? "Unavailable collection" : null,
+          approved_optional_file_actions: scope.approved_optional_file_actions ?? [],
+          available: visible !== undefined, role: visible?.access.role ?? null };
+      }),
+      native_collections: nativeCollections.map((collection) => ({
         ...collection,
         access: { ...collection.access, can_manage_members: collection.access.can_manage_members && options.hostedCollections === true }
       })),

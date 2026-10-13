@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { test as base, type Page } from "@playwright/test";
+// Sibling Portal specs must share this runner instance under hoistingLimits.
+export { expect } from "@playwright/test";
 
 export const authentication = {
   provider: "session",

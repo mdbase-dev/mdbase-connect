@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { InfoIcon as Info } from "./icons";
+import { InfoIcon as Info } from "@phosphor-icons/react/Info";
 
 export function ConnectPage({ title, intro, children }: {
   title: string;
