@@ -24,7 +24,9 @@ export function createEditorMdbase(input: {
 }): Mdbase {
   const declaration: MdbaseApplicationDeclaration = { id: manifest.id, name: manifest.name,
     origin: input.origin, environment: input.environment, manifest };
-  const sdk = createMdbase(declaration);
+  // The editor lists Private collections in its own section (app grants), so
+  // the SDK leaves them out of its collection list.
+  const sdk = createMdbase(declaration, { privateCollections: false });
   declarations.set(sdk, declaration);
   privateSources.set(sdk, appGrantCollections(declaration));
   return sdk;
