@@ -6,7 +6,7 @@ import { migrationDeployments } from "./lab-migration-routing.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import { CreateError, enrolOp, inTransaction, lock, SERVICE_ACCOUNT } from "./bootstrap-common.js";
 import { requireCollectionNotDeleted } from "./collection-deletion.js";
-import { requireAccountNotMigrationFrozen } from "./migration-topology.js";
+import { requireNextAccountNotMigrationFrozen } from "./migration-topology.js";
 import type { LogPlacement, LogServiceClient } from "./log-service-client.js";
 import type { NextControlPlaneConfig } from "./policy-keys.js";
 import { registerNextCollection, type PolicyEmitter } from "./policy-outbox.js";
@@ -123,7 +123,7 @@ export async function createServiceCloudCopy(options: CloudCopyBootstrapOptions,
       const exact = await client.query("SELECT 1 FROM next_collections WHERE collection_id=$1 AND runtime=$2 AND root_key_id=$3", [collection, runtime, rootKeyId]);
       if (!exact.rows.length) throw new CreateError(409, "collection_exists");
     } else if (runtime === "next") {
-      try { await requireAccountNotMigrationFrozen(client, owner); }
+      try { await requireNextAccountNotMigrationFrozen(client, owner); }
       catch (error) {
         if (error instanceof RequestValidationError) throw new CreateError(error.statusCode, error.code);
         throw error;

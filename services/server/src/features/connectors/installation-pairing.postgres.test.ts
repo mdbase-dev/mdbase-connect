@@ -548,6 +548,9 @@ describePg("installation device sign-in on daemon pairing", () => {
     const n=await nativeCompanion(p);expect((await n.attach()).statusCode).toBe(200);
     const result=await approvePrivate(p,collection);expect(result.statusCode,result.body).toBe(200);
     expect((await p.flow.exchange()).json()).toMatchObject({status:"paired",collection_ids:[],native_selection:{authorization_request_id:n.id,collection_id:collection}});
+    const hosted=await scopeCollection(p.owner.user),q=await prepared("app-runtime",false,p.owner,undefined,p.input.installation.app_id);
+    expect((await approveDevice(q.flow,q.owner,undefined,{collection_ids:[hosted],create_collections:false,selected_collection_id:hosted})).statusCode).toBe(200);
+    expect((await q.flow.exchange()).json()).toMatchObject({status:"paired",collection_ids:[hosted],selected_collection_id:hosted});
     expect((await db.query("SELECT frozen_at,completed_at,completed_revision FROM next_migration_cohorts WHERE name=$1",[cohort])).rows[0]).toEqual(frozen);
     expect((await db.query("SELECT verified_result FROM next_migration_archive_acceptances WHERE cohort=$1",[cohort])).rows[0].verified_result).toEqual(archive);
     await expect(setCohortFrozen(db,cohort,false,"must stay frozen",actor)).rejects.toMatchObject({code:"migration_frozen"});

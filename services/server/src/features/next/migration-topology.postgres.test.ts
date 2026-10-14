@@ -7,7 +7,7 @@ import { HostedAuthorityRegistry } from "../../hosted.js";
 import { deleteAccountLocally, drainDeferredAccountDeletions } from "../../account-management.js";
 import { createHostedCollectionForUser, deleteHostedCollectionForUser, renameHostedCollectionForUser } from "../hosted/service.js";
 import { acceptCohortArchive, accountMigrationView, addToCohort, cohortArchiveBinding, createCohort, flipAccountBackend, flipEvidenceDigest, migrationCandidates, migrationsInProgress, recordCollectionCutover, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "./migration-rollout.js";
-import { requireAccountNotMigrationFrozen } from "./migration-topology.js";
+import { nextAccountsMigrationFrozen, requireAccountNotMigrationFrozen, requireNextAccountNotMigrationFrozen } from "./migration-topology.js";
 import { recoverExpiredAuthorityTransfers } from "../authority-transfer/lifecycle.js";
 import { recoverExpiredAuthorityAdoptions } from "../authority-adoption/adoption-store.js";
 import { recoverAccountImportCancellation } from "../authority-transfer/account-cancellation.js";
@@ -146,6 +146,52 @@ describePg("migration topology freeze (isolated real PostgreSQL; synthetic refer
     await setPaused(db, false, "synthetic migration", OP);
     return { name, body };
   }
+  async function nextGuard(...accounts: string[]) {
+    const client=await db.connect();
+    try { await client.query("BEGIN"); const completed=await requireNextAccountNotMigrationFrozen(client,accounts[0]!,...accounts.slice(1));await client.query("COMMIT");return completed; }
+    catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}
+  }
+  async function completedAccount() {
+    const account=await user(),{name}=await acceptedBatch([account]);
+    await startAccountMigration(db,account,"production");await flipAccountBackend(db,account,[],flipEvidenceDigest([]),{enabled:true});
+    return {account,name};
+  }
+  it("permits completed flipped next authority without permitting legacy topology or changing the archive freeze",async()=>{
+    const {account,name}=await completedAccount();
+    const before=(await db.query("SELECT frozen_at,completed_at,completed_revision FROM next_migration_cohorts WHERE name=$1",[name])).rows;
+    expect(await nextGuard(account)).toBe(true);expect(await nextAccountsMigrationFrozen(db,[account])).toBe(false);
+    await expect(guard(account)).rejects.toMatchObject({code:"migration_frozen"});
+    await expect(setCohortFrozen(db,name,false,"must stay frozen",OP)).rejects.toMatchObject({code:"migration_frozen"});
+    expect((await db.query("SELECT frozen_at,completed_at,completed_revision FROM next_migration_cohorts WHERE name=$1",[name])).rows).toEqual(before);
+  });
+  it.each(["completion","flip","backend","start","excluded","order"])("does not treat an incomplete or inconsistent %s as next authority",async field=>{
+    const {account,name}=await completedAccount();
+    // Privileged isolated fault injection, never a public completion substitute.
+    if(field==="completion")await db.query("UPDATE next_migration_cohorts SET completed_at=NULL,completed_revision=NULL WHERE name=$1",[name]);
+    if(field==="flip")await db.query("DELETE FROM next_migration_account_flips WHERE account_id=$1",[account]);
+    if(field==="backend")await db.query("UPDATE users SET account_backend='legacy' WHERE id=$1",[account]);
+    if(field==="start")await db.query("UPDATE next_migration_cohort_members SET started_at=NULL WHERE account_id=$1",[account]);
+    if(field==="excluded")await db.query("UPDATE next_migration_cohort_members SET terminal_excluded_at=now() WHERE account_id=$1",[account]);
+    if(field==="order")await db.query("UPDATE next_migration_cohorts SET completed_at=completed_at-interval '1 day' WHERE name=$1",[name]);
+    await expect(nextGuard(account)).rejects.toMatchObject({code:"migration_frozen"});expect(await nextAccountsMigrationFrozen(db,[account])).toBe(true);
+  });
+  it("keeps every owner blocked until the entire batch completes, including an account already flipped",async()=>{
+    const a=await user(),b=await user();await acceptedBatch([a,b]);
+    for(const id of [a,b])await startAccountMigration(db,id,"production");
+    await flipAccountBackend(db,a,[],flipEvidenceDigest([]),{enabled:true});
+    await expect(nextGuard(a)).rejects.toMatchObject({code:"migration_frozen"});
+    await expect(nextGuard(a,b)).rejects.toMatchObject({code:"migration_frozen"});
+    await flipAccountBackend(db,b,[],flipEvidenceDigest([]),{enabled:true});expect(await nextGuard(b,a)).toBe(true);
+  });
+  it("retains completed next authority after a terminal account erasure advances membership revision",async()=>{
+    const a=await user(),b=await user(),{name}=await acceptedBatch([a,b]);
+    for(const id of [a,b]){await startAccountMigration(db,id,"production");await flipAccountBackend(db,id,[],flipEvidenceDigest([]),{enabled:true});}
+    await deletion(b);await drainDeferredAccountDeletions(db);
+    expect((await db.query("SELECT 1 FROM users WHERE id=$1",[b])).rows).toEqual([]);
+    const row=(await db.query("SELECT completed_revision::text,membership_revision::text FROM next_migration_cohorts WHERE name=$1",[name])).rows[0];
+    expect(BigInt(row.membership_revision)).toBeGreaterThan(BigInt(row.completed_revision));
+    expect(await nextGuard(a)).toBe(true);await expect(guard(a)).rejects.toMatchObject({code:"migration_frozen"});
+  });
   async function assertNeverMigrated(account: string, collections: string[] = []) {
     expect((await db.query("SELECT 1 FROM audit_events WHERE subject_id=ANY($1::text[]) AND event_type IN ('next_migration.cutover','next_migration.flip')", [[account, ...collections]])).rowCount).toBe(0);
   }

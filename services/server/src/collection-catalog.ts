@@ -3,6 +3,7 @@ import type { DatabaseQueryable } from "./db.js";
 import type { HostedTemplate } from "./hosted.js";
 import { resolveActiveMembershipPolicy, type CollectionRole } from "./collection-policy.js";
 import { resolveCollectionSharingAuthority } from "./collection-sharing-authority.js";
+import { nextAccountsMigrationFrozen } from "./features/next/migration-topology.js";
 import { RequestValidationError } from "./platform/http-errors.js";
 
 export type CollectionAuthorityKind = "local" | "hosted" | "native";
@@ -227,12 +228,7 @@ export async function listNativeCollectionsVisibleToUser(
     if (!owner && !policy?.actions.includes("collection.discover")) continue;
     // This read only describes the UI. Every sharing mutation still takes its
     // canonical owner/freeze/collection locks and rechecks current authority.
-    const frozen = (await db.query(
-      `SELECT cohort.name FROM next_migration_cohort_members member
-       JOIN next_migration_cohorts cohort ON cohort.name = member.cohort
-       WHERE member.account_id IN ($1, $2) AND cohort.frozen_at IS NOT NULL LIMIT 1`,
-      [userId, authority.user_id]
-    )).rows.length > 0;
+    const frozen = await nextAccountsMigrationFrozen(db, [userId, authority.user_id]);
     visible.push({
       id: row.collection_id, display_name: row.display_name, sync: row.sync,
       access: {
