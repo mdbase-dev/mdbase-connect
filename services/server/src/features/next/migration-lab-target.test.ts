@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { labTargetBootstrap } from "./migration-lab-target.js";
+import { labTargetBootstrap, labTargetSubCause } from "./migration-lab-target.js";
 import { postgresLabConnect } from "./migration-lab.js";
 
 const account = "10000000-0000-4000-8000-000000000001", collection = "20000000-0000-4000-8000-000000000002";
@@ -13,7 +13,7 @@ describe("control-plane target preparation port", () => {
   function port(recorded: boolean, callback?: (collection: string) => Promise<void>) {
     const query = vi.fn(async () => ({ rows: recorded ? [{ present: 1 }] : [] }));
     const db = { query } as unknown as Parameters<typeof postgresLabConnect>[0]["db"];
-    return { query, connect: postgresLabConnect({ db, source: db, actor: "test", timers: true,
+    return { query, connect: postgresLabConnect({ db, source: db, actor: "test", timers: true, environment: "lab",
       provider: {} as Parameters<typeof postgresLabConnect>[0]["provider"],
       ...(callback ? { prepareTarget: callback } : {}) }) };
   }
@@ -30,7 +30,9 @@ describe("control-plane target preparation port", () => {
     expect(p.query.mock.calls[0]).toEqual([expect.stringContaining("x.runtime='next'"), [collection]]);
   });
   it("fails closed when the fresh-run composition omitted its canonical creator", async () => {
-    await expect(port(false).connect.prepareTarget(collection)).rejects.toMatchObject({ code: "migration_target_unavailable" });
+    const error = await port(false).connect.prepareTarget(collection).catch(error => error);
+    expect(error).toHaveProperty("code", "migration_target_unavailable");
+    expect(labTargetSubCause(error, "lab")).toEqual({ call: "guard", guard: "composition" });
   });
 });
 
@@ -50,8 +52,11 @@ describe("existing migration target bootstrap composition", () => {
     expect(() => labTargetBootstrap({ ...config, environment }, fetchImpl)).toThrow();
     expect(fetchImpl).not.toHaveBeenCalled();
   });
-  it.each(["http://connect-lab.mdbase.dev", "https://connect.mdbase.dev", "https://user:secret@connect-lab.mdbase.dev", "https://connect-lab.mdbase.dev/?scope=other"])("refuses noncanonical origin %s", url => {
-    const fetchImpl = vi.fn(); expect(() => labTargetBootstrap({ ...config, url }, fetchImpl)).toThrow();
+  it.each(["http://connect-lab.mdbase.dev", "https://connect.mdbase.dev", "https://user:secret@connect-lab.mdbase.dev", "https://connect-lab.mdbase.dev/?scope=other"])("refuses noncanonical origin %s", async url => {
+    const fetchImpl = vi.fn();
+    const error = await labTargetBootstrap({ ...config, url }, fetchImpl)(collection).catch(error => error);
+    expect(labTargetSubCause(error, "lab")).toEqual({ call: "guard", guard: "origin" });
+    expect(labTargetSubCause(error, "production")).toBeUndefined();
     expect(fetchImpl).not.toHaveBeenCalled();
   });
   it.each(["collection", "owner", "private", "device-missing", "device-kind", "device-nil"])("does not treat HTTP200 as target identity proof: %s", kind => {
@@ -63,6 +68,13 @@ describe("existing migration target bootstrap composition", () => {
     if (kind === "device-kind") value.service_devices[1]!.kind = "hosted";
     if (kind === "device-nil") value.service_devices[0]!.device_id = "00000000-0000-0000-0000-000000000000";
     return expect(labTargetBootstrap(config, async () => Response.json(value))(collection)).rejects.toMatchObject({ code: "migration_target_unavailable" });
+  });
+  it("retains only finite network causes, not exception messages or arbitrary names/codes", async () => {
+    for (const code of ["ENOTFOUND", "private credential not for capture"]) {
+      const failure = new TypeError("private message not for capture", { cause: { code } });
+      const error = await labTargetBootstrap(config, async () => { throw failure; })(collection).catch(error => error);
+      expect(labTargetSubCause(error, "lab")).toEqual({ call: "fetch", name: "TypeError", network_code: code === "ENOTFOUND" ? code : "unknown" });
+    }
   });
   it.each(["transport", "refused", "invalid", "oversize"])("fails closed without echoing raw errors or retrying: %s", async kind => {
     const fetchImpl = vi.fn(async () => {

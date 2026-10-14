@@ -2,7 +2,7 @@ import { constants, closeSync, lstatSync, openSync, writeFileSync } from "node:f
 import { dirname } from "node:path";
 import type { LabOutcome } from "./migration-lab.js";
 
-/** Raw Worker diagnostics belong only in the operator's explicit private file. */
+/** Raw LAB diagnostics (Worker or target) belong only in the explicit private file. */
 export function captureLabWorkerError(event: Record<string, unknown>, environment: string | undefined, path: string | undefined): Record<string, unknown> {
   const { raw_error, ...safe } = event;
   if (raw_error === undefined) return safe;
@@ -28,7 +28,15 @@ export function captureLabWorkerError(event: Record<string, unknown>, environmen
 
 /** The final stop reply must not duplicate raw data already captured privately. */
 export function sanitizedLabOutcome(outcome: LabOutcome): LabOutcome {
-  if (!("stopped" in outcome) || !outcome.stopped.worker_run_reply) return outcome;
-  const { raw_error: _raw, ...diagnostic } = outcome.stopped.worker_run_reply;
-  return { stopped: { ...outcome.stopped, worker_run_reply: diagnostic } };
+  if (!("stopped" in outcome)) return outcome;
+  const stopped = { ...outcome.stopped };
+  if (stopped.worker_run_reply) {
+    const { raw_error: _raw, ...safe } = stopped.worker_run_reply;
+    stopped.worker_run_reply = safe;
+  }
+  if (stopped.target_reply) {
+    const { raw_error: _raw, ...safe } = stopped.target_reply;
+    stopped.target_reply = safe;
+  }
+  return { stopped };
 }

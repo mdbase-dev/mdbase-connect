@@ -18,6 +18,7 @@ import type { DatabasePool } from "../../database-types.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";
 import { flipEvidenceDigest } from "./account-backend-flip.js";
 import { claim } from "./migration-provider.js";
+import { labTargetSubCause, labTargetUnavailable } from "./migration-lab-target.js";
 import { cutOverCollection, flipAccountBackend, RolloutRefused } from "./migration-rollout.js";
 import { LAB_COMPLETION_EVENT, requireCompletedAccountMigration } from "./migration-sharing.js";
 import { cleanUpRolledBackTimerImport } from "./migration-timer-cleanup.js";
@@ -125,6 +126,8 @@ export interface LabConnect {
 }
 
 interface LabDeps {
+  /** Literal LAB only enables token-free target sub-cause retention/capture. */
+  environment?: string;
   worker: LabWorker;
   connect: LabConnect;
   sleep?: (ms: number) => Promise<void>;
@@ -134,7 +137,8 @@ interface LabDeps {
   log?: (event: Record<string, unknown>) => void;
 }
 
-interface LabStop { step: string; reason: string; inspect: string; resume: string; worker_run_reply?: WorkerRunReplyDiagnostic }
+interface TargetReplyDiagnostic { raw_error?: { sub_cause: NonNullable<ReturnType<typeof labTargetSubCause>> } }
+interface LabStop { step: string; reason: string; inspect: string; resume: string; worker_run_reply?: WorkerRunReplyDiagnostic; target_reply?: TargetReplyDiagnostic }
 export type LabOutcome = { done: Record<string, unknown> } | { stopped: LabStop };
 
 /** HTTPS client for the hosted Worker's internal migration entry (service token). */
@@ -225,7 +229,7 @@ export function labWorkerClient(config: { url: string; token: string; environmen
 
 /** The control-plane port over the Connect database and the legacy provider. */
 export function postgresLabConnect(options: {
-  db: DatabasePool; source: DatabasePool; actor: string; timers: boolean;
+  db: DatabasePool; source: DatabasePool; actor: string; timers: boolean; environment?: string;
   provider: Pick<HostedProviderClient, "legacyMigrationSource" | "legacyMigrationDrain" | "legacyMigrationRetain">;
   importTimers?: (collection: string) => Promise<unknown>;
   prepareTarget?: (collection: string) => Promise<void>;
@@ -263,7 +267,7 @@ export function postgresLabConnect(options: {
            AND x.sync='cloud_copy' AND x.left_sync_at IS NULL
            AND EXISTS (SELECT 1 FROM next_service_devices d WHERE d.collection_id=x.collection_id AND d.kind='hosted')`, [collection]);
       if (routed.rows.length) return;
-      if (!options.prepareTarget) throw new RolloutRefused("migration_target_unavailable", "Canonical SHADOW custody target bootstrap is required.", 503);
+      if (!options.prepareTarget) labTargetUnavailable(options.environment, { call: "guard", guard: "composition" });
       await options.prepareTarget(collection);
     },
     importTimers: options.importTimers ?? (collection => importHostedCollectionTimers({
@@ -433,10 +437,10 @@ export async function labRun(account: string, backupHold: string, deps: LabDeps,
 async function driveLabRun(account: string, backupHold: string, pre: Awaited<ReturnType<LabConnect["preflight"]>>,
   deps: LabDeps, stopBeforeFlip: boolean): Promise<LabOutcome> {
   const cmd = commands(account, backupHold), log = deps.log ?? (() => undefined);
-  const stop = (step: string, reason: string, routeBack = false, diagnostic?: WorkerRunReplyDiagnostic): LabOutcome =>
+  const stop = (step: string, reason: string, routeBack = false, diagnostic?: WorkerRunReplyDiagnostic, target?: TargetReplyDiagnostic): LabOutcome =>
     ({ stopped: { step, reason, inspect: cmd.inspect, resume: reason === PAUSE_REASON ? cmd.resume
       : routeBack ? cmd.routeBack : cmd.labRun + (stopBeforeFlip ? " --stop-before-flip" : ""),
-      ...(diagnostic ? { worker_run_reply: diagnostic } : {}) } });
+      ...(diagnostic ? { worker_run_reply: diagnostic } : {}), ...(target ? { target_reply: target } : {}) } });
   const { collection } = pre;
   log({ step: "preflight", collection, backend: pre.backend });
   const pace = await poller(deps);
@@ -456,7 +460,12 @@ async function driveLabRun(account: string, backupHold: string, pre: Awaited<Ret
     // ready() needs an enrolled hosted identity. The executor's later target
     // action reuses the canonical immutable tuple; HTTP200 here is not H1.
     try { await deps.connect.prepareTarget(collection); }
-    catch (error) { return stop("prepare_target", codeOf(error)); }
+    catch (error) {
+      const cause = labTargetSubCause(error, deps.environment);
+      const diagnostic = cause ? { raw_error: { sub_cause: cause } } : undefined;
+      if (diagnostic) log({ step: "target_reply", ...diagnostic });
+      return stop("prepare_target", codeOf(error), false, undefined, diagnostic);
+    }
     log({ step: "prepare_target", collection });
     const started = await deps.worker.run(collection, backupHold, stopBeforeFlip);
     if (started.diagnostic) log({ step: "worker_run_reply", kind: started.kind, ...started.diagnostic });
