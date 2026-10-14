@@ -59,6 +59,7 @@ import type {
   RegistrationMode
 } from "./runtime-config.js";
 import { registerAccountOverviewRoute } from "./features/account/me-routes.js";
+import { registerAccountCollectionCreationRoutes } from "./features/account/collection-creation-routes.js";
 import { registerAccountManagementRoutes } from "./features/account/management-routes.js";
 import { registerAccountSessionRoutes } from "./features/account/session-routes.js";
 import { registerApplicationRoutes } from "./features/applications/routes.js";
@@ -571,6 +572,11 @@ export async function buildApp(options: BuildOptions) {
     hostedProvider: options.hostedProvider,
     hostedReference
   });
+  registerAccountCollectionCreationRoutes(app, {
+    db: options.db, publicUrl, tailscaleAuth: options.tailscaleAuth,
+    hostedCollections: options.hostedCollections, hostedProvider: options.hostedProvider, hostedReference,
+    ...(options.nextControlPlane?.cloudCopyBootstrap ? {native:{db:options.db, next:options.nextControlPlane, emitter:nextPolicyEmitter!, log:new LogServiceClient(options.nextControlPlane.logService)}} : {})
+  });
   registerHostedSharingRoutes(app, {
     db: options.db,
     hostedCollections: options.hostedCollections,
@@ -639,6 +645,7 @@ export async function buildApp(options: BuildOptions) {
     publicUrl,
     authenticationPolicy,
     tailscaleAuth: options.tailscaleAuth,
+    nativeCollectionCreation: Boolean(options.nextControlPlane?.cloudCopyBootstrap),
     hostedCollections: options.hostedCollections,
     hostedSharing: options.hostedSharing,
     hostedProvider: options.hostedProvider,

@@ -1,0 +1,10 @@
+{
+  "reason": "One metadata-only account collection creation frontdoor composes the existing canonical native service creator and legacy creator; it does not add a parallel key, content-grant or Private creator. Separate account intent/service and HTTP principal/validation modules make current-session, flipped-account, freeze and immutable UUID/name/runtime checks auditable. One browser metadata helper persists account-scoped nonces for unknown-outcome retries without credentials or authority. Three production modules, fifteen relative imports and eight internal helper/type exports; existing management client gains the canonical method. Exact native readiness and desktop-owned Private setup remain outside this route.",
+  "growth": {
+    "productionFiles": 3,
+    "relativeImports": 15,
+    "typeScriptExportDeclarations": 8,
+    "apps/portal": 1,
+    "services/server": 2
+  }
+}

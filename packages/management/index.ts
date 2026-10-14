@@ -186,6 +186,7 @@ export interface ManagementOverview {
     };
   };
   hosted_collections_available?: boolean;
+  collection_creation_available?: boolean;
   collection_sharing_available?: boolean;
   authentication: {
     provider: "google" | "github" | "password" | "tailscale" | "session";
@@ -380,6 +381,16 @@ export class ConnectManagementClient {
         ...(input.currentPassword ? { current_password: input.currentPassword } : {}),
         ...(input.reauthenticationToken ? { reauth_token: input.reauthenticationToken } : {})
       })
+    }, options);
+  }
+
+  createCollection(
+    input: {accountId: string; requestId: string; displayName: string; timezone: string},
+    options?: ManagementRequestOptions
+  ): Promise<void> {
+    return this.request("/v1/account/collections", {
+      method: "POST",
+      body: JSON.stringify({account_id:input.accountId, request_id:input.requestId, display_name:input.displayName, timezone:input.timezone})
     }, options);
   }
 

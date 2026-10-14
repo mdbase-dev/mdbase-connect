@@ -314,6 +314,9 @@ export async function createHostedCollectionForUser(
   creation: {
     collectionId?: string;
     source?: "desktop" | "onboarding";
+    current?: (client: DatabaseConnection) => Promise<void>;
+    published?: (client: DatabaseConnection) => Promise<void>;
+    alreadyPublished?: (client: DatabaseConnection) => Promise<boolean>;
   } = {}
 ): Promise<Record<string, unknown>> {
   if (!options.hostedCollections) {
@@ -331,6 +334,13 @@ export async function createHostedCollectionForUser(
     )).rows[0]?.account_backend;
     if (!backend) throw new RequestValidationError("Account unavailable.");
     if (backend === "next") throw new RequestValidationError("This account has moved to mdbase-next; create collections there.");
+    await creation.current?.(connection);
+    if (await creation.alreadyPublished?.(connection)) {
+      const existing = (await connection.query("SELECT * FROM hosted_collections WHERE id=$1 AND user_id=$2 AND authority_state='active' FOR SHARE", [collectionId,userId])).rows[0];
+      if (!existing) throw new RequestValidationError("Collection unavailable.");
+      await connection.query("COMMIT");
+      return existing;
+    }
     effectStarted = true;
     if (options.hostedProvider) {
       const account = await reconcileHostedAccount(
@@ -383,6 +393,8 @@ export async function createHostedCollectionForUser(
     }
     if (inserted.rows.length) await audit(connection, userId, "hosted_collection.created", collectionId,
       { template, source: creation.source ?? "desktop" });
+    await creation.current?.(connection);
+    await creation.published?.(connection);
     await connection.query("COMMIT");
   } catch (error) {
     // Never compensate a pre-effect freeze refusal. Hold the guard through any
