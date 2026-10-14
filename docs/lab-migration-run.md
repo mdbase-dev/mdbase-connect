@@ -59,6 +59,17 @@ Capture failure never retries a RUN or changes its UNKNOWN/status reconciliation
 The rehearsal runner carries this private file only in its encrypted receipt;
 operator reports retain a private-artifact pointer, not the raw contents.
 
+Target preparation failures use the same private capture path. A literal-LAB
+`target_reply` event carries `raw_error.sub_cause`: the failed guard name, finite
+fetch error name/network code, HTTP status plus allowlisted API error code, or a
+bounded Zod field/index path and identity-mismatch field. It never includes URLs,
+tokens, response values, exception messages or stacks. Constructor guard checks
+are recorded at `prepare_target` before any fetch. The returned library stop has
+`target_reply.raw_error`; CLI progress and final stdout remove it, reporting only
+the existing capture status. Unrecognized API/network codes become `unknown`.
+Non-LAB orchestration retains/captures no target sub-cause. There is still one
+request and no retry, native readiness, H1 or mutation-effect-absence inference.
+
 Every step is derived from durable state (the Worker's run record and native checkpoint,
 and control-plane rows), so running the same command again resumes where it stopped.
 After an unknown outcome a mutation is never sent again; a rerun reads state first.

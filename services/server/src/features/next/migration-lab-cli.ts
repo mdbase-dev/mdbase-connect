@@ -56,10 +56,10 @@ async function main(argv: string[]): Promise<void> {
   const db = await createDatabase(process.env.DATABASE_URL);
   const source = await openDatabase(sourceConnection.url, sourceConnection.ssl);
   try {
-    const connect = postgresLabConnect({ db, source, actor, timers: true, provider: new HostedProviderClient(providerConfig),
+    const connect = postgresLabConnect({ db, source, actor, timers: true, environment: process.env.MDBASE_CONNECT_ENVIRONMENT, provider: new HostedProviderClient(providerConfig),
       ...(prepareTarget ? { prepareTarget } : {}) });
     if (command === "status") { console.log(JSON.stringify(await labStatus(account.toLowerCase(), { worker, connect }))); return; }
-    const deps = { worker, connect, log: (event: Record<string, unknown>) => console.log(JSON.stringify(captureLabWorkerError(event,
+    const deps = { worker, connect, environment: process.env.MDBASE_CONNECT_ENVIRONMENT, log: (event: Record<string, unknown>) => console.log(JSON.stringify(captureLabWorkerError(event,
       process.env.MDBASE_CONNECT_ENVIRONMENT, process.env.MDBASE_LAB_MIGRATION_RAW_ERROR_FILE))) };
     const outcome: LabOutcome = command === "lab-run"
       ? await labRun(account.toLowerCase(), hold!.toLowerCase(), deps, stopBeforeFlip)
