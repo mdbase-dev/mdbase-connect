@@ -67,7 +67,12 @@ const readyErrorCode = z.enum([
   "hosted_cache_reset", "pin_mismatch_reset", "unknown"
 ]).catch("unknown");
 
-const rawWorkerError = z.object({ message: z.string().nullable(), stack: z.string().nullable() });
+const rawSubCause = z.object({
+  call: z.enum(["control_service_device_first", "control_service_device_recheck", "kms_unwrap", "control_log_token", "record_validate", "derive", "other"]),
+  name: z.string().refine(value => Buffer.byteLength(value, "utf8") <= 128).nullable(),
+  message: z.string().refine(value => Buffer.byteLength(value, "utf8") <= 4096).nullable(),
+});
+const rawWorkerError = z.object({ message: z.string().nullable(), stack: z.string().nullable(), sub_cause: rawSubCause.optional().catch(undefined) });
 
 /** Bounded HTTP run provenance; LAB-only raw data is for protected operator capture. */
 interface WorkerRunReplyDiagnostic {
