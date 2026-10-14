@@ -25,7 +25,7 @@ function database(owners: string[]) {
 describe("exact LAB account routing", () => {
   it("is absent by default and requires the whole exact LAB configuration", () => {
     expect(parseLabMigrationRouting({})).toBeUndefined();
-    expect(routing).toEqual({ account, hosted: { url: env.MDBASE_NEXT_LAB_MIGRATION_HOSTED_URL, token: env.MDBASE_NEXT_LAB_MIGRATION_HOSTED_TOKEN }, inboundToken: env.MDBASE_NEXT_LAB_MIGRATION_INBOUND_TOKEN });
+    expect(routing).toEqual({ accounts: new Set([account]), hosted: { url: env.MDBASE_NEXT_LAB_MIGRATION_HOSTED_URL, token: env.MDBASE_NEXT_LAB_MIGRATION_HOSTED_TOKEN }, inboundToken: env.MDBASE_NEXT_LAB_MIGRATION_INBOUND_TOKEN });
     for (const name of Object.keys(env).filter(name => name.includes("LAB_MIGRATION"))) {
       expect(() => parseLabMigrationRouting({ ...env, [name]: "" })).toThrow();
     }
@@ -38,6 +38,42 @@ describe("exact LAB account routing", () => {
     { MDBASE_NEXT_LAB_MIGRATION_HOSTED_URL: `${env.MDBASE_NEXT_LAB_MIGRATION_HOSTED_URL}?account=other` },
     { MDBASE_NEXT_LAB_MIGRATION_HOSTED_TOKEN: "short" }, { MDBASE_NEXT_LAB_MIGRATION_INBOUND_TOKEN: env.MDBASE_NEXT_LAB_MIGRATION_HOSTED_TOKEN },
   ])("refuses unsafe/partial configuration %j", bad => expect(() => parseLabMigrationRouting({ ...env, ...bad })).toThrow());
+  it("routes an explicit multi-account rehearsal list through ownership, discovery and inbound guards", async () => {
+    const multi = parseLabMigrationRouting({ ...env, MDBASE_NEXT_LAB_MIGRATION_ACCOUNT: `${account}, ${foreign}` })!;
+    expect(multi.accounts).toEqual(new Set([account, foreign]));
+    for (const owner of [account, foreign]) {
+      expect(await migrationDeployments(database([owner]), normal, multi, collection)).toEqual({ ...normal, hosted: multi.hosted });
+      expect(await migrationCollection(database([]), multi, collection, owner)).toBe(true);
+      const db = database([]);
+      db.query.mockResolvedValueOnce(result([{ owner_account: owner, grant_id: "grant", authorization_grant: "grant", policy_required: true,
+        policy_active: true, has_client_key: true, hosted_device: collection, hosted_noise_pk: Buffer.alloc(32, 1) }]));
+      expect((await hostedRouteTarget(db, "opaque", collection, undefined, multi))!.target!.url).toContain(multi.hosted.url.replace("https:", "wss:"));
+      const inbound = database([owner]);
+      inbound.query.mockImplementation(async sql => sql.includes("UNION SELECT") ? result([{ owner }]) : result([]));
+      const app = Fastify();
+      registerNextHostedRoutes(app, { db: inbound as unknown as DatabasePool, tokens: { hosted: "H".repeat(40), escrow: "E".repeat(40) }, labMigrationRouting: multi });
+      try {
+        expect((await app.inject({ method: "GET", url: `/internal/v1/next/collections/${collection}/state`,
+          headers: { authorization: `Bearer ${multi.inboundToken}` } })).statusCode).toBe(200);
+        expect((await app.inject({ method: "GET", url: `/internal/v1/next/collections/${collection}/state`,
+          headers: { authorization: `Bearer ${"H".repeat(40)}` } })).statusCode).toBe(403);
+      } finally { await app.close(); }
+    }
+    const outsider = "44444444-4444-4444-8444-444444444444";
+    expect(await migrationDeployments(database([outsider]), normal, multi, collection)).toBe(normal);
+    await expect(migrationCollection(database([account, foreign]), multi, collection)).rejects.toThrow("ambiguous_collection_owner");
+    await expect(migrationCollection(database([account]), multi, collection, foreign)).rejects.toThrow("foreign_collection_owner");
+  });
+  it.each([`${account},`, `,${account}`, `${account},${account}`, `${account},[test]`, `${account},00000000-0000-0000-0000-000000000000`])(
+    "refuses malformed or duplicate allowlist %s", value => expect(() => parseLabMigrationRouting({ ...env, MDBASE_NEXT_LAB_MIGRATION_ACCOUNT: value })).toThrow());
+  it("bounds account count and configuration bytes without widening environment admission", () => {
+    const ids = Array.from({ length: 129 }, (_, n) => `55555555-5555-4555-8555-${(n + 1).toString(16).padStart(12, "0")}`);
+    const allowed = { ...env, MDBASE_NEXT_LAB_MIGRATION_ACCOUNT: ids.slice(0, 128).join(",") };
+    expect(parseLabMigrationRouting(allowed)!.accounts.size).toBe(128);
+    expect(() => parseLabMigrationRouting({ ...env, MDBASE_NEXT_LAB_MIGRATION_ACCOUNT: ids.join(",") })).toThrow();
+    expect(() => parseLabMigrationRouting({ ...env, MDBASE_NEXT_LAB_MIGRATION_ACCOUNT: `${account},${" ".repeat(8193)}${foreign}` })).toThrow();
+    for (const environment of ["production", "staging", "LAB"]) expect(() => parseLabMigrationRouting({ ...allowed, MDBASE_CONNECT_ENVIRONMENT: environment })).toThrow();
+  });
   it("checks token separation and factories at CP startup", () => {
     const full = { ...env, MDBASE_NEXT_ROOT_PUBLIC_KEY: "00".repeat(32), MDBASE_NEXT_POLICY_SIGNING_KEY: "pem", MDBASE_NEXT_POLICY_KEY_CERT: "{}",
       MDBASE_NEXT_LOG_SERVICE_URL: "https://log.example", MDBASE_NEXT_LOG_TOKEN_SIGNING_KEY: "pem", MDBASE_NEXT_LOG_TRANSPORT_KEY: "pem",

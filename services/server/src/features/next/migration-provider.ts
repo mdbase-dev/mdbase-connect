@@ -199,7 +199,7 @@ export function registerMigrationProviderRoutes(app: FastifyInstance, options: O
           return await inTransaction(options.db, async client => {
             const before = await currentClaim(client, p.data.id, true);
             const routing = hostedRead.migrationRouting;
-            const expected = routing && before.owner_account === routing.account ? routing.inboundToken : hostedRead.token;
+            const expected = routing && routing.accounts.has(before.owner_account) ? routing.inboundToken : hostedRead.token;
             if (!safeEqual(bearerToken(request)!, expected)) throw new CreateError(403, "wrong_service_scope");
             let nonce: { challenge: string } | undefined;
             if (kind === "challenge") nonce = await issueServiceClaimChallenge(client, audience, before, body.data.device_id);
