@@ -49,11 +49,21 @@ const statusSchema = z.object({
 });
 export type WorkerStatus = z.infer<typeof statusSchema>;
 
-/** One Worker call: a parsed status, a typed refusal, or no verified outcome. */
-export type WorkerReply =
+/** Bounded HTTP run provenance; never response text, exception messages or credentials. */
+interface WorkerRunReplyDiagnostic {
+  http_status: number | null;
+  worker_error_code: string | null;
+  worker_error_class: "error" | "type_error" | "range_error" | "abort_error" | "timeout_error" | "other" | null;
+  transport_error_class: "timeout" | "abort" | "network" | "other" | null;
+  response_class: "json" | "non_json" | "empty" | "invalid_status" | "over_bound" | null;
+}
+
+/** One Worker call. HTTP run replies carry provenance; injected non-HTTP ports need not. */
+export type WorkerReply = (
   | { kind: "ok"; status: WorkerStatus }
   | { kind: "refused"; code: string }
-  | { kind: "unknown"; reason: string };
+  | { kind: "unknown"; reason: string }
+) & { diagnostic?: WorkerRunReplyDiagnostic };
 
 /**
  * The native operator entry (`POST /internal/v1/migration/operator`
@@ -93,7 +103,7 @@ interface LabDeps {
   log?: (event: Record<string, unknown>) => void;
 }
 
-interface LabStop { step: string; reason: string; inspect: string; resume: string }
+interface LabStop { step: string; reason: string; inspect: string; resume: string; worker_run_reply?: WorkerRunReplyDiagnostic }
 export type LabOutcome = { done: Record<string, unknown> } | { stopped: LabStop };
 
 /** HTTPS client for the hosted Worker's internal migration entry (service token). */
@@ -105,28 +115,53 @@ export function labWorkerClient(config: { url: string; token: string }, fetchImp
   if (config.token.length < 32) throw new Error("MDBASE_NEXT_HOSTED_SERVICE_TOKEN must be at least 32 characters.");
   const base = url.toString().replace(/\/+$/u, "");
   const post = async (path: string, body: Record<string, unknown>): Promise<WorkerReply> => {
+    const diagnostic: WorkerRunReplyDiagnostic | undefined = path === "/internal/v1/migration/run"
+      ? { http_status: null, worker_error_code: null, worker_error_class: null, transport_error_class: null, response_class: null }
+      : undefined;
+    const finish = (reply: WorkerReply): WorkerReply => diagnostic ? { ...reply, diagnostic } : reply;
     let response: Response;
     try {
       response = await fetchImpl(`${base}${path}`, {
         method: "POST", redirect: "manual", signal: AbortSignal.timeout(60_000),
         headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" }, body: JSON.stringify(body)
       });
-    } catch { return { kind: "unknown", reason: "worker_unreachable" }; }
+    } catch (error) {
+      if (diagnostic) diagnostic.transport_error_class = error instanceof Error
+        ? error.name === "TimeoutError" ? "timeout" : error.name === "AbortError" ? "abort" : error.name === "TypeError" ? "network" : "other"
+        : "other";
+      return finish({ kind: "unknown", reason: "worker_unreachable" });
+    }
+    if (diagnostic) diagnostic.http_status = response.status;
     let parsed: unknown = null;
     try {
       const text = await response.text();
-      if (Buffer.byteLength(text, "utf8") > MAX_REPLY_BYTES) return { kind: "unknown", reason: "worker_reply_over_bound" };
+      if (Buffer.byteLength(text, "utf8") > MAX_REPLY_BYTES) {
+        if (diagnostic) diagnostic.response_class = "over_bound";
+        return finish({ kind: "unknown", reason: "worker_reply_over_bound" });
+      }
+      if (diagnostic) diagnostic.response_class = text ? "non_json" : "empty";
       parsed = text ? JSON.parse(text) : null;
+      if (diagnostic && text) diagnostic.response_class = "json";
     } catch { parsed = null; }
+    const code = (parsed as { error?: unknown } | null)?.error;
+    if (diagnostic) {
+      // Only codes in the run-entry contract: an arbitrary error string can be a secret.
+      if (typeof code === "string" && ["invalid_request", "migration_unconfigured", "migration_run_exists",
+        "migration_pause_mode_conflict", "migration_run_ready_failed"].includes(code)) diagnostic.worker_error_code = code;
+      const errorClass = (parsed as { error_class?: unknown } | null)?.error_class;
+      if (typeof errorClass === "string" && ["error", "type_error", "range_error", "abort_error", "timeout_error", "other"].includes(errorClass)) {
+        diagnostic.worker_error_class = errorClass as NonNullable<WorkerRunReplyDiagnostic["worker_error_class"]>;
+      }
+    }
     if (response.ok) {
       const status = statusSchema.safeParse(parsed);
-      return status.success ? { kind: "ok", status: status.data } : { kind: "unknown", reason: "worker_reply_invalid" };
+      if (!status.success && diagnostic) diagnostic.response_class = "invalid_status";
+      return finish(status.success ? { kind: "ok", status: status.data } : { kind: "unknown", reason: "worker_reply_invalid" });
     }
-    const code = (parsed as { error?: unknown } | null)?.error;
     // A typed error code is a refusal; anything else (gateway errors, no body) has no verified outcome.
     const typed = typeof code === "string" && /^[a-z][a-z0-9_:.-]{0,120}$/u.test(code);
-    return typed && (response.status < 500 || response.status === 503)
-      ? { kind: "refused", code: code as string } : { kind: "unknown", reason: `worker_http_${response.status}` };
+    return finish(typed && (response.status < 500 || response.status === 503)
+      ? { kind: "refused", code: code as string } : { kind: "unknown", reason: `worker_http_${response.status}` });
   };
   const operator = (collection: string, operation: string, key: string, sequence: number) =>
     post("/internal/v1/migration/operator", { collection, operation, [key]: sequence });
@@ -339,9 +374,10 @@ export async function labRun(account: string, backupHold: string, deps: LabDeps,
 async function driveLabRun(account: string, backupHold: string, pre: Awaited<ReturnType<LabConnect["preflight"]>>,
   deps: LabDeps, stopBeforeFlip: boolean): Promise<LabOutcome> {
   const cmd = commands(account, backupHold), log = deps.log ?? (() => undefined);
-  const stop = (step: string, reason: string, routeBack = false): LabOutcome =>
+  const stop = (step: string, reason: string, routeBack = false, diagnostic?: WorkerRunReplyDiagnostic): LabOutcome =>
     ({ stopped: { step, reason, inspect: cmd.inspect, resume: reason === PAUSE_REASON ? cmd.resume
-      : routeBack ? cmd.routeBack : cmd.labRun + (stopBeforeFlip ? " --stop-before-flip" : "") } });
+      : routeBack ? cmd.routeBack : cmd.labRun + (stopBeforeFlip ? " --stop-before-flip" : ""),
+      ...(diagnostic ? { worker_run_reply: diagnostic } : {}) } });
   const { collection } = pre;
   log({ step: "preflight", collection, backend: pre.backend });
   const pace = await poller(deps);
@@ -359,11 +395,12 @@ async function driveLabRun(account: string, backupHold: string, pre: Awaited<Ret
 
   if (pre.backend === "legacy") {
     const started = await deps.worker.run(collection, backupHold, stopBeforeFlip);
-    if (started.kind === "refused") return stop("worker_run", started.code);
-    // A lost reply is resolved by reading the run back, never by sending it again.
+    if (started.diagnostic) log({ step: "worker_run_reply", kind: started.kind, ...started.diagnostic });
+    if (started.kind === "refused") return stop("worker_run", started.code, false, started.diagnostic);
+    // Preserve the initial run reply before resolving it by read-only status, never retrying the run.
     const confirmed = started.kind === "ok" ? started : await readStatus(deps, collection, pace);
-    if (confirmed.kind !== "ok") return stop("worker_run", confirmed.kind === "refused" ? confirmed.code : confirmed.reason);
-    if (confirmed.status.run?.backup_hold !== backupHold) return stop("worker_run", confirmed.status.run ? "migration_run_exists" : "worker_run_missing");
+    if (confirmed.kind !== "ok") return stop("worker_run", confirmed.kind === "refused" ? confirmed.code : confirmed.reason, false, started.diagnostic);
+    if (confirmed.status.run?.backup_hold !== backupHold) return stop("worker_run", confirmed.status.run ? "migration_run_exists" : "worker_run_missing", false, started.diagnostic);
     if (stopBeforeFlip ? confirmed.status.run.stop_before_flip !== true : confirmed.status.run.stop_before_flip === true) {
       return stop("worker_run", "migration_pause_mode_conflict");
     }
