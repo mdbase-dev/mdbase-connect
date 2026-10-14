@@ -147,8 +147,17 @@ export function basename(path: string): string {
  * a display stand-in: TitleSource keeps body-only edits from persisting it. */
 function unnamedRecordTitle(path: string, body: string): string {
   const filename = basename(path);
-  const opaque = /^(?:[a-z][a-z\d]*[_-])?[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(filename);
-  return opaque ? markdownPlainText(body, "", 80, 1) || filename : filename;
+  return opaqueFilename(path) ? markdownPlainText(body, "", 80, 1) || filename : filename;
+}
+
+/** Metadata-only rows need their existing content index for a readable stand-in. */
+export function noteNeedsBodyTitle(note: Pick<NoteSummary, "path" | "types" | "body">, types: CollectionTypeDescriptor[]): boolean {
+  return note.body === undefined && opaqueFilename(note.path)
+    && !recordDisplayField(note.types, types, "name_field");
+}
+
+function opaqueFilename(path: string): boolean {
+  return /^(?:[a-z][a-z\d]*[_-])?[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(basename(path));
 }
 
 function markdownHeading(body: string): string | undefined {
@@ -228,15 +237,6 @@ export function types(notes: NoteSummary[], declared: string[] = []): Array<{ na
   }
   return [...counts].map(([name, count]) => ({ name, count }))
     .sort((left, right) => left.name.localeCompare(right.name));
-}
-
-export function propertyPatch(before: JsonObject, after: JsonObject): JsonObject {
-  const patch: JsonObject = {};
-  for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
-    if (!(key in after)) patch[key] = null;
-    else if (JSON.stringify(before[key]) !== JSON.stringify(after[key])) patch[key] = after[key];
-  }
-  return patch;
 }
 
 export function safeRenamePath(value: string): string {
