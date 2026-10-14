@@ -35,7 +35,7 @@ if (environment !== "lab" && environment !== "production") throw new Error("Inva
 // waiting editor tab and close, without starting a second SDK owner.
 const grantCallback = isAppGrantCallback(new URL(location.href));
 if (grantCallback) {
-  void deliverAppGrantCallbackFrom(new URL(location.href)).catch(() => {}).finally(() => window.close());
+  void deliverAppGrantCallbackFrom(new URL(location.href)).catch(() => {});
 }
 // One SDK owner for the module lifetime; construction does no registration IO.
 const sdk = !demoGateway && !grantCallback ? createEditorMdbase({ origin: location.origin, environment }) : null;
