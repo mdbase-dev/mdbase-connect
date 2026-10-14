@@ -41,6 +41,18 @@ code becomes `unknown`, and name becomes `other`; unrelated replies have null
 fields. These labels identify a throwing boundary, not proof earlier effects were
 absent. HTTP500 remains UNKNOWN; this diagnostic never authorizes a retry.
 
+On literal LAB only, ready/run HTTP500 replies may include `raw_error` with
+`message` and `stack` (strings or null). Set
+`MDBASE_LAB_MIGRATION_RAW_ERROR_FILE` to a fresh file inside an existing owned
+mode-700 directory to capture it. The CLI exclusively creates a mode-600 file,
+without following a final symlink or replacing an earlier capture. The file's
+JSON includes `raw_error` and finite reply provenance, bounded to 64 KiB including
+the newline. Raw data is removed from progress stdout and the final stop result;
+stdout reports only `raw_error_capture_status` (`saved`, `failed`, or `disabled`).
+Capture failure never retries a RUN or changes its UNKNOWN/status reconciliation.
+The rehearsal runner carries this private file only in its encrypted receipt;
+operator reports retain a private-artifact pointer, not the raw contents.
+
 Every step is derived from durable state (the Worker's run record and native checkpoint,
 and control-plane rows), so running the same command again resumes where it stopped.
 After an unknown outcome a mutation is never sent again; a rerun reads state first.

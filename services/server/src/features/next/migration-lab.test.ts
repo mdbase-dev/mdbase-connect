@@ -364,6 +364,42 @@ describe("Worker ready-stage wire v1", () => {
   });
 });
 
+describe("LAB raw Worker run errors", () => {
+  const raw = { message: "synthetic open failed", stack: "Error: synthetic open failed\n    at syntheticReady" };
+
+  it.each(["lab", "staging", "production", "LAB", undefined])("captures only in the literal LAB environment (%s)", async environment => {
+    const fetchImpl = vi.fn(async () => Response.json({ error: "migration_run_ready_failed", raw_error: { ...raw, cause: "not captured" } }, { status: 500 }));
+    const client = labWorkerClient({ url: "https://worker.example", token: "t".repeat(40), environment }, fetchImpl as typeof fetch);
+    const reply = await client.run(collection, hold);
+    expect(reply.kind).toBe("unknown");
+    expect(reply.diagnostic?.raw_error).toEqual(environment === "lab" ? raw : undefined);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it.each(["migration_run_ready_failed", "migration_run_failed"])("retains %s raw data through absent-run reconciliation without a retry", async error => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce(Response.json({ error, raw_error: raw }, { status: 500 }))
+      .mockResolvedValueOnce(Response.json({ run: null, native: { checkpoint: null, outstanding: null } }));
+    const client = labWorkerClient({ url: "https://worker.example", token: "t".repeat(40), environment: "lab" }, fetchImpl as typeof fetch);
+    const events: Record<string, unknown>[] = [];
+    const result = await labRun(account, hold, { ...deps(client, fakeConnect().connect), log: event => events.push(event) });
+    expect(result).toMatchObject({ stopped: { reason: "worker_run_missing", worker_run_reply: { raw_error: raw } } });
+    expect(events).toContainEqual(expect.objectContaining({ step: "worker_run_reply", kind: "unknown", raw_error: raw }));
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not capture raw status, transport, unrelated, successful, or malformed errors", async () => {
+    for (const [error, status, rawError] of [["invalid_request", 500, raw], ["migration_run_failed", 200, raw],
+      ["migration_run_failed", 500, { message: {}, stack: raw.stack }]] as const) {
+      const fetchImpl = vi.fn(async () => Response.json({ error, raw_error: rawError }, { status }));
+      const client = labWorkerClient({ url: "https://worker.example", token: "t".repeat(40), environment: "lab" }, fetchImpl as typeof fetch);
+      expect((await client.run(collection, hold)).diagnostic?.raw_error).toBeUndefined();
+      expect((await client.status(collection)).diagnostic).toBeUndefined();
+    }
+    const client = labWorkerClient({ url: "https://worker.example", token: "t".repeat(40), environment: "lab" }, vi.fn(async () => { throw new Error("not captured"); }) as typeof fetch);
+    expect((await client.run(collection, hold)).diagnostic?.raw_error).toBeUndefined();
+  });
+});
+
 describe("Worker client", () => {
   it.each([["invalid_request", 400], ["migration_unconfigured", 503], ["migration_run_exists", 409], ["migration_pause_mode_conflict", 409]] as const)
     ("preserves the known run refusal %s at HTTP %s", async (code, status) => {
