@@ -23,7 +23,7 @@ export async function portalLifecycleE2E({
     await page.getByRole("button", { name: "Continue" }).click();
     await expect(page.getByRole("heading", { name: "Collections", exact: true })).toBeVisible();
 
-    await page.getByRole("button", { name: "New hosted collection" }).click();
+    await page.getByRole("button", { name: "Add collection" }).click();
     await page.getByLabel("Collection name").fill("Browser E2E collection");
     await page.getByRole("button", { name: "Create", exact: true }).click();
     await page.getByRole("link", { name: "All collections" }).click();
@@ -130,7 +130,7 @@ export async function portalLifecycleE2E({
       timeout: 20_000
     });
 
-    await page.getByRole("button", { name: "New hosted collection" }).click();
+    await page.getByRole("button", { name: "Add collection" }).click();
     await page.getByLabel("Collection name").fill("Account deletion collection");
     await page.getByRole("button", { name: "Create", exact: true }).click();
     const deletionCollection = page.locator(".connect-collection-row").filter({
