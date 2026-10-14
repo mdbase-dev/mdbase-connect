@@ -1,6 +1,7 @@
 import type { DatabasePool } from "../../db.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";
 import type { RelayHub } from "../../relay.js";
+import type { PolicyEmitter } from "../next/policy-outbox.js";
 
 export interface AuthorizationRouteOptions {
   db: DatabasePool;
@@ -12,4 +13,5 @@ export interface AuthorizationRouteOptions {
   drainProviderRevocations(): Promise<void>;
   /** mdbase-next: verify and store an app's attested Noise key (`client_noise_key`). */
   nextClientKeys?: boolean;
+  nativePolicyEmitter?: Pick<PolicyEmitter, "publishCommitted">;
 }

@@ -272,6 +272,43 @@ describePostgres("mdbase-next policy outbox", () => {
       expect(deferred).toBe(0);
       expect(service.policyOps(collection,signer.cert.policyPublicKey)).toEqual([["1","4","2"],["6"]]);
     } finally {release();await global;await emitter.close();}
+  }, 3_000);
+
+  it("owns bounded committed publication across caller exit and close, without queueing overflow", async () => {
+    const collections: string[] = [];
+    const initial = new PolicyEmitter(database.db,client,signer);
+    for(let i=0;i<5;i+=1){
+      const collection=await register(await newUser(database.db));collections.push(collection);
+      await initial.drainCollection(collection);
+      await queueNextPolicy(database.db,collection,[{op:"grant-revoke",grant:randomUUID()}]);
+    }
+    await initial.close();
+    let release!:()=>void, entered!:()=>void, heads=0;
+    const blocked=new Promise<void>(resolve=>{release=resolve;});
+    const allEntered=new Promise<void>(resolve=>{entered=resolve;});
+    const gated=new LogServiceClient({url:"http://log.test",tokenIssuerKeyPem:pem(issuer),transportKeyPem:pem(generateKeyPairSync("ed25519").privateKey)},async(input,init)=>{
+      if(init?.body&&field(decodeCbor(Buffer.from(init.body as Uint8Array)),2)==="head"){
+        heads+=1;if(heads===4)entered();await blocked;
+      }
+      return service.fetch(input,init);
+    });
+    const emitter=new PolicyEmitter(database.db,gated,signer);
+    const work=collections.slice(0,4).map(id=>emitter.publishCommitted(id));
+    let closing:Promise<void>|undefined;
+    try{
+      await allEntered;
+      expect(emitter.publishCommitted(collections[0]!)).toBe(work[0]);
+      await expect(emitter.publishCommitted(collections[4]!)).rejects.toThrow("deferred");
+      let closed=false;
+      closing=emitter.close().then(()=>{closed=true;});
+      await Promise.resolve();expect(closed).toBe(false);
+      release();await Promise.all(work);await closing;
+      expect(closed).toBe(true);
+      for(const id of collections.slice(0,4))expect(service.policyOps(id,signer.cert.policyPublicKey)).toHaveLength(2);
+      expect(service.policyOps(collections[4]!,signer.cert.policyPublicKey)).toHaveLength(1);
+      expect((await database.db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1 AND batch_id IS NULL",[collections[4]])).rows).toHaveLength(1);
+      await expect(emitter.publishCommitted(collections[4]!)).rejects.toThrow("closed");
+    }finally{release();await Promise.allSettled(work);await (closing??emitter.close());}
   });
 
   it("forwards the region from the create_log reply on activation, also after a lost reply; none without one", async () => {
