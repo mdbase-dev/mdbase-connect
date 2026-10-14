@@ -37,7 +37,8 @@ suite("hosted timer source real PostgreSQL (synthetic schema2 rows, not native m
         lease_worker text,lease_token text,lease_expires_at timestamptz,record_json jsonb,PRIMARY KEY(namespace,id));
       CREATE TABLE hosted_provider_runtime_outbox(collection_id uuid NOT NULL,processed_at timestamptz,
         lease_token text,leased_until timestamptz);
-      CREATE TABLE hosted_provider_mutation_journal(collection_id uuid NOT NULL,state text NOT NULL);
+      CREATE TABLE hosted_provider_replicas(id uuid PRIMARY KEY,collection_id uuid NOT NULL REFERENCES hosted_provider_collections(id));
+      CREATE TABLE hosted_provider_mutation_journal(replica_id uuid NOT NULL REFERENCES hosted_provider_replicas(id),state text NOT NULL);
     `);
     url.searchParams.set("options", `-csearch_path=${schema} -cdefault_transaction_read_only=on`);
     reader = new pg.Pool({ connectionString: url.toString(), max: 2 });
@@ -67,7 +68,9 @@ suite("hosted timer source real PostgreSQL (synthetic schema2 rows, not native m
       await writer.query("INSERT INTO mdbase_runtime_timers(namespace,id,generation,status,fire_at,record_json) VALUES($1,$2,7,$3,$4,$5::jsonb)",
         [namespace, record.id, record.status, time, JSON.stringify(record)]);
     }
-    return { collection, migration, namespace, records };
+    const replica = randomUUID();
+    await writer.query("INSERT INTO hosted_provider_replicas VALUES($1,$2)", [replica, collection]);
+    return { collection, migration, namespace, records, replica };
   }
   const source = () => reader as unknown as DatabaseQueryable;
   it("runs SELECT-only complete C-keyset paging in one read-only snapshot, including all statuses/nanos", async () => {
@@ -171,9 +174,9 @@ suite("hosted timer source real PostgreSQL (synthetic schema2 rows, not native m
     await expect(readHostedLegacyTimers(source(), f.collection)).rejects.toThrow("source fence/schema/drain unavailable");
     await writer.query("DELETE FROM hosted_provider_runtime_outbox WHERE collection_id=$1", [f.collection]);
     for (const state of ["claimed", "prepared", "applied"]) {
-      await writer.query("INSERT INTO hosted_provider_mutation_journal VALUES($1,$2)", [f.collection, state]);
+      await writer.query("INSERT INTO hosted_provider_mutation_journal VALUES($1,$2)", [f.replica, state]);
       await expect(readHostedLegacyTimers(source(), f.collection)).rejects.toThrow("source fence/schema/drain unavailable");
-      await writer.query("DELETE FROM hosted_provider_mutation_journal WHERE collection_id=$1", [f.collection]);
+      await writer.query("DELETE FROM hosted_provider_mutation_journal WHERE replica_id=$1", [f.replica]);
     }
   });
   it("checks physical SQL generation/schedule against raw record, and never transports oversized records", async () => {
