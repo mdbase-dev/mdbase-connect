@@ -1,0 +1,9 @@
+{
+  "reason": "Coordinator 2026-10-14 01:46 requires an exact LAB-only source-connection identity pin because the captured internal PostgreSQL certificate has no hostname SAN. One server TLS-policy file is the boundary between the unchanged ordinary runner and this fixed source connection; its one CLI import replaces implicit URL TLS with explicit verified-CA/leaf-pin configuration. Two exports are the auditable fixed public fingerprint and the pure scoped connection constructor exercised by negative tests. No new route, environment flag, migration driver, control/public/staging/production policy or record semantics. Remove the LAB pin boundary when the provider supplies hostname-valid certificates.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 1,
+    "typeScriptExportDeclarations": 2,
+    "services/server": 1
+  }
+}

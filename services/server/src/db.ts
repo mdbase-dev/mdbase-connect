@@ -7,7 +7,7 @@ import type {
 export type { DatabaseConnection, DatabasePool, DatabaseQueryable };
 
 export async function openDatabase(
-  databaseUrl = process.env.DATABASE_URL
+  databaseUrl = process.env.DATABASE_URL, ssl?: PoolConfig["ssl"]
 ): Promise<DatabasePool> {
   let pool: DatabasePool;
   if (!databaseUrl || databaseUrl === "memory") {
@@ -191,7 +191,7 @@ export async function openDatabase(
       return query(sql, encoded);
     };
   } else {
-    const postgres = new pg.Pool(postgresPoolConfig(databaseUrl));
+    const postgres = new pg.Pool(postgresPoolConfig(databaseUrl, ssl));
     // pg-pool owns errors while a client is idle, but removes its listener on
     // checkout. A disconnect between queries (e.g. during provider I/O inside
     // a transaction) would otherwise be an unhandled EventEmitter error and
@@ -244,9 +244,10 @@ function reportDatabaseConnectionFailure(error: Error): void {
   });
 }
 
-export function postgresPoolConfig(connectionString: string): PoolConfig {
+export function postgresPoolConfig(connectionString: string, ssl?: PoolConfig["ssl"]): PoolConfig {
   return {
     connectionString,
+    ...(ssl === undefined ? {} : { ssl }),
     application_name: "mdbase-connect-control-plane",
     max: 20,
     connectionTimeoutMillis: 5_000,

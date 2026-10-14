@@ -16,6 +16,7 @@
 // {"stopped":{step,reason,inspect,resume}} and exits 2. Nothing secret is printed.
 import { createDatabase, openDatabase } from "../../db.js";
 import { HostedProviderClient } from "../../hosted-provider.js";
+import { labLegacySourceConnection } from "./migration-lab-source-tls.js";
 import { hostedProviderConfigFromEnv } from "../../runtime-config.js";
 import { labRun, resumeLab, labStatus, labWorkerClient, postgresLabConnect, routeBack, type LabOutcome } from "./migration-lab.js";
 
@@ -39,8 +40,9 @@ async function main(argv: string[]): Promise<void> {
       + "MDBASE_NEXT_TIMERS=1, MDBASE_NEXT_HOSTED_SERVICE_URL and MDBASE_NEXT_HOSTED_SERVICE_TOKEN are required.");
   }
   const worker = labWorkerClient({ url: process.env.MDBASE_NEXT_HOSTED_SERVICE_URL, token: process.env.MDBASE_NEXT_HOSTED_SERVICE_TOKEN.trim() });
+  const sourceConnection = labLegacySourceConnection(sourceUrl, process.env.MDBASE_CONNECT_ENVIRONMENT);
   const db = await createDatabase(process.env.DATABASE_URL);
-  const source = await openDatabase(sourceUrl);
+  const source = await openDatabase(sourceConnection.url, sourceConnection.ssl);
   try {
     const connect = postgresLabConnect({ db, source, actor, timers: true, provider: new HostedProviderClient(providerConfig) });
     if (command === "status") { console.log(JSON.stringify(await labStatus(account.toLowerCase(), { worker, connect }))); return; }
