@@ -67,9 +67,12 @@ const readyErrorCode = z.enum([
   "hosted_cache_reset", "pin_mismatch_reset", "unknown"
 ]).catch("unknown");
 
-/** Bounded HTTP run provenance; never response text, exception messages or credentials. */
+const rawWorkerError = z.object({ message: z.string().nullable(), stack: z.string().nullable() });
+
+/** Bounded HTTP run provenance; LAB-only raw data is for protected operator capture. */
 interface WorkerRunReplyDiagnostic {
   http_status: number | null;
+  raw_error?: z.infer<typeof rawWorkerError>;
   worker_error_code: string | null;
   worker_error_class: "error" | "type_error" | "range_error" | "abort_error" | "timeout_error" | "other" | null;
   worker_error_stage: z.infer<typeof readyStage> | null;
@@ -128,7 +131,7 @@ interface LabStop { step: string; reason: string; inspect: string; resume: strin
 export type LabOutcome = { done: Record<string, unknown> } | { stopped: LabStop };
 
 /** HTTPS client for the hosted Worker's internal migration entry (service token). */
-export function labWorkerClient(config: { url: string; token: string }, fetchImpl: typeof fetch = fetch): LabWorker {
+export function labWorkerClient(config: { url: string; token: string; environment?: string }, fetchImpl: typeof fetch = fetch): LabWorker {
   const url = new URL(config.url);
   if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) {
     throw new Error("MDBASE_NEXT_HOSTED_SERVICE_URL must be an https origin without credentials.");
@@ -169,10 +172,15 @@ export function labWorkerClient(config: { url: string; token: string }, fetchImp
     if (diagnostic) {
       // Only codes in the run-entry contract: an arbitrary error string can be a secret.
       if (typeof code === "string" && ["invalid_request", "migration_unconfigured", "migration_run_exists",
-        "migration_pause_mode_conflict", "migration_run_ready_failed"].includes(code)) diagnostic.worker_error_code = code;
+        "migration_pause_mode_conflict", "migration_run_ready_failed", "migration_run_failed"].includes(code)) diagnostic.worker_error_code = code;
       const errorClass = (parsed as { error_class?: unknown } | null)?.error_class;
       if (typeof errorClass === "string" && ["error", "type_error", "range_error", "abort_error", "timeout_error", "other"].includes(errorClass)) {
         diagnostic.worker_error_class = errorClass as NonNullable<WorkerRunReplyDiagnostic["worker_error_class"]>;
+      }
+      if (config.environment === "lab" && response.status === 500
+          && (code === "migration_run_ready_failed" || code === "migration_run_failed")) {
+        const raw = rawWorkerError.safeParse((parsed as { raw_error?: unknown }).raw_error);
+        if (raw.success) diagnostic.raw_error = raw.data;
       }
       if (code === "migration_run_ready_failed") {
         const ready = parsed as { stage?: unknown; error_name?: unknown; error_code?: unknown };

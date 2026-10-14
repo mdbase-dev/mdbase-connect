@@ -16,6 +16,7 @@
 // {"stopped":{step,reason,inspect,resume}} and exits 2. Nothing secret is printed.
 import { createDatabase, openDatabase } from "../../db.js";
 import { HostedProviderClient } from "../../hosted-provider.js";
+import { captureLabWorkerError, sanitizedLabOutcome } from "./migration-lab-raw-error.js";
 import { labLegacySourceConnection } from "./migration-lab-source-tls.js";
 import { hostedProviderConfigFromEnv } from "../../runtime-config.js";
 import { labRun, resumeLab, labStatus, labWorkerClient, postgresLabConnect, routeBack, type LabOutcome } from "./migration-lab.js";
@@ -39,7 +40,8 @@ async function main(argv: string[]): Promise<void> {
     throw new Error("DATABASE_URL, MDBASE_LEGACY_PROVIDER_DATABASE_URL, the hosted provider configuration, MDBASE_OPERATOR, "
       + "MDBASE_NEXT_TIMERS=1, MDBASE_NEXT_HOSTED_SERVICE_URL and MDBASE_NEXT_HOSTED_SERVICE_TOKEN are required.");
   }
-  const worker = labWorkerClient({ url: process.env.MDBASE_NEXT_HOSTED_SERVICE_URL, token: process.env.MDBASE_NEXT_HOSTED_SERVICE_TOKEN.trim() });
+  const worker = labWorkerClient({ url: process.env.MDBASE_NEXT_HOSTED_SERVICE_URL, token: process.env.MDBASE_NEXT_HOSTED_SERVICE_TOKEN.trim(),
+    environment: process.env.MDBASE_CONNECT_ENVIRONMENT });
   // An explicit LAB-only owner identity, supplied by approved custody, not an
   // inferred URI role or a fallback to DATABASE_URL. Never applies to control DB.
   const ownerReadonlyRole = process.env.MDBASE_LEGACY_PROVIDER_LAB_OWNER_READONLY_ROLE;
@@ -52,12 +54,13 @@ async function main(argv: string[]): Promise<void> {
   try {
     const connect = postgresLabConnect({ db, source, actor, timers: true, provider: new HostedProviderClient(providerConfig) });
     if (command === "status") { console.log(JSON.stringify(await labStatus(account.toLowerCase(), { worker, connect }))); return; }
-    const deps = { worker, connect, log: (event: Record<string, unknown>) => console.log(JSON.stringify(event)) };
+    const deps = { worker, connect, log: (event: Record<string, unknown>) => console.log(JSON.stringify(captureLabWorkerError(event,
+      process.env.MDBASE_CONNECT_ENVIRONMENT, process.env.MDBASE_LAB_MIGRATION_RAW_ERROR_FILE))) };
     const outcome: LabOutcome = command === "lab-run"
       ? await labRun(account.toLowerCase(), hold!.toLowerCase(), deps, stopBeforeFlip)
       : command === "resume" ? await resumeLab(account.toLowerCase(), deps)
       : await routeBack(account.toLowerCase(), deps);
-    console.log(JSON.stringify(outcome));
+    console.log(JSON.stringify(sanitizedLabOutcome(outcome)));
     if ("stopped" in outcome) {
       const { step, reason, inspect, resume } = outcome.stopped;
       console.error(`STOPPED at ${step}: ${reason}\n  inspect: ${inspect}\n  resume:  ${resume}`);
