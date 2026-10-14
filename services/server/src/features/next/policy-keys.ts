@@ -150,7 +150,7 @@ export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPla
       const token = serviceToken(`MDBASE_NEXT_${kind}_SERVICE_TOKEN`);
       if (!url || !token) throw new Error(`MDBASE_NEXT_CLOUD_COPY_BOOTSTRAP=1 requires MDBASE_NEXT_${kind}_SERVICE_URL and MDBASE_NEXT_${kind}_SERVICE_TOKEN.`);
       if (env.MDBASE_CONNECT_ENVIRONMENT === "local" ? !localDeployment(env.MDBASE_CONNECT_ENVIRONMENT, url) : new URL(url).protocol !== "https:")
-        throw new Error(`MDBASE_NEXT_${kind}_SERVICE_URL must match the compiled deployment scope.`);
+        throw new Error(`MDBASE_NEXT_${kind}_SERVICE_URL must ${env.MDBASE_CONNECT_ENVIRONMENT === "local" ? "match the compiled local deployment scope" : "use https"}.`);
       return { url, token };
     };
     if (!hosted || !escrow) throw new Error("MDBASE_NEXT_CLOUD_COPY_BOOTSTRAP=1 requires MDBASE_NEXT_HOSTED_INTERNAL_TOKEN and MDBASE_NEXT_ESCROW_INTERNAL_TOKEN.");
