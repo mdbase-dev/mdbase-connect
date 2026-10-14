@@ -1,0 +1,4 @@
+{
+  "reason": "An explicit BUILD-only local marker emission and a shared compiled literal/origin guard replace repeated ad hoc localhost exceptions in migration transports. Managed builds remain false and reject local CP, target/factory and claim origins; local builds cannot use managed origins/configs. The three added files are the local marker build step, immutable build literal and shared transport scope helper. No new route, authority, source data, runtime override, schema or network adapter.",
+  "growth": { "productionFiles": 3, "relativeImports": 8, "typeScriptExportDeclarations": 6, "services/server": 3 }
+}

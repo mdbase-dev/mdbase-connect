@@ -4,6 +4,7 @@
 // the control plane stores the record, enrols the public keys, and hands the record
 // and role-0 log tokens back to the deployment of the same kind. It never unwraps.
 import { z } from "zod";
+import { localBuild, localDeployment } from "../../local-deployment.js";
 import type { DatabaseQueryable } from "../../database-types.js";
 import { weakAgreementKey, weakSigningKey } from "./devices.js";
 
@@ -155,7 +156,8 @@ export async function generateServiceDevice(
   fetchImpl: typeof fetch = fetch
 ): Promise<ServiceDeviceRecord> {
   const url = new URL("internal/v1/service-devices", `${deployment.url.replace(/\/+$/u, "")}/`);
-  if (url.protocol !== "https:") throw new ServiceDeviceError(503, "service_deployment_unavailable", "The service deployment must use HTTPS.");
+  if (localBuild() ? !localDeployment("local", deployment.url) : url.protocol !== "https:")
+    throw new ServiceDeviceError(503, "service_deployment_unavailable", localBuild() ? "The service deployment must use the configured local origin." : "The service deployment must use HTTPS.");
   let response: Response;
   try {
     response = await fetchImpl(url, {

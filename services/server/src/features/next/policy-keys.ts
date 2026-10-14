@@ -5,6 +5,7 @@
 // configured on a server. Rotation: certify a new key offline (`next-cp-cert`), deploy
 // it, and items signed by the old key stay valid because each embeds its certificate.
 import { createPrivateKey, createPublicKey, verify as edVerify, type KeyObject } from "node:crypto";
+import { localBuild, localDeployment } from "../../local-deployment.js";
 import { certDigest, keyId, type CpCert, type PolicySigner } from "./policy-wire.js";
 import { parseLabFixtureConfig, type LabFixtureConfig } from "./lab-fixture-config.js";
 import { hostedClientOrigin } from "./hosted-route-target.js";
@@ -109,6 +110,8 @@ export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPla
     if (labPitr) throw new Error("LAB PITR requires the real next control plane.");
     return null;
   }
+  if (localBuild() ? !localDeployment(env.MDBASE_CONNECT_ENVIRONMENT, env.PUBLIC_URL ?? "") : env.MDBASE_CONNECT_ENVIRONMENT === "local")
+    throw new Error("The local control plane requires an explicit local build and exact loopback origin.");
   const root = env.MDBASE_NEXT_ROOT_PUBLIC_KEY?.trim() ?? "";
   const pem = env.MDBASE_NEXT_POLICY_SIGNING_KEY?.trim() ?? "";
   const cert = env.MDBASE_NEXT_POLICY_KEY_CERT?.trim() ?? "";
@@ -146,7 +149,8 @@ export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPla
       const url = env[`MDBASE_NEXT_${kind}_SERVICE_URL`]?.trim() ?? "";
       const token = serviceToken(`MDBASE_NEXT_${kind}_SERVICE_TOKEN`);
       if (!url || !token) throw new Error(`MDBASE_NEXT_CLOUD_COPY_BOOTSTRAP=1 requires MDBASE_NEXT_${kind}_SERVICE_URL and MDBASE_NEXT_${kind}_SERVICE_TOKEN.`);
-      if (new URL(url).protocol !== "https:") throw new Error(`MDBASE_NEXT_${kind}_SERVICE_URL must use https.`);
+      if (env.MDBASE_CONNECT_ENVIRONMENT === "local" ? !localDeployment(env.MDBASE_CONNECT_ENVIRONMENT, url) : new URL(url).protocol !== "https:")
+        throw new Error(`MDBASE_NEXT_${kind}_SERVICE_URL must ${env.MDBASE_CONNECT_ENVIRONMENT === "local" ? "match the compiled local deployment scope" : "use https"}.`);
       return { url, token };
     };
     if (!hosted || !escrow) throw new Error("MDBASE_NEXT_CLOUD_COPY_BOOTSTRAP=1 requires MDBASE_NEXT_HOSTED_INTERNAL_TOKEN and MDBASE_NEXT_ESCROW_INTERNAL_TOKEN.");

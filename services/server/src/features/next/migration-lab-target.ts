@@ -1,6 +1,7 @@
 // LAB runner composition of the existing authenticated SHADOW target creator.
 // No new bootstrap, custody exemption, target selector, serving or H1 authority.
 import { z } from "zod";
+import { localBuild, localDeployment, rehearsalDiagnostics } from "../../local-deployment.js";
 import { migrationUuid } from "../../hosted-provider-replies.js";
 import { RolloutRefused } from "./migration-rollout.js";
 
@@ -20,11 +21,11 @@ type TargetCause = {
 const causes = new WeakMap<object, TargetCause>();
 export function labTargetUnavailable(environment: string | undefined, cause: TargetCause): never {
   const error = new RolloutRefused("migration_target_unavailable", "No verified SHADOW custody target; Worker run not dispatched.", 503);
-  if (environment === "lab") causes.set(error, cause);
+  if (rehearsalDiagnostics(environment)) causes.set(error, cause);
   throw error;
 }
 export function labTargetSubCause(error: unknown, environment: string | undefined) {
-  return environment === "lab" && error instanceof Error ? causes.get(error) : undefined;
+  return rehearsalDiagnostics(environment) && error instanceof Error ? causes.get(error) : undefined;
 }
 const names = z.enum(["Error", "TypeError", "RangeError", "AbortError", "TimeoutError", "SyntaxError", "other"]).catch("other");
 const apiCodes = z.enum(["invalid_internal_token", "invalid_request", "migration_target_unavailable", "migration_source_unavailable",
@@ -41,14 +42,16 @@ const metadata = z.object({
 }).passthrough();
 
 export function labTargetBootstrap(config: { environment?: string; url: string; token: string; account: string }, fetchImpl: typeof fetch = fetch) {
-  if (config.environment !== "lab") throw new RolloutRefused("lab_only", "LAB target bootstrap is unavailable.", 503);
+  if (localBuild() ? !localDeployment(config.environment, config.url) : config.environment !== "lab")
+    throw new RolloutRefused("lab_only", "Rehearsal target bootstrap is unavailable in this build/environment.", 503);
   const unavailable = (cause: TargetCause): never => labTargetUnavailable(config.environment, cause);
   // Guard failures are part of the same prepare_target stop/capture as HTTP
   // failures, not an opaque top-level exit before orchestration can record them.
   return async (collection: string): Promise<void> => {
     let origin: URL;
     try { origin = new URL(config.url); } catch { return unavailable({ call: "guard", guard: "origin" }); }
-    if (origin.origin !== "https://connect-lab.mdbase.dev" || origin.href !== "https://connect-lab.mdbase.dev/") return unavailable({ call: "guard", guard: "origin" });
+    if (config.environment === "local" ? !localDeployment(config.environment, config.url)
+      : origin.origin !== "https://connect-lab.mdbase.dev" || origin.href !== "https://connect-lab.mdbase.dev/") return unavailable({ call: "guard", guard: "origin" });
     if (config.token.length < 32 || /[\r\n]/u.test(config.token)) return unavailable({ call: "guard", guard: "token" });
     if (!migrationUuid.safeParse(config.account).success) return unavailable({ call: "guard", guard: "account" });
     if (!migrationUuid.safeParse(collection).success) return unavailable({ call: "guard", guard: "collection" });

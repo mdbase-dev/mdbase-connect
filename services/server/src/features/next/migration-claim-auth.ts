@@ -2,6 +2,7 @@
 // Call only with authoritative current SQL facts inside the canonical collection
 // transaction. Public DTO equality never supplies this currentness by itself.
 import { randomBytes, verify as edVerify } from "node:crypto";
+import { localBuild, localDeployment } from "../../local-deployment.js";
 import type { DatabaseConnection } from "../../database-types.js";
 import { CreateError } from "./bootstrap-common.js";
 import { weakAgreementKey, weakSigningKey } from "./devices.js";
@@ -25,7 +26,7 @@ const NIL = "00000000-0000-0000-0000-000000000000";
  * Matches the native first-slice DNS/IPv4 canonical origin profile; IPv6 refuses. */
 export function configuredClaimAudience(value: string): string {
   const url = new URL(value);
-  if (value.length > 255 || !/^[\x21-\x7e]+$/u.test(value) || url.protocol !== "https:"
+  if (value.length > 255 || !/^[\x21-\x7e]+$/u.test(value) || (localBuild() ? !localDeployment("local", value) : url.protocol !== "https:")
       || url.origin !== value || !/^[a-z0-9.-]+$/u.test(url.hostname)
       || url.username || url.password || url.search || url.hash) {
     throw new Error("The hosted claim read requires a configured canonical HTTPS origin.");

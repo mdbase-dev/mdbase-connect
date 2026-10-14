@@ -15,6 +15,7 @@
 // Progress is one JSON line per step on stdout. An operator stop prints
 // {"stopped":{step,reason,inspect,resume}} and exits 2. Nothing secret is printed.
 import { createDatabase, openDatabase } from "../../db.js";
+import { localBuild, localDeployment } from "../../local-deployment.js";
 import { HostedProviderClient } from "../../hosted-provider.js";
 import { captureLabWorkerError, sanitizedLabOutcome } from "./migration-lab-raw-error.js";
 import { labLegacySourceConnection } from "./migration-lab-source-tls.js";
@@ -26,7 +27,8 @@ const USAGE = "usage: next-migration-lab lab-run <account id> <backup hold id> [
 
 async function main(argv: string[]): Promise<void> {
   // The environment is checked before anything else is read or opened.
-  if (process.env.MDBASE_CONNECT_ENVIRONMENT !== "lab") throw new Error("next-migration-lab runs only with MDBASE_CONNECT_ENVIRONMENT=lab.");
+  if (localBuild() ? !localDeployment(process.env.MDBASE_CONNECT_ENVIRONMENT, process.env.PUBLIC_URL ?? "") : process.env.MDBASE_CONNECT_ENVIRONMENT !== "lab")
+    throw new Error("next-migration-lab requires MDBASE_CONNECT_ENVIRONMENT=lab or an explicit local build and exact local origin.");
   const [command, account, hold, flag] = argv;
   const stopBeforeFlip = flag === "--stop-before-flip";
   if (!account || (command === "lab-run" ? !hold || !(argv.length === 3 || argv.length === 4 && stopBeforeFlip)
