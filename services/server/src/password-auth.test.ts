@@ -25,6 +25,60 @@ afterEach(async () => {
 });
 
 describe("invite-only password accounts", () => {
+  it("creates a genuine LAB legacy fixture via invitation signup without changing the next default", async () => {
+    const { db, policy } = await fixture();
+    const service = new PasswordAccountService(db, policy, "next", "lab");
+    const invitation = await service.createInvitation({
+      email: "seeder-backend-fixture@lab.invalid", actor: "operator:test",
+      reason: "[test] disposable migration fixture", entitlementProfile: null,
+      accountBackend: "legacy"
+    });
+    const accepted = await service.acceptInvitation({ invitationToken: invitation.token,
+      name: "[test] Legacy fixture", password: "a durable migration fixture password",
+      termsVersion: invitation.termsVersion, privacyVersion: invitation.privacyVersion });
+    expect((await db.query("SELECT account_backend FROM users WHERE id = $1", [accepted.user.id])).rows)
+      .toEqual([{ account_backend: "legacy" }]);
+    expect((await db.query("SELECT account_id FROM next_migration_account_flips WHERE account_id = $1", [accepted.user.id])).rows).toEqual([]);
+    const normal = await service.createInvitation({ email: "normal-default@example.com",
+      actor: "operator:test", reason: "Normal invitation", entitlementProfile: null });
+    const next = await service.acceptInvitation({ invitationToken: normal.token,
+      name: "Normal account", password: "a durable normal account password",
+      termsVersion: normal.termsVersion, privacyVersion: normal.privacyVersion });
+    expect((await db.query("SELECT account_backend FROM users WHERE id = $1", [next.user.id])).rows)
+      .toEqual([{ account_backend: "next" }]);
+  });
+  it.each([undefined, "dev", "staging", "production", "LAB"])("refuses the override outside explicit LAB (%s)", async environment => {
+    const { db, policy } = await fixture();
+    const service = new PasswordAccountService(db, policy, "next", environment);
+    await expect(service.createInvitation({ email: "fixture@lab.invalid", actor: "operator:test",
+      reason: "[test] migration fixture", entitlementProfile: null, accountBackend: "legacy" }))
+      .rejects.toThrow(/LAB \[test\] fixture/);
+    expect((await db.query("SELECT id FROM invitations")).rows).toEqual([]);
+  });
+  it.each([
+    ["person@example.com", "[test] fixture"], ["fixture@lab.invalid.evil.example", "[test] fixture"],
+    ["fixture@lab.invalid", "ordinary invitation"], ["fixture@lab.invalid", "[test]not-marked"]
+  ])("refuses non-fixture override inputs (%s/%s)", async (email, reason) => {
+    const { db, policy } = await fixture();
+    const service = new PasswordAccountService(db, policy, "next", "lab");
+    await expect(service.createInvitation({ email, reason, actor: "operator:test",
+      entitlementProfile: null, accountBackend: "legacy" })).rejects.toThrow(/LAB \[test\] fixture/);
+    expect((await db.query("SELECT id FROM invitations")).rows).toEqual([]);
+  });
+  it("refuses fixture redemption after environment change or without [test] account marking", async () => {
+    const { db, policy } = await fixture();
+    const service = new PasswordAccountService(db, policy, "next", "lab");
+    const invitation = await service.createInvitation({ email: "fixture@lab.invalid", actor: "operator:test",
+      reason: "[test] migration fixture", entitlementProfile: null, accountBackend: "legacy" });
+    const input = { invitationToken: invitation.token, name: "[test] Fixture",
+      password: "a durable fixture account password", termsVersion: invitation.termsVersion, privacyVersion: invitation.privacyVersion };
+    await expect(new PasswordAccountService(db, policy, "next", "production").acceptInvitation(input))
+      .rejects.toThrow(InvalidInvitationError);
+    await expect(service.acceptInvitation({ ...input, name: "Ordinary account" })).rejects.toThrow(InvalidInvitationError);
+    expect((await db.query("SELECT id FROM users")).rows).toEqual([]);
+    expect((await db.query("SELECT accepted_at FROM invitations WHERE id = $1", [invitation.id])).rows)
+      .toEqual([{ accepted_at: null }]);
+  });
   it("rejects an omitted entitlement even when called without the operator CLI", async () => {
     const { db, service } = await fixture();
     const input = {

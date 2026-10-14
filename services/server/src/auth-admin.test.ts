@@ -24,6 +24,20 @@ afterEach(async () => {
 });
 
 describe("authentication operator command", () => {
+  it("admits an explicit LAB legacy fixture invitation and refuses it elsewhere", async () => {
+    const context = await fixture(); await configurePolicy(context);
+    const argv = ["invite", "create", "--email", "admin-fixture@lab.invalid", "--actor", "operator:test",
+      "--reason", "[test] migration rehearsal", "--entitlement-profile", "none", "--account-backend", "legacy"];
+    for (const environment of [undefined, "dev", "staging", "production"]) {
+      await expect(runAuthAdminCommand(argv, { ...context, ...(environment ? { environment } : {}) })).rejects.toThrow(/LAB \[test\] fixture/);
+    }
+    expect((await context.db.query("SELECT id FROM invitations")).rows).toEqual([]);
+    const result = await runAuthAdminCommand(argv, { ...context, environment: "lab" }) as { invitation: { id: string; account_backend: string } };
+    expect(result.invitation.account_backend).toBe("legacy");
+    expect((await context.db.query("SELECT account_backend FROM invitations WHERE id = $1", [result.invitation.id])).rows)
+      .toEqual([{ account_backend: "legacy" }]);
+    await expect(runAuthAdminCommand([...argv.slice(0, -1), "next"], { ...context, environment: "lab" })).rejects.toThrow(/Only --account-backend legacy/);
+  });
   it("updates policy with optimistic concurrency and preserves omitted settings", async () => {
     const context = await fixture();
     const updated = await runAuthAdminCommand([
