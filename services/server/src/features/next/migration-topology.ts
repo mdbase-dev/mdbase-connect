@@ -1,7 +1,7 @@
 import type { DatabaseConnection, DatabaseQueryable } from "../../database-types.js";
 import { audit } from "../../platform/audit-events.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
-import { LAB_COMPLETION_EVENT, labCohortCompletionEvidence } from "./migration-sharing.js";
+import { InvitationMigrationPending, LAB_COMPLETION_EVENT, labCohortCompletionEvidence, requireCompletedNextAccountMigration } from "./migration-sharing.js";
 import { isCurrentZeroHostedCohort, ZERO_HOSTED_ARCHIVE_SCHEMA } from "./migration-archive-profile.js";
 
 /** Read-only legacy-missing classification; freeze permission is a separate
@@ -85,7 +85,42 @@ export async function completeMigrationBatch(client: DatabaseQueryable, name: st
  * a frozen-state WHERE predicate would incorrectly treat refusal as absence.
  */
 export async function requireAccountNotMigrationFrozen(client: DatabaseConnection, accountId: string, ...otherAccountIds: string[]): Promise<void> {
-  const accounts = [...new Set([accountId, ...otherAccountIds])].sort();
+  await lockAccountsNotMigrationFrozen(client, [accountId, ...otherAccountIds], false);
+}
+
+/** Next authority may proceed after durable batch completion and this account's
+ * actual flip. The legacy/archive freeze itself is never cleared or bypassed.
+ * Returns whether the completed-migration exception was used. */
+export async function requireNextAccountNotMigrationFrozen(client: DatabaseConnection, accountId: string, ...otherAccountIds: string[]): Promise<boolean> {
+  return lockAccountsNotMigrationFrozen(client, [accountId, ...otherAccountIds], true);
+}
+
+/** Read-only UI projection of the SAME next-authority policy. Mutations must
+ * acquire the ordered account/member/cohort locks through the guard above. */
+export async function nextAccountsMigrationFrozen(db: DatabaseQueryable, accounts: readonly string[]): Promise<boolean> {
+  const rows = (await db.query<{
+    account_id: string; account_backend: string; started_at: Date | null; terminal_excluded_at: Date | null;
+    completed_at: Date | null; completed_revision: string | null; flipped_at: Date | null;
+  }>(
+    `SELECT u.id::text AS account_id,u.account_backend,m.started_at,m.terminal_excluded_at,c.completed_at,c.completed_revision,f.flipped_at
+     FROM next_migration_cohort_members m JOIN users u ON u.id=m.account_id
+     JOIN next_migration_cohorts c ON c.name=m.cohort
+     LEFT JOIN next_migration_account_flips f ON f.account_id=u.id
+     WHERE m.account_id=ANY($1::uuid[]) AND c.frozen_at IS NOT NULL`, [accounts]
+  )).rows;
+  if (rows.some(row => row.account_backend !== "next" || row.started_at === null || row.terminal_excluded_at !== null
+    || row.completed_at === null || row.completed_revision === null || row.flipped_at === null
+    || new Date(row.flipped_at).getTime() < new Date(row.started_at).getTime()
+    || new Date(row.flipped_at).getTime() > new Date(row.completed_at).getTime())) return true;
+  for (const row of rows) {
+    try { await requireCompletedNextAccountMigration(db, row.account_id); }
+    catch (error) { if (error instanceof InvitationMigrationPending) return true; throw error; }
+  }
+  return false;
+}
+
+async function lockAccountsNotMigrationFrozen(client: DatabaseConnection, accountIds: readonly string[], nextAuthority: boolean): Promise<boolean> {
+  const accounts = [...new Set(accountIds)].sort();
   try {
     await configureTopologyTransaction(client);
     await client.query("SELECT id FROM users WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE", [accounts]);
@@ -93,14 +128,16 @@ export async function requireAccountNotMigrationFrozen(client: DatabaseConnectio
       "SELECT cohort FROM next_migration_cohort_members WHERE account_id = ANY($1::uuid[]) ORDER BY account_id FOR SHARE", [accounts]
     )).rows;
     const names = [...new Set(members.map((m) => m.cohort))].sort();
-    if (!names.length) return;
+    if (!names.length) return false;
     const cohorts = (await client.query<{ name: string; frozen_at: Date | null }>(
       "SELECT name, frozen_at FROM next_migration_cohorts WHERE name = ANY($1::text[]) ORDER BY name FOR UPDATE", [names]
     )).rows;
     if (cohorts.length !== names.length) throw new Error("Migration membership has no cohort.");
-    if (cohorts.some((c) => c.frozen_at !== null)) throw new RequestValidationError("Migration topology is frozen.", {
+    const frozen = cohorts.some((c) => c.frozen_at !== null);
+    if (frozen && (!nextAuthority || await nextAccountsMigrationFrozen(client, accounts))) throw new RequestValidationError("Migration topology is frozen.", {
       statusCode: 409, code: "migration_frozen"
     });
+    return frozen;
   } catch (error) {
     if (["55P03", "40P01", "40001", "57014"].includes(String((error as { code?: string } | null)?.code))) {
       throw new RequestValidationError("Busy; retry.", { statusCode: 409, code: "busy" });

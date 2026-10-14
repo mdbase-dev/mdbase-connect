@@ -13,6 +13,8 @@ import { PolicyEmitter, queueNextPolicy, registerNextCollection } from "./policy
 import { certDigest, chainHash, decodeCbor, encodeCbor, keyId, type Cbor, type Decoded, type PolicyOp } from "./policy-wire.js";
 import { inTransaction, refuse } from "./bootstrap-common.js";
 import { privateApprovalRequestDigest, privateCreateDigest, privateDeviceEnrolDigest, registerPrivateCollectionRoutes } from "./private-collections.js";
+import { acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, flipAccountBackend, flipEvidenceDigest, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "./migration-rollout.js";
+import { ZERO_HOSTED_ARCHIVE_SCHEMA } from "./migration-archive-profile.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -175,6 +177,22 @@ describePg("private collections", () => {
     return collection;
   };
 
+  it("allows completed migrated accounts to create, enrol another device, rename and delete a new Private collection without thaw",async()=>{
+    const who=await identity(),account=who.connector.user_id,cohort=`private-${randomUUID().slice(0,8)}`,actor="synthetic-local-pg";
+    await createCohort(db,cohort,actor);await addToCohort(db,cohort,[account],actor);await releaseCohort(db,cohort,actor);await setCohortFrozen(db,cohort,true,"synthetic archive",actor);
+    const binding=await cohortArchiveBinding(db,cohort),clock=new Date((await db.query("SELECT date_trunc('milliseconds',clock_timestamp()) AS now")).rows[0].now).toISOString();
+    await acceptCohortArchive(db,cohort,{schema:ZERO_HOSTED_ARCHIVE_SCHEMA,environment:"lab",bucket:"synthetic-archives",prefix:`legacy-archive/lab/2026/10/14/${cohort}`,backup_id:cohort,
+      complete_sha256:"a".repeat(64),manifest_sha256:"b".repeat(64),source_commit:"c".repeat(40),migration_batch:binding,archive_created_at:clock,archive_completed_at:clock,
+      retention:{mode:"GOVERNANCE",days:116,retain_until:new Date(Date.parse(clock)+116*86_400_000).toISOString(),inventory_digest:"d".repeat(64),count:"2"}},"lab");
+    await setPaused(db,false,"synthetic migration",actor);await startAccountMigration(db,account,"lab");await flipAccountBackend(db,account,[],flipEvidenceDigest([]),{enabled:true},"lab");
+    const collection=await created(who),second=await identity(account);
+    const added=await enrol(second,collection,await enrolProof(second,collection,commit()));expect(added.statusCode,added.body).toBe(200);
+    const renamed=await app.inject({method:"PATCH",url:`/v1/next/collections/${collection}/name`,headers:who.headers,payload:{display_name:"After migration"}});
+    expect(renamed.statusCode,renamed.body).toBe(200);
+    const deleted=await app.inject({method:"DELETE",url:`/v1/next/collections/${collection}`,headers:who.headers,payload:{confirm_name:"After migration"}});
+    expect(deleted.statusCode,deleted.body).toBe(200);
+    expect((await db.query("SELECT frozen_at,completed_at FROM next_migration_cohorts WHERE name=$1",[cohort])).rows[0]).toEqual({frozen_at:expect.any(Date),completed_at:expect.any(Date)});
+  });
   it("creates an e2e genesis that enrols only the owner's device", async () => {
     const who = await identity(); const collection = randomUUID();
     const response = await create(who, await createProof(who, collection));

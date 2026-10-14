@@ -1,0 +1,7 @@
+{
+  "reason": "Completed, actually flipped next accounts retain immutable legacy archive freezes. Explicit next-authority mutation guards and the read-only native management projection share one completion policy while all legacy topology callers keep their strict guard. The existing archive/LAB completion and full original flip validator is shared for account-level next authority, including zero-Hosted accounts; original collection-specific continuity keeps its stricter scope. No authority, credential, archive or SQL migration is replaced.",
+  "growth": {
+    "relativeImports": 1,
+    "typeScriptExportDeclarations": 3
+  }
+}

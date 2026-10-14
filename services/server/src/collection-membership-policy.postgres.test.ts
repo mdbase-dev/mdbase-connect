@@ -12,6 +12,8 @@ import { registerHostedSharingRoutes } from "./features/hosted/sharing-routes.js
 import { refuseRevoked } from "./features/next/bootstrap-common.js";
 import { registerErrorHandler } from "./platform/error-handler.js";
 import { tokenHash } from "./security.js";
+import { acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, flipAccountBackend, flipEvidenceDigest, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "./features/next/migration-rollout.js";
+import { ZERO_HOSTED_ARCHIVE_SCHEMA } from "./features/next/migration-archive-profile.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -310,6 +312,23 @@ suite("transactional membership policy and native sharing (isolated PostgreSQL)"
     expect(await memberOps(f)).toEqual([{ op: "member-set", account: f.member.id, role: "editor" }]);
   });
 
+  it.each(["private","cloud_copy"] as const)("restores completed migrated %s sharing, invitation acceptance and management controls without thaw",async sync=>{
+    const f=await fixture(sync),cohort=`share-${randomUUID().slice(0,8)}`,actor="synthetic-local-pg";
+    await db.query("UPDATE users SET account_backend='legacy' WHERE id=$1",[f.owner.id]);
+    await createCohort(db,cohort,actor);await addToCohort(db,cohort,[f.owner.id],actor);await releaseCohort(db,cohort,actor);await setCohortFrozen(db,cohort,true,"synthetic archive",actor);
+    const binding=await cohortArchiveBinding(db,cohort),clock=new Date((await db.query("SELECT date_trunc('milliseconds',clock_timestamp()) AS now")).rows[0].now).toISOString();
+    await acceptCohortArchive(db,cohort,{schema:ZERO_HOSTED_ARCHIVE_SCHEMA,environment:"lab",bucket:"synthetic-archives",prefix:`legacy-archive/lab/2026/10/14/${cohort}`,backup_id:cohort,
+      complete_sha256:"a".repeat(64),manifest_sha256:"b".repeat(64),source_commit:"c".repeat(40),migration_batch:binding,archive_created_at:clock,archive_completed_at:clock,
+      retention:{mode:"GOVERNANCE",days:116,retain_until:new Date(Date.parse(clock)+116*86_400_000).toISOString(),inventory_digest:"d".repeat(64),count:"2"}},"lab");
+    await setPaused(db,false,"synthetic migration",actor);await startAccountMigration(db,f.owner.id,"lab");await flipAccountBackend(db,f.owner.id,[],flipEvidenceDigest([]),{enabled:true},"lab");
+    expect(await listNativeCollectionsVisibleToUser(db,f.owner.id)).toMatchObject([{id:f.collection,access:{can_manage_members:true}}]);
+    const invitation=await invite(f),accepted=await acceptHostedCollectionInvitation(db,{userId:f.member.id,token:invitation.token});
+    expect(accepted).toMatchObject({collectionId:f.collection,role:"editor"});
+    const input={collectionId:f.collection,actorUserId:f.owner.id,membershipId:accepted.membershipId};
+    await expect(changeHostedCollectionMembershipRole(db,{...input,role:"viewer"})).resolves.toMatchObject({state:"active"});
+    await expect(revokeHostedCollectionMembership(db,input)).resolves.toMatchObject({state:"revoked"});
+    expect((await db.query("SELECT frozen_at FROM next_migration_cohorts WHERE name=$1",[cohort])).rows[0].frozen_at).not.toBeNull();
+  });
   it.each(["legacy", "next"] as const)("refuses frozen native sharing independently of account backend %s", async backend => {
     const f = await fixture("cloud_copy", true), cohort = randomUUID();
     await db.query("UPDATE users SET account_backend=$2 WHERE id=$1", [f.owner.id, backend]);

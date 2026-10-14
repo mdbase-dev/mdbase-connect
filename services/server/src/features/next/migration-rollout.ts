@@ -695,7 +695,9 @@ export async function flipAccountBackend(
       const refusal = await timerFlipRefusal(client, account, collection.id, sources.get(collection.id)!);
       if (refusal) throw new RolloutRefused(refusal, TIMER_FLIP_REFUSALS[refusal]);
     }
-    const flippedAt = await recordAccountFlip(client, account, named, evidenceDigest);
+    const flippedAt = await recordAccountFlip(client, account, named, evidenceDigest, {
+      migration_batch: { batch_id: member.cohort, membership_revision: batch.revision }
+    });
     // Every member must have a validated final flip OR accepted terminal
     // exclusion. An excluded account never needs a witness/cutover/flip.
     if (batch.frozen_at !== null) await completeMigrationBatch(client, member.cohort, batch.revision, batch.frozen_at, environment);

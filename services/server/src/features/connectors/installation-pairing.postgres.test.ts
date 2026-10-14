@@ -10,6 +10,8 @@ import { createTestApplicationIdentity, testApplicationAuthorization } from "../
 import { clientNoiseKeyMessage, storeRequestClientNoiseKey, verifiedClientNoiseKey } from "../next/client-key.js";
 import { approveNativeAuthorization } from "../authorizations/native-approval-service.js";
 import { fileRequestForRequirements } from "../../application-requirements.js";
+import { acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, flipAccountBackend, flipEvidenceDigest, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "../next/migration-rollout.js";
+import { ZERO_HOSTED_ARCHIVE_SCHEMA } from "../next/migration-archive-profile.js";
 import { randomToken, tokenHash } from "../../security.js";
 import { pruneUsageHistory } from "../../usage-report.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
@@ -528,6 +530,31 @@ describePg("installation device sign-in on daemon pairing", () => {
   async function approvePrivate(p: Awaited<ReturnType<typeof prepared>>, collection: string) {
     return app.inject({method:"POST",url:`${p.flow.base}/approve`,headers:p.owner.headers,payload:{fingerprint:clientFingerprint(Buffer.from(p.proof.payload.sign_pk,"hex")),collection_ids:[],create_collections:false,selected_collection_id:collection,selected_collection_kind:"private"}});
   }
+  it("allows a migrated account to approve an app after completed zero-Hosted migration without thawing its archive",async()=>{
+    const p=await privatePrepared(), collection=await scopeCollection(p.owner.user,p.owner.user,"private");
+    const cohort=`approve-${randomUUID().slice(0,8)}`,actor="synthetic-local-pg";
+    // Isolated fixture starts legacy, then uses the normal accepted-archive/start/flip lifecycle.
+    await db.query("UPDATE users SET account_backend='legacy' WHERE id=$1",[p.owner.user]);
+    await createCohort(db,cohort,actor);await addToCohort(db,cohort,[p.owner.user],actor);await releaseCohort(db,cohort,actor);
+    await setCohortFrozen(db,cohort,true,"synthetic archive",actor);
+    const binding=await cohortArchiveBinding(db,cohort),clock=new Date((await db.query("SELECT date_trunc('milliseconds',clock_timestamp()) AS now")).rows[0].now).toISOString();
+    const archive={schema:ZERO_HOSTED_ARCHIVE_SCHEMA,environment:"lab",bucket:"synthetic-archives",prefix:`legacy-archive/lab/2026/10/14/${cohort}`,backup_id:cohort,
+      complete_sha256:"a".repeat(64),manifest_sha256:"b".repeat(64),source_commit:"c".repeat(40),migration_batch:binding,archive_created_at:clock,archive_completed_at:clock,
+      retention:{mode:"GOVERNANCE",days:116,retain_until:new Date(Date.parse(clock)+116*86_400_000).toISOString(),inventory_digest:"d".repeat(64),count:"2"}};
+    await acceptCohortArchive(db,cohort,archive,"lab");await setPaused(db,false,"synthetic migration",actor);
+    await startAccountMigration(db,p.owner.user,"lab");await flipAccountBackend(db,p.owner.user,[],flipEvidenceDigest([]),{enabled:true},"lab");
+    const frozen=(await db.query("SELECT frozen_at,completed_at,completed_revision FROM next_migration_cohorts WHERE name=$1",[cohort])).rows[0];
+    expect(frozen.frozen_at).not.toBeNull();expect(frozen.completed_at).not.toBeNull();
+    const n=await nativeCompanion(p);expect((await n.attach()).statusCode).toBe(200);
+    const result=await approvePrivate(p,collection);expect(result.statusCode,result.body).toBe(200);
+    expect((await p.flow.exchange()).json()).toMatchObject({status:"paired",collection_ids:[],native_selection:{authorization_request_id:n.id,collection_id:collection}});
+    const hosted=await scopeCollection(p.owner.user),q=await prepared("app-runtime",false,p.owner,undefined,p.input.installation.app_id);
+    expect((await approveDevice(q.flow,q.owner,undefined,{collection_ids:[hosted],create_collections:false,selected_collection_id:hosted})).statusCode).toBe(200);
+    expect((await q.flow.exchange()).json()).toMatchObject({status:"paired",collection_ids:[hosted],selected_collection_id:hosted});
+    expect((await db.query("SELECT frozen_at,completed_at,completed_revision FROM next_migration_cohorts WHERE name=$1",[cohort])).rows[0]).toEqual(frozen);
+    expect((await db.query("SELECT verified_result FROM next_migration_archive_acceptances WHERE cohort=$1",[cohort])).rows[0].verified_result).toEqual(archive);
+    await expect(setCohortFrozen(db,cohort,false,"must stay frozen",actor)).rejects.toMatchObject({code:"migration_frozen"});
+  });
   it("atomically approves a Private choice and genuine original zero-scope installation",async()=>{
     const p=await privatePrepared(true), collection=await scopeCollection(p.owner.user,p.owner.user,"private"), n=await nativeCompanion(p);
     expect((await n.attach()).statusCode).toBe(200);

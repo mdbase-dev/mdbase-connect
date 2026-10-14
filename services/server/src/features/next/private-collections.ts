@@ -30,7 +30,7 @@ import { queueNextPolicy, registerNextCollection, type PolicyEmitter } from "./p
 import { domainHash, encodeCbor, uuidBytes } from "./policy-wire.js";
 import { collectionDisplayName, DEFAULT_COLLECTION_DISPLAY_NAME, validateInitialCollectionName } from "./collection-display-name.js";
 import { registerCollectionNameRoutes } from "./collection-name-routes.js";
-import { requireAccountNotMigrationFrozen } from "./migration-topology.js";
+import { requireNextAccountNotMigrationFrozen } from "./migration-topology.js";
 
 /** `H("mdbase/v1/private-create", cbor[challenge, connector, device, collection])`, signed by the owner's device. */
 export function privateCreateDigest(input: { challenge: Uint8Array; connector: string; device: string; collection: string }): Uint8Array {
@@ -149,7 +149,7 @@ export function registerPrivateCollectionRoutes(app: FastifyInstance, options: {
       // 1. Proof, current identity and ownership, then genesis, in one transaction.
       // Nothing here calls the network. Account first, matching the rename/freeze lock order.
       device = await inTransaction(options.db, async (client) => {
-        await requireAccountNotMigrationFrozen(client, connector.user_id);
+        await requireNextAccountNotMigrationFrozen(client, connector.user_id);
         await lock(client, collection);
         const owner = await authenticate(client, body, connector, digest);
         await currentIdentity(client, connector, body.device_id, owner);
