@@ -32,6 +32,8 @@ import { safeEqual } from "../../security.js";
 import { drainDeferredAccountDeletions } from "../../account-management.js";
 import { migrationServiceRateLimit } from "./migration-rate-limit.js";
 import { captureProjection } from "./migration-capture.js";
+import { archiveBindingSchema, ARCHIVE_PREFIX, COHORT_NAME, decimal, HEX64, isCompleteZeroHostedInventory,
+  millisecondTime, verifiedArchiveSchema, ZERO_HOSTED_ARCHIVE_SCHEMA, type VerifiedBatchArchive } from "./migration-archive-profile.js";
 import { completeMigrationBatch, releaseDeferredDeletions } from "./migration-topology.js";
 import { flipEvidenceDigest, recordAccountFlip } from "./account-backend-flip.js";
 import { HostedProviderResponseError, HostedProviderUnavailableError, type HostedProviderClient,
@@ -63,64 +65,9 @@ export class RolloutRefused extends Error {
   constructor(readonly code: string, message: string, readonly status = 409) { super(message); }
 }
 
-// Canonical scalars must consume the entire string without normalization.
-const COHORT_NAME = /^[a-z0-9][a-z0-9-]{0,62}(?![\s\S])/;
-// LAB is a separate exact schema with a mandatory legacy-archive prefix.
-// Existing v4 locations retain their unchanged staging/production contract.
-const ARCHIVE_PREFIX = /^(?:legacy-archive\/)?(staging|production|lab)\/20[0-9]{2}\/(0[1-9]|1[0-2])\/(0[1-9]|[12][0-9]|3[01])\/[a-z0-9][a-z0-9-]{0,79}(?![\s\S])/;
-const HEX64 = /^[0-9a-f]{64}(?![\s\S])/;
 const UUID_CANONICAL = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![\s\S])/;
-const UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z(?![\s\S])/;
 const DAY_MS = 86_400_000;
-
-const decimal = (max: bigint, positive = false) => z.string().max(20).refine((v) =>
-  /^(0|[1-9][0-9]*)(?![\s\S])/.test(v) && BigInt(v) <= max && (!positive || BigInt(v) > 0n));
-const millisecondTime = z.string().length(24).refine((v) => {
-  if (!UTC_MILLISECONDS.test(v) || v.startsWith("0000-")) return false;
-  const ms = Date.parse(v);
-  return Number.isFinite(ms) && new Date(ms).toISOString() === v;
-});
-const archiveBindingSchema = z.object({
-  batch_id: z.string().regex(COHORT_NAME),
-  membership_revision: decimal(9_223_372_036_854_775_807n, true),
-  membership_digest: z.string().regex(HEX64),
-  membership_changed_at: millisecondTime
-}).strict();
-const v4VerifiedArchiveSchema = z.object({
-  schema: z.literal("mdbase-recovery-set/v4"),
-  environment: z.enum(["production", "staging"]),
-  bucket: z.string().regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9](?![\s\S])/),
-  prefix: z.string().max(128).regex(ARCHIVE_PREFIX),
-  backup_id: z.string().max(80).regex(/^[a-z0-9][a-z0-9-]{0,79}(?![\s\S])/),
-  complete_sha256: z.string().regex(HEX64),
-  manifest_sha256: z.string().regex(HEX64),
-  source_commit: z.string().regex(/^[0-9a-f]{40}(?![\s\S])/),
-  migration_batch: archiveBindingSchema,
-  archive_created_at: millisecondTime,
-  archive_completed_at: millisecondTime,
-  retention: z.object({
-    mode: z.literal("GOVERNANCE"), days: z.literal(116), retain_until: millisecondTime,
-    inventory_digest: z.string().regex(HEX64), count: decimal(18_446_744_073_709_551_615n, true)
-  }).strict()
-}).strict();
-// Opaque service IDs only: fixed private LAB infrastructure mapping, image
-// signatures/attestations and live currentness are the ONE verifier's boundary.
-// Structural decoding cannot establish those facts or open source-exclusion.
-const labRuntimeComponentSchema = z.object({
-  commit: z.string().regex(/^[0-9a-f]{40}(?![\s\S])/),
-  image_digest: z.string().regex(/^sha256:[0-9a-f]{64}(?![\s\S])/),
-  service_id: z.string().max(84).regex(/^srv-[a-z0-9]{1,80}(?![\s\S])/)
-}).strict();
-const labVerifiedArchiveSchema = v4VerifiedArchiveSchema.extend({
-  schema: z.literal("mdbase-recovery-set/lab-cohort-v1"), environment: z.literal("lab"),
-  prefix: z.string().max(128).regex(/^legacy-archive\/lab\/20[0-9]{2}\/(0[1-9]|1[0-2])\/(0[1-9]|[12][0-9]|3[01])\/[a-z0-9][a-z0-9-]{0,79}(?![\s\S])/),
-  // source_commit is Ops capture/signing source, never a guessed common runtime.
-  runtime_provenance: z.object({ connect: labRuntimeComponentSchema, hosted_provider: labRuntimeComponentSchema,
-    relay: labRuntimeComponentSchema, mcp: labRuntimeComponentSchema }).strict()
-}).strict();
-const verifiedArchiveSchema = z.union([v4VerifiedArchiveSchema, labVerifiedArchiveSchema]);
 export type ArchiveBinding = z.infer<typeof archiveBindingSchema>;
-type VerifiedBatchArchive = z.infer<typeof verifiedArchiveSchema>;
 
 /** Private CP-owned inventory only; never return account/collection lists in the header. */
 export function migrationMembershipDigest(inventory: readonly (readonly [string, readonly string[]])[]): string {
@@ -208,12 +155,15 @@ async function readArchiveBinding(client: DatabaseQueryable, name: string) {
 }
 
 /** Pre-acceptance inventory DATA only; never source/fence/restore permission. */
-async function cohortCaptureSnapshot(db: DatabasePool, name: string, environment: string | undefined) {
+async function cohortCaptureSnapshot(db: DatabasePool, name: string, environment: string | undefined, zeroHostedOnly = false) {
   if (environment !== "staging" && environment !== "lab") throw new RolloutRefused("capture_unavailable", "The rehearsal capture view is unavailable.", 503);
   return inTransaction(db, async client => {
     await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
     await client.query("SET LOCAL statement_timeout = '5s'");
-    const current = await readCohortBinding(client, name, false);
+    const current = await readCohortBinding(client, name, zeroHostedOnly);
+    if (zeroHostedOnly && !isCompleteZeroHostedInventory(current.inventory)) {
+      throw new RolloutRefused("backup_missing", "A complete frozen cohort with no held hosted collections is required.");
+    }
     const refuse = (): never => { throw new RolloutRefused("capture_unavailable", "No complete bounded capture inventory.", 503); };
     const project = captureProjection(name, current, refuse);
     const records = new Map((await client.query<{ account: string; suspended: boolean; terminal_excluded_at: Date | null }>(
@@ -233,7 +183,10 @@ export async function cohortArchiveBinding(db: DatabasePool, name: string): Prom
 export async function acceptCohortArchive(db: DatabasePool, name: string, body: unknown, environment: string | undefined): Promise<{ accepted_at: string }> {
   const result = parseVerifiedBatchArchive(body);
   const acceptance = await inTransaction(db, async (client) => {
-    const { binding, frozenAt, memberCount } = await readArchiveBinding(client, name);
+    const { binding, frozenAt, memberCount, inventory } = await readArchiveBinding(client, name);
+    if (result.schema === ZERO_HOSTED_ARCHIVE_SCHEMA && !isCompleteZeroHostedInventory(inventory)) {
+      throw new RolloutRefused("backup_missing", "Zero-hosted archive does not cover the current hosted inventory.");
+    }
     if (memberCount === 0) throw new RolloutRefused("backup_missing", "A nonempty frozen migration cohort is required.");
     if (Date.parse(result.archive_created_at) < Date.parse(frozenAt)) {
       throw new RolloutRefused("backup_missing", "Archive capture must follow the topology freeze.");
@@ -275,6 +228,9 @@ async function requireCurrentCohortArchive(client: DatabaseQueryable, name: stri
   )).rows[0];
   if (!accepted) throw new RolloutRefused("backup_missing", "A verified current batch archive is required.");
   const result = parseVerifiedBatchArchive(accepted.verified_result);
+  if (result.schema === ZERO_HOSTED_ARCHIVE_SCHEMA && !isCompleteZeroHostedInventory(inventory)) {
+    throw new RolloutRefused("backup_missing", "Zero-hosted archive does not cover the current hosted inventory.");
+  }
   if (Date.parse(result.archive_created_at) < Date.parse(frozenAt)) {
     throw new RolloutRefused("backup_missing", "Archive capture must follow the current topology freeze.");
   }
@@ -920,11 +876,13 @@ export function registerMigrationRolloutRoutes(app: FastifyInstance, options: {
     reply.header("cache-control", "no-store");
     if (!migrator(request)) return deny(reply);
     const p = cohortParam.safeParse(request.params);
-    const q = z.object({ view: z.enum(["receiving-v1", "capture-v1"]).optional() }).strict().safeParse(request.query);
+    const q = z.object({ view: z.enum(["receiving-v1", "capture-v1", "zero-hosted-v1"]).optional() }).strict().safeParse(request.query);
     const hasBody = (request.headers["content-length"] ?? "0") !== "0" || request.headers["transfer-encoding"] !== undefined;
     if (!p.success || !q.success || hasBody) return reply.code(400).send(apiError("invalid_request", "A canonical batch and optional receiving view, without a body, are required."));
     try {
-      if (q.data.view === "capture-v1") return await cohortCaptureSnapshot(options.db, p.data.name, options.environment);
+      if (q.data.view === "capture-v1" || q.data.view === "zero-hosted-v1") {
+        return await cohortCaptureSnapshot(options.db, p.data.name, options.environment, q.data.view === "zero-hosted-v1");
+      }
       return q.data.view ? await cohortReceivingSnapshot(options.db, p.data.name, options.environment)
         : await cohortArchiveBinding(options.db, p.data.name);
     } catch (e) { return refused(reply, e); }

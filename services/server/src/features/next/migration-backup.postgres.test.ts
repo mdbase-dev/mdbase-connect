@@ -4,7 +4,9 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, migrationMembershipDigest,
-  registerMigrationRolloutRoutes, releaseCohort, setCohortFrozen, setPaused, startAccountMigration, type ArchiveBinding } from "./migration-rollout.js";
+  flipAccountBackend, flipEvidenceDigest, registerMigrationRolloutRoutes, releaseCohort, setCohortFrozen, setPaused, startAccountMigration, type ArchiveBinding } from "./migration-rollout.js";
+import { completeMigrationBatch } from "./migration-topology.js";
+import { ZERO_HOSTED_ARCHIVE_SCHEMA } from "./migration-archive-profile.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -76,6 +78,96 @@ describePg("H0 acceptance/currentness (isolated local PostgreSQL; synthetic veri
     await expect(acceptCohortArchive(db, name, body, "production")).rejects.toMatchObject({ code: "backup_missing" });
     expect((await stored()).rows).toEqual(original);
     expect(await cohortArchiveBinding(db, name)).toEqual(binding);
+  });
+
+  it.each(["lab", "staging"])("accepts the named zero-hosted profile through start, empty flip and completion in %s", async environment => {
+    const account = await user(), name = await batch([account]), base = await metadata(name);
+    const body = { ...base, schema: ZERO_HOSTED_ARCHIVE_SCHEMA, environment,
+      prefix: `legacy-archive/${environment}/2026/10/08/${name}`, retention: { ...base.retention, count: "2" } };
+    // Synthetic trusted-verifier DATA only; this fixture does not sign an archive.
+    const accepted = await acceptCohortArchive(db, name, body, environment);
+    expect(await acceptCohortArchive(db, name, body, environment)).toEqual(accepted);
+    expect(await startAccountMigration(db, account, environment)).toMatchObject({ account_id: account });
+    expect(await flipAccountBackend(db, account, [], flipEvidenceDigest([]), { enabled: true }, environment)).toMatchObject({ backend: "next" });
+    const completed = (await db.query("SELECT completed_at,completed_revision::text AS revision FROM next_migration_cohorts WHERE name=$1", [name])).rows[0];
+    expect(completed.completed_at).not.toBeNull();
+    expect(completed.revision).toBe(body.migration_batch.membership_revision);
+    expect((await db.query("SELECT collections,evidence_digest FROM next_migration_account_flips WHERE account_id=$1", [account])).rows[0])
+      .toEqual({ collections: [], evidence_digest: flipEvidenceDigest([]) });
+    expect((await db.query("SELECT verified_result FROM next_migration_archive_acceptances WHERE cohort=$1", [name])).rows[0].verified_result).toEqual(body);
+  });
+
+  it("preserves SQL elapsed/immutability guards and refuses production or false zero-profile artifact counts", async () => {
+    const account = await user(), name = await batch([account]), base = await metadata(name);
+    const valid = { ...base, schema: ZERO_HOSTED_ARCHIVE_SCHEMA, environment: "staging",
+      prefix: `legacy-archive/staging/2026/10/08/${name}`, retention: { ...base.retention, count: "2" } };
+    const elapsed = async (body: unknown) => (await db.query("SELECT next_migration_archive_elapsed_valid($1::jsonb,$2::timestamptz,$2::timestamptz) AS valid", [JSON.stringify(body), base.archive_completed_at])).rows[0].valid;
+    expect(await elapsed(valid)).toBe(true);
+    expect(await elapsed(base)).toBe(true); // Existing non-empty v4 semantics stay unchanged.
+    for (const body of [
+      { ...valid, environment: "production" },
+      { ...valid, environment: null },
+      ...["0", "1", "3", 2].map(count => ({ ...valid, retention: { ...valid.retention, count } })),
+      { ...valid, retention: { ...valid.retention, retain_until: new Date(Date.parse(valid.retention.retain_until) + 1).toISOString() } }
+    ]) {
+      expect(await elapsed(body)).toBe(false);
+      await expect(db.query(`INSERT INTO next_migration_archive_acceptances(cohort,membership_revision,verified_result,accepted_at)
+        VALUES($1,$2::bigint,$3::jsonb,date_trunc('milliseconds',clock_timestamp()))`, [name, valid.migration_batch.membership_revision, JSON.stringify(body)])).rejects.toThrow();
+    }
+    const accepted = await acceptCohortArchive(db, name, valid, "staging");
+    await expect(db.query("UPDATE next_migration_archive_acceptances SET accepted_at=clock_timestamp() WHERE cohort=$1", [name])).rejects.toThrow(/immutable/);
+    expect(await acceptCohortArchive(db, name, valid, "staging")).toEqual(accepted);
+  });
+
+  it("returns a complete frozen zero-only capture, refuses unauthenticated/unfrozen/mixed/production views", async () => {
+    const a = await user(), b = await user(), name = await batch([a, b]);
+    await db.query("UPDATE users SET suspended_at=now() WHERE id=$1", [b]);
+    const app = Fastify(); registerMigrationRolloutRoutes(app, { db, token, environment: "lab" });
+    const url = `/internal/v1/next/migration/cohorts/${name}/archive-binding?view=zero-hosted-v1`, headers = { authorization: `Bearer ${token}` };
+    try {
+      expect((await app.inject({ method: "GET", url })).statusCode).toBe(401);
+      const response = await app.inject({ method: "GET", url, headers });
+      expect(response.statusCode).toBe(200);
+      expect(response.headers["cache-control"]).toBe("no-store");
+      const capture = response.json();
+      expect(capture.schema).toBe("mdbase-migration-capture/1");
+      expect(capture.frozen_at).not.toBeNull();
+      expect(capture.members.map((m: {view: {account_id: string; hosted_collections: string[]}}) => [m.view.account_id, m.view.hosted_collections]))
+        .toEqual([[a, []], [b, []]].sort((x, y) => String(x[0]).localeCompare(String(y[0]))));
+      expect(capture.members.find((m: {view: {account_id: string}}) => m.view.account_id === b).suspended).toBe(true);
+      await collection(a);
+      expect((await app.inject({ method: "GET", url, headers })).statusCode).toBe(409);
+      const unfrozen = `u-${randomUUID().slice(0, 8)}`;
+      await createCohort(db, unfrozen, OP); await addToCohort(db, unfrozen, [await user()], OP);
+      expect((await app.inject({ method: "GET", url: url.replace(name, unfrozen), headers })).statusCode).toBe(409);
+      const empty = await batch([]);
+      expect((await app.inject({ method: "GET", url: url.replace(name, empty), headers })).statusCode).toBe(409);
+    } finally { await app.close(); }
+    const production = Fastify(); registerMigrationRolloutRoutes(production, { db, token, environment: "production" });
+    try { expect((await production.inject({ method: "GET", url, headers })).statusCode).toBe(503); }
+    finally { await production.close(); }
+  });
+
+  it("refuses zero-hosted acceptance, current start and completion when any current member holds hosted data", async () => {
+    const account = await user(), name = await batch([account]), base = await metadata(name);
+    const body = { ...base, schema: ZERO_HOSTED_ARCHIVE_SCHEMA, environment: "lab",
+      prefix: `legacy-archive/lab/2026/10/08/${name}`, retention: { ...base.retention, count: "2" } };
+    await acceptCohortArchive(db, name, body, "lab");
+    await collection(account); // Privileged isolated fault injection; ordinary topology writes are frozen.
+    await expect(startAccountMigration(db, account, "lab")).rejects.toMatchObject({ code: "backup_missing" });
+    expect(await startedAt(account)).toBeNull();
+    const current = { ...body, migration_batch: await cohortArchiveBinding(db, name) };
+    await expect(acceptCohortArchive(db, name, current, "lab")).rejects.toMatchObject({ code: "backup_missing" });
+    // Even a forged privileged ledger cannot make the completion path accept a non-empty scope.
+    await db.query(`INSERT INTO next_migration_archive_acceptances(cohort,membership_revision,verified_result,accepted_at)
+      VALUES($1,$2::bigint,$3::jsonb,date_trunc('milliseconds',clock_timestamp()))`, [name, current.migration_batch.membership_revision, JSON.stringify(current)]);
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      const frozen = (await client.query("SELECT frozen_at FROM next_migration_cohorts WHERE name=$1 FOR UPDATE", [name])).rows[0].frozen_at;
+      await expect(completeMigrationBatch(client, name, current.migration_batch.membership_revision, frozen, "lab")).rejects.toThrow("Zero-hosted archive scope changed before completion.");
+    } finally { await client.query("ROLLBACK"); client.release(); }
+    expect((await db.query("SELECT completed_at FROM next_migration_cohorts WHERE name=$1", [name])).rows[0].completed_at).toBeNull();
   });
 
   it("counts distinct frozen accounts including collectionless and suspended members without narrowing complete coverage", async () => {
