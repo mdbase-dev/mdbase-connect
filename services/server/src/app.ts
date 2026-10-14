@@ -449,6 +449,7 @@ export async function buildApp(options: BuildOptions) {
   });
   registerConnectorPairingRoutes(app, {
     db: options.db,
+    relay,
     publicUrl,
     tailscaleAuth: options.tailscaleAuth,
     installationDevices: !!options.nextControlPlane,
