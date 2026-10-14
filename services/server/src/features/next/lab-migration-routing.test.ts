@@ -53,7 +53,7 @@ describe("exact LAB account routing", () => {
   it("is absent by default and requires the whole exact LAB configuration", () => {
     expect(parseLabMigrationRouting({})).toBeUndefined();
     expect(routing).toEqual({ accounts: new Set([account]), hosted: { url: env.MDBASE_NEXT_LAB_MIGRATION_HOSTED_URL, token: env.MDBASE_NEXT_LAB_MIGRATION_HOSTED_TOKEN }, inboundToken: env.MDBASE_NEXT_LAB_MIGRATION_INBOUND_TOKEN });
-    for (const name of Object.keys(env).filter(name => name.includes("LAB_MIGRATION"))) {
+    for (const name of Object.keys(env).filter(name => name.includes("LAB_MIGRATION") && name !== "MDBASE_NEXT_LAB_MIGRATION_ACCOUNT")) {
       expect(() => parseLabMigrationRouting({ ...env, [name]: "" })).toThrow();
     }
   });
@@ -185,7 +185,7 @@ describe("exact LAB account routing", () => {
     try {
       const response = await app.inject({ method: "GET", url: `/internal/v1/next/collections/${collection}/state`, headers: { authorization: `Bearer ${caller === "migration" ? routing.inboundToken : "H".repeat(40)}` } });
       expect(response.statusCode).toBe(status);
-      if (status === 403) expect(db.query).toHaveBeenCalledTimes(1);
+      if (status === 403) expect(db.query).toHaveBeenCalledTimes(owner === account ? 1 : 2);
       const spoof = await app.inject({ method: "POST", url: "/internal/v1/next/collections/states", headers: { authorization: `Bearer ${routing.inboundToken}` }, payload: { ids: [collection], account } });
       expect(spoof.statusCode).not.toBe(200);
     } finally { await app.close(); }
