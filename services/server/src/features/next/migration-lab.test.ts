@@ -387,6 +387,16 @@ describe("LAB raw Worker run errors", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
+  it("preserves bounded private custody call details but drops unrecognized or over-bound sub-causes", async () => {
+    const valid = { call: "kms_unwrap", name: "Error", message: "synthetic provider failure" };
+    for (const sub_cause of [valid, { ...valid, call: "arbitrary" }, { ...valid, message: "🦉".repeat(1025) }]) {
+      const fetchImpl = vi.fn(async () => Response.json({ error: "migration_run_ready_failed", raw_error: { ...raw, sub_cause } }, { status: 500 }));
+      const client = labWorkerClient({ url: "https://worker.example", token: "t".repeat(40), environment: "lab" }, fetchImpl as typeof fetch);
+      const reply = await client.run(collection, hold);
+      expect(reply.diagnostic?.raw_error?.sub_cause).toEqual(sub_cause === valid ? valid : undefined);
+    }
+  });
+
   it("does not capture raw status, transport, unrelated, successful, or malformed errors", async () => {
     for (const [error, status, rawError] of [["invalid_request", 500, raw], ["migration_run_failed", 200, raw],
       ["migration_run_failed", 500, { message: {}, stack: raw.stack }]] as const) {
