@@ -129,7 +129,8 @@ export function registerPasswordAuthRoutes(
   const passwordAccounts = new PasswordAccountService(
     options.db,
     options.authenticationPolicy,
-    options.newAccountBackend
+    options.newAccountBackend,
+    options.environment
   );
   const passwordRecovery = new PasswordRecoveryService(
     options.db,
