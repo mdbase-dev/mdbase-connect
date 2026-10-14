@@ -684,9 +684,8 @@ button.danger:disabled {
   width: 14px;
 }
 
-.connect-sign-out {
-  margin-top: var(--space-6);
-  color: var(--danger);
+.connect-session-actions {
+  padding-block: var(--space-3);
 }
 
 .connect-account-message {
