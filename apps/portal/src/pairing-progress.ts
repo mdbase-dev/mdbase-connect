@@ -6,6 +6,7 @@ const POLL_MS = 1_000;
 export function watchPairingPreparation<T extends { attested?: boolean; approved_at: string | null }>(options: {
   read(signal: AbortSignal): Promise<T>;
   isDispatching(): boolean;
+  ready?(pairing: T): boolean;
   onReady(pairing: T): void;
   onError(reason: unknown): void;
   onTimeout(): void;
@@ -30,7 +31,7 @@ export function watchPairingPreparation<T extends { attested?: boolean; approved
     try {
       const pairing = await options.read(lifetime.signal);
       if (stopped) return;
-      if (pairing.attested || pairing.approved_at) { stop(); options.onReady(pairing); }
+      if (options.ready ? options.ready(pairing) : pairing.attested || pairing.approved_at) { stop(); options.onReady(pairing); }
       else schedule();
     } catch (reason) {
       if (!stopped) { stop(); options.onError(reason); }

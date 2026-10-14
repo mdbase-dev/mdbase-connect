@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { Pairing } from "./authority-workflows";
 import { api } from "./api";
@@ -36,5 +36,33 @@ describe("approval collection chooser",()=>{
     const picker=await show(false);const input=screen.getByRole("searchbox",{name:"Find a collection"});fireEvent.change(input,{target:{value:"absent-name"}});
     expect(screen.getByRole("status")).toHaveTextContent("No collections match");fireEvent.change(input,{target:{value:""}});fireEvent.click(picker);
     expect(within(screen.getByRole("listbox")).getAllByRole("option")).toHaveLength(collections.length);
+  });
+  async function privateChoice(native="native-request") {
+    vi.mocked(api).mockClear();
+    vi.mocked(api).mockImplementation(async path=>String(path).endsWith("/approve") ? {ok:true} : {pairing:{
+      connector_name:"Reader",approved_at:null,installation_device:true,kind:"app-runtime",account_selection_confirmed:true,attested:true,
+      account_email:"test@example.test",fingerprint:"1234-5678-1234-5678",native_authorization_id:native||null,
+      requested_create_collections:true,can_create_collection:true,
+      collections:[{collection_id:"original-private",display_name:"[test] Original Private",role:"owner",kind:"private"}],
+    }});
+    render(<Pairing pairingId="pairing"/>);
+    fireEvent.click(await screen.findByRole("combobox",{name:"Open in Reader"}));
+    fireEvent.click(screen.getByRole("option",{name:"[test] Original Private"}));
+  }
+  it("uses the SAME chooser/Approve for Private without creating or granting Hosted scopes",async()=>{
+    await privateChoice();
+    expect(screen.getByRole("combobox",{name:"Open in Reader"})).toHaveTextContent("[test] Original Private");
+    expect(screen.queryByText("Advanced: allow more collections")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button",{name:"Approve"}));
+    await waitFor(()=>expect(vi.mocked(api)).toHaveBeenCalledWith("/v1/pairing-requests/pairing/approve",expect.objectContaining({method:"POST"})));
+    const approval=vi.mocked(api).mock.calls.find(([path])=>String(path).endsWith("/approve"))!;
+    expect(JSON.parse(approval[1]!.body as string)).toEqual({fingerprint:"1234-5678-1234-5678",collection_ids:[],create_collections:false,selected_collection_id:"original-private",selected_collection_kind:"private"});
+    expect(vi.mocked(api).mock.calls.some(([path])=>String(path).endsWith("/collections"))).toBe(false);
+  });
+  it("does not approve Private from catalog metadata before its signed companion is prepared",async()=>{
+    await privateChoice("");
+    expect(screen.getByRole("button",{name:"Approve"})).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent("Preparing Reader");
+    expect(vi.mocked(api).mock.calls.some(([,options])=>options?.method==="POST")).toBe(false);
   });
 });

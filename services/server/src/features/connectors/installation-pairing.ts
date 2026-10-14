@@ -18,23 +18,16 @@ import { installationCollections, requireInstallationScope } from "../next/insta
 import { queueNextPolicy } from "../next/policy-outbox.js";
 import { findInstallationApplication } from "../applications/store.js";
 import { installationTimerDeclaration, readInstallationTimerDeclaration, type InstallationTimerBinding, type InstallationTimerDeclaration } from "../next/timers/installation-declaration.js";
-export class InstallationPairingError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-    message: string,
-    readonly details?: Record<string, unknown>,
-  ) {
-    super(message);
-  }
-}
-const fail = (code: string, status = 409): never => {
+import { InstallationPairingError } from "./installation-pairing-error.js";
+export { InstallationPairingError } from "./installation-pairing-error.js";
+import { attachNativeAuthorization, approveInstallationNativeChoice, privateInstallationChoices } from "./installation-native-authorization.js";
+function fail(code: string, status = 409): never {
   throw new InstallationPairingError(
     status,
     code,
     "The original device sign-in cannot continue. Preserve its state and reconcile.",
   );
-};
+}
 const strict = (): never => {
   throw new InstallationPairingError(
     403,
@@ -95,6 +88,8 @@ interface Row {
   portal_account_session_id: string | null;
   portal_account_session_epoch: string | number | null;
   selected_collection_id: string | null;
+  native_authorization_id: string | null;
+  native_selection_collection_id: string | null;
   recovery_collection_id: string | null;
   created_collection_ids: string[];
   sign_pk: Buffer | null;
@@ -134,7 +129,7 @@ async function row(
   includeRevoked = false,
 ): Promise<Row> {
   const found = await c.query<Row>(
-    `SELECT p.*, i.installation_id,i.previous_pairing_id,i.app_id,i.app_origin,i.device_id,i.connector_id,i.kind,i.challenge,i.account_selected_at,COALESCE(i.sign_pk,k.sign_pk) AS sign_pk,COALESCE(i.kem_pk,k.kem_pk) AS kem_pk,COALESCE(i.noise_pk,k.noise_pk) AS noise_pk,i.registration_sig,i.attested_at,i.requested_create_collections,i.approved_create_collections,i.approved_collection_ids,i.scope_only,i.approved_session_epoch,i.portal_account_confirmed_at,i.portal_account_email,i.portal_account_provider,i.portal_account_login,i.portal_account_session_id,i.portal_account_session_epoch,i.selected_collection_id,i.recovery_collection_id,i.created_collection_ids,i.timer_declaration,i.timer_consent,i.file_access_collection_id,i.requested_file_actions,i.file_access_reason,i.approved_file_actions FROM pairing_requests p JOIN installation_device_pairings i ON i.pairing_id=p.id LEFT JOIN installation_device_credentials k ON k.connector_id=i.connector_id AND i.scope_only WHERE p.id=$1 ${includeRevoked ? "" : "AND p.revoked_at IS NULL"} ${secret === undefined ? "" : "AND p.secret_hash=$2"} ${lock ? "FOR UPDATE OF p,i" : ""}`,
+    `SELECT p.*, i.installation_id,i.previous_pairing_id,i.app_id,i.app_origin,i.device_id,i.connector_id,i.kind,i.challenge,i.account_selected_at,COALESCE(i.sign_pk,k.sign_pk) AS sign_pk,COALESCE(i.kem_pk,k.kem_pk) AS kem_pk,COALESCE(i.noise_pk,k.noise_pk) AS noise_pk,i.registration_sig,i.attested_at,i.requested_create_collections,i.approved_create_collections,i.approved_collection_ids,i.scope_only,i.approved_session_epoch,i.portal_account_confirmed_at,i.portal_account_email,i.portal_account_provider,i.portal_account_login,i.portal_account_session_id,i.portal_account_session_epoch,i.selected_collection_id,i.recovery_collection_id,i.created_collection_ids,i.timer_declaration,i.timer_consent,i.file_access_collection_id,i.requested_file_actions,i.file_access_reason,i.approved_file_actions,na.authorization_request_id AS native_authorization_id,na.selected_collection_id AS native_selection_collection_id FROM pairing_requests p JOIN installation_device_pairings i ON i.pairing_id=p.id LEFT JOIN installation_device_credentials k ON k.connector_id=i.connector_id AND i.scope_only LEFT JOIN installation_native_authorizations na ON na.pairing_id=i.pairing_id WHERE p.id=$1 ${includeRevoked ? "" : "AND p.revoked_at IS NULL"} ${secret === undefined ? "" : "AND p.secret_hash=$2"} ${lock ? "FOR UPDATE OF p,i" : ""}`,
     [id, ...(secret === undefined ? [] : [tokenHash(secret)])],
   );
   const r = found.rows[0];
@@ -212,6 +207,9 @@ function portalConfirmation(r: Row) {
   } : {};
 }
 function collectionSelection(r: Row) {
+  if (r.native_selection_collection_id && r.native_authorization_id) return {
+    native_selection: {authorization_request_id:r.native_authorization_id,collection_id:r.native_selection_collection_id},
+  };
   return r.selected_collection_id ? {
     selected_collection_id: r.selected_collection_id,
     created_collection_ids: r.created_collection_ids,
@@ -331,6 +329,21 @@ export async function startInstallationPairing(
     return {pairing_id:r.id,pairing_secret:input.pairing_secret,verification_uri:`${publicUrl}/pair/${r.id}${input.collection_hint ? `?collection_hint=${encodeURIComponent(input.collection_hint)}` : ""}`,expires_in:Math.max(0,Math.floor((new Date(r.expires_at).getTime()-Date.now())/1000)),installation_device:true,app_id:r.app_id,app_origin:r.app_origin,app_name:r.connector_name,...(r.recovery_collection_id ? {recovery_collection_id:r.recovery_collection_id} : {})};
   });
 }
+export async function attachInstallationNativeAuthorization(db: DatabasePool, id: string, secret: string, authorizationId: string) {
+  return tx(db,async c=>{
+    const initial=await row(c,id,secret);
+    if (!initial.user_id) fail("installation_account_confirmation_required",403);
+    await active(c,initial.user_id,true);
+    const r=await row(c,id,secret,true);
+    live(r);
+    if (r.user_id!==initial.user_id || !r.portal_account_confirmed_at || !r.portal_account_session_id || (!r.attested_at && !r.scope_only)) fail("installation_attestation_required");
+    await currentSession(c,r.portal_account_session_id,r.user_id!);
+    const epoch=(await c.query<{session_epoch:string|number}>("SELECT session_epoch FROM users WHERE id=$1",[r.user_id])).rows[0]?.session_epoch;
+    if (String(epoch)!==String(r.portal_account_session_epoch) || r.file_access_collection_id) fail("installation_account_changed",403);
+    return attachNativeAuthorization(c,r,authorizationId);
+  });
+}
+
 export async function inspectInstallationPairing(
   db: DatabasePool,
   id: string,
@@ -346,7 +359,12 @@ export async function inspectInstallationPairing(
   live(r);
   if (r.user_id && r.user_id !== user)
     fail("installation_account_changed", 403);
-  const eligible = r.account_selected_at ? await tx(db, c => installationCollections(c, user, undefined, r.device_id)) : [];
+  const eligible = r.account_selected_at ? await tx(db, async c => {
+    const hosted=await installationCollections(c,user,undefined,r.device_id);
+    const native=r.file_access_collection_id ? [] : await privateInstallationChoices(c,user,r.app_id);
+    if (hosted.length+native.length>1000) fail("installation_scope_limit");
+    return [...hosted,...native];
+  }) : [];
   const collections = r.recovery_collection_id ? eligible.filter(collection => collection.collection_id===r.recovery_collection_id) : eligible;
   if (r.recovery_collection_id && r.account_selected_at && !collections.length) fail("installation_collection_unavailable",403);
   // A URL-carried UX hint, not persisted selection or consent. Never look up the
@@ -371,6 +389,7 @@ export async function inspectInstallationPairing(
       signed_in_account_email: identity?.email ?? null,
       ...(identity?.provider ? {signed_in_account_provider:identity.provider,signed_in_account_login:identity.login} : {}),
       selected_collection_id: r.selected_collection_id,
+      native_authorization_id: r.native_authorization_id,
       ...(r.recovery_collection_id ? {recovery_collection_id:r.recovery_collection_id} : {}),
       creation: (await db.query<{collection_id:string;display_name:string;completed:boolean}>("SELECT collection_id,display_name,completed_at IS NOT NULL AS completed FROM installation_pairing_collection_creations WHERE pairing_id=$1",[id])).rows[0] ?? null,
       attested: r.scope_only || !!r.attested_at,
@@ -534,7 +553,7 @@ export async function approveInstallationPairing(
   user: string,
   session: string,
   fingerprint: string,
-  consent: {collection_ids:string[];create_collections:boolean;selected_collection_id?:string;timer_consent?:boolean;file_actions?:FileAction[]} = {collection_ids:[],create_collections:false},
+  consent: {collection_ids:string[];create_collections:boolean;selected_collection_id?:string;selected_collection_kind?:"cloud_copy"|"private";timer_consent?:boolean;file_actions?:FileAction[]} = {collection_ids:[],create_collections:false},
 ) {
   return tx(db, async (c) => {
     await active(c, user, true);
@@ -546,7 +565,7 @@ export async function approveInstallationPairing(
       fail("installation_attestation_required");
     if (!r.sign_pk || fingerprint !== clientFingerprint(r.sign_pk)) return fail("installation_fingerprint_changed", 403);
     if (r.recovery_collection_id && (r.file_access_collection_id || consent.file_actions)) fail("installation_recovery_target_changed");
-    requireRecoveryScope(r,consent.collection_ids,consent.selected_collection_id??null,consent.create_collections);
+    if (consent.selected_collection_kind!=="private") requireRecoveryScope(r,consent.collection_ids,consent.selected_collection_id??null,consent.create_collections);
     if (r.file_access_collection_id || consent.file_actions) return approveFileAccess(c, r, user, consent);
     const selected = consent.selected_collection_id ?? null;
     // Manual legacy approval remains supported, but can never fabricate the
@@ -555,6 +574,18 @@ export async function approveInstallationPairing(
       const epoch = (await c.query<{session_epoch:string|number}>("SELECT session_epoch FROM users WHERE id=$1",[user])).rows[0]?.session_epoch;
       if (!r.portal_account_confirmed_at || String(epoch)!==String(r.portal_account_session_epoch))
         fail("installation_account_confirmation_required",403);
+    }
+    if (consent.selected_collection_kind==="private") {
+      if (!selected || !r.portal_account_confirmed_at || consent.collection_ids.length || consent.create_collections || consent.timer_consent===true || consent.file_actions || r.file_access_collection_id) fail("installation_invalid_scope",400);
+      if (r.recovery_collection_id && r.recovery_collection_id!==selected) fail("installation_recovery_target_changed");
+      if (r.approved_at && (r.selected_collection_id || r.approved_collection_ids.length || r.approved_create_collections)) fail("installation_approved_scope_changed");
+      const native=await approveInstallationNativeChoice(c,r,selected);
+      if (native.fresh) {
+        await c.query("UPDATE installation_device_pairings SET approved_collection_ids='{}',approved_create_collections=false,approved_session_epoch=(SELECT session_epoch FROM users WHERE id=$2),selected_collection_id=NULL WHERE pairing_id=$1",[id,user]);
+        await c.query("UPDATE pairing_requests SET approved_at=now(),expires_at=GREATEST(expires_at,now()+interval '10 minutes') WHERE id=$1",[id]);
+        await audit(c,user,"device.installation_approved",id,{kind:r.kind,native_authorization_id:native.authorization_request_id});
+      }
+      return {ok:true,...(native.fresh ? {native_authorization_uri:`/oauth/authorize?request_id=${native.authorization_request_id}`} : {})};
     }
     const ids = [...consent.collection_ids].sort();
     if (new Set(ids).size!==ids.length || ids.length>1000 || (consent.create_collections && !r.requested_create_collections)) return fail("installation_invalid_scope",400);
@@ -749,6 +780,10 @@ function credential(r: Row, secret: string): string {
 }
 /** The original recovery CID is a constraint, never a grant or UX hint. */
 function requireRecoveryScope(r: Row, ids=r.approved_collection_ids, selected=r.selected_collection_id, create=r.approved_create_collections): void {
+  if (r.native_selection_collection_id && r.native_authorization_id && r.recovery_collection_id) {
+    if (r.native_selection_collection_id!==r.recovery_collection_id || ids.length || selected || create || r.created_collection_ids.length) fail("installation_recovery_target_changed");
+    return;
+  }
   if (r.recovery_collection_id && (ids.length!==1 || ids[0]!==r.recovery_collection_id || selected!==r.recovery_collection_id || create || r.created_collection_ids.length)) fail("installation_recovery_target_changed");
 }
 /** Add only after explicit consent, under the same credential lock used by

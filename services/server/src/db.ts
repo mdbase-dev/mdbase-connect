@@ -134,6 +134,10 @@ export async function openDatabase(
       // pg-mem lacks recovery array/null-safe CHECKs and deferred triggers.
       // Schema-only prefix for existing memory consumers; recovery authority
       // and partial-commit invariants are qualified by real PostgreSQL only.
+      // The compound Native/installation checks need real PostgreSQL too.
+      // Keep its relational schema for memory consumers, never emulate consent.
+      const nativeShape = "-- mdbase:installation-native-constraints:v1";
+      if (sql.includes(nativeShape)) return memory.public.many(sql.slice(0, sql.indexOf(nativeShape)));
       const recoveryShape = "-- mdbase:installation-recovery-target-constraints:v1";
       if (sql.includes(recoveryShape)) return memory.public.many(sql.slice(0, sql.indexOf(recoveryShape)));
       const grantTrigger = "-- mdbase:next-grant-revoke-trigger:v1";

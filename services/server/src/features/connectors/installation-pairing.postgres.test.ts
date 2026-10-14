@@ -5,7 +5,11 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { createExternalSession } from "../../external-auth.js";
-import { MDBASE_TIMER_FIRED_CONTRACT } from "@mdbase-dev/connect-protocol";
+import { capabilityOperationsForContractVersion, MDBASE_TIMER_FIRED_CONTRACT } from "@mdbase-dev/connect-protocol";
+import { createTestApplicationIdentity, testApplicationAuthorization } from "../../application-authorization.test-helper.js";
+import { clientNoiseKeyMessage, storeRequestClientNoiseKey, verifiedClientNoiseKey } from "../next/client-key.js";
+import { approveNativeAuthorization } from "../authorizations/native-approval-service.js";
+import { fileRequestForRequirements } from "../../application-requirements.js";
 import { randomToken, tokenHash } from "../../security.js";
 import { pruneUsageHistory } from "../../usage-report.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
@@ -470,14 +474,157 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect((await app.inject({method:"POST",url:`${strictFlow.base}/select-account`,headers:strict.headers})).statusCode).toBe(403);
     const transition = await prepared(); expect((await approveDevice(transition.flow,transition.owner)).statusCode).toBe(200); await db.query("INSERT INTO next_account_keys(user_id,mode,version) VALUES($1,'strict',1)",[transition.owner.user]); expect((await transition.flow.exchange()).statusCode).toBe(403);
   });
-  async function scopeCollection(owner:string, member=owner) {
+  async function scopeCollection(owner:string, member=owner, sync: "cloud_copy" | "private" = "cloud_copy") {
     const collection=randomUUID();
-    await db.query("INSERT INTO next_collections(collection_id,owner_user_id,runtime,sync,root_key_id) VALUES($1,$2,'next','cloud_copy',$3)",[collection,owner,Buffer.alloc(32)]);
+    await db.query("INSERT INTO next_collections(collection_id,owner_user_id,runtime,sync,root_key_id) VALUES($1,$2,'next',$4,$3)",[collection,owner,Buffer.alloc(32),sync]);
     const batch=(await db.query("INSERT INTO next_policy_batches(collection_id,seq,prev,item,issued_at,state) VALUES($1,1,$2,$3,1,'appended') RETURNING id",[collection,Buffer.alloc(32),Buffer.alloc(1)])).rows[0].id;
     const ops=[{op:"member-set",account:owner,role:"owner"},...(member===owner?[]:[{op:"member-set",account:member,role:"editor"}])];
     await db.query("INSERT INTO next_policy_outbox(collection_id,ops,batch_id) VALUES($1,$2,$3)",[collection,JSON.stringify({version:1,ops}),batch]);
     return collection;
   }
+  it("offers the same account's Private collection in ordinary Sign in with zero Hosted collections", async () => {
+    const owner=await account(), foreign=await account();
+    const privateId=await scopeCollection(owner.user,owner.user,"private");
+    const foreignId=await scopeCollection(foreign.user,foreign.user,"private");
+    await db.query("UPDATE next_collections SET display_name='[test] Original Private' WHERE collection_id=$1",[privateId]);
+    const p=await prepared("app-runtime",true,owner);
+    const shown=(await app.inject({method:"GET",url:p.flow.base,headers:owner.headers})).json().pairing;
+    expect(shown.collections).toContainEqual({collection_id:privateId,display_name:"[test] Original Private",role:"owner",kind:"private"});
+    expect(shown.collections.some((c:{collection_id:string})=>c.collection_id===foreignId)).toBe(false);
+    expect((await db.query("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1",[p.selected.connector_id])).rows).toEqual([]);
+    expect((await p.flow.exchange()).json().status).toBe("awaiting_approval");
+  });
+  async function nativeApp() {
+    const declaration=registerApplicationManifest({manifest_version:1,id:`dev.example.native-${randomUUID()}`,name:"[test] Native Notes",distribution:"web",homepage:webOrigin,
+      redirect_uris:[`${webOrigin}/callback`],requirements:{contracts:[],access:"full_collection",capabilities:{contract_version:2,required:["collection.read"]},files:{required:["list","read"],scope:{kind:"collection"}}}});
+    const registered=await upsertApplication(db,declaration);
+    apps.set(registered.id,{name:"[test] Native Notes",web:webOrigin,mobile:`capacitor://app-${registered.id}.example.test`});
+    return registered.id;
+  }
+  async function privatePrepared(create=false) { return prepared("app-runtime",create,undefined,undefined,await nativeApp()); }
+  async function nativeCompanion(p: Awaited<ReturnType<typeof prepared>>, options: {nonce?:string;user?:string;appId?:string}={}) {
+    const id=randomUUID(), nativeApp=options.appId??p.input.installation.app_id;
+    const a=(await db.query("SELECT * FROM applications WHERE id=$1",[nativeApp])).rows[0];
+    const registered=registerApplicationManifest(a.application_declaration);
+    const capabilities=a.requirements.capabilities;
+    const operations=[...new Set(capabilities.required.flatMap((capability:Parameters<typeof capabilityOperationsForContractVersion>[1])=>capabilityOperationsForContractVersion(capabilities.contract_version,capability)??[]))];
+    const signing=createTestApplicationIdentity();
+    const redirect=`${apps.get(nativeApp)!.web}/callback`;
+    const proof=await testApplicationAuthorization({applicationId:nativeApp,authorizationId:id,
+      applicationManifestDigest:a.manifest_digest,applicationDeclarationId:registered.manifest.id,
+      flow:"authorization_code",redirectUri:redirect,state:randomUUID(),codeChallenge:Buffer.alloc(32,8).toString("base64url"),
+      semanticCapabilityContractVersion:capabilities.contract_version,requestedOperations:operations,requestedFiles:fileRequestForRequirements(a.requirements),
+      grantSigningPublicKey:signing.publicKey,authorizationNonce:options.nonce??Buffer.from(p.selected.challenge,"hex").toString("base64url")});
+    await db.query(`INSERT INTO authorization_requests(id,user_id,application_id,flow,requested_operations,operation_transport_protocol,
+      application_agreement_public_key,application_signing_public_key,application_authorization,application_installation_id,redirect_uri,code_challenge,state,expires_at)
+      VALUES($1,$2,$3,'authorization_code',$4::jsonb,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,now()+interval '10 minutes')`,
+      [id,options.user??null,nativeApp,JSON.stringify(operations),proof.binding.contracts.operation_transport,
+        proof.binding.grant_agreement_public_key,signing.publicKey,JSON.stringify(proof),proof.binding.application_installation_id,redirect,proof.binding.code_challenge,proof.binding.state]);
+    const noise=Buffer.from(rawX(),"hex");
+    const signature=sign("sha256",clientNoiseKeyMessage(id,noise),{key:signing.privateKey,dsaEncoding:"ieee-p1363"});
+    await storeRequestClientNoiseKey(db,id,verifiedClientNoiseKey(JSON.stringify({public_key:noise.toString("base64url"),signature:signature.toString("base64url")}),proof.binding)!);
+    return {id,operations,attach:()=>app.inject({method:"POST",url:`${p.flow.base}/native-authorization`,headers:p.flow.bearer,payload:{authorization_request_id:id}})};
+  }
+  async function approvePrivate(p: Awaited<ReturnType<typeof prepared>>, collection: string) {
+    return app.inject({method:"POST",url:`${p.flow.base}/approve`,headers:p.owner.headers,payload:{fingerprint:clientFingerprint(Buffer.from(p.proof.payload.sign_pk,"hex")),collection_ids:[],create_collections:false,selected_collection_id:collection,selected_collection_kind:"private"}});
+  }
+  it("atomically approves a Private choice and genuine original zero-scope installation",async()=>{
+    const p=await privatePrepared(true), collection=await scopeCollection(p.owner.user,p.owner.user,"private"), n=await nativeCompanion(p);
+    expect((await n.attach()).statusCode).toBe(200);
+    expect((await n.attach()).statusCode).toBe(200);
+    expect((await db.query("SELECT grant_id FROM authorization_requests WHERE id=$1",[n.id])).rows[0].grant_id).toBeNull();
+    const approved=await approvePrivate(p,collection);
+    expect(approved.statusCode,approved.body).toBe(200);
+    expect(approved.json()).toMatchObject({ok:true,native_authorization_uri:`/oauth/authorize?request_id=${n.id}`});
+    const grant=(await db.query("SELECT g.* FROM grants g JOIN authorization_requests ar ON ar.grant_id=g.id WHERE ar.id=$1",[n.id])).rows[0];
+    expect(grant).toMatchObject({user_id:p.owner.user,next_collection_id:collection});
+    const paired=(await p.flow.exchange()).json();
+    expect(paired).toMatchObject({status:"paired",collection_ids:[],create_collections:false,native_selection:{authorization_request_id:n.id,collection_id:collection}});
+    expect(paired).not.toHaveProperty("selected_collection_id");expect(paired).not.toHaveProperty("created_collection_ids");
+    expect((await db.query("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1",[p.selected.connector_id])).rows).toEqual([]);
+    expect((await approvePrivate(p,collection)).json()).not.toHaveProperty("native_authorization_uri");
+    expect((await db.query("SELECT count(*)::int AS n FROM grants WHERE next_collection_id=$1",[collection])).rows[0].n).toBe(1);
+  });
+  it.each(["nonce","account","app"])("refuses a swapped Native %s before grant or association",async wrong=>{
+    const p=await privatePrepared(), foreign=await account();
+    const appId=wrong==="app" ? await nativeApp() : undefined;
+    const n=await nativeCompanion(p,{...(wrong==="nonce"?{nonce:Buffer.alloc(32,9).toString("base64url")}:{ }),...(wrong==="account"?{user:foreign.user}:{}),...(appId?{appId}:{})});
+    expect((await n.attach()).statusCode).toBe(409);
+    expect((await db.query("SELECT pairing_id FROM installation_native_authorizations WHERE pairing_id=$1",[p.input.installation.request_id])).rows).toEqual([]);
+    expect((await db.query("SELECT grant_id FROM authorization_requests WHERE id=$1",[n.id])).rows[0].grant_id).toBeNull();
+  });
+  it("does not replace the original companion or immutable selected target",async()=>{
+    const p=await privatePrepared(), collection=await scopeCollection(p.owner.user,p.owner.user,"private"), other=await scopeCollection(p.owner.user,p.owner.user,"private");
+    const first=await nativeCompanion(p), second=await nativeCompanion(p);
+    expect((await first.attach()).statusCode).toBe(200);expect((await second.attach()).statusCode).toBe(409);
+    expect((await approvePrivate(p,collection)).statusCode).toBe(200);expect((await approvePrivate(p,other)).statusCode).toBe(409);
+    await expect(db.query("UPDATE installation_native_authorizations SET authorization_request_id=$2 WHERE pairing_id=$1",[p.input.installation.request_id,second.id])).rejects.toMatchObject({code:"P0001"});
+    expect((await db.query("SELECT grant_id FROM authorization_requests WHERE id=$1",[second.id])).rows[0].grant_id).toBeNull();
+  });
+  it("requires the original chooser: ordinary Native approve cannot bypass a linked cancelled parent",async()=>{
+    const p=await privatePrepared(), collection=await scopeCollection(p.owner.user,p.owner.user,"private"), n=await nativeCompanion(p);
+    expect((await n.attach()).statusCode).toBe(200);
+    expect((await app.inject({method:"POST",url:`${p.flow.base}/deny`,headers:p.owner.headers})).statusCode).toBe(200);
+    await expect(approveNativeAuthorization(db,{requestId:n.id,userId:p.owner.user,collectionId:collection,operations:n.operations})).rejects.toThrow("original app collection chooser");
+    expect((await db.query("SELECT grant_id FROM authorization_requests WHERE id=$1",[n.id])).rows[0].grant_id).toBeNull();
+  });
+  it("rolls back Native grant and choice if account-only installation approval fails",async()=>{
+    const p=await privatePrepared(), collection=await scopeCollection(p.owner.user,p.owner.user,"private"), n=await nativeCompanion(p);
+    expect((await n.attach()).statusCode).toBe(200);
+    await db.query(`CREATE FUNCTION fail_native_registration_test() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic registration failure'; END $$;
+      CREATE TRIGGER fail_native_registration_test BEFORE UPDATE ON installation_device_pairings FOR EACH ROW EXECUTE FUNCTION fail_native_registration_test()`);
+    try {
+      expect((await approvePrivate(p,collection)).statusCode).toBe(500);
+      expect((await db.query("SELECT grant_id,completed_at FROM authorization_requests WHERE id=$1",[n.id])).rows[0]).toMatchObject({grant_id:null,completed_at:null});
+      expect((await db.query("SELECT approved_at FROM installation_native_authorizations WHERE pairing_id=$1",[p.input.installation.request_id])).rows[0].approved_at).toBeNull();
+      expect((await db.query("SELECT approved_at FROM pairing_requests WHERE id=$1",[p.input.installation.request_id])).rows[0].approved_at).toBeNull();
+      expect((await db.query("SELECT id FROM grants WHERE next_collection_id=$1",[collection])).rows).toEqual([]);
+    } finally { await db.query("DROP TRIGGER fail_native_registration_test ON installation_device_pairings; DROP FUNCTION fail_native_registration_test()"); }
+  });
+  it("rechecks original account epoch before Native mutation",async()=>{
+    const p=await privatePrepared(), collection=await scopeCollection(p.owner.user,p.owner.user,"private"), n=await nativeCompanion(p);
+    expect((await n.attach()).statusCode).toBe(200);await db.query("UPDATE users SET session_epoch=session_epoch+1 WHERE id=$1",[p.owner.user]);
+    expect((await approvePrivate(p,collection)).statusCode).toBe(401);
+    expect((await db.query("SELECT grant_id FROM authorization_requests WHERE id=$1",[n.id])).rows[0].grant_id).toBeNull();
+  });
+  it.each(["expiry","origin","manifest","Noise key","denial"])("rechecks original Native %s after attachment, before any grant",async kind=>{
+    const p=await privatePrepared(),collection=await scopeCollection(p.owner.user,p.owner.user,"private"),n=await nativeCompanion(p);
+    expect((await n.attach()).statusCode).toBe(200);
+    if(kind==="expiry") await db.query("UPDATE authorization_requests SET expires_at=now()-interval '1 second' WHERE id=$1",[n.id]);
+    if(kind==="origin") await db.query("UPDATE authorization_requests SET redirect_uri='https://wrong.example.test/callback' WHERE id=$1",[n.id]);
+    if(kind==="manifest") expect((await db.query("UPDATE applications SET manifest_digest=$2 WHERE id=$1",[p.input.installation.app_id,"f".repeat(64)])).rowCount).toBe(1);
+    if(kind==="Noise key") await db.query("DELETE FROM next_authorization_client_keys WHERE request_id=$1",[n.id]);
+    if(kind==="denial") await db.query("UPDATE authorization_requests SET denied_at=now() WHERE id=$1",[n.id]);
+    const approval=await approvePrivate(p,collection);expect(approval.statusCode,approval.body).toBe(409);
+    expect((await db.query("SELECT grant_id FROM authorization_requests WHERE id=$1",[n.id])).rows[0].grant_id).toBeNull();
+    expect((await db.query("SELECT approved_at FROM pairing_requests WHERE id=$1",[p.input.installation.request_id])).rows[0].approved_at).toBeNull();
+  });
+  it("keeps Native recovery constrained to its original Private CID with zero Hosted scopes",async()=>{
+    const owner=await account(), collection=await scopeCollection(owner.user,owner.user,"private");
+    const p=await prepared("app-runtime",false,owner,undefined,await nativeApp(),collection), n=await nativeCompanion(p);
+    expect((await n.attach()).statusCode).toBe(200);
+    const approval=await approvePrivate(p,collection);expect(approval.statusCode,approval.body).toBe(200);
+    const paired=(await p.flow.exchange()).json();
+    expect(paired).toMatchObject({status:"paired",recovery_collection_id:collection,collection_ids:[],create_collections:false,native_selection:{authorization_request_id:n.id,collection_id:collection}});
+    expect(paired).not.toHaveProperty("selected_collection_id");
+    expect((await db.query("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1",[p.selected.connector_id])).rows).toEqual([]);
+  });
+  it("additive Private approval preserves the original Hosted scopes and device actor",async()=>{
+    const original=await privatePrepared(), hosted=await scopeCollection(original.owner.user), collection=await scopeCollection(original.owner.user,original.owner.user,"private");
+    expect((await approveDevice(original.flow,original.owner,undefined,{collection_ids:[hosted],create_collections:false,selected_collection_id:hosted})).statusCode).toBe(200);
+    const credential=(await original.flow.exchange()).json();
+    const input={...original.input,installation:{...original.input.installation,request_id:randomUUID(),pairing_secret:randomToken("pair"),reconsent:true}};
+    expect((await app.inject({method:"POST",url:"/v1/pairing-requests",headers:{...originHeaders(input),authorization:`Bearer ${credential.token}`},payload:input})).statusCode).toBe(201);
+    const flow=channel(input);
+    expect((await app.inject({method:"POST",url:`${flow.base}/select-account`,headers:original.owner.headers})).statusCode).toBe(200);
+    const p={...original,input,flow,selected:(await flow.exchange()).json()}, n=await nativeCompanion(p);
+    expect((await n.attach()).statusCode).toBe(200);expect((await approvePrivate(p,collection)).statusCode).toBe(200);
+    const result=(await flow.exchange()).json();
+    expect(result).toMatchObject({status:"scope_updated",added_collection_ids:[],connector_id:original.selected.connector_id,device_id:original.input.installation.device_id,native_selection:{authorization_request_id:n.id,collection_id:collection}});
+    expect(result).not.toHaveProperty("selected_collection_id");
+    expect((await db.query("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1",[original.selected.connector_id])).rows).toEqual([{collection_id:hosted}]);
+    expect((await app.inject({method:"GET",url:"/test/installation-scope",headers:{authorization:`Bearer ${credential.token}`}})).statusCode).toBe(200);
+  });
   it("recovery target echoes its original CID before proof and credential commit", async () => {
     const owner=await account(), target=await scopeCollection(owner.user);
     const p=await prepared("app-runtime",false,owner,undefined,tasknotesId,target);
@@ -699,7 +846,7 @@ describePg("installation device sign-in on daemon pairing", () => {
     const r = await app.inject({ method: "GET", url: `${f.flow.base}?return_url=${encodeURIComponent("dev.example.reader://paired")}`, headers: f.owner.headers });
     expect(r.json().pairing.return_url).toBeNull();
   });
-  it("does not distinguish foreign, private, left, revoked or nonexistent collection hints or grant from a hint", async () => {
+  it("does not distinguish ineligible collection hints or grant from an eligible Private/Hosted hint", async () => {
     const p = await prepared(), target = await scopeCollection(p.owner.user), chosen = await scopeCollection(p.owner.user);
     const other = await account(), foreign = await scopeCollection(other.user), priv = await scopeCollection(p.owner.user), left = await scopeCollection(p.owner.user), revoked = await scopeCollection(p.owner.user);
     await db.query("UPDATE next_collections SET sync='private' WHERE collection_id=$1", [priv]);
@@ -707,10 +854,12 @@ describePg("installation device sign-in on daemon pairing", () => {
     await db.query("INSERT INTO next_policy_outbox(collection_id,ops) VALUES($1,$2)", [revoked, JSON.stringify({ version: 1, ops: [{ op: "device-revoke", device: p.input.installation.device_id }] })]);
     const inspect = (hint?: string) => app.inject({ method: "GET", url: `${p.flow.base}${hint ? `?collection_hint=${hint}` : ""}`, headers: p.owner.headers });
     const baseline = await inspect(); expect(baseline.statusCode).toBe(200); expect(baseline.json().pairing.collection_hint).toBeNull();
-    for (const hint of [foreign, priv, left, revoked, randomUUID()]) {
+    for (const hint of [foreign, left, revoked, randomUUID()]) {
       const result = await inspect(hint); expect(result.statusCode).toBe(200); expect(result.body).toBe(baseline.body);
     }
     expect((await inspect(target)).json().pairing.collection_hint).toBe(target);
+    expect((await inspect(priv)).json().pairing.collection_hint).toBe(priv);
+    expect((await approvePrivate(p,priv)).statusCode).toBe(409); // A hint is no signed companion or consent.
     expect((await db.query("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1", [p.selected.connector_id])).rows).toEqual([]);
     expect((await app.inject({ method: "POST", url: `${p.flow.base}/approve`, headers: p.owner.headers, payload: { fingerprint: clientFingerprint(Buffer.from(p.proof.payload.sign_pk, "hex")), collection_ids: [chosen], create_collections: false, selected_collection_id: chosen } })).statusCode).toBe(200);
     expect((await p.flow.exchange()).json().selected_collection_id).toBe(chosen);
