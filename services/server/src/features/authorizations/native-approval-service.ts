@@ -9,7 +9,7 @@ import { memberAccess, ownerAccess, requireCollectionAction, type CollectionAcce
 import type { CollectionLocator } from "../../collection-catalog.js";
 import { resolveActiveMembershipPolicy } from "../../collection-policy.js";
 import { lockCollectionSharingAuthority, resolveCollectionSharingAuthority } from "../../collection-sharing-authority.js";
-import type { DatabaseQueryable } from "../../database-types.js";
+import type { DatabaseConnection, DatabaseQueryable } from "../../database-types.js";
 import type { DatabasePool } from "../../db.js";
 import { planFreshNextGrant } from "../next/fresh-authorization.js";
 import { audit } from "../../platform/audit-events.js";
@@ -49,20 +49,33 @@ export async function resolveNativeCollectionAccess(db: DatabaseQueryable, userI
   return policy ? memberAccess(locator, policy) : null;
 }
 
-export async function approveNativeAuthorization(
-  db: DatabasePool,
-  input: {
+interface NativeAuthorizationInput {
     requestId: string;
     userId: string;
     collectionId: string;
     operations: CollectionOperation[];
     fileActions?: FileAction[];
     peoplePermissions?: string[];
-  }
-): Promise<boolean> {
+    /** Internal composition fence, never accepted from an OAuth/portal body. */
+    installationPairingId?: string;
+}
+
+export async function approveNativeAuthorization(db: DatabasePool, input: NativeAuthorizationInput): Promise<boolean> {
   const connection = await db.connect();
   try {
     await connection.query("BEGIN");
+    const approved = await approveNativeAuthorizationInTransaction(connection,input);
+    await connection.query("COMMIT");
+    return approved;
+  } catch (error) {
+    await connection.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally { connection.release(); }
+}
+
+/** Compose with another consent mechanism while sharing the SAME locked principal
+ * and transaction. This helper never starts, commits or rolls back a transaction. */
+export async function approveNativeAuthorizationInTransaction(connection: DatabaseConnection, input: NativeAuthorizationInput): Promise<boolean> {
     const authorization = await connection.query<{
       application_id: string;
       application_homepage: string;
@@ -94,9 +107,11 @@ export async function approveNativeAuthorization(
       [input.requestId, input.userId]
     );
     const pending = authorization.rows[0];
-    if (!pending) {
-      await connection.query("ROLLBACK");
-      return false;
+    if (!pending) return false;
+    const companion=(await connection.query<{pairing_id:string;account_id:string}>(
+      "SELECT pairing_id,account_id FROM installation_native_authorizations WHERE authorization_request_id=$1",[input.requestId])).rows[0];
+    if (companion && (companion.pairing_id!==input.installationPairingId || companion.account_id!==input.userId)) {
+      throw new RequestValidationError("Complete this approval in the original app collection chooser.");
     }
     assertFreshApplicationAuthorization(pending.requirements);
     assertOperationsAllowedByApplication(pending.requested_operations, pending.requirements, pending.notifications, pending.provisions);
@@ -188,12 +203,5 @@ export async function approveNativeAuthorization(
       scope: plan.scope,
       source: "portal"
     });
-    await connection.query("COMMIT");
     return true;
-  } catch (error) {
-    await connection.query("ROLLBACK").catch(() => undefined);
-    throw error;
-  } finally {
-    connection.release();
-  }
 }
