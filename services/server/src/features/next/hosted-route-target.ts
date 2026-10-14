@@ -91,7 +91,7 @@ export async function hostedRouteTarget(db: DatabaseQueryable, tokenDigest: stri
   );
   const grant = rows.rows[0];
   if (!grant) return null;
-  const selected = migrationRouting && grant.owner_account === migrationRouting.account ? migrationRouting.hosted.url : origin;
+  const selected = migrationRouting && migrationRouting.accounts.has(grant.owner_account) ? migrationRouting.hosted.url : origin;
   // A scoped destination never supplies a missing default for other accounts.
   if (!selected) return null;
   const pk = grant.hosted_noise_pk;

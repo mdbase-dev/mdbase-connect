@@ -87,7 +87,7 @@ suite("hosted own-collection migration proof (isolated PostgreSQL)", () => {
     const migrationToken = "synthetic-migration-hosted-role-".repeat(3);
     const scoped = Fastify();
     registerMigrationProviderRoutes(scoped, { db, token: adminToken, hostedRead: { token, audience, migrationRouting: {
-      account: own.account, hosted: { url: "https://mdbase-next-hosted-mig-lab.example.workers.dev", token: "outbound".repeat(6) }, inboundToken: migrationToken
+      accounts: new Set([own.account]), hosted: { url: "https://mdbase-next-hosted-mig-lab.example.workers.dev", token: "outbound".repeat(6) }, inboundToken: migrationToken
     } } });
     const request = (f: typeof own, kind: "challenge" | "read", payload: object, credential: string) => scoped.inject({ method: "POST",
       url: `/internal/v1/next/migration/collections/${f.collection}/claim/${kind}`, headers: { authorization: `Bearer ${credential}` }, payload });
@@ -102,6 +102,31 @@ suite("hosted own-collection migration proof (isolated PostgreSQL)", () => {
       expect((await request(own, "read", own.proof(challenge), migrationToken)).statusCode).toBe(200);
       expect((await request(other, "challenge", { device_id: other.device }, token)).statusCode).toBe(200);
     } finally { await scoped.close(); await own.app.close(); await other.app.close(); }
+  });
+
+  it("admits each exact allowlisted account and excludes the third before nonce effects", async () => {
+    const a = await fixture(), b = await fixture(), outside = await fixture();
+    const migrationToken = "synthetic-multi-account-token-".repeat(3);
+    const app = Fastify();
+    registerMigrationProviderRoutes(app, { db, token: adminToken, hostedRead: { token, audience, migrationRouting: {
+      accounts: new Set([a.account, b.account]), hosted: { url: "https://mdbase-next-hosted-mig-lab.example.workers.dev", token: "outbound".repeat(6) }, inboundToken: migrationToken
+    } } });
+    const request = (f: typeof a, kind: "challenge" | "read", payload: object, auth: string) => app.inject({ method: "POST",
+      url: `/internal/v1/next/migration/collections/${f.collection}/claim/${kind}`, headers: { authorization: `Bearer ${auth}` }, payload });
+    try {
+      for (const f of [a, b]) {
+        expect((await request(f, "challenge", { device_id: f.device }, token)).statusCode).toBe(403);
+        const nonce = await request(f, "challenge", { device_id: f.device }, migrationToken);
+        expect(nonce.statusCode, nonce.body).toBe(200);
+        const challenge = nonce.json().challenge as string;
+        expect((await request(f, "read", f.proof(challenge), token)).statusCode).toBe(403);
+        expect(await unused(challenge)).toBe(true);
+        expect((await request(f, "read", f.proof(challenge), migrationToken)).statusCode).toBe(200);
+      }
+      expect((await request(outside, "challenge", { device_id: outside.device }, migrationToken)).statusCode).toBe(403);
+      expect((await db.query("SELECT count(*)::int AS n FROM next_device_challenges WHERE service_device_id=$1", [outside.device])).rows[0].n).toBe(0);
+      expect((await request(outside, "challenge", { device_id: outside.device }, token)).statusCode).toBe(200);
+    } finally { await app.close(); await a.app.close(); await b.app.close(); await outside.app.close(); }
   });
 
   it("never overwrites/renews an outstanding live nonce and permits a new one only after expiry", async () => {

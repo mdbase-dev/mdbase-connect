@@ -95,7 +95,7 @@ suite("hosted Noise discovery (real Postgres, not serving qualification)", () =>
   it("routes only the authoritative rehearsal owner; account spoof and foreign grants cannot redirect", async () => {
     const own = await fixture({ hostedOnly: true });
     const other = await fixture({ hostedOnly: true });
-    const routing: LabMigrationRouting = { account: own.id, hosted: { url: "https://mdbase-next-hosted-mig-lab.example.workers.dev", token: "m".repeat(40) }, inboundToken: "i".repeat(40) };
+    const routing: LabMigrationRouting = { accounts: new Set([own.id]), hosted: { url: "https://mdbase-next-hosted-mig-lab.example.workers.dev", token: "m".repeat(40) }, inboundToken: "i".repeat(40) };
     const scoped = Fastify();
     registerNextRouteRoutes(scoped, { db, publicUrl: "https://connect.example", broker, hostedClientUrl: "https://hosted.example", labMigrationRouting: routing });
     try {
@@ -113,7 +113,7 @@ suite("hosted Noise discovery (real Postgres, not serving qualification)", () =>
   it("isolates real authoritative inbound state batches by deployment credential", async () => {
     const own = await fixture({ hostedOnly: true });
     const other = await fixture({ hostedOnly: true });
-    const routing: LabMigrationRouting = { account: own.id, hosted: { url: "https://mdbase-next-hosted-mig-lab.example.workers.dev", token: "m".repeat(40) }, inboundToken: "i".repeat(40) };
+    const routing: LabMigrationRouting = { accounts: new Set([own.id]), hosted: { url: "https://mdbase-next-hosted-mig-lab.example.workers.dev", token: "m".repeat(40) }, inboundToken: "i".repeat(40) };
     const scoped = Fastify();
     const normalToken = "H".repeat(40);
     registerNextHostedRoutes(scoped, { db, tokens: { hosted: normalToken }, labMigrationRouting: routing });
@@ -125,6 +125,26 @@ suite("hosted Noise discovery (real Postgres, not serving qualification)", () =>
       expect((await state([other.id], routing.inboundToken)).statusCode).toBe(403);
       expect((await state([own.id], normalToken)).statusCode).toBe(403);
     } finally { await scoped.close(); }
+  });
+
+  it("routes multiple allowlisted owners and refuses mixed deployment-scope state batches", async () => {
+    const a = await fixture({ hostedOnly: true }), b = await fixture({ hostedOnly: true }), outside = await fixture({ hostedOnly: true });
+    const routing: LabMigrationRouting = { accounts: new Set([a.id, b.id]), hosted: { url: "https://mdbase-next-hosted-mig-lab.example.workers.dev", token: "m".repeat(40) }, inboundToken: "i".repeat(40) };
+    const app = Fastify(), normalToken = "H".repeat(40);
+    registerNextRouteRoutes(app, { db, publicUrl: "https://connect.example", broker, hostedClientUrl: undefined, labMigrationRouting: routing });
+    registerNextHostedRoutes(app, { db, tokens: { hosted: normalToken }, labMigrationRouting: routing });
+    try {
+      for (const f of [a, b]) {
+        const response = await app.inject({ method: "GET", url: `/v1/next/collections/${f.id}/route`, headers: { authorization: `Bearer ${f.token}` } });
+        expect(response.statusCode, response.body).toBe(200);
+        expect(response.json().targets[0].url).toBe(`wss://mdbase-next-hosted-mig-lab.example.workers.dev/v1/hosted/app?collection=${f.id}`);
+      }
+      expect((await app.inject({ method: "GET", url: `/v1/next/collections/${outside.id}/route`, headers: { authorization: `Bearer ${outside.token}` } })).statusCode).toBe(401);
+      const state = (ids: string[], credential: string) => app.inject({ method: "POST", url: "/internal/v1/next/collections/states", headers: { authorization: `Bearer ${credential}` }, payload: { ids } });
+      expect((await state([a.id, b.id], routing.inboundToken)).statusCode).toBe(200);
+      expect((await state([a.id, b.id], normalToken)).statusCode).toBe(403);
+      for (const credential of [routing.inboundToken, normalToken]) expect((await state([a.id, outside.id], credential)).statusCode).toBe(403);
+    } finally { await app.close(); }
   });
 
   it("supports hosted-only grants without a daemon authority row", async () => {
