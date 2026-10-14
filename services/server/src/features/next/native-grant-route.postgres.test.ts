@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
 import cookie from "@fastify/cookie";
 import Fastify from "fastify";
 import { capabilityOperations } from "@mdbase-dev/connect-protocol";
@@ -23,6 +23,8 @@ import { registerAuthorizationRoutes } from "../authorizations/routes.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
 import type { RelayHub } from "../../relay.js";
 import { pkceChallenge } from "../../security.js";
+import { clientNoiseKeyMessage, storeRequestClientNoiseKey, verifiedClientNoiseKey } from "./client-key.js";
+import { provisionNewAccountBackend } from "./account-backend-flip.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -37,6 +39,7 @@ describePostgres("Private native collection grants", () => {
   const app = Fastify();
   const portal = Fastify();
   const broker = new LocalRelayBroker();
+  const pushedPolicies: Array<{ connector: string; grants: string[] }> = [];
 
   beforeAll(async () => {
     const url = new URL(testUrl!);
@@ -51,7 +54,13 @@ describePostgres("Private native collection grants", () => {
     registerPeopleRoutes(app, { db, issuer: "https://connect.example", publicUrl: "https://connect.example" });
     await portal.register(cookie);
     registerErrorHandler(portal);
-    const relay = { registerAuthorizationHandler: () => {}, authorizationOffers: async () => ({ paused: false, collections: [] }) };
+    const relay = {
+      registerAuthorizationHandler: () => {}, authorizationOffers: async () => ({ paused: false, collections: [] }),
+      pushPolicy: async (connector: string) => {
+        const snapshot = await buildPolicySnapshot(db, connector, 55_000, undefined, () => true, "lease_v1", true, true, true) as LeasePolicySnapshot;
+        pushedPolicies.push({ connector, grants: snapshot.grants.map(g => String(g.id)) });
+      }
+    };
     registerAuthorizationRoutes(portal, { db, relay: relay as unknown as RelayHub, publicUrl: "https://connect.example", nextClientKeys: true, drainProviderRevocations: async () => {} });
   }, 60_000);
 
@@ -343,7 +352,8 @@ describePostgres("Private native collection grants", () => {
     const installationIdentity = createTestApplicationIdentity();
     return async (account: string, collection: string) => {
       const requested = legacy ? [...OPERATIONS, "update", "rename"] : OPERATIONS;
-      const proof = await testApplicationAuthorization({ installationIdentity, applicationId: application, applicationDeclarationId: declaration,
+      const signing = createTestApplicationIdentity();
+      const proof = await testApplicationAuthorization({ installationIdentity, grantSigningPublicKey: signing.publicKey, applicationId: application, applicationDeclarationId: declaration,
         applicationManifestDigest: manifest.digest, flow: "authorization_code", redirectUri: "https://app.example/callback", state: "s",
         codeChallenge: pkceChallenge("private-web-verifier-0000000000000000000000000"), requestedOperations: requested as never,
         semanticCapabilityContractVersion: legacy ? 1 : 2, requestedFiles: { ...files, actions: [...files.actions] } });
@@ -354,7 +364,9 @@ describePostgres("Private native collection grants", () => {
         VALUES ($1, $2, $3, 'authorization_code', 'https://app.example/callback', 's', $4, $5::jsonb, $6, $7, $8, $9::jsonb, $10, now() + interval '10 minutes')`,
       [id, account, application, proof.binding.code_challenge, JSON.stringify(requested), proof.binding.contracts.operation_transport,
         proof.binding.grant_agreement_public_key, proof.binding.grant_signing_public_key, JSON.stringify(proof), proof.binding.application_installation_id]);
-      await db.query("INSERT INTO next_authorization_client_keys (request_id, client_pk, signature) VALUES ($1, $2, $3)", [id, randomBytes(32), randomBytes(64)]);
+      const noise = (generateKeyPairSync("x25519").publicKey.export({format:"der",type:"spki"}) as Buffer).subarray(-32);
+      const signature = sign("sha256",clientNoiseKeyMessage(id,noise),{key:signing.privateKey,dsaEncoding:"ieee-p1363"});
+      await storeRequestClientNoiseKey(db,id,verifiedClientNoiseKey(JSON.stringify({public_key:noise.toString("base64url"),signature:signature.toString("base64url")}),proof.binding)!);
       const session = randomUUID();
       await db.query(`INSERT INTO sessions (id, user_id, token_hash, provider, account_session_epoch, expires_at)
         VALUES ($1, $2, $3, 'password', COALESCE((SELECT session_epoch FROM users WHERE id = $2), 1), now() + interval '1 day')`, [randomUUID(), account, tokenHash(session)]);
@@ -368,6 +380,20 @@ describePostgres("Private native collection grants", () => {
     };
   }
 
+  it("pushes a fresh Private approval to the same account's enrolled Native before first open, without a renewal tick",async()=>{
+    const owner=await user(),desktop=await device(owner),otherAccount=await user(),stranger=await device(otherAccount);
+    await device(owner); // same account, but not enrolled in this collection
+    const client=await db.connect();
+    try {await client.query("BEGIN");await provisionNewAccountBackend(client,owner,"next");await client.query("COMMIT");}finally{client.release();}
+    const collection=await privateCollection(owner,[desktop,stranger]);
+    await createHostedCollectionMembership(db,{collectionId:collection,ownerUserId:owner,userId:otherAccount,role:"viewer"});await appendPending(collection);
+    const consent=await (await webApp())(owner,collection),before=pushedPolicies.length;
+    const approved=await consent.approve();expect(approved.statusCode,approved.body).toBe(200);
+    const original=(await db.query("SELECT b.log_grant_id FROM authorization_requests ar JOIN next_grant_bindings b ON b.grant_id=ar.grant_id WHERE ar.id=$1",[consent.id])).rows[0];
+    // No policy renewal clock advances or second approval/open/reload. The push
+    // must see the COMMITTED original grant, and never target another account.
+    expect(pushedPolicies.slice(before)).toEqual([{connector:desktop.connector,grants:[original.log_grant_id]}]);
+  });
   it("approves a signed v1 exact subset and feeds the same original binding to the Private daemon", async () => {
     const owner = await user(), desktop = await device(owner);
     const collection = await privateCollection(owner, [desktop]);
