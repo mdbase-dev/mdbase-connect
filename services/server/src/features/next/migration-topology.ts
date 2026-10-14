@@ -2,6 +2,7 @@ import type { DatabaseConnection, DatabaseQueryable } from "../../database-types
 import { audit } from "../../platform/audit-events.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import { LAB_COMPLETION_EVENT, labCohortCompletionEvidence } from "./migration-sharing.js";
+import { isCurrentZeroHostedCohort, ZERO_HOSTED_ARCHIVE_SCHEMA } from "./migration-archive-profile.js";
 
 /** Read-only legacy-missing classification; freeze permission is a separate
  * locked check below. Kept here so cleanup never depends on rollout commands.
@@ -47,10 +48,14 @@ export async function completeMigrationBatch(client: DatabaseQueryable, name: st
     "SELECT frozen_at,completed_at FROM next_migration_cohorts WHERE name=$1 FOR UPDATE", [name]
   )).rows[0];
   if (!batch?.frozen_at || new Date(batch.frozen_at).getTime() !== new Date(frozenAt).getTime()) throw new Error("Migration completion freeze changed.");
+  const archive = (await client.query<{ verified_result: { schema?: unknown } }>(
+    "SELECT verified_result FROM next_migration_archive_acceptances WHERE cohort=$1 AND membership_revision=$2::bigint", [name, revision]
+  )).rows[0];
+  if (archive?.verified_result.schema === ZERO_HOSTED_ARCHIVE_SCHEMA && !await isCurrentZeroHostedCohort(client, name)) {
+    throw new Error("Zero-hosted archive scope changed before completion.");
+  }
   if (!batch.completed_at) {
-    const accepted = (await client.query(
-      "SELECT 1 FROM next_migration_archive_acceptances WHERE cohort=$1 AND membership_revision=$2::bigint", [name, revision]
-    )).rows.length > 0;
+    const accepted = archive !== undefined;
     if (!accepted && environment !== "lab") return;
     const unfinished = (await client.query(
       `SELECT 1 FROM next_migration_cohort_members m JOIN users u ON u.id=m.account_id

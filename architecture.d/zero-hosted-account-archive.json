@@ -1,0 +1,9 @@
+{
+  "reason": "The named scoped zero-hosted archive adds one private service module sharing the existing archive profile/scalar validators and the empty-scope predicate across capture, admission and completion. This moves unchanged v4/LAB validators out of the already-budgeted rollout file rather than duplicating them or growing it beyond its line limit. The additional exports are internal profile/scalar/schema types, not a public SDK surface, new authority mechanism or alternate verifier.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 3,
+    "typeScriptExportDeclarations": 13,
+    "services/server": 1
+  }
+}
