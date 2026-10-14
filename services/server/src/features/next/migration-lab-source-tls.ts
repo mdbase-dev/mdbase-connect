@@ -25,7 +25,7 @@ export function labLegacySourceConnection(
   if (!HOSTS.has(url.hostname)) return { url: databaseUrl };
   if (environment !== "lab" || !["postgres:", "postgresql:"].includes(url.protocol)
     || decodeURIComponent(url.pathname) !== `/${DATABASE}` || decodeURIComponent(url.username) !== ROLE
-    || !url.password || url.port && url.port !== "5432" || url.hash) refused();
+    || !url.password || url.port !== "5432" || url.hash) refused();
   if ([...url.searchParams.keys()].some((key) => !["sslmode", "sslrootcert", "options"].includes(key))
     || url.searchParams.getAll("sslmode").length !== 1 || url.searchParams.get("sslmode") !== "verify-ca"
     || url.searchParams.getAll("sslrootcert").length !== 1) refused();

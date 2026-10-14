@@ -65,7 +65,7 @@ describe("exact LAB legacy source certificate pin", () => {
   });
   it.each([
     uri().replace(`/${database}`, "/other_database"),
-    uri().replace(role, "owner_role"), uri().replace(":5432", ":5433"),
+    uri().replace(role, "owner_role"), uri().replace(":5432", ":5433"), uri().replace(":5432", ""),
     uri().replace("sslmode=verify-ca", "sslmode=require"),
     uri() + "&host=other.invalid", uri() + "&ssl=false", uri() + "&uselibpqcompat=true",
     uri() + "&sslrootcert=/other.pem", uri() + "#fragment",
