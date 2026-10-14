@@ -18,6 +18,19 @@ through its SELECT-only reader role), `MDBASE_CONNECT_HOSTED_PROVIDER_*`, `MDBAS
 `MDBASE_NEXT_HOSTED_SERVICE_TOKEN` for the hosted Worker's internal migration entry. The
 backup hold is the in-force `hosted_provider_backup_holds` id taken by the operator.
 
+For the coordinator-selected LAB rehearsal exception only, the CLI child may set
+`MDBASE_LEGACY_PROVIDER_LAB_OWNER_READONLY_ROLE` to the exact owner identity from
+an approved probe/custody handoff. It must match the protected source URI username;
+there is no automatic role detection or fallback to the control `DATABASE_URL`.
+The URI must use the exact internal LAB host, explicit 5432, database and captured
+certificate pin, with `options=-cdefault_transaction_read_only%3Don`. The existing timer importer
+opens one `BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY` snapshot, explicitly
+sets `SET TRANSACTION READ ONLY`, then commits/releases it before reading the fresh
+provider watermark. No parallel source adapter or long polling transaction is added. This option admits only ordinary
+`lab-run` (no pause/resume/route-back), never staging/production. Dedicated SELECT-only
+readers remain the staging/production requirement. Remove the exception after the
+dedicated-reader rehearsal is qualified.
+
 Progress is one JSON line per step. An operator stop prints
 `{"stopped":{"step","reason","inspect","resume"}}`, repeats it on stderr and exits 2. No
 token, URL or error message is printed, only stable codes.

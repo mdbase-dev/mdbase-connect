@@ -40,7 +40,13 @@ async function main(argv: string[]): Promise<void> {
       + "MDBASE_NEXT_TIMERS=1, MDBASE_NEXT_HOSTED_SERVICE_URL and MDBASE_NEXT_HOSTED_SERVICE_TOKEN are required.");
   }
   const worker = labWorkerClient({ url: process.env.MDBASE_NEXT_HOSTED_SERVICE_URL, token: process.env.MDBASE_NEXT_HOSTED_SERVICE_TOKEN.trim() });
-  const sourceConnection = labLegacySourceConnection(sourceUrl, process.env.MDBASE_CONNECT_ENVIRONMENT);
+  // An explicit LAB-only owner identity, supplied by approved custody, not an
+  // inferred URI role or a fallback to DATABASE_URL. Never applies to control DB.
+  const ownerReadonlyRole = process.env.MDBASE_LEGACY_PROVIDER_LAB_OWNER_READONLY_ROLE;
+  if (ownerReadonlyRole !== undefined && (command !== "lab-run" || stopBeforeFlip)) {
+    throw new Error("migration_lab_owner_readonly_run_only");
+  }
+  const sourceConnection = labLegacySourceConnection(sourceUrl, process.env.MDBASE_CONNECT_ENVIRONMENT, ownerReadonlyRole);
   const db = await createDatabase(process.env.DATABASE_URL);
   const source = await openDatabase(sourceConnection.url, sourceConnection.ssl);
   try {

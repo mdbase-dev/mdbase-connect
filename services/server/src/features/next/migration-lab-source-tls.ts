@@ -19,12 +19,16 @@ const fingerprint = (raw: Buffer): string => createHash("sha256").update(raw).di
 
 /** Exact LAB source only; normal URLs retain the ordinary pg TLS policy. */
 export function labLegacySourceConnection(
-  databaseUrl: string, environment: string | undefined
+  databaseUrl: string, environment: string | undefined, labOwnerReadonlyRole?: string
 ): { url: string; ssl?: ConnectionOptions } {
   const url = new URL(databaseUrl);
+  if (labOwnerReadonlyRole !== undefined && (environment !== "lab"
+    || !/^[a-z_][a-z0-9_]{0,62}$/u.test(labOwnerReadonlyRole) || labOwnerReadonlyRole === ROLE
+    || !HOSTS.has(url.hostname) || url.searchParams.getAll("options").length !== 1
+    || url.searchParams.get("options") !== "-cdefault_transaction_read_only=on")) refused();
   if (!HOSTS.has(url.hostname)) return { url: databaseUrl };
   if (environment !== "lab" || !["postgres:", "postgresql:"].includes(url.protocol)
-    || decodeURIComponent(url.pathname) !== `/${DATABASE}` || decodeURIComponent(url.username) !== ROLE
+    || decodeURIComponent(url.pathname) !== `/${DATABASE}` || decodeURIComponent(url.username) !== (labOwnerReadonlyRole ?? ROLE)
     || !url.password || url.port !== "5432" || url.hash) refused();
   if ([...url.searchParams.keys()].some((key) => !["sslmode", "sslrootcert", "options"].includes(key))
     || url.searchParams.getAll("sslmode").length !== 1 || url.searchParams.get("sslmode") !== "verify-ca"
