@@ -186,6 +186,8 @@ export interface ManagementOverview {
     };
   };
   hosted_collections_available?: boolean;
+  /** A desktop/CLI is linked to this account; Native creation stays on that device. */
+  native_collection_creation_available?: boolean;
   collection_sharing_available?: boolean;
   authentication: {
     provider: "google" | "github" | "password" | "tailscale" | "session";

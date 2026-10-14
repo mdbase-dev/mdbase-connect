@@ -521,11 +521,18 @@ function Collections({ data, busy, perform, navigate, editorOrigin }: {
 }) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("My collection");
+  const [location, setLocation] = useState("");
+  const locations = [
+    ...(data.native_collection_creation_available ? [{ value: "native", label: "On this computer" }] : []),
+    ...(data.hosted_collections_available === true ? [{ value: "hosted", label: "Hosted" }] : [])
+  ];
+  const hosted = location === "hosted" && data.hosted_collections_available === true;
+  const native = location === "native" && data.native_collection_creation_available === true;
   const rows = collectionRows(data);
   async function create(event: FormEvent) {
     event.preventDefault();
     const displayName = name.trim();
-    if (!displayName) return;
+    if (!hosted || !displayName) return;
     const created = await perform("create-collection", (options) => management.createHostedCollection({
       displayName,
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -537,15 +544,21 @@ function Collections({ data, busy, perform, navigate, editorOrigin }: {
   }
   return <Page title="Collections" intro="Open a collection in the editor or manage where its main copy lives.">
     <section>
-      <SectionTitle title="All collections" count={rows.length} action={data.hosted_collections_available !== false && <button onClick={() => setCreating(true)}><Plus aria-hidden="true" />New hosted collection</button>} />
+      <SectionTitle title="All collections" count={rows.length} action={<button onClick={() => { setLocation(locations.length === 1 ? locations[0]!.value : ""); setCreating(true); }}><Plus aria-hidden="true" />Add collection</button>} />
       {creating && <form className="connect-inline-form" onSubmit={(event) => void create(event)}>
-        <label><span>Collection name</span><input autoFocus maxLength={200} value={name} onChange={(event) => setName(event.target.value)} /></label>
-        <div><button type="button" onClick={() => setCreating(false)}>Cancel</button><button className="connect-primary-action mdbase-button is-primary" disabled={busy.has("create-collection") || !name.trim()}>{busy.has("create-collection") ? "Creating…" : "Create"}</button></div>
+        {locations.length > 0 ? <label><span>Location</span><Select aria-label="Location" value={location} onChange={setLocation} options={locations} placeholder="Choose a location" /></label>
+          : <p>Connect a computer to add a collection.</p>}
+        {hosted && <label><span>Collection name</span><input autoFocus maxLength={200} value={name} onChange={(event) => setName(event.target.value)} /></label>}
+        {native && <p>Choose or create a folder in the desktop app. Collection files stay on this computer.</p>}
+        <div><button type="button" onClick={() => setCreating(false)}>Cancel</button>
+          {(native || locations.length === 0) && <a href="mdbase-connect://open">Open mdbase connect</a>}
+          {hosted && <button className="connect-primary-action mdbase-button is-primary" disabled={busy.has("create-collection") || !name.trim()}>{busy.has("create-collection") ? "Creating…" : "Create"}</button>}
+        </div>
       </form>}
       {rows.map((collection) => collection.kind === "hosted"
         ? <HostedCollectionRow editorOrigin={editorOrigin} key={collection.id} collection={collection.source} busy={busy} perform={perform} manage={{ collectionId: collection.id, navigate }} />
         : <CollectionSummary editorOrigin={editorOrigin} key={collection.id} collection={collection} navigate={navigate} />)}
-      {rows.length === 0 && <Empty title="No collections" body="Connect a computer or create a hosted collection to get started." />}
+      {rows.length === 0 && <Empty title="No collections" body="Add a collection to get started." />}
       {rows.some((collection) => collection.kind === "hosted" && collection.source.authority_state === "active") && <DesktopRecoveryHelp action="sync a folder" />}
     </section>
   </Page>;
@@ -666,7 +679,7 @@ function collectionRows(data: ManagementOverview): CollectionRow[] {
     id: collection.id,
     name: collection.display_name ?? "Unnamed collection",
     detail: collection.sync === "cloud_copy" ? "Cloud copy configured" : "Stored on your devices",
-    status: collection.sync === "cloud_copy" ? "Cloud copy" : "Private",
+    status: "Availability unknown",
     // Registry visibility is not a statement about replica read health.
     available: false,
     kind: "native" as const,

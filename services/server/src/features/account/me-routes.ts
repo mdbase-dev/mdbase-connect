@@ -61,6 +61,12 @@ export function registerAccountOverviewRoute(
     if (!authenticated) return;
     const { authentication_provider: authenticationProvider, ...user } = authenticated;
     const nativeCollections = await listNativeCollectionsVisibleToUser(options.db, user.id);
+    const nativeCreator = await options.db.query(
+      `SELECT 1 FROM next_devices d JOIN connectors c ON c.id = d.connector_id
+       WHERE d.user_id = $1 AND c.user_id = $1 AND c.revoked_at IS NULL
+         AND d.kind IN ('desktop', 'cli') LIMIT 1`,
+      [user.id]
+    );
     const connectors = await options.db.query<AccountConnectorRow>(
       `SELECT c.id, c.name, c.last_seen_at, c.created_at,
               c.connector_version, c.last_incompatible_at,
@@ -291,6 +297,7 @@ export function registerAccountOverviewRoute(
         } : null
       } : null,
       hosted_collections_available: options.hostedCollections === true,
+      native_collection_creation_available: nativeCreator.rows.length > 0,
       collection_sharing_available: options.hostedCollections === true && options.hostedSharing === true,
       authentication: {
         provider: authenticationProvider ?? (options.tailscaleAuth ? "tailscale" : "session"),

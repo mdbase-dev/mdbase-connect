@@ -60,16 +60,25 @@ describe("ConnectApp", () => {
     expect(screen.queryByRole("button", { name: "Create" })).not.toBeInTheDocument();
   });
 
-  it("does not present Native sync-kind as a collection availability badge", async () => {
+  it("maps Private badges to their exact enrolled computer's presence, never another online computer", async () => {
     history.replaceState(null, "", "/collections");
     overview.collections = []; overview.hosted_collections = [];
-    overview.native_collections = [
-      { id: "native-private", display_name: "Computer notes", sync: "private", access: { relationship: "owner", role: "owner", can_manage_members: true } },
-      { id: "native-cloud", display_name: "Cloud notes", sync: "cloud_copy", access: { relationship: "owner", role: "owner", can_manage_members: true } },
-    ];
+    overview.connectors.push({ id: "sleeping", name: "Sleeping laptop", created_at: new Date().toISOString(), last_seen_at: new Date(Date.now() - 120_000).toISOString() });
+    const access = { relationship: "owner", role: "owner", can_manage_members: true } as const;
+    Object.assign(overview, { native_collections: [
+      { id: "native-private", display_name: "Computer notes", sync: "private", computer_ids: ["computer"], access },
+      { id: "native-offline", display_name: "Offline notes", sync: "private", computer_ids: ["sleeping"], access },
+      { id: "native-none", display_name: "Unlinked notes", sync: "private", computer_ids: [], access },
+      { id: "native-cloud", display_name: "Cloud notes", sync: "cloud_copy", computer_ids: [], access },
+    ] });
     render(<ConnectApp />);
     await screen.findByText("Computer notes");
-    for (const name of ["Computer notes", "Cloud notes"]) expect(screen.getByText(name).closest(".connect-row")?.querySelector(".connect-status")).toHaveTextContent("Availability unknown");
+    const badge = (name: string) => screen.getByText(name).closest(".connect-row")?.querySelector(".connect-status");
+    expect(badge("Computer notes")).toHaveTextContent("On Home computer");
+    expect(badge("Offline notes")).toHaveTextContent("On Sleeping laptop: offline");
+    expect(badge("Unlinked notes")).toHaveTextContent("Computer not connected");
+    expect(badge("Cloud notes")).toHaveTextContent("Hosted");
+    expect(screen.queryByText("Availability unknown")).not.toBeInTheDocument();
   });
 
   it("counts native collections without legacy shadow rows or content authorization", async () => {
@@ -451,7 +460,7 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
     await screen.findByRole("heading", { name: "Garden notes" });
     await user.click(screen.getByRole("link", { name: "All collections" }));
-    await user.click(await screen.findByRole("button", { name: "New hosted collection" }));
+    await user.click(await screen.findByRole("button", { name: "Add collection" }));
 
     const originalFetch = vi.mocked(fetch).getMockImplementation()!;
     vi.mocked(fetch).mockImplementation((input, init) => {
