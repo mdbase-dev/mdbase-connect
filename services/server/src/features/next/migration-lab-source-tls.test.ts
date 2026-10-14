@@ -25,6 +25,32 @@ beforeAll(() => {
 });
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
 
+describe("LAB rehearsal owner-readonly exception", () => {
+  const owner = "synthetic_lab_owner";
+  const ownerUri = () => uri().replace(role, owner);
+  it("requires explicit exact owner identity and retains the genuine pg read-only option/pin", () => {
+    expect(() => labLegacySourceConnection(ownerUri(), "lab")).toThrow("migration_lab_source_tls_pin_refused");
+    const config = labLegacySourceConnection(ownerUri(), "lab", owner);
+    const params = (new pg.Client(postgresPoolConfig(config.url, config.ssl)) as unknown as {
+      connectionParameters: { ssl: typeof config.ssl; options: string }
+    }).connectionParameters;
+    expect(params.options).toBe("-cdefault_transaction_read_only=on");
+    expect(params.ssl?.rejectUnauthorized).toBe(true);
+    expect(params.ssl?.checkServerIdentity?.(host, peer(other))).toBeInstanceOf(Error);
+  });
+  it.each([
+    [ownerUri(), "staging", owner], [ownerUri(), "production", owner],
+    [ownerUri(), "lab", ""], [ownerUri(), "lab", "other_owner"], [ownerUri(), "lab", role],
+    [ownerUri().replace(/&options=[^&]+/u, ""), "lab", owner],
+    [ownerUri().replace("read_only%3Don", "read_only%3Doff"), "lab", owner],
+    [ownerUri() + "&options=-cdefault_transaction_read_only%3Don", "lab", owner],
+    [ownerUri().replace(host, "external.invalid"), "lab", owner],
+    [ownerUri().replace(":5432", ""), "lab", owner]
+  ])("refuses unbound owner identity/scope/read-only options", (value, environment, ownerRole) => {
+    expect(() => labLegacySourceConnection(value!, environment, ownerRole)).toThrow("migration_lab_source_tls_pin_refused");
+  });
+});
+
 describe("exact LAB legacy source certificate pin", () => {
   it("pins the captured public DER and keeps CA verification enabled", () => {
     expect(actual.fingerprint256.replace(/:/gu, "")).toBe(LAB_LEGACY_SOURCE_CERT_SHA256);

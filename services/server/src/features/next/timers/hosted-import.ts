@@ -169,6 +169,7 @@ export async function importHostedCollectionTimers(options: {
   const snapshot = await options.source.connect();
   try {
     await snapshot.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+    await snapshot.query("SET TRANSACTION READ ONLY");
     let cursor: HostedLegacyTimerCursor | null = null;
     do {
       const page: Awaited<ReturnType<typeof readHostedLegacyTimers>> = await readHostedLegacyTimers(snapshot, collection, cursor);
