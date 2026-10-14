@@ -42,6 +42,12 @@ suite("lab-run against the control plane (synthetic PostgreSQL, scripted Worker)
       ops: [{ op: "genesis", owner: user, root: Buffer.alloc(16, 17), state: "cloud-copy" }, { op: "member-set", account: user, role: "owner" }] });
     const provider = fakeLegacyProvider(collection);
     const connect = postgresLabConnect({ db, source: db, actor, timers: true, provider,
+      // This fixture preinstalls its SHADOW parent; native/device bootstrap is
+      // exercised by service-cloud-copy/provider suites, not its scripted Worker.
+      prepareTarget: async () => {
+        const row = await db.query("SELECT 1 FROM next_collections WHERE collection_id=$1 AND runtime='shadow' AND sync='cloud_copy'", [collection]);
+        if (!row.rows.length) throw new Error("Synthetic SHADOW target missing");
+      },
       // The importer itself is covered by timers/hosted-import.postgres.test.ts; record a timer-free manifest.
       importTimers: async () => recordEmptyTimerImport(db, user, provider.source) });
     return { user, collection, cohort, provider, connect };
