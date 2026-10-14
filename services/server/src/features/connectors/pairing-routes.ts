@@ -31,6 +31,7 @@ import { CreateError, isLockTimeout } from "../next/bootstrap-common.js";
 import { createInstallationPairingCollection } from "./installation-pairing-collection.js";
 import type { CloudCopyBootstrapOptions } from "../next/service-cloud-copy.js";
 import type { RelayHub } from "../../relay.js";
+import type { PolicyEmitter } from "../next/policy-outbox.js";
 import { createNativeApprovalDelivery } from "../authorizations/native-approval-delivery.js";
 import { ServiceDeviceError } from "../next/service-devices.js";
 async function installationResult(
@@ -75,6 +76,7 @@ const originalUuid = z
 interface ConnectorPairingRoutesOptions {
   db: DatabasePool;
   relay: Pick<RelayHub, "pushPolicy">;
+  nativePolicyEmitter?: Pick<PolicyEmitter, "publishCommitted">;
   publicUrl: string;
   tailscaleAuth?: boolean;
   /** SAME approval channel, enabled only with next control-plane support. */
@@ -87,7 +89,7 @@ export function registerConnectorPairingRoutes(
   app: FastifyInstance,
   options: ConnectorPairingRoutesOptions,
 ): void {
-  const nativeDelivery = createNativeApprovalDelivery(options.db, options.relay, () => app.log.warn("Native approval delivery deferred to policy renewal."));
+  const nativeDelivery = createNativeApprovalDelivery(options.db, options.relay, () => app.log.warn("Native approval delivery deferred to policy renewal."), options.nativePolicyEmitter);
   app.post("/v1/pairing-requests", async (request, reply) => {
     if (
       request.body &&

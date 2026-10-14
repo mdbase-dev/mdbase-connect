@@ -83,7 +83,7 @@ export function registerAuthorizationRoutes(
   const relay = options.relay;
   const publicUrl = options.publicUrl;
   const localApprovals = createLocalApprovalService(options.db, relay);
-  const nativeDelivery = createNativeApprovalDelivery(options.db, relay, () => app.log.warn("Native approval delivery deferred to policy renewal."));
+  const nativeDelivery = createNativeApprovalDelivery(options.db, relay, () => app.log.warn("Native approval delivery deferred to policy renewal."), options.nativePolicyEmitter);
   registerGrantRevocationRoute(app, options);
   app.post("/v1/connectors/authorization-requests/:requestId/approve", async (request, reply) => {
     const connector = await requireConnector(request, reply, options.db);

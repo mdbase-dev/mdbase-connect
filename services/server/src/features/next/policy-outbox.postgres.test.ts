@@ -2,6 +2,9 @@ import { createHash, createPrivateKey, generateKeyPairSync, randomUUID, sign, ve
 import pg from "pg";
 import Fastify from "fastify";
 import { tokenHash } from "../../security.js";
+import { capabilityOperations } from "@mdbase-dev/connect-protocol";
+import { createNativeApprovalDelivery } from "../authorizations/native-approval-delivery.js";
+import { queueNextGrantPolicy } from "./grant-policy.js";
 import { recoverLostPolicy } from "./policy-recovery.js";
 import { registerPolicyRecoveryRoutes } from "./policy-recovery-routes.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -223,6 +226,89 @@ describePostgres("mdbase-next policy outbox", () => {
     expect(service.policyOps(collectionId, signer.cert.policyPublicKey)).toEqual([["1", "4", "2", "2"], ["4", "7"]]);
     const issued = await database.db.query<{ issued_at: string }>("SELECT issued_at FROM next_policy_batches WHERE collection_id = $1 ORDER BY seq", [collectionId]);
     expect(Number(issued.rows[1]!.issued_at)).toBeGreaterThan(Number(issued.rows[0]!.issued_at));
+  });
+
+  it("publishes a committed Private request before its Native feed without waiting for the global poller", async () => {
+    const owner = await newUser(database.db), collection = randomUUID(), connector = randomUUID(), device = randomUUID();
+    const keys = deviceKeys();
+    await database.db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'Fixture',$3)", [connector,owner,randomUUID()]);
+    await database.db.query("INSERT INTO next_devices(id,connector_id,user_id,kind,sign_pk,kem_pk,noise_pk) VALUES($1,$2,$3,'desktop',$4,$5,$6)",
+      [device,connector,owner,keys.signPublicKey,keys.kemPublicKey,keys.noisePublicKey]);
+    await registerNextCollection(database.db, { collectionId:collection,ownerUserId:owner,runtime:"next",sync:"private",rootKeyId:signer.cert.root,
+      ops:[{op:"genesis",owner,root:signer.cert.root,state:"e2e"},{op:"member-set",account:owner,role:"owner"},
+        {op:"device-enrol",device,account:owner,kind:"desktop",...keys}] });
+    let release!: () => void, entered!: () => void;
+    const blocked = new Promise<void>(resolve => {release=resolve;});
+    const globalEntered = new Promise<void>(resolve => {entered=resolve;});
+    const emitter = new PolicyEmitter(database.db,client,signer,()=>{},2_000,Date.now,async id => {
+      if(id===undefined){entered();await blocked;}
+    });
+    // Verified Native Private genesis exists, and a global drain is occupied by
+    // unrelated activation work. No interval/start or artificial policy tick.
+    expect(await emitter.drainCollection(collection)).toBe(1);
+    expect(service.policyOps(collection,signer.cert.policyPublicKey)).toEqual([["1","4","2"]]);
+    const global = emitter.drain();
+    try {
+      await globalEntered;
+      const grant = randomUUID(), installation = randomUUID();
+      await database.db.query("INSERT INTO applications(id,canonical_identity,name,homepage,redirect_uris) VALUES($1::uuid,$1::text,'Fixture','https://fixture.example','[]')",[grant]);
+      await database.db.query(`INSERT INTO grants(id,user_id,application_id,next_collection_id,operations,scope,file_capability,application_installation_id,application_authorization,activated_at)
+        VALUES($1,$2,$1,$3,$4::jsonb,'{"access":"full_collection","contracts":[]}',
+          '{"kind":"files","protocol_version":1,"actions":["list","read"],"scope":{"kind":"collection"}}',$5,
+          '{"binding":{"protocol_version":4,"application_declaration_id":"dev.mdbase.fixture","contracts":{"semantic_capabilities":2}}}',now())`,
+        [grant,owner,collection,JSON.stringify(capabilityOperations("collection.read")),installation]);
+      await database.db.query("INSERT INTO next_grant_client_keys(grant_id,client_pk) VALUES($1,$2)",[grant,Buffer.alloc(32,7)]);
+      const tx = await database.db.connect();
+      try {await tx.query("BEGIN");await queueNextGrantPolicy(tx,grant);await tx.query("COMMIT");}
+      finally {tx.release();}
+      const logHadRequestAtFeed: boolean[] = [];
+      let deferred = 0;
+      const delivery = createNativeApprovalDelivery(database.db,{pushPolicy:async id => {
+        expect(id).toBe(connector);
+        logHadRequestAtFeed.push(service.policyOps(collection,signer.cert.policyPublicKey).flat().includes("6"));
+      }},()=>{deferred+=1;},emitter);
+      await delivery.grant(grant);
+      expect(logHadRequestAtFeed).toEqual([true]);
+      expect(deferred).toBe(0);
+      expect(service.policyOps(collection,signer.cert.policyPublicKey)).toEqual([["1","4","2"],["6"]]);
+    } finally {release();await global;await emitter.close();}
+  }, 3_000);
+
+  it("owns bounded committed publication across caller exit and close, without queueing overflow", async () => {
+    const collections: string[] = [];
+    const initial = new PolicyEmitter(database.db,client,signer);
+    for(let i=0;i<5;i+=1){
+      const collection=await register(await newUser(database.db));collections.push(collection);
+      await initial.drainCollection(collection);
+      await queueNextPolicy(database.db,collection,[{op:"grant-revoke",grant:randomUUID()}]);
+    }
+    await initial.close();
+    let release!:()=>void, entered!:()=>void, heads=0;
+    const blocked=new Promise<void>(resolve=>{release=resolve;});
+    const allEntered=new Promise<void>(resolve=>{entered=resolve;});
+    const gated=new LogServiceClient({url:"http://log.test",tokenIssuerKeyPem:pem(issuer),transportKeyPem:pem(generateKeyPairSync("ed25519").privateKey)},async(input,init)=>{
+      if(init?.body&&field(decodeCbor(Buffer.from(init.body as Uint8Array)),2)==="head"){
+        heads+=1;if(heads===4)entered();await blocked;
+      }
+      return service.fetch(input,init);
+    });
+    const emitter=new PolicyEmitter(database.db,gated,signer);
+    const work=collections.slice(0,4).map(id=>emitter.publishCommitted(id));
+    let closing:Promise<void>|undefined;
+    try{
+      await allEntered;
+      expect(emitter.publishCommitted(collections[0]!)).toBe(work[0]);
+      await expect(emitter.publishCommitted(collections[4]!)).rejects.toThrow("deferred");
+      let closed=false;
+      closing=emitter.close().then(()=>{closed=true;});
+      await Promise.resolve();expect(closed).toBe(false);
+      release();await Promise.all(work);await closing;
+      expect(closed).toBe(true);
+      for(const id of collections.slice(0,4))expect(service.policyOps(id,signer.cert.policyPublicKey)).toHaveLength(2);
+      expect(service.policyOps(collections[4]!,signer.cert.policyPublicKey)).toHaveLength(1);
+      expect((await database.db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1 AND batch_id IS NULL",[collections[4]])).rows).toHaveLength(1);
+      await expect(emitter.publishCommitted(collections[4]!)).rejects.toThrow("closed");
+    }finally{release();await Promise.allSettled(work);await (closing??emitter.close());}
   });
 
   it("forwards the region from the create_log reply on activation, also after a lost reply; none without one", async () => {

@@ -20,7 +20,7 @@ export function registerAuthorizationPollingRoutes(
   app: FastifyInstance,
   options: AuthorizationRouteOptions
 ): void {
-  const nativeDelivery = createNativeApprovalDelivery(options.db, options.relay, () => app.log.warn("Native approval delivery deferred to policy renewal."));
+  const nativeDelivery = createNativeApprovalDelivery(options.db, options.relay, () => app.log.warn("Native approval delivery deferred to policy renewal."), options.nativePolicyEmitter);
   app.post("/oauth/token", async (request, reply) => {
     const input = z.discriminatedUnion("grant_type", [
       z.object({
