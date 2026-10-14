@@ -80,6 +80,7 @@ import {
   noteWordCount,
   noteTags,
   noteTitle,
+  noteNeedsBodyTitle,
   summaryFromDocument,
   tags as collectionTags,
   types as collectionTypes
@@ -707,9 +708,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const { retrySessionStart } = useSessionLifecycle({ gateway, acceptSnapshot, setNotice });
 
   useEffect(() => {
-    if (phase !== "ready" || (!deferredSearch.trim() && !backlinksOpen) || !structureComplete || listLoading || contentComplete || contentIndexing || contentError) return;
+    if (phase !== "ready" || !structureComplete || listLoading || contentComplete || contentIndexing || contentError) return;
+    if (!deferredSearch.trim() && !backlinksOpen && !allNotes.some(note => noteNeedsBodyTitle(note, typeDescriptors))) return;
     void loadContentIndex();
-  }, [backlinksOpen, contentComplete, contentError, contentIndexing, deferredSearch, listLoading, loadContentIndex, phase, structureComplete]);
+  }, [allNotes, backlinksOpen, contentComplete, contentError, contentIndexing, deferredSearch, listLoading, loadContentIndex, phase, structureComplete, typeDescriptors]);
 
   useEffect(() => {
     if (phase !== "ready" || !connectionSummary) return;

@@ -7,14 +7,15 @@ import {
   noteHeadings,
   noteTags,
   noteTitle,
+  noteNeedsBodyTitle,
   noteWordCount,
   persistedBody,
-  propertyPatch,
   safeRenamePath,
   tags,
   types
 } from "./note";
 import { fieldReferencePatch } from "./field-reference";
+import { frontmatterPatch } from "./draft-recovery";
 import type { NoteDocument, NoteSummary } from "./model";
 
 describe("note editing", () => {
@@ -54,6 +55,10 @@ describe("note editing", () => {
     expect(noteTitle({ ...note, types: ["note"] }, [titleType])).toBe("ann_45007168-741e-4bf3-abfd-5b2a831c15af");
     const named = { ...note, types: ["note"], effectiveFrontmatter: { title: "Declared name" } };
     expect(noteTitle(named, [titleType])).toBe("Declared name");
+    expect(noteNeedsBodyTitle({ ...note, body: undefined }, [])).toBe(true);
+    expect(noteNeedsBodyTitle({ ...note, body: undefined, types: ["note"] }, [titleType])).toBe(false);
+    expect(noteNeedsBodyTitle({ ...note, body: undefined, path: "Notes/Meaningful name.md" }, [])).toBe(false);
+    expect(noteNeedsBodyTitle(note, [])).toBe(false);
   });
 
   it("reads and safely patches a nested declared display field", () => {
@@ -110,7 +115,7 @@ describe("collection helpers", () => {
   });
 
   it("creates null removals for persisted property patches", () => {
-    expect(propertyPatch({ keep: 1, remove: true }, { keep: 2, add: "yes" })).toEqual({
+    expect(frontmatterPatch({ keep: 1, remove: true }, { keep: 2, add: "yes" })).toEqual({
       keep: 2,
       remove: null,
       add: "yes"
