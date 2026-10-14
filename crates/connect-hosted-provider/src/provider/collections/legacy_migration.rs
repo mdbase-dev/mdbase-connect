@@ -464,18 +464,23 @@ impl HostedProvider {
             _ if current == Active => Some(Utc::now()),
             _ => started_at,
         };
-        sqlx::query(
+        let persisted = sqlx::query(
             r#"UPDATE hosted_provider_collections
                SET state = $2, legacy_migration_started_at = $3, legacy_retain_until = $4, legacy_migration_id = $5
-               WHERE id = $1"#,
+               WHERE id = $1
+               RETURNING legacy_migration_started_at, legacy_retain_until"#,
         )
         .bind(collection_id)
         .bind(target.as_str())
         .bind(started_at)
         .bind(retain_until)
         .bind(migration_id)
-        .execute(&mut *transaction)
+        .fetch_one(&mut *transaction)
         .await?;
+        // PostgreSQL persists microseconds; returning the nanosecond input clock
+        // would give fence and drain different serialized identities for one run.
+        let started_at = persisted.get("legacy_migration_started_at");
+        let retain_until = persisted.get("legacy_retain_until");
         transaction.commit().await?;
         Ok((
             LegacyMigrationStatus {

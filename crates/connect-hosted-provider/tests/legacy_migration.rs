@@ -5,7 +5,7 @@ mod support;
 #[path = "support/test_postgres.rs"]
 mod test_postgres;
 
-use chrono::{Duration, Utc};
+use chrono::{Duration, Timelike, Utc};
 use mdbase_connect_hosted_provider::{app, AppState, LegacyRollbackRequest, ProviderAccountLimits};
 use mdbase_connect_protocol::*;
 use serde_json::{json, Value};
@@ -126,6 +126,56 @@ async fn migrating_refuses_writes_and_rollback_reopens_them() {
         .open_file_upload(id, &fixture.token, upload(), None)
         .await
         .expect("uploads resume after rollback");
+}
+
+#[tokio::test]
+#[ignore = "requires the repository-approved disposable loopback PostgreSQL test target"]
+async fn migration_transition_replies_echo_persisted_timestamps() {
+    let database = DisposablePostgres::from_projection_env().await;
+    let fixture = FileLifecycleFixture::new(database.url()).await;
+    let provider = &fixture.provider;
+    let id = fixture.collection_id;
+
+    let first = provider
+        .set_legacy_migration_state(id, "migrating", None, false, &[])
+        .await
+        .unwrap();
+    let drain = provider.legacy_migration_drain(id).await.unwrap();
+    let repeated = provider
+        .set_legacy_migration_state(id, "migrating", None, false, &[])
+        .await
+        .unwrap();
+    // Native settlement binds the exact serialized provider run. PostgreSQL's
+    // microsecond timestamp must be returned, not the nanosecond input clock.
+    let first_json = serde_json::to_value(&first).unwrap();
+    assert_eq!(first.migration_id, drain.migration_id);
+    assert_eq!(first.started_at, drain.started_at);
+    assert_eq!(first.started_at, repeated.started_at);
+    assert_eq!(
+        first_json["started_at"],
+        serde_json::to_value(&drain).unwrap()["started_at"]
+    );
+    assert_eq!(
+        first_json["started_at"],
+        serde_json::to_value(&repeated).unwrap()["started_at"]
+    );
+
+    // Deliberately non-microsecond input makes the retention case deterministic.
+    let requested = (Utc::now() + Duration::days(91))
+        .with_nanosecond(123_456_789)
+        .unwrap();
+    let retained = provider
+        .set_legacy_migration_state(id, "migrated", Some(requested), false, &[])
+        .await
+        .unwrap();
+    let stored = provider.legacy_migration_drain(id).await.unwrap();
+    assert_eq!(retained.started_at, stored.started_at);
+    assert_eq!(retained.retain_until, stored.retain_until);
+    assert_eq!(
+        serde_json::to_value(&retained).unwrap()["retain_until"],
+        serde_json::to_value(&stored).unwrap()["retain_until"]
+    );
+    assert!(retained.retain_until.unwrap() >= Utc::now() + Duration::days(90));
 }
 
 #[tokio::test]
