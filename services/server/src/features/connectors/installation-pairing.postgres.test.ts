@@ -470,14 +470,26 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect((await app.inject({method:"POST",url:`${strictFlow.base}/select-account`,headers:strict.headers})).statusCode).toBe(403);
     const transition = await prepared(); expect((await approveDevice(transition.flow,transition.owner)).statusCode).toBe(200); await db.query("INSERT INTO next_account_keys(user_id,mode,version) VALUES($1,'strict',1)",[transition.owner.user]); expect((await transition.flow.exchange()).statusCode).toBe(403);
   });
-  async function scopeCollection(owner:string, member=owner) {
+  async function scopeCollection(owner:string, member=owner, sync: "cloud_copy" | "private" = "cloud_copy") {
     const collection=randomUUID();
-    await db.query("INSERT INTO next_collections(collection_id,owner_user_id,runtime,sync,root_key_id) VALUES($1,$2,'next','cloud_copy',$3)",[collection,owner,Buffer.alloc(32)]);
+    await db.query("INSERT INTO next_collections(collection_id,owner_user_id,runtime,sync,root_key_id) VALUES($1,$2,'next',$4,$3)",[collection,owner,Buffer.alloc(32),sync]);
     const batch=(await db.query("INSERT INTO next_policy_batches(collection_id,seq,prev,item,issued_at,state) VALUES($1,1,$2,$3,1,'appended') RETURNING id",[collection,Buffer.alloc(32),Buffer.alloc(1)])).rows[0].id;
     const ops=[{op:"member-set",account:owner,role:"owner"},...(member===owner?[]:[{op:"member-set",account:member,role:"editor"}])];
     await db.query("INSERT INTO next_policy_outbox(collection_id,ops,batch_id) VALUES($1,$2,$3)",[collection,JSON.stringify({version:1,ops}),batch]);
     return collection;
   }
+  it("offers the same account's Private collection in ordinary Sign in with zero Hosted collections", async () => {
+    const owner=await account(), foreign=await account();
+    const privateId=await scopeCollection(owner.user,owner.user,"private");
+    const foreignId=await scopeCollection(foreign.user,foreign.user,"private");
+    await db.query("UPDATE next_collections SET display_name='[test] Original Private' WHERE collection_id=$1",[privateId]);
+    const p=await prepared("app-runtime",true,owner);
+    const shown=(await app.inject({method:"GET",url:p.flow.base,headers:owner.headers})).json().pairing;
+    expect(shown.collections).toContainEqual({collection_id:privateId,display_name:"[test] Original Private",role:"owner",kind:"private"});
+    expect(shown.collections.some((c:{collection_id:string})=>c.collection_id===foreignId)).toBe(false);
+    expect((await db.query("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1",[p.selected.connector_id])).rows).toEqual([]);
+    expect((await p.flow.exchange()).json().status).toBe("awaiting_approval");
+  });
   it("recovery target echoes its original CID before proof and credential commit", async () => {
     const owner=await account(), target=await scopeCollection(owner.user);
     const p=await prepared("app-runtime",false,owner,undefined,tasknotesId,target);
