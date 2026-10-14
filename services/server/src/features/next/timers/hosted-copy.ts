@@ -85,7 +85,8 @@ export async function readHostedLegacyTimers(
                WHERE (a->>'status') IS NULL OR (a->>'status') NOT IN ('succeeded','failed'))))))
        OR EXISTS (SELECT 1 FROM hosted_provider_runtime_outbox o WHERE o.collection_id=c.id
          AND (o.processed_at IS NULL OR o.lease_token IS NOT NULL OR o.leased_until IS NOT NULL))
-       OR EXISTS (SELECT 1 FROM hosted_provider_mutation_journal j WHERE j.collection_id=c.id
+       OR EXISTS (SELECT 1 FROM hosted_provider_mutation_journal j
+         JOIN hosted_provider_replicas r ON r.id=j.replica_id WHERE r.collection_id=c.id
          AND j.state IN ('claimed','prepared','applied')) AS unsettled,
        t.namespace AS runtime_namespace, t.id AS runtime_id, t.generation::text AS generation,
        t.status, to_char(t.fire_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS fire_at,
