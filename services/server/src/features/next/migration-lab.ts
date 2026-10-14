@@ -160,8 +160,11 @@ export function labWorkerClient(config: { url: string; token: string }, fetchImp
     }
     // A typed error code is a refusal; anything else (gateway errors, no body) has no verified outcome.
     const typed = typeof code === "string" && /^[a-z][a-z0-9_:.-]{0,120}$/u.test(code);
-    return finish(typed && (response.status < 500 || response.status === 503)
-      ? { kind: "refused", code: code as string } : { kind: "unknown", reason: `worker_http_${response.status}` });
+    // Run refusals use the same finite contract as their diagnostic: a code-like
+    // string outside it is UNKNOWN, not a safe public stop reason.
+    const refusalCode = diagnostic ? diagnostic.worker_error_code : typed ? code as string : null;
+    return finish(refusalCode !== null && (response.status < 500 || response.status === 503)
+      ? { kind: "refused", code: refusalCode } : { kind: "unknown", reason: `worker_http_${response.status}` });
   };
   const operator = (collection: string, operation: string, key: string, sequence: number) =>
     post("/internal/v1/migration/operator", { collection, operation, [key]: sequence });

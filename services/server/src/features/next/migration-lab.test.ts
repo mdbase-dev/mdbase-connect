@@ -159,7 +159,7 @@ describe("lab-run", () => {
     expect(await labRun(account, hold, deps(unreachable.worker, fakeConnect().connect))).toMatchObject({ stopped: { step: "worker_run", reason: "worker_unreachable" } });
   });
 
-  it.each(["http", "transport", "typed", "invalid", "unsafe"] as const)("preserves the initial %s run reply before resolving an absent run", async scenario => {
+  it.each(["http", "transport", "typed", "invalid", "unsafe", "unsafe400", "unsafe503"] as const)("preserves the initial %s run reply before resolving an absent run", async scenario => {
     const missing = { run: null, native: { checkpoint: null, outstanding: null } };
     const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
@@ -168,7 +168,8 @@ describe("lab-run", () => {
         if (scenario === "transport") throw new TypeError("postgres://private:secret@host");
         if (scenario === "typed") return Response.json({ error: "migration_run_ready_failed", error_class: "type_error", message: "private secret" }, { status: 500 });
         if (scenario === "invalid") return Response.json({ run: "private secret" });
-        if (scenario === "unsafe") return Response.json({ error: "private_secret", error_class: "private_role", message: "postgres://secret" }, { status: 500 });
+        if (scenario.startsWith("unsafe")) return Response.json({ error: "private_owner_secret", error_class: "private_role", message: "postgres://secret" },
+          { status: scenario === "unsafe400" ? 400 : scenario === "unsafe503" ? 503 : 500 });
         return new Response("private secret", { status: 500 });
       }
       return Response.json(missing);
@@ -177,7 +178,7 @@ describe("lab-run", () => {
     const events: Record<string, unknown>[] = [];
     const result = await labRun(account, hold, { ...deps(worker, fakeConnect().connect), log: event => events.push(event) });
     const diagnostic = {
-      http_status: scenario === "transport" ? null : scenario === "invalid" ? 200 : 500,
+      http_status: scenario === "transport" ? null : scenario === "invalid" ? 200 : scenario === "unsafe400" ? 400 : scenario === "unsafe503" ? 503 : 500,
       worker_error_code: scenario === "typed" ? "migration_run_ready_failed" : null,
       worker_error_class: scenario === "typed" ? "type_error" : null,
       transport_error_class: scenario === "transport" ? "network" : null,
@@ -310,6 +311,14 @@ describe("route-back", () => {
 });
 
 describe("Worker client", () => {
+  it.each([["invalid_request", 400], ["migration_unconfigured", 503], ["migration_run_exists", 409], ["migration_pause_mode_conflict", 409]] as const)
+    ("preserves the known run refusal %s at HTTP %s", async (code, status) => {
+      const fetchImpl = vi.fn(async () => Response.json({ error: code }, { status }));
+      const client = labWorkerClient({ url: "https://worker.example", token: "t".repeat(40) }, fetchImpl as unknown as typeof fetch);
+      expect(await client.run(collection, hold)).toMatchObject({ kind: "refused", code, diagnostic: { http_status: status, worker_error_code: code } });
+      expect(fetchImpl).toHaveBeenCalledOnce();
+    });
+
   it("is https-only and maps replies to ok, refused or unknown without echoing the token", async () => {
     const token = "t".repeat(40);
     expect(() => labWorkerClient({ url: "http://worker.example", token })).toThrow(/https/);
