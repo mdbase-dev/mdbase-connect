@@ -66,6 +66,25 @@ suite("hosted own-collection migration proof (isolated PostgreSQL)", () => {
   async function unused(challenge: string) {
     return (await db.query("SELECT used_at FROM next_device_challenges WHERE challenge=$1", [Buffer.from(challenge, "hex")])).rows[0]?.used_at === null;
   }
+  it("accepts fresh DB cohort members for the LAB role without an environment account pin", async () => {
+    const own = await fixture(); const inbound = "synthetic-db-cohort-role-".repeat(3), scoped = Fastify();
+    registerMigrationProviderRoutes(scoped, { db, token: adminToken, hostedRead: { token, audience, migrationRouting: {
+      accounts: new Set(), hosted: { url: "https://mdbase-next-hosted-mig-lab.example.workers.dev", token: "outbound".repeat(6) }, inboundToken: inbound
+    } } });
+    const request = (kind: "challenge" | "read", payload: object, credential: string) => scoped.inject({ method: "POST",
+      url: `/internal/v1/next/migration/collections/${own.collection}/claim/${kind}`, headers: { authorization: `Bearer ${credential}` }, payload });
+    try {
+      expect((await request("challenge", { device_id: own.device }, token)).statusCode).toBe(403);
+      expect((await db.query("SELECT count(*)::int AS n FROM next_device_challenges WHERE service_device_id=$1", [own.device])).rows[0].n).toBe(0);
+      const nonce = await request("challenge", { device_id: own.device }, inbound);
+      expect(nonce.statusCode, nonce.body).toBe(200);
+      const challenge = nonce.json().challenge as string;
+      expect((await request("read", own.proof(challenge), token)).statusCode).toBe(403);
+      expect(await unused(challenge)).toBe(true);
+      expect((await request("read", own.proof(challenge), inbound)).statusCode).toBe(200);
+      expect(await unused(challenge)).toBe(false);
+    } finally { await scoped.close(); await own.app.close(); }
+  });
   it("returns only a one-use challenge then exact public current facts; no provider/policy/audit/key effects", async () => {
     const f = await fixture();
     try {
