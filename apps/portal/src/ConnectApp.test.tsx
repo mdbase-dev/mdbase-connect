@@ -32,6 +32,46 @@ afterEach(() => {
 });
 
 describe("ConnectApp", () => {
+  it.each([false, true])("offers one Add collection flow with a Native handoff when Hosted enabled=%s", async hosted => {
+    history.replaceState(null, "", "/collections");
+    overview.hosted_collections_available = hosted;
+    Object.assign(overview, { native_collection_creation_available: true });
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    const add = await screen.findByRole("button", { name: "Add collection" });
+    expect(screen.queryByRole("button", { name: "New hosted collection" })).not.toBeInTheDocument();
+    await user.click(add);
+    const location = screen.getByRole("combobox", { name: "Location" });
+    if (hosted) await chooseOption(user, location, "On this computer");
+    expect(screen.getByRole("link", { name: "Open mdbase connect" })).toHaveAttribute("href", "mdbase-connect://open");
+    expect(screen.queryByRole("button", { name: "Create" })).not.toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+  });
+
+  it("keeps Add collection visible without inventing a Native device or Hosted authority", async () => {
+    history.replaceState(null, "", "/collections");
+    overview.hosted_collections_available = false;
+    Object.assign(overview, { native_collection_creation_available: false });
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    await user.click(await screen.findByRole("button", { name: "Add collection" }));
+    expect(screen.getByText("Connect a computer to add a collection.")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Location" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Create" })).not.toBeInTheDocument();
+  });
+
+  it("does not present Native sync-kind as a collection availability badge", async () => {
+    history.replaceState(null, "", "/collections");
+    overview.collections = []; overview.hosted_collections = [];
+    overview.native_collections = [
+      { id: "native-private", display_name: "Computer notes", sync: "private", access: { relationship: "owner", role: "owner", can_manage_members: true } },
+      { id: "native-cloud", display_name: "Cloud notes", sync: "cloud_copy", access: { relationship: "owner", role: "owner", can_manage_members: true } },
+    ];
+    render(<ConnectApp />);
+    await screen.findByText("Computer notes");
+    for (const name of ["Computer notes", "Cloud notes"]) expect(screen.getByText(name).closest(".connect-row")?.querySelector(".connect-status")).toHaveTextContent("Availability unknown");
+  });
+
   it("counts native collections without legacy shadow rows or content authorization", async () => {
     overview.collections = [];
     overview.hosted_collections = [];
