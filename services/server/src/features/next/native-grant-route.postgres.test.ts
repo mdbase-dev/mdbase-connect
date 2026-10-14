@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { nativeReadApp } from "./test/native-grant.js";
 import cookie from "@fastify/cookie";
 import Fastify from "fastify";
@@ -29,6 +30,7 @@ const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APP
 const describePostgres = testUrl && approved ? describe : describe.skip;
 const ROOT = Buffer.alloc(16, 5);
 const OPERATIONS: string[] = [...capabilityOperations("collection.read")];
+const JOURNAL_SETUP = JSON.parse(readFileSync(new URL("./fixtures/journal-private-setup.json", import.meta.url), "utf8"));
 
 describePostgres("Private native collection grants", () => {
   let admin: pg.Pool;
@@ -331,7 +333,27 @@ describePostgres("Private native collection grants", () => {
     expect(await grantApprovalTerms(db, { id: strangerDesktop.connector, user_id: stranger }, g.logGrant)).toBeNull();
   });
 
-  const webApp = (legacy = false) => nativeReadApp(db, portal, legacy);
+  const webApp = (legacy = false, setup = false) => nativeReadApp(db, portal, legacy, setup ? JOURNAL_SETUP : undefined);
+
+  it("approves Journal-shaped declaration-bound Private setup without arbitrary definition management", async () => {
+    const owner = await user(), desktop = await device(owner), collection = await privateCollection(owner, [desktop]);
+    const consent = await (await webApp(false, true))(owner, collection);
+    const response = await consent.approve();
+    expect(response.statusCode, response.body).toBe(200);
+    const grant = (await db.query("SELECT operations, application_authorization FROM grants WHERE next_collection_id=$1", [collection])).rows[0];
+    expect(grant.operations).toEqual(expect.arrayContaining(["assess_collection_setup", "apply_collection_setup"]));
+    for (const operation of ["create_type", "update_type", "assess_type_pack", "apply_type_pack"]) expect(grant.operations).not.toContain(operation);
+    expect(grant.application_authorization.binding.requested_operations).toEqual(grant.operations);
+  });
+
+  it("refuses an operation outside the signed Journal declaration before creating a Private grant", async () => {
+    const owner = await user(), desktop = await device(owner), collection = await privateCollection(owner, [desktop]);
+    const consent = await (await webApp(false, true))(owner, collection);
+    const requested = (await db.query("SELECT requested_operations FROM authorization_requests WHERE id=$1", [consent.id])).rows[0].requested_operations;
+    const response = await consent.approve([...requested, "create_type"]);
+    expect(response.statusCode, response.body).toBe(400);
+    expect((await db.query("SELECT id FROM grants WHERE next_collection_id=$1", [collection])).rows).toEqual([]);
+  });
 
   it("pushes a fresh Private approval to the same account's enrolled Native before first open, without a renewal tick",async()=>{
     const owner=await user(),desktop=await device(owner),otherAccount=await user(),stranger=await device(otherAccount);
