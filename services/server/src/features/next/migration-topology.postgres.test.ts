@@ -164,7 +164,19 @@ describePg("migration topology freeze (isolated real PostgreSQL; synthetic refer
     await expect(setCohortFrozen(db,name,false,"must stay frozen",OP)).rejects.toMatchObject({code:"migration_frozen"});
     expect((await db.query("SELECT frozen_at,completed_at,completed_revision FROM next_migration_cohorts WHERE name=$1",[name])).rows).toEqual(before);
   });
-  it.each(["completion","flip","backend","start","excluded","order"])("does not treat an incomplete or inconsistent %s as next authority",async field=>{
+  it("retains older actual flips without a batch audit binding only on their exact original inventory revision",async()=>{
+    const {account}=await completedAccount();
+    await db.query("UPDATE audit_events SET metadata=metadata-'migration_batch' WHERE event_type='next_migration.flip' AND subject_id=$1",[account]);
+    expect(await nextGuard(account)).toBe(true);
+  });
+  it("rejects another account batch's completion rather than treating moved membership as erasure",async()=>{
+    const first=await completedAccount(),second=await completedAccount();
+    // Negative corruption: a real flip from another batch is not this batch's proof.
+    await db.query("UPDATE next_migration_cohort_members SET cohort=$2 WHERE account_id=$1",[first.account,second.name]);
+    await expect(nextGuard(first.account)).rejects.toMatchObject({code:"migration_frozen"});
+    expect(await nextAccountsMigrationFrozen(db,[first.account])).toBe(true);
+  });
+  it.each(["completion","flip","backend","start","excluded","order","flip-digest","flip-audit","flip-batch"])("does not treat an incomplete or inconsistent %s as next authority",async field=>{
     const {account,name}=await completedAccount();
     // Privileged isolated fault injection, never a public completion substitute.
     if(field==="completion")await db.query("UPDATE next_migration_cohorts SET completed_at=NULL,completed_revision=NULL WHERE name=$1",[name]);
@@ -173,6 +185,9 @@ describePg("migration topology freeze (isolated real PostgreSQL; synthetic refer
     if(field==="start")await db.query("UPDATE next_migration_cohort_members SET started_at=NULL WHERE account_id=$1",[account]);
     if(field==="excluded")await db.query("UPDATE next_migration_cohort_members SET terminal_excluded_at=now() WHERE account_id=$1",[account]);
     if(field==="order")await db.query("UPDATE next_migration_cohorts SET completed_at=completed_at-interval '1 day' WHERE name=$1",[name]);
+    if(field==="flip-digest")await db.query("UPDATE next_migration_account_flips SET evidence_digest=$2 WHERE account_id=$1",[account,"0".repeat(64)]);
+    if(field==="flip-audit")await db.query("DELETE FROM audit_events WHERE event_type='next_migration.flip' AND subject_id=$1",[account]);
+    if(field==="flip-batch")await db.query("UPDATE audit_events SET metadata=jsonb_set(metadata,'{migration_batch,batch_id}',to_jsonb($2::text)) WHERE event_type='next_migration.flip' AND subject_id=$1",[account,"different-batch"]);
     await expect(nextGuard(account)).rejects.toMatchObject({code:"migration_frozen"});expect(await nextAccountsMigrationFrozen(db,[account])).toBe(true);
   });
   it("keeps every owner blocked until the entire batch completes, including an account already flipped",async()=>{
@@ -191,6 +206,8 @@ describePg("migration topology freeze (isolated real PostgreSQL; synthetic refer
     const row=(await db.query("SELECT completed_revision::text,membership_revision::text FROM next_migration_cohorts WHERE name=$1",[name])).rows[0];
     expect(BigInt(row.membership_revision)).toBeGreaterThan(BigInt(row.completed_revision));
     expect(await nextGuard(a)).toBe(true);await expect(guard(a)).rejects.toMatchObject({code:"migration_frozen"});
+    await db.query("UPDATE audit_events SET metadata=metadata-'migration_batch' WHERE event_type='next_migration.flip' AND subject_id=$1",[a]);
+    await expect(nextGuard(a)).rejects.toMatchObject({code:"migration_frozen"});
   });
   async function assertNeverMigrated(account: string, collections: string[] = []) {
     expect((await db.query("SELECT 1 FROM audit_events WHERE subject_id=ANY($1::text[]) AND event_type IN ('next_migration.cutover','next_migration.flip')", [[account, ...collections]])).rowCount).toBe(0);

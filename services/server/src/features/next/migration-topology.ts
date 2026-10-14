@@ -1,7 +1,7 @@
 import type { DatabaseConnection, DatabaseQueryable } from "../../database-types.js";
 import { audit } from "../../platform/audit-events.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
-import { LAB_COMPLETION_EVENT, labCohortCompletionEvidence } from "./migration-sharing.js";
+import { InvitationMigrationPending, LAB_COMPLETION_EVENT, labCohortCompletionEvidence, requireCompletedNextAccountMigration } from "./migration-sharing.js";
 import { isCurrentZeroHostedCohort, ZERO_HOSTED_ARCHIVE_SCHEMA } from "./migration-archive-profile.js";
 
 /** Read-only legacy-missing classification; freeze permission is a separate
@@ -99,19 +99,24 @@ export async function requireNextAccountNotMigrationFrozen(client: DatabaseConne
  * acquire the ordered account/member/cohort locks through the guard above. */
 export async function nextAccountsMigrationFrozen(db: DatabaseQueryable, accounts: readonly string[]): Promise<boolean> {
   const rows = (await db.query<{
-    account_backend: string; started_at: Date | null; terminal_excluded_at: Date | null;
+    account_id: string; account_backend: string; started_at: Date | null; terminal_excluded_at: Date | null;
     completed_at: Date | null; completed_revision: string | null; flipped_at: Date | null;
   }>(
-    `SELECT u.account_backend,m.started_at,m.terminal_excluded_at,c.completed_at,c.completed_revision,f.flipped_at
+    `SELECT u.id::text AS account_id,u.account_backend,m.started_at,m.terminal_excluded_at,c.completed_at,c.completed_revision,f.flipped_at
      FROM next_migration_cohort_members m JOIN users u ON u.id=m.account_id
      JOIN next_migration_cohorts c ON c.name=m.cohort
      LEFT JOIN next_migration_account_flips f ON f.account_id=u.id
      WHERE m.account_id=ANY($1::uuid[]) AND c.frozen_at IS NOT NULL`, [accounts]
   )).rows;
-  return rows.some(row => row.account_backend !== "next" || row.started_at === null || row.terminal_excluded_at !== null
+  if (rows.some(row => row.account_backend !== "next" || row.started_at === null || row.terminal_excluded_at !== null
     || row.completed_at === null || row.completed_revision === null || row.flipped_at === null
     || new Date(row.flipped_at).getTime() < new Date(row.started_at).getTime()
-    || new Date(row.flipped_at).getTime() > new Date(row.completed_at).getTime());
+    || new Date(row.flipped_at).getTime() > new Date(row.completed_at).getTime())) return true;
+  for (const row of rows) {
+    try { await requireCompletedNextAccountMigration(db, row.account_id); }
+    catch (error) { if (error instanceof InvitationMigrationPending) return true; throw error; }
+  }
+  return false;
 }
 
 async function lockAccountsNotMigrationFrozen(client: DatabaseConnection, accountIds: readonly string[], nextAuthority: boolean): Promise<boolean> {

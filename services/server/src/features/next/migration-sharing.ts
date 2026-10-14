@@ -14,7 +14,7 @@ export class InvitationMigrationPending extends RequestValidationError {
 }
 interface Terminal {
   started_at:Date;completed_at:Date;flipped_at:Date;collections:unknown;evidence_digest:string;
-  cohort:string;archive_digest:string;
+  cohort:string;archive_digest:string;revision:string;completed_revision:string;
 }
 interface Cutover {
   collection_id:string;authority_state:string;quarantined_at:Date|null;
@@ -57,9 +57,21 @@ export async function requireCompletedMigrationInvitation(client:DatabaseConnect
  * return. Caller retains its normal locks/authority/freeze checks separately;
  * this read-only observation does not authorize another freeze exception. */
 export async function requireCompletedAccountMigration(client:DatabaseQueryable,collection:string,owner:string):Promise<void> {
+  await validateCompletedAccountMigration(client,collection,owner);
+}
+
+/** Same original server-side completion/flip proof, without requiring a
+ * particular imported Hosted collection: Private and post-migration collections
+ * are not themselves part of the original cutover inventory. */
+export async function requireCompletedNextAccountMigration(client:DatabaseQueryable,owner:string):Promise<void> {
+  await validateCompletedAccountMigration(client,null,owner);
+}
+
+async function validateCompletedAccountMigration(client:DatabaseQueryable,collection:string|null,owner:string):Promise<void> {
   const terminal=(await client.query<Terminal>(
     `SELECT m.started_at,c.completed_at,f.flipped_at,f.collections::text[] AS collections,f.evidence_digest,
-       c.name AS cohort,COALESCE(a.verified_result->'migration_batch'->>'membership_digest',l.membership_digest) AS archive_digest
+       c.name AS cohort,c.membership_revision::text AS revision,c.completed_revision::text AS completed_revision,
+       COALESCE(a.verified_result->'migration_batch'->>'membership_digest',l.membership_digest) AS archive_digest
      FROM users u JOIN next_migration_cohort_members m ON m.account_id=u.id
      JOIN next_migration_cohorts c ON c.name=m.cohort
      JOIN next_migration_account_flips f ON f.account_id=u.id
@@ -76,24 +88,27 @@ export async function requireCompletedAccountMigration(client:DatabaseQueryable,
            AND s.metadata->'inventory'->>'membership_revision'=c.completed_revision::text
            AND s.metadata->'inventory'->>'membership_digest'=e.metadata->>'membership_digest')
        ORDER BY e.created_at DESC LIMIT 1) l ON true
-     JOIN next_collections n ON n.owner_user_id=u.id AND n.collection_id=$2
+     ${collection===null?"":"JOIN next_collections n ON n.owner_user_id=u.id AND n.collection_id=$2"}
      WHERE u.id=$1 AND u.account_backend='next' AND u.suspended_at IS NULL
        AND m.started_at IS NOT NULL AND m.terminal_excluded_at IS NULL
-       AND c.released_at IS NOT NULL AND c.completed_at IS NOT NULL AND c.completed_revision=c.membership_revision
-       AND n.runtime='next' AND n.sync='cloud_copy' AND n.left_sync_at IS NULL
+       AND c.released_at IS NOT NULL AND c.completed_at IS NOT NULL
+       AND c.completed_revision${collection===null?"<=":"="}c.membership_revision
+       AND (a.cohort IS NULL OR (a.verified_result->'migration_batch'->>'batch_id'=c.name
+         AND a.verified_result->'migration_batch'->>'membership_revision'=c.completed_revision::text))
+       ${collection===null?"":"AND n.runtime='next' AND n.sync='cloud_copy' AND n.left_sync_at IS NULL"}
        AND NOT EXISTS (SELECT 1 FROM next_migration_cohort_members remaining JOIN users ru ON ru.id=remaining.account_id
          LEFT JOIN next_migration_account_flips rf ON rf.account_id=ru.id
          WHERE remaining.cohort=c.name AND remaining.terminal_excluded_at IS NULL
            AND (remaining.started_at IS NULL OR ru.account_backend<>'next' OR rf.account_id IS NULL))
-     FOR SHARE OF u,m,c,f,n`,[owner,collection]
+     FOR SHARE OF u,m,c,f${collection===null?"":",n"}`,collection===null?[owner]:[owner,collection]
   )).rows[0];
   // Never infer completion from an audited free-text unfreeze or terminal
   // status bits: a completed cohort needs an accepted archive or LAB completion.
   if(!terminal||!HEX64.test(terminal.evidence_digest)||!Array.isArray(terminal.collections)
-    ||terminal.collections.length===0||terminal.collections.length>MAX_COLLECTIONS
+    ||(collection!==null&&terminal.collections.length===0)||terminal.collections.length>MAX_COLLECTIONS
     ||terminal.collections.some(v=>typeof v!=="string"||!UUID.test(v)))throw new InvitationMigrationPending();
   const named=[...terminal.collections as string[]].sort();
-  if(new Set(named).size!==named.length||!named.includes(collection.toLowerCase())
+  if(new Set(named).size!==named.length||(collection!==null&&!named.includes(collection.toLowerCase()))
     ||!Number.isFinite(time(terminal.started_at))||!Number.isFinite(time(terminal.flipped_at))||!Number.isFinite(time(terminal.completed_at))
     ||time(terminal.flipped_at)<time(terminal.started_at)||time(terminal.completed_at)<time(terminal.flipped_at))throw new InvitationMigrationPending();
   // Recompute the ORIGINAL entire cohort/account inventory formula. Completion
@@ -101,7 +116,10 @@ export async function requireCompletedAccountMigration(client:DatabaseQueryable,
   const {cohortRows,inventory,hosted}=await cohortInventory(client,terminal.cohort);
   const cohortDigest=membershipDigest(inventory);
   if(cohortRows.length>2000||inventory.size===0||inventory.size>1000||hosted>1000||cohortDigest===null
-    ||!HEX64.test(terminal.archive_digest)||cohortDigest!==terminal.archive_digest)throw new InvitationMigrationPending();
+    ||!HEX64.test(terminal.archive_digest)
+    // Durable accepted completion survives account erasure advancing revision.
+    // For the original revision, always recompute the entire original inventory.
+    ||(terminal.revision===terminal.completed_revision&&cohortDigest!==terminal.archive_digest))throw new InvitationMigrationPending();
   const rows=(await client.query<Cutover>(
     `SELECT h.id::text AS collection_id,h.authority_state,h.quarantined_at,n.runtime,n.sync,n.left_sync_at,
        r.s_final::text,r.cutover_seq::text,r.barrier_f::text,r.final_digest
@@ -111,14 +129,19 @@ export async function requireCompletedAccountMigration(client:DatabaseQueryable,
      WHERE h.user_id=$1 AND h.authority_state<>'transferred' ORDER BY h.id LIMIT $2 FOR SHARE OF h`,[owner,MAX_COLLECTIONS+1]
   )).rows;
   if(rows.length!==named.length||rows.some((r,i)=>r.collection_id!==named[i]
-    ||r.authority_state!=="active"||r.quarantined_at!==null||r.runtime!=="next"||r.sync!=="cloud_copy"||r.left_sync_at!==null
+    ||r.authority_state!=="active"||r.quarantined_at!==null
+    ||(collection!==null&&(r.runtime!=="next"||r.sync!=="cloud_copy"||r.left_sync_at!==null))
     ||!sequence(r.s_final)||!sequence(r.cutover_seq,true)||!sequence(r.barrier_f,true)
     ||BigInt(r.barrier_f!)<BigInt(r.cutover_seq!)||typeof r.final_digest!=="string"||!HEX64.test(r.final_digest)))throw new InvitationMigrationPending();
   const digest=createHash("sha256").update(rows.map(r=>`${r.collection_id}:${r.barrier_f}:${r.final_digest}\n`).join("")).digest("hex");
   if(digest!==terminal.evidence_digest)throw new InvitationMigrationPending();
   const audit=(await client.query(
     `SELECT 1 FROM audit_events WHERE user_id=$1 AND event_type='next_migration.flip' AND subject_id=$1::text
-       AND metadata->>'evidence_digest'=$2 AND metadata->'collections'=$3::jsonb LIMIT 1`,[owner,digest,JSON.stringify(named)]
+       AND metadata->>'evidence_digest'=$2 AND metadata->'collections'=$3::jsonb
+       AND metadata->>'new_account' IS DISTINCT FROM 'true'
+       AND ((NOT (metadata ? 'migration_batch') AND $4::boolean) OR metadata->'migration_batch'=$5::jsonb) LIMIT 1`,
+    [owner,digest,JSON.stringify(named),terminal.revision===terminal.completed_revision,
+      JSON.stringify({batch_id:terminal.cohort,membership_revision:terminal.completed_revision})]
   )).rows;
   if(!audit.length)throw new InvitationMigrationPending();
 }
