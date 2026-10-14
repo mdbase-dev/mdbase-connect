@@ -147,6 +147,7 @@ export async function resolvePolicyAppliedAck(input: {
        SET latest_policy_ack_mode = $3,
            latest_policy_ack_generation = relay_generation,
            latest_policy_ack_at = now(),
+           last_seen_at = now(),
            policy_lease_adopted_at = CASE
              WHEN $3 = 'lease_v1' AND $4::boolean
                THEN COALESCE(policy_lease_adopted_at, now())
