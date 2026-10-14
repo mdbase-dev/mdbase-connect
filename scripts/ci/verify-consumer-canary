@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+commit=${1:?usage: verify-consumer-canary COMMIT QUALIFIED_ARTIFACT_RUN_ID}
+artifact_run_id=${2:?qualified package artifact run ID is required}
+[[ $commit =~ ^[0-9a-f]{40}$ && $artifact_run_id =~ ^[1-9][0-9]*$ ]] || exit 2
+repository=${GITHUB_REPOSITORY:-mdbase-dev/mdbase-connect}
+
+runs=$(gh api --method GET "repos/$repository/actions/workflows/consumer-canary.yml/runs" \
+  --field head_sha="$commit" --field event=workflow_dispatch --field status=completed)
+run_id=$(jq -er --arg commit "$commit" '
+  [.workflow_runs[] | select(.head_sha == $commit and
+    .event == "workflow_dispatch" and .conclusion == "success" and
+    .path == ".github/workflows/consumer-canary.yml")]
+  | sort_by(.run_number) | last | .id' <<<"$runs") || {
+  echo "No successful release consumer canary exists for $commit." >&2
+  exit 1
+}
+run=$(gh api "repos/$repository/actions/runs/$run_id")
+jq -e --arg commit "$commit" '
+  .head_sha == $commit and .event == "workflow_dispatch" and
+  .status == "completed" and .conclusion == "success" and
+  .path == ".github/workflows/consumer-canary.yml"
+' >/dev/null <<<"$run" || {
+  echo "Consumer canary is no longer a successful exact dispatch." >&2
+  exit 1
+}
+attempt=$(jq -er '.run_attempt' <<<"$run")
+temporary=$(mktemp -d)
+trap 'rm -rf -- "$temporary"' EXIT
+
+# Compare content, not filenames or version numbers: these are the publication tarballs.
+gh run download "$artifact_run_id" --repo "$repository" \
+  --name qualified-npm-packages --dir "$temporary/packages"
+hashes='{}'
+for archive in "$temporary"/packages/*.tgz; do
+  name=$(tar -xOf "$archive" package/package.json | jq -er '.name')
+  hash=$(sha256sum "$archive" | cut -d' ' -f1)
+  hashes=$(jq --arg name "$name" --arg hash "$hash" '. + {($name): $hash}' <<<"$hashes")
+done
+for consumer in tasknotes writer reader; do
+  case $consumer in
+    tasknotes) consumer_repository=callumalpass/tasknotes-app ;;
+    writer) consumer_repository=mdbase-dev/mdbase-writer ;;
+    reader) consumer_repository=mdbase-dev/mdbase-reader ;;
+  esac
+  gh run download "$run_id" --repo "$repository" \
+    --name "consumer-canary-$consumer" --dir "$temporary/$consumer"
+  report=$(find "$temporary/$consumer" -name consumer-canary.json -type f)
+  [[ -f $report ]] || { echo "Missing canary report for $consumer." >&2; exit 1; }
+  jq -e --arg commit "$commit" --arg artifact "$artifact_run_id" \
+    --arg run "$run_id" --arg attempt "$attempt" --arg consumer "$consumer" \
+    --arg repository "$consumer_repository" --argjson hashes "$hashes" '
+      .schema_version == 1 and .candidate_commit == $commit and .artifact_run_id == $artifact and
+      .run_id == $run and .run_attempt == $attempt and
+      .event == "workflow_dispatch" and .consumer == $consumer and
+      .repository == $repository and (.revision | test("^[0-9a-f]{40}$")) and
+      .tarballs_sha256 == $hashes
+    ' "$report" >/dev/null || {
+    echo "Canary identity or candidate tarballs differ for $consumer." >&2
+    exit 1
+  }
+done
+printf 'Verified consumer canary run %s attempt %s for %s (packages from %s).\n' \
+  "$run_id" "$attempt" "$commit" "$artifact_run_id"
