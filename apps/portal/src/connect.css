@@ -480,6 +480,16 @@ button.danger:disabled {
   border-bottom: 1px solid var(--line);
 }
 
+.connect-inline-form.connect-add-collection {
+  display: grid;
+  align-items: start;
+  justify-content: start;
+  gap: var(--space-3);
+}
+
+.connect-add-collection p { margin: 0; }
+.connect-inline-form.connect-add-collection label { width: min(420px, 100%); }
+
 .connect-inline-form label {
   width: min(420px, 65%);
   display: grid;

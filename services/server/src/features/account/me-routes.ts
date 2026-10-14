@@ -29,6 +29,7 @@ interface AccountOverviewRouteOptions {
   authenticationPolicy: AuthenticationPolicyStore;
   tailscaleAuth?: boolean;
   hostedCollections?: boolean;
+  nativeCollectionCreation?: boolean;
   hostedSharing?: boolean;
   hostedProvider?: HostedProviderClient;
   hostedReference?: HostedAuthorityRegistry;
@@ -60,6 +61,9 @@ export function registerAccountOverviewRoute(
     );
     if (!authenticated) return;
     const { authentication_provider: authenticationProvider, ...user } = authenticated;
+    const accountBackend = (await options.db.query<{account_backend:string; flipped:boolean}>(`SELECT u.account_backend,
+      f.account_id IS NOT NULL AS flipped FROM users u LEFT JOIN next_migration_account_flips f ON f.account_id=u.id
+      WHERE u.id=$1 AND u.suspended_at IS NULL`, [user.id])).rows[0];
     const nativeCollections = await listNativeCollectionsVisibleToUser(options.db, user.id);
     const nativeCreator = await options.db.query(
       `SELECT 1 FROM next_devices d JOIN connectors c ON c.id = d.connector_id
@@ -298,6 +302,7 @@ export function registerAccountOverviewRoute(
       } : null,
       hosted_collections_available: options.hostedCollections === true,
       native_collection_creation_available: nativeCreator.rows.length > 0,
+      collection_creation_available: accountBackend?.account_backend === "next" ? accountBackend.flipped && options.nativeCollectionCreation === true : accountBackend?.account_backend === "legacy" && options.hostedCollections === true,
       collection_sharing_available: options.hostedCollections === true && options.hostedSharing === true,
       authentication: {
         provider: authenticationProvider ?? (options.tailscaleAuth ? "tailscale" : "session"),

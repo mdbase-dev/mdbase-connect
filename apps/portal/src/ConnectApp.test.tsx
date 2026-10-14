@@ -465,7 +465,7 @@ describe("ConnectApp", () => {
     const originalFetch = vi.mocked(fetch).getMockImplementation()!;
     vi.mocked(fetch).mockImplementation((input, init) => {
       const path = new URL(String(input)).pathname;
-      if (path === "/v1/hosted/collections" && init?.method === "POST") {
+      if (path === "/v1/account/collections" && init?.method === "POST") {
         return Promise.resolve(Response.json({ error: { message: "Storage is temporarily unavailable." } }, { status: 503 }));
       }
       return originalFetch(input, init);
@@ -477,7 +477,30 @@ describe("ConnectApp", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Storage is temporarily unavailable.");
     expect(input).toHaveValue("Field notes");
-    expect(screen.getByRole("button", { name: "Create" })).toBeInTheDocument();
+    expect(input).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Retry creation" })).toBeInTheDocument();
+    const first = JSON.parse(String(vi.mocked(fetch).mock.calls.find(([url,init]) => new URL(String(url)).pathname === "/v1/account/collections" && init?.method === "POST")![1]!.body));
+    await user.click(screen.getByRole("button", {name:"Retry creation"}));
+    await waitFor(()=>expect(vi.mocked(fetch).mock.calls.filter(([url,init])=>new URL(String(url)).pathname==="/v1/account/collections"&&init?.method==="POST")).toHaveLength(2));
+    const second = JSON.parse(String(vi.mocked(fetch).mock.calls.filter(([url,init])=>new URL(String(url)).pathname==="/v1/account/collections"&&init?.method==="POST")[1][1]!.body));
+    expect(second).toEqual(first);
+    expect(Object.keys(second).sort()).toEqual(["account_id","display_name","request_id","timezone"]);
+    expect(screen.getByRole("link",{name:"Open desktop app"})).toHaveAttribute("href","mdbase-connect://open");
+  });
+
+  it("restores an uncertain original creation after reload and has one Add action even without hosted availability",async()=>{
+    overview.hosted_collections_available=false;
+    const account=overview.user.id;
+    localStorage.setItem(`mdbase.connect.collection-creation:${account}`,JSON.stringify({accountId:account,requestId:"11111111-1111-4111-a111-111111111111",displayName:"Uncertain name",timezone:"UTC"}));
+    const user=userEvent.setup();render(<ConnectApp/>);
+    await user.click(await screen.findByRole("link",{name:"All collections"}));
+    await user.click(await screen.findByRole("button",{name:"Add collection"}));
+    expect(screen.getByLabelText("Collection name")).toHaveValue("Uncertain name");
+    expect(screen.getByLabelText("Collection name")).toBeDisabled();
+    expect(screen.getByRole("button",{name:"Retry creation"})).toBeDisabled();
+    expect(screen.getByRole("link",{name:"Open desktop app"})).toBeInTheDocument();
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.every(([,init])=>!init?.method||init.method==="GET")).toBe(true);
   });
 
   it("renames inline and confirms destructive collection actions in the page", async () => {

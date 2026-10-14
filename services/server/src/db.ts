@@ -13,6 +13,9 @@ export async function openDatabase(
   if (!databaseUrl || databaseUrl === "memory") {
     const { DataType, newDb } = await import("pg-mem");
     const memory = newDb({ autoCreateForeignKeyIndices: true });
+    // PostgreSQL char_length counts Unicode characters, not UTF-16 units.
+    memory.public.registerFunction({name:"char_length",args:[DataType.text],returns:DataType.integer,
+      implementation:(value:string)=>Array.from(value).length});
     // Schema compatibility only for the fixed timer namespace CHECK; real
     // PostgreSQL tests qualify constraints and transaction/lock semantics.
     memory.public.registerOperator({
@@ -104,6 +107,11 @@ export async function openDatabase(
         // legacy FKs; real PostgreSQL alone qualifies native FK validation.
         return schemaSql.trim() ? memory.public.many(schemaSql) : [];
       }
+      // Only migration0076 schema is emulated. Its immutable/publication
+      // trigger is qualified by collection-creation.postgres.test.ts, never
+      // by memory tests or browser previews.
+      const accountIntentTrigger = "-- mdbase:account-collection-intent-immutable:v1";
+      if (sql.includes(accountIntentTrigger)) return memory.public.many(sql.slice(0, sql.indexOf(accountIntentTrigger)));
       const archiveTrigger = "-- mdbase:next-migration-archive-triggers:v1";
       if (sql.includes(archiveTrigger)) return memory.public.many(
         sql.slice(0, sql.indexOf(archiveTrigger)).replace("DEFAULT date_trunc('milliseconds', clock_timestamp())", "DEFAULT now()")

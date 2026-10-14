@@ -11,6 +11,7 @@ import {
 import { AppAccess, applicationGroups } from "./ApplicationAccess";
 import { useCallback, useEffect, useRef, useState, Component, type FormEvent, type MouseEvent, type ReactNode } from "react";
 import { AccountManagement, DeletedAccount } from "./AccountManagement";
+import {readCollectionCreation, keepCollectionCreation, finishCollectionCreation, type CollectionCreationIntent} from "./collection-creation-intent";
 import { Brand, ThemeMenu } from "./portal-ui";
 import { MdbaseMark } from "@mdbase-dev/ui/brand";
 
@@ -49,7 +50,8 @@ type Grant = ManagementOverview["grants"][number];
 type BusyOperations = ReadonlySet<string>;
 type PerformOperation = (
   id: string,
-  action: (options: ManagementRequestOptions) => Promise<void>
+  action: (options: ManagementRequestOptions) => Promise<void>,
+  inlineErrors?: boolean
 ) => Promise<boolean>;
 
 const management = new ConnectManagementClient(location.origin);
@@ -148,7 +150,8 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
 
   async function perform(
     id: string,
-    action: (options: ManagementRequestOptions) => Promise<void>
+    action: (options: ManagementRequestOptions) => Promise<void>,
+    inlineErrors = false
   ): Promise<boolean> {
     if (busyRef.current.has(id)) return false;
     const lifecycle = lifecycleRef.current?.signal;
@@ -167,7 +170,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
     } catch (reason) {
       if (!lifecycle.aborted) {
         reportError(feedbackFailure(reason));
-        setMutationError(errorMessage(reason));
+        if (!inlineErrors) setMutationError(errorMessage(reason));
       }
     } finally {
       lifecycle.removeEventListener("abort", abort);
@@ -293,10 +296,10 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
       {pendingRequest && <PendingRequestBanner request={pendingRequest} collectionName={pendingCollection?.name} count={data.pending_authorizations.length} />}
       {activeView === "overview" && (selectedCollection
         ? <CollectionOverview editorOrigin={editorOrigin} sharingAvailable={data.collection_sharing_available === true} collection={selectedCollection} applications={selectedApplications} busy={busy} perform={perform} navigate={navigate} />
-        : <Collections editorOrigin={editorOrigin} data={data} busy={busy} perform={perform} navigate={navigate} />)}
+        : <Collections key={data.user.id} editorOrigin={editorOrigin} data={data} busy={busy} perform={perform} navigate={navigate} />)}
       {activeView === "storage" && selectedCollection && <Storage editorOrigin={editorOrigin} collection={selectedCollection} busy={busy} perform={perform} />}
       {activeView === "access" && selectedCollection && <AppAccess collectionName={selectedCollection.name} groups={selectedApplications} client={management} busy={busy} perform={perform} />}
-      {activeView === "collections" && <Collections editorOrigin={editorOrigin} data={data} busy={busy} perform={perform} navigate={navigate} />}
+      {activeView === "collections" && <Collections key={data.user.id} editorOrigin={editorOrigin} data={data} busy={busy} perform={perform} navigate={navigate} />}
       {activeView === "applications" && <AppAccess groups={applications} client={management} busy={busy} perform={perform} />}
       {activeView === "computers" && <Computers data={data} busy={busy} perform={perform} />}
       {activeView === "account" && <AccountManagement client={management} overview={data} sessions={sessions} onOverviewRefresh={refresh} onDeleted={() => setAccountDeleted(true)} />}
@@ -520,39 +523,62 @@ function Collections({ data, busy, perform, navigate, editorOrigin }: {
   navigate(view: ConnectView, collectionId?: string): void;
 }) {
   const [creating, setCreating] = useState(false);
-  const [name, setName] = useState("My collection");
+  const [intent, setIntent] = useState<CollectionCreationIntent | null>(() => readCollectionCreation(data.user.id));
+  const [name, setName] = useState(() => readCollectionCreation(data.user.id)?.displayName ?? "My collection");
+  const [creationError, setCreationError] = useState<string | null>(null);
   const [location, setLocation] = useState("");
+  const hostedEnabled = data.hosted_collections_available === true;
   const locations = [
     ...(data.native_collection_creation_available ? [{ value: "native", label: "On this computer" }] : []),
-    ...(data.hosted_collections_available === true ? [{ value: "hosted", label: "Hosted" }] : [])
+    ...(hostedEnabled || intent !== null ? [{ value: "hosted", label: "Hosted" }] : [])
   ];
-  const hosted = location === "hosted" && data.hosted_collections_available === true;
-  const native = location === "native" && data.native_collection_creation_available === true;
+  const hosted = location === "hosted" && (hostedEnabled || intent !== null);
+  const native = location === "native" && data.native_collection_creation_available === true && intent === null;
   const rows = collectionRows(data);
+  const canCreate = data.collection_creation_available ?? data.hosted_collections_available !== false;
   async function create(event: FormEvent) {
     event.preventDefault();
-    const displayName = name.trim();
-    if (!hosted || !displayName) return;
-    const created = await perform("create-collection", (options) => management.createHostedCollection({
-      displayName,
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
-    }, options));
+    if (!hosted || !hostedEnabled || !name.trim() || !canCreate || busy.has("create-collection")) return;
+    if (!intent && /[\u0000-\u001f\u007f-\u009f\u2028\u2029\ud800-\udfff]/u.test(name)) {setCreationError("Use a single-line collection name."); return;}
+    let original: CollectionCreationIntent;
+    try {
+      original = readCollectionCreation(data.user.id) ?? {accountId:data.user.id, requestId:crypto.randomUUID(), displayName:name.trim(), timezone:Intl.DateTimeFormat().resolvedOptions().timeZone};
+      keepCollectionCreation(original); // Persist BEFORE any POST or unknown result.
+      setIntent(original); setName(original.displayName); setCreationError(null);
+    } catch {
+      setCreationError("This browser could not keep your creation request. No request was sent."); return;
+    }
+    const created = await perform("create-collection", async options => {
+      try {await management.createCollection(original, options);}
+      catch (error) {setCreationError(errorMessage(error)); throw error;}
+    }, true);
     if (created) {
-      setCreating(false);
-      setName("My collection");
+      try {finishCollectionCreation(original);} catch {setCreationError("Created, but this browser could not clear its request. Retrying will use the same collection."); return;}
+      setIntent(null); setCreating(false); setName("My collection");
     }
   }
   return <Page title="Collections" intro="Open a collection in the editor or manage where its main copy lives.">
     <section>
-      <SectionTitle title="All collections" count={rows.length} action={<button onClick={() => { setLocation(locations.length === 1 ? locations[0]!.value : ""); setCreating(true); }}><Plus aria-hidden="true" />Add collection</button>} />
-      {creating && <form className="connect-inline-form" onSubmit={(event) => void create(event)}>
-        {locations.length > 0 ? <label><span>Location</span><Select aria-label="Location" value={location} onChange={setLocation} options={locations} placeholder="Choose a location" /></label>
+      <SectionTitle title="All collections" count={rows.length} action={<button onClick={() => {
+        const pending = readCollectionCreation(data.user.id);
+        setIntent(pending);
+        if (pending) setName(pending.displayName);
+        setLocation(pending ? "hosted" : locations.length === 1 ? locations[0]!.value : "");
+        setCreating(true);
+      }}><Plus aria-hidden="true" />Add collection</button>} />
+      {creating && <form className="connect-inline-form connect-add-collection" onSubmit={(event) => void create(event)} aria-label="Add collection">
+        {locations.length > 0 ? <label><span>Location</span><Select aria-label="Location" value={location} onChange={setLocation} options={locations} placeholder="Choose a location" disabled={intent !== null || busy.has("create-collection")} /></label>
           : <p>Connect a computer to add a collection.</p>}
-        {hosted && <label><span>Collection name</span><input autoFocus maxLength={200} value={name} onChange={(event) => setName(event.target.value)} /></label>}
+        {hosted && <>
+          <label><span>Collection name</span><input autoFocus maxLength={200} value={name} disabled={intent !== null || busy.has("create-collection")} aria-describedby={creationError ? "collection-create-error" : undefined} onChange={(event) => setName(event.target.value)} /></label>
+          {(!hostedEnabled || !canCreate) && <p>Hosted creation is unavailable on this server.</p>}
+        </>}
         {native && <p>Choose or create a folder in the desktop app. Collection files stay on this computer.</p>}
-        <div><button type="button" onClick={() => setCreating(false)}>Cancel</button>
+        {creationError && <p role="alert" id="collection-create-error">{creationError}</p>}
+        {intent && <p role="status">Your original request is kept. Retry it to avoid creating another collection.</p>}
+        <div><button type="button" onClick={() => setCreating(false)}>Close</button>
           {(native || locations.length === 0) && <a href="mdbase-connect://open">Open mdbase connect</a>}
-          {hosted && <button className="connect-primary-action mdbase-button is-primary" disabled={busy.has("create-collection") || !name.trim()}>{busy.has("create-collection") ? "Creating…" : "Create"}</button>}
+          {hosted && <button className="connect-primary-action mdbase-button is-primary" disabled={!hostedEnabled || !canCreate || busy.has("create-collection") || !name.trim()}>{busy.has("create-collection") ? "Creating…" : intent ? "Retry creation" : "Create"}</button>}
         </div>
       </form>}
       {rows.map((collection) => collection.kind === "hosted"
