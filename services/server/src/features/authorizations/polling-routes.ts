@@ -12,6 +12,7 @@ import {
 import { apiError, oauthError } from "../../platform/http-errors.js";
 import type { AuthorizationRouteOptions } from "./route-options.js";
 import { issueApplicationTokens, lockApplicationGrantAuthority } from "./token-service.js";
+import { createNativeApprovalDelivery } from "./native-approval-delivery.js";
 
 const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
 
@@ -19,6 +20,7 @@ export function registerAuthorizationPollingRoutes(
   app: FastifyInstance,
   options: AuthorizationRouteOptions
 ): void {
+  const nativeDelivery = createNativeApprovalDelivery(options.db, options.relay, () => app.log.warn("Native approval delivery deferred to policy renewal."));
   app.post("/oauth/token", async (request, reply) => {
     const input = z.discriminatedUnion("grant_type", [
       z.object({
@@ -105,6 +107,7 @@ export function registerAuthorizationPollingRoutes(
           "The user has not completed the authorization request."
         ));
       }
+      let tokens: Awaited<ReturnType<typeof issueApplicationTokens>>;
       const connection = await options.db.connect();
       try {
         await connection.query("BEGIN");
@@ -122,19 +125,20 @@ export function registerAuthorizationPollingRoutes(
             "The device authorization has already been used."
           ));
         }
-        const tokens = await issueApplicationTokens(
+        tokens = await issueApplicationTokens(
           connection,
           options.hostedProvider,
           consumed.rows[0].grant_id
         );
         await connection.query("COMMIT");
-        return tokens;
       } catch (error) {
         await connection.query("ROLLBACK");
         throw error;
       } finally {
         connection.release();
       }
+      await nativeDelivery.grant(pending.grant_id);
+      return tokens;
     }
 
     if (input.grant_type === "authorization_code") {
@@ -161,6 +165,7 @@ export function registerAuthorizationPollingRoutes(
         || !safeEqual(authorizationCode.code_challenge, pkceChallenge(input.code_verifier))) {
         return reply.code(400).send(apiError("invalid_grant", "Authorization code is invalid or expired."));
       }
+      let tokens: Awaited<ReturnType<typeof issueApplicationTokens>>;
       const connection = await options.db.connect();
       try {
         await connection.query("BEGIN");
@@ -173,15 +178,16 @@ export function registerAuthorizationPollingRoutes(
           await connection.query("ROLLBACK");
           return reply.code(400).send(apiError("invalid_grant", "Authorization code has already been used."));
         }
-        const tokens = await issueApplicationTokens(connection, options.hostedProvider, authorizationCode.grant_id);
+        tokens = await issueApplicationTokens(connection, options.hostedProvider, authorizationCode.grant_id);
         await connection.query("COMMIT");
-        return tokens;
       } catch (error) {
         await connection.query("ROLLBACK");
         throw error;
       } finally {
         connection.release();
       }
+      await nativeDelivery.grant(authorizationCode.grant_id);
+      return tokens;
     }
 
     const refresh = await options.db.query<{
@@ -227,6 +233,7 @@ export function registerAuthorizationPollingRoutes(
         ));
       }
     }
+    let tokens: Awaited<ReturnType<typeof issueApplicationTokens>>;
     const connection = await options.db.connect();
     try {
       await connection.query("BEGIN");
@@ -240,14 +247,15 @@ export function registerAuthorizationPollingRoutes(
         await connection.query("ROLLBACK");
         return reply.code(400).send(apiError("invalid_grant", "Refresh token has already been used."));
       }
-      const tokens = await issueApplicationTokens(connection, options.hostedProvider, current.grant_id);
+      tokens = await issueApplicationTokens(connection, options.hostedProvider, current.grant_id);
       await connection.query("COMMIT");
-      return tokens;
     } catch (error) {
       await connection.query("ROLLBACK");
       throw error;
     } finally {
       connection.release();
     }
+    await nativeDelivery.grant(current.grant_id);
+    return tokens;
   });
 }

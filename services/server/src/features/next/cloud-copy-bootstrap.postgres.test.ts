@@ -172,7 +172,7 @@ describePg("cloud-copy bootstrap", () => {
     emitter = new PolicyEmitter(db, client, loadPolicySigner(config, Date.now()));
     await app.register(cookie);
     registerErrorHandler(app);
-    registerConnectorPairingRoutes(app,{db,publicUrl:"https://connect.test",installationDevices:true,installationEnvironment:"lab",cloudCopy:{db,next:config,emitter,log:client,fetchImpl:deployments.fetch}});
+    registerConnectorPairingRoutes(app,{db,relay:{pushPolicy:async()=>{}},publicUrl:"https://connect.test",installationDevices:true,installationEnvironment:"lab",cloudCopy:{db,next:config,emitter,log:client,fetchImpl:deployments.fetch}});
     registerCloudCopyRoutes(app, { db, next: config, emitter, log: client, fetchImpl: deployments.fetch,
       deletionFloor: { recordCollectionDeletion: async fact => { floors.push(fact.collection); return { fact, generation: 1n }; } } });
     const unused = async (): Promise<never> => { throw new Error("unexpected provider call"); };

@@ -60,6 +60,7 @@ import { declarationIdFromFamilyIdentity } from "../applications/identity.js";
 import { createLocalApprovalService, liveAuthorizationCollections } from "./local-collections.js";
 import { approveHostedAuthorization } from "./hosted-approval-service.js";
 import { approveNativeAuthorization, resolveNativeCollectionAccess } from "./native-approval-service.js";
+import { createNativeApprovalDelivery } from "./native-approval-delivery.js";
 import { PEOPLE_PERMISSIONS } from "@mdbase-dev/connect-protocol";
 import { registerGrantRevocationRoute } from "./grant-revocation-route.js";
 import { registerAuthorizationPollingRoutes } from "./polling-routes.js";
@@ -82,6 +83,7 @@ export function registerAuthorizationRoutes(
   const relay = options.relay;
   const publicUrl = options.publicUrl;
   const localApprovals = createLocalApprovalService(options.db, relay);
+  const nativeDelivery = createNativeApprovalDelivery(options.db, relay, () => app.log.warn("Native approval delivery deferred to policy renewal."));
   registerGrantRevocationRoute(app, options);
   app.post("/v1/connectors/authorization-requests/:requestId/approve", async (request, reply) => {
     const connector = await requireConnector(request, reply, options.db);
@@ -870,6 +872,7 @@ export function registerAuthorizationRoutes(
         fileActions: input.file_actions,
         peoplePermissions: input.people_permissions
       });
+      if (approved) await nativeDelivery.authorization(requestId);
     } else {
       const access = await resolveHostedCollectionAccess(
         options.db,

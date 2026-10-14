@@ -53,7 +53,7 @@ describePostgres("negotiated account wire (dedicated PostgreSQL)", () => {
     const secret = "test-pairing-account-wire-secret";
     await db.query("INSERT INTO pairing_requests(id,secret_hash,connector_name,expires_at) VALUES($1,$2,'Fixture',now()+interval '1 hour')", [pairing, tokenHash(secret)]);
     const app = Fastify();
-    registerConnectorPairingRoutes(app, { db, publicUrl: "https://connect.example" });
+    registerConnectorPairingRoutes(app, { db, relay:{pushPolicy:async()=>{}}, publicUrl: "https://connect.example" });
     const request = () => app.inject({ method: "POST", url: `/v1/pairing-requests/${pairing}/exchange`, headers: { authorization: `Bearer ${secret}` } });
     try {
       const pending = await request();

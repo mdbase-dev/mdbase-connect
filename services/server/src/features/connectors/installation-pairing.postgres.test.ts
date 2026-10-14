@@ -30,6 +30,7 @@ import { registerTimerRoutes } from "../next/timers/routes.js";
 import { lockNamespace } from "../next/timers/store.js";
 import { TimerWorker, notificationsConsumer, timerEventId } from "../next/timers/worker.js";
 import { PushTargetSealer } from "../next/push-target-seal.js";
+import { buildPolicySnapshot, type LeasePolicySnapshot } from "../../relay-policy.js";
 import { NotificationService, type NotificationTransports } from "../../notifications.js";
 import { registerNotificationRoutes } from "../notifications/routes.js";
 
@@ -48,6 +49,8 @@ describePg("installation device sign-in on daemon pairing", () => {
   let schema: string;
   const app = Fastify();
   const fenced: [string, string][] = [];
+  const nativePushes: Array<{connector:string;grants:string[]}> = [];
+  let acknowledgeNativePush = async () => {};
   const channelSealer = new PushTargetSealer({keyId:"synthetic",key:Buffer.alloc(32,42),previousKeys:{}});
   const transports = {webPush:{send:async()=>undefined},fcm:{send:async()=>undefined}};
   beforeAll(async () => {
@@ -60,7 +63,11 @@ describePg("installation device sign-in on daemon pairing", () => {
     db = await createDatabase(url.toString());
     await app.register(cookie);
     registerErrorHandler(app);
-    registerConnectorPairingRoutes(app, { db, publicUrl: "https://connect.test", installationDevices: true, installationEnvironment: "lab" });
+    registerConnectorPairingRoutes(app, { db, publicUrl: "https://connect.test", installationDevices: true, installationEnvironment: "lab", relay:{pushPolicy:async(connector)=>{
+      const snapshot=await buildPolicySnapshot(db,connector,55_000,undefined,()=>true,"lease_v1",true,true,true) as LeasePolicySnapshot;
+      nativePushes.push({connector,grants:snapshot.grants.map(g=>String(g.id))});
+      await acknowledgeNativePush();
+    }} });
     registerNextDeviceRoutes(app, { db, log: { controlItemAt: async () => null } });
     registerInstallationSignOutRoute(app, { db, relay: { fenceConnector: async (id, generation) => { fenced.push([id, generation]); return "closed"; } } });
     const resolver = backgroundTimerGrantResolver(db,"lab");
@@ -530,6 +537,53 @@ describePg("installation device sign-in on daemon pairing", () => {
   async function approvePrivate(p: Awaited<ReturnType<typeof prepared>>, collection: string) {
     return app.inject({method:"POST",url:`${p.flow.base}/approve`,headers:p.owner.headers,payload:{fingerprint:clientFingerprint(Buffer.from(p.proof.payload.sign_pk,"hex")),collection_ids:[],create_collections:false,selected_collection_id:collection,selected_collection_kind:"private"}});
   }
+  async function servingNative(owner:string,collection:string) {
+    const connector=randomUUID(),device=randomUUID(),signKey=ed25519RawPublicKey(generateKeyPairSync("ed25519").privateKey),kem=Buffer.from(rawX(),"hex"),noise=Buffer.from(rawX(),"hex");
+    await db.query("INSERT INTO connectors(id,user_id,name,token_hash,relay_generation) VALUES($1,$2,'Native fixture',$3,1)",[connector,owner,tokenHash(randomUUID())]);
+    await db.query("INSERT INTO next_devices(id,connector_id,user_id,kind,sign_pk,kem_pk,noise_pk) VALUES($1,$2,$3,'desktop',$4,$5,$6)",[device,connector,owner,signKey,kem,noise]);
+    const batch=(await db.query("SELECT id FROM next_policy_batches WHERE collection_id=$1 AND state='appended' ORDER BY seq DESC LIMIT 1",[collection])).rows[0].id;
+    await db.query("INSERT INTO next_policy_outbox(collection_id,ops,batch_id) VALUES($1,$2::jsonb,$3)",[collection,JSON.stringify({version:1,ops:[{op:"device-enrol",device,account:owner,kind:"desktop",signPublicKey:{$hex:signKey.toString("hex")},kemPublicKey:{$hex:kem.toString("hex")},noisePublicKey:{$hex:noise.toString("hex")}}]}),batch]);
+    return connector;
+  }
+  it("pushes unified Private consent after COMMIT and waits for the original Native ACK without holding authority locks",async()=>{
+    const p=await privatePrepared(),collection=await scopeCollection(p.owner.user,p.owner.user,"private"),connector=await servingNative(p.owner.user,collection),n=await nativeCompanion(p);
+    expect((await n.attach()).statusCode).toBe(200);
+    let release!:()=>void,entered!:()=>void,completed=false;
+    const started=new Promise<void>(resolve=>{entered=resolve;}),ack=new Promise<void>(resolve=>{release=resolve;});
+    acknowledgeNativePush=async()=>{entered();await ack;};
+    const before=nativePushes.length,pending=approvePrivate(p,collection).then(response=>{completed=true;return response;});
+    try {
+      await started;
+      expect(completed).toBe(false);
+      const original=(await db.query("SELECT g.id,b.log_grant_id FROM authorization_requests ar JOIN grants g ON g.id=ar.grant_id JOIN next_grant_bindings b ON b.grant_id=g.id WHERE ar.id=$1",[n.id])).rows[0];
+      expect(nativePushes.slice(before)).toEqual([{connector,grants:[original.log_grant_id]}]);
+      const observer=await db.connect();
+      try {
+        await observer.query("BEGIN");
+        await observer.query("SELECT id FROM users WHERE id=$1 FOR UPDATE NOWAIT",[p.owner.user]);
+        await observer.query("SELECT id FROM pairing_requests WHERE id=$1 FOR UPDATE NOWAIT",[p.input.installation.request_id]);
+        await observer.query("SELECT id FROM authorization_requests WHERE id=$1 FOR UPDATE NOWAIT",[n.id]);
+        await observer.query("ROLLBACK");
+      }finally{observer.release();}
+      release();const approved=await pending;expect(approved.statusCode,approved.body).toBe(200);
+      expect((await p.flow.exchange()).json()).toMatchObject({status:"paired",collection_ids:[],native_selection:{authorization_request_id:n.id,collection_id:collection}});
+      expect((await db.query("SELECT * FROM installation_collection_scopes WHERE connector_id=$1",[p.selected.connector_id])).rows).toEqual([]);
+    }finally{release();acknowledgeNativePush=async()=>{};await pending;}
+  });
+  it("keeps committed unified consent and original keys when the Native push fails",async()=>{
+    const p=await privatePrepared(),collection=await scopeCollection(p.owner.user,p.owner.user,"private"),n=await nativeCompanion(p);
+    await servingNative(p.owner.user,collection);expect((await n.attach()).statusCode).toBe(200);
+    const original=(await db.query("SELECT client_pk,signature FROM next_authorization_client_keys WHERE request_id=$1",[n.id])).rows[0];
+    acknowledgeNativePush=async()=>{throw new Error("synthetic unavailable Native");};
+    try {
+      const approved=await approvePrivate(p,collection);expect(approved.statusCode,approved.body).toBe(200);
+      expect(approved.json()).toHaveProperty("native_authorization_uri",`/oauth/authorize?request_id=${n.id}`);
+      const grant=(await db.query("SELECT grant_id FROM authorization_requests WHERE id=$1",[n.id])).rows[0].grant_id;
+      expect((await db.query("SELECT client_pk,signature FROM next_grant_client_keys WHERE grant_id=$1",[grant])).rows[0]).toEqual(original);
+      expect((await db.query("SELECT id FROM grants WHERE next_collection_id=$1",[collection])).rows).toEqual([{id:grant}]);
+      expect((await p.flow.exchange()).json()).toMatchObject({status:"paired",collection_ids:[],native_selection:{authorization_request_id:n.id,collection_id:collection}});
+    }finally{acknowledgeNativePush=async()=>{};}
+  });
   it("allows a migrated account to approve an app after completed zero-Hosted migration without thawing its archive",async()=>{
     const p=await privatePrepared(), collection=await scopeCollection(p.owner.user,p.owner.user,"private");
     const cohort=`approve-${randomUUID().slice(0,8)}`,actor="synthetic-local-pg";
@@ -597,6 +651,7 @@ describePg("installation device sign-in on daemon pairing", () => {
   });
   it("rolls back Native grant and choice if account-only installation approval fails",async()=>{
     const p=await privatePrepared(), collection=await scopeCollection(p.owner.user,p.owner.user,"private"), n=await nativeCompanion(p);
+    await servingNative(p.owner.user,collection);const before=nativePushes.length;
     expect((await n.attach()).statusCode).toBe(200);
     await db.query(`CREATE FUNCTION fail_native_registration_test() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic registration failure'; END $$;
       CREATE TRIGGER fail_native_registration_test BEFORE UPDATE ON installation_device_pairings FOR EACH ROW EXECUTE FUNCTION fail_native_registration_test()`);
@@ -606,6 +661,7 @@ describePg("installation device sign-in on daemon pairing", () => {
       expect((await db.query("SELECT approved_at FROM installation_native_authorizations WHERE pairing_id=$1",[p.input.installation.request_id])).rows[0].approved_at).toBeNull();
       expect((await db.query("SELECT approved_at FROM pairing_requests WHERE id=$1",[p.input.installation.request_id])).rows[0].approved_at).toBeNull();
       expect((await db.query("SELECT id FROM grants WHERE next_collection_id=$1",[collection])).rows).toEqual([]);
+      expect(nativePushes.slice(before)).toEqual([]);
     } finally { await db.query("DROP TRIGGER fail_native_registration_test ON installation_device_pairings; DROP FUNCTION fail_native_registration_test()"); }
   });
   it("rechecks original account epoch before Native mutation",async()=>{

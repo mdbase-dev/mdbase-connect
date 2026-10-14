@@ -30,6 +30,8 @@ import {
 import { CreateError, isLockTimeout } from "../next/bootstrap-common.js";
 import { createInstallationPairingCollection } from "./installation-pairing-collection.js";
 import type { CloudCopyBootstrapOptions } from "../next/service-cloud-copy.js";
+import type { RelayHub } from "../../relay.js";
+import { createNativeApprovalDelivery } from "../authorizations/native-approval-delivery.js";
 import { ServiceDeviceError } from "../next/service-devices.js";
 async function installationResult(
   reply: FastifyReply,
@@ -72,6 +74,7 @@ const originalUuid = z
 
 interface ConnectorPairingRoutesOptions {
   db: DatabasePool;
+  relay: Pick<RelayHub, "pushPolicy">;
   publicUrl: string;
   tailscaleAuth?: boolean;
   /** SAME approval channel, enabled only with next control-plane support. */
@@ -84,6 +87,7 @@ export function registerConnectorPairingRoutes(
   app: FastifyInstance,
   options: ConnectorPairingRoutesOptions,
 ): void {
+  const nativeDelivery = createNativeApprovalDelivery(options.db, options.relay, () => app.log.warn("Native approval delivery deferred to policy renewal."));
   app.post("/v1/pairing-requests", async (request, reply) => {
     if (
       request.body &&
@@ -247,16 +251,19 @@ export function registerConnectorPairingRoutes(
           timer_consent:z.boolean().optional(),
           file_actions:z.array(z.enum(FILE_ACTIONS)).min(1).max(6).optional(),
         }).strict().parse(request.body);
-        return installationResult(reply, () =>
-          approveInstallationPairing(
+        return installationResult(reply, async () => {
+          const result = await approveInstallationPairing(
             options.db,
             pairingId,
             session.user.id,
             session.sessionId,
             fingerprint,
             {collection_ids,create_collections,selected_collection_id,selected_collection_kind,timer_consent,file_actions},
-          ),
-        );
+          );
+          // Both authorities have committed; never push an uncommitted grant.
+          if ("native_authorization_uri" in result) await nativeDelivery.installation(pairingId);
+          return result;
+        });
       }
       const approved = await options.db.query<{
         id: string;
