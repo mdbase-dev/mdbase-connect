@@ -1,0 +1,9 @@
+{
+  "reason": "The existing installation chooser composes the original signed Native authorization, not its credentials or content scopes. A durable one-to-one original-attempt linkage and a small shared error type keep Native grant publication and zero-content installation consent atomic. Native recovery's additive SQL exception requires the exact committed original Native grant; applied migrations and Hosted singleton constraints remain intact. Real PostgreSQL qualifies these boundaries; pg-mem retains schema only.",
+  "growth": {
+    "productionFiles": 2,
+    "relativeImports": 12,
+    "typeScriptExportDeclarations": 6,
+    "services/server": 2
+  }
+}

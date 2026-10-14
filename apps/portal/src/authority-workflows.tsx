@@ -32,6 +32,7 @@ interface DevicePairing {
   signed_in_account_provider?: string;
   signed_in_account_login?: string;
   selected_collection_id?: string | null;
+  native_authorization_id?: string | null;
   collection_hint?: string | null;
   can_create_collection?: boolean;
   creation?: {collection_id:string;display_name:string;completed:boolean} | null;
@@ -48,7 +49,7 @@ interface DevicePairing {
   account_upgraded?: boolean;
   retained_collection_ids?: string[];
   retained_create_collections?: boolean;
-  collections?: Array<{collection_id:string;display_name:string;role:string}>;
+  collections?: Array<{collection_id:string;display_name:string;role:string;kind?:"private"}>;
   file_access?: FileAccessRequest;
 }
 interface FileAccessRequest {
@@ -140,6 +141,17 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       onTimeout: () => setPreparationError(`We couldn't prepare ${pairing.connector_name}.`),
     });
   },[pairing,pairingId,inspectionPath,preparationAttempt,signInCancelled]);
+  useEffect(()=>{
+    if (!pairing?.installation_device || !pairing.account_selection_confirmed || !pairing.attested || pairing.approved_at || pairing.native_authorization_id || signInCancelled || !pairing.collections?.some(c=>c.kind==="private")) return;
+    return watchPairingPreparation({
+      read:async signal=>(await api<{pairing:DevicePairing}>(inspectionPath,{signal})).pairing,
+      isDispatching:()=>dispatching.current,
+      ready:value=>!!value.native_authorization_id || !!value.approved_at,
+      onReady:value=>setPairing(value),
+      onError:reason=>setPreparationError(message(reason)),
+      onTimeout:()=>setPreparationError(`We couldn't prepare ${pairing.connector_name}. Make sure the app is up to date.`),
+    });
+  },[pairing,inspectionPath,signInCancelled]);
 
   async function act(action: "approve" | "select-account" | "deny" | "remove-access") {
     if (dispatching.current || !pairing) return;
@@ -161,10 +173,11 @@ export function Pairing({ pairingId }: { pairingId: string }) {
         setSelectedCollectionId(selected);
         setNewCollectionName(inspected.pairing.creation.display_name);
       }
-      const approvedIds = [...new Set([...collectionIds, selected])].filter(id=>id && !pairing.retained_collection_ids?.includes(id));
-      const result = await api<{ deep_link?: string }>(
+      const privateChoice=pairing.collections?.some(c=>c.collection_id===selected && c.kind==="private")===true;
+      const approvedIds = privateChoice ? [] : [...new Set([...collectionIds, selected])].filter(id=>id && !pairing.retained_collection_ids?.includes(id));
+      const result = await api<{ deep_link?: string; native_authorization_uri?:string }>(
         `/v1/pairing-requests/${pairingId}/${action}`,
-        { method: "POST", ...(action==="remove-access" ? {body:JSON.stringify({collection_id:removingId,confirm:true})} : action==="approve" && pairing.file_access ? {body:JSON.stringify({fingerprint:pairing.fingerprint,collection_ids:[],file_actions:pairing.file_access.actions})} : action==="approve" && pairing.installation_device ? {body:JSON.stringify({fingerprint:pairing.fingerprint,collection_ids:approvedIds,create_collections:createCollections && !pairing.retained_create_collections,selected_collection_id:selected,...(pairing.timer_declaration?{timer_consent:allowReminders}:{})})} : {}) },
+        { method: "POST", ...(action==="remove-access" ? {body:JSON.stringify({collection_id:removingId,confirm:true})} : action==="approve" && pairing.file_access ? {body:JSON.stringify({fingerprint:pairing.fingerprint,collection_ids:[],file_actions:pairing.file_access.actions})} : action==="approve" && pairing.installation_device ? {body:JSON.stringify({fingerprint:pairing.fingerprint,collection_ids:approvedIds,create_collections:!privateChoice && createCollections && !pairing.retained_create_collections,selected_collection_id:selected,...(privateChoice?{selected_collection_kind:"private"}:pairing.timer_declaration?{timer_consent:allowReminders}:{})})} : {}) },
       );
       if (current !== generation.current) return;
       if (action === "deny" && pairing.file_access) {
@@ -173,6 +186,12 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       }
       if (action === "deny") {
         if (finishDeniedPairing(pairing, window) === "cancelled") setSignInCancelled(true);
+        return;
+      }
+      if (action==="approve" && result.native_authorization_uri) {
+        const target=new URL(result.native_authorization_uri,location.origin);
+        if (target.origin!==location.origin || target.pathname!=="/oauth/authorize" || target.searchParams.get("request_id")!==pairing.native_authorization_id) throw new Error("The original app approval changed.");
+        window.location.assign(target.href);
         return;
       }
       if (action === "approve") handBack.current = true;
@@ -237,6 +256,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       />
     );
   const installation = pairing.installation_device === true;
+  const privateChoice=pairing.collections?.some(c=>c.collection_id===selectedCollectionId && c.kind==="private")===true;
   const collectionQuery = collectionSearch.trim().toLocaleLowerCase();
   const matchingCollections = (pairing.collections ?? []).filter(collection => collection.display_name.toLocaleLowerCase().includes(collectionQuery));
   // Searching narrows candidates, never changes the user's current approval choice.
@@ -355,11 +375,13 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                       <small id="installation-collection-note">Approve will create this collection and open it in {pairing.connector_name}.</small>
                       {pairing.creation && <small role="status">Creation hasn't finished. Approve continues the same named collection.</small>}
                     </div>}
-                    <p className="mdbase-connect-footnote">Access includes the notes and files in the collection you pick.{createCollections ? ` ${pairing.connector_name} can also create new collections for you.` : ""}{pairing.scope_only ? " Previously approved collections stay available." : ""}</p>
-                    {(pairing.collections?.length || pairing.retained_collection_ids?.length || pairing.requested_create_collections || pairing.retained_create_collections) ? <details className="installation-advanced">
+                    {privateChoice && <p className="field-note">This collection stays on your computer. It can connect when a computer signed in to this account is available.</p>}
+                    {privateChoice && !pairing.native_authorization_id && <p role="status">{preparationError || `Preparing ${pairing.connector_name}…`}</p>}
+                    <p className="mdbase-connect-footnote">Access includes the notes and files in the collection you pick.{createCollections && !privateChoice ? ` ${pairing.connector_name} can also create new collections for you.` : ""}{pairing.scope_only ? " Previously approved collections stay available." : ""}</p>
+                    {!privateChoice && (pairing.collections?.some(c=>c.kind!=="private") || pairing.retained_collection_ids?.length || pairing.requested_create_collections || pairing.retained_create_collections) ? <details className="installation-advanced">
                       <summary>Advanced: allow more collections</summary>
                       <CheckboxGroup legend="Additional collection access" disabled={busy}>
-                        {(pairing.collections??[]).map(collection=>(
+                        {(pairing.collections??[]).filter(c=>c.kind!=="private").map(collection=>(
                           <div key={collection.collection_id}>
                             <Checkbox checked={collection.collection_id===selectedCollectionId || collectionIds.includes(collection.collection_id)} disabled={collection.collection_id===selectedCollectionId || pairing.retained_collection_ids?.includes(collection.collection_id)} onChange={event=>setCollectionIds(ids=>event.target.checked?[...new Set([...ids,collection.collection_id])]:ids.filter(id=>id!==collection.collection_id))}>
                               {collection.display_name}{pairing.retained_collection_ids?.includes(collection.collection_id) ? " (already allowed)" : ""}
@@ -374,7 +396,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                       </CheckboxGroup>
                       {pairing.scope_only && <p>Already-allowed access stays in place. Remove access separately if you no longer want it.</p>}
                     </details> : null}
-                    {pairing.timer_declaration && <div className="installation-choice">
+                    {!privateChoice && pairing.timer_declaration && <div className="installation-choice">
                       <Checkbox disabled={busy} checked={allowReminders} onChange={event=>setAllowReminders(event.target.checked)}>
                         Allow {pairing.connector_name} to send you reminders
                       </Checkbox>
@@ -388,7 +410,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     </div>}
                     {revokingId && <p role="status">Removing access to {pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??"this collection"}…</p>}
                     <button className="mdbase-button is-primary"
-                      disabled={busy || !pairing.fingerprint || !selectedCollectionId || (selectedCollectionId===NEW_COLLECTION ? !pairing.can_create_collection || !newCollectionName.trim() : !pairing.collections?.some(collection=>collection.collection_id===selectedCollectionId))}
+                      disabled={busy || !pairing.fingerprint || !selectedCollectionId || (privateChoice && !pairing.native_authorization_id) || (selectedCollectionId===NEW_COLLECTION ? !pairing.can_create_collection || !newCollectionName.trim() : !pairing.collections?.some(collection=>collection.collection_id===selectedCollectionId))}
                       onClick={()=>void act("approve")}>
                       {busy ? "Approving…" : "Approve"}
                     </button>

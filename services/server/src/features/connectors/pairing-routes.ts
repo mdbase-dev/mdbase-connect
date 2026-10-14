@@ -19,6 +19,7 @@ import {
   inspectInstallationPairing,
   selectInstallationAccount,
   attestInstallationPairing,
+  attachInstallationNativeAuthorization,
   approveInstallationPairing,
   exchangeInstallationPairing,
   denyInstallationPairing,
@@ -237,11 +238,12 @@ export function registerConnectorPairingRoutes(
             );
         const session = await requireSessionContext(request, reply, options.db);
         if (!session) return;
-        const {fingerprint,collection_ids,create_collections,selected_collection_id,timer_consent,file_actions}=z.object({
+        const {fingerprint,collection_ids,create_collections,selected_collection_id,selected_collection_kind,timer_consent,file_actions}=z.object({
           fingerprint:z.string().regex(/^[0-9a-f]{4}(?:-[0-9a-f]{4}){3}$/),
           collection_ids:z.array(originalUuid).max(1000).default([]),
           create_collections:z.boolean().default(false),
           selected_collection_id:originalUuid.optional(),
+          selected_collection_kind:z.enum(["cloud_copy","private"]).optional(),
           timer_consent:z.boolean().optional(),
           file_actions:z.array(z.enum(FILE_ACTIONS)).min(1).max(6).optional(),
         }).strict().parse(request.body);
@@ -252,7 +254,7 @@ export function registerConnectorPairingRoutes(
             session.user.id,
             session.sessionId,
             fingerprint,
-            {collection_ids,create_collections,selected_collection_id,timer_consent,file_actions},
+            {collection_ids,create_collections,selected_collection_id,selected_collection_kind,timer_consent,file_actions},
           ),
         );
       }
@@ -356,6 +358,13 @@ export function registerConnectorPairingRoutes(
           session.sessionId,
         ),
       );
+    });
+    app.post("/v1/pairing-requests/:pairingId/native-authorization",async (request,reply)=>{
+      const {pairingId}=z.object({pairingId:originalUuid}).parse(request.params);
+      const secret=bearerToken(request);
+      if (!secret) return reply.code(401).send(apiError("invalid_pairing","Pairing secret required."));
+      const body=z.object({authorization_request_id:originalUuid}).strict().parse(request.body);
+      return installationResult(reply,()=>attachInstallationNativeAuthorization(options.db,pairingId,secret,body.authorization_request_id));
     });
     app.post(
       "/v1/pairing-requests/:pairingId/attest",
