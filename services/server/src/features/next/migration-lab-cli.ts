@@ -18,6 +18,7 @@ import { createDatabase, openDatabase } from "../../db.js";
 import { HostedProviderClient } from "../../hosted-provider.js";
 import { captureLabWorkerError, sanitizedLabOutcome } from "./migration-lab-raw-error.js";
 import { labLegacySourceConnection } from "./migration-lab-source-tls.js";
+import { labTargetBootstrap } from "./migration-lab-target.js";
 import { hostedProviderConfigFromEnv } from "../../runtime-config.js";
 import { labRun, resumeLab, labStatus, labWorkerClient, postgresLabConnect, routeBack, type LabOutcome } from "./migration-lab.js";
 
@@ -40,6 +41,9 @@ async function main(argv: string[]): Promise<void> {
     throw new Error("DATABASE_URL, MDBASE_LEGACY_PROVIDER_DATABASE_URL, the hosted provider configuration, MDBASE_OPERATOR, "
       + "MDBASE_NEXT_TIMERS=1, MDBASE_NEXT_HOSTED_SERVICE_URL and MDBASE_NEXT_HOSTED_SERVICE_TOKEN are required.");
   }
+  const prepareTarget = command === "lab-run" ? labTargetBootstrap({ environment: process.env.MDBASE_CONNECT_ENVIRONMENT,
+    url: process.env.PUBLIC_URL ?? "", token: process.env.MDBASE_NEXT_MIGRATION_INTERNAL_TOKEN?.trim() ?? "",
+    account: account.toLowerCase() }) : undefined;
   const worker = labWorkerClient({ url: process.env.MDBASE_NEXT_HOSTED_SERVICE_URL, token: process.env.MDBASE_NEXT_HOSTED_SERVICE_TOKEN.trim(),
     environment: process.env.MDBASE_CONNECT_ENVIRONMENT });
   // An explicit LAB-only owner identity, supplied by approved custody, not an
@@ -52,7 +56,8 @@ async function main(argv: string[]): Promise<void> {
   const db = await createDatabase(process.env.DATABASE_URL);
   const source = await openDatabase(sourceConnection.url, sourceConnection.ssl);
   try {
-    const connect = postgresLabConnect({ db, source, actor, timers: true, provider: new HostedProviderClient(providerConfig) });
+    const connect = postgresLabConnect({ db, source, actor, timers: true, provider: new HostedProviderClient(providerConfig),
+      ...(prepareTarget ? { prepareTarget } : {}) });
     if (command === "status") { console.log(JSON.stringify(await labStatus(account.toLowerCase(), { worker, connect }))); return; }
     const deps = { worker, connect, log: (event: Record<string, unknown>) => console.log(JSON.stringify(captureLabWorkerError(event,
       process.env.MDBASE_CONNECT_ENVIRONMENT, process.env.MDBASE_LAB_MIGRATION_RAW_ERROR_FILE))) };

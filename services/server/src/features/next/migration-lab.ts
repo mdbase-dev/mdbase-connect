@@ -115,6 +115,8 @@ export interface LabWorker extends WorkerOperator {
 /** The control-plane side; refusals throw with a `code` (RolloutRefused, TimerImportRefused). */
 export interface LabConnect {
   preflight(account: string): Promise<{ collection: string; backend: "legacy" | "next" }>;
+  /** Canonical SHADOW/device/genesis bootstrap BEFORE Worker ready() custody. */
+  prepareTarget(collection: string): Promise<void>;
   importTimers(collection: string): Promise<unknown>;
   cutover(collection: string): Promise<void>;
   flip(account: string, collection: string): Promise<void>;
@@ -226,6 +228,7 @@ export function postgresLabConnect(options: {
   db: DatabasePool; source: DatabasePool; actor: string; timers: boolean;
   provider: Pick<HostedProviderClient, "legacyMigrationSource" | "legacyMigrationDrain" | "legacyMigrationRetain">;
   importTimers?: (collection: string) => Promise<unknown>;
+  prepareTarget?: (collection: string) => Promise<void>;
 }): LabConnect {
   const { db, provider } = options;
   return {
@@ -250,6 +253,18 @@ export function postgresLabConnect(options: {
         throw new RolloutRefused("lab_inventory_invalid", "The LAB fixture account must have exactly one settled hosted collection.");
       }
       return { collection: hosted[0]!.id, backend: row.backend === "next" ? "next" : "legacy" };
+    },
+    async prepareTarget(collection) {
+      // A routed-but-not-flipped rerun already has its recorded NEXT target.
+      // Do not re-enter the pre-cutover creator or replace its service keys.
+      const routed = await db.query(
+        `SELECT 1 FROM next_migration_collections c JOIN next_collections x ON x.collection_id=c.collection_id
+         WHERE c.collection_id=$1 AND x.owner_user_id=c.account_id AND x.runtime='next'
+           AND x.sync='cloud_copy' AND x.left_sync_at IS NULL
+           AND EXISTS (SELECT 1 FROM next_service_devices d WHERE d.collection_id=x.collection_id AND d.kind='hosted')`, [collection]);
+      if (routed.rows.length) return;
+      if (!options.prepareTarget) throw new RolloutRefused("migration_target_unavailable", "Canonical SHADOW custody target bootstrap is required.", 503);
+      await options.prepareTarget(collection);
     },
     importTimers: options.importTimers ?? (collection => importHostedCollectionTimers({
       db, source: options.source, provider, resolver: legacyTimerGrantResolver, collection, actor: options.actor
@@ -438,6 +453,11 @@ async function driveLabRun(account: string, backupHold: string, pre: Awaited<Ret
   };
 
   if (pre.backend === "legacy") {
+    // ready() needs an enrolled hosted identity. The executor's later target
+    // action reuses the canonical immutable tuple; HTTP200 here is not H1.
+    try { await deps.connect.prepareTarget(collection); }
+    catch (error) { return stop("prepare_target", codeOf(error)); }
+    log({ step: "prepare_target", collection });
     const started = await deps.worker.run(collection, backupHold, stopBeforeFlip);
     if (started.diagnostic) log({ step: "worker_run_reply", kind: started.kind, ...started.diagnostic });
     if (started.kind === "refused") return stop("worker_run", started.code, false, started.diagnostic);

@@ -89,7 +89,8 @@ function fakeConnect(overrides: Partial<Record<keyof LabConnect, () => Promise<u
     return overrides[name] ? overrides[name]!() : value;
   };
   const connect = {
-    preflight: step("preflight", { collection, backend: "legacy" }), importTimers: step("importTimers", {}),
+    preflight: step("preflight", { collection, backend: "legacy" }), prepareTarget: async () => undefined,
+    importTimers: step("importTimers", {}),
     cutover: step("cutover"), flip: step("flip"), completion: step("completion"),
     cleanupTimers: step("cleanupTimers", { deleted: 2 })
   } as unknown as LabConnect;
@@ -97,6 +98,28 @@ function fakeConnect(overrides: Partial<Record<keyof LabConnect, () => Promise<u
 }
 const deps = (worker: LabWorker, connect: LabConnect) => ({ worker, connect, sleep: async () => undefined });
 const happy = [ok(st("running", 3)), ok(st("running", STEP.drained)), ok(st("running", 9)), ok(st("done", STEP.routed))];
+
+describe("lab-run custody prerequisite", () => {
+  it("provisions the canonical SHADOW target before Worker ready can read hosted custody", async () => {
+    const w = fakeWorker(happy), c = fakeConnect(), order: string[] = [];
+    Object.assign(c.connect, { prepareTarget: async (id: string) => { expect(id).toBe(collection); order.push("target"); } });
+    w.worker.run = async () => {
+      order.push("worker");
+      return order[0] === "target" ? ok(st("running", 0))
+        : { kind: "refused", code: "migration_run_ready_failed" };
+    };
+    expect(await labRun(account, hold, deps(w.worker, c.connect))).toHaveProperty("done");
+    expect(order).toEqual(["target", "worker"]);
+  });
+  it("does not start the Worker when target provisioning is refused or unavailable", async () => {
+    const w = fakeWorker(happy), c = fakeConnect();
+    Object.assign(c.connect, { prepareTarget: async () => { throw refusal("migration_target_unavailable"); } });
+    expect(await labRun(account, hold, deps(w.worker, c.connect))).toMatchObject({ stopped: {
+      step: "prepare_target", reason: "migration_target_unavailable"
+    } });
+    expect(w.calls).toEqual([]);
+  });
+});
 
 describe("lab-run", () => {
   it("runs preflight, Worker run, timers at the drain, cutover, flip and the completion read-back in order", async () => {

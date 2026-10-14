@@ -17,6 +17,12 @@ through its SELECT-only reader role), `MDBASE_CONNECT_HOSTED_PROVIDER_*`, `MDBAS
 `MDBASE_NEXT_TIMERS=1`, and `MDBASE_NEXT_HOSTED_SERVICE_URL` (https) with
 `MDBASE_NEXT_HOSTED_SERVICE_TOKEN` for the hosted Worker's internal migration entry. The
 backup hold is the in-force `hosted_provider_backup_holds` id taken by the operator.
+`lab-run` additionally uses the existing `PUBLIC_URL=https://connect-lab.mdbase.dev`
+and `MDBASE_NEXT_MIGRATION_INTERNAL_TOKEN` to call the canonical migration target
+creator before the first Worker Run POST. That creator installs the SHADOW cloud
+copy, immutable hosted/escrow service-device records and appended original genesis.
+It does not grant serving/H1 authority or flip the account. Provisioning failure
+stops at `prepare_target` without a Worker Run; custody lookup remains unchanged.
 
 For the coordinator-selected LAB rehearsal exception only, the CLI child may set
 `MDBASE_LEGACY_PROVIDER_LAB_OWNER_READONLY_ROLE` to the exact owner identity from
@@ -62,7 +68,10 @@ After an unknown outcome a mutation is never sent again; a rerun reads state fir
 1. **preflight**: the account is in a released, frozen cohort, started with the LAB
    profile, not excluded, and has exactly one settled hosted collection. An account
    already on the next backend skips to step 7.
-2. **worker_run**: `POST /internal/v1/migration/run {collection, backup_hold}`. A lost
+2. **prepare_target**, then **worker_run**: create/reuse the canonical SHADOW target
+   through `POST /internal/v1/next/migration/collections/:id/target` before opening
+   Worker custody. An already-recorded NEXT cutover retains its original target
+   on a routed-but-not-flipped rerun. Then `POST /internal/v1/migration/run {collection, backup_hold}`. A lost
    reply is resolved by reading the run back. A run with another hold stops.
 3. **worker_status**: poll `POST /internal/v1/migration/status` with capped backoff
    (1 s doubling to 30 s, two hours in total). The Worker fences, drains, imports,
