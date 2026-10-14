@@ -49,11 +49,32 @@ const statusSchema = z.object({
 });
 export type WorkerStatus = z.infer<typeof statusSchema>;
 
+// Ready-stage wire v1: finite diagnostic DATA, never error messages or native tails.
+const readyStage = z.enum([
+  "background_guard", "physical_collection_guard", "collection_guard", "service_collection_persist",
+  "alarm_guard", "open_retry_read", "open_retry_schedule", "custody_open_sealer", "engine_construct",
+  "engine_config", "engine_cpp_open", "engine_open", "engine_noise_key", "custody_zeroize",
+  "pin_digest", "pin_marker_read", "pin_mismatch", "live_admission", "sync", "pin_parked_guard",
+  "timing_snapshot", "engine_reset", "open_failure_clear", "unknown"
+]).catch("unknown");
+const readyErrorName = z.enum(["Error", "TypeError", "RangeError", "AbortError", "TimeoutError", "other"]).catch("other");
+const readyErrorCode = z.enum([
+  "pitr_actor_closed", "hosted_alarm_inhibited", "physical_collection_mismatch", "collection_mismatch",
+  "hosted_pin_parked", "custody_unavailable", "custody_aborted", "custody_invalid_record",
+  "custody_identity_mismatch", "custody_record_changed", "custody_secret_invalid", "custody_envelope_invalid",
+  "custody_key_not_configured", "kms_refused", "kms_invalid_response", "kms_aborted",
+  "kms_credentials_unavailable", "cpp_owned_control_not_established", "hosted_engine_already_opened",
+  "hosted_cache_reset", "pin_mismatch_reset", "unknown"
+]).catch("unknown");
+
 /** Bounded HTTP run provenance; never response text, exception messages or credentials. */
 interface WorkerRunReplyDiagnostic {
   http_status: number | null;
   worker_error_code: string | null;
   worker_error_class: "error" | "type_error" | "range_error" | "abort_error" | "timeout_error" | "other" | null;
+  worker_error_stage: z.infer<typeof readyStage> | null;
+  worker_error_name: z.infer<typeof readyErrorName> | null;
+  worker_error_detail_code: z.infer<typeof readyErrorCode> | null;
   transport_error_class: "timeout" | "abort" | "network" | "other" | null;
   response_class: "json" | "non_json" | "empty" | "invalid_status" | "over_bound" | null;
 }
@@ -116,7 +137,8 @@ export function labWorkerClient(config: { url: string; token: string }, fetchImp
   const base = url.toString().replace(/\/+$/u, "");
   const post = async (path: string, body: Record<string, unknown>): Promise<WorkerReply> => {
     const diagnostic: WorkerRunReplyDiagnostic | undefined = path === "/internal/v1/migration/run"
-      ? { http_status: null, worker_error_code: null, worker_error_class: null, transport_error_class: null, response_class: null }
+      ? { http_status: null, worker_error_code: null, worker_error_class: null, worker_error_stage: null,
+        worker_error_name: null, worker_error_detail_code: null, transport_error_class: null, response_class: null }
       : undefined;
     const finish = (reply: WorkerReply): WorkerReply => diagnostic ? { ...reply, diagnostic } : reply;
     let response: Response;
@@ -151,6 +173,12 @@ export function labWorkerClient(config: { url: string; token: string }, fetchImp
       const errorClass = (parsed as { error_class?: unknown } | null)?.error_class;
       if (typeof errorClass === "string" && ["error", "type_error", "range_error", "abort_error", "timeout_error", "other"].includes(errorClass)) {
         diagnostic.worker_error_class = errorClass as NonNullable<WorkerRunReplyDiagnostic["worker_error_class"]>;
+      }
+      if (code === "migration_run_ready_failed") {
+        const ready = parsed as { stage?: unknown; error_name?: unknown; error_code?: unknown };
+        diagnostic.worker_error_stage = readyStage.parse(ready.stage);
+        diagnostic.worker_error_name = readyErrorName.parse(ready.error_name);
+        diagnostic.worker_error_detail_code = readyErrorCode.parse(ready.error_code);
       }
     }
     if (response.ok) {

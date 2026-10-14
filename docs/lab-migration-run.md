@@ -33,7 +33,13 @@ dedicated-reader rehearsal is qualified.
 
 Progress is one JSON line per step. An operator stop prints
 `{"stopped":{"step","reason","inspect","resume"}}`, repeats it on stderr and exits 2. No
-token, URL or error message is printed, only stable codes.
+token, URL or error message is printed, only stable codes. Initial Worker RUN replies
+are recorded before status reconciliation. For `migration_run_ready_failed` only,
+`worker_run_reply` includes finite `worker_error_stage`, `worker_error_name`, and
+`worker_error_detail_code` from ready-stage wire v1. Missing/unrecognized stage or
+code becomes `unknown`, and name becomes `other`; unrelated replies have null
+fields. These labels identify a throwing boundary, not proof earlier effects were
+absent. HTTP500 remains UNKNOWN; this diagnostic never authorizes a retry.
 
 Every step is derived from durable state (the Worker's run record and native checkpoint,
 and control-plane rows), so running the same command again resumes where it stopped.

@@ -181,6 +181,9 @@ describe("lab-run", () => {
       http_status: scenario === "transport" ? null : scenario === "invalid" ? 200 : scenario === "unsafe400" ? 400 : scenario === "unsafe503" ? 503 : 500,
       worker_error_code: scenario === "typed" ? "migration_run_ready_failed" : null,
       worker_error_class: scenario === "typed" ? "type_error" : null,
+      worker_error_stage: scenario === "typed" ? "unknown" : null,
+      worker_error_name: scenario === "typed" ? "other" : null,
+      worker_error_detail_code: scenario === "typed" ? "unknown" : null,
       transport_error_class: scenario === "transport" ? "network" : null,
       response_class: scenario === "transport" ? null : scenario === "http" ? "non_json" : scenario === "invalid" ? "invalid_status" : "json"
     };
@@ -307,6 +310,57 @@ describe("route-back", () => {
     const stuck = fakeWorker([ok(st("stopped", STEP.rollingBack, { outstanding: { sequence: 4, kind: 21 } }))]);
     expect(await routeBack(account, deps(stuck.worker, fakeConnect().connect)))
       .toMatchObject({ stopped: { step: "resolve_receipt:4", reason: "resolve_receipt:4_did_not_settle" } });
+  });
+});
+
+describe("Worker ready-stage wire v1", () => {
+  async function reconcile(fields: Record<string, unknown>, code = "migration_run_ready_failed") {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(Response.json({ error: code, error_class: "error", ...fields }, { status: 500 }))
+      .mockResolvedValueOnce(Response.json({ run: null, native: { checkpoint: null, outstanding: null } }));
+    const worker = labWorkerClient({ url: "https://worker.example", token: "t".repeat(40) }, fetchImpl as typeof fetch);
+    const events: Record<string, unknown>[] = [];
+    const connect = fakeConnect();
+    const result = await labRun(account, hold, { ...deps(worker, connect.connect), log: event => events.push(event) });
+    expect(fetchImpl.mock.calls.map(call => String(call[0]))).toEqual([
+      "https://worker.example/internal/v1/migration/run", "https://worker.example/internal/v1/migration/status"
+    ]);
+    expect(connect.calls).toEqual(["preflight"]);
+    expect(result).toMatchObject({ stopped: { step: "worker_run", reason: "worker_run_missing" } });
+    return { result, events };
+  }
+
+  it.each([
+    ["physical_collection_guard", "Error", "physical_collection_mismatch"],
+    ["custody_open_sealer", "AbortError", "kms_aborted"],
+    ["engine_cpp_open", "TypeError", "cpp_owned_control_not_established"],
+    ["sync", "RangeError", "unknown"]
+  ])("preserves %s before absent-run reconciliation without retry", async (stage, name, code) => {
+    const { result, events } = await reconcile({ stage, error_name: name, error_code: code, message: "private secret" });
+    const diagnostic = { worker_error_stage: stage, worker_error_name: name, worker_error_detail_code: code };
+    expect(result).toMatchObject({ stopped: { worker_run_reply: diagnostic } });
+    expect(events).toContainEqual(expect.objectContaining({ step: "worker_run_reply", kind: "unknown", ...diagnostic }));
+    expect(JSON.stringify({ result, events })).not.toContain("secret");
+  });
+
+  it.each([undefined, null, 17, {}, [], "private_owner_secret", "postgres://private:secret@host", "t".repeat(40)])
+    ("maps missing or unsafe detail %j to finite fallbacks", async unsafe => {
+      const { result, events } = await reconcile({ stage: unsafe, error_name: unsafe, error_code: unsafe,
+        message: "private_owner_secret", cause: "postgres://private:secret@host", stack: "private_owner_secret" });
+      expect(result).toMatchObject({ stopped: { worker_run_reply: {
+        worker_error_stage: "unknown", worker_error_name: "other", worker_error_detail_code: "unknown"
+      } } });
+      const output = JSON.stringify({ result, events });
+      expect(output).not.toContain("secret");
+      expect(output).not.toContain("postgres");
+      expect(output).not.toContain("t".repeat(40));
+    });
+
+  it("does not attribute an unrelated reply to readiness even with valid detail values", async () => {
+    const { result, events } = await reconcile({ stage: "engine_open", error_name: "Error", error_code: "kms_refused" }, "invalid_request");
+    const diagnostic = { worker_error_stage: null, worker_error_name: null, worker_error_detail_code: null };
+    expect(result).toMatchObject({ stopped: { worker_run_reply: diagnostic } });
+    expect(events).toContainEqual(expect.objectContaining({ step: "worker_run_reply", ...diagnostic }));
   });
 });
 
