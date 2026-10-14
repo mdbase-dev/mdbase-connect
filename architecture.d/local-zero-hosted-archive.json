@@ -1,0 +1,4 @@
+{
+  "reason": "The existing archive profile parser and capture route both import the existing compiled local-build guard. These two imports prevent runtime environment variables from admitting local archives to managed builds, and keep managed archive profiles out of compiled local deployments. No new production modules, public exports, archive acceptance path or bypass is added.",
+  "growth": { "relativeImports": 2 }
+}
