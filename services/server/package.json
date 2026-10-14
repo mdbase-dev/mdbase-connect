@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "build:local": "tsc -p tsconfig.json && node scripts/mark-local-build.mjs",
     "auth:admin": "node dist/auth-admin-cli.js",
     "instance:admin": "node dist/auth-admin-cli.js",
     "dev": "tsx watch src/index.ts",

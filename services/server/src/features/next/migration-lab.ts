@@ -14,6 +14,7 @@
 // retried after an unknown outcome; only read-only status reads and the
 // idempotent timer import after `timer_source_changed` are retried.
 import { z } from "zod";
+import { localBuild, localDeployment, rehearsalDiagnostics } from "../../local-deployment.js";
 import type { DatabasePool } from "../../database-types.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";
 import { flipEvidenceDigest } from "./account-backend-flip.js";
@@ -144,7 +145,8 @@ export type LabOutcome = { done: Record<string, unknown> } | { stopped: LabStop 
 /** HTTPS client for the hosted Worker's internal migration entry (service token). */
 export function labWorkerClient(config: { url: string; token: string; environment?: string }, fetchImpl: typeof fetch = fetch): LabWorker {
   const url = new URL(config.url);
-  if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) {
+  if ((localBuild() ? !localDeployment(config.environment, config.url) : config.environment === "local" || url.protocol !== "https:")
+      || url.username || url.password || url.search || url.hash) {
     throw new Error("MDBASE_NEXT_HOSTED_SERVICE_URL must be an https origin without credentials.");
   }
   if (config.token.length < 32) throw new Error("MDBASE_NEXT_HOSTED_SERVICE_TOKEN must be at least 32 characters.");
@@ -188,7 +190,7 @@ export function labWorkerClient(config: { url: string; token: string; environmen
       if (typeof errorClass === "string" && ["error", "type_error", "range_error", "abort_error", "timeout_error", "other"].includes(errorClass)) {
         diagnostic.worker_error_class = errorClass as NonNullable<WorkerRunReplyDiagnostic["worker_error_class"]>;
       }
-      if (config.environment === "lab" && response.status === 500
+      if (rehearsalDiagnostics(config.environment) && response.status === 500
           && (code === "migration_run_ready_failed" || code === "migration_run_failed")) {
         const raw = rawWorkerError.safeParse((parsed as { raw_error?: unknown }).raw_error);
         if (raw.success) diagnostic.raw_error = raw.data;

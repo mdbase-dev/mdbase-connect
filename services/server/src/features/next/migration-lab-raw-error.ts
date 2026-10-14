@@ -1,12 +1,13 @@
 import { constants, closeSync, lstatSync, openSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { LabOutcome } from "./migration-lab.js";
+import { rehearsalDiagnostics } from "../../local-deployment.js";
 
 /** Raw LAB diagnostics (Worker or target) belong only in the explicit private file. */
 export function captureLabWorkerError(event: Record<string, unknown>, environment: string | undefined, path: string | undefined): Record<string, unknown> {
   const { raw_error, ...safe } = event;
   if (raw_error === undefined) return safe;
-  if (environment !== "lab" || !path) return { ...safe, raw_error_capture_status: "disabled" };
+  if (!rehearsalDiagnostics(environment) || !path) return { ...safe, raw_error_capture_status: "disabled" };
   let fd: number | undefined;
   try {
     const parent = lstatSync(dirname(path));
