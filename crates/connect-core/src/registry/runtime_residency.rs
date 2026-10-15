@@ -306,8 +306,11 @@ impl CollectionRegistry {
 }
 
 #[cfg(windows)]
+const WINDOWS_DELETE_SHARE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+#[cfg(windows)]
 fn wait_for_windows_delete_share(root: &Path) {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let deadline = std::time::Instant::now() + WINDOWS_DELETE_SHARE_WAIT;
     while !windows_tree_is_delete_shared(root) && std::time::Instant::now() < deadline {
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
