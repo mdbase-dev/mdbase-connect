@@ -81,14 +81,19 @@ export function projectNextAuthorizationGroups(
   return { groups };
 }
 
-/** Exact projection: no dropping or rounding of stored/approved permissions. */
+/** Exact projection: no dropping or rounding of stored/approved permissions.
+ * Setup is an independent complete pair, not structural administration. This
+ * projects ordinary policy groups only; it does not authenticate a declaration
+ * or grant authority to execute setup. Producers must verify the original
+ * signed declaration/authorization before mediating either setup operation.
+ */
 export function exactNextPermissionCapabilities(operations: readonly string[], files: readonly string[]): ApplicationCapabilityId[] | undefined {
   const groups = (Object.keys(APPLICATION_CAPABILITY_DEFINITIONS) as ApplicationCapabilityId[]).filter(id =>
     id !== "offline.replica" && APPLICATION_CAPABILITY_DEFINITIONS[id].every(operation => operations.includes(operation)));
   const expected: string[] = groups.flatMap(id => [...APPLICATION_CAPABILITY_DEFINITIONS[id]]);
   const setup = APPLICATION_SETUP_OPERATIONS.filter(operation => operations.includes(operation));
   if (setup.length) {
-    if (setup.length !== APPLICATION_SETUP_OPERATIONS.length || !groups.includes("definitions.manage")) return undefined;
+    if (setup.length !== APPLICATION_SETUP_OPERATIONS.length) return undefined;
     expected.push(...setup);
   }
   if (!groups.length || !equalSet(expected, operations)
