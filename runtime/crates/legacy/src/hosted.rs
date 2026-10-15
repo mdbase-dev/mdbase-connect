@@ -29,6 +29,8 @@ use crate::revision_of;
 #[cfg(feature = "pg")]
 pub mod source;
 
+pub mod recovery;
+
 /// A collection's 256-bit data key. Zeroed on drop (`zeroize`).
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct CollectionKey([u8; 32]);
