@@ -454,6 +454,7 @@ export async function buildApp(options: BuildOptions) {
     publicUrl,
     tailscaleAuth: options.tailscaleAuth,
     installationDevices: !!options.nextControlPlane,
+    nativePolicyEmitter: nextPolicyEmitter,
     installationEnvironment: options.environment,
     cloudCopy: options.nextControlPlane?.cloudCopyBootstrap ? {
       db:options.db,next:options.nextControlPlane,emitter:nextPolicyEmitter!,
@@ -655,6 +656,7 @@ export async function buildApp(options: BuildOptions) {
   registerConnectorGrantRoutes(app, { db: options.db, relay });
   registerAuthorizationRoutes(app, {
     nextClientKeys: options.nextControlPlane !== undefined,
+    nativePolicyEmitter: nextPolicyEmitter,
     db: options.db,
     relay,
     publicUrl,

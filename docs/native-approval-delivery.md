@@ -14,6 +14,28 @@ member's device, an unenrolled device, an app runtime, and Hosted scopes are not
 substitutes. The relay builds current policy and checks the exact session ACK,
 including its existing local/cross-instance timeout and generation fences.
 
+## Request publication precedes the feed
+
+Connect, not the SDK, queues the original policy `grant` request. A Native feed
+ACK does not append that request to the collection's log. Native waits until its
+replica sees the request, then signs and seals its own kind6 approval.
+
+The shared postcommit delivery barrier first calls the existing PolicyEmitter's
+`publishCommitted` entry. It uses the same per-collection lock, persisted batch
+bytes, signer and conditional append; it does not wait for the global drain's
+unrelated service activation. Four deduplicated active wakes are admitted, with
+no memory queue; overflow stays in the original durable outbox. Parked or lost
+work is not reported as published. An eight-second HTTP courtesy deadline stops
+only the caller's wait: the emitter owns late work through shutdown, and unknown
+outcomes retain their original batch bytes. Failure is nonfatal and still allows
+the existing current-policy relay delivery and reconciliation paths.
+
+A PostgreSQL counterexample holds unrelated global activation work after a
+verified Private genesis. Before the fix, delivery pushed the feed with no grant
+request in the log; the targeted wake publishes that same request first. This
+proves the local missing-wake case, not the missing stage in historical run2156,
+whose retained INFO trace did not capture request/application events.
+
 ## Commit and completion
 
 - Ordinary approval delivers after its canonical transaction commits/releases.

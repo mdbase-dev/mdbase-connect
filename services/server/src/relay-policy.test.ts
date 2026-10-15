@@ -240,6 +240,36 @@ describe("connector policy sequence", () => {
     expect(BigInt(stored.rows[0]!.policy_sequence)).toBe(BigInt(Number.MAX_SAFE_INTEGER));
   });
 
+  it.each(["lease_v1", "legacy_ack_v0"] as const)("refreshes computer last-seen on a verified existing %s renewal", async mode => {
+    const db = await createDatabase("memory"); databases.push(db);
+    const user = randomUUID(), connector = randomUUID();
+    const stale = new Date(Date.now() - 4 * 60_000);
+    await db.query("INSERT INTO users(id,email,name) VALUES($1,'presence@example.test','Presence')", [user]);
+    await db.query("INSERT INTO connectors(id,user_id,name,token_hash,relay_generation,last_seen_at) VALUES($1,$2,'Native computer','hash',2,$3)", [connector,user,stale]);
+    const resolved = vi.fn(), rejected = vi.fn();
+    await resolvePolicyAppliedAck({ db, requestId: randomUUID(), message: { revision: "same-original-policy", ok: true },
+      expectedRevision: "same-original-policy", connectorId: connector, generation: "2", mode, initial: false,
+      isStillCurrent: () => true, resolve: resolved, reject: rejected });
+    expect(resolved).toHaveBeenCalledOnce(); expect(rejected).not.toHaveBeenCalled();
+    const row = (await db.query<{last_seen_at: Date;latest_policy_ack_at: Date}>("SELECT last_seen_at,latest_policy_ack_at FROM connectors WHERE id=$1",[connector])).rows[0]!;
+    expect(row.last_seen_at.getTime()).toBe(row.latest_policy_ack_at.getTime());
+    expect(Date.now() - row.last_seen_at.getTime()).toBeLessThan(45_000);
+  });
+
+  it.each(["wrong-revision", "refused", "retired-socket", "retired-generation"])("never refreshes presence for %s policy acknowledgement", async failure => {
+    const db = await createDatabase("memory"); databases.push(db);
+    const user = randomUUID(), connector = randomUUID();
+    const stale = new Date(Date.now() - 4 * 60_000);
+    await db.query("INSERT INTO users(id,email,name) VALUES($1,'presence-fence@example.test','Presence')", [user]);
+    await db.query("INSERT INTO connectors(id,user_id,name,token_hash,relay_generation,last_seen_at) VALUES($1,$2,'Native computer','hash',2,$3)", [connector,user,stale]);
+    const rejected = vi.fn(), resolved = vi.fn();
+    await resolvePolicyAppliedAck({ db, requestId: randomUUID(), message: { revision: failure === "wrong-revision" ? "other" : "original", ok: failure !== "refused" },
+      expectedRevision: "original", connectorId: connector, generation: failure === "retired-generation" ? "1" : "2", mode: "lease_v1", initial: false,
+      isStillCurrent: () => failure !== "retired-socket", resolve: resolved, reject: rejected });
+    expect(rejected).toHaveBeenCalledOnce(); expect(resolved).not.toHaveBeenCalled();
+    expect((await db.query<{last_seen_at: Date}>("SELECT last_seen_at FROM connectors WHERE id=$1", [connector])).rows[0]!.last_seen_at.getTime()).toBe(stale.getTime());
+  });
+
   it("rejects a stale reconnect acknowledgement and requires the fresh PG generation", async () => {
     const db = await createDatabase("memory");
     databases.push(db);

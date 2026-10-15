@@ -1,6 +1,9 @@
 import type { DatabaseQueryable } from "../../database-types.js";
 import type { RelayHub } from "../../relay.js";
+import type { PolicyEmitter } from "../next/policy-outbox.js";
 import { nativeDevices, nativeGrantStanding } from "../next/native-grant-target.js";
+
+const PUBLICATION_WAIT_MS = 8_000;
 
 /** Delivery only: call AFTER the original transaction commits and releases its
  * connection. The existing relay builds current policy and waits for its bounded,
@@ -10,7 +13,21 @@ export function createNativeApprovalDelivery(
   db: DatabaseQueryable,
   relay: Pick<RelayHub, "pushPolicy">,
   onDeferred: () => void,
+  publication?: Pick<PolicyEmitter, "publishCommitted">,
 ) {
+  const publish = async (collection: string) => {
+    if (!publication) { onDeferred(); return; }
+    try {
+      // Bound this HTTP courtesy wait, NOT the original producer's append.
+      // PolicyEmitter owns late work and retains original unknown-outcome bytes.
+      const work = publication.publishCommitted(collection);
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("policy publication deferred")), PUBLICATION_WAIT_MS);
+        timer.unref();
+        void work.then(() => { clearTimeout(timer); resolve(); }, error => { clearTimeout(timer); reject(error); });
+      });
+    } catch { onDeferred(); }
+  };
   const safely = (work: () => Promise<void>) => work().catch(onDeferred);
   const deliver = async (grantId: string): Promise<void> => {
     const grant = (await db.query<{ collection: string; account: string }>(
@@ -22,6 +39,9 @@ export function createNativeApprovalDelivery(
          AND g.next_collection_id IS NOT NULL`, [grantId],
     )).rows[0];
     if (!grant || await nativeGrantStanding(db, grant.collection, grant.account) !== "current") return;
+    // A feed/cache ACK cannot create the request in the replica's log. Wake
+    // the canonical producer before asking Native to publish its sealed Approve.
+    await publish(grant.collection);
     // Reuse relay admission's exact consenting-account/key/enrolment/revocation
     // fence; another member's Native and unenrolled devices are not targets.
     const devices = await nativeDevices(db, grant.collection, grant.account);

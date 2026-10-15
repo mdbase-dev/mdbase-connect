@@ -156,6 +156,7 @@ export class PolicyEmitter {
   private lastVerificationAt = -Infinity;
   private readonly verificationHints = new Set<string>();
   private readonly wakeWork = new Map<string, Promise<void>>();
+  private readonly committedWork = new Map<string, Promise<void>>();
   private closed = false;
 
   /** Hints only select a collection for verification, never its ops or positions. */
@@ -187,7 +188,29 @@ export class PolicyEmitter {
     this.timer = undefined;
     // A failed global drain must not orphan admitted wakes or their DB writes.
     try { await this.inFlight; }
-    finally { await Promise.allSettled(this.wakeWork.values()); }
+    finally { await Promise.allSettled([...this.wakeWork.values(), ...this.committedWork.values()]); }
+  }
+
+  /** Direct postcommit wake of the SAME durable producer. It must not wait for
+   * the global drain's unrelated verification/service activation. This map owns
+   * only admitted work, not a queue; overflow remains in the durable outbox.
+   * A caller may stop waiting, but an uncertain append remains owned here and
+   * every retry still uses the original persisted batch bytes. */
+  publishCommitted(collectionId: string): Promise<void> {
+    if (this.closed) return Promise.reject(new Error("policy emitter closed"));
+    const existing = this.committedWork.get(collectionId);
+    if (existing) return existing;
+    if (this.committedWork.size >= MAX_BACKGROUND_WAKES) return Promise.reject(new Error("policy publication deferred"));
+    const work = Promise.resolve().then(async () => {
+      await this.drainCollection(collectionId);
+      const pending = await this.db.query(
+        `SELECT 1 FROM next_policy_outbox o LEFT JOIN next_policy_batches b ON b.id=o.batch_id
+         WHERE o.collection_id=$1 AND (o.batch_id IS NULL OR b.state<>'appended' OR b.lost_at IS NOT NULL) LIMIT 1`, [collectionId]
+      );
+      if (pending.rows.length) throw new Error("policy publication deferred");
+    }).finally(() => { if (this.committedWork.get(collectionId) === work) this.committedWork.delete(collectionId); });
+    this.committedWork.set(collectionId, work);
+    return work;
   }
 
   private wakeCommittedCollection(collectionId: string): void {

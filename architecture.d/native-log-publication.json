@@ -1,0 +1,6 @@
+{
+  "reason": "Native postcommit delivery reuses the existing PolicyEmitter before relay feed delivery. Three type-only relative imports expose that same emitter to the delivery helper and its two composition option types. No new production module, policy producer/signer, authority interface, database schema or exported declaration.",
+  "growth": {
+    "relativeImports": 3
+  }
+}

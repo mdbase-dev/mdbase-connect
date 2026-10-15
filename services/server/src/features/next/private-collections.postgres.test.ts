@@ -1,4 +1,8 @@
 import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
+import { nativeReadApp } from "./test/native-grant.js";
+import { provisionNewAccountBackend } from "./account-backend-flip.js";
+import { registerAuthorizationRoutes } from "../authorizations/routes.js";
+import type { RelayHub } from "../../relay.js";
 import cookie from "@fastify/cookie";
 import Fastify from "fastify";
 import pg from "pg";
@@ -111,6 +115,8 @@ describePg("private collections", () => {
     await app.register(cookie);
     registerErrorHandler(app);
     registerPrivateCollectionRoutes(app, { db, next: config, emitter, log: client });
+    registerAuthorizationRoutes(app, {db,relay:{registerAuthorizationHandler:()=>{},authorizationOffers:async()=>({paused:false,collections:[]}),pushPolicy:async()=>{}} as unknown as RelayHub,
+      publicUrl:"https://connect.example",nextClientKeys:true,drainProviderRevocations:async()=>{}});
   }, 60_000);
   afterAll(async () => {
     await app.close(); await db?.end();
@@ -177,14 +183,57 @@ describePg("private collections", () => {
     return collection;
   };
 
-  it("allows completed migrated accounts to create, enrol another device, rename and delete a new Private collection without thaw",async()=>{
-    const who=await identity(),account=who.connector.user_id,cohort=`private-${randomUUID().slice(0,8)}`,actor="synthetic-local-pg";
+  async function completedOwnerMigration(who: Who) {
+    const account=who.connector.user_id,cohort=`private-${randomUUID().slice(0,8)}`,actor="synthetic-local-pg";
     await createCohort(db,cohort,actor);await addToCohort(db,cohort,[account],actor);await releaseCohort(db,cohort,actor);await setCohortFrozen(db,cohort,true,"synthetic archive",actor);
     const binding=await cohortArchiveBinding(db,cohort),clock=new Date((await db.query("SELECT date_trunc('milliseconds',clock_timestamp()) AS now")).rows[0].now).toISOString();
     await acceptCohortArchive(db,cohort,{schema:ZERO_HOSTED_ARCHIVE_SCHEMA,environment:"lab",bucket:"synthetic-archives",prefix:`legacy-archive/lab/2026/10/14/${cohort}`,backup_id:cohort,
       complete_sha256:"a".repeat(64),manifest_sha256:"b".repeat(64),source_commit:"c".repeat(40),migration_batch:binding,archive_created_at:clock,archive_completed_at:clock,
       retention:{mode:"GOVERNANCE",days:116,retain_until:new Date(Date.parse(clock)+116*86_400_000).toISOString(),inventory_digest:"d".repeat(64),count:"2"}},"lab");
     await setPaused(db,false,"synthetic migration",actor);await startAccountMigration(db,account,"lab");await flipAccountBackend(db,account,[],flipEvidenceDigest([]),{enabled:true},"lab");
+    return cohort;
+  }
+
+  it.each(["fresh","migrated"] as const)("appends the original app request under the retained Native Private genesis root (%s)",async mode=>{
+    const who=await identity(),account=who.connector.user_id,collection=randomUUID();
+    if(mode==="fresh"){
+      const tx=await db.connect();
+      try{await tx.query("BEGIN");await provisionNewAccountBackend(tx,account,"next");await tx.query("COMMIT");}
+      finally{tx.release();}
+    }else{
+      // Retired local authority remains metadata after Native takeover. Private
+      // enable precedes the account's original accepted-archive/empty flip.
+      await db.query("INSERT INTO collections(id,user_id,connector_id,local_id,display_name,spec_version,authority_state) VALUES($1,$2,$3,$4,'Taken over','0.3.0','retired')",
+        [randomUUID(),account,who.connector.id,collection]);
+    }
+    const creation=await create(who,await createProof(who,collection));
+    expect(creation.statusCode,creation.body).toBe(200);
+    const originalGenesis=Buffer.from(creation.json().genesis.item,"hex");
+    const originalRoot=(await db.query<{root_key_id:Buffer}>("SELECT root_key_id FROM next_collections WHERE collection_id=$1",[collection])).rows[0]!.root_key_id;
+    const signer=loadPolicySigner(config,Date.now());
+    expect(originalRoot.equals(Buffer.from(signer.cert.root))).toBe(true);
+    if(mode==="migrated")await completedOwnerMigration(who);
+    const consent=await(await nativeReadApp(db,app))(account,collection);
+    const approved=await consent.approve();expect(approved.statusCode,approved.body).toBe(200);
+    // Exercise claim()/root checking independently of the new direct wake:
+    // this is the same canonical collection drain the background worker uses.
+    await drain(collection);
+    const binding=(await db.query<{log_grant_id:string;client_pk:Buffer}>(`SELECT b.log_grant_id,k.client_pk FROM authorization_requests ar
+      JOIN next_grant_bindings b ON b.grant_id=ar.grant_id JOIN next_grant_client_keys k ON k.grant_id=ar.grant_id WHERE ar.id=$1`,[consent.id])).rows[0]!;
+    const items=log.logs.get(collection.replaceAll("-",""))!;
+    expect(items[0]).toEqual(originalGenesis);
+    expect((await db.query<{root_key_id:Buffer}>("SELECT root_key_id FROM next_collections WHERE collection_id=$1",[collection])).rows[0]!.root_key_id).toEqual(originalRoot);
+    const request=items.flatMap(opsOf).find(op=>field(op,0)===6&&hex(field(op,1) as Uint8Array)===binding.log_grant_id.replaceAll("-",""));
+    expect(request).toBeDefined();
+    expect(hex(field(request!,4) as Uint8Array)).toBe(account.replaceAll("-",""));
+    expect(Buffer.from(field(request!,6) as Uint8Array)).toEqual(binding.client_pk);
+    expect((await db.query(`SELECT 1 FROM next_policy_outbox o JOIN next_policy_batches b ON b.id=o.batch_id
+      WHERE o.collection_id=$1 AND o.ops->'ops' @> $2::jsonb AND b.state='appended' AND b.lost_at IS NULL`,
+      [collection,JSON.stringify([{op:"grant",grant:binding.log_grant_id}])])).rows).toHaveLength(1);
+  });
+
+  it("allows completed migrated accounts to create, enrol another device, rename and delete a new Private collection without thaw",async()=>{
+    const who=await identity(),account=who.connector.user_id,cohort=await completedOwnerMigration(who);
     const collection=await created(who),second=await identity(account);
     const added=await enrol(second,collection,await enrolProof(second,collection,commit()));expect(added.statusCode,added.body).toBe(200);
     const renamed=await app.inject({method:"PATCH",url:`/v1/next/collections/${collection}/name`,headers:who.headers,payload:{display_name:"After migration"}});
