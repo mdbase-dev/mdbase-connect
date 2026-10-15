@@ -1,0 +1,127 @@
+-- Named selected-data archive and original H6 lineage. Existing profiles,
+-- immutable acceptance trigger and historical migration bytes stay unchanged.
+-- This structural SQL guard is not archive/signature/native verification.
+-- mdbase:next-migration-archive-elapsed:v1
+-- pg-mem remains schema-only; only real PostgreSQL qualifies these guards.
+ALTER TABLE next_migration_archive_acceptances
+  DROP CONSTRAINT next_migration_archive_acceptances_verified_result_check;
+ALTER TABLE next_migration_archive_acceptances
+  ADD CONSTRAINT next_migration_archive_acceptances_verified_result_check
+  CHECK ((verified_result->>'schema' = 'mdbase-recovery-set/v4'
+    OR (verified_result->>'schema' = 'mdbase-recovery-set/lab-cohort-v1'
+        AND verified_result->>'environment' = 'lab'
+        AND jsonb_typeof(verified_result->'runtime_provenance') = 'object')
+    OR (verified_result->>'schema' = 'mdbase-recovery-set/zero-hosted-v1'
+        AND verified_result->>'environment' IN ('lab','staging')
+        AND verified_result#>'{retention,count}' = '"2"'::jsonb)
+    OR (verified_result->>'schema' = 'mdbase-recovery-set/scoped-hosted-v1'
+        AND verified_result->>'environment' IN ('lab','staging')
+        AND jsonb_typeof(verified_result->'scoped_recovery') = 'object')) IS TRUE)
+  NOT VALID;
+
+-- Extend the SAME exact elapsed-time validator; do not rewrite old receipts,
+-- loosen existing profiles, or replace the immutable acceptance trigger.
+CREATE OR REPLACE FUNCTION next_migration_archive_elapsed_valid(result jsonb, accepted timestamptz, trusted_now timestamptz)
+RETURNS boolean LANGUAGE plpgsql STABLE STRICT AS $$
+DECLARE
+  started timestamptz;
+  completed timestamptz;
+  expiry timestamptz;
+  value text;
+  provenance jsonb;
+  fence jsonb;
+  field text;
+  previous_pair text := '';
+  source_pair text;
+  run_ids text[] := ARRAY[]::text[];
+  collection_ids text[] := ARRAY[]::text[];
+BEGIN
+  IF jsonb_typeof(result) IS DISTINCT FROM 'object'
+     OR (result->>'schema' IS DISTINCT FROM 'mdbase-recovery-set/v4'
+         AND result->>'schema' IS DISTINCT FROM 'mdbase-recovery-set/lab-cohort-v1'
+         AND result->>'schema' IS DISTINCT FROM 'mdbase-recovery-set/zero-hosted-v1'
+         AND result->>'schema' IS DISTINCT FROM 'mdbase-recovery-set/scoped-hosted-v1')
+     OR result#>>'{retention,mode}' IS DISTINCT FROM 'GOVERNANCE'
+     OR result#>'{retention,days}' IS DISTINCT FROM '116'::jsonb
+     OR NOT isfinite(accepted) OR NOT isfinite(trusted_now)
+     OR extract(epoch FROM accepted)*1000 <> trunc(extract(epoch FROM accepted)*1000)
+     OR extract(epoch FROM trusted_now)*1000 <> trunc(extract(epoch FROM trusted_now)*1000) THEN
+    RETURN false;
+  END IF;
+  IF result->>'schema' = 'mdbase-recovery-set/lab-cohort-v1' THEN
+    provenance := result->'runtime_provenance';
+    IF result->>'environment' IS DISTINCT FROM 'lab'
+       OR jsonb_typeof(provenance) IS DISTINCT FROM 'object'
+       OR NOT provenance ?& ARRAY['connect','hosted_provider','relay','mcp']
+       OR provenance - ARRAY['connect','hosted_provider','relay','mcp'] <> '{}'::jsonb THEN
+      RETURN false;
+    END IF;
+  END IF;
+  IF result->>'schema' = 'mdbase-recovery-set/zero-hosted-v1' THEN
+    IF (result->>'environment' IN ('lab','staging')) IS NOT TRUE
+       OR result#>'{retention,count}' IS DISTINCT FROM '"2"'::jsonb THEN
+      RETURN false;
+    END IF;
+  END IF;
+  IF result->>'schema' = 'mdbase-recovery-set/scoped-hosted-v1' THEN
+    provenance := result->'scoped_recovery';
+    IF (result->>'environment' IN ('lab','staging')) IS NOT TRUE
+       OR jsonb_typeof(provenance) IS DISTINCT FROM 'object'
+       OR NOT provenance ?& ARRAY['inventory_sha256','selection_sha256','source_rows_sha256','recovered_inventory_sha256','original_h6_journal_sha256','source_fences']
+       OR provenance - ARRAY['inventory_sha256','selection_sha256','source_rows_sha256','recovered_inventory_sha256','original_h6_journal_sha256','source_fences'] <> '{}'::jsonb
+       OR jsonb_typeof(provenance->'source_fences') IS DISTINCT FROM 'array'
+       OR jsonb_array_length(provenance->'source_fences') NOT BETWEEN 1 AND 1000
+       OR jsonb_typeof(result#>'{retention,count}') IS DISTINCT FROM 'string'
+       OR (result#>>'{retention,count}') !~ '^[1-9][0-9]{0,19}$'
+       OR (result#>>'{retention,count}')::numeric NOT BETWEEN 5 AND 18446744073709551615 THEN RETURN false; END IF;
+    FOREACH field IN ARRAY ARRAY['inventory_sha256','selection_sha256','source_rows_sha256','recovered_inventory_sha256','original_h6_journal_sha256'] LOOP
+      IF jsonb_typeof(provenance->field) IS DISTINCT FROM 'string'
+         OR (provenance->>field) !~ '^[0-9a-f]{64}$' THEN RETURN false; END IF;
+    END LOOP;
+    FOR fence IN SELECT * FROM jsonb_array_elements(provenance->'source_fences') LOOP
+      IF jsonb_typeof(fence) IS DISTINCT FROM 'object'
+         OR NOT fence ?& ARRAY['account_id','collection_id','migration_id','started_at','head','in_flight','unresolved','applied_unreceipted','notification_watermark','fence_reply_sha256','drain_reply_sha256']
+         OR fence - ARRAY['account_id','collection_id','migration_id','started_at','head','in_flight','unresolved','applied_unreceipted','notification_watermark','fence_reply_sha256','drain_reply_sha256'] <> '{}'::jsonb
+         OR fence->'in_flight' IS DISTINCT FROM '0'::jsonb OR fence->'unresolved' IS DISTINCT FROM '0'::jsonb
+         OR fence->'applied_unreceipted' IS DISTINCT FROM '0'::jsonb
+         OR jsonb_typeof(fence->'head') IS DISTINCT FROM 'number' OR (fence->>'head') !~ '^(0|[1-9][0-9]*)$'
+         OR (fence->>'head')::numeric > 9007199254740991
+         OR jsonb_typeof(fence->'started_at') IS DISTINCT FROM 'string'
+         OR length(fence->>'started_at') > 64
+         OR (fence->>'started_at') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$'
+         OR left(fence->>'started_at',4) = '0000'
+         OR NOT isfinite((fence->>'started_at')::timestamptz)
+         OR (fence->>'started_at')::timestamptz > (result->>'archive_created_at')::timestamptz
+         OR jsonb_typeof(fence->'notification_watermark') IS DISTINCT FROM 'string'
+         OR (fence->>'notification_watermark') !~ '^"mdbase-legacy-notifications-v1:[0-9a-f]{64}"$' THEN RETURN false; END IF;
+      FOREACH field IN ARRAY ARRAY['account_id','collection_id','migration_id'] LOOP
+        IF jsonb_typeof(fence->field) IS DISTINCT FROM 'string'
+           OR (fence->>field) !~ '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$'
+           OR (fence->>field) = '00000000-0000-0000-0000-000000000000' THEN RETURN false; END IF;
+      END LOOP;
+      source_pair := (fence->>'account_id') || '/' || (fence->>'collection_id');
+      IF source_pair <= previous_pair OR (fence->>'migration_id') = ANY(run_ids)
+         OR (fence->>'collection_id') = ANY(collection_ids) THEN RETURN false; END IF;
+      previous_pair := source_pair;
+      run_ids := array_append(run_ids,fence->>'migration_id');
+      collection_ids := array_append(collection_ids,fence->>'collection_id');
+      FOREACH field IN ARRAY ARRAY['fence_reply_sha256','drain_reply_sha256'] LOOP
+        IF jsonb_typeof(fence->field) IS DISTINCT FROM 'string'
+           OR (fence->>field) !~ '^[0-9a-f]{64}$' THEN RETURN false; END IF;
+      END LOOP;
+    END LOOP;
+  END IF;
+  FOREACH value IN ARRAY ARRAY[result->>'archive_created_at',result->>'archive_completed_at',result#>>'{retention,retain_until}'] LOOP
+    IF value IS NULL OR value !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z$'
+       OR left(value,4) = '0000' THEN RETURN false; END IF;
+    IF to_char(value::timestamptz AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') <> value THEN RETURN false; END IF;
+  END LOOP;
+  started := (result->>'archive_created_at')::timestamptz;
+  completed := (result->>'archive_completed_at')::timestamptz;
+  expiry := (result#>>'{retention,retain_until}')::timestamptz;
+  RETURN started <= completed AND completed <= started + interval '86400 seconds'
+     AND completed <= accepted AND accepted <= trusted_now
+     AND expiry = completed + interval '10022400 seconds';
+EXCEPTION WHEN invalid_text_representation OR datetime_field_overflow OR invalid_parameter_value THEN
+  RETURN false;
+END $$;

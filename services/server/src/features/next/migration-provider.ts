@@ -12,20 +12,42 @@ import { safeEqual } from "../../security.js";
 import { CreateError, inTransaction, lock, refuseRevoked } from "./bootstrap-common.js";
 import { configuredClaimAudience, consumeServiceClaimChallenge, issueServiceClaimChallenge, sameServiceClaim } from "./migration-claim-auth.js";
 import { migrationServiceRateLimit } from "./migration-rate-limit.js";
-import { RolloutRefused } from "./migration-rollout.js";
+import { requireCurrentCohortArchive, RolloutRefused } from "./migration-rollout.js";
+import { SCOPED_HOSTED_ARCHIVE_SCHEMA } from "./migration-archive-profile.js";
+import { requireOriginalArchiveSource } from "./migration-scoped-archive.js";
 import { createServiceCloudCopy, existingCloudCopy, type CloudCopyBootstrapOptions } from "./service-cloud-copy.js";
 import { loadServiceDevice } from "./service-devices.js";
 import { migrationAccount, type LabMigrationRouting } from "./lab-migration-routing.js";
 
 interface Claim { account: string; started_us: string; display_name: string }
 interface Options {
-  db: DatabasePool; token: string;
+  db: DatabasePool; token: string; environment?: string;
   /** Without `legacyMigrationPlacement`, a target gets the log service's default region. */
   provider?: Pick<HostedProviderClient, "legacyMigrationDrain" | "legacyMigrationSource" | "legacyMigrationFence">
     & Partial<Pick<HostedProviderClient, "legacyMigrationPlacement">>;
   bootstrap?: Omit<CloudCopyBootstrapOptions, "db">;
   /** Existing hosted-role credential + OWN canonical configured CP origin. */
   hostedRead?: { token: string; audience: string; migrationRouting?: LabMigrationRouting };
+}
+
+/** Called only AFTER the existing started-account claim has been locked. A
+ * historic scoped receipt is not allowed to fall back to a fresh physical
+ * fence when its current binding/acceptance is missing or stale. */
+async function originalArchiveFence(client: DatabaseQueryable, collection: string, account: string, startedUs: string, environment: string | undefined) {
+  const member = (await client.query<{ cohort: string; scoped: boolean }>(`SELECT m.cohort,
+    EXISTS(SELECT 1 FROM next_migration_archive_acceptances a WHERE a.cohort=m.cohort
+      AND a.verified_result->>'schema'=$2) AS scoped
+    FROM next_migration_cohort_members m WHERE m.account_id=$1 AND m.started_at IS NOT NULL`, [account, SCOPED_HOSTED_ARCHIVE_SCHEMA])).rows[0];
+  if (!member?.scoped) return null; // Existing v4/zero/fixture behavior is unchanged.
+  const current = await requireCurrentCohortArchive(client, member.cohort, environment);
+  const result = current.archive.verified_result;
+  if (result.schema !== SCOPED_HOSTED_ARCHIVE_SCHEMA) throw new RolloutRefused("migration_archive_source_changed", "The accepted original archive changed.");
+  // The ordinary start must follow actual acceptance; an earlier tiny fixture
+  // claim cannot be relabelled as this archive's started-account authority.
+  if (BigInt(startedUs) < BigInt(Date.parse(current.archive.accepted_at)) * 1000n) throw new RolloutRefused("migration_archive_source_changed", "The claim predates actual archive acceptance.");
+  const original = result.scoped_recovery.source_fences.find(value => value.collection_id === collection && value.account_id === account);
+  if (!original) throw new RolloutRefused("migration_archive_source_changed", "The accepted original archive changed.");
+  return { complete_sha256: result.complete_sha256, original };
 }
 
 /** Current migration claim, not target/key readiness. Internal migration may
@@ -109,13 +131,25 @@ async function target(collection: string, options: Options) {
 async function action(collection: string, fence: boolean, options: Options) {
   const before = await claim(options.db, collection);
   if (!options.provider) throw new RolloutRefused("migration_source_unavailable", "The legacy provider is unavailable.", 503);
+  const archiveCurrent = async (client: DatabaseQueryable) => {
+    const current = await claim(client, collection, true);
+    if (current.account !== before.account || current.started_us !== before.started_us) {
+      throw new RolloutRefused("migration_source_changed", "The migration claim changed.");
+    }
+    return originalArchiveFence(client, collection, current.account, current.started_us, options.environment);
+  };
+  const original = await inTransaction(options.db, archiveCurrent);
+  const sameOriginal = (current: typeof original) => {
+    if (JSON.stringify(current) !== JSON.stringify(original)) throw new RolloutRefused("migration_archive_source_changed", "The accepted original archive changed.");
+  };
   const deadline = Date.now() + 25_000;
   // The source read carries the provider's notification watermark from the same
   // snapshot, passed through unchanged as DATA for the pre-flip re-read.
-  const observed = fence
+  const observed = fence && !original
     ? { drain: await options.provider.legacyMigrationDrain(collection, { deadline }), notificationWatermark: null }
     : await options.provider.legacyMigrationSource(collection, { deadline });
   const source = observed.drain;
+  if (original) requireOriginalArchiveSource(original, source, observed.notificationWatermark);
   // Never re-fence a retained/cut-over collection through this launch front.
   // A missing run identity for a fenced source is not an active migration.
   if (!["active", "migrating"].includes(source.state) || source.retain_until !== null
@@ -132,7 +166,13 @@ async function action(collection: string, fence: boolean, options: Options) {
   }
   // The existing provider client owns strict reply decoding; do not add another
   // codec here. This layer additionally binds its outcome to the observed run.
-  const result = fence ? await options.provider.legacyMigrationFence(collection, { deadline }) : source;
+  sameOriginal(await inTransaction(options.db, archiveCurrent));
+  // The unchanged native kind11 action consumes its accepted ORIGINAL H6 DATA.
+  // Never physically re-fence or adopt a currently observed provider run here.
+  const result = fence ? (original ? {
+    collection_id: collection, state: "migrating", migration_id: original.original.migration_id,
+    started_at: original.original.started_at, retain_until: null, restored: []
+  } : await options.provider.legacyMigrationFence(collection, { deadline })) : source;
   if (result.collection_id !== collection || (fence && (result.retain_until !== null
       || result.state !== "migrating" || !result.migration_id
       || result.migration_id === "00000000-0000-0000-0000-000000000000" || !result.started_at))) {
@@ -150,8 +190,10 @@ async function action(collection: string, fence: boolean, options: Options) {
     if (after.account !== before.account || after.started_us !== before.started_us) {
       throw new RolloutRefused("migration_source_changed", "The migration claim changed.");
     }
+    sameOriginal(await originalArchiveFence(client, collection, after.account, after.started_us, options.environment));
     await audit(client, after.account, fence ? "next_migration.fence" : "next_migration.source", collection,
       { migration_id: result.migration_id ?? null, state: result.state,
+        ...(original ? { original_archive_complete_sha256: original.complete_sha256 } : {}),
         ...(observed.notificationWatermark ? { notification_watermark: observed.notificationWatermark } : {}) });
     return { body: result, notificationWatermark: observed.notificationWatermark };
   });
