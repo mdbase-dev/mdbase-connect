@@ -21,6 +21,7 @@
 // - A deleted account is terminal: its rows cascade away and
 //   every route answers not found; nothing restores it.
 // - Routes accept only the dedicated migration token; every change is audited.
+import { localBuild } from "../../local-deployment.js";
 import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -156,7 +157,9 @@ async function readArchiveBinding(client: DatabaseQueryable, name: string) {
 
 /** Pre-acceptance inventory DATA only; never source/fence/restore permission. */
 async function cohortCaptureSnapshot(db: DatabasePool, name: string, environment: string | undefined, zeroHostedOnly = false) {
-  if (environment !== "staging" && environment !== "lab") throw new RolloutRefused("capture_unavailable", "The rehearsal capture view is unavailable.", 503);
+  if (localBuild() ? environment !== "local" || !zeroHostedOnly : environment !== "staging" && environment !== "lab") {
+    throw new RolloutRefused("capture_unavailable", "The rehearsal capture view is unavailable.", 503);
+  }
   return inTransaction(db, async client => {
     await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
     await client.query("SET LOCAL statement_timeout = '5s'");
