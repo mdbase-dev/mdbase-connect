@@ -10,6 +10,7 @@ import { CreateError, currentCollectionDevice, inTransaction, type Device } from
 import { requireInstallationScope } from "../installation-scope.js";
 import { readInstallationTimerDeclaration } from "./installation-declaration.js";
 import { TimerError } from "./model.js";
+import type { InstallationEnvironment } from "../../../local-deployment.js";
 
 /**
  * The collection state a timer call is evaluated in (collection-states doc §2).
@@ -127,13 +128,13 @@ interface InstallationBackgroundGrant {
 /** Typed shared background authority. A recorded native principal never enters
  * the legacy resolver, even when revoked or otherwise unusable. Pool reads own
  * a bounded transaction; engine transactions retain policy locks through commit. */
-export function backgroundTimerGrantResolver(db: DatabasePool, environment: "lab" | "staging" | "production"): TimerGrantResolver {
+export function backgroundTimerGrantResolver(db: DatabasePool, environment: InstallationEnvironment): TimerGrantResolver {
   const native = async (client: DatabaseConnection, grantId: string): Promise<TimerGrant | null> => {
     const row = (await client.query<InstallationBackgroundGrant>(
       "SELECT * FROM next_background_grants WHERE id=$1 AND principal_kind='installation'", [grantId]
     )).rows[0];
     if (!row) return null;
-    const declaration = readInstallationTimerDeclaration(row.timer_declaration);
+    const declaration = readInstallationTimerDeclaration(row.timer_declaration, environment);
     if (declaration.application_id !== row.application_id || declaration.kind !== row.device_kind) throw new Error("Native timer consent identity mismatch.");
     const grant: TimerGrant = {
       grantId: row.id, userId: row.user_id, applicationId: row.application_id,

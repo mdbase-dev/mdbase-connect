@@ -99,6 +99,7 @@ import { registerLifecycleDiagnosticRoute } from "./features/system/lifecycle-di
 import { registerErrorHandler } from "./platform/error-handler.js";
 import type { ClientUpdatePolicy } from "./features/next/cutover-problems.js";
 import { authorityUrl } from "./platform/authority-url.js";
+import { installationEnvironment } from "./local-deployment.js";
 import { apiError } from "./platform/http-errors.js";
 import { sessionToken } from "./platform/session-cookies.js";
 import type { AccountBackend } from "./features/next/account-backend-flip.js";
@@ -159,7 +160,7 @@ export async function buildApp(options: BuildOptions) {
   let timerGrantResolver = options.nextTimers?.resolver ?? legacyTimerGrantResolver;
   if (options.nextControlPlane && options.nextTimers && !options.nextTimers.resolver) {
     const environment = options.environment;
-    if (environment !== "lab" && environment !== "staging" && environment !== "production") {
+    if (!installationEnvironment(environment, options.publicUrl, environment)) {
       throw new Error("Native timers require a configured installation registry environment.");
     }
     timerGrantResolver = backgroundTimerGrantResolver(options.db, environment);
@@ -192,7 +193,8 @@ export async function buildApp(options: BuildOptions) {
         options.notifications.pollIntervalMs,
         (error) => app.log.error({ err: error }, "notification delivery worker failed"),
         options.notifications.pushTargetSealer,
-        timerGrantResolver
+        timerGrantResolver,
+        options.environment
       )
     : undefined;
   const timers = options.nextTimers
@@ -202,7 +204,7 @@ export async function buildApp(options: BuildOptions) {
           void notifications?.drainOnce().catch(
             (error) => app.log.error({ err: error }, "notification delivery worker failed")
           );
-        }, timerGrantResolver)],
+        }, timerGrantResolver, options.environment)],
         {
           pollIntervalMs: options.nextTimers.pollIntervalMs,
           resolver: timerGrantResolver,
@@ -531,7 +533,8 @@ export async function buildApp(options: BuildOptions) {
     publicKey: options.notifications?.publicKey,
     transports: options.notifications?.transports,
     hostedProvider: options.hostedProvider,
-    grantResolver: timerGrantResolver
+    grantResolver: timerGrantResolver,
+    serverEnvironment: options.environment
   });
   if (timers) {
     registerTimerRoutes(app, {

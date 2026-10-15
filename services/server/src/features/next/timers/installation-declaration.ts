@@ -2,12 +2,13 @@ import { capabilityOperations, capabilityOperationsForContractVersion, MDBASE_TI
   type ApplicationNotifications } from "@mdbase-dev/connect-protocol";
 import type { RegisteredApplication } from "../../applications/store.js";
 import { canonicalJson, canonicalSha256 } from "../../../canonical-json.js";
+import { installationEnvironment, type InstallationEnvironment } from "../../../local-deployment.js";
 
 /** Public manifest metadata, NOT consent, a credential or a usable timer grant. */
 export interface InstallationTimerDeclaration {
   schema: "mdbase-installation-timers/1";
   application_id: string;
-  environment: "lab" | "staging" | "production";
+  environment: InstallationEnvironment;
   app_origin: string;
   kind: "app-runtime" | "mobile";
   operations: string[];
@@ -25,7 +26,9 @@ const digest = (value: Omit<InstallationTimerDeclaration, "digest">) =>
 export function installationTimerDeclaration(
   application: Pick<RegisteredApplication, "id" | "requirements" | "notifications">,
   binding: InstallationTimerBinding,
+  serverEnvironment?: string,
 ): InstallationTimerDeclaration | null {
+  if (!installationEnvironment(binding.environment, binding.app_origin, serverEnvironment)) throw invalid();
   const capabilities = application.requirements.capabilities;
   if (!capabilities) return null;
   if (![1, 2].includes(capabilities.contract_version) || !Array.isArray(capabilities.required)
@@ -58,14 +61,14 @@ export function installationTimerDeclaration(
 /** A stored snapshot must retain its exact original bytes/meaning. A digest is
  * integrity metadata, not authentication; authorization still needs approval,
  * the original installation and current exact collection/device policy. */
-export function readInstallationTimerDeclaration(value: unknown): InstallationTimerDeclaration {
+export function readInstallationTimerDeclaration(value: unknown, serverEnvironment?: string): InstallationTimerDeclaration {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid();
   const candidate = value as InstallationTimerDeclaration;
   const { digest: hash, ...body } = candidate;
   if (Object.keys(body).sort().join(",") !== "app_origin,application_id,environment,kind,notifications,operations,schema"
     || body.schema !== "mdbase-installation-timers/1"
     || typeof body.application_id !== "string" || typeof body.app_origin !== "string"
-    || !["lab", "staging", "production"].includes(body.environment)
+    || !installationEnvironment(body.environment, body.app_origin, serverEnvironment)
     || !["app-runtime", "mobile"].includes(body.kind)
     || !Array.isArray(body.operations) || !body.operations.length
     || body.operations.some(operation => !operations.includes(operation as typeof operations[number]))

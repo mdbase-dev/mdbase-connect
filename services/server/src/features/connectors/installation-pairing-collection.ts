@@ -9,11 +9,11 @@ interface Creation { collection_id: string; display_name: string; completed_at: 
  * SAME target/name; no caller-supplied UUID, prior history, or setup state can
  * become fresh-creation provenance. Native keying/readiness is not claimed. */
 export async function createInstallationPairingCollection(options: CloudCopyBootstrapOptions, input: {
-  requestId: string; user: string; session: string; displayName: string;
+  requestId: string; user: string; session: string; displayName: string; serverEnvironment?: string;
 }) {
   const displayName = collectionDisplayName(input.displayName);
   const current: Parameters<typeof createServiceCloudCopy>[1]["current"] =
-    client => currentInstallationPairingPortal(client,input.requestId,input.user,input.session);
+    client => currentInstallationPairingPortal(client,input.requestId,input.user,input.session,input.serverEnvironment);
   const intent = await inTransaction(options.db,async client => {
     await current(client);
     let saved = (await client.query<Creation>("SELECT collection_id,display_name,completed_at FROM installation_pairing_collection_creations WHERE pairing_id=$1 FOR UPDATE",[input.requestId])).rows[0];
