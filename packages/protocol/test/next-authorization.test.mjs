@@ -58,6 +58,18 @@ test("v1 setup is representable only alongside its complete declared definition 
   assert.ok(projectNextAuthorizationGroups({ ...input, files: { ...input.files, actions: ["list", "read", "read"] } }, [...read, ...definitions, ...setup]).error);
 });
 
+test("v2 declaration setup projects independently without synthesizing definition administration", () => {
+  const operations = [...read, "create", "update", "rename"];
+  const files = ["list", "read", "add", "replace", "move"];
+  const setup = ["assess_collection_setup", "apply_collection_setup"];
+  const expected = ["collection.read", "records.create", "records.edit"];
+  assert.deepEqual(exactNextPermissionCapabilities([...operations, ...setup], files), expected);
+  for (const extra of [setup.slice(0, 1), setup.slice(1), [...setup, "create_type"], [...setup, "assess_type_pack"]]) {
+    assert.equal(exactNextPermissionCapabilities([...operations, ...extra], files), undefined);
+  }
+  assert.equal(exactNextPermissionCapabilities([...operations, ...setup], files.filter(action => action !== "move")), undefined);
+});
+
 test("v2 keeps optional pairs optional and cannot synthesize their missing file rights", () => {
   const requirements = { contracts: [], capabilities: { contract_version: 2, required: ["collection.read"], optional: ["records.create", "records.edit", "records.delete"] }, files: { required: ["list", "read"], optional: ["add"], scope: { kind: "collection" } } };
   const result = projectNextAuthorizationGroups(requirements, requested);
