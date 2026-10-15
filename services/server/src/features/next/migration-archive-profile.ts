@@ -1,11 +1,35 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { DatabaseQueryable } from "../../database-types.js";
 import { localBuild } from "../../local-deployment.js";
+import { legacyNotificationWatermarkSchema, migrationUuid } from "../../hosted-provider-replies.js";
 
 /** Named scoped profile: two real encrypted inventory/provenance artifacts,
  * never three database dumps, hosted objects, or a local-folder backup. */
 export const ZERO_HOSTED_ARCHIVE_SCHEMA = "mdbase-recovery-set/zero-hosted-v1";
 export const ZERO_HOSTED_ARCHIVE_PAYLOAD_COUNT = "2";
+export const SCOPED_HOSTED_ARCHIVE_SCHEMA = "mdbase-recovery-set/scoped-hosted-v1";
+
+export class RolloutRefused extends Error {
+  constructor(readonly code: string, message: string, readonly status = 409) { super(message); }
+}
+
+/** Private CP-owned inventory only; never return account/collection lists in the header. */
+export function migrationMembershipDigest(inventory: readonly (readonly [string, readonly string[]])[]): string {
+  const accounts = new Set<string>(), collections = new Set<string>();
+  const uuid = (id: string) => migrationUuid.safeParse(id).success;
+  const rows = inventory.map(([account, owned]) => {
+    if (!uuid(account) || accounts.has(account)) throw new RolloutRefused("backup_missing", "Invalid batch membership.");
+    accounts.add(account);
+    const ids = owned.map((id) => {
+      if (!uuid(id) || collections.has(id)) throw new RolloutRefused("backup_missing", "Invalid hosted collection coverage.");
+      collections.add(id); return id;
+    }).sort();
+    return [account, ids] as const;
+  }).sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+  return createHash("sha256").update("mdbase-legacy-batch-membership/v1\n", "ascii").update(JSON.stringify(rows), "utf8").digest("hex");
+}
+
 
 export function isCompleteZeroHostedInventory(inventory: readonly (readonly [string, readonly string[]])[]): boolean {
   return inventory.length > 0 && inventory.length <= 850 && inventory.every(([, held]) => held.length === 0);
@@ -83,7 +107,28 @@ const zeroHostedVerifiedArchiveSchema = v4VerifiedArchiveSchema.extend({
   prefix: z.string().max(128).regex(localBuild() ? ARCHIVE_PREFIX : /^legacy-archive\/(lab|staging)\/20[0-9]{2}\/(0[1-9]|1[0-2])\/(0[1-9]|[12][0-9]|3[01])\/[a-z0-9][a-z0-9-]{0,79}(?![\s\S])/),
   retention: v4VerifiedArchiveSchema.shape.retention.extend({ count: z.literal(ZERO_HOSTED_ARCHIVE_PAYLOAD_COUNT) }).strict()
 }).strict();
-export const verifiedArchiveSchema = localBuild() ? zeroHostedVerifiedArchiveSchema : z.union([v4VerifiedArchiveSchema, labVerifiedArchiveSchema, zeroHostedVerifiedArchiveSchema]);
+// Original physical H6 identities are authenticated ONLY by the ONE verifier
+// result accepted through its dedicated role. This parser is not a verifier.
+const originalScopedFence = z.object({
+  account_id: migrationUuid, collection_id: migrationUuid, migration_id: migrationUuid,
+  started_at: z.string().max(64).pipe(z.iso.datetime({ offset: true })),
+  head: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  in_flight: z.literal(0), unresolved: z.literal(0), applied_unreceipted: z.literal(0),
+  notification_watermark: legacyNotificationWatermarkSchema,
+  fence_reply_sha256: z.string().regex(HEX64), drain_reply_sha256: z.string().regex(HEX64)
+}).strict();
+const scopedHostedVerifiedArchiveSchema = v4VerifiedArchiveSchema.extend({
+  schema: z.literal(SCOPED_HOSTED_ARCHIVE_SCHEMA), environment: z.enum(["lab", "staging"]),
+  prefix: zeroHostedVerifiedArchiveSchema.shape.prefix,
+  retention: v4VerifiedArchiveSchema.shape.retention.refine(value => BigInt(value.count) >= 5n),
+  scoped_recovery: z.object({
+    inventory_sha256: z.string().regex(HEX64), selection_sha256: z.string().regex(HEX64),
+    source_rows_sha256: z.string().regex(HEX64), recovered_inventory_sha256: z.string().regex(HEX64),
+    original_h6_journal_sha256: z.string().regex(HEX64),
+    source_fences: z.array(originalScopedFence).min(1).max(1000)
+  }).strict()
+}).strict();
+export const verifiedArchiveSchema = localBuild() ? zeroHostedVerifiedArchiveSchema : z.union([v4VerifiedArchiveSchema, labVerifiedArchiveSchema, zeroHostedVerifiedArchiveSchema, scopedHostedVerifiedArchiveSchema]);
 export type ArchiveBinding = z.infer<typeof archiveBindingSchema>;
 export type VerifiedBatchArchive = z.infer<typeof verifiedArchiveSchema>;
 

@@ -33,8 +33,9 @@ import { safeEqual } from "../../security.js";
 import { drainDeferredAccountDeletions } from "../../account-management.js";
 import { migrationServiceRateLimit } from "./migration-rate-limit.js";
 import { captureProjection } from "./migration-capture.js";
+import { requireScopedArchiveCoverage } from "./migration-scoped-archive.js";
 import { archiveBindingSchema, ARCHIVE_PREFIX, COHORT_NAME, decimal, HEX64, isCompleteZeroHostedInventory,
-  millisecondTime, verifiedArchiveSchema, ZERO_HOSTED_ARCHIVE_SCHEMA, type VerifiedBatchArchive } from "./migration-archive-profile.js";
+  millisecondTime, migrationMembershipDigest, RolloutRefused, SCOPED_HOSTED_ARCHIVE_SCHEMA, verifiedArchiveSchema, ZERO_HOSTED_ARCHIVE_SCHEMA, type VerifiedBatchArchive } from "./migration-archive-profile.js";
 import { completeMigrationBatch, releaseDeferredDeletions } from "./migration-topology.js";
 import { flipEvidenceDigest, recordAccountFlip } from "./account-backend-flip.js";
 import { HostedProviderResponseError, HostedProviderUnavailableError, type HostedProviderClient,
@@ -62,29 +63,11 @@ export interface AccountMigrationView {
   cut_over_collections: string[];
 }
 
-export class RolloutRefused extends Error {
-  constructor(readonly code: string, message: string, readonly status = 409) { super(message); }
-}
-
+export { RolloutRefused, migrationMembershipDigest } from "./migration-archive-profile.js";
 const UUID_CANONICAL = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![\s\S])/;
 const DAY_MS = 86_400_000;
 export type ArchiveBinding = z.infer<typeof archiveBindingSchema>;
 
-/** Private CP-owned inventory only; never return account/collection lists in the header. */
-export function migrationMembershipDigest(inventory: readonly (readonly [string, readonly string[]])[]): string {
-  const accounts = new Set<string>(), collections = new Set<string>();
-  const uuid = (id: string) => UUID_CANONICAL.test(id) && id !== "00000000-0000-0000-0000-000000000000";
-  const rows = inventory.map(([account, owned]) => {
-    if (!uuid(account) || accounts.has(account)) throw new RolloutRefused("backup_missing", "Invalid batch membership.");
-    accounts.add(account);
-    const ids = owned.map((id) => {
-      if (!uuid(id) || collections.has(id)) throw new RolloutRefused("backup_missing", "Invalid hosted collection coverage.");
-      collections.add(id); return id;
-    }).sort();
-    return [account, ids] as const;
-  }).sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
-  return createHash("sha256").update("mdbase-legacy-batch-membership/v1\n", "ascii").update(JSON.stringify(rows), "utf8").digest("hex");
-}
 
 /** Structural decoding is NOT signature/retention verification; only the dedicated trusted verifier route may accept this result. */
 export function parseVerifiedBatchArchive(body: unknown): VerifiedBatchArchive {
@@ -202,6 +185,7 @@ export async function acceptCohortArchive(db: DatabasePool, name: string, body: 
     }
     const now = await archiveClock(client);
     requireFreshBatchArchive(result, binding, now, now, environment ?? "");
+    if (result.schema === SCOPED_HOSTED_ARCHIVE_SCHEMA) requireScopedArchiveCoverage(await readCohortCaptureSnapshot(client, name), result);
     const old = (await client.query<{ verified_result: unknown; accepted_at: Date }>(
       `SELECT verified_result, accepted_at FROM next_migration_archive_acceptances
        WHERE cohort = $1 AND membership_revision = $2::bigint`, [name, binding.membership_revision]
@@ -228,7 +212,7 @@ export async function acceptCohortArchive(db: DatabasePool, name: string, body: 
   return acceptance;
 }
 
-async function requireCurrentCohortArchive(client: DatabaseQueryable, name: string, environment: string | undefined) {
+export async function requireCurrentCohortArchive(client: DatabaseQueryable, name: string, environment: string | undefined) {
   const { binding, frozenAt, memberCount, inventory } = await readArchiveBinding(client, name);
   if (memberCount === 0) throw new RolloutRefused("backup_missing", "A nonempty frozen migration cohort is required.");
   const accepted = (await client.query<{ verified_result: unknown; accepted_at: Date }>(
@@ -245,6 +229,7 @@ async function requireCurrentCohortArchive(client: DatabaseQueryable, name: stri
   }
   requireFreshBatchArchive(result, binding,
     new Date(accepted.accepted_at).toISOString(), await archiveClock(client), environment ?? "");
+  if (result.schema === SCOPED_HOSTED_ARCHIVE_SCHEMA) requireScopedArchiveCoverage(await readCohortCaptureSnapshot(client, name), result);
   return { binding, frozenAt, inventory, archive: {
     accepted_at: new Date(accepted.accepted_at).toISOString(), verified_result: result
   } };

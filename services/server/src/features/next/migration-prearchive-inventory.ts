@@ -2,8 +2,7 @@
 // is never source/fence/admission authority: the CP must independently reread it.
 import { createHash } from "node:crypto";
 import { migrationUuid } from "../../hosted-provider-replies.js";
-import { archiveBindingSchema, millisecondTime } from "./migration-archive-profile.js";
-import { migrationMembershipDigest, RolloutRefused, type ArchiveBinding } from "./migration-rollout.js";
+import { archiveBindingSchema, millisecondTime, migrationMembershipDigest, RolloutRefused, type ArchiveBinding } from "./migration-archive-profile.js";
 
 export interface PrearchiveCapture {
   schema: "mdbase-migration-capture/1";
