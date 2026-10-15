@@ -1,5 +1,6 @@
 import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import { nativeReadApp } from "./test/native-grant.js";
+import { buildApp } from "../../app.js";
 import { provisionNewAccountBackend } from "./account-backend-flip.js";
 import { registerAuthorizationRoutes } from "../authorizations/routes.js";
 import type { RelayHub } from "../../relay.js";
@@ -15,7 +16,7 @@ import { LogServiceClient } from "./log-service-client.js";
 import { certToJson, ed25519RawPublicKey, loadPolicySigner, parseNextControlPlaneEnv, type NextControlPlaneConfig } from "./policy-keys.js";
 import { PolicyEmitter, queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
 import { certDigest, chainHash, decodeCbor, encodeCbor, keyId, type Cbor, type Decoded, type PolicyOp } from "./policy-wire.js";
-import { inTransaction, refuse } from "./bootstrap-common.js";
+import { enrolOp, inTransaction, refuse } from "./bootstrap-common.js";
 import { privateApprovalRequestDigest, privateCreateDigest, privateDeviceEnrolDigest, registerPrivateCollectionRoutes } from "./private-collections.js";
 import { acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, flipAccountBackend, flipEvidenceDigest, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "./migration-rollout.js";
 import { ZERO_HOSTED_ARCHIVE_SCHEMA } from "./migration-archive-profile.js";
@@ -242,6 +243,42 @@ describePg("private collections", () => {
     expect(deleted.statusCode,deleted.body).toBe(200);
     expect((await db.query("SELECT frozen_at,completed_at FROM next_migration_cohorts WHERE name=$1",[cohort])).rows[0]).toEqual({frozen_at:expect.any(Date),completed_at:expect.any(Date)});
   });
+  it("projects only exact appended own computer enrollments, never pending, other-account, changed-key or revoked devices",async()=>{
+    const who=await identity(),account=who.connector.user_id,collection=await created(who);
+    const pending=await identity(account),unlinked=await identity(account),other=await identity();
+    const device=async(id:string)=>(await db.query<{kind:"desktop";sign_pk:Buffer;kem_pk:Buffer;noise_pk:Buffer}>("SELECT kind,sign_pk,kem_pk,noise_pk FROM next_devices WHERE id=$1",[id])).rows[0]!;
+    await queue(collection,[enrolOp(other.device,other.connector.user_id,await device(other.device))]);await drain(collection);
+    await queue(collection,[enrolOp(pending.device,account,await device(pending.device))]);
+    const {app:portal}=await buildApp({db,devAuth:true,publicUrl:"https://connect.test"});
+    try {
+      const session=await portal.inject({method:"POST",url:"/v1/dev/session",payload:{name:"Owner",email:`${account}@example.test`}});
+      expect(session.statusCode,session.body).toBe(200);
+      const raw=session.headers["set-cookie"]!;
+      const cookie=(Array.isArray(raw)?raw[0]!:raw).split(";")[0]!;
+      const computers=async()=>{
+        const response=await portal.inject({url:"/v1/me",headers:{cookie}});
+        expect(response.statusCode,response.body).toBe(200);
+        const row=response.json().native_collections.find((value:{id:string})=>value.id===collection);
+        expect(row).toBeDefined();
+        return row.computer_ids.sort();
+      };
+      const initial=await computers();
+      expect(initial).toEqual([who.connector.id]);
+      expect(initial).not.toContain(unlinked.connector.id);
+      expect(initial).not.toContain(other.connector.id);
+      await drain(collection);
+      expect(await computers()).toEqual([who.connector.id,pending.connector.id].sort());
+      const original=await device(pending.device);
+      await db.query("UPDATE next_devices SET noise_pk=$2 WHERE id=$1",[pending.device,rawX()]);
+      expect(await computers()).toEqual([who.connector.id]);
+      await db.query("UPDATE next_devices SET noise_pk=$2 WHERE id=$1",[pending.device,original.noise_pk]);
+      await queue(collection,[{op:"device-revoke",device:pending.device}]);
+      expect(await computers()).toEqual([who.connector.id]);
+      await db.query("UPDATE connectors SET revoked_at=now() WHERE id=$1",[who.connector.id]);
+      expect(await computers()).toEqual([]);
+    } finally {await portal.close();}
+  });
+
   it("creates an e2e genesis that enrols only the owner's device", async () => {
     const who = await identity(); const collection = randomUUID();
     const response = await create(who, await createProof(who, collection));

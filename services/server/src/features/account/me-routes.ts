@@ -21,6 +21,7 @@ import { liveAuthorizationCollections } from "../authorizations/local-collection
 import { grantWithCompatibleApplicationOrigin } from "../grants/application-origin.js";
 import { requiresHostedCollection } from "../grants/policy.js";
 import { hostedMirrorReplicas } from "../hosted/service.js";
+import { nativeDevices } from "../next/native-grant-target.js";
 
 interface AccountOverviewRouteOptions {
   db: DatabasePool;
@@ -29,6 +30,7 @@ interface AccountOverviewRouteOptions {
   authenticationPolicy: AuthenticationPolicyStore;
   tailscaleAuth?: boolean;
   hostedCollections?: boolean;
+  nativeCollectionCreation?: boolean;
   hostedSharing?: boolean;
   hostedProvider?: HostedProviderClient;
   hostedReference?: HostedAuthorityRegistry;
@@ -60,7 +62,16 @@ export function registerAccountOverviewRoute(
     );
     if (!authenticated) return;
     const { authentication_provider: authenticationProvider, ...user } = authenticated;
+    const accountBackend = (await options.db.query<{account_backend:string; flipped:boolean}>(`SELECT u.account_backend,
+      f.account_id IS NOT NULL AS flipped FROM users u LEFT JOIN next_migration_account_flips f ON f.account_id=u.id
+      WHERE u.id=$1 AND u.suspended_at IS NULL`, [user.id])).rows[0];
     const nativeCollections = await listNativeCollectionsVisibleToUser(options.db, user.id);
+    const nativeCreator = await options.db.query(
+      `SELECT 1 FROM next_devices d JOIN connectors c ON c.id = d.connector_id
+       WHERE d.user_id = $1 AND c.user_id = $1 AND c.revoked_at IS NULL
+         AND d.kind IN ('desktop', 'cli') LIMIT 1`,
+      [user.id]
+    );
     const connectors = await options.db.query<AccountConnectorRow>(
       `SELECT c.id, c.name, c.last_seen_at, c.created_at,
               c.connector_version, c.last_incompatible_at,
@@ -291,6 +302,8 @@ export function registerAccountOverviewRoute(
         } : null
       } : null,
       hosted_collections_available: options.hostedCollections === true,
+      native_collection_creation_available: nativeCreator.rows.length > 0,
+      collection_creation_available: accountBackend?.account_backend === "next" ? accountBackend.flipped && options.nativeCollectionCreation === true : accountBackend?.account_backend === "legacy" && options.hostedCollections === true,
       collection_sharing_available: options.hostedCollections === true && options.hostedSharing === true,
       authentication: {
         provider: authenticationProvider ?? (options.tailscaleAuth ? "tailscale" : "session"),
@@ -360,10 +373,11 @@ export function registerAccountOverviewRoute(
           approved_optional_file_actions: scope.approved_optional_file_actions ?? [],
           available: visible !== undefined, role: visible?.access.role ?? null };
       }),
-      native_collections: nativeCollections.map((collection) => ({
+      native_collections: await Promise.all(nativeCollections.map(async (collection) => ({
         ...collection,
+        computer_ids: [...new Set((await nativeDevices(options.db, collection.id, user.id)).map((device) => device.connector_id))],
         access: { ...collection.access, can_manage_members: collection.access.can_manage_members && options.hostedCollections === true }
-      })),
+      }))),
       grants: grants.rows.map(grantWithCompatibleApplicationOrigin),
       pending_authorizations: await Promise.all(
         pendingAuthorizations.rows.map(async (authorization) => {

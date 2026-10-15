@@ -13,9 +13,10 @@ import { registerPeopleRoutes } from "../account/people-routes.js";
 import { collectionLogTokenDigest, registerCollectionLogTokenRoute } from "./collection-log-token.js";
 import { cloudCopyCreateDigest, cloudCopyJoinDigest, registerCloudCopyRoutes } from "./cloud-copy-bootstrap.js";
 import { createServiceCloudCopy } from "./service-cloud-copy.js";
+import { createAccountCollection } from "../account/collection-creation.js";
 import { registerMigrationProviderRoutes } from "./migration-provider.js";
 import { currentAccount } from "./bootstrap-common.js";
-import { acceptCohortArchive, cohortArchiveBinding, flipAccountBackend, flipEvidenceDigest, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "./migration-rollout.js";
+import { createCohort, addToCohort, acceptCohortArchive, cohortArchiveBinding, flipAccountBackend, flipEvidenceDigest, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "./migration-rollout.js";
 import { ZERO_HOSTED_ARCHIVE_SCHEMA } from "./migration-archive-profile.js";
 import { clientFingerprint, deviceRegistrationDigest, issueDeviceChallenge, registerDevice } from "./devices.js";
 import { collectionDirectory } from "./hosted-routes.js";
@@ -548,6 +549,38 @@ describePg("cloud-copy bootstrap", () => {
   const join = (who: Who, collection: string, payload: unknown) =>
     app.inject({ method: "POST", url: `/v1/next/collections/${collection}/devices`, headers: who.headers, payload });
   const genesisOps = (item: string) => field(decodeCbor(field(decodeCbor(Buffer.from(item, "hex")), 11) as Uint8Array), 3) as Decoded[];
+
+  it("account Add resumes the canonical creator after accepted zero-Hosted migration completion without thaw", async () => {
+    const owner = randomUUID(), cohort = `account-add-${randomUUID()}`, actor = "synthetic-local-pg";
+    await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Owner')", [owner, `${owner}@example.test`]);
+    await createCohort(db, cohort, actor); await addToCohort(db, cohort, [owner], actor);
+    await releaseCohort(db, cohort, actor); await setCohortFrozen(db, cohort, true, "synthetic archive", actor);
+    const binding = await cohortArchiveBinding(db, cohort);
+    const clock = new Date((await db.query("SELECT date_trunc('milliseconds',clock_timestamp()) AS now")).rows[0].now).toISOString();
+    await acceptCohortArchive(db, cohort, { schema: ZERO_HOSTED_ARCHIVE_SCHEMA, environment: "lab",
+      bucket: "synthetic-archives", prefix: `legacy-archive/lab/2026/10/15/${cohort}`, backup_id: cohort,
+      complete_sha256: "a".repeat(64), manifest_sha256: "b".repeat(64), source_commit: "c".repeat(40),
+      migration_batch: binding, archive_created_at: clock, archive_completed_at: clock,
+      retention: { mode: "GOVERNANCE", days: 116, retain_until: new Date(Date.parse(clock) + 116 * 86_400_000).toISOString(),
+        inventory_digest: "d".repeat(64), count: "2" } }, "lab");
+    await setPaused(db, false, "synthetic migration", actor); await startAccountMigration(db, owner, "lab");
+    const input = { requestId: randomUUID(), displayName: "After migration", timezone: "UTC" };
+    const options = { db, publicUrl: "https://connect.test", hostedCollections: true,
+      native: { db, next: config, emitter, log: client, fetchImpl: deployments.fetch } };
+    await expect(createAccountCollection(options, owner, input, async () => {})).rejects.toMatchObject({ code: "migration_frozen" });
+    expect((await db.query("SELECT 1 FROM account_collection_creations WHERE user_id=$1", [owner])).rows).toHaveLength(0);
+    await flipAccountBackend(db, owner, [], flipEvidenceDigest([]), { enabled: true }, "lab");
+    const original = await createAccountCollection(options, owner, input, async () => {});
+    const calls = deployments.calls;
+    expect(await createAccountCollection(options, owner, input, async () => {})).toEqual(original);
+    expect(deployments.calls).toBe(calls);
+    expect((await db.query("SELECT collection_id,display_name,runtime,published_at FROM account_collection_creations WHERE user_id=$1 AND request_id=$2",
+      [owner,input.requestId])).rows).toEqual([{ collection_id: original.id, display_name: input.displayName, runtime: "next", published_at: expect.any(Date) }]);
+    expect((await db.query("SELECT frozen_at,completed_at FROM next_migration_cohorts WHERE name=$1", [cohort])).rows[0])
+      .toEqual({ frozen_at: expect.any(Date), completed_at: expect.any(Date) });
+    expect((await db.query("SELECT 1 FROM next_devices WHERE user_id=$1", [owner])).rows).toHaveLength(0);
+    expect((await db.query("SELECT 1 FROM grants WHERE user_id=$1", [owner])).rows).toHaveLength(0);
+  });
 
   it("service-creates a cloud copy for an account with no device: genesis enrols hosted and escrow only", async () => {
     const who = await identity(); const collection = randomUUID();

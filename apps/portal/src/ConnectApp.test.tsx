@@ -32,6 +32,55 @@ afterEach(() => {
 });
 
 describe("ConnectApp", () => {
+  it.each([false, true])("offers one Add collection flow with a Native handoff when Hosted enabled=%s", async hosted => {
+    history.replaceState(null, "", "/collections");
+    overview.hosted_collections_available = hosted;
+    Object.assign(overview, { native_collection_creation_available: true });
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    const add = await screen.findByRole("button", { name: "Add collection" });
+    expect(screen.queryByRole("button", { name: "New hosted collection" })).not.toBeInTheDocument();
+    await user.click(add);
+    const location = screen.getByRole("combobox", { name: "Location" });
+    if (hosted) await chooseOption(user, location, "On this computer");
+    expect(screen.getByRole("link", { name: "Open mdbase connect" })).toHaveAttribute("href", "mdbase-connect://open");
+    expect(screen.queryByRole("button", { name: "Create" })).not.toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+  });
+
+  it("keeps Add collection visible without inventing a Native device or Hosted authority", async () => {
+    history.replaceState(null, "", "/collections");
+    overview.hosted_collections_available = false;
+    Object.assign(overview, { native_collection_creation_available: false });
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    await user.click(await screen.findByRole("button", { name: "Add collection" }));
+    expect(screen.getByText("Connect a computer to add a collection.")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Location" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Create" })).not.toBeInTheDocument();
+  });
+
+  it("maps Private badges to their exact enrolled computer's presence, never another online computer", async () => {
+    history.replaceState(null, "", "/collections");
+    overview.collections = []; overview.hosted_collections = [];
+    overview.connectors.push({ id: "sleeping", name: "Sleeping laptop", created_at: new Date().toISOString(), last_seen_at: new Date(Date.now() - 120_000).toISOString() });
+    const access = { relationship: "owner", role: "owner", can_manage_members: true } as const;
+    Object.assign(overview, { native_collections: [
+      { id: "native-private", display_name: "Computer notes", sync: "private", computer_ids: ["computer"], access },
+      { id: "native-offline", display_name: "Offline notes", sync: "private", computer_ids: ["sleeping"], access },
+      { id: "native-none", display_name: "Unlinked notes", sync: "private", computer_ids: [], access },
+      { id: "native-cloud", display_name: "Cloud notes", sync: "cloud_copy", computer_ids: [], access },
+    ] });
+    render(<ConnectApp />);
+    await screen.findByText("Computer notes");
+    const badge = (name: string) => screen.getByText(name).closest(".connect-row")?.querySelector(".connect-status");
+    expect(badge("Computer notes")).toHaveTextContent("On Home computer");
+    expect(badge("Offline notes")).toHaveTextContent("On Sleeping laptop: offline");
+    expect(badge("Unlinked notes")).toHaveTextContent("Computer not connected");
+    expect(badge("Cloud notes")).toHaveTextContent("Hosted");
+    expect(screen.queryByText("Availability unknown")).not.toBeInTheDocument();
+  });
+
   it("counts native collections without legacy shadow rows or content authorization", async () => {
     overview.collections = [];
     overview.hosted_collections = [];
@@ -411,12 +460,12 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
     await screen.findByRole("heading", { name: "Garden notes" });
     await user.click(screen.getByRole("link", { name: "All collections" }));
-    await user.click(await screen.findByRole("button", { name: "New hosted collection" }));
+    await user.click(await screen.findByRole("button", { name: "Add collection" }));
 
     const originalFetch = vi.mocked(fetch).getMockImplementation()!;
     vi.mocked(fetch).mockImplementation((input, init) => {
       const path = new URL(String(input)).pathname;
-      if (path === "/v1/hosted/collections" && init?.method === "POST") {
+      if (path === "/v1/account/collections" && init?.method === "POST") {
         return Promise.resolve(Response.json({ error: { message: "Storage is temporarily unavailable." } }, { status: 503 }));
       }
       return originalFetch(input, init);
@@ -428,7 +477,32 @@ describe("ConnectApp", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Storage is temporarily unavailable.");
     expect(input).toHaveValue("Field notes");
-    expect(screen.getByRole("button", { name: "Create" })).toBeInTheDocument();
+    expect(input).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Retry creation" })).toBeInTheDocument();
+    const first = JSON.parse(String(vi.mocked(fetch).mock.calls.find(([url,init]) => new URL(String(url)).pathname === "/v1/account/collections" && init?.method === "POST")![1]!.body));
+    await user.click(screen.getByRole("button", {name:"Retry creation"}));
+    await waitFor(()=>expect(vi.mocked(fetch).mock.calls.filter(([url,init])=>new URL(String(url)).pathname==="/v1/account/collections"&&init?.method==="POST")).toHaveLength(2));
+    const second = JSON.parse(String(vi.mocked(fetch).mock.calls.filter(([url,init])=>new URL(String(url)).pathname==="/v1/account/collections"&&init?.method==="POST")[1][1]!.body));
+    expect(second).toEqual(first);
+    expect(Object.keys(second).sort()).toEqual(["account_id","display_name","request_id","timezone"]);
+    expect(screen.getByRole("combobox", { name: "Location" })).toBeDisabled();
+    expect(screen.queryByRole("link", { name: "Open mdbase connect" })).not.toBeInTheDocument();
+  });
+
+  it("restores an uncertain original creation after reload and has one Add action even without hosted availability",async()=>{
+    overview.hosted_collections_available=false;
+    const account=overview.user.id;
+    localStorage.setItem(`mdbase.connect.collection-creation:${account}`,JSON.stringify({accountId:account,requestId:"11111111-1111-4111-a111-111111111111",displayName:"Uncertain name",timezone:"UTC"}));
+    const user=userEvent.setup();render(<ConnectApp/>);
+    await user.click(await screen.findByRole("link",{name:"All collections"}));
+    await user.click(await screen.findByRole("button",{name:"Add collection"}));
+    expect(screen.getByLabelText("Collection name")).toHaveValue("Uncertain name");
+    expect(screen.getByLabelText("Collection name")).toBeDisabled();
+    expect(screen.getByRole("button",{name:"Retry creation"})).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Location" })).toBeDisabled();
+    expect(screen.queryByRole("link", { name: "Open mdbase connect" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.every(([,init])=>!init?.method||init.method==="GET")).toBe(true);
   });
 
   it("renames inline and confirms destructive collection actions in the page", async () => {
