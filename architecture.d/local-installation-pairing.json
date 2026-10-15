@@ -1,0 +1,6 @@
+{
+  "reason": "Reuse the existing compiled-local exact-origin transport guard for installation pairing. Server-selected local environment remains unavailable to managed builds; existing lab/staging/production paths and registered origin authorization are unchanged. No new route, configuration, authority or production file.",
+  "growth": {
+    "relativeImports": 1
+  }
+}

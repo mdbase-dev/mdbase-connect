@@ -6,6 +6,8 @@ import { labTargetBootstrap } from "./migration-lab-target.js";
 import { labWorkerClient } from "./migration-lab.js";
 import { parseNextControlPlaneEnv } from "./policy-keys.js";
 import { configuredClaimAudience } from "./migration-claim-auth.js";
+import type { DatabaseQueryable } from "../../database-types.js";
+import { installationApp } from "../connectors/installation-pairing.js";
 
 const account = "10000000-0000-4000-8000-000000000001", collection = "20000000-0000-4000-8000-000000000002";
 const origin = "http://127.0.0.1:8111", token = "t".repeat(40);
@@ -27,6 +29,21 @@ describe("explicit local build transport scope", () => {
     expect(() => configuredClaimAudience("https://connect-lab.mdbase.dev")).toThrow();
     for (const environment of ["lab", "staging", "production", undefined]) expect(localDeployment(environment, origin)).toBe(false);
     for (const value of ["http://localhost:8111", "http://127.1:8111", origin + "/", origin + "?x", "http://user@127.0.0.1:8111", "https://connect-lab.mdbase.dev"]) expect(localDeployment("local", value)).toBe(false);
+  });
+  it("admits only an exact registered local installation origin on a local server", async () => {
+    const query = vi.fn(async () => ({ rows: [{ id: account, name: "Local Notes", family_identity: "bundle:local.notes",
+      installation_origins: { local: { "app-runtime": [origin] } },
+      requirements: { access: "full_collection", contracts: [] }, notifications: { criteria: [] } }] }));
+    const db = { query } as unknown as DatabaseQueryable;
+    expect(await installationApp(db, "local", account, origin, "app-runtime")).toEqual({ id: account, origin, name: "Local Notes" });
+    for (const environment of ["lab", "staging", "production"]) {
+      await expect(installationApp(db, environment, account, origin, "app-runtime"))
+        .rejects.toMatchObject({ status: 403, code: "installation_app_not_allowed" });
+    }
+    for (const value of ["http://localhost:8111", "http://127.0.0.1:8112", origin + "/", "https://remote.example.test"]) {
+      await expect(installationApp(db, "local", account, value, "app-runtime"))
+        .rejects.toMatchObject({ status: 403, code: "installation_app_not_allowed" });
+    }
   });
   it("calls the SAME canonical target with the SAME authenticated request and metadata checks", async () => {
     const transport = vi.fn<typeof fetch>(async (url, init) => {

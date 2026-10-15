@@ -24,7 +24,7 @@ describe("registered installation origins", () => {
     }
     expect(query).toHaveBeenCalledWith(expect.stringContaining("FROM applications"), [id]);
   });
-  it.each(["production", "staging", undefined, "development", "LAB", "__proto__"])("LAB origin never appears in %s environment policy", async environment => {
+  it.each(["local", "production", "staging", undefined, "development", "LAB", "__proto__"])("LAB origin never appears in %s environment policy", async environment => {
     await expect(installationApp(registry().db, environment, id, local, "app-runtime")).rejects.toMatchObject({code: "installation_app_not_allowed", status: 403});
   });
   it.each(["http://localhost:48218", "http://127.0.0.1:48219", "http://127.0.0.1", "https://127.0.0.1:48218", "http://127.0.0.1:48218/", "http://127.0.0.1:48218/path", "http://127.0.0.2:48218", "null", undefined])("refuses missing/changed host, port, scheme or URL form %s", async origin => {
