@@ -485,7 +485,8 @@ describe("ConnectApp", () => {
     const second = JSON.parse(String(vi.mocked(fetch).mock.calls.filter(([url,init])=>new URL(String(url)).pathname==="/v1/account/collections"&&init?.method==="POST")[1][1]!.body));
     expect(second).toEqual(first);
     expect(Object.keys(second).sort()).toEqual(["account_id","display_name","request_id","timezone"]);
-    expect(screen.getByRole("link",{name:"Open desktop app"})).toHaveAttribute("href","mdbase-connect://open");
+    expect(screen.getByRole("combobox", { name: "Location" })).toBeDisabled();
+    expect(screen.queryByRole("link", { name: "Open mdbase connect" })).not.toBeInTheDocument();
   });
 
   it("restores an uncertain original creation after reload and has one Add action even without hosted availability",async()=>{
@@ -498,7 +499,8 @@ describe("ConnectApp", () => {
     expect(screen.getByLabelText("Collection name")).toHaveValue("Uncertain name");
     expect(screen.getByLabelText("Collection name")).toBeDisabled();
     expect(screen.getByRole("button",{name:"Retry creation"})).toBeDisabled();
-    expect(screen.getByRole("link",{name:"Open desktop app"})).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Location" })).toBeDisabled();
+    expect(screen.queryByRole("link", { name: "Open mdbase connect" })).not.toBeInTheDocument();
     expect(screen.queryByRole("radio")).not.toBeInTheDocument();
     expect(vi.mocked(fetch).mock.calls.every(([,init])=>!init?.method||init.method==="GET")).toBe(true);
   });
