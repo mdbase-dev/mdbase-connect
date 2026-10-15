@@ -33,7 +33,9 @@ receipts or authorize native migration. Account start still needs the existing
 fresh accepted archive; receiving-v1 still needs its accepted frozen snapshot.
 A supported scoped producer must additionally qualify content fencing, writer/
 timer drain, currentness, original custody and deleted-source exclusion at its
-actual read/effect boundary. Do not use a later snapshot to adopt an UNKNOWN.
+actual read/effect boundary. The dedicated [prearchive source endpoints](migration-prearchive.md)
+provide scoped source authorization before archive/account start; capture-v1 alone
+still supplies no effect permission. Do not use a later snapshot to adopt an UNKNOWN.
 
 The live rehearsal also needs the original inclusive window from first H6 content
 fence, through topology freeze/capture/acceptance/native migration/flip and final

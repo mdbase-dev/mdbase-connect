@@ -35,6 +35,7 @@ import { registerMigrationRolloutRoutes } from "./features/next/migration-rollou
 import { registerCollectionMigrationRecordRoute } from "./features/next/migration-record-routes.js";
 import { registerMigrationSourceWitnessRoutes } from "./features/next/migration-source.js";
 import { registerMigrationProviderRoutes } from "./features/next/migration-provider.js";
+import { registerPrearchiveMigrationRoutes } from "./features/next/migration-prearchive.js";
 import { registerMigrationReplicaRoutes } from "./features/next/migration-replicas.js";
 import { registerMigrationTimerCleanupRoute } from "./features/next/migration-timer-cleanup.js";
 import { registerPolicyRecoveryRoutes } from "./features/next/policy-recovery-routes.js";
@@ -613,6 +614,8 @@ export async function buildApp(options: BuildOptions) {
       registerMigrationRolloutRoutes(app, { db: options.db, token: options.nextControlPlane.migrationToken, environment: options.environment, provider: options.hostedProvider,
         timers: options.nextTimers !== undefined });
       registerMigrationSourceWitnessRoutes(app, { db: options.db, next: options.nextControlPlane, signer: nextPolicySigner!, provider: options.hostedProvider });
+      registerPrearchiveMigrationRoutes(app, { db: options.db, token: options.nextControlPlane.migrationToken,
+        environment: options.environment, provider: options.hostedProvider });
       registerMigrationProviderRoutes(app, { db: options.db, token: options.nextControlPlane.migrationToken, provider: options.hostedProvider,
         ...(options.nextControlPlane.serviceTokens.hosted && new URL(publicUrl).protocol === "https:"
           ? { hostedRead: { token: options.nextControlPlane.serviceTokens.hosted, audience: new URL(publicUrl).origin, migrationRouting: options.nextControlPlane.labMigrationRouting } } : {}),

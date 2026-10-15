@@ -1,0 +1,4 @@
+{
+  "reason": "Two internal modules separate complete canonical prearchive inventory DATA from migration-token-only full-cohort source authorization and existing provider H6 calls. One shared bounded capture reader replaces duplicated snapshot assembly. No new public package surface, source URL/SQL selector, serving grant, migration schema or timer engine. Existing started-account gates remain unchanged.",
+  "growth": { "productionFiles": 2, "relativeImports": 16, "typeScriptExportDeclarations": 4, "services/server": 2 }
+}

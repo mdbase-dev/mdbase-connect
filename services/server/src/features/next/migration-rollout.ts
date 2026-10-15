@@ -163,19 +163,25 @@ async function cohortCaptureSnapshot(db: DatabasePool, name: string, environment
   return inTransaction(db, async client => {
     await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
     await client.query("SET LOCAL statement_timeout = '5s'");
-    const current = await readCohortBinding(client, name, zeroHostedOnly);
-    if (zeroHostedOnly && !isCompleteZeroHostedInventory(current.inventory)) {
-      throw new RolloutRefused("backup_missing", "A complete frozen cohort with no held hosted collections is required.");
-    }
-    const refuse = (): never => { throw new RolloutRefused("capture_unavailable", "No complete bounded capture inventory.", 503); };
-    const project = captureProjection(name, current, refuse);
-    const records = new Map((await client.query<{ account: string; suspended: boolean; terminal_excluded_at: Date | null }>(
-      `SELECT u.id::text AS account, u.suspended_at IS NOT NULL AS suspended, m.terminal_excluded_at
-       FROM users u JOIN next_migration_cohort_members m ON m.account_id=u.id WHERE m.cohort=$1`, [name])).rows.map(row => [row.account, row]));
-    const observations = [];
-    for (const [account] of current.inventory) observations.push({ view: await accountMigrationView(client, account), record: records.get(account) });
-    return project(observations, await archiveClock(client));
+    return readCohortCaptureSnapshot(client, name, zeroHostedOnly);
   });
+}
+
+/** Metadata projection inside a caller's bounded transaction. No provider I/O.
+ * Caller sets isolation before reads; this helper retains the original cohort lock. */
+export async function readCohortCaptureSnapshot(client: DatabaseQueryable, name: string, zeroHostedOnly = false) {
+  const current = await readCohortBinding(client, name, zeroHostedOnly);
+  if (zeroHostedOnly && !isCompleteZeroHostedInventory(current.inventory)) {
+    throw new RolloutRefused("backup_missing", "A complete frozen cohort with no held hosted collections is required.");
+  }
+  const refuse = (): never => { throw new RolloutRefused("capture_unavailable", "No complete bounded capture inventory.", 503); };
+  const project = captureProjection(name, current, refuse);
+  const records = new Map((await client.query<{ account: string; suspended: boolean; terminal_excluded_at: Date | null }>(
+    `SELECT u.id::text AS account, u.suspended_at IS NOT NULL AS suspended, m.terminal_excluded_at
+     FROM users u JOIN next_migration_cohort_members m ON m.account_id=u.id WHERE m.cohort=$1`, [name])).rows.map(row => [row.account, row]));
+  const observations = [];
+  for (const [account] of current.inventory) observations.push({ view: await accountMigrationView(client, account), record: records.get(account) });
+  return project(observations, await archiveClock(client));
 }
 
 export async function cohortArchiveBinding(db: DatabasePool, name: string): Promise<ArchiveBinding> {
