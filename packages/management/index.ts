@@ -153,6 +153,8 @@ export interface NativeCollection {
   id: string;
   display_name: string | null;
   sync: "private" | "cloud_copy";
+  /** Own enrolled, unrevoked computers; presence does not establish content readiness. */
+  computer_ids?: string[];
   access: Pick<HostedCollectionAccess, "relationship" | "role" | "can_manage_members">;
 }
 

@@ -21,6 +21,7 @@ import { liveAuthorizationCollections } from "../authorizations/local-collection
 import { grantWithCompatibleApplicationOrigin } from "../grants/application-origin.js";
 import { requiresHostedCollection } from "../grants/policy.js";
 import { hostedMirrorReplicas } from "../hosted/service.js";
+import { nativeDevices } from "../next/native-grant-target.js";
 
 interface AccountOverviewRouteOptions {
   db: DatabasePool;
@@ -372,10 +373,11 @@ export function registerAccountOverviewRoute(
           approved_optional_file_actions: scope.approved_optional_file_actions ?? [],
           available: visible !== undefined, role: visible?.access.role ?? null };
       }),
-      native_collections: nativeCollections.map((collection) => ({
+      native_collections: await Promise.all(nativeCollections.map(async (collection) => ({
         ...collection,
+        computer_ids: [...new Set((await nativeDevices(options.db, collection.id, user.id)).map((device) => device.connector_id))],
         access: { ...collection.access, can_manage_members: collection.access.can_manage_members && options.hostedCollections === true }
-      })),
+      }))),
       grants: grants.rows.map(grantWithCompatibleApplicationOrigin),
       pending_authorizations: await Promise.all(
         pendingAuthorizations.rows.map(async (authorization) => {

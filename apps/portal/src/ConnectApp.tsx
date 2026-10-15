@@ -701,16 +701,26 @@ function collectionRows(data: ManagementOverview): CollectionRow[] {
     kind: "hosted" as const,
     source: collection
   }));
-  const native = (data.native_collections ?? []).map((collection) => ({
-    id: collection.id,
-    name: collection.display_name ?? "Unnamed collection",
-    detail: collection.sync === "cloud_copy" ? "Cloud copy configured" : "Stored on your devices",
-    status: "Availability unknown",
-    // Registry visibility is not a statement about replica read health.
-    available: false,
-    kind: "native" as const,
-    source: collection
-  }));
+  const native = (data.native_collections ?? []).map((collection) => {
+    const computers = (collection.computer_ids ?? []).flatMap((id) => {
+      const computer = connectors.get(id);
+      return computer ? [computer] : [];
+    });
+    const computer = computers.find((candidate) => isConnectorOnline(candidate.last_seen_at)) ?? computers[0];
+    const status = collection.sync === "cloud_copy" ? "Hosted"
+      : computer ? `On ${computer.name}${isConnectorOnline(computer.last_seen_at) ? "" : ": offline"}`
+      : "Computer not connected";
+    return {
+      id: collection.id,
+      name: collection.display_name ?? "Unnamed collection",
+      detail: collection.sync === "cloud_copy" ? "Cloud copy configured" : "Stored on your devices",
+      status,
+      // Computer presence is not content readiness, Effective, or an app grant.
+      available: false,
+      kind: "native" as const,
+      source: collection
+    };
+  });
   return [...native, ...hosted, ...local].sort((left, right) => left.name.localeCompare(right.name));
 }
 

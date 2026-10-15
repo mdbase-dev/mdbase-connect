@@ -25,7 +25,7 @@ it("discovers registry-only native metadata through the authenticated management
   const response = await app.inject({ url: "/v1/me", headers: { cookie } });
   expect(response.statusCode, response.body).toBe(200);
   expect(response.json().native_collection_creation_available).toBe(false);
-  expect(response.json().native_collections).toEqual([{ id: collection, display_name: "Native garden", sync: "private", access: { relationship: "owner", role: "owner", can_manage_members: true } }]);
+  expect(response.json().native_collections).toEqual([{ id: collection, display_name: "Native garden", sync: "private", computer_ids: [], access: { relationship: "owner", role: "owner", can_manage_members: true } }]);
   expect(response.json().collections).toEqual([]);
   expect(response.json().hosted_collections).toEqual([]);
   expect(response.json().grants).toEqual([]);
