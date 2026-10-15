@@ -7,7 +7,7 @@ import {createHostedCollectionForUser} from "../hosted/service.js";
 import {requireSessionContext} from "../../platform/request-authentication.js";
 import {createAccountCollection} from "./collection-creation.js";
 import {registerAccountCollectionCreationRoutes} from "./collection-creation-routes.js";
-vi.mock("../next/migration-topology.js",()=>({requireAccountNotMigrationFrozen:vi.fn(async()=>{})}));
+vi.mock("../next/migration-topology.js",()=>({requireNextAccountNotMigrationFrozen:vi.fn(async()=>false)}));
 vi.mock("../next/service-cloud-copy.js",()=>({createServiceCloudCopy:vi.fn(),currentCloudCopy:vi.fn()}));
 vi.mock("../hosted/service.js",()=>({createHostedCollectionForUser:vi.fn()}));
 vi.mock("../../platform/request-authentication.js",()=>({requireSessionContext:vi.fn(),requireUser:vi.fn()}));

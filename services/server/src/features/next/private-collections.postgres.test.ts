@@ -262,7 +262,10 @@ describePg("private collections", () => {
         expect(row).toBeDefined();
         return row.computer_ids.sort();
       };
-      expect(await computers()).toEqual([who.connector.id]);
+      const initial=await computers();
+      expect(initial).toEqual([who.connector.id]);
+      expect(initial).not.toContain(unlinked.connector.id);
+      expect(initial).not.toContain(other.connector.id);
       await drain(collection);
       expect(await computers()).toEqual([who.connector.id,pending.connector.id].sort());
       const original=await device(pending.device);
@@ -273,7 +276,6 @@ describePg("private collections", () => {
       expect(await computers()).toEqual([who.connector.id]);
       await db.query("UPDATE connectors SET revoked_at=now() WHERE id=$1",[who.connector.id]);
       expect(await computers()).toEqual([]);
-      expect(unlinked.connector.id).not.toBe(other.connector.id);
     } finally {await portal.close();}
   });
 

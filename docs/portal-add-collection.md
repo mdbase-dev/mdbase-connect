@@ -10,10 +10,23 @@ silently switch authorities. With neither, it explains how to connect a computer
 Native uses the existing `mdbase-connect://open` desktop handoff. Folder selection,
 collection keys and signed genesis remain on the device. The portal neither
 creates a Native collection nor borrows Hosted credentials for it. Hosted keeps
-its existing named-collection creation endpoint and failure recovery.
+the immutable account creation intent from #820 and the existing canonical
+service/legacy creator. The browser stores the original account, request UUID,
+name and timezone before the POST. An uncertain outcome locks Location and the
+name until that same request resolves; it cannot become a Native handoff.
 
-Native registry metadata alone is not serving-readiness evidence. Its collection
-badge therefore says **Availability unknown**, not the registry's sync-kind
-(Private/Cloud copy), without inventing an online/Effective state. Storage details
-can still explain where the collection is configured to live. Application access
-continues to require the application's original collection approval.
+Private badges say **On <exact computer name>** or **On <name>: offline**.
+The metadata projection uses the canonical own-device enrollment filter:
+appended exact account/device/key tuples, non-revoked connectors and no device
+or member revocation. A different online computer never stands in for the
+enrolled computer. With no matching computer the badge says **Computer not
+connected**. Cloud copies say **Hosted**. Existing connector presence is reused;
+there is no new polling, content-readiness or Effective inference.
+
+Completed migrated accounts use the canonical next-account migration guard,
+not a cleared archive freeze. The real PostgreSQL suite demonstrates accepted
+archive/start/flip completion, pre-completion refusal and original-intent retry.
+It also constructs an actual migration directory through 0081 without 0076,
+then proves the standard runner fills that gap, preserves every existing ledger
+entry/checksum, enforces the intent trigger and is idempotent. Applied migration
+bytes are unchanged; 0076 is retained on that evidence.

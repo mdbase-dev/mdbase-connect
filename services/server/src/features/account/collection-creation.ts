@@ -2,7 +2,7 @@ import {randomUUID} from "node:crypto";
 import type {DatabaseConnection} from "../../database-types.js";
 import type {HostedAuthorityRegistry} from "../../hosted.js";
 import {CreateError, inTransaction} from "../next/bootstrap-common.js";
-import {requireAccountNotMigrationFrozen} from "../next/migration-topology.js";
+import {requireNextAccountNotMigrationFrozen} from "../next/migration-topology.js";
 import {createServiceCloudCopy, currentCloudCopy, type CloudCopyBootstrapOptions} from "../next/service-cloud-copy.js";
 import {createHostedCollectionForUser, type HostedServiceOptions} from "../hosted/service.js";
 
@@ -20,7 +20,7 @@ type Principal = (client: DatabaseConnection) => Promise<void>;
 
 async function backend(client: DatabaseConnection, account: string, principal: Principal): Promise<Intent["runtime"]> {
   // Match native onboarding's account-first freeze/session lock ordering.
-  await requireAccountNotMigrationFrozen(client, account);
+  await requireNextAccountNotMigrationFrozen(client, account);
   await principal(client);
   const row = (await client.query<{account_backend: string; flipped: boolean}>(
     `SELECT u.account_backend, f.account_id IS NOT NULL AS flipped
