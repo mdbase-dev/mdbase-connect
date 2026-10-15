@@ -392,8 +392,14 @@ export async function buildApp(options: BuildOptions) {
         )
       });
     }
+    // This resolved route never uses account-cookie authority: every client
+    // must authenticate its first frame with its own active grant. Same-site
+    // browsers may still attach an ambient Connect session cookie to upgrades.
+    const frameAuthenticatedRelay = request.method === "GET"
+      && request.routeOptions.url === "/v1/next/relay/client";
     if (
-      sessionToken(request)
+      !frameAuthenticatedRelay
+      && sessionToken(request)
       && request.headers.origin
       && !accountOrigins.has(request.headers.origin)
     ) {
