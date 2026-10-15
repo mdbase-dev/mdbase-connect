@@ -1,0 +1,6 @@
+{
+  "reason": "One shared internal async account classifier replaces three direct CSV lookups. LAB destination routing uses authoritative released/frozen/nonterminal cohort membership before start and after flip, without making the global pause a routing switch. The existing explicit CSV is retained only as the named historical LAB fallback. No schema, endpoint, request field, custody or authorization protocol is added; all native/source/device admission remains independent.",
+  "growth": {
+    "typeScriptExportDeclarations": 1
+  }
+}

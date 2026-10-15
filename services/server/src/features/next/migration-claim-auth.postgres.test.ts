@@ -66,6 +66,25 @@ suite("hosted own-collection migration proof (isolated PostgreSQL)", () => {
   async function unused(challenge: string) {
     return (await db.query("SELECT used_at FROM next_device_challenges WHERE challenge=$1", [Buffer.from(challenge, "hex")])).rows[0]?.used_at === null;
   }
+  it("accepts fresh DB cohort members for the LAB role without an environment account pin", async () => {
+    const own = await fixture(); const inbound = "synthetic-db-cohort-role-".repeat(3), scoped = Fastify();
+    registerMigrationProviderRoutes(scoped, { db, token: adminToken, hostedRead: { token, audience, migrationRouting: {
+      accounts: new Set(), hosted: { url: "https://mdbase-next-hosted-mig-lab.example.workers.dev", token: "outbound".repeat(6) }, inboundToken: inbound
+    } } });
+    const request = (kind: "challenge" | "read", payload: object, credential: string) => scoped.inject({ method: "POST",
+      url: `/internal/v1/next/migration/collections/${own.collection}/claim/${kind}`, headers: { authorization: `Bearer ${credential}` }, payload });
+    try {
+      expect((await request("challenge", { device_id: own.device }, token)).statusCode).toBe(403);
+      expect((await db.query("SELECT count(*)::int AS n FROM next_device_challenges WHERE service_device_id=$1", [own.device])).rows[0].n).toBe(0);
+      const nonce = await request("challenge", { device_id: own.device }, inbound);
+      expect(nonce.statusCode, nonce.body).toBe(200);
+      const challenge = nonce.json().challenge as string;
+      expect((await request("read", own.proof(challenge), token)).statusCode).toBe(403);
+      expect(await unused(challenge)).toBe(true);
+      expect((await request("read", own.proof(challenge), inbound)).statusCode).toBe(200);
+      expect(await unused(challenge)).toBe(false);
+    } finally { await scoped.close(); await own.app.close(); }
+  });
   it("returns only a one-use challenge then exact public current facts; no provider/policy/audit/key effects", async () => {
     const f = await fixture();
     try {
@@ -82,7 +101,7 @@ suite("hosted own-collection migration proof (isolated PostgreSQL)", () => {
       expect((await f.request("read", f.proof(challenge))).statusCode).toBe(409);
     } finally { await f.app.close(); }
   });
-  it("scopes the migration hosted credential to the authoritative account before nonce or proof effects", async () => {
+  it("scopes all released frozen cohort members to the LAB credential before nonce or proof effects", async () => {
     const own = await fixture(), other = await fixture();
     const migrationToken = "synthetic-migration-hosted-role-".repeat(3);
     const scoped = Fastify();
@@ -93,18 +112,18 @@ suite("hosted own-collection migration proof (isolated PostgreSQL)", () => {
       url: `/internal/v1/next/migration/collections/${f.collection}/claim/${kind}`, headers: { authorization: `Bearer ${credential}` }, payload });
     try {
       expect((await request(own, "challenge", { device_id: own.device }, token)).statusCode).toBe(403);
-      expect((await request(other, "challenge", { device_id: other.device }, migrationToken)).statusCode).toBe(403);
+      expect((await request(other, "challenge", { device_id: other.device }, token)).statusCode).toBe(403);
       expect((await db.query("SELECT count(*)::int AS n FROM next_device_challenges WHERE service_device_id=ANY($1::uuid[])", [[own.device, other.device]])).rows[0].n).toBe(0);
       const challenge = (await request(own, "challenge", { device_id: own.device }, migrationToken)).json().challenge as string;
       expect(challenge).toMatch(/^[0-9a-f]{64}$/u);
       expect((await request(own, "read", own.proof(challenge), token)).statusCode).toBe(403);
       expect(await unused(challenge)).toBe(true);
       expect((await request(own, "read", own.proof(challenge), migrationToken)).statusCode).toBe(200);
-      expect((await request(other, "challenge", { device_id: other.device }, token)).statusCode).toBe(200);
+      expect((await request(other, "challenge", { device_id: other.device }, migrationToken)).statusCode).toBe(200);
     } finally { await scoped.close(); await own.app.close(); await other.app.close(); }
   });
 
-  it("admits each exact allowlisted account and excludes the third before nonce effects", async () => {
+  it("admits CSV and additional canonical DB cohort members only through the LAB role", async () => {
     const a = await fixture(), b = await fixture(), outside = await fixture();
     const migrationToken = "synthetic-multi-account-token-".repeat(3);
     const app = Fastify();
@@ -123,9 +142,11 @@ suite("hosted own-collection migration proof (isolated PostgreSQL)", () => {
         expect(await unused(challenge)).toBe(true);
         expect((await request(f, "read", f.proof(challenge), migrationToken)).statusCode).toBe(200);
       }
-      expect((await request(outside, "challenge", { device_id: outside.device }, migrationToken)).statusCode).toBe(403);
+      // This third account is not in CSV, but has its own authoritative released
+      // frozen cohort. Other eligible cohorts are DATA, not a refusal condition.
+      expect((await request(outside, "challenge", { device_id: outside.device }, token)).statusCode).toBe(403);
       expect((await db.query("SELECT count(*)::int AS n FROM next_device_challenges WHERE service_device_id=$1", [outside.device])).rows[0].n).toBe(0);
-      expect((await request(outside, "challenge", { device_id: outside.device }, token)).statusCode).toBe(200);
+      expect((await request(outside, "challenge", { device_id: outside.device }, migrationToken)).statusCode).toBe(200);
     } finally { await app.close(); await a.app.close(); await b.app.close(); await outside.app.close(); }
   });
 

@@ -1,4 +1,5 @@
-// Explicit operator-owned LAB account allowlist. No labels, request fields or defaults.
+// Operator-released frozen LAB cohorts, with the retained explicit CSV fallback.
+// No labels, request fields or global rollout switch select a destination.
 import type { DatabaseQueryable } from "../../database-types.js";
 
 export interface LabMigrationRouting {
@@ -14,10 +15,10 @@ export function parseLabMigrationRouting(env: NodeJS.ProcessEnv): LabMigrationRo
   if (!values.some(Boolean)) return undefined;
   const [account, url, token, inboundToken] = values;
   if (env.MDBASE_CONNECT_ENVIRONMENT !== "lab" || env.PUBLIC_URL !== "https://connect-lab.mdbase.dev"
-      || env.MDBASE_NEXT_CONTROL_PLANE !== "1" || !account || Buffer.byteLength(account, "utf8") > 8192
+      || env.MDBASE_NEXT_CONTROL_PLANE !== "1" || Buffer.byteLength(account!, "utf8") > 8192
       || !url || !token || !inboundToken
       || token.length < 32 || inboundToken.length < 32 || token === inboundToken) throw new Error(ERROR);
-  const accounts = account.split(",").map(value => value.trim());
+  const accounts = account ? account.split(",").map(value => value.trim()) : [];
   if (accounts.length > 128 || new Set(accounts).size !== accounts.length
       || accounts.some(value => !UUID.test(value) || value === "00000000-0000-0000-0000-000000000000")) throw new Error(ERROR);
   let origin: URL;
@@ -26,6 +27,20 @@ export function parseLabMigrationRouting(env: NodeJS.ProcessEnv): LabMigrationRo
       || origin.pathname !== "/" || origin.search || origin.hash
       || !/^mdbase-next-hosted-mig-lab\.[a-z0-9-]+\.workers\.dev$/u.test(origin.hostname)) throw new Error(ERROR);
   return { accounts: new Set(accounts), hosted: { url, token }, inboundToken };
+}
+
+/** This is deployment routing, not permission to fence/import/flip. Canonical
+ * migration guards still validate the exact current batch, claim and device.
+ * Keep routing after start/flip and while global rollout is paused. */
+export async function migrationAccount(db: DatabaseQueryable, routing: LabMigrationRouting | undefined, account: string): Promise<boolean> {
+  if (!routing) return false;
+  if (routing.accounts.has(account)) return true;
+  const row = (await db.query<{ eligible: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM next_migration_cohort_members m
+     JOIN next_migration_cohorts c ON c.name=m.cohort
+     WHERE m.account_id=$1 AND c.released_at IS NOT NULL AND c.frozen_at IS NOT NULL
+       AND m.terminal_excluded_at IS NULL) AS eligible`, [account])).rows[0];
+  return row?.eligible === true;
 }
 
 /** All retained authoritative ownership mappings must agree. Missing/ambiguous is
@@ -41,7 +56,7 @@ export async function migrationCollection(db: DatabaseQueryable, routing: LabMig
   if (result.rows.length > 1) throw new Error("ambiguous_collection_owner");
   const owner = result.rows[0]?.owner ?? authenticatedCreator;
   if (authenticatedCreator && owner && owner !== authenticatedCreator) throw new Error("foreign_collection_owner");
-  return owner !== undefined && routing.accounts.has(owner);
+  return owner !== undefined && await migrationAccount(db, routing, owner);
 }
 
 type Deployments = { hosted: { url: string; token: string }; escrow: { url: string; token: string } };
