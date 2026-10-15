@@ -5,6 +5,7 @@ import { createHmac, randomBytes, randomUUID, verify } from "node:crypto";
 import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import { tokenHash, randomToken } from "../../security.js";
 import { audit } from "../../platform/audit-events.js";
+import { localDeployment } from "../../local-deployment.js";
 import {
   clientFingerprint,
   deviceRegistrationDigest,
@@ -38,7 +39,7 @@ const strict = (): never => {
 /** Resolve exact origins from the registered declaration, never caller metadata.
  * Extra native/loopback origins retain their declared environment/device kind. */
 export async function installationApp(db: DatabaseQueryable, environment: string | undefined, appId: string, origin: string | undefined, kind: "app-runtime" | "mobile") {
-  if (!environment || !["lab", "staging", "production"].includes(environment) || !origin || origin === "null" || origin.includes("*")) return fail("installation_app_not_allowed", 403);
+  if (!environment || (!["lab", "staging", "production"].includes(environment) && !(origin && localDeployment(environment, origin))) || !origin || origin === "null" || origin.includes("*")) return fail("installation_app_not_allowed", 403);
   const app = await findInstallationApplication(db, appId);
   if (!app) return fail("installation_app_not_allowed", 403);
   const declaration = app.application_declaration;
