@@ -28,6 +28,7 @@ import {
 } from "../../platform/request-authentication.js";
 
 interface NotificationRoutesOptions {
+  serverEnvironment?: string;
   db: DatabasePool;
   service?: NotificationService;
   publicKey?: string;
@@ -138,7 +139,7 @@ export function registerNotificationRoutes(
         return retained;
       };
       const grant = await authenticate();
-      const application = await backgroundGrantNotificationDeclaration(connection,grant.grant_id);
+      const application = await backgroundGrantNotificationDeclaration(connection,grant.grant_id,options.serverEnvironment);
       const declared = new Set(
         application?.notification_criteria.map(
           (criterion) => criterion.id

@@ -140,6 +140,7 @@ export function registerConnectorPairingRoutes(
           await installationApp(options.db,options.installationEnvironment,input.installation.app_id,request.headers.origin,input.installation.kind),
           options.publicUrl,
           existingConnector??undefined,
+          options.installationEnvironment,
         );
         return reply.code(201).send(result);
       });
@@ -189,7 +190,7 @@ export function registerConnectorPairingRoutes(
           );
       const { collection_hint, return_url } = z.object({ collection_hint: originalUuid.optional(), return_url: z.string().max(2048).optional() }).parse(request.query);
       return installationResult(reply, () =>
-        inspectInstallationPairing(options.db, pairingId, user.id, !!options.cloudCopy, user, collection_hint, return_url),
+        inspectInstallationPairing(options.db, pairingId, user.id, !!options.cloudCopy, user, collection_hint, return_url, options.installationEnvironment),
       );
     }
     const pairing = await options.db.query<{
@@ -261,6 +262,7 @@ export function registerConnectorPairingRoutes(
             session.sessionId,
             fingerprint,
             {collection_ids,create_collections,selected_collection_id,selected_collection_kind,timer_consent,file_actions},
+            options.installationEnvironment,
           );
           // Both authorities have committed; never push an uncommitted grant.
           if ("native_authorization_uri" in result) await nativeDelivery.installation(pairingId);
@@ -309,7 +311,7 @@ export function registerConnectorPairingRoutes(
     if (!session) return;
     const { applicationId } = z.object({ applicationId: originalUuid }).parse(request.params);
     const { collection_id } = z.object({ collection_id: originalUuid, confirm: z.literal(true) }).strict().parse(request.body);
-    return installationResult(reply, () => removeInstallationAccess(options.db, { applicationId }, session.user.id, session.sessionId, collection_id));
+    return installationResult(reply, () => removeInstallationAccess(options.db, { applicationId }, session.user.id, session.sessionId, collection_id, options.installationEnvironment));
   });
 
   if (options.installationDevices) {
@@ -323,7 +325,7 @@ export function registerConnectorPairingRoutes(
         const {pairingId} = z.object({pairingId:originalUuid}).parse(request.params);
         const {display_name} = z.object({display_name:z.string()}).strict().parse(request.body);
         return installationResult(reply,()=>createInstallationPairingCollection(cloudCopy,{
-          requestId:pairingId,user:session.user.id,session:session.sessionId,displayName:display_name,
+          requestId:pairingId,user:session.user.id,session:session.sessionId,displayName:display_name,serverEnvironment:options.installationEnvironment,
         }));
       });
     }
@@ -332,7 +334,7 @@ export function registerConnectorPairingRoutes(
       if(!session)return;
       const {pairingId}=z.object({pairingId:originalUuid}).parse(request.params);
       const {collection_id}=z.object({collection_id:originalUuid,confirm:z.literal(true)}).strict().parse(request.body);
-      return installationResult(reply,()=>removeInstallationAccess(options.db,pairingId,session.user.id,session.sessionId,collection_id));
+      return installationResult(reply,()=>removeInstallationAccess(options.db,pairingId,session.user.id,session.sessionId,collection_id,options.installationEnvironment));
     });
     app.post(
       "/v1/pairing-requests/:pairingId/select-account",
@@ -349,6 +351,7 @@ export function registerConnectorPairingRoutes(
             session.user.id,
             session.sessionId,
             session.user,
+            options.installationEnvironment,
           ),
         );
       },
@@ -365,6 +368,7 @@ export function registerConnectorPairingRoutes(
           pairingId,
           session.user.id,
           session.sessionId,
+          options.installationEnvironment,
         ),
       );
     });
@@ -373,7 +377,7 @@ export function registerConnectorPairingRoutes(
       const secret=bearerToken(request);
       if (!secret) return reply.code(401).send(apiError("invalid_pairing","Pairing secret required."));
       const body=z.object({authorization_request_id:originalUuid}).strict().parse(request.body);
-      return installationResult(reply,()=>attachInstallationNativeAuthorization(options.db,pairingId,secret,body.authorization_request_id));
+      return installationResult(reply,()=>attachInstallationNativeAuthorization(options.db,pairingId,secret,body.authorization_request_id,options.installationEnvironment));
     });
     app.post(
       "/v1/pairing-requests/:pairingId/attest",
@@ -396,7 +400,7 @@ export function registerConnectorPairingRoutes(
           .strict()
           .parse(request.body);
         return installationResult(reply, () =>
-          attestInstallationPairing(options.db, pairingId, secret, body),
+          attestInstallationPairing(options.db, pairingId, secret, body, options.installationEnvironment),
         );
       },
     );
@@ -430,6 +434,7 @@ export function registerConnectorPairingRoutes(
             options.db,
             pairingId,
             secret,
+            options.installationEnvironment,
           );
           return reply
             .code(["paired","scope_updated","file_access_updated","declined"].includes(result.status) ? 200 : 202)

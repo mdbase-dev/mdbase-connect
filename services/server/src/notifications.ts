@@ -134,7 +134,8 @@ export class NotificationService {
     private readonly pollIntervalMs = 1_000,
     private readonly onError: (error: unknown) => void = () => undefined,
     private readonly sealer?: PushTargetSealer,
-    private readonly grantResolver: TimerGrantResolver = legacyTimerGrantResolver
+    private readonly grantResolver: TimerGrantResolver = legacyTimerGrantResolver,
+    private readonly serverEnvironment?: string
   ) {}
 
   /** Current policy, real legacy consent, channel and lease precede dispatch.
@@ -163,7 +164,7 @@ export class NotificationService {
       const grant = await this.grantResolver.resolve(connection,grantId);
       if (!grant?.usable) { await connection.query("ROLLBACK"); return "grant_not_usable"; }
       if (grant.grantId !== grantId) throw new Error("Invalid notification grant identity.");
-      const declaration = await backgroundGrantNotificationDeclaration(connection,grantId);
+      const declaration = await backgroundGrantNotificationDeclaration(connection,grantId,this.serverEnvironment);
       const row = await load(connection);
       if (!row) { await connection.query("ROLLBACK"); return "delivery_not_current"; }
       if (row.grant_id !== grantId) throw new Error("Invalid notification channel grant identity.");
@@ -211,7 +212,7 @@ export class NotificationService {
     const connection = await this.db.connect();
     try {
       await connection.query("BEGIN");
-      const outcome = await insertNotificationSignal(connection, input);
+      const outcome = await insertNotificationSignal(connection, input, this.serverEnvironment);
       if (outcome.duplicate) {
         await connection.query("ROLLBACK");
         return outcome;
@@ -542,14 +543,14 @@ type DeliveryTable =
  * from its original frozen consent; legacy retains its real grant/application.
  * Callers must separately hold/check current principal and policy authority. */
 export async function backgroundGrantNotificationDeclaration(
-  db: DatabaseQueryable, grantId: string
+  db: DatabaseQueryable, grantId: string, serverEnvironment?: string
 ): Promise<{ notifications: ApplicationNotifications; notification_criteria: NotificationCriterion[] } | null> {
   const native = (await db.query<{timer_declaration:unknown;revoked_at:unknown}>(
     "SELECT timer_declaration,revoked_at FROM next_background_grants WHERE id=$1 AND principal_kind='installation'", [grantId]
   )).rows[0];
   if (native) {
     if (native.revoked_at !== null) return null;
-    const declaration = readInstallationTimerDeclaration(native.timer_declaration);
+    const declaration = readInstallationTimerDeclaration(native.timer_declaration, serverEnvironment);
     return { notifications: declaration.notifications, notification_criteria: declaration.notifications.criteria };
   }
   return (await db.query<{ notifications:ApplicationNotifications;notification_criteria:NotificationCriterion[] }>(
@@ -565,7 +566,8 @@ export async function backgroundGrantNotificationDeclaration(
  */
 export async function insertNotificationSignal(
   connection: DatabaseQueryable,
-  input: NotificationSignalInput
+  input: NotificationSignalInput,
+  serverEnvironment?: string
 ): Promise<{ duplicate: boolean; deliveries: number }> {
   const existing = await connection.query<{ id: string }>(
     "SELECT id FROM notification_signals WHERE signal_id = $1",
@@ -581,7 +583,7 @@ export async function insertNotificationSignal(
     [randomUUID(), input.signalId, input.grantId, input.criterionId, input.cursor]
   );
   if (!signal.rows[0]) return { duplicate: true, deliveries: 0 };
-  const declaration = await backgroundGrantNotificationDeclaration(connection, input.grantId);
+  const declaration = await backgroundGrantNotificationDeclaration(connection, input.grantId, serverEnvironment);
   if (!declaration || !declaration.notification_criteria.some(criterion => criterion.id === input.criterionId)) {
     return { duplicate: false, deliveries: 0 };
   }
