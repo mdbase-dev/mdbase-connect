@@ -43,6 +43,8 @@ import { HostedProviderResponseError, HostedProviderUnavailableError, type Hoste
 import type { LegacyMigrationSource } from "../../hosted-provider-legacy-migration.js";
 import { readFencedTimerSource, TimerImportRefused, timerFlipRefusal, type TimerSourceProvider } from "./timers/hosted-import.js";
 
+const BACKUP_ACCEPT_BODY_LIMIT = 1024 * 1024;
+
 export { flipEvidenceDigest };
 
 export interface RolloutState { paused: boolean; reason: string; changed_by: string; changed_at: string }
@@ -883,7 +885,10 @@ export function registerMigrationRolloutRoutes(app: FastifyInstance, options: {
         : await cohortArchiveBinding(options.db, p.data.name);
     } catch (e) { return refused(reply, e); }
   });
-  app.post("/internal/v1/next/migration/cohorts/:name/backup-accept", { bodyLimit: 4096 }, async (request, reply) => {
+  // One complete acceptance carries the digest-bound membership plus every ordered
+  // original source fence (a full cohort is ~850 accounts / ~566 fences), so it
+  // is bounded at 1 MiB; freeze and start stay at 4 KiB.
+  app.post("/internal/v1/next/migration/cohorts/:name/backup-accept", { bodyLimit: BACKUP_ACCEPT_BODY_LIMIT }, async (request, reply) => {
     reply.header("cache-control", "no-store");
     if (!migrator(request)) return deny(reply);
     const p = cohortParam.safeParse(request.params);
