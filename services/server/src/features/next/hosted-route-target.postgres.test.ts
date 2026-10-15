@@ -82,6 +82,42 @@ suite("hosted Noise discovery (real Postgres, not serving qualification)", () =>
     return { id, token, record, batch, daemon, logGrant, route };
   }
 
+  it("selects only released frozen nonterminal DB members and retains routing across start/flip/pause", async () => {
+    const own = await fixture({ hostedOnly: true }), outside = await fixture({ hostedOnly: true });
+    const cohort = `routing-${randomUUID().slice(0, 8)}`;
+    const routing: LabMigrationRouting = { accounts: new Set(), hosted: { url: "https://mdbase-next-hosted-mig-lab.example.workers.dev", token: "m".repeat(40) }, inboundToken: "i".repeat(40) };
+    const scoped = Fastify(), normalToken = "H".repeat(40);
+    registerNextRouteRoutes(scoped, { db, publicUrl: "https://connect.example", broker, hostedClientUrl: "https://hosted.example", labMigrationRouting: routing });
+    registerNextHostedRoutes(scoped, { db, tokens: { hosted: normalToken }, labMigrationRouting: routing });
+    const route = () => scoped.inject({ method: "GET", url: `/v1/next/collections/${own.id}/route`, headers: { authorization: `Bearer ${own.token}` } });
+    const state = (ids: string[], token: string) => scoped.inject({ method: "POST", url: "/internal/v1/next/collections/states", headers: { authorization: `Bearer ${token}` }, payload: { ids } });
+    try {
+      expect(await migrationCollection(db, routing, own.id)).toBe(false);
+      await db.query("INSERT INTO next_migration_cohorts(name) VALUES($1)", [cohort]);
+      await db.query("INSERT INTO next_migration_cohort_members(account_id,cohort) VALUES($1,$2)", [own.id, cohort]);
+      expect(await migrationCollection(db, routing, own.id)).toBe(false);
+      await db.query("UPDATE next_migration_cohorts SET released_at=now() WHERE name=$1", [cohort]);
+      expect(await migrationCollection(db, routing, own.id)).toBe(false);
+      await db.query("UPDATE next_migration_cohorts SET frozen_at=now() WHERE name=$1", [cohort]);
+      expect(await migrationCollection(db, routing, own.id)).toBe(true);
+      expect(await migrationCollection(db, routing, randomUUID(), own.id)).toBe(true);
+      await expect(migrationCollection(db, routing, own.id, outside.id)).rejects.toThrow("foreign_collection_owner");
+      expect((await route()).json().targets[0].url).toContain("mdbase-next-hosted-mig-lab");
+      expect((await state([own.id], routing.inboundToken)).statusCode).toBe(200);
+      expect((await state([own.id], normalToken)).statusCode).toBe(403);
+      for (const credential of [normalToken, routing.inboundToken]) expect((await state([own.id, outside.id], credential)).statusCode).toBe(403);
+      // Deployment choice is not an unpaused rollout/start or a Legacy marker.
+      await db.query("UPDATE next_migration_cohort_members SET started_at=now() WHERE account_id=$1", [own.id]);
+      await db.query("UPDATE users SET account_backend='next' WHERE id=$1", [own.id]);
+      await db.query("UPDATE next_migration_rollout SET paused=true WHERE singleton");
+      expect((await route()).json().targets[0].url).toContain("mdbase-next-hosted-mig-lab");
+      await db.query("UPDATE next_migration_cohort_members SET terminal_excluded_at=now() WHERE account_id=$1", [own.id]);
+      expect(await migrationCollection(db, routing, own.id)).toBe(false);
+      expect((await route()).json().targets[0].url).toContain("hosted.example");
+      expect((await state([own.id], routing.inboundToken)).statusCode).toBe(403);
+      expect((await state([own.id], normalToken)).statusCode).toBe(200);
+    } finally { await scoped.close(); }
+  });
   it("puts the exact fixed-path hosted target first and preserves daemon fallback; online remains false", async () => {
     const f = await fixture({ daemon: true });
     const response = await f.route(f.id.toUpperCase());

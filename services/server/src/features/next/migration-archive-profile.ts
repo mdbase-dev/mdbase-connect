@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { DatabaseQueryable } from "../../database-types.js";
+import { localBuild } from "../../local-deployment.js";
 
 /** Named scoped profile: two real encrypted inventory/provenance artifacts,
  * never three database dumps, hosted objects, or a local-folder backup. */
@@ -26,7 +27,7 @@ export async function isCurrentZeroHostedCohort(client: DatabaseQueryable, name:
 export const COHORT_NAME = /^[a-z0-9][a-z0-9-]{0,62}(?![\s\S])/;
 // LAB is a separate exact schema with a mandatory legacy-archive prefix.
 // Existing v4 locations retain their unchanged staging/production contract.
-export const ARCHIVE_PREFIX = /^(?:legacy-archive\/)?(staging|production|lab)\/20[0-9]{2}\/(0[1-9]|1[0-2])\/(0[1-9]|[12][0-9]|3[01])\/[a-z0-9][a-z0-9-]{0,79}(?![\s\S])/;
+export const ARCHIVE_PREFIX = localBuild() ? /^legacy-archive\/(local)\/20[0-9]{2}\/(0[1-9]|1[0-2])\/(0[1-9]|[12][0-9]|3[01])\/[a-z0-9][a-z0-9-]{0,79}(?![\s\S])/ : /^(?:legacy-archive\/)?(staging|production|lab)\/20[0-9]{2}\/(0[1-9]|1[0-2])\/(0[1-9]|[12][0-9]|3[01])\/[a-z0-9][a-z0-9-]{0,79}(?![\s\S])/;
 export const HEX64 = /^[0-9a-f]{64}(?![\s\S])/;
 const UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z(?![\s\S])/;
 
@@ -78,11 +79,11 @@ const labVerifiedArchiveSchema = v4VerifiedArchiveSchema.extend({
 // Only the scoped inventory/provenance artifacts are archived. Production
 // capture stays closed; this is not permission to omit any hosted payload.
 const zeroHostedVerifiedArchiveSchema = v4VerifiedArchiveSchema.extend({
-  schema: z.literal(ZERO_HOSTED_ARCHIVE_SCHEMA), environment: z.enum(["lab", "staging"]),
-  prefix: z.string().max(128).regex(/^legacy-archive\/(lab|staging)\/20[0-9]{2}\/(0[1-9]|1[0-2])\/(0[1-9]|[12][0-9]|3[01])\/[a-z0-9][a-z0-9-]{0,79}(?![\s\S])/),
+  schema: z.literal(ZERO_HOSTED_ARCHIVE_SCHEMA), environment: localBuild() ? z.literal("local") : z.enum(["lab", "staging"]),
+  prefix: z.string().max(128).regex(localBuild() ? ARCHIVE_PREFIX : /^legacy-archive\/(lab|staging)\/20[0-9]{2}\/(0[1-9]|1[0-2])\/(0[1-9]|[12][0-9]|3[01])\/[a-z0-9][a-z0-9-]{0,79}(?![\s\S])/),
   retention: v4VerifiedArchiveSchema.shape.retention.extend({ count: z.literal(ZERO_HOSTED_ARCHIVE_PAYLOAD_COUNT) }).strict()
 }).strict();
-export const verifiedArchiveSchema = z.union([v4VerifiedArchiveSchema, labVerifiedArchiveSchema, zeroHostedVerifiedArchiveSchema]);
+export const verifiedArchiveSchema = localBuild() ? zeroHostedVerifiedArchiveSchema : z.union([v4VerifiedArchiveSchema, labVerifiedArchiveSchema, zeroHostedVerifiedArchiveSchema]);
 export type ArchiveBinding = z.infer<typeof archiveBindingSchema>;
 export type VerifiedBatchArchive = z.infer<typeof verifiedArchiveSchema>;
 

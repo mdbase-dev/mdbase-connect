@@ -15,7 +15,7 @@ import { migrationServiceRateLimit } from "./migration-rate-limit.js";
 import { RolloutRefused } from "./migration-rollout.js";
 import { createServiceCloudCopy, existingCloudCopy, type CloudCopyBootstrapOptions } from "./service-cloud-copy.js";
 import { loadServiceDevice } from "./service-devices.js";
-import type { LabMigrationRouting } from "./lab-migration-routing.js";
+import { migrationAccount, type LabMigrationRouting } from "./lab-migration-routing.js";
 
 interface Claim { account: string; started_us: string; display_name: string }
 interface Options {
@@ -199,7 +199,7 @@ export function registerMigrationProviderRoutes(app: FastifyInstance, options: O
           return await inTransaction(options.db, async client => {
             const before = await currentClaim(client, p.data.id, true);
             const routing = hostedRead.migrationRouting;
-            const expected = routing && routing.accounts.has(before.owner_account) ? routing.inboundToken : hostedRead.token;
+            const expected = await migrationAccount(client, routing, before.owner_account) ? routing!.inboundToken : hostedRead.token;
             if (!safeEqual(bearerToken(request)!, expected)) throw new CreateError(403, "wrong_service_scope");
             let nonce: { challenge: string } | undefined;
             if (kind === "challenge") nonce = await issueServiceClaimChallenge(client, audience, before, body.data.device_id);
