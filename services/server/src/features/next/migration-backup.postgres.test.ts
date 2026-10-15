@@ -4,7 +4,7 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, migrationMembershipDigest,
-  flipAccountBackend, flipEvidenceDigest, registerMigrationRolloutRoutes, BACKUP_ACCEPT_BODY_LIMIT, releaseCohort, setCohortFrozen, setPaused, startAccountMigration, type ArchiveBinding } from "./migration-rollout.js";
+  flipAccountBackend, flipEvidenceDigest, registerMigrationRolloutRoutes, releaseCohort, setCohortFrozen, setPaused, startAccountMigration, type ArchiveBinding } from "./migration-rollout.js";
 import { completeMigrationBatch } from "./migration-topology.js";
 import { ZERO_HOSTED_ARCHIVE_SCHEMA } from "./migration-archive-profile.js";
 
@@ -374,7 +374,7 @@ describePg("H0 acceptance/currentness (isolated local PostgreSQL; synthetic veri
     expect(Object.keys(response.json()).sort()).toEqual(["batch_id", "membership_changed_at", "membership_digest", "membership_revision"]);
     // A full-cohort acceptance exceeds 4 KiB: it reaches strict validation instead of the transport bound.
     expect((await app.inject({ method: "POST", url: `${base}/backup-accept`, headers: auth, payload: { unknown: "x".repeat(256 * 1024) } })).statusCode).toBe(400);
-    expect((await app.inject({ method: "POST", url: `${base}/backup-accept`, headers: auth, payload: { unknown: "x".repeat(BACKUP_ACCEPT_BODY_LIMIT) } })).statusCode).toBe(413);
+    expect((await app.inject({ method: "POST", url: `${base}/backup-accept`, headers: auth, payload: { unknown: "x".repeat(1024 * 1024) } })).statusCode).toBe(413);
     expect((await app.inject({ method: "POST", url: `${base}/backup-accept`, headers: auth, payload: await metadata(name) })).statusCode).toBe(200);
     await app.close();
   });

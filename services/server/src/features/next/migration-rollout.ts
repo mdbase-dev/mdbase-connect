@@ -43,7 +43,7 @@ import { HostedProviderResponseError, HostedProviderUnavailableError, type Hoste
 import type { LegacyMigrationSource } from "../../hosted-provider-legacy-migration.js";
 import { readFencedTimerSource, TimerImportRefused, timerFlipRefusal, type TimerSourceProvider } from "./timers/hosted-import.js";
 
-export const BACKUP_ACCEPT_BODY_LIMIT = 1024 * 1024;
+const BACKUP_ACCEPT_BODY_LIMIT = 1024 * 1024;
 
 export { flipEvidenceDigest };
 
