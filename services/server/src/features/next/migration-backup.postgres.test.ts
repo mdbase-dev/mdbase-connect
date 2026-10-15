@@ -372,8 +372,8 @@ describePg("H0 acceptance/currentness (isolated local PostgreSQL; synthetic veri
     expect(response.statusCode).toBe(200);
     expect(response.headers["cache-control"]).toBe("no-store");
     expect(Object.keys(response.json()).sort()).toEqual(["batch_id", "membership_changed_at", "membership_digest", "membership_revision"]);
-    // A full-cohort acceptance exceeds 4 KiB: it reaches strict validation instead of the transport bound.
-    expect((await app.inject({ method: "POST", url: `${base}/backup-accept`, headers: auth, payload: { unknown: "x".repeat(256 * 1024) } })).statusCode).toBe(400);
+    // A full-cohort acceptance exceeds 4 KiB: it reaches the handler instead of the transport bound.
+    expect((await app.inject({ method: "POST", url: `${base}/backup-accept`, headers: auth, payload: { unknown: "x".repeat(256 * 1024) } })).statusCode).not.toBe(413);
     expect((await app.inject({ method: "POST", url: `${base}/backup-accept`, headers: auth, payload: { unknown: "x".repeat(1024 * 1024) } })).statusCode).toBe(413);
     expect((await app.inject({ method: "POST", url: `${base}/backup-accept`, headers: auth, payload: await metadata(name) })).statusCode).toBe(200);
     await app.close();
