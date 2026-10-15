@@ -36,7 +36,7 @@ export interface InstallationApplication {
   application_declaration: AppManifest | null;
   /** Retained extra origins for pre-field registrations, including migration0066.
    * New declarations carry their own installation_origins in the manifest. */
-  installation_origins: Partial<Record<"lab" | "staging" | "production", Partial<Record<"app-runtime" | "mobile", string[]>>>>;
+  installation_origins: Partial<Record<"lab" | "staging" | "production" | "local", Partial<Record<"app-runtime" | "mobile", string[]>>>>;
 }
 
 export async function findInstallationApplication(db: DatabaseQueryable, appId: string): Promise<InstallationApplication | undefined> {

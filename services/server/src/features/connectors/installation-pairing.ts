@@ -5,7 +5,7 @@ import { createHmac, randomBytes, randomUUID, verify } from "node:crypto";
 import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import { tokenHash, randomToken } from "../../security.js";
 import { audit } from "../../platform/audit-events.js";
-import { localDeployment } from "../../local-deployment.js";
+import { installationEnvironment } from "../../local-deployment.js";
 import {
   clientFingerprint,
   deviceRegistrationDigest,
@@ -39,7 +39,7 @@ const strict = (): never => {
 /** Resolve exact origins from the registered declaration, never caller metadata.
  * Extra native/loopback origins retain their declared environment/device kind. */
 export async function installationApp(db: DatabaseQueryable, environment: string | undefined, appId: string, origin: string | undefined, kind: "app-runtime" | "mobile") {
-  if (!environment || (!["lab", "staging", "production"].includes(environment) && !(origin && localDeployment(environment, origin))) || !origin || origin === "null" || origin.includes("*")) return fail("installation_app_not_allowed", 403);
+  if (!environment || !installationEnvironment(environment, origin, environment) || !origin || origin === "null" || origin.includes("*")) return fail("installation_app_not_allowed", 403);
   const app = await findInstallationApplication(db, appId);
   if (!app) return fail("installation_app_not_allowed", 403);
   const declaration = app.application_declaration;
@@ -59,7 +59,7 @@ export async function installationApp(db: DatabaseQueryable, environment: string
   });
   if (!declaredOrigin && !allowed.includes(origin)) return fail("installation_app_not_allowed", 403);
   if (!app.name || !app.family_identity) throw new Error("Invalid registered installation identity.");
-  const timerDeclaration = installationTimerDeclaration(app, { environment: environment as InstallationTimerBinding["environment"], app_origin: origin, kind });
+  const timerDeclaration = installationTimerDeclaration(app, { environment: environment as InstallationTimerBinding["environment"], app_origin: origin, kind }, environment);
   const optionalFileActions = [...declaredOptionalFileActions(app.requirements)];
   return Object.freeze({ id: app.id, origin, name: app.name, ...(timerDeclaration ? { timerDeclaration } : {}), ...(optionalFileActions.length ? { optionalFileActions } : {}) });
 }
@@ -124,6 +124,7 @@ function declaredOptionalFileActions(requirements: unknown): Set<string> {
 const tx = inTransaction;
 async function row(
   c: Pick<Connection, "query">,
+  serverEnvironment: string | undefined,
   id: string,
   secret?: string,
   lock = false,
@@ -142,7 +143,7 @@ async function row(
     fail("installation_pairing_not_found", 404);
   }
   if (r.timer_declaration !== null) {
-    r.timer_declaration = readInstallationTimerDeclaration(r.timer_declaration);
+    r.timer_declaration = readInstallationTimerDeclaration(r.timer_declaration, serverEnvironment);
     if (r.timer_declaration.application_id !== r.app_id || r.timer_declaration.app_origin !== r.app_origin || r.timer_declaration.kind !== r.kind) {
       throw new Error("Installation timer declaration binding is inconsistent.");
     }
@@ -250,6 +251,7 @@ export async function startInstallationPairing(
   app: Awaited<ReturnType<typeof installationApp>>,
   publicUrl: string,
   existingConnector?: ConnectorIdentity,
+  serverEnvironment?: string,
 ) {
   if (input.recovery_collection_id && (input.requested_create_collections || input.file_access)) fail("installation_invalid_scope",400);
   if (input.file_access) {
@@ -296,7 +298,7 @@ export async function startInstallationPairing(
       let prior: Row | null = null;
       if (priorIds.rows.length) {
         if (!input.renewal) return fail("installation_original_window_required");
-        prior = await row(c,input.renewal.request_id,input.renewal.pairing_secret,true,true);
+        prior = await row(c, serverEnvironment,input.renewal.request_id,input.renewal.pairing_secret,true,true);
         if (prior.consumed_at || (!prior.revoked_at && new Date(prior.expires_at).getTime()>Date.now())) return fail("installation_window_not_closed");
         if (prior.recovery_collection_id !== (input.recovery_collection_id??null)) fail("installation_recovery_target_changed");
         if (prior.scope_only || prior.requested_create_collections!==(input.requested_create_collections??false) || prior.installation_id!==input.installation_id || prior.device_id!==input.device_id || prior.kind!==input.kind || prior.app_id!==app.id || prior.app_origin!==app.origin) return fail("installation_original_binding_changed");
@@ -315,7 +317,7 @@ export async function startInstallationPairing(
       await c.query("UPDATE installation_device_pairings SET requested_create_collections=$2 WHERE pairing_id=$1",[input.request_id,input.requested_create_collections??false]);
       }
     }
-    const r = await row(c,input.request_id,input.pairing_secret,true);
+    const r = await row(c, serverEnvironment,input.request_id,input.pairing_secret,true);
     if (r.recovery_collection_id !== (input.recovery_collection_id??null)) fail("installation_recovery_target_changed");
     if (r.scope_only!==(input.reconsent??false) || r.requested_create_collections!==(input.requested_create_collections??false)) return fail("installation_original_binding_changed");
     const fileAccess = input.file_access;
@@ -330,12 +332,12 @@ export async function startInstallationPairing(
     return {pairing_id:r.id,pairing_secret:input.pairing_secret,verification_uri:`${publicUrl}/pair/${r.id}${input.collection_hint ? `?collection_hint=${encodeURIComponent(input.collection_hint)}` : ""}`,expires_in:Math.max(0,Math.floor((new Date(r.expires_at).getTime()-Date.now())/1000)),installation_device:true,app_id:r.app_id,app_origin:r.app_origin,app_name:r.connector_name,...(r.recovery_collection_id ? {recovery_collection_id:r.recovery_collection_id} : {})};
   });
 }
-export async function attachInstallationNativeAuthorization(db: DatabasePool, id: string, secret: string, authorizationId: string) {
+export async function attachInstallationNativeAuthorization(db: DatabasePool, id: string, secret: string, authorizationId: string, serverEnvironment?: string) {
   return tx(db,async c=>{
-    const initial=await row(c,id,secret);
+    const initial=await row(c, serverEnvironment,id,secret);
     if (!initial.user_id) fail("installation_account_confirmation_required",403);
     await active(c,initial.user_id,true);
-    const r=await row(c,id,secret,true);
+    const r=await row(c, serverEnvironment,id,secret,true);
     live(r);
     if (r.user_id!==initial.user_id || !r.portal_account_confirmed_at || !r.portal_account_session_id || (!r.attested_at && !r.scope_only)) fail("installation_attestation_required");
     await currentSession(c,r.portal_account_session_id,r.user_id!);
@@ -353,10 +355,11 @@ export async function inspectInstallationPairing(
   authenticated: User,
   collectionHint?: string,
   returnUrl?: string,
+  serverEnvironment?: string,
 ) {
   if (authenticated.id !== user) fail("installation_account_changed", 403);
   const identity = portalAccountIdentity(authenticated);
-  const r = await row(db, id);
+  const r = await row(db, serverEnvironment, id);
   live(r);
   if (r.user_id && r.user_id !== user)
     fail("installation_account_changed", 403);
@@ -436,6 +439,7 @@ export async function selectInstallationAccount(
   user: string,
   session: string,
   authenticated: User,
+  serverEnvironment?: string,
 ) {
   if (authenticated.id !== user) fail("installation_account_changed", 403);
   const identity = portalAccountIdentity(authenticated);
@@ -443,7 +447,7 @@ export async function selectInstallationAccount(
     await active(c, user, true);
     await currentSession(c, session, user);
     await ordinary(c, user);
-    const r = await row(c, id, undefined, true);
+    const r = await row(c, serverEnvironment, id, undefined, true);
     live(r);
     if (r.user_id && r.user_id !== user)
       fail("installation_account_changed", 403);
@@ -477,11 +481,11 @@ export async function selectInstallationAccount(
 }
 /** Current original request/session boundary for the canonical portal creator.
  * Called before and after every await; network work never runs under these locks. */
-export async function currentInstallationPairingPortal(c: Connection, id: string, user: string, session: string): Promise<void> {
+export async function currentInstallationPairingPortal(c: Connection, id: string, user: string, session: string, serverEnvironment?: string): Promise<void> {
   await active(c,user,true);
   await currentSession(c,session,user);
   await ordinary(c,user);
-  const r = await row(c,id,undefined,true);
+  const r = await row(c, serverEnvironment,id,undefined,true);
   live(r);
   if (r.user_id!==user) fail("installation_account_changed",403);
   if (r.approved_at || r.consumed_at) fail("installation_approval_already_recorded");
@@ -496,6 +500,7 @@ export async function attestInstallationPairing(
   id: string,
   secret: string,
   input: { sign_pk: string; kem_pk: string; noise_pk: string; sig: string },
+  serverEnvironment?: string,
 ) {
   const signPk = Buffer.from(input.sign_pk, "hex"),
     kemPk = Buffer.from(input.kem_pk, "hex"),
@@ -512,7 +517,7 @@ export async function attestInstallationPairing(
   )
     fail("installation_invalid_key", 400);
   return tx(db, async (c) => {
-    const r = await row(c, id, secret, true);
+    const r = await row(c, serverEnvironment, id, secret, true);
     live(r);
     if (r.scope_only) return fail("installation_already_registered");
     if (!r.user_id || !r.account_selected_at)
@@ -555,12 +560,13 @@ export async function approveInstallationPairing(
   session: string,
   fingerprint: string,
   consent: {collection_ids:string[];create_collections:boolean;selected_collection_id?:string;selected_collection_kind?:"cloud_copy"|"private";timer_consent?:boolean;file_actions?:FileAction[]} = {collection_ids:[],create_collections:false},
+  serverEnvironment?: string,
 ) {
   return tx(db, async (c) => {
     await active(c, user, true);
     await currentSession(c, session, user);
     await ordinary(c, user);
-    const r = await row(c, id, undefined, true);
+    const r = await row(c, serverEnvironment, id, undefined, true);
     live(r);
     if (r.user_id !== user || !r.account_selected_at || (!r.attested_at && !r.scope_only))
       fail("installation_attestation_required");
@@ -602,7 +608,7 @@ export async function approveInstallationPairing(
         await c.query("SELECT 1 FROM applications WHERE id::text=$1 FOR SHARE", [r.app_id]);
         const app = await findInstallationApplication(c,r.app_id);
         if (!app) return fail("installation_app_not_allowed",403);
-        const declaration = installationTimerDeclaration(app, {environment:originalDeclaration.environment,app_origin:r.app_origin,kind:r.kind});
+        const declaration = installationTimerDeclaration(app, {environment:originalDeclaration.environment,app_origin:r.app_origin,kind:r.kind},serverEnvironment);
         if (declaration?.digest !== originalDeclaration.digest) throw new InstallationPairingError(409,"installation_timer_declaration_changed",
           "The app's reminder permissions changed. You can continue with reminders off, then turn them on with a new approval. Your device keys stay the same.");
       }
@@ -634,7 +640,7 @@ export async function approveInstallationPairing(
         await requireInstallationScope(c,{id:r.connector_id,user_id:user,installation_device_id:r.device_id});
         // The credential already exists: make withdrawal/new consent effective
         // at the user's approval, not at a later (possibly reordered) exchange.
-        await persistTimerConsent(c,await row(c,id,undefined,true));
+        await persistTimerConsent(c,await row(c, serverEnvironment,id,undefined,true));
       }
       await audit(c, user, "device.installation_approved", id, {
         kind: r.kind,
@@ -681,12 +687,13 @@ export async function denyInstallationPairing(
   id: string,
   user: string,
   session: string,
+  serverEnvironment?: string,
 ) {
   return tx(db, async (c) => {
     // Cancellation remains possible even if migration was rolled back.
     await active(c, user, true, true);
     await currentSession(c, session, user);
-    const r = await row(c, id, undefined, true);
+    const r = await row(c, serverEnvironment, id, undefined, true);
     live(r);
     if (r.user_id && r.user_id !== user)
       fail("installation_account_changed", 403);
@@ -702,12 +709,12 @@ export async function denyInstallationPairing(
 /** Separate explicit removal, never an implicit re-consent side effect. One
  * registered app family, one account and one collection; all its installations.
  * Native revocation is permanent for these device/collection pairs. */
-export async function removeInstallationAccess(db:DatabasePool,source:string|{applicationId:string},user:string,session:string,collection:string) {
+export async function removeInstallationAccess(db:DatabasePool,source:string|{applicationId:string},user:string,session:string,collection:string,serverEnvironment?:string) {
   return tx(db,async c=>{
     await currentSession(c,session,user);
     let appId: string;
     if (typeof source === "string") {
-      const r=await row(c,source,undefined,true);
+      const r=await row(c, serverEnvironment,source,undefined,true);
       live(r);
       if (!r.scope_only || r.user_id!==user) return fail("installation_account_changed",403);
       appId = r.app_id;
@@ -837,7 +844,7 @@ async function persistTimerConsent(c: Connection, r: Row): Promise<void> {
     [randomUUID(),r.connector_id,r.installation_id,r.device_id,r.kind,r.sign_pk,r.kem_pk,r.noise_pk,r.user_id,r.app_id,collection,r.id,JSON.stringify(r.timer_declaration)]);
   }
 }
-async function timerReceipt(c: Connection, r: Row) {
+async function timerReceipt(c: Connection, r: Row, serverEnvironment?: string) {
   if (!r.timer_declaration && r.timer_consent === null) return {};
   const result = r.timer_consent === true ? await c.query<{id:string;collection_id:string;timer_declaration:unknown}>(
     `SELECT id,collection_id,timer_declaration FROM next_background_grants
@@ -845,7 +852,7 @@ async function timerReceipt(c: Connection, r: Row) {
         AND user_id=$3 AND application_id=$4 AND collection_id=ANY($5::uuid[]) ORDER BY collection_id`,
     [r.id,r.connector_id,r.user_id,r.app_id,timerCollections(r)]) : {rows:[]};
   return {timer_consent:r.timer_consent, timer_grants:result.rows.map(grant=>{
-    const declaration = readInstallationTimerDeclaration(grant.timer_declaration);
+    const declaration = readInstallationTimerDeclaration(grant.timer_declaration, serverEnvironment);
     if (declaration.digest !== r.timer_declaration?.digest) throw new Error("Original timer grant declaration is inconsistent.");
     return {grant_id:grant.id,collection_id:grant.collection_id,declaration_digest:declaration.digest};
   })};
@@ -854,9 +861,10 @@ export async function exchangeInstallationPairing(
   db: DatabasePool,
   id: string,
   secret: string,
+  serverEnvironment?: string,
 ) {
   return tx(db, async (c) => {
-    const initial = await row(c, id, secret, false, true);
+    const initial = await row(c, serverEnvironment, id, secret, false, true);
     // A declined file-access request answers its own app with a typed outcome;
     // every other cancelled request answers as before.
     if (initial.revoked_at) {
@@ -869,7 +877,7 @@ export async function exchangeInstallationPairing(
     }
     // Match daemon lock order: account BEFORE request, and recheck after locking.
     await active(c, initial.user_id, true);
-    const r = await row(c, id, secret, true);
+    const r = await row(c, serverEnvironment, id, secret, true);
     if (r.user_id !== initial.user_id) fail("installation_account_changed");
     if (!r.consumed_at) {
       live(r);
@@ -891,7 +899,7 @@ export async function exchangeInstallationPairing(
       }
       if (r.file_access_collection_id)
         return {status:"file_access_updated" as const,request_id:r.id,collection_id:r.file_access_collection_id,file_actions:r.approved_file_actions??[]};
-      return {status:"scope_updated" as const,...selection(r),...collectionSelection(r),...await timerReceipt(c,r),added_collection_ids:r.approved_collection_ids,approved_create_collections:r.approved_create_collections};
+      return {status:"scope_updated" as const,...selection(r),...collectionSelection(r),...await timerReceipt(c,r,serverEnvironment),added_collection_ids:r.approved_collection_ids,approved_create_collections:r.approved_create_collections};
     }
     const token = credential(r, secret);
     if (!r.consumed_at) {
@@ -958,7 +966,7 @@ export async function exchangeInstallationPairing(
       status: "paired" as const,
       ...selection(r),
       ...collectionSelection(r),
-      ...await timerReceipt(c,r),
+      ...await timerReceipt(c,r,serverEnvironment),
       collection_ids:r.approved_collection_ids,
       create_collections:r.approved_create_collections,
       connector: { id: r.connector_id, name: r.connector_name },

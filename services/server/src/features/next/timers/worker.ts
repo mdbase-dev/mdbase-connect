@@ -89,7 +89,8 @@ function lengthPrefixed(value: string): Buffer {
 /** Turns fired-timer events into opaque notification signals (push and webhooks). */
 export function notificationsConsumer(
   wake: () => void,
-  resolver: TimerGrantResolver = legacyTimerGrantResolver
+  resolver: TimerGrantResolver = legacyTimerGrantResolver,
+  serverEnvironment?: string
 ): TimerEventConsumer {
   return {
     name: "notifications",
@@ -103,7 +104,7 @@ export function notificationsConsumer(
         grantId: event.grant_id,
         criterionId: event.criterion_id,
         cursor: event.event_id
-      });
+      }, serverEnvironment);
     },
     afterCommit: wake
   };
