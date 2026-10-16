@@ -21,7 +21,7 @@ import { flipEvidenceDigest } from "./account-backend-flip.js";
 import { claim } from "./migration-provider.js";
 import { labTargetSubCause, labTargetUnavailable } from "./migration-lab-target.js";
 import { cutOverCollection, flipAccountBackend, RolloutRefused } from "./migration-rollout.js";
-import { LAB_COMPLETION_EVENT, requireCompletedAccountMigration } from "./migration-sharing.js";
+import { requireCompletedAccountMigration } from "./migration-sharing.js";
 import { cleanUpRolledBackTimerImport } from "./migration-timer-cleanup.js";
 import { legacyTimerGrantResolver } from "./timers/grants.js";
 import { importHostedCollectionTimers } from "./timers/hosted-import.js";
@@ -297,10 +297,8 @@ export function postgresLabConnect(options: {
       await flipAccountBackend(db, account, [collection], flipEvidenceDigest(rows), { enabled: options.timers, provider }, "lab");
     },
     async completion(account, collection) {
-      const event = await db.query(
-        `SELECT 1 FROM audit_events e JOIN next_migration_cohort_members m ON m.cohort=e.subject_id
-         WHERE m.account_id=$1 AND e.user_id IS NULL AND e.event_type=$2 LIMIT 1`, [account, LAB_COMPLETION_EVENT]);
-      if (!event.rows.length) throw new RolloutRefused("lab_completion_missing", "The cohort has no LAB completion.");
+      // A cohort completes on an accepted archive OR, without one, on the LAB
+      // completion event; the strict readback requires exactly one of the two.
       try { await requireCompletedAccountMigration(db, collection, account); } catch (error) {
         if ((error as { code?: unknown })?.code === "collection_migrating") {
           throw new RolloutRefused("lab_completion_missing", "The completion readback refuses this account.");

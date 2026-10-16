@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { fakeLegacyProvider, recordEmptyTimerImport } from "./legacy-provider.test-helper.js";
 import { labRun, postgresLabConnect, STEP, type LabWorker, type WorkerStatus } from "./migration-lab.js";
-import { addToCohort, cohortArchiveBinding, createCohort, cutOverCollection, releaseCohort, setCohortFrozen, setPaused,
+import { acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, cutOverCollection, releaseCohort, setCohortFrozen, setPaused,
   startAccountMigration } from "./migration-rollout.js";
 import { requireCompletedAccountMigration } from "./migration-sharing.js";
 import { registerNextCollection } from "./policy-outbox.js";
@@ -31,12 +31,23 @@ suite("lab-run against the control plane (synthetic PostgreSQL, scripted Worker)
   afterAll(async () => { await db?.end(); if (admin && schema) await admin.query(`DROP SCHEMA "${schema}" CASCADE`); await admin?.end(); });
 
   /** One LAB-profile account with one hosted collection, its SHADOW cloud copy and a fenced legacy source. */
-  async function fixture() {
+  async function fixture(archived = false) {
     const user = randomUUID(), collection = randomUUID(), cohort = `lab-${randomUUID()}`;
     await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Synthetic LAB')", [user, `${user}@example.test`]);
     await db.query("INSERT INTO hosted_collections(id,user_id,display_name,template,provider_url,authority_state) VALUES($1,$2,'Synthetic','mdbase','https://provider.example','active')", [collection, user]);
     await createCohort(db, cohort, actor); await addToCohort(db, cohort, [user], actor);
     await setCohortFrozen(db, cohort, true, "synthetic freeze", actor); await releaseCohort(db, cohort, actor); await setPaused(db, false, "synthetic", actor);
+    if (archived) {
+      // A verified LAB archive is accepted, so the cohort completes on it, not on the LAB completion event.
+      const clock = new Date((await db.query("SELECT date_trunc('milliseconds',clock_timestamp()) AS now")).rows[0].now).toISOString();
+      const component = (name: string, hex: string) => ({ commit: hex.repeat(40), image_digest: `sha256:${hex.repeat(64)}`, service_id: `srv-synthetic${name}` });
+      await acceptCohortArchive(db, cohort, { schema: "mdbase-recovery-set/lab-cohort-v1", environment: "lab", bucket: "synthetic-archives",
+        prefix: `legacy-archive/lab/2026/10/10/${cohort}`, backup_id: cohort,
+        complete_sha256: "a".repeat(64), manifest_sha256: "b".repeat(64), source_commit: "f".repeat(40),
+        migration_batch: await cohortArchiveBinding(db, cohort), archive_created_at: clock, archive_completed_at: clock,
+        retention: { mode: "GOVERNANCE", days: 116, retain_until: new Date(Date.parse(clock) + 116 * 86_400_000).toISOString(), inventory_digest: "c".repeat(64), count: "1" },
+        runtime_provenance: { connect: component("connect", "a"), hosted_provider: component("provider", "b"), relay: component("relay", "c"), mcp: component("mcp", "d") } }, "lab");
+    }
     await startAccountMigration(db, user, "lab", await cohortArchiveBinding(db, cohort));
     await registerNextCollection(db, { collectionId: collection, ownerUserId: user, runtime: "shadow", sync: "cloud_copy", rootKeyId: Buffer.alloc(16, 17),
       ops: [{ op: "genesis", owner: user, root: Buffer.alloc(16, 17), state: "cloud-copy" }, { op: "member-set", account: user, role: "owner" }] });
@@ -84,6 +95,14 @@ suite("lab-run against the control plane (synthetic PostgreSQL, scripted Worker)
     expect(f.provider.source.state).toBe("migrated");
     await requireCompletedAccountMigration(db, f.collection, f.user);
     expect((await db.query("SELECT 1 FROM audit_events WHERE event_type='next_migration.lab_complete' AND subject_id=$1", [f.cohort])).rows).toHaveLength(1);
+  });
+
+  it("an accepted LAB archive completes the cohort, and the completion read-back accepts it", async () => {
+    const f = await fixture(true);
+    expect(await labRun(f.user, hold, deps(f, routed()))).toEqual({ done: { account_id: f.user, collection_id: f.collection, backend: "next", lab_complete: true } });
+    await requireCompletedAccountMigration(db, f.collection, f.user);
+    expect((await db.query("SELECT 1 FROM audit_events WHERE event_type='next_migration.lab_complete' AND subject_id=$1", [f.cohort])).rows).toHaveLength(0);
+    expect(await labRun(f.user, hold, deps(f, [status("stopped", 0, "must_not_be_read")]))).toMatchObject({ done: { lab_complete: true } });
   });
 
   it("resumes after an operator stop, and a repeat only re-reads the completion", async () => {
