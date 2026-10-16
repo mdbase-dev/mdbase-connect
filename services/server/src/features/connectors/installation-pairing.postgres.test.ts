@@ -4,6 +4,7 @@ import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
+import { deleteAccountLocally } from "../../account-management.js";
 import { createExternalSession } from "../../external-auth.js";
 import { capabilityOperationsForContractVersion, MDBASE_TIMER_FIRED_CONTRACT } from "@mdbase-dev/connect-protocol";
 import { createTestApplicationIdentity, testApplicationAuthorization } from "../../application-authorization.test-helper.js";
@@ -625,6 +626,15 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect((await db.query("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1",[p.selected.connector_id])).rows).toEqual([]);
     expect((await approvePrivate(p,collection)).json()).not.toHaveProperty("native_authorization_uri");
     expect((await db.query("SELECT count(*)::int AS n FROM grants WHERE next_collection_id=$1",[collection])).rows[0].n).toBe(1);
+  });
+  it("erases an account whose installation made an approved Native choice",async()=>{
+    const p=await privatePrepared(true), collection=await scopeCollection(p.owner.user,p.owner.user,"private"), n=await nativeCompanion(p);
+    expect((await n.attach()).statusCode).toBe(200);
+    expect((await approvePrivate(p,collection)).statusCode).toBe(200);
+    expect((await db.query("SELECT grant_id FROM installation_native_authorizations WHERE account_id=$1",[p.owner.user])).rows[0].grant_id).not.toBeNull();
+    await deleteAccountLocally(db,{userId:p.owner.user,sessionId:randomUUID(),authorized:true,queueProviderCleanup:false});
+    expect((await db.query("SELECT id FROM users WHERE id=$1",[p.owner.user])).rows).toEqual([]);
+    expect((await db.query("SELECT pairing_id FROM installation_native_authorizations WHERE account_id=$1",[p.owner.user])).rows).toEqual([]);
   });
   it.each(["nonce","account","app"])("refuses a swapped Native %s before grant or association",async wrong=>{
     const p=await privatePrepared(), foreign=await account();
