@@ -216,7 +216,7 @@ export class PolicyEmitter {
   private wakeCommittedCollection(collectionId: string): void {
     if (this.closed || this.wakeWork.has(collectionId) || this.wakeWork.size >= MAX_BACKGROUND_WAKES) return;
     // Only a wake hint, not activation/keying evidence. The original callback
-    // retains its 8s transport/body bound and captured-batch ACK/CAS protections.
+    // retains its 30s transport/body bound and captured-batch ACK/CAS protections.
     const work = Promise.resolve().then(() => this.activateServices(collectionId))
       .catch(error => this.onError(error, collectionId))
       .finally(() => { if (this.wakeWork.get(collectionId) === work) this.wakeWork.delete(collectionId); });
