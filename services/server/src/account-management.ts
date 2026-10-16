@@ -143,6 +143,9 @@ async function eraseAccount(client: DatabaseConnection, user: string, queueProvi
   const result = { ...counts, hostedCollectionsScheduledForDeletion: cleanup?.hostedCollections ?? counts.hostedCollectionsScheduledForDeletion,
     crossAccountReplicasRevoked: cleanup?.crossAccountReplicas ?? 0 };
   await eraseNativeCollectionAccess(client, user);
+  // An installation's Native choice references the account and its grant without
+  // cascading; it describes only this account's own pairing, so it goes with it.
+  await client.query("DELETE FROM installation_native_authorizations WHERE account_id=$1", [user]);
   // PostgreSQL checks the authorized-user FK before cascading owned hosted
   // rows. Remove dependent grants and detach the complete replica binding in
   // the shared erasure pipeline, after durable provider cleanup is recorded.
