@@ -9,7 +9,9 @@ import { migrationDeployments, type LabMigrationRouting } from "./lab-migration-
 import { isLogRegion } from "./log-service-client.js";
 
 const LIMIT = 4;
-const TIMEOUT_MS = 8_000;
+// A cold Hosted actor for a migrated collection took ~14s to wake and emit its
+// grant in LAB; an 8s bound abandoned every attempt. Activation is background work.
+const TIMEOUT_MS = 30_000;
 const MAX_ACK_BYTES = 1024;
 
 /** LAB diagnosis only; opaque UUIDs are domain-separated before correlation. */
