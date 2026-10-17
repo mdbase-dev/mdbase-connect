@@ -2,6 +2,7 @@
  * Device phase uses the actual persistent browser provider/stores and actual CP
  * registration. No fixture/memory custody or default roots. Collection SQL opens
  * only after ownership + protected completion; native reads gate the data facade. */
+import { idbLogTokenCache } from "./log-token-cache.js";
 import { currentAppOrigin } from "./app-origin.js";
 import { uuidToBytes } from "../codec.js";
 import { collectionDisplayName } from "./collection-display-name.js";
@@ -9,11 +10,13 @@ import { MdbaseClient } from "../client.js";
 import { MdbaseError } from "../errors.js";
 import { inProcessConnector } from "../transport/inprocess.js";
 import { AppCpLogAuthority } from "./cp-authority.js";
+import { AppLogPushChannel, type AppLogPushEvents } from "./log-push.js";
 import { AppCpPeopleAuthority } from "./cp-people.js";
 import { attachAppTimerReceiver } from "./timer-port.js";
 import type { PeopleAuthority } from "../people.js";
-import type { AppLogPump } from "./log-pump.js";
+import type { AppLogHealth, AppLogPump } from "./log-pump.js";
 import type { AppServerProblem } from "./cp-problem.js";
+import { initialSyncWait, keyWaitDetail, type AppInitialSyncWait } from "./initial-sync.js";
 import { attachAppLocalFacade } from "./local-facade.js";
 import {
     AppCpCloudCopyBootstrap,
@@ -70,6 +73,10 @@ export class AppCloudCopyHostError extends Error {
         this.name = "AppCloudCopyHostError";
     }
 }
+/** Attached tabs per replica: the leader plus followers. */
+const MAX_FACADES = 32;
+/** Bounded back-to-back turns in one foreground drive. */
+const DRIVE_TURNS = 8;
 const fail = (r: AppCloudCopyHostError["reason"]) =>
     new AppCloudCopyHostError(r);
 const equal = (a: Uint8Array, b: Uint8Array) =>
@@ -115,7 +122,9 @@ export class AppWebCloudCopyHost {
     private readAbort: AbortController | null = null;
     private readClient: MdbaseClient | null = null;
     private readVerified = false;
-    private facade: ReturnType<typeof attachAppLocalFacade> | null = null;
+    /** One data facade per attached tab (the first, then any follower tabs). */
+    private readonly facades = new Map<MessagePort, ReturnType<typeof attachAppLocalFacade>>();
+    private logWorkListener: (() => void) | null = null;
     private readonly selected: Readonly<{
         accountId: string;
         connectorId: string;
@@ -654,7 +663,7 @@ export class AppWebCloudCopyHost {
                     endpoint: this.adoptedEndpoint,
                     directOrigins: Object.freeze([]),
                 }),
-                { fetch: captured, allowLoopbackHttp },
+                { fetch: captured, allowLoopbackHttp, tokenCache: idbLogTokenCache() },
             );
         }
         // An offline token mint is NOT identity loss: retain the SAME authority,
@@ -746,15 +755,105 @@ export class AppWebCloudCopyHost {
     serverProblem(): AppServerProblem | null {
         return this.pump?.serverProblem ?? null;
     }
+    /** Typed health of the path to the log from the latest failed call, or
+     * null once a reply was accepted. Display and retry pacing only. */
+    transportHealth(): AppLogHealth | null {
+        return this.pump?.transportHealth ?? null;
+    }
+    /** What the replica still waits for before it holds everything up to the
+     * known log head, or null once it does (native sync status). */
+    initialSync(): AppInitialSyncWait | null {
+        try {
+            if (!this.native) return "unavailable";
+            return initialSyncWait(this.native.observations().status);
+        } catch {
+            return "unavailable";
+        }
+    }
+    /** Diagnostics while waiting for a key (native sync status), else null. */
+    keyWaitDetail(): Record<string, string | number> | null {
+        try {
+            return this.native ? keyWaitDetail(this.native.observations().status) : null;
+        } catch {
+            return null;
+        }
+    }
+    /** Local writes not yet confirmed by the log (native sync status). */
+    pendingWrites(): number {
+        try {
+            return this.native?.observations().status.pending ?? 0;
+        } catch {
+            return 0;
+        }
+    }
+    /** Feed one push frame to the native replica (current log session only). */
+    pushLog(frame: Uint8Array): boolean {
+        try {
+            return this.native?.pushLog(frame) === true;
+        } catch {
+            return false;
+        }
+    }
+    /** The log's push socket for this collection, or null when the runtime cannot
+     * sign its `hello` (older native asset): then the caller wakes on events only.
+     * Requires the started log. The socket never carries requests. */
+    openLogPush(events: AppLogPushEvents): AppLogPushChannel | null {
+        this.checkCollection(this.lifetime);
+        const native = this.native, authority = this.authority, session = this.collectionSession, request = this.logRequest;
+        if (!native || !this.pump || !authority || !session || !request) throw fail("binding");
+        if (!native.supportsLogPush || typeof WebSocket !== "function") return null;
+        const loopback = this.logLoopback, origin = authority.origin;
+        const current = () => {
+            try { return this.collectionCurrent?.() === true && this.current() && this.authority === authority && authority.isCurrent(); } catch { return false; }
+        };
+        return new AppLogPushChannel({
+            origin, collection: authority.collection, deviceId: session.deviceId, isCurrent: current,
+            accessToken: options => authority.accessToken(options),
+            invalidateToken: token => authority.invalidateToken(token),
+            nonce: async ({ signal }) => {
+                const r = await request(`${origin}/v1/nonce`, { signal, cache: "no-store", credentials: "omit", redirect: "error", referrerPolicy: "no-referrer" });
+                const text = (await r.text()).trim();
+                if (!r.ok || !/^[0-9a-f]{64}$/.test(text)) throw fail("unavailable");
+                return Uint8Array.from(text.match(/../g)!.map(v => parseInt(v, 16)));
+            },
+            signHello: (nonce, token) => current() ? native.signLogHello(nonce, token) : null,
+        }, events, { allowLoopbackHttp: loopback });
+    }
     /** Ordinary foreground log drive. Quiet/head/ACK/status are NOT read/Saved. */
     async driveCollection(options: { signal: AbortSignal }): Promise<void> {
         const signal = this.operationSignal(options.signal);
         this.checkCollection(signal);
         if (!this.native || !this.pump || this.adoptedEndpoint === null)
             throw fail("binding");
+        // A reply can leave work that only a tick advances (an answer to a
+        // pending app call, the next upload step). Keep turning while turns
+        // send log calls, so a chain of steps never waits for the next timer.
+        for (let turn = 0; turn < DRIVE_TURNS; turn++) {
+            const sent: number = this.pump.callsSent;
+            this.native.tick();
+            await this.pump.pump();
+            this.checkCollection(signal);
+            if (this.pump?.callsSent === sent) break;
+        }
+    }
+    /** Foreground head wake. The HTTP log has no push channel and the native core
+     * queues a head only on open, failure or reconnect, so without this a running
+     * session never learns another device's entries. Runs only after a quiet pump;
+     * the native side refuses while a head fetch is already in flight. */
+    async wakeCollectionLog(options: { signal: AbortSignal }): Promise<void> {
+        const signal = this.operationSignal(options.signal);
+        this.checkCollection(signal);
+        if (!this.native || !this.pump || this.adoptedEndpoint === null)
+            throw fail("binding");
         this.native.tick();
+        if (!(await this.pump.pump()).quiet) return;
+        this.checkCollection(signal);
+        // Head-only fetch over the current authenticated session: no token
+        // mint, reconnect, status flicker or readiness re-assessment.
+        if (!this.native.requestLogHead()) return;
         await this.pump.pump();
         this.checkCollection(signal);
+        this.native.tick();
     }
     /** Bounded READ-only probe through the actual typed native Query gate.
      * No status inference, write retry, key override or private grant. A warm
@@ -855,16 +954,22 @@ export class AppWebCloudCopyHost {
             this.readAbort = null;
         }
     }
-    /** ONE data-only Worker port, only after a genuine native typed read passed.
+    /** A data-only Worker port per attached tab, only after a genuine native typed read passed.
      * Every subsequent frame remains gated by native trust/applied/key/read.
      * Host controls, SQL/custody/log tokens and owner unlock are never RPCs. */
+    /** Called when an app call may have queued log work (a write or file
+     * transfer), so the collection drive runs now rather than on its timer. */
+    onLogWork(listener: (() => void) | null): void {
+        this.logWorkListener = listener;
+    }
     attachDataFacade(channel: MessagePort): ReturnType<typeof attachAppLocalFacade>["resourceSetup"] {
         this.checkCollection(this.lifetime);
         if (
             !this.native ||
             !this.collectionScope ||
             !this.readVerified ||
-            this.facade
+            this.facades.size >= MAX_FACADES ||
+            this.facades.has(channel)
         )
             throw fail("fenced");
         const scope = Object.freeze({
@@ -878,8 +983,16 @@ export class AppWebCloudCopyHost {
                 }
             },
         });
-        this.facade = attachAppLocalFacade(this.native, channel, scope);
-        return this.facade.resourceSetup;
+        const facade = attachAppLocalFacade(this.native, channel, scope, () => this.logWorkListener?.());
+        this.facades.set(channel, facade);
+        return facade.resourceSetup;
+    }
+    /** Close one tab's data facade (that tab left); the replica stays open. */
+    detachDataFacade(channel: MessagePort): void {
+        const facade = this.facades.get(channel);
+        if (!facade) return;
+        this.facades.delete(channel);
+        facade.close();
     }
     /** Public tuple copy only; no key loans and no readiness claim. */
     registeredReceipt(): AppDeviceRegistrationReceipt {
@@ -901,7 +1014,7 @@ export class AppWebCloudCopyHost {
         let fenceFailed = false;
         for (const close of [
             () => this.readClient?.close(),
-            () => this.facade?.close(),
+            () => { for (const facade of this.facades.values()) facade.close(); this.facades.clear(); },
             () => this.peopleMetadata?.authority.close(),
             () => this.bootstrap?.close(),
             () => this.outcome?.close(),

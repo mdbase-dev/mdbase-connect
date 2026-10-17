@@ -707,3 +707,132 @@ fn floor_unavailable_during_cleanup_refuses_late_success_without_undoing_commit(
         );
     }
 }
+
+/// Erasure after migration, at the log service: once `delete_log` commits the
+/// collection's terminal record, nothing is served to its device any more (log
+/// read, head, object read and presence, new objects and appends are `Gone`),
+/// background compaction/GC cannot resurrect it, and an exact retry of the
+/// delete is the same receipt. Physical removal of the stored objects is NOT
+/// performed by the log service: they stay in the object store, unserved, until
+/// an erasure process (not yet implemented; see the hosted LAB runbook) removes
+/// them. The last assertion pins that, so a future sweep changes it on purpose.
+#[test]
+fn a_deleted_collection_is_never_served_again() {
+    use mdbn_wire::log_service::{GetObjectParams, HasObjectsParams, ReadParams};
+    let f = Fixture::new(false);
+    let q = f.inline();
+    assert_eq!(
+        ready(f.svc.put_object(&f.principal, q.clone(), NOW))
+            .unwrap()
+            .status,
+        PutStatus::Stored
+    );
+    let read = || ReadParams {
+        collection: f.collection,
+        after: 0,
+        limit: 100,
+        kinds: None,
+        max_bytes: None,
+    };
+    let get = || GetObjectParams {
+        collection: f.collection,
+        address: q.address,
+        range: None,
+    };
+    let has = || HasObjectsParams {
+        collection: f.collection,
+        addresses: vec![q.address],
+    };
+    // Served before deletion.
+    assert!(
+        !ready(f.svc.read(&f.principal, read(), NOW))
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    ready(f.svc.get_object(&f.principal, get(), NOW)).unwrap();
+    ready(f.svc.has_objects(&f.principal, has())).unwrap();
+    let head = ready(f.svc.head(&Principal::ControlPlane, &f.collection)).unwrap();
+
+    f.delete(f.collection);
+
+    let mut served = Vec::new();
+    let mut gone = |what: &'static str, r: Result<()>| {
+        if r.as_ref().err().map(|e| e.code) != Some(Code::Gone) {
+            served.push((what, r.map_err(|e| e.code)));
+        }
+    };
+    gone(
+        "read",
+        ready(f.svc.read(&f.principal, read(), NOW)).map(|_| ()),
+    );
+    gone(
+        "head",
+        ready(f.svc.head(&f.principal, &f.collection)).map(|_| ()),
+    );
+    gone(
+        "get_object",
+        ready(f.svc.get_object(&f.principal, get(), NOW)).map(|_| ()),
+    );
+    gone(
+        "has_objects",
+        ready(f.svc.has_objects(&f.principal, has())).map(|_| ()),
+    );
+    gone(
+        "get_snapshot",
+        ready(f.svc.get_snapshot(&f.principal, &f.collection)).map(|_| ()),
+    );
+    let mut other = f.inline();
+    let b = object(f.collection, ItemKind::BlobPart, 1, vec![8; 32]);
+    other.address = sha256(&b);
+    other.checksum = other.address;
+    other.size = b.len() as u64;
+    other.bytes = Some(Bytes(b));
+    gone(
+        "put_object",
+        ready(f.svc.put_object(&f.principal, other, NOW)).map(|_| ()),
+    );
+    gone(
+        "append",
+        ready(f.svc.append(
+            &Principal::ControlPlane,
+            AppendParams {
+                collection: f.collection,
+                expect_seq: head.head + 1,
+                expect_prev: head.head_chain,
+                items: vec![Bytes(f.cp.policy_item(
+                    f.collection,
+                    head.head + 1,
+                    head.head_chain,
+                    vec![],
+                    3,
+                ))],
+            },
+            NOW,
+        ))
+        .map(|_| ()),
+    );
+    // Maintenance never revives it, and the terminal state holds.
+    let _ = ready(f.svc.compact(&f.collection, NOW + 1));
+    let _ = ready(f.svc.gc(&f.collection, NOW + 10_000_000));
+    assert_eq!(f.state(f.collection).0.status, Status::Gone);
+    gone(
+        "read_after_maintenance",
+        ready(f.svc.read(&f.principal, read(), NOW)).map(|_| ()),
+    );
+    assert!(served.is_empty(), "still served after deletion: {served:?}");
+    // Stored bytes are unserved but not physically erased by the log service.
+    let (_, objects) = f.state(f.collection);
+    let kept = ready(
+        f.svc
+            .objects
+            .get(&object_key(&f.collection, &q.address), None),
+    )
+    .unwrap();
+    assert_eq!(
+        (objects.len(), kept.is_some()),
+        (1, true),
+        "physical erasure is not the log service's job yet"
+    );
+    let _ = (f.owner, f.device);
+}

@@ -71,6 +71,15 @@ impl Default for AppendTuning {
     }
 }
 
+/// A user-confirmed grant approval waiting for a control append turn
+/// (`policy.md` §5.1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct QueuedGrantApproval {
+    pub(crate) grant: Uuid,
+    pub(crate) capabilities: Vec<String>,
+    pub(crate) file_folders: Option<Vec<String>>,
+}
+
 /// An append whose outcome is not known yet.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Sent {
@@ -143,6 +152,7 @@ pub(crate) enum Inflight {
     ClientUploadResume,
     /// Bounded T6b authenticated source read for an unconfirmed entry.
     UnindexedSource(crate::store::Head),
+    DeclaredSetupSource(Uuid, crate::file_source::SourceNeed),
     UnindexedReverseText(crate::store::Head),
     /// Native Blob streaming placement, independent of whole-blob cache.
     UnindexedBlob(Uuid),
@@ -159,7 +169,9 @@ impl<S: Store> Replica<S> {
         if self.apply_fault || self.install.is_some() || self.hosted_blocked() {
             return;
         }
+        self.retire_completed_setups();
         self.unindexed_source_step();
+        self.declared_setup_rpc_step();
         self.reverse_text_step();
         self.native_blob_step();
         if self.unindexed_sources.pending() || self.reverse_text_sources.pending() {
@@ -227,7 +239,9 @@ impl<S: Store> Replica<S> {
         if let Some((IncidentKind::WaitingForKey, position)) = self.stalled {
             if self.local_only()
                 || self.log_move != LogMove::None
-                || !self.key_wait_read.due(position, self.now())
+                || !self
+                    .key_wait_read
+                    .due(position, self.now(), self.head_known)
             {
                 return;
             }
@@ -270,6 +284,7 @@ impl<S: Store> Replica<S> {
             || self.send_private_key_grant_if_needed()
             || self.send_account_key_setup_if_needed()
             || self.send_account_key_grant_if_needed()
+            || self.send_grant_approval_if_needed()
         {
             return Ok(());
         }
@@ -319,6 +334,25 @@ impl<S: Store> Replica<S> {
                     confirmed.push((row.mutation.id, r.seq));
                 }
                 continue;
+            }
+            let declared_setup = match self.check_declared_setup_pending(&row) {
+                Ok(mediated) => mediated,
+                Err(error) => {
+                    rejected.push((row.mutation.id, row.grant, error.into_problem()));
+                    continue;
+                }
+            };
+            // A review is frozen to one original head. Never plan it on a
+            // prospective sibling overlay or batch another mutation after it.
+            if declared_setup && !items.is_empty() {
+                break;
+            }
+            if !items.is_empty()
+                && mutations
+                    .iter()
+                    .any(|id| self.declared_setup_pending.contains_key(id))
+            {
+                break;
             }
             // A resurrected on-behalf write whose grant is no longer effective is
             // lost after revocation: the only rejection of an
@@ -432,7 +466,8 @@ impl<S: Store> Replica<S> {
                 super::attachment_upload::check_row_refs(&row).and_then(|()| {
                     super::attachment_upload::entry_plain(mutation, &planned, resurrect)
                 })
-            } else if native_move
+            } else if declared_setup
+                || native_move
                 || super::attachment_upload::native(&row.mutation)
                 || super::carries_attachment(&planned)
             {
@@ -470,6 +505,10 @@ impl<S: Store> Replica<S> {
                 && self.policy.cstate != Some(mdbn_wire::policy::CState::E2e)
                 && self.policy.compress
                 && row.mutation.on_behalf.is_none();
+            if declared_setup && let Err(error) = self.check_declared_setup_pending(&row) {
+                rejected.push((row.mutation.id, row.grant, error.into_problem()));
+                continue;
+            }
             if let Err(e) =
                 self.sealer
                     .seal(&mut item, &plain, compress, self.host.entropy.as_mut())
@@ -736,6 +775,239 @@ impl<S: Store> Replica<S> {
         self.append_control(ItemKind::KeyGrant, body)
     }
 
+    /// Whether this device may sign a `grant_approval` for `grant` with these
+    /// terms now: the production mirror of the replay check
+    /// (`policy.md` §5.1), plus the folder-scope shape the grant op declares.
+    fn check_grant_approval_terms(
+        &self,
+        grant: &Uuid,
+        capabilities: &[String],
+        file_folders: &Option<Vec<String>>,
+    ) -> crate::api::ApiResult<()> {
+        use crate::api::ErrorCode;
+        if self.local_only() {
+            return Err(
+                ErrorCode::Unavailable.err_with_reason("local_only", "no log to approve in")
+            );
+        }
+        if !self.policy.grant_approval_required() {
+            return Err(ErrorCode::Conflict
+                .err_with_reason("approval_not_required", "grants need no device approval"));
+        }
+        let Some(g) = self.policy.grants.get(grant) else {
+            return Err(ErrorCode::NotFound.err_with_reason("unknown_grant", "no such grant"));
+        };
+        if !g.active {
+            return Err(
+                ErrorCode::Conflict.err_with_reason("grant_not_active", "the grant was revoked")
+            );
+        }
+        if capabilities.is_empty() || !capabilities.iter().all(|c| g.capabilities.contains(c)) {
+            return Err(ErrorCode::InvalidRequest.err_with_reason(
+                "capabilities_not_subset",
+                "approved capabilities must be a non-empty subset of the grant's",
+            ));
+        }
+        match (g.folder_scoped, file_folders) {
+            (true, Some(f)) if !f.is_empty() => {}
+            (false, None) => {}
+            _ => {
+                return Err(ErrorCode::InvalidRequest.err_with_reason(
+                    "folders_scope_mismatch",
+                    "the folder scope does not match the grant's declared shape",
+                ));
+            }
+        }
+        let me = self.cfg.device_id;
+        let Some(d) = self.policy.devices.get(&me) else {
+            return Err(ErrorCode::Forbidden
+                .err_with_reason("device_cannot_approve", "this device is not enrolled"));
+        };
+        if !d.active
+            || !d.keyed
+            || d.account != g.account
+            || !self.policy.members.contains_key(&g.account)
+            || !matches!(
+                d.kind,
+                mdbn_wire::policy::DeviceKind::Desktop
+                    | mdbn_wire::policy::DeviceKind::Mobile
+                    | mdbn_wire::policy::DeviceKind::AppRuntime
+                    | mdbn_wire::policy::DeviceKind::Cli
+            )
+        {
+            return Err(ErrorCode::Forbidden.err_with_reason(
+                "device_cannot_approve",
+                "only a keyed user device of the granting member approves",
+            ));
+        }
+        if self.policy.rekey_required || self.policy.epoch == 0 || self.key_untrusted {
+            return Err(ErrorCode::Unavailable
+                .err_with_reason("rekey_required", "the collection key is not current"));
+        }
+        if self.sealer.current_epoch() != Some(self.policy.epoch) {
+            return Err(
+                ErrorCode::Unavailable.err_with_reason("not_keyed", "this device holds no key")
+            );
+        }
+        Ok(())
+    }
+
+    /// Queue a user-confirmed grant approval for its control append turn
+    /// (`policy.md` §5.1). Approving an already approved grant is a no-op.
+    pub fn queue_grant_approval(
+        &mut self,
+        grant: Uuid,
+        capabilities: Vec<String>,
+        file_folders: Option<Vec<String>>,
+    ) -> crate::api::ApiResult<()> {
+        if self
+            .policy
+            .grants
+            .get(&grant)
+            .is_some_and(|g| g.active && g.approved.is_some())
+        {
+            return Ok(());
+        }
+        let capabilities: Vec<String> = {
+            let mut v: Vec<String> = capabilities;
+            v.sort();
+            v.dedup();
+            v
+        };
+        self.check_grant_approval_terms(&grant, &capabilities, &file_folders)?;
+        self.grant_approval_failures.remove(&grant);
+        if let Some(q) = self
+            .grant_approval_queue
+            .iter_mut()
+            .find(|q| q.grant == grant)
+        {
+            q.capabilities = capabilities;
+            q.file_folders = file_folders;
+        } else {
+            self.grant_approval_queue.push_back(QueuedGrantApproval {
+                grant,
+                capabilities,
+                file_folders,
+            });
+        }
+        self.pump();
+        Ok(())
+    }
+
+    /// App grants waiting for a device approval (client API §8.3).
+    pub fn pending_grant_infos(&self) -> Vec<crate::api::PendingGrant> {
+        self.policy
+            .pending_grants()
+            .into_iter()
+            .map(|(grant, g)| crate::api::PendingGrant {
+                grant,
+                app_id: g.app_id.clone(),
+                capabilities: g.capabilities.iter().cloned().collect(),
+                folders: g.file_folders.clone(),
+                client_fingerprint: crate::crypto::proof::client_fingerprint_display(&g.client_pk),
+            })
+            .collect()
+    }
+
+    /// Whether the grant currently authorizes sessions under log policy
+    /// (`grant` ∩ first valid approval where one is required).
+    pub fn grant_effective(&self, grant: &Uuid) -> bool {
+        self.policy.effective_grant(grant).is_some()
+    }
+
+    /// What this replica knows about one grant's approval.
+    pub fn grant_approval_state(&self, grant: &Uuid) -> Option<crate::api::GrantApprovalState> {
+        let g = self.policy.grants.get(grant)?;
+        Some(crate::api::GrantApprovalState {
+            active: g.active,
+            app_id: g.app_id.clone(),
+            capabilities: g.capabilities.iter().cloned().collect(),
+            client_pk: g.client_pk.0,
+            folder_scoped: g.folder_scoped,
+            approved_capabilities: g.approved.as_ref().map(|a| a.iter().cloned().collect()),
+            approved_folders: g.approved_folders.clone(),
+            approved_seq: g.approved_seq,
+            approved_by: g.approved_by,
+            queued: self.grant_approval_queue.iter().any(|q| q.grant == *grant),
+            failure: self.grant_approval_failures.get(grant).cloned(),
+        })
+    }
+
+    /// Send the next queued grant approval as a sealed, device-signed kind-6
+    /// item alone at the head. Terms are re-checked at the turn; a grant that
+    /// stopped being approvable is dropped and the reason kept for the host.
+    fn send_grant_approval_if_needed(&mut self) -> bool {
+        while let Some(q) = self.grant_approval_queue.front().cloned() {
+            if self
+                .policy
+                .grants
+                .get(&q.grant)
+                .is_some_and(|g| g.approved.is_some())
+            {
+                self.grant_approval_queue.pop_front();
+                continue;
+            }
+            if let Err(e) =
+                self.check_grant_approval_terms(&q.grant, &q.capabilities, &q.file_folders)
+            {
+                self.grant_approval_queue.pop_front();
+                self.grant_approval_failures.insert(
+                    q.grant,
+                    e.problem()
+                        .reason
+                        .clone()
+                        .unwrap_or_else(|| "grant_approval_failed".into()),
+                );
+                continue;
+            }
+            let Some(g) = self.policy.grants.get(&q.grant) else {
+                self.grant_approval_queue.pop_front();
+                continue;
+            };
+            let payload = mdbn_wire::policy::GrantApprovalPayload {
+                grant: q.grant,
+                client_pk: g.client_pk,
+                capabilities: q.capabilities.clone(),
+                file_folders: q.file_folders.clone(),
+            };
+            let Ok(plain) = payload.to_bytes() else {
+                self.grant_approval_queue.pop_front();
+                self.grant_approval_failures
+                    .insert(q.grant, "grant_approval_encoding".into());
+                continue;
+            };
+            let mut item = Item {
+                kind: ItemKind::GrantApproval,
+                collection: self.cfg.collection,
+                seq: Some(self.head.seq + 1),
+                prev: Some(self.head.chain),
+                epoch: None,
+                signer: Some(self.cfg.device_id),
+                salt: None,
+                idem: None,
+                refs: None,
+                stream: None,
+                body: Bytes(Vec::new()),
+                sig: None,
+            };
+            if self
+                .sealer
+                .seal(&mut item, &plain, false, self.host.entropy.as_mut())
+                .is_err()
+            {
+                return false;
+            }
+            if self.append_item(item) {
+                // Keep the user's intent until verified apply observes the
+                // approval. A head-moved/frozen reply discards these sealed
+                // bytes and must re-seal the approval at the new head.
+                return true;
+            }
+            return false;
+        }
+        false
+    }
+
     /// Sign and append one control item (`rekey`, `key_grant`) alone at the head.
     pub(crate) fn append_control(&mut self, kind: ItemKind, body: Vec<u8>) -> bool {
         let me = self.cfg.device_id;
@@ -786,6 +1058,22 @@ impl<S: Store> Replica<S> {
     /// Append an adopt's sealed, signed `base` (`adopt.rs`).
     pub(crate) fn append_base_item(&mut self, item: Item) -> bool {
         self.append_item(item)
+    }
+
+    /// Send ONE already sealed item at an exact position, with no mutation
+    /// (the hosted migration `base`, `migration_log.rs`). The caller checked the
+    /// loop is idle; a lost reply resends these same bytes.
+    pub(crate) fn append_sealed_at(&mut self, expect_seq: u64, expect_prev: Hash, item: Vec<u8>) {
+        self.send_append(Sent {
+            params: AppendParams {
+                collection: self.cfg.collection,
+                expect_seq,
+                expect_prev,
+                items: vec![Bytes(item)],
+            },
+            mutations: Vec::new(),
+            call: CallId(0),
+        });
     }
 
     fn append_item(&mut self, item: Item) -> bool {
@@ -973,6 +1261,7 @@ impl<S: Store> Replica<S> {
         else {
             return;
         };
+        self.track_migration_append(&sent, &reply);
         match reply {
             Ok(LogResponse::Append(AppendResult::Appended(a)))
                 if a.first != sent.params.expect_seq
@@ -1353,6 +1642,7 @@ impl<S: Store> Replica<S> {
             install_native,
             install_text,
             self.attachment_read_deadline(),
+            self.declared_setup_rpc_job.as_ref().map(|job| job.deadline),
         ]
         .into_iter()
         .flatten()
@@ -1417,6 +1707,9 @@ impl<S: Store> Replica<S> {
             Inflight::VerifyHead => self.on_verify_head(reply),
             Inflight::Subscribe => match reply {
                 Ok(LogResponse::Subscribed { head, head_chain }) => {
+                    if let Some(k) = self.device_keys.as_mut() {
+                        k.head_seen = true;
+                    }
                     self.subscribed = true;
                     self.connection = Connection::Online;
                     self.head_known = self.head_known.max(head);
@@ -1472,6 +1765,9 @@ impl<S: Store> Replica<S> {
             Inflight::ClientFileRead(ticket) => self.on_client_file_read_reply(id, ticket, reply),
             Inflight::ClientUploadResume => self.on_client_upload_resume_reply(id, reply),
             Inflight::UnindexedSource(head) => self.on_unindexed_source_reply(head, id, reply),
+            Inflight::DeclaredSetupSource(ticket, need) => {
+                self.on_declared_setup_source_reply(ticket, need, id, reply)
+            }
             Inflight::UnindexedReverseText(head) => self.on_reverse_text_reply(head, id, reply),
             Inflight::UnindexedBlob(file) => self.on_native_blob_reply(file, id, reply),
             Inflight::AttachmentInventory(manifest) => {
@@ -1547,7 +1843,8 @@ impl<S: Store> Replica<S> {
                 self.subscribed = false;
                 match reason.as_str() {
                     "gone" => self.incident(IncidentKind::Gone, None),
-                    "forbidden" => self.incident(IncidentKind::AccessRevoked, None),
+                    // Removed from the collection, or this device's sign-in revoked.
+                    "forbidden" | "revoked" => self.incident(IncidentKind::AccessRevoked, None),
                     _ => {}
                 }
             }

@@ -1,12 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {ApplicationWorkerHost} from "../src/application/worker-host.js";
+import * as WorkerSession from "../src/application/worker-session.js";
+import {APPLICATION_WORKER_PROTOCOL} from "../src/application/worker-protocol.js";
 import { appServerProblem } from "../src/app-host/cp-problem.js";
-import { AppWebSignInSession } from "../src/app-host/web-sign-in-session.js";
+import { AppWebSignInSession, type AppWebSignInPortal } from "../src/app-host/web-sign-in-session.js";
 import { AppProtectedInstallationSignIn, AppInstallationSignInError, type AppInstallationSignInView } from "../src/app-host/installation-sign-in.js";
 import { AppCollectionSetupError } from "../src/app-host/collection-setup-journal.js";
 import { AppCloudCopyHostError } from "../src/app-host/cloud-copy-host.js";
 import { MdbaseError } from "../src/errors.js";
 import { AppWebCloudCopyHost } from "../src/app-host/cloud-copy-host.js";
 import * as ownership from "../src/app-host/owner.js";
+import * as erasure from "../src/app-host/sign-out-erase.js";
 import { AppCloudCopyBootstrapError, type AppBundledReleaseTrust } from "../src/app-host/cloud-copy-bootstrap.js";
 const account = "11111111-1111-4111-8111-111111111111", installation = "22222222-2222-4222-8222-222222222222";
 const collectionId = "33333333-3333-4333-8333-333333333333";
@@ -29,6 +33,8 @@ function fixture(initial: AppInstallationSignInView["state"] = "pending", autoSe
     deleteApprovedCollection: vi.fn(async (_installation: unknown, id: string, _name: string) => ({collectionId: id, deleted: true as const})),
     renewExpiredPairing: vi.fn(async () => {state = "pending"; return view();}),
     close: vi.fn(async () => {trace.push("flow-close");}),
+    signOutInstallation: vi.fn(async (): Promise<"revoked" | "already_signed_out"> => {trace.push("cp-sign-out"); return "revoked";}),
+    hasWebPushChannel: vi.fn(() => false),
   };
   const flowOpen = vi.spyOn(AppProtectedInstallationSignIn, "open").mockImplementation(async p => {
     flowSignal = p.signal; expect(p.mode).toBe("open"); expect(p.appId).toBe("independent-app"); expect(p.origin).toBe("https://notes.example.test"); return flow as unknown as AppProtectedInstallationSignIn;
@@ -51,12 +57,168 @@ function fixture(initial: AppInstallationSignInView["state"] = "pending", autoSe
     return {state: "ready" as "ready" | "setup_required", connection, close: closeConnection};
   });
   const navigatePortal = vi.fn(uri => {trace.push("navigate-portal"); expect(new URL(uri).origin).toBe(release.cpOrigin); expect(new URL(uri).pathname.startsWith("/pair/")).toBe(true);}), closePortal = vi.fn();
-  const openPortal = vi.fn(() => {trace.push("open-portal"); return {navigate: navigatePortal, close: closePortal};});
+  const openPortal = vi.fn<() => AppWebSignInPortal>(() => {trace.push("open-portal"); return {navigate: navigatePortal, close: closePortal};});
   const options = {appId: "independent-app", appName: "Independent App", origin: "https://notes.example.test", cpOrigin: release.cpOrigin, environment: "production" as const, release, signal: parent.signal, locks: undefined, loadRuntime: async () => Uint8Array.of(1), openPortal, openCollection, autoSelect};
   const session = new AppWebSignInSession(options);
-  return {session, options, flow, host, flowOpen, hostOpen, parent, trace, openPortal, navigatePortal, closePortal, openCollection, connection, closeConnection, installationRelease, collectionRelease, selectOnPortal: () => {selectedOnPortal = true;}, approve: (created = false) => {approved = true; newlyCreated = created;}, approveConsent: (confirmed = true) => {consentDone = true; consentConfirmed = confirmed;}, flowSignal: () => flowSignal};
+  return {session, options, flow, host, flowOpen, hostOpen, parent, trace, openPortal, navigatePortal, closePortal, openCollection, connection, closeConnection, installationRelease, collectionRelease, selectOnPortal: () => {selectedOnPortal = true;}, approve: (created = false) => {approved = true; newlyCreated = created;}, approveConsent: (confirmed = true) => {consentDone = true; consentConfirmed = confirmed;}, flowSignal: () => flowSignal,
+    /** The stored ledger is gone: the next open creates a fresh pending one. */
+    eraseLedger: () => {state = "pending"; selectedOnPortal = false; approved = false; consentActive = false; consentDone = false;}};
 }
+function workerFixture(f: ReturnType<typeof fixture>) {
+  Object.assign(f.connection, {isCurrent: () => true, setForeground: vi.fn()});
+  // Real lifecycle session with the fixture's stand-in native/CP composition.
+  vi.spyOn(WorkerSession, "applicationWorkerSession").mockReturnValue({session: f.session} as unknown as ReturnType<typeof WorkerSession.applicationWorkerSession>);
+  const primary = new MessageChannel(), channel = new MessageChannel(), binding = "foreground_queue_follower";
+  const frames: unknown[][] = [];
+  channel.port2.onmessage = event => frames.push(event.data);
+  const host = new ApplicationWorkerHost(primary.port1, "foreground_queue_primary", {} as never, {} as never, undefined);
+  host.attach(channel.port1, binding);
+  return {frames, send: (requestId: number, action: "foreground" | "start" | "select", payload: string | boolean | null = null) => channel.port2.postMessage([APPLICATION_WORKER_PROTOCOL, binding, requestId, action, payload]),
+    close: async () => {try {await host.stop();} finally {channel.port2.close(); primary.port2.close();}}};
+}
+async function approvalTick(session: AppWebSignInSession<unknown>): Promise<void> {
+  session.setForeground(false);session.setForeground(true);
+  await vi.waitFor(()=>expect((session as unknown as {pending:unknown}).pending).toBeNull());
+}
+describe("unified Native choice lifecycle", () => {
+  it("keeps ONE original popup through Native completion and ACK without opening a Hosted adapter", async () => {
+    const f=fixture("pending","never"), requestId=f.flow.view().requestId, authorizationId="77777777-7777-4777-8777-777777777777";
+    let nativeChoice: {requestId:string;authorizationRequestId:string;collectionId:string}|null=null, verified=false;
+    const originalView=f.flow.view;
+    f.flow.view=()=>({...originalView(),collectionSelection:null,collectionIds:[],nativeSelection:verified?nativeChoice:null});
+    const originalExchange=f.flow.exchange.getMockImplementation()!;
+    f.flow.exchange.mockImplementation(async()=>{await originalExchange();return f.flow.view();});
+    const context={requestId,appId:"independent-app",accountId:account,challenge:"ab".repeat(32)};
+    const attach=vi.fn(async()=>{}), complete=vi.fn(async()=>{expect(f.trace).toContain("ack");verified=true;});
+    Object.assign(f.flow,{nativeAuthorizationContext:()=>context,attachNativeAuthorization:attach,pendingNativeSelection:()=>nativeChoice,completeNativeAuthorization:complete});
+    const prepare=vi.fn(async()=>({authorizationId,applicationId:"independent-app",manifestDigest:"cc".repeat(32)}));
+    let finishReply!:(v:never)=>void;
+    const finish=vi.fn(()=>new Promise<never>(resolve=>{finishReply=resolve;}));
+    const cancel=vi.fn();f.openPortal.mockReturnValue({navigate:f.navigatePortal,close:f.closePortal,nativeAuthorization:{prepare,finish,cancel}} as AppWebSignInPortal);
+    f.flow.listApprovedCollections.mockResolvedValue([]);
+    await f.session.start();f.selectOnPortal();await f.session.authorize();
+    // Fixture's existing attested original device; no replacement actor.
+    await Promise.resolve(); await approvalTick(f.session);
+    expect(prepare).toHaveBeenCalledOnce();expect(attach).toHaveBeenCalledOnce();
+    nativeChoice={requestId,authorizationRequestId:authorizationId,collectionId};f.approve();
+    f.session.setForeground(false);f.session.setForeground(true);await vi.waitFor(()=>expect(finish).toHaveBeenCalledOnce());
+    expect(f.closePortal).not.toHaveBeenCalled();expect(f.openCollection).not.toHaveBeenCalled();
+    finishReply({} as never);await vi.waitFor(()=>expect(complete).toHaveBeenCalledOnce());
+    expect(complete).toHaveBeenCalledOnce();expect(f.closePortal).toHaveBeenCalledOnce();expect(f.openPortal).toHaveBeenCalledOnce();
+    await f.session.close();
+  });
+  it("genuine Hosted approval survives optional Native preparation failure, without Private fallback", async()=>{
+    const f=fixture("pending","never");
+    Object.assign(f.flow,{nativeAuthorizationContext:()=>({requestId:f.flow.view().requestId,appId:"independent-app",accountId:account,challenge:"ab".repeat(32)}),pendingNativeSelection:()=>null});
+    const prepare=vi.fn(async()=>{throw new AppInstallationSignInError("unavailable");});
+    const finish=vi.fn(),cancel=vi.fn();f.openPortal.mockReturnValue({navigate:f.navigatePortal,close:f.closePortal,nativeAuthorization:{prepare,finish,cancel}} as AppWebSignInPortal);
+    await f.session.start();await f.session.authorize();f.selectOnPortal();await approvalTick(f.session);await Promise.resolve();
+    f.approve();await approvalTick(f.session);expect(f.session.getSnapshot().status).toBe("unselected");expect(finish).not.toHaveBeenCalled();
+    await f.session.close();
+  });
+});
+
 describe("shared first-party web sign-in", () => {
+  it("local Forget and failed inventory reads cannot imply revoked authority; accepted COMPLETE omission can", async () => {
+    const f = fixture("paired", "never"); await f.session.start();
+    expect(f.session.scopeWasRemoved(collectionId)).toBe(false);
+    await f.session.forget(collectionId); await f.session.refreshCollectionList();
+    expect(f.session.getSnapshot().collections).toEqual([]);
+    expect(f.session.scopeWasRemoved(collectionId)).toBe(false);
+    f.flow.listApprovedCollections.mockRejectedValueOnce(new AppInstallationSignInError("unavailable"));
+    await expect(f.session.refreshCollectionList()).rejects.toMatchObject({reason: "unavailable"});
+    expect(f.session.scopeWasRemoved(collectionId)).toBe(false);
+    f.flow.listApprovedCollections.mockResolvedValue([]);
+    await f.session.refreshCollectionList(); expect(f.session.scopeWasRemoved(collectionId)).toBe(true);
+    await f.session.close();
+  });
+  it("serializes foreground inventory revalidation with a follower start instead of replying busy", async () => {
+    const f = fixture("paired"); await f.session.start();
+    const w = workerFixture(f), frames = w.frames;
+    const foreground = vi.spyOn(f.session, "setForeground");
+    const catalog = [{collectionId, displayName: "My notes", role: "owner" as const}];
+    let release!: () => void;
+    const held = new Promise<typeof catalog>(resolve => {release = () => resolve(catalog);});
+    f.flow.listApprovedCollections.mockReturnValueOnce(held);
+    try {
+      w.send(0, "foreground", true);
+      await vi.waitFor(() => expect(f.flow.listApprovedCollections).toHaveBeenCalledTimes(2));
+      w.send(1, "start");
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(frames.some(frame => frame[2] === "reply" && frame[3] === 1)).toBe(false);
+      // Repeated visible/focus/online reports wake native transport but coalesce
+      // inventory work while the SAME original read is still in progress.
+      for(let index = 0; index < 3; index++)w.send(0, "foreground", true);
+      await vi.waitFor(() => expect(foreground).toHaveBeenCalledTimes(4));
+      expect(f.flow.listApprovedCollections).toHaveBeenCalledTimes(2);
+      release();
+      await vi.waitFor(() => expect(frames.find(frame => frame[2] === "reply" && frame[3] === 1)?.[4]).toMatchObject({ok: true}));
+      w.send(2, "select", collectionId);
+      await vi.waitFor(() => expect(frames.find(frame => frame[2] === "reply" && frame[3] === 2)?.[4]).toMatchObject({ok: true}));
+      expect(f.session.connection()).toBe(f.connection);
+      expect(frames.filter(frame => frame[2] === "reply")).toHaveLength(2);
+    } finally {release(); await w.close();}
+  });
+  it("revalidates the held collection on an online/focus report and fences removed access", async () => {
+    const f = fixture("paired"); await f.session.start();
+    expect(f.session.connection()).toBe(f.connection);
+    const w = workerFixture(f), fencedBeforePublish: boolean[] = [];
+    const unsubscribe = f.session.subscribe(() => {if(f.session.snapshot().collections.length === 0)fencedBeforePublish.push(f.closeConnection.mock.calls.length === 1 && f.collectionRelease.mock.calls.length === 1 && f.session.connection() === null);});
+    f.flow.listApprovedCollections.mockResolvedValueOnce([]);
+    try {
+      w.send(0, "foreground", true);
+      await vi.waitFor(() => expect(f.session.snapshot().collections).toEqual([]));
+      expect(f.closeConnection).toHaveBeenCalledOnce();
+      expect(f.session.connection()).toBeNull();
+      expect(f.collectionRelease).toHaveBeenCalledOnce();
+      expect(fencedBeforePublish.length).toBeGreaterThan(0);
+      expect(fencedBeforePublish.every(Boolean)).toBe(true);
+    } finally {unsubscribe(); await w.close();}
+  });
+  it("does not replace an open scope after failed reconnect metadata read", async () => {
+    const f = fixture("paired"); await f.session.start();
+    const w = workerFixture(f);
+    f.flow.listApprovedCollections.mockRejectedValueOnce(new AppInstallationSignInError("unavailable"));
+    try {
+      w.send(0, "foreground", true);
+      await vi.waitFor(() => expect(f.flow.listApprovedCollections).toHaveBeenCalledTimes(2));
+      // The next lifecycle turn cannot run until the failed read has drained.
+      w.send(1, "start");
+      await vi.waitFor(() => expect(w.frames.find(frame => frame[2] === "reply" && frame[3] === 1)?.[4]).toMatchObject({ok: true}));
+      expect(f.session.connection()).toBe(f.connection);
+      expect(f.closeConnection).not.toHaveBeenCalled();
+      expect(f.collectionRelease).not.toHaveBeenCalled();
+    } finally {await w.close();}
+  });
+  it("UX-011: signOut revokes, closes everything, then erases; a fresh start is signed out and Sign in pairs afresh", async () => {
+    vi.useFakeTimers(); const f = fixture("paired"); await f.session.start();
+    expect(f.session.snapshot()).toMatchObject({status: "ready", selectedCollectionId: collectionId});
+    const erase = vi.spyOn(erasure, "eraseAppInstallationData").mockImplementation(async () => {f.trace.push("erase"); f.eraseLedger(); return {ledger: true, complete: true};});
+    const signedOut = await f.session.signOut();
+    expect(signedOut).toMatchObject({status: "signed_out", signIn: null, collections: [], selectedCollectionId: null, problem: null,
+      signOutResult: {server: "revoked", local: "erased", webPush: false}});
+    expect(f.session.connection()).toBeNull();
+    const order = ["connection-close", "host-close", "collection-release", "cp-sign-out", "flow-close", "installation-release", "erase"].map(step => f.trace.indexOf(step));
+    expect(order.every(i => i >= 0)).toBe(true); expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(erase).toHaveBeenCalledOnce();
+    expect(erase.mock.calls[0]![0]).toMatchObject({cpOrigin: release.cpOrigin, appId: "independent-app", accountId: account, installationId: installation, collectionIds: [collectionId]});
+    // Same storage, next start: no installation is restored.
+    await f.session.start(); expect(f.flowOpen).toHaveBeenCalledTimes(2);
+    expect(f.session.snapshot()).toMatchObject({status: "signed_out", signIn: {state: "pending"}, signOutResult: null});
+    await f.session.authorize(); expect(f.flow.start).toHaveBeenCalledOnce(); expect(f.navigatePortal).toHaveBeenCalledOnce();
+    expect(f.session.snapshot().status).toBe("authorizing"); await f.session.close();
+  });
+  it("UX-011: an unreachable server still signs this device out, reported as a diagnostic; a kept ledger is sign_out_failed", async () => {
+    const f = fixture("paired", "never"); await f.session.start();
+    f.flow.signOutInstallation.mockRejectedValueOnce(new AppInstallationSignInError("outcome_unknown"));
+    vi.spyOn(erasure, "eraseAppInstallationData").mockResolvedValueOnce({ledger: true, complete: false});
+    expect(await f.session.signOut()).toMatchObject({status: "signed_out", signIn: null, problem: null, signOutResult: {server: "incomplete", local: "incomplete"}});
+    const g = fixture("paired", "never"); await g.session.start();
+    vi.spyOn(erasure, "eraseAppInstallationData").mockResolvedValueOnce({ledger: false, complete: false});
+    await expect(g.session.signOut()).rejects.toMatchObject({reason: "sign_out_failed"});
+    expect(g.session.snapshot()).toMatchObject({status: "blocked", problem: "sign_out_failed"});
+    await f.session.close(); await g.session.close();
+  });
   it("offers same-approved-collection Retry only after clean stop of exhausted pre-enrollment challenge work",async()=>{
     const f=fixture("paired","never"); await f.session.start();
     const error=Object.assign(new AppCloudCopyBootstrapError("unavailable"),{retryable:true}); f.openCollection.mockRejectedValueOnce(error);
@@ -65,7 +227,7 @@ describe("shared first-party web sign-in", () => {
     expect(f.session.connection()).toBeNull(); expect(f.host.close).toHaveBeenCalledOnce(); expect(f.collectionRelease).toHaveBeenCalledOnce();
     expect(f.trace.indexOf("host-close")).toBeLessThan(f.trace.indexOf("collection-release")); expect(f.installationRelease).not.toHaveBeenCalled();
     const receipt=f.flow.view().requestId; await f.session.select(collectionId); expect(f.session.snapshot().status).toBe("ready");
-    expect(f.flow.view().requestId).toBe(receipt); expect(f.flowOpen).toHaveBeenCalledOnce(); expect(f.flow.start).toHaveBeenCalledOnce(); expect(f.flow.renewExpiredPairing).not.toHaveBeenCalled(); await f.session.close();
+    expect(f.flow.view().requestId).toBe(receipt); expect(f.flowOpen).toHaveBeenCalledOnce(); expect(f.flow.start).not.toHaveBeenCalled(); expect(f.flow.renewExpiredPairing).not.toHaveBeenCalled(); await f.session.close();
   });
   it("failed native stop quarantines challenge exhaustion and never releases its lease or offers retryable selection",async()=>{
     const f=fixture("paired","never"); await f.session.start();
@@ -96,10 +258,12 @@ describe("shared first-party web sign-in", () => {
     const stopped=f.session.close();await Promise.resolve();expect(f.host.close).toHaveBeenCalledOnce();expect(f.collectionRelease).not.toHaveBeenCalled();
     release();await pending;await stopped;expect(f.host.close).toHaveBeenCalledOnce();expect(f.collectionRelease).toHaveBeenCalledOnce();expect(f.session.snapshot().status).toBe("closed");
   });
-  it("starts a protected request but never opens account custody or polls before user sign-in", async () => {
+  it("prepares sign-in without contacting Connect, opening account custody or polling before user sign-in", async () => {
     vi.useFakeTimers(); const f = fixture(), listener = vi.fn(); const stop = f.session.subscribe(listener);
     expect(f.session.getSnapshot().status).toBe("not_started"); await f.session.start();
     expect(f.session.snapshot().status).toBe("signed_out"); await vi.advanceTimersByTimeAsync(20000);
+    // The pairing request is created by the sign-in gesture, not by every page load.
+    expect(f.flow.start).not.toHaveBeenCalled();
     expect(f.flow.exchange).not.toHaveBeenCalled(); expect(f.hostOpen).not.toHaveBeenCalled(); expect(f.openPortal).not.toHaveBeenCalled(); expect(listener).toHaveBeenCalled(); stop(); await f.session.close();
   });
   it("one authorize opens Connect synchronously, automatically confirms the portal choice and attests, then opens the approved collection", async () => {
@@ -110,6 +274,21 @@ describe("shared first-party web sign-in", () => {
     expect(f.openCollection).not.toHaveBeenCalled(); f.approve(); await vi.advanceTimersByTimeAsync(1000);
     expect(f.session.snapshot().status).toBe("ready"); expect(f.session.connection()).toBe(f.connection); expect(f.hostOpen).toHaveBeenCalledOnce(); expect(f.host.completeInstallationSignIn).toHaveBeenCalledOnce();
     expect(f.trace.indexOf("ack")).toBeLessThan(f.trace.indexOf("collection-open")); await f.session.close();
+  });
+  it.each(["refused","expired"] as const)("a %s window stops the wait, and the next sign-in renews it from that gesture", async reason => {
+    vi.useFakeTimers(); const f = fixture(); await f.session.start(); await f.session.authorize();
+    expect(f.session.snapshot().status).toBe("authorizing");
+    f.flow.exchange.mockRejectedValueOnce(new AppInstallationSignInError(reason)); await vi.advanceTimersByTimeAsync(1000);
+    expect(f.session.snapshot()).toMatchObject({status: "blocked", problem: reason});
+    f.flow.start.mockRejectedValueOnce(new AppInstallationSignInError(reason)); await f.session.authorize();
+    expect(f.flow.renewExpiredPairing).toHaveBeenCalledOnce(); expect(f.navigatePortal).toHaveBeenCalledTimes(2);
+    expect(f.session.snapshot().status).toBe("authorizing"); await f.session.close();
+  });
+  it("does not renew a window the flow refuses to renew", async () => {
+    vi.useFakeTimers(); const f = fixture(); await f.session.start();
+    const refused = new AppInstallationSignInError("refused");
+    f.flow.start.mockRejectedValueOnce(refused); f.flow.renewExpiredPairing.mockRejectedValueOnce(new AppInstallationSignInError("recovery_required"));
+    await expect(f.session.authorize()).rejects.toBe(refused); expect(f.closePortal).toHaveBeenCalledOnce(); await f.session.close();
   });
   it("retains provider display identity while account UUID alone binds native custody and collection ownership", async () => {
     vi.useFakeTimers();const f=fixture("pending","only",true);await f.session.start();f.selectOnPortal();await f.session.authorize();
@@ -123,7 +302,7 @@ describe("shared first-party web sign-in", () => {
     // receipt read and subsequent 30 seconds all remain awaiting approval.
     const originalRequest = f.flow.view().requestId; await vi.advanceTimersByTimeAsync(30000);
     expect(f.session.snapshot().status).toBe("authorizing"); expect(f.flow.exchange).toHaveBeenCalledTimes(31);
-    expect(f.flow.view().requestId).toBe(originalRequest); expect(f.flow.start).toHaveBeenCalledTimes(2);
+    expect(f.flow.view().requestId).toBe(originalRequest); expect(f.flow.start).toHaveBeenCalledOnce();
     expect(f.flowOpen).toHaveBeenCalledOnce(); expect(f.hostOpen).toHaveBeenCalledOnce(); expect(f.host.attestInstallation).toHaveBeenCalledOnce(); expect(f.flow.renewExpiredPairing).not.toHaveBeenCalled(); expect(f.openCollection).not.toHaveBeenCalled();
     f.approve(); await vi.advanceTimersByTimeAsync(1000);
     expect(f.session.snapshot().status).toBe("ready"); expect(f.session.connection()).toBe(f.connection);
@@ -174,6 +353,21 @@ describe("shared first-party web sign-in", () => {
     problem = null; notify(); expect(f.session.snapshot()).toMatchObject({status: "ready", problem: null}); expect(f.session.snapshot().problemDetail).toBeUndefined();
     await f.session.close();
   });
+  it("access ended on the log blocks at once (no connection for any tab) and stops the collection; local data is kept", async () => {
+    const f = fixture("paired"); let ended: "forbidden" | "gone" | null = null, notify: () => void = () => {};
+    f.openCollection.mockImplementationOnce(async () => ({state: "ready", get ended() {return ended;}, connection: f.connection, close: f.closeConnection,
+      subscribe(listener: () => void) {notify = listener; return () => {};}}));
+    await f.session.start(); expect(f.session.snapshot().status).toBe("ready");
+    f.flow.listApprovedCollections.mockResolvedValue([]); // the server removed this account
+    ended = "forbidden"; notify();
+    expect(f.session.snapshot()).toMatchObject({status: "blocked", problem: "access_removed"});
+    expect(f.session.connection()).toBeNull();
+    await vi.waitFor(() => expect(f.closeConnection).toHaveBeenCalledOnce());
+    // The list is read again, so the removed collection drops out; the block stays.
+    await vi.waitFor(() => expect(f.session.snapshot().collections).toEqual([]));
+    expect(f.session.snapshot()).toMatchObject({status: "blocked", problem: "access_removed"});
+    await f.session.close();
+  });
   it("completed restore has no start/exchange/attest HTTP and retains the original installation owner", async () => {
     const f = fixture("paired"); await f.session.start(); expect(f.hostOpen).toHaveBeenCalledOnce(); expect(f.flow.exchange).not.toHaveBeenCalled(); expect(f.host.attestInstallation).not.toHaveBeenCalled(); expect(f.openPortal).not.toHaveBeenCalled(); await f.session.close();
   });
@@ -190,7 +384,77 @@ describe("shared first-party web sign-in", () => {
     vi.useFakeTimers(); const f = fixture(); await f.session.start(); f.flow.exchange.mockRejectedValueOnce(new AppInstallationSignInError("outcome_unknown"));
     await f.session.authorize(); expect(f.session.snapshot()).toMatchObject({status: "authorizing", problem: "outcome_unknown"});
     await vi.advanceTimersByTimeAsync(4999); expect(f.flow.exchange).toHaveBeenCalledOnce(); await vi.advanceTimersByTimeAsync(1);
-    expect(f.flow.exchange).toHaveBeenCalledTimes(2); expect(f.flowOpen).toHaveBeenCalledOnce(); expect(f.flow.start).toHaveBeenCalledTimes(2); expect(f.hostOpen).not.toHaveBeenCalled(); await f.session.close();
+    expect(f.flow.exchange).toHaveBeenCalledTimes(2); expect(f.flowOpen).toHaveBeenCalledOnce(); expect(f.flow.start).toHaveBeenCalledOnce(); expect(f.hostOpen).not.toHaveBeenCalled(); await f.session.close();
+  });
+  it("the approval window closes once approval is observed, for sign-in and for added consent", async () => {
+    // Regression (LAB 2026-10-12): the approval popup stayed open after approval.
+    vi.useFakeTimers();
+    {
+      const f = fixture(); await f.session.start(); f.selectOnPortal(); await f.session.authorize();
+      await vi.advanceTimersByTimeAsync(3000); expect(f.closePortal).not.toHaveBeenCalled();
+      f.approve(); await vi.advanceTimersByTimeAsync(1000);
+      expect(f.session.snapshot().status).toBe("ready"); expect(f.closePortal).toHaveBeenCalledOnce();
+      await f.session.close();
+      const g = fixture("paired"); await g.session.start(); await g.session.authorize();
+      await vi.advanceTimersByTimeAsync(1000); expect(g.closePortal).not.toHaveBeenCalled();
+      g.approveConsent(); await vi.advanceTimersByTimeAsync(1000);
+      expect(g.session.snapshot().status).toBe("ready"); expect(g.closePortal).toHaveBeenCalledOnce();
+      await g.session.close();
+    }
+  });
+  // Regression (LAB 2026-10-12): closing the Connect popup before approving
+  // left the app "Waiting for approval in the mdbase window…" forever.
+  function closablePortal(f: ReturnType<typeof fixture>) {
+    const window = {gone: false};
+    f.openPortal.mockImplementation(() => ({navigate: f.navigatePortal, close: f.closePortal, get closed() {return window.gone;}}));
+    return window;
+  }
+  it("accepts an app popup that reports closed like Window.closed", () => {
+    // Apps already wrap their popup as `{readonly closed: boolean}`; the portal
+    // contract must keep compiling for them (typecheck covers this file).
+    interface AppPopup extends AppWebSignInPortal { readonly closed: boolean }
+    let gone = false; const popup: AppPopup = {navigate() {}, close() {gone = true;}, get closed() {return gone;}};
+    const portal: AppWebSignInPortal = popup; popup.close(); expect(portal.closed).toBe(true);
+  });
+  it("a closed approval window gets one final read, then signs out, and Sign in works again", async () => {
+    vi.useFakeTimers(); const f = fixture(), popup = closablePortal(f); await f.session.start(); f.selectOnPortal(); await f.session.authorize();
+    expect(f.session.snapshot().status).toBe("authorizing"); const reads = f.flow.exchange.mock.calls.length;
+    popup.gone = true; await vi.advanceTimersByTimeAsync(1000);
+    expect(f.flow.exchange).toHaveBeenCalledTimes(reads + 1);
+    expect(f.session.snapshot()).toMatchObject({status: "signed_out", problem: "approval_window_closed"});
+    await vi.advanceTimersByTimeAsync(30000); expect(f.flow.exchange).toHaveBeenCalledTimes(reads + 1);
+    popup.gone = false; await f.session.authorize();
+    expect(f.session.snapshot()).toMatchObject({status: "authorizing", problem: null}); expect(f.flow.start).toHaveBeenCalledTimes(2);
+    f.approve(); await vi.advanceTimersByTimeAsync(1000); expect(f.session.snapshot().status).toBe("ready"); await f.session.close();
+  });
+  it("a window closed after Connect approved pairs instead of signing out", async () => {
+    vi.useFakeTimers(); const f = fixture(), popup = closablePortal(f); await f.session.start(); f.selectOnPortal(); await f.session.authorize();
+    f.approve(); popup.gone = true; await vi.advanceTimersByTimeAsync(1000);
+    expect(f.session.snapshot()).toMatchObject({status: "ready", problem: null}); expect(f.closePortal).toHaveBeenCalledOnce(); await f.session.close();
+  });
+  it("a closed add-collection window keeps the person signed in on their collections", async () => {
+    vi.useFakeTimers(); const f = fixture("paired"), popup = closablePortal(f); await f.session.start(); await f.session.authorize();
+    expect(f.session.snapshot().status).toBe("authorizing"); const reads = f.flow.exchangeCollectionConsent.mock.calls.length;
+    popup.gone = true; await vi.advanceTimersByTimeAsync(1000);
+    expect(f.flow.exchangeCollectionConsent).toHaveBeenCalledTimes(reads + 1);
+    expect(f.session.snapshot()).toMatchObject({status: "ready", problem: null, selectedCollectionId: collectionId});
+    await vi.advanceTimersByTimeAsync(30000); expect(f.flow.exchangeCollectionConsent).toHaveBeenCalledTimes(reads + 1); await f.session.close();
+  });
+  it("a page that did not start a closed add-collection window keeps showing its collection throughout", async () => {
+    vi.useFakeTimers(); const f = fixture("paired"), popup = closablePortal(f); await f.session.start(); await f.session.authorize();
+    const seen: string[] = []; f.session.subscribe(() => seen.push(f.session.viewFor(collectionId, {bystander: true}).status));
+    popup.gone = true; await vi.advanceTimersByTimeAsync(1000);
+    expect(seen.length).toBeGreaterThan(0); expect(seen).not.toContain("authorizing");
+    expect(f.session.viewFor(collectionId, {bystander: true})).toMatchObject({status: "ready", selectedCollectionId: collectionId}); await f.session.close();
+  });
+  it.each(["refused", "expired"] as const)("a re-consent %s in Connect cancels back to the collections, never blocked", async reason => {
+    vi.useFakeTimers(); const f = fixture("paired"); await f.session.start(); await f.session.authorize();
+    expect(f.session.snapshot().status).toBe("authorizing"); const reads = f.flow.exchangeCollectionConsent.mock.calls.length;
+    f.flow.exchangeCollectionConsent.mockRejectedValueOnce(new AppInstallationSignInError(reason));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(f.session.snapshot()).toMatchObject({status: "ready", problem: null, selectedCollectionId: collectionId, approval: {outcome: "cancelled"}});
+    expect(f.closePortal).toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(30000); expect(f.flow.exchangeCollectionConsent).toHaveBeenCalledTimes(reads + 1); await f.session.close();
   });
   it("additional consent reserves a new portal request, auto-detects choice and never repeats keys/attestation", async () => {
     vi.useFakeTimers(); const f = fixture("paired"); await f.session.start(); await f.session.authorize();
@@ -285,10 +549,19 @@ describe("shared first-party web sign-in", () => {
     const b = await busyReceipt(kind); b.finish(); await vi.advanceTimersByTimeAsync(0);
     expect(b.read).toHaveBeenCalledTimes(3);
     await vi.advanceTimersByTimeAsync(0); expect(b.read).toHaveBeenCalledTimes(3);
-    expect(b.f.flow.start).toHaveBeenCalledTimes(kind === "pair" ? 2 : 1);
+    expect(b.f.flow.start).toHaveBeenCalledTimes(kind === "pair" ? 1 : 0);
     expect(b.f.host.attestInstallation).not.toHaveBeenCalled(); expect(b.f.openCollection).not.toHaveBeenCalled();
     if (kind === "pair") expect(b.f.hostOpen).not.toHaveBeenCalled();
     await b.f.session.close(); expect(vi.getTimerCount()).toBe(0);
+  });
+  it("a sign-in gesture during a background approval read waits for it and keeps its window open", async () => {
+    const b = await busyReceipt(), f = b.f, closeSecond = vi.fn();
+    f.openPortal.mockImplementationOnce(() => ({navigate: f.navigatePortal, close: closeSecond}));
+    const again = f.session.authorize(); expect(f.openPortal).toHaveBeenCalledTimes(2);
+    b.finish(); await vi.advanceTimersByTimeAsync(0); await again;
+    // This gesture's window stays open; only the superseded first one closes.
+    expect(closeSecond).not.toHaveBeenCalled(); expect(f.closePortal).toHaveBeenCalledOnce(); expect(f.navigatePortal).toHaveBeenCalledTimes(2);
+    expect(f.session.snapshot().status).toBe("authorizing"); await f.session.close();
   });
   it.each(["close", "abort", "hidden"] as const)("drops a queued receipt refresh on %s before original reply", async action => {
     const b = await busyReceipt();

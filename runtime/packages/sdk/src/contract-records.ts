@@ -29,7 +29,7 @@ export const contractRecordWire = struct<ContractRecordWire>("contract-record-v1
   [5, "fields", fmMap], [6, "contractDigest", hash], [7, "implementationDigest", hash],
 ]);
 
-/** @internal A contract write as ordinary top-level record changes. */
+/** A contract write as ordinary top-level record changes (SDK-internal). */
 export interface ContractWritePlan {
   version: number; type: string; patch: FmMap; unset: string[]; base: BaseField[];
   contractDigest: string; implementationDigest: string;

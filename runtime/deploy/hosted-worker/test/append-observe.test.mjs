@@ -4,20 +4,25 @@ import {appendObservation,boundedAppendObservation} from "../src/append-observe.
 import {sendCall,StaleAppendStore} from "../src/log.ts";
 import {wakeLog} from "../src/wake-observe.ts";
 const q=encode(new Map([[0,0],[1,9],[2,"append"],[3,new Map()]]));
-const result=n=>encode(new Map([[0,1],[1,9],[2,[n,new Map()]]]));
+const result=n=>encode(new Map([[0,1],[1,9],[2,new Map([[0,n],[1,4],[2,4]])]]));
 const refusal=(code="forbidden",reason="role")=>encode(new Map([[0,1],[1,9],[3,new Map([[0,code],[1,reason],[2,"private-token response"],[4,"customer-address"]])]]));
 test("bounded append results distinguish commit, CAS, duplicate and role refusal",()=>{
  for(const [n,outcome] of [[0,"appended"],[1,"head_moved"],[2,"duplicate"]])assert.deepEqual(appendObservation(q,result(n)),{outcome});
  assert.deepEqual(appendObservation(q,refusal()),{outcome:"refused",code:"forbidden",reason:"role"});
  assert.deepEqual(appendObservation(q,refusal("private-token","customer-id")),{outcome:"refused",code:"other",reason:"other"});
- assert.equal(appendObservation(q,new Uint8Array(65537)).outcome,"malformed");
- assert.equal(appendObservation(q,encode(new Map([[0,1],[1,10],[2,[0,new Map()]]]))).outcome,"malformed");
+ assert.deepEqual(appendObservation(q,new Uint8Array(65537)),{outcome:"malformed",detail:"size"});
+ assert.deepEqual(appendObservation(q,encode(new Map([[0,1],[1,10],[2,new Map([[0,0]])]]))),{outcome:"malformed",detail:"id"});
+ assert.deepEqual(appendObservation(q,encode(new Map([[0,2],[1,9],[2,new Map([[0,0]])]]))),{outcome:"malformed",detail:"version"});
+ assert.deepEqual(appendObservation(q,encode(new Map([[0,1],[1,9],[2,[0,new Map()]]]))),{outcome:"malformed",detail:"result_shape"});
+ assert.deepEqual(appendObservation(q,result(7)),{outcome:"malformed",detail:"result_code"});
+ assert.deepEqual(appendObservation(q,new Uint8Array([0xff])),{outcome:"malformed",detail:"decode"});
+ assert.deepEqual(appendObservation(q,encode([1,9])),{outcome:"malformed",detail:"shape"});
 });
 test("logging boundary keeps only whitelisted outcome fields, never payloads",()=>{
  const old=console.info,seen=[];console.info=x=>seen.push(x);
  try{wakeLog("12".repeat(12),"hosted","grant_append_outcome",{outcome:"refused",code:"forbidden",reason:"role",http_status:200,token:"private-token",body:"customer-content"});}finally{console.info=old;}
  const v=JSON.parse(seen[0]);assert.equal(v.reason,"role");assert.equal(v.code,"forbidden");assert.equal(v.phase,"grant_append_outcome");assert.ok(!seen[0].includes("private-token"));assert.ok(!seen[0].includes("customer-content"));
- assert.deepEqual(boundedAppendObservation({outcome:"secret",code:"secret",reason:"secret",http_status:1e9}),{outcome:"malformed",code:"other",reason:"other"});
+ assert.deepEqual(boundedAppendObservation({outcome:"secret",code:"secret",reason:"secret",http_status:1e9,detail:"secret"}),{outcome:"malformed",code:"other",reason:"other",detail:"other"});
 });
 function spy(){return {seen:[],signRpc:()=>new Uint8Array(64),logReply(){this.seen.push("reply")},logFailed(){this.seen.push("failed")}}}
 function log(rpc){return {async fetch(url){return url.endsWith("/nonce")?new Response("ab".repeat(32)):rpc()}}}

@@ -17,6 +17,7 @@
  * and `controlRouteResolver` fetches it on every (re)connect, so the three app ports
  * share one mapping.
  */
+import { LOCAL_APPLICATION_BUILD, localApplicationHttpOrigin } from "../local-build.js";
 import { fromHex } from "../cbor.js";
 import { collectionUnavailableError, parseCollectionAvailability, type CollectionAvailability } from "../collection-availability.js";
 import { mdbaseError } from "../errors.js";
@@ -72,7 +73,7 @@ export function controlRouteResolver(o: ControlRouteOptions): () => Promise<Rela
   } catch {
     throw mdbaseError("invalid_request", "The control plane requires an HTTPS origin");
   }
-  if (server.protocol !== "https:" || server.username || server.password || server.pathname !== "/" || server.search || server.hash) {
+  if ((server.protocol !== "https:" && !(LOCAL_APPLICATION_BUILD && localApplicationHttpOrigin(o.server))) || server.username || server.password || server.pathname !== "/" || server.search || server.hash) {
     throw mdbaseError("invalid_request", "The control plane requires an HTTPS origin without credentials, path, query or fragment");
   }
   // Snapshot the validated destination before retrieving any access token.

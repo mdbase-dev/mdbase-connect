@@ -1,10 +1,12 @@
 // MdbaseAppGrants against a scripted control plane: the grant flow's wire shape, what
 // is stored, single-use refresh, and bounded waits. No DOM, no network.
 import { IDBFactory } from "fake-indexeddb";
+import { createHash } from "node:crypto";
 import { afterEach, expect, it, vi } from "vitest";
 import { parseVersionedAppManifest } from "@mdbase-dev/connect-protocol/manifest";
 import { MdbaseAppGrants, indexedDbAppGrantStore, memoryAppGrantStore, mergeCollectionEntries, type AppGrantStore, type StoredAppGrant } from "../src/app-grant/index.js";
-import type { MdbaseApplicationDeclaration } from "../src/application/declaration.js";
+import { applicationDeclaration, rebindApplicationDeclaration, type MdbaseApplicationDeclaration } from "../src/application/declaration.js";
+import { resolveApplicationRegistration } from "../src/application/registration.js";
 import * as trust from "../src/application/packaged-trust.js";
 import { describeError } from "../src/describe-error.js";
 
@@ -17,8 +19,15 @@ afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 const fromB64u = (s: string) => Uint8Array.from(atob(s.replaceAll("-", "+").replaceAll("_", "/")), (c) => c.charCodeAt(0));
 
-function fixture(o: { manifestId?: string; store?: AppGrantStore | "default" } = {}) {
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  return `{${Object.entries(value).filter(([, v]) => v !== undefined).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(",")}}`;
+}
+
+function fixture(o: { manifestId?: string; registeredId?: string; store?: AppGrantStore | "default"; nativeAccount?: string; nativeRequest?: string } = {}) {
   const manifestId = o.manifestId ?? "dev.example.web";
+  const registeredId = o.registeredId ?? APP;
   vi.spyOn(trust, "appReleaseTrust").mockReturnValue({
     schema: "mdbn-app-trust/release/1", environment: "lab", cpOrigin: CP, logOrigin: "https://log.example.test",
     assetSha256: "aa".repeat(32), source: { repository: "mdbase-dev/mdbase-connect", commit: "bb".repeat(20), version: "test" },
@@ -30,10 +39,13 @@ function fixture(o: { manifestId?: string; store?: AppGrantStore | "default" } =
   };
   const declaration: MdbaseApplicationDeclaration = { id: APP, name: "Example", origin: ORIGIN, environment: "lab", manifest };
   const canonical = parseVersionedAppManifest(manifest, { allowLocal: true }).manifest;
+  const digest = registeredId === APP ? "cc".repeat(32) : createHash("sha256").update(canonicalJson(canonical)).digest("hex");
 
   let listener: ((url: string) => void) | null = null;
   let callback = "";
-  const requests: { path: string; body: URLSearchParams | null }[] = [];
+  let preparedBinding: Record<string, string> | null = null;
+  let preparedNoise = "";
+  const requests: { path: string; body: URLSearchParams | null; headers: Headers }[] = [];
   let refreshCount = 0;
   let refreshReply: () => Response = () => Response.json({ access_token: `a${++refreshCount}`, refresh_token: `r${refreshCount}`, collection_id: COLLECTION, expires_in: 30, refresh_expires_in: 3600 });
   let availability: unknown = { state: "unavailable", reason: "device_offline" };
@@ -42,18 +54,29 @@ function fixture(o: { manifestId?: string; store?: AppGrantStore | "default" } =
   const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
     const path = String(input).slice(CP.length);
     const body = typeof init?.body === "string" ? null : (init?.body as URLSearchParams | undefined) ?? null;
-    requests.push({ path, body });
+    requests.push({ path, body, headers: new Headers(init?.headers) });
     if (path === "/v1/apps/register") {
-      return Response.json({ application: { id: APP, name: "Example", manifest_digest: "cc".repeat(32), canonical_identity: `bundle:${manifestId}:sha256:${"cc".repeat(32)}`, family_identity: `bundle:${manifestId}`, distribution: "web", application_declaration: canonical } });
+      return Response.json({ application: { id: registeredId, name: "Example", manifest_digest: digest, canonical_identity: `bundle:${manifestId}:sha256:${digest}`, family_identity: `bundle:${manifestId}`, distribution: "web", application_declaration: canonical } });
     }
     if (path === "/oauth/authorization_request") {
       const proof = JSON.parse(body!.get("application_authorization")!) as { binding: { authorization_id: string; state: string } };
       // The person approves after the popup opens.
+      preparedBinding = proof.binding as unknown as Record<string, string>;
+      preparedNoise = (JSON.parse(body!.get("client_noise_key")!) as { public_key: string }).public_key;
       callback = `${ORIGIN}/callback?state=${proof.binding.state}&code=the-code`;
       return Response.json({ authorization_id: proof.binding.authorization_id, authorization_uri: `${CP}/oauth/authorize?id=1` });
     }
     if (path === "/oauth/token" && body!.get("grant_type") === "authorization_code") {
-      return Response.json({ access_token: "a0", refresh_token: "secret-refresh-0", collection_id: COLLECTION, expires_in: 30, refresh_expires_in: 3600 });
+      const grantId = "77777777-7777-4777-8777-777777777777";
+      const native = o.nativeAccount ? { grant_id: grantId, application_origin: ORIGIN, native_completion: {
+        version: 1, account_id: o.nativeAccount,
+        authorization_request_id: o.nativeRequest ?? preparedBinding!.authorization_id,
+        application_id: registeredId, application_declaration_id: manifestId, application_manifest_digest: digest,
+        application_installation_id: preparedBinding!.application_installation_id, application_origin: ORIGIN,
+        collection_id: COLLECTION, grant_id: grantId, grant_signing_public_key: preparedBinding!.grant_signing_public_key,
+        client_noise_public_key: preparedNoise,
+      } } : {};
+      return Response.json({ access_token: "a0", refresh_token: "secret-refresh-0", collection_id: COLLECTION, expires_in: 30, refresh_expires_in: 3600, ...native });
     }
     if (path === "/oauth/token") return refreshReply();
     const person = /^\/v1\/authorities\/([^/?]+)\/(identity|members)$/.exec(path);
@@ -72,9 +95,9 @@ function fixture(o: { manifestId?: string; store?: AppGrantStore | "default" } =
     declaration, redirectUri: `${ORIGIN}/callback`, ...(store ? { store } : {}), fetch,
     callbacks: { subscribe: (l) => { listener = l; return () => { listener = null; }; } },
   });
-  const popup = { navigate: vi.fn(() => void setTimeout(() => listener?.(callback), 10)), close: vi.fn(), closed: false };
+  const popup = { navigate: vi.fn((_uri: string) => void setTimeout(() => listener?.(callback), 10)), close: vi.fn(), closed: false };
   return {
-    grants, store: store as AppGrantStore, popup, requests, fetch,
+    grants, declaration, digest, store: store as AppGrantStore, popup, requests, fetch,
     setAvailability: (a: unknown) => { availability = a; },
     setListed: (l: unknown[]) => { listed = l; },
     setRefreshReply: (r: () => Response) => { refreshReply = r; },
@@ -87,6 +110,88 @@ async function authorized() {
   await expect(f.grants.authorize({ popup: f.popup })).resolves.toEqual({ collectionId: COLLECTION });
   return f;
 }
+
+it("shares the exact current registration with Hosted bootstrap, never a superseded declared application UUID", async () => {
+  const freshId = "88888888-8888-4888-8888-888888888888";
+  const f = fixture({ registeredId: freshId });
+  // Exact Entry.initialize path: register original declaration, rebind Worker appId.
+  const original = applicationDeclaration(f.declaration);
+  const registration = await resolveApplicationRegistration({ declaration: original, signal: new AbortController().signal, isCurrent: () => true, fetch: f.fetch });
+  const hosted = rebindApplicationDeclaration(original, registration);
+  expect(hosted.id).toBe(freshId);
+  expect(hosted.id).not.toBe(f.declaration.id);
+  const prepared = await f.grants.prepareAuthorization();
+  try {
+    const proof = JSON.parse(f.requests.find(r => r.path === "/oauth/authorization_request")!.body!.get("application_authorization")!);
+    expect(proof.binding.application_id).toBe(hosted.id);
+    expect(proof.binding.application_manifest_digest).toBe(registration.manifestDigest);
+    expect(prepared).toMatchObject({ applicationId: hosted.id, manifestDigest: registration.manifestDigest });
+    const bodies = f.fetch.mock.calls.filter(([url]) => String(url).endsWith("/v1/apps/register")).map(([, init]) => init!.body);
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]).toBe(bodies[1]);
+  } finally { prepared.cancel(); }
+});
+
+it("prepares the original challenge-bound Private authorization without another popup or premature grant", async () => {
+  const f = fixture();
+  const nonce = btoa(String.fromCharCode(...new Uint8Array(32).fill(42))).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
+  const prepared = await f.grants.prepareAuthorization({
+    authorizationNonce: nonce,
+    expectedAccountId: "11111111-1111-4111-8111-111111111111",
+  });
+  const start = f.requests.find(r => r.path === "/oauth/authorization_request")!.body!;
+  const proof = JSON.parse(start.get("application_authorization")!) as { binding: { authorization_id: string; authorization_nonce: string } };
+  expect(proof.binding.authorization_nonce).toBe(nonce);
+  expect(prepared.authorizationId).toBe(proof.binding.authorization_id);
+  expect(prepared.authorizationUri).toBe(`${CP}/oauth/authorize?id=1`);
+  expect(f.popup.navigate).not.toHaveBeenCalled();
+  expect(f.popup.close).not.toHaveBeenCalled();
+  expect(f.requests.some(r => r.path === "/oauth/token")).toBe(false);
+  expect(await f.store.listGrants()).toEqual([]);
+  prepared.cancel();
+});
+
+const ORIGINAL_ACCOUNT = "11111111-1111-4111-8111-111111111111";
+const ORIGINAL_NONCE = btoa(String.fromCharCode(...new Uint8Array(32).fill(42))).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
+
+it("finishes the SAME early callback once and verifies the original Native owner before storing", async () => {
+  const f = fixture({ nativeAccount: ORIGINAL_ACCOUNT });
+  const prepared = await f.grants.prepareAuthorization({ authorizationNonce: ORIGINAL_NONCE, expectedAccountId: ORIGINAL_ACCOUNT });
+  f.popup.navigate(prepared.authorizationUri);
+  // Normal callback may precede the protected receipt/ACK and finish invocation.
+  await new Promise(resolve => setTimeout(resolve, 25));
+  const completed = await prepared.finish({ popup: f.popup, collection: COLLECTION });
+  expect(completed.collectionId).toBe(COLLECTION);
+  expect(completed.nativeCompletion?.account_id).toBe(ORIGINAL_ACCOUNT);
+  expect(completed.nativeCompletion?.authorization_request_id).toBe(prepared.authorizationId);
+  expect(await f.store.getGrant(COLLECTION)).toBeDefined();
+  await expect(prepared.finish({ popup: f.popup, collection: COLLECTION })).rejects.toMatchObject({ reason: "authorization_binding" });
+  expect(f.requests.filter(r => r.path === "/oauth/token")).toHaveLength(1);
+  // The enclosing SDK flow owns popup closure after original ACK, not finish.
+  expect(f.popup.close).not.toHaveBeenCalled();
+});
+
+it.each([
+  { nativeAccount: "22222222-2222-4222-8222-222222222222" },
+  { nativeAccount: ORIGINAL_ACCOUNT, nativeRequest: "33333333-3333-4333-8333-333333333333" },
+  {},
+])("refuses mismatched or missing Native completion before any credential persistence: %j", async options => {
+  const f = fixture(options);
+  const prepared = await f.grants.prepareAuthorization({ authorizationNonce: ORIGINAL_NONCE, expectedAccountId: ORIGINAL_ACCOUNT });
+  f.popup.navigate(prepared.authorizationUri);
+  await expect(prepared.finish({ popup: f.popup, collection: COLLECTION })).rejects.toMatchObject({ code: "unauthenticated" });
+  expect(await f.store.listGrants()).toEqual([]);
+});
+
+it("cancels original preparation without exchanging a code or closing a shared popup", async () => {
+  const f = fixture({ nativeAccount: ORIGINAL_ACCOUNT });
+  const prepared = await f.grants.prepareAuthorization({ authorizationNonce: ORIGINAL_NONCE, expectedAccountId: ORIGINAL_ACCOUNT });
+  prepared.cancel();
+  await expect(prepared.finish({ popup: f.popup, collection: COLLECTION })).rejects.toMatchObject({ code: "cancelled" });
+  expect(f.requests.some(r => r.path === "/oauth/token")).toBe(false);
+  expect(await f.store.listGrants()).toEqual([]);
+  expect(f.popup.close).not.toHaveBeenCalled();
+});
 
 it("sends an attested client Noise key and stores no secret in readable form", async () => {
   const f = await authorized();
@@ -110,6 +215,14 @@ it("sends an attested client Noise key and stores no secret in readable form", a
   expect([...grant.noisePublicKey]).toEqual([...pk]);
 });
 
+it("a stale protected Noise binding cannot forget a newer or unrelated account's stored grant",async()=>{
+  const f=await authorized(),original=await f.store.getGrant(COLLECTION);
+  await expect(f.grants.forget(COLLECTION,{expectedNoisePublicKey:"stale-original-public-key"})).rejects.toMatchObject({code:"cancelled"});
+  expect(await f.store.getGrant(COLLECTION)).toEqual(original);
+  const key=btoa(String.fromCharCode(...original!.noisePublicKey)).replaceAll("+","-").replaceAll("/","_").replace(/=+$/u,"");
+  await f.grants.forget(COLLECTION,{expectedNoisePublicKey:key});expect(await f.store.getGrant(COLLECTION)).toBeUndefined();
+});
+
 it("refreshes once for concurrent callers and forgets a refused grant", async () => {
   const f = await authorized();
   // The access token expires within a minute, so both callers refresh, once.
@@ -122,6 +235,26 @@ it("refreshes once for concurrent callers and forgets a refused grant", async ()
   expect(await f.store.getGrant(COLLECTION)).toBeUndefined();
   // Without a grant the collection must be given access again.
   await expect(f.grants.availability(COLLECTION)).resolves.toEqual({ state: "unavailable", reason: "sync_required" });
+});
+
+it("signs each refresh with the grant signing key registered at consent", async () => {
+  const f = await authorized();
+  const binding = (JSON.parse(f.requests.find((r) => r.path === "/oauth/authorization_request")!.body!.get("application_authorization")!) as { binding: { grant_signing_public_key: string } }).binding;
+  expect((await f.store.getGrant(COLLECTION))!.signingPrivateKey!.extractable).toBe(false);
+  await f.grants.availability(COLLECTION);
+  const refresh = f.requests.find((r) => r.path === "/oauth/token" && r.body!.get("grant_type") === "refresh_token")!;
+  const h = refresh.headers;
+  expect(h.get("x-mdbase-proof-version")).toBe("1");
+  const digest = async (text: string) => btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))))).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
+  // Connect rebuilds the body in this order and verifies over it.
+  const body = new URLSearchParams({ grant_type: "refresh_token", refresh_token: "secret-refresh-0", client_id: APP }).toString();
+  expect(refresh.body!.toString()).toBe(body);
+  const message = ["mdbase-authority-request-proof-v1", "1", "POST", "/oauth/token", await digest(body), await digest("secret-refresh-0"),
+    h.get("x-mdbase-proof-timestamp"), h.get("x-mdbase-proof-nonce")].join("\n");
+  const key = await crypto.subtle.importKey("raw", fromB64u(binding.grant_signing_public_key), { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+  expect(await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, fromB64u(h.get("x-mdbase-proof-signature")!), new TextEncoder().encode(message))).toBe(true);
+  // The rotated grant keeps its signing key for the next refresh.
+  expect((await f.store.getGrant(COLLECTION))!.signingPrivateKey).toBeDefined();
 });
 
 it("waits for availability within its bound and never on access_removed", async () => {
@@ -245,7 +378,7 @@ it("refuses records labelled for another owner and never adopts an unlabelled st
   // for read, overwrite and delete, and stays in place.
   await labelled.putGrant(grant);
   const name = `mdbase.app-grants.v2.${encodeURIComponent(CP)}.${encodeURIComponent("bundle:dev.example.notes")}.${APP}`;
-  const db = await new Promise<IDBDatabase>((resolve) => { const r = indexedDB.open(name, 1); r.onsuccess = () => resolve(r.result); });
+  const db = await new Promise<IDBDatabase>((resolve) => { const r = indexedDB.open(name); r.onsuccess = () => resolve(r.result); });
   await new Promise<void>((resolve) => {
     const tx = db.transaction("grants", "readwrite");
     tx.objectStore("grants").put({ ...grant, owner: "bundle:dev.example.reader" }, COLLECTION);
@@ -256,7 +389,7 @@ it("refuses records labelled for another owner and never adopts an unlabelled st
     await expect(attempt()).rejects.toMatchObject({ code: "unauthenticated" });
   }
   const raw = await new Promise<unknown>((resolve) => {
-    const r = indexedDB.open(name, 1);
+    const r = indexedDB.open(name);
     r.onsuccess = () => { const g = r.result.transaction("grants").objectStore("grants").get(COLLECTION); g.onsuccess = () => { resolve(g.result); r.result.close(); }; };
   });
   expect(raw).toMatchObject({ owner: "bundle:dev.example.reader" });

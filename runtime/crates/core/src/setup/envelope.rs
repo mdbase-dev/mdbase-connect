@@ -19,13 +19,23 @@ use crate::types::{CONFIG_PATH, LOCK_PATH};
 use crate::validate::{Issue, Severity, Tier};
 use crate::value::Value;
 
+mod decisions;
 mod decode;
+pub use decisions::{
+    apply_reviewed_collection_setup, assess_reviewed_collection_setup,
+    reviewed_collection_setup_source_requirements, reviewed_resource_adoptions,
+};
+mod installer;
+mod records;
 mod resources;
+pub use records::{SetupStarterAssessment, SetupStarterRecord, validate_setup_starter_records};
+mod review;
 pub use resources::{
     CollectionResourceAssessment, MAX_RESOURCE_INVENTORY_BYTES, MAX_RESOURCE_INVENTORY_ROWS,
     MAX_RESOURCE_PATH_BYTES, MAX_RESOURCE_SOURCE_BYTES, apply_collection_resources,
     assess_collection_resources,
 };
+pub use review::collection_setup_review;
 
 /// Maximum nested packs in one reviewed envelope.
 pub const MAX_TYPE_PACKS: usize = 16;
@@ -82,7 +92,10 @@ pub struct CollectionSetupAssessment {
     pub applicable: bool,
     /// Binds actual inputs, head, components, files and both receipt documents.
     pub assessment_digest: Hash,
+    /// Complete create/skip starter decisions, separately grant-authorized by Native.
+    pub records: Vec<SetupStarterAssessment>,
     operations: Vec<Op>,
+    adopted: std::collections::BTreeMap<String, Hash>,
 }
 fn issue(code: &str, message: impl Into<String>) -> Box<Issue> {
     Box::new(Issue::new(code, Severity::Error, Tier::Request, message))
@@ -671,20 +684,11 @@ pub fn assess_collection_setup(
             }));
         }
     }
-    if applicable && !operations.is_empty() {
-        let mut request = mutation(operations[0].clone(), clock);
-        request.ops = operations.clone();
-        let planned =
-            crate::plan(&request, state, &PlanOptions { stage: Stage::Head }).map_err(|_| {
-                issue(
-                    "collection_setup_conflict",
-                    "the complete atomic setup plan cannot be admitted",
-                )
-            })?;
-        crate::plan::admission::RecordWriteAdmission::Synced
-            .check_planned(&planned)
-            .map_err(|_| limit())?;
-        crate::plan::frontmatter_admission::check_planned(&planned).map_err(|_| limit())?;
+    if applicable {
+        // Each pack assesses against its successive overlay, but the atomic
+        // publication writes the shared lock once: final bytes, original CAS.
+        resources::compact_pack_lock(&mut operations);
+        validate_setup_operations(state, clock, &operations)?;
     }
     if view.collection_revision() != head {
         return Err(stale());
@@ -746,7 +750,31 @@ pub fn assess_collection_setup(
         applicable,
         assessment_digest,
         operations,
+        adopted: Default::default(),
+        records: Vec::new(),
     })
+}
+fn validate_setup_operations(
+    state: &dyn StateView,
+    clock: &OpClock,
+    operations: &[Op],
+) -> Result<(), Box<Issue>> {
+    if !operations.is_empty() {
+        let mut request = mutation(operations[0].clone(), clock);
+        request.ops = operations.to_vec();
+        let planned =
+            crate::plan(&request, state, &PlanOptions { stage: Stage::Head }).map_err(|_| {
+                issue(
+                    "collection_setup_conflict",
+                    "the complete atomic setup plan cannot be admitted",
+                )
+            })?;
+        crate::plan::admission::RecordWriteAdmission::Synced
+            .check_planned(&planned)
+            .map_err(|_| limit())?;
+        crate::plan::frontmatter_admission::check_planned(&planned).map_err(|_| limit())?;
+    }
+    Ok(())
 }
 /// Re-assess actual inputs/head; return ONLY the reviewed, applicable operations
 /// for one atomic mediated mutation. Applications must not install its parts.

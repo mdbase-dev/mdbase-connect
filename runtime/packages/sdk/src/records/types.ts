@@ -5,6 +5,8 @@ import type { Problem, Receipt, RecordView, Uuid } from "../wire.js";
 
 export type RecordSessionState =
     | "saved"
+    /** Kept on this device; the write ledger syncs it when the service is reachable. */
+    | "saved_on_device"
     | "unsaved"
     | "saving"
     | "conflict"
@@ -42,7 +44,12 @@ export interface RecordFlushOptions {
     signal?: AbortSignal;
 }
 export type RecordFlushResult =
-    | { readonly ok: true; readonly record: RecordView }
+    | {
+          readonly ok: true;
+          readonly record: RecordView;
+          /** The write is kept on this device and not yet confirmed. */
+          readonly saved?: "on_device";
+      }
     | { readonly ok: false; readonly problem: Problem };
 export interface RecordSession {
     getSnapshot(): RecordSessionSnapshot;

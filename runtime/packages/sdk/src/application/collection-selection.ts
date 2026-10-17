@@ -3,8 +3,8 @@ import type {AppInstallationCollection} from "../app-host/installation-sign-in.j
 import {ApplicationSelectionError,applicationStartTarget,type ApplicationBrowserSelection,type ApplicationSelectionSnapshot} from "./browser-selection.js";
 
 export interface ApplicationSelectionRequestOptions {readonly signal?:AbortSignal}
-/** The singleton's view of its ONE sign-in session (directly or via the Worker
- * client). Selection never touches keys, ports, leases or native switches:
+/** This tab's view of the app's sign-in session (via the Worker client): the
+ * shared sign-in with THIS tab's collection; other tabs select their own. Selection never touches keys, ports, leases or native switches:
  * `open` is the runtime's switch (retire the old generation first, then the
  * native select; same open scope is a no-op fast path). */
 export interface ApplicationSelectionSession {
@@ -15,6 +15,10 @@ export interface ApplicationSelectionSession {
   /** MUST reserve the Connect popup synchronously, before its first await.
    * collectionHint asks Connect to preselect it (never consent by itself). */
   authorize(options?:ApplicationSelectionRequestOptions&{readonly collectionHint?:string|null}):Promise<unknown>;
+  /** True while more collections may still join the list (this browser's
+   * Private collections loading): an unlisted request waits, never reads as
+   * approval_required. */
+  listing?():boolean;
 }
 /** Optional per-app last-used hint. A REQUESTED hint only, never approval. */
 export interface ApplicationSelectionMemory {read():string|null;write(collectionId:string|null):void}
@@ -44,6 +48,18 @@ export interface ApplicationCollectionSelectionSnapshot {
   /** The collection the session actually has open (ready or setup_required). */
   readonly usable:AppInstallationCollection|null;
   readonly problem:ApplicationSelectionError["code"]|null;
+  /** SDK-6: the approval in progress (state approving). `reopenable`: the
+   * Connect window was handed off, so a new gesture may open it again
+   * (approve() again); false while it is still being handed off (busy). */
+  readonly approval?:Readonly<{kind:"add"|"collection";collectionId:string|null;reopenable:boolean}>|null;
+  /** SDK-6: how the last approve() ended; cleared by the next one. */
+  readonly lastApproval?:ApplicationApprovalOutcome|null;
+}
+/** SDK-6: how an approve() ended. `add` chose or created in Connect; `collection` named one. */
+export interface ApplicationApprovalOutcome {
+  readonly kind:"add"|"collection";
+  readonly outcome:"added"|"declined"|"closed"|"unchanged";
+  readonly collectionId:string|null;
 }
 const validId=(id:unknown):id is string=>typeof id==="string"&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)&&id!=="00000000-0000-0000-0000-000000000000";
 const isOpen=(s:AppWebSignInSnapshot)=>s.status==="ready"||s.status==="setup_required";
@@ -72,7 +88,8 @@ export class ApplicationCollectionSelection {
   private attempted:string|null|undefined=undefined;
   private lastRequested:string|null=null;
   private opening:Promise<void>|null=null;
-  private approval:{readonly receipt:string|null;settled:boolean}|null=null;
+  private approval:{readonly receipt:string|null;readonly kind:"add"|"collection";readonly collectionId:string|null;readonly before:ReadonlySet<string>;settled:boolean}|null=null;
+  private lastApproval:ApplicationApprovalOutcome|null=null;
   private declined:string|null=null;
   private remembered:string|null|undefined=undefined;
   private queued=false;
@@ -121,20 +138,41 @@ export class ApplicationCollectionSelection {
     if(collectionId!==undefined&&collectionId!==null&&collectionId!==this.requested().requestedCollectionId){
       this.startTarget=null;this.browser.select(collectionId,options.history?{history:options.history}:{});
     }
-    const receipt=this.session.getSnapshot().signIn?.collectionSelection?.requestId??null;
+    const current=this.session.getSnapshot().signIn;
+    const receipt=current?.nativeSelection?.requestId??current?.collectionSelection?.requestId??null;
     let pending:Promise<unknown>;
     const collectionHint=collectionId===null?null:this.requested().requestedCollectionId;
     try{pending=this.session.authorize({...(options.signal?{signal:options.signal}:{}),collectionHint});}catch(error){return Promise.reject(error);} // popup reserved synchronously
-    const approval={receipt,settled:false};
-    this.approval=approval;this.declined=null;this.attempted=undefined;this.refresh();
-    return pending.then(()=>{approval.settled=true;this.changed();return this.value;},error=>{if(this.approval===approval)this.approval=null;this.changed();throw error;});
+    const kind=collectionHint===null?"add" as const:"collection" as const;
+    const before=new Set(this.session.getSnapshot().collections.map(c=>c.collectionId));
+    const approval={receipt,kind,collectionId:collectionHint,before,settled:false};
+    this.approval=approval;this.lastApproval=null;this.declined=null;this.attempted=undefined;this.refresh();
+    return pending.then(()=>{approval.settled=true;this.changed();return this.value;},error=>{
+      if(this.approval===approval){
+        this.approval=null;
+        const code=(error as {code?:unknown}|null)?.code;
+        if(code==="cancelled"||code==="aborted")this.lastApproval=Object.freeze({kind,outcome:"closed",collectionId:collectionHint});
+      }
+      this.changed();throw error;
+    });
   }
+  /** A separate grant flow succeeded: its result supersedes a previous
+   * hosted approval outcome, even if opening the new collection must wait. */
+  clearLastApproval():void {this.check();this.lastApproval=null;this.refresh();}
   /** Re-run approval for the open (or requested) collection, e.g. after access
    * was lost or the app needs a wider grant. Call from the user gesture. */
   reauthorize(options:ApplicationSelectionRequestOptions={}):Promise<ApplicationCollectionSelectionSnapshot> {
     this.check();const id=this.value.usable?.collectionId??this.requested().requestedCollectionId;
     if(id===null)return Promise.reject(new ApplicationSelectionError("application_selection_empty"));
     return this.approve(id,options);
+  }
+  /** The session restarted from scratch (a fresh Worker after the page came
+   * back from the back/forward cache): the previous auto-open belonged to the
+   * old session, so the current request may open once more. Not a retry of a
+   * failure in the same session. */
+  resync():void {
+    if(this.closed)return;
+    this.attempted=undefined;this.approval=null;this.changed();
   }
   close():void {
     if(this.closed)return;this.closed=true;
@@ -175,8 +213,10 @@ export class ApplicationCollectionSelection {
     else if(s.selectedCollectionId===id&&(s.status==="blocked"||s.status==="opening"))state=s.status==="blocked"?"blocked":"opening";
     else if(!settled(s))state="pending";
     else if(wanted)state="opening";
+    else if(this.session.listing?.())state="pending";
     else{state="approval_required";if(this.declined===id)problem="application_selection_not_approved";}
-    return Object.freeze({state,problem,usable:usable?Object.freeze({...usable}):null,
+    const approval=this.approval?Object.freeze({kind:this.approval.kind,collectionId:this.approval.collectionId,reopenable:this.approval.settled}):null;
+    return Object.freeze({state,problem,approval,lastApproval:this.lastApproval,usable:usable?Object.freeze({...usable}):null,
       requested:Object.freeze({collectionId:id,source:r.source,displayName:wanted?.displayName??null,approved:wanted!==null})});
   }
   private async whenIdle(work:()=>Promise<void>):Promise<void>{while(this.opening)await this.opening;this.check();await work();}
@@ -194,17 +234,29 @@ export class ApplicationCollectionSelection {
     if(this.closed||this.opening)return;
     const s=this.session.getSnapshot();
     if(this.approval){
-      if(!this.approval.settled||inFlight(s))return;
-      this.finishApproval(s);
+      if(this.approval.settled&&s.status==="signed_out"&&s.problem!==null){
+        // Sign-in ended without approval (approval window closed, request
+        // expired): the approval is over, so approve() is available again.
+        const a=this.approval;this.approval=null;this.attempted=undefined;
+        this.lastApproval=Object.freeze({kind:a.kind,outcome:s.problem==="approval_window_closed"?"closed":"declined",collectionId:a.collectionId});
+        this.refresh();
+      }else{
+        if(!this.approval.settled||inFlight(s))return;
+        const native=s.signIn?.nativeSelection;
+        if(native && native.requestId!==this.approval.receipt && !approved(s,native.collectionId) && this.session.listing?.())return;
+        this.finishApproval(s);
+      }
     }
     if(!settled(s))return;
     if(!this.startApplied){
-      this.startApplied=true;
       if(this.browser.getSnapshot().source==="none"){
         let storedId:string|null=null;try{storedId=this.memory?.read()??null;}catch{/* optional hint */}
+        // A remembered collection not listed yet may be a Private one still loading.
+        if(storedId!==null&&!approved(s,storedId)&&this.session.listing?.())return;
+        this.startApplied=true;
         const target=applicationStartTarget(this.browser.getSnapshot(),{storedId,preferredId:this.preferredId,collections:s.collections});
         if(target.requestedCollectionId!==null&&!target.problem){this.browser.select(target.requestedCollectionId,{history:"replace"});this.startTarget=target;this.refresh();}
-      }
+      }else this.startApplied=true;
     }
     const r=this.requested(),id=r.requestedCollectionId;
     if(r.problem)return;
@@ -213,18 +265,26 @@ export class ApplicationCollectionSelection {
     void this.run(id);
   }
   private finishApproval(s:AppWebSignInSnapshot):void {
-    const receipt=this.approval!.receipt;this.approval=null;this.attempted=undefined;
-    const pick=s.signIn?.collectionSelection,picked=pick&&pick.requestId!==receipt&&approved(s,pick.selectedCollectionId)?pick.selectedCollectionId:null;
+    const a=this.approval!,receipt=a.receipt;this.approval=null;this.attempted=undefined;
+    const outcome=(id:string|null):ApplicationApprovalOutcome["outcome"]=>id!==null&&approved(s,id)?(a.before.has(id)?"unchanged":"added"):s.approval?.outcome==="closed"?"closed":"declined";
+    const pick=s.signIn?.collectionSelection,native=s.signIn?.nativeSelection;
+    const nativePicked=native&&native.requestId!==receipt&&approved(s,native.collectionId)?native.collectionId:null;
+    const picked=nativePicked ?? (pick&&pick.requestId!==receipt&&approved(s,pick.selectedCollectionId)?pick.selectedCollectionId:null);
     if(picked!==null){
       // The user's explicit portal choice replaces the request and opens once
       // (unless an owner session already opened it itself).
       if(picked!==this.requested().requestedCollectionId){this.startTarget=null;this.browser.select(picked,{history:"replace"});}
+      this.lastApproval=Object.freeze({kind:a.kind,outcome:outcome(picked),collectionId:picked});
       this.refresh();
       if(s.selectedCollectionId===picked&&(isOpen(s)||s.status==="opening"))this.attempted=picked;else void this.run(picked);
       return;
     }
     const id=this.requested().requestedCollectionId;
     if(id!==null&&!approved(s,id))this.declined=id;
+    // An add without a portal pick: any newly approved collection counts.
+    const added=a.kind==="add"?s.collections.find(c=>!a.before.has(c.collectionId))?.collectionId??null:null;
+    const target=a.kind==="add"?added:a.collectionId??id;
+    this.lastApproval=Object.freeze({kind:a.kind,outcome:outcome(target),collectionId:target});
     this.refresh();
   }
 }

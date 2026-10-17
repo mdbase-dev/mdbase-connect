@@ -13,9 +13,9 @@ const request = (method = "head", p: Map<number, CborValue> = new Map([[0, uuidT
 const body = (init?: RequestInit) => decode(init!.body as Uint8Array) as M;
 const binary = (bytes: Uint8Array) => new Response(bytes.slice(), { headers: { "content-length": String(bytes.length) } });
 const target = (headers = new Map<string, CborValue>(), url = `${OBJECT_ORIGIN}/sealed?signature=private-capability`, expires = NOW + 120_000) => new Map<number, CborValue>([[0, url], [1, headers], [2, expires]]);
-function fixture(handler: (url: string, init?: RequestInit) => Response | Promise<Response>) {
+function fixture(handler: (url: string, init?: RequestInit) => Response | Promise<Response>, directOrigins: readonly string[] = [OBJECT_ORIGIN]) {
   let current = true; const proofs: AppLogHttpProof[] = [];
-  const auth: AppLogHttpAuthority = { endpoint: 37, collection: COLLECTION, origin: ORIGIN, directOrigins: [OBJECT_ORIGIN], isCurrent: () => current,
+  const auth: AppLogHttpAuthority = { endpoint: 37, collection: COLLECTION, origin: ORIGIN, directOrigins, isCurrent: () => current,
     accessToken: vi.fn(async () => "public-fixture-token"), signLogProof: vi.fn(async p => { proofs.push({ ...p, nonce: p.nonce.slice(), digest: p.digest.slice(), bodyHash: p.bodyHash.slice(), tokenHash: p.tokenHash.slice() }); return ed25519.sign(p.digest, new Uint8Array(32).fill(0x33)); }) };
   const fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => String(url).endsWith("/v1/nonce") ? new Response("11".repeat(32)) : handler(String(url), init));
   const transport = new AppHttpLogTransport(auth, { fetch, now: () => NOW });
@@ -57,7 +57,7 @@ describe("actual HTTP framing/authentication port", () => {
     expect(sent).toBe("a40000010102646865616403a1005022222222222222222222222222222222");
     expect(toHex(f.proofs[0]!.digest)).toBe("754b42cd0f5ffd33c1a5a25fc6b65bfe3d6dbe6f712ae38561fcfad7421c7bdb");
     expect(signature).toBe("3920af542e0d7ea4bf756f8aed0d7c71c4e84d22812a40a4004528798f3ba46f58f14b7b4562383e8240964aceabb42aadad596cce36c5414f7dfb9fbe529a03");
-    for (const [, init] of f.fetch.mock.calls) expect(init).toMatchObject({ redirect: "error", credentials: "omit", cache: "no-store", referrerPolicy: "no-referrer" });
+    for (const [, init] of f.fetch.mock.calls) expect(init).toMatchObject({ redirect: "error", credentials: "omit", cache: init?.method === "POST" ? "default" : "no-store", referrerPolicy: "no-referrer" });
   });
   it("captures mutable input before awaiting the token/signature", async () => {
     const f = fixture((_url, init) => binary(response((body(init)).get(1)!, null))), call = request(); const original = call.frame.slice();
@@ -132,6 +132,16 @@ describe("staged upload + authoritative commit", () => {
     });
     const result = decode(await f.send(put(object))) as M;
     expect(events).toEqual(["put_object", "PUT", "commit_object"]); expect(commitId).not.toBe(1); expect(result.get(1)).toBe(1); expect((result.get(2) as M).get(0)).toBe(0); expect(object[0]).toBe(42);
+  });
+  it("uploads to the log's own direct URL with no extra object-store origin (objects over 1 MiB)", async () => {
+    const object = new Uint8Array(1024 * 1024 + 1).fill(9), events: string[] = [];
+    const f = fixture((url, init) => {
+      if (url.startsWith(`${ORIGIN}/v1/o/`)) { events.push("PUT"); return new Response(null); }
+      const m = body(init), method = m.get(2) as string; events.push(method);
+      return binary(response(m.get(1)!, method === "put_object" ? new Map<number, CborValue>([[0, 1], [1, target(new Map(), `${ORIGIN}/v1/o/sealed?sig=x`)]]) : new Map<number, CborValue>([[0, true]])));
+    }, []);
+    expect(((decode(await f.send(put(object))) as M).get(2) as M).get(0)).toBe(0);
+    expect(events).toEqual(["put_object", "PUT", "commit_object"]);
   });
   it.each([new Map<number, CborValue>([[0, false]])])("does not report a staged target/negative or malformed commit as stored (%s)", async committed => {
     const object = new Uint8Array(1024 * 1024 + 1).fill(7);

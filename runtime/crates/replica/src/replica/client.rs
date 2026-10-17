@@ -474,7 +474,9 @@ impl<S: Store> Replica<S> {
                 .local_date(now, &self.host.zones.default_zone())
                 .unwrap_or_else(|| super::utc_date(now)),
         };
-        if !q.select.is_empty() || !q.projections.is_empty() {
+        // Link predicates need the same bounded original-state host as link
+        // projections; the ordinary residual evaluator has no cross-record host.
+        if !q.select.is_empty() || !q.projections.is_empty() || plan.requirements.links {
             return self.run_projected_query(&plan, &view, &lv, &env, include);
         }
         // Declined queries take the per-record path below, which is complete.
@@ -635,6 +637,23 @@ impl<S: Store> Replica<S> {
 }
 
 impl<S: Store> ClientApi for Replica<S> {
+    fn app_collection_setup(&mut self, session: SessionId, request: &[u8]) -> ApiResult<Vec<u8>> {
+        self.declared_setup_rpc(session, request)
+    }
+    fn app_bases_execute(&mut self, session: SessionId, request: &[u8]) -> ApiResult<Vec<u8>> {
+        self.encode_app_bases_execute(session, request)
+    }
+    fn app_bases_list_views(&mut self, session: SessionId, request: &[u8]) -> ApiResult<Vec<u8>> {
+        self.encode_app_bases_list_views(session, request)
+    }
+    fn app_bases_read_view_source(
+        &mut self,
+        session: SessionId,
+        request: &[u8],
+    ) -> ApiResult<Vec<u8>> {
+        self.encode_app_bases_read_view_source(session, request)
+    }
+
     fn hello(
         &mut self,
         auth: SessionAuth,
@@ -711,6 +730,11 @@ impl<S: Store> ClientApi for Replica<S> {
                 pending_time_floor: i64::MIN,
             },
         );
+        let setup_supported = self
+            .sessions
+            .get(&id)
+            .and_then(|s| s.grant())
+            .is_some_and(|grant| self.supports_declared_setup(grant));
         let wanted = params.features.clone().unwrap_or_default();
         let status = self.sync_status();
         let head_witness = status
@@ -734,6 +758,7 @@ impl<S: Store> ClientApi for Replica<S> {
                     .into_iter()
                     .filter(|f| {
                         GRANTABLE_FEATURES.contains(&f.as_str())
+                            || (setup_supported && f == super::collection_setup::SETUP_RPC_FEATURE)
                             || self.attachment_direction(f.as_str())
                     })
                     .collect(),
@@ -746,6 +771,7 @@ impl<S: Store> ClientApi for Replica<S> {
         self.hosted_drop_session(session);
         self.client_files_close(session);
         self.sessions.remove(&session);
+        self.declared_setup_rpc_prune();
         self.bases_discovery.remove(session);
         self.query_cursors.close(session);
         self.submitted_by.retain(|_, s| *s != session);
@@ -1022,6 +1048,22 @@ impl<S: Store> ClientApi for Replica<S> {
     fn reject_device(&mut self, session: SessionId, _device: Uuid) -> ApiResult<()> {
         self.host_only(session)?;
         not_yet("reject_device")
+    }
+
+    fn pending_grants(&mut self, session: SessionId) -> ApiResult<Vec<crate::api::PendingGrant>> {
+        self.host_only(session)?;
+        Ok(self.pending_grant_infos())
+    }
+
+    fn approve_grant(
+        &mut self,
+        session: SessionId,
+        grant: Uuid,
+        capabilities: Vec<String>,
+        folders: Option<Vec<String>>,
+    ) -> ApiResult<()> {
+        self.host_only(session)?;
+        self.queue_grant_approval(grant, capabilities, folders)
     }
 
     fn list_files(&mut self, session: SessionId, params: ListFiles) -> ApiResult<FileList> {

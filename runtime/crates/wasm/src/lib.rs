@@ -806,6 +806,25 @@ mod abi {
         super::runtime::wipe(&mut bytes);
         give(signature)
     }
+    /// Fixed ls-hello proof for the current generation's push socket. Input is
+    /// `nonce32 ‖ token`; only a 64-byte signature is returned.
+    ///
+    /// # Safety
+    /// Input must come from alloc(len), consumed/wiped even on refusal.
+    #[unsafe(no_mangle)]
+    #[cfg(feature = "app-runtime")]
+    pub unsafe extern "C" fn rt_app_log_hello_sign(
+        generation: u64,
+        ptr: *mut u8,
+        len: usize,
+    ) -> u64 {
+        let mut bytes = unsafe { take(ptr, len) };
+        let signature = rt()
+            .and_then(Active::app)
+            .map_or_else(Vec::new, |r| r.sign_hello_consuming(generation, &mut bytes));
+        super::runtime::wipe(&mut bytes);
+        give(signature)
+    }
     /// Original scoped, canonical host calls.
     #[unsafe(no_mangle)]
     #[cfg(feature = "app-runtime")]
@@ -836,6 +855,13 @@ mod abi {
         if let Some(r) = rt().and_then(Active::app) {
             r.no_response(mdbn_replica::log::CallId(id));
         }
+    }
+    /// HOST ONLY foreground head wake on the current log session (1 = queued).
+    #[unsafe(no_mangle)]
+    #[cfg(feature = "app-runtime")]
+    pub extern "C" fn rt_app_log_head() -> u32 {
+        rt().and_then(Active::app)
+            .is_some_and(|r| r.request_log_head()) as u32
     }
     /// HOST ONLY SAME authenticated foreground/CP-notification reconnect after
     /// draining/aborting old transport. No push-channel/readiness/identity claim.

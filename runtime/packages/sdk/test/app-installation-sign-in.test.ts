@@ -2,7 +2,7 @@ import { collectionDeleteError } from "../src/app-host/collection-delete.js";
 import { describeError } from "../src/describe-error.js";
 import { webcrypto } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AppProtectedInstallationSignIn } from "../src/app-host/installation-sign-in.js";
+import { AppInstallationSignInError, AppProtectedInstallationSignIn } from "../src/app-host/installation-sign-in.js";
 import { AppInstallationStore } from "../src/app-host/installation-store.js";
 import type { AppWasmRuntime } from "../src/app-host/wasm-runtime.js";
 const origin = "https://notes.example.test", cpOrigin = "https://cp.example.test", appName = "Independent Notes";
@@ -10,7 +10,7 @@ const account = "11111111-1111-4111-8111-111111111111", connector = "22222222-22
 const pk = {signPublicKey: new Uint8Array(32).fill(3), kemPublicKey: new Uint8Array(32).fill(4), noisePublicKey: new Uint8Array(32).fill(5)};
 const hex = (b: Uint8Array) => Array.from(b, v => v.toString(16).padStart(2, "0")).join("");
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
-async function fixture(requestedCreateCollections = false, extra: {installationKind?: "app-runtime" | "mobile"; owner?: string} = {}) {
+async function fixture(requestedCreateCollections = false, extra: {installationKind?: "app-runtime" | "mobile"; owner?: string; requestedCreateCollections?: boolean; freshRequestedCreateCollections?: boolean; recoveryFor?: Readonly<{accountId: string; collectionId: string}>} = {}) {
   vi.stubGlobal("crypto", webcrypto); vi.stubGlobal("location", {origin});
   const trace: string[] = [], requests: {path: string; body: unknown; bearer: unknown}[] = [];
   let saved: Uint8Array | null = null, current = true, selected = false, approved = false, commitFailure = false, failHttp = false, oversized = false;
@@ -25,13 +25,13 @@ async function fixture(requestedCreateCollections = false, extra: {installationK
   });
   const request = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     expect(saved).not.toBeNull(); const state = read(); trace.push("http");
-    expect(init).toMatchObject({method: "POST", credentials: "omit", redirect: "error", cache: "no-store", referrerPolicy: "no-referrer"});
+    expect(init).toMatchObject({method: "POST", credentials: "omit", redirect: "error", cache: "default", referrerPolicy: "no-referrer"});
     const path = new URL(String(input)).pathname, body = init?.body === undefined ? undefined : JSON.parse(String(init.body)), bearer = (init?.headers as Record<string, string>)?.authorization;
     requests.push({path, body, bearer}); if (failHttp) throw Error("lost HTTP reply");
     let status = 200, value: Record<string, unknown>;
     const selection = {request_id: state.requestId, account_id: account, connector_id: connector, device_id: state.deviceId, installation_id: state.installationId, kind: state.kind, challenge: "ab".repeat(32), approval_mode: "password-ak1", app_id: state.appId, app_origin: state.origin, expires_at: Date.now() + 600000};
     if (path === "/v1/pairing-requests") {
-      expect(body.installation).toEqual({app_id: state.appId, request_id: state.requestId, pairing_secret: state.secret, installation_id: state.installationId, device_id: state.deviceId, kind: state.kind, requested_create_collections: state.requestedCreateCollections ?? false, ...(state.renewal ? {renewal:{request_id:state.renewal.requestId,pairing_secret:state.renewal.secret}} : {})}); expect(bearer).toBeUndefined();
+      expect(body.installation).toEqual({app_id: state.appId, request_id: state.requestId, pairing_secret: state.secret, installation_id: state.installationId, device_id: state.deviceId, kind: state.kind, requested_create_collections: state.requestedCreateCollections ?? false, ...(state.recoveryFor ? {recovery_collection_id: state.recoveryFor.collectionId} : {}), ...(state.renewal ? {renewal:{request_id:state.renewal.requestId,pairing_secret:state.renewal.secret}} : {})}); expect(bearer).toBeUndefined();
       value = {pairing_id: state.requestId, pairing_secret: state.secret, verification_uri: `${cpOrigin}/pair/${state.requestId}`, expires_in: 600, installation_device: true, app_id: state.appId, app_origin: state.origin, app_name: appName};
     } else {
       expect(bearer).toBe(`Bearer ${state.secret}`);
@@ -41,6 +41,7 @@ async function fixture(requestedCreateCollections = false, extra: {installationK
       else if (!approved) {status = 202; value = {status: "awaiting_approval", ...selection};}
       else value = {status: "paired", ...selection, connector: {id: connector, name: appName}, token: `idev_${"a".repeat(43)}`, registration: {device_id: state.deviceId, sign_pk: hex(pk.signPublicKey), kem_pk: hex(pk.kemPublicKey), noise_pk: hex(pk.noisePublicKey)}};
     }
+    if (state.recoveryFor && (path === "/v1/pairing-requests" || ["account_selected", "awaiting_approval", "paired"].includes(value.status as string))) value.recovery_collection_id = state.recoveryFor.collectionId;
     change(value); if (oversized) value = {padding: "a".repeat(65537)};
     return new Response(JSON.stringify(value), {status});
   }) as unknown as typeof fetch;
@@ -78,6 +79,20 @@ describe("explicit expired-window retry preserves original actor", () => {
     expect(saved.renewal).toEqual({requestId:original.requestId,secret:original.secret});
     for(const key of ['installationId','deviceId','appId','kind','origin','cpOrigin','requestedCreateCollections'])expect(saved[key]).toEqual(original[key]);
     expect(f.trace.indexOf('protected-commit')).toBeLessThan(f.trace.indexOf('http'));expect(f.requests).toHaveLength(1);
+  });
+  it("a fully read reply is not cancelled, so the browser records it as completed",async()=>{
+    const f=await fixture(), reply=vi.mocked(f.request).getMockImplementation()!; const cancels: unknown[]=[];
+    vi.mocked(f.request).mockImplementationOnce(async(input,init)=>{
+      const response=await reply(input,init), body=response.body!, getReader=body.getReader.bind(body);
+      body.cancel=async()=>{cancels.push("body");}; body.getReader=(()=>{const reader=getReader();reader.cancel=async()=>{cancels.push("reader");};return reader;}) as typeof body.getReader;
+      return response;
+    });
+    await f.flow.start();expect(cancels).toEqual([]);
+  });
+  it("a window cancelled in the portal is refused but renewable from an explicit retry",async()=>{
+    const f=await fixture(), original=f.read();vi.mocked(f.request).mockResolvedValueOnce(new Response(JSON.stringify({error:{code:"installation_pairing_denied",message:"cancelled"}}),{status:404}));
+    await expect(f.flow.start()).rejects.toMatchObject({reason:'refused'});
+    const next=await f.flow.renewExpiredPairing();expect(next.requestId).not.toBe(original.requestId);expect(f.read().renewal).toEqual({requestId:original.requestId,secret:original.secret});
   });
   it.each(['installation_pairing_not_found'])("does not authorize retry from arbitrary404 %s",async code=>{
     const f=await fixture(), original=f.read();vi.mocked(f.request).mockResolvedValueOnce(new Response(JSON.stringify({error:{code}}),{status:404}));
@@ -239,7 +254,7 @@ describe("explicit approved collection rename", () => {
     const f = await approvedCollection(), before = f.read();
     vi.mocked(f.request).mockImplementationOnce(async (input, init) => {
       expect(String(input)).toBe(`${cpOrigin}/v1/next/collections/${collection}/name`);
-      expect(init).toMatchObject({method: "PATCH", credentials: "omit", redirect: "error", cache: "no-store", referrerPolicy: "no-referrer"});
+      expect(init).toMatchObject({method: "PATCH", credentials: "omit", redirect: "error", cache: "default", referrerPolicy: "no-referrer"});
       expect((init!.headers as Record<string,string>).authorization).toBe(`Bearer ${before.token}`);
       expect(JSON.parse(String(init!.body))).toEqual({display_name: "Research"});
       return new Response(JSON.stringify({collection_id: collection, display_name: "Research"}));
@@ -285,7 +300,7 @@ describe("explicit owner collection delete", () => {
     const f = await approvedCollection(), before = f.read();
     vi.mocked(f.request).mockImplementationOnce(async (input, init) => {
       expect(String(input)).toBe(`${cpOrigin}/v1/next/collections/${collection}`);
-      expect(init).toMatchObject({method: "DELETE", credentials: "omit", redirect: "error", cache: "no-store"});
+      expect(init).toMatchObject({method: "DELETE", credentials: "omit", redirect: "error", cache: "default"});
       expect((init!.headers as Record<string,string>).authorization).toBe(`Bearer ${before.token}`);
       expect(JSON.parse(String(init!.body))).toEqual({confirm_name: "Research"});
       return new Response(JSON.stringify({collection_id: collection, deleted: true}));
@@ -306,6 +321,77 @@ describe("explicit owner collection delete", () => {
     expect(collectionDeleteError(await f.flow.deleteApprovedCollection(f.installation, collection, "Research").catch((e: unknown) => e)).code).toBe("collection_delete_outcome_unknown");
   });
 });
+describe("original protected Native companion", () => {
+  const authorizationId = "88888888-8888-4888-8888-888888888888";
+  async function attested() {
+    const f = await fixture();
+    f.change(v => { if (["account_selected", "awaiting_approval", "paired"].includes(v.status as string)) Object.assign(v, { account_email: "owner@example.test", account_selection_confirmed: true }); });
+    await confirmed(f); await f.flow.attest(f);
+    return f;
+  }
+  it("attaches using ONLY the original pairing capability and accepts zero Hosted scope without a Hosted pick", async () => {
+    const f = await attested();
+    const context = f.flow.nativeAuthorizationContext(f.installation)!;
+    expect(context).toMatchObject({ requestId: f.read().requestId, accountId: account, appId: f.options.appId, challenge: "ab".repeat(32) });
+    vi.mocked(f.request).mockImplementationOnce(async (url, init) => {
+      expect(new URL(String(url)).pathname).toBe(`/v1/pairing-requests/${context.requestId}/native-authorization`);
+      expect((init!.headers as Record<string,string>).authorization).toBe(`Bearer ${f.read().secret}`);
+      expect(JSON.parse(String(init!.body))).toEqual({ authorization_request_id: authorizationId });
+      return Response.json({ request_id: context.requestId, authorization_request_id: authorizationId, account_id: account });
+    });
+    await f.flow.attachNativeAuthorization(f.installation, context, { authorizationId, applicationId: context.appId, manifestDigest: "cc".repeat(32) });
+    f.setApproved(); f.change(v => { if (v.status === "paired") Object.assign(v, { account_email: "owner@example.test", account_selection_confirmed: true, collection_ids: [], create_collections: false, native_selection: { authorization_request_id: authorizationId, collection_id: collection } }); });
+    const view = await f.flow.exchange();
+    expect(view.collectionIds).toEqual([]); expect(view.collectionSelection).toBeNull();
+    expect(view.nativeSelection).toBeNull(); // metadata alone never publishes a verified choice
+    expect(f.flow.pendingNativeSelection()).toMatchObject({ authorizationRequestId: authorizationId, collectionId: collection });
+    const b64=(bytes:Uint8Array)=>btoa(String.fromCharCode(...bytes)).replaceAll("+","-").replaceAll("/","_").replace(/=+$/u,"");
+    const completion={version:1 as const,account_id:account,authorization_request_id:authorizationId,application_id:context.appId,application_declaration_id:"dev.example.web",application_manifest_digest:"cc".repeat(32),application_installation_id:connector,application_origin:origin,collection_id:collection,grant_id:authorizationId,grant_signing_public_key:b64(Uint8Array.from({length:65},(_,i)=>i===0?4:1)),client_noise_public_key:b64(new Uint8Array(32).fill(9))};
+    await expect(f.flow.completeNativeAuthorization(f.installation,completion)).rejects.toMatchObject({reason:"binding"});
+    await f.flow.acknowledge(f);
+    expect(f.trace.slice(-2)).toEqual(["protected-receipt", "native-ack"]);
+    await expect(f.flow.completeNativeAuthorization(f.installation,{...completion,account_id:connector})).rejects.toMatchObject({code:"unauthenticated"});
+    await f.flow.completeNativeAuthorization(f.installation,completion);
+    expect(f.flow.view().nativeSelection).toMatchObject({collectionId:collection});
+    await f.flow.close();const restored=await AppProtectedInstallationSignIn.open({...f.options,mode:"existing"});
+    expect(restored.view().nativeGrants).toEqual([completion]);expect(restored.view().collectionIds).toEqual([]);await restored.close();
+  });
+  it("scoped Native recovery accepts ONLY its exact explicit target with zero Hosted scope",async()=>{
+    const f=await fixture(false,{owner:"bundle:notes:scope:native-original",recoveryFor:{accountId:account,collectionId:collection}});
+    f.change(v=>{if(v.status==="account_selected"||v.status==="awaiting_approval")Object.assign(v,{account_email:"owner@example.test",account_selection_confirmed:true});});
+    await confirmed(f);await f.flow.attest(f);const context=f.flow.nativeAuthorizationContext(f.installation)!;
+    vi.mocked(f.request).mockResolvedValueOnce(Response.json({request_id:context.requestId,authorization_request_id:authorizationId,account_id:account}));
+    await f.flow.attachNativeAuthorization(f.installation,context,{authorizationId,applicationId:context.appId,manifestDigest:"cc".repeat(32)});
+    f.setApproved();f.change(v=>{if(v.status==="paired")Object.assign(v,{account_email:"owner@example.test",account_selection_confirmed:true,collection_ids:[],create_collections:false,native_selection:{authorization_request_id:authorizationId,collection_id:connector}});});
+    await expect(f.flow.exchange()).rejects.toMatchObject({reason:"binding"});expect(f.read().token).toBeNull();
+    f.change(v=>{if(v.status==="paired")Object.assign(v,{account_email:"owner@example.test",account_selection_confirmed:true,collection_ids:[],create_collections:false,native_selection:{authorization_request_id:authorizationId,collection_id:collection}});});
+    expect((await f.flow.exchange()).collectionIds).toEqual([]);await f.flow.close();
+    const restored=await AppProtectedInstallationSignIn.open({...f.options,mode:"existing"});expect(restored.pendingNativeSelection()?.collectionId).toBe(collection);await restored.close();
+  });
+  it("additive Native approval preserves the original Hosted actor/scope/proof and never invents a Hosted pick",async()=>{
+    const f=await fixture();await confirmed(f);await f.flow.attest(f);f.setApproved();
+    f.change(v=>{if(v.status==="paired")Object.assign(v,{collection_ids:[collection],create_collections:false,selected_collection_id:collection,created_collection_ids:[]});});
+    await f.flow.exchange();await f.flow.acknowledge(f);const before=f.read();
+    consentStart(f);await f.flow.startCollectionConsent(f.installation);
+    consentExchange(f,v=>Object.assign(v,{account_email:"owner@example.test",account_selection_confirmed:true}),true);
+    await f.flow.exchangeCollectionConsent(f.installation);const context=f.flow.nativeAuthorizationContext(f.installation)!;
+    vi.mocked(f.request).mockImplementationOnce(async(_url,init)=>{
+      expect((init!.headers as Record<string,string>).authorization).toBe(`Bearer ${f.read().consentRequest.secret}`);
+      return Response.json({request_id:context.requestId,authorization_request_id:authorizationId,account_id:account});
+    });
+    await f.flow.attachNativeAuthorization(f.installation,context,{authorizationId,applicationId:context.appId,manifestDigest:"cc".repeat(32)});
+    consentExchange(f,v=>Object.assign(v,{account_email:"owner@example.test",account_selection_confirmed:true,added_collection_ids:[],approved_create_collections:false,native_selection:{authorization_request_id:authorizationId,collection_id:connector}}));
+    const completed=await f.flow.exchangeCollectionConsent(f.installation);expect(completed.addedCollectionIds).toEqual([]);
+    for(const key of ["token","installationId","deviceId","proof","collectionIds","createCollections"])expect(f.read()[key]).toEqual(before[key]);
+    expect(f.flow.view().collectionSelection).toBeNull();expect(f.flow.pendingNativeSelection()?.requestId).toBe(context.requestId);await f.flow.close();
+  });
+  it("never attaches a different app or regenerates an original pending preparation", async () => {
+    const f = await attested(), context = f.flow.nativeAuthorizationContext(f.installation)!;
+    await expect(f.flow.attachNativeAuthorization(f.installation, context, { authorizationId, applicationId: account, manifestDigest: "cc".repeat(32) })).rejects.toMatchObject({ reason: "binding" });
+    expect(f.requests.some(r => r.path.endsWith("/native-authorization"))).toBe(false);
+  });
+});
+
 async function paired(requestedCreateCollections = false) {
   const f = await fixture(requestedCreateCollections); await confirmed(f); await f.flow.attest(f); f.setApproved(); await f.flow.exchange(); return f;
 }
@@ -423,6 +509,136 @@ describe("original native timer consent receipts",()=>{
     expect(resumed.view().timerConsent?.grants).toEqual([{grantId:fresh,collectionId:collection,declarationDigest:digest}]);expect(resumed.originalTimerChannel(fresh)).toBeNull();expect(f.read().timerChannel).toEqual(pending); expect(f.read().proof).toEqual(custody); expect(f.read().token).toBe(token); await resumed.close();
   });
 });
+describe("fresh scoped recovery receipt constraints", () => {
+  const recoveryFor = {accountId: account, collectionId: collection};
+  it("sends the protected CID on START and retains a status-only pending exchange", async () => {
+    const f = await fixture(false, {owner: "bundle:notes:scope:original-local-reference", recoveryFor}), original = f.read();
+    expect((await f.flow.start()).state).toBe("pending");
+    expect(f.requests[0]!.body).toMatchObject({installation: {recovery_collection_id: collection, requested_create_collections: false}});
+    expect((await f.flow.exchange()).state).toBe("pending");
+    expect(f.read()).toEqual(original); expect(f.runtime.signCpEnrol).not.toHaveBeenCalled(); await f.flow.close();
+  });
+  it.each(["missing", "wrong"])("refuses a %s START target echo without unconstrained fallback", async mode => {
+    const f = await fixture(false, {owner: "bundle:notes:scope:original-local-reference", recoveryFor}), original = f.read();
+    f.change(v => {if (mode === "missing") delete v.recovery_collection_id; else v.recovery_collection_id = connector;});
+    await expect(f.flow.start()).rejects.toBeInstanceOf(AppInstallationSignInError);
+    expect(f.requests).toHaveLength(1); expect(f.read()).toEqual(original); expect(f.runtime.signCpEnrol).not.toHaveBeenCalled(); await f.flow.close();
+  });
+  it.each(["missing", "wrong"])("refuses a %s selected target echo before confirmation or native authority", async mode => {
+    const f = await fixture(false, {owner: "bundle:notes:scope:original-local-reference", recoveryFor}), original = f.read();
+    await f.flow.start(); f.setSelected();
+    f.change(v => {if (mode === "missing") delete v.recovery_collection_id; else v.recovery_collection_id = connector;});
+    await expect(f.flow.exchange()).rejects.toBeInstanceOf(AppInstallationSignInError);
+    expect(f.read()).toEqual(original); expect(f.trace).not.toContain("protected-commit"); expect(f.persistence.pending).not.toHaveBeenCalled();
+    expect(f.runtime.signCpEnrol).not.toHaveBeenCalled(); expect(f.requests.some(r => r.path.endsWith("/attest"))).toBe(false); await f.flow.close();
+  });
+  async function scoped() {
+    const f = await fixture(false, {owner: "bundle:notes:scope:original-local-reference", recoveryFor});
+    await confirmed(f); await f.flow.attest(f); f.setApproved();
+    f.change(v => {if(v.status === "paired")Object.assign(v, {collection_ids: [collection], create_collections: false, selected_collection_id: collection, created_collection_ids: []});});
+    return f;
+  }
+  it("protects exact account/collection constraints in a fresh namespace and completes only ordinary matching approval", async () => {
+    const f = await scoped(); expect(f.read().recoveryFor).toEqual(recoveryFor);
+    expect((await f.flow.exchange()).state).toBe("paired");
+    const saved = f.read(); await f.flow.close();
+    const resumed = await AppProtectedInstallationSignIn.open({...f.options, mode: "existing"});
+    expect(resumed.confirmedSelection().accountId).toBe(account); expect(f.read()).toEqual(saved);
+    await expect(resumed.startCollectionConsent(f.installation)).rejects.toMatchObject({reason: "binding"});
+    await resumed.close();
+    await expect(AppProtectedInstallationSignIn.open({...f.options, mode: "existing", recoveryFor: undefined})).rejects.toMatchObject({reason: "recovery_required"});
+    expect(f.read()).toEqual(saved);
+  });
+  it("rejects a switched account before selection commit, native signing or credential authority", async () => {
+    const f = await fixture(false, {owner: "bundle:notes:scope:original-local-reference", recoveryFor});
+    f.setSelected(); f.change(v => {v.account_id = connector;});
+    const original = f.read(), requests = f.requests.length;
+    await expect(f.flow.exchange()).rejects.toMatchObject({reason: "recovery_account_mismatch"});
+    expect(f.flow.canAbandonWrongAccount()).toBe(true);
+    expect(f.read()).toEqual(original);
+    expect(f.read()).toMatchObject({selection: null, confirmed: false, nativeStarted: false, proof: null, token: null});
+    expect(f.requests.slice(requests).map(r => r.path)).toEqual([`/v1/pairing-requests/${original.requestId}/exchange`]);
+    expect(f.persistence.pending).not.toHaveBeenCalled(); expect(f.persistence.registered).not.toHaveBeenCalled();
+    expect(f.runtime.signCpEnrol).not.toHaveBeenCalled(); expect(f.runtime.acknowledgeDeviceRegistration).not.toHaveBeenCalled();
+    await f.flow.close(); expect(f.flow.canAbandonWrongAccount()).toBe(false);
+  });
+  it.each(["wrong-device", "wrong-target", "bad-portal-identity"])("a generic %s binding failure never permits abandoning the actor", async mode => {
+    const f = await fixture(false, {owner: "bundle:notes:scope:original-local-reference", recoveryFor});
+    f.setSelected(); f.change(v => {
+      v.account_id = connector;
+      if (mode === "wrong-device") v.device_id = account;
+      if (mode === "wrong-target") v.recovery_collection_id = connector;
+      if (mode === "bad-portal-identity") Object.assign(v, {account_email: "bad", account_selection_confirmed: true});
+    });
+    await expect(f.flow.exchange()).rejects.toBeInstanceOf(AppInstallationSignInError);
+    expect(f.flow.canAbandonWrongAccount()).toBe(false); expect(f.read().selection).toBeNull(); await f.flow.close();
+  });
+  it("a later unknown read invalidates prior wrong-account abandonment permission", async () => {
+    const f = await fixture(false, {owner: "bundle:notes:scope:original-local-reference", recoveryFor});
+    f.setSelected(); f.change(v => {v.account_id = connector;});
+    await expect(f.flow.exchange()).rejects.toMatchObject({reason: "recovery_account_mismatch"});
+    expect(f.flow.canAbandonWrongAccount()).toBe(true); const original = f.read(); f.setFailHttp();
+    await expect(f.flow.exchange()).rejects.toMatchObject({reason: "outcome_unknown"});
+    expect(f.flow.canAbandonWrongAccount()).toBe(false); expect(f.read()).toEqual(original); await f.flow.close();
+  });
+  it.each(["wrong-target", "extra-scope", "created-target", "missing-choice"])("refuses %s before protecting a fresh credential", async mode => {
+    const f = await scoped();
+    f.change(v => {if(v.status === "paired")Object.assign(v, {collection_ids: mode === "extra-scope" ? [collection, account] : [collection], create_collections: false,
+      ...(mode === "missing-choice" ? {} : {selected_collection_id: mode === "wrong-target" ? account : collection, created_collection_ids: mode === "created-target" ? [collection] : []})});});
+    await expect(f.flow.exchange()).rejects.toBeInstanceOf(AppInstallationSignInError);
+    expect(f.read().token).toBeNull(); expect(f.read().collectionSelection).toBeUndefined(); await f.flow.close();
+  });
+});
+describe("protected scoped replacement references", () => {
+  const other = "88888888-8888-4888-8888-888888888888";
+  async function ready() {
+    const f = await fixture(); await confirmed(f); await f.flow.attest(f); f.setApproved();
+    f.change(v => { if (v.status === "paired") Object.assign(v, {collection_ids: [collection, other], create_collections: false, selected_collection_id: collection, created_collection_ids: []}); });
+    await f.flow.exchange(); return f;
+  }
+  it("retirement and explicit fresh references leave original authority and other scope intact across reload", async () => {
+    const f = await ready(), original = f.read(), requests = f.requests.length;
+    expect(f.flow.collectionRecoveries()).toEqual({});
+    await expect(f.flow.freshCollectionInstallation(f.installation, collection)).rejects.toMatchObject({reason: "binding"});
+    await f.flow.retireCollectionScope(f.installation, collection);
+    expect(f.flow.collectionRecoveries()).toEqual({[collection]: null});
+    const replacement = await f.flow.freshCollectionInstallation(f.installation, collection);
+    expect(replacement).toMatch(/^[0-9a-f-]{36}$/);
+    expect(f.flow.collectionRecoveries()).toEqual({[collection]: replacement});
+    expect(await f.flow.freshCollectionInstallation(f.installation, collection)).toBe(replacement);
+    await f.flow.retireCollectionScope(f.installation, collection); // stale original removal cannot replace the fresh reference
+    const remaining = f.read(); delete remaining.collectionRecoveries;
+    expect(remaining).toEqual(original); expect(f.requests).toHaveLength(requests);
+    expect(f.flow.collectionRecoveries()[other]).toBeUndefined();
+    await f.flow.close();
+    const resumed = await AppProtectedInstallationSignIn.open({...f.options, mode: "existing"});
+    expect(resumed.collectionRecoveries()).toEqual({[collection]: replacement});
+    await resumed.close();
+  });
+  it("only the current replacement can retire its scoped slot for another explicit fresh attempt", async () => {
+    const f = await ready();
+    await f.flow.retireCollectionScope(f.installation, collection);
+    const first = await f.flow.freshCollectionInstallation(f.installation, collection);
+    await expect(f.flow.retireCollectionScope(f.installation, collection, other)).rejects.toMatchObject({reason: "fenced"});
+    expect(f.flow.collectionRecoveries()).toEqual({[collection]: first});
+    await f.flow.retireCollectionScope(f.installation, collection, first);
+    expect(f.flow.collectionRecoveries()).toEqual({[collection]: null});
+    const second = await f.flow.freshCollectionInstallation(f.installation, collection);
+    expect(second).not.toBe(first); await f.flow.close();
+  });
+  it("rejects unrelated scope retirement and wrong installation binding", async () => {
+    const f = await ready(), original = f.read();
+    await expect(f.flow.retireCollectionScope(f.installation, connector)).rejects.toMatchObject({reason: "binding"});
+    await expect(f.flow.retireCollectionScope({...f.installation, scope: {...f.installation.scope, account: connector}}, collection)).rejects.toMatchObject({reason: "fenced"});
+    expect(f.read()).toEqual(original); await f.flow.close();
+  });
+  it.each([null, [], {[collection]: "bad-reference"}, {[connector]: other}])("refuses malformed protected references without creating a fresh identity", async value => {
+    const f = await ready(); f.editSaved(s => {s.collectionRecoveries = value;}); await f.flow.close();
+    const original = f.read(), requests = f.requests.length;
+    await expect(AppProtectedInstallationSignIn.open({...f.options, mode: "existing"})).rejects.toBeInstanceOf(AppInstallationSignInError);
+    expect(f.read()).toEqual(original); expect(f.requests).toHaveLength(requests);
+  });
+});
 describe("portal collection choice and creation provenance", () => {
   it("protects exact approved initial choice/creation metadata and restores it without inferring readiness", async () => {
     const f = await fixture(); await confirmed(f); await f.flow.attest(f); f.setApproved();
@@ -515,6 +731,14 @@ describe("protected installation lifecycle (stand-in store/CP/native, actual ran
     await expect(AppProtectedInstallationSignIn.open({...f.options, mode: "existing", requestedCreateCollections: false})).rejects.toThrow("binding");
     const warm = await AppProtectedInstallationSignIn.open({...f.options, mode: "existing", requestedCreateCollections: undefined}); expect(warm.view().requestedCreateCollections).toBe(true); await warm.close();
   });
+  it("fresh-only create request reaches START for a new installation and never rewrites a restored request", async () => {
+    // A new account has no collections: first-run approval must be able to offer "New collection…".
+    const f = await fixture(false, {requestedCreateCollections: undefined, freshRequestedCreateCollections: true});
+    await f.flow.start(); expect(f.requests[0]!.body).toMatchObject({installation: {requested_create_collections: true}}); await f.flow.close();
+    const old = await fixture(false); await old.flow.close();
+    const restored = await AppProtectedInstallationSignIn.open({...old.options, mode: "existing", requestedCreateCollections: undefined, freshRequestedCreateCollections: true});
+    expect(restored.view().requestedCreateCollections).toBe(false); await restored.close();
+  });
   it("pre-C5 receipt has empty scope rather than compatibility access", async () => {
     const f = await paired(); expect(f.flow.view()).toMatchObject({collectionIds: [], createCollections: false});
   });
@@ -552,12 +776,128 @@ describe("protected installation lifecycle (stand-in store/CP/native, actual ran
     f.installation.isCurrent = () => true; consentStart(f); await f.flow.startCollectionConsent(f.installation); const before = f.read();
     consentExchange(f, () => {f.installation.isCurrent = () => true;}); await expect(f.flow.exchangeCollectionConsent(f.installation)).rejects.toThrow("fenced"); expect(f.read()).toEqual(before);
   });
+  it.each([["installation_pairing_denied","refused"],["installation_pairing_expired","expired"]] as const)("a consent window closed in Connect (%s) is forgotten; the next attempt opens a new one", async (code, reason) => {
+    const f = await paired(); consentStart(f); await f.flow.startCollectionConsent(f.installation); const closed = f.read().consentRequest.requestId;
+    const gone = () => new Response(JSON.stringify({error: {code, message: "closed"}}), {status: 404});
+    vi.mocked(f.request).mockImplementationOnce(async () => gone());
+    await expect(f.flow.exchangeCollectionConsent(f.installation)).rejects.toMatchObject({reason}); expect(f.read().consentRequest).toBeNull();
+    consentStart(f); await f.flow.startCollectionConsent(f.installation); expect(f.read().consentRequest.requestId).not.toBe(closed);
+    // A dead window already stored (re-sent on start, as after a reload) opens a new one in the same gesture.
+    const stuck = f.read().consentRequest.requestId; vi.mocked(f.request).mockImplementationOnce(async () => gone()); consentStart(f);
+    const view = await f.flow.startCollectionConsent(f.installation); const fresh = f.read().consentRequest.requestId;
+    expect(fresh).not.toBe(stuck); expect(view.verificationUri).toBe(`${cpOrigin}/pair/${fresh}`);
+  });
   it("reads fresh scoped metadata with original credential without adding local grants", async () => {
     const f = await paired(), before = f.read(); vi.mocked(f.request).mockImplementationOnce(async (input, init) => {
-      expect(String(input)).toBe(`${cpOrigin}/v1/next/collections`); expect(init).toMatchObject({method: "GET", credentials: "omit", redirect: "error"}); expect((init!.headers as Record<string,string>).authorization).toBe(`Bearer ${before.token}`);
+      expect(String(input)).toBe(`${cpOrigin}/v1/next/collections?include=file_actions`); expect(init).toMatchObject({method: "GET", credentials: "omit", redirect: "error", cache: "default"}); expect((init!.headers as Record<string,string>).authorization).toBe(`Bearer ${before.token}`);
       return new Response(JSON.stringify({collections: [{collection_id: collection, display_name: "Tasks", role: "editor"}]}));
     });
-    expect(await f.flow.listApprovedCollections(f.installation)).toEqual([{collectionId: collection, displayName: "Tasks", role: "editor"}]); expect(f.read()).toEqual(before);
+    expect(await f.flow.listApprovedCollections(f.installation)).toEqual([{collectionId: collection, displayName: "Tasks", role: "editor"}]); expect(f.read()).toEqual({...before, collectionListing: []});
+  });
+  it("reopens only the original protected completed listing on GET transport loss", async () => {
+    const f = await paired(); await f.flow.close();
+    f.editSaved(s => { s.collectionIds = [collection]; });
+    const flow = await AppProtectedInstallationSignIn.open({...f.options, mode: "existing"});
+    const row = {collection_id: collection, display_name: "Tasks", role: "editor", file_actions: ["read"]};
+    vi.mocked(f.request).mockResolvedValueOnce(new Response(JSON.stringify({collections: [row]})));
+    const listed = await flow.listApprovedCollections(f.installation);
+    const saved = f.read(); expect(saved.collectionListing).toEqual([{collection_id: collection, display_name: "Tasks", role: "editor"}]);
+    await flow.close();
+    const restored = await AppProtectedInstallationSignIn.open({...f.options, mode: "existing"});
+    vi.mocked(f.request).mockRejectedValueOnce(new TypeError("offline"));
+    expect(await restored.listApprovedCollections(f.installation)).toEqual(listed.map(c => ({...c, fileActions: []})));
+    expect(f.read()).toEqual(saved);
+    expect(vi.mocked(f.request).mock.calls.at(-1)![1]?.method).toBe("GET");
+    await restored.close();
+  });
+  it("never replays cached metadata after an explicit abort", async () => {
+    const f = await paired(); await f.flow.close();
+    f.editSaved(s => {s.collectionIds = [collection]; s.collectionListing = [{collection_id: collection, display_name: "Tasks", role: "editor"}];});
+    const flow = await AppProtectedInstallationSignIn.open({...f.options, mode: "existing"});
+    vi.mocked(f.request).mockRejectedValueOnce(new DOMException("aborted", "AbortError"));
+    await expect(flow.listApprovedCollections(f.installation)).rejects.toMatchObject({reason: "outcome_unknown"});
+    await flow.close();
+  });
+  it("oversized complete inventory remains usable online but removes obsolete offline metadata", async () => {
+    const f = await paired(); await f.flow.close();
+    const rows = Array.from({length: 150}, (_, index) => ({collection_id: `00000000-0000-4000-8000-${index.toString(16).padStart(12, "0")}`, display_name: "a".repeat(1024), role: "editor"}));
+    f.editSaved(s => {s.collectionIds = rows.map(row => row.collection_id); s.collectionListing = [rows[0]];});
+    const flow = await AppProtectedInstallationSignIn.open({...f.options, mode: "existing"});
+    vi.mocked(f.request).mockResolvedValueOnce(new Response(JSON.stringify({collections: rows})));
+    expect(await flow.listApprovedCollections(f.installation)).toHaveLength(150);
+    expect(f.read().collectionListing).toBeUndefined();
+    expect(new TextEncoder().encode(JSON.stringify(f.read())).length).toBeLessThan(128 * 1024);
+    vi.mocked(f.request).mockRejectedValueOnce(new TypeError("offline"));
+    await expect(flow.listApprovedCollections(f.installation)).rejects.toMatchObject({reason: "unavailable"});
+    await flow.close();
+  });
+  it("does not infer listing metadata from a completed receipt with no cache", async () => {
+    const f = await paired(); vi.mocked(f.request).mockRejectedValueOnce(new TypeError("offline"));
+    await expect(f.flow.listApprovedCollections(f.installation)).rejects.toMatchObject({reason: "unavailable"});
+  });
+  it.each(["pending", "unapproved", "role", "extra", "duplicate"] as const)("refuses malformed protected %s listing before HTTP", async mode => {
+    const f = await paired(); await f.flow.close();
+    f.editSaved(s => {
+      s.collectionIds = [collection];
+      const row: Record<string, unknown> = {collection_id: collection, display_name: "Tasks", role: "editor"};
+      s.collectionListing = [row];
+      if (mode === "pending") { s.token = null; s.collectionIds = []; }
+      if (mode === "unapproved") row.collection_id = connector;
+      if (mode === "role") row.role = "admin";
+      if (mode === "extra") row.ready = true;
+      if (mode === "duplicate") s.collectionListing = [row, row];
+    });
+    const before = f.read(), count = vi.mocked(f.request).mock.calls.length;
+    await expect(AppProtectedInstallationSignIn.open({...f.options, mode: "existing"})).rejects.toBeDefined();
+    expect(f.read()).toEqual(before); expect(f.request).toHaveBeenCalledTimes(count);
+  });
+  it.each([401, 403, 404, 503])("never replays cached metadata for HTTP %s and clears it", async status => {
+    const f = await paired(); await f.flow.close();
+    f.editSaved(s => {s.collectionIds = [collection]; s.collectionListing = [{collection_id: collection, display_name: "Tasks", role: "editor"}];});
+    const flow = await AppProtectedInstallationSignIn.open({...f.options, mode: "existing"});
+    vi.mocked(f.request).mockResolvedValueOnce(new Response(JSON.stringify({error: {code: "denied", message: "Refused"}}), {status}));
+    await expect(flow.listApprovedCollections(f.installation)).rejects.toBeDefined();
+    expect(f.read().collectionListing).toBeUndefined();
+    vi.mocked(f.request).mockRejectedValueOnce(new TypeError("offline"));
+    await expect(flow.listApprovedCollections(f.installation)).rejects.toMatchObject({reason: "unavailable"});
+    await flow.close();
+  });
+  it.each([401, 403, 404, 503].flatMap(status => ["json", "html", "null", "stream"].map(body => ({status, body}))))("clears cached inventory on definite HTTP $status with unreadable $body body", async ({status, body}) => {
+    const f = await paired(); await f.flow.close();
+    f.editSaved(s => {s.collectionIds = [collection]; s.collectionListing = [{collection_id: collection, display_name: "Tasks", role: "editor"}];});
+    const flow = await AppProtectedInstallationSignIn.open({...f.options, mode: "existing"});
+    const payload = body === "json" ? "{invalid" : body === "html" ? "<html>Denied</html>" : body === "null" ? null
+      : new ReadableStream<Uint8Array>({start(controller) {controller.error(new TypeError("lost body"));}});
+    vi.mocked(f.request).mockResolvedValueOnce(new Response(payload, {status}));
+    await expect(flow.listApprovedCollections(f.installation)).rejects.toBeDefined();
+    expect(f.read().collectionListing).toBeUndefined();
+    vi.mocked(f.request).mockRejectedValueOnce(new TypeError("offline"));
+    await expect(flow.listApprovedCollections(f.installation)).rejects.toMatchObject({reason: "unavailable"});
+    await flow.close();
+  });
+  it.each([401, 403, 404, 503])("does not replay metadata for HTTP %s with a typed unavailable body error", async status => {
+    const f = await paired(); await f.flow.close();
+    f.editSaved(s => {s.collectionIds = [collection]; s.collectionListing = [{collection_id: collection, display_name: "Tasks", role: "editor"}];});
+    const flow = await AppProtectedInstallationSignIn.open({...f.options, mode: "existing"});
+    const payload = new ReadableStream<Uint8Array>({start(controller) {controller.error(new AppInstallationSignInError("unavailable"));}});
+    vi.mocked(f.request).mockResolvedValueOnce(new Response(payload, {status}));
+    await expect(flow.listApprovedCollections(f.installation)).rejects.toMatchObject({reason: "unavailable"});
+    expect(f.read().collectionListing).toBeUndefined();
+    vi.mocked(f.request).mockRejectedValueOnce(new TypeError("offline"));
+    await expect(flow.listApprovedCollections(f.installation)).rejects.toMatchObject({reason: "unavailable"});
+    await flow.close();
+  });
+  it("refuses malformed JSON and explicit removal instead of replaying an older list", async () => {
+    const f = await paired(); await f.flow.close();
+    f.editSaved(s => {s.collectionIds = [collection]; s.collectionListing = [{collection_id: collection, display_name: "Tasks", role: "editor"}];});
+    const flow = await AppProtectedInstallationSignIn.open({...f.options, mode: "existing"});
+    vi.mocked(f.request).mockResolvedValueOnce(new Response("{invalid"));
+    await expect(flow.listApprovedCollections(f.installation)).rejects.toMatchObject({reason: "response"});
+    vi.mocked(f.request).mockResolvedValueOnce(new Response(JSON.stringify({collections: []})));
+    expect(await flow.listApprovedCollections(f.installation)).toEqual([]);
+    vi.mocked(f.request).mockRejectedValueOnce(new TypeError("offline"));
+    expect(await flow.listApprovedCollections(f.installation)).toEqual([]);
+    await flow.close();
   });
   it("carries a listed collection's availability, strictly parsed; absent means available", async () => {
     const f = await paired(), ids = ["0b4c1a52-58f1-4a9e-9f43-6a7f8d2f3e10", "1b4c1a52-58f1-4a9e-9f43-6a7f8d2f3e11", "2b4c1a52-58f1-4a9e-9f43-6a7f8d2f3e12"];
@@ -612,5 +952,40 @@ describe("transient collection hint on START", () => {
   it("refuses a returned URI carrying any other hint, and a non-canonical hint before HTTP", async () => {
     const f = await fixture(); f.change(v => {v.verification_uri = `${v.verification_uri}?collection_hint=${hint}`;});
     await expect(f.flow.start()).rejects.toThrow("response"); await expect(f.flow.start({collectionHint: "AAAAAAAA-7777-4777-8777-777777777777"})).rejects.toMatchObject({reason: "binding"}); expect(f.requests).toHaveLength(1);
+  });
+});
+
+describe("optional file actions asked for at the moment of use", () => {
+  it("asks for one collection with a reason, persists nothing, and reads pending, granted and declined", async () => {
+    const f = await paired(), before = f.read(); let sent: {requestId: string; secret: string} | null = null;
+    vi.mocked(f.request).mockImplementationOnce(async (_input, init) => {
+      const body = JSON.parse(String(init!.body)); expect((init!.headers as Record<string,string>).authorization).toBe(`Bearer ${before.token}`);
+      expect(body.installation).toMatchObject({reconsent: true, requested_create_collections: false, file_access: {collection_id: collection, actions: ["add"], reason: "Insert an image"}});
+      sent = {requestId: body.installation.request_id, secret: body.installation.pairing_secret};
+      return new Response(JSON.stringify({pairing_id: sent.requestId, pairing_secret: sent.secret, verification_uri: `${cpOrigin}/pair/${sent.requestId}`, expires_in: 600, installation_device: true, app_id: before.appId, app_origin: origin, app_name: appName}), {status: 201});
+    });
+    const request = await f.flow.startFileAccess(f.installation, collection, ["add"], "Insert an image");
+    expect(request).toMatchObject({collectionId: collection, actions: ["add"], verificationUri: `${cpOrigin}/pair/${sent!.requestId}`}); expect(f.read()).toEqual(before);
+    const reply = (value: Record<string, unknown>, status: number) => vi.mocked(f.request).mockImplementationOnce(async (input, init) => {
+      expect(new URL(String(input)).pathname).toBe(`/v1/pairing-requests/${sent!.requestId}/exchange`); expect((init!.headers as Record<string,string>).authorization).toBe(`Bearer ${sent!.secret}`);
+      return new Response(JSON.stringify(value), {status});
+    });
+    reply({status: "awaiting_approval", request_id: sent!.requestId, account_id: account, connector_id: connector, device_id: before.deviceId, installation_id: before.installationId, kind: before.kind, challenge: "cd".repeat(32), approval_mode: "password-ak1", app_id: before.appId, app_origin: origin, expires_at: Date.now() + 600000}, 202);
+    expect(await f.flow.exchangeFileAccess(f.installation, request)).toEqual({state: "pending"});
+    reply({status: "file_access_updated", request_id: sent!.requestId, collection_id: collection, file_actions: ["add"]}, 200);
+    expect(await f.flow.exchangeFileAccess(f.installation, request)).toEqual({state: "granted", actions: ["add"]});
+    reply({status: "file_access_updated", request_id: sent!.requestId, collection_id: collection, file_actions: ["delete"]}, 200);
+    await expect(f.flow.exchangeFileAccess(f.installation, request)).rejects.toMatchObject({reason: "response"});
+    reply({status: "declined", request_id: sent!.requestId}, 200);
+    expect(await f.flow.exchangeFileAccess(f.installation, request)).toEqual({state: "declined"});
+    expect(f.read()).toEqual(before);
+  });
+  it("lists the person's allowed file actions when Connect reports them", async () => {
+    const f = await paired(); vi.mocked(f.request).mockImplementationOnce(async () => new Response(JSON.stringify({collections: [
+      {collection_id: collection, display_name: "Tasks", role: "editor", file_actions: ["add"]}]})));
+    expect(await f.flow.listApprovedCollections(f.installation)).toEqual([{collectionId: collection, displayName: "Tasks", role: "editor", fileActions: ["add"]}]);
+    vi.mocked(f.request).mockImplementationOnce(async () => new Response(JSON.stringify({collections: [
+      {collection_id: collection, display_name: "Tasks", role: "editor", file_actions: ["add", "nope"]}]})));
+    await expect(f.flow.listApprovedCollections(f.installation)).rejects.toMatchObject({reason: "response"});
   });
 });

@@ -267,12 +267,40 @@ impl EffectiveGrant {
     }
 }
 
-/// Grants of a local-only collection, held by the host (the daemon's access list):
-/// a local-only collection has no log, so no policy items carry its grants.
+/// Host-authenticated declaration-bound setup under one current consent.
+/// This does not grant ordinary definition writes or replace signed policy.
+/// The host verifies the original authorization, declaration and Noise binding;
+/// Replica independently requires the current effective grant and keyed device.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeclaredSetupAuthorization {
+    /// Independently authenticated consenting account.
+    pub account: Uuid,
+    /// Original installation Noise key, not a request-provided key.
+    pub client_pk: B32,
+    /// Durable consent generation; replacement/revoke/restore never reuses it.
+    pub generation: u64,
+    /// Durable authenticated account/source incarnation.
+    pub authority_epoch: u64,
+    /// Host-monotonic lease continuity; an expiry followed by renewal cannot
+    /// revive a captured review. Ordinary uninterrupted renewal preserves this.
+    pub lease_generation: u64,
+    /// Exact trusted declaration lifted through Core's strict pack loader.
+    pub setup: mdbn_core::setup::envelope::CollectionSetup,
+}
+
+/// Host authority, including local-only grants and separately verified declared
+/// setup. Synced ordinary grants still come from the signed policy, not this host.
 pub trait GrantSource {
     /// The grant as it stands now; `None` when unknown, revoked or expired.
     /// Its account must come from authenticated grant metadata, not a default.
     fn grant(&self, grant: &Uuid) -> Option<EffectiveGrant>;
+
+    /// Current declaration from the verified signed grant feed, under the live
+    /// account, exact consent generation and monotonic lease. Missing evidence or
+    /// producer support denies setup. Never parse a declaration supplied by an app.
+    fn declared_setup(&self, _grant: &Uuid) -> Option<DeclaredSetupAuthorization> {
+        None
+    }
 
     /// Independently host-authenticated local ownership, loaded from trusted
     /// durable identity/registration metadata, never inferred from a grant,
@@ -391,12 +419,18 @@ pub struct GrantState {
     pub client_pk: B32,
     /// Folder restriction of the file namespace, if any (cloud copy only).
     pub file_folders: Option<Vec<String>>,
+    /// The approval carries the folder scope (`e2e` only).
+    pub folder_scoped: bool,
     /// Not revoked.
     pub active: bool,
     /// Capabilities of the first valid `grant_approval` (`e2e`), if any.
     pub approved: Option<BTreeSet<String>>,
     /// Folder scope from that approval.
     pub approved_folders: Option<Vec<String>>,
+    /// Log position of that approval.
+    pub approved_seq: Option<u64>,
+    /// Device that signed that approval.
+    pub approved_by: Option<Uuid>,
 }
 
 /// `P(p)`: policy state after items `1..p` (`policy.md` §6.1).
@@ -463,10 +497,11 @@ pub struct PolicyState {
     pub handover_roots: BTreeSet<B16>,
 }
 
-/// The persisted [`PolicyState`] format [`PolicyState::to_bytes`] writes (3: with
-/// the cert-root witness and the handover roots). Formats 1 (unproven) and 2 (no
-/// handover roots recorded) are still read.
-pub const POLICY_STATE_FORMAT: u64 = 3;
+/// The persisted [`PolicyState`] format [`PolicyState::to_bytes`] writes (4:
+/// grant rows also record the folder-scoped flag and the position and signer of
+/// the first valid approval). Formats 1 (unproven), 2 (no handover roots
+/// recorded) and 3 are still read, with those grant fields unset.
+pub const POLICY_STATE_FORMAT: u64 = 4;
 
 impl Default for PolicyState {
     fn default() -> PolicyState {
@@ -753,6 +788,7 @@ impl PolicyState {
                 R::UnindexedMarkdownPut(_)
                     | R::RecordToUnindexedMarkdown(_)
                     | R::UnindexedMarkdownToRecord(_)
+                    | R::OrdinaryFileToRecord(_)
             )
         };
         let native_body = payload.mutation.ops.iter().any(native)
@@ -761,6 +797,7 @@ impl PolicyState {
                     e,
                     mdbn_wire::attachment_runtime_v1::Effect::PutUnindexedMarkdown(_)
                         | mdbn_wire::attachment_runtime_v1::Effect::ReindexUnindexedMarkdown(_)
+                        | mdbn_wire::attachment_runtime_v1::Effect::ReindexOrdinaryFile(_)
                 )
             })
             || payload.conflicts.iter().flatten().any(|c| {
@@ -774,6 +811,18 @@ impl PolicyState {
                         )
                     })
             });
+        if payload
+            .mutation
+            .ops
+            .iter()
+            .any(|op| matches!(op, R::OrdinaryFileToRecord(_)))
+            && payload.mutation.source != Source::Api
+        {
+            return Err(void(
+                "V6",
+                "ordinary promotion requires explicit device mediation",
+            ));
+        }
         if native_body {
             if payload.mutation.on_behalf.is_some() {
                 return Err(Rejected::Stall(
@@ -1078,14 +1127,17 @@ impl PolicyState {
         approval: Result<&GrantApprovalPayload, SchemaError>,
         env: &Env<'_>,
     ) -> Verdict {
-        let r = approval
-            .map_err(decode_err)
-            .and_then(|a| self.check_grant_approval(item, a, env).map(|()| a));
+        let r = approval.map_err(decode_err).and_then(|a| {
+            self.check_grant_approval(item, a, env)
+                .map(|signer| (a, signer))
+        });
         match r {
-            Ok(a) => {
+            Ok((a, signer)) => {
                 if let Some(g) = self.grants.get_mut(&a.grant) {
                     g.approved = Some(a.capabilities.iter().cloned().collect());
                     g.approved_folders = a.file_folders.clone();
+                    g.approved_seq = Some(seq);
+                    g.approved_by = Some(signer);
                 }
                 self.advance_ctl(seq, chain);
                 self.seq = seq;
@@ -1104,7 +1156,7 @@ impl PolicyState {
         item: &Item,
         a: &GrantApprovalPayload,
         env: &Env<'_>,
-    ) -> Verdict {
+    ) -> Result<Uuid, Rejected> {
         if item.kind != ItemKind::GrantApproval {
             return Err(void("kind", "not a grant_approval"));
         }
@@ -1151,7 +1203,7 @@ impl PolicyState {
                 "capabilities are not a non-empty subset",
             ));
         }
-        Ok(())
+        Ok(signer)
     }
 
     fn policy_item(
@@ -1410,9 +1462,12 @@ impl PolicyState {
                         capabilities: g.capabilities.iter().cloned().collect(),
                         client_pk: g.client_pk,
                         file_folders: g.file_folders.clone(),
+                        folder_scoped: g.folder_scoped.unwrap_or(false),
                         active: true,
                         approved: None,
                         approved_folders: None,
+                        approved_seq: None,
+                        approved_by: None,
                     },
                 );
             }
@@ -1801,6 +1856,19 @@ impl PolicyState {
         self.devices.values().any(|d| d.local_root == Some(root))
     }
 
+    /// Active grants still waiting for a device approval where one is required
+    /// (`policy.md` §5.1), in grant order.
+    pub fn pending_grants(&self) -> Vec<(Uuid, &GrantState)> {
+        if !self.grant_approval_required() {
+            return Vec::new();
+        }
+        self.grants
+            .iter()
+            .filter(|(_, g)| g.active && g.approved.is_none())
+            .map(|(id, g)| (*id, g))
+            .collect()
+    }
+
     /// What a grant may do now (`policy.md` §5.1, §7): active, its member still a
     /// member. Where approval is required ([`PolicyState::grant_approval_required`])
     /// only with a valid approval, and then the approved capabilities and folders;
@@ -1959,6 +2027,9 @@ impl PolicyState {
                             Cbor::Array(a.iter().map(|c| Cbor::Text(c.clone())).collect())
                         })),
                         opt(g.approved_folders.as_ref().map(|f| f.to_cbor())),
+                        Cbor::Bool(g.folder_scoped),
+                        opt(g.approved_seq.map(Cbor::Uint)),
+                        opt(g.approved_by.map(|d| d.to_cbor())),
                     ])
                 })
                 .collect();
@@ -2027,7 +2098,10 @@ impl PolicyState {
     pub fn from_bytes(bytes: &[u8]) -> Result<PolicyState, SchemaError> {
         let c = cbor::decode(bytes)?;
         let a = arr(&c)?;
-        // Format 3 (current): 26 elements, element 25 the handover roots.
+        // Format 4 (current): 26 elements, element 25 the handover roots;
+        // grant rows have 13 elements (format 3 and earlier: 10, read with the
+        // folder-scoped flag and the approval position and signer unset).
+        // Format 3: 26 elements, element 25 the handover roots.
         // Format 2: 25 elements, read with no handover roots recorded (a state
         // bricked by a later handover recovers by a cold rebuild, which replays
         // the handover and records it).
@@ -2044,6 +2118,7 @@ impl PolicyState {
         match (a.first(), a.len()) {
             (Some(Cbor::Uint(1)), 24 | 25)
             | (Some(Cbor::Uint(2)), 25)
+            | (Some(Cbor::Uint(3)), 26)
             | (Some(Cbor::Uint(POLICY_STATE_FORMAT)), 26) => {}
             _ => return Err(bad("PolicyState: unknown format")),
         }
@@ -2101,7 +2176,7 @@ impl PolicyState {
         }
         for g in arr(&a[13])? {
             let g = arr(g)?;
-            if g.len() != 10 {
+            if g.len() != 10 && g.len() != 13 {
                 return Err(bad("grant"));
             }
             s.grants.insert(
@@ -2113,9 +2188,21 @@ impl PolicyState {
                     capabilities: Vec::<String>::from_cbor(&g[4])?.into_iter().collect(),
                     client_pk: B32::from_cbor(&g[5])?,
                     file_folders: opt(&g[6])?,
+                    folder_scoped: match g.get(10) {
+                        Some(c) => bool::from_cbor(c)?,
+                        None => false,
+                    },
                     active: bool::from_cbor(&g[7])?,
                     approved: opt::<Vec<String>>(&g[8])?.map(|v| v.into_iter().collect()),
                     approved_folders: opt(&g[9])?,
+                    approved_seq: match g.get(11) {
+                        Some(c) => opt(c)?,
+                        None => None,
+                    },
+                    approved_by: match g.get(12) {
+                        Some(c) => opt(c)?,
+                        None => None,
+                    },
                 },
             );
         }

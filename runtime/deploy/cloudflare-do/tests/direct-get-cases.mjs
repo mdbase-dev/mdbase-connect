@@ -12,10 +12,11 @@ export async function directGetCases({ base, encode, map, sha }) {
   const bytes = encode(map([[0, 1], [1, 16], [2, collection], [5, 1], [7, Buffer.alloc(16, 7)], [11, opaque]]));
   const digest = sha(bytes), address = digest.toString("hex"), total = bytes.length;
   const metadata = { "mdbn-verified": "1", kind: "16", size: String(total), sha256: address };
-  function cap({ a = address, size = total, ck = address, op = "get", expires = Date.now() + 60000 } = {}) {
+  function cap({ a = address, size = total, ck = address, op = "get", expires = Date.now() + 60000, region } = {}) {
     const dev = op === "put" ? Buffer.alloc(16, 0x54).toString("hex") : "";
-    const sig = createHmac("sha256", secret).update(`ls-direct|${op}|${hex}|${a}|${dev}|${size}|${ck}|${expires}`).digest("hex");
-    return `https://worker/v1/o/${uuid}/${a}?op=${op}&dev=${dev}&size=${size}&ck=${ck}&exp=${expires}&sig=${sig}`;
+    const r = region ? `|r=${region}` : "";
+    const sig = createHmac("sha256", secret).update(`ls-direct|${op}|${hex}|${a}|${dev}|${size}|${ck}|${expires}${r}`).digest("hex");
+    return `https://worker/v1/o/${uuid}/${a}?op=${op}&dev=${dev}&size=${size}&ck=${ck}&exp=${expires}${region ? `&r=${region}` : ""}&sig=${sig}`;
   }
   async function run(extra = {}) {
     const q = { directGet: true, method: "GET", url: cap(), size: 0, ...extra };
@@ -109,6 +110,22 @@ export async function directGetCases({ base, encode, map, sha }) {
     const retry = await run(); assert.equal(retry.status, 200);
     assert.deepEqual(Buffer.from(retry.response), bytes);
     assert.deepEqual(sha(Buffer.from(retry.response)), digest);
+  });
+  await check("a region-bound URL reads only its region's bucket", async () => {
+    // Seeded only in the wnam bucket: readable through a wnam URL, absent from the
+    // regionless bucket, and a region without a bucket is refused.
+    const regional = encode(map([[0, 1], [1, 16], [2, collection], [5, 1], [7, Buffer.alloc(16, 8)], [11, opaque]]));
+    const d = sha(regional), a = d.toString("hex"), n = regional.length;
+    const md = { "mdbn-verified": "1", kind: "16", size: String(n), sha256: a };
+    const url = cap({ a, size: n, ck: a, region: "wnam" });
+    const r = await run({ url, binding: "OBJECTS_WNAM", prefix: regional.toString("base64"),
+      seedR2: { key: `c/${uuid}/${a}`, sha256: d.toString("base64"), metadata: md } });
+    assert.equal(r.status, 200); assert.deepEqual(Buffer.from(r.response), regional);
+    noObject(await run({ url: cap({ a, size: n, ck: a }) }), 404);
+    noObject(await run({ url: cap({ a, size: n, ck: a, region: "oc" }), binding: "OBJECTS_OC" }), 404);
+    const unserved = await run({ url: cap({ a, size: n, ck: a, region: "weur" }) });
+    assert.ok(unserved.status >= 500, `unserved region status ${unserved.status}`);
+    assert.equal(unserved.emitted, 0);
   });
   assert.deepEqual(failures, [], "direct-download regressions");
 }

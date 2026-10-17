@@ -478,3 +478,49 @@ fn the_sealer_installs_only_keys_with_an_applied_commitment() {
     );
     assert!(c.testing_epoch_keys().is_empty());
 }
+
+/// A migrated collection: A adopts its folder as generation 0, so the log holds a
+/// `base` (a control item) before B is enrolled and granted. B, unkeyed, waits
+/// at the base; the read-ahead must pass the base (it changes no device, epoch
+/// or key) to reach B's grant, appended only after B began waiting.
+#[test]
+fn a_grant_after_a_base_is_found_while_waiting_at_the_base() {
+    use crate::replica::adopt::{AdoptRecords, AdoptSource, AdoptStatus};
+    struct Folder;
+    impl AdoptSource for Folder {
+        fn records(&mut self) -> Result<AdoptRecords, String> {
+            Ok(AdoptRecords {
+                records: vec![(B16([1; 16]), "notes/1.md".into())],
+                resources: vec![],
+                settings: None,
+            })
+        }
+        fn read(&mut self, path: &str) -> Result<Option<String>, String> {
+            Ok((path == "notes/1.md").then(|| "adopted before B joined\n".into()))
+        }
+    }
+    let svc = FakeLogService::new();
+    let mut cp = TestControlPlane::signed(COL);
+    cp.genesis_with_keys(&svc, CState::E2e, A, &A_KEYS.0, &A_KEYS.1);
+    let mut a = open(&svc, 1, A_KEYS);
+    a.r.begin_adopt(Box::new(Folder));
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.adopt_status(), Some(AdoptStatus::Done));
+    let base = a.r.head().seq;
+    enrol_b(&svc, &mut cp);
+    let mut b = open(&svc, 2, B_KEYS);
+    settle(&mut [&mut b]);
+    assert_eq!(waiting_at(&b), Some(base), "B cannot open the base");
+    assert_eq!(
+        b.r.key_wait_reason(),
+        Some(KeyWaitReason::NoGrant { through: base + 1 }),
+        "the base does not end the read-ahead"
+    );
+    member_grant(&mut a, B, B_KEYS.1);
+    probe(&mut b);
+    assert!(b.r.stalled.is_none());
+    assert_eq!(b.r.stats.snapshots_installed, 1, "the base installed");
+    assert_eq!(b.doc(1).as_deref(), Some("adopted before B joined\n"));
+    assert_eq!(b.r.head(), a.r.head());
+    assert_eq!(b.r.stats.voided, 0);
+}

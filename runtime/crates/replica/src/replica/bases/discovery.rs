@@ -98,7 +98,12 @@ impl<S: Store> Replica<S> {
                 .iter()
                 .any(|contract| contract.id == BASES_CONTRACT)
         {
-            return Err(unavailable());
+            // Name the missing contract, as indexed execution does; it is not
+            // an incomplete inventory and retrying never clears it.
+            return Err(ErrorCode::Unavailable.err_with_reason(
+                "bases_contract_not_installed",
+                "the obsidian.base data contract is not installed and valid",
+            ));
         }
         let zone = timezone
             .map(str::to_owned)

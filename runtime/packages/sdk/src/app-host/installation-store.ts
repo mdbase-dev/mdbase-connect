@@ -1,8 +1,9 @@
 /** Internal pre-account sign-in ledger. Nonextractable origin AES handle + bounded
  * encrypted operation in ONE strict IDB commit. Not an account KEK, generic KV,
  * OS keychain, XSS boundary or physical durability/collection Saved guarantee. */
+import { LOCAL_APPLICATION_BUILD, localApplicationHttpOrigin } from "../application/local-build.js";
 import { currentAppOrigin, isAppOrigin } from "./app-origin.js";
-import { acquireAppSignInLease, isAppInstallationId, AppReplicaOwnerError, type AppLockPort, type AppReplicaLease } from "./owner.js";
+import { acquireAppSignInLease, isAppInstallationId, isInstallationOwner, AppReplicaOwnerError, type AppLockPort, type AppReplicaLease } from "./owner.js";
 const STORE = "installation-sign-in", KEY = "original", MAX = 128 * 1024; // bounded original + additive consent receipts (<=1000 IDs each)
 export class AppInstallationStorageError extends Error {
   constructor(readonly reason: "busy" | "unavailable") { super(`app installation storage ${reason}; preserve storage and reopen`); }
@@ -12,10 +13,6 @@ const equal = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every
 function kek(v: unknown): CryptoKey {
   if (typeof CryptoKey !== "function" || !(v instanceof CryptoKey) || v.type !== "secret" || v.extractable || v.algorithm.name !== "AES-GCM" || (v.algorithm as AesKeyAlgorithm).length !== 256 || v.usages.length !== 2 || !v.usages.includes("encrypt") || !v.usages.includes("decrypt")) throw fail();
   return v;
-}
-/** A bounded printable label, e.g. `bundle:<manifest id>`. */
-export function isInstallationOwner(v: unknown): v is string {
-  return typeof v === "string" && v.length > 0 && v.length <= 256 && !/[\u0000-\u001f\u007f]/.test(v);
 }
 interface Stored { version: 1; revision: number; key: CryptoKey; encrypted: Uint8Array }
 function stored(v: unknown): Stored {
@@ -62,7 +59,7 @@ export class AppInstallationStore {
     try {
       if (!isAppOrigin(p.origin, p.allowLoopbackHttp === true)) throw fail();
       {
-        const origin = p.cpOrigin, u = new URL(origin), loopback = p.allowLoopbackHttp && u.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
+        const origin = p.cpOrigin, u = new URL(origin), loopback = p.allowLoopbackHttp && u.protocol === "http:" && (LOCAL_APPLICATION_BUILD ? localApplicationHttpOrigin(origin) : ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname));
         if (u.origin !== origin || u.username || u.password || (u.protocol !== "https:" && !loopback)) throw fail();
       }
       if (p.owner !== undefined && !isInstallationOwner(p.owner)) throw fail();

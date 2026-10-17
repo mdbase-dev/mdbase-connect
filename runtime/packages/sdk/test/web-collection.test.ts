@@ -8,6 +8,7 @@ import type { AppWebSignInSessionOptions } from "../src/app-host/web-sign-in-ses
 import type { AppWebNativeCollection } from "../src/app-host/web-collection.js";
 import { MdbaseClient } from "../src/client.js";
 import { attachAppTimerReceiver } from "../src/app-host/timer-port.js";
+import type { AppLogHealth } from "../src/app-host/log-pump.js";
 import type { AppWebCloudCopyHost } from "../src/app-host/cloud-copy-host.js";
 const scope = {account: "11111111-1111-4111-8111-111111111111", installation: "22222222-2222-4222-8222-222222222222", collection: "33333333-3333-4333-8333-333333333333"};
 const options = {databaseName: "tasknotes.native-model-setup.v1", applicationNamespace: "tasknotes-web", appOrigin: "https://app.example.test", cpOrigin: "https://cp.example.test"};
@@ -22,8 +23,9 @@ function fixture(policy: "explicit" | "approved-new-collection" = "explicit", pe
   const host = {
     bootstrapCloudCopy: vi.fn(async (_input: {purpose: string; outcomeMode: string; scope: typeof scope; reconcile?: string}) => {trace.push("join");}), registeredReceipt: () => ({installationId: scope.installation, deviceId: scope.account}),
     openCollectionSql: vi.fn(async () => {trace.push("sql");}), startCollectionLog: vi.fn(async () => {trace.push("log");}),
-    waitForVerifiedRead: vi.fn(async () => {trace.push("read");}), openTimersPort: vi.fn<AppWebCloudCopyHost["openTimersPort"]>(()=>null), attachDataFacade: vi.fn(() => {trace.push("facade");}),
-    driveCollection: vi.fn(async () => {}), close: vi.fn(async () => {trace.push("host-close");}),
+    waitForVerifiedRead: vi.fn(async () => {trace.push("read");}), openTimersPort: vi.fn<AppWebCloudCopyHost["openTimersPort"]>(()=>null), attachDataFacade: vi.fn(() => {trace.push("facade");}), detachDataFacade: vi.fn((_port: MessagePort) => {}),
+    driveCollection: vi.fn(async () => {}), wakeCollectionLog: vi.fn(async () => {}),
+    pendingWrites: vi.fn(() => 0), initialSync: vi.fn((): string | null => null), transportHealth: vi.fn((): AppLogHealth | null => null), serverProblem: vi.fn(() => null), close: vi.fn(async () => {trace.push("host-close");}),
     peopleAuthority: vi.fn(() => Object.freeze({collection: scope.collection, isCurrent: () => !parent.signal.aborted,
       request: vi.fn(async (resource: "identity" | "members") => resource === "identity" ?
         {issuer: "https://issuer.example", subject: "original-subject", name: "Original person", person_settings_url: "https://cp.example/settings", private_token: "must-not-cross"} : {members: []}),
@@ -138,6 +140,180 @@ describe("real protected native collection composition", () => {
     expect(result.close()).toBe(failed); expect(result.connection.isCurrent()).toBe(false); expect(result.state).toBe("setup_required");
     await expect(f.adapter(f.context)).rejects.toMatchObject({reason: "fenced"}); expect(stop).toHaveBeenCalledOnce();
     stop.mockRestore(); originalClose(); f.parent.abort(); f.ui.abort();
+  });
+  it("holds the handoff until the replica first catches up; once caught up, a later offline open uses local data", async () => {
+    vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"], shouldAdvanceTime: true});
+    try {
+      const f = fixture(); f.host.initialSync.mockReturnValue("waiting_for_key");
+      const opening = f.open();
+      await vi.waitFor(() => expect(f.host.driveCollection).toHaveBeenCalled());
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(f.trace).not.toContain("handoff"); // no setup assessment or empty state on a stalled replica
+      expect(f.host.driveCollection.mock.calls.length).toBeGreaterThan(1); // the wait drives the log
+      f.host.initialSync.mockReturnValue(null);
+      await opening; expect(f.trace.at(-1)).toBe("handoff");
+      await vi.waitFor(async () => expect(await new AppCollectionJoinLedger({databaseName: "tasknotes.native-collection-join.v1", scope, isCurrent: () => true})
+        .syncedBefore({signal: new AbortController().signal})).toBe(true));
+      const g = fixture(); g.host.initialSync.mockReturnValue("offline");
+      await g.open(); expect(g.trace.at(-1)).toBe("handoff");
+    } finally { vi.useRealTimers(); }
+  });
+  it("never polls the log head on a timer; a foreground event wakes it once; a failed turn does not stop the loop", async () => {
+    vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"], shouldAdvanceTime: true});
+    try {
+      const f = fixture(); const result = await f.open();
+      f.host.driveCollection.mockRejectedValueOnce(new Error("offline"));
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(f.host.wakeCollectionLog).not.toHaveBeenCalled();
+      expect(f.host.driveCollection.mock.calls.length).toBeGreaterThan(1); // the rejected turn did not stop the loop
+      result.connection.setForeground(false); result.connection.setForeground(true);
+      await vi.advanceTimersByTimeAsync(300);
+      expect(f.host.wakeCollectionLog).toHaveBeenCalledOnce(); // shown again: catch up once, without push
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(f.host.wakeCollectionLog).toHaveBeenCalledOnce();
+    } finally { vi.useRealTimers(); }
+  });
+  it("hidden: drives only while writes are pending, for at most two minutes; offline waits for an event", async () => {
+    vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"], shouldAdvanceTime: true});
+    try {
+      const f = fixture(); const result = await f.open();
+      await vi.advanceTimersByTimeAsync(1_000);
+      f.host.pendingWrites.mockReturnValue(1);
+      result.connection.setForeground(false);
+      f.host.driveCollection.mockClear(); f.host.wakeCollectionLog.mockClear();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(f.host.driveCollection.mock.calls.length).toBeGreaterThan(5); // flushing
+      expect(f.host.wakeCollectionLog).not.toHaveBeenCalled(); // never a head wake while hidden
+      f.host.pendingWrites.mockReturnValue(0);
+      await vi.advanceTimersByTimeAsync(1_000); f.host.driveCollection.mockClear();
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(f.host.driveCollection).not.toHaveBeenCalled(); // nothing pending: idle
+      result.connection.setForeground(true); result.connection.setForeground(false);
+      f.host.pendingWrites.mockReturnValue(3);
+      result.connection.setForeground(true); result.connection.setForeground(false);
+      await vi.advanceTimersByTimeAsync(121_000); f.host.driveCollection.mockClear();
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(f.host.driveCollection).not.toHaveBeenCalled(); // the flush ends after two minutes
+      // Offline: no retry timer at all until the page reports online/focus/visible.
+      f.host.transportHealth.mockReturnValue({kind: "offline"});
+      result.connection.setForeground(true);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(result.health).toEqual({kind: "offline"});
+      f.host.driveCollection.mockClear(); f.host.wakeCollectionLog.mockClear();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(f.host.driveCollection.mock.calls.length + f.host.wakeCollectionLog.mock.calls.length).toBe(0);
+      f.host.transportHealth.mockReturnValue(null);
+      result.connection.setForeground(true); // e.g. the online event
+      await vi.advanceTimersByTimeAsync(300);
+      expect(f.host.wakeCollectionLog).toHaveBeenCalledOnce();
+      expect(result.health).toBeNull();
+    } finally { vi.useRealTimers(); }
+  });
+  it("publishes offline recovery after the next accepted turn, not merely a foreground/online event", async () => {
+    vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"], shouldAdvanceTime: true});
+    let finish: (() => void) | undefined;
+    try {
+      const f = fixture(), result = await f.open();
+      const published: (AppLogHealth | null)[] = [];
+      result.subscribe!(() => published.push(result.health ?? null));
+      f.host.transportHealth.mockReturnValue({kind: "offline"});
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(published.at(-1)).toEqual({kind: "offline"});
+      published.length = 0;
+      f.host.wakeCollectionLog.mockImplementationOnce(() => new Promise<void>(resolve => {finish = resolve;}));
+      result.connection.setForeground(true); // visible online event, SAME original collection
+      await vi.advanceTimersByTimeAsync(300);
+      expect(f.host.wakeCollectionLog).toHaveBeenCalledOnce();
+      expect(result.health).toEqual({kind: "offline"}); // online alone is not accepted I/O
+      expect(published).toEqual([]);
+      f.host.transportHealth.mockReturnValue(null); // original pump accepted its reply
+      finish!();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(result.health).toBeNull();
+      expect(published).toEqual([null]); // consumers must hear the recovery
+    } finally { finish?.(); vi.useRealTimers(); }
+  });
+  it("notifies subscribed views when an offline pump accepts a reply after an online wake", async () => {
+    vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"], shouldAdvanceTime: true});
+    try {
+      const f = fixture(), result = await f.open();
+      const published: (AppLogHealth | null)[] = [];
+      result.subscribe!(() => published.push(result.health ?? null));
+      f.host.transportHealth.mockReturnValue({kind: "offline"});
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(published.at(-1)).toEqual({kind: "offline"});
+      published.length = 0;
+      f.host.wakeCollectionLog.mockImplementationOnce(async () => {
+        f.host.transportHealth.mockReturnValue(null); // original transport accepted its reply
+      });
+      result.connection.setForeground(true);
+      await vi.advanceTimersByTimeAsync(300);
+      expect(f.host.wakeCollectionLog).toHaveBeenCalledOnce();
+      expect(result.health).toBeNull();
+      expect(published).toEqual([null]); // a recovered getter alone leaves UI stale
+    } finally { vi.useRealTimers(); }
+  });
+  it("probes offline recovery even when the push socket still claims to be live", async () => {
+    vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"], shouldAdvanceTime: true});
+    try {
+      const f = fixture();
+      Object.assign(f.host, {openLogPush: () => ({available: true, live: true, suspended: false, start() {}, close() {}, resume() {}, suspend() {}})});
+      const result = await f.open();
+      f.host.transportHealth.mockReturnValue({kind: "offline"});
+      await vi.advanceTimersByTimeAsync(1_000);
+      const listener = vi.fn(); result.subscribe!(listener);
+      f.host.wakeCollectionLog.mockImplementationOnce(async () => {f.host.transportHealth.mockReturnValue(null);});
+      result.connection.setForeground(true);
+      await vi.advanceTimersByTimeAsync(300);
+      expect(f.host.wakeCollectionLog).toHaveBeenCalledOnce();
+      expect(result.health).toBeNull();
+      expect(listener).toHaveBeenCalledOnce();
+    } finally { vi.useRealTimers(); }
+  });
+  it("keeps known offline state after an online wake fails and waits for another event", async () => {
+    vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"], shouldAdvanceTime: true});
+    try {
+      const f = fixture(), result = await f.open();
+      f.host.transportHealth.mockReturnValue({kind: "offline"});
+      await vi.advanceTimersByTimeAsync(1_000);
+      const listener = vi.fn(); result.subscribe!(listener);
+      f.host.wakeCollectionLog.mockRejectedValueOnce(new Error("connection still unavailable"));
+      result.connection.setForeground(true);
+      await vi.advanceTimersByTimeAsync(300);
+      expect(result.health).toEqual({kind: "offline"});
+      expect(listener).not.toHaveBeenCalled();
+      f.host.wakeCollectionLog.mockClear(); f.host.driveCollection.mockClear();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(f.host.wakeCollectionLog).not.toHaveBeenCalled();
+      expect(f.host.driveCollection).not.toHaveBeenCalled();
+      f.host.wakeCollectionLog.mockImplementationOnce(async () => {f.host.transportHealth.mockReturnValue(null);});
+      result.connection.setForeground(true);
+      await vi.advanceTimersByTimeAsync(300);
+      expect(result.health).toBeNull();
+      expect(listener).toHaveBeenCalledOnce();
+    } finally { vi.useRealTimers(); }
+  });
+  it("the opening tab leaving releases its own facade, control and timers while another tab keeps the collection", async () => {
+    const f = fixture(), timerCloses: string[] = [];
+    f.host.openTimersPort.mockImplementation(() => {const channel = new MessageChannel(), name = `timers-${timerCloses.length}`;
+      return {port: channel.port2, close: async () => {timerCloses.push(name); channel.port1.close();}} as unknown as ReturnType<AppWebCloudCopyHost["openTimersPort"]>;});
+    const result = await f.open(), opener = f.handoff(), other = result.connection.attach!()!;
+    expect(f.host.attachDataFacade).toHaveBeenCalledTimes(2);
+    const [openerFacade, otherFacade] = f.host.attachDataFacade.mock.calls.map(call => (call as unknown as [MessagePort])[0]);
+    result.connection.detach!(opener);
+    await vi.waitFor(() => expect(timerCloses).toHaveLength(1));
+    expect(f.host.detachDataFacade.mock.calls.map(call => call[0])).toEqual([openerFacade]);
+    // The other tab still has its own ports onto the open collection.
+    expect(result.connection.isCurrent()).toBe(true);
+    const control = appCollectionControlClient(other.controlPort, other, {signal: f.ui.signal, isCurrent: () => !f.ui.signal.aborted, onClose() {}});
+    await control.assess("ready", f.ui.signal); expect(result.state).toBe("ready");
+    // Detaching the same ports again is a no-op; the other tab's go when it leaves.
+    result.connection.detach!(opener);
+    expect(f.host.detachDataFacade).toHaveBeenCalledTimes(1);
+    result.connection.detach!(other);
+    await vi.waitFor(() => expect(timerCloses).toHaveLength(2));
+    expect(f.host.detachDataFacade.mock.calls.map(call => call[0])).toEqual([openerFacade, otherFacade]);
+    control.close(); await result.close();
   });
   it("adapter close drains own log drive; native/SQL/lease close stays with original session HOST", async () => {
     const f = fixture(); const result = await f.open();

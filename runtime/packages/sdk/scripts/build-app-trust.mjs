@@ -26,11 +26,17 @@ function moduleSource(value,typescript){
 /** Execute only the caller-selected trusted build verifier with fixed argv.
  * This function cannot authenticate a manifest supplied by an untrusted caller;
  * release authentication must precede it, exactly as for mdbn_trust::Context. */
-export function buildAppTrust(options){
+export function buildAppTrust(options){ return buildTrust(options,false); }
+/** Isolated local BUILD only. The explicit local verifier command is compiled
+ * with local-rehearsal and verifies an asset signature under the stack root. */
+export function buildLocalAppTrust(options){ return buildTrust(options,true); }
+function localOrigin(v){try{const u=new URL(v);return u.protocol==="http:"&&u.hostname==="127.0.0.1"&&Number(u.port)>0&&u.origin===v&&!u.username&&!u.password;}catch{return false;}}
+function buildTrust(options,local){
   try{
     const o=Object.freeze({...options});
-    if(!hex(o.sha256,32)||!["lab","staging","production"].includes(o.environment)||!origin(o.cpOrigin)||!origin(o.logOrigin)||!hex(o.sourceCommit,20)||typeof o.sourceVersion!=="string"||!/^[A-Za-z0-9.+-]{1,64}$/.test(o.sourceVersion)||[o.verifier,o.asset,o.output].some(v=>typeof v!=="string"||!v.length)||!(/\.(?:ts|mjs)$/.test(o.output))||o.nowMs!==undefined&&(!Number.isSafeInteger(o.nowMs)||o.nowMs<0))throw fail();
-    const args=["verify","--asset",resolve(o.asset),"--sha256",o.sha256,"--environment",o.environment,"--cp-origin",o.cpOrigin,"--log-origin",o.logOrigin,"--source-commit",o.sourceCommit,"--source-version",o.sourceVersion];
+    if(!hex(o.sha256,32)||(local?o.environment!=="local"||!localOrigin(o.cpOrigin)||!localOrigin(o.logOrigin)||!hex(o.stackRoot,32)||!hex(o.signature,64):!["lab","staging","production"].includes(o.environment)||!origin(o.cpOrigin)||!origin(o.logOrigin))||!hex(o.sourceCommit,20)||typeof o.sourceVersion!=="string"||!/^[A-Za-z0-9.+-]{1,64}$/.test(o.sourceVersion)||[o.verifier,o.asset,o.output].some(v=>typeof v!=="string"||!v.length)||!(/\.(?:ts|mjs)$/.test(o.output))||o.nowMs!==undefined&&(!Number.isSafeInteger(o.nowMs)||o.nowMs<0))throw fail();
+    const args=[local?"verify-local":"verify","--asset",resolve(o.asset),"--sha256",o.sha256,"--environment",o.environment,"--cp-origin",o.cpOrigin,"--log-origin",o.logOrigin,"--source-commit",o.sourceCommit,"--source-version",o.sourceVersion];
+    if(local)args.push("--stack-root",o.stackRoot,"--signature",o.signature);
     if(o.nowMs!==undefined)args.push("--now-ms",String(o.nowMs));
     const result=spawnSync(resolve(o.verifier),args,{encoding:"utf8",shell:false,timeout:15000,maxBuffer:256*1024});
     if(result.error||result.status!==0||result.signal||typeof result.stdout!=="string"||Buffer.byteLength(result.stdout)>256*1024||!result.stdout.endsWith("\n")||result.stdout.slice(0,-1).includes("\n"))throw fail();

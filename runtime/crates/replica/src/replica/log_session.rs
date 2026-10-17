@@ -9,6 +9,7 @@ use mdbn_wire::common::Uuid;
 use mdbn_wire::log_service::ReadParams;
 
 use super::Replica;
+use super::append::Inflight;
 use crate::log::{CallId, EndpointId, LogCall, LogError, LogPort, LogPush, LogReply, LogResponse};
 use crate::store::{Head, Store};
 
@@ -126,6 +127,25 @@ impl<S: Store> Replica<S> {
         self.log_sessions.current = Some(session.clone());
         self.dispatch_log_push(LogPush::Reconnected);
         Ok(session)
+    }
+
+    /// Host wake: ask the log for its head so entries appended by other devices
+    /// are read. A push-less (HTTP) host has no other way to learn them. Unlike a
+    /// reconnect it leaves connection, `caught_up` and the append state alone, so
+    /// status and readiness do not move. One fetch at a time; false when there is
+    /// no live log session, the replica is faulted, or a fetch is already out.
+    pub fn request_head(&mut self) -> bool {
+        if self.apply_fault
+            || self.log_sessions.current.is_none()
+            || self
+                .inflight
+                .values()
+                .any(|kind| *kind == Inflight::Subscribe)
+        {
+            return false;
+        }
+        self.queue_head_fetch();
+        true
     }
 
     /// Retire ONLY this exact current session. Classify its original calls as

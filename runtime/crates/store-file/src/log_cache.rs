@@ -179,6 +179,9 @@ impl<I: IndexStorage> Store for LogCache<I> {
     fn tail_stats(&self) -> StoreResult<mdbn_replica::store::TailStats> {
         self.0.tail_stats()
     }
+    fn stages(&self) -> bool {
+        self.0.stages()
+    }
     fn commit(&mut self, tx: Tx) -> StoreResult<CommitReport> {
         self.0.commit(tx)
     }
@@ -205,6 +208,18 @@ mod tests {
         }
         fn reset(&mut self) -> Result<(), IndexError> {
             Ok(())
+        }
+    }
+
+    #[test]
+    fn sql_staging_is_available_through_both_log_cache_index_kinds() {
+        for durability in [IndexDurability::Disposable, IndexDurability::Durable] {
+            let index = Rc::new(RefCell::new(Counting(Rc::new(Cell::new(0)), durability)));
+            let cache = LogCache::open(index, SqlStoreLimits::default()).unwrap();
+            assert!(
+                cache.stages(),
+                "SQL staging must not inherit the trait's false default"
+            );
         }
     }
 

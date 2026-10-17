@@ -98,10 +98,18 @@ function bridge(channel: MessagePort, source: AppLocalScope, receive: (frame: Cb
   };
 }
 
+/** App calls that can queue log work at once: writes and file transfers. */
+const LOG_WORK = new Set(["submit", "resolve_hold", "open_upload", "upload_chunk", "commit_upload", "abort_upload", "fetch_file", "read_file", "ack_chunks"]);
+function queuesLogWork(frame: CborValue): boolean {
+  if (!(frame instanceof Map)) return false;
+  const fields = frame as Map<unknown, unknown>;
+  return fields.get(0) === 0 && LOG_WORK.has(fields.get(2) as string);
+}
+
 /** Worker-side attachment, AFTER ownership and genuine native bootstrap/adoption.
  * AppWasmRuntime checks the original collection; a caller cannot choose a grant
  * or request a different native authority. No host-control RPC is exposed. */
-export function attachAppLocalFacade(runtime: Pick<AppWasmRuntime, "connect"> & Partial<Pick<AppWasmRuntime, "executeBases" | "discoverBases" | "setupResources" | "resourceRejected">>, channel: MessagePort, source: AppLocalScope): { close(): void; readonly resourceSetup: AppResourceSetupPort } {
+export function attachAppLocalFacade(runtime: Pick<AppWasmRuntime, "connect"> & Partial<Pick<AppWasmRuntime, "executeBases" | "discoverBases" | "setupResources" | "resourceRejected">>, channel: MessagePort, source: AppLocalScope, logWork?: () => void): { close(): void; readonly resourceSetup: AppResourceSetupPort } {
   const original = pin(source);
   if (!original.current()) throw unavailable();
   let native: FramePort;
@@ -109,7 +117,10 @@ export function attachAppLocalFacade(runtime: Pick<AppWasmRuntime, "connect"> & 
   catch { channel.close(); throw unavailable(); }
   let wire: ReturnType<typeof bridge>;
   try {
-    wire = bridge(channel, source, frame => native.send(frame), () => native.close(), (kind, id, bytes) => {
+    wire = bridge(channel, source, frame => {
+      native.send(frame);
+      if (logWork && queuesLogWork(frame)) { try { logWork(); } catch { /* a drive hint, never a call outcome */ } }
+    }, () => native.close(), (kind, id, bytes) => {
       let reply: Uint8Array;
       try {
         if (kind === "bases-request" && typeof runtime.executeBases === "function") reply = runtime.executeBases(native, bytes);

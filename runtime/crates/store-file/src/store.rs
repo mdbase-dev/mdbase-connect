@@ -50,6 +50,9 @@ use crate::retention::{self, Parked, ReleasePolicy};
 use crate::stash::{MIN_RETENTION_MS, Settled, settle};
 
 mod admitted;
+
+/// Creates in one commit from which they are published as one batch.
+const BATCH_MIN: usize = 16;
 mod attachments;
 mod deferred;
 
@@ -1196,19 +1199,42 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
             inner: &self.inner,
         };
         let outcome = publish(&admitted, &op, &names, &opts).await;
+        let reason = match self.settle_publish(&mut changes, &op, id, outcome).await? {
+            Ok(reason) => reason,
+            Err(e) => {
+                // Original intent/names/bytes stay journaled for recovery.
+                self.db.apply(changes).map_err(db_err)?;
+                return Err(fs_err(e));
+            }
+        };
+        mdbn_replica::mirror_admission::ensure_open(&self.inner)?;
+        changes.push((Kind::Intent, key, None));
+        self.db.apply(changes).map_err(db_err)?;
+        Ok(reason)
+    }
+
+    /// Record one publish outcome in `changes`: the drift reason (`None` when
+    /// published), or the platform failure, after which the intent must stay.
+    async fn settle_publish(
+        &mut self,
+        changes: &mut Vec<Change>,
+        op: &PublishOp,
+        id: Option<Uuid>,
+        outcome: Outcome,
+    ) -> StoreResult<Result<Option<&'static str>, FsError>> {
         let path = op.path.as_str().to_string();
-        let reason = match outcome {
+        Ok(Ok(match outcome {
             Outcome::Published { retained } => {
                 self.stats.published += 1;
                 match &op.new {
                     Some(new) => {
-                        self.record_published_async(&mut changes, &op.path, id, new)
+                        self.record_published_async(changes, &op.path, id, new)
                             .await?
                     }
-                    None => self.set_disk(&mut changes, &path, None),
+                    None => self.set_disk(changes, &path, None),
                 }
                 if let Some(r) = retained {
-                    self.retain_async(&mut changes, r, &path, id).await;
+                    self.retain_async(changes, r, &path, id).await;
                 }
                 None
             }
@@ -1218,10 +1244,10 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
             } => {
                 self.stats.drifted += 1;
                 if let Some(r) = retained {
-                    self.retain_async(&mut changes, r, &path, id).await;
+                    self.retain_async(changes, r, &path, id).await;
                 }
                 if let Some(h) = preserved {
-                    self.add_evidence(&mut changes, &path, h, op.expect.rev(), false);
+                    self.add_evidence(changes, &path, h, op.expect.rev(), false);
                 }
                 self.dirty.insert(path.clone(), self.now());
                 let gone = matches!(self.observe_io(|| self.p.stat(&op.path)).await?, Err(e) if e.is_not_found());
@@ -1234,16 +1260,8 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
                     .insert(path.clone(), self.now() + self.cfg.quiescence_ms);
                 Some("locked")
             }
-            Outcome::Failed(e) => {
-                // Original intent/names/bytes stay journaled for recovery.
-                self.db.apply(changes).map_err(db_err)?;
-                return Err(fs_err(e));
-            }
-        };
-        mdbn_replica::mirror_admission::ensure_open(&self.inner)?;
-        changes.push((Kind::Intent, key, None));
-        self.db.apply(changes).map_err(db_err)?;
-        Ok(reason)
+            Outcome::Failed(e) => return Ok(Err(e)),
+        }))
     }
 
     /// Whether an existing ancestor folder of `path` is not a real directory
@@ -2344,7 +2362,27 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
         self.db.apply(changes).map_err(db_err)?;
         let mut report = CommitReport::default();
         let mut held = AlreadyHeld::default();
-        for p in publishes {
+        let mut i = 0;
+        while i < publishes.len() {
+            // A run of plain creates (an install, a join) shares one journal
+            // write, one barrier and one flush instead of four syncs a file.
+            let (taken, run) = self.create_run(&publishes[i..], &mut held).await?;
+            if taken > 0 {
+                i += taken;
+                self.flush_held(&mut held)?;
+                if run.len() >= BATCH_MIN {
+                    report.drifts.extend(self.publish_batch(run).await?);
+                } else {
+                    for p in run {
+                        if let Some(d) = self.perform(p).await? {
+                            report.drifts.push(d);
+                        }
+                    }
+                }
+                continue;
+            }
+            let p = &publishes[i];
+            i += 1;
             if self.already_held(p, &mut held).await? {
                 continue;
             }
@@ -2357,8 +2395,153 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
         Ok(report)
     }
 
+    /// The leading run of `publishes` that [`Self::publish_batch`] may take:
+    /// creates of distinct paths on an immediate commit of at least
+    /// [`BATCH_MIN`] publishes. Those already on disk are recorded in `held`
+    /// as they are met. Returns how many publishes the run spans (0: none)
+    /// and the creates still to write, in order.
+    async fn create_run<'p>(
+        &mut self,
+        publishes: &'p [Publish],
+        held: &mut AlreadyHeld,
+    ) -> StoreResult<(usize, Vec<&'p Publish>)> {
+        if !self.immediate
+            || !matches!(
+                self.strategy(),
+                ReplaceStrategy::Exchange | ReplaceStrategy::LockedInPlace
+            )
+            || publishes.len() < BATCH_MIN
+        {
+            return Ok((0, Vec::new()));
+        }
+        let mut paths = BTreeSet::new();
+        let mut run = Vec::new();
+        let mut taken = 0;
+        for p in publishes {
+            let Publish::Write {
+                path,
+                expect: RExpect::Absent,
+                ..
+            } = p
+            else {
+                break;
+            };
+            if crate::platform::portable_violation(path).is_some() || !paths.insert(path.as_str()) {
+                break;
+            }
+            if !self.already_held(p, held).await? {
+                run.push(p);
+            }
+            taken += 1;
+        }
+        Ok((taken, run))
+    }
+
+    /// Publish plain creates together: journal every intent in one write,
+    /// write every temp unsynced, one barrier, then each no-replace rename
+    /// without a directory sync, one full flush, and every outcome in one
+    /// write. A crash anywhere leaves journaled intents that recovery settles
+    /// exactly as for single publishes (a temp never renamed is not
+    /// published; a renamed one is flushed before it is recorded).
+    async fn publish_batch(&mut self, run: Vec<&Publish>) -> StoreResult<Vec<Drift>> {
+        mdbn_replica::mirror_admission::ensure_open(&self.inner)?;
+        let private = self.p.capabilities().private_dir.clone();
+        let mut drifts = Vec::new();
+        let mut changes = Vec::new();
+        let mut items = Vec::new();
+        for publ in run {
+            let Publish::Write {
+                id, path, content, ..
+            } = publ
+            else {
+                unreachable!("create_run takes creates only");
+            };
+            if self.link_in_path(path).await? {
+                drifts.push(Self::drift(publ, "symlink_in_path"));
+                continue;
+            }
+            let op = PublishOp {
+                path: Self::rel(path)?,
+                expect: Expect::Absent,
+                new: Some(self.content_bytes(content)?),
+            };
+            let n = self.take_name(&mut changes);
+            let rec = IntentRec {
+                strategy: self.strategy(),
+                op,
+                n,
+                id: *id,
+                retained_nosync: self.p.retained_nosync(),
+            };
+            changes.push((Kind::Intent, counter_bytes(n), Some(rec.to_bytes())));
+            items.push((publ, rec));
+        }
+        self.db
+            .apply(std::mem::take(&mut changes))
+            .map_err(db_err)?;
+        let opts = Options {
+            sync_temp: false,
+            sync_dir: false,
+            ..self.options()
+        };
+        let mut ours = Vec::with_capacity(items.len());
+        {
+            let admitted = admitted::Admitted {
+                p: &*self.p,
+                inner: &self.inner,
+            };
+            for (_, rec) in &items {
+                let names = rec.names(&private);
+                let dir = rec.op.path.parent();
+                if !dir.is_root() {
+                    admitted.create_dir_all(&dir).await.map_err(fs_err)?;
+                }
+                let new = rec.op.new.as_deref().unwrap_or_default();
+                let m = admitted
+                    .write_new(&names.tmp, new, false)
+                    .await
+                    .map_err(fs_err)?;
+                ours.push(m.id);
+            }
+            admitted.flush(FlushScope::Barrier).await.map_err(fs_err)?;
+        }
+        let mut published_any = false;
+        let mut retire = Vec::with_capacity(items.len());
+        for ((publ, rec), our) in items.into_iter().zip(ours) {
+            let names = rec.names(&private);
+            let outcome = {
+                let admitted = admitted::Admitted {
+                    p: &*self.p,
+                    inner: &self.inner,
+                };
+                crate::publish::publish_prewritten(&admitted, &rec.op, &names, &opts, our).await
+            };
+            published_any |= matches!(outcome, Outcome::Published { .. });
+            // A failure leaves every intent of the batch journaled (nothing of
+            // it is recorded before the flush): the next open recovers them.
+            match self
+                .settle_publish(&mut changes, &rec.op, rec.id, outcome)
+                .await?
+            {
+                Ok(None) => {}
+                Ok(Some(why)) => drifts.push(Self::drift(publ, why)),
+                Err(e) => return Err(fs_err(e)),
+            }
+            retire.push(counter_bytes(rec.n));
+        }
+        if published_any {
+            // Required commit point before any of these bytes count as ours.
+            self.p.flush(FlushScope::Full).await.map_err(fs_err)?;
+        }
+        mdbn_replica::mirror_admission::ensure_open(&self.inner)?;
+        changes.extend(retire.into_iter().map(|k| (Kind::Intent, k, None)));
+        self.db.apply(changes).map_err(db_err)?;
+        Ok(drifts)
+    }
+
     /// A create whose path already holds exactly the new bytes (a folder
-    /// adopted with its files in place, an install resumed after a crash):
+    /// adopted with its files in place, an install resumed after a crash,
+    /// including a publish recovered and recorded at reopen):
     /// record the file as on disk without writing a temp, renaming or
     /// flushing. Anything less than an exact match (other bytes, a symlink,
     /// a name that only matches by case or normalization) takes the normal
@@ -2378,12 +2561,20 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
         if !self.immediate
             || self.strategy() == ReplaceStrategy::ReadOnly
             || crate::platform::portable_violation(path).is_some()
-            || self.disk.contains_key(path.as_str())
         {
             return Ok(false);
         }
         let rp = Self::rel(path)?;
         let new = self.content_bytes(content)?;
+        // Already recorded here (a publish recovered after a crash): only as
+        // these very bytes for this ID, and the file must still hold them.
+        if self
+            .disk
+            .get(path.as_str())
+            .is_some_and(|row| row.rev != revision(&new) || row.id != *id)
+        {
+            return Ok(false);
+        }
         let meta = match self.observe_io(|| self.p.stat(&rp)).await? {
             Ok(m) if m.kind == FileKind::File && m.size == new.len() as u64 => m,
             _ => return Ok(false),

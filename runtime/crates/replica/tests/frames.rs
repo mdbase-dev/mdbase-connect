@@ -503,6 +503,18 @@ impl ClientApi for Mock {
     fn reject_device(&mut self, _: SessionId, _: Uuid) -> ApiResult<()> {
         nyi()
     }
+    fn pending_grants(&mut self, _: SessionId) -> ApiResult<Vec<PendingGrant>> {
+        nyi()
+    }
+    fn approve_grant(
+        &mut self,
+        _: SessionId,
+        _: Uuid,
+        _: Vec<String>,
+        _: Option<Vec<String>>,
+    ) -> ApiResult<()> {
+        nyi()
+    }
     fn list_files(&mut self, _: SessionId, _: ListFiles) -> ApiResult<FileList> {
         nyi()
     }

@@ -23,11 +23,13 @@ use futures_util::{SinkExt, StreamExt};
 use mdbn_daemon::logwire::{Token, TokenSource};
 use mdbn_daemon::runtime::{Runtime, RuntimeConfig, Synced};
 use mdbn_log_service::testkit::{ControlPlane, Device, sign_digest};
+use mdbn_replica::api::SessionAuth;
 use mdbn_replica::crypto::hpke::KemKeyPair;
 use mdbn_replica::policy::{EffectiveGrant, GrantSource, SERVICE_ACCOUNT};
 use mdbn_replica::{AdoptRecords, AdoptStatus, DeviceSecrets};
 use mdbn_wire::cbor::Cbor;
-use mdbn_wire::common::{B16, B32, Uuid};
+use mdbn_wire::client::{ClientFrame, ClientRequest, FileState, FileView, HelloParams};
+use mdbn_wire::common::{B16, B32, Uuid, Version};
 use mdbn_wire::log_service::{LsFrame, LsRequest};
 use mdbn_wire::policy::{CState, DeviceEnrol, DeviceKind, Genesis, MemberSet, PolicyOp, Role};
 use mdbn_wire::schema::Wire;
@@ -434,13 +436,98 @@ pub async fn files(folder: &Path, want: &BTreeMap<String, Vec<u8>>, within: Dura
         }
         assert!(
             t0.elapsed() < within,
-            "{} never matched: {} of {} files (first differing {:?})",
+            "{} never matched: {} of {} files (first differing {:?}, expected/actual bytes {:?})",
             folder.display(),
             got.len(),
             want.len(),
-            want.keys().find(|k| got.get(*k) != want.get(*k))
+            want.keys().find(|k| got.get(*k) != want.get(*k)),
+            want.iter()
+                .find(|(k, v)| got.get(*k) != Some(*v))
+                .map(|(k, v)| (v.len(), got.get(k).map(Vec::len)))
         );
         tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
+/// Gen0 excludes attachments. Do not stop its only uploader merely because
+/// the adopted records are confirmed: require the binary's own log position.
+async fn attachment_confirmed(rt: &Runtime, path: &str, size: u64, within: Duration) {
+    let request = |id, method: &str, params| {
+        ClientFrame::Request(ClientRequest {
+            id,
+            method: method.into(),
+            params,
+        })
+        .to_bytes()
+        .unwrap()
+    };
+    let hello = HelloParams {
+        versions: vec![Version { major: 1, minor: 0 }],
+        client_name: "adopt fixture".into(),
+        client_version: "0".into(),
+        features: None,
+        timezone: None,
+    };
+    let (session, response, mut out) = rt
+        .hello(SessionAuth::Host, request(0, "hello", hello.to_cbor()))
+        .await
+        .unwrap();
+    let session = session.unwrap_or_else(|| {
+        panic!(
+            "fixture hello refused: {:?}",
+            ClientFrame::from_bytes(&response)
+        )
+    });
+    let started = Instant::now();
+    let mut id = 0;
+    loop {
+        // Drive a full scan even if the filesystem watcher has not delivered
+        // the post-base external create yet.
+        rt.inventory().await.expect("runtime available");
+        id += 1;
+        assert!(rt.frame(
+            session,
+            request(
+                id,
+                "get_file",
+                Cbor::Map(vec![(Cbor::Uint(0), Cbor::Text(path.into()))])
+            )
+        ));
+        let response = loop {
+            let frame = tokio::time::timeout(within.saturating_sub(started.elapsed()), out.recv())
+                .await
+                .expect("attachment reply timed out")
+                .expect("fixture session alive");
+            if let ClientFrame::Response(response) = ClientFrame::from_bytes(&frame).unwrap()
+                && response.id == id
+            {
+                break response;
+            }
+        };
+        let file = response
+            .result
+            .as_ref()
+            .map(|value| FileView::from_cbor(value).unwrap());
+        if let Some(file) = &file
+            && file.confirmed_seq > 0
+            && file.state == FileState::Materialized
+            && file.size == size
+        {
+            rt.close(session);
+            println!(
+                "PASS: attachment published (bytes {}, seq {})",
+                file.size, file.confirmed_seq
+            );
+            return;
+        }
+        assert!(
+            started.elapsed() < within,
+            "attachment never published: bytes/seq/state {:?}, code {:?}, pending {:?}",
+            file.as_ref().map(|f| (f.size, f.confirmed_seq, f.state)),
+            response.problem.as_ref().map(|p| &p.code),
+            rt.status().await.map(|s| s.pending)
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
 
@@ -477,6 +564,13 @@ pub async fn run(log: &str, dir: &Path, docs: usize, private: bool) {
     println!("PASS: adopted {docs} records in {t:?} (private: {private})");
     records(&a, &plan.records, Duration::from_secs(30)).await;
     assert_eq!(snapshot(&folder_a), before, "adopt changed the folder");
+    attachment_confirmed(
+        &a,
+        "assets/figure.bin",
+        before["assets/figure.bin"].len() as u64,
+        Duration::from_secs(120),
+    )
+    .await;
     let st = a.status().await.unwrap();
     assert_eq!((st.holds, st.unresolved), (0, 0), "adopt held files");
     println!("PASS: folder bytes and record IDs unchanged, nothing held");

@@ -12,6 +12,7 @@ import {
   LegacySource, LegacySourceError, RECORD_DOCUMENT_CAP, rowBound,
   type ExpectedState, type LegacyObjects, type ReadOnlyTx, type RecordRow,
 } from "./source.ts";
+import { LegacyBindingError, openLegacySource, openReadOnlyTx, type LegacySourceEnv, type PgConnect } from "./bindings.ts";
 
 const url = process.env.MDBASE_HOSTED_LEGACY_TEST_PG;
 const skip = !url || !/test/i.test(new URL(url).pathname) || !["localhost", "127.0.0.1"].includes(new URL(url).hostname);
@@ -25,7 +26,7 @@ const HOLD = "11111111-1111-4111-8111-111111111111";
 const LAPSING = "33333333-3333-4333-8333-333333333333";
 const MASTER = new Uint8Array(32).fill(7);
 const DEK = new Uint8Array(32).fill(9);
-const READER = { user: "hm_legacy_reader", password: "reader-test-only" };
+const READER = { user: "mdbn_hosted_legacy_reader", password: "reader-test-only" };
 const enc = new TextEncoder();
 
 async function seal(raw: Uint8Array, plain: Uint8Array, additionalData: Uint8Array): Promise<Uint8Array> {
@@ -87,17 +88,11 @@ before(async () => {
   await admin.query("ALTER TABLE hosted_provider_collections DROP CONSTRAINT hosted_provider_collections_state_check");
   await admin.query(`ALTER TABLE hosted_provider_collections ADD CONSTRAINT hosted_provider_collections_state_check
     CHECK (state IN ('active', 'indexing', 'importing', 'transferring', 'transferred', 'deleting', 'migrating', 'migrated'))`);
-  // The SELECT-only reader (crates/legacy/sql/reader-role.sql, plus holds and journal).
-  await admin.query(`DO $$ BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${READER.user}') THEN
-      CREATE ROLE ${READER.user} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION;
-    END IF; END $$`);
-  await admin.query(`ALTER ROLE ${READER.user} PASSWORD '${READER.password}'`);
-  await admin.query(`GRANT USAGE ON SCHEMA public TO ${READER.user}`);
-  await admin.query(`GRANT SELECT ON hosted_provider_collections, hosted_provider_resources, hosted_provider_records,
-    hosted_provider_files, hosted_provider_replicas, hosted_provider_changes, hosted_provider_file_changes,
-    hosted_provider_resource_changes, hosted_provider_backup_holds, hosted_provider_mutation_journal,
-    hosted_provider_mutation_tombstones TO ${READER.user}`);
+  // The SELECT-only reader exactly as the operator recipe creates it (column-level
+  // grants), so every query below proves the recipe's grants suffice.
+  const recipe = readFileSync(resolve(import.meta.dirname, "../../sql/legacy-reader-role.sql"), "utf8");
+  assert.equal(recipe.split(":'reader_verifier'").length, 2);
+  await admin.query(recipe.replace(":'reader_verifier'", `'${READER.password}'`));
 
   await insertCollection(CID, 700, "active");
   await admin.query("INSERT INTO hosted_provider_backup_holds (id, expires_at) VALUES ($1, now() + interval '1 hour')", [HOLD]);
@@ -530,4 +525,110 @@ test("keyset pages use the primary key (no per-page sort of the collection)", { 
   const lines = plan.rows.map((r) => String(r["QUERY PLAN"]));
   assert.ok(lines.some((l) => l.includes("hosted_provider_records_pkey")), lines.join("\n"));
   assert.ok(!lines.some((l) => /^\s*(->\s*)?Sort\b/.test(l)), lines.join("\n"));
+});
+
+test("the reader role refuses writes, DDL and reads outside its allowlist, even in a read-write transaction", { skip }, async () => {
+  const c = new pg.Client({ connectionString: readerUrl() });
+  await c.connect();
+  try {
+    const refused = async (sql: string) => {
+      await c.query("BEGIN READ WRITE");
+      try {
+        await assert.rejects(c.query(sql), (e: { code?: string }) => e.code === "42501", sql);
+      } finally {
+        await c.query("ROLLBACK");
+      }
+    };
+    await refused("INSERT INTO hosted_provider_backup_holds (id, expires_at) VALUES (gen_random_uuid(), now())");
+    await refused(`UPDATE hosted_provider_collections SET head = head WHERE id = '${CID}'`);
+    await refused("DELETE FROM hosted_provider_records WHERE false");
+    await refused("TRUNCATE hosted_provider_changes");
+    await refused("CREATE TABLE public.mdbn_reader_probe (x int)");
+    await refused("CREATE TEMP TABLE mdbn_reader_probe (x int)");
+    await refused("ALTER TABLE hosted_provider_collections ADD COLUMN mdbn_reader_probe int");
+    await refused("DROP TABLE hosted_provider_backup_holds");
+    await refused("SELECT token_hash FROM hosted_provider_replicas LIMIT 1");
+    await refused("SELECT resources_ciphertext FROM hosted_provider_collections LIMIT 1");
+    await refused("SELECT * FROM hosted_provider_collections LIMIT 1");
+    await refused("SELECT 1 FROM hosted_provider_query_cursors LIMIT 1");
+    await refused("SELECT 1 FROM archived_hosted_mutation_receipts LIMIT 1");
+    await refused("SELECT 1 FROM hosted_provider_collections FOR UPDATE");
+    // The role's own default is read-only.
+    assert.equal((await c.query("SHOW default_transaction_read_only")).rows[0].default_transaction_read_only, "on");
+  } finally {
+    await c.end();
+  }
+});
+
+test("verify_select_only refuses column-level write grants and role memberships", { skip }, async () => {
+  const code = (e: unknown) => e instanceof LegacySourceError && e.code === "writable_role";
+  const src = await source();
+  await admin.query(`GRANT UPDATE (state) ON hosted_provider_collections TO ${READER.user}`);
+  try {
+    await assert.rejects(src.openCheckpoint(req, signal()), code, "a column-level UPDATE grant is a writer");
+  } finally {
+    await admin.query(`REVOKE UPDATE (state) ON hosted_provider_collections FROM ${READER.user}`);
+  }
+  await admin.query("DROP ROLE IF EXISTS mdbn_reader_probe_writer");
+  await admin.query("CREATE ROLE mdbn_reader_probe_writer NOLOGIN");
+  await admin.query(`GRANT mdbn_reader_probe_writer TO ${READER.user} WITH INHERIT FALSE`);
+  try {
+    await assert.rejects(src.openCheckpoint(req, signal()), code, "a member of any role could SET ROLE to it");
+  } finally {
+    await admin.query(`REVOKE mdbn_reader_probe_writer FROM ${READER.user}`);
+    await admin.query("DROP ROLE mdbn_reader_probe_writer");
+  }
+  const { session } = await src.openCheckpoint(req, signal());
+  await src.close(session);
+});
+
+test("Worker bindings: a bound, read-only source over the reader role, scoped to its collection", { skip }, async () => {
+  const connect: PgConnect = (cs) => new pg.Client({ connectionString: cs });
+  const fetched: string[] = [];
+  const env: LegacySourceEnv = {
+    LAB: "1", LEGACY_SOURCE_ENVIRONMENT: "lab", LEGACY_SOURCE_COLLECTIONS: CID,
+    LEGACY_DB: { connectionString: readerUrl() },
+    LEGACY_R2_ENDPOINT: `https://${"a".repeat(32)}.r2.cloudflarestorage.com`, LEGACY_R2_BUCKET: "legacy-files",
+    LEGACY_R2_ACCESS_KEY_ID: "k".repeat(32), LEGACY_R2_SECRET_ACCESS_KEY: "s".repeat(64),
+    LEGACY_MASTER_KEY: Buffer.from(MASTER).toString("base64url"),
+  };
+  const deps = { connect, fetch: (async (r: Request) => { fetched.push(r.url); return new Response(null, { status: 404 }); }) as typeof fetch };
+  const binding = (c: string) => (e: unknown) => e instanceof LegacyBindingError && e.code === c;
+
+  // A collection outside the allowlist never opens.
+  await assert.rejects(openLegacySource(env, CID2, deps), binding("legacy_source_foreign_collection"));
+  const src = await openLegacySource(env, CID, deps);
+  await assert.rejects(src.openCheckpoint({ ...req, collection: CID2, S0: 5, expectedState: "migrating" }, signal()),
+    binding("legacy_source_foreign_collection"));
+
+  const { session } = await src.openCheckpoint(req, signal());
+  try {
+    const page = await src.nextPage(session, "records", null, { maxRecords: 3, maxDecodedBytes: 65536 }, signal());
+    assert.equal(page.rows.length, 3);
+    const files = await src.nextPage(session, "files", null, PAGE, signal());
+    assert.equal(files.rows.length, 1);
+    // The fixture's object key is not one of this collection's committed blob keys.
+    await assert.rejects(src.streamContent(session, files.rows[0].sourceRef, signal()), binding("legacy_source_foreign_collection"));
+    assert.deepEqual(fetched, [], "nothing outside the collection's prefix is fetched");
+  } finally {
+    await src.close(session);
+  }
+
+  // The adapter's own transaction: read-only, and only single read statements pass.
+  const tx = await openReadOnlyTx(connect, readerUrl(), signal());
+  try {
+    const [ro] = await tx.query("SHOW transaction_read_only", [], signal());
+    assert.equal(ro.transaction_read_only, "on");
+    for (const sql of [
+      "INSERT INTO hosted_provider_backup_holds (id, expires_at) VALUES (gen_random_uuid(), now())",
+      "WITH d AS (DELETE FROM hosted_provider_records RETURNING 1) SELECT * FROM d",
+      "SELECT 1; DELETE FROM hosted_provider_records",
+      "SELECT id FROM hosted_provider_collections FOR UPDATE",
+      "SET ROLE NONE",
+    ]) {
+      await assert.rejects(tx.query(sql, [], signal()), binding("legacy_source_read_only"), sql);
+    }
+  } finally {
+    await tx.close();
+  }
 });

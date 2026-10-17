@@ -7,10 +7,13 @@ import { mdbaseError } from "../src/errors.js";
 import type { ListResourcesResult, ResourceView } from "../src/wire.js";
 import { MemoryReplica } from "../src/testing/index.js";
 import { AppCollectionSetupJournal } from "../src/app-host/collection-setup-journal.js";
+import { AppCollectionControlError, appCollectionControlClient, attachAppCollectionControl } from "../src/app-host/collection-control.js";
 import type { ModelResourcePlan } from "../src/app-host/collection-setup-types.js";
 import { applicationDeclaration } from "../src/application/declaration.js";
 import { compileApplicationManifest } from "../src/application/manifest.js";
-import { createApplicationConfiguration, type ApplicationConfigurationResources } from "../src/application/configuration.js";
+import { createApplicationConfiguration, newerPacks, withoutPacks, type ApplicationConfigurationResources } from "../src/application/configuration.js";
+import { setupPlan } from "../src/application/setup.js";
+import { describeError } from "../src/describe-error.js";
 
 const digest = `sha256:${"ab".repeat(32)}`;
 const generation = "11111111-1111-4111-8111-111111111111";
@@ -31,7 +34,7 @@ async function fixture(mode: "inspect" | "approved-new" | "reconcile-original" =
   const replica = new MemoryReplica();
   const client = await connect({ connector: replica.connector(), app: { name: "configuration-test", version: "0" }, reconnect: false });
   const scope = { account: generation, installation: "22222222-2222-4222-8222-222222222222", collection: client.hello.collection };
-  let current = true, status: "current" | "provision" | "conflict" = "current";
+  let current = true, status: "current" | "provision" | "conflict" = "current", catalogs = 0;
   const compiledManifest = compileApplicationManifest(applicationDeclaration({
     id: generation, name: "Example", origin: "https://app.test", environment: "production",
     manifest: { manifest_version: 1, id: "org.example.app", name: "Example", homepage: "https://app.test", redirect_uris: ["https://app.test/callback"],
@@ -49,6 +52,9 @@ async function fixture(mode: "inspect" | "approved-new" | "reconcile-original" =
   const helper = createApplicationConfiguration(input, port);
   return { client, replica, journal, port, helper, input, controller,
     status(value: typeof status) { status = value; }, stale() { current = false; },
+    /** Definitions changed: describe() reports a different catalog from now on. */
+    catalogChanged() { const real = client.describe.bind(client); const n = (catalogs += 1);
+      vi.spyOn(client, "describe").mockImplementation(async (...args) => ({ ...(await real(...args)), specVersion: `changed-${n}` })); },
     async close() { await helper.close().catch(() => {}); journal.close(); await client.close(); } };
 }
 async function retirementFixture() {
@@ -80,6 +86,66 @@ describe("scoped application configuration phase", () => {
       expect((await f.helper.assess()).assessment?.status).toBe("ready");
       expect(f.port.apply).not.toHaveBeenCalled();
       expect(await f.journal.load(f.controller.signal)).toBeNull();
+    } finally { await f.close(); }
+  });
+  it("a collection change after assessment re-assesses in the background, never a configuration_changed problem", async () => {
+    // Regression (LAB 2026-10-12): any status change (another device's write)
+    // published configuration_changed and blocked the app on "Settings changed elsewhere".
+    const f = await fixture(), problems: string[] = [];
+    try {
+      expect((await f.helper.assess()).assessment?.status).toBe("ready");
+      f.helper.subscribe(() => { const code = f.helper.getSnapshot().problem?.code; if (code) problems.push(code); });
+      // P1: a record-only change keeps the assessment without re-assessing.
+      const assessed = vi.mocked(f.port.assess).mock.calls.length;
+      await (await f.client.submit([{ kind: "create", id: crypto.randomUUID(), path: "notes/record-only.md", document: "r" }], { wait: "confirmed" }))[0]!.confirmed;
+      await new Promise(resolve => setTimeout(resolve, 60));
+      expect(vi.mocked(f.port.assess).mock.calls.length).toBe(assessed);
+      f.status("provision"); f.catalogChanged(); // e.g. another device removed a definition
+      const writes = await f.client.submit([{ kind: "create", id: crypto.randomUUID(), path: "notes/other-device.md", document: "x" }], { wait: "confirmed" });
+      await writes[0]!.confirmed;
+      await vi.waitFor(() => expect(f.helper.getSnapshot().assessment?.status).toBe("setup_required"), { timeout: 3000 });
+      expect(problems).toEqual([]);
+      // A caller's assessment during the background one waits for it, not busy.
+      f.status("current"); f.catalogChanged();
+      await f.client.submit([{ kind: "create", id: crypto.randomUUID(), path: "notes/other-device-2.md", document: "y" }], { wait: "confirmed" });
+      await new Promise(resolve => setTimeout(resolve, 60));
+      expect((await f.helper.assess()).assessment?.status).toBe("ready");
+      expect(problems).toEqual([]);
+    } finally { await f.close(); }
+  });
+  it("a background re-assessment that fails transiently retries, never a configuration_unavailable problem", async () => {
+    // Regression (LAB 2026-10-12): right after setup a background re-check hit a
+    // transient failure and left the app on "Can't connect right now".
+    const f = await fixture(), problems: string[] = [];
+    try {
+      expect((await f.helper.assess()).assessment?.status).toBe("ready");
+      f.helper.subscribe(() => { const code = f.helper.getSnapshot().problem?.code; if (code) problems.push(code); });
+      vi.mocked(f.port.assess).mockRejectedValueOnce(mdbaseError("unavailable", "replica unreachable"));
+      f.catalogChanged();
+      const writes = await f.client.submit([{ kind: "create", id: crypto.randomUUID(), path: "notes/after-setup.md", document: "x" }], { wait: "confirmed" });
+      await writes[0]!.confirmed;
+      await vi.waitFor(() => expect(vi.mocked(f.port.assess).mock.calls.length).toBeGreaterThanOrEqual(3), { timeout: 3000 });
+      await vi.waitFor(() => expect(f.helper.getSnapshot().assessment?.status).toBe("ready"), { timeout: 3000 });
+      expect(problems).toEqual([]);
+    } finally { await f.close(); }
+  });
+  it("another app's later setup of shared files never makes a verified setup unreadable", async () => {
+    // Regression (LAB UX-008): every assessment re-read the original setup's files
+    // byte-for-byte, so another app rewriting the shared mdbase.lock.yaml left this
+    // app on configuration_unavailable (recovery_required) for good.
+    const f = await fixture(); f.status("provision");
+    const lock = "packs: [org.example.task]\n";
+    vi.mocked(f.port.apply).mockImplementation(async () => { f.status("current"); return { ...plan,
+      resourceOps: [...plan.resourceOps, { kind: "resource_put", path: "mdbase.lock.yaml", doc: lock, mustNotExist: true }],
+      resourceReadback: [...plan.resourceReadback, { path: "mdbase.lock.yaml", doc: lock }] }; });
+    try {
+      expect((await f.helper.configure()).assessment?.status).toBe("ready");
+      expect((await f.journal.load(f.controller.signal))?.phase).toBe("verified");
+      const before = await f.client.resources.get("mdbase.lock.yaml");
+      const other = await f.client.submit([{ kind: "resource_put", path: "mdbase.lock.yaml", doc: lock + "  - org.example.other\n", baseRevision: before.revision }], { wait: "confirmed" });
+      await other[0]!.confirmed;
+      expect((await f.helper.assess()).assessment?.status).toBe("ready");
+      expect(f.helper.getSnapshot().problem).toBeNull();
     } finally { await f.close(); }
   });
   it("missing producer refuses without inventing ready evidence", async () => {
@@ -119,6 +185,26 @@ describe("scoped application configuration phase", () => {
   it("conflict is scoped incompatible evidence, not success or a mutation attempt", async () => {
     const f = await fixture(); f.status("conflict");
     try { expect((await f.helper.configure()).assessment?.status).toBe("incompatible"); expect(f.port.apply).not.toHaveBeenCalled(); }
+    finally { await f.close(); }
+  });
+  it("R5.7: a newer same-major pack is kept as installed; a newer major asks for an app update", async () => {
+    const row = (id: string, installedVersion: string, action: "update" | "conflict" = "update") => ({ id, version: "1.2.0", status: "conflict" as const, installedVersion,
+      resources: [{ target: `_types/${id}.md`, kind: "type", mode: "managed" as const, installed: true, action }] });
+    const assessed = { status: "conflict" as const, assessmentDigest: digest, review: { configuration: [], staged: [],
+      packs: [row("minor", "1.4.0-rc.2"), row("edited", "1.3.0", "conflict"), row("major", "2.0.0")] } };
+    const newer = newerPacks(assessed);
+    expect([...newer.compatible]).toEqual(["minor"]);
+    expect(newer.major).toEqual(["major"]);
+    const manifest = { id: "app", provisions: { type_packs: [{ manifest: { id: "minor" } }, { manifest: { id: "major" } }] } };
+    expect(withoutPacks(manifest, newer.compatible)).toEqual({ id: "app", provisions: { type_packs: [{ manifest: { id: "major" } }] } });
+    const plan = setupPlan(assessed, { canManage: true, canCreateRecords: true, records: [], newer });
+    expect(plan).toMatchObject({ canApply: false, refusal: { code: "installed_newer" } });
+    expect(plan.packs.find(p => p.id === "major")).toMatchObject({ installedVersion: "2.0.0", relation: "installed_newer_major" });
+    expect(describeError(plan.refusal)).toMatchObject({ key: "installed_newer", action: "update_app" });
+    // The controller reports it as installed_newer, not a conflict to resolve.
+    const f = await fixture(); f.status("conflict");
+    vi.mocked(f.port.assess).mockImplementation(async (_m, _s, decisions) => decisions ? assessed : { status: "conflict", assessmentDigest: digest });
+    try { expect((await f.helper.assess()).assessment).toMatchObject({ status: "incompatible", problem: { code: "installed_newer" } }); }
     finally { await f.close(); }
   });
   it.each(["inspect", "approved-new"] as const)("%s journals the original MID before ordinary submit and exact readback", async mode => {
@@ -304,7 +390,7 @@ describe("reviewable setup plan/apply", () => {
       if (!decisions) return { status, assessmentDigest };
       return { status, assessmentDigest, review: { configuration: [], staged: adopt ? [{ path: target, document: "Synthetic resource" }] : [],
         packs: [{ id: "org.example.task", version: "1.0.0", status: done ? "current" as const : "install" as const, installedVersion: null,
-          resources: done ? [] : [{ target, kind: "type", mode: "managed" as const, installed: false, currentDigest: live, action: adopt ? "adopt" as const : "conflict" as const }] }] } };
+          resources: done ? [] : [{ target, kind: "type", mode: "managed" as const, installed: false, currentDigest: live, action: adopt ? "update" as const : "conflict" as const }] }] } };
     });
     vi.mocked(f.port.apply).mockImplementation(async () => ({ ...plan, assessmentDigest: adopted,
       resourceOps: [{ kind: "resource_put", path: target, doc: "Synthetic resource", mustNotExist: false, baseRevision: live }] }));
@@ -318,12 +404,12 @@ describe("reviewable setup plan/apply", () => {
       await (await f.client.create({ path: "Taken.md", body: "mine" })).confirmed;
       const blocked = await f.helper.plan();
       expect(blocked).toMatchObject({ status: "conflict", canApply: false, adoptable: { [target]: live }, refusal: { code: "setup_conflict" } });
-      expect(blocked.conflicts[0]!.message).toMatch(/already has a "task" record type/);
+      expect(blocked.conflicts[0]!.message).toMatch(/already has a note type for this app/);
       await expect(f.helper.apply(blocked)).rejects.toMatchObject({ reason: "setup_conflict" });
       const reviewed = await f.helper.plan({ adopt: blocked.adoptable, records: [{ path: "Welcome.md", document: welcome }, { path: "Taken.md", document: welcome }] });
       expect(reviewed).toMatchObject({ status: "setup", canApply: true, digest: adopted,
         records: [{ path: "Welcome.md", action: "create" }, { path: "Taken.md", action: "skip" }] });
-      expect(reviewed.changes.map(c => c.message)).toEqual(["Replace your existing \"task\" record type with this app's version.", "Create the starter note \"Welcome\"."]);
+      expect(reviewed.changes.map(c => c.message)).toEqual(["Update the note type for this app.", "Create the starter note \"Welcome\"."]);
       expect(f.port.apply).not.toHaveBeenCalled();
       const submit = vi.spyOn(f.client, "submit");
       await f.helper.apply(reviewed);
@@ -384,5 +470,73 @@ describe("reviewable setup plan/apply", () => {
       expect(verified).toMatchObject({ phase: "verified" });
       expect(verified!.mutationId).not.toBe(settled!.mutationId);
     } finally { await f.close(); }
+  });
+});
+
+describe("bounded control contention", () => {
+  it("stops automatic busy retries within 15 seconds and an explicit retry can recover", async () => {
+    const f = await fixture();
+    await f.helper.assess();
+    const load = vi.spyOn(f.journal, "load").mockRejectedValue(new AppCollectionControlError("busy"));
+    vi.useFakeTimers({toFake: ["Date", "setTimeout", "clearTimeout"]});
+    try {
+      const outcome = f.helper.assess().catch(error => error);
+      await vi.waitFor(() => expect(load).toHaveBeenCalled());
+      await vi.advanceTimersByTimeAsync(15000);
+      expect(await outcome).toMatchObject({reason: "configuration_busy_timeout"});
+      expect(f.helper.getSnapshot()).toMatchObject({checking: false, assessment: null, problem: {code: "configuration_busy_timeout"}});
+      expect(describeError(f.helper.getSnapshot())).toMatchObject({action: "retry", transient: false});
+      const attempts = load.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(60000);
+      expect(load).toHaveBeenCalledTimes(attempts);
+      load.mockRestore();
+      vi.useRealTimers();
+      await expect(f.helper.assess()).resolves.toMatchObject({assessment: {status: "ready"}, problem: null});
+    } finally { vi.useRealTimers(); await f.close(); }
+  });
+});
+
+describe("two tabs of one session", () => {
+  // UX-030: one tab auto-applies a new collection's setup while the other tab
+  // (opened to inspect) plans it. The planning tab waits for the setup in
+  // progress and then sees it done, instead of failing busy or recovery_required.
+  it("a tab planning setup waits for the other tab's setup in progress, then sees it current", async () => {
+    const f = await fixture("approved-new");
+    const closers: Array<() => void | Promise<void>> = [];
+    try {
+      f.status("provision");
+      vi.mocked(f.port.assess).mockImplementation(async (_manifest, _signal, decisions) => {
+        const status = vi.mocked(f.port.apply).mock.calls.length ? "current" as const : "provision" as const;
+        return decisions ? { status, assessmentDigest: digest, review: { configuration: [], staged: [], packs: [] } } : { status, assessmentDigest: digest };
+      });
+      // The Worker side: one journal and one setup turn, a control per tab.
+      const setupTurn = { owner: null };
+      const tab = (setupMode: "approved-new" | "inspect") => {
+        const channel = new MessageChannel(), life = new AbortController(), binding = { scope: f.input.scope, generation };
+        const server = attachAppCollectionControl(channel.port1, binding, { journal: f.journal, resourceSetup: f.port, setupTurn, signal: f.controller.signal,
+          isCurrent: () => true, assess: () => {}, foreground: () => {}, onProtocolFailure: () => {} });
+        const control = appCollectionControlClient(channel.port2, binding, { signal: life.signal, isCurrent: () => true, onClose: () => {} });
+        const helper = createApplicationConfiguration({ ...f.input, journal: control.journal, setupMode }, control.resourceSetup);
+        closers.push(() => helper.close(), () => life.abort(), () => server.close());
+        return helper;
+      };
+      const leader = tab("approved-new"), follower = tab("inspect");
+      // Hold the leader between its prepare and its attempt.
+      const held = deferred<void>(), attempt = f.journal.recordResourceAttempt.bind(f.journal);
+      const reached = deferred<void>();
+      vi.spyOn(f.journal, "recordResourceAttempt").mockImplementation(async (id, signal) => { reached.resolve(); await held.promise; return attempt(id, signal); });
+      const applying = leader.assess();
+      await reached.promise;
+      expect((await f.journal.load(f.controller.signal))?.phase).toBe("prepared");
+      const planning = follower.plan();
+      let planned = false; void planning.then(() => { planned = true; }, () => { planned = true; });
+      await new Promise(resolve => setTimeout(resolve, 100));
+      expect(planned).toBe(false);
+      held.resolve();
+      expect((await applying).assessment?.status).toBe("ready");
+      await expect(planning).resolves.toMatchObject({ status: "current", canApply: false });
+      expect(f.port.apply).toHaveBeenCalledTimes(1);
+      expect((await f.journal.load(f.controller.signal))?.phase).toBe("verified");
+    } finally { for (const close of closers.reverse()) await close(); await f.close(); }
   });
 });

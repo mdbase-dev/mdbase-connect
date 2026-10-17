@@ -618,3 +618,123 @@ fn retained_version_refuses_missing_or_current_bytes_and_reads_no_deleted_object
         "reject malformed metadata before reading old objects"
     );
 }
+
+/// Migration hazards through the native migrator (re-seal, generation 0, shadow
+/// verify). Documents are never parsed or normalised: unterminated or invalid
+/// frontmatter, duplicate keys, odd YAML values, a BOM, CRLF and control
+/// characters reach generation 0 and an installed store byte-exact, and shadow
+/// verify matches. A non-UTF-8 attachment (including one named `.md` in the
+/// legacy file table) is opaque bytes and decrypts back exactly. A non-UTF-8
+/// resource stops the collection with a reason naming the path, never the
+/// content, and is never transcoded.
+#[test]
+fn hazard_documents_and_non_utf8_attachments_migrate_exactly() {
+    const NOT_UTF8: &[u8] = b"caf\xe9 \x80 \xc0\xaf \xe2\x82 \xed\xa0\x80 \xff\xfe\x00end";
+    let docs = [
+        "---\ntitle: never closed\nbody without a closing fence\n",
+        "---\ntitle: one\ntitle: two\ntags: [a]\ntags: b\n---\nbody\n",
+        "---\n? [complex, key]\n: value\n123: n\nnull: ~\nanchor: &a {x: 1}\nalias: *a\nbin: !!binary aGVsbG8=\ndate: 2026-02-30\ntab:\tvalue\n---\nbody\n",
+        "---\nkey: [unclosed\n  : : :\n\t- mixed\n---\nbody\n",
+        "---\n- a\n- b\n---\nnot a mapping\n",
+        "\u{feff}---\ntitle: bom\n---\nbody\n",
+        "---\r\ntitle: crlf\r\n---\r\nbody\r\n",
+        "---\r\ntitle: mixed\n---\rbody\r\nlast\r",
+        "nul\u{0}byte \u{1b}[0m",
+        "---",
+        "",
+    ];
+    let records: Vec<Record> = docs
+        .iter()
+        .enumerate()
+        .map(|(i, d)| {
+            record(
+                &format!("0192f0c1-7e1a-7b3c-8d4e-0000000001{i:02x}"),
+                &format!("hazard/{i}.md"),
+                d,
+            )
+        })
+        .collect();
+    let latin1_md = NOT_UTF8.repeat(2);
+    let files = vec![
+        file(F1, "attachments/latin1.txt", "k1", NOT_UTF8),
+        file(F2, "notes/latin1.md", "k2", &latin1_md),
+    ];
+    let resources = vec![(
+        "mdbase.yaml".to_owned(),
+        b"\xef\xbb\xbfname: hazards\r\n".to_vec(),
+    )];
+    let resolved = preflight::resolve(&resources, &records, &files).unwrap();
+    assert!(resolved.renames().is_empty());
+    let mut objects = Objects(
+        BTreeMap::from([
+            ("k1".to_owned(), NOT_UTF8.to_vec()),
+            ("k2".to_owned(), latin1_md.clone()),
+        ]),
+        0,
+    );
+    let mut service = super::testing::StrictStore::default();
+    let collection = crate::ids::uuid(CID).unwrap();
+    let key = Secret32([6; 32]);
+    let seal = SealKey {
+        key: &key,
+        epoch: 1,
+        collection,
+    };
+    let (sealed, _) = reseal::reseal_files(
+        &resolved,
+        &mut objects,
+        &seal,
+        &mut service,
+        &mut TestEntropy::new(4),
+    )
+    .unwrap();
+    let stored: BTreeMap<_, _> = service.objects(&collection).into_iter().collect();
+    let k_cid = content_key(&key, &collection);
+    for (id, want) in [(F1, NOT_UTF8.to_vec()), (F2, latin1_md)] {
+        let blob = &sealed[id];
+        let mut plain = Vec::new();
+        for (i, addr) in part_addresses(&k_cid, blob).unwrap().iter().enumerate() {
+            plain.extend(open_part(&key, &collection, blob, i as u64, &stored[addr]).unwrap());
+        }
+        assert!(check_blob(blob, &plain));
+        assert_eq!(plain, want, "attachment {id} decrypts byte-exact");
+    }
+
+    let g = gen0::build(CID, 7, &resources, &records, &files, &sealed).unwrap();
+    assert_eq!(g.records.len(), docs.len());
+    assert!(g.imported_as_files.is_empty());
+    assert_eq!(g.resources[0].1.as_bytes(), resources[0].1.as_slice());
+    for r in &records {
+        let got = g
+            .records
+            .iter()
+            .find(|x| x.id.to_uuid_string() == r.record_id)
+            .unwrap();
+        assert_eq!(got.doc.as_bytes(), r.document.as_bytes());
+        assert_eq!(got.path, r.path);
+    }
+    let mut store = MemStore::new();
+    install(&mut store, &g);
+    assert_eq!(
+        shadow::verify(&Expected::from_gen0(&g), &store).unwrap(),
+        vec![]
+    );
+    for r in &records {
+        let id = crate::ids::uuid(&r.record_id).unwrap();
+        assert_eq!(
+            store.record(&id).unwrap().unwrap().doc.as_bytes(),
+            r.document.as_bytes()
+        );
+    }
+
+    // A non-UTF-8 resource: refused with the path as the reason, no content.
+    let bad = vec![("_types/legacy.md".to_owned(), NOT_UTF8.to_vec())];
+    let err = gen0::build(CID, 7, &bad, &records, &files, &sealed).unwrap_err();
+    assert!(matches!(err, crate::Error::Invalid(_)), "{err}");
+    let text = err.to_string();
+    assert!(
+        text.contains("_types/legacy.md") && text.contains("not UTF-8"),
+        "{text}"
+    );
+    assert!(!text.contains("caf"), "{text}");
+}

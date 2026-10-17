@@ -1,5 +1,6 @@
 import {isAppOrigin,urlOrigin} from "../app-host/app-origin.js";
 import {isMdbaseError,mdbaseError} from "../errors.js";
+import {applicationEnvironmentAllowed,applicationLoopbackAllowed,localApplicationEnvironment,localApplicationOrigin} from "./local-build.js";
 
 /** SDK build/packaging input only, not an application declaration option.
  * Hash integrity does NOT authenticate this descriptor or the release context. */
@@ -11,7 +12,7 @@ export interface ApplicationAsset {
 }
 export interface ApplicationAssetHost {
   readonly origin:string;
-  readonly environment:"lab"|"production";
+  readonly environment:"lab"|"production"|"local";
   readonly fetch?:typeof fetch;
 }
 const error=(reason:string)=>mdbaseError("unavailable","application asset unavailable",reason);
@@ -20,23 +21,35 @@ function check(signal:AbortSignal):void{if(signal.aborted)throw fenced();}
 
 /** Private same-artifact transport. The SDK release generator supplies immutable
  * URLs/digests/byte counts from authenticated packaging, never the app or CP.
- * Owns each streaming reader until original work drains; no retry or fallback. */
+ * Persists verified public artifact bytes for offline reopen (HTTP caching alone
+ * is not reliable on WebKit). Every read still passes the packaged size/digest
+ * checks; a different release is never a fallback. Owns IO until work drains. */
 export function applicationAssetLoader(input:ApplicationAsset,source:ApplicationAssetHost):
   (options:{signal:AbortSignal})=>Promise<Uint8Array>{
   const asset=Object.freeze({...input}),host=Object.freeze({...source});
   let url:URL,origin:URL;
   try{url=new URL(asset.url);origin=new URL(host.origin);}catch{throw error("application_asset_binding");}
-  if(!isAppOrigin(host.origin,host.environment==="lab")||origin.protocol!==url.protocol
-    ||!["lab","production"].includes(host.environment)||urlOrigin(url)!==host.origin||url.username||url.password||url.search||url.hash
+  if(!isAppOrigin(host.origin,applicationLoopbackAllowed(host.environment))||origin.protocol!==url.protocol
+    ||!applicationEnvironmentAllowed(host.environment)||(localApplicationEnvironment(host.environment)&&!localApplicationOrigin(host.origin))||urlOrigin(url)!==host.origin||url.username||url.password||url.search||url.hash
     ||!/^[0-9a-f]{64}$/.test(asset.sha256)||!Number.isSafeInteger(asset.bytes)||asset.bytes<1
     ||!Number.isSafeInteger(asset.maxBytes)||asset.maxBytes<asset.bytes||asset.maxBytes>4*1024*1024)throw error("application_asset_binding");
   const fetcher=host.fetch??globalThis.fetch;
   if(typeof fetcher!=="function")throw error("application_asset_unavailable");
+  // Public executable bytes only, never collection data or custody. Partition
+  // by exact URL AND digest so a changed release cannot reuse another artifact.
+  const key=new URL(url.href);key.searchParams.set("mdbase-sdk-asset",asset.sha256);
   return async({signal})=>{
     check(signal);
-    let response:Response;
-    try{response=await fetcher(url.href,{signal,credentials:"omit",cache:"no-store",redirect:"error"});}
-    catch{check(signal);throw error("application_asset_fetch");}
+    let cache:Cache|null=null,response:Response|undefined;
+    try{
+      if(globalThis.caches){cache=await globalThis.caches.open("mdbase.sdk.application-assets.v1");response=await cache.match(key.href);}
+    }catch{/* Storage can be unavailable; an online load remains usable. */}
+    const stored=response!==undefined;
+    if(!response){
+      check(signal);
+      try{response=await fetcher(url.href,{signal,credentials:"omit",cache:"force-cache",redirect:"error"});}
+      catch{check(signal);throw error("application_asset_fetch");}
+    }
     // Acquire response cleanup before checking cancellation after ignored-abort IO.
     const reader=response.body?.getReader();
     if(!reader){check(signal);throw error("application_asset_response");}
@@ -61,6 +74,12 @@ export function applicationAssetLoader(input:ApplicationAsset,source:Application
       if(offset!==asset.bytes)throw error("application_asset_binding");
       const digest=new Uint8Array(await crypto.subtle.digest("SHA-256",bytes));check(signal);
       if(Array.from(digest,byte=>byte.toString(16).padStart(2,"0")).join("")!==asset.sha256)throw error("application_asset_binding");
+      check(signal);
+      if(cache&&!stored){
+        // Store only bytes that passed all intake checks; never store a failed
+        // response. Drain the original write before resolving or fencing.
+        try{await cache.put(key.href,new Response(bytes));}catch{/* Quota/storage refusal must not block an online open. */}
+      }
       check(signal);return bytes;
     }catch(cause){
       check(signal);

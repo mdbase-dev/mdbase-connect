@@ -33,6 +33,21 @@ pub enum Cred<'a> {
     Scoped(&'a Device, Uuid),
 }
 
+/// How a client opens its socket. The default is the native path (nonce from
+/// the upgrade header, no `Origin`, a 15-minute token).
+#[derive(Clone, Default)]
+pub struct ConnectOpts {
+    /// Browser path: fetch a single-use HTTP nonce from `{http}/v1/nonce` and
+    /// pass it as `n`, or pass this exact nonce (replay probes).
+    pub http_nonce: Option<String>,
+    /// Reuse this nonce hex instead of fetching one.
+    pub nonce: Option<String>,
+    /// `Origin` header on the upgrade.
+    pub origin: Option<String>,
+    /// Token expiry (ms); default now + 15 minutes.
+    pub exp: Option<i64>,
+}
+
 /// Wall-clock milliseconds.
 pub fn now_ms() -> i64 {
     std::time::SystemTime::now()
@@ -48,6 +63,10 @@ pub struct Client {
     out: mpsc::UnboundedSender<Message>,
     pending: Pending,
     pushes: tokio::sync::Mutex<mpsc::UnboundedReceiver<LsPush>>,
+    closed: tokio::sync::Mutex<oneshot::Receiver<Option<u16>>>,
+    pongs: Arc<AtomicU64>,
+    /// The nonce the session used for `hello`.
+    pub hello_nonce: [u8; 32],
     next: AtomicU64,
     /// Request timeout.
     pub timeout: Duration,
@@ -65,14 +84,65 @@ impl Client {
         cred: Cred<'_>,
         cp: &ControlPlane,
     ) -> Result<Client, ServiceError> {
-        let url = format!("{ws_base}/v1/ws?c={}", collection.to_uuid_string());
-        let (ws, resp) = tokio_tungstenite::connect_async(url)
+        Self::connect_with(ws_base, collection, cred, cp, &ConnectOpts::default()).await
+    }
+
+    /// [`Client::connect`] with explicit transport options.
+    pub async fn connect_with(
+        ws_base: &str,
+        collection: &Uuid,
+        cred: Cred<'_>,
+        cp: &ControlPlane,
+        opts: &ConnectOpts,
+    ) -> Result<Client, ServiceError> {
+        let c = Self::open(ws_base, collection, opts).await?;
+        c.hello(cred, cp, opts.exp).await?;
+        Ok(c)
+    }
+
+    /// Open the socket without `hello`.
+    pub async fn open(
+        ws_base: &str,
+        collection: &Uuid,
+        opts: &ConnectOpts,
+    ) -> Result<Client, ServiceError> {
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+        let mut url = format!("{ws_base}/v1/ws?c={}", collection.to_uuid_string());
+        let query_nonce = match (&opts.nonce, &opts.http_nonce) {
+            (Some(n), _) => Some(n.clone()),
+            (None, Some(http)) => Some(
+                reqwest::Client::new()
+                    .get(format!("{http}/v1/nonce"))
+                    .send()
+                    .await
+                    .map_err(transport)?
+                    .text()
+                    .await
+                    .map_err(transport)?
+                    .trim()
+                    .to_string(),
+            ),
+            _ => None,
+        };
+        if let Some(n) = &query_nonce {
+            url.push_str(&format!("&n={n}"));
+        }
+        let mut req = url.into_client_request().map_err(transport)?;
+        if let Some(o) = &opts.origin {
+            req.headers_mut()
+                .insert("origin", o.parse().map_err(transport)?);
+        }
+        let (ws, resp) = tokio_tungstenite::connect_async(req)
             .await
             .map_err(transport)?;
-        let nonce: [u8; 32] = resp
+        let header_nonce = resp
             .headers()
             .get("x-mdbase-nonce")
             .and_then(|v| v.to_str().ok())
+            .map(str::to_string);
+        let nonce: [u8; 32] = query_nonce
+            .or(header_nonce)
+            .as_deref()
             .and_then(unhex)
             .and_then(|v| v.try_into().ok())
             .ok_or_else(|| transport("no nonce in upgrade response"))?;
@@ -88,12 +158,23 @@ impl Client {
         });
         let pending: Pending = Arc::new(Mutex::new(BTreeMap::new()));
         let (push_tx, push_rx) = mpsc::unbounded_channel();
+        let (closed_tx, closed_rx) = oneshot::channel();
+        let pongs = Arc::new(AtomicU64::new(0));
+        let pong_count = pongs.clone();
         let p = pending.clone();
         tokio::spawn(async move {
+            let mut code = None;
             while let Some(Ok(m)) = stream.next().await {
                 let b = match m {
                     Message::Binary(b) => b,
-                    Message::Close(_) => break,
+                    Message::Close(f) => {
+                        code = f.map(|f| u16::from(f.code));
+                        break;
+                    }
+                    Message::Text(t) if t.as_str() == "pong" => {
+                        pong_count.fetch_add(1, Ordering::Relaxed);
+                        continue;
+                    }
                     _ => continue,
                 };
                 match LsFrame::from_bytes(&b) {
@@ -109,15 +190,30 @@ impl Client {
                 }
             }
             p.lock().unwrap().clear();
+            let _ = closed_tx.send(code);
         });
-        let c = Client {
+        Ok(Client {
             out,
             pending,
             pushes: tokio::sync::Mutex::new(push_rx),
+            closed: tokio::sync::Mutex::new(closed_rx),
+            pongs,
+            hello_nonce: nonce,
             next: AtomicU64::new(1),
             timeout: Duration::from_secs(30),
-        };
-        let exp = now_ms() + 15 * 60 * 1000;
+        })
+    }
+
+    /// Authenticate over the session's nonce.
+    pub async fn hello(
+        &self,
+        cred: Cred<'_>,
+        cp: &ControlPlane,
+        exp: Option<i64>,
+    ) -> Result<(), ServiceError> {
+        let c = self;
+        let nonce = self.hello_nonce;
+        let exp = exp.unwrap_or_else(|| now_ms() + 15 * 60 * 1000);
         let (token, device, sig) = match cred {
             Cred::Device(d) => {
                 let t = cp.device_token(d, exp);
@@ -156,7 +252,30 @@ impl Client {
             .to_cbor(),
         )
         .await?;
-        Ok(c)
+        Ok(())
+    }
+
+    /// The server's close code once the socket closes, or `None` after `wait`
+    /// (`Some(None)`: closed without a code).
+    pub async fn close_code(&self, wait: Duration) -> Option<Option<u16>> {
+        let mut rx = self.closed.lock().await;
+        tokio::time::timeout(wait, &mut *rx).await.ok()?.ok()
+    }
+
+    /// Send a text `ping`; true when a `pong` arrives within `wait`.
+    pub async fn ping(&self, wait: Duration) -> bool {
+        let before = self.pongs.load(Ordering::Relaxed);
+        if self.out.send(Message::Text("ping".into())).is_err() {
+            return false;
+        }
+        let deadline = tokio::time::Instant::now() + wait;
+        while tokio::time::Instant::now() < deadline {
+            if self.pongs.load(Ordering::Relaxed) > before {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        false
     }
 
     /// One request.

@@ -655,3 +655,98 @@ fn native_rpc_next_window_fragment_is_held_then_answers_original_request() {
     assert!(response.problem.is_none());
     assert_eq!(response.result, Some(Cbor::Uint((8 << 20) + 31)));
 }
+
+fn responses(frames: &mut Frames, id: u64) -> Vec<mdbn_wire::client::ClientResponse> {
+    frames
+        .take_outgoing()
+        .into_iter()
+        .filter_map(
+            |(_, b)| match ClientFrame::from_cbor(&cbor::decode(&b).unwrap()).unwrap() {
+                ClientFrame::Response(r) if r.id == id => Some(r),
+                _ => None,
+            },
+        )
+        .collect()
+}
+
+/// UX-023: a finished import must not hold the session's single upload slot,
+/// or the next import is refused as "the live upload request changed".
+#[test]
+fn native_rpc_second_upload_after_committed_first_opens_fresh_slot() {
+    let svc = FakeLogService::new();
+    let mut a = attach_node(&svc, 1);
+    let mut frames = Frames::new();
+    let (session, opened) = open(&mut a, &mut frames, 31);
+    frames.on_frame(
+        &mut a.r,
+        session,
+        &request(
+            2,
+            "upload_chunk",
+            UploadChunkParams {
+                transfer: opened.transfer,
+                index: 0,
+                bytes: Bytes(vec![0x41; 31]),
+            }
+            .to_cbor(),
+        ),
+    );
+    frames.take_outgoing();
+    frames.on_frame(
+        &mut a.r,
+        session,
+        &request(
+            3,
+            "commit_upload",
+            Cbor::Map(vec![(Cbor::Uint(0), opened.transfer.to_cbor())]),
+        ),
+    );
+    let mut committed = false;
+    for _ in 0..8 {
+        drive(&mut a, &Rc::default(), &mut |_, _| None);
+        frames.pump(&mut a.r);
+        committed |= responses(&mut frames, 3)
+            .iter()
+            .any(|r| r.problem.is_none());
+    }
+    assert!(committed, "first import committed");
+    // The finished create ages out of the native upload table (idle cleanup).
+    a.clock.set(a.clock.get() + 120_000);
+    a.r.tick();
+    drive(&mut a, &Rc::default(), &mut |_, _| None);
+    let second = OpenUploadParams {
+        transfer: B16([0x69; 16]),
+        path: "files/native-rpc-2.bin".into(),
+        size: 31,
+        digest: None,
+        file_id: None,
+        if_revision: None,
+        mutation_id: Some(B16([0x68; 16])),
+    };
+    let mut opened2 = None;
+    for attempt in 0..4u64 {
+        let id = 10 + attempt;
+        frames.on_frame(
+            &mut a.r,
+            session,
+            &request(id, "open_upload", second.to_cbor()),
+        );
+        drive(&mut a, &Rc::default(), &mut |_, _| None);
+        frames.pump(&mut a.r);
+        for r in responses(&mut frames, id) {
+            if let Some(problem) = &r.problem {
+                assert_ne!(
+                    problem.reason.as_deref(),
+                    Some("attachment_upload_scope_changed"),
+                    "{problem:?}"
+                );
+            } else {
+                opened2 = Some(OpenUploadResult::from_cbor(&r.result.unwrap()).unwrap());
+            }
+        }
+        if opened2.is_some() {
+            break;
+        }
+    }
+    assert_eq!(opened2.unwrap().transfer, second.transfer);
+}

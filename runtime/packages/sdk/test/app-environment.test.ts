@@ -10,6 +10,9 @@ function release(environment = "lab"): AppBundledReleaseTrust {
 }
 afterEach(() => {vi.restoreAllMocks(); vi.unstubAllGlobals();});
 describe("explicit build environment selection (context validation, not authentication)", () => {
+  it("managed artifacts refuse local roots/context even with explicit loopback values", () => {
+    expect(() => selectAppEnvironment({environment: "local", appOrigin, release: {...release("local"), cpOrigin: "http://127.0.0.1:48219", logOrigin: "http://127.0.0.1:48220"}})).toThrow();
+  });
   it("selects immutable explicit LAB context and no production default", () => {
     const selected = selectAppEnvironment({environment: "lab", appOrigin, release: release()});
     expect(selected).toEqual({environment: "lab", appOrigin, cpOrigin, logOrigin: "https://log.example.test", assetSha256: "11".repeat(32), allowLoopbackHttp: true});

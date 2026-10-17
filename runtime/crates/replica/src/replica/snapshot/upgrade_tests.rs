@@ -278,44 +278,10 @@ fn decoded_native_sections_still_require_authenticated_manifest_and_complete_dig
 }
 
 #[test]
-fn independent_promotion_and_continuation_guards_cannot_apply_a_legacy_prefix() {
+fn continuation_guard_cannot_apply_a_legacy_prefix() {
+    // Op17/Effect11 now have signed keyed-device/source/CAS qualification in
+    // engine::collection_setup::declared. Op18 is independently unsupported.
     let all = mdbn_wire::fixtures::all();
-    let full = rt::EntryPayload::from_bytes(
-        &all.iter()
-            .find(|f| f.format == "entry" && f.name == "runtime-v1-extended")
-            .unwrap()
-            .bytes,
-    )
-    .unwrap();
-    let base = rt::EntryPayload::from(
-        mdbn_wire::entry::EntryPayload::from_bytes(
-            &all.iter()
-                .find(|f| f.format == "entry" && f.name == "applied-with-text-table")
-                .unwrap()
-                .bytes,
-        )
-        .unwrap(),
-    );
-    let mut cases = Vec::new();
-    for op in full
-        .mutation
-        .ops
-        .into_iter()
-        .filter(|o| matches!(o, rt::Op::OrdinaryFileToRecord(_)))
-    {
-        let mut e = base.clone();
-        e.mutation.ops.push(op);
-        cases.push(e);
-    }
-    for effect in full
-        .effects
-        .into_iter()
-        .filter(|e| matches!(e, rt::Effect::ReindexOrdinaryFile(_)))
-    {
-        let mut e = base.clone();
-        e.effects.push(effect);
-        cases.push(e);
-    }
     let continuation = rt::EntryPayload::from_bytes(
         &all.iter()
             .find(|f| f.format == "entry" && f.name == "runtime-v1-ordinary-continuation")
@@ -323,31 +289,27 @@ fn independent_promotion_and_continuation_guards_cannot_apply_a_legacy_prefix() 
             .bytes,
     )
     .unwrap();
-    cases.push(continuation);
-    assert_eq!(cases.len(), 3);
-    for e in cases {
-        let mut r = replica();
-        let before = r.head;
-        let outcome = r
-            .apply_payload(
-                8,
-                Head {
-                    seq: 8,
-                    chain: B32([8; 32]),
-                },
-                e,
-                &mut BTreeSet::new(),
-            )
-            .unwrap();
-        assert!(matches!(
-            outcome,
-            super::super::apply::Outcome::Stall(IncidentKind::UpgradeRequired, _)
-        ));
-        assert_eq!(r.head, before);
-        assert_eq!(r.store.head().unwrap(), before);
-        assert_eq!(r.store.record(&OLD).unwrap(), Some(row(OLD, "prior.md")));
-        assert_eq!(r.store.staged_rows(), 1);
-    }
+    let mut r = replica();
+    let before = r.head;
+    let outcome = r
+        .apply_payload(
+            8,
+            Head {
+                seq: 8,
+                chain: B32([8; 32]),
+            },
+            continuation,
+            &mut BTreeSet::new(),
+        )
+        .unwrap();
+    assert!(matches!(
+        outcome,
+        super::super::apply::Outcome::Stall(IncidentKind::UpgradeRequired, _)
+    ));
+    assert_eq!(r.head, before);
+    assert_eq!(r.store.head().unwrap(), before);
+    assert_eq!(r.store.record(&OLD).unwrap(), Some(row(OLD, "prior.md")));
+    assert_eq!(r.store.staged_rows(), 1);
 }
 
 #[test]

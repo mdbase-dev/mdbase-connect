@@ -1449,4 +1449,7 @@ pub mod meta_keys {
     /// identity consistency for the host's genesis pin; not an attestation of the
     /// log, its head or admission.
     pub const GENESIS: &str = "replica.genesis";
+    /// The installed generation-0 `base`: what its payload names and where it
+    /// sits, committed with the install. Log-derived; a rebuild re-creates it.
+    pub const BASE: &str = "replica.base";
 }

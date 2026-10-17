@@ -14,8 +14,17 @@ export interface AppCollectionSqlOptions {
    * logging are supplied. This is trusted Worker code, not an app-message port. */
   initialize(options: {wasmBinary: Uint8Array; print(): void; printErr(): void}): Promise<unknown>;
 }
+/** Write-ledger rows in the replica database's host table (`_mdbn_host`, keys
+ * `w:<mutation>`), outside the store's schema. Synchronous, Worker only. */
+export interface AppLedgerRows {
+  /** Values, oldest key first, at most `maxBytes` of them in total. */
+  list(maxBytes: number): string[];
+  put(mutationId: string, value: string): void;
+  remove(mutationId: string): void;
+}
 export interface AppOpenedCollectionSql {
   readonly sql: AppSqlLifetime;
+  readonly ledger?: AppLedgerRows;
   readonly opened: "fresh" | "existing" | "unclean";
   readonly sqliteVersion: number;
   close(): Promise<void>;
@@ -57,6 +66,27 @@ export function createAppCollectionSql(source: AppCollectionSqlOptions): (input:
       fence: () => binary.fence(),
       get needsRecovery() { return binary.needsRecovery; },
     };
+    const text = (value: string) => ({kind: "Text" as const, value});
+    const ledger: AppLedgerRows = Object.freeze({
+      list(maxBytes: number) {
+        const [result] = index.run({mode: "Autocommit", stmts: [{sql: "SELECT v FROM _mdbn_host WHERE k >= 'w:' AND k < 'w;' ORDER BY k LIMIT 1024", params: []}]});
+        const out: string[] = [];
+        let bytes = 0;
+        for (const value of result?.values ?? []) {
+          if (value.kind !== "Text") continue;
+          bytes += value.value.length;
+          if (bytes > maxBytes) break;
+          out.push(value.value);
+        }
+        return out;
+      },
+      put(mutationId: string, value: string) {
+        index.run({mode: "Autocommit", stmts: [{sql: "INSERT OR REPLACE INTO _mdbn_host(k, v) VALUES (?, ?)", params: [text(`w:${mutationId}`), text(value)]}]});
+      },
+      remove(mutationId: string) {
+        index.run({mode: "Autocommit", stmts: [{sql: "DELETE FROM _mdbn_host WHERE k = ?", params: [text(`w:${mutationId}`)]}]});
+      },
+    });
     let closing: Promise<void> | null = null;
     const close = () => closing ??= Promise.resolve().then(async () => {
       try { index.close(); await opened.pool.pauseVfs(); }
@@ -66,6 +96,6 @@ export function createAppCollectionSql(source: AppCollectionSqlOptions): (input:
     // Host retains this result before its current-scope check, so it closes SQL
     // LAST. Throwing here would orphan SQL outside the host's failed-stop custody.
     if (signal.aborted || Object.entries(original).some(([key, value]) => scope[key as keyof AppReplicaScope] !== value)) binary.fence();
-    return Object.freeze({sql, opened: ({Fresh: "fresh", Existing: "existing", Unclean: "unclean"} as const)[index.info.opened], sqliteVersion: index.info.sqliteVersion, close});
+    return Object.freeze({sql, opened: ({Fresh: "fresh", Existing: "existing", Unclean: "unclean"} as const)[index.info.opened], sqliteVersion: index.info.sqliteVersion, ledger, close});
   };
 }

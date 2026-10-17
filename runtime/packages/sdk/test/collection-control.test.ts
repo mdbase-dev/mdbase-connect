@@ -21,6 +21,26 @@ function fixture(resourceSetup?: AppResourceSetupPort) {
   return {parent, ui, channel, binding, journal, client, server, assess, foreground, bad, onClose};
 }
 describe("public scoped SDK journal/control channel", () => {
+  it("serves write-ledger rows beside a busy setup request", async () => {
+    let finish!: () => void; const gate = new Promise<void>(resolve => {finish = resolve;});
+    const producer: AppResourceSetupPort = {assess: vi.fn(async () => {await gate; return {status: "current" as const, assessmentDigest: hash};}), apply: vi.fn()};
+    const parent = new AbortController(), ui = new AbortController(), channel = new MessageChannel(), binding = {scope, generation: crypto.randomUUID()};
+    const journal = new AppCollectionSetupJournal({scope, databaseName: "ledger-db", applicationNamespace: "sample-app", appOrigin: "https://app.example.test", cpOrigin: "https://cp.example.test", isCurrent: () => true});
+    const rows = new Map<string, string>();
+    const server = attachAppCollectionControl(channel.port1, binding, {journal, resourceSetup: producer, signal: parent.signal, isCurrent: () => true, assess: vi.fn(), foreground: vi.fn(), onProtocolFailure: vi.fn(),
+      ledger: () => ({list: () => [...rows.values()], put: (k, v) => void rows.set(k, v), remove: k => void rows.delete(k)})});
+    const client = appCollectionControlClient(channel.port2, binding, {signal: ui.signal, isCurrent: () => true, onClose: vi.fn()});
+    cleanup.push(async () => {finish(); parent.abort(); client.close(); await server.close(); journal.close();});
+    const busy = client.resourceSetup.assess({}, ui.signal);
+    await vi.waitFor(() => expect(producer.assess).toHaveBeenCalled());
+    const entry = {mutationId: "55555555-5555-4555-8555-555555555555", records: [scope.collection], createdAt: 1, state: "rejected" as const,
+      problem: {code: "conflict", recovery: "resolve_conflict" as const, message: "refused"}};
+    await client.ledger.put(entry);
+    expect(await client.ledger.list()).toEqual([entry]);
+    await client.ledger.remove(entry.mutationId);
+    expect(await client.ledger.list()).toEqual([]);
+    finish(); await busy;
+  });
   it("resource DATA uses the same control slot without a journal mutation or host loan", async () => {
     const producer: AppResourceSetupPort = { assess: vi.fn(async () => ({status: "provision" as const, assessmentDigest: hash})),
       apply: vi.fn(async () => ({...resourcePlan, sources: []})) };

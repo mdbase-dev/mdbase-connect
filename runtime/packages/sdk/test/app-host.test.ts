@@ -21,10 +21,16 @@ function fixture() {
 }
 
 describe("first-party app-host status", () => {
-  it.each([[true, true]])("pending counts and policy %s/%s", (persistent, installed) => {
+  it.each([[true, true], [true, false], [false, true], [false, false]])("pending counts and policy %s/%s", (persistent, installed) => {
     const policy = { persistent, installed };
     expect(appSaveState(0, policy)).toEqual({ kind: "no_pending_edits", unsynced: 0, warning: null });
-    expect(appSaveState(3, policy)).toEqual({ kind: "not_yet_synced", unsynced: 3, warning: persistent && installed ? null : "storage_may_be_evicted" });
+    expect(appSaveState(3, policy)).toEqual({ kind: "not_yet_synced", unsynced: 3, warning: null });
+    expect(appSaveState(3, policy, {pendingForMs: 30_000, connection: "online"}).warning).toBe(persistent ? null : "storage_may_be_evicted");
+    expect(appSaveState(3, policy, {pendingForMs: 0, connection: "offline"}).warning).toBe(persistent ? null : "storage_may_be_evicted");
+    expect(appSaveState(3, policy, {pendingForMs: 29_999, connection: "connecting"}).warning).toBeNull();
+    expect(appSaveState(3, policy, {pendingForMs: 30_000, connection: "connecting"}).warning).toBe(persistent ? null : "storage_may_be_evicted");
+    expect(appSaveState(0, policy, {pendingForMs: 30_000, connection: "connecting"}).warning).toBeNull();
+    expect(appSaveState(0, policy, {pendingForMs: 30_000, connection: "offline"}).warning).toBeNull();
   });
   it("unknown outcomes and states cannot claim saved", () => {
     expect(appMutationSaveState("unknown")).toBe("outcome_unknown");

@@ -179,6 +179,46 @@ fn device_rpc_reads_full_range_and_empty_via_authenticated_ls_and_frame_pump() {
 }
 
 #[test]
+fn device_read_failure_keeps_bounded_native_cause_without_plaintext() {
+    let (_, mut a) = fixture(31);
+    // Same synthetic log/policy fixture, but no attachment-capable sealer.
+    // The manifest must fail closed and keep its native authentication cause.
+    a.r.sealer = Box::new(crate::seal::PlainSealer::for_device(a.r.cfg.device_id));
+    a.r.read_file(a.s, Target::Id(FILE), None, None).unwrap();
+    let mut closed = None;
+    for _ in 0..10 {
+        a.pump();
+        for (session, push) in a.r.take_pushes() {
+            assert_eq!(session, a.s);
+            match push {
+                crate::api::Push::Closed(problem) => closed = Some(problem),
+                crate::api::Push::FileChunk(_) => panic!("failed authentication exposed plaintext"),
+                _ => {}
+            }
+        }
+        if closed.is_some() {
+            break;
+        }
+    }
+    let problem = closed.expect("native read must close");
+    assert_eq!(problem.reason.as_deref(), Some("file_read_failed"));
+    assert_eq!(
+        problem.details,
+        Some(mdbn_wire::common::Value::Map(vec![
+            (
+                "cause_code".into(),
+                mdbn_wire::common::Value::Text("unavailable".into())
+            ),
+            (
+                "cause_reason".into(),
+                mdbn_wire::common::Value::Text("attachment_unavailable".into())
+            ),
+        ])),
+    );
+    assert!(a.r.test_attachment_read_region().held_lease().is_none());
+}
+
+#[test]
 fn device_ack_credit_stops_next_object_and_output_at_eight_mib() {
     let (svc, mut a) = fixture(CHUNK + 71);
     let (stream, _) = a.r.read_file(a.s, Target::Id(FILE), None, None).unwrap();

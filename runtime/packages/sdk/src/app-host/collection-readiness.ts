@@ -14,6 +14,19 @@ export interface AppCollectionReadinessRequirements {
     readonly version: string;
     readonly digest: string;
   }[];
+  /** Error-level issues on the app's own declared types. "block" (default)
+   * makes the collection incompatible; "degrade" keeps it ready and lists each
+   * affected type in `unavailableTypes`. Issues on definitions the app does not
+   * declare never affect readiness; issues without a path always block. */
+  readonly typeIssues?: "block" | "degrade";
+}
+/** A declared type the app cannot use because its definition has an error. */
+export interface AppCollectionUnavailableType {
+  readonly name: string;
+  readonly path: string;
+  readonly contract: { readonly id: string; readonly version: string };
+  /** `readiness_type_invalid`; pass the entry to `describeError` for copy. */
+  readonly problem: { readonly code: string };
 }
 export interface AppCollectionReadinessBinding {
   readonly collection: string;
@@ -33,6 +46,7 @@ export type AppCollectionReadinessReason =
   | "changed"
   | "fenced"
   | "busy"
+  | "busy_timeout"
   | "budget";
 export interface AppCollectionReadinessProblem {
   readonly reason: AppCollectionReadinessReason;
@@ -49,6 +63,8 @@ export interface AppCollectionReadinessAssessment {
   readonly status: "ready" | "setup_required" | "incompatible";
   readonly problem: AppCollectionReadinessProblem | null;
   readonly witness: AppCollectionReadinessWitness;
+  /** Present only with `typeIssues: "degrade"` and at least one affected type. */
+  readonly unavailableTypes?: readonly AppCollectionUnavailableType[];
 }
 export interface AppCollectionReadinessSnapshot {
   readonly checking: boolean;
@@ -111,14 +127,26 @@ function requirements(
   if (
     new Set(contracts.map((row) => JSON.stringify([row.id, row.version])))
       .size !== contracts.length ||
-    new Set(caps).size !== caps.length
+    new Set(caps).size !== caps.length ||
+    (source.typeIssues !== undefined &&
+      source.typeIssues !== "block" &&
+      source.typeIssues !== "degrade")
   )
     throw error("unsupported");
   return Object.freeze({
     capabilityContractVersion: 2,
+    typeIssues: source.typeIssues ?? "block",
     contracts: Object.freeze(contracts),
     requiredNativeCapabilities: Object.freeze(caps),
   });
+}
+/** The definition path an issue is attached to, when it names one. */
+function issuePath(details: unknown): string | null {
+  const path =
+    details instanceof Map
+      ? (details as Map<unknown, unknown>).get("path")
+      : null;
+  return typeof path === "string" && path ? path : null;
 }
 function problem(
   reason: AppCollectionReadinessReason,
@@ -148,7 +176,7 @@ function reasonOf(value: unknown): AppCollectionReadinessReason {
   }
   return "unavailable";
 }
-function statusStamp(client: MdbaseClient): string {
+export function statusStamp(client: MdbaseClient): string {
   const s = client.status;
   return JSON.stringify([
     s.mode,
@@ -165,6 +193,16 @@ function statusStamp(client: MdbaseClient): string {
   ]);
 }
 
+/** P1: a fingerprint of what readiness evaluates (types, contracts, settings,
+ * inclusion, issues). Record changes and sync progress leave it unchanged, so
+ * a re-check runs only when definitions or settings change. */
+export function catalogFingerprint(catalog: unknown): string {
+  return JSON.stringify(catalog, (_key, value: unknown) =>
+    typeof value === "bigint" ? `${value}n`
+      : value instanceof Map ? [...value.entries()]
+        : value instanceof Uint8Array ? [...value]
+          : value);
+}
 export class AppCollectionReadiness {
   private readonly declared: AppCollectionReadinessRequirements;
   private readonly binding: AppCollectionReadinessBinding;
@@ -182,10 +220,18 @@ export class AppCollectionReadiness {
   private epoch = 0;
   private dirty = false;
   private scheduled = false;
+  /** Consecutive re-checks cut short by a concurrent change (backoff only). */
+  private retries = 0;
+  /** Consecutive background re-checks that failed transiently (bounded). */
+  private failures = 0;
   private closed = false;
   private lastStatus: string | null = null;
   private assessedSession: Session | undefined;
   private assessedEpoch: number | undefined;
+  /** Catalog fingerprint of the delivered assessment (P1). */
+  private assessedCatalog: string | null = null;
+  private probing: Promise<void> | null = null;
+  private probeAgain = false;
   constructor(
     private readonly client: MdbaseClient,
     declared: AppCollectionReadinessRequirements,
@@ -221,11 +267,16 @@ export class AppCollectionReadiness {
       try {
         this.check(undefined, this.assessedSession, this.assessedEpoch);
       } catch (original) {
-        this.publish({
-          checking: false,
-          assessment: null,
-          problem: problem(reasonOf(original)),
-        });
+        let reason = reasonOf(original);
+        // A new session of the same current binding is re-assessed, not fenced.
+        if (reason === "fenced" && !this.closed && !this.binding.signal.aborted && this.binding.isCurrent() === true)
+          reason = "changed";
+        if (!this.retryLater(reason))
+          this.publish({
+            checking: false,
+            assessment: null,
+            problem: problem(reason),
+          });
       }
     }
     return this.snapshotValue;
@@ -267,7 +318,28 @@ export class AppCollectionReadiness {
     )
       throw error("changed");
   }
+  /** A change notice (watch batch, status, link). With a settled assessment,
+   * first compare the catalog: unchanged definitions keep it as is (P1). */
   private invalidate = (): void => {
+    if (this.closed) return;
+    if (this.pending || !this.snapshotValue.assessment || this.assessedCatalog === null || this.client.link !== "open") {
+      this.recheck(); return;
+    }
+    if (this.probing) { this.probeAgain = true; return; }
+    const assessed = this.snapshotValue.assessment, catalog = this.assessedCatalog;
+    const probe = this.client.describe(this.readSignal).then(
+      (next) => {
+        if (this.closed || this.snapshotValue.assessment !== assessed) return;
+        if (catalogFingerprint(next) !== catalog) this.recheck();
+      },
+      () => { if (!this.closed) this.recheck(); },
+    );
+    this.probing = probe.finally(() => {
+      this.probing = null;
+      if (this.probeAgain && !this.closed) { this.probeAgain = false; this.invalidate(); }
+    });
+  };
+  private recheck(): void {
     if (this.closed) return;
     this.epoch++;
     this.dirty = true;
@@ -285,7 +357,7 @@ export class AppCollectionReadiness {
     )
       return;
     this.scheduled = true;
-    queueMicrotask(() => {
+    const run = (): void => {
       this.scheduled = false;
       if (
         !this.closed &&
@@ -294,8 +366,36 @@ export class AppCollectionReadiness {
         this.watch?.state === "active" &&
         this.client.link === "open"
       )
-        void this.refresh().catch(() => {});
-    });
+        void this.refresh(undefined, true).catch(() => {});
+    };
+    // A re-check cut short by a concurrent change retries with backoff; a fresh
+    // change re-checks at once.
+    if (this.retries) setTimeout(run, Math.min(5000, 100 * 2 ** this.retries,
+      this.retrySince === null ? 5000 : Math.max(0, 15000 - (Date.now() - this.retrySince))));
+    else queueMicrotask(run);
+  }
+  /** A concurrent change (or an occupied READ) is not a readiness problem: the
+   * collection moved while it was assessed. Keep checking and assess again. */
+  private retrySince: number | null = null;
+  private retryLater(reason: AppCollectionReadinessReason, background = false): boolean {
+    if (this.closed) return false;
+    if (reason === "busy" || reason === "changed") {
+      this.retrySince ??= Date.now();
+      if (Date.now() - this.retrySince >= 15000) {
+        this.dirty = false;
+        this.publish({checking: false, assessment: null, problem: problem("busy_timeout")});
+        return true; // Handled, but no further automatic retry.
+      }
+    }
+    // A background re-check (nobody asked) that could not reach the replica
+    // retries a few times before it becomes a problem.
+    if (reason === "unavailable" && background && this.failures < 5) this.failures++;
+    else if (reason !== "changed" && reason !== "busy") return false;
+    this.dirty = true;
+    this.retries = Math.min(this.retries + 1, 6);
+    this.publish({ checking: true, assessment: null, problem: null });
+    this.schedule();
+    return true;
   }
   private attach(): void {
     if (this.watch) return;
@@ -315,13 +415,14 @@ export class AppCollectionReadiness {
   start(signal?: AbortSignal): Promise<AppCollectionReadinessAssessment> {
     return this.refresh(signal);
   }
-  refresh(caller?: AbortSignal): Promise<AppCollectionReadinessAssessment> {
+  refresh(caller?: AbortSignal, background = false): Promise<AppCollectionReadinessAssessment> {
     try {
       this.check(caller);
       if (this.pending) throw error("busy");
     } catch (value) {
       return Promise.reject(value);
     }
+    if (!background) this.retrySince = null;
     const signal = AbortSignal.any([
       this.binding.signal,
       this.lifetime.signal,
@@ -346,6 +447,7 @@ export class AppCollectionReadiness {
         const catalog = await this.client.describe(this.readSignal);
         this.check(signal, session, epoch);
         const evaluation = this.evaluate(catalog, session);
+        const fingerprint = catalogFingerprint(catalog);
         for (const path of evaluation.paths) {
           const expected = before.find((row) => row.path === path);
           if (!expected) throw error("changed");
@@ -372,11 +474,18 @@ export class AppCollectionReadiness {
           status: evaluation.status,
           problem: evaluation.reason ? problem(evaluation.reason) : null,
           witness,
+          ...(evaluation.unavailable.length
+            ? { unavailableTypes: Object.freeze(evaluation.unavailable) }
+            : {}),
         });
         deliveredSession = session;
         deliveredEpoch = epoch;
+        this.retries = 0;
+        this.failures = 0;
+        this.retrySince = null;
         this.assessedSession = session;
         this.assessedEpoch = epoch;
+        this.assessedCatalog = fingerprint;
         this.publish({
           checking: false,
           assessment,
@@ -386,13 +495,14 @@ export class AppCollectionReadiness {
         return assessment;
       })
       .catch((value) => {
-        this.publish({
-          checking: false,
-          assessment: null,
-          problem: problem(
-            signal.aborted || this.closed ? "fenced" : reasonOf(value),
-          ),
-        });
+        const reason =
+          signal.aborted || this.closed ? "fenced" : reasonOf(value);
+        if (!this.retryLater(reason, background))
+          this.publish({
+            checking: false,
+            assessment: null,
+            problem: problem(reason),
+          });
         throw value; // Original rejection identity, never a diagnostic replacement.
       });
     // Reserve BEFORE callbacks so reentrant start/refresh cannot open another READ.
@@ -410,11 +520,12 @@ export class AppCollectionReadiness {
         if (this.snapshotValue.assessment !== value) throw error("changed");
         return value;
       } catch (original) {
-        if (this.snapshotValue.assessment === value)
+        const reason = signal.aborted ? "fenced" : reasonOf(original);
+        if (this.snapshotValue.assessment === value && !this.retryLater(reason))
           this.publish({
             checking: false,
             assessment: null,
-            problem: problem(signal.aborted ? "fenced" : reasonOf(original)),
+            problem: problem(reason),
           });
         throw original;
       }
@@ -484,13 +595,27 @@ export class AppCollectionReadiness {
     status: AppCollectionReadinessAssessment["status"];
     reason?: AppCollectionReadinessReason;
     paths: string[];
+    unavailable: AppCollectionUnavailableType[];
   } {
-    if (catalog.issues.some((issue) => issue.severity === "error"))
-      return {
-        status: "incompatible",
-        reason: "catalog_invalid",
-        paths: [],
-      };
+    const errors = catalog.issues.filter((issue) => issue.severity === "error");
+    const errorPaths = new Set<string>();
+    for (const issue of errors) {
+      const path = issuePath(issue.details);
+      if (!path)
+        return {
+          status: "incompatible",
+          reason: "catalog_invalid",
+          paths: [],
+          unavailable: [],
+        };
+      errorPaths.add(path);
+    }
+    const blocked = {
+      status: "incompatible" as const,
+      reason: "catalog_invalid" as const,
+      paths: [],
+      unavailable: [],
+    };
     if (
       this.declared.requiredNativeCapabilities.some(
         (cap) => !session.hello.grant.capabilities.includes(cap),
@@ -500,6 +625,7 @@ export class AppCollectionReadiness {
         status: "incompatible",
         reason: "capability_missing",
         paths: [],
+        unavailable: [],
       };
     const paths = new Set<string>(),
       contracts = new Set<string>(),
@@ -511,6 +637,7 @@ export class AppCollectionReadiness {
           status: "incompatible",
           reason: "catalog_response",
           paths: [],
+          unavailable: [],
         };
       contracts.add(key);
     }
@@ -520,10 +647,12 @@ export class AppCollectionReadiness {
           status: "incompatible",
           reason: "catalog_response",
           paths: [],
+          unavailable: [],
         };
       types.add(row.name);
     }
     let setupReason: AppCollectionReadinessReason | undefined;
+    const unavailable: AppCollectionUnavailableType[] = [];
     for (const required of this.declared.contracts) {
       const contract = catalog.contracts.find(
         (row) => row.id === required.id && row.version === required.version,
@@ -537,8 +666,11 @@ export class AppCollectionReadiness {
           status: "incompatible",
           reason: "contract_mismatch",
           paths: [],
+          unavailable: [],
         };
       paths.add(contract.path);
+      // A broken contract definition affects every type: never degrade it.
+      if (errorPaths.has(contract.path)) return blocked;
       if (!contract.implementedBy.length) {
         setupReason ??= "implementation_missing";
         continue;
@@ -556,14 +688,31 @@ export class AppCollectionReadiness {
             status: "incompatible",
             reason: "catalog_response",
             paths: [],
+            unavailable: [],
           };
         paths.add(type.path);
+        if (errorPaths.has(type.path)) {
+          if (this.declared.typeIssues !== "degrade") return blocked;
+          if (!unavailable.some((row) => row.name === type.name))
+            unavailable.push(
+              Object.freeze({
+                name: type.name,
+                path: type.path,
+                contract: Object.freeze({
+                  id: required.id,
+                  version: required.version,
+                }),
+                problem: Object.freeze({ code: "readiness_type_invalid" }),
+              }),
+            );
+        }
       }
     }
     return {
       status: setupReason ? "setup_required" : "ready",
       ...(setupReason ? { reason: setupReason } : {}),
       paths: [...paths].sort(),
+      unavailable,
     };
   }
   async close(): Promise<void> {

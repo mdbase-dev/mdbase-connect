@@ -27,8 +27,9 @@ describe("SDK-private original gesture popup reservation",()=>{
     try{portal.close();}catch(error){expect(error).toBe(original);}expect(f.popup.close).toHaveBeenCalledOnce();expect(()=>reserveApplicationPortal(f.host)).toThrow(ApplicationPortalError);expect(f.popup.close).toHaveBeenCalledOnce();
   });
   it("default SDK browser adapter opens blank/_blank synchronously; no app supplied callback",()=>{
-    const popup={location:{href:"about:blank"},close:vi.fn()},open=vi.fn(()=>popup);vi.stubGlobal("window",{open});const signal=new AbortController().signal;
-    const portal=reserveApplicationPortal(browserApplicationPortalHost(cpOrigin,signal,()=>true));expect(open).toHaveBeenCalledExactlyOnceWith("about:blank","_blank");portal.navigate(uri);expect(popup.location.href).toBe(uri);portal.close();expect(popup.close).toHaveBeenCalledOnce();
+    const popup={location:{href:"about:blank"},close:vi.fn(),closed:false},open=vi.fn(()=>popup),focus=vi.fn();vi.stubGlobal("window",{open,focus});const signal=new AbortController().signal;
+    const portal=reserveApplicationPortal(browserApplicationPortalHost(cpOrigin,signal,()=>true));expect(open).toHaveBeenCalledExactlyOnceWith("about:blank","_blank",expect.stringMatching(/^popup,width=620,height=760,left=\d+,top=\d+$/));portal.navigate(uri);expect(popup.location.href).toBe(uri);portal.close();expect(popup.close).toHaveBeenCalledOnce();
+    expect(focus).toHaveBeenCalledOnce(); // closing the approval window returns focus to the app
   });
   it("HTTP requires SDK-authenticated explicit loopback, never a remote or implicit fallback",()=>{
     const f=fixture();expect(()=>reserveApplicationPortal({...f.host,cpOrigin:"http://localhost:1234"})).toThrow(ApplicationPortalError);expect(f.open).not.toHaveBeenCalled();
@@ -49,5 +50,10 @@ describe("SDK-private original gesture popup reservation",()=>{
     portal.navigate(uri);await Promise.resolve();await Promise.resolve();
     const opened=new URL(opener.open.mock.calls[0]![0]);expect(opened.origin).toBe(cpOrigin);expect(opened.searchParams.get("return_url")).toBe(opener.returnUrl);
     portal.close();await Promise.resolve();await Promise.resolve();expect(opener.close).toHaveBeenCalledOnce();expect(opener.open).toHaveBeenCalledOnce();
+  });
+  it("an opener without returnUrl gets the CP URL with no return_url (CP keeps the user on its own page)",async()=>{
+    const opener={open:vi.fn()},portal=reserveApplicationPortal(openerApplicationPortalHost(cpOrigin,new AbortController().signal,()=>true,opener));
+    portal.navigate(uri);await Promise.resolve();await Promise.resolve();
+    expect(new URL(opener.open.mock.calls[0]![0]).searchParams.has("return_url")).toBe(false);
   });
 });

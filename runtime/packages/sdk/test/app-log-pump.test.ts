@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { sha256 } from "@noble/hashes/sha2.js";
-import { encode, type CborValue } from "../src/cbor.js";
+import { decode, encode, type CborValue } from "../src/cbor.js";
 import { uuidToBytes } from "../src/codec.js";
-import { AppLogPump, AppHttpLogError, type AppLogCall, type AppLogRuntime, type AppLogTransport } from "../src/app-host/index.js";
+import { AppLogPump, AppHttpLogError, appLogHealth, type AppLogCall, type AppLogRuntime, type AppLogTransport } from "../src/app-host/index.js";
 import { appServerProblem } from "../src/app-host/cp-problem.js";
 const COLLECTION = "00000000-0000-4000-8000-000000000003";
 const OTHER = "00000000-0000-4000-8000-000000000004";
@@ -158,5 +158,45 @@ describe("app log pump (immutable authenticated binding)", () => {
     vi.mocked(f.runtime.acceptLogReply).mockImplementation(() => { throw new Error("private runtime detail"); });
     await expect(f.pump.pump()).rejects.toThrow("app log host: fenced");
     expect(f.runtime.logNoResponse).not.toHaveBeenCalled(); expect(f.runtime.retireLog).toHaveBeenCalledOnce();
+  });
+  it("sends order-insensitive runs together, keeps appends as barriers and accepts in call order", async () => {
+    const f = fixture([call(1, "read"), call(2, "head"), call(3, "put_object"), call(4, "append"), call(5, "head")]);
+    const gates = new Map<bigint, ReturnType<typeof deferred<Uint8Array>>>();
+    vi.mocked(f.transport.send).mockImplementation(c => {
+      const id = BigInt((decode(c.frame) as Map<number, CborValue>).get(1) as number);
+      const g = deferred<Uint8Array>(); gates.set(id, g); return g.promise;
+    });
+    const run = f.pump.pump();
+    await flush();
+    expect([...gates.keys()]).toEqual([1n, 2n, 3n]); // the append waits for all three
+    gates.get(3n)!.resolve(Uint8Array.of(3)); gates.get(2n)!.resolve(Uint8Array.of(2));
+    await flush();
+    expect(f.runtime.acceptLogReply).not.toHaveBeenCalled(); // call 1 is still out
+    gates.get(1n)!.resolve(Uint8Array.of(1));
+    for (let i = 0; i < 10 && !gates.has(4n); i++) await flush();
+    expect(vi.mocked(f.runtime.acceptLogReply).mock.calls.map(c => c[0])).toEqual([1n, 2n, 3n]);
+    expect(gates.has(5n)).toBe(false); // nothing after the barrier until it answers
+    gates.get(4n)!.resolve(Uint8Array.of(4));
+    for (let i = 0; i < 10 && !gates.has(5n); i++) await flush();
+    gates.get(5n)!.resolve(Uint8Array.of(5));
+    expect(await run).toEqual({ quiet: true });
+    expect(vi.mocked(f.runtime.acceptLogReply).mock.calls.map(c => c[0])).toEqual([1n, 2n, 3n, 4n, 5n]);
+    await f.pump.close();
+  });
+  it("reports typed transport health and clears it on the next accepted reply", async () => {
+    const busy = appServerProblem(503, undefined, new Headers({ "retry-after": "30" }));
+    expect(appLogHealth(new AppHttpLogError("unavailable", busy))).toEqual({ kind: "server_busy", retryAfterMs: 30_000 });
+    expect(appLogHealth(new AppHttpLogError("unavailable", appServerProblem(429, undefined)))).toEqual({ kind: "rate_limited", retryAfterMs: null });
+    expect(appLogHealth(new AppHttpLogError("unavailable", appServerProblem(401, undefined)))).toEqual({ kind: "auth" });
+    expect(appLogHealth(new AppHttpLogError("unavailable"), false)).toEqual({ kind: "offline" });
+    expect(appLogHealth(new AppHttpLogError("unavailable"), true)).toEqual({ kind: "unreachable" });
+    expect(appLogHealth(new AppHttpLogError("fenced"), false)).toBeNull();
+    const f = fixture([call(1)]);
+    vi.mocked(f.transport.send).mockRejectedValueOnce(new AppHttpLogError("unavailable", busy));
+    await f.pump.pump();
+    expect(f.pump.transportHealth).toEqual({ kind: "server_busy", retryAfterMs: 30_000 });
+    f.queue.push(call(2)); await f.pump.pump();
+    expect(f.pump.transportHealth).toBeNull();
+    await f.pump.close();
   });
 });

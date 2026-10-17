@@ -117,6 +117,31 @@ impl<S: Store> Replica<S> {
         session: SessionId,
         params: &OpenUploadParams,
     ) -> ApiResult<()> {
+        // A different transfer from the same session replaces a lane whose
+        // native work is terminal: failed, or already retired from the upload
+        // table (idle cleanup after capture). Keeping it would refuse every
+        // later open as a changed request until the session ends.
+        let terminal_predecessor = self
+            .client_files
+            .as_ref()
+            .and_then(|io| io.upload.as_ref())
+            .is_some_and(|lane| {
+                lane.session() == session
+                    && lane.transfer() != params.transfer
+                    && match lane {
+                        UploadLane::Active(window) => matches!(
+                            self.attachment_upload_status(&window.mutation),
+                            None | Some(crate::AttachmentUploadStatus::Failed(_))
+                        ),
+                        UploadLane::Opening(open) => {
+                            matches!(open.phase, ResumePhase::Failed(_))
+                        }
+                    }
+            });
+        if terminal_predecessor {
+            self.client_upload_close(session);
+            return Ok(());
+        }
         let captured_successor = self.with_client_files(|r, io| -> ApiResult<bool> {
             let Some(lane) = io.upload.as_ref() else {
                 return Ok(false);

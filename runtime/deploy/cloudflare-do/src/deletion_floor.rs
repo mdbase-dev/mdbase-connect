@@ -20,9 +20,7 @@ impl BackendNilRoute {
         }
         backend.require_namespace_actor(collection)?;
         let stub = backend
-            .ns
-            .id_from_name(&REGISTRY.to_uuid_string())
-            .and_then(|id| id.get_stub())
+            .registry_stub()
             .map_err(|_| CollectionDeletionRecord::unavailable())?;
         Ok(Self {
             stub,

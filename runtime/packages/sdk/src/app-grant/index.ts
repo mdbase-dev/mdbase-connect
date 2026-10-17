@@ -12,6 +12,8 @@ export {
   type AppGrantPopup,
   type MdbaseAppGrantsOptions,
   type MdbaseAuthorizeOptions,
+  type MdbasePrepareAuthorizationOptions,
+  type MdbasePreparedAuthorization,
   type MdbaseCollectionEntry,
   type MdbaseCollectionRole,
   type MdbasePrivateCollection,

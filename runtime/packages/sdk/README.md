@@ -10,6 +10,8 @@ The SDK implements transport, session and typed client-API boundaries.
 
 | Path | What |
 |---|---|
+| `src/index.ts` (`@mdbase-dev/sdk`) | The full entry: everything in the thin client, plus `MdbaseConnect` (which validates the app's declaration), people, timers, notifications, holds, `describeError`, `WasmRuntime` and `inProcessConnector` |
+| `src/thin-client.ts` (`@mdbase-dev/sdk/thin-client`) | The thin client for consumers that bring their own connection (an Obsidian-plugin-style integration): codec, client, records, files, presence, Noise and relay transports, keys, status, availability. Held to 64 KiB gzip and never bundles manifest validation |
 | `src/cbor.ts` | Strict `mdb-cbor/1` codec (00-overview §3.2): the TS twin of `crates/wire/src/cbor.rs` |
 | `src/codec.ts` | Typed struct/union/enum codecs, the TS twin of `crates/wire/src/schema.rs` |
 | `src/wire.ts` | Client API messages and operations, typed (mirrors `crates/wire/src/client.rs`, `intent.rs`) |
@@ -193,6 +195,33 @@ operation; native operation checks remain authoritative. For write access after
 a read-only grant, show `missing` and call `reauthorize()`. Reauthorization still
 requires user approval and may return another restricted grant.
 
+### Optional file actions at the moment of use
+
+Declare a file action the app needs only sometimes (adding an image, say) in
+`requirements.files.optional`, and ask for it the first time the person does
+that, from the same click:
+
+```ts
+const result = await app.requestAccess({files: ["add"]}, {reason: "Insert images into your notes"});
+if (result.status === "granted") await connection.files.upload(path, image);
+else if (result.status === "declined") show(describeError("access_declined"));
+// "cancelled": the window was closed, the request expired or `signal` aborted.
+```
+
+`requestAccess` resolves `granted` at once, with no window, when the action is
+already allowed (required, or allowed earlier). Otherwise it opens Connect for
+the open collection with the one-line `reason` (at most 140 characters). The
+connection stays open and the app keeps its state. An action the manifest does
+not declare rejects with `access_undeclared`. Until the person allows it,
+`files.upload` (and `replace`, `move`, `delete` when optional) rejects with a
+`forbidden` error whose reason is `access_required`; its `describeError` copy
+has an "Allow" action that should call `requestAccess`. `files.grant` leaves out
+writes not yet allowed.
+
+File-action consent is advisory on an installation device: Connect records the
+person's choice and the SDK enforces it, but the app's own replica is not
+narrowed by it.
+
 ## Private collections from web apps
 
 `@mdbase-dev/sdk/app-grant` lets a signed-in web app open a Private collection
@@ -274,9 +303,14 @@ and `SdkEditorRoot.tsx` are the reference):
    "task" record type."), and offer `adoptable` conflicts as a choice.
    `apply(plan)` writes everything in one guarded mutation that the person's
    computer checks. If anything changed since the review it refuses
-   `setup_changed` and writes nothing, so plan again. The planner is the SDK's
-   packaged runtime, loaded on first use. Type packs alone also work through
-   `client.typePacks`.
+   `setup_changed` and writes nothing, so plan again. The original Native session
+   must negotiate `declared-collection-setup-v1`; Native verifies the signed
+   declaration and plans the complete batch. This does not require or grant
+   arbitrary `definitions.manage`. Starter notes independently need `records.create`.
+   Before apply, the SDK durably retains an encrypted original mutation ID under
+   existing grant custody. Lost/unknown outcomes reconcile that receipt only;
+   they never replay setup or fall back to Hosted. Custom grant stores must
+   implement the optional setup-attempt register to support setup.
 
 Not covered yet for Private collections:
 
@@ -305,17 +339,37 @@ const connect = new MdbaseConnect(declaration, {
   signIn: {
     open: url => Browser.open({ url }),            // or chrome.tabs.create({ url })
     close: () => Browser.close(),
-    returnUrl: "capacitor://app.tasknotes.dev/signed-in", // optional; must be a manifest redirect_uri
+    returnUrl: "dev.tasknotes.app://auth/mdbase/callback", // optional; see below
   },
   followVisibility: true, // re-poll as soon as the app returns to the foreground
 });
 ```
+
+`returnUrl` must exactly equal one of the manifest's `redirect_uris`, or the
+constructor throws `application_sign_in_opener`. That is either an https URL on
+the homepage origin or, for a native app, a private-use scheme derived from the
+manifest ID (RFC 8252), such as `dev.tasknotes.app://auth/mdbase/callback` for
+ID `dev.tasknotes.app`. No prefix or wildcard matching. Connect applies the same
+exact match before it returns the user there. The URL carries no credential:
+sign-in still completes by the SDK's pairing poll.
 
 The SDK still binds the URL to the environment's Connect origin. The pending
 pairing request is persisted, so a context that closes during sign-in (an
 extension popup) resumes it on the next `start()`. Run extension sign-in from a
 side panel or tab page where possible. Without `followVisibility`, call
 `application().setForeground(active)` from the shell's resume/pause events.
+
+## Definition errors
+
+An error-level issue on a definition the app does not declare never affects
+readiness. An issue without a path always makes the collection
+`incompatible`. By default, an issue on one of the app's own declared types
+also makes it `incompatible`. To keep the rest of the collection usable, pass
+`readiness: {typeIssues: "degrade"}`. The collection then stays `ready`, and
+each affected type is listed in `readiness.assessment.unavailableTypes`
+(`{name, path, contract, problem}`). Treat that type as unavailable. Show
+`describeError(entry).message` for it. An error on a declared contract's own
+definition always blocks.
 
 ## Collection setup
 
@@ -357,7 +411,12 @@ make setup fail.
 guarded mutation, all or nothing. If the collection changed since review,
 including a definition or starter path taken in the meantime, it refuses with
 `conflict`/`setup_changed`, nothing is applied, and the next `plan` starts
-afresh. Refusal codes: `setup_forbidden` (no `definitions.manage`),
+afresh. If another Private setup plan only retired Native's review ticket,
+the SDK re-plans once and continues only when the fresh assessment and file
+impact match the original consent. Different changes return `setup_changed`
+(`mdbase.setup.apply` returns `outcome: "changed"`); show a fresh plan and ask
+for consent again. Lost or uncertain mutation outcomes are never retried.
+Refusal codes: `setup_forbidden` (no `definitions.manage`),
 `setup_conflict`, `setup_downgrade` (a newer app version set it up) and
 `setup_records_forbidden`.
 
@@ -672,3 +731,9 @@ refusal, real DH, existing-key refusal, late IDB abort, worker wake and browser 
 ```sh
 npm ci && npm run typecheck && npm test && npm run build && npm run size   # or: cargo xtask sdk
 ```
+
+`npm run size` fails when `@mdbase-dev/sdk/thin-client` exceeds 64 KiB gzip or the
+root entry exceeds its measured ceiling (166 KiB; standalone apps have no product
+size limit, so this ceiling only catches regressions). It also fails when either
+entry bundles the Ajv compiler (manifest validators are precompiled in
+connect-protocol), the thin client bundles yaml, or either bundles `app-grant`.

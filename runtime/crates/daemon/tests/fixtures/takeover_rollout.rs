@@ -18,9 +18,23 @@ pub async fn pair(
     mode: Arc<AtomicU8>,
     calls: Arc<AtomicUsize>,
 ) -> tokio::task::JoinHandle<()> {
-    mdbn_daemon::trust::allow_loopback_control_plane_for_tests();
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    #[cfg(feature = "local-rehearsal")]
+    let address = mdbn_daemon::trust::Environment::embedded()
+        .control_plane()
+        .strip_prefix("http://")
+        .unwrap();
+    #[cfg(not(feature = "local-rehearsal"))]
+    let address = {
+        mdbn_daemon::trust::allow_loopback_control_plane_for_tests();
+        "127.0.0.1:0"
+    };
+    let listener = tokio::net::TcpListener::bind(address).await.unwrap();
     let server = format!("http://{}", listener.local_addr().unwrap());
+    #[cfg(feature = "local-rehearsal")]
+    assert_eq!(
+        server,
+        mdbn_daemon::trust::Environment::embedded().control_plane()
+    );
     let server2 = server.clone();
     let fixture = tokio::spawn(async move {
         loop {

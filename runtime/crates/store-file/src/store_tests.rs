@@ -1121,6 +1121,91 @@ fn create_onto_identical_file_records_it_without_writing() {
     }
 }
 
+/// An install's creates are published as one batch: one barrier and one full
+/// flush, never a sync per file; a crash at any point recovers to a folder
+/// where each file is absent or complete, and repeating the install finishes.
+#[test]
+fn create_batch_syncs_once_and_recovers_from_a_crash_anywhere() {
+    let creates = || -> Vec<Publish> {
+        (0..20)
+            .map(|i| {
+                write(
+                    &format!("d{}/n{i}.md", i % 3),
+                    RExpect::Absent,
+                    &format!("v{i}"),
+                )
+            })
+            .collect()
+    };
+    let want: Vec<String> = {
+        let mut v: Vec<String> = (0..20).map(|i| format!("d{}/n{i}.md", i % 3)).collect();
+        v.push("d1/n4.md".into());
+        v.sort();
+        v.dedup();
+        v
+    };
+    for strategy in [ReplaceStrategy::Exchange, ReplaceStrategy::LockedInPlace] {
+        let w = World::new(strategy, CaseSensitivity::Sensitive);
+        let mut s = w.open();
+        w.p.fs.write_in_place("d1/n4.md", b"user").unwrap();
+        let before = w.p.fs.ops();
+        let drifts = s
+            .commit(Tx {
+                publish: creates(),
+                ..Tx::default()
+            })
+            .unwrap()
+            .drifts;
+        assert_eq!(drifts.len(), 1, "{strategy:?}: the user's file stays");
+        let log = w.p.fs.log().split_off(before as usize);
+        let flushes: Vec<&String> = log.iter().filter(|l| l.contains("flush")).collect();
+        assert_eq!(flushes.len(), 2, "{strategy:?} {flushes:?}");
+        assert!(
+            flushes[0].contains("Barrier") && flushes[1].contains("Full"),
+            "{flushes:?}"
+        );
+        let total = w.p.fs.ops() - before;
+        assert_eq!(w.p.fs.get("d1/n4.md").unwrap(), b"user");
+        assert_eq!(w.p.fs.paths(), want, "{strategy:?}");
+
+        for k in 0..total {
+            let w = World::new(strategy, CaseSensitivity::Sensitive);
+            let mut s = w.open();
+            w.p.fs.crash_at(w.p.fs.ops() + k);
+            let _ = s.commit(Tx {
+                publish: creates(),
+                ..Tx::default()
+            });
+            drop(s);
+            w.p.fs.restart();
+            let mut s = w.open();
+            for i in 0..20 {
+                let path = format!("d{}/n{i}.md", i % 3);
+                if let Some(b) = w.p.fs.get(&path) {
+                    assert_eq!(b, format!("v{i}").into_bytes(), "{strategy:?} k={k} {path}");
+                }
+            }
+            w.clock.advance(5_000);
+            assert!(s.observe(None).unwrap().is_empty(), "{strategy:?} k={k}");
+            let drifts = s
+                .commit(Tx {
+                    publish: creates(),
+                    ..Tx::default()
+                })
+                .unwrap()
+                .drifts;
+            assert!(drifts.is_empty(), "{strategy:?} k={k}: {drifts:?}");
+            w.clock.advance(5_000);
+            assert!(s.observe(None).unwrap().is_empty(), "{strategy:?} k={k}");
+            let mut paths = w.p.fs.paths();
+            paths.push("d1/n4.md".into());
+            paths.sort();
+            paths.dedup();
+            assert_eq!(paths, want, "{strategy:?} k={k}");
+        }
+    }
+}
+
 #[test]
 fn delete_needs_recheck_and_window() {
     let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);

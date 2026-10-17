@@ -15,6 +15,7 @@
  */
 
 import { parsePitrBinding, PITR_RUN, type PitrBinding } from "./pitr-phase.ts";
+import { localBuild, localOrigin } from "./local-origin.ts";
 
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
 const KEY = /^[0-9a-f]{64}$/;
@@ -141,7 +142,8 @@ function cpGenesisIdentityValid(value: PitrCpGenesisIdentity): boolean {
     && typeof value.policyKeyId === "string" && /^[0-9a-f]{32}$/.test(value.policyKeyId);
 }
 
-export type ControlErrorCode = "unavailable" | "refused" | "not_standard" | "not_found" | "invalid";
+/** `wrong_scope`: 403, this deployment (or token kind) does not serve the collection. */
+export type ControlErrorCode = "unavailable" | "refused" | "wrong_scope" | "not_standard" | "not_found" | "invalid";
 
 export class ControlError extends Error {
   constructor(readonly code: ControlErrorCode, message: string) {
@@ -189,6 +191,9 @@ function fromBase64(s: string): Uint8Array | null {
 function statusError(status: number): ControlError {
   if (status === 409) return new ControlError("not_standard", "the collection is not a current cloud copy");
   if (status === 404) return new ControlError("not_found", "no such service device");
+  // The CP routes the collection to another deployment (LAB migration scope) or
+  // another service kind: a lasting answer for this caller, not an outage.
+  if (status === 403) return new ControlError("wrong_scope", "control plane answered 403");
   if (status >= 500) return new ControlError("unavailable", `control plane answered ${status}`);
   return new ControlError("refused", `control plane answered ${status}`);
 }
@@ -218,13 +223,14 @@ export class ControlClient {
   private readonly pitr: { binding: PitrBinding; token: string } | undefined;
 
   constructor(
-    config: { url: string; token: string; kind?: "hosted" | "escrow";
+    config: { url: string; token: string; kind?: "hosted" | "escrow"; environment?: string;
       pitr?: { binding: PitrBinding; token: string } },
     private readonly fetchImpl: typeof fetch = fetch,
     private readonly now: () => number = Date.now,
   ) {
     const url = new URL(config.url);
-    if (url.protocol !== "https:") throw new Error("the control plane URL must use https");
+    if (localBuild() ? !localOrigin(config.url, config.environment) : config.environment === "local" || url.protocol !== "https:")
+      throw new Error("the control plane URL must match the compiled deployment scope");
     if (config.token.length < 32) throw new Error("the control plane token must be at least 32 characters");
     this.#base = url.toString().replace(/\/+$/, "");
     // Immutable configuration DATA only. Actual provenance comes separately

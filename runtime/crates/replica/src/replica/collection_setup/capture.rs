@@ -38,6 +38,14 @@ pub struct SetupCapturedInventory {
     failed: Rc<Cell<bool>>,
     active: Rc<Cell<bool>>,
 }
+impl SetupCapturedInventory {
+    pub(super) fn initiating_grant(&self) -> Option<Uuid> {
+        self.fence.delegation.as_ref().map(|d| d.grant)
+    }
+    pub(super) fn initiating_client(&self) -> Option<crate::api::SessionId> {
+        self.fence.client.map(|c| c.0)
+    }
+}
 /// One opaque, bounded encrypted source read. Host fetches only `SourceNeed`
 /// objects; it cannot supply cached/plain bytes or a forged descriptor proof.
 pub struct SetupSourceRead {
@@ -161,7 +169,21 @@ impl<S: Store> Replica<S> {
         &self,
         on_behalf: Option<Uuid>,
     ) -> ApiResult<SetupCapturedInventory> {
-        let fence = Arc::new(self.collection_setup_capture_fence(on_behalf)?);
+        self.capture_setup_inventory(self.collection_setup_capture_fence(on_behalf)?)
+    }
+    pub(super) fn capture_declared_setup_inventory(
+        &self,
+        setup: &CollectionSetup,
+        grant: Uuid,
+        client: Option<(crate::api::SessionId, [u8; 32])>,
+    ) -> ApiResult<SetupCapturedInventory> {
+        self.capture_setup_inventory(self.declared_setup_capture_fence(setup, grant, client)?)
+    }
+    fn capture_setup_inventory(
+        &self,
+        fence: SetupCaptureFence,
+    ) -> ApiResult<SetupCapturedInventory> {
+        let fence = Arc::new(fence);
         let mut after = None;
         let mut files = Vec::new();
         loop {

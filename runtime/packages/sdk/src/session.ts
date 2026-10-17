@@ -8,7 +8,9 @@
 import type { CborValue } from "./cbor.js";
 import { Codec, SchemaError } from "./codec.js";
 import { isMdbaseError, mdbaseError, MdbaseError, type MdbaseErrorContext } from "./errors.js";
-import type { Connector, FramePort } from "./transport/port.js";
+import { supportsNativeBasesRpc, type Connector, type FramePort } from "./transport/port.js";
+import { NativeBasesReads } from "./transport/bases-rpc.js";
+import { inheritOriginalAppGrant } from "./transport/original-session.js";
 import { clientFrame, helloParams, HelloParams, helloResult, HelloResult, Problem, problem } from "./wire.js";
 
 /** API versions this SDK speaks, highest first. */
@@ -38,6 +40,9 @@ export function withMutation(e: unknown, what: string, ids: MdbaseErrorContext):
   return new MdbaseError(schemaToError(e, what).toProblem(), { ...ids, cause: e });
 }
 
+const replicaProblems=new WeakSet<MdbaseError>();
+/** @internal Only an authenticated request response, not cancellation/close/codec errors. */
+export const isReplicaResponseProblem=(e:unknown):e is MdbaseError=>e instanceof MdbaseError&&replicaProblems.has(e);
 export class Session {
   private nextId = 1;
   private pending = new Map<number, Pending>();
@@ -46,6 +51,7 @@ export class Session {
   private closeError: MdbaseError | undefined;
   private closedFlag = false;
   private closeListeners = new Set<(e?: MdbaseError) => void>();
+  private basesReads = new NativeBasesReads((method, bytes) => this.request(method, new Map([[0, bytes]])));
   /** The replica's device ID, when the transport authenticated it. */
   device: string | undefined;
 
@@ -78,6 +84,7 @@ export class Session {
       throw schemaToError(e, "hello");
     }
     const s = new Session(opened.port, hello);
+    inheritOriginalAppGrant(opened.port,s);
     s.device = opened.device;
     return s;
   }
@@ -107,12 +114,16 @@ export class Session {
     if (signal?.aborted) throw mdbaseError("cancelled", "Bases read cancelled");
     if (!(bytes instanceof Uint8Array) || !bytes.length || bytes.length > 128 * 1024) throw mdbaseError("invalid_request", "Bases request bytes exceed bound");
     const port = this.port;
-    if (typeof port.readAppBases !== "function") throw mdbaseError("invalid_request", "this transport does not support app Bases reads", {reason: "unsupported"});
-    const reply = await port.readAppBases(bytes, signal);
-    if (signal?.aborted) throw mdbaseError("cancelled", "Bases read cancelled");
-    if (this.closedFlag || this.port !== port) throw this.closeError ?? mdbaseError("unavailable", "original Bases session closed");
-    if (!(reply instanceof Uint8Array) || !reply.length || reply.length > 16 * 1024 * 1024) throw mdbaseError("internal", "Bases response bytes exceed bound");
-    return reply;
+    if (typeof port.readAppBases !== "function" && !supportsNativeBasesRpc(port)) throw mdbaseError("invalid_request", "this transport does not support app Bases reads", {reason: "unsupported"});
+    const reply = typeof port.readAppBases === "function"
+      ? await port.readAppBases(bytes, signal)
+      : await this.basesReads.read("app_bases_execute_v1", bytes, 16 * 1024 * 1024, signal);
+    try {
+      if (signal?.aborted) throw mdbaseError("cancelled", "Bases read cancelled");
+      if (this.closedFlag || this.port !== port) throw this.closeError ?? mdbaseError("unavailable", "original Bases session closed");
+      if (!(reply instanceof Uint8Array) || !reply.length || reply.length > 16 * 1024 * 1024) throw mdbaseError("internal", "Bases response bytes exceed bound");
+      return reply;
+    } catch (error) { if (reply instanceof Uint8Array) reply.fill(0); throw error; }
   }
 
   /** Private native metadata READ on the original held session only. */
@@ -122,8 +133,10 @@ export class Session {
     if (operation !== "list-views" && operation !== "read-view-source") throw mdbaseError("invalid_request", "unknown native Bases read");
     if (!(bytes instanceof Uint8Array) || !bytes.length || bytes.length > 128 * 1024) throw mdbaseError("invalid_request", "Bases request bytes exceed bound");
     const port = this.port;
-    if (typeof port.readAppBasesDiscovery !== "function") throw mdbaseError("invalid_request", "this transport does not support native Bases discovery", {reason:"unsupported"});
-    const reply = await port.readAppBasesDiscovery(operation,bytes,signal);
+    if (typeof port.readAppBasesDiscovery !== "function" && !supportsNativeBasesRpc(port)) throw mdbaseError("invalid_request", "this transport does not support native Bases discovery", {reason:"unsupported"});
+    const reply = typeof port.readAppBasesDiscovery === "function"
+      ? await port.readAppBasesDiscovery(operation,bytes,signal)
+      : await this.basesReads.read(operation === "list-views" ? "app_bases_list_views_v1" : "app_bases_read_view_source_v1", bytes, 1024 * 1024, signal);
     try {
       if (signal?.aborted) throw mdbaseError("cancelled", "Bases discovery cancelled");
       if (this.closedFlag || this.port !== port) throw this.closeError ?? mdbaseError("unavailable", "original Bases session closed");
@@ -132,6 +145,15 @@ export class Session {
     } catch (error) { if (reply instanceof Uint8Array) reply.fill(0); throw error; }
   }
 
+  /** @internal Exact negotiated Native producer on THIS original session. No retry. */
+  async declaredSetup(bytes:Uint8Array, signal?:AbortSignal):Promise<Uint8Array> {
+    if(!this.hello.features.includes("declared-collection-setup-v1")) throw mdbaseError("upgrade_required","This computer needs an update to set up this app.","declared_setup_unsupported");
+    if(!bytes.length || bytes.length>2*1024*1024) throw mdbaseError("too_large","Setup request exceeds its fixed bound.");
+    const result=await this.request("app_collection_setup_v1",new Map([[0,bytes]]),{signal});
+    if(this.closed || signal?.aborted){if(result instanceof Uint8Array) result.fill(0);throw this.error??mdbaseError("unavailable","Original setup session closed.");}
+    if(!(result instanceof Uint8Array) || !result.length || result.length>256*1024){if(result instanceof Uint8Array)result.fill(0);throw mdbaseError("internal","Invalid bounded Native setup reply.");}
+    return result;
+  }
   /** Send a request and wait for its result, decoded with `codec` when given. */
   request<T = CborValue>(
     method: string,
@@ -221,7 +243,7 @@ export class Session {
       case "response": {
         const p = this.pending.get(f.id);
         if (!p) return;
-        if (f.problem) p.reject(new MdbaseError(f.problem));
+        if (f.problem) { const error=new MdbaseError(f.problem);replicaProblems.add(error);p.reject(error); }
         else p.resolve(f.result ?? null);
         return;
       }

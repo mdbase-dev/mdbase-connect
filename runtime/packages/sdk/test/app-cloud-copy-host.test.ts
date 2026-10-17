@@ -154,7 +154,7 @@ async function fixture(mode: "fresh" | "existing" = "fresh") {
             requiresReopen: false,
             keyringRebuildFailed: false,
             keyringRebuilding: false,
-            status: { pending: 0, confirmedThrough: 99, headKnown: 99 },
+            status: { mode: "synced", connection: "online", incidents: [], pending: 0, confirmedThrough: 99, headKnown: 99 },
         })),
         bindCpConnector: vi.fn(),
         bindLogTransport: vi.fn(),
@@ -385,7 +385,7 @@ describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual 
         const c = await collectionFixture("join"); await c.host.close();
         const requestId = "77777777-7777-4777-8777-777777777777";
         const flow = {
-            view: () => ({state: "paired", requestId, collectionSelection: null}),
+            view: () => ({state: "paired", requestId, collectionSelection: null, collectionIds: [c.options.scope.collection]}),
             start: vi.fn(async () => ({state: "paired"})),
             confirmedSelection: () => ({accountId: c.options.scope.account, installationId: c.options.scope.installation}),
             collectionConsentView: () => null,
@@ -509,6 +509,22 @@ describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual 
         expect(c.host.openTimersPort({scope: c.options.scope, generation: "55555555-5555-4555-8555-555555555555", signal: child.signal})).toBeNull();
         expect(channel).not.toHaveBeenCalled(); expect(request).not.toHaveBeenCalled();
         expect(c.f.session.connectorBearer).not.toHaveBeenCalled(); await c.host.close();
+    });
+    it("a drive keeps turning while ticks queue log calls, then stops; app writes ask for a drive", async () => {
+        const c = await readableFixture();
+        await c.host.startCollectionLog({signal: c.options.signal, fetch: vi.fn(async () => Response.json({}))}); await c.host.waitForVerifiedRead({signal: c.options.signal});
+        // Turns 1 and 2 send calls (a reply's follow-up step only a tick queues); turn 3 is quiet.
+        let sent = 0, turn = 0;
+        Object.defineProperty(c.pump, "callsSent", {get: () => sent});
+        c.pump.pump.mockImplementation(async () => { if (++turn <= 2) sent++; return {quiet: true}; });
+        c.f.runtime.tick.mockClear(); c.pump.pump.mockClear();
+        await c.host.driveCollection({signal: c.options.signal});
+        expect(c.pump.pump).toHaveBeenCalledTimes(3); expect(c.f.runtime.tick).toHaveBeenCalledTimes(3);
+        const work = vi.fn(); c.host.onLogWork(work);
+        c.host.attachDataFacade(c.channel);
+        const hint = c.attach.mock.calls.at(-1)![3]!; hint();
+        expect(work).toHaveBeenCalledOnce();
+        await c.host.close();
     });
     async function timerFixture() {
         vi.stubGlobal("WorkerGlobalScope",class {static [Symbol.hasInstance](value:unknown){return value===globalThis;}});
@@ -802,7 +818,7 @@ describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual 
             requiresReopen: false,
             keyringRebuildFailed: true,
             keyringRebuilding: false,
-            status: { pending: 0, confirmedThrough: 99, headKnown: 99 },
+            status: { mode: "synced", connection: "online", incidents: [], pending: 0, confirmedThrough: 99, headKnown: 99 },
         });
         await expect(
             c.host.waitForVerifiedRead({ signal: c.options.signal }),

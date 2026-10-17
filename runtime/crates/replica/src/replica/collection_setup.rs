@@ -45,8 +45,13 @@ impl CatalogCapture {
 }
 
 mod capture;
+mod publication;
+mod rpc;
+mod rpc_source;
 mod session;
 pub use capture::{SetupCapturedInventory, SetupSourceRead};
+pub(crate) use publication::PendingSetup;
+pub(crate) use rpc::{FEATURE as SETUP_RPC_FEATURE, Job as SetupRpcJob};
 pub use session::{
     CollectionSetupSession, PreparedCollectionSetupPlan, PreparedCollectionSetupReview,
 };
@@ -66,10 +71,18 @@ pub struct SetupCaptureFence {
     identity: SealerIdentity,
     authority: DeviceState,
     role: Role,
+    delegation: Option<SetupDelegationFence>,
+    client: Option<(crate::api::SessionId, [u8; 32])>,
     // Immutable allocation identity scopes this token to its replica lifetime.
     // Strong captures retain contents. Pointers are NEVER hashed.
     catalog: CatalogCapture,
     revision: Hash,
+}
+#[derive(PartialEq)]
+struct SetupDelegationFence {
+    grant: Uuid,
+    effective: crate::policy::EffectiveGrant,
+    authorization: crate::policy::DeclaredSetupAuthorization,
 }
 impl SetupCaptureFence {
     /// Trusted collection/head revision, not an app-declared token. The opaque
@@ -155,6 +168,58 @@ impl<S: Store> Replica<S> {
         }
         Ok((identity, device.clone(), role))
     }
+    pub(super) fn supports_declared_setup(&self, grant: Uuid) -> bool {
+        self.setup_delegation(grant).is_ok()
+    }
+    fn setup_delegation(&self, grant: Uuid) -> ApiResult<SetupDelegationFence> {
+        let denied = || {
+            ErrorCode::Forbidden.err_with_reason(
+                "declared_collection_setup_not_authorized",
+                "current declaration-bound setup authority is unavailable",
+            )
+        };
+        let source = self.grant_source.as_ref().ok_or_else(denied)?;
+        let effective = self.grant_now(&grant).ok_or_else(denied)?;
+        let authorization = source.declared_setup(&grant).ok_or_else(denied)?;
+        if authorization.generation == 0
+            || authorization.lease_generation == 0
+            || authorization.authority_epoch == 0
+            || source.authority_epoch() != Some(authorization.authority_epoch)
+            || source.active_account() != Some(authorization.account)
+            || effective.account != authorization.account
+            || effective.client_pk != authorization.client_pk
+            || effective.role < Role::Editor
+            || !self.serving_account_matches(&authorization.account)
+        {
+            return Err(denied());
+        }
+        Ok(SetupDelegationFence {
+            grant,
+            effective,
+            authorization,
+        })
+    }
+    fn declared_setup_capture_fence(
+        &self,
+        setup: &mdbn_core::setup::envelope::CollectionSetup,
+        grant: Uuid,
+        client: Option<(crate::api::SessionId, [u8; 32])>,
+    ) -> ApiResult<SetupCaptureFence> {
+        let delegation = self.setup_delegation(grant)?;
+        if delegation.authorization.setup != *setup {
+            return Err(ErrorCode::Forbidden.err_with_reason(
+                "declared_collection_setup_mismatch",
+                "setup must exactly match the original authenticated declaration",
+            ));
+        }
+        // Only this checked entry point mediates through the device. The ordinary
+        // on_behalf capture API stays closed; no caller gains an owner session.
+        let mut fence = self.collection_setup_capture_fence(None)?;
+        fence.delegation = Some(delegation);
+        fence.client = client;
+        self.recheck_collection_setup_capture(&fence)?;
+        Ok(fence)
+    }
     fn setup_capture_head(&self) -> ApiResult<Head> {
         let head = self.store.head().map_err(|_| {
             ErrorCode::Unavailable.err_with_reason(
@@ -192,6 +257,8 @@ impl<S: Store> Replica<S> {
             identity,
             authority,
             role,
+            delegation: None,
+            client: None,
             catalog: CatalogCapture::Strong(self.catalog.clone()),
             revision: B32(h.finalize().into()),
         })
@@ -202,6 +269,26 @@ impl<S: Store> Replica<S> {
     pub fn recheck_collection_setup_capture(&self, fence: &SetupCaptureFence) -> ApiResult<()> {
         let (identity, authority, role) = self.setup_capture_authority(None)?;
         let head = self.setup_capture_head()?;
+        if let Some((session, client_pk)) = fence.client {
+            let Some(expected) = &fence.delegation else {
+                return Err(changed());
+            };
+            if self.session(session)?.auth
+                != (crate::api::SessionAuth::Grant {
+                    grant: expected.grant,
+                    client_pk,
+                })
+            {
+                return Err(changed());
+            }
+            self.grant_for_client(&expected.grant, &client_pk)
+                .ok_or_else(changed)?;
+        }
+        if let Some(expected) = &fence.delegation
+            && self.setup_delegation(expected.grant)? != *expected
+        {
+            return Err(changed());
+        }
         if fence.collection != self.cfg.collection
             || fence.device != self.cfg.device_id
             || fence.head != head

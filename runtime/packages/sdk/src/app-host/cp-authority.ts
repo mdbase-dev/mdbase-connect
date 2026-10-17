@@ -1,5 +1,7 @@
 /** Enrolled-device CP log-token refresh + protected WASM proof authority.
  * Not registration, account login, key custody storage or readiness admission. */
+import { LOCAL_APPLICATION_BUILD, localApplicationHttpOrigin } from "../application/local-build.js";
+import type { AppLogTokenCache } from "./log-token-cache.js";
 import { uuidToBytes } from "../codec.js";
 import { AppHttpLogTransport, type AppLogHttpAuthority, type AppLogHttpOptions, type AppLogHttpProof } from "./http-log.js";
 import type { AppCpConnectorPin, AppWasmRuntime } from "./wasm-runtime.js";
@@ -20,7 +22,7 @@ const fail = (r: AppCpAuthorityError["reason"]) => new AppCpAuthorityError(r);
 const refused = (server: AppServerProblem) => new AppCpAuthorityError(appServerOutcome(server) ?? "unavailable", server);
 function origin(input: string, loopback: boolean): string {
   let u: URL; try { u = new URL(input); } catch { throw fail("binding"); }
-  if (u.username || u.password || u.pathname !== "/" || u.search || u.hash || (u.protocol !== "https:" && !(loopback && u.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname)))) throw fail("binding");
+  if (u.username || u.password || u.pathname !== "/" || u.search || u.hash || (u.protocol !== "https:" && !(loopback && u.protocol === "http:" && (LOCAL_APPLICATION_BUILD ? localApplicationHttpOrigin(input) : ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname))))) throw fail("binding");
   return u.origin;
 }
 function uint(v: number | bigint): bigint { if (typeof v === "number" && !Number.isSafeInteger(v)) throw fail("binding"); const n = BigInt(v); if (n < 0n || n > (1n << 64n) - 1n) throw fail("binding"); return n; }
@@ -44,8 +46,11 @@ export class AppCpLogAuthority implements AppLogHttpAuthority {
   private readonly lifetime = new AbortController();
   private authenticated = false;
   private token: { value: string; expires: number } | null = null;
+  private readonly tokenCache: AppLogTokenCache | null;
+  private cacheTried = false;
   private readonly transport: AppHttpLogTransport;
-  constructor(private readonly runtime: AppWasmRuntime, private readonly session: AppCpSession, options: AppLogHttpOptions = {}) {
+  constructor(private readonly runtime: AppWasmRuntime, private readonly session: AppCpSession, options: AppLogHttpOptions & { readonly tokenCache?: AppLogTokenCache | null } = {}) {
+    this.tokenCache = options.tokenCache ?? null;
     try {
       this.endpoint = uint(session.endpoint); this.collection = session.collection; this.connectorId = session.connectorId; this.deviceId = session.deviceId;
       for (const id of [this.collection, this.connectorId, this.deviceId]) { const b = uuidToBytes(id); if (b.every(v => v === 0)) throw fail("binding"); }
@@ -82,7 +87,7 @@ export class AppCpLogAuthority implements AppLogHttpAuthority {
     const bytes = new Uint8Array(32 * 1024); let count = 0;
     try {
       const fetchImpl = this.fetchImpl;
-      response = await fetchImpl(`${this.cpOrigin}${path}`, { method: "POST", headers: { authorization: `Bearer ${bearer}`, ...(body === undefined ? {} : { "content-type": "application/json" }) }, body, signal: ctrl.signal, redirect: "error", credentials: "omit", cache: "no-store", referrerPolicy: "no-referrer" });
+      response = await fetchImpl(`${this.cpOrigin}${path}`, { method: "POST", headers: { authorization: `Bearer ${bearer}`, ...(body === undefined ? {} : { "content-type": "application/json" }) }, body, signal: ctrl.signal, redirect: "error", credentials: "omit", cache: "default", referrerPolicy: "no-referrer" });
       this.check(parent); if (ctrl.signal.aborted) throw fail("unavailable");
       // Content-Encoding may be hidden by CORS; Content-Length is wire-only.
       const length = response.headers.get("content-length");
@@ -105,6 +110,12 @@ export class AppCpLogAuthority implements AppLogHttpAuthority {
     try {
       this.check(options.signal);
       if (this.token && this.token.expires - this.now() > 5_000) return this.token.value;
+      // P5: a reload reuses this device's unexpired token for the collection.
+      if (!this.token && this.tokenCache && !this.cacheTried) {
+        this.cacheTried = true;
+        const kept = await this.tokenCache.read(this.cacheKey(), this.now()); this.check(options.signal);
+        if (kept) { this.token = { value: kept.value, expires: kept.expires }; this.authenticated = true; return kept.value; }
+      }
       const bearer = await this.session.connectorBearer(options); this.check(options.signal);
       if (typeof bearer !== "string" || !bearer || bearer.length > 16 * 1024 || /[^\x21-\x7e]/.test(bearer)) throw fail("binding");
       const issued = await this.json("/v1/next/devices/challenge", bearer, undefined, options.signal); this.check(options.signal);
@@ -115,9 +126,17 @@ export class AppCpLogAuthority implements AppLogHttpAuthority {
       const body = JSON.stringify({ device_id: this.deviceId, challenge: issued.challenge, sig: hex(signature) });
       const minted = await this.json(`/v1/next/collections/${this.collection}/log-token`, bearer, body, options.signal); this.check(options.signal);
       if (typeof minted.token !== "string" || !minted.token || minted.token.length > 16 * 1024 || /[^\x21-\x7e]/.test(minted.token) || typeof minted.expires_at !== "number" || !Number.isSafeInteger(minted.expires_at) || minted.expires_at - this.now() <= 5_000 || minted.expires_at - this.now() > 16 * 60_000) throw fail("response");
-      this.token = { value: minted.token, expires: minted.expires_at }; this.authenticated = true; return minted.token;
+      this.token = { value: minted.token, expires: minted.expires_at }; this.authenticated = true;
+      void this.tokenCache?.write(this.cacheKey(), this.token).catch(() => {});
+      return minted.token;
     } catch (e) { if (e instanceof AppCpAuthorityError) throw e; throw fail(this.scopeCurrent() ? "unavailable" : "fenced"); }
     finally { challenge?.fill(0); signature?.fill(0); }
+  }
+  private cacheKey(): string { return [this.rawCpOrigin, this.rawLogOrigin, this.connectorId, this.deviceId, this.collection].join(" "); }
+  /** The log refused this token (expired early or revoked): mint a new one next time. */
+  invalidateToken(token: string): void {
+    if (this.token?.value !== token) return;
+    this.token = null; void this.tokenCache?.drop(this.cacheKey()).catch(() => {});
   }
   close(): void { if (this.lifetime.signal.aborted) return; this.lifetime.abort(); this.token = null; this.authenticated = false; this.runtime.retireLog(); }
 }

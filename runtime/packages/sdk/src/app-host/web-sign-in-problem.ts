@@ -9,8 +9,10 @@ import { AppCollectionControlError } from "./collection-control.js";
 import { AppCollectionJoinError } from "./collection-join-ledger.js";
 import { AppCpAuthorityError } from "./cp-authority.js";
 import { AppHttpLogError } from "./http-log.js";
+import { AppReplicaOwnerError } from "./owner.js";
 import { sanitizeAppServerProblem, type AppServerProblem } from "./cp-problem.js";
 import type { RegistrationRefusal } from "../application/registration-refusal.js";
+import type { RelayCloseDiagnostic } from "../transport/relay-close.js";
 
 export interface AppWebSignInProblemDetail {
   readonly name: string;
@@ -19,8 +21,10 @@ export interface AppWebSignInProblemDetail {
   readonly server?: AppServerProblem;
   /** A refused app registration's typed code and manifest paths. */
   readonly registration?: RegistrationRefusal;
+  /** Bounded socket observation only; never raw close text or admission evidence. */
+  readonly relay?: RelayCloseDiagnostic;
 }
-const reasons = new Set(["binding", "fenced", "busy", "account_confirmation_required", "outcome_unknown", "response", "refused", "expired", "recovery_required", "unavailable", "collection_migrating", "account_suspended", "update_required"]);
+const reasons = new Set(["binding", "fenced", "busy", "open_in_another_tab", "account_confirmation_required", "recovery_account_mismatch", "outcome_unknown", "response", "refused", "expired", "recovery_required", "unavailable", "collection_migrating", "account_suspended", "update_required"]);
 const domCodes = new Set(["AbortError", "ConstraintError", "DataCloneError", "InvalidStateError", "NotAllowedError", "NotFoundError", "NotReadableError", "OperationError", "QuotaExceededError", "SecurityError", "TimeoutError", "TransactionInactiveError", "UnknownError", "VersionError"]);
 const result = (problem: string, name: string, code: string | null, server?: AppServerProblem) => Object.freeze({problem, detail: Object.freeze({name, code, ...(server ? {server} : {})})});
 
@@ -43,6 +47,8 @@ export function webSignInProblem(error: unknown): Readonly<{problem: string; det
         return reasons.has(code) ? result(code, name, code, server) : result("open_failed", name, null, server);
       }
     }
+    // Another tab of this app owns the collection's replica (Web Lock held).
+    if (error instanceof AppReplicaOwnerError && error.reason === "busy") return result("open_in_another_tab", "AppReplicaOwnerError", "busy");
     if (error instanceof MdbaseError) {
       const code = isErrorCode(error.code) ? error.code : null;
       return result(code === "outcome_unknown" ? code : "open_failed", "MdbaseError", code);

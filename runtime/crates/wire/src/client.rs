@@ -613,6 +613,9 @@ wire_struct! {
         /// What changed (API 1.2); absent when the producer cannot tell, as for
         /// a removal that left no tombstone. Key 4 is reserved.
         5 opt entity: ChangeEntity,
+        /// A record's types (the last ones, for a removal); absent for files
+        /// and when the producer cannot tell.
+        6 opt types: Vec<String>,
     }
 }
 

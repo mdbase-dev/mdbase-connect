@@ -53,9 +53,23 @@ async function fixture(outcome: "success" | "refused" | "trap" | "allocation" | 
   const original = cbor.encodeSecret; let encoded: Uint8Array | null = null;
   vi.spyOn(cbor, "encodeSecret").mockImplementation(v => { encoded = original(v); return encoded; });
   const sql: AppSqlLifetime = { import: vi.fn(() => () => 0n), fence: vi.fn(), needsRecovery: false };
-  return { create: () => AppWasmRuntime.create(new Uint8Array(), sql), createDevice:()=>AppWasmRuntime.createDevice(new Uint8Array()), sql, pins: () => pins!, encoded: () => encoded!, imports: () => imports!, x, bind, retire, reply, shutdown, observations };
+  return { create: () => AppWasmRuntime.create(new Uint8Array(), sql), createDevice:()=>AppWasmRuntime.createDevice(new Uint8Array()), sql, pins: () => pins!, encoded: () => encoded!, imports: () => imports!, x, pack, bind, retire, reply, shutdown, observations };
 }
 describe("optional app artifact host", () => {
+  it("delivers the native terminal problem before ending the facade, without flushing stale data", async () => {
+    const f = await fixture(), rt = await f.create(); rt.openAppConsuming(config());
+    const port = rt.connect(); port.send(new Map()); await Promise.resolve();
+    const events: string[] = [];
+    port.onframe = frame => { events.push((frame as Map<number,cbor.CborValue>).get(1) === "closed" ? "problem" : "data"); };
+    port.onclose = () => events.push("end");
+    const problem = new Map<number,cbor.CborValue>([[0,"unavailable"],[1,0],[2,"stream ended"],[3,"file_read_idle"]]);
+    const closed = new Map<number,cbor.CborValue>([[0,2],[1,"closed"],[2,problem]]);
+    const stale = new Map<number,cbor.CborValue>([[0,1],[1,7],[2,"stale plaintext"]]);
+    f.x.rt_poll = () => f.pack(cbor.encode([[8,cbor.encode(stale)],[8,cbor.encode(closed)],[8,null]]));
+    rt.tick(); await Promise.resolve();
+    expect(events).toEqual(["problem","end"]);
+    f.x.rt_poll = () => f.pack(cbor.encode([])); await rt.close();
+  });
   it("resource planning uses only the original held session and no raw frame fallback (ABI stand-in)", async () => {
     const f = await fixture(), rt = await f.create(); rt.openAppConsuming(config());
     const port = rt.connect(), manifest = { id: "org.example.app", requirements: {}, provisions: {} };

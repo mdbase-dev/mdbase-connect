@@ -4,12 +4,57 @@ const bytes=new Uint8Array([0,97,115,109,1,0,0,0]);
 const origin="https://app.test",url=`${origin}/assets/runtime.wasm`;
 async function asset():Promise<ApplicationAsset>{const digest=new Uint8Array(await crypto.subtle.digest("SHA-256",bytes));return{url,sha256:Array.from(digest,x=>x.toString(16).padStart(2,"0")).join(""),bytes:bytes.length,maxBytes:3300000};}
 const signal=()=>new AbortController().signal;
-afterEach(()=>vi.restoreAllMocks());
+afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals();});
 describe("SDK-private bundled asset intake (transport integrity, not release authentication)",()=>{
-  it("reads exact immutable packaged bytes with no credentials/cache/redirect retry",async()=>{
+  it("reads exact immutable packaged bytes with no credentials or redirect retry",async()=>{
     const fetcher=vi.fn(async()=>new Response(bytes,{headers:{"content-length":String(bytes.length)}}));
     const source={...await asset()},load=applicationAssetLoader(source,{origin,environment:"production",fetch:fetcher}),caller=signal();source.url="https://foreign.test/changed";source.sha256="0".repeat(64);
-    expect(await load({signal:caller})).toEqual(bytes);expect(fetcher).toHaveBeenCalledExactlyOnceWith(url,{signal:caller,credentials:"omit",cache:"no-store",redirect:"error"});
+    expect(await load({signal:caller})).toEqual(bytes);expect(fetcher).toHaveBeenCalledExactlyOnceWith(url,{signal:caller,credentials:"omit",cache:"force-cache",redirect:"error"});
+  });
+  it("reopens verified bytes offline with a fresh loader, rejecting tampering and other releases",async()=>{
+    // Model persistent browser CacheStorage, not a loader's in-memory cache.
+    // A fresh loader represents the owner Worker restarting on page reload.
+    const stored=new Map<string,Response>();
+    const put=vi.fn(async(key:string,response:Response)=>{stored.set(key,response.clone());});
+    vi.stubGlobal("caches",{open:vi.fn(async()=>({match:async(key:string)=>stored.get(key)?.clone(),put}))});
+    let online=true;
+    const fetcher=vi.fn(async()=>{if(!online)throw new TypeError("offline");return new Response(bytes);});
+    const descriptor=await asset(),host={origin,environment:"production" as const,fetch:fetcher};
+    expect(await applicationAssetLoader(descriptor,host)({signal:signal()})).toEqual(bytes);
+    online=false;
+    expect(await applicationAssetLoader(descriptor,host)({signal:signal()})).toEqual(bytes);
+    expect(fetcher).toHaveBeenCalledTimes(1);expect(put).toHaveBeenCalledTimes(1);
+    const key=[...stored.keys()][0]!;
+    stored.set(key,new Response(new Uint8Array(bytes.length).fill(2)));
+    await expect(applicationAssetLoader(descriptor,host)({signal:signal()})).rejects.toMatchObject({reason:"application_asset_binding"});
+    expect(put).toHaveBeenCalledTimes(1);expect(fetcher).toHaveBeenCalledTimes(1);
+    // A newer release must not silently substitute the old cached artifact.
+    stored.set(key,new Response(bytes));
+    await expect(applicationAssetLoader({...descriptor,sha256:"0".repeat(64)},host)({signal:signal()})).rejects.toMatchObject({reason:"application_asset_fetch"});
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it("storage read/write refusal does not prevent a verified online open",async()=>{
+    const fetcher=vi.fn(async()=>new Response(bytes)),load=applicationAssetLoader(await asset(),{origin,environment:"production",fetch:fetcher});
+    vi.stubGlobal("caches",{open:async()=>{throw new Error("storage denied");}});
+    expect(await load({signal:signal()})).toEqual(bytes);
+    vi.stubGlobal("caches",{open:async()=>({match:async()=>undefined,put:async()=>{throw new Error("quota");}})});
+    expect(await load({signal:signal()})).toEqual(bytes);
+  });
+  it("drains an ignored-abort cache read and closes its response without fetching",async()=>{
+    const caller=new AbortController(),cancel=vi.fn(),fetcher=vi.fn();let resolve!:(response:Response)=>void;
+    const match=vi.fn(()=>new Promise<Response>(r=>{resolve=r;}));
+    vi.stubGlobal("caches",{open:async()=>({match})});
+    const load=applicationAssetLoader(await asset(),{origin,environment:"production",fetch:fetcher});
+    const result=load({signal:caller.signal});await Promise.resolve();caller.abort();
+    resolve(new Response(new ReadableStream({cancel})));
+    await expect(result).rejects.toMatchObject({reason:"application_asset_fenced"});
+    expect(cancel).toHaveBeenCalledTimes(1);expect(fetcher).not.toHaveBeenCalled();
+  });
+  it("does not persist a response that fails its packaged digest",async()=>{
+    const put=vi.fn(),fetcher=vi.fn(async()=>new Response(new Uint8Array(bytes.length).fill(2)));
+    vi.stubGlobal("caches",{open:async()=>({match:async()=>undefined,put})});
+    const load=applicationAssetLoader(await asset(),{origin,environment:"production",fetch:fetcher});
+    await expect(load({signal:signal()})).rejects.toMatchObject({reason:"application_asset_binding"});expect(put).not.toHaveBeenCalled();
   });
   it.each(["https://foreign.test/runtime.wasm","http://app.test/runtime.wasm"])("refuses unbound source URL %s before fetch",async changed=>{
     const fetcher=vi.fn(),a=await asset();expect(()=>applicationAssetLoader({...a,url:changed},{origin,environment:"production",fetch:fetcher})).toThrow("application asset");expect(fetcher).not.toHaveBeenCalled();

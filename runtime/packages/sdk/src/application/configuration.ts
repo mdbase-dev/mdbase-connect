@@ -4,7 +4,9 @@ import type { Op, Receipt } from "../wire.js";
 import { MdbaseError, isMdbaseError, mdbaseError } from "../errors.js";
 import { decode, modelResourcePlan } from "../app-host/collection-setup-journal.js";
 import type { ModelResourceSetupJournal, ModelSetupIntent } from "../app-host/collection-setup-types.js";
-import { resourceDecisions, type AppResourceDecisions, type AppResourceSetupPort } from "../app-host/collection-control.js";
+import { catalogFingerprint, statusStamp } from "../app-host/collection-readiness.js";
+import { AppCollectionControlError, resourceDecisions, type AppResourceAssessment, type AppResourceDecisions, type AppResourceSetupPort } from "../app-host/collection-control.js";
+import { versionRelation } from "../semver.js";
 import { setupPlan, setupRecords, type MdbaseSetupPlan, type MdbaseSetupPlanOptions, type MdbaseSetupRecord } from "./setup.js";
 import type { AppReplicaScope } from "../app-host/owner.js";
 import type { AppWebCollectionHandoff } from "../app-host/web-collection.js";
@@ -46,6 +48,66 @@ const reviewed = async <T>(work: Promise<T>, decisions: AppResourceDecisions | u
     throw error;
   }
 };
+/** R5.7: packs this collection has at a NEWER version than the app ships.
+ * Same major: compatible, the app reads and writes with the installed
+ * definitions (unknown fields are kept), so setup leaves the pack alone.
+ * Different major: the app must be updated. Core reports both as `conflict`. */
+export interface NewerPacks {
+  /** Kept as installed: same major, newer version, no resource conflict. */
+  readonly kept: readonly { readonly id: string; readonly version: string; readonly installedVersion: string }[];
+  readonly compatible: ReadonlySet<string>;
+  /** Installed at a newer major: the app must be updated. */
+  readonly major: readonly string[];
+}
+export function newerPacks(assessed: AppResourceAssessment): NewerPacks {
+  const compatible = new Set<string>(), major: string[] = [], kept: NewerPacks["kept"][number][] = [];
+  for (const pack of assessed.review?.packs ?? []) {
+    if (pack.status !== "conflict" && pack.status !== "downgrade") continue;
+    const relation = pack.installedVersion ? versionRelation(pack.installedVersion, pack.version) : "unknown";
+    // A resource-level conflict is a real conflict, whatever the versions.
+    if (relation === "installed_newer" && !pack.resources.some(r => r.action === "conflict")) {
+      compatible.add(pack.id); kept.push(Object.freeze({ id: pack.id, version: pack.version, installedVersion: pack.installedVersion! }));
+    } else if (relation === "installed_newer_major") major.push(pack.id);
+  }
+  return Object.freeze({ kept: Object.freeze(kept), compatible, major: Object.freeze(major) });
+}
+/** The declaration without the given type packs (`provisions.type_packs[].manifest.id`). */
+export function withoutPacks(manifest: unknown, ids: ReadonlySet<string>): unknown {
+  const m = manifest as { provisions?: { type_packs?: readonly { manifest?: { id?: unknown } }[] } };
+  const packs = m.provisions?.type_packs;
+  if (!ids.size || !Array.isArray(packs)) return manifest;
+  return { ...m, provisions: { ...m.provisions, type_packs: packs.filter(p => !(typeof p?.manifest?.id === "string" && ids.has(p.manifest.id))) } };
+}
+/** How long one request waits for this tab's control slot (held by people
+ * metadata, or by another tab's setup in progress) before it reports busy. */
+const SLOT_WAIT_MS = 15000;
+const sleep = (ms: number, signal: AbortSignal) => new Promise<void>((resolve, reject) => {
+  if (signal.aborted) { reject(signal.reason); return; }
+  const abort = () => { clearTimeout(timer); reject(signal.reason); };
+  const timer = setTimeout(() => { signal.removeEventListener("abort", abort); resolve(); }, ms);
+  signal.addEventListener("abort", abort, { once: true });
+});
+/** A control request refused `busy` was never started: wait for the slot and
+ * send it again. Still refused after SLOT_WAIT_MS: `configuration_busy_timeout`,
+ * a recoverable problem. Never start a second automatic 15-second wait. */
+function patient<T extends object>(target: T): T {
+  return new Proxy({} as T, { get(_unused, key) {
+    const value: unknown = Reflect.get(target, key, target);
+    if (typeof value !== "function") return value;
+    return async (...args: unknown[]) => {
+      const signal = args.find((arg): arg is AbortSignal => arg instanceof AbortSignal);
+      const until = Date.now() + SLOT_WAIT_MS;
+      for (let delay = 25; ; delay = Math.min(delay * 2, 500)) {
+        try { return await (value as (...a: unknown[]) => Promise<unknown>).apply(target, args); } catch (error) {
+          if (!(error instanceof AppCollectionControlError && error.reason === "busy") || !signal) throw error;
+          if (Date.now() + delay > until) throw failure("busy_timeout");
+          await sleep(delay, signal);
+        }
+      }
+    };
+  } });
+}
+const busy = (error: unknown) => isMdbaseError(error) && error.reason === "configuration_busy";
 const snapshot = (code: string | null = null, checking = false): MdbaseApplicationFacetSnapshot =>
   Object.freeze({ checking, assessment: null, problem: code ? Object.freeze({ code }) : null });
 
@@ -53,7 +115,8 @@ const snapshot = (code: string | null = null, checking = false): MdbaseApplicati
  * before the canonical native binding lands; absence is explicitly unsupported. */
 export function createApplicationConfiguration(source: ApplicationConfigurationInput,
   resources?: ApplicationConfigurationResources) {
-  const input = Object.freeze({ ...source, scope: Object.freeze({ ...source.scope }) });
+  const input = Object.freeze({ ...source, scope: Object.freeze({ ...source.scope }), journal: patient(source.journal) });
+  if (resources) resources = patient(resources);
   if (Object.values(input.scope).some(id => !uuid.test(id) || /^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(id))
     || !uuid.test(input.generation) || !["inspect", "approved-new", "reconcile-original"].includes(input.setupMode))
     throw failure("binding");
@@ -64,6 +127,11 @@ export function createApplicationConfiguration(source: ApplicationConfigurationI
   let value = snapshot(), pending: Promise<unknown> | null = null;
   let closing: Promise<void> | null = null, closed = false;
   let assessedSession: Session | undefined;
+  /** Catalog fingerprint when the delivered assessment started (P1). */
+  let assessedCatalog: string | null = null, probing = false, probeAgain = false;
+  // A collection change re-assesses in the background; it is never a problem.
+  let failures = 0, dirty = false, scheduled = false, background: Promise<unknown> | null = null, lastStamp: string | null = null;
+  const stamp = () => { try { return JSON.stringify([input.client.link, statusStamp(input.client)]); } catch { return null; } };
   const stops: Array<() => void> = [];
   const plans = new WeakMap<MdbaseSetupPlan, { readonly decisions: AppResourceDecisions; readonly records: readonly MdbaseSetupRecord[] }>();
   function check(signal?: AbortSignal, session?: Session) {
@@ -78,10 +146,45 @@ export function createApplicationConfiguration(source: ApplicationConfigurationI
     value = Object.freeze(next);
     for (const listener of listeners) { try { listener(); } catch { /* Preserve original work disposition. */ } }
   }
-  function invalidate() { publish(snapshot("configuration_changed")); }
+  /** P1: with a settled assessment, re-assess only when the catalog changed. */
+  function invalidate() {
+    if (closed) return;
+    const next = stamp();
+    if (next !== null && next === lastStamp) return;
+    lastStamp = next;
+    if (pending || !value.assessment || assessedCatalog === null || input.client.link !== "open") { recheck(); return; }
+    if (probing) { probeAgain = true; return; }
+    probing = true;
+    const assessed = value, catalog = assessedCatalog;
+    void input.client.describe(readSignal).then(found => {
+      if (!closed && value === assessed && catalogFingerprint(found) !== catalog) recheck();
+    }, () => { if (!closed) recheck(); }).finally(() => {
+      probing = false;
+      if (probeAgain && !closed) { probeAgain = false; lastStamp = null; invalidate(); }
+    });
+  }
+  function recheck() {
+    if (closed) return;
+    dirty = true;
+    if (!pending) publish(snapshot(null, true));
+    schedule();
+  }
+  function schedule() {
+    if (closed || pending || scheduled || !dirty) return;
+    scheduled = true;
+    setTimeout(() => {
+      scheduled = false;
+      if (closed || pending || !dirty) return;
+      const work = run(false, {}, undefined, true); background = pending; void work.catch(() => {});
+    }, failures ? Math.min(5000, 250 * 2 ** failures) : 50);
+  }
   function getSnapshot() {
     if (value.assessment) {
-      try { check(undefined, assessedSession); } catch { publish(snapshot("configuration_fenced")); }
+      try { check(undefined, assessedSession); } catch {
+        // A new session of the same current connection is re-assessed, not fenced.
+        if (closed || readSignal.aborted || input.isCurrent() !== true) publish(snapshot("configuration_fenced"));
+        else { dirty = true; lastStamp = null; publish(snapshot(null, true)); schedule(); }
+      }
     }
     return value;
   }
@@ -148,6 +251,10 @@ export function createApplicationConfiguration(source: ApplicationConfigurationI
         : await input.journal.recordResourceConfirmed(intent.mutationId, readSignal);
       check(signal, session);
     }
+    // A verified setup is settled: its files are ordinary collection state that
+    // other apps' setups (the shared lock) and edits may change since. The
+    // native assessment judges the current collection, never this readback.
+    if (intent.phase === "verified") return intent;
     await readback(intent, signal, session);
     if (intent.phase === "confirmed") {
       intent = intent.version === 2 ? await input.journal.recordVerified(intent.mutationId, readSignal)
@@ -176,14 +283,34 @@ export function createApplicationConfiguration(source: ApplicationConfigurationI
     if (original.phase === "rejected") return { journaled: true, previous: original.version === 4 ? original.previous : null };
     return { journaled: true, previous: await confirmed(original, signal, session) };
   }
+  /** Assess with the declaration, leaving out packs installed at a newer
+   * compatible version (R5.7). The same manifest must be used to apply. */
+  async function effective(decisions: AppResourceDecisions | undefined, review: boolean) {
+    const full = input.compiledManifest.manifest;
+    let assessed = await reviewed(resources!.assess(full, readSignal, decisions), decisions);
+    // The pack rows are only in a review: fetch one to tell a newer install from a conflict.
+    let rows = assessed;
+    if (assessed.status === "conflict" && !assessed.review) rows = await resources!.assess(full, readSignal, resourceDecisions({}));
+    const newer = newerPacks(rows);
+    if (!newer.compatible.size) return { assessed, manifest: full, newer };
+    const manifest = withoutPacks(full, newer.compatible), next = review ? decisions ?? resourceDecisions({}) : decisions;
+    assessed = await reviewed(resources!.assess(manifest, readSignal, next), next);
+    return { assessed, manifest, newer };
+  }
   async function perform(explicit: boolean, signal: AbortSignal, request: SetupRequest = {}) {
     check(signal);
     const session = await input.client.readyForRead(readSignal);
     check(signal, session);
-    if (!stops.length) stops.push(input.client.onStatus(invalidate), input.client.onLink(invalidate));
+    if (!stops.length) { lastStamp = stamp(); stops.push(input.client.onStatus(invalidate), input.client.onLink(invalidate)); }
+    dirty = false;
     const { journaled, previous } = await recover(signal, session);
     if (!resources) throw failure("unsupported");
-    let assessed = await reviewed(resources.assess(input.compiledManifest.manifest, readSignal, request.decisions), request.decisions);
+    // Taken before assessing: a change after it shows as a different catalog.
+    let catalog: string | null = null;
+    try { catalog = catalogFingerprint(await input.client.describe(readSignal)); } catch { /* no probe: every change re-assesses */ }
+    check(signal, session);
+    const chosen = await effective(request.decisions, false);
+    let assessed = chosen.assessed;const manifest = chosen.manifest;
     check(signal, session);
     if (!hash.test(assessed.assessmentDigest) || !["current", "provision", "conflict"].includes(assessed.status))
       throw failure("response");
@@ -198,7 +325,7 @@ export function createApplicationConfiguration(source: ApplicationConfigurationI
         || !session.hello.grant.capabilities.includes("definitions.manage")) throw failure("not_authorized");
       const records = request.records ?? [];
       if (records.length && !session.hello.grant.capabilities.includes("records.create")) throw failure("not_authorized");
-      const produced = modelResourcePlan(await reviewed(resources.apply(input.compiledManifest.manifest, assessed.assessmentDigest, readSignal, request.decisions), request.decisions));
+      const produced = modelResourcePlan(await reviewed(resources.apply(manifest, assessed.assessmentDigest, readSignal, request.decisions), request.decisions));
       check(signal, session);
       if (produced.assessmentDigest !== assessed.assessmentDigest) throw failure("response");
       // Core plans definitions only. Starter records are the caller's reviewed,
@@ -237,19 +364,24 @@ export function createApplicationConfiguration(source: ApplicationConfigurationI
       if (receipt.state !== "confirmed" || receipt.status !== "applied" || (receipt.conflicts?.length ?? 0) !== 0)
         throw failure("recovery_required");
       await confirmed(attempted, signal, session);
-      assessed = await resources.assess(input.compiledManifest.manifest, readSignal);
+      // This final assessment covers the setup's own writes.
+      dirty = false; lastStamp = stamp();
+      try { catalog = catalogFingerprint(await input.client.describe(readSignal)); } catch { catalog = null; }
+      assessed = await resources.assess(manifest, readSignal);
       check(signal, session);
       if (assessed.status !== "current" || !hash.test(assessed.assessmentDigest)) throw failure("recovery_required");
     }
-    const code = assessed.status === "conflict" ? "configuration_conflict" : null;
+    // A pack installed at a newer major is not a conflict to resolve: update the app.
+    const code = assessed.status === "conflict" ? (chosen.newer.major.length ? "installed_newer" : "configuration_conflict") : null;
     const problem = code ? Object.freeze({ code }) : null;
     const assessment = Object.freeze({ status: assessed.status === "current" ? "ready" as const
       : assessed.status === "conflict" ? "incompatible" as const : "setup_required" as const, problem });
-    assessedSession = session;
+    assessedSession = session; assessedCatalog = catalog;
     const result = Object.freeze({ checking: false, assessment, problem });
-    publish(result);
+    // Changed while assessed: keep checking; the scheduled re-assessment publishes.
+    failures = 0;
+    publish(dirty ? snapshot(null, true) : result);
     check(signal, session);
-    if (value !== result) throw failure("changed");
     return result;
   }
   /** Reviewable plan; changes no collection data. Recovery may first settle
@@ -270,7 +402,7 @@ export function createApplicationConfiguration(source: ApplicationConfigurationI
     check(signal, session);
     await recover(signal, session);
     if (!resources) throw failure("unsupported");
-    const assessed = await reviewed(resources.assess(input.compiledManifest.manifest, readSignal, decisions), decisions);
+    const { assessed, newer } = await effective(decisions, true);
     check(signal, session);
     if (!assessed.review) throw failure("response");
     const occupied: { path: string; free: boolean }[] = [];
@@ -283,21 +415,37 @@ export function createApplicationConfiguration(source: ApplicationConfigurationI
     const result = setupPlan(assessed, { records: occupied,
       canManage: capabilities.includes("definitions.manage") && (input.compiledManifest.operations.includes("apply_collection_setup")
         || input.compiledManifest.operations.includes("apply_type_pack")),
-      canCreateRecords: capabilities.includes("records.create") });
+      canCreateRecords: capabilities.includes("records.create"), newer });
     plans.set(result, Object.freeze({ decisions, records: records.filter(r => occupied.some(o => o.path === r.path && o.free)) }));
     return result;
   }
-  function run(explicit: boolean, options: MdbaseApplicationRequestOptions = {}, request?: SetupRequest) {
-    try { check(options.signal); if (pending) throw failure("busy"); } catch (error) { return Promise.reject(error); }
+  function run(explicit: boolean, options: MdbaseApplicationRequestOptions = {}, request?: SetupRequest, unasked = false): Promise<MdbaseApplicationFacetSnapshot> {
+    try { check(options.signal); } catch (error) { return Promise.reject(error); }
+    // A background re-assessment is not the caller's conflict: wait for it.
+    if (pending && pending === background) {
+      const waited = pending;
+      return waited.then(() => {}, () => {}).then(() => pending && pending !== waited ? Promise.reject(failure("busy")) : run(explicit, options, request));
+    }
+    if (pending) return Promise.reject(failure("busy"));
     const signal = AbortSignal.any([readSignal, ...(options.signal ? [options.signal] : [])]);
     const work = Promise.resolve().then(() => perform(explicit, signal, request)).catch(error => {
-      publish(snapshot(readSignal.aborted || signal.aborted ? "configuration_fenced" : "configuration_unavailable"));
+      const fenced = readSignal.aborted || signal.aborted;
+      // A change during the assessment re-assesses; a background re-assessment
+      // (nobody asked) that failed retries a few times. Only a settled failure is a problem.
+      // A refused slot can settle by itself, but a full wait has already exhausted
+      // the automatic busy budget. Changes cannot keep restarting that budget.
+      const timedOut = isMdbaseError(error) && error.reason === "configuration_busy_timeout";
+      if (timedOut) dirty = false;
+      let retry = !fenced && !timedOut && (dirty || busy(error));
+      if (retry && busy(error)) { dirty = true; failures = Math.min(failures + 1, 4); }
+      if (!fenced && !timedOut && !dirty && unasked && failures < 5 && !closed && input.isCurrent() === true) { failures++; dirty = true; retry = true; }
+      publish(retry ? snapshot(null, true) : snapshot(fenced ? "configuration_fenced" : timedOut ? "configuration_busy_timeout" : "configuration_unavailable"));
       throw error;
     });
     pending = work;
     publish(snapshot(null, true));
-    void work.finally(() => { if (pending === work) pending = null; }).catch(() => {});
-    return work.then(result => { check(signal, assessedSession); if (value !== result) throw failure("changed"); return result; });
+    void work.finally(() => { if (pending === work) pending = null; if (background === work) background = null; schedule(); }).catch(() => {});
+    return work.then(result => { check(signal, assessedSession); return result; });
   }
   const close = () => {
     if (!closing) {
@@ -321,7 +469,7 @@ export function createApplicationConfiguration(source: ApplicationConfigurationI
     async apply(reviewed: MdbaseSetupPlan, options: MdbaseApplicationRequestOptions = {}) {
       const bound = plans.get(reviewed);
       if (!bound) throw new TypeError("setup.apply needs a plan returned by setup.plan");
-      if (reviewed.refusal) throw mdbaseError(reviewed.refusal.code === "setup_conflict" ? "conflict" : "forbidden", reviewed.refusal.message, reviewed.refusal.code);
+      if (reviewed.refusal) throw mdbaseError(reviewed.refusal.code === "setup_conflict" ? "conflict" : reviewed.refusal.code === "installed_newer" ? "upgrade_required" : "forbidden", reviewed.refusal.message, reviewed.refusal.code);
       if (reviewed.status === "current") { await run(false, options, { decisions: bound.decisions, expected: reviewed.digest }); return; }
       await run(true, options, { decisions: bound.decisions, expected: reviewed.digest, records: bound.records });
     },

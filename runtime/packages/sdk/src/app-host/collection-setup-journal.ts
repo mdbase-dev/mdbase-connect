@@ -1,3 +1,4 @@
+import { LOCAL_APPLICATION_BUILD, localApplicationHttpOrigin } from "../application/local-build.js";
 import {
   MODEL_SETUP_LIMITS,
   type LegacyModelSetupIntent,
@@ -520,7 +521,10 @@ export class AppCollectionSetupJournal implements ModelResourceSetupJournal {
   private readonly namespace: string;
   private readonly binding: string;
   private stopped = false;
-  private busy = false;
+  /** The running operation. Every tab of the session shares this journal in the
+   * Worker, so one tab's load can meet another tab's setup step: it waits its
+   * turn instead of failing. Each operation re-reads and checks the stored phase. */
+  private turn: Promise<void> = Promise.resolve();
   private readonly pins: string;
   private readonly current: AppCollectionSetupJournalOptions["isCurrent"];
   constructor(private readonly owner: AppCollectionSetupJournalOptions) {
@@ -533,7 +537,7 @@ export class AppCollectionSetupJournal implements ModelResourceSetupJournal {
     if (
       app.origin !== owner.appOrigin ||
       cp.origin !== owner.cpOrigin ||
-      cp.protocol !== "https:"
+      (cp.protocol !== "https:" && !(LOCAL_APPLICATION_BUILD && localApplicationHttpOrigin(owner.cpOrigin)))
     )
       fail("binding");
     this.namespace = JSON.stringify([
@@ -567,10 +571,19 @@ export class AppCollectionSetupJournal implements ModelResourceSetupJournal {
     work: (db: IDBDatabase) => Promise<T>,
   ): Promise<T> {
     this.check(signal);
-    if (this.busy) fail("fenced");
-    this.busy = true;
+    const previous = this.turn;
+    let done!: () => void;
+    const mine = new Promise<void>((resolve) => { done = resolve; });
+    // A caller that stops waiting never lets its successor overlap the previous one.
+    this.turn = previous.then(() => mine);
     let db: IDBDatabase | undefined;
     try {
+      await new Promise<void>((resolve, reject) => {
+        const abort = () => reject(signal.reason);
+        signal.addEventListener("abort", abort, { once: true });
+        void previous.then(() => { signal.removeEventListener("abort", abort); resolve(); });
+      });
+      this.check(signal);
       db = await openDatabase(this.owner.databaseName, signal, () => this.check(signal));
       this.check(signal);
       const result = await work(db);
@@ -578,7 +591,7 @@ export class AppCollectionSetupJournal implements ModelResourceSetupJournal {
       return result;
     } finally {
       db?.close();
-      this.busy = false;
+      done();
     }
   }
   private read(

@@ -22,7 +22,7 @@ export async function openInstallationTestProducer({checkout, output, publicUrl}
     url.searchParams.set("options", `-csearch_path=${schema}`); db = await c.openDatabase(url.toString());
     await c.runControlPlaneMigrations(db, {lock: true, directory: resolve(cp, "services/server/migrations")});
     app = c.Fastify({logger: false}); await app.register(c.cookie);
-    c.registerConnectorPairingRoutes(app, {db, relay: {pushPolicy: async () => { throw new Error("Hosted-only producer has no Native relay"); }}, publicUrl, installationDevices: true, installationEnvironment: "lab"});
+    c.registerConnectorPairingRoutes(app, {db, publicUrl, installationDevices: true, installationEnvironment: "lab"});
     c.registerNextDeviceRoutes(app, {db, log: {controlItemAt: async () => null}});
     app.get("/test/installation", async (request, reply) => await c.requireInstallationDeviceConnector(request, reply, db) ?? reply);
     app.get("/test/controller", async (request, reply) => await c.connectorFromRequest(request, db) ?? reply.code(401).send({error: "invalid_controller"}));

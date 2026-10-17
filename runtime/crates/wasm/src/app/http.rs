@@ -110,6 +110,26 @@ impl HttpSigner {
         );
         Some(self.key.as_ref()?.sign_digest(&digest.0))
     }
+    /// Fixed `ls-hello` purpose for the push socket of THIS log generation:
+    /// `H("mdbase/v1/ls-hello", nonce32 ‖ token)`, the proof native hosts get
+    /// from `Replica::log_hello_proof`. The server keeps such browser sessions
+    /// push-only, so mutations still need a captured original (`sign`).
+    pub(super) fn sign_hello(&self, generation: u64, envelope: &[u8]) -> Option<[u8; 64]> {
+        if generation == 0
+            || generation != self.generation()
+            || self.connector.is_none()
+            || envelope.len() <= 32
+            || envelope.len() > 32 + MAX_TOKEN
+        {
+            return None;
+        }
+        let token = &envelope[32..];
+        if token.iter().any(|&b| b <= 0x20 || b >= 0x7f) {
+            return None;
+        }
+        let digest = mdbn_wire::hash::h("mdbase/v1/ls-hello", envelope);
+        Some(self.key.as_ref()?.sign_digest(&digest.0))
+    }
     pub(super) fn bind(&mut self) -> bool {
         if self.retired || self.generation != 0 || self.key.is_none() {
             return false;

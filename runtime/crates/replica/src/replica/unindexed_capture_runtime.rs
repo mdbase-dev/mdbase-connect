@@ -38,11 +38,18 @@ impl<S: Store> Replica<S> {
             .map_err(super::submit::store_err)
     }
     pub(super) fn commit_unindexed_tx(&mut self, tx: Tx) -> StoreResult<()> {
+        self.commit_native_capture_tx(tx, "unindexed_capture_durability_unknown")
+    }
+    pub(super) fn commit_native_capture_tx(
+        &mut self,
+        tx: Tx,
+        unknown_reason: &str,
+    ) -> StoreResult<()> {
         match self.store.commit(tx) {
             Ok(_) => Ok(()),
             Err(e) => {
                 if !matches!(e, StoreError::CommitAborted(_)) {
-                    self.terminal_store_fault("unindexed_capture_durability_unknown");
+                    self.terminal_store_fault(unknown_reason);
                 }
                 Err(e)
             }

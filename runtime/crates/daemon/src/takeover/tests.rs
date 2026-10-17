@@ -532,3 +532,80 @@ fn a_missing_or_altered_marker_is_a_sticky_incident_never_rewritten() {
     run(&d.paths, &d.old, &mut Old::default(), &opts()).unwrap();
     assert!(Record::load(&d.paths.record).unwrap().unwrap().collections[CID].marker_incident);
 }
+
+/// A hold resolution resolves the hold only once its mutation is confirmed.
+/// Pending or unknown leave the hold open and keep the resolution's identity, so
+/// a retry (or a readback) uses the same mutation and record IDs; another action
+/// is refused while one is in flight.
+#[test]
+fn a_hold_resolves_only_on_a_confirmed_outcome_and_keeps_its_identity() {
+    use super::held::{self, Outcome};
+    let d = device("tko-settle");
+    run(&d.paths, &d.old, &mut Old::default(), &opts()).unwrap();
+    let (legacy, record) = (&d.paths.legacy, &d.paths.record);
+    let open = || -> Vec<String> {
+        held::open(legacy, CID)
+            .unwrap()
+            .into_iter()
+            .map(|h| h.path)
+            .collect()
+    };
+    let count = || Record::load(record).unwrap().unwrap().collections[CID].holds;
+    assert_eq!(
+        (open(), count()),
+        (vec!["a.md".to_string(), "c.md".into()], 2)
+    );
+
+    let first = held::begin(legacy, CID, "a.md", "take_theirs", || ([1; 16], [2; 16]))
+        .unwrap()
+        .unwrap();
+    for outcome in [Outcome::Pending, Outcome::Unknown] {
+        assert!(!held::settle(record, legacy, CID, "a.md", outcome).unwrap());
+        assert_eq!(
+            (open().len(), count()),
+            (2, 2),
+            "{outcome:?} left the hold open"
+        );
+        let again = held::begin(legacy, CID, "a.md", "take_theirs", || unreachable!())
+            .unwrap()
+            .unwrap();
+        assert_eq!(again, first, "{outcome:?} kept the original identity");
+    }
+    assert_eq!(
+        held::begin(legacy, CID, "a.md", "keep_both", || unreachable!()).unwrap(),
+        Err(first.clone())
+    );
+
+    assert!(held::settle(record, legacy, CID, "a.md", Outcome::Confirmed).unwrap());
+    assert_eq!((open(), count()), (vec!["c.md".to_string()], 1));
+    assert_eq!(held::resolving(legacy, CID, "a.md").unwrap(), None);
+
+    // A rejection drops the identity: the hold stays open for another choice.
+    held::begin(legacy, CID, "c.md", "take_theirs", || ([3; 16], [4; 16]))
+        .unwrap()
+        .unwrap();
+    assert!(!held::settle(record, legacy, CID, "c.md", Outcome::Rejected).unwrap());
+    assert_eq!((open(), count()), (vec!["c.md".to_string()], 1));
+    assert_eq!(held::resolving(legacy, CID, "c.md").unwrap(), None);
+}
+
+/// Takeover state is addressed only by a canonical collection ID.
+#[test]
+fn takeover_holds_refuse_a_non_canonical_collection_id() {
+    use super::held;
+    let d = device("tko-cid");
+    run(&d.paths, &d.old, &mut Old::default(), &opts()).unwrap();
+    for bad in [
+        "../x",
+        "",
+        &CID.to_uppercase(),
+        &format!("{CID}/.."),
+        "00000000-0000-0000-0000-000000000000",
+    ] {
+        assert!(!held::is_collection_id(bad), "{bad}");
+        let e = held::open(&d.paths.legacy, bad).unwrap_err();
+        assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput, "{bad}");
+        assert!(held::resolve(&d.paths.record, &d.paths.legacy, bad, &["a.md".into()]).is_err());
+    }
+    assert!(held::is_collection_id(CID));
+}

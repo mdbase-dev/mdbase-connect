@@ -11,6 +11,19 @@ import type { ChangesWatch, MdbaseClient, Write, WriteOptions } from "./client.j
 import { isMdbaseError, mdbaseError } from "./errors.js";
 import { withMutation, type Session } from "./session.js";
 import { uuidv7 } from "./values.js";
+
+/** How long an upload waits for the replica's attachment region (a file read
+ * holds it at most a minute without progress) before reporting it busy. */
+const UPLOAD_BUSY_WAIT_MS = 90_000;
+function uploadPause(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(mdbaseError("cancelled", "upload aborted"));
+    const done = () => { signal?.removeEventListener("abort", stop); resolve(); };
+    const timer = setTimeout(done, ms);
+    const stop = () => { clearTimeout(timer); reject(mdbaseError("cancelled", "upload aborted")); };
+    signal?.addEventListener("abort", stop, { once: true });
+  });
+}
 import {
   ChangesResult,
   FileChunk,
@@ -80,6 +93,16 @@ export function fileGrant(hello: HelloResult): FileGrant | null {
   return Object.freeze({ actions: Object.freeze(actions), scope });
 }
 
+/** SDK-internal: the app's declared file actions joined with the person's
+ * recorded choices. Not exported from the package index. */
+export interface FileAccessGate {
+  /** Throws a typed `forbidden` error (`access_required` / `access_undeclared`). */
+  check(action: FileAction): void;
+  allows(action: FileAction): boolean;
+}
+const gates = new WeakMap<FilesApi, FileAccessGate>();
+export function bindFileAccess(files: FilesApi, gate: FileAccessGate): void { gates.set(files, gate); }
+
 function fileRef(f: FileRef): CborValue {
   if (typeof f === "string") return uuidCodec.enc(f);
   if ("id" in f) return uuidCodec.enc(f.id);
@@ -142,7 +165,9 @@ export class FilesApi {
 
   /** The current session's file actions and folder scope ({@link fileGrant}). */
   get grant(): FileGrant | null {
-    return fileGrant(this.client.hello);
+    const grant = fileGrant(this.client.hello), gate = gates.get(this);
+    // Reads are not gated; writes the person has not allowed are not offered.
+    return grant && gate ? Object.freeze({ ...grant, actions: Object.freeze(grant.actions.filter((a) => a === "list" || a === "read" || gate.allows(a))) }) : grant;
   }
 
   /**
@@ -256,6 +281,7 @@ export class FilesApi {
    * durable in the collection.
    */
   async upload(path: string, source: UploadSource, o: UploadOptions = {}): Promise<FileWrite> {
+    gates.get(this)?.check(o.fileId ? "replace" : "add");
     const size = sizeOf(source);
     // The client's digest commitment, checked by the replica at commit.
     const h = sha256.create();
@@ -267,21 +293,32 @@ export class FilesApi {
     if (o.fileId) open.fileId = o.fileId;
     if (o.ifRevision) open.ifRevision = o.ifRevision;
     if (o.onProgress) this.progress.set(transfer, o.onProgress);
+    const busyUntil = Date.now() + UPLOAD_BUSY_WAIT_MS;
     for (;;) {
+      const phase = { committing: false };
       try {
-        return await this.uploadOnce(source, size, open, o);
+        return await this.uploadOnce(source, size, open, o, phase);
       } catch (e) {
         // Retry after a dropped link; the transfer survives on the replica.
-        if (!(isMdbaseError(e, "unavailable") && this.client.link === "reconnecting")) {
-          this.progress.delete(transfer);
-          // Resume under the same transferId and mutationId; never a new identity.
-          throw withMutation(e, "upload", { mutationId: open.mutationId });
+        if (isMdbaseError(e, "unavailable") && this.client.link === "reconnecting") continue;
+        // The replica's one attachment region is in use (often a file being read):
+        // nothing was opened, so wait as asked and open again, within a bound.
+        if (isMdbaseError(e, "unavailable") && e.reason === "hosted_chunk_busy" && Date.now() < busyUntil) {
+          await uploadPause(Math.min(Math.max(e.retryAfterMs ?? 1000, 250), 5000), o.signal);
+          continue;
         }
+        this.progress.delete(transfer);
+        // Nothing can have been captured before commit: release the replica's
+        // upload lane so a failed transfer never blocks the next one. A retry
+        // under the same transferId and mutationId opens it afresh.
+        if (!phase.committing) await this.abortUpload(transfer).catch(() => {});
+        // Resume under the same transferId and mutationId; never a new identity.
+        throw withMutation(e, "upload", { mutationId: open.mutationId });
       }
     }
   }
 
-  private async uploadOnce(source: UploadSource, size: number, open: OpenUploadParams, o: UploadOptions): Promise<FileWrite> {
+  private async uploadOnce(source: UploadSource, size: number, open: OpenUploadParams, o: UploadOptions, phase: { committing: boolean }): Promise<FileWrite> {
     const s = await this.session(o.signal);
     const sig = o.signal ? { signal: o.signal } : {};
     const opened = await s.request("open_upload", openUploadParams.enc(open), { codec: openUploadResult, ...sig });
@@ -317,6 +354,7 @@ export class FilesApi {
       if (inflight.size >= 4) await Promise.race(inflight);
     }
     await Promise.all(inflight);
+    phase.committing = true;
     const r = await s.request("commit_upload", m([[0, uuidCodec.enc(open.transfer)]]), {
       codec: receiptCodec,
       ...sig,
@@ -456,6 +494,7 @@ export class FilesApi {
     to: string,
     o: WriteOptions & { updateRefs?: boolean; ifRevision?: string } = {},
   ): Promise<Write> {
+    gates.get(this)?.check("move");
     const op = { kind: "file_move" as const, id: f.id, from: f.path, to, updateRefs: o.updateRefs ?? true };
     const [w] = await this.client.submit([o.ifRevision ? { ...op, ifRevision: o.ifRevision } : op], o);
     return w!;
@@ -463,6 +502,7 @@ export class FilesApi {
 
   /** Delete a file. With a FileView, a concurrent replacement supersedes the delete. */
   async delete(f: FileRef, o: WriteOptions & { ifRevision?: string } = {}): Promise<Write> {
+    gates.get(this)?.check("delete");
     const op: import("./wire.js").Op = { kind: "file_delete", id: fileId(f) };
     if (typeof f === "object" && "digest" in f) op.base = f.digest;
     if (o.ifRevision) op.ifRevision = o.ifRevision;

@@ -18,6 +18,7 @@ import {
   createAppCollectionReadiness,
   type AppCollectionReadinessRequirements,
 } from "../src/app-host/collection-readiness.js";
+import { describeError } from "../src/describe-error.js";
 
 const native = new Uint8Array(
   Buffer.from(
@@ -152,7 +153,7 @@ async function fixture() {
       rows = value;
     },
     rows: () => rows,
-    refuse: (value: Problem) => {
+    refuse: (value?: Problem) => {
       refusal = value;
     },
     fence: () => {
@@ -171,6 +172,23 @@ async function fixture() {
 }
 
 describe("original selected collection semantic readiness", () => {
+  it("bounds repeated busy reads to 15 seconds and permits a fresh explicit assessment", async () => {
+    const f = await fixture(), assessor = f.make();
+    try {
+      await assessor.start();
+      f.refuse({code: "unavailable", recovery: "retry", message: "occupied", reason: "readiness_busy"});
+      vi.useFakeTimers({toFake: ["Date", "setTimeout", "clearTimeout"]});
+      await expect(assessor.refresh()).rejects.toMatchObject({reason: "readiness_busy"});
+      await vi.advanceTimersByTimeAsync(15000);
+      expect(assessor.getSnapshot()).toMatchObject({checking: false, assessment: null, problem: {reason: "busy_timeout"}});
+      const reads = f.requests.length;
+      await vi.advanceTimersByTimeAsync(60000);
+      expect(f.requests).toHaveLength(reads);
+      expect(describeError("readiness_busy_timeout")).toMatchObject({action: "retry", transient: false});
+      f.refuse(); vi.useRealTimers();
+      await expect(assessor.refresh()).resolves.toMatchObject({status: "ready"});
+    } finally { vi.useRealTimers(); await assessor.close(); await f.client.close(); }
+  });
   it("starts unassessed and qualifies mapped native catalog on the SAME client", async () => {
     const f = await fixture(),
       assessor = f.make();
@@ -246,6 +264,51 @@ describe("original selected collection semantic readiness", () => {
             ? "setup_required"
             : "incompatible",
         );
+        expect(JSON.stringify(assessor.getSnapshot())).not.toContain("PRIVATE");
+      } finally {
+        await assessor.close();
+        f.client.close();
+      }
+    },
+  );
+  it.each([
+    ["an unrelated bad type", "_types/unrelated.md", "block", "ready", false],
+    ["a bad own type by default", "_types/task.md", undefined, "incompatible", false],
+    ["a bad own type with degrade", "_types/task.md", "degrade", "ready", true],
+  ] as const)(
+    "type issues: %s",
+    async (_, path, typeIssues, status, listed) => {
+      const f = await fixture();
+      const assessor = f.make({ ...declared, ...(typeIssues ? { typeIssues } : {}) });
+      f.setCatalog({
+        ...f.catalog(),
+        issues: [
+          {
+            code: "type_invalid",
+            severity: "error",
+            message: "PRIVATE",
+            details: new Map([["path", path]]),
+          },
+        ],
+      });
+      try {
+        const result = await assessor.start();
+        expect(result.status).toBe(status);
+        if (listed) {
+          expect(result.unavailableTypes).toEqual([
+            {
+              name: "task",
+              path: "_types/task.md",
+              contract: { id: "acme.task", version: "1.2.0" },
+              problem: { code: "readiness_type_invalid" },
+            },
+          ]);
+          expect(describeError(result.unavailableTypes?.[0])?.key).toBe(
+            "type_invalid",
+          );
+        } else expect(result.unavailableTypes).toBeUndefined();
+        if (status === "incompatible")
+          expect(result.problem).toEqual({ reason: "catalog_invalid" });
         expect(JSON.stringify(assessor.getSnapshot())).not.toContain("PRIVATE");
       } finally {
         await assessor.close();
@@ -377,7 +440,9 @@ describe("original selected collection semantic readiness", () => {
       f.client.close();
     }
   });
-  it("refuses source revision changes across the READ cut", async () => {
+  it("a source change across the READ cut re-checks and settles, never a readiness_changed problem", async () => {
+    // Regression (LAB 2026-10-12): a second device's change during assessment
+    // surfaced readiness_changed and blocked the app with a generic error.
     const f = await fixture(),
       assessor = f.make();
     let changed = false;
@@ -396,7 +461,16 @@ describe("original selected collection semantic readiness", () => {
       await expect(assessor.start()).rejects.toMatchObject({
         reason: "readiness_changed",
       });
-      expect(assessor.getSnapshot().assessment).toBeNull();
+      expect(assessor.getSnapshot()).toMatchObject({
+        checking: true,
+        assessment: null,
+        problem: null,
+      });
+      await vi.waitFor(
+        () => expect(assessor.getSnapshot().assessment).not.toBeNull(),
+        { timeout: 3000 },
+      );
+      expect(assessor.getSnapshot().problem?.reason).not.toBe("changed");
     } finally {
       await assessor.close();
       f.client.close();
@@ -504,8 +578,14 @@ describe("original selected collection semantic readiness", () => {
     try {
       await assessor.start();
       const initial = revisions.length;
+      // P1: a record-only change keeps the assessment; no re-check.
+      f.replica.seed({ path: "changes/record.md", body: "record only" });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(revisions.slice(initial)).not.toContain(null);
+      // A definition change (new catalog) re-checks and requalifies.
       const next = `sha256:${"44".repeat(32)}`;
       f.setRows(f.rows().map((row) => ({ ...row, revision: next })));
+      f.setCatalog({ ...f.catalog(), specVersion: `${f.catalog().specVersion}-changed` });
       f.replica.seed({
         path: "changes/event.md",
         body: "new native change notification stand-in",

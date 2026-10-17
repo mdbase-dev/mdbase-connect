@@ -5,8 +5,17 @@
 //! engine meant to write (or its delete) is kept in `<legacy>/<id>/bytes/<hex>`.
 //! `import.json` stays as evidence; resolved paths are listed in
 //! `<legacy>/<id>/resolved.json`, and the record's hold count is what is left.
+//!
+//! A resolution that writes is recorded in `<legacy>/<id>/resolving.json` before it
+//! is submitted, with its mutation ID: a hold is marked resolved only once that
+//! mutation is confirmed. Pending or unknown outcomes leave the hold open, and a
+//! retry reuses the same mutation ID, so the replica answers with the original
+//! receipt instead of applying it twice.
+//!
+//! `collection` must be a canonical collection ID (lower-case, hyphenated UUID);
+//! anything else is refused before a path is built from it.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -43,12 +52,38 @@ struct Resolved {
     paths: BTreeSet<String>,
 }
 
-fn resolved_path(legacy: &Path, collection: &str) -> PathBuf {
-    Adapter::collection_dir(legacy, collection).join("resolved.json")
+/// Whether `s` is a canonical collection ID: the exact lower-case, hyphenated
+/// UUID spelling, not nil. Checked on bytes, before any path is built from it.
+pub fn is_collection_id(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 36
+        && b.iter().enumerate().all(|(at, &c)| {
+            if matches!(at, 8 | 13 | 18 | 23) {
+                c == b'-'
+            } else {
+                c.is_ascii_digit() || (b'a'..=b'f').contains(&c)
+            }
+        })
+        && b.iter().any(|&c| c != b'0' && c != b'-')
+}
+
+/// The takeover directory of `collection`, refusing a non-canonical ID.
+fn dir_of(legacy: &Path, collection: &str) -> io::Result<PathBuf> {
+    if !is_collection_id(collection) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "not a canonical collection ID",
+        ));
+    }
+    Ok(Adapter::collection_dir(legacy, collection))
+}
+
+fn resolved_path(legacy: &Path, collection: &str) -> io::Result<PathBuf> {
+    Ok(dir_of(legacy, collection)?.join("resolved.json"))
 }
 
 fn load_resolved(legacy: &Path, collection: &str) -> io::Result<Resolved> {
-    match fsutil::read_optional(&resolved_path(legacy, collection))? {
+    match fsutil::read_optional(&resolved_path(legacy, collection)?)? {
         None => Ok(Resolved::default()),
         Some(b) => serde_json::from_slice(&b)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "malformed resolved holds")),
@@ -63,11 +98,11 @@ pub fn hold_id(path: &str) -> String {
 
 /// The open takeover holds of `collection`, in evidence order.
 pub fn open(legacy: &Path, collection: &str) -> io::Result<Vec<Held>> {
+    let dir = dir_of(legacy, collection)?;
     let Some(ev) = Evidence::load(legacy, collection)? else {
         return Ok(Vec::new());
     };
     let resolved = load_resolved(legacy, collection)?;
-    let dir = Adapter::collection_dir(legacy, collection);
     let since = std::fs::metadata(dir.join("import.json"))
         .and_then(|m| m.modified())
         .ok()
@@ -119,7 +154,15 @@ pub fn resolve(
     resolved.schema_version = 1;
     resolved.paths.extend(paths.iter().cloned());
     let bytes = serde_json::to_vec_pretty(&resolved).map_err(io::Error::other)?;
-    fsutil::write_atomic(&resolved_path(legacy, collection), &bytes)?;
+    fsutil::write_atomic(&resolved_path(legacy, collection)?, &bytes)?;
+    // A resolved hold has no resolution left in flight.
+    let mut resolving = load_resolving(legacy, collection)?;
+    if paths.iter().any(|p| resolving.holds.contains_key(p)) {
+        for p in paths {
+            resolving.holds.remove(p);
+        }
+        save_resolving(legacy, collection, &resolving)?;
+    }
     let left = open(legacy, collection)?.len() as u64;
     if let Some(mut record) = Record::load(record_path)?
         && let Some(c) = record.collections.get_mut(collection)
@@ -132,6 +175,131 @@ pub fn resolve(
         record.save(record_path)?;
     }
     Ok(left)
+}
+
+/// A resolution in flight: its action and the identity it was submitted with.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Resolution {
+    /// The requested action (`take_theirs`, `keep_both`).
+    pub how: String,
+    /// The mutation ID every submission of this resolution uses.
+    pub mutation: [u8; 16],
+    /// The record ID a created record uses (keep both, or take the other for a
+    /// file the replica does not have).
+    pub record: [u8; 16],
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct Resolving {
+    schema_version: u32,
+    holds: BTreeMap<String, Resolution>,
+}
+
+fn resolving_path(legacy: &Path, collection: &str) -> io::Result<PathBuf> {
+    Ok(dir_of(legacy, collection)?.join("resolving.json"))
+}
+
+fn load_resolving(legacy: &Path, collection: &str) -> io::Result<Resolving> {
+    match fsutil::read_optional(&resolving_path(legacy, collection)?)? {
+        None => Ok(Resolving::default()),
+        Some(b) => serde_json::from_slice(&b).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "malformed resolutions in flight",
+            )
+        }),
+    }
+}
+
+fn save_resolving(legacy: &Path, collection: &str, r: &Resolving) -> io::Result<()> {
+    let r = Resolving {
+        schema_version: 1,
+        holds: r.holds.clone(),
+    };
+    let bytes = serde_json::to_vec_pretty(&r).map_err(io::Error::other)?;
+    fsutil::write_atomic(&resolving_path(legacy, collection)?, &bytes)
+}
+
+/// The resolution of `path` in flight, if any.
+pub fn resolving(legacy: &Path, collection: &str, path: &str) -> io::Result<Option<Resolution>> {
+    Ok(load_resolving(legacy, collection)?.holds.remove(path))
+}
+
+/// Start (or continue) resolving `path` with `how`, durably before anything is
+/// submitted. A resolution already in flight keeps its identity; asking for a
+/// different action while one is in flight is refused (`Ok(Err(existing))`).
+pub fn begin(
+    legacy: &Path,
+    collection: &str,
+    path: &str,
+    how: &str,
+    fresh: impl FnOnce() -> ([u8; 16], [u8; 16]),
+) -> io::Result<Result<Resolution, Resolution>> {
+    let mut all = load_resolving(legacy, collection)?;
+    if let Some(r) = all.holds.get(path) {
+        return Ok(if r.how == how {
+            Ok(r.clone())
+        } else {
+            Err(r.clone())
+        });
+    }
+    let (mutation, record) = fresh();
+    let r = Resolution {
+        how: how.into(),
+        mutation,
+        record,
+    };
+    all.holds.insert(path.into(), r.clone());
+    save_resolving(legacy, collection, &all)?;
+    Ok(Ok(r))
+}
+
+/// How a submitted resolution ended, as its receipt says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    /// Applied and confirmed: the only outcome that resolves a hold.
+    Confirmed,
+    /// Accepted locally, not yet confirmed.
+    Pending,
+    /// The replica cannot yet say whether it applied.
+    Unknown,
+    /// Refused: nothing was applied.
+    Rejected,
+}
+
+/// Settle a resolution of `path` by its outcome. Only `Confirmed` resolves the
+/// hold. `Pending` and `Unknown` leave it open with its identity, to be retried
+/// or read back. `Rejected` is final: the hold stays open and the identity is
+/// dropped, so the user can choose again. Returns whether the hold resolved.
+pub fn settle(
+    record_path: &Path,
+    legacy: &Path,
+    collection: &str,
+    path: &str,
+    outcome: Outcome,
+) -> io::Result<bool> {
+    match outcome {
+        Outcome::Confirmed => {
+            resolve(record_path, legacy, collection, &[path.to_string()])?;
+            Ok(true)
+        }
+        Outcome::Pending | Outcome::Unknown => Ok(false),
+        Outcome::Rejected => {
+            let mut all = load_resolving(legacy, collection)?;
+            if all.holds.remove(path).is_some() {
+                save_resolving(legacy, collection, &all)?;
+            }
+            Ok(false)
+        }
+    }
+}
+
+/// The resolutions in flight for `collection`, by path.
+pub fn in_flight(legacy: &Path, collection: &str) -> io::Result<Vec<(String, Resolution)>> {
+    Ok(load_resolving(legacy, collection)?
+        .holds
+        .into_iter()
+        .collect())
 }
 
 /// Where "keep both" may put the old engine's version, in order:

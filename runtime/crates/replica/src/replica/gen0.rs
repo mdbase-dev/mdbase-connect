@@ -2,9 +2,10 @@
 //!
 //! A hosted import (migration H4) holds the collection only as a metadata spill and
 //! a legacy source, never as a store. [`Gen0Writer`] seals a generation-0 snapshot
-//! (`seq = 0`, `chain = 0`, `control_chain = ctl(0) = 0`) **one bucket at a time**:
-//! the caller hands it every resource once, then each bucket's records and files in
-//! bucket order, and uploads the sealed chunk objects each call returns. Only the
+//! (`seq = 0`, `chain = 0`, `control_chain = ctl(0) = 0`) **one window at a time**:
+//! the caller hands it resources once, then records/files in bucket and ID order,
+//! and uploads each window's sealed chunks. Complete-resource/bucket calls are
+//! convenience wrappers over the same incremental writer. Only the
 //! chunk references and the attachment/blob refs are kept until
 //! [`Gen0Writer::finish`]. Rows are encoded exactly as an ordinary snapshot build
 //! encodes them (same sections, same row types, same per-bucket chunks), so the
@@ -54,11 +55,11 @@ pub enum Gen0Error {
     Seal,
     /// The refs cannot be indexed within the snapshot limits.
     TooManyRefs,
-    /// One call's rows exceed the writer's per-call bound (choose more bucket bits).
+    /// One window's rows exceed the writer's per-call bound.
     TooLarge,
 }
 
-/// The most rows one call takes (one bucket, or all resources).
+/// The most rows one call/window takes.
 pub const MAX_CALL_ROWS: usize = 10_000;
 /// The most decoded row text one call takes: sixteen times the target chunk, so a
 /// bucket chosen by [`bucket_bits`] never reaches it, and a skewed one is refused
@@ -154,6 +155,8 @@ pub struct Gen0Writer {
     refs: Vec<B32>,
     records: u64,
     files: u64,
+    last_record: Option<Uuid>,
+    last_file: Option<Uuid>,
 }
 
 impl std::fmt::Debug for Gen0Writer {
@@ -182,6 +185,8 @@ impl Gen0Writer {
             refs: Vec::new(),
             records: 0,
             files: 0,
+            last_record: None,
+            last_file: None,
         }
     }
 
@@ -205,10 +210,29 @@ impl Gen0Writer {
         &mut self,
         sealer: &mut dyn Sealer,
         entropy: &mut dyn CsprngEntropy,
-        mut rows: Vec<(String, String)>,
+        rows: Vec<(String, String)>,
     ) -> Result<Vec<Gen0Object>, Gen0Error> {
-        if self.next_bucket.is_some() || !self.sections.is_empty() {
-            return Err(Gen0Error::Order("resources come first, once"));
+        self.resources_window(sealer, entropy, rows, true)
+    }
+
+    /// Next resource window. `done` closes resources before bucket zero.
+    /// The caller supplies each resource exactly once across windows.
+    pub fn resources_window(
+        &mut self,
+        sealer: &mut dyn Sealer,
+        entropy: &mut dyn CsprngEntropy,
+        mut rows: Vec<(String, String)>,
+        done: bool,
+    ) -> Result<Vec<Gen0Object>, Gen0Error> {
+        if self.next_bucket.is_some() {
+            return Err(Gen0Error::Order("resources come first"));
+        }
+        if self.sections.is_empty() {
+            self.sections
+                .push((SectionKind::Legacy(L::Resources), Vec::new()));
+            for kind in self.bucketed() {
+                self.sections.push((kind, Vec::new()));
+            }
         }
         check_call(
             rows.len(),
@@ -236,12 +260,10 @@ impl Gen0Writer {
             split(rows),
             &mut out,
         )?;
-        self.sections
-            .push((SectionKind::Legacy(L::Resources), refs));
-        for kind in self.bucketed() {
-            self.sections.push((kind, Vec::new()));
+        self.sections[0].1.extend(refs);
+        if done {
+            self.next_bucket = Some(0);
         }
-        self.next_bucket = Some(0);
         Ok(out)
     }
 
@@ -253,11 +275,29 @@ impl Gen0Writer {
         sealer: &mut dyn Sealer,
         entropy: &mut dyn CsprngEntropy,
         b: u64,
+        records: Vec<Gen0Record>,
+        files: Vec<Gen0File>,
+        object_refs: &[B32],
+    ) -> Result<Vec<Gen0Object>, Gen0Error> {
+        self.bucket_window(sealer, entropy, b, records, files, object_refs, true)
+    }
+
+    /// Next window in the current bucket; only `done` advances the bucket.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "sealing context plus one bounded window"
+    )]
+    pub fn bucket_window(
+        &mut self,
+        sealer: &mut dyn Sealer,
+        entropy: &mut dyn CsprngEntropy,
+        b: u64,
         mut records: Vec<Gen0Record>,
         mut files: Vec<Gen0File>,
         object_refs: &[B32],
+        done: bool,
     ) -> Result<Vec<Gen0Object>, Gen0Error> {
-        if self.next_bucket != Some(b) {
+        if self.next_bucket != Some(b) || b >= self.buckets() {
             return Err(Gen0Error::Order("buckets in order, after resources"));
         }
         // Bound the refs before any state changes or copy: this call's, and every
@@ -277,6 +317,17 @@ impl Gen0Writer {
         )?;
         records.sort_by(|a, c| a.id.cmp(&c.id));
         files.sort_by(|a, c| a.id.cmp(&c.id));
+        if records
+            .first()
+            .is_some_and(|r| self.last_record.is_some_and(|id| r.id <= id))
+            || files
+                .first()
+                .is_some_and(|f| self.last_file.is_some_and(|id| f.id <= id))
+        {
+            return Err(Gen0Error::Duplicate);
+        }
+        let last_record = records.last().map(|r| r.id).or(self.last_record);
+        let last_file = files.last().map(|f| f.id).or(self.last_file);
         let mut ids: Vec<Uuid> = records
             .iter()
             .map(|r| r.id)
@@ -373,13 +424,28 @@ impl Gen0Writer {
                 SectionKind::UnindexedMarkdownFiles => std::mem::take(&mut nrows),
                 _ => Vec::new(),
             };
+            // A continuation must not root another empty chunk for sections
+            // populated elsewhere in this bucket. Truly empty sections keep
+            // the ordinary builder's one empty chunk when the bucket closes.
+            if rows.is_empty()
+                && (!done
+                    || self
+                        .sections
+                        .iter()
+                        .find(|(k, _)| *k == kind)
+                        .is_some_and(|(_, chunks)| chunks.last().is_some_and(|c| c.bucket == b)))
+            {
+                continue;
+            }
             let refs = self.seal_chunks(sealer, entropy, kind, vec![(b, rows)], &mut out)?;
             if let Some((_, chunks)) = self.sections.iter_mut().find(|(k, _)| *k == kind) {
                 chunks.extend(refs);
             }
         }
         self.refs.extend_from_slice(object_refs);
-        self.next_bucket = Some(b + 1);
+        self.next_bucket = Some(if done { b + 1 } else { b });
+        self.last_record = if done { None } else { last_record };
+        self.last_file = if done { None } else { last_file };
         Ok(out)
     }
 
@@ -651,6 +717,25 @@ impl StateDigestStream {
         Ok(())
     }
 
+    /// [`Self::resource`] from the resource text's SHA-256, for a caller that
+    /// verified the text against it when it was sealed and no longer holds it.
+    pub fn resource_revision(&mut self, path: &str, revision: Hash) -> Result<(), Gen0Error> {
+        self.at(Stage::Resources)?;
+        if self
+            .last_path
+            .as_deref()
+            .is_some_and(|l| l.as_bytes() >= path.as_bytes())
+        {
+            return Err(Gen0Error::Duplicate);
+        }
+        self.last_path = Some(path.to_owned());
+        self.element(&Cbor::Array(vec![
+            Cbor::Text(path.to_owned()),
+            revision.to_cbor(),
+        ]));
+        Ok(())
+    }
+
     /// The next record, ascending by ID.
     pub fn record(&mut self, id: Uuid, path: &str, revision: Hash) -> Result<(), Gen0Error> {
         self.at(Stage::Records)?;
@@ -665,12 +750,22 @@ impl StateDigestStream {
 
     /// The next file of any kind, ascending by ID.
     pub fn file(&mut self, id: Uuid, path: &str, content: &FileContent) -> Result<(), Gen0Error> {
+        self.file_revision(id, path, content.plain_hash())
+    }
+
+    /// [`Self::file`] from the whole plaintext's SHA-256 (`FileContent::plain_hash`).
+    pub fn file_revision(
+        &mut self,
+        id: Uuid,
+        path: &str,
+        plain_hash: Hash,
+    ) -> Result<(), Gen0Error> {
         self.at(Stage::Files)?;
         self.ascending(id)?;
         self.element(&Cbor::Array(vec![
             id.to_cbor(),
             Cbor::Text(path.to_owned()),
-            content.plain_hash().to_cbor(),
+            plain_hash.to_cbor(),
         ]));
         Ok(())
     }
@@ -805,9 +900,37 @@ pub(super) struct HostedGen0State {
     identity: std::sync::Arc<()>,
     admission: super::VerifiedHostedAdmission,
     writer: Gen0Writer,
+    file: Option<HostedFileStream>,
 }
 
+struct HostedFileStream {
+    id: Uuid,
+    path: String,
+    total: u64,
+    offset: u64,
+    writer: crate::attachments::AttachmentWriter,
+}
+
+/// Sealed objects from one sequential file chunk. A file/its complete ref union
+/// exists only on the final chunk; callers must check its whole source hash.
+pub struct Gen0FileProgress {
+    /// Completed row, if the exact declared size was reached.
+    pub file: Option<Gen0File>,
+    /// Objects to upload before the next chunk.
+    pub objects: Vec<Gen0Object>,
+    /// Complete chunk/manifest union on completion, otherwise empty.
+    pub refs: Vec<B32>,
+}
+
+/// One AttachmentV1 plaintext chunk, never a whole large file.
+pub const HOSTED_FILE_CHUNK_BYTES: usize = crate::crypto::chunked_blob::CHUNK_BYTES as usize;
+/// Existing AttachmentV1 default file policy, bounding stream metadata to 128 chunks.
+pub const HOSTED_FILE_TOTAL_BYTES: u64 = 1 << 30;
+
 const HOSTED_ROWS: usize = 128;
+/// Whole-file convenience limit for the run-one caller; larger files use
+/// [`Replica::hosted_gen0_file_chunk`] in sequential AttachmentV1 chunks.
+pub const HOSTED_FILE_BYTES: usize = 1 << 20;
 const HOSTED_INPUT_BYTES: usize = 64 << 10;
 const HOSTED_REFS: usize = 1024;
 const HOSTED_OUTPUT_BYTES: usize = 1 << 20;
@@ -815,6 +938,25 @@ const HOSTED_OUTPUT_OBJECTS: usize = 2 * HOSTED_ROWS + 5;
 const HOSTED_RETAINED_BYTES: usize = 512 << 10;
 /// One budget, shared by retained writer state and its returned objects.
 const HOSTED_SHARED_BYTES: usize = 1 << 20;
+
+/// Large text remains an ordinary snapshot record, in an isolated window.
+/// No collection-wide or ordinary-window budget is enlarged.
+#[derive(Clone, Copy)]
+struct WindowBudget {
+    input: usize,
+    output: usize,
+    shared: usize,
+}
+const NORMAL_WINDOW: WindowBudget = WindowBudget {
+    input: HOSTED_INPUT_BYTES,
+    output: HOSTED_OUTPUT_BYTES,
+    shared: HOSTED_SHARED_BYTES,
+};
+const LARGE_RECORD_WINDOW: WindowBudget = WindowBudget {
+    input: (1 << 20) + (8 << 10),
+    output: 5 << 20,
+    shared: 6 << 20,
+};
 
 fn vec_charge<T>(v: &Vec<T>) -> Result<usize, HostedGen0Error> {
     v.capacity()
@@ -838,11 +980,8 @@ fn retained_budget(writer: &Gen0Writer) -> Result<usize, HostedGen0Error> {
     Ok(bytes)
 }
 
-fn shared_budget(retained: usize, output: usize) -> Result<(), HostedGen0Error> {
-    if retained
-        .checked_add(output)
-        .is_none_or(|n| n > HOSTED_SHARED_BYTES)
-    {
+fn shared_budget(retained: usize, output: usize, limit: usize) -> Result<(), HostedGen0Error> {
+    if retained.checked_add(output).is_none_or(|n| n > limit) {
         return Err(HostedGen0Error::Budget);
     }
     Ok(())
@@ -853,6 +992,7 @@ fn output_preflight(
     added: usize,
     objects: usize,
     refs: usize,
+    budget: WindowBudget,
 ) -> Result<(), HostedGen0Error> {
     let projected = writer
         .retained_refs()
@@ -879,25 +1019,32 @@ fn output_preflight(
     let estimate = objects
         .checked_mul(2048)
         .and_then(|n| n.checked_add(refs.checked_mul(512)?))
-        .and_then(|n| n.checked_add(4 * HOSTED_INPUT_BYTES))
+        .and_then(|n| n.checked_add(4 * budget.input))
         .ok_or(HostedGen0Error::Budget)?;
-    if objects > HOSTED_OUTPUT_OBJECTS || refs > HOSTED_REFS || estimate > HOSTED_OUTPUT_BYTES {
+    if objects > HOSTED_OUTPUT_OBJECTS || refs > HOSTED_REFS || estimate > budget.output {
         return Err(HostedGen0Error::Budget);
     }
-    shared_budget(retained, estimate)
+    shared_budget(retained, estimate, budget.shared)
 }
 
-fn owned_bytes(parts: impl IntoIterator<Item = usize>) -> Result<(), HostedGen0Error> {
+fn owned_bytes(
+    parts: impl IntoIterator<Item = usize>,
+    limit: usize,
+) -> Result<(), HostedGen0Error> {
     let bytes = parts
         .into_iter()
         .try_fold(0usize, |n, part| n.checked_add(part));
-    if bytes.is_none_or(|n| n > HOSTED_INPUT_BYTES) {
+    if bytes.is_none_or(|n| n > limit) {
         return Err(HostedGen0Error::Budget);
     }
     Ok(())
 }
 
-fn output_budget(objects: &Vec<Gen0Object>, limit: usize) -> Result<usize, HostedGen0Error> {
+fn output_budget(
+    objects: &Vec<Gen0Object>,
+    limit: usize,
+    byte_limit: usize,
+) -> Result<usize, HostedGen0Error> {
     if objects.len() > limit {
         return Err(HostedGen0Error::Budget);
     }
@@ -907,7 +1054,7 @@ fn output_budget(objects: &Vec<Gen0Object>, limit: usize) -> Result<usize, Hoste
             n.checked_add(o.bytes.capacity())
         })
         .ok_or(HostedGen0Error::Budget)?;
-    if bytes > HOSTED_OUTPUT_BYTES {
+    if bytes > byte_limit {
         return Err(HostedGen0Error::Budget);
     }
     Ok(bytes)
@@ -930,8 +1077,12 @@ impl<S: crate::store::Store> super::Replica<S> {
         if !std::sync::Arc::ptr_eq(&state.identity, &handle.0) {
             return Err(HostedGen0Error::Handle);
         }
-        let current = state.admission == *expected && self.gen0_current(expected);
-        let state = self.hosted_gen0.take().ok_or(HostedGen0Error::Handle)?;
+        // The log may move on mid-window (another writer's control item, a
+        // reconnect): the slot follows a successor observation while no content
+        // has landed, since its output binds no head.
+        let current = expected.succeeds(&state.admission) && self.gen0_current(expected);
+        let mut state = self.hosted_gen0.take().ok_or(HostedGen0Error::Handle)?;
+        state.admission = *expected;
         // Matching-current failures poison/drop; stale identities were rejected
         // before taking the slot, so they cannot destroy its successor.
         if !current {
@@ -966,6 +1117,7 @@ impl<S: crate::store::Store> super::Replica<S> {
             identity,
             admission: *expected,
             writer: Gen0Writer::new(self.cfg.collection, bits, with_attachments, with_unindexed),
+            file: None,
         });
         Ok(handle)
     }
@@ -987,13 +1139,23 @@ impl<S: crate::store::Store> super::Replica<S> {
         handle: &HostedGen0Handle,
         rows: Vec<(String, String)>,
     ) -> Result<Vec<Gen0Object>, HostedGen0Error> {
+        self.hosted_gen0_resources_window(expected, handle, rows, true)
+    }
+
+    /// Seal one bounded resource window; `done` closes the resource section.
+    pub fn hosted_gen0_resources_window(
+        &mut self,
+        expected: &super::VerifiedHostedAdmission,
+        handle: &HostedGen0Handle,
+        rows: Vec<(String, String)>,
+        done: bool,
+    ) -> Result<Vec<Gen0Object>, HostedGen0Error> {
         let mut state = self.gen0_take(expected, handle)?;
-        if rows.len() > HOSTED_ROWS
-            || state.writer.retained_refs() + rows.len().max(1) + 5 > HOSTED_REFS
-        {
+        if rows.len() > HOSTED_ROWS || state.writer.retained_refs() + 1 + 5 > HOSTED_REFS {
             return Err(HostedGen0Error::Budget);
         }
-        output_preflight(&state.writer, rows.len().max(1), rows.len().max(1), 0)?;
+        // The admitted text is <=64 KiB, well below a single snapshot chunk.
+        output_preflight(&state.writer, 1, 1, 0, NORMAL_WINDOW)?;
         owned_bytes(
             std::iter::once(
                 rows.capacity()
@@ -1004,14 +1166,16 @@ impl<S: crate::store::Store> super::Replica<S> {
                 rows.iter()
                     .flat_map(|(path, doc)| [path.capacity(), doc.capacity()]),
             ),
+            NORMAL_WINDOW.input,
         )?;
         let output = state
             .writer
-            .resources(self.sealer.as_mut(), self.host.entropy.as_mut(), rows)
+            .resources_window(self.sealer.as_mut(), self.host.entropy.as_mut(), rows, done)
             .map_err(HostedGen0Error::Writer)?;
         shared_budget(
             retained_budget(&state.writer)?,
-            output_budget(&output, HOSTED_ROWS)?,
+            output_budget(&output, HOSTED_ROWS, NORMAL_WINDOW.output)?,
+            NORMAL_WINDOW.shared,
         )?;
         if state.writer.retained_refs() + 5 > HOSTED_REFS {
             return Err(HostedGen0Error::Budget);
@@ -1020,8 +1184,8 @@ impl<S: crate::store::Store> super::Replica<S> {
         Ok(output)
     }
 
-    /// Seal one complete bucket. Descriptor/profile/HasObjects/journal authority
-    /// remains the native migration bridge's separate obligation.
+    /// Complete-bucket convenience wrapper. Descriptor/profile/HasObjects/journal
+    /// authority remains the native migration bridge's separate obligation.
     pub fn hosted_gen0_bucket(
         &mut self,
         expected: &super::VerifiedHostedAdmission,
@@ -1031,22 +1195,58 @@ impl<S: crate::store::Store> super::Replica<S> {
         files: Vec<Gen0File>,
         object_refs: &[B32],
     ) -> Result<Vec<Gen0Object>, HostedGen0Error> {
+        self.hosted_gen0_bucket_window(expected, handle, bucket, records, files, object_refs, true)
+    }
+
+    /// Seal one bounded bucket window. Only the final window advances the bucket.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "current custody plus one bounded window"
+    )]
+    pub fn hosted_gen0_bucket_window(
+        &mut self,
+        expected: &super::VerifiedHostedAdmission,
+        handle: &HostedGen0Handle,
+        bucket: u64,
+        records: Vec<Gen0Record>,
+        files: Vec<Gen0File>,
+        object_refs: &[B32],
+        done: bool,
+    ) -> Result<Vec<Gen0Object>, HostedGen0Error> {
         let mut state = self.gen0_take(expected, handle)?;
+        if state.file.is_some() {
+            return Err(HostedGen0Error::Writer(Gen0Error::Order(
+                "file stream incomplete",
+            )));
+        }
         let rows = records
             .len()
             .checked_add(files.len())
             .ok_or(HostedGen0Error::Budget)?;
         if rows > HOSTED_ROWS
             || object_refs.len() > HOSTED_REFS
-            || state.writer.retained_refs() + object_refs.len() + 2 * rows + 10 > HOSTED_REFS
+            || state.writer.retained_refs() + object_refs.len() + state.writer.bucketed().len() + 5
+                > HOSTED_REFS
         {
             return Err(HostedGen0Error::Budget);
         }
+        let sections = state.writer.bucketed().len();
+        let budget = if records.len() == 1
+            && files.is_empty()
+            && object_refs.is_empty()
+            && records[0].doc.len() > HOSTED_INPUT_BYTES - (8 << 10)
+            && records[0].doc.len() <= 1 << 20
+        {
+            LARGE_RECORD_WINDOW
+        } else {
+            NORMAL_WINDOW
+        };
         output_preflight(
             &state.writer,
-            object_refs.len() + 2 * rows + 5,
-            2 * rows + 5,
+            object_refs.len() + sections,
+            sections,
             0,
+            budget,
         )?;
         owned_bytes(
             [
@@ -1067,27 +1267,186 @@ impl<S: crate::store::Store> super::Replica<S> {
                     .flat_map(|r| [r.path.capacity(), r.doc.capacity()]),
             )
             .chain(files.iter().map(|f| f.path.capacity())),
+            budget.input,
         )?;
         let output = state
             .writer
-            .bucket(
+            .bucket_window(
                 self.sealer.as_mut(),
                 self.host.entropy.as_mut(),
                 bucket,
                 records,
                 files,
                 object_refs,
+                done,
             )
             .map_err(HostedGen0Error::Writer)?;
         shared_budget(
             retained_budget(&state.writer)?,
-            output_budget(&output, HOSTED_OUTPUT_OBJECTS)?,
+            output_budget(&output, HOSTED_OUTPUT_OBJECTS, budget.output)?,
+            budget.shared,
         )?;
         if state.writer.retained_refs() + 5 > HOSTED_REFS {
             return Err(HostedGen0Error::Budget);
         }
         self.hosted_gen0 = Some(state);
         Ok(output)
+    }
+
+    /// Seal ONE whole current file of the bucket being written as an
+    /// `AttachmentV1` file under this SAME private custody, for a following
+    /// [`Self::hosted_gen0_bucket`] call with the returned objects' addresses as
+    /// its `object_refs`. The caller verified `bytes` against the source's hash
+    /// and size first. Current state only: an old file version is never a
+    /// `Gen0File` (it belongs to the pre-history archive). Order/shape refusals
+    /// leave the slot intact; a sealing failure consumes it.
+    pub fn hosted_gen0_file(
+        &mut self,
+        expected: &super::VerifiedHostedAdmission,
+        handle: &HostedGen0Handle,
+        id: Uuid,
+        path: String,
+        bytes: &[u8],
+    ) -> Result<(Gen0File, Vec<Gen0Object>), HostedGen0Error> {
+        if bytes.len() > HOSTED_FILE_BYTES {
+            return Err(HostedGen0Error::Budget);
+        }
+        let progress =
+            self.hosted_gen0_file_chunk(expected, handle, id, path, bytes.len() as u64, 0, bytes)?;
+        let file = progress
+            .file
+            .ok_or(HostedGen0Error::Writer(Gen0Error::Order(
+                "whole file incomplete",
+            )))?;
+        Ok((file, progress.objects))
+    }
+
+    /// Seal the next exact AttachmentV1 chunk in this same private custody.
+    /// One stream at a time; input is <=8 MiB, total <=1 GiB, retained stream
+    /// metadata <=64 KiB, returned objects <=9 MiB. No whole-file allocation.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "custody and exact source placement/chunk binding"
+    )]
+    pub fn hosted_gen0_file_chunk(
+        &mut self,
+        expected: &super::VerifiedHostedAdmission,
+        handle: &HostedGen0Handle,
+        id: Uuid,
+        path: String,
+        total: u64,
+        offset: u64,
+        bytes: &[u8],
+    ) -> Result<Gen0FileProgress, HostedGen0Error> {
+        let state = self.hosted_gen0.as_ref().ok_or(HostedGen0Error::Handle)?;
+        if !std::sync::Arc::ptr_eq(&state.identity, &handle.0) {
+            return Err(HostedGen0Error::Handle);
+        }
+        if !state.writer.with_attachments
+            || state.writer.next_bucket != Some(state.writer.bucket_of(&id))
+        {
+            return Err(HostedGen0Error::Writer(Gen0Error::Order(
+                "file in current bucket, attachments declared",
+            )));
+        }
+        if total > HOSTED_FILE_TOTAL_BYTES
+            || path.capacity() > 4096
+            || bytes.len() > HOSTED_FILE_CHUNK_BYTES
+            || offset > total
+            || bytes.len() as u64 != (total - offset).min(HOSTED_FILE_CHUNK_BYTES as u64)
+        {
+            return Err(HostedGen0Error::Budget);
+        }
+        match &state.file {
+            Some(f) if f.id == id && f.path == path && f.total == total && f.offset == offset => {}
+            None if offset == 0 => {}
+            _ => {
+                return Err(HostedGen0Error::Writer(Gen0Error::Order(
+                    "sequential chunks of one file",
+                )));
+            }
+        }
+        if retained_budget(&state.writer)? + (64 << 10) > HOSTED_RETAINED_BYTES {
+            return Err(HostedGen0Error::Budget);
+        }
+        let mut state = self.gen0_take(expected, handle)?;
+        let sealer: &dyn Sealer = self.sealer.as_ref();
+        let entropy = self.host.entropy.as_mut();
+        let seal = |_| HostedGen0Error::Writer(Gen0Error::Seal);
+        let mut stream = match state.file.take() {
+            Some(f) => f,
+            None => HostedFileStream {
+                id,
+                path,
+                total,
+                offset: 0,
+                writer: crate::attachments::AttachmentWriter::new(
+                    sealer,
+                    self.cfg.collection,
+                    total,
+                    crate::crypto::chunked_blob::AttachmentLimits {
+                        max_file_bytes: HOSTED_FILE_TOTAL_BYTES,
+                    },
+                    entropy,
+                )
+                .map_err(seal)?,
+            },
+        };
+        let chunk = stream
+            .writer
+            .push_chunk(sealer, bytes, entropy)
+            .map_err(seal)?;
+        stream.offset += bytes.len() as u64;
+        let mut objects = vec![Gen0Object {
+            address: chunk.cipher_hash,
+            kind: ItemKind::BlobPart,
+            bytes: chunk.bytes,
+        }];
+        let mut refs = Vec::new();
+        let file = if stream.offset == total {
+            let written = stream.writer.finish(sealer, entropy).map_err(seal)?;
+            refs = written.refs;
+            objects.push(Gen0Object {
+                address: written.manifest.cipher_hash,
+                kind: ItemKind::BlobPart,
+                bytes: written.manifest.bytes,
+            });
+            let r = written.descriptor;
+            Some(Gen0File {
+                id,
+                content: FileContent::AttachmentV1(mdbn_wire::attachment::AttachmentContentV1 {
+                    reference: mdbn_wire::attachment::AttachmentRefV1 {
+                        collection: r.context.collection,
+                        key_epoch: r.context.key_epoch,
+                        attachment_id: r.context.attachment_id,
+                        manifest_cipher_hash: r.manifest_cipher_hash,
+                    },
+                    whole_plain_hash: written.expected.whole_plain_hash,
+                    total_plain_bytes: written.expected.total_plain_bytes,
+                }),
+                media: super::apply::media_class(&stream.path),
+                path: stream.path,
+                unindexed: false,
+            })
+        } else {
+            state.file = Some(stream);
+            None
+        };
+        let output = vec_charge(&objects)?
+            + objects.iter().map(|o| o.bytes.capacity()).sum::<usize>()
+            + vec_charge(&refs)?
+            + file
+                .as_ref()
+                .map_or(0, |f| std::mem::size_of::<Gen0File>() + f.path.capacity());
+        if output > 9 << 20 || output + retained_budget(&state.writer)? + (64 << 10) > 10 << 20 {
+            return Err(HostedGen0Error::Budget);
+        }
+        self.hosted_gen0 = Some(state);
+        Ok(Gen0FileProgress {
+            file,
+            objects,
+            refs,
+        })
     }
 
     /// Finish and consume the slot. Outputs are sealed objects only, never keys,
@@ -1100,10 +1459,21 @@ impl<S: crate::store::Store> super::Replica<S> {
         settings: FileInclusion,
     ) -> Result<(Vec<Gen0Object>, Gen0Manifest), HostedGen0Error> {
         let state = self.gen0_take(expected, handle)?;
+        if state.file.is_some() {
+            return Err(HostedGen0Error::Writer(Gen0Error::Order(
+                "file stream incomplete",
+            )));
+        }
         if state.writer.retained_refs() + 5 > HOSTED_REFS {
             return Err(HostedGen0Error::Budget);
         }
-        output_preflight(&state.writer, 5, 6, state.writer.retained_refs() + 5)?;
+        output_preflight(
+            &state.writer,
+            5,
+            6,
+            state.writer.retained_refs() + 5,
+            NORMAL_WINDOW,
+        )?;
         let excluded = settings.exclude.as_ref();
         owned_bytes(
             [
@@ -1119,6 +1489,7 @@ impl<S: crate::store::Store> super::Replica<S> {
             ]
             .into_iter()
             .chain(excluded.into_iter().flatten().map(|s| s.capacity())),
+            NORMAL_WINDOW.input,
         )?;
         let (objects, manifest) = state
             .writer
@@ -1133,7 +1504,7 @@ impl<S: crate::store::Store> super::Replica<S> {
         if !manifest.ref_indices.is_empty() {
             return Err(HostedGen0Error::Budget);
         }
-        let bytes = output_budget(&objects, 5)?;
+        let bytes = output_budget(&objects, 5, NORMAL_WINDOW.output)?;
         let total = bytes
             .checked_add(manifest.manifest.bytes.capacity())
             .and_then(|n| {

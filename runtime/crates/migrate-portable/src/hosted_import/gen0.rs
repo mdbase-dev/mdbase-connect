@@ -55,14 +55,11 @@ impl ImportStats {
         Ok(())
     }
 
-    /// Refuse before the first generation-0 import action unless the complete
-    /// generated refs inventory is conservatively within the direct-ref limit.
-    /// This is temporary: hosted fmt2 installation needs separate heap qualification.
-    /// An overestimate is a refusal, not proof that a particular manifest is fmt2.
+    /// Check the file inventory and unavoidable empty-section refs before the
+    /// paged window preflight counts the actual row chunks. Hosted custody never
+    /// emits fmt2: its exact retained-ref guard still applies before sealing.
     pub fn hosted_fmt1_preflight(self) -> Result<u64> {
-        // Every record/file has an index row and one content row. A split emits
-        // at most one chunk per row, plus one empty chunk per section/bucket.
-        // Resources are unbucketed; finish adds five non-bucketed chunks.
+        // File refs are known from sizes; row chunks require the paged selector.
         let files = self
             .attachments
             .checked_add(self.unindexed)
@@ -72,21 +69,18 @@ impl ImportStats {
                 "hosted_ref_index_import_unqualified: incomplete file-object refs bound".into(),
             ));
         }
-        let rows = self.records.checked_add(files).ok_or_else(overflow)?;
         // Writer flags can declare attachment/unindexed sections even with no
         // rows. Until a bridge enforces exact flags, reserve all five sections.
-        let refs = rows
-            .checked_mul(2)
-            .and_then(|n| n.checked_add((1u64 << self.bucket_bits()) * 5))
-            .and_then(|n| n.checked_add(self.resources.max(1)))
+        let refs = ((1u64 << self.bucket_bits()) * 5)
+            .checked_add(1)
             .and_then(|n| n.checked_add(5))
             .and_then(|n| n.checked_add(self.file_object_refs_upper_bound))
             .ok_or_else(overflow)?;
-        // Replica::REF_INDEX_THRESHOLD = 2048, excluding the manifest itself.
-        // Do not raise this without qualified hosted fmt2 composition/install.
-        if refs > 2048 {
+        // Replica hosted custody retains at most 1024 refs, below fmt2's
+        // 2048 threshold. No fmt2 install qualification is bypassed.
+        if refs > 1024 {
             return Err(Error::Invalid(format!(
-                "hosted_ref_index_import_unqualified: conservative generated refs bound {refs} exceeds direct-ref limit 2048"
+                "hosted_ref_index_import_unqualified: unavoidable refs bound {refs} exceeds hosted direct-ref limit 1024"
             )));
         }
         Ok(refs)

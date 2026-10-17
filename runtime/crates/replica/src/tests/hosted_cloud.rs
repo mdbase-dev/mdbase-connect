@@ -817,6 +817,33 @@ fn hosted_gen0_custody_closed_full_proof_drift_poisons_matching_writer() {
 }
 
 #[test]
+fn hosted_gen0_custody_follows_a_successor_observation_after_a_reconnect() {
+    use crate::replica::gen0::HostedGen0Error as E;
+    let (svc, _) = service_world();
+    let mut h = crypto_open(&svc, MemStore::new());
+    h.pump();
+    let before = verified(&h);
+    let handle = h.r.hosted_gen0_begin(&before, 0, false, false).unwrap();
+    // A reconnect between two windows: nothing is called while closed.
+    h.r.on_log_push(crate::log::LogPush::Closed {
+        collection: COL,
+        reason: "transport".into(),
+    });
+    h.pump();
+    let fresh = verified(&h);
+    assert_ne!(before, fresh);
+    h.r.hosted_gen0_resources_window(&fresh, &handle, vec![], false)
+        .unwrap();
+    // The slot now carries the fresh observation; the earlier one is not a
+    // successor of it.
+    assert_eq!(
+        h.r.hosted_gen0_resources_window(&before, &handle, vec![], false)
+            .err(),
+        Some(E::Denied)
+    );
+}
+
+#[test]
 fn hosted_gen0_custody_owned_reserved_capacity_refuses_and_poisons() {
     use crate::replica::gen0::HostedGen0Error as E;
     let (svc, _) = service_world();
@@ -935,4 +962,76 @@ fn hosted_gen0_custody_real_crypto_resources_bucket_finish_consumes_slot() {
     assert!(h.r.take_log_calls().is_empty());
     let next = h.r.hosted_gen0_begin(&proof, 0, false, false).unwrap();
     h.r.hosted_gen0_abort(&proof, &next).unwrap();
+}
+
+#[test]
+fn hosted_gen0_file_seals_one_whole_current_file_in_the_same_slot() {
+    use crate::replica::gen0::{Gen0Error, HOSTED_FILE_BYTES, HostedGen0Error as E};
+    use mdbn_wire::attachment::FileContent;
+    use mdbn_wire::envelope::ItemKind;
+    let (svc, _) = service_world();
+    let mut h = crypto_open(&svc, MemStore::new());
+    h.pump();
+    let proof = verified(&h);
+    let gif = b"GIF89a\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff".to_vec();
+    let id = B16([0x73; 16]);
+    // Without declared attachments, or before the bucket is open: order
+    // refusals that leave the slot intact.
+    let plain = h.r.hosted_gen0_begin(&proof, 0, false, false).unwrap();
+    h.r.hosted_gen0_resources(&proof, &plain, vec![]).unwrap();
+    assert!(matches!(
+        h.r.hosted_gen0_file(&proof, &plain, id, "a.gif".into(), &gif),
+        Err(E::Writer(Gen0Error::Order(_)))
+    ));
+    h.r.hosted_gen0_abort(&proof, &plain).unwrap();
+    let handle = h.r.hosted_gen0_begin(&proof, 0, true, false).unwrap();
+    assert!(matches!(
+        h.r.hosted_gen0_file(&proof, &handle, id, "a.gif".into(), &gif),
+        Err(E::Writer(Gen0Error::Order(_)))
+    ));
+    h.r.hosted_gen0_resources(&proof, &handle, vec![]).unwrap();
+    // Over one MiB refuses before taking the slot.
+    let big = vec![0u8; HOSTED_FILE_BYTES + 1];
+    assert_eq!(
+        h.r.hosted_gen0_file(&proof, &handle, id, "big.bin".into(), &big)
+            .err(),
+        Some(E::Budget)
+    );
+    let (file, objects) =
+        h.r.hosted_gen0_file(&proof, &handle, id, "assets/a.gif".into(), &gif)
+            .unwrap();
+    assert_eq!(objects.len(), 2);
+    assert!(objects.iter().all(|o| o.kind == ItemKind::BlobPart
+        && o.address == mdbn_wire::hash::sha256(&o.bytes)));
+    let FileContent::AttachmentV1(content) = &file.content else {
+        panic!("attachment content")
+    };
+    assert_eq!(content.whole_plain_hash, mdbn_wire::hash::sha256(&gif));
+    assert_eq!(content.total_plain_bytes, gif.len() as u64);
+    assert_eq!(content.reference.collection, COL);
+    assert_eq!(content.reference.manifest_cipher_hash, objects[1].address);
+    assert_eq!(
+        (file.id, file.path.as_str(), file.unindexed),
+        (id, "assets/a.gif", false)
+    );
+    // No plaintext in the sealed objects.
+    assert!(
+        objects
+            .iter()
+            .all(|o| !o.bytes.windows(6).any(|w| w == b"GIF89a"))
+    );
+    let refs: Vec<B32> = objects.iter().map(|o| o.address).collect();
+    h.r.hosted_gen0_bucket(&proof, &handle, 0, vec![], vec![file], &refs)
+        .unwrap();
+    let (_, manifest) =
+        h.r.hosted_gen0_finish(
+            &proof,
+            &handle,
+            B32([0x74; 32]),
+            crate::convert::winclusion(&Default::default()),
+        )
+        .unwrap();
+    assert!(refs.iter().all(|r| manifest.base_refs.contains(r)));
+    assert_eq!(verified(&h), proof);
+    assert!(h.r.take_log_calls().is_empty());
 }

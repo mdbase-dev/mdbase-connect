@@ -233,3 +233,13 @@ test("real sync cannot reschedule after inhibition during alarm storage await", 
     assert.equal(alarm(), null);
   }
 });
+
+test("a cold open that keeps failing backs off its retry alarm instead of retrying every 30 s", async () => {
+  const { o, data, alarm } = object(false);
+  data.set("service-collection", collection); data.set("service-open-failures", 3);
+  o.custody = { async openSealer() { throw new Error("control plane answered 429"); } };
+  const before = Date.now();
+  await assert.rejects(o.ready(collection), /429/);
+  assert.ok(alarm() >= before + 8 * 30_000, "three earlier failures: retry after 4 min, not 30 s");
+  assert.equal(data.get("service-open-failures"), 4);
+});

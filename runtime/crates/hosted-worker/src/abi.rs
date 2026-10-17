@@ -28,7 +28,7 @@ use mdbn_wire::common::{B16, B32, Uuid};
 
 use crate::cpp_claim_ticket::{CppClaimTicketSlot, handle as cpp_handle};
 use crate::do_index::{DoIndex, SqlHost};
-use crate::migration_action_ledger::{JournalDriver, PreparedAction};
+use crate::migration_action_ledger::{JournalDriver, PreparedAction, RunBinding};
 use crate::runtime::{ConfiguredCppAudience, Engine, OpenConfig, Out};
 
 #[link(wasm_import_module = "env")]
@@ -82,6 +82,13 @@ static mut CPP_NEXT: u64 = 0;
 // Irreversible once-instance initialization; ordinary opens cannot enable CPP.
 static mut CPP_OPEN_ATTEMPTED: bool = false;
 static mut MIGRATION_NEXT: u64 = 0;
+// Why the last `hd_migration_pending_begin` returned null (`Idle`, or 9 when no
+// driver/fresh target/free slot was there to poll). DATA for the host loop only.
+static mut MIGRATION_IDLE: u32 = 0;
+/// Why the last generation-0/log-append step returned nothing (0 none): 1 bad
+/// handle, 2 target not fresh, 3 ticket not current, 4 not confirmed, 5 result
+/// pending, 6 no driver/target/ticket, 10+ the ledger refusal. DATA only.
+static mut GEN0_REFUSAL: u32 = 0;
 
 fn give(out: Vec<u8>) -> u64 {
     let mut out = std::mem::ManuallyDrop::new(out);
@@ -426,14 +433,32 @@ pub extern "C" fn hd_cpp_claim_finish(h: f64) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hd_migration_open(h: f64, ptr: *mut u8, len: usize) -> u32 {
     let input = unsafe { take(ptr, len) };
-    if len > 256 {
-        return 0;
-    }
-    let Some(id) = cpp_handle(h) else {
+    migration_open(h, &input, None)
+}
+
+/// Explicit expected-sequence retry, qualified by the same owned CPP slot.
+/// # Safety
+/// `ptr,len` is an owned alloc buffer consumed exactly once.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hd_migration_restart(
+    h: f64,
+    sequence: f64,
+    ptr: *mut u8,
+    len: usize,
+) -> u32 {
+    let input = unsafe { take(ptr, len) };
+    let Some(sequence) = cpp_handle(sequence) else {
         return 0;
     };
-    let Ok(Cbor::Array(fields)) = cbor::decode(&input) else {
-        return 0;
+    migration_open(h, &input, Some(sequence))
+}
+
+fn migration_binding(s: &mut State, id: u64, input: &[u8]) -> Option<RunBinding> {
+    if input.len() > 256 {
+        return None;
+    }
+    let Cbor::Array(fields) = cbor::decode(input).ok()? else {
+        return None;
     };
     let [
         Cbor::Bytes(owner),
@@ -444,32 +469,47 @@ pub unsafe extern "C" fn hd_migration_open(h: f64, ptr: *mut u8, len: usize) -> 
         Cbor::Bytes(noise),
     ] = fields.as_slice()
     else {
-        return 0;
+        return None;
     };
-    let Ok(owner) = <[u8; 16]>::try_from(owner.as_slice()) else {
-        return 0;
-    };
-    let (Ok(root), Ok(sign), Ok(kem), Ok(noise)) = (
-        <[u8; 16]>::try_from(root.as_slice()),
-        <[u8; 32]>::try_from(sign.as_slice()),
-        <[u8; 32]>::try_from(kem.as_slice()),
-        <[u8; 32]>::try_from(noise.as_slice()),
-    ) else {
+    let owner = B16(owner.as_slice().try_into().ok()?);
+    let originals = (
+        B16(root.as_slice().try_into().ok()?),
+        B32(sign.as_slice().try_into().ok()?),
+        B32(kem.as_slice().try_into().ok()?),
+        B32(noise.as_slice().try_into().ok()?),
+    );
+    s.cpp_claim
+        .as_ref()?
+        .migration_binding(&mut s.engine, id, owner, start.clone(), originals)
+        .ok()
+}
+
+fn migration_open(h: f64, input: &[u8], restart: Option<u64>) -> u32 {
+    let Some(id) = cpp_handle(h) else {
         return 0;
     };
     with(|s| {
-        let Some(slot) = s.cpp_claim.as_ref() else {
+        let Some(binding) = migration_binding(s, id, input) else {
             return 0;
         };
-        let Ok(binding) = slot.migration_binding(
-            &mut s.engine,
-            id,
-            B16(owner),
-            start.clone(),
-            (B16(root), B32(sign), B32(kem), B32(noise)),
-        ) else {
-            return 0;
-        };
+        if let Some(sequence) = restart {
+            if s.migration_ticket.is_some() || s.migration_physical.is_some() {
+                return 0;
+            }
+            // CP may have appended cutover independently of the local action
+            // ledger. A rollback-shaped checkpoint cannot override that log.
+            let Ok(target) = s.engine.observe_native_target() else {
+                return 0;
+            };
+            let Some(driver) = s.migration.as_mut() else {
+                return 0;
+            };
+            return u32::from(
+                driver
+                    .restart_on_target(sequence, &binding, &mut HostEntropy, &mut s.engine, &target)
+                    .is_ok(),
+            );
+        }
         if let Some(driver) = s.migration.as_ref() {
             return u32::from(driver.matches_binding(&binding));
         }
@@ -487,11 +527,234 @@ pub unsafe extern "C" fn hd_migration_open(h: f64, ptr: *mut u8, len: usize) -> 
     .unwrap_or(0)
 }
 
-fn migration_current(s: &mut State, id: u64) -> bool {
+/// Expected-run rollback intent from an owned CPP claim and fresh source DATA.
+/// # Safety
+/// Owned CBOR [claim-bytes, source-bytes], at most 21 KiB.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hd_migration_rollback_request(
+    h: f64,
+    sequence: f64,
+    ptr: *mut u8,
+    len: usize,
+) -> u32 {
+    let input = unsafe { take(ptr, len) };
+    if input.len() > 21 * 1024 {
+        return 0;
+    }
+    let (Some(id), Some(sequence)) = (cpp_handle(h), cpp_handle(sequence)) else {
+        return 0;
+    };
+    let Ok(Cbor::Array(parts)) = cbor::decode(&input) else {
+        return 0;
+    };
+    let [Cbor::Bytes(claim), Cbor::Bytes(source)] = parts.as_slice() else {
+        return 0;
+    };
+    with(|s| {
+        if s.migration_ticket.is_some() || s.migration_physical.is_some() {
+            return 0;
+        }
+        let Some(binding) = migration_binding(s, id, claim) else {
+            return 0;
+        };
+        let Ok(target) = s.engine.observe_native_target() else {
+            return 0;
+        };
+        let Some(driver) = s.migration.as_mut() else {
+            return 0;
+        };
+        u32::from(
+            driver
+                .request_rollback(sequence, &binding, source, &mut s.engine, &target)
+                .is_ok(),
+        )
+    })
+    .unwrap_or(0)
+}
+
+/// DATA for exact ORIGINAL rollback request/lookup. Does not authorize IO.
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_migration_rollback_scope(h: f64) -> u64 {
+    let Some(id) = cpp_handle(h) else {
+        return 0;
+    };
+    with(|s| {
+        if !migration_current(s, id) || s.migration_confirmed != Some((id, None)) {
+            return 0;
+        }
+        let (Some(driver), Some((_, ticket))) = (s.migration.as_mut(), s.migration_ticket.as_ref())
+        else {
+            return 0;
+        };
+        driver
+            .rollback_scope(ticket)
+            .and_then(|v| v.to_bytes())
+            .map_or(0, give)
+    })
+    .unwrap_or(0)
+}
+
+/// DATA only for a read-only unknown rollback receipt lookup; no effect ticket.
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_migration_unknown_rollback_scope(sequence: f64) -> u64 {
+    let Some(sequence) = cpp_handle(sequence) else {
+        return 0;
+    };
+    with(|s| {
+        s.migration
+            .as_mut()?
+            .unknown_rollback_scope(sequence)
+            .ok()?
+            .to_bytes()
+            .ok()
+    })
+    .flatten()
+    .map_or(0, give)
+}
+
+fn migration_recovery(
+    s: &mut State,
+    id: u64,
+    sequence: u64,
+    claim: &[u8],
+    receipt: Option<&[u8]>,
+) -> Option<Vec<u8>> {
+    if s.migration_ticket.is_some() || s.migration_physical.is_some() {
+        return None;
+    }
+    let binding = migration_binding(s, id, claim)?;
+    let target = s.engine.observe_native_target().ok()?;
+    let driver = s.migration.as_mut()?;
+    if !driver.matches_binding(&binding) {
+        return None;
+    }
+    // Reserve before settlement: exhaustion must not leave a committed result
+    // without a settlement-only handle for the physical confirmation barrier.
+    let handle = unsafe { MIGRATION_NEXT }
+        .checked_add(1)
+        .filter(|n| *n <= 9_007_199_254_740_991)?;
+    unsafe {
+        MIGRATION_NEXT = handle;
+    }
+    let (ticket, result) = match receipt {
+        None => driver.resolve_base(sequence, &mut s.engine, &target),
+        Some(input) => driver.resolve_rollback(sequence, input, &mut s.engine, &target),
+    }
+    .ok()?;
+    let data = ticket.data();
+    let output = cbor::encode(&Cbor::Array(vec![
+        Cbor::Uint(handle),
+        Cbor::Bytes(driver.collection().0.to_vec()),
+        Cbor::Bytes(driver.driver_id().0.to_vec()),
+        Cbor::Bytes(data.action.0.to_vec()),
+        Cbor::Uint(data.sequence),
+        Cbor::Uint(data.kind),
+        Cbor::Bytes(data.fingerprint.0.to_vec()),
+        Cbor::Bytes(result.0.to_vec()),
+    ]))
+    .ok()?;
+    s.migration_target = Some(target);
+    s.migration_ticket = Some((handle, ticket));
+    s.migration_result = Some(result);
+    s.migration_confirmed = None;
+    Some(output)
+}
+
+/// Positive actual-log resolution only; returned ticket is ALREADY settled.
+/// # Safety
+/// Owned claim CBOR, at most 256 bytes; no caller-provided found result.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hd_migration_resolve_base(
+    h: f64,
+    sequence: f64,
+    ptr: *mut u8,
+    len: usize,
+) -> u64 {
+    let input = unsafe { take(ptr, len) };
+    let (Some(id), Some(sequence)) = (cpp_handle(h), cpp_handle(sequence)) else {
+        return 0;
+    };
+    with(|s| migration_recovery(s, id, sequence, &input, None))
+        .flatten()
+        .map_or(0, give)
+}
+
+/// Read-only exact-original receipt resolution of an evicted rollback action.
+/// # Safety
+/// Owned CBOR [claim-bytes, original-receipt-bytes], at most 41 KiB.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hd_migration_resolve_rollback(
+    h: f64,
+    sequence: f64,
+    ptr: *mut u8,
+    len: usize,
+) -> u64 {
+    let input = unsafe { take(ptr, len) };
+    if input.len() > 41 * 1024 {
+        return 0;
+    }
+    let (Some(id), Some(sequence)) = (cpp_handle(h), cpp_handle(sequence)) else {
+        return 0;
+    };
+    let Ok(Cbor::Array(parts)) = cbor::decode(&input) else {
+        return 0;
+    };
+    let [Cbor::Bytes(claim), Cbor::Bytes(receipt)] = parts.as_slice() else {
+        return 0;
+    };
+    with(|s| migration_recovery(s, id, sequence, claim, Some(receipt)))
+        .flatten()
+        .map_or(0, give)
+}
+
+/// Read-only run history; does not mint a pending/effect ticket.
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_migration_run(sequence: f64) -> u64 {
+    let sequence = if sequence == 0.0 {
+        0
+    } else {
+        let Some(sequence) = cpp_handle(sequence) else {
+            return 0;
+        };
+        sequence
+    };
+    with(|s| {
+        let driver = s.migration.as_mut()?;
+        let data = driver.read_run(sequence).ok()??;
+        let cp = data.checkpoint.to_bytes().ok()?;
+        let value = Cbor::Array(vec![
+            Cbor::Uint(data.sequence),
+            Cbor::Bytes(data.driver.0.to_vec()),
+            Cbor::Bytes(data.binding.collection.0.to_vec()),
+            Cbor::Bytes(data.binding.owner.0.to_vec()),
+            Cbor::Text(data.binding.started_us),
+            Cbor::Bytes(data.binding.target.0.to_vec()),
+            Cbor::Bytes(cp),
+        ]);
+        Some(give(cbor::encode(&value).ok()?))
+    })
+    .flatten()
+    .unwrap_or(0)
+}
+
+/// Re-observe the run's native target on the SAME Engine, keeping it only
+/// while the log moved forward on the same chain with the same identity,
+/// epoch and originals (`Engine::refresh_native_target`).
+fn migration_target_fresh(s: &mut State) -> bool {
     let Some(target) = s.migration_target.as_ref() else {
         return false;
     };
-    if s.engine.recheck_native_target(target).is_err() {
+    match s.engine.refresh_native_target(target) {
+        Ok(fresh) => {
+            s.migration_target = Some(fresh);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+fn migration_current(s: &mut State, id: u64) -> bool {
+    if !migration_target_fresh(s) {
         return false;
     }
     let Some((handle, ticket)) = s.migration_ticket.as_ref() else {
@@ -508,12 +771,13 @@ fn migration_current(s: &mut State, id: u64) -> bool {
 /// Native sequencing DATA only, persisted before any effect dispatch.
 #[unsafe(no_mangle)]
 pub extern "C" fn hd_migration_pending_begin() -> u64 {
+    unsafe {
+        MIGRATION_IDLE = 9;
+    }
     let result = with(|s| {
-        if s.migration_ticket.is_some() {
+        if s.migration_ticket.is_some() || !migration_target_fresh(s) {
             return None;
         }
-        let target = s.migration_target.as_ref()?;
-        s.engine.recheck_native_target(target).ok()?;
         let id = unsafe {
             MIGRATION_NEXT
                 .checked_add(1)
@@ -522,8 +786,21 @@ pub extern "C" fn hd_migration_pending_begin() -> u64 {
         unsafe {
             MIGRATION_NEXT = id;
         }
+        // A rebuild settles only from an Engine opened over an empty cache:
+        // refuse it before saving, so the host resets and reopens first.
+        let fresh = s.engine.migration_opened_empty();
         let driver = s.migration.as_mut()?;
-        let (ticket, _) = driver.prepare(&mut HostEntropy).ok()?;
+        let prepared = driver.prepare_gated(&mut HostEntropy, &|a| {
+            fresh
+                || !matches!(
+                    a,
+                    mdbn_migrate_portable::hosted_import::Action::Rebuild { .. }
+                )
+        });
+        unsafe {
+            MIGRATION_IDLE = driver.idle() as u32;
+        }
+        let (ticket, _) = prepared.ok()?;
         let p = ticket.data();
         let output = Cbor::Array(vec![
             Cbor::Uint(id),
@@ -540,6 +817,36 @@ pub extern "C" fn hd_migration_pending_begin() -> u64 {
     .flatten()
     .unwrap_or(Cbor::Null);
     give(cbor::encode(&result).unwrap_or_default())
+}
+
+/// Why the last pending begin saved nothing: 0 an action was saved, 1 continue,
+/// 2 wait (paused), 3 wait (draining), 4 wait (keying), 5 done, 6 rebuild needs
+/// an empty-cache reopen, 7 an outstanding action (UNKNOWN), 8 refused, 9 no
+/// driver to poll. Loop DATA only, never a retry or effect permit.
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_migration_idle() -> u32 {
+    unsafe { MIGRATION_IDLE }
+}
+
+/// `[kind, ...params]` of the SAME original pending action, exactly as its
+/// fingerprint hashed them (read table/cursor, revoke IDs, route facts). DATA
+/// for the host's request; settlement re-binds it natively.
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_migration_pending_action(h: f64) -> u64 {
+    let Some(id) = cpp_handle(h) else {
+        return 0;
+    };
+    with(|s| {
+        if !migration_current(s, id) {
+            return 0;
+        }
+        let (Some(driver), Some((_, ticket))) = (s.migration.as_mut(), s.migration_ticket.as_ref())
+        else {
+            return 0;
+        };
+        driver.prepared_fields(ticket).map_or(0, give)
+    })
+    .unwrap_or(0)
 }
 
 /// VOID saved pending/actual native target recheck; not a physical ACK.
@@ -590,6 +897,354 @@ pub extern "C" fn hd_migration_keying_wait(h: f64) -> u64 {
     .unwrap_or(0)
 }
 
+/// Positive creation from SAME actual native target/run/pending, never an input
+/// authority boolean. The owned host still owes CPP currentness and actual
+/// storage.sync settlement confirmation before exposing success.
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_migration_target_complete(h: f64) -> u64 {
+    let Some(id) = cpp_handle(h) else {
+        return 0;
+    };
+    with(|s| {
+        if !migration_current(s, id)
+            || s.migration_confirmed != Some((id, None))
+            || s.migration_result.is_some()
+        {
+            return 0;
+        }
+        let (Some(driver), Some(target), Some((_, ticket))) = (
+            s.migration.as_mut(),
+            s.migration_target.as_ref(),
+            s.migration_ticket.as_ref(),
+        ) else {
+            return 0;
+        };
+        match driver.settle_created(ticket, &mut s.engine, target) {
+            Ok(result) => {
+                s.migration_result = Some(result);
+                give(result.0.to_vec())
+            }
+            Err(_) => 0,
+        }
+    })
+    .unwrap_or(0)
+}
+
+/// Settle the SAME original pending from one Connect/provider result body (a
+/// fixed CBOR mirror, see `migration_action_ledger::provider`). Native binds it
+/// to the run and retained action; the host still owes actual storage.sync
+/// settlement confirmation before exposing success.
+/// # Safety
+/// Input is alloc-owned initialized bytes of `len` (at most 20 KiB).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hd_migration_provider_result(h: f64, ptr: *mut u8, len: usize) -> u64 {
+    let input = unsafe { take(ptr, len) };
+    let Some(id) = cpp_handle(h) else {
+        return 0;
+    };
+    with(|s| {
+        if !migration_current(s, id)
+            || s.migration_confirmed != Some((id, None))
+            || s.migration_result.is_some()
+        {
+            return 0;
+        }
+        let (Some(driver), Some((_, ticket))) = (s.migration.as_mut(), s.migration_ticket.as_ref())
+        else {
+            return 0;
+        };
+        match driver.settle_provider(ticket, &input) {
+            Ok(result) => {
+                s.migration_result = Some(result);
+                give(result.0.to_vec())
+            }
+            Err(_) => 0,
+        }
+    })
+    .unwrap_or(0)
+}
+
+/// Full ORIGINAL rollback receipt only, never bare restored/active/Ok.
+/// # Safety
+/// Owned fixed CBOR receipt DATA, at most 40 KiB.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hd_migration_rollback_result(h: f64, ptr: *mut u8, len: usize) -> u64 {
+    let input = unsafe { take(ptr, len) };
+    let Some(id) = cpp_handle(h) else {
+        return 0;
+    };
+    with(|s| {
+        if !migration_current(s, id)
+            || s.migration_confirmed != Some((id, None))
+            || s.migration_result.is_some()
+        {
+            return 0;
+        }
+        let (Some(driver), Some((_, ticket))) = (s.migration.as_mut(), s.migration_ticket.as_ref())
+        else {
+            return 0;
+        };
+        match driver.settle_rollback(ticket, &input) {
+            Ok(result) => {
+                s.migration_result = Some(result);
+                give(result.0.to_vec())
+            }
+            Err(_) => 0,
+        }
+    })
+    .unwrap_or(0)
+}
+
+/// Settle the SAME original pending from one legacy source open or page result
+/// (a fixed CBOR mirror, see `migration_action_ledger::source`). Native binds it
+/// to the run, the settled hold and open, and the retained action; page metadata
+/// commits with the settlement. The host still owes actual storage.sync
+/// settlement confirmation before exposing success.
+/// # Safety
+/// Input is alloc-owned initialized bytes of `len` (at most 48 KiB).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hd_migration_source_result(h: f64, ptr: *mut u8, len: usize) -> u64 {
+    let input = unsafe { take(ptr, len) };
+    let Some(id) = cpp_handle(h) else {
+        return 0;
+    };
+    with(|s| {
+        if !migration_current(s, id)
+            || s.migration_confirmed != Some((id, None))
+            || s.migration_result.is_some()
+        {
+            return 0;
+        }
+        let (Some(driver), Some((_, ticket))) = (s.migration.as_mut(), s.migration_ticket.as_ref())
+        else {
+            return 0;
+        };
+        match driver.settle_source(ticket, &input) {
+            Ok(result) => {
+                s.migration_result = Some(result);
+                give(result.0.to_vec())
+            }
+            Err(_) => 0,
+        }
+    })
+    .unwrap_or(0)
+}
+
+/// Generation-0 sealing under the SAME current original pending: `step` gets
+/// the confirmed ledger, the current native target and the Engine. Sealing
+/// never settles; the output is objects to upload plus addresses to verify
+/// (`migration_action_ledger::gen0`), or 0 on any refusal.
+fn migration_gen0(
+    h: f64,
+    step: impl FnOnce(
+        &mut JournalDriver<SharedMigrationIndex>,
+        &PreparedAction,
+        &mut Live,
+        &crate::runtime::ObservedNativeTarget,
+    ) -> Option<Vec<u8>>,
+) -> u64 {
+    let refuse = |code: u32| {
+        unsafe { GEN0_REFUSAL = code };
+        0
+    };
+    unsafe { GEN0_REFUSAL = 0 };
+    let Some(id) = cpp_handle(h) else {
+        return refuse(1);
+    };
+    with(|s| {
+        if !migration_target_fresh(s) {
+            return refuse(2);
+        }
+        if !migration_current(s, id) {
+            return refuse(3);
+        }
+        if s.migration_confirmed != Some((id, None)) {
+            return refuse(4);
+        }
+        if s.migration_result.is_some() {
+            return refuse(5);
+        }
+        let (Some(driver), Some(target), Some((_, ticket))) = (
+            s.migration.as_mut(),
+            s.migration_target.as_ref(),
+            s.migration_ticket.as_ref(),
+        ) else {
+            return refuse(6);
+        };
+        step(driver, ticket, &mut s.engine, target).map_or(0, give)
+    })
+    .unwrap_or(0)
+}
+
+/// Record a ledger refusal from a generation-0/log-append step (see GEN0_REFUSAL).
+fn gen0_refused(e: crate::migration_action_ledger::LedgerError) {
+    unsafe { GEN0_REFUSAL = 10 + e as u32 };
+}
+
+/// The last generation-0/log-append refusal code (see GEN0_REFUSAL).
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_migration_gen0_refusal() -> u32 {
+    unsafe { GEN0_REFUSAL }
+}
+
+/// Metadata for the exact row/byte-bounded native-selected window.
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_migration_gen0_placements(h: f64) -> u64 {
+    migration_gen0(h, |driver, ticket, engine, target| {
+        driver
+            .gen0_placement_input(ticket, engine, target)
+            .map_err(gen0_refused)
+            .ok()
+    })
+}
+
+/// Seal ONE whole current file of the retained bucket window, verified against
+/// its S0 placement: `[collection, head, session, file id, bytes]`.
+///
+/// # Safety
+/// Input is alloc-owned initialized bytes of `len` (at most 1 MiB + 256).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hd_migration_gen0_file(h: f64, ptr: *mut u8, len: usize) -> u64 {
+    let input = zeroize::Zeroizing::new(unsafe { take(ptr, len) });
+    migration_gen0(h, |driver, ticket, engine, target| {
+        driver
+            .gen0_file(ticket, engine, target, &input)
+            .map_err(gen0_refused)
+            .ok()
+            .map(|o| o.encode())
+    })
+}
+
+/// Seal one sequential AttachmentV1 file chunk, bound to the S0 placement:
+/// `[collection, head, session, file id, offset, bytes]`.
+///
+/// # Safety
+/// Input is alloc-owned initialized bytes of `len` (at most 8 MiB + 256).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hd_migration_gen0_file_chunk(h: f64, ptr: *mut u8, len: usize) -> u64 {
+    let input = zeroize::Zeroizing::new(unsafe { take(ptr, len) });
+    migration_gen0(h, |driver, ticket, engine, target| {
+        driver
+            .gen0_file_chunk(ticket, engine, target, &input)
+            .map_err(gen0_refused)
+            .ok()
+            .map(|o| o.encode())
+    })
+}
+
+/// Seal the retained window's text rows and its sealed files:
+/// `[collection, head, session, [[path | record id, text]…]]`.
+///
+/// # Safety
+/// Input is alloc-owned initialized bytes of `len` (at most 72 KiB).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hd_migration_gen0_window(h: f64, ptr: *mut u8, len: usize) -> u64 {
+    let input = unsafe { take(ptr, len) };
+    migration_gen0(h, |driver, ticket, engine, target| {
+        driver
+            .gen0_window(ticket, engine, target, &input)
+            .map_err(gen0_refused)
+            .ok()
+            .map(|o| o.encode())
+    })
+}
+
+/// Seal the retained `FinishGen0`: remaining sections and the manifest.
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_migration_gen0_finish(h: f64) -> u64 {
+    migration_gen0(h, |driver, ticket, engine, target| {
+        driver
+            .gen0_finish(ticket, engine, target)
+            .map_err(gen0_refused)
+            .ok()
+            .map(|o| o.encode())
+    })
+}
+
+/// Settle the staged generation-0 window or finish from the host's HasObjects
+/// flags over exactly its addresses, in order: `[collection, [present…]]`.
+///
+/// # Safety
+/// Input is alloc-owned initialized bytes of `len` (at most 4 KiB).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hd_migration_gen0_result(h: f64, ptr: *mut u8, len: usize) -> u64 {
+    let input = unsafe { take(ptr, len) };
+    let Some(id) = cpp_handle(h) else {
+        return 0;
+    };
+    with(|s| {
+        if !migration_current(s, id)
+            || s.migration_confirmed != Some((id, None))
+            || s.migration_result.is_some()
+        {
+            return 0;
+        }
+        let (Some(driver), Some(target), Some((_, ticket))) = (
+            s.migration.as_mut(),
+            s.migration_target.as_ref(),
+            s.migration_ticket.as_ref(),
+        ) else {
+            return 0;
+        };
+        match driver.settle_gen0(ticket, &mut s.engine, target, &input) {
+            Ok(result) => {
+                s.migration_result = Some(result);
+                give(result.0.to_vec())
+            }
+            Err(_) => 0,
+        }
+    })
+    .unwrap_or(0)
+}
+
+/// Seal (once per action) and send the retained `AppendBase`'s hosted-import
+/// base through the Engine's log session, or resend the same bytes after a
+/// dropped batch: `[item hash, seq]` (`migration_action_ledger::log`). Sending
+/// never settles.
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_migration_log_append(h: f64) -> u64 {
+    migration_gen0(h, |driver, ticket, engine, target| {
+        driver
+            .log_append(ticket, engine, target)
+            .map_err(gen0_refused)
+            .ok()
+            .map(|o| o.encode())
+    })
+}
+
+/// Settle the SAME original pending log action (base, cutover, head, rebuild,
+/// page) from the Engine's own log evidence; no input. The host still owes
+/// actual storage.sync settlement confirmation before exposing success.
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_migration_log_result(h: f64) -> u64 {
+    let Some(id) = cpp_handle(h) else {
+        return 0;
+    };
+    with(|s| {
+        if !migration_current(s, id)
+            || s.migration_confirmed != Some((id, None))
+            || s.migration_result.is_some()
+        {
+            return 0;
+        }
+        let (Some(driver), Some(target), Some((_, ticket))) = (
+            s.migration.as_mut(),
+            s.migration_target.as_ref(),
+            s.migration_ticket.as_ref(),
+        ) else {
+            return 0;
+        };
+        match driver.settle_log(ticket, &mut s.engine, target) {
+            Ok(result) => {
+                s.migration_result = Some(result);
+                give(result.0.to_vec())
+            }
+            Err(_) => 0,
+        }
+    })
+    .unwrap_or(0)
+}
+
 /// VOID exact original settlement readback, not physical completion ACK.
 #[unsafe(no_mangle)]
 pub extern "C" fn hd_migration_settlement_current(h: f64) -> u32 {
@@ -599,10 +1254,7 @@ pub extern "C" fn hd_migration_settlement_current(h: f64) -> u32 {
     with(|s| u32::from(migration_settled(s, id))).unwrap_or(0)
 }
 fn migration_settled(s: &mut State, id: u64) -> bool {
-    let Some(target) = s.migration_target.as_ref() else {
-        return false;
-    };
-    if s.engine.recheck_native_target(target).is_err() {
+    if !migration_target_fresh(s) {
         return false;
     }
     let Some((handle, ticket)) = s.migration_ticket.as_ref() else {
@@ -739,6 +1391,14 @@ pub extern "C" fn hd_serving() -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn hd_needs_reset() -> u32 {
     with(|s| u32::from(s.engine.needs_reset())).unwrap_or(0)
+}
+
+/// The pin check on the applied state (`Engine::pin_state`) plus 1: 1 the state
+/// fails the pins, 2 consistent while rebuilding, 3 consistent and rebuilt;
+/// 0 without an engine (no evidence either way).
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_pin_state() -> u32 {
+    with(|s| s.engine.pin_state() + 1).unwrap_or(0)
 }
 
 /// Open a session. `grant` is empty (host) or 48 bytes (grant ID ‖ client key).
@@ -911,6 +1571,14 @@ pub extern "C" fn hd_log_retire() {
         s.as_subscribe.clear();
         s.engine.retire_log();
     });
+}
+
+/// Queue one head fetch on the CURRENT log session: how this push-less host
+/// learns entries other writers appended (the control plane's cutover) while a
+/// migration ticket is open. No retire or rebind, so the native target stays.
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_log_request_head() -> u32 {
+    with(|s| u32::from(s.engine.request_log_head())).unwrap_or(0)
 }
 
 fn bounded_uint(value: f64) -> Option<u64> {

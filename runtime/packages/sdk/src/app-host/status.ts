@@ -1,4 +1,5 @@
 /** First-party app-host status. Local persistence is not a log acknowledgement. */
+import type { SyncStatus } from "../wire.js";
 export interface AppStoragePolicy {
   /** True only after navigator.storage.persisted()/persist() returned true. */
   persistent: boolean;
@@ -12,14 +13,21 @@ export type AppSaveState =
 
 /** `unsynced` comes from the recovered replica's pending count, never a transport
  * heuristic. Zero pending is NOT proof that an individual mutation was saved:
- * rejected/unknown receipts remain separate, explicit outcomes. */
-export function appSaveState(unsynced: number, policy: AppStoragePolicy): AppSaveState {
+ * rejected/unknown receipts remain separate, explicit outcomes. Normal online
+ * edits and brief connecting states get a 30-second grace period; genuinely
+ * offline pending edits warn immediately. Persistence suppresses the warning.
+ * `pendingForMs` is the continuous nonzero-pending age, reset at zero/scope change. */
+export function appSaveState(
+  unsynced: number,
+  policy: AppStoragePolicy,
+  context: { pendingForMs: number; connection: SyncStatus["connection"] } = { pendingForMs: 0, connection: "online" },
+): AppSaveState {
   if (!Number.isSafeInteger(unsynced) || unsynced < 0) throw new RangeError("invalid unsynced count");
   if (unsynced === 0) return { kind: "no_pending_edits", unsynced: 0, warning: null };
   return {
     kind: "not_yet_synced",
     unsynced,
-    warning: !policy.persistent || !policy.installed ? "storage_may_be_evicted" : null,
+    warning: !policy.persistent && (context.pendingForMs >= 30_000 || context.connection === "offline") ? "storage_may_be_evicted" : null,
   };
 }
 
@@ -37,7 +45,7 @@ export function appMutationSaveState(
 }
 
 export const UNSYNCED_STORAGE_WARNING =
-  "Changes are not yet synced. Device storage may be cleared before they sync. Connect to sync now; persistent storage and installing the app reduce this risk but do not guarantee against deletion.";
+  "Some changes are only on this device. Stay online so they can sync.";
 
 /** Host progress is not a new replica-client wire slot. */
 export type AppReplicaReadiness =

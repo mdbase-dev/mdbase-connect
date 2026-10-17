@@ -84,19 +84,17 @@ pub(crate) fn extended_entry_not_yet(e: &rt::EntryPayload) -> Option<AttachmentN
             rt::Op::UnindexedMarkdownPut(_)
             | rt::Op::RecordToUnindexedMarkdown(_)
             | rt::Op::UnindexedMarkdownToRecord(_) => {}
-            rt::Op::OrdinaryFileToRecord(_) => {
-                return Some(AttachmentNotYet::OrdinaryFilePromotion);
-            }
-            rt::Op::Legacy(_) | rt::Op::FileAttach(_) => {}
+            // Native Op17 is admitted only by signed keyed editor-device policy
+            // and complete Core source/CAS verification; never delegated submit.
+            rt::Op::OrdinaryFileToRecord(_) | rt::Op::Legacy(_) | rt::Op::FileAttach(_) => {}
         }
     }
     for effect in &e.effects {
         match effect {
             rt::Effect::PutUnindexedMarkdown(_) | rt::Effect::ReindexUnindexedMarkdown(_) => {}
-            rt::Effect::ReindexOrdinaryFile(_) => {
-                return Some(AttachmentNotYet::OrdinaryFilePromotion);
-            }
-            rt::Effect::Legacy(_) | rt::Effect::PutAttachmentFile(_) => {}
+            rt::Effect::ReindexOrdinaryFile(_)
+            | rt::Effect::Legacy(_)
+            | rt::Effect::PutAttachmentFile(_) => {}
         }
     }
     None
@@ -242,10 +240,7 @@ mod tests {
             };
             let mut e = base.clone();
             e.mutation.ops.insert(0, op);
-            assert_eq!(
-                extended_entry_not_yet(&e),
-                (why == AttachmentNotYet::OrdinaryFilePromotion).then_some(why)
-            );
+            assert_eq!(extended_entry_not_yet(&e), None);
             assert_eq!(legacy_entry(e.clone()), Err(why));
             assert!(entry(&e.to_bytes().unwrap()).is_none());
             count += 1;
@@ -260,10 +255,7 @@ mod tests {
             };
             let mut e = base.clone();
             e.effects.insert(0, effect);
-            assert_eq!(
-                extended_entry_not_yet(&e),
-                (why == AttachmentNotYet::OrdinaryFilePromotion).then_some(why)
-            );
+            assert_eq!(extended_entry_not_yet(&e), None);
             assert_eq!(legacy_entry(e), Err(why));
             count += 1;
         }

@@ -24,6 +24,12 @@ export interface PeopleDirectory {
 export interface PeopleRequestOptions { signal?: AbortSignal }
 export interface PeopleDirectoryOptions extends PeopleRequestOptions { members?: "require" | "if-approved" | "omit" }
 /** Pinned metadata authority, separate from the native record-read capability. */
+/** The records client people reads go through (an `MdbaseClient`). */
+export interface PeopleRecords {
+  queryContract: MdbaseClient["queryContract"];
+  readyForRead(signal?: AbortSignal): Promise<Session>;
+  currentSession(): Session;
+}
 export interface PeopleAuthority {
   /** Immutable collection UUID pinned by this metadata authority. */
   readonly collection: string;
@@ -76,7 +82,7 @@ function inspect(projection: ContractProjection): Inspection {
 
 /** Complete directories only; cursor/scope failures never become partial success. */
 export class MdbasePeopleClient {
-  constructor(private readonly client: Pick<MdbaseClient, "queryContract" | "readyForRead" | "currentSession">, private readonly authority: PeopleAuthority) {}
+  constructor(private readonly client: PeopleRecords, private readonly authority: PeopleAuthority) {}
   private check(signal?: AbortSignal): void {
     signal?.throwIfAborted();
     if (!this.authority.isCurrent()) throw mdbaseError("unauthenticated", "people scope changed", "people_fenced");

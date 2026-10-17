@@ -32,6 +32,8 @@ import type {
     RecordSessionState,
 } from "./types.js";
 
+/** When a flush must finish, and how much of it the receipt wait leaves for readback. */
+type Budget = { until: number; margin: number };
 type Captured = {
     bound: boolean;
     recovery: RecordRecovery;
@@ -51,6 +53,8 @@ export class RecordSessionImpl {
     private listeners = new Set<() => void>();
     private life = new AbortController();
     private running: Promise<RecordFlushResult> | null = null;
+    /** Whether `running` may submit the draft, or only settles a captured write. */
+    private writing = false;
     private refreshRunning: Promise<void> | null = null;
     private refreshAgain = false;
     private timer: ReturnType<typeof setTimeout> | undefined;
@@ -65,11 +69,7 @@ export class RecordSessionImpl {
         complete(record);
         this.base = copy(record);
         this.body = record.body!;
-        this.state = protectedRecord(record)
-            ? "conflict"
-            : confirmed(record)
-              ? "saved"
-              : "recovery";
+        this.state = protectedRecord(record) ? "conflict" : resting(record);
         this.publish();
     }
     async restore(
@@ -98,41 +98,10 @@ export class RecordSessionImpl {
                 patch: new Map(),
                 recovery: { ...hint, receipt: null, write: null },
             };
-        } else if (this.base.state.state === "pending") {
-            const pending = await this.client.pendingWrites(signal);
-            signal?.throwIfAborted();
-            const matching = pending.filter(
-                (p) =>
-                    p.ops.length === 1 &&
-                    [
-                        "create",
-                        "update",
-                        "document",
-                        "rename",
-                        "delete",
-                    ].includes(p.ops[0]!.kind) &&
-                    "id" in p.ops[0]! &&
-                    p.ops[0]!.id === this.id,
-            );
-            if (matching.length === 1) {
-                const p = matching[0]!,
-                    op = p.ops[0]!;
-                const revision =
-                    "ifRevision" in op ? (op.ifRevision ?? null) : null;
-                this.captured = {
-                    bound: true,
-                    body: this.body,
-                    patch: new Map(),
-                    recovery: {
-                        mutationId: p.receipt.mutation,
-                        recordId: this.id,
-                        baseRevision: revision,
-                        receipt: p.receipt,
-                        write: null,
-                    },
-                };
-            }
         }
+        // A pending write from an earlier session is kept on this device and
+        // settled by the write ledger; the record stays editable.
+        signal?.throwIfAborted();
         if (this.captured) {
             this.state = "recovery";
             this.why = refusal(
@@ -218,11 +187,7 @@ export class RecordSessionImpl {
             this.state !== "conflict" &&
             this.state !== "deleted"
         ) {
-            this.state = this.dirty
-                ? "unsaved"
-                : confirmed(this.base)
-                  ? "saved"
-                  : "recovery";
+            this.state = this.dirty ? "unsaved" : resting(this.base);
             this.why = null;
         }
         this.publish();
@@ -325,7 +290,14 @@ export class RecordSessionImpl {
                 this.refreshAgain = false;
                 try {
                     const current = await this.read(signal);
-                    if (this.captured || this.running) continue;
+                    if (this.captured || this.running) {
+                        // A captured write settles from its receipt, never from
+                        // this hint; re-settle it here so a write that confirms
+                        // after its flush gave up still ends saved.
+                        if (this.captured && !this.running)
+                            void this.start(false, {}).catch(() => {});
+                        continue;
+                    }
                     this.charge(this.body, this.patch, this.base, current);
                     if (!this.dirty) {
                         this.base = copy(current);
@@ -333,9 +305,7 @@ export class RecordSessionImpl {
                         this.remote = null;
                         this.state = protectedRecord(current)
                             ? "conflict"
-                            : confirmed(current)
-                              ? "saved"
-                              : "recovery";
+                            : resting(current);
                         this.why = null;
                     } else if (
                         current.revision !== this.base.revision ||
@@ -375,30 +345,69 @@ export class RecordSessionImpl {
     }
     flush = (options: RecordFlushOptions = {}): Promise<RecordFlushResult> => {
         this.ensure();
-        const duration = timeout(options.timeoutMs ?? this.defaultTimeout);
         this.clearTimer();
+        return this.start(true, options);
+    };
+    /**
+     * Run a drive. `write` submits the draft; otherwise it only settles a
+     * captured write. A flush arriving during a settle-only drive runs after it.
+     */
+    private start(
+        write: boolean,
+        options: RecordFlushOptions,
+    ): Promise<RecordFlushResult> {
+        const duration = timeout(options.timeoutMs ?? this.defaultTimeout);
+        const limit = deadline(duration);
         const callerSignal = AbortSignal.any([
             ...(options.signal ? [options.signal] : []),
-            AbortSignal.timeout(duration),
+            limit.signal,
         ]);
+        const prior = this.running;
         // A peer's validated deadline/cancellation bounds only its wait. The
         // original drive retains its original signal, MID, receipt and draft.
-        if (this.running) return wait(this.running, callerSignal);
+        if (prior && (this.writing || !write))
+            return wait(prior, callerSignal).finally(limit.clear);
         const signal = AbortSignal.any([this.life.signal, callerSignal]);
-        this.running = this.drive(signal).finally(() => {
+        // The receipt wait ends before the flush deadline, so running out of
+        // time while offline reads back as kept on this device, not cancelled.
+        const budget: Budget = {
+            until: Date.now() + duration,
+            margin: Math.min(2_000, Math.floor(duration / 4)),
+        };
+        const drive = () => this.drive(signal, budget, write);
+        const run: Promise<RecordFlushResult> = (
+            prior ? prior.then(drive, drive) : drive()
+        ).finally(() => {
+            limit.clear();
+            if (this.running !== run) return;
             this.running = null;
+            this.writing = false;
             this.schedule();
         });
-        return this.running;
-    };
-    private async drive(signal: AbortSignal): Promise<RecordFlushResult> {
+        this.running = run;
+        this.writing = write;
+        return run;
+    }
+    private async drive(
+        signal: AbortSignal,
+        budget: Budget,
+        submit: boolean,
+    ): Promise<RecordFlushResult> {
         try {
             for (;;) {
                 signal.throwIfAborted();
                 if (this.captured) {
-                    await this.settle(signal);
+                    await this.settle(signal, budget);
                     continue;
                 }
+                if (!submit)
+                    return confirmed(this.base)
+                        ? { ok: true, record: copy(this.base) }
+                        : {
+                              ok: true,
+                              record: copy(this.base),
+                              saved: "on_device",
+                          };
                 const current = await this.read(signal);
                 if (protectedRecord(current)) {
                     this.charge(this.body, this.patch, this.base, current);
@@ -409,12 +418,6 @@ export class RecordSessionImpl {
                         "native_protection_resolution_required",
                     );
                 }
-                if (!confirmed(current))
-                    throw refusal(
-                        "outcome_unknown",
-                        "current native record is pending; no replacement mutation was submitted",
-                        "pending_record_recovery_required",
-                    );
                 if (this.state === "deleted")
                     throw refusal(
                         "conflict",
@@ -426,10 +429,12 @@ export class RecordSessionImpl {
                     this.base = copy(current);
                     this.body = current.body!;
                     this.remote = null;
-                    this.state = "saved";
+                    this.state = resting(current);
                     this.why = null;
                     this.publish();
-                    return { ok: true, record: copy(current) };
+                    return confirmed(current)
+                        ? { ok: true, record: copy(current) }
+                        : { ok: true, record: copy(current), saved: "on_device" };
                 }
                 if (
                     current.revision !== this.base.revision ||
@@ -516,12 +521,12 @@ export class RecordSessionImpl {
             return { ok: false, problem: this.why };
         }
     }
-    private async settle(signal: AbortSignal): Promise<void> {
+    private async settle(signal: AbortSignal, budget: Budget): Promise<void> {
         const captured = this.captured!,
             original = captured.recovery;
         const receipt = await this.client.awaitReceipt(
             original.mutationId,
-            this.defaultTimeout,
+            Math.max(1, budget.until - Date.now() - budget.margin),
             signal,
         );
         signal.throwIfAborted();
@@ -550,7 +555,7 @@ export class RecordSessionImpl {
         this.lastReceipt = receipt;
         captured.recovery = { ...original, receipt };
         this.publish();
-        if (receipt.state === "pending" || receipt.state === "unknown")
+        if (receipt.state === "unknown")
             throw refusal(
                 "outcome_unknown",
                 "original native mutation is not settled; no resubmit",
@@ -569,7 +574,10 @@ export class RecordSessionImpl {
                   );
         }
         const current = await this.read(signal);
-        if (!confirmed(current))
+        // Still pending after the wait: the write is kept on this device and the
+        // ledger settles it. Not a failure, and nothing is resubmitted.
+        const kept = receipt.state === "pending";
+        if (kept ? protectedRecord(current) : !confirmed(current))
             throw refusal(
                 "outcome_unknown",
                 "confirmed receipt has pending/protected current readback",
@@ -591,7 +599,7 @@ export class RecordSessionImpl {
         if (sameBody) this.body = current.body!;
         this.captured = null;
         this.remote = null;
-        this.state = this.dirty ? "unsaved" : "saved";
+        this.state = this.dirty ? "unsaved" : resting(current);
         this.why = null;
         this.publish();
     }
@@ -631,10 +639,26 @@ export class RecordSessionImpl {
         this.schedule();
     };
 }
+/** A clean record's state: confirmed is saved, pending is saved on this device. */
+function resting(record: RecordView): RecordSessionState {
+    return confirmed(record) ? "saved" : "saved_on_device";
+}
 function equal(a: CborValue, b: CborValue): boolean {
     const x = encode(a),
         y = encode(b);
     return x.length === y.length && x.every((v, i) => v === y[i]);
+}
+/** A deadline signal on the page's timers, cleared once its drive ends. */
+function deadline(ms: number): { signal: AbortSignal; clear: () => void } {
+    const controller = new AbortController();
+    const timer = setTimeout(
+        () =>
+            controller.abort(
+                new DOMException("record flush timed out", "TimeoutError"),
+            ),
+        ms,
+    );
+    return { signal: controller.signal, clear: () => clearTimeout(timer) };
 }
 function wait<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
     if (!signal) return promise;

@@ -45,6 +45,22 @@ pub(crate) struct Live {
     pub(crate) watchers: BTreeSet<SessionId>,
     /// This instance's cursor prefix: cursors from before a restart reset.
     pub(crate) instance: u64,
+    /// Fingerprint of the visible state last announced per ID, so a change
+    /// that leaves it as it was (an own write confirming) is not announced
+    /// again. Bounded: cleared when full (at worst one extra announcement).
+    pub(crate) announced: BTreeMap<B16, [u8; 32]>,
+}
+
+const ANNOUNCED_MAX: usize = 8192;
+
+/// Visible state of one entity: what it is, its path and its exact content.
+fn fingerprint(tag: u8, path: &str, content: &[u8]) -> [u8; 32] {
+    let mut bytes = Vec::with_capacity(1 + 8 + path.len() + content.len());
+    bytes.push(tag);
+    bytes.extend_from_slice(&(path.len() as u64).to_le_bytes());
+    bytes.extend_from_slice(path.as_bytes());
+    bytes.extend_from_slice(content);
+    mdbn_wire::hash::sha256(&bytes).0
 }
 
 /// Record IDs named by touch keys (`"i:<hex>"`).
@@ -79,52 +95,93 @@ impl<S: Store> Replica<S> {
             return;
         }
         let version = self.view_version;
-        let changes: Vec<Change> = {
+        let (changes, echoes): (Vec<Change>, BTreeSet<B16>) = {
             let view = StoreView::new(&self.store, self.catalog.clone());
             let lv = LayerView {
                 base: &view,
                 layer: &self.layer,
             };
-            ids.iter()
+            let catalog = self.catalog.clone();
+            let types_of = |path: &str, source: &str| -> Vec<String> {
+                let doc = mdbn_core::doc::Document::parse_at(path, source);
+                catalog.membership(path, doc.frontmatter()).types
+            };
+            let mut echoes = BTreeSet::new();
+            let changes = ids
+                .iter()
                 .map(|id| {
                     let cid = convert::uuid(id);
-                    if let Some(r) = lv.record(&cid) {
-                        Change {
-                            id: *id,
-                            path: r.path,
-                            kind: ChangeKind::Put,
-                            version,
-                            entity: Some(ChangeEntity::Record),
-                        }
+                    let (change, seen) = if let Some(r) = lv.record(&cid) {
+                        let seen = fingerprint(0, &r.path, r.source.as_bytes());
+                        let types = types_of(&r.path, &r.source);
+                        (
+                            Change {
+                                id: *id,
+                                path: r.path,
+                                kind: ChangeKind::Put,
+                                version,
+                                entity: Some(ChangeEntity::Record),
+                                types: Some(types),
+                            },
+                            seen,
+                        )
                     } else if let Some(f) = lv.file(&cid) {
-                        Change {
-                            id: *id,
-                            path: f.path,
-                            kind: ChangeKind::Put,
-                            version,
-                            entity: Some(ChangeEntity::File),
-                        }
+                        let seen = fingerprint(1, &f.path, &f.content.plain_hash().0);
+                        (
+                            Change {
+                                id: *id,
+                                path: f.path,
+                                kind: ChangeKind::Put,
+                                version,
+                                entity: Some(ChangeEntity::File),
+                                types: None,
+                            },
+                            seen,
+                        )
                     } else {
-                        let (path, entity) = match lv.tombstone(&cid) {
-                            Some(mdbn_core::state::Tombstone::Record { path, .. }) => {
-                                (path, Some(ChangeEntity::Record))
+                        let (path, entity, types) = match lv.tombstone(&cid) {
+                            Some(mdbn_core::state::Tombstone::Record { path, doc }) => {
+                                let types = types_of(&path, &doc);
+                                (path, Some(ChangeEntity::Record), Some(types))
                             }
                             Some(mdbn_core::state::Tombstone::File { path, .. }) => {
-                                (path, Some(ChangeEntity::File))
+                                (path, Some(ChangeEntity::File), None)
                             }
-                            None => (String::new(), None),
+                            None => (String::new(), None, None),
                         };
-                        Change {
-                            id: *id,
-                            path,
-                            kind: ChangeKind::Remove,
-                            version,
-                            entity,
-                        }
+                        let seen = fingerprint(2, &path, &[]);
+                        (
+                            Change {
+                                id: *id,
+                                path,
+                                kind: ChangeKind::Remove,
+                                version,
+                                entity,
+                                types,
+                            },
+                            seen,
+                        )
+                    };
+                    // The same visible state as last announced (an own write's
+                    // confirmation, a rebuild): not a change for the feed.
+                    if self.live.announced.get(id) == Some(&seen) {
+                        echoes.insert(*id);
                     }
+                    if self.live.announced.len() >= ANNOUNCED_MAX
+                        && !self.live.announced.contains_key(id)
+                    {
+                        self.live.announced.clear();
+                    }
+                    self.live.announced.insert(*id, seen);
+                    change
                 })
-                .collect()
+                .collect::<Vec<_>>();
+            (changes, echoes)
         };
+        let changes: Vec<Change> = changes
+            .into_iter()
+            .filter(|c| !echoes.contains(&c.id))
+            .collect();
         for c in &changes {
             self.live.feed.push_back(c.clone());
         }

@@ -111,6 +111,9 @@ impl Context {
         })
     }
 }
+/// Length of an unrevealed [`NewDevice::state`] saved on its own at enrolment.
+const BARE_STATE: usize = 33;
+
 struct Record {
     context: Context,
     state: Zeroizing<Vec<u8>>,
@@ -259,8 +262,19 @@ impl<S: Store> Replica<S> {
     fn requester_load(
         &mut self,
         journal: &mut dyn ApprovalSecretJournal,
+        context: &Context,
     ) -> ApiResult<Option<Record>> {
         match journal.load() {
+            // The enrolment commitment, saved before the device was enrolled
+            // (no policy context existed yet): the bare unrevealed NewDevice
+            // state. The host's journal is bound to this collection, account,
+            // device and account incarnation; restoring it below checks it
+            // against this device's keys and the logged commitment.
+            Ok(Some(b)) if b.len() == BARE_STATE => Ok(Some(Record {
+                context: context.clone(),
+                state: Zeroizing::new(b.to_vec()),
+                peer: None,
+            })),
             Ok(Some(b)) => Record::decode(&b).map(Some),
             Ok(None) => Ok(None),
             Err(_) => {
@@ -291,7 +305,7 @@ impl<S: Store> Replica<S> {
         journal: &mut dyn ApprovalSecretJournal,
     ) -> ApiResult<B32> {
         let context = self.requester_context(session)?;
-        let record = match self.requester_load(journal)? {
+        let record = match self.requester_load(journal, &context)? {
             Some(r) => {
                 if !r.context.identity_matches(&context) {
                     return Err(denied());
@@ -335,7 +349,7 @@ impl<S: Store> Replica<S> {
         journal: &mut dyn ApprovalSecretJournal,
     ) -> ApiResult<Option<ApprovalDevice>> {
         let context = self.requester_context(session)?;
-        let Some(record) = self.requester_load(journal)? else {
+        let Some(record) = self.requester_load(journal, &context)? else {
             return Ok(None);
         };
         if !record.context.identity_matches(&context) {
@@ -383,7 +397,7 @@ impl<S: Store> Replica<S> {
         {
             return Err(denied());
         }
-        let mut record = self.requester_load(journal)?.ok_or_else(denied)?;
+        let mut record = self.requester_load(journal, &context)?.ok_or_else(denied)?;
         if !record.context.identity_matches(&context) || record.peer.is_some() {
             return Err(ErrorCode::Conflict.err_with_reason(
                 "approval_commit_required",

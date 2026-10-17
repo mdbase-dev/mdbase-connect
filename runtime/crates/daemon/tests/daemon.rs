@@ -679,3 +679,71 @@ async fn status_of(c: &mut ControlClient, id: &str) -> CollectionStatus {
         .find(|s| s.id == id)
         .unwrap()
 }
+
+/// A takeover hold is looked up only for a registered collection: an ID that is
+/// not the exact canonical spelling of one is refused before any takeover
+/// state is read or written.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn takeover_holds_refuse_an_unregistered_collection() {
+    use mdbn_daemon::takeover::adapter::{Evidence, Hold};
+    let root = scratch("tr");
+    let profile = Profile::isolated(&root.join("s")).unwrap();
+    let keys = std::sync::Arc::new(MemoryStore::default());
+    let (p, k2) = (profile.clone(), keys.clone());
+    let daemon = tokio::spawn(async move { server::run(p, Some(Box::new(k2))).await });
+    wait_ready(&profile).await;
+    // Takeover-shaped state beside the legacy directory, not under it.
+    std::fs::create_dir_all(profile.state_dir.join("legacy")).unwrap();
+    let beside = profile.state_dir.join("beside");
+    std::fs::create_dir_all(&beside).unwrap();
+    let ev = Evidence {
+        schema_version: 1,
+        collection: "beside".into(),
+        root: root.join("notes"),
+        record_ids: vec![],
+        grants: json!({}),
+        journal: vec![],
+        tombstones: vec![],
+        holds: vec![Hold {
+            path: "a.md".into(),
+            reason: "held".into(),
+            intended: None,
+        }],
+        rolled_forward: vec![],
+    };
+    std::fs::write(beside.join("import.json"), serde_json::to_vec(&ev).unwrap()).unwrap();
+    let hold = mdbn_daemon::takeover::held::hold_id("a.md");
+    let mut c = ControlClient::connect(&profile.control).await.unwrap();
+    for collection in [
+        "../beside",
+        "beside",
+        "0B4C1A52-58F1-4A9E-9F43-6A7F8D2F3E10",
+        "0b4c1a52-58f1-4a9e-9f43-6a7f8d2f3e10",
+    ] {
+        let listed = c
+            .call(
+                Method::COLLECTION_HOLDS,
+                json!({ "collection": collection }),
+            )
+            .await;
+        assert!(
+            matches!(listed, Err(ClientError::Remote(_))),
+            "{collection}: {listed:?}"
+        );
+        let resolved = c
+            .call(
+                Method::COLLECTION_RESOLVE_HOLD,
+                json!({ "collection": collection, "id": hold, "how": "keep_mine" }),
+            )
+            .await;
+        assert!(
+            matches!(resolved, Err(ClientError::Remote(_))),
+            "{collection}: {resolved:?}"
+        );
+    }
+    assert!(!beside.join("resolved.json").exists());
+
+    c.call(Method::SHUTDOWN, json!({})).await.unwrap();
+    let _ = tokio::time::timeout(Duration::from_secs(10), daemon).await;
+    let _ = std::fs::remove_dir_all(&root);
+}

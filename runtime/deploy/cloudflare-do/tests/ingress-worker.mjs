@@ -77,7 +77,9 @@ async function invoke(q, env, ctx, actorHandler, onPut) {
   // ORIGINAL receiver. No global binding override or Proxy is used here.
   if (q.directGet) {
     if (!Number.isInteger(q.delayR2Get ?? 0) || (q.delayR2Get ?? 0) < 0 || (q.delayR2Get ?? 0) > 2000 || q.size > 64 * 1024) throw Error("bounded direct-download seam");
-    const bucket = env.OBJECTS;
+    const binding = q.binding ?? "OBJECTS";
+    if (!["OBJECTS", "OBJECTS_OC", "OBJECTS_WNAM"].includes(binding)) throw Error("test bucket");
+    const bucket = env[binding];
     if (q.seedR2) {
       if (prefix.length > 64 * 1024) throw Error("bounded R2 fixture");
       await bucket.put(q.seedR2.key, prefix, {
@@ -110,7 +112,7 @@ async function invoke(q, env, ctx, actorHandler, onPut) {
       return { version: obj.version, size: obj.size, etag: obj.etag, range: obj.range,
         body: stream, customMetadata: q.getMetadata };
     } });
-    const result = await new worker(ctx, { ...env, OBJECTS: scoped }).fetch(incoming);
+    const result = await new worker(ctx, { ...env, [binding]: scoped }).fetch(incoming);
     let response, lockedBeforeCancel;
     if (q.cancelResponse) {
       // Pause without a reader, then cancel the actual response body. This is
@@ -130,14 +132,18 @@ async function invoke(q, env, ctx, actorHandler, onPut) {
     };
   }
   // Keep the real native bindings (a Proxy cannot be cast by workers-rs).
-  const put = env.OBJECTS.put,
+  // Count writes to every object bucket: regional collections use their region's.
+  const buckets = ["OBJECTS", "OBJECTS_OC", "OBJECTS_WNAM"].filter((b) => env[b]);
+  const puts = buckets.map((b) => env[b].put),
     getByName = env.LOG.getByName;
-  env.OBJECTS.put = async function (...a) {
-    r2writes++;
-    onPut?.();
-    if (q.delayPut) await new Promise((r) => setTimeout(r, q.delayPut));
-    return put.apply(this, a);
-  };
+  buckets.forEach((b, i) => {
+    env[b].put = async function (...a) {
+      r2writes++;
+      onPut?.();
+      if (q.delayPut) await new Promise((r) => setTimeout(r, q.delayPut));
+      return puts[i].apply(this, a);
+    };
+  });
   env.LOG.getByName = function (...a) {
     forwarded++;
     return getByName.apply(this, a);
@@ -148,7 +154,7 @@ async function invoke(q, env, ctx, actorHandler, onPut) {
       ? await actorHandler(incoming)
       : await new worker(ctx, env).fetch(incoming);
   } finally {
-    env.OBJECTS.put = put;
+    buckets.forEach((b, i) => { env[b].put = puts[i]; });
     env.LOG.getByName = getByName;
   }
   const response = Array.from(new Uint8Array(await result.arrayBuffer()));

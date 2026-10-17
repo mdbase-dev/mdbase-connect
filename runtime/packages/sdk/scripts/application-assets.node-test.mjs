@@ -12,16 +12,17 @@ const directory=fileURLToPath(new URL("..",import.meta.url));
 test("actual SDK Worker bundles its canonical parser, loading the pinned official browser SQLite only by URL",async()=>{
   const result=await buildApplicationWorker({write:false});
   assert(result,"the real SDK Worker source must be present");
-  const outputs=Object.values(result.metafile.outputs);
-  assert.equal(outputs.length,1);
-  assert.deepEqual(outputs[0].imports,[]);
-  assert.equal(result.outputFiles[0].path,join(directory,"dist/application/worker.js"));
+  // One self-contained file: apps re-bundle it, and a default Vite consumer
+  // (iife workers) fails on any dynamic import or split chunk.
+  const outputs=Object.entries(result.metafile.outputs);
+  assert.deepEqual(outputs.map(([path])=>path),["dist/application/worker.js"]);
+  assert.deepEqual(outputs[0][1].imports,[]);
   const inputs=Object.keys(result.metafile.inputs);
   for(const path of ["src/application/worker.ts","src/application/worker-host.ts","src/application/worker-session.ts","src/application/packaged-assets.ts","@mdbase-dev/connect-protocol/dist/manifest.js"]){
     assert(inputs.some(input=>input.endsWith(path)),path);
   }
   assert(!inputs.some(input=>input.includes("@sqlite.org/sqlite-wasm/")));
-  assert(!result.outputFiles[0].text.includes("node:crypto"));
+  for(const file of result.outputFiles)assert(!file.text.includes("node:crypto"),file.path);
 });
 const officialDirectory=dirname(createRequire(import.meta.url).resolve("@sqlite.org/sqlite-wasm"));
 const sqliteIntegrity="sha512-kQVArGJA4z7s56Dm8t+eTBXad4LiohuVj9pfgDNOcxa+Ic5xMrWlLPTq6cT0hw5S4MIvtpsraW+B0wD+IPvC7A==";

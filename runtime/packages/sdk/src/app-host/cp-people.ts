@@ -1,4 +1,5 @@
 /** Fixed, pinned CP people GETs. No record payload, path, key, or issuer inference. */
+import { LOCAL_APPLICATION_BUILD, localApplicationHttpOrigin } from "../application/local-build.js";
 import { uuidToBytes } from "../codec.js";
 import { mdbaseError, MdbaseError } from "../errors.js";
 import type { PeopleAuthority, PeopleRequestOptions } from "../people.js";
@@ -30,7 +31,7 @@ export class AppCpPeopleAuthority implements PeopleAuthority {
     this.rawOrigin = session.cpOrigin;
     const url = new URL(this.rawOrigin);
     if (url.username || url.password || url.pathname !== "/" || url.search || url.hash ||
-        (url.protocol !== "https:" && !(options.allowLoopbackHttp === true && url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))))
+        (url.protocol !== "https:" && !(options.allowLoopbackHttp === true && url.protocol === "http:" && (LOCAL_APPLICATION_BUILD ? localApplicationHttpOrigin(session.cpOrigin) : ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)))))
       throw mdbaseError("invalid_request", "invalid people CP origin", "people_binding");
     this.cpOrigin = url.origin;
     this.collection = session.collection; this.connector = session.connectorId; this.device = session.deviceId; this.ep = endpoint(session.endpoint);
@@ -62,7 +63,8 @@ export class AppCpPeopleAuthority implements PeopleAuthority {
       const fetchImpl = this.fetchImpl;
       response = await fetchImpl(`${this.cpOrigin}/v1/authorities/${this.collection}/${resource}?device_id=${this.device}`, {
         method: "GET", headers: { authorization: `Bearer ${bearer}` }, signal: ctrl.signal,
-        redirect: "error", credentials: "omit", cache: "no-store", referrerPolicy: "no-referrer",
+        // Default cache mode so Chrome reuses the CORS preflight; the CP sends Cache-Control: no-store.
+        redirect: "error", credentials: "omit", cache: "default", referrerPolicy: "no-referrer",
       });
       this.check(options.signal); if (ctrl.signal.aborted) throw unavailable();
       const length = response.headers.get("content-length");

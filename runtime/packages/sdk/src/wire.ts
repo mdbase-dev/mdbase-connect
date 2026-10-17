@@ -650,6 +650,9 @@ export interface Change {
   /** What changed (API 1.2). Absent when the producer cannot tell, as for a
    * removal that left no tombstone; older producers never send it. */
   entity?: "record" | "file";
+  /** A record's types (its last ones, for a removal). Absent for files and
+   * from older producers. */
+  types?: string[];
 }
 
 export const change = struct<Change>("change", [
@@ -659,6 +662,7 @@ export const change = struct<Change>("change", [
   [3, "version", uint],
   [4, "author", authorRef, "opt"],
   [5, "entity", enumOf("change-entity", ["record", "file"] as const), "opt"],
+  [6, "types", list(tstr), "opt"],
 ]);
 
 export interface ChangesResult {

@@ -15,12 +15,13 @@
 import { Float64, type CborValue } from "./cbor.js";
 import { encodeAppBasesRequest, decodeAppBasesResult, type AppBasesRequest, type AppBasesResult, encodeAppBasesDiscoveryRequest, decodeAppBasesDiscoveryResult, encodeAppBasesSourceRequest, decodeAppBasesSourceResult, type AppBasesDiscoveryRequest, type AppBasesDiscoveryResult, type AppBasesSourceRequest, type AppBasesSourceResult } from "./app-host/bases-wire.js";
 import { appBasesPages, type AppBasesPagesOptions } from "./app-host/bases-pages.js";
-import { list, uint, uuid as uuidCodec } from "./codec.js";
+import { list, uint, uuid as uuidCodec, uuidFromBytes } from "./codec.js";
 import {recordValidations, captureValidation, bindValidation, type RecordValidation} from "./validation.js";
 import { isMdbaseError, mdbaseError, MdbaseError } from "./errors.js";
 import { FilesApi } from "./files.js";
 import { readMany as readManyRecords, queryPages as readQueryPages, type ReadManyOptions } from "./read-helpers.js";
 import {RecordsApi, type Records, type RecordOpenOptions, type RecordLease} from "./records.js";
+import {executeSavedView, listSavedViews, readSavedViewSource, type ExecuteViewOptions, type ListViewsResult} from "./saved-views.js";
 import {createViewSource, updateViewSource, readViewSourceRecord, type ViewSourceCreateInput, type ViewSourceWriteOptions, type ViewSourceReadOptions} from "./view-sources.js";
 import { contractRecordWire, contractWritePlan, type ContractRecordView, type ContractSelector, type ContractWritePlan } from "./contract-records.js";
 import { contractQueryResult, type ContractQueryOptions, type ContractQueryResult, type ContractRef } from "./contract-query.js";
@@ -53,14 +54,14 @@ import {
   DESCRIBE_TYPING_MAX_TYPES,
   listPendingResult,
   listResourcesResult,
-  listViewsResult,
   PendingMutation,
   Preflight,
   ResourceView,
   resourceView,
   ViewSourceDocument,
-  viewSourceDocument,
 } from "./wire.js";
+import { memoryWriteLedgerStore, WriteLedger, type WriteLedgerStore, type WriteLedgerView } from "./write-ledger.js";
+import type { Problem } from "./wire.js";
 import {
   BaseField,
   BodyEdit,
@@ -115,9 +116,21 @@ export interface ClientOptions {
   reconnect?: false | { minDelayMs?: number; maxDelayMs?: number };
   /** Private collections: wait for a device replica to come online instead of failing. */
   waitForDevice?: boolean;
-  /** Called while waiting for a device (`reason: "no_device_online"`). */
+  /** Called while waiting for a device or the original Native grant to become live. */
   onWaiting?: (why: MdbaseError) => void;
+  /** Where the write ledger persists (default: memory). Web apps get the replica's store. */
+  ledger?: WriteLedgerStore;
   signal?: AbortSignal;
+}
+
+/** What {@link MdbaseClient.save} settled to. */
+export interface SaveResult {
+  readonly outcome: "confirmed" | "saved_on_device" | "rejected";
+  readonly mutationId: Uuid;
+  readonly records: readonly RecordView[];
+  /** The first record, read back when asked. */
+  readonly record?: RecordView;
+  readonly problem?: Problem;
 }
 
 /** A type created by {@link MdbaseClient.createType}. */
@@ -269,6 +282,13 @@ export interface UpdateInput {
 
 export interface WriteOptions {
   mutationId?: Uuid;
+  /**
+   * A stable name for this one write, such as a draft ID. Retrying with the same
+   * `intent` in the same collection sends the same mutation (and, for `create`,
+   * the same record ID), so a write retried after a lost reply lands once; the
+   * first attempt's content wins. Use a new name for each new write.
+   */
+  intent?: string;
   conflictMode?: ConflictMode;
   timezone?: string;
   include?: Include;
@@ -276,6 +296,14 @@ export interface WriteOptions {
   /** Hold for log confirmation, or final local file publication (not confirmation). */
   wait?: "pending" | "confirmed" | "published";
   signal?: AbortSignal;
+}
+
+/** The mutation and record IDs an intent name stands for in one collection. */
+async function intentIds(collection: Uuid, intent: string): Promise<[Uuid, Uuid]> {
+  if (typeof intent !== "string" || !intent) throw mdbaseError("invalid_request", "intent must be a non-empty string");
+  const b = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`mdbase-intent/1\0${collection}\0${intent}`)));
+  const id = (o: number) => { const u = b.slice(o, o + 16); u[6] = 0x80 | (u[6]! & 0x0f); u[8] = 0x80 | (u[8]! & 0x3f); return uuidFromBytes(u); };
+  return [id(0), id(16)];
 }
 
 type ReceiptListener = (r: Receipt) => void;
@@ -335,7 +363,7 @@ export class Write {
     return () => this.listeners.delete(fn);
   }
 
-  /** @internal */
+  /** SDK-internal: apply a newer receipt. Kept in the published types (apps' tests use it). */
   update(r: Receipt): void {
     let merged = r.records || !this.receipt.records ? r : { ...r, records: this.receipt.records };
     // Preserve final publication through delayed/missing pushes without mutating input.
@@ -480,8 +508,8 @@ export type FenceHandler = (
 
 /** Collection data reads, not status/receipts/writes or historical proof probes. */
 const READ_METHODS = new Set([
-  "get", "query", "query_contract_v1", "subscribe", "changes", "backlinks", "list_resources", "get_resource", "execute_view",
-  "list_views", "read_view_source", "describe", "describe_typing", "list_files", "get_file", "read_file",
+  "get", "query", "query_contract_v1", "subscribe", "changes", "backlinks", "list_resources", "get_resource",
+  "describe", "describe_typing", "list_files", "get_file", "read_file",
   "list_holds", "list_conflicts", "validate", "new_type_file", "get_contract_v1", "map_contract_write_v1",
   "plan_type_pack_v1",
 ]);
@@ -521,6 +549,9 @@ export class MdbaseClient {
   readonly files: FilesApi;
   /** Presence on records (§11). */
   readonly presence: PresenceApi;
+  private readonly writeLedger: WriteLedger;
+  private ledgerStarted = false;
+  private transportDeferred = false;
 
   private constructor(
     private opts: ClientOptions,
@@ -533,35 +564,110 @@ export class MdbaseClient {
     this.readFloor = session.hello.status.confirmedThrough;
     this.files = new FilesApi(this);
     this.presence = new PresenceApi(this);
+    this.writeLedger = new WriteLedger(opts.ledger ?? memoryWriteLedgerStore(), {
+      receipt: (id) => this.receipt(id),
+      pendingWrites: () => this.pendingWrites(),
+    });
     this.attach(session);
+    if (opts.ledger) this.startLedger();
+  }
+
+  /**
+   * Unconfirmed and refused writes, and the overall save state. Survives a
+   * reload when the connector persists it (web apps do). Event-driven: it
+   * settles from receipts and the replica's status push, never by polling.
+   */
+  get ledger(): WriteLedgerView {
+    this.startLedger();
+    return this.writeLedger;
+  }
+
+  private startLedger(): void {
+    if (this.ledgerStarted) return;
+    this.ledgerStarted = true;
+    let pending = -1;
+    this.onStatus((s) => {
+      const fell = pending > s.pending;
+      pending = s.pending;
+      this.updateDeferred();
+      if (fell) void this.writeLedger.recheck();
+      else if (s.pending > this.writeLedger.pendingCount) void this.writeLedger.adopt();
+    });
+    this.onLink(() => this.updateDeferred());
+    void this.writeLedger.restore();
+  }
+
+  private updateDeferred(): void {
+    this.writeLedger.setDeferred(this.transportDeferred || this.linkState !== "open" || this.lastStatus.connection === "offline");
+  }
+
+  /** @internal The host's transport cannot deliver writes right now (offline, unreachable, busy). */
+  setTransportDeferred(deferred: boolean): void {
+    this.transportDeferred = deferred;
+    if (this.ledgerStarted) this.updateDeferred();
   }
 
   /**
    * Connect to a replica and say hello. With `waitForDevice`, a private collection with
    * no device online keeps retrying (calling `onWaiting`) instead of failing.
+   * A next-relay pre-live grant waits up to 30 seconds on this same connector.
+   * This is initial hello only: no application request or unknown write is replayed.
    */
   static async connect(opts: ClientOptions): Promise<MdbaseClient> {
     // A next-relay connection keeps its original connector/policy across awaits.
-    if (usesNextRelayFence(opts.connector)) opts = { ...opts };
+    const nextRelay = usesNextRelayFence(opts.connector);
+    if (nextRelay) opts = { ...opts };
     let delay = (opts.reconnect && opts.reconnect.minDelayMs) || 1000;
-    for (;;) {
-      try {
-        const session = await Session.open(opts.connector, MdbaseClient.helloParams(opts), opts.signal);
-        return new MdbaseClient(opts, session);
-      } catch (e) {
-        if (!(opts.waitForDevice && isMdbaseError(e, "unavailable") && e.reason === "no_device_online")) throw e;
-        opts.onWaiting?.(e);
-        await new Promise<void>((res, rej) => {
-          const t = setTimeout(res, delay);
-          opts.signal?.addEventListener(
-            "abort",
-            () => (clearTimeout(t), rej(mdbaseError("cancelled", "connect aborted"))),
-            { once: true },
-          );
-        });
-        delay = Math.min(15_000, delay * 2);
+    let signal = opts.signal;
+    let deadline: AbortController | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let timeout: MdbaseError | undefined;
+    const stopped = () => opts.signal?.aborted || !timeout ? mdbaseError("cancelled", "connect aborted") : timeout;
+    try {
+      for (;;) {
+        try {
+          const attemptSignal = signal;
+          const session = await new Promise<Session>((resolve, reject) => {
+            const abort = () => reject(stopped());
+            if (attemptSignal?.aborted) { abort(); return; }
+            attemptSignal?.addEventListener("abort", abort, { once: true });
+            // A host bridge may ignore cancellation. Settle on the deadline and
+            // retire any late hello; it must never publish a client or send work.
+            void Session.open(opts.connector, MdbaseClient.helloParams(opts), attemptSignal).then(opened => {
+              attemptSignal?.removeEventListener("abort", abort);
+              if (attemptSignal?.aborted) {
+                try { opened.close(); } catch { /* Late initial hello: close best effort. */ }
+                reject(stopped());
+              } else resolve(opened);
+            }, error => { attemptSignal?.removeEventListener("abort", abort); reject(error); });
+          });
+          if (signal?.aborted) { session.close(); throw stopped(); }
+          return new MdbaseClient(opts, session);
+        } catch (e) {
+          if (signal?.aborted) throw stopped();
+          // 4403 is an authority refusal, NOT pending. Only the fixed pre-live
+          // Native pipe close may defer this original next-relay initial hello.
+          const pending = nextRelay && isMdbaseError(e, "unavailable") && e.reason === "grant_inactive"
+            && e.details instanceof Map && e.details.get("relayCloseCode") === 4000;
+          if (!(pending || opts.waitForDevice && isMdbaseError(e, "unavailable") && e.reason === "no_device_online")) throw e;
+          if (pending && !deadline) {
+            deadline = new AbortController();
+            timeout = mdbaseError("unavailable", "The approved grant did not become live within 30 seconds", { reason: "grant_activation_timeout", details: e.details });
+            signal = opts.signal ? AbortSignal.any([opts.signal, deadline.signal]) : deadline.signal;
+            timer = setTimeout(() => deadline!.abort(), 30_000);
+          }
+          opts.onWaiting?.(e);
+          await new Promise<void>((res, rej) => {
+            const done = () => { clearTimeout(t); signal?.removeEventListener("abort", abort); };
+            const abort = () => { done(); rej(stopped()); };
+            const t = setTimeout(() => { done(); res(); }, pending ? Math.min(1000, delay) : delay);
+            if (signal?.aborted) abort();
+            else signal?.addEventListener("abort", abort, { once: true });
+          });
+          delay = Math.min(15_000, delay * 2);
+        }
       }
-    }
+    } finally { clearTimeout(timer); }
   }
 
   private static helloParams(opts: ClientOptions) {
@@ -570,7 +676,7 @@ export class MdbaseClient {
       versions: API_VERSIONS,
       clientName: opts.app.name,
       clientVersion: opts.app.version,
-      features: opts.features ?? [],
+      features: [...new Set([...(opts.features ?? []), "declared-collection-setup-v1"])],
       ...(tz ? { timezone: tz } : {}),
     };
   }
@@ -637,7 +743,7 @@ export class MdbaseClient {
     if (signal?.aborted) throw mdbaseError("cancelled", "aborted while the replica catches up");
   }
 
-  /** @internal Recheck session identity after waiting for catch-up. */
+  /** Recheck session identity after waiting for catch-up (SDK-internal use). */
   async readyForRead(signal?: AbortSignal, immediate = false): Promise<Session> {
     if (!this.fenceReads) return immediate ? this.currentSession() : this.ready(signal);
     for (;;) {
@@ -659,12 +765,13 @@ export class MdbaseClient {
   }
 
   private noteReceipt(r: Receipt): void {
+    if (this.ledgerStarted) this.writeLedger.observe(r);
     if (this.fenceReads && this.readFencedAt === null && r.state === "confirmed" && r.seq !== undefined) {
       this.readFloor = Math.max(this.readFloor, r.seq);
     }
   }
 
-  /** @internal The open session, or throw `unavailable`. */
+  /** The open session, or throw `unavailable` (SDK-internal use). */
   currentSession(): Session {
     if (!this.session || this.session.closed) {
       throw mdbaseError("unavailable", "not connected to the replica", { reason: "reconnecting" });
@@ -686,7 +793,7 @@ export class MdbaseClient {
   }
 
   /**
-   * @internal Run a request on the current session; on a dropped link, wait for the
+   * Advanced: run a request on the current session; on a dropped link, wait for the
    * reconnect and retry when `retry` (idempotent requests only).
    */
   async call<T = CborValue>(
@@ -1151,12 +1258,15 @@ export class MdbaseClient {
   }
 
   /** Canonical contract projections with validation issues and ordinary cursor
-   * metadata. Old producers refuse; there is no SDK projection fallback. */
+   * metadata. Positive page sizes above the producer's 128-record maximum clamp
+   * to 128; use the returned cursor for the remaining records. Old producers
+   * refuse; there is no SDK projection fallback. */
   async queryContract(contract: ContractRef, options: ContractQueryOptions = {}): Promise<ContractQueryResult> {
-    const limit = options.pageSize ?? 128;
-    if (!Number.isInteger(limit) || limit < 1 || limit > 128 || !contract.id || contract.id.length > 1024 || !contract.version || contract.version.length > 128
+    const requested = options.pageSize ?? 128;
+    if (!Number.isInteger(requested) || requested < 1 || !contract.id || contract.id.length > 1024 || !contract.version || contract.version.length > 128
       || (options.where !== undefined && (!options.where || options.where.length > 4096)))
       throw mdbaseError("invalid_request", "invalid contract page selection");
+    const limit = Math.min(requested, 128);
     const result = await this.call("query_contract_v1", params([
       [0, 1], [1, contract.id], [2, contract.version], [3, limit], [4, options.cursor], [5, options.where],
     ]), { codec: contractQueryResult, retry: true, ...(options.signal ? { signal: options.signal } : {}) });
@@ -1249,32 +1359,14 @@ export class MdbaseClient {
       updateViewSource(this, seen, document, options),
     getSourceRecord: (source: RecordRef, options: ViewSourceReadOptions = {}): Promise<RecordView> =>
       readViewSourceRecord(this, source, options),
-    list: (folder?: string, signal?: AbortSignal) =>
-      this.call("list_views", params([[0, folder]]), { codec: listViewsResult, retry: true, ...(signal ? { signal } : {}) }),
-    execute: (
-      source: RecordRef,
-      view: string,
-      o: { context?: RecordRef; limit?: number; offset?: number; timezone?: string; include?: Include; signal?: AbortSignal } = {},
-    ): Promise<QueryResult> =>
-      this.call(
-        "execute_view",
-        params([
-          [0, refValue(source)],
-          [1, view],
-          [2, o.context ? refValue(o.context) : undefined],
-          [3, o.limit],
-          [4, o.offset],
-          [5, o.timezone],
-          [6, includeValue(o.include)],
-        ]),
-        { codec: queryResult, retry: true, ...(o.signal ? { signal: o.signal } : {}) },
-      ),
+    /** `mdbase.view` sources (spec 12 `list_views` shape), resolved over served
+     * contract queries: the native runtime has no `list_views` RPC. */
+    list: (folder?: string, signal?: AbortSignal): Promise<ListViewsResult> => listSavedViews(this, folder, signal),
+    /** Spec 11 named-view resolution, executed as one ordinary native query. */
+    execute: (source: RecordRef, view: string, o: ExecuteViewOptions = {}): Promise<QueryResult> =>
+      executeSavedView(this, source, view, o),
     readSource: (source: RecordRef, signal?: AbortSignal): Promise<ViewSourceDocument> =>
-      this.call("read_view_source", params([[0, refValue(source)]]), {
-        codec: viewSourceDocument,
-        retry: true,
-        ...(signal ? { signal } : {}),
-      }),
+      readSavedViewSource(this, source, signal),
   };
 
   /**
@@ -1597,18 +1689,11 @@ export class MdbaseClient {
     finally { reply.fill(0); }
   }
 
-  listViews(signal?: AbortSignal): Promise<CborValue> {
-    return this.call("list_views", null, { retry: true, ...(signal ? { signal } : {}) });
-  }
-
-  executeView(p: PlainValue, signal?: AbortSignal): Promise<CborValue> {
-    return this.call("execute_view", toValue(p), { retry: true, ...(signal ? { signal } : {}) });
-  }
-
   // ---------------------------------------------------------------- writes (§5, §6)
 
   /** Submit operations as one mutation (or one per op with `allowPartial`). */
   async submit(ops: Op[], o: WriteOptions & { allowPartial?: boolean } = {}): Promise<Write[]> {
+    if (o.intent !== undefined && o.mutationId === undefined) o = { ...o, mutationId: (await intentIds(this.collectionId, o.intent))[0] };
     const p: SubmitParams = { ops, mutationId: o.mutationId ?? uuidv7() };
     if (o.allowPartial) {
       p.allowPartial = true;
@@ -1619,6 +1704,11 @@ export class MdbaseClient {
     if (o.dryRun) p.dryRun = true;
     if (o.include) p.include = o.include;
     if (o.wait) p.wait = o.wait;
+    // The ledger holds the intent before the replica can capture it.
+    if (!o.dryRun) {
+      this.startLedger();
+      await this.writeLedger.begin(p.mutationIds ?? [p.mutationId!], ops);
+    }
     // Idempotent by mutation ID: safe to resubmit after a dropped link.
     let receipts: Receipt[];
     try {
@@ -1631,6 +1721,7 @@ export class MdbaseClient {
       // A dry run captures nothing. Otherwise the request may have been captured
       // whatever the code says: report the original identity, never a new one.
       if (o.dryRun) throw e;
+      void this.writeLedger.settleAll(p.mutationIds ?? [p.mutationId!]);
       throw withMutation(e, "submit", p.mutationIds ? { mutationIds: p.mutationIds } : { mutationId: p.mutationId! });
     }
     return receipts.map((r) => (o.dryRun ? new Write(r) : this._track(r)));
@@ -1643,6 +1734,8 @@ export class MdbaseClient {
 
   /** Create a record. The ID is minted here, so the app can use it before confirmation. */
   create(input: CreateInput, o: WriteOptions = {}): Promise<Write> {
+    if (o.intent !== undefined && o.mutationId === undefined)
+      return intentIds(this.collectionId, o.intent).then(([mutationId, id]) => this.create({ ...input, id: input.id ?? id }, { ...o, mutationId }));
     if (input.contract) return this.createThroughContract(input, input.contract, o);
     const op: Op = { kind: "create", id: input.id ?? uuidv7() };
     if (input.path !== undefined) op.path = input.path;
@@ -1695,7 +1788,7 @@ export class MdbaseClient {
     return this.one(op, o);
   }
 
-  /** @internal Build an `update` op (exposed for batching with `submit`). */
+  /** Build an `update` op (exposed for batching with `submit`). */
   updateOp(target: RecordRef, c: UpdateInput): Op & { kind: "update" } {
     if (c.contract || c.promote) throw mdbaseError("invalid_request", "contract updates are mapped by the replica; use update()");
     const op: Op & { kind: "update" } = { kind: "update", id: refId(target) };
@@ -1817,6 +1910,41 @@ export class MdbaseClient {
     if (needsReceipt(w.receipt)) this.writes.set(r.mutation, w);
     else this.writes.delete(r.mutation);
     return w;
+  }
+
+  /**
+   * Settle a write for the UI: waits up to `timeoutMs` (default 3 s) for the log
+   * to confirm it. Still pending then is `saved_on_device`, not a failure: the
+   * write is kept on this device and the ledger settles it later. With
+   * `readBack`, `record` is the record as it now reads here.
+   */
+  async save(write: Write | Promise<Write>, o: { readBack?: boolean; timeoutMs?: number; signal?: AbortSignal } = {}): Promise<SaveResult> {
+    const w = await write;
+    let r = w.receipt;
+    if (r.state === "pending") {
+      try {
+        r = await this.awaitReceipt(w.mutationId, o.timeoutMs ?? 3000, o.signal);
+        w.update(r);
+      } catch (e) {
+        if (isMdbaseError(e, "cancelled")) throw e;
+        // The wait failing says nothing about the write: it is on this device.
+        r = w.receipt;
+      }
+    }
+    const outcome: SaveResult["outcome"] = r.state === "confirmed" ? "confirmed"
+      : r.state === "pending" ? "saved_on_device" : "rejected";
+    const records = w.records;
+    let record: RecordView | undefined = records[0];
+    if (o.readBack && outcome !== "rejected" && record) {
+      record = (await this.find(record.id, undefined, o.signal).catch(() => null)) ?? record;
+    }
+    return Object.freeze({
+      outcome,
+      mutationId: w.mutationId,
+      records,
+      ...(record ? { record } : {}),
+      ...(outcome === "rejected" && r.problem ? { problem: r.problem } : {}),
+    });
   }
 
   /** The current receipt of a mutation. Failures carry `mutationId`. */

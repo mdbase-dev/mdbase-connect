@@ -11,6 +11,9 @@ publish.workspace = true
 # Authenticated LAB fixture tests require the separately supplied private asset.
 # Default public-tree tests use the public synthetic vector only.
 lab = []
+# Explicit local-only build. Managed verify() never accepts local assets, even
+# when linked into a binary with this feature.
+local-rehearsal = []
 
 # Allowed internal dependencies: mdbn-wire, mdbn-replica. The library does no I/O
 # (the `mdbn-trust` binary reads one file for build steps). Not linked into

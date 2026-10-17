@@ -9,3 +9,5 @@ export type {
   ApplicationFixture, ApplicationFixtureOptions, ApplicationFixtureControls,
   ApplicationFixtureAction, ApplicationFixtureCall, ApplicationFixtureHandler,
 } from "./application.js";
+export { createTestApp, createTestMdbase } from "./test-app.js";
+export type { TestApp, TestMdbase, TestAppOptions, TestAppPreset, TestAppCollection, TestAppFault } from "./test-app.js";
