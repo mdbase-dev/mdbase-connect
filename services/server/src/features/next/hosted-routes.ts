@@ -15,7 +15,7 @@ import { LOG_TOKEN_LIFETIME_MS, type LogServiceClient } from "./log-service-clie
 import { loadServiceDevice, serviceDeviceWire, type ServiceDeviceRecord, type ServiceKind } from "./service-devices.js";
 import { CreateError, inTransaction, lock, NIL, refuseRevoked } from "./bootstrap-common.js";
 import { requireCollectionNotDeleted } from "./collection-deletion.js";
-import { migrationCollection, type LabMigrationRouting } from "./lab-migration-routing.js";
+import { migrationRoute, type MigrationRouting } from "./migration-routing.js";
 
 export type CollectionDirectoryState = "standard" | "private" | "local" | "unknown";
 
@@ -164,20 +164,22 @@ export async function originalGenesis(db: DatabaseQueryable, collection: string,
 
 export function registerNextHostedRoutes(
   app: FastifyInstance,
-  options: { db: DatabasePool; tokens: { hosted?: string; escrow?: string }; log?: LogServiceClient; now?: () => number; labMigrationRouting?: LabMigrationRouting }
+  options: { db: DatabasePool; tokens: { hosted?: string; escrow?: string }; log?: LogServiceClient; now?: () => number; migrationRouting?: MigrationRouting }
 ): void {
   const callerKind = (request: FastifyRequest) => {
     const token = bearerToken(request);
-    return token && options.labMigrationRouting && safeEqual(token, options.labMigrationRouting.inboundToken)
+    return token && options.migrationRouting && safeEqual(token, options.migrationRouting.inboundToken)
       ? "hosted" as const : serviceKind(request, options.tokens);
   };
   const scoped = async (request: FastifyRequest, ids: string[]) => {
     const kind = callerKind(request);
     if (!kind) return false;
-    if (kind === "escrow" || !options.labMigrationRouting) return true;
-    const migrationCaller = safeEqual(bearerToken(request)!, options.labMigrationRouting.inboundToken);
+    if (kind === "escrow" || !options.migrationRouting) return true;
+    const migrationCaller = safeEqual(bearerToken(request)!, options.migrationRouting.inboundToken);
     for (const id of ids) {
-      if (await migrationCollection(options.db, options.labMigrationRouting, id) !== migrationCaller) return false;
+      // A retired route has no hosted deployment: neither credential reads it.
+      const route = await migrationRoute(options.db, options.migrationRouting, id);
+      if (route === "retired" || (route === "migration") !== migrationCaller) return false;
     }
     return true;
   };

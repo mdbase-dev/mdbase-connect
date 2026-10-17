@@ -2,7 +2,7 @@
 // callers. The caller supplies current-principal authorization; runtime is an
 // internal composition choice, never a public request field. No readiness claim.
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
-import { migrationDeployments } from "./lab-migration-routing.js";
+import { migrationDeployments } from "./migration-routing.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import { CreateError, enrolOp, inTransaction, lock, SERVICE_ACCOUNT } from "./bootstrap-common.js";
 import { requireCollectionNotDeleted } from "./collection-deletion.js";
@@ -57,7 +57,8 @@ export async function currentCloudCopy(client: DatabaseConnection, collection: s
 export async function generateCloudCopyServices(options: CloudCopyBootstrapOptions, collection: string, authenticatedCreator?: string) {
   const deployments = options.next.cloudCopyBootstrap;
   if (!deployments) throw new CreateError(503, "not_ready");
-  const selected = await migrationDeployments(options.db, pitrDeployments(deployments, options.next.logService.labPitr, collection), options.next.labMigrationRouting, collection, authenticatedCreator);
+  const selected = await migrationDeployments(options.db, pitrDeployments(deployments, options.next.logService.labPitr, collection), options.next.migrationRouting, collection, authenticatedCreator);
+  if (!selected) throw new CreateError(409, "migration_routing_retired");
   return Promise.all(KINDS.map(kind => generateServiceDevice(selected[kind], kind, collection, options.fetchImpl)));
 }
 

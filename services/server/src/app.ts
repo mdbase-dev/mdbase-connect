@@ -38,6 +38,7 @@ import { registerMigrationProviderRoutes } from "./features/next/migration-provi
 import { registerPrearchiveMigrationRoutes } from "./features/next/migration-prearchive.js";
 import { registerMigrationReplicaRoutes } from "./features/next/migration-replicas.js";
 import { registerMigrationTimerCleanupRoute } from "./features/next/migration-timer-cleanup.js";
+import { registerMigrationRouteRetireRoute } from "./features/next/migration-routing.js";
 import { registerPolicyRecoveryRoutes } from "./features/next/policy-recovery-routes.js";
 import { registerLabFixtureRoutes } from "./features/next/lab-fixture-routes.js";
 import { validateLabFixtureConfig } from "./features/next/lab-fixture-config.js";
@@ -280,7 +281,7 @@ export async function buildApp(options: BuildOptions) {
         2_000,
         Date.now,
         serviceDeployments
-          ? (collectionId) => activatePendingServices(options.db, serviceDeployments, undefined, collectionId, options.nextControlPlane!.logService.labPitr, options.nextControlPlane!.labMigrationRouting)
+          ? (collectionId) => activatePendingServices(options.db, serviceDeployments, undefined, collectionId, options.nextControlPlane!.logService.labPitr, options.nextControlPlane!.migrationRouting)
           : undefined
       )
     : undefined;
@@ -313,7 +314,7 @@ export async function buildApp(options: BuildOptions) {
   });
   await app.register(rateLimit, {
     global: true,
-    ...globalRateLimitKeying(options.nextControlPlane?.serviceTokens, options.nextControlPlane?.labMigrationRouting?.inboundToken),
+    ...globalRateLimitKeying(options.nextControlPlane?.serviceTokens, options.nextControlPlane?.migrationRouting?.inboundToken),
     timeWindow: "1 minute"
   });
   await app.register(formbody);
@@ -615,7 +616,7 @@ export async function buildApp(options: BuildOptions) {
     registerNextRolloutRoutes(app, options.db);
     registerCollectionLogTokenRoute(app, { db: options.db, log: nextLog });
     registerNoisePipeClientRoute(app, { db: options.db, broker: relayBroker });
-    registerNextHostedRoutes(app, { db: options.db, tokens: options.nextControlPlane.serviceTokens, log: nextLog, labMigrationRouting: options.nextControlPlane.labMigrationRouting });
+    registerNextHostedRoutes(app, { db: options.db, tokens: options.nextControlPlane.serviceTokens, log: nextLog, migrationRouting: options.nextControlPlane.migrationRouting });
     registerLabPitrRoutes(app, { db: options.db, next: options.nextControlPlane, log: nextLog,
       admission: { signer: nextPolicySigner!, audience: new URL(publicUrl).origin, identity: nextLog } });
     registerCollectionMigrationRecordRoute(app, options.db);
@@ -627,12 +628,14 @@ export async function buildApp(options: BuildOptions) {
         environment: options.environment, provider: options.hostedProvider });
       registerMigrationProviderRoutes(app, { db: options.db, token: options.nextControlPlane.migrationToken, environment: options.environment, provider: options.hostedProvider,
         ...(options.nextControlPlane.serviceTokens.hosted && new URL(publicUrl).protocol === "https:"
-          ? { hostedRead: { token: options.nextControlPlane.serviceTokens.hosted, audience: new URL(publicUrl).origin, migrationRouting: options.nextControlPlane.labMigrationRouting } } : {}),
+          ? { hostedRead: { token: options.nextControlPlane.serviceTokens.hosted, audience: new URL(publicUrl).origin, migrationRouting: options.nextControlPlane.migrationRouting } } : {}),
         ...(options.nextControlPlane.cloudCopyBootstrap ? { bootstrap: { next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog } } : {}) });
       registerMigrationReplicaRoutes(app, { db: options.db, token: options.nextControlPlane.migrationToken, provider: options.hostedProvider,
         log: nextLog, emitter: nextPolicyEmitter! });
       registerMigrationTimerCleanupRoute(app, { db: options.db, token: options.nextControlPlane.migrationToken,
         environment: options.environment, provider: options.hostedProvider });
+      if (options.nextControlPlane.migrationRouting) registerMigrationRouteRetireRoute(app, { db: options.db,
+        token: options.nextControlPlane.migrationToken, routing: options.nextControlPlane.migrationRouting });
     }
     if (options.nextControlPlane.cloudCopyBootstrap) registerCloudCopyRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, deletionFloor: nextLog, tailscaleAuth: options.tailscaleAuth });
     if (options.nextControlPlane.privateBootstrap) registerPrivateCollectionRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, deletionFloor: nextLog });
@@ -641,7 +644,7 @@ export async function buildApp(options: BuildOptions) {
       db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, rateLimitSecret: options.authRateLimitSecret
     });
     registerPolicyRecoveryRoutes(app, options.db, nextPolicyEmitter!);
-    registerNextRouteRoutes(app, { db: options.db, publicUrl, broker: relayBroker, hostedClientUrl: options.nextControlPlane.hostedClientUrl, labPitr: options.nextControlPlane.logService.labPitr, labMigrationRouting: options.nextControlPlane.labMigrationRouting });
+    registerNextRouteRoutes(app, { db: options.db, publicUrl, broker: relayBroker, hostedClientUrl: options.nextControlPlane.hostedClientUrl, labPitr: options.nextControlPlane.logService.labPitr, migrationRouting: options.nextControlPlane.migrationRouting });
     registerClientKeyAttachRoute(app, { db: options.db });
     if (options.nextControlPlane.labFixtures) registerLabFixtureRoutes(app, {
       db: options.db, config: options.nextControlPlane.labFixtures, next: options.nextControlPlane,

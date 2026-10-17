@@ -17,7 +17,7 @@ import { SCOPED_HOSTED_ARCHIVE_SCHEMA } from "./migration-archive-profile.js";
 import { requireOriginalArchiveSource } from "./migration-scoped-archive.js";
 import { createServiceCloudCopy, existingCloudCopy, type CloudCopyBootstrapOptions } from "./service-cloud-copy.js";
 import { loadServiceDevice } from "./service-devices.js";
-import { migrationAccount, type LabMigrationRouting } from "./lab-migration-routing.js";
+import { migrationAccount, migrationRouteRetired, type MigrationRouting } from "./migration-routing.js";
 
 interface Claim { account: string; started_us: string; display_name: string }
 interface Options {
@@ -27,7 +27,7 @@ interface Options {
     & Partial<Pick<HostedProviderClient, "legacyMigrationPlacement">>;
   bootstrap?: Omit<CloudCopyBootstrapOptions, "db">;
   /** Existing hosted-role credential + OWN canonical configured CP origin. */
-  hostedRead?: { token: string; audience: string; migrationRouting?: LabMigrationRouting };
+  hostedRead?: { token: string; audience: string; migrationRouting?: MigrationRouting };
 }
 
 /** Called only AFTER the existing started-account claim has been locked. A
@@ -241,7 +241,9 @@ export function registerMigrationProviderRoutes(app: FastifyInstance, options: O
           return await inTransaction(options.db, async client => {
             const before = await currentClaim(client, p.data.id, true);
             const routing = hostedRead.migrationRouting;
-            const expected = await migrationAccount(client, routing, before.owner_account) ? routing!.inboundToken : hostedRead.token;
+            const routed = await migrationAccount(client, routing, before.owner_account);
+            if (routed && await migrationRouteRetired(client, routing, p.data.id)) throw new CreateError(403, "wrong_service_scope");
+            const expected = routed ? routing!.inboundToken : hostedRead.token;
             if (!safeEqual(bearerToken(request)!, expected)) throw new CreateError(403, "wrong_service_scope");
             let nonce: { challenge: string } | undefined;
             if (kind === "challenge") nonce = await issueServiceClaimChallenge(client, audience, before, body.data.device_id);

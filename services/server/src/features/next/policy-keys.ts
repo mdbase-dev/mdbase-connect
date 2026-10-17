@@ -10,7 +10,7 @@ import { certDigest, keyId, type CpCert, type PolicySigner } from "./policy-wire
 import { parseLabFixtureConfig, type LabFixtureConfig } from "./lab-fixture-config.js";
 import { hostedClientOrigin } from "./hosted-route-target.js";
 import { parseLabPitrConfig, type LabPitrConfig } from "./lab-pitr-config.js";
-import { parseLabMigrationRouting, type LabMigrationRouting } from "./lab-migration-routing.js";
+import { parseMigrationRouting, type MigrationRouting } from "./migration-routing.js";
 
 /** Refuse to start when the certificate expires within this window. */
 const MIN_CERT_REMAINING_MS = 7 * 24 * 60 * 60 * 1000;
@@ -52,7 +52,7 @@ export interface NextControlPlaneConfig {
   privateBootstrap?: true;
   /** Trusted direct Noise endpoint origin; discovery is not live admission. */
   hostedClientUrl?: string;
-  labMigrationRouting?: LabMigrationRouting;
+  migrationRouting?: MigrationRouting;
   labFixtures?: LabFixtureConfig;
 }
 
@@ -103,7 +103,7 @@ export function verifyCert(cert: CpCert, rootPublicKey: Uint8Array): boolean {
 export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPlaneConfig | null {
   const labFixtures = parseLabFixtureConfig(env);
   const labPitr = parseLabPitrConfig(env);
-  const labMigrationRouting = parseLabMigrationRouting(env);
+  const migrationRouting = parseMigrationRouting(env);
   const enabled = env.MDBASE_NEXT_CONTROL_PLANE?.trim() ?? "";
   if (enabled !== "" && enabled !== "0" && enabled !== "1") throw new Error("MDBASE_NEXT_CONTROL_PLANE must be 0 or 1.");
   if (enabled !== "1") {
@@ -159,10 +159,10 @@ export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPla
       throw new Error("Inbound and outbound service tokens must all differ.");
     }
   }
-  if (labMigrationRouting) {
-    if (!cloudCopyBootstrap || !migration || labPitr) throw new Error("LAB migration routing requires factories and migration token, without PITR.");
-    const tokens = [hosted, escrow, migration, cloudCopyBootstrap.hosted.token, cloudCopyBootstrap.escrow.token, labMigrationRouting.hosted.token, labMigrationRouting.inboundToken];
-    if (new Set(tokens).size !== tokens.length) throw new Error("LAB migration credentials must all differ.");
+  if (migrationRouting) {
+    if (!cloudCopyBootstrap || !migration || labPitr) throw new Error("Migration routing requires factories and migration token, without PITR.");
+    const tokens = [hosted, escrow, migration, cloudCopyBootstrap.hosted.token, cloudCopyBootstrap.escrow.token, migrationRouting.hosted.token, migrationRouting.inboundToken];
+    if (new Set(tokens).size !== tokens.length) throw new Error("Migration routing credentials must all differ.");
   }
   if (labPitr && !cloudCopyBootstrap) throw new Error("LAB PITR requires real cloud-copy factories.");
   const pitrAuthorityToken = serviceToken("MDBASE_NEXT_PITR_AUTHORITY_TOKEN");
@@ -181,7 +181,7 @@ export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPla
     ...(migration ? { migrationToken: migration } : {}),
     ...(pitrAuthorityToken ? { pitrAuthorityToken } : {}),
     ...(cloudCopyBootstrap ? { cloudCopyBootstrap } : {}),
-    ...(labMigrationRouting ? { labMigrationRouting } : {}),
+    ...(migrationRouting ? { migrationRouting } : {}),
     ...(privateBootstrap === "1" ? { privateBootstrap: true as const } : {}),
     ...(env.MDBASE_NEXT_HOSTED_CLIENT_URL?.trim() ? { hostedClientUrl: hostedClientOrigin(env.MDBASE_NEXT_HOSTED_CLIENT_URL.trim()) } : {}),
     ...(labFixtures ? { labFixtures } : {}),
