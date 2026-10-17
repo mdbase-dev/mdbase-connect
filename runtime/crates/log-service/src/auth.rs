@@ -422,6 +422,15 @@ pub fn http_nonce(secret: &[u8], now: i64, random: [u8; 8]) -> [u8; 32] {
     n
 }
 
+/// True when `nonce` is one this service issued with [`http_nonce`] and it is
+/// still within its lifetime. Stateless: single use is the caller's check.
+pub fn http_nonce_fresh(secret: &[u8], nonce: &[u8; 32], now: i64) -> bool {
+    let ts = u64::from_be_bytes(nonce[..8].try_into().unwrap()) as i64;
+    crate::service::ct_eq(&hmac(secret, &nonce[..16])[..16], &nonce[16..])
+        && now - ts <= HTTP_NONCE_TTL_MS
+        && ts <= now + 5_000
+}
+
 /// Verify a plain HTTPS request (§3): token, a fresh nonce (≤ 5 minutes) and a
 /// signature over the method and body hash.
 pub fn verify_http(
@@ -555,11 +564,7 @@ pub fn verify_http_claims(
     let nonce: [u8; 32] = unhex(nonce_hex)
         .and_then(|v| v.try_into().ok())
         .ok_or_else(|| unauth("nonce"))?;
-    let ts = u64::from_be_bytes(nonce[..8].try_into().unwrap()) as i64;
-    if !crate::service::ct_eq(&hmac(secret, &nonce[..16])[..16], &nonce[16..])
-        || now - ts > HTTP_NONCE_TTL_MS
-        || ts > now + 5_000
-    {
+    if !http_nonce_fresh(secret, &nonce, now) {
         return Err(unauth("nonce"));
     }
     let sig: [u8; 64] = unhex(sig_hex)

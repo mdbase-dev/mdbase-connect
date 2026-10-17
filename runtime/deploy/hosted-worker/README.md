@@ -110,3 +110,22 @@ without opening a collection. It does not attest readiness: check the token-guar
 `mdbase-next-log-hosted-e2e` (frozen log bundle, own R2 bucket, fixture root and a
 LAB-only stand-in token issuer) and `mdbase-next-hosted-lab`, seeds the fixture and
 runs the SDK smoke. Requires R2 enabled on the account.
+
+## Legacy source (migration, LAB only)
+
+`src/legacy-source/bindings.ts` opens today's hosted provider as a read-only
+migration source, using:
+- a Hyperdrive binding `LEGACY_DB`, connecting as `mdbn_hosted_legacy_reader`;
+- object-read-only R2 S3 credentials;
+- the legacy wrapping key.
+
+It also enforces an explicit collection allowlist. A missing or malformed
+binding refuses with a typed `LegacyBindingError`, without echoing the value.
+
+The reader role comes from the operator recipe `sql/legacy-reader-role.sql`,
+which takes a SCRAM verifier, not a password. Undo it with
+`sql/legacy-reader-role-drop.sql`. `sql/legacy-reader-role-proof.sql` shows
+that the role refuses writes, DDL and reads outside its allowlist.
+
+The database is reached privately (Workers VPC through a tunnel), never through
+a public database endpoint. The binding list is in `wrangler.jsonc`.

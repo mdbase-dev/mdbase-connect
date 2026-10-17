@@ -1,6 +1,7 @@
 import {authorizationContractRequirements,authorizationFiles,authorizationOperations,semanticContractVersion} from "@mdbase-dev/connect-protocol";
 import {parseVersionedAppManifest} from "@mdbase-dev/connect-protocol/manifest";
 import {plainApplicationManifest,type ApplicationDeclarationSnapshot} from "./declaration.js";
+import {applicationLoopbackAllowed} from "./local-build.js";
 
 function frozen<T>(value:T):Readonly<T>{
   if(value!==null&&typeof value==="object"){
@@ -13,7 +14,7 @@ function frozen<T>(value:T):Readonly<T>{
  * has no capability→operation table, parser, permission defaults, or selection
  * widening. Registration/native authority/catalog readiness remain separate. */
 export function compileApplicationManifest(declaration:Readonly<ApplicationDeclarationSnapshot>){
-  const versioned=parseVersionedAppManifest(plainApplicationManifest(declaration),{allowLocal:declaration.environment==="lab"});
+  const versioned=parseVersionedAppManifest(plainApplicationManifest(declaration),{allowLocal:applicationLoopbackAllowed(declaration.environment)});
   const manifest=frozen(versioned.manifest),requirements=manifest.requirements;
   const semanticVersion=semanticContractVersion(requirements);
   const operations=frozen(authorizationOperations(manifest,{}));

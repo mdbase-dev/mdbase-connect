@@ -12,9 +12,9 @@ const fullFixture = JSON.parse(readFileSync(new URL("./fixtures/native-bases-app
 const request: AppBasesRequest = {record:"11111111-1111-1111-1111-111111111111",sourceRevision:`sha256:${"22".repeat(32)}`,ordinal:3,hints:new Map([["due","date"],["scheduled","date"]]),captureTimezone:"UTC"};
 const cleanup: (()=>void)[]=[];
 afterEach(()=>{for(const close of cleanup.splice(0).reverse())close();});
-async function clientFixture(read?: FramePort["readAppBases"], discovery?: FramePort["readAppBasesDiscovery"]) {
+async function clientFixture(read?: FramePort["readAppBases"] | null, discovery?: FramePort["readAppBasesDiscovery"]) {
  const original=new MemoryReplica().connector();
- const client=await connect({connector:{description:original.description,async open(hello,signal){const opened=await original.open(hello,signal);if(read)opened.port.readAppBases=read;if(discovery)opened.port.readAppBasesDiscovery=discovery;return opened;}},app:{name:"Bases bridge stand-in",version:"0"},reconnect:false});
+ const client=await connect({connector:{description:original.description,async open(hello,signal){const opened=await original.open(hello,signal);if(read===null)delete opened.port.readAppBases;else if(read)opened.port.readAppBases=read;if(discovery)opened.port.readAppBasesDiscovery=discovery;return opened;}},app:{name:"Bases bridge stand-in",version:"0"},reconnect:false});
  cleanup.push(()=>client.close());return client;
 }
 const scope=():AppLocalScope=>({account:"11111111-1111-4111-8111-111111111111",installation:"22222222-2222-4222-8222-222222222222",collection:"33333333-3333-4333-8333-333333333333",isCurrent:()=>true});
@@ -45,15 +45,15 @@ describe("native discovery held-port bridge stand-ins (not catalog/authority pro
 describe("Bases READ bridge stand-ins (not native authority/execution/render proof)",()=>{
  it("uses exact held port bytes and independent request echo, without generic RPC fallback",async()=>{
   const read=vi.fn(async(bytes:Uint8Array)=>{expect(bytes).toEqual(fromHex(windowFixture.cases[0]!.request_hex));return fromHex(windowFixture.cases[0]!.success_hex);});
-  const client=await clientFixture(read),legacy=vi.spyOn(client,"executeView"),typedLegacy=vi.spyOn(client.views,"execute");
+  const client=await clientFixture(read),typedLegacy=vi.spyOn(client.views,"execute");
   const result=await client.executeAppBases({...request,window:{offset:0,limit:200}});
-  expect(result.kind==="success"&&result.window?.totalMatchedRows).toBe(1);expect(read).toHaveBeenCalledOnce();expect(legacy).not.toHaveBeenCalled();expect(typedLegacy).not.toHaveBeenCalled();
+  expect(result.kind==="success"&&result.window?.totalMatchedRows).toBe(1);expect(read).toHaveBeenCalledOnce();expect(typedLegacy).not.toHaveBeenCalled();
  });
  it("keeps legacy full shape and native Problem refusals",async()=>{
   for(const hex of [fullFixture.success_hex,fullFixture.refusal_hex]){const client=await clientFixture(async()=>fromHex(hex));const result=await client.executeAppBases(request);expect("window" in result).toBe(false);expect(result.kind).toBe(hex===fullFixture.success_hex?"success":"refusal");}
  });
  it("refuses transports without bridge, without restarting/fallback",async()=>{
-  const client=await clientFixture(),fallback=vi.spyOn(client.views,"execute");
+  const client=await clientFixture(null),fallback=vi.spyOn(client.views,"execute");
   await expect(client.executeAppBases(request)).rejects.toMatchObject({code:"invalid_request",reason:"unsupported"});expect(fallback).not.toHaveBeenCalled();
  });
  it("rejects an original session closed during its awaited read",async()=>{

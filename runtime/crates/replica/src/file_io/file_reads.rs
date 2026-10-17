@@ -56,6 +56,9 @@ struct Reading {
 /// Transport hosts still enforce live admission before I/O and plaintext output.
 pub struct FileReads {
     active: Option<Reading>,
+    // One failed completion, consumed by the matching device close. Only typed
+    // code/reason are retained: never plaintext, paths or provider messages.
+    failure: Option<(SessionId, mdbn_wire::common::Value)>,
     next_stream: u64,
     next_ticket: u64,
     now_ms: i64,
@@ -79,6 +82,7 @@ impl FileReads {
     pub fn new(now_ms: i64) -> Self {
         Self {
             active: None,
+            failure: None,
             next_stream: 1,
             next_ticket: 1,
             now_ms,
@@ -87,6 +91,12 @@ impl FileReads {
     /// Session owning the current stream, if any.
     pub fn active_session(&self) -> Option<SessionId> {
         self.active.as_ref().map(|a| a.session)
+    }
+    pub(crate) fn take_failure(&mut self, session: SessionId) -> Option<mdbn_wire::common::Value> {
+        if self.failure.as_ref()?.0 != session {
+            return None;
+        }
+        self.failure.take().map(|(_, detail)| detail)
     }
     /// Idle deadline for the active stream.
     pub fn deadline(&self) -> Option<i64> {
@@ -146,6 +156,7 @@ impl FileReads {
         self.next_stream += 1;
         let start = range.map_or(0, |x| x.0);
         let view = pin.view().clone();
+        self.failure = None;
         self.active = Some(Reading {
             id,
             session,
@@ -477,7 +488,16 @@ impl FileReads {
         if result.is_err() {
             region.scrub(a.lease);
         }
-        result.map_err(|_| a.session)?;
+        result.map_err(|error| {
+            use mdbn_wire::common::Value;
+            let problem = error.problem();
+            let mut detail = vec![("cause_code".into(), Value::Text(problem.code.clone()))];
+            if let Some(reason) = &problem.reason {
+                detail.push(("cause_reason".into(), Value::Text(reason.clone())));
+            }
+            self.failure = Some((a.session, Value::Map(detail)));
+            a.session
+        })?;
         a.progress_ms = self.now_ms;
         Ok(true)
     }

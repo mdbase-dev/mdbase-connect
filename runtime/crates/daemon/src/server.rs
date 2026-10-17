@@ -97,6 +97,10 @@ pub struct Daemon {
     authority: crate::authority::Authority,
     /// Native confirmation dialogs.
     confirmer: std::sync::RwLock<Arc<dyn crate::confirm::Confirmer>>,
+    /// Grants with an automatic sealed-scope publication task in flight.
+    grant_publications: std::sync::Mutex<std::collections::BTreeSet<String>>,
+    /// Weak self for automatic publication retries from `&self` feed handling.
+    self_weak: std::sync::OnceLock<std::sync::Weak<Daemon>>,
     /// The localhost link for the Obsidian runtime.
     link: std::sync::Mutex<Option<crate::link::Link>>,
     /// The relay socket is up.
@@ -173,6 +177,8 @@ pub async fn run_with(
         link_prompt: Mutex::new(()),
         authority: crate::authority::Authority::default(),
         confirmer: std::sync::RwLock::new(Arc::from(confirmer)),
+        grant_publications: Default::default(),
+        self_weak: std::sync::OnceLock::new(),
         online: std::sync::atomic::AtomicBool::new(false),
         link: std::sync::Mutex::new(None),
         trust: crate::trust::authenticated().ok().map(Arc::new),
@@ -189,6 +195,7 @@ pub async fn run_with(
         }),
         profile,
     });
+    let _ = daemon.self_weak.set(Arc::downgrade(&daemon));
     tracing::info!(
         version = crate::BINARY_VERSION,
         state_dir = %daemon.profile.state_dir.display(),
@@ -334,10 +341,22 @@ async fn initialize(d: Arc<Daemon>) {
         }
     };
     let mut access = access;
-    // "was ever end-to-end" is this device's own record (the registry),
-    // never the control plane's; it forces approval for those collections.
+    // Preserve the local opt-in boundary after a collection leaves Private
+    // sync. Current Private entries have account consent already; migrate the
+    // old pending UI state even offline (expired leases still forbid serving).
     for e in registry.collections.iter().filter(|e| e.ever_e2e) {
         access.force_approval(&e.id);
+        if e.mode == SyncMode::SyncedE2e {
+            for entry in access
+                .entries
+                .iter_mut()
+                .filter(|g| g.grant.collection == e.id)
+            {
+                if entry.state == AccessState::PendingApproval {
+                    entry.state = AccessState::Active;
+                }
+            }
+        }
     }
     // Before any host opens: a taken-over folder stays closed while an old daemon runs.
     d.check_old_connector().await;
@@ -570,6 +589,7 @@ impl Daemon {
             grants,
             fsutil::now_ms() as u64,
             lease_expires_ms,
+            false,
         );
         if let Err(e) = next.save(&self.profile.access_file()) {
             inner.access.leases.clear();
@@ -671,6 +691,351 @@ impl Daemon {
         to_value(&entry)
     }
 
+    /// This daemon as an `Arc`, when constructed through one.
+    fn arc(&self) -> Option<Arc<Self>> {
+        self.self_weak.get().and_then(|w| w.upgrade())
+    }
+
+    /// The runtime serving `collection`, if it is running.
+    async fn collection_runtime(&self, collection: &str) -> Option<Arc<crate::runtime::Runtime>> {
+        let inner = self.inner.lock().await;
+        inner
+            .hosts
+            .iter()
+            .find(|h| h.entry().id == collection)
+            .and_then(|h| h.runtime())
+    }
+
+    /// Positive eligibility for a bounded wait, NOT permission to serve. Capture
+    /// the original consent generation and account incarnation; disk cache alone
+    /// never restores a lease. The account gate preserves existing lock order.
+    async fn native_grant_wait_consent(
+        &self,
+        collection: &str,
+        grant: &str,
+    ) -> Option<NativeGrantWaitContext> {
+        let _gate = self.account_gate.lock().await;
+        let incarnation = self.authority.incarnation()?;
+        let inner = self.inner.lock().await;
+        let collection_entry = inner.registry.get(collection)?;
+        if collection_entry.mode != SyncMode::SyncedE2e || collection_entry.paused {
+            return None;
+        }
+        let entry = inner
+            .access
+            .entries
+            .iter()
+            .find(|e| e.grant.collection == collection && e.grant.grant == grant)?;
+        if entry.state != AccessState::Active
+            || entry.delisted
+            || entry.grant.legacy_only
+            || entry
+                .grant
+                .account_id
+                .as_deref()
+                .and_then(crate::authority::account_id)
+                != Some(incarnation.account)
+            || entry.grant.capabilities.is_empty()
+            || crate::secrets::hex_decode(&entry.grant.client_pk)
+                .ok()
+                .is_none_or(|bytes| bytes.len() != 32)
+            || crate::attest::uuid_bytes(grant).is_none()
+            || !inner.access.lease_live(collection, fsutil::now_ms() as u64)
+        {
+            return None;
+        }
+        let deadline = *inner.access.monotonic_leases.get(collection)?;
+        let runtime = inner
+            .hosts
+            .iter()
+            .find(|h| h.entry().id == collection)?
+            .runtime()?;
+        Some(NativeGrantWaitContext {
+            entry: entry.clone(),
+            incarnation,
+            deadline,
+            runtime,
+        })
+    }
+
+    /// One grant's approval state from its collection's replica.
+    async fn native_grant_state(
+        &self,
+        collection: &str,
+        grant: &[u8; 16],
+    ) -> Option<mdbn_replica::api::GrantApprovalState> {
+        let rt = self.collection_runtime(collection).await?;
+        match rt
+            .grant_approval(crate::runtime::GrantApprovalOp::State(
+                mdbn_wire::common::B16(*grant),
+            ))
+            .await
+        {
+            Some(crate::runtime::GrantApprovalReply::State(s)) => s,
+            _ => None,
+        }
+    }
+
+    /// Mark a native grant active here (the log approval is the authority;
+    /// this is the device's display and refusal state).
+    async fn activate_native_entry(&self, expected: &AccessEntry) -> Result<Value, ControlError> {
+        let _gate = self.account_gate.lock().await;
+        let mut inner = self.inner.lock().await;
+        let current = inner
+            .access
+            .entries
+            .iter()
+            .find(|e| e.grant.grant == expected.grant.grant);
+        if current != Some(expected) {
+            return Err(ControlError::new(
+                "forbidden",
+                "consent_changed",
+                "grant terms or decision changed during approval",
+            ));
+        }
+        if expected.state == AccessState::Active {
+            return to_value(expected);
+        }
+        let mut next = inner.access.clone();
+        let entry = next
+            .approve(&expected.grant.grant)
+            .cloned()
+            .map_err(access_error)?;
+        self.save_access(&mut inner, &next)?;
+        inner.access = next;
+        self.authority.publish_access(&inner.access);
+        drop(inner);
+        self.bump();
+        to_value(&entry)
+    }
+
+    /// Materialize an account-approved Private grant automatically. The sealed
+    /// kind-6 item carries Private folder scope; it is not another user decision
+    /// and never invokes a native confirmation or key comparison.
+    async fn publish_native_grant(
+        self: &Arc<Self>,
+        expected: &AccessEntry,
+    ) -> Result<Value, ControlError> {
+        // Publish only a fresh feed for the currently signed-in account. A
+        // missing account is never consent, including when signed out.
+        let account = expected
+            .grant
+            .account_id
+            .as_deref()
+            .and_then(crate::authority::account_id)
+            .ok_or_else(|| {
+                ControlError::new("forbidden", "consent_changed", "grant account is missing")
+            })?;
+        {
+            let _gate = self.account_gate.lock().await;
+            let inner = self.inner.lock().await;
+            let current = inner
+                .access
+                .entries
+                .iter()
+                .find(|e| e.grant.grant == expected.grant.grant);
+            if current != Some(expected)
+                || expected.is_refused()
+                || !inner
+                    .access
+                    .lease_live(&expected.grant.collection, fsutil::now_ms() as u64)
+                || Some(account) != self.authority.active_account()
+                || expected.grant.legacy_only
+            {
+                return Err(ControlError::new(
+                    "forbidden",
+                    "consent_changed",
+                    "account grant or feed authority changed",
+                ));
+            }
+        }
+        let Some(grant16) = crate::attest::uuid_bytes(&expected.grant.grant) else {
+            return Err(ControlError::internal("grant or collection ID malformed"));
+        };
+        let state = self
+            .native_grant_state(&expected.grant.collection, &grant16)
+            .await
+            .ok_or_else(|| {
+                ControlError::unavailable(
+                    "grant_not_in_log",
+                    "this computer has not received the app's request yet; try again shortly",
+                )
+            })?;
+        // The feed's terms were shown to the user; the log's must match,
+        // including when an approval from another device already exists.
+        let entry_pk = crate::secrets::hex_decode(&expected.grant.client_pk)
+            .ok()
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+        if !state.active
+            || entry_pk != Some(state.client_pk)
+            || expected.grant.capabilities.is_empty()
+            || !expected
+                .grant
+                .capabilities
+                .iter()
+                .all(|c| state.capabilities.contains(c))
+        {
+            return Err(ControlError::new(
+                "forbidden",
+                "consent_changed",
+                "the app's request in the collection differs from what was shown; approve again",
+            ));
+        }
+        if state.approved_capabilities.is_none() {
+            let rt = self
+                .collection_runtime(&expected.grant.collection)
+                .await
+                .ok_or_else(|| {
+                    ControlError::unavailable("not_serving", "the collection is not being served")
+                })?;
+            match rt
+                .grant_approval(crate::runtime::GrantApprovalOp::Approve {
+                    grant: mdbn_wire::common::B16(grant16),
+                    capabilities: expected.grant.capabilities.clone(),
+                    folders: expected.grant.folders.clone(),
+                })
+                .await
+            {
+                Some(crate::runtime::GrantApprovalReply::Approve(Ok(()))) => {}
+                Some(crate::runtime::GrantApprovalReply::Approve(Err(reason))) => {
+                    return Err(ControlError::new(
+                        "forbidden",
+                        &reason,
+                        "this computer cannot approve that grant",
+                    ));
+                }
+                _ => {
+                    return Err(ControlError::unavailable(
+                        "not_serving",
+                        "the collection is not being served",
+                    ));
+                }
+            }
+        }
+        // The append is queued; wait briefly for it to apply, then report.
+        for _ in 0..40 {
+            if let Some(s) = self
+                .native_grant_state(&expected.grant.collection, &grant16)
+                .await
+            {
+                if let Some(failure) = &s.failure {
+                    return Err(ControlError::new(
+                        "forbidden",
+                        failure,
+                        "the approval could not be saved to the collection",
+                    ));
+                }
+                if s.approved_capabilities.is_some() {
+                    return self.activate_native_entry(expected).await;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        self.spawn_native_grant_publisher(expected.grant.grant.clone());
+        Err(ControlError::unavailable(
+            "grant_approval_pending",
+            "the approval is still being saved; the app can connect once it lands",
+        ))
+    }
+
+    /// Retry automatic Private grant materialization while account consent is
+    /// current. One task per grant; a no-op if already running.
+    fn spawn_native_grant_publisher(&self, grant: String) {
+        let Some(d) = self.arc() else {
+            return;
+        };
+        {
+            let mut set = self
+                .grant_publications
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            if !set.insert(grant.clone()) {
+                return;
+            }
+        }
+        tokio::spawn(async move {
+            for attempt in 0..300 {
+                if attempt != 0 {
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                }
+                let entry = {
+                    let inner = d.inner.lock().await;
+                    inner
+                        .access
+                        .entries
+                        .iter()
+                        .find(|e| e.grant.grant == grant)
+                        .cloned()
+                };
+                let Some(entry) = entry else { break };
+                if entry.is_refused() {
+                    break;
+                }
+                let Some(grant16) = crate::attest::uuid_bytes(&entry.grant.grant) else {
+                    break;
+                };
+                let Some(state) = d
+                    .native_grant_state(&entry.grant.collection, &grant16)
+                    .await
+                else {
+                    continue;
+                };
+                if state.failure.is_some() || !state.active {
+                    break;
+                }
+                if d.publish_native_grant(&entry).await.is_ok() {
+                    break;
+                }
+            }
+            d.grant_publications
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .remove(&grant);
+        });
+    }
+
+    /// After a fresh account feed, automatically publish missing sealed scope,
+    /// including after restart. Already materialized grants need no report.
+    async fn publish_account_grants(&self) {
+        let pending: Vec<String> = {
+            let inner = self.inner.lock().await;
+            inner
+                .access
+                .entries
+                .iter()
+                .filter(|e| {
+                    !e.is_refused()
+                        && inner
+                            .registry
+                            .get(&e.grant.collection)
+                            .is_some_and(|c| c.mode == SyncMode::SyncedE2e)
+                })
+                .map(|e| e.grant.grant.clone())
+                .collect()
+        };
+        for grant in pending {
+            let entry = {
+                let inner = self.inner.lock().await;
+                inner
+                    .access
+                    .entries
+                    .iter()
+                    .find(|e| e.grant.grant == grant)
+                    .cloned()
+            };
+            if let Some(entry) = entry
+                && let Some(id) = crate::attest::uuid_bytes(&grant)
+                && self
+                    .native_grant_state(&entry.grant.collection, &id)
+                    .await
+                    .is_some_and(|s| s.approved_capabilities.is_some())
+            {
+                continue;
+            }
+            self.spawn_native_grant_publisher(grant);
+        }
+    }
+
     async fn commit_control_plane_feed(
         &self,
         snapshot: &crate::relay::Snapshot,
@@ -727,11 +1092,14 @@ impl Daemon {
         let mut next = inner.access.clone();
         let mut events = Vec::new();
         let now = fsutil::now_ms() as u64;
+        // Local collections serve from this list; synced end-to-end ones are
+        // synced so account-approved native grants can be materialized without
+        // a second user decision (the replica's log policy decides sessions).
         for collection in inner
             .registry
             .collections
             .iter()
-            .filter(|e| e.mode == SyncMode::Local)
+            .filter(|e| matches!(e.mode, SyncMode::Local | SyncMode::SyncedE2e))
         {
             events.extend(
                 next.sync_from_control_plane(
@@ -742,6 +1110,7 @@ impl Daemon {
                         .unwrap_or_default(),
                     now,
                     snapshot.lease_expires_ms,
+                    collection.mode == SyncMode::SyncedE2e,
                 ),
             );
             next.monotonic_leases
@@ -776,6 +1145,7 @@ impl Daemon {
             let _ = self.access_events.send(event);
         }
         self.bump();
+        self.publish_account_grants().await;
         Ok(())
     }
 
@@ -988,6 +1358,28 @@ impl Daemon {
             }
             Method::ACCESS_APPROVE => {
                 let p: GrantRef = params(req)?;
+                // Private grants already have account consent. No native
+                // dialog is part of their access path, even on an explicit CLI
+                // review of an entry cached by an older build.
+                let native = {
+                    let inner = self.inner.lock().await;
+                    inner
+                        .access
+                        .entries
+                        .iter()
+                        .find(|e| e.grant.grant == p.grant)
+                        .filter(|e| {
+                            inner
+                                .registry
+                                .get(&e.grant.collection)
+                                .is_some_and(|c| c.mode == SyncMode::SyncedE2e)
+                        })
+                        .cloned()
+                };
+                if let Some(entry) = native {
+                    self.spawn_native_grant_publisher(entry.grant.grant.clone());
+                    return to_value(&entry);
+                }
                 let (expected, what) = {
                     let inner = self.inner.lock().await;
                     let e = inner
@@ -1002,10 +1394,10 @@ impl Daemon {
                         .map(|c| c.name.clone())
                         .unwrap_or_else(|| e.grant.collection.clone());
                     let what = format!(
-                        "Allow {} to use the collection \"{}\" through this computer?\n\nAccess: {}\nFolders: {}\nApp key: {}\n\nCheck that the app shows the same key.",
+                        "Allow {} to use the collection \"{}\" through this computer?\n\nAccess: {}\nFolders: {}\nApp key: {}\n\nCompare this key with the app's access request in your browser.",
                         e.grant.app_name,
                         name,
-                        e.grant.capabilities.join(", "),
+                        crate::access::plain_capabilities(&e.grant.capabilities),
                         e.grant
                             .folders
                             .as_ref()
@@ -1122,6 +1514,10 @@ impl Daemon {
         use mdbn_wire::client::Hold;
         // Files held at the takeover list beside the replica's own holds, and
         // even while the collection does not serve.
+        let id = &self.registered_collection(id).await?;
+        if let Ok(rt) = self.runtime_of(id).await {
+            self.reconcile_takeover_resolutions(&rt, id).await?;
+        }
         let taken = crate::takeover::held::open(&self.takeover_paths().legacy, id)
             .map_err(|e| ControlError::internal(format!("takeover holds: {e}")))?;
         let mut out = match self.runtime_of(id).await {
@@ -1138,19 +1534,116 @@ impl Daemon {
         Ok(json!(out))
     }
 
+    /// The registered collection `raw` names, as the registry spells it. Only
+    /// the exact canonical ID of a registered collection is accepted, before
+    /// anything (a takeover directory above all) is derived from it.
+    async fn registered_collection(&self, raw: &str) -> Result<String, ControlError> {
+        if !crate::takeover::held::is_collection_id(raw) {
+            return Err(ControlError::invalid(
+                "invalid_collection",
+                "collection is not a collection ID",
+            ));
+        }
+        self.inner
+            .lock()
+            .await
+            .registry
+            .get(raw)
+            .map(|e| e.id.clone())
+            .filter(|id| id == raw)
+            .ok_or_else(|| ControlError::not_found(format!("no registered collection {raw}")))
+    }
+
+    /// Read back the takeover hold resolutions still in flight for `collection`:
+    /// a confirmed one resolves its hold, a rejected one is dropped (the hold
+    /// stays open), and a pending or unknown one is left to read back again.
+    async fn reconcile_takeover_resolutions(
+        &self,
+        rt: &Arc<crate::runtime::Runtime>,
+        collection: &str,
+    ) -> Result<(), ControlError> {
+        let paths = self.takeover_paths();
+        let io = |e: std::io::Error| ControlError::internal(format!("takeover holds: {e}"));
+        if crate::takeover::held::in_flight(&paths.legacy, collection)
+            .map_err(io)?
+            .is_empty()
+        {
+            return Ok(());
+        }
+        let _run = self.takeover.run.lock().await;
+        let mut settled = false;
+        for (path, r) in crate::takeover::held::in_flight(&paths.legacy, collection).map_err(io)? {
+            let Some(outcome) = read_back(rt, r.mutation).await? else {
+                continue;
+            };
+            settled |= crate::takeover::held::settle(
+                &paths.record,
+                &paths.legacy,
+                collection,
+                &path,
+                outcome,
+            )
+            .map_err(io)?;
+        }
+        drop(_run);
+        if settled {
+            self.bump();
+        }
+        Ok(())
+    }
+
     /// Resolve a file held at the takeover. Keep this computer's: the folder
     /// already has it. Take the other: the old engine's version (or its
     /// delete) is written as this device's edit. Keep both: the old version is
-    /// added beside it as `<name> (old version).md`. Then the hold is cleared.
+    /// added beside it as `<name> (old version).md`. The hold is cleared only
+    /// once that edit is confirmed: a pending or unknown one leaves it open, and
+    /// asking again (or listing the holds) reads the same mutation back.
     async fn resolve_takeover_hold(&self, p: &ResolveHold) -> Result<Value, ControlError> {
+        use crate::takeover::held::{self, Outcome};
         use mdbn_wire::intent::{Create, Delete, DocVersion, Document, Op};
+        let collection = self.registered_collection(&p.collection).await?;
+        let io = |e: std::io::Error| ControlError::internal(format!("takeover holds: {e}"));
         let _run = self.takeover.run.lock().await;
         let paths = self.takeover_paths();
-        let held = crate::takeover::held::open(&paths.legacy, &p.collection)
-            .map_err(|e| ControlError::internal(format!("takeover holds: {e}")))?
+        let held = held::open(&paths.legacy, &collection)
+            .map_err(io)?
             .into_iter()
             .find(|h| h.id == p.id)
             .ok_or_else(|| ControlError::not_found(format!("no hold {}", p.id)))?;
+        let how = match p.how {
+            HoldAction::KeepMine => "keep_mine",
+            HoldAction::TakeTheirs => "take_theirs",
+            HoldAction::KeepBoth => "keep_both",
+            HoldAction::Delete => "delete",
+        };
+        let in_flight = held::resolving(&paths.legacy, &collection, &held.path).map_err(io)?;
+        if let Some(r) = &in_flight {
+            if r.how != how {
+                return Err(ControlError::new(
+                    "conflict",
+                    "resolution_pending",
+                    "this file is already being resolved another way; ask again once that settles",
+                ));
+            }
+            // Read the earlier submission back; resubmit only if the replica
+            // has no receipt for it.
+            let rt = self.runtime_of(&collection).await?;
+            if let Some(outcome) = read_back(&rt, r.mutation).await? {
+                return self.settle_takeover_hold(
+                    &paths,
+                    &collection,
+                    &held.path,
+                    r.mutation,
+                    outcome,
+                    _run,
+                );
+            }
+        }
+        let identity = in_flight.unwrap_or_else(|| held::Resolution {
+            how: how.into(),
+            mutation: new_uuid_v7(),
+            record: new_uuid_v7(),
+        });
         let ops = match p.how {
             HoldAction::KeepMine => Vec::new(),
             HoldAction::Delete => {
@@ -1198,7 +1691,7 @@ impl Daemon {
                             )
                         })?;
                         vec![Op::Create(Create {
-                            id: mdbn_wire::common::B16(new_uuid_v7()),
+                            id: mdbn_wire::common::B16(identity.record),
                             path: Some(target),
                             type_name: None,
                             frontmatter: None,
@@ -1220,7 +1713,7 @@ impl Daemon {
                             if_revision: Some(r.revision),
                         })],
                         None => vec![Op::Create(Create {
-                            id: mdbn_wire::common::B16(new_uuid_v7()),
+                            id: mdbn_wire::common::B16(identity.record),
                             path: Some(held.path.clone()),
                             type_name: None,
                             frontmatter: None,
@@ -1239,21 +1732,75 @@ impl Daemon {
                 }
             }
         };
-        let (mutation, state) = if ops.is_empty() {
-            ([0u8; 16], "confirmed")
-        } else {
-            let rt = self.runtime_of(&p.collection).await?;
-            submit_confirmed(&rt, ops).await?
+        if ops.is_empty() {
+            return self.settle_takeover_hold(
+                &paths,
+                &collection,
+                &held.path,
+                [0u8; 16],
+                Outcome::Confirmed,
+                _run,
+            );
+        }
+        // The identity is durable before anything is submitted, so a retry
+        // after any outcome reuses it.
+        let identity = match held::begin(&paths.legacy, &collection, &held.path, how, || {
+            (identity.mutation, identity.record)
+        })
+        .map_err(io)?
+        {
+            Ok(r) => r,
+            Err(_) => {
+                return Err(ControlError::new(
+                    "conflict",
+                    "resolution_pending",
+                    "this file is already being resolved another way; ask again once that settles",
+                ));
+            }
         };
-        crate::takeover::held::resolve(
-            &paths.record,
-            &paths.legacy,
-            &p.collection,
-            std::slice::from_ref(&held.path),
+        let rt = self.runtime_of(&collection).await?;
+        let outcome = submit_as(&rt, ops, identity.mutation).await?;
+        self.settle_takeover_hold(
+            &paths,
+            &collection,
+            &held.path,
+            identity.mutation,
+            outcome,
+            _run,
         )
-        .map_err(|e| ControlError::internal(format!("takeover holds: {e}")))?;
-        drop(_run);
-        self.bump();
+    }
+
+    /// Settle a takeover hold resolution by its outcome (see
+    /// `takeover::held::settle`) and answer for it.
+    fn settle_takeover_hold(
+        &self,
+        paths: &crate::takeover::Paths,
+        collection: &str,
+        path: &str,
+        mutation: [u8; 16],
+        outcome: crate::takeover::held::Outcome,
+        run: tokio::sync::MutexGuard<'_, ()>,
+    ) -> Result<Value, ControlError> {
+        use crate::takeover::held::Outcome;
+        let resolved =
+            crate::takeover::held::settle(&paths.record, &paths.legacy, collection, path, outcome)
+                .map_err(|e| ControlError::internal(format!("takeover holds: {e}")))?;
+        drop(run);
+        if resolved {
+            self.bump();
+        }
+        let state = match outcome {
+            Outcome::Confirmed => "confirmed",
+            Outcome::Pending => "pending",
+            Outcome::Unknown => "unknown",
+            Outcome::Rejected => {
+                return Err(ControlError::new(
+                    "conflict",
+                    "rejected",
+                    "the change was rejected; the hold stays open",
+                ));
+            }
+        };
         Ok(json!(HoldResolved {
             mutation: secrets::uuid_string(&mutation),
             state: state.into(),
@@ -1733,6 +2280,36 @@ impl Daemon {
     /// seals the folder as generation 0 with those IDs. Every step is resumable: a
     /// re-run after a crash continues from the journal, and a re-run once linked
     /// returns the status.
+    /// A failed/unknown frozen capture is NOT a proven holds-only refusal.
+    /// Close and retain the original entry paused before returning, without any
+    /// journal/enrolment/Base. Even a registry write failure stays stopped in
+    /// memory; save_registry also invalidates authority on uncertain durability.
+    async fn retain_failed_capture(&self, id: &str) -> Result<(), ControlError> {
+        let mut inner = self.inner.lock().await;
+        inner
+            .hosts
+            .iter_mut()
+            .find(|h| h.entry().id == id)
+            .ok_or_else(|| ControlError::internal("registry and hosts disagree"))?
+            .close()
+            .await;
+        let mut stopped = inner.registry.clone();
+        let paused = stopped
+            .get_mut(id)
+            .ok_or_else(|| ControlError::internal("registry changed"))?;
+        paused.paused = true;
+        let paused = paused.clone();
+        inner.registry = stopped;
+        self.authority.publish_registry(&inner.registry);
+        inner
+            .hosts
+            .iter_mut()
+            .find(|h| h.entry().id == id)
+            .ok_or_else(|| ControlError::internal("registry and hosts disagree"))?
+            .set_entry(paused);
+        self.save_registry(&inner.registry)
+    }
+
     async fn enable_sync(&self, p: EnableSync) -> Result<Value, ControlError> {
         // Accepting takeover holds clears them: the takeover gate comes first, as
         // in a takeover run.
@@ -1882,19 +2459,23 @@ impl Daemon {
                     "the collection must be serving to turn sync on; resume it and run again",
                 )
             })?;
-            let frozen = rt.freeze().await;
-            let refused = match &frozen {
-                None => Some(ControlError::internal("collection inventory unavailable")),
-                Some(f) => adopt_holds_refusal(
-                    &self.profile.state_dir,
-                    &entry.id,
-                    true,
-                    Some((f.holds, f.unresolved)),
-                )
-                .err(),
+            let Some(frozen) = rt.freeze().await else {
+                self.retain_failed_capture(&entry.id).await?;
+                return Err(ControlError::invalid(
+                    "source_capture_incomplete",
+                    "Source capture did not complete; the original collection remains paused. Resolve the incident or original pending outcome before resuming.",
+                ));
             };
+            let refused = adopt_holds_refusal(
+                &self.profile.state_dir,
+                &entry.id,
+                true,
+                Some((frozen.holds, frozen.unresolved)),
+            )
+            .err();
             if let Some(e) = refused {
-                // Nothing was changed: serve the collection again as it was.
+                // A complete, known frozen capture was refused only for holds:
+                // unlike failed/unknown capture, serving may safely resume.
                 let mut inner = self.inner.lock().await;
                 if let Some(host) = inner.hosts.iter_mut().find(|h| h.entry().id == entry.id) {
                     host.close().await;
@@ -1922,7 +2503,7 @@ impl Daemon {
                     .map_err(|e| ControlError::internal(format!("takeover holds: {e}")))?;
                 }
             }
-            let (records, resources) = frozen.map(|f| f.inventory).unwrap_or_default();
+            let (records, resources) = frozen.inventory;
             let records = if migrated {
                 crate::adopt::prefer_legacy_ids(
                     records,
@@ -2013,7 +2594,13 @@ impl Daemon {
                     .clone();
                 let created = if e2e {
                     ctx.cloud
-                        .create_private(&ctx.connector_id, &collection, &identity, &current)
+                        .create_private(
+                            &ctx.connector_id,
+                            &collection,
+                            &entry.name,
+                            &identity,
+                            &current,
+                        )
                         .await
                 } else {
                     ctx.cloud
@@ -3035,17 +3622,30 @@ async fn record_at(
     }
 }
 
-/// Submit `ops` as the hosting app and wait for confirmation: the mutation ID
-/// and its state. A rejection is an error.
-async fn submit_confirmed(
+fn outcome_of(state: mdbn_wire::client::ReceiptState) -> crate::takeover::held::Outcome {
+    use crate::takeover::held::Outcome;
+    use mdbn_wire::client::ReceiptState;
+    match state {
+        ReceiptState::Pending => Outcome::Pending,
+        ReceiptState::Confirmed => Outcome::Confirmed,
+        ReceiptState::Unknown => Outcome::Unknown,
+        ReceiptState::Rejected => Outcome::Rejected,
+    }
+}
+
+/// Submit `ops` as the hosting app under `mutation` and wait for confirmation:
+/// the receipt's outcome. A mutation the replica already has answers with its
+/// original receipt; nothing is applied twice.
+async fn submit_as(
     rt: &Arc<crate::runtime::Runtime>,
     ops: Vec<mdbn_wire::intent::Op>,
-) -> Result<([u8; 16], &'static str), ControlError> {
+    mutation: [u8; 16],
+) -> Result<crate::takeover::held::Outcome, ControlError> {
     use mdbn_wire::Wire;
-    use mdbn_wire::client::{Receipt, ReceiptState, SubmitParams, WaitFor};
+    use mdbn_wire::client::{Receipt, SubmitParams, WaitFor};
     let submit = SubmitParams {
         ops,
-        mutation_id: None,
+        mutation_id: Some(mdbn_wire::common::B16(mutation)),
         conflict_mode: None,
         timezone: None,
         allow_partial: None,
@@ -3061,19 +3661,34 @@ async fn submit_confirmed(
         .into_iter()
         .next()
         .ok_or_else(|| ControlError::internal("no receipt"))?;
-    let state = match r.state {
-        ReceiptState::Pending => "pending",
-        ReceiptState::Confirmed => "confirmed",
-        ReceiptState::Unknown => "unknown",
-        ReceiptState::Rejected => {
-            return Err(ControlError::new(
-                "conflict",
-                "rejected",
-                "the change was rejected; the hold stays open",
-            ));
-        }
-    };
-    Ok((r.mutation.0, state))
+    if r.mutation.0 != mutation {
+        return Err(ControlError::internal(
+            "the receipt is for another mutation",
+        ));
+    }
+    Ok(outcome_of(r.state))
+}
+
+/// The outcome of `mutation` as the replica's receipt says, or `None` when the
+/// replica has no receipt for it.
+async fn read_back(
+    rt: &Arc<crate::runtime::Runtime>,
+    mutation: [u8; 16],
+) -> Result<Option<crate::takeover::held::Outcome>, ControlError> {
+    use mdbn_wire::Wire;
+    use mdbn_wire::cbor::Cbor;
+    use mdbn_wire::client::Receipt;
+    let params = Cbor::Map(vec![(
+        Cbor::Uint(0),
+        mdbn_wire::common::B16(mutation).to_cbor(),
+    )]);
+    match host_call(rt, "receipt", params).await {
+        Ok(v) => Receipt::from_cbor(&v)
+            .map(|r| Some(outcome_of(r.state)))
+            .map_err(|_| ControlError::internal("the replica's receipt does not decode")),
+        Err(e) if e.code == "not_found" => Ok(None),
+        Err(e) => Err(e),
+    }
 }
 
 /// How long a one-shot host call may take.
@@ -3949,6 +4564,13 @@ fn spec_version(root: &std::path::Path) -> String {
         .unwrap_or_else(|| "0.3.0".into())
 }
 
+struct NativeGrantWaitContext {
+    entry: AccessEntry,
+    incarnation: crate::authority::Incarnation,
+    deadline: std::time::Instant,
+    runtime: Arc<crate::runtime::Runtime>,
+}
+
 impl crate::relay::RelayHost for Daemon {
     fn inventory(&self) -> crate::session::BoxFuture<'_, Vec<(String, Value)>> {
         Box::pin(self.inventory_entries())
@@ -3976,11 +4598,150 @@ impl crate::relay::RelayHost for Daemon {
         grant: &'a str,
     ) -> crate::session::BoxFuture<'a, bool> {
         Box::pin(async move {
+            // Synced end-to-end collections: the replica's log policy decides,
+            // and a local refusal on this device cuts the pipe at once.
+            let (mode, refused) = {
+                let inner = self.inner.lock().await;
+                let mode = inner.registry.get(collection).map(|c| c.mode);
+                let refused = inner.access.entries.iter().any(|e| {
+                    e.grant.grant == grant && e.grant.collection == collection && e.is_refused()
+                });
+                (mode, refused)
+            };
+            if mode == Some(SyncMode::SyncedE2e) {
+                if refused {
+                    return false;
+                }
+                let Some(grant16) = crate::attest::uuid_bytes(grant) else {
+                    return false;
+                };
+                let Some(rt) = self.collection_runtime(collection).await else {
+                    return false;
+                };
+                return matches!(
+                    rt.grant_approval(crate::runtime::GrantApprovalOp::Effective(
+                        mdbn_wire::common::B16(grant16),
+                    ))
+                    .await,
+                    Some(crate::runtime::GrantApprovalReply::Effective(true))
+                );
+            }
             self.inner
                 .lock()
                 .await
                 .access
                 .grant_live(collection, grant, fsutil::now_ms() as u64)
+        })
+    }
+
+    fn grant_activation<'a>(
+        self: &'a Arc<Self>,
+        collection: &'a str,
+        grant: &'a str,
+    ) -> crate::session::BoxFuture<'a, Option<crate::relay::GrantActivation>> {
+        Box::pin(async move {
+            let NativeGrantWaitContext {
+                entry: expected,
+                incarnation,
+                deadline: lease_deadline,
+                runtime,
+            } = self.native_grant_wait_consent(collection, grant).await?;
+            let grant16 = crate::attest::uuid_bytes(grant)?;
+            // Capture subscriptions and immutable context BEFORE task spawning.
+            let mut policy_changes = runtime.grant_policy_changes();
+            let mut authority_changes = self.changes.subscribe();
+            let (daemon, col, gid, entry, original_runtime) = (
+                self.clone(),
+                collection.to_owned(),
+                grant.to_owned(),
+                expected.clone(),
+                runtime.clone(),
+            );
+            let current: crate::relay::GrantActivationGuard = Arc::new(move || {
+                let (d, c, g, e, r) = (
+                    daemon.clone(),
+                    col.clone(),
+                    gid.clone(),
+                    entry.clone(),
+                    original_runtime.clone(),
+                );
+                Box::pin(async move {
+                    if std::time::Instant::now() >= lease_deadline
+                        || d.authority.incarnation() != Some(incarnation)
+                    {
+                        return false;
+                    }
+                    let consent = d.native_grant_wait_consent(&c, &g).await;
+                    consent.is_some_and(|actual| {
+                        actual.entry == e
+                            && actual.incarnation == incarnation
+                            && Arc::ptr_eq(&actual.runtime, &r)
+                            && std::time::Instant::now() < lease_deadline
+                            && d.authority.incarnation() == Some(incarnation)
+                    })
+                })
+            });
+            if !current().await {
+                return None;
+            }
+            let wait_current = current.clone();
+            let wait = Box::pin(async move {
+                loop {
+                    if !wait_current().await {
+                        return false;
+                    }
+                    let state = runtime
+                        .grant_approval(crate::runtime::GrantApprovalOp::State(
+                            mdbn_wire::common::B16(grant16),
+                        ))
+                        .await;
+                    // Fence this await BEFORE asking the next authoritative query.
+                    if !wait_current().await {
+                        return false;
+                    }
+                    match state {
+                        Some(crate::runtime::GrantApprovalReply::State(Some(state))) => {
+                            let pk = crate::secrets::hex_decode(&expected.grant.client_pk)
+                                .ok()
+                                .and_then(|b| <[u8; 32]>::try_from(b).ok());
+                            if !state.active
+                                || state.failure.is_some()
+                                || pk != Some(state.client_pk)
+                                || !expected
+                                    .grant
+                                    .capabilities
+                                    .iter()
+                                    .all(|c| state.capabilities.contains(c))
+                            {
+                                return false;
+                            }
+                        }
+                        Some(crate::runtime::GrantApprovalReply::State(None)) => {}
+                        _ => return false,
+                    }
+                    let effective = runtime
+                        .grant_approval(crate::runtime::GrantApprovalOp::Effective(
+                            mdbn_wire::common::B16(grant16),
+                        ))
+                        .await;
+                    // A positive reply cannot outlive the captured lease, epoch,
+                    // consent generation or runtime, even across lease renewal.
+                    if !wait_current().await {
+                        return false;
+                    }
+                    match effective {
+                        Some(crate::runtime::GrantApprovalReply::Effective(true)) => return true,
+                        Some(crate::runtime::GrantApprovalReply::Effective(false)) => {}
+                        _ => return false,
+                    }
+                    tokio::select! {
+                        result = policy_changes.changed() => if result.is_err() { return false },
+                        result = authority_changes.changed() => if result.is_err() { return false },
+                        _ = tokio::time::sleep_until(tokio::time::Instant::from_std(lease_deadline)) => return false,
+                    }
+                }
+            });
+            Some(crate::relay::GrantActivation { current, wait })
         })
     }
 

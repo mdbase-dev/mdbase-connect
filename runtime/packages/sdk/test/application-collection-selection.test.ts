@@ -52,6 +52,15 @@ describe("SDK collection selection: requested URL collection vs usable collectio
     session.grant([B,A]);await settle();
     expect(session.opened).toEqual([A]);expect(selection.getSnapshot()).toMatchObject({state:"usable",requested:{collectionId:A,approved:true,displayName:"n-1"},usable:{collectionId:A}});expect(web.param()).toBe(A);selection.close();
   });
+  it("a sign-in that ends without approval (window closed early) stops approving and can be retried",async()=>{
+    // Regression (LAB 2026-10-12): TaskNotes kept "Waiting for approval…" and a
+    // disabled Sign in after the approval window was closed before approving.
+    const session=signInSession("signed_out"),{selection}=setup(`${origin}/`,session);await settle();
+    await selection.approve();expect(selection.getSnapshot().state).toBe("approving");
+    session.publish({status:"signed_out",problem:"approval_window_closed"});await settle();
+    expect(selection.getSnapshot()).toMatchObject({state:"none",usable:null});
+    await selection.approve();expect(session.authorizations()).toBe(2);expect(selection.getSnapshot().state).toBe("approving");selection.close();
+  });
   it("unapproved URL A never falls back to sole B; declined approval is reported; a different portal pick wins and the URL follows",async()=>{
     const session=signInSession({collections:[B]}),{web,selection}=setup(`${origin}/?collection=${A}`,session);await settle();
     expect(selection.getSnapshot()).toMatchObject({state:"approval_required",requested:{collectionId:A,approved:false,displayName:null},usable:null,problem:null});expect(session.opened).toEqual([]);
@@ -59,6 +68,22 @@ describe("SDK collection selection: requested URL collection vs usable collectio
     expect(selection.getSnapshot()).toMatchObject({state:"approval_required",problem:"application_selection_not_approved"});expect(session.opened).toEqual([]);expect(web.param()).toBe(A);
     await selection.approve();session.grant([A,C],C);await settle();
     expect(session.opened).toEqual([C]);expect(selection.getSnapshot()).toMatchObject({state:"usable",requested:{collectionId:C},usable:{collectionId:C},problem:null});expect(web.param()).toBe(C);expect(web.writes).toEqual(["replace"]);selection.close();
+  });
+  it("SDK-6: approve() reports added, declined, closed (paired window closed) and unchanged",async()=>{
+    const session=signInSession({collections:[B]}),{selection}=setup(`${origin}/?collection=${A}`,session);await settle();
+    await selection.approve();expect(selection.getSnapshot()).toMatchObject({state:"approving",approval:{kind:"collection",collectionId:A},lastApproval:null});
+    session.grant([]);await settle();
+    expect(selection.getSnapshot().lastApproval).toEqual({kind:"collection",outcome:"declined",collectionId:A});
+    // A paired add-collection window closed before answering: the session marks it.
+    // Still being handed off: not reopenable (approve() would be busy); once handed off it is.
+    const handing=selection.approve(null);expect(selection.getSnapshot().approval).toEqual({kind:"add",collectionId:null,reopenable:false});
+    await handing;expect(selection.getSnapshot().approval).toEqual({kind:"add",collectionId:null,reopenable:true});
+    session.publish({status:"unselected",approval:{outcome:"closed"}});await settle();
+    expect(selection.getSnapshot().lastApproval).toEqual({kind:"add",outcome:"closed",collectionId:null});
+    await selection.approve(null);session.publish({approval:null});session.grant([C]);await settle();
+    expect(selection.getSnapshot().lastApproval).toEqual({kind:"add",outcome:"added",collectionId:C});
+    await selection.approve(B);session.grant([]);await settle();
+    expect(selection.getSnapshot().lastApproval).toEqual({kind:"collection",outcome:"unchanged",collectionId:B});selection.close();
   });
   it("Back/forward switches the open collection; choose another closes it with a pushed clean URL that Back restores",async()=>{
     const session=signInSession({collections:[A,B]}),{web,selection}=setup(`${origin}/?collection=${A}`,session);await settle();
@@ -101,5 +126,13 @@ describe("SDK collection selection: requested URL collection vs usable collectio
     const writes:Array<string|null>=[],session=signInSession({collections:[A,B]}),{web,selection}=setup(`${origin}/`,session,{read:()=>B,write:id=>writes.push(id)});await settle();
     expect(selection.getSnapshot()).toMatchObject({state:"usable",requested:{collectionId:B,source:"stored"},usable:{collectionId:B}});expect(web.param()).toBe(B);expect(web.writes).toEqual(["replace"]);
     await selection.select(A);expect(writes).toEqual([B,A]);selection.close();
+  });
+  it("after a session restart (bfcache restore) resync reopens the requested collection once",async()=>{
+    const session=signInSession({collections:[A]}),{selection}=setup(`${origin}/?collection=${A}`,session);await settle();
+    expect(session.opened).toEqual([A]);
+    // A fresh Worker session starts unselected; the old auto-open does not count.
+    session.publish({status:"unselected",selectedCollectionId:null});await settle();expect(session.opened).toEqual([A]);
+    selection.resync();await settle();
+    expect(session.opened).toEqual([A,A]);expect(selection.getSnapshot()).toMatchObject({state:"usable",usable:{collectionId:A}});selection.close();
   });
 });

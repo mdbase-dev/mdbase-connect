@@ -20,6 +20,7 @@ struct Job {
     refs: Option<BTreeSet<Hash>>,
     invalid_refs: bool,
     queue: VecDeque<FileContent>,
+    ordinary: Vec<FileContent>,
     current: Option<(FileContent, UnindexedSourceReader)>,
     call: Option<CallId>,
     retry_at: Option<i64>,
@@ -57,11 +58,14 @@ pub(crate) fn contains_native(p: &rt::EntryPayload) -> bool {
             rt::Op::UnindexedMarkdownPut(_)
                 | rt::Op::RecordToUnindexedMarkdown(_)
                 | rt::Op::UnindexedMarkdownToRecord(_)
+                | rt::Op::OrdinaryFileToRecord(_)
         )
     }) || p.effects.iter().any(|e| {
         matches!(
             e,
-            rt::Effect::PutUnindexedMarkdown(_) | rt::Effect::ReindexUnindexedMarkdown(_)
+            rt::Effect::PutUnindexedMarkdown(_)
+                | rt::Effect::ReindexUnindexedMarkdown(_)
+                | rt::Effect::ReindexOrdinaryFile(_)
         )
     }) || p.conflicts.iter().flatten().any(|c| {
         [Some(&c.kept), Some(&c.lost), c.base.as_ref()]
@@ -80,6 +84,7 @@ fn descriptors(p: &rt::EntryPayload) -> VecDeque<FileContent> {
     for op in &p.mutation.ops {
         match op {
             rt::Op::UnindexedMarkdownPut(f) => add(&f.payload.content),
+            rt::Op::OrdinaryFileToRecord(f) => add(&f.prior),
             rt::Op::RecordToUnindexedMarkdown(f) if p.resurrect.is_none() => {
                 add(&f.payload.content)
             }
@@ -165,6 +170,15 @@ impl<S: Store> Replica<S> {
                 refs,
                 invalid_refs: false,
                 queue,
+                ordinary: p
+                    .mutation
+                    .ops
+                    .iter()
+                    .filter_map(|op| match op {
+                        rt::Op::OrdinaryFileToRecord(f) => Some(f.prior.clone()),
+                        _ => None,
+                    })
+                    .collect(),
                 cache,
                 current: None,
                 call: None,
@@ -250,11 +264,16 @@ impl<S: Store> Replica<S> {
         job.retry_at = None;
         if job.current.is_none() {
             if let Some(content) = job.queue.pop_front() {
-                match UnindexedSourceReader::new(
-                    &*self.sealer,
-                    content.clone(),
-                    self.cfg.collection,
-                ) {
+                let reader = if job.ordinary.contains(&content) {
+                    UnindexedSourceReader::ordinary(
+                        &*self.sealer,
+                        content.clone(),
+                        self.cfg.collection,
+                    )
+                } else {
+                    UnindexedSourceReader::new(&*self.sealer, content.clone(), self.cfg.collection)
+                };
+                match reader {
                     Ok(r) => job.current = Some((content, r)),
                     Err(e) => job.ready = Some(Err(e)),
                 }

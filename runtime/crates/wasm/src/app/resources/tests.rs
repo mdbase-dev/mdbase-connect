@@ -206,7 +206,12 @@ fn setup_installs_into_configured_folders_and_reviews_an_existing_type_for_adopt
     let (assessment, ops, adopted) =
         assess(&inventory, &declaration, &Decisions::default()).unwrap();
     assert!(!assessment.applicable && ops.is_empty());
-    let reviewed = review(&assessment, &ops, &adopted);
+    let reviewed = envelope::collection_setup_review(
+        &assessment.configuration,
+        &assessment.type_packs,
+        &ops,
+        &adopted,
+    );
     let row = &reviewed.get("packs").unwrap().as_list().unwrap()[0]
         .get("resources")
         .unwrap()
@@ -242,7 +247,12 @@ fn setup_installs_into_configured_folders_and_reviews_an_existing_type_for_adopt
         ),
         (TASK, false, Some(live.clone()))
     );
-    let shown = review(&adopting_plan, &ops, &adopted);
+    let shown = envelope::collection_setup_review(
+        &adopting_plan.configuration,
+        &adopting_plan.type_packs,
+        &ops,
+        &adopted,
+    );
     let staged = shown.get("staged").unwrap().as_list().unwrap();
     assert_eq!(
         staged[0].get("path").unwrap().as_str(),

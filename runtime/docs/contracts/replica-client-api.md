@@ -158,9 +158,14 @@ All of these require `collection.read`.
 | `subscribe` | `{0: query, ? 1: include}` | `{0: sub ID}`, then `query-update` pushes |
 | `unsubscribe` | `{0: sub ID}` | — |
 | `changes` | `{0: cursor?, ? 1: limit, ? 2: watch: bool}` | `{0: [change], 1: cursor, 2: reset: bool}`, then `changes` pushes if `watch` |
-| `list_views`, `execute_view`, `read_view_source` | spec 12 shapes | spec 12 shapes |
 | `validate` | `{? 0: [uuid / path] / null}` | `[validation-record]`, bounded current-record diagnostics below |
 | `list_files`, `get_file`, `read_file` | §10 | §10 |
+
+Spec 12 saved views (`mdbase.view` records) are not replica methods: the SDK's
+`views.list/execute/readSource` resolve them over `query_contract_v1`,
+`get_contract_v1`, `get` and `query` with spec 11 named-view resolution.
+`packages/sdk/test/runtime-method-contract.test.ts` checks every SDK request
+against the pinned runtime's frame dispatch.
 
 `validate` is a read-only operation over the actual current local records and
 catalog, including pending record/definition changes. It reuses Core's

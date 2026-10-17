@@ -95,6 +95,7 @@ pub mod gen0;
 mod handover;
 mod hosted;
 mod hosted_attachment_read;
+pub mod migration_log;
 pub use hosted_attachment_read::{AttachmentRead, HostedAttachmentRead};
 mod hosted_attachment_upload;
 mod join_ahead;
@@ -502,6 +503,11 @@ pub struct Replica<S: Store> {
 
     // ---- clients
     approval: approval_runtime::ApprovalRuntime,
+    /// User-confirmed grant approvals waiting for a control append turn
+    /// (`policy.md` §5.1; RAM only: re-approve after a restart).
+    pub(crate) grant_approval_queue: std::collections::VecDeque<append::QueuedGrantApproval>,
+    /// Why a queued grant approval was dropped at its turn (RAM only).
+    pub(crate) grant_approval_failures: BTreeMap<Uuid, String>,
     pub(crate) sessions: BTreeMap<SessionId, Session>,
     pub(crate) next_session: u64,
     pub(crate) submitted_by: BTreeMap<Uuid, SessionId>,
@@ -518,6 +524,8 @@ pub struct Replica<S: Store> {
     pub(crate) install_base: Option<snapshot::BaseInstall>,
     /// One opaque hosted generation-0 writer, never shared across wakes.
     hosted_gen0: Option<gen0::HostedGen0State>,
+    /// The hosted migration base append in flight or last resolved (RAM only).
+    pub(crate) migration_append: Option<migration_log::AppendTrack>,
     /// A folder adopt in progress (`adopt.rs`).
     pub(crate) adopt: Option<adopt::Adopt>,
     /// Record IDs for first ingest, by path key (`adopt.rs`).
@@ -554,6 +562,10 @@ pub struct Replica<S: Store> {
     pub(crate) status_dirty: bool,
     /// Local-only grants and independently authenticated local serving identity.
     pub(crate) grant_source: Option<Box<dyn crate::policy::GrantSource>>,
+    /// Opaque original app setup reviews. Never persisted or reconstructed from
+    /// a pending row; only the admitted instance may publish an unsent setup.
+    pub(crate) declared_setup_pending: BTreeMap<Uuid, collection_setup::PendingSetup>,
+    pub(crate) declared_setup_rpc_job: Option<collection_setup::SetupRpcJob>,
     /// Hosted mode (`hosted.rs`), set only by [`Replica::open_hosted`]. `None` on
     /// devices, whose behaviour it never changes.
     pub(crate) hosted: Option<Box<hosted::HostedState>>,
@@ -752,6 +764,8 @@ impl<S: Store> Replica<S> {
         );
         let mut r = Replica {
             approval: approval_runtime::ApprovalRuntime::new(cfg.collection, cfg.device_id),
+            grant_approval_queue: Default::default(),
+            grant_approval_failures: BTreeMap::new(),
             endpoint: cfg.log_endpoint,
             cfg,
             store,
@@ -828,6 +842,7 @@ impl<S: Store> Replica<S> {
             install: None,
             install_base: None,
             hosted_gen0: None,
+            migration_append: None,
             adopt: None,
             id_hints: BTreeMap::new(),
             base_install_failed: None,
@@ -851,6 +866,8 @@ impl<S: Store> Replica<S> {
             snapshot_every: snapshot::SNAPSHOT_EVERY,
             status_dirty: false,
             grant_source: source,
+            declared_setup_pending: BTreeMap::new(),
+            declared_setup_rpc_job: None,
             hosted: None,
             attachment_uploads: attachment_upload::Uploads::default(),
             unindexed_uploads: unindexed_upload::Uploads::default(),

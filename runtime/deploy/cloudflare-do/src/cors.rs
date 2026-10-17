@@ -5,7 +5,15 @@ pub const ENV: &str = "LOGSVC_CORS_ORIGINS";
 const METHODS: &str = "GET, POST, PUT";
 const HEADERS: &str =
     "authorization, content-type, x-mdbase-nonce, x-mdbase-sig, range, x-amz-checksum-sha256";
-const EXPOSE: &str = "content-length, content-range, etag, x-amz-checksum-sha256";
+const EXPOSE: &str =
+    "content-length, content-range, etag, x-amz-checksum-sha256, x-mdbase-next-nonce";
+/// Response header carrying a fresh stateless nonce for the caller's NEXT signed
+/// RPC, minted exactly like `GET /v1/nonce`. It saves that extra request; it is
+/// not authority (anyone may mint one) and single use stays enforced by the actor.
+pub const NEXT_NONCE: &str = "x-mdbase-next-nonce";
+/// Browsers cache an allowed preflight this long (Chrome caps at 7200 s). The
+/// permitted origin/method/header set is fixed per deployment.
+const MAX_AGE: &str = "7200";
 
 /// An exact `capacitor://<lowercase host>` (iOS app) or
 /// `chrome-extension://<32-letter id>` origin. Their WHATWG origin is opaque, so
@@ -58,6 +66,12 @@ impl Cors {
             }
         }
         Ok(Self { origins })
+    }
+
+    /// A browser WebSocket upgrade is not subject to CORS: refuse a page origin
+    /// outside the list. Native clients send no `Origin` and are unaffected.
+    pub fn permits_upgrade(&self, origin: Option<&str>) -> bool {
+        origin.is_none() || self.allowed(origin).is_some()
     }
 
     fn allowed(&self, origin: Option<&str>) -> Option<&str> {
@@ -114,6 +128,7 @@ impl Cors {
             )?;
             headers.set("access-control-allow-methods", METHODS)?;
             headers.set("access-control-allow-headers", HEADERS)?;
+            headers.set("access-control-max-age", MAX_AGE)?;
         }
         // No body read, config secrets, auth/nonce handling, DO lookup or R2 call.
         Ok(Response::empty()?
@@ -121,7 +136,13 @@ impl Cors {
             .with_headers(headers))
     }
 
-    pub fn decorate(&self, response: Response, origin: Option<&str>) -> Result<Response> {
+    /// `next_nonce` is set only on signed-RPC routes; any upstream value is dropped.
+    pub fn decorate(
+        &self,
+        response: Response,
+        origin: Option<&str>,
+        next_nonce: Option<&str>,
+    ) -> Result<Response> {
         // Fetch/DO response headers can be immutable. Copy only headers, preserving
         // the original status/body stream/WebSocket and without buffering content.
         let headers = response.headers().clone();
@@ -132,8 +153,12 @@ impl Cors {
             "access-control-allow-headers",
             "access-control-expose-headers",
             "access-control-max-age",
+            NEXT_NONCE,
         ] {
             headers.delete(name)?;
+        }
+        if let Some(nonce) = next_nonce {
+            headers.set(NEXT_NONCE, nonce)?;
         }
         let vary = headers.get("vary")?.unwrap_or_default();
         if !vary

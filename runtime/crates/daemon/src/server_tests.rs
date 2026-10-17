@@ -1,4 +1,6 @@
 //! Security regression tests for consent and feed persistence boundaries.
+#[path = "server_capture_stop_tests.rs"]
+mod capture_stop_tests;
 use super::*;
 use crate::access::{AccessState, FeedCursor};
 use crate::confirm::{Answer, Confirmer};
@@ -47,6 +49,8 @@ pub(super) fn daemon(dir: &crate::testutil::TestDir) -> Arc<Daemon> {
         link_prompt: Mutex::new(()),
         authority: crate::authority::Authority::default(),
         confirmer: std::sync::RwLock::new(Arc::new(crate::confirm::Fixed(Answer::Yes))),
+        grant_publications: Default::default(),
+        self_weak: std::sync::OnceLock::new(),
         online: std::sync::atomic::AtomicBool::new(false),
         link: std::sync::Mutex::new(None),
         // Synthetic, public environment pins; real asset verification is tested
@@ -164,6 +168,7 @@ fn grant(pk: u8) -> CachedGrant {
         capabilities: vec!["collection.read".into()],
         folders: Some(vec!["Photos".into()]),
         legacy_only: false,
+        declared_setup: None,
     }
 }
 fn snapshot(seq: u64) -> crate::relay::Snapshot {
@@ -261,6 +266,178 @@ async fn displayed_consent_cannot_approve_replacement_or_aba() {
             AccessState::Active,
             "fresh consent works"
         );
+    }
+}
+
+#[tokio::test]
+async fn private_account_consent_skips_native_confirmation_and_local_opt_in() {
+    let dir = crate::testutil::TestDir::new("native-feed");
+    let d = paired_daemon(&dir).await;
+    d.inner.lock().await.access.require_grant_approval = true;
+    const P: &str = "22222222-2222-4222-8222-222222222222";
+    const GN: &str = "33333333-3333-4333-8333-333333333333";
+    d.inner
+        .lock()
+        .await
+        .registry
+        .collections
+        .push(crate::registry::Entry {
+            id: P.into(),
+            name: "Private notes".into(),
+            root: dir.path().join("private"),
+            replica_id: "r".into(),
+            mode: SyncMode::SyncedE2e,
+            origin: crate::registry::Origin::Created,
+            description: None,
+            added_at_ms: 0,
+            paused: false,
+            ever_e2e: true,
+            owner_account: None,
+            device: None,
+        });
+    let mut native = grant(7);
+    native.grant = GN.into();
+    native.collection = P.into();
+    native.folders = None;
+    let feed = BTreeMap::from([("c".into(), vec![grant(1)]), (P.into(), vec![native])]);
+    d.commit_control_plane_feed(&snapshot(1), &feed)
+        .await
+        .unwrap();
+    {
+        let inner = d.inner.lock().await;
+        assert_eq!(
+            inner
+                .access
+                .entries
+                .iter()
+                .find(|e| e.grant.grant == "g")
+                .unwrap()
+                .state,
+            AccessState::PendingApproval
+        );
+        assert_eq!(
+            inner
+                .access
+                .entries
+                .iter()
+                .find(|e| e.grant.grant == GN)
+                .unwrap()
+                .state,
+            AccessState::Active
+        );
+        assert!(
+            inner.access.require_grant_approval,
+            "the local setting is unchanged"
+        );
+    }
+    // A Linux host without dialog helpers must not block Private access.
+    d.set_confirmer(Arc::new(crate::confirm::Fixed(Answer::Unavailable)));
+    let result = d
+        .handle(
+            &Request {
+                v: PROTOCOL,
+                id: 1,
+                method: Method::ACCESS_APPROVE.into(),
+                params: json!({"grant":GN}),
+            },
+            &mut ConnAuth {
+                privileged: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(result["state"], "active");
+    // Local opt-in still requires the native confirmation.
+    let error = d
+        .handle(
+            &Request {
+                v: PROTOCOL,
+                id: 2,
+                method: Method::ACCESS_APPROVE.into(),
+                params: json!({"grant":"g"}),
+            },
+            &mut ConnAuth {
+                privileged: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.reason.as_deref(), Some("confirmation_unavailable"));
+    d.access_change(|list| list.revoke(GN).cloned())
+        .await
+        .unwrap();
+    d.commit_control_plane_feed(&snapshot(2), &feed)
+        .await
+        .unwrap();
+    assert_eq!(
+        d.inner
+            .lock()
+            .await
+            .access
+            .entries
+            .iter()
+            .find(|e| e.grant.grant == GN)
+            .unwrap()
+            .state,
+        AccessState::RevokedLocally
+    );
+}
+
+#[tokio::test]
+async fn automatic_private_publication_requires_a_live_bound_account() {
+    let dir = crate::testutil::TestDir::new("native-account-publication");
+    let d = paired_daemon(&dir).await;
+    let mut entry = AccessEntry {
+        grant: grant(1),
+        state: AccessState::Active,
+        first_seen_ms: 1,
+        generation: 1,
+        acknowledged: false,
+        delisted: false,
+    };
+    entry.grant.grant = "33333333-3333-4333-8333-333333333333".into();
+    // Missing account must never match a signed-out daemon's missing account.
+    entry.grant.account_id = None;
+    let error = d.publish_native_grant(&entry).await.unwrap_err();
+    assert_eq!(error.reason.as_deref(), Some("consent_changed"));
+    entry.grant.account_id = Some("99999999-9999-4999-8999-999999999999".into());
+    d.inner.lock().await.access.entries.push(entry.clone());
+    let error = d.publish_native_grant(&entry).await.unwrap_err();
+    assert_eq!(error.reason.as_deref(), Some("consent_changed"));
+}
+
+#[tokio::test]
+async fn native_activation_cannot_override_changed_terms_or_a_refusal() {
+    for deny in [false, true] {
+        let dir = crate::testutil::TestDir::new("native-activation");
+        let d = daemon(&dir);
+        d.inner.lock().await.access.require_grant_approval = true;
+        d.apply_control_plane_grants("c", &[grant(1)], fsutil::now_ms() as u64 + 55_000)
+            .await
+            .unwrap();
+        let expected = d.inner.lock().await.access.entries[0].clone();
+        if deny {
+            d.access_change(|list| list.deny("g").cloned())
+                .await
+                .unwrap();
+        } else {
+            d.apply_control_plane_grants("c", &[grant(2)], fsutil::now_ms() as u64 + 55_000)
+                .await
+                .unwrap();
+        }
+        let error = d.activate_native_entry(&expected).await.unwrap_err();
+        assert_eq!(error.reason.as_deref(), Some("consent_changed"));
+        let fresh = d.inner.lock().await.access.entries[0].clone();
+        assert_ne!(fresh.state, AccessState::Active);
+        if !deny {
+            d.activate_native_entry(&fresh).await.unwrap();
+            assert_eq!(
+                d.inner.lock().await.access.entries[0].state,
+                AccessState::Active
+            );
+        }
     }
 }
 

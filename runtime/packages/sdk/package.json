@@ -11,6 +11,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./thin-client": {
+      "types": "./dist/thin-client.d.ts",
+      "import": "./dist/thin-client.js"
+    },
     "./browser": {
       "types": "./dist/browser.d.ts",
       "import": "./dist/browser.js"
@@ -43,6 +47,10 @@
       "types": "./dist/app-grant/index.d.ts",
       "import": "./dist/app-grant/index.js"
     },
+    "./offline-shell/build": {
+      "types": "./dist/offline-shell-build.d.ts",
+      "import": "./dist/offline-shell-build.js"
+    },
     "./describe": {
       "types": "./dist/describe-error.d.ts",
       "import": "./dist/describe-error.js"
@@ -61,7 +69,8 @@
     "build": "tsc -p tsconfig.build.json && node scripts/build-application-assets.mjs && node scripts/build-browser.mjs",
     "build:browser": "node scripts/build-browser.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run && node --test scripts/browser-bundle.node-test.mjs scripts/application-assets.node-test.mjs",
+    "api:update": "node scripts/public-api.mjs --update",
+    "test": "vitest run && node --test scripts/browser-bundle.node-test.mjs scripts/application-assets.node-test.mjs scripts/offline-shell.node-test.mjs",
     "size": "node scripts/size.mjs",
     "check:vite-consumer": "node scripts/vite-consumer-check.mjs",
     "check:npm-consumer": "node scripts/npm-consumer-check.mjs"
@@ -78,7 +87,7 @@
     "@mdbase-dev/connect-protocol"
   ],
   "dependencies": {
-    "@mdbase-dev/connect-protocol": "file:vendor/mdbase-dev-connect-protocol-0.1.0-beta.129-3c14fc913a80.tgz",
+    "@mdbase-dev/connect-protocol": "file:vendor/mdbase-dev-connect-protocol-0.1.0-beta.129-c280cd194ffd.tgz",
     "@noble/ciphers": "2.4.0",
     "@noble/curves": "2.4.0",
     "@noble/hashes": "2.4.0"

@@ -70,10 +70,14 @@ pub use account::{
 pub use checkpoint::{Checkpoint, Step};
 pub use driver::{Action, Driver, Outcome, Wait};
 pub use gen0::{ImportStats, bucket_range, bucket16};
+mod window;
 pub use replay::{Batch, Effect, park_path};
 pub use spill::{MemSpill, Spill};
 #[cfg(any(test, feature = "sql-spill"))]
 pub use sql_spill::SqlSpill;
+pub use window::{
+    GEN0_RECORD_BYTES, GEN0_RECORD_WINDOW_BYTES, GEN0_WINDOW_BYTES, GEN0_WINDOW_ROWS, gen0_window,
+};
 
 /// One row of the S0→`S_final` diff: the key and its S0 and final placements.
 pub type DiffRow = (Key, Option<Meta>, Option<Meta>);

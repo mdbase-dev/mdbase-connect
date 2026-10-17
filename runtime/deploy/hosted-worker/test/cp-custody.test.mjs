@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { cpCustody, combinedCustody } from "../src/cp-custody.ts";
-import { ControlClient } from "../src/control.ts";
+import { ControlClient, ControlError } from "../src/control.ts";
 import { labStubUnwrap, labStubWrapper } from "../src/custody-stub.ts";
 
 const K = "ab".repeat(32);
@@ -105,4 +105,42 @@ test("an abort during unwrap or minting hands out nothing and wipes the secret",
   await assert.rejects(labStubUnwrap(K, "escrow", col, dev, new Uint8Array(64), done.signal));
   await assert.rejects(labStubWrapper("escrow", K).wrapDeviceKeys({ collection: col, device: dev, secret: new Uint8Array(32) }, AbortSignal.timeout(1000)));
   assert.ok(c);
+});
+
+test("log tokens reuse a verified record for a minute instead of reading it every round", async () => {
+  const { c, seen } = await cp();
+  const records = () => seen.filter((s) => s.url.endsWith("/service-devices/escrow")).length;
+  const keys = await c.openSealer(col, AbortSignal.timeout(1000));
+  keys.zeroize();
+  const opened = records();
+  for (let i = 0; i < 5; i++) await c.logToken(col, AbortSignal.timeout(1000));
+  assert.equal(records(), opened, "rounds within the window read no record");
+  const now = Date.now;
+  try {
+    Date.now = () => now() + 61_000;
+    await c.logToken(col, AbortSignal.timeout(1000));
+    assert.equal(records(), opened, "a held token needs no record");
+    c.invalidateLogToken(col);
+    await c.logToken(col, AbortSignal.timeout(1000));
+    assert.equal(records(), opened + 2, "a mint after an expired record reads it again, before and after minting");
+  } finally { Date.now = now; }
+});
+
+test("CP 404/409 for the record or the token is a gone verdict; 5xx is not", async () => {
+  const record = (status) => ({ serviceDevice: async () => { throw new ControlError(status === 404 ? "not_found" : status === 409 ? "not_standard" : "unavailable", "x"); }, logToken: async () => ({ token: "x" }) });
+  const gone = (e) => e.message === "custody_collection_gone";
+  const passedThrough = (e) => e instanceof ControlError && e.code === "unavailable";
+  for (const [status, expected] of [[404, gone], [409, gone], [503, passedThrough]]) {
+    const c = cpCustody({ kind: "escrow", ...pins, unwrap: async () => assert.fail("no unwrap"), control: record(status) });
+    await assert.rejects(c.openSealer(col, AbortSignal.timeout(1000)), expected);
+    await assert.rejects(c.logToken(col, AbortSignal.timeout(1000)), expected);
+  }
+  // Through the real client: the CP's 404 for the record maps to the verdict.
+  const control = new ControlClient({ url: "https://cp.test", token, kind: "escrow" }, async () => new Response("{}", { status: 404 }));
+  const c = cpCustody({ kind: "escrow", control, ...pins, unwrap: async () => assert.fail("no unwrap") });
+  await assert.rejects(c.openSealer(col, AbortSignal.timeout(1000)), /custody_collection_gone/);
+  // The token endpoint's 404 after a valid record is a verdict too.
+  const tokenGone = cpCustody({ kind: "escrow", ...pins, unwrap: async () => assert.fail("no unwrap"),
+    control: { serviceDevice: async () => unitRecord(), logToken: async () => { throw new ControlError("not_found", "x"); } } });
+  await assert.rejects(tokenGone.logToken(col, AbortSignal.timeout(1000)), /custody_collection_gone/);
 });

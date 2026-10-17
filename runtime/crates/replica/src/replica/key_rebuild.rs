@@ -39,6 +39,10 @@ pub(crate) struct DeviceKeyRebuild {
     shadow: Box<PolicyState>,
     /// A read is outstanding.
     reading: bool,
+    /// A head fetch answered `subscribed` while this rebuild ran. Its head is
+    /// still current for the stored chain (the rebuild applies nothing), so
+    /// the rebuild need not fetch another one before syncing.
+    pub(crate) head_seen: bool,
 }
 
 impl<S: Store> Replica<S> {
@@ -58,6 +62,7 @@ impl<S: Store> Replica<S> {
             target: self.head.seq,
             shadow: Box::new(PolicyState::new()),
             reading: false,
+            head_seen: false,
         });
         self.device_key_rebuild_step();
         true
@@ -195,7 +200,16 @@ impl<S: Store> Replica<S> {
         self.sealer.set_epoch(self.policy.epoch);
         self.check_key_trust();
         self.status_dirty = true;
-        self.queue_head_fetch();
+        // The host's open queues a head fetch alongside the first control read
+        // (bind: Reconnected). Only fetch again when that head neither answered
+        // during the rebuild nor is still out: one round trip less on warm open.
+        let head_out = self
+            .inflight
+            .values()
+            .any(|kind| *kind == Inflight::Subscribe);
+        if !k.head_seen && !head_out {
+            self.queue_head_fetch();
+        }
         self.pump();
     }
 }

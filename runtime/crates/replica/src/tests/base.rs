@@ -406,6 +406,60 @@ fn installed_documents_are_byte_identical_to_the_import() {
     }
 }
 
+/// Migration hazards install byte-exact on a fresh replica: unterminated or
+/// invalid frontmatter, duplicate keys, odd YAML values, a BOM, CRLF and mixed
+/// line endings, control characters and an empty document. The replica never
+/// repairs a document on install; its digest is the digest of those bytes and
+/// nothing stalls or is voided.
+#[test]
+fn malformed_frontmatter_installs_byte_exact_without_stalling() {
+    let (svc, mut a) = fresh();
+    let docs = [
+        "---\ntitle: never closed\nbody without a closing fence\n",
+        "---\ntitle: one\ntitle: two\ntags: [a]\ntags: b\n---\nbody\n",
+        "---\n? [complex, key]\n: value\n123: n\nnull: ~\nanchor: &a {x: 1}\nalias: *a\nbin: !!binary aGVsbG8=\ndate: 2026-02-30\ntab:\tvalue\n---\nbody\n",
+        "---\nkey: [unclosed\n  : : :\n\t- mixed\n---\nbody\n",
+        "---\n- a\n- b\n---\nnot a mapping\n",
+        "\u{feff}---\ntitle: bom\n---\nbody\n",
+        "---\r\ntitle: crlf\r\n---\r\nbody\r\n",
+        "---\r\ntitle: mixed\n---\rbody\r\nlast\r",
+        "---\ntitle: \"a\\u0000b\"\n---\nnul\u{0}byte \u{1b}[0m\n",
+        "---",
+        "",
+    ];
+    let mut records = recs(docs.len());
+    for (r, d) in records.iter_mut().zip(docs) {
+        r.doc = d.into();
+    }
+    let resources = vec![(
+        "mdbase.yaml".to_string(),
+        "\u{feff}name: hazards\r\nversion: 1\r\n".to_string(),
+    )];
+    let (p, digest, _) = write_gen0(
+        &svc,
+        &mut a,
+        resources.clone(),
+        records.clone(),
+        1,
+        &[],
+        false,
+    );
+    let mut b = node(&svc, 2, MemStore::new());
+    read_to(&mut b, p);
+    read_to(&mut b, p);
+    assert_eq!(b.r.head().seq, p);
+    assert_eq!(b.r.stalled, None);
+    assert_eq!(b.r.stats.voided, 0);
+    assert_eq!(crate::replica::state_digest(&b.r.store).unwrap(), digest);
+    for r in &records {
+        let got = b.r.store.record(&r.id).unwrap().expect("installed");
+        assert_eq!(got.path, r.path);
+        assert_eq!(got.doc.as_bytes(), r.doc.as_bytes());
+        assert_eq!(got.revision, mdbn_wire::hash::sha256(r.doc.as_bytes()));
+    }
+    assert_eq!(b.r.store.resources().unwrap(), resources);
+}
+
 /// Refs are bounded before anything is copied: per call (one ref-index object's
 /// worth) and retained through `finish` (every index full), duplicates included.
 /// One over refuses with the writer unchanged; exactly the limit is accepted and

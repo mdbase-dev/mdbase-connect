@@ -89,6 +89,7 @@ export class LogCollection extends NativeLogCollection {
 // Hide inherited SDK names on the exported class. Only captured intrinsics above
 // can reach native sequencing inside the SAME existing callback Work/Cut.
 for (const name of sdkNames) Object.defineProperty(LogCollection.prototype, name, { value: undefined });
+const LOCATION_HINTS = new Set(["oc", "apac", "wnam", "enam", "weur"]);
 export default {
   async fetch(request, env) {
     try {
@@ -101,11 +102,17 @@ export default {
       const collection = url.searchParams.get("c");
       if (!binding.members.some(m => m.kind !== "hosted" && m.collection === collection)) return deny();
       const namespace = env.LOG;
+      // Same placement rule as the native Worker (src/do_location.rs): absent or
+      // empty is the platform default, anything outside the region set refuses.
+      const hint = env.LOGSVC_DO_LOCATION_HINT === undefined ? "" : String(env.LOGSVC_DO_LOCATION_HINT).trim();
+      if (hint !== "" && !LOCATION_HINTS.has(hint)) return deny();
+      const id = namespace.idFromName(collection);
+      const stub = hint === "" ? namespace.get(id) : namespace.get(id, { locationHint: hint });
       // Actual request bytes/header/nonce reach ONLY the native pre-key reader;
       // absence of the SDK/public audience retains the metadata-only restriction.
       // Forwarding is DATA, never caller authentication; native missing inputs deny.
       const original = hasSdk && cpOrigin(env.CP_URL) && binding.members.some(m => m.kind === "log" && m.collection === collection);
-      await namespace.get(namespace.idFromName(collection)).fetch(original ? new Request(request)
+      await stub.fetch(original ? new Request(request)
         : new Request(url.href, { method: "POST", signal: request.signal }));
     } catch { /* No ordinary Worker fallback, including absent/foreign namespace. */ }
     return deny();

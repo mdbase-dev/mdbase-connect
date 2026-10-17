@@ -270,6 +270,19 @@ fn describe_cbor(d: Describe) -> Cbor {
 
 // Producer DTOs have no expected-code field. Deprecated pending slot 3 and
 // approval-push slot 1 are decode-only, never emitted or reused.
+fn pending_grant_cbor(g: crate::api::PendingGrant) -> Cbor {
+    let mut e = vec![
+        (0, g.grant.to_cbor()),
+        (1, Cbor::Text(g.app_id)),
+        (2, g.capabilities.to_cbor()),
+    ];
+    if let Some(f) = g.folders {
+        e.push((3, f.to_cbor()));
+    }
+    e.push((4, Cbor::Text(g.client_fingerprint)));
+    smap(e)
+}
+
 fn pending_device_cbor(d: crate::api::PendingDevice) -> Cbor {
     smap(vec![
         (0, d.device.to_cbor()),
@@ -768,6 +781,58 @@ fn unit(r: ApiResult<()>) -> ApiResult<Cbor> {
 fn dispatch(api: &mut dyn ClientApi, s: SessionId, method: &str, params: &Cbor) -> ApiResult<Cbor> {
     let m = fields(params);
     match method {
+        "app_collection_setup_v1" => {
+            let m = m?;
+            if m.len() != 1 || m[0].0 != Cbor::Uint(0) {
+                return Err(bad("setup requires exactly request bytes"));
+            }
+            let Cbor::Bytes(bytes) = &m[0].1 else {
+                return Err(bad("setup requires request bytes"));
+            };
+            if bytes.is_empty() || bytes.len() > 2 * 1024 * 1024 {
+                return Err(bad("setup request exceeds its fixed bound"));
+            }
+            let mut reply = api.app_collection_setup(s, bytes)?;
+            if reply.is_empty() || reply.len() > 256 * 1024 {
+                reply.fill(0);
+                return Err(ErrorCode::TooLarge.err("setup reply exceeds its fixed bound"));
+            }
+            Ok(Cbor::Bytes(reply))
+        }
+        "app_bases_execute_v1" | "app_bases_list_views_v1" | "app_bases_read_view_source_v1" => {
+            let m = m?;
+            if m.len() != 1 || m[0].0 != Cbor::Uint(0) {
+                return Err(bad(
+                    "Bases READ requires exactly bounded request bytes at param 0",
+                ));
+            }
+            let Cbor::Bytes(bytes) = &m[0].1 else {
+                return Err(bad("Bases READ requires request bytes"));
+            };
+            if bytes.is_empty() || bytes.len() > 128 * 1024 {
+                return Err(bad("Bases READ request exceeds its fixed bound"));
+            }
+            let mut output = match method {
+                "app_bases_execute_v1" => api.app_bases_execute(s, bytes),
+                "app_bases_list_views_v1" => api.app_bases_list_views(s, bytes),
+                _ => api.app_bases_read_view_source(s, bytes),
+            }?;
+            // Leave room for the ordinary response envelope inside the unchanged
+            // byte-transport 16 MiB frame cap. ABI codec budgets are not raised.
+            let max = if method == "app_bases_execute_v1" {
+                16 * 1024 * 1024 - 128
+            } else {
+                1024 * 1024
+            };
+            if output.is_empty() || output.len() > max {
+                output.fill(0);
+                return Err(ErrorCode::TooLarge.err_with_reason(
+                    "view_codec_budget",
+                    "Bases response exceeds its bounded frame profile",
+                ));
+            }
+            Ok(Cbor::Bytes(output))
+        }
         "describe" => {
             let m = m?;
             if m.iter().any(|(key, _)| *key != Cbor::Uint(0)) {
@@ -1045,6 +1110,16 @@ fn dispatch(api: &mut dyn ClientApi, s: SessionId, method: &str, params: &Cbor) 
             unit(api.approve_device(s, dec(req(m, 0)?)?, dec(req(m, 1)?)?))
         }
         "reject_device" => unit(api.reject_device(s, dec(req(m?, 0)?)?)),
+        "pending_grants" => Ok(Cbor::Array(
+            api.pending_grants(s)?
+                .into_iter()
+                .map(pending_grant_cbor)
+                .collect(),
+        )),
+        "approve_grant" => {
+            let m = m?;
+            unit(api.approve_grant(s, dec(req(m, 0)?)?, dec(req(m, 1)?)?, opt(m, 2)?))
+        }
         "list_files" => {
             let m = m?;
             let p = ListFiles {

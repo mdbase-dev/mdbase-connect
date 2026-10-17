@@ -1,17 +1,43 @@
 //! Real SQLite journal/Driver tests; in-memory SQL is NOT physical durability.
 use super::*;
 use mdbn_store_file::index::{IndexDurability, IndexError, IndexErrorKind, IndexInfo, OpenState};
-struct Sqlite {
-    db: rusqlite::Connection,
+pub(crate) struct Sqlite {
+    pub(crate) db: rusqlite::Connection,
     lose_prepare: bool,
-    lose_settlement: bool,
+    pub(crate) lose_settlement: bool,
+    pub(crate) lose_restart: bool,
+    pub(crate) fail_load: bool,
+}
+impl JournalDriver<Sqlite> {
+    pub(crate) fn test_index_mut(&mut self) -> &mut Sqlite {
+        self.spill.index_mut()
+    }
+    pub(crate) fn test_lose_settlement(&mut self) {
+        self.spill.index_mut().lose_settlement = true;
+    }
+    pub(crate) fn test_checkpoint(&self) -> mdbn_migrate_portable::hosted_import::Checkpoint {
+        self.driver.checkpoint().clone()
+    }
+    pub(crate) fn test_settled(&mut self) -> i64 {
+        self.spill
+            .index_mut()
+            .db
+            .query_row(
+                "SELECT count(*) FROM mig_native_action WHERE settled=1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap()
+    }
 }
 impl Sqlite {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             db: rusqlite::Connection::open_in_memory().unwrap(),
             lose_prepare: false,
             lose_settlement: false,
+            lose_restart: false,
+            fail_load: false,
         }
     }
 }
@@ -44,6 +70,17 @@ impl IndexStorage for Sqlite {
         }
     }
     fn run(&mut self, b: &Batch) -> std::result::Result<Vec<StmtResult>, IndexError> {
+        if self.fail_load
+            && b.stmts
+                .iter()
+                .any(|s| s.sql == "SELECT v FROM mig_checkpoint WHERE k = 0")
+        {
+            self.fail_load = false;
+            return Err(IndexError::new(
+                IndexErrorKind::Other,
+                "synthetic reload failure",
+            ));
+        }
         let err = |e: rusqlite::Error| IndexError::new(IndexErrorKind::Sql, e.to_string());
         let tx = b.mode == BatchMode::Transaction;
         if tx {
@@ -85,9 +122,14 @@ impl IndexStorage for Sqlite {
             && b.stmts
                 .iter()
                 .any(|s| s.sql.starts_with("UPDATE mig_native_action SET settled=1"));
-        if result.is_ok() && (prep || done) {
+        let restart = self.lose_restart
+            && b.stmts
+                .iter()
+                .any(|s| s.sql.starts_with("INSERT INTO mig_native_run_end"));
+        if result.is_ok() && (prep || done || restart) {
             self.lose_prepare = false;
             self.lose_settlement = false;
+            self.lose_restart = false;
             return Err(IndexError::new(
                 IndexErrorKind::Other,
                 "synthetic lost ACK after real commit",
@@ -101,14 +143,22 @@ impl IndexStorage for Sqlite {
             .map_err(|_| IndexError::new(IndexErrorKind::Other, "reset"))
     }
 }
-struct TestEntropy(u8);
+pub(super) struct TestEntropy(pub(super) u8);
 impl Entropy for TestEntropy {
     fn fill(&mut self, b: &mut [u8]) {
         self.0 += 1;
         b.fill(self.0);
     }
 }
-fn binding() -> RunBinding {
+/// The operator hold id input (`backup_admin acquire`), as the host passes it.
+pub(crate) fn backup(hold: u8) -> Vec<u8> {
+    mdbn_wire::cbor::encode(&mdbn_wire::cbor::Cbor::Array(vec![
+        mdbn_wire::cbor::Cbor::Uint(0),
+        mdbn_wire::cbor::Cbor::Bytes(vec![hold; 16]),
+    ]))
+    .unwrap()
+}
+pub(super) fn binding() -> RunBinding {
     RunBinding {
         collection: B16([1; 16]),
         owner: B16([2; 16]),
@@ -116,7 +166,7 @@ fn binding() -> RunBinding {
         target: B32([3; 32]),
     }
 }
-fn open() -> JournalDriver<Sqlite> {
+pub(super) fn open() -> JournalDriver<Sqlite> {
     JournalDriver::resume(Sqlite::new(), binding(), &mut TestEntropy(10)).unwrap()
 }
 #[test]
@@ -149,14 +199,7 @@ fn actual_driver_action_saved_before_effect_and_same_instance_only() {
     );
     a.assert_prepared(&t).unwrap();
     assert_eq!(a.prepared_action(&t).unwrap(), &Action::EnsureBackup);
-    let result = a
-        .settle(
-            &t,
-            Outcome::Backup {
-                hold: "actual-native-test-hold".into(),
-            },
-        )
-        .unwrap();
+    let result = a.settle_provider(&t, &backup(0x44)).unwrap();
     a.assert_settled(&t, result).unwrap();
     assert_eq!(
         a.assert_settled(&t, B32([77; 32])),
@@ -266,12 +309,7 @@ fn settlement_and_checkpoint_are_atomic_and_lost_ack_stays_unknown_in_ram() {
     let (t, _) = a.prepare(&mut TestEntropy(20)).unwrap();
     a.spill.index_mut().lose_settlement = true;
     assert_eq!(
-        a.settle(
-            &t,
-            Outcome::Backup {
-                hold: "original-hold".into()
-            }
-        ),
+        a.settle_provider(&t, &backup(0x45)),
         Err(LedgerError::StorageUnknown)
     );
     assert_eq!(a.assert_prepared(&t), Err(LedgerError::Refused));
@@ -324,12 +362,7 @@ fn checkpoint_drift_or_settlement_failure_never_clears_pending() {
     let before = t.data().before.clone();
     a.spill.index_mut().db.execute_batch("CREATE TRIGGER synthetic_fail AFTER UPDATE ON mig_checkpoint BEGIN SELECT RAISE(ABORT,'synthetic storage failure'); END").unwrap();
     assert_eq!(
-        a.settle(
-            &t,
-            Outcome::Backup {
-                hold: "hold".into()
-            }
-        ),
+        a.settle_provider(&t, &backup(0x46)),
         Err(LedgerError::StorageUnknown)
     );
     assert_eq!(a.saved_pending().unwrap().unwrap().before, before);
@@ -388,7 +421,7 @@ fn invalid_bounds_and_wrong_outcome_refuse_without_checkpoint_completion() {
             bucket: Some(0),
             after: Some(mdbn_migrate_portable::hosted_import::Key {
                 kind: mdbn_migrate_portable::preflight::EntityKind::Record,
-                id: "old".into()
+                id: "x".repeat(4097)
             })
         })
         .is_err()

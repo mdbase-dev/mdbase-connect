@@ -38,6 +38,7 @@
 pub mod api;
 pub mod approval;
 pub mod attachments;
+pub mod bases_codec;
 pub mod conformance;
 pub mod convert;
 pub mod crypto;

@@ -631,7 +631,14 @@ pub fn runtime_op(o: &wr::Op, t: TextResolver<'_>) -> CResult<ci::Op> {
                 prior: file_content(&f.prior.content)?,
             },
         )),
-        wr::Op::OrdinaryFileToRecord(_) => Err(ConvertError::OrdinaryFilePromotionUnsupported),
+        wr::Op::OrdinaryFileToRecord(f) => {
+            Ok(ci::Op::OrdinaryFileToRecord(ci::OrdinaryFileToRecord {
+                id: uuid(&f.id),
+                path: f.path.clone(),
+                doc: t(&f.doc)?,
+                prior: file_content(&f.prior)?,
+            }))
+        }
     }
 }
 
@@ -663,6 +670,15 @@ pub fn runtime_mutation(m: &wr::Mutation, t: TextResolver<'_>) -> CResult<ci::Mu
 /// Core effect to the runtime family: an attachment put as Effect8, everything
 /// else through [`weffect`] (which still refuses what neither family carries).
 pub fn wruntime_effect(e: &cp::Effect) -> CResult<wr::Effect> {
+    if let cp::Effect::ReindexOrdinaryFile { id, path, doc } = e {
+        return Ok(wr::Effect::ReindexOrdinaryFile(
+            mdbn_wire::ordinary_file_promotion::ReindexOrdinaryFile {
+                id: wuuid(id),
+                path: path.clone(),
+                doc: Text::Inline(doc.clone()),
+            },
+        ));
+    }
     if let Some(u) = wunindexed_markdown_effect(e) {
         return Ok(match u {
             wu::UnindexedMarkdownEffectV1::PutUnindexedMarkdown(p) => {

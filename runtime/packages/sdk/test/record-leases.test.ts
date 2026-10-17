@@ -92,7 +92,7 @@ describe("shared native record leases", () => {
         b.release();
         expect(f.client.link).not.toBe("closed");
     });
-    it("does not turn pending receipts into saved and recovers exactly the same MID without submit", async () => {
+    it("keeps a still-pending write on the device, settles it from the ledger and never resubmits", async () => {
         const f = await fixture(true),
             lease = await f.client.records.open(f.record.id),
             update = vi.spyOn(f.client, "update");
@@ -104,19 +104,59 @@ describe("shared native record leases", () => {
             }));
         lease.session.setBody("Pending\n");
         expect(await lease.session.flush()).toMatchObject({
-            ok: false,
-            problem: { code: "outcome_unknown" },
+            ok: true,
+            saved: "on_device",
         });
-        const mutation = lease.session.getSnapshot().recovery!.mutationId;
-        expect(lease.session.getSnapshot().state).toBe("recovery");
-        expect((await f.client.pendingWrites())[0]!.receipt.mutation).toBe(
-            mutation,
-        );
-        expect(await lease.session.flush()).toMatchObject({ ok: false });
-        expect(update).toHaveBeenCalledTimes(1);
+        expect(lease.session.getSnapshot()).toMatchObject({
+            state: "saved_on_device",
+            recovery: null,
+            dirty: false,
+        });
+        const mutation = update.mock.calls[0]![2]!.mutationId!;
+        expect(f.client.ledger.getSnapshot().pending).toEqual([
+            expect.objectContaining({ mutationId: mutation, records: [f.record.id] }),
+        ]);
+        expect(f.client.ledger.stateOf(f.record.id)).not.toBe("saved");
         receipt.mockRestore();
         f.replica.confirmAll();
-        expect(await lease.session.flush()).toMatchObject({ ok: true });
+        await vi.waitFor(() =>
+            expect(lease.session.getSnapshot().state).toBe("saved"),
+        );
+        await vi.waitFor(() =>
+            expect(f.client.ledger.getSnapshot()).toMatchObject({ pending: [], saveState: "saved" }),
+        );
+        expect(update).toHaveBeenCalledTimes(1);
+        lease.release();
+    });
+    it("an offline autosave whose receipt wait runs out is saved on device, then saved once online", async () => {
+        const f = await fixture(false),
+            update = vi.spyOn(f.client, "update");
+        const lease = await f.client.records.open(f.record.id, {
+            autosave: { idleMs: 50 },
+        });
+        f.replica.setOnline(false);
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+        try {
+            lease.session.setBody("Offline edit\n");
+            await vi.advanceTimersByTimeAsync(32_000);
+            expect(lease.session.getSnapshot()).toMatchObject({
+                state: "saved_on_device",
+                problem: null,
+                recovery: null,
+                dirty: false,
+            });
+            f.replica.setOnline(true);
+            await vi.advanceTimersByTimeAsync(100);
+        } finally {
+            vi.useRealTimers();
+        }
+        await vi.waitFor(() =>
+            expect(lease.session.getSnapshot()).toMatchObject({
+                state: "saved",
+                body: "Offline edit\n",
+                recovery: null,
+            }),
+        );
         expect(update).toHaveBeenCalledTimes(1);
         lease.release();
     });
@@ -145,6 +185,35 @@ describe("shared native record leases", () => {
         expect((await f.client.pendingWrites())[0]!.receipt.mutation).toBe(mid);
         f.replica.confirmAll();
         expect(await lease.session.flush()).toMatchObject({ ok: true });
+        expect(update).toHaveBeenCalledTimes(1);
+        lease.release();
+    });
+    it("re-settles a write left in recovery once its confirmation arrives, without another flush", async () => {
+        const f = await fixture(true),
+            lease = await f.client.records.open(f.record.id, { autosave: false }),
+            original = f.client.update.bind(f.client);
+        const update = vi
+            .spyOn(f.client, "update")
+            .mockImplementation(async (target, input, options) => {
+                await original(target, input, options);
+                throw new MdbaseError({
+                    code: "unavailable",
+                    recovery: "retry",
+                    message: "reply lost",
+                });
+            });
+        lease.session.setBody("Captured\n");
+        expect(await lease.session.flush()).toMatchObject({ ok: false });
+        expect(lease.session.getSnapshot().state).toBe("recovery");
+        f.replica.confirmAll();
+        await vi.waitFor(() =>
+            expect(lease.session.getSnapshot()).toMatchObject({
+                state: "saved",
+                body: "Captured\n",
+                recovery: null,
+                problem: null,
+            }),
+        );
         expect(update).toHaveBeenCalledTimes(1);
         lease.release();
     });
@@ -285,30 +354,7 @@ describe("shared native record leases", () => {
         );
         lease.release();
     });
-    it("recovers this SDK client's one exact native pending operation without another submit", async () => {
-        const f = await fixture(true),
-            seen = await f.client.get(f.record.id, {
-                body: true,
-                document: true,
-            }),
-            write = await f.client.update(seen, {
-                body: "before editor open",
-                ifRevision: seen.revision,
-            });
-        const update = vi.spyOn(f.client, "update"),
-            lease = await f.client.records.open(f.record.id);
-        expect(lease.session.getSnapshot().recovery).toMatchObject({
-            mutationId: write.mutationId,
-            recordId: f.record.id,
-            baseRevision: seen.revision,
-            write: null,
-        });
-        f.replica.confirmAll();
-        expect(await lease.session.flush()).toMatchObject({ ok: true });
-        expect(update).not.toHaveBeenCalled();
-        lease.release();
-    });
-    it("recovers, without resubmitting, the owner's pending write in a new session", async () => {
+    it("opens an earlier session's pending write as saved on device and edits on top of it", async () => {
         const f = await fixture(true),
             seen = await f.client.get(f.record.id, {
                 body: true,
@@ -324,17 +370,24 @@ describe("shared native record leases", () => {
             reconnect: false,
         });
         clients.push(next);
-        // Pending writes are owner-scoped, as on the replica: a reload sees them.
-        expect((await next.pendingWrites()).map((p) => p.receipt.mutation)).toEqual([other.mutationId]);
-        const update = vi.spyOn(next, "update"),
-            lease = await next.records.open(f.record.id);
+        const lease = await next.records.open(f.record.id, { autosave: false });
         expect(lease.session.getSnapshot()).toMatchObject({
-            state: "recovery",
-            recovery: { mutationId: other.mutationId, recordId: f.record.id },
+            state: "saved_on_device",
+            body: "other session",
+            recovery: null,
         });
+        await vi.waitFor(() =>
+            expect(next.ledger.getSnapshot().pending.map((e) => e.mutationId)).toEqual([other.mutationId]),
+        );
+        const layered = lease.session.getSnapshot().record.revision;
+        const update = vi.spyOn(next, "update");
+        lease.session.setBody("on top\n");
+        const flushing = lease.session.flush();
+        await vi.waitFor(() => expect(lease.session.getSnapshot().recovery?.write).toBeTruthy());
         f.replica.confirmAll();
-        await lease.session.flush();
-        expect(update).not.toHaveBeenCalled();
+        expect(await flushing).toMatchObject({ ok: true });
+        expect(update).toHaveBeenCalledTimes(1);
+        expect(update.mock.calls[0]![1]).toMatchObject({ ifRevision: layered, body: "on top\n" });
         lease.release();
     });
     it("refuses a genuine receipt for another record supplied through a recovery hint", async () => {

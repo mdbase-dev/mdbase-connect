@@ -211,14 +211,16 @@ impl<S: Store> Replica<S> {
         }
     }
     fn client_file_failed(&mut self, session: SessionId) {
+        let mut problem = ErrorCode::Unavailable.problem_with_reason(
+            "file_read_failed",
+            "the native file stream could not complete",
+        );
+        problem.details = self
+            .client_files
+            .as_mut()
+            .and_then(|io| io.reads.take_failure(session));
         crate::api::ClientApi::close(self, session);
-        self.pushes.push((
-            session,
-            Push::Closed(ErrorCode::Unavailable.problem_with_reason(
-                "file_read_failed",
-                "the native file stream could not complete",
-            )),
-        ));
+        self.pushes.push((session, Push::Closed(problem)));
     }
     /// Drive device reads through the canonical, authenticated LS call path.
     /// Hosted transport already streams R2 segments through the same native lane.

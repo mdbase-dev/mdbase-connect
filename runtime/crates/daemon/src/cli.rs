@@ -1439,6 +1439,12 @@ fn print_collection(c: &CollectionStatus) {
             s.confirmed_through, s.pending, s.holds, s.unresolved, s.connection
         );
     }
+    if let Some(failure) = &c.last_sync_failure {
+        println!(
+            "      last sync failure: {:?}, {:?}, confirmed through {}, generation {:?}, persisted {:?}",
+            failure.kind, failure.stage, failure.seq, failure.generation, failure.persisted
+        );
+    }
     for n in &c.notices {
         println!("      ! {}", n.message);
     }

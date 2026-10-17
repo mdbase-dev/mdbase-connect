@@ -106,7 +106,7 @@ impl ReceiptDataKey {
 }
 
 impl OriginalRollbackReceiptData {
-    fn valid(&self) -> bool {
+    pub(crate) fn valid(&self) -> bool {
         self.key.valid()
             && self.owner_account_id.0 != [0; 16]
             && self.action_id.0 != [0; 16]
@@ -119,6 +119,18 @@ impl OriginalRollbackReceiptData {
                 .iter()
                 .all(|id| self.replica_ids.binary_search(id).is_ok())
             && timestamp_shape(&self.recorded_at)
+    }
+    /// Compose original metadata with native action/checkpoint settlement.
+    /// The caller must compare an existing immutable row before staging this
+    /// plain insert; a concurrent collision aborts the whole transaction.
+    pub(crate) fn insert_plan(&self) -> Result<Stmt> {
+        if !self.valid() {
+            return Err(ReceiptDataError::Invalid);
+        }
+        Ok(Stmt::new(
+            "INSERT INTO mig_rollback_receipt_data (collection_id,provider_migration_id,driver_id,owner_account_id,authority_epoch,fixed_head,action_id,replica_ids,restored_ids,recorded_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+            self.params(),
+        ))
     }
     fn params(&self) -> Vec<SqlValue> {
         let mut values = self.key.params();
@@ -158,16 +170,17 @@ impl<'a> RollbackReceiptDataStore<'a> {
     /// Any post-write error may follow a commit: use independent exact readback,
     /// never a blind write retry or an assumption that the write was undone.
     pub fn record_original_data(&mut self, data: &OriginalRollbackReceiptData) -> Result<()> {
-        if !data.valid() {
-            return Err(ReceiptDataError::Invalid);
-        }
-        let mut results = self.index.run(&Batch {
-            mode: BatchMode::Transaction,
-            stmts: vec![
-                Stmt::new("INSERT INTO mig_rollback_receipt_data (collection_id,provider_migration_id,driver_id,owner_account_id,authority_epoch,fixed_head,action_id,replica_ids,restored_ids,recorded_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10) ON CONFLICT(collection_id,provider_migration_id,driver_id) DO NOTHING", data.params()),
-                Stmt::new(SELECT, data.key.params()),
-            ],
-        }).map_err(|_| ReceiptDataError::StorageUnknown)?;
+        let mut insert = data.insert_plan()?;
+        insert
+            .sql
+            .push_str(" ON CONFLICT(collection_id,provider_migration_id,driver_id) DO NOTHING");
+        let mut results = self
+            .index
+            .run(&Batch {
+                mode: BatchMode::Transaction,
+                stmts: vec![insert, Stmt::new(SELECT, data.key.params())],
+            })
+            .map_err(|_| ReceiptDataError::StorageUnknown)?;
         if results.len() != 2 {
             return Err(ReceiptDataError::Corrupt);
         }

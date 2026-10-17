@@ -141,7 +141,7 @@ export function httpsLog(origin: string): Fetcher {
   return {
     async fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
       const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
-      const r = await fetch(new URL(url.pathname, base).href, { ...init, redirect: "manual" });
+      const r = await fetch(new URL(url.pathname + url.search, base).href, { ...init, redirect: "manual" });
       if (r.status >= 300 && r.status < 400) {
         await r.body?.cancel();
         throw new Error("log redirect refused");
@@ -154,6 +154,20 @@ export function httpsLog(origin: string): Fetcher {
   } as unknown as Fetcher;
 }
 
+/** Deployment transport only, never key/admission authority. Cross-account
+ * Workers have LOG_URL and no LOG binding. Missing both fails closed. */
+export function deploymentLog(env: { LOG_URL?: string; LOG?: Fetcher }): Fetcher {
+  if (env.LOG_URL) return httpsLog(env.LOG_URL);
+  if (env.LOG) return env.LOG;
+  throw new Error("log_unconfigured");
+}
+
+/** What became of one call: answered (`sent`), failed in transport or with an HTTP
+ * error (`failed`), refused the bearer (`refused`, log-service 401/403; also
+ * failed to the engine), or never reached the engine (`dropped`: fenced, stale,
+ * not sendable). */
+export type SendOutcome = "sent" | "failed" | "refused" | "dropped";
+
 export async function sendCall(
   log: Fetcher,
   engine: Pick<Engine, "signRpc" | "logReply" | "logFailed">,
@@ -163,8 +177,8 @@ export async function sendCall(
   stale: StaleAppendStore,
   observeAppend?: (call: LogCallOut, observation: AppendObservation) => void,
   readReplyCap = MAX_REPLY_BYTES,
-): Promise<void> {
-  if (!fence()) return;
+): Promise<SendOutcome> {
+  if (!fence()) return "dropped";
   // Everything about the call is captured ONCE, before any await: its ID, method,
   // key, and exact wire bytes. The same bytes are signed, sent, and (if the
   // session goes stale) retained; a caller mutating `call` later changes nothing.
@@ -172,14 +186,14 @@ export async function sendCall(
   if (call.sidecar) {
     // Direct object upload (> 1 MiB) is not wired yet: outcome unknown, retried.
     engine.logFailed(id, false);
-    return;
+    return "failed";
   }
   let parsed: { method: string; key0: Uint8Array | null };
   try {
     parsed = lsMethod(call.frame);
   } catch {
     engine.logFailed(id, false);
-    return;
+    return "failed";
   }
   const { method } = parsed;
   const key0 = parsed.key0 ? parsed.key0.slice() : null;
@@ -188,7 +202,7 @@ export async function sendCall(
   const size = call.frame.length;
   if (isAppend && !stale.reserve(size)) {
     engine.logFailed(id, false);
-    return;
+    return "failed";
   }
   const frame = call.frame.slice();
   let kept: StaleAppend | null = null;
@@ -239,11 +253,13 @@ export async function sendCall(
     observe(appendObservation(frame, reply));
     if (!fence()) return markStale();
     engine.logReply(id, reply);
+    return "sent";
   } catch {
     if (!fence()) return markStale();
     observe(httpStatus === undefined ? { outcome: "transport_error" } : { outcome: "http_error", http_status: httpStatus });
     if (!fence()) return markStale();
     engine.logFailed(id, false);
+    return httpStatus === 401 || httpStatus === 403 ? "refused" : "failed";
   } finally {
     if (isAppend) stale.settle(size, kept);
     // The copy is wiped unless the stale custody kept it.
@@ -251,14 +267,14 @@ export async function sendCall(
     reply?.fill(0);
   }
 
-  function markStale(): void {
+  function markStale(): "dropped" {
     // Reads and heads are dropped (a fresh session re-reads). An append's exact
     // sent bytes and outcome are kept, under the credit reserved before sending.
     if (isAppend) kept = { id, frame, reply: reply ? reply.slice() : null };
+    return "dropped";
   }
 }
 
-/** Move every queued log call (and the calls their replies queue) until quiet. */
 /** Wall time per LS method (and `token`), for the LAB timing breakdown. */
 export type CallTimings = Map<string, { calls: number; ms: number; firstMs?: number }>;
 
@@ -272,6 +288,29 @@ function note(timings: CallTimings | undefined, method: string, started: number)
   timings.set(method, t);
 }
 
+/** Head checks only: a pump that sent nothing else learned nothing new. */
+const QUIET_METHODS = new Set(["subscribe", "head", "unsubscribe"]);
+
+/** What one pump did, for the caller's idle back-off. */
+export class PumpReport {
+  /** Calls other than head checks (reads, appends, objects, snapshots...). */
+  work = 0;
+  /** Calls that failed or were refused: the engine retries, so not idle. */
+  failed = 0;
+  /** True when the pump sent no work and nothing failed. */
+  get quiet(): boolean { return this.work === 0 && this.failed === 0; }
+}
+
+export interface PumpHooks {
+  /** The log refused the bearer (401/403): drop any held token. */
+  tokenRefused?: () => void;
+  report?: PumpReport;
+}
+
+/** Move every queued log call (and the calls their replies queue) until quiet.
+ * A log-service 401/403 drops the held token (`hooks.tokenRefused`); the rest of
+ * that round fails to the engine and the next round mints a fresh token, once:
+ * a second refusal in the same pump ends it. */
 export async function pumpLog(
   log: Fetcher,
   engine: Engine,
@@ -282,8 +321,10 @@ export async function pumpLog(
   timings?: CallTimings,
   observeCall?: (call: LogCallOut) => void,
   observeAppend?: (call: LogCallOut, observation: AppendObservation) => void,
+  hooks: PumpHooks = {},
 ): Promise<void> {
-  for (let i = 0; i < maxRounds; i++) {
+  let refreshed = false;
+  rounds: for (let i = 0; i < maxRounds; i++) {
     if (!fence()) return;
     // A bound session with nothing queued needs no token: quiet.
     let calls = engine.logBound ? engine.logCalls() : [];
@@ -299,15 +340,34 @@ export async function pumpLog(
       if (!calls.length) return;
     }
     // In order: the engine keeps one append in flight; reads and the rest are idempotent.
-    for (const c of calls) {
+    for (let k = 0; k < calls.length; k++) {
+      const c = calls[k];
       // Not yet sent, and the engine it came from is being discarded (reset,
       // replaced): the call dies with it; the next engine plans from its own state.
       if (!fence()) return;
       started = Date.now();
       try { observeCall?.(c); } catch { /* Telemetry cannot affect transport. */ }
       if (!fence()) { c.frame.fill(0); return; }
-      await sendCall(log, engine, t, c, fence, stale, observeAppend);
-      note(timings, timings ? lsMethod(c.frame).method : "", started);
+      const method = hooks.report || timings ? methodOf(c.frame) : "";
+      const outcome = await sendCall(log, engine, t, c, fence, stale, observeAppend);
+      note(timings, method, started);
+      if (hooks.report) {
+        if (outcome === "failed" || outcome === "refused") hooks.report.failed++;
+        else if (outcome === "sent" && !QUIET_METHODS.has(method)) hooks.report.work++;
+      }
+      if (outcome === "refused") {
+        try { hooks.tokenRefused?.(); } catch { /* Never let a hook change transport. */ }
+        // The rest of this round would carry the refused bearer: fail it back to
+        // the engine (it retries), and mint once more in the next round.
+        for (const rest of calls.slice(k + 1)) { engine.logFailed(rest.id, false); rest.frame.fill(0); }
+        if (refreshed || !fence()) return;
+        refreshed = true;
+        continue rounds;
+      }
     }
   }
+}
+
+function methodOf(frame: Uint8Array): string {
+  try { return lsMethod(frame).method; } catch { return ""; }
 }

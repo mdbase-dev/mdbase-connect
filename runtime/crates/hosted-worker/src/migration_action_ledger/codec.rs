@@ -1,7 +1,8 @@
 //! Closed native metadata fingerprints of ACTUAL portable enums, not a new
-//! completion language or an input decoder. Replay/source-page producers remain
-//! separate integrations; unsupported inputs refuse before saving an action.
+//! completion language or an input decoder. Replay producers remain a separate
+//! integration; unsupported inputs refuse before saving an action.
 use super::{LedgerError, Result};
+use mdbn_migrate_portable::budget::{MAX_SOURCE_PAGE_BYTES, MAX_SOURCE_PAGE_ROWS};
 use mdbn_migrate_portable::hosted_import::{Action, Generation, Key, Outcome, Table};
 use mdbn_wire::cbor::{self, Cbor};
 use mdbn_wire::common::B32;
@@ -52,7 +53,7 @@ fn ids(v: &[String]) -> Result<Cbor> {
         v.iter().map(|s| text(s)).collect::<Result<_>>()?,
     ))
 }
-fn digest(tag: &str, values: Vec<Cbor>) -> Result<B32> {
+pub(super) fn digest(tag: &str, values: Vec<Cbor>) -> Result<B32> {
     let b = cbor::encode(&Cbor::Array(values)).map_err(|_| LedgerError::Invalid)?;
     if b.len() > 64 * 1024 {
         return Err(LedgerError::Invalid);
@@ -60,6 +61,16 @@ fn digest(tag: &str, values: Vec<Cbor>) -> Result<B32> {
     Ok(h(tag, &b))
 }
 pub(super) fn action(a: &Action) -> Result<(u64, B32)> {
+    let fields = action_fields(a)?;
+    let kind = match fields.first() {
+        Some(Cbor::Uint(kind)) => *kind,
+        _ => return Err(LedgerError::Invalid),
+    };
+    Ok((kind, digest("mdbase/v1/native-driver-action", fields)?))
+}
+/// `[kind, ...params]`: exactly the fields the action fingerprint hashes, so the
+/// host executes the very parameters the ledger saved (no second encoding).
+pub(super) fn action_fields(a: &Action) -> Result<Vec<Cbor>> {
     use Action::*;
     let (kind, mut fields) = match a {
         EnsureBackup => (0, vec![]),
@@ -75,14 +86,11 @@ pub(super) fn action(a: &Action) -> Result<(u64, B32)> {
             max_rows,
             max_bytes,
         } => {
-            if *max_rows > 128 || *max_bytes > 64 * 1024 {
+            // The source page budget, never the portable hydrate defaults.
+            if *max_rows > MAX_SOURCE_PAGE_ROWS || *max_bytes > MAX_SOURCE_PAGE_BYTES {
                 return Err(LedgerError::Invalid);
             }
-            let t = match table {
-                Table::Resources => 0,
-                Table::Files => 1,
-                Table::Records => 2,
-            };
+            let t = table_tag(*table);
             (
                 3,
                 vec![
@@ -98,12 +106,7 @@ pub(super) fn action(a: &Action) -> Result<(u64, B32)> {
             bits,
             bucket,
             after,
-        } => {
-            if after.is_some() {
-                return Err(LedgerError::Unsupported);
-            }
-            (4, vec![n(*bits), opt(*bucket), key(after)?])
-        }
+        } => (4, vec![n(*bits), opt(*bucket), key(after)?]),
         FinishGen0 => (5, vec![]),
         AppendBase {
             manifest,
@@ -147,14 +150,80 @@ pub(super) fn action(a: &Action) -> Result<(u64, B32)> {
         Replay(_) | Wait(_) | Continue | Done(_) => return Err(LedgerError::Unsupported),
     };
     fields.insert(0, n(kind));
-    Ok((kind, digest("mdbase/v1/native-driver-action", fields)?))
+    Ok(fields)
 }
 pub(super) fn outcome(a: &Action, o: &Outcome) -> Result<B32> {
     use Action::*;
     let fields = match (a, o) {
-        (EnsureBackup, Outcome::Backup { hold }) => vec![n(0), text(hold)?],
         (CreateCollection, Outcome::Created { verified: false }) => vec![n(1)],
-        (ImportGen0 { .. }, Outcome::Gen0Progress { last, done: true }) => vec![n(2), key(last)?],
+        // Only settle_created's actual native target verifier reaches this case.
+        (CreateCollection, Outcome::Created { verified: true }) => vec![n(10)],
+        // Connect/provider results go only through `provider_outcome`, source
+        // open/page results only through `source_outcome`, generation-0
+        // windows and finish only through `gen0_outcome`, log results only
+        // through `log_outcome` (replay's `FindMutation` has no producer yet). Rollback
+        // needs its own adapter: an un-revoke/unfence Ok must not clear owned IDs
+        // without the independently preserved ORIGINAL rollback receipt.
+        _ => return Err(LedgerError::Unsupported),
+    };
+    digest("mdbase/v1/native-driver-outcome", fields)
+}
+
+/// Settlement digest of a Connect/provider result, with the provenance the
+/// adapter bound (provider run, drain counters). Only `provider` calls this.
+pub(super) fn provider_outcome(a: &Action, o: &Outcome, provenance: Vec<Cbor>) -> Result<B32> {
+    use Action::*;
+    let mut fields = match (a, o) {
+        (EnsureBackup, Outcome::Backup { hold }) => vec![n(0), text(hold)?],
+        (MayFence, Outcome::MayFence(may)) => vec![n(11), Cbor::Bool(*may)],
+        (Fence, Outcome::Ok) => vec![n(7)],
+        (DrainStatus, Outcome::Drain { pending, head }) => vec![n(8), n(*pending), n(*head)],
+        (ListReplicas, Outcome::Replicas { ids: v }) => vec![n(12), ids(v)?],
+        (RevokeReplicas { .. }, Outcome::Ok) => vec![n(13)],
+        (Route { .. }, Outcome::Ok) => vec![n(14)],
+        _ => return Err(LedgerError::Unsupported),
+    };
+    fields.extend(provenance);
+    digest("mdbase/v1/native-provider-outcome", fields)
+}
+
+/// Settlement digest of a legacy source open or page result, with the source
+/// session the adapter bound. Only `source` calls this.
+pub(super) fn source_outcome(a: &Action, o: &Outcome, provenance: Vec<Cbor>) -> Result<B32> {
+    use Action::*;
+    let mut fields = match (a, o) {
+        (OpenSource { generation: g, .. }, Outcome::Opened { head }) => {
+            vec![n(15), generation(*g), n(*head)]
+        }
+        (
+            ReadPage {
+                generation: g,
+                table,
+                cursor: c,
+                ..
+            },
+            Outcome::Page { rows, next },
+        ) => vec![
+            n(16),
+            generation(*g),
+            n(table_tag(*table)),
+            cursor(c)?,
+            n(rows.len() as u64),
+            cursor(next)?,
+        ],
+        _ => return Err(LedgerError::Unsupported),
+    };
+    fields.extend(provenance);
+    digest("mdbase/v1/native-source-outcome", fields)
+}
+/// Settlement digest of a generation-0 window or finish whose uploads the host
+/// showed present, with the window provenance. Only `gen0` calls this.
+pub(super) fn gen0_outcome(a: &Action, o: &Outcome, provenance: B32) -> Result<B32> {
+    use Action::*;
+    let mut fields = match (a, o) {
+        (ImportGen0 { .. }, Outcome::Gen0Progress { last, done }) => {
+            vec![n(2), key(last)?, Cbor::Bool(*done)]
+        }
         (
             FinishGen0,
             Outcome::Gen0Built {
@@ -166,20 +235,36 @@ pub(super) fn outcome(a: &Action, o: &Outcome) -> Result<B32> {
             Cbor::Bytes(manifest.0.to_vec()),
             Cbor::Bytes(state_digest.0.to_vec()),
         ],
+        _ => return Err(LedgerError::Unsupported),
+    };
+    fields.push(Cbor::Bytes(provenance.0.to_vec()));
+    digest("mdbase/v1/native-gen0-outcome", fields)
+}
+/// Settlement digest of a log result read from the Engine, with the evidence
+/// the adapter bound (item hash, head chain, page digest). Only `log` calls this.
+pub(super) fn log_outcome(a: &Action, o: &Outcome, provenance: Vec<Cbor>) -> Result<B32> {
+    use Action::*;
+    let mut fields = match (a, o) {
         (AppendBase { .. } | AppendCutover { .. }, Outcome::Appended { seq }) => {
             vec![n(4), n(*seq)]
         }
-        (FindBase | FindCutover | FindMutation { .. }, Outcome::Found { seq }) => {
-            vec![n(5), opt(*seq)]
-        }
+        (AppendBase { .. }, Outcome::Unknown) => vec![n(17)],
+        (AppendBase { .. }, Outcome::Stale) => vec![n(18)],
+        (FindBase | FindCutover, Outcome::Found { seq }) => vec![n(5), opt(*seq)],
         (Rebuild { .. }, Outcome::Rebuilt { head }) => vec![n(6), n(*head)],
-        (Fence, Outcome::Ok) => vec![n(7)],
-        (DrainStatus, Outcome::Drain { pending, head }) => vec![n(8), n(*pending), n(*head)],
+        (ReadNew { cursor: c }, Outcome::NewPage { rows, next }) => {
+            vec![n(19), cursor(c)?, n(rows.len() as u64), cursor(next)?]
+        }
         (LogHead, Outcome::Head { seq }) => vec![n(9), n(*seq)],
-        // These need their actual provenance-owned receipt/read/policy adapters.
-        // In particular an un-revoke/unfence Ok must not clear owned IDs without
-        // the independently preserved ORIGINAL rollback receipt.
         _ => return Err(LedgerError::Unsupported),
     };
-    digest("mdbase/v1/native-driver-outcome", fields)
+    fields.extend(provenance);
+    digest("mdbase/v1/native-log-outcome", fields)
+}
+fn table_tag(t: Table) -> u64 {
+    match t {
+        Table::Resources => 0,
+        Table::Files => 1,
+        Table::Records => 2,
+    }
 }

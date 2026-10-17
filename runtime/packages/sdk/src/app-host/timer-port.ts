@@ -132,7 +132,7 @@ export function attachAppTimerReceiver(port:MessagePort, options:{
         dispatched=write;
         response=await options.fetch(`${options.cpOrigin}${request.path}`,{method:request.method,body,
           headers:{authorization:`Bearer ${bearer}`,...(body===undefined?{}:{"content-type":"application/json"})},
-          credentials:"omit",redirect:"error",cache:"no-store",referrerPolicy:"no-referrer",signal:ctrl.signal});
+          credentials:"omit",redirect:"error",cache:request.method==="GET"?"no-store":"default",referrerPolicy:"no-referrer",signal:ctrl.signal});
         check();ctrl.signal.throwIfAborted();
         if(response.redirected)throw error("unavailable","timer_response");
         if(verb==="unregisterChannel" && response.status===204) {

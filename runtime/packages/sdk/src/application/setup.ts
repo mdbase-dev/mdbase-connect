@@ -2,6 +2,8 @@
  * guarded all-or-nothing apply. Native Core plans; the SDK only words it. */
 import type { AppResourceAssessment, AppResourceReview } from "../app-host/collection-control.js";
 import type { MdbaseApplicationRequestOptions, MdbaseApplicationSnapshot } from "./entry.js";
+import { versionRelation, type MdbaseVersionRelation } from "../semver.js";
+import type { NewerPacks } from "./configuration.js";
 
 /** A starter record created once, in the same mutation as the first setup. */
 export interface MdbaseSetupRecord {
@@ -31,7 +33,20 @@ export interface MdbaseSetupConflict {
   /** Present when using the app's version resolves it: pass via `adopt`. */
   readonly adoptable?: { readonly digest: string };
 }
-export type MdbaseSetupRefusalCode = "setup_forbidden" | "setup_conflict" | "setup_downgrade" | "setup_records_forbidden";
+/** Why setup can't run. `installed_newer`: a newer major version of this app's
+ * types is installed; ask the person to update the app (describeError action
+ * `update_app`). `setup_downgrade` is the former name and is no longer produced. */
+export type MdbaseSetupRefusalCode = "setup_forbidden" | "setup_conflict" | "installed_newer" | "setup_downgrade" | "setup_records_forbidden";
+/** One type pack in a plan. `relation` compares the installed version with the
+ * app's: `installed_newer` packs (same major) are kept as installed and the app
+ * reads and writes them, keeping fields it does not know. */
+export interface MdbaseSetupPack {
+  readonly id: string;
+  readonly version: string;
+  readonly status: AppResourceReview["packs"][number]["status"];
+  readonly installedVersion?: string;
+  readonly relation?: MdbaseVersionRelation;
+}
 export interface MdbaseSetupPlan {
   /** `current`: nothing to do. `setup`: changes to apply. `conflict`: blocked. */
   readonly status: "current" | "setup" | "conflict";
@@ -44,7 +59,7 @@ export interface MdbaseSetupPlan {
   readonly conflicts: readonly MdbaseSetupConflict[];
   /** Conflicts that using the app's version would resolve: pass as `adopt` and plan again. */
   readonly adoptable: Readonly<Record<string, string>>;
-  readonly packs: readonly { readonly id: string; readonly version: string; readonly status: AppResourceReview["packs"][number]["status"]; readonly installedVersion?: string }[];
+  readonly packs: readonly MdbaseSetupPack[];
   /** The definition documents setup would write, for a details view. */
   readonly staged: readonly { readonly path: string; readonly document: string }[];
   /** Starter records: `create` is written with the setup, `skip` already exists. */
@@ -62,7 +77,15 @@ export interface MdbaseApplicationSetup {
 
 const MAX_RECORDS = 32, MAX_RECORD_BYTES = 256 * 1024;
 const name = (target: string) => (target.split("/").pop() ?? target).replace(/\.(md|ya?ml|json)$/i, "");
-const noun = (kind: string) => kind === "type" ? "record type" : kind === "schema" ? "schema" : kind === "contract" ? "contract" : "definition";
+/** Explain the purpose, not an internal identifier. Exact paths and documents
+ * remain in the plan for inspection; they are not names an owner chose. */
+function definition(kind: string): { readonly the: string; readonly bare: string } {
+  const bare = kind === "contract" ? "shared format for this app's notes"
+    : kind === "type" ? "note type for this app"
+      : kind === "schema" ? "set of checks for this app's note properties"
+        : "setup item this app needs";
+  return { the: `the ${bare}`, bare };
+}
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const setting = (path: string) => (path.split("/").filter(Boolean).pop() ?? path).replace(/[_-]+/g, " ");
 
@@ -86,24 +109,29 @@ export function setupRecords(records: unknown): readonly MdbaseSetupRecord[] {
 export function setupPlan(assessed: AppResourceAssessment, input: {
   readonly canManage: boolean; readonly canCreateRecords: boolean;
   readonly records: readonly { readonly path: string; readonly free: boolean }[];
+  /** Packs installed at a newer version (see configuration `newerPacks`). */
+  readonly newer?: NewerPacks;
 }): MdbaseSetupPlan {
   const review = assessed.review!;
   const status = assessed.status === "current" ? "current" as const : assessed.status === "conflict" ? "conflict" as const : "setup" as const;
   const changes: MdbaseSetupChange[] = [], conflicts: MdbaseSetupConflict[] = [], adoptable: Record<string, string> = {};
   for (const pack of review.packs) for (const r of pack.resources) {
-    const thing = `the "${name(r.target)}" ${noun(r.kind)}`;
+    const thing = definition(r.kind), The = `T${thing.the.slice(1)}`;
+    const why = r.kind === "contract" ? ", so other apps can work with them" : "";
     switch (r.action) {
-      case "create": changes.push({ kind: "create", target: r.target, message: `Add ${thing}.` }); break;
-      case "update": changes.push({ kind: "update", target: r.target, message: `Update ${thing}.` }); break;
-      case "delete": changes.push({ kind: "delete", target: r.target, message: `Remove ${thing}, which this app no longer uses.` }); break;
-      case "adopt": changes.push({ kind: "adopt", target: r.target, message: `Replace your existing ${thing.slice(4)} with this app's version.` }); break;
+      case "create": changes.push({ kind: "create", target: r.target, message: `Add ${thing.the}${why}.` }); break;
+      case "update": changes.push({ kind: "update", target: r.target, message: `Update ${thing.the}.` }); break;
+      case "delete": changes.push({ kind: "delete", target: r.target, message: `Remove ${thing.the}, which this app no longer uses.` }); break;
+      // Core plans adopt only for byte-identical bytes: nothing is written, the
+      // existing file just becomes managed. A chosen replacement plans as update.
+      case "adopt": changes.push({ kind: "adopt", target: r.target, message: `Use your existing ${thing.bare}, which already matches this app's.` }); break;
       case "conflict": {
         const canAdopt = r.mode === "managed" && !r.installed && r.currentDigest !== undefined;
         if (canAdopt) adoptable[r.target] = r.currentDigest!;
         conflicts.push({ target: r.target, ...(canAdopt ? { adoptable: { digest: r.currentDigest! } } : {}),
-          message: canAdopt ? `This collection already has a ${thing.slice(4)} that differs from the one this app needs. You can replace it with this app's version.`
-            : r.installed ? `${thing[0]!.toUpperCase()}${thing.slice(1)} was changed after this app set it up, so it can't be updated automatically.`
-              : `${thing[0]!.toUpperCase()}${thing.slice(1)} can't be set up automatically.` });
+          message: canAdopt ? `This collection already has a ${thing.bare} that differs from the one this app needs. You can replace it with this app's version.`
+            : r.installed ? `${The} was changed after this app set it up, so it can't be updated automatically.`
+              : `${The} can't be set up automatically.` });
         break;
       }
       default: break;
@@ -112,27 +140,36 @@ export function setupPlan(assessed: AppResourceAssessment, input: {
   for (const c of review.configuration) {
     const label = setting(c.path);
     if (c.action === "add") changes.push({ kind: "setting", target: label,
-      message: typeof c.value === "string" ? `Add "${c.value}" to the collection's ${label} setting.` : `Change the collection's ${label} setting.` });
-    else conflicts.push({ target: label, message: `The collection's ${label} setting has an unexpected value, so it can't be changed automatically.` });
+      message: label === "include"
+        ? "Include this app's files when reading the collection."
+        : label === "record extensions" && typeof c.value === "string"
+          ? `Read .${c.value.replace(/^\./, "")} files as notes in this collection.`
+          : "Adjust a collection setting this app needs." });
+    else conflicts.push({ target: label, message: "A collection setting differs from what this app needs, so it can't be changed automatically." });
   }
   const records = status === "current" ? [] : input.records.map(r => Object.freeze({ path: r.path, action: r.free ? "create" as const : "skip" as const }));
   for (const r of records) if (r.action === "create") changes.push({ kind: "record", target: r.path, message: `Create the starter note "${name(r.path)}".` });
-  const downgrade = review.packs.some(p => p.status === "downgrade");
+  const newerMajor = (input.newer?.major.length ?? 0) > 0 || review.packs.some(p => p.installedVersion && versionRelation(p.installedVersion, p.version) === "installed_newer_major");
   let refusal: MdbaseSetupPlan["refusal"];
   if (status !== "current" && !input.canManage) refusal = { code: "setup_forbidden", message: "This app doesn't have permission to set up this collection." };
-  else if (downgrade) refusal = { code: "setup_downgrade", message: "A newer version of this app set up this collection. Update the app to continue." };
+  else if (newerMajor) refusal = { code: "installed_newer", message: "A newer version of this app set up this collection. Update the app to continue." };
   else if (conflicts.length) refusal = { code: "setup_conflict", message: conflicts.length === Object.keys(adoptable).length
     ? `${conflicts.length === 1 ? "One item differs" : `${conflicts.length} items differ`} from what this app needs. Choose whether to use this app's version to continue.`
     : "Some items can't be set up automatically. Resolve them, then try again." };
   else if (records.some(r => r.action === "create") && !input.canCreateRecords) refusal = { code: "setup_records_forbidden", message: "This app doesn't have permission to create notes in this collection." };
   const summary = status === "current" ? "Everything this app needs is already set up."
     : refusal ? refusal.message
-      : `This app will make ${plural(changes.length, "change")} to this collection.`;
+      : `This app will make ${plural(changes.length, "change")} to this collection.${
+        changes.every(c => c.kind === "create" || c.kind === "adopt" || c.kind === "record") ? " Nothing already in it is changed." : ""}`;
   return Object.freeze({
     status, canApply: status === "setup" && refusal === undefined, digest: assessed.assessmentDigest, summary,
     changes: Object.freeze(changes.map(c => Object.freeze(c))), conflicts: Object.freeze(conflicts.map(c => Object.freeze(c))),
     adoptable: Object.freeze(adoptable),
-    packs: Object.freeze(review.packs.map(p => Object.freeze({ id: p.id, version: p.version, status: p.status, ...(p.installedVersion ? { installedVersion: p.installedVersion } : {}) }))),
+    packs: Object.freeze([
+      ...review.packs.map(p => Object.freeze({ id: p.id, version: p.version, status: p.status,
+        ...(p.installedVersion ? { installedVersion: p.installedVersion, relation: versionRelation(p.installedVersion, p.version) } : {}) })),
+      ...(input.newer?.kept ?? []).map(p => Object.freeze({ id: p.id, version: p.version, status: "current" as const, installedVersion: p.installedVersion, relation: "installed_newer" as const })),
+    ]),
     staged: review.staged, records: Object.freeze(records), ...(refusal ? { refusal: Object.freeze(refusal) } : {}),
   });
 }

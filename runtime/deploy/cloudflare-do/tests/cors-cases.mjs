@@ -11,15 +11,18 @@ export async function corsCases({base,token,transport,encode,decode,map,sha,h,fe
   for(const origin of origins){
     let r=await preflight(origin);assert.equal(r.status,204);cors(r,origin);assert.equal(await r.text(),'');
     assert.equal(r.headers.get('access-control-allow-methods'),'GET, POST, PUT');
+    assert.equal(r.headers.get('access-control-max-age'),'7200','allowed preflights are cacheable');
     for(const name of signing.split(','))assert.ok(r.headers.get('access-control-allow-headers').split(',').map(x=>x.trim()).includes(name));
     r=await fetch(`${base}/v1/nonce`,{headers:{origin}});assert.equal(r.status,200);cors(r,origin);assert.match(await r.text(),/^[0-9a-f]{64}$/);
     for(const authorization of [undefined,'Bearer invalid']){
       r=await fetch(`${base}/v1/rpc`,{method:'POST',headers:{origin,...(authorization?{authorization}:{})},body:'not authenticated'});
       assert.equal(r.status,401);cors(r,origin);
+      assert.match(r.headers.get('x-mdbase-next-nonce'),/^[0-9a-f]{64}$/);
+      assert.ok(r.headers.get('access-control-expose-headers').split(',').map(x=>x.trim()).includes('x-mdbase-next-nonce'));
     }
   }
   for(const origin of [undefined,'null','https://evil.test','https://lab.tasknotes-app.pages.dev.evil.test','http://127.0.0.1:48219','https://app.tasknotes.dev','https://lab.tasknotes-app.pages.dev/']){
-    const r=await preflight(origin);assert.equal(r.status,403);assert.equal(await r.text(),'');assert.equal(r.headers.get('access-control-allow-origin'),null);
+    const r=await preflight(origin);assert.equal(r.status,403);assert.equal(await r.text(),'');assert.equal(r.headers.get('access-control-allow-origin'),null);assert.equal(r.headers.get('access-control-max-age'),null);
     const real=await fetch(`${base}/health`,{headers:origin?{origin}:{}});assert.equal(real.status,200);cors(real,null);
   }
   for(const [method,headers] of [['DELETE',signing],['POST','cookie'],['POST','authorization,x-arbitrary']]){

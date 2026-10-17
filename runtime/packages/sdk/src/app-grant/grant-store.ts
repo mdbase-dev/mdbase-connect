@@ -3,8 +3,8 @@
  *
  * **What is stored, and how.** The SDK's protected-storage pattern for browser
  * secrets (the same one the installation sign-in ledger and device-key custody use):
- * - The grant's Noise static key and the installation signing key are
- *   **non-extractable WebCrypto keys** (`X25519` / `ECDSA P-256`), structured-cloned
+ * - The grant's Noise static key, its signing key and the installation signing key
+ *   are **non-extractable WebCrypto keys** (`X25519` / `ECDSA P-256`), structured-cloned
  *   into IndexedDB. Page script can use them, but cannot read their bytes.
  * - The refresh token is stored only as **AES-256-GCM ciphertext** under a
  *   per-grant non-extractable key kept beside it, with associated data binding the
@@ -20,7 +20,7 @@
  * not stop same-origin script that runs while the app is open from *using* them; no
  * browser storage can. Apps still need a strict CSP.
  */
-import { isInstallationOwner } from "../app-host/installation-store.js";
+import { isInstallationOwner } from "../app-host/owner.js";
 import { mdbaseError } from "../errors.js";
 
 /** The installation's signing identity: one per CP origin and application. */
@@ -47,6 +47,10 @@ export interface StoredAppGrant {
   readonly refresh: Uint8Array;
   /** Epoch ms after which the refresh token is no longer accepted. */
   readonly refreshExpiresAt: number;
+  /** ECDSA P-256, `sign` only, non-extractable: the grant signing key registered at
+   * consent, which signs refresh requests. Absent in grants stored before it was
+   * kept; Connect refuses their refresh, so the app asks for access again. */
+  readonly signingPrivateKey?: CryptoKey;
   /** The store's local owner, stamped by an owner-labelled store. */
   readonly owner?: string;
 }
@@ -59,12 +63,17 @@ export interface AppGrantStore {
   listGrants(): Promise<StoredAppGrant[]>;
   putGrant(grant: StoredAppGrant): Promise<void>;
   deleteGrant(collection: string): Promise<void>;
+  /** Protected opaque Native setup attempts; never mutation bodies or replay queues. */
+  getSetupAttempt?(collection: string): Promise<Uint8Array | undefined>;
+  putSetupAttemptIfAbsent?(collection: string, bytes: Uint8Array): Promise<Uint8Array>;
+  deleteSetupAttempt?(collection: string, expected: Uint8Array): Promise<void>;
 }
 
 /** In memory only (tests and short-lived scripts). */
 export function memoryAppGrantStore(): AppGrantStore {
   let identity: StoredAppIdentity | undefined;
   const grants = new Map<string, StoredAppGrant>();
+  const attempts = new Map<string, Uint8Array>();
   return {
     getIdentity: async () => identity,
     putIdentityIfAbsent: async (next) => (identity ??= next),
@@ -72,10 +81,13 @@ export function memoryAppGrantStore(): AppGrantStore {
     listGrants: async () => [...grants.values()],
     putGrant: async (grant) => void grants.set(grant.collection, grant),
     deleteGrant: async (collection) => void grants.delete(collection),
+    getSetupAttempt: async c => attempts.get(c)?.slice(),
+    putSetupAttemptIfAbsent: async (c,b) => { if(!attempts.has(c)) attempts.set(c,b.slice()); return attempts.get(c)!.slice(); },
+    deleteSetupAttempt: async (c,b) => { const a=attempts.get(c); if(a && a.length===b.length && a.every((v,i)=>v===b[i])) attempts.delete(c); },
   };
 }
 
-const IDENTITY = "identity", GRANTS = "grants";
+const IDENTITY = "identity", GRANTS = "grants", SETUP_ATTEMPTS = "native-setup-attempts";
 
 export interface IndexedDbAppGrantStoreOptions {
   /**
@@ -118,10 +130,9 @@ export function indexedDbAppGrantStore(cpOrigin: string, applicationId: string, 
   const stamp = <T extends object>(record: T): T => owner === undefined ? record : { ...record, owner };
   let opening: Promise<IDBDatabase> | null = null;
   const open = () => (opening ??= new Promise<IDBDatabase>((resolve, reject) => {
-    const req = idb.open(name, 1);
+    const req = idb.open(name, 2);
     req.onupgradeneeded = () => {
-      req.result.createObjectStore(IDENTITY);
-      req.result.createObjectStore(GRANTS);
+      for(const store of [IDENTITY,GRANTS,SETUP_ATTEMPTS]) if(!req.result.objectStoreNames.contains(store)) req.result.createObjectStore(store);
     };
     req.onsuccess = () => {
       req.result.onversionchange = () => { req.result.close(); opening = null; };
@@ -144,6 +155,16 @@ export function indexedDbAppGrantStore(cpOrigin: string, applicationId: string, 
     const r = s.get(key); r.onsuccess = () => done(r.result as T | undefined);
   });
   return {
+    getSetupAttempt: async c => mine(await get<{owner?:string;bytes:Uint8Array}>(SETUP_ATTEMPTS,c))?.bytes,
+    putSetupAttemptIfAbsent: async (c,bytes) => mine(await run<{owner?:string;bytes:Uint8Array}>(SETUP_ATTEMPTS,"readwrite",(s,done)=>{
+      const r=s.get(c); r.onsuccess=()=> { if(r.result!==undefined) return done(r.result); const row=stamp({bytes:bytes.slice()}); s.add(row,c).onsuccess=()=>done(row); };
+    }))!.bytes,
+    deleteSetupAttempt: async (c,expected) => {
+      const outcome=await run<"done"|"refused">(SETUP_ATTEMPTS,"readwrite",(s,done)=>{
+        const r=s.get(c); r.onsuccess=()=> { if(!ownedOrAbsent(r.result)) return done("refused"); const b=(r.result as {bytes:Uint8Array}|undefined)?.bytes;
+          if(!b || b.length!==expected.length || !b.every((v,i)=>v===expected[i])) return done("done"); s.delete(c).onsuccess=()=>done("done"); };
+      }); if(outcome==="refused") refused();
+    },
     getIdentity: async () => mine(await get<StoredAppIdentity>(IDENTITY, "installation")),
     putIdentityIfAbsent: async (identity) => mine(await run<StoredAppIdentity>(IDENTITY, "readwrite", (s, done) => {
       const r = s.get("installation");

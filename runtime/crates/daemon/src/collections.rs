@@ -45,6 +45,8 @@ pub struct CollectionHost {
     telemetry_authority: Option<crate::authority::CollectionAuthority>,
     /// Pre-open diagnostic only; never serving/permission/proof authority.
     mirror_closed: Arc<std::sync::Mutex<Option<crate::takeover::mirror_driver::Diagnostic>>>,
+    /// Last allowlisted terminal incident; retained after the actor stops.
+    last_sync_failure: crate::sync_failure::Shared,
 }
 
 /// One readiness observation as a state (terminal reasons are kept).
@@ -146,6 +148,11 @@ impl CollectionHost {
     /// Start hosting `entry`. Never touches the collection's files beyond a `stat`
     /// of its root.
     pub fn open(entry: Entry, ctx: Option<HostCtx>) -> CollectionHost {
+        let last_sync_failure = ctx.as_ref().and_then(|c| {
+            crate::sync_failure::Failure::load(&c.collections_dir.join(&entry.id))
+                .ok()
+                .flatten()
+        });
         let mut host = CollectionHost {
             entry,
             state: CollectionState::Opening,
@@ -159,6 +166,7 @@ impl CollectionHost {
             ready: Arc::new(std::sync::Mutex::new(Readiness::Pending)),
             telemetry_authority: None,
             mirror_closed: Arc::new(std::sync::Mutex::new(None)),
+            last_sync_failure: Arc::new(std::sync::Mutex::new(last_sync_failure)),
         };
         host.refresh();
         host
@@ -250,6 +258,8 @@ impl CollectionHost {
         self.ready = ready.clone();
         let (fill, notify, id) = (slot.clone(), ctx.notify.clone(), self.entry.id.clone());
         let mirror_closed = self.mirror_closed.clone();
+        let (last_sync_failure, failure_dir) =
+            (self.last_sync_failure.clone(), cfg.private_dir.clone());
         if let Ok(mut closed) = mirror_closed.lock() {
             *closed = None;
         }
@@ -317,6 +327,7 @@ impl CollectionHost {
                     if synced && let (Ok(rt), Some(handle)) = (&r, &handle) {
                         let (rt, ready, cancel, notify) = (rt.clone(), ready.clone(), cancel.clone(), notify.clone());
                         let (id, journal) = (id.clone(), journal.clone());
+                        let (last_sync_failure, failure_dir) = (last_sync_failure.clone(), failure_dir.clone());
                         handle.spawn(async move {
                             // Maintained for the runtime's life, not latched at the
                             // first Ready: a reconnect or a missing key returns it to
@@ -330,10 +341,10 @@ impl CollectionHost {
                                 let Some((s, caught_up, adopt)) = rt.readiness().await else {
                                     return; // stopped
                                 };
-                                let now = match adopt {
+                                let now = match &adopt {
                                     Some(mdbn_replica::AdoptStatus::Pending) => Readiness::Adopting,
-                                    Some(mdbn_replica::AdoptStatus::Failed(why)) => {
-                                        tracing::error!(collection = %id, reason = %why, "adopt failed");
+                                    Some(mdbn_replica::AdoptStatus::Failed(_)) => {
+                                        tracing::error!(collection = %id, "adopt failed");
                                         Readiness::Failed("adopt_failed")
                                     }
                                     _ => {
@@ -347,6 +358,22 @@ impl CollectionHost {
                                         readiness_of(crate::runtime::synced_ready(&s, caught_up, offline))
                                     }
                                 };
+                                if let Readiness::Failed(_) = now
+                                    && let Some(failure) = crate::sync_failure::Failure::project(&s, &adopt)
+                                {
+                                    crate::sync_failure::retain_and_stop(
+                                        &last_sync_failure,
+                                        &failure_dir,
+                                        failure,
+                                        || {
+                                            *ready.lock().unwrap_or_else(|e| e.into_inner()) = now;
+                                            notify();
+                                        },
+                                        rt.stop(),
+                                    ).await;
+                                    notify(); // persisted=true/false is now final
+                                    return;
+                                }
                                 if now != last {
                                     if let Ok(mut g) = ready.lock() {
                                         *g = now;
@@ -708,6 +735,11 @@ impl CollectionHost {
             state: self.current().0,
             reason: self.current().1,
             sync: None,
+            last_sync_failure: self
+                .last_sync_failure
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone(),
             other_devices_online: self.other_devices_online,
             notices,
         }

@@ -95,9 +95,29 @@ impl UnindexedSourceReader {
         content: FileContent,
         collection: Uuid,
     ) -> Result<Self, StreamError> {
-        if content.size() <= RECORD_SOURCE_CAP_BYTES
-            || content.size() > AttachmentLimits::default().max_file_bytes
-        {
+        if content.size() <= RECORD_SOURCE_CAP_BYTES {
+            return Err(StreamError::TooLarge);
+        }
+        Self::open_profile(sealer, content, collection)
+    }
+    /// Small-source Op17 replay only. The large T6b constructor keeps its
+    /// strict lower bound; both paths share complete cryptographic verification.
+    pub(crate) fn ordinary(
+        sealer: &dyn Sealer,
+        content: FileContent,
+        collection: Uuid,
+    ) -> Result<Self, StreamError> {
+        if content.size() > RECORD_SOURCE_CAP_BYTES {
+            return Err(StreamError::TooLarge);
+        }
+        Self::open_profile(sealer, content, collection)
+    }
+    fn open_profile(
+        sealer: &dyn Sealer,
+        content: FileContent,
+        collection: Uuid,
+    ) -> Result<Self, StreamError> {
+        if content.size() > AttachmentLimits::default().max_file_bytes {
             return Err(StreamError::TooLarge);
         }
         let reader = match &content {

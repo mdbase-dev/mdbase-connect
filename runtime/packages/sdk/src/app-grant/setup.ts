@@ -1,133 +1,138 @@
-/**
- * Setup for a Private collection opened through the relay. Hosted copies use
- * the same plan and review wording: `plan` reads the collection's definitions
- * through the app's own client and plans them with the native engine. `apply`
- * plans again, refuses `setup_changed` if anything moved, then writes every
- * change as one guarded mutation that the person's computer checks.
- */
+/** Private setup is mediated by the original Native producer, never local resource writes. */
 import type { MdbaseClient } from "../client.js";
-import { MdbaseError, mdbaseError } from "../errors.js";
-import type { Op, Receipt } from "../wire.js";
-import { resourceDecisions, type AppResourceAssessment, type AppResourceDecisions } from "../app-host/collection-control.js";
-import type { AppSetupInventory } from "../app-host/setup-engine.js";
-import type { ModelResourcePlan } from "../app-host/collection-setup-types.js";
-import { setupPlan, setupRecords, type MdbaseSetupPlan, type MdbaseSetupPlanOptions, type MdbaseSetupRecord } from "../application/setup.js";
-
-/** `ready`: nothing to do. `setup_required`: review and apply a plan. `incompatible`: blocked. */
+import { MdbaseError, isMdbaseError, mdbaseError } from "../errors.js";
+import { uuidToBytes } from "../codec.js";
+import type { CborValue } from "../cbor.js";
+import {isReplicaResponseProblem, type Session} from "../session.js";
+import type { Receipt } from "../wire.js";
+import { resourceDecisions } from "../app-host/collection-control.js";
+import { setupPlan, setupRecords, type MdbaseSetupPlan, type MdbaseSetupPlanOptions } from "../application/setup.js";
+import { manifestDigest } from "../application/registration.js";
+import { hashBytes, setupRequest, type NativeSetupReview } from "./setup-producer.js";
+import type { PrivateSetupJournal } from "./setup-attempt.js";
 export type MdbasePrivateSetupStatus = "ready" | "setup_required" | "incompatible";
 export interface MdbasePrivateSetup {
-  /** Check the collection without a review. Changes nothing. */
-  assess(options?: { signal?: AbortSignal }): Promise<MdbasePrivateSetupStatus>;
-  /** Plan setup for one review screen. Changes nothing; call again after any decision. */
-  plan(options?: MdbaseSetupPlanOptions): Promise<MdbaseSetupPlan>;
-  /** Apply a plan from `plan` unchanged, as one guarded mutation. Refuses
-   * `setup_changed` if the collection changed since it was reviewed. */
-  apply(plan: MdbaseSetupPlan, options?: { signal?: AbortSignal }): Promise<MdbasePrivateSetupStatus>;
+  assess(options?: {signal?:AbortSignal}):Promise<MdbasePrivateSetupStatus>;
+  plan(options?:MdbaseSetupPlanOptions):Promise<MdbaseSetupPlan>;
+  apply(plan:MdbaseSetupPlan,options?:{signal?:AbortSignal}):Promise<MdbasePrivateSetupStatus>;
 }
-/** @internal The native planner; the SDK's packaged runtime in production. */
-export interface PrivateSetupEngine {
-  assess(manifest: unknown, inventory: AppSetupInventory, decisions?: AppResourceDecisions): AppResourceAssessment;
-  plan(manifest: unknown, expected: string, inventory: AppSetupInventory, decisions?: AppResourceDecisions): ModelResourcePlan;
-}
-/** @internal */
+/** @internal Original identity fences and protected MID register are mandatory. */
 export interface PrivateSetupInput {
-  readonly client: MdbaseClient;
-  /** The app's compiled manifest DATA and declared operations. */
-  readonly manifest: unknown;
-  readonly operations: readonly string[];
-  engine(signal: AbortSignal): Promise<PrivateSetupEngine>;
+  readonly client:MdbaseClient; readonly manifest:unknown; readonly operations:readonly string[];
+  readonly journal:PrivateSetupJournal;
+  assertCurrent():Promise<unknown>;
 }
-
-const changed = (mutationId?: string, cause?: unknown) => new MdbaseError(
-  mdbaseError("conflict", "This collection changed since the setup was reviewed. Review it again.", "setup_changed").toProblem(),
-  { ...(mutationId ? { mutationId } : {}), ...(cause === undefined ? {} : { cause }) });
-const unavailable = () => mdbaseError("unavailable", "resource setup unavailable", "resource_setup_unavailable");
-const status = (a: AppResourceAssessment): MdbasePrivateSetupStatus =>
-  a.status === "current" ? "ready" : a.status === "conflict" ? "incompatible" : "setup_required";
-const utf8 = new TextEncoder();
-
-/** @internal Construction does no IO. */
-export function privateCollectionSetup(input: PrivateSetupInput): MdbasePrivateSetup {
-  const { client, manifest } = input;
-  const declared = input.operations.includes("apply_collection_setup") || input.operations.includes("apply_type_pack");
-  const plans = new WeakMap<MdbaseSetupPlan, { decisions: AppResourceDecisions; records: readonly MdbaseSetupRecord[] }>();
-
-  /** Every confirmed definition, in path order; a pending one refuses. */
-  async function inventory(signal?: AbortSignal): Promise<AppSetupInventory> {
-    const rows: [string, string][] = [];
-    let cursor: string | undefined;
-    for (;;) {
-      const page = await client.resources.list({ text: true, limit: 128, ...(cursor ? { cursor } : {}), ...(signal ? { signal } : {}) });
-      for (const r of page.resources) {
-        if (r.state !== "confirmed" || typeof r.text !== "string" || utf8.encode(r.text).length !== r.size) throw unavailable();
-        rows.push([r.path, r.text]);
+const changed=(mid?:string,cause?:unknown)=>new MdbaseError(mdbaseError("conflict","This collection changed since setup was reviewed. Review it again.","setup_changed").toProblem(),{...(mid?{mutationId:mid}:{}),...(cause?{cause}:{})});
+const unknown=(mid:string,cause?:unknown)=>new MdbaseError(mdbaseError("outcome_unknown","Reconcile the original setup before trying again.","setup_outcome_unknown").toProblem(),{mutationId:mid,...(cause?{cause}:{})});
+const unavailable=()=>mdbaseError("unavailable","Native setup is unavailable.","resource_setup_unavailable");
+function pause(signal?:AbortSignal):Promise<void>{return new Promise((resolve,reject)=>{
+  if(signal?.aborted)return reject(mdbaseError("cancelled","Setup cancelled."));
+  const abort=()=>{clearTimeout(timer);reject(mdbaseError("cancelled","Setup cancelled."));};
+  const timer=setTimeout(()=>{signal?.removeEventListener("abort",abort);resolve();},100);
+  signal?.addEventListener("abort",abort,{once:true});
+});}
+/** @internal Construction neither activates nor replaces the held grant. */
+export function privateCollectionSetup(input:PrivateSetupInput):MdbasePrivateSetup {
+  const {client,journal}=input;
+  const declared=input.operations.includes("assess_collection_setup")&&input.operations.includes("apply_collection_setup");
+  const plans=new WeakMap<MdbaseSetupPlan,{session:Session;review:NativeSetupReview;options:MdbaseSetupPlanOptions;consumed:boolean}>();
+  const noops=new WeakSet<MdbaseSetupPlan>();
+  let busy=false;
+  async function exclusive<T>(work:()=>Promise<T>):Promise<T>{if(busy)throw mdbaseError("rate_limited","A setup operation is already running.");busy=true;try{return await work();}finally{busy=false;}}
+  async function fence(s?:Session,signal?:AbortSignal){if(!s)await client.readyForRead(signal);await input.assertCurrent();if(signal?.aborted)throw mdbaseError("cancelled","Setup cancelled.");if(s&&(s.closed||client.currentSession()!==s))throw changed();}
+  async function cancel(s:Session,ticket:Uint8Array){try{await setupRequest(s,"cancel",[[2,ticket]],AbortSignal.timeout(1000));}catch{/* no write is issued by cancel */}}
+  async function native(options:MdbaseSetupPlanOptions={}):Promise<{s:Session;review:NativeSetupReview;options:MdbaseSetupPlanOptions}>{
+    await fence(undefined,options.signal);
+    const s=await client.readyForRead(options.signal);await fence(s,options.signal);
+    const expected=await manifestDigest(input.manifest);await fence(s,options.signal);
+    const decisions=resourceDecisions(options.adopt===undefined?{}:{adopt:options.adopt}),records=setupRecords(options.records);
+    const fields:[number,CborValue][]=[];
+    if(decisions.adopt&&Object.keys(decisions.adopt).length) fields.push([3,new Map(Object.entries(decisions.adopt).map(([p,h])=>[p,hashBytes(h)]))]);
+    if(records.length)fields.push([4,records.map(r=>new Map<number,CborValue>([[0,r.path],[1,r.document]]))]);
+    let ticket:Uint8Array|undefined;
+    try{
+      let reply=await setupRequest(s,"assess",fields,options.signal);await fence(s,options.signal);
+      for(let polls=0;reply.kind==="pending";polls++){
+        ticket=reply.ticket;if(polls>=512)throw unavailable();
+        await pause(options.signal);await fence(s,options.signal);
+        reply=await setupRequest(s,"poll",[[2,ticket]],options.signal);await fence(s,options.signal);
       }
-      if (page.complete) return rows;
-      if (!page.cursor || page.cursor === cursor) throw unavailable();
-      cursor = page.cursor;
-    }
+      if(reply.kind!=="review")throw unavailable();ticket=reply.ticket;
+      if(reply.declaration!==expected || reply.application!==(input.manifest as {id?:unknown})?.id)throw changed();
+      if(reply.records.length!==records.length || reply.records.some((r,i)=>r.path!==records[i]!.path))throw unavailable();
+      return {s,review:reply,options:{records,...(decisions.adopt?{adopt:Object.freeze({...decisions.adopt})}:{})}};
+    }catch(e){if(ticket)await cancel(s,ticket);throw e;}
   }
-  async function assessed(signal: AbortSignal | undefined, decisions?: AppResourceDecisions) {
-    const engine = await input.engine(signal ?? new AbortController().signal);
-    const rows = await inventory(signal);
-    try {
-      return { engine, rows, assessment: engine.assess(manifest, rows, decisions) };
-    } catch (error) {
-      // A reviewed adoption that no longer matches its row is a stale review.
-      if (decisions?.adopt && Object.keys(decisions.adopt).length) throw changed(undefined, error);
-      throw error;
-    }
+  async function reconcile(signal?:AbortSignal){
+    await fence(undefined,signal);const mid=await journal.load();await fence(undefined,signal);if(!mid)return;
+    let r:Receipt;try{r=await client.receipt(mid,signal);}catch(e){throw unknown(mid,e);}
+    await fence(undefined,signal);
+    if(r.mutation!==mid || (r.state!=="confirmed"&&r.state!=="rejected"))throw unknown(mid);
+    await journal.clear(mid);
   }
-  async function capabilities(signal?: AbortSignal) {
-    return (await client.readyForRead(signal)).hello.grant.capabilities;
-  }
-
-  return Object.freeze({
-    async assess(options: { signal?: AbortSignal } = {}) {
-      return status((await assessed(options.signal)).assessment);
+  const api:MdbasePrivateSetup={
+    async assess(options={}){
+      const p=await api.plan(options),bound=plans.get(p);
+      // Assessment does not return a usable plan: release its original review,
+      // rather than occupying Native\'s bounded slot until the next page expires.
+      if(bound){await cancel(bound.session,bound.review.ticket);await fence(bound.session,options.signal);}
+      return p.status==="current"?"ready":p.status==="conflict"?"incompatible":"setup_required";
     },
-    async plan(options: MdbaseSetupPlanOptions = {}) {
-      const records = setupRecords(options.records);
-      const decisions = resourceDecisions(options.adopt === undefined ? {} : { adopt: options.adopt });
-      const { assessment } = await assessed(options.signal, decisions);
-      if (!assessment.review) throw unavailable();
-      const occupied: { path: string; free: boolean }[] = [];
-      if (assessment.status !== "current") for (const r of records)
-        occupied.push({ path: r.path, free: (await client.find({ path: r.path }, undefined, options.signal)) === null });
-      const granted = await capabilities(options.signal);
-      const result = setupPlan(assessment, { records: occupied,
-        canManage: declared && granted.includes("definitions.manage"), canCreateRecords: granted.includes("records.create") });
-      plans.set(result, Object.freeze({ decisions, records: records.filter(r => occupied.some(o => o.path === r.path && o.free)) }));
-      return result;
-    },
-    async apply(reviewed: MdbaseSetupPlan, options: { signal?: AbortSignal } = {}) {
-      const bound = plans.get(reviewed);
-      if (!bound) throw new TypeError("setup.apply needs a plan returned by setup.plan");
-      if (reviewed.refusal) throw mdbaseError(reviewed.refusal.code === "setup_conflict" ? "conflict" : "forbidden", reviewed.refusal.message, reviewed.refusal.code);
-      const { engine, rows, assessment } = await assessed(options.signal, bound.decisions);
-      if (assessment.assessmentDigest !== reviewed.digest) throw changed();
-      if (assessment.status !== "provision") return status(assessment);
-      const granted = await capabilities(options.signal);
-      if (!declared || !granted.includes("definitions.manage") || (bound.records.length && !granted.includes("records.create")))
-        throw mdbaseError("forbidden", "This app doesn't have permission to set up this collection.", "setup_forbidden");
-      let plan: ModelResourcePlan;
-      try { plan = engine.plan(manifest, assessment.assessmentDigest, rows, bound.decisions); } catch (error) { throw changed(undefined, error); }
-      if (plan.assessmentDigest !== assessment.assessmentDigest || plan.sources.length) throw unavailable();
-      // Starter records are create-only, in the same mutation as the definitions.
-      const ops: Op[] = [...plan.resourceOps as readonly Op[],
-        ...bound.records.map(r => ({ kind: "create" as const, id: crypto.randomUUID(), path: r.path, document: r.document }))];
-      const writes = await client.submit(ops, { wait: "confirmed", ...(options.signal ? { signal: options.signal } : {}) });
-      if (writes.length !== 1) throw unavailable();
-      let receipt: Receipt;
-      try { receipt = await writes[0]!.confirmed; } catch (error) {
-        // A final rejection applied nothing: a guard saw a changed definition or path.
-        if (writes[0]!.receipt.state === "rejected") throw changed(writes[0]!.mutationId, error);
-        throw error;
+    async plan(options={}){return exclusive(async()=>{
+      await fence(undefined,options.signal);
+      if(!declared){if(input.operations.includes("apply_collection_setup")||input.operations.includes("assess_collection_setup"))throw unavailable();const empty=setupPlan({status:"current",assessmentDigest:`sha256:${"0".repeat(64)}`,review:{configuration:[],packs:[],staged:[]}},{canManage:false,canCreateRecords:false,records:[]});noops.add(empty);return empty;}
+      await reconcile(options.signal);const {s,review,options:original}=await native(options);
+      let result=setupPlan(review.assessment,{canManage:true,canCreateRecords:s.hello.grant.capabilities.includes("records.create"),records:review.records.map(r=>({path:r.path,free:r.action==="create"}))});
+      if(review.promoted){const changes=Object.freeze([...result.changes,{kind:"record" as const,target:"Existing files",message:`Recognize ${review.promoted} existing ${review.promoted===1?"file":"files"} as notes, preserving their contents.`}]);result=Object.freeze({...result,changes,summary:`This app will make ${changes.length} ${changes.length===1?"change":"changes"} to this collection.`});}
+      plans.set(result,{session:s,review,options:original,consumed:false});return result;
+    });},
+    async apply(plan,options={}){return exclusive(async()=>{
+      if(noops.has(plan)){await fence(undefined,options.signal);return "ready" as const;}
+      let bound=plans.get(plan);if(!bound)throw new TypeError("setup.apply needs the original plan returned by setup.plan");
+      if(bound.consumed)throw changed();
+      if(plan.refusal)throw mdbaseError(plan.refusal.code==="setup_conflict"?"conflict":"forbidden",plan.refusal.message,plan.refusal.code);
+      await fence(bound.session,options.signal);if(plan.status==="current"){const after=await native({signal:options.signal});await cancel(after.s,after.review.ticket);if(after.review.assessment.status!=="current")throw changed();return "ready" as const;}
+      bound.consumed=true;
+      for(let retry=0;;retry++){
+        const mid=crypto.randomUUID();let original:string;try{original=await journal.begin(mid);}catch(e){throw unknown(mid,e);}if(original!==mid)throw unknown(original);
+        let dispatched=false,terminal=false;
+        try{
+          await fence(bound.session,options.signal);dispatched=true;
+          const reply=await setupRequest(bound.session,"apply",[[2,bound.review.ticket],[3,uuidToBytes(mid)],[4,bound.review.revision],[5,hashBytes(plan.digest)]],options.signal);
+          await input.assertCurrent();if(reply.kind!=="receipt"||reply.receipt.mutation!==mid)throw unknown(mid);
+          const r=reply.receipt.state==="pending"?await client.awaitReceipt(mid,30_000,options.signal):reply.receipt;
+          await input.assertCurrent();
+          if(r.mutation!==mid || (r.state!=="confirmed"&&r.state!=="rejected"))throw unknown(mid);
+          terminal=true;await journal.clear(mid);
+          if(r.state==="rejected" || (r.conflicts?.length??0)>0 || r.status!==undefined&&r.status!=="applied")throw changed(mid,r.problem);
+          const after=await native({signal:options.signal});
+          if(after.review.assessment.status!=="current")throw unavailable();
+          await cancel(after.s,after.review.ticket);
+          return "ready" as const;
+        }catch(e){
+          if(!dispatched || terminal || isReplicaResponseProblem(e)&&e.code!=="outcome_unknown"){
+            await journal.clear(mid);
+            // Only a certified pre-mutation refusal permits a fresh attempt.
+            // Another plan can retire this ticket without changing its consented work.
+            if(!terminal&&isReplicaResponseProblem(e)&&e.code==="not_found"){
+              if(retry)throw changed(mid,e);
+              await fence(bound.session,options.signal);
+              const fresh=await native({...bound.options,signal:options.signal});
+              try{
+                await fence(bound.session,options.signal);
+                if(fresh.s!==bound.session || fresh.review.assessment.assessmentDigest!==plan.digest
+                  || fresh.review.assessment.status!=="provision"
+                  || fresh.review.promoted!==bound.review.promoted || fresh.review.retained!==bound.review.retained
+                  || fresh.review.records.some((r,i)=>r.action!==bound!.review.records[i]?.action))throw changed(mid,e);
+              }catch(error){await cancel(fresh.s,fresh.review.ticket);throw error;}
+              bound={...bound,review:fresh.review};continue;
+            }
+            throw new MdbaseError((isMdbaseError(e)?e:changed()).toProblem(),{mutationId:mid,cause:e});
+          }
+          throw unknown(mid,e);
+        }
       }
-      if (receipt.state !== "confirmed" || receipt.status !== "applied" || (receipt.conflicts?.length ?? 0) !== 0) throw unavailable();
-      const after = (await assessed(options.signal)).assessment;
-      if (after.status !== "current") throw unavailable();
-      return "ready";
-    },
-  });
+    });},
+  };
+  return Object.freeze(api);
 }

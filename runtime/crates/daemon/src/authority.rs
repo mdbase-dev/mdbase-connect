@@ -61,6 +61,7 @@ struct State {
     paired: Option<PairedIdentity>,
     entries: BTreeMap<String, Entry>,
     access: AccessList,
+    setup_lease_generations: BTreeMap<String, u64>,
 }
 
 /// An account incarnation (see [`Authority::incarnation`]).
@@ -163,6 +164,20 @@ impl Authority {
     /// with account invalidation; account changes also invalidate the epoch.
     pub fn publish_access(&self, access: &AccessList) {
         if let Ok(mut state) = self.0.write() {
+            let now = crate::fsutil::now_ms() as u64;
+            for collection in access.leases.keys() {
+                if !state.access.lease_live(collection, now) {
+                    let generation = state
+                        .setup_lease_generations
+                        .entry(collection.clone())
+                        .or_default();
+                    let Some(next) = generation.checked_add(1) else {
+                        state.paired = None;
+                        return;
+                    };
+                    *generation = next;
+                }
+            }
             state.access = access.clone();
         }
     }
@@ -325,6 +340,51 @@ impl CollectionAuthority {
             .get(&paired.account)
             .copied()
             .ok_or(Deny::MembershipMissing)
+    }
+
+    /// Narrow setup evidence for a synced collection. This is additional to,
+    /// never a replacement for, Replica's effective signed-policy grant. No
+    /// locally inferred owner role or ordinary definition capability is emitted.
+    pub fn declared_setup(
+        &self,
+        grant: &B16,
+    ) -> Option<mdbn_replica::policy::DeclaredSetupAuthorization> {
+        let state = self.authority.0.read().ok()?;
+        let paired = self.paired(&state).ok()?;
+        paired.noise_pk?; // current host-held keychain custody, not a descriptor
+        if self.entry(&state).ok()?.mode == SyncMode::Local {
+            return None;
+        }
+        let collection = crate::secrets::uuid_string(&self.collection.0);
+        let id = crate::secrets::uuid_string(&grant.0);
+        let entry = state
+            .access
+            .entries
+            .iter()
+            .find(|entry| entry.grant.collection == collection && entry.grant.grant == id)?;
+        let cached = &entry.grant;
+        if cached.legacy_only
+            || entry.generation == 0
+            || cached.account_id.as_deref().and_then(account_id)? != paired.account
+        {
+            return None;
+        }
+        let client_pk: [u8; 32] = crate::secrets::hex_decode(&cached.client_pk)
+            .ok()?
+            .try_into()
+            .ok()?;
+        state
+            .access
+            .authorize(&collection, &id, &client_pk, crate::fsutil::now_ms() as u64)
+            .ok()?;
+        Some(mdbn_replica::policy::DeclaredSetupAuthorization {
+            account: paired.account,
+            client_pk: B32(client_pk),
+            generation: entry.generation,
+            authority_epoch: self.epoch,
+            lease_generation: *state.setup_lease_generations.get(&collection)?,
+            setup: cached.declared_setup.as_ref()?.core_setup().ok()?,
+        })
     }
 
     /// Local grant under current identity, active consent, wall+monotonic lease,

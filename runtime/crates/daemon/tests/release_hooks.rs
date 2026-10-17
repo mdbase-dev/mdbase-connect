@@ -28,7 +28,10 @@ fn backend_and_origin_probe() {
     #[cfg(debug_assertions)]
     {
         mdbn_daemon::trust::allow_loopback_control_plane_for_tests();
+        #[cfg(not(feature = "local-rehearsal"))]
         assert!(mdbn_daemon::trust::sign_in_server(Some("http://127.0.0.1:1")).is_ok());
+        #[cfg(feature = "local-rehearsal")]
+        assert!(mdbn_daemon::trust::sign_in_server(Some("http://127.0.0.1:1")).is_err());
     }
 }
 

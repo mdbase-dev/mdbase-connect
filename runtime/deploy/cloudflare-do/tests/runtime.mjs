@@ -2,6 +2,7 @@
 // Build the Worker first; LOGSVC_BENCH must be a freshly built/pulled binary.
 import assert from 'node:assert/strict';
 import { corsCases } from './cors-cases.mjs';
+import { noncePiggybackCases } from './nonce-piggyback-cases.mjs';
 import { createProxyFetch } from './proxy-fetch.mjs';
 import { ingressCases } from './ingress-cases.mjs';
 import { sec061Cases } from './sec061-cases.mjs';
@@ -94,10 +95,16 @@ writeFileSync(config, JSON.stringify({
   compatibility_date: '2026-10-04',
   durable_objects: { bindings: [{ name: 'LOG', class_name: 'LogCollection' }] },
   migrations: [{ tag: 'v1', new_sqlite_classes: ['LogCollection'] }],
-  r2_buckets: [{ binding: 'OBJECTS', bucket_name: 'logsvc-local-test' }],
+  // OBJECTS keeps regionless collections; regional collections use their own.
+  r2_buckets: [{ binding: 'OBJECTS', bucket_name: 'logsvc-local-test' },
+    { binding: 'OBJECTS_OC', bucket_name: 'logsvc-local-test-oc' },
+    { binding: 'OBJECTS_WNAM', bucket_name: 'logsvc-local-test-wnam' }],
   analytics_engine_datasets: [{ binding: 'METRICS', dataset: 'logsvc_local_test' }],
   vars: { PUBLIC_BASE: base, INSECURE_TEST_KEYS: '1', DEBUG_HOOKS: '1', TESTKIT_CP: 'conformance',
-    LOGSVC_CORS_ORIGINS: 'http://127.0.0.1:48218,https://lab.tasknotes-app.pages.dev' },
+    LOGSVC_CORS_ORIGINS: 'http://127.0.0.1:48218,https://lab.tasknotes-app.pages.dev',
+    // Deployed configs set a default region: every collection created here is
+    // regional, so uploads, commits and reads all go through the region's bucket.
+    LOGSVC_DO_LOCATION_HINT: 'oc', LOGSVC_REGION_BUCKETS: 'oc=OBJECTS_OC,wnam=OBJECTS_WNAM' },
 }));
 let server;
 let stateDirectory = resolve(dir, 'state');
@@ -182,6 +189,9 @@ try {
     }
     assert.ok(!text.includes('logsvc_metrics_write_failed'), 'local Analytics Engine writes succeed');
     console.log('PASS: repair log privacy and Analytics Engine binding');
+    const push = spawn(resolve(process.env.LOGSVC_BENCH), ['--url', base, 'push', '--origin', 'http://127.0.0.1:48218'], { stdio: 'inherit' });
+    const [pushStatus] = await once(push, 'exit');
+    assert.equal(pushStatus, 0, 'DO push transport and revocation');
     processEvidence('after-benchmark');
     // Benchmark WebSocket/load and HTTP CORS probes must not share a warmed
     // dev ProxyWorker/UserWorker lifetime. Preserve the SAME SQLite/R2 directory
@@ -201,6 +211,7 @@ try {
   await corsCases({ base, token, transport, encode, decode, map, sha, h,
     fetch: createProxyFetch({base,logPath:resolve(dir,'wrangler.log')}) });
   if (process.env.LOGSVC_CORS_ONLY !== '1') {
+  await noncePiggybackCases({ base, token, transport, issuer, encode, decode, map, sha, h });
   await collectionDeletionCases({ base, token, transport, encode, decode, map, sha, h,
     restart: async () => { await stop(); await start(); } });
   await destinationDenialCases({ base, token, transport, encode, decode, map, sha, h,

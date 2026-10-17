@@ -16,7 +16,7 @@ describe("pinned CP people metadata",()=>{
     await f.authority.request("identity");await f.authority.request("members");
     expect(f.authority.collection).toBe(id(1));
     expect(f.fetch.mock.calls.map(([url])=>url)).toEqual([`https://cp.example/v1/authorities/${id(1)}/identity?device_id=${id(2)}`,`https://cp.example/v1/authorities/${id(1)}/members?device_id=${id(2)}`]);
-    for(const [,init] of f.fetch.mock.calls){expect(init).toMatchObject({method:"GET",headers:{authorization:`Bearer ${bearer}`},credentials:"omit",redirect:"error",cache:"no-store",referrerPolicy:"no-referrer"});expect(init).not.toHaveProperty("body");}
+    for(const [,init] of f.fetch.mock.calls){expect(init).toMatchObject({method:"GET",headers:{authorization:`Bearer ${bearer}`},credentials:"omit",redirect:"error",cache:"default",referrerPolicy:"no-referrer"});expect(init).not.toHaveProperty("body");}
   });
   it.each(["https://user:password@cp.example"])("refuses unapproved origin %s",async origin=>{
     const f=fixture();Object.assign(f.session,{cpOrigin:origin});expect(()=>new AppCpPeopleAuthority(f.session)).toThrow();

@@ -14,8 +14,9 @@ const COLLECTION = "0e0e0e0e-0e0e-4e0e-8e0e-0e0e0e0e0e0e";
 const FIELDS = ["kind", "device_id", "sign_pk", "kem_pk", "noise_pk", "wrapped_keys", "kms_key_arn", "genesis"];
 const sha = bytes => createHash("sha256").update(bytes).digest("hex");
 
-/** Extract the one self-contained esbuild ControlClient module, byte-exact.
- * Unsupported/minified/ambiguous layouts refuse; no source-file substitute.
+/** Extract the exact esbuild ControlClient and its compiled local-build/origin
+ * dependencies. Unsupported/minified/ambiguous layouts refuse; no source-file
+ * substitute or injected transport-policy functions.
  */
 export function controlModule(bundle) {
   const markers = [...bundle.matchAll(/^\/\/ (?:[^\r\n]*\/)?src\/control\.ts\r?$/gm)];
@@ -25,7 +26,19 @@ export function controlModule(bundle) {
   if (end < start) throw new Error("unsupported_consumer_bundle");
   const module = bundle.slice(start, end);
   if (!/\bvar ControlClient = class\b/.test(module)) throw new Error("unsupported_consumer_bundle");
-  return module;
+  const dependencies = [];
+  if (/\blocalBuild\(/.test(module)) {
+    for (const name of ["local-build", "local-origin"]) {
+      const expression = new RegExp('^// (?:[^\\r\\n]*/)?src/' + name + '\\.ts\\r?$', 'gm');
+      const boundaries = [...bundle.matchAll(expression)];
+      if (boundaries.length !== 1) throw new Error("unsupported_consumer_bundle");
+      const begin = boundaries[0].index + boundaries[0][0].length + 1;
+      const finish = bundle.indexOf("\n// ", begin);
+      if (finish < begin) throw new Error("unsupported_consumer_bundle");
+      dependencies.push(bundle.slice(begin, finish));
+    }
+  }
+  return [...dependencies, module].join("\n");
 }
 
 function input(bundleBytes, recordBytes, role) {

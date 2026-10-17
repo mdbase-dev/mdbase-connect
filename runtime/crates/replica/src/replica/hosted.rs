@@ -1074,6 +1074,21 @@ impl<S: Store> Replica<S> {
         self.hosted.as_deref().is_some_and(|h| h.needs_reset)
     }
 
+    /// The open-time pin check (`PolicyState::consistent_with`) on the live
+    /// policy state; true without pins. A state applied from the log under the
+    /// pins that fails it means the log itself was not built under them.
+    pub fn hosted_pins_consistent(&self) -> bool {
+        self.cfg
+            .policy_pins
+            .as_ref()
+            .is_none_or(|pins| self.policy.consistent_with(pins))
+    }
+
+    /// Hosted mode: rebuilt from the log since open, up to the reported head.
+    pub fn hosted_rebuilt(&self) -> bool {
+        self.hosted.as_deref().is_some_and(|h| h.rebuilt) && self.head.seq >= self.head_known
+    }
+
     /// While the warm-wake key rebuild runs (hosted), or a device keyring
     /// rebuild (`key_rebuild.rs`), the replica neither reads nor appends.
     pub(crate) fn hosted_blocked(&self) -> bool {

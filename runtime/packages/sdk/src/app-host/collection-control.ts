@@ -4,6 +4,9 @@ import { AppCollectionSetupError, decode, modelPackPlan, modelResourcePlan, type
 import type { ModelResourcePlan, ModelResourceSetupJournal, ModelSetupIntent, ModelSetupScope } from "./collection-setup-types.js";
 import type { PeopleAuthority, PeopleRequestOptions } from "../people.js";
 import { mdbaseError } from "../errors.js";
+import type { WriteLedgerEntry, WriteLedgerStore } from "../write-ledger.js";
+import { ledgerEntry } from "./ledger-rows.js";
+import type { AppLedgerRows } from "../app-storage/collection-sql.js";
 import { collectionPeopleDto, collectionPeopleError, decodeCollectionPeopleError, type CollectionPeopleResource } from "./collection-people.js";
 
 export interface AppCollectionControlBinding {
@@ -112,6 +115,8 @@ export interface AppCollectionControlClient {
   readonly journal: ModelResourceSetupJournal;
   /** Fixed metadata READ proxy; present only with a people-enabled SDK handoff. */
   readonly peopleAuthority?: PeopleAuthority;
+  /** The write ledger's durable store: rows in the replica database. */
+  readonly ledger: WriteLedgerStore;
   /** Actual same-scope setup-engine assessment, NOT discovery/readiness authority. */
   assess(state: "ready" | "setup_required", signal: AbortSignal): Promise<void>;
   setForeground(active: boolean, signal: AbortSignal): Promise<void>;
@@ -133,10 +138,18 @@ function pin(source: AppCollectionControlBinding) {
 function bounded(value: unknown): boolean {
   try { return new TextEncoder().encode(JSON.stringify(value)).byteLength <= MAX; } catch { return false; }
 }
-type Action = "load" | "prepare" | "prepareResources" | "prepareResourceRound" | "recordAttempt" | "recordConfirmed" | "recordVerified" | "recordResourceAttempt" | "recordResourceConfirmed" | "recordResourceVerified" | "recordResourceRejected" | "assess" | "foreground" | "peopleIdentity" | "peopleMembers" | "resourcesAssess" | "resourcesApply";
-const actions = ["load", "prepare", "prepareResources", "prepareResourceRound", "recordAttempt", "recordConfirmed", "recordVerified", "recordResourceAttempt", "recordResourceConfirmed", "recordResourceVerified", "recordResourceRejected", "assess", "foreground", "peopleIdentity", "peopleMembers", "resourcesAssess", "resourcesApply"] as const;
+type Action = "load" | "prepare" | "prepareResources" | "prepareResourceRound" | "recordAttempt" | "recordConfirmed" | "recordVerified" | "recordResourceAttempt" | "recordResourceConfirmed" | "recordResourceVerified" | "recordResourceRejected" | "assess" | "foreground" | "peopleIdentity" | "peopleMembers" | "resourcesAssess" | "resourcesApply" | LedgerAction;
+type LedgerAction = "ledgerList" | "ledgerPut" | "ledgerRemove";
+const ledgerAction = (action: Action): action is LedgerAction => action === "ledgerList" || action === "ledgerPut" || action === "ledgerRemove";
+/** Ledger rows are small; a listing stays well inside one packet. */
+const LEDGER_ROW_MAX = 16 * 1024, LEDGER_LIST_MAX = 448 * 1024;
+const actions = ["load", "prepare", "prepareResources", "prepareResourceRound", "recordAttempt", "recordConfirmed", "recordVerified", "recordResourceAttempt", "recordResourceConfirmed", "recordResourceVerified", "recordResourceRejected", "assess", "foreground", "peopleIdentity", "peopleMembers", "resourcesAssess", "resourcesApply", "ledgerList", "ledgerPut", "ledgerRemove"] as const;
 const peopleResource = (action: Action): CollectionPeopleResource | null => action === "peopleIdentity" ? "identity" : action === "peopleMembers" ? "members" : null;
 const readAction = (action: Action) => action === "load" || action === "assess" || action === "foreground" || action === "resourcesAssess" || action === "resourcesApply" || peopleResource(action) !== null;
+const journalAction = (action: Action) => action === "load" || action === "prepare" || action === "prepareResources" || action === "prepareResourceRound" || action.startsWith("record");
+/** Shared by every tab's control onto one open collection: the tab whose setup
+ * is between its prepare and its verified/rejected step. */
+export interface AppCollectionSetupTurn { owner: object | null }
 
 /** Worker-side fixed verbs under the original adapter's child lifetime. */
 export function attachAppCollectionControl(port: MessagePort, source: AppCollectionControlBinding, options: {
@@ -145,6 +158,12 @@ export function attachAppCollectionControl(port: MessagePort, source: AppCollect
   resourceSetup?: AppResourceSetupPort;
   /** SAME original host authority; configured privately by the SDK adapter. */
   peopleAuthority?: PeopleAuthority;
+  /** Write-ledger rows in the replica database; answered at once, beside other verbs. */
+  ledger?(): AppLedgerRows | null;
+  /** One per open collection, shared by every tab's control. While one tab's
+   * setup is in progress, another tab's journal requests are refused `busy`
+   * (not started), so it waits for that setup instead of racing its steps. */
+  setupTurn?: AppCollectionSetupTurn;
   signal: AbortSignal;
   isCurrent(): boolean;
   assess(state: "ready" | "setup_required"): void;
@@ -154,6 +173,8 @@ export function attachAppCollectionControl(port: MessagePort, source: AppCollect
   options = Object.freeze({...options});
   const original = pin(source);
   let stopped = false, work: Promise<void> | null = null, closing: Promise<void> | null = null, lastId = 0;
+  const me = {}, turn = options.setupTurn;
+  const release = () => { if (turn?.owner === me) turn.owner = null; };
   const current = () => {
     if (stopped || options.signal.aborted || options.isCurrent() !== true) throw fail();
   };
@@ -163,7 +184,7 @@ export function attachAppCollectionControl(port: MessagePort, source: AppCollect
   };
   const stop = () => {
     if (stopped) return;
-    stopped = true; port.onmessage = port.onmessageerror = null;
+    stopped = true; release(); port.onmessage = port.onmessageerror = null;
     try { port.postMessage([1, original.binding, original.generation, 0, "closed", null]); } catch { /* fail-stop */ }
     port.close();
   };
@@ -178,7 +199,24 @@ export function attachAppCollectionControl(port: MessagePort, source: AppCollect
         !Number.isInteger(packet[3]) || packet[3] < 1 || packet[3] > 0xffffffff || !actions.includes(packet[4] as Action) || !bounded(packet)) throw fail("binding");
       const id: number = packet[3], action: Action = packet[4], payload: unknown = packet[5];
       if (id <= lastId) throw fail("binding"); lastId = id;
+      if (ledgerAction(action)) {
+        // Synchronous SQLite between native calls: never queued behind setup work.
+        let result: unknown = null;
+        try {
+          const rows = options.ledger?.() ?? null;
+          if (!rows) throw fail("recovery_required");
+          if (action === "ledgerList") { if (payload !== null) throw fail("binding"); result = rows.list(LEDGER_LIST_MAX); }
+          else if (action === "ledgerRemove") { if (typeof payload !== "string" || !uuid.test(payload)) throw fail("binding"); rows.remove(payload); }
+          else {
+            if (!Array.isArray(payload) || payload.length !== 2 || typeof payload[0] !== "string" || !uuid.test(payload[0])
+              || typeof payload[1] !== "string" || payload[1].length > LEDGER_ROW_MAX) throw fail("binding");
+            rows.put(payload[0], payload[1]);
+          }
+        } catch (error) { reply(id, "error", error instanceof AppCollectionControlError ? error.reason : "recovery_required"); return; }
+        reply(id, "result", result); return;
+      }
       if (work) { reply(id, "error", "busy"); return; }
+      if (turn && journalAction(action) && turn.owner !== null && turn.owner !== me) { reply(id, "error", "busy"); return; }
       const operation = async () => {
         current(); let result: unknown = null;
         switch (action) {
@@ -216,12 +254,13 @@ export function attachAppCollectionControl(port: MessagePort, source: AppCollect
             if (!bounded([1, original.binding, original.generation, id, "result", result])) throw mdbaseError("unavailable", "invalid people response", "people_response");
             break;
           }
-          case "load": if (payload !== null) throw fail("binding"); result = await options.journal.load(options.signal); break;
-          case "prepare": result = await options.journal.prepare(modelPackPlan(payload), options.signal); break;
-          case "prepareResources": result = await options.journal.prepareResources(modelResourcePlan(payload), options.signal); break;
+          // The owner starting a new recovery pass ends its turn: any tab may recover.
+          case "load": if (payload !== null) throw fail("binding"); release(); result = await options.journal.load(options.signal); break;
+          case "prepare": result = await options.journal.prepare(modelPackPlan(payload), options.signal); current(); if (turn) turn.owner = me; break;
+          case "prepareResources": result = await options.journal.prepareResources(modelResourcePlan(payload), options.signal); current(); if (turn) turn.owner = me; break;
           case "prepareResourceRound":
             if (!Array.isArray(payload) || payload.length !== 2 || typeof payload[1] !== "string") throw fail("binding");
-            result = await options.journal.prepareResourceRound(modelResourcePlan(payload[0]), payload[1], options.signal); break;
+            result = await options.journal.prepareResourceRound(modelResourcePlan(payload[0]), payload[1], options.signal); current(); if (turn) turn.owner = me; break;
           case "assess": if (payload !== "ready" && payload !== "setup_required") throw fail("binding"); options.assess(payload); break;
           case "foreground": if (typeof payload !== "boolean") throw fail("binding"); options.foreground(payload); break;
           case "recordResourceRejected": {
@@ -231,11 +270,12 @@ export function attachAppCollectionControl(port: MessagePort, source: AppCollect
             if (typeof payload !== "string" || !uuid.test(payload)) throw fail("binding");
             const witness = options.resourceSetup?.rejected;
             if (!witness || await witness(payload, options.signal) !== true) throw fail("recovery_required");
-            current(); result = await options.journal.recordResourceRejected(payload, options.signal); break;
+            current(); result = await options.journal.recordResourceRejected(payload, options.signal); release(); break;
           }
           default:
             if (typeof payload !== "string" || !uuid.test(payload)) throw fail("binding");
             result = await options.journal[action](payload, options.signal);
+            if (action === "recordVerified" || action === "recordResourceVerified") release();
         }
         current(); reply(id, "result", result);
       };
@@ -269,6 +309,7 @@ export function appCollectionControlClient(port: MessagePort, source: AppCollect
   const original = pin(source);
   let stopped = false, next = 1;
   let pending: {id: number; action: Action; finish(value?: unknown, error?: unknown): void} | null = null;
+  const side = new Map<number, (value?: unknown, error?: unknown) => void>();
   const current = () => { if (stopped || options.signal.aborted || options.isCurrent() !== true) throw fail(); };
   const close = () => {
     if (stopped) return; stopped = true;
@@ -276,6 +317,8 @@ export function appCollectionControlClient(port: MessagePort, source: AppCollect
     port.onmessage = port.onmessageerror = null;
     const old = pending; pending = null;
     old?.finish(undefined, fail(readAction(old.action) ? "fenced" : "outcome_unknown"));
+    for (const finish of side.values()) finish(undefined, fail("fenced"));
+    side.clear();
     try {port.postMessage([1, original.binding, original.generation, 0, "detach", null]);} catch { /* already closed */ }
     try {port.close();} finally {options.onClose();}
   };
@@ -286,6 +329,12 @@ export function appCollectionControlClient(port: MessagePort, source: AppCollect
       current(); const packet: unknown = event.data;
       if (!Array.isArray(packet) || packet.length !== 6 || packet[0] !== 1 || packet[1] !== original.binding || packet[2] !== original.generation || !bounded(packet)) throw fail();
       if (packet[3] === 0 && packet[4] === "closed" && packet[5] === null) {close(); return;}
+      const sideFinish = side.get(packet[3]);
+      if (sideFinish && ["result", "error"].includes(packet[4])) {
+        side.delete(packet[3]);
+        sideFinish(packet[4] === "result" ? packet[5] : undefined, packet[4] === "error" ? fail(packet[5] === "binding" ? "binding" : "recovery_required") : undefined);
+        return;
+      }
       if (!pending || packet[3] !== pending.id || !["result", "error"].includes(packet[4])) throw fail();
       const completed = pending;
       // Decode while the original waiter is still retained, so a malformed
@@ -314,6 +363,29 @@ export function appCollectionControlClient(port: MessagePort, source: AppCollect
       } catch (error) {pending = null; finish(undefined, error); close();}
     });
   };
+  const sideRequest = (action: LedgerAction, payload: unknown): Promise<unknown> => {
+    try { current(); if (next > 0xffffffff) {close(); throw fail();} }
+    catch (error) { return Promise.reject(error); }
+    const id = next++;
+    return new Promise((resolve, reject) => {
+      side.set(id, (value, error) => error ? reject(error) : resolve(value));
+      try {
+        const packet = [1, original.binding, original.generation, id, action, payload];
+        if (!bounded(packet)) throw fail("binding"); port.postMessage(packet);
+      } catch (error) {side.delete(id); reject(error);}
+    });
+  };
+  const ledger: WriteLedgerStore = Object.freeze({
+    async list() {
+      const rows = await sideRequest("ledgerList", null);
+      if (!Array.isArray(rows)) throw fail("recovery_required");
+      return rows.flatMap((row: unknown) => {
+        try { const entry = ledgerEntry(JSON.parse(String(row))); return entry ? [entry] : []; } catch { return []; }
+      });
+    },
+    async put(entry: WriteLedgerEntry) { await sideRequest("ledgerPut", [entry.mutationId, JSON.stringify(entry)]); },
+    async remove(mutationId: string) { await sideRequest("ledgerRemove", mutationId); },
+  });
   // A private waiter can settle before a public async wrapper resumes. Fence the
   // ORIGINAL caller again at every delivery boundary, never undo a committed MID.
   const delivery = (action: Action, signal: AbortSignal) => {
@@ -379,7 +451,7 @@ export function appCollectionControlClient(port: MessagePort, source: AppCollect
       const result = modelResourcePlan(value); delivery("resourcesApply", signal); return result;
     },
   });
-  return Object.freeze({journal, close, resourceSetup, ...(peopleAuthority ? {peopleAuthority} : {}),
+  return Object.freeze({journal, close, resourceSetup, ledger, ...(peopleAuthority ? {peopleAuthority} : {}),
     async assess(state: "ready" | "setup_required", signal: AbortSignal) {await request("assess", state, signal); delivery("assess", signal);},
     async setForeground(active: boolean, signal: AbortSignal) {await request("foreground", active, signal); delivery("foreground", signal);},
   });

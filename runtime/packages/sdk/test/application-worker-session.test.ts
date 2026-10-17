@@ -1,5 +1,6 @@
 import {describe,expect,it,vi} from "vitest";
 import {AppWebSignInSession} from "../src/app-host/web-sign-in-session.js";
+import {AppScopedSignInSession} from "../src/app-host/scoped-sign-in-session.js";
 import {applicationDeclaration} from "../src/application/declaration.js";
 import {applicationWorkerSession} from "../src/application/worker-session.js";
 import type {PackagedApplicationNativeAssets} from "../src/application/native-assets.js";
@@ -16,10 +17,11 @@ describe("SDK-private original Worker session composition",()=>{
     const p=packaged(),fetcher=vi.fn(),handoff=vi.fn(),openPortal=vi.fn(()=>({navigate:vi.fn(),close:vi.fn()})),caller=new AbortController();
     const uuid=vi.spyOn(crypto,"randomUUID"),result=applicationWorkerSession(declaration(),p,{signal:caller.signal,locks:undefined,fetch:fetcher,handoff,openPortal});
     try{
-      expect(result.session).toBeInstanceOf(AppWebSignInSession);expect(result.session.getSnapshot()).toMatchObject({status:"not_started",signIn:null,selectedCollectionId:null});
+      expect(result.session).toBeInstanceOf(AppScopedSignInSession);expect(result.session.original).toBeInstanceOf(AppWebSignInSession);expect(result.session.getSnapshot()).toMatchObject({status:"not_started",signIn:null,selectedCollectionId:null});
       expect(result.compiled.nativeCapabilities).toEqual({capabilityContractVersion:2,requiredNativeCapabilities:["collection.read"]});
       // The local slot owner is the declaration's manifest family, not the CP appId.
-      expect((result.session as unknown as {options:{appId:string;owner:string}}).options).toMatchObject({appId:id,owner:"bundle:dev.example.tasknotes"});
+      expect((result.session as unknown as {options:{appId:string;owner:string}}).options).toMatchObject({appId:id,owner:"bundle:dev.example.tasknotes",freshRequestedCreateCollections:true});
+      expect((result.session as unknown as {options:object}).options).not.toHaveProperty("requestedCreateCollections");
       expect(result.collection.people).toBe(true);expect(result.collection.joinDatabaseName).toBe("retained.join.v1");
       expect(result.collection.setupJournal).toEqual({databaseName:"retained.setup.v1",applicationNamespace:"retained-namespace",appOrigin:origin,cpOrigin});
       expect(result.collection.sql.initialize).toBe(p.initializeSqlite);expect(fetcher).not.toHaveBeenCalled();expect(openPortal).not.toHaveBeenCalled();expect(handoff).not.toHaveBeenCalled();expect(uuid).not.toHaveBeenCalled();expect(p.initializeSqlite).not.toHaveBeenCalled();

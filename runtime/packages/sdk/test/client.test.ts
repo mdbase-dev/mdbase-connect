@@ -289,4 +289,12 @@ describe("local-only collection behavior", () => {
     expect(summarizeStatus({ mode: "synced", confirmedThrough: 5, headKnown: 9, pending: 2, holds: 0, unresolved: 0, connection: "online", incidents: [] }).kind).toBe("catching_up");
     expect(summarizeStatus({ mode: "synced", confirmedThrough: 5, headKnown: 5, pending: 1, holds: 0, unresolved: 0, connection: "offline", incidents: [] }, "collection_migrating").kind).toBe("collection_migrating");
   });
+  it("status: an unreachable log reads as saved on this device, never as stuck saving", () => {
+    const st = { mode: "synced" as const, confirmedThrough: 5, headKnown: 5, pending: 2, holds: 0, unresolved: 0, connection: "online" as const, incidents: [] };
+    expect(summarizeStatus(st, null, { kind: "offline" })).toEqual(expect.objectContaining({ kind: "offline", health: "offline",
+      text: "You're offline. 2 changes are saved on this device and will sync later" }));
+    expect(summarizeStatus(st, null, { kind: "server_busy", retryAfterMs: 30_000 })).toMatchObject({ kind: "synced", health: "server_busy" });
+    expect(summarizeStatus(st, "collection_migrating", { kind: "rate_limited" }).kind).toBe("collection_migrating");
+    expect(summarizeStatus(st).health).toBeNull();
+  });
 });

@@ -13,6 +13,9 @@
  */
 import {
   APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
+  AUTHORITY_PROOF_DOMAIN,
+  AUTHORITY_PROOF_HEADERS,
+  AUTHORITY_PROOF_VERSION,
   applicationInstallationIdFromPublicKey,
   authorizationSigningMessage,
   type ApplicationAuthorizationBinding,
@@ -39,8 +42,11 @@ import { relayPipeCarrier } from "../transport/relay-pipe.js";
 import { MdbasePeopleClient } from "../people.js";
 import type { MdbaseClient } from "../client.js";
 import { appGrantPeopleAuthority } from "./people.js";
-import { privateCollectionSetup, type MdbasePrivateSetup, type PrivateSetupEngine } from "./setup.js";
+import { privateCollectionSetup, type MdbasePrivateSetup } from "./setup.js";
+import { protectedSetupJournal } from "./setup-attempt.js";
+import {bindOriginalAppGrant,originalAppGrant} from "../transport/original-session.js";
 import { indexedDbAppGrantStore, type AppGrantStore, type StoredAppGrant, type StoredAppIdentity } from "./grant-store.js";
+import { nativeCompletionFromToken, type NativeCompletion } from "./native-completion.js";
 
 /** A window the UI reserved synchronously in the user's gesture (`window.open`). */
 export interface AppGrantPopup {
@@ -72,6 +78,28 @@ export interface MdbaseAuthorizeOptions {
   readonly signal?: AbortSignal;
   /** Default 10 minutes, at most 30. */
   readonly timeoutMs?: number;
+}
+
+/** Preparation for the SAME popup's ordinary authorization callback. No keys or tokens leave this owner. */
+export interface MdbasePrepareAuthorizationOptions {
+  readonly collection?: string;
+  readonly signal?: AbortSignal;
+  readonly timeoutMs?: number;
+  /** Original protected registration challenge, canonical base64url of32 bytes. */
+  readonly authorizationNonce?: string;
+  /** When supplied, original Native completion must prove this account before persistence. */
+  readonly expectedAccountId?: string;
+}
+export interface MdbasePreparedAuthorization {
+  /** Exact original verified registration; the pairing bridge must match its application UUID. */
+  readonly applicationId: string;
+  readonly manifestDigest: string;
+  readonly authorizationId: string;
+  readonly authorizationUri: string;
+  /** Single-use original callback/code/PKCE completion, never a navigation or new request. */
+  finish(options: MdbaseAuthorizeOptions): Promise<{ collectionId: string; nativeCompletion?: NativeCompletion }>;
+  /** Ends the original callback wait; does not close or replace the shared popup. */
+  cancel(): void;
 }
 
 /** The account's role in a collection; `null` when Connect didn't report one. */
@@ -110,6 +138,12 @@ export interface MdbaseWaitOptions {
 const CHANNEL = "mdbase.app-grant.v1";
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const REQUEST_MS = 15_000;
+function canonicalChallengeNonce(value: string): boolean {
+  try {
+    const bytes = Uint8Array.from(atob(value.replaceAll("-", "+").replaceAll("_", "/")), c => c.charCodeAt(0));
+    return bytes.length === 32 && b64u(bytes) === value;
+  } catch { return false; }
+}
 const P256_ORDER = BigInt("0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551");
 const NOISE_KEY_DOMAIN = new TextEncoder().encode("mdbase-next client noise key v1\0");
 
@@ -178,6 +212,24 @@ async function signP256(key: CryptoKey, message: Uint8Array): Promise<Uint8Array
   return sig;
 }
 
+const sha256b64u = async (text: string): Promise<string> =>
+  b64u(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))));
+
+/** Connect's authority request proof headers: the grant's signing key over the
+ * request (method, target, body and credential digests, time and nonce). */
+async function authorityProof(key: CryptoKey, target: string, body: string, credential: string): Promise<Record<string, string>> {
+  const timestamp = Math.floor(Date.now() / 1000);
+  const nonce = crypto.randomUUID();
+  const message = [AUTHORITY_PROOF_DOMAIN, AUTHORITY_PROOF_VERSION, "POST", target,
+    await sha256b64u(body), await sha256b64u(credential), timestamp, nonce].join("\n");
+  return {
+    [AUTHORITY_PROOF_HEADERS.version]: String(AUTHORITY_PROOF_VERSION),
+    [AUTHORITY_PROOF_HEADERS.timestamp]: String(timestamp),
+    [AUTHORITY_PROOF_HEADERS.nonce]: nonce,
+    [AUTHORITY_PROOF_HEADERS.signature]: b64u(await signP256(key, new TextEncoder().encode(message))),
+  };
+}
+
 async function p256Pair(usages: KeyUsage[], algorithm: "ECDSA" | "ECDH"): Promise<{ privateKey: CryptoKey; publicKey: string }> {
   const pair = (await crypto.subtle.generateKey({ name: algorithm, namedCurve: "P-256" }, false, usages)) as CryptoKeyPair;
   return { privateKey: pair.privateKey, publicKey: b64u(new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey))) };
@@ -196,7 +248,7 @@ async function noisePair(): Promise<{ privateKey: CryptoKey; publicKey: Uint8Arr
 
 function staticKeyOf(grant: StoredAppGrant): StaticKey {
   return {
-    publicKey: grant.noisePublicKey,
+    publicKey: grant.noisePublicKey.slice(),
     dh: async (remote) => {
       const pub = await crypto.subtle.importKey("raw", remote as BufferSource, { name: "X25519" }, false, []);
       return new Uint8Array(await crypto.subtle.deriveBits({ name: "X25519", public: pub } as AlgorithmIdentifier, grant.noisePrivateKey, 256));
@@ -214,7 +266,27 @@ function bounded(signal: AbortSignal | undefined, ms: number): { signal: AbortSi
   return { signal: control.signal, done: () => { clearTimeout(timer); signal?.removeEventListener("abort", abort); } };
 }
 
-interface Tokens { access: string; expiresAt: number }
+type GrantIdentity = Pick<StoredAppGrant, "collection" | "owner" | "noisePublicKey">;
+interface Tokens extends GrantIdentity { access: string; expiresAt: number }
+const equalBytes = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((v, i) => v === b[i]);
+const sameGrant = (a: GrantIdentity, b: GrantIdentity | undefined) => !!b && a.collection === b.collection && a.owner === b.owner && equalBytes(a.noisePublicKey, b.noisePublicKey);
+const sameRevision = (a: StoredAppGrant, b: StoredAppGrant | undefined) => sameGrant(a, b) && equalBytes(a.refresh, b!.refresh);
+const grantChanged = () => mdbaseError("cancelled", "the stored grant changed during this operation");
+
+// Shared across instances in this host. Without Web Locks this is NOT a
+// cross-process/tab fence; browser writers all use the same exclusive Web Lock.
+const localLocks = new Map<string, Promise<void>>();
+async function exclusive<T>(name: string, work: () => Promise<T>): Promise<T> {
+  const locks = (globalThis as { navigator?: { locks?: LockManager } }).navigator?.locks;
+  if (locks) return locks.request(name, { mode: "exclusive" }, work) as Promise<T>;
+  const previous = localLocks.get(name) ?? Promise.resolve();
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => { release = resolve; });
+  localLocks.set(name, pending);
+  await previous;
+  try { return await work(); }
+  finally { release(); if (localLocks.get(name) === pending) localLocks.delete(name); }
+}
 
 /**
  * Application grants of one app installation (a browser profile) against its
@@ -229,9 +301,8 @@ export class MdbaseAppGrants {
   private storeValue: AppGrantStore | null;
   private registration: Promise<Readonly<ApplicationRegistration>> | null = null;
   private readonly tokens = new Map<string, Tokens>();
-  private readonly refreshing = new Map<string, Promise<string>>();
+  private readonly refreshing = new Map<string, { grant: StoredAppGrant; work: Promise<string> }>();
   private readonly forgotten = new Set<string>();
-  private setupEngine: Promise<PrivateSetupEngine> | null = null;
 
   constructor(private readonly options: MdbaseAppGrantsOptions) {
     this.declaration = applicationDeclaration(options.declaration);
@@ -304,9 +375,27 @@ export class MdbaseAppGrants {
    * approves the app in the mdbase desktop app.
    */
   async authorize(o: MdbaseAuthorizeOptions): Promise<{ collectionId: string }> {
-    const popup = o.popup;
+    o = Object.freeze({ ...o });
+    const prepared = await this.prepareAuthorization(o).catch(error => { o.popup.close(); throw error; });
     try {
+      o.popup.navigate(prepared.authorizationUri);
+      const { collectionId } = await prepared.finish(o);
+      return { collectionId };
+    } finally {
+      prepared.cancel();
+      try { o.popup.close(); } catch { /* original popup only */ }
+    }
+  }
+
+  async prepareAuthorization(o: MdbasePrepareAuthorizationOptions = {}): Promise<MdbasePreparedAuthorization> {
+      o = Object.freeze({ ...o });
       if (o.collection !== undefined && !UUID.test(o.collection)) throw mdbaseError("invalid_request", "collection must be a UUID");
+      if (o.expectedAccountId !== undefined && (!UUID.test(o.expectedAccountId) || !o.authorizationNonce)) throw mdbaseError("invalid_request", "original account and challenge required", "authorization_binding");
+      if (o.authorizationNonce !== undefined && (!/^[A-Za-z0-9_-]{43}$/.test(o.authorizationNonce) || !canonicalChallengeNonce(o.authorizationNonce))) throw mdbaseError("invalid_request", "invalid original challenge", "authorization_binding");
+      const life = new AbortController();
+      const signal = o.signal ? AbortSignal.any([o.signal, life.signal]) : life.signal;
+      const check = () => { if (signal.aborted) throw mdbaseError("cancelled", "authorization fenced", "authorization_cancelled"); };
+      check();
       const registration = await this.register();
       const compiled = compileApplicationManifest(this.declaration);
       const identity = await this.identity();
@@ -329,7 +418,7 @@ export class MdbaseAppGrants {
         grant_agreement_public_key: grantAgreement.publicKey,
         grant_signing_public_key: grantSigning.publicKey,
         flow: "authorization_code",
-        authorization_nonce: b64u(random(32)),
+        authorization_nonce: o.authorizationNonce ?? b64u(random(32)),
         issued_at: issued.toISOString(),
         expires_at: new Date(issued.getTime() + 10 * 60_000).toISOString(),
         redirect_uri: this.redirect.href,
@@ -343,6 +432,7 @@ export class MdbaseAppGrants {
       const proof = { binding, signature: b64u(await signP256(identity.privateKey, authorizationSigningMessage(binding))) };
       const keyMessage = concat(NOISE_KEY_DOMAIN, u32(16), uuidToBytes(authorizationId), u32(32), noise.publicKey);
       const clientNoiseKey = { public_key: b64u(noise.publicKey), signature: b64u(await signP256(grantSigning.privateKey, keyMessage)) };
+      check();
       const started = await this.request("/oauth/authorization_request", {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -357,24 +447,53 @@ export class MdbaseAppGrants {
           application_authorization: JSON.stringify(proof),
           client_noise_key: JSON.stringify(clientNoiseKey),
         }),
-      }, o.signal);
+      }, signal);
+      check();
       const uri = started.body?.authorization_uri;
       if (started.status !== 200 || started.body?.authorization_id !== authorizationId || typeof uri !== "string"
           || !uri.startsWith(`${this.cpOrigin}/oauth/authorize?`)) {
         throw mdbaseError("unavailable", `authorization could not be started (${started.status})`, "authorization_start");
       }
-      popup.navigate(uri);
-      const code = await this.awaitCallback(state, popup, o);
-      const exchanged = await this.request("/oauth/token", {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ grant_type: "authorization_code", code, client_id: registration.id, redirect_uri: this.redirect.href, code_verifier: verifier }),
-      }, o.signal);
-      const collectionId = await this.saveTokens(exchanged, { noise, collection: o.collection });
-      return { collectionId };
-    } finally {
-      try { popup.close(); } catch { /* already closed */ }
-    }
+      // Listen BEFORE attaching this request to the chooser: the normal callback
+      // may arrive before finish is invoked. Keep original state/keys/PKCE only.
+      let popup: AppGrantPopup | null = null;
+      const callback = this.awaitCallback(state, { navigate() {}, close() {}, get closed() { return popup?.closed === true; } }, { popup: { navigate() {}, close() {} }, signal, timeoutMs: o.timeoutMs });
+      void callback.catch(() => {});
+      let consumed = false;
+      return Object.freeze({ applicationId: registration.id, manifestDigest: registration.manifestDigest, authorizationId, authorizationUri: uri,
+        cancel: () => life.abort(),
+        finish: async (finish: MdbaseAuthorizeOptions) => {
+          finish = Object.freeze({ ...finish });
+          if (consumed) throw mdbaseError("invalid_request", "original authorization already consumed", "authorization_binding");
+          consumed = true; popup = finish.popup;
+          const abort = () => life.abort();
+          finish.signal?.addEventListener("abort", abort, { once: true });
+          if (finish.signal?.aborted) life.abort();
+          try {
+            check();
+            const collection = finish.collection ?? o.collection;
+            if (collection !== undefined && !UUID.test(collection)) throw mdbaseError("invalid_request", "invalid approved collection", "authorization_binding");
+            if (o.collection && collection !== o.collection) throw mdbaseError("forbidden", "a different collection was approved", "collection_mismatch");
+            if (o.expectedAccountId && !collection) throw mdbaseError("invalid_request", "original Private choice required", "authorization_binding");
+            const code = await callback; check();
+            const exchanged = await this.request("/oauth/token", {
+              method: "POST",
+              headers: { "content-type": "application/x-www-form-urlencoded" },
+              body: new URLSearchParams({ grant_type: "authorization_code", code, client_id: registration.id, redirect_uri: this.redirect.href, code_verifier: verifier }),
+            }, signal); check();
+            const nativeCompletion = o.expectedAccountId ? nativeCompletionFromToken(exchanged.body, {
+              accountId: o.expectedAccountId, authorizationRequestId: authorizationId,
+              applicationId: registration.id, declarationId: binding.application_declaration_id,
+              manifestDigest: registration.manifestDigest, applicationInstallationId: binding.application_installation_id,
+              applicationOrigin: this.redirect.origin, collectionId: collection!,
+              grantSigningPublicKey: grantSigning.publicKey, clientNoisePublicKey: b64u(noise.publicKey),
+            }) : undefined;
+            const collectionId = await this.saveTokens(exchanged, { noise, signing: grantSigning.privateKey, collection, check });
+            check();
+            return { collectionId, ...(nativeCompletion ? { nativeCompletion } : {}) };
+          } finally { finish.signal?.removeEventListener("abort", abort); life.abort(); }
+        },
+      });
   }
 
   private awaitCallback(state: string, popup: AppGrantPopup, o: MdbaseAuthorizeOptions): Promise<string> {
@@ -409,7 +528,7 @@ export class MdbaseAppGrants {
 
   private async saveTokens(
     res: { status: number; body: Record<string, unknown> | null },
-    from: { noise?: { privateKey: CryptoKey; publicKey: Uint8Array }; collection?: string | undefined; previous?: StoredAppGrant },
+    from: { noise?: { privateKey: CryptoKey; publicKey: Uint8Array }; signing?: CryptoKey; collection?: string | undefined; previous?: StoredAppGrant; check?: () => void },
   ): Promise<string> {
     const b = res.body;
     if (res.status !== 200 || !b) {
@@ -434,12 +553,26 @@ export class MdbaseAppGrants {
     const sealed = new Uint8Array(await crypto.subtle.encrypt(
       { name: "AES-GCM", iv, additionalData: this.aad(id) }, refreshKey, new TextEncoder().encode(refresh) as BufferSource));
     const noise = from.noise ?? { privateKey: from.previous!.noisePrivateKey, publicKey: from.previous!.noisePublicKey };
-    await (await this.store()).putGrant({
+    const signing = from.signing ?? from.previous?.signingPrivateKey;
+    const next: StoredAppGrant = {
       version: 1, collection: id, noisePrivateKey: noise.privateKey, noisePublicKey: noise.publicKey,
       refreshKey, refresh: concat(iv, sealed), refreshExpiresAt: Date.now() + refreshExpiresIn * 1000,
+      ...(signing ? { signingPrivateKey: signing } : {}),
+      ...(from.previous?.owner ? { owner: from.previous.owner } : {}),
+    };
+    await this.withLock(id, "commit", async () => {
+      const store = await this.store();
+      if (from.previous && !sameRevision(from.previous, await store.getGrant(id))) throw grantChanged();
+      from.check?.();
+      await store.putGrant(next);
+      const written = await store.getGrant(id);
+      if (!written || !equalBytes(next.noisePublicKey, written.noisePublicKey) || !equalBytes(next.refresh, written.refresh)) throw grantChanged();
+      // Commit and cache publication share the writer lock. The cache's original
+      // identity is also checked on every use (including after another tab writes).
+      from.check?.();
+      this.tokens.set(id, { access, expiresAt: Date.now() + expiresIn * 1000, collection: id, owner: written.owner, noisePublicKey: written.noisePublicKey.slice() });
+      this.forgotten.delete(id);
     });
-    this.tokens.set(id, { access, expiresAt: Date.now() + expiresIn * 1000 });
-    this.forgotten.delete(id);
     return id;
   }
 
@@ -449,26 +582,50 @@ export class MdbaseAppGrants {
 
   /** A current access token for the collection's grant, refreshing when needed. */
   private async accessToken(collection: string, force = false): Promise<string> {
+    const grant = await this.heldGrant(collection);
     const cached = this.tokens.get(collection);
-    if (!force && cached && cached.expiresAt - Date.now() > 60_000) return cached.access;
+    if (!force && cached && sameGrant(grant, cached) && cached.expiresAt - Date.now() > 60_000) return cached.access;
     const running = this.refreshing.get(collection);
-    if (running) return running;
-    const work = this.withLock(collection, () => this.refresh(collection));
-    this.refreshing.set(collection, work);
-    try { return await work; } finally { if (this.refreshing.get(collection) === work) this.refreshing.delete(collection); }
+    if (running && sameRevision(grant, running.grant)) {
+      const token = await running.work;
+      await this.assertCurrent(grant);
+      return token;
+    }
+    const work = this.withLock(collection, "refresh", async () => {
+      const current = await this.assertCurrent(grant);
+      return this.refresh(collection, current);
+    });
+    const pending = { grant, work };
+    this.refreshing.set(collection, pending);
+    try {
+      const token = await work;
+      await this.assertCurrent(grant);
+      return token;
+    } finally { if (this.refreshing.get(collection) === pending) this.refreshing.delete(collection); }
   }
 
-  /** Refresh tokens are single use: serialize refreshes across tabs where Web Locks exist. */
-  private async withLock<T>(collection: string, f: () => Promise<T>): Promise<T> {
-    const locks = (globalThis as { navigator?: { locks?: LockManager } }).navigator?.locks;
-    if (!locks) return f();
-    return locks.request(`mdbase.app-grant.refresh:${this.cpOrigin}:${collection}`, { mode: "exclusive" }, f) as Promise<T>;
+  // Network refresh serialization is separate from the short commit lock, so
+  // explicit consent can commit while an old network response is held.
+  private withLock<T>(collection: string, kind: "refresh" | "commit", f: () => Promise<T>): Promise<T> {
+    // Original local declaration, not a network/registration alias. This broader
+    // namespace also lets a fresh custom-store owner forget keys while offline.
+    return exclusive(`mdbase.app-grant.${kind}:${JSON.stringify([this.cpOrigin, this.owner(), collection])}`, f);
   }
 
-  private async refresh(collection: string): Promise<string> {
-    const store = await this.store();
-    const grant = await store.getGrant(collection);
-    if (!grant || grant.refreshExpiresAt <= Date.now()) throw collectionUnavailableError("sync_required");
+  private async heldGrant(collection: string): Promise<StoredAppGrant> {
+    const grant = await (await this.store()).getGrant(collection);
+    if (!grant) throw collectionUnavailableError("sync_required");
+    return { ...grant, noisePublicKey: grant.noisePublicKey.slice(), refresh: grant.refresh.slice() };
+  }
+
+  private async assertCurrent(grant: StoredAppGrant): Promise<StoredAppGrant> {
+    const current = await (await this.store()).getGrant(grant.collection);
+    if (!sameGrant(grant, current)) throw grantChanged();
+    return current!;
+  }
+
+  private async refresh(collection: string, grant: StoredAppGrant): Promise<string> {
+    if (grant.refreshExpiresAt <= Date.now()) throw collectionUnavailableError("sync_required");
     let refresh: string;
     try {
       const plain = await crypto.subtle.decrypt(
@@ -478,22 +635,33 @@ export class MdbaseAppGrants {
       throw mdbaseError("unauthenticated", "the stored grant could not be read", "grant_storage");
     }
     const registration = await this.register();
+    // Connect checks this field order when it verifies the proof over the body.
+    const body = new URLSearchParams({ grant_type: "refresh_token", refresh_token: refresh, client_id: registration.id });
+    // The grant's proof key is its signing key: Connect refuses an unsigned refresh.
+    const proof = grant.signingPrivateKey ? await authorityProof(grant.signingPrivateKey, "/oauth/token", body.toString(), refresh) : {};
     const res = await this.request("/oauth/token", {
       method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: refresh, client_id: registration.id }),
+      headers: { "content-type": "application/x-www-form-urlencoded", ...proof },
+      body,
     });
     try {
       await this.saveTokens(res, { previous: grant });
     } catch (e) {
       // A refused refresh token will never work again: forget the grant locally.
       if (isMdbaseError(e, "unauthenticated") && e.reason === "grant_invalid") {
-        this.forgotten.add(collection);
-        await store.deleteGrant(collection);
+        await this.withLock(collection, "commit", async () => {
+          const store = await this.store();
+          if (!sameRevision(grant, await store.getGrant(collection))) throw grantChanged();
+          await store.deleteGrant(collection);
+          this.forgotten.add(collection);
+          const cached = this.tokens.get(collection);
+          if (cached && sameGrant(grant, cached)) this.tokens.delete(collection);
+        });
       }
       throw e;
     }
-    return this.tokens.get(collection)!.access;
+    // Never read a newer consent's cache as the result of this older refresh.
+    return res.body!.access_token as string;
   }
 
   /** Fetch the route; one forced refresh on 401. */
@@ -517,15 +685,37 @@ export class MdbaseAppGrants {
   }
 
   /** Private collections this app has a grant for, with their availability. */
-  async collections(options: { signal?: AbortSignal } = {}): Promise<MdbasePrivateCollection[]> {
-    const local = await (await this.store()).listGrants();
+  async verifiedStoredNativeGrant(completion: NativeCompletion): Promise<boolean> {
+    const registration=await this.register(),grant=await (await this.store()).getGrant(completion.collection_id);
+    return !!grant && completion.application_id===registration.id && completion.application_origin===this.declaration.origin && grant.owner===this.owner() && b64u(grant.noisePublicKey)===completion.client_noise_public_key;
+  }
+  async collections(options: { signal?: AbortSignal; bindings?: readonly NativeCompletion[] } = {}): Promise<MdbasePrivateCollection[]> {
+    const records = await (await this.store()).listGrants();
+    const local:StoredAppGrant[]=[];
+    for(const record of records){
+      if(options.bindings===undefined || options.bindings.some(c=>c.collection_id===record.collection && c.application_origin===this.declaration.origin && b64u(record.noisePublicKey)===c.client_noise_public_key))local.push(record);
+    }
     const held = new Set(local.map((g) => g.collection));
     for (const grant of local) {
       let token: string;
       try { token = await this.accessToken(grant.collection); }
-      catch (e) { if (isMdbaseError(e, "unavailable") && e.reason !== "sync_required") throw e; continue; }
+      catch (e) {
+        if (isMdbaseError(e) && ((e.code === "unauthenticated" && e.reason === "grant_invalid") || (e.code === "forbidden" && e.reason === "sync_required"))) continue;
+        throw e; // Failed/cancelled inventory is never an empty COMPLETE inventory.
+      }
+      await this.assertCurrent(grant);
       const res = await this.request("/v1/next/apps/collections", { headers: { authorization: `Bearer ${token}` } }, options.signal);
-      if (res.status === 401) { this.tokens.delete(grant.collection); continue; }
+      await this.assertCurrent(grant);
+      if (res.status === 401) {
+        await this.withLock(grant.collection, "commit", async () => {
+          await this.assertCurrent(grant);
+          const cached = this.tokens.get(grant.collection);
+          if (cached?.access !== token || !sameGrant(grant, cached)) throw grantChanged();
+          this.tokens.delete(grant.collection);
+        });
+        // A rejected access token is failed metadata, not proof the grant ended.
+        throw mdbaseError("unauthenticated", "the control plane refused the collection listing token");
+      }
       if (res.status !== 200 || !Array.isArray(res.body?.collections)) throw mdbaseError("unavailable", `control plane answered ${res.status}`, "control_error");
       const out: MdbasePrivateCollection[] = [];
       for (const raw of res.body.collections as Record<string, unknown>[]) {
@@ -589,46 +779,52 @@ export class MdbaseAppGrants {
   /**
    * A connector for `connect()`: every (re)connect resolves the route, refuses an
    * unavailable collection with its reason, and opens a Noise IK session through the
-   * relay to a serving device (sticky while it stays listed).
+   * relay to a serving device (sticky while it stays listed). The first open pins
+   * its original consent/key identity; new consent requires a new connector.
    */
   connector(collection: string): Connector & { readonly target: string | null } {
     const id = collection.toLowerCase();
     if (!UUID.test(id)) throw mdbaseError("invalid_request", "collection must be a UUID");
     let sticky: string | null = null;
     const webSocket = this.options.webSocket;
-    let staticKey: StaticKey | null = null;
-    const key: StaticKey = {
-      get publicKey() { return staticKey?.publicKey ?? new Uint8Array(32); },
-      dh: (remote) => { if (!staticKey) throw mdbaseError("unauthenticated", "grant key unavailable"); return staticKey.dh(remote); },
-    };
-    const connector = noiseConnector({
-      description: `app-grant:${id}`,
-      staticKey: key,
-      target: async (signal) => {
-        const grant = await (await this.store()).getGrant(id);
-        if (!grant) throw collectionUnavailableError("sync_required");
-        staticKey = staticKeyOf(grant);
-        const { token, route, availability } = await this.route(id, signal);
-        if (availability.state === "unavailable") throw collectionUnavailableError(availability.reason);
-        if (!UUID.test(route.grant)) throw mdbaseError("unauthenticated", "the route names no grant", "route_mismatch");
-        const target: NextRouteTarget | undefined = orderTargets(route, sticky)[0];
-        if (!target) throw collectionUnavailableError("device_offline");
-        const remoteStatic = new Uint8Array(32);
-        for (let i = 0; i < 32; i++) remoteStatic[i] = parseInt(target.noise_pk.slice(2 * i, 2 * i + 2), 16);
-        return {
-          prologue: clientPrologue(uuidToBytes(target.relay_collection!), uuidToBytes(route.grant), uuidToBytes(target.device)),
-          remoteStatic,
-          device: target.device,
-          openCarrier: (s) => relayPipeCarrier(target.url, {
-            accessToken: token, collection: target.relay_collection!, grant: route.grant, device: target.device, devicePublicKey: remoteStatic,
-          }, webSocket, s),
-        };
-      },
-    });
+    let original: Promise<StoredAppGrant> | undefined;
     return registerNextRelayFence({
-      description: connector.description,
+      description: `app-grant:${id}`,
       open: async (hello, signal) => {
+        const grant = await (original ??= this.heldGrant(id));
+        await this.assertCurrent(grant);
+        const connector = noiseConnector({
+          description: `app-grant:${id}`,
+          staticKey: staticKeyOf(grant),
+          target: async (s) => {
+            await this.assertCurrent(grant);
+            const { token, route, availability } = await this.route(id, s);
+            await this.assertCurrent(grant);
+            if (availability.state === "unavailable") throw collectionUnavailableError(availability.reason);
+            if (!UUID.test(route.grant)) throw mdbaseError("unauthenticated", "the route names no grant", "route_mismatch");
+            const target: NextRouteTarget | undefined = orderTargets(route, sticky)[0];
+            if (!target) throw collectionUnavailableError("device_offline");
+            const remoteStatic = new Uint8Array(32);
+            for (let i = 0; i < 32; i++) remoteStatic[i] = parseInt(target.noise_pk.slice(2 * i, 2 * i + 2), 16);
+            return {
+              prologue: clientPrologue(uuidToBytes(target.relay_collection!), uuidToBytes(route.grant), uuidToBytes(target.device)),
+              remoteStatic,
+              device: target.device,
+              openCarrier: async (carrierSignal) => {
+                await this.assertCurrent(grant);
+                const carrier = await relayPipeCarrier(target.url, {
+                  accessToken: token, collection: target.relay_collection!, grant: route.grant, device: target.device, devicePublicKey: remoteStatic,
+                }, webSocket, carrierSignal);
+                try { await this.assertCurrent(grant); return carrier; }
+                catch (e) { carrier.close(); throw e; }
+              },
+            };
+          },
+        });
         const opened = await connector.open(hello, signal);
+        try { await this.assertCurrent(grant); }
+        catch (e) { opened.port.close(); throw e; }
+        bindOriginalAppGrant(opened.port,grant);
         sticky = opened.device ?? null;
         return opened;
       },
@@ -656,35 +852,37 @@ export class MdbaseAppGrants {
   /**
    * Setup and readiness for a Private collection, over `client` (opened with
    * `connector(collection)`): the same plan, review wording and guarded apply as
-   * a hosted collection's setup. The planner (the SDK's packaged runtime) loads
-   * on first use. Planning changes nothing; `apply` writes one guarded mutation.
+   * a hosted collection's setup. Native verifies and plans the original signed
+   * declaration; the SDK retains an encrypted original MID before apply and
+   * reconciles receipts without replaying resource operations.
    */
   setup(client: MdbaseClient): MdbasePrivateSetup {
     const compiled = compileApplicationManifest(this.declaration);
+    let original:StoredAppGrant|undefined;
+    const grant=async()=>{
+      const session=client.currentSession(),held=session&&originalAppGrant(session);
+      if(!held || held.collection!==client.collection)throw grantChanged();
+      original??=held;
+      if(!sameGrant(original,held))throw grantChanged();
+      return original;
+    };
+    const assertCurrent=async()=>this.assertCurrent(await grant());
     return privateCollectionSetup({
+      assertCurrent,
+      journal:protectedSetupJournal({store:()=>this.store(),grant,assertCurrent:g=>this.assertCurrent(g),aad:this.aad(client.collection)}),
       client, manifest: compiled.manifest, operations: compiled.operations,
-      engine: () => {
-        const pending = this.setupEngine ??= packagedSetupEngine(this.declaration, this.fetcher);
-        pending.catch(() => { if (this.setupEngine === pending) this.setupEngine = null; });
-        return pending;
-      },
     });
   }
 
   /** Forget a grant in this browser (its keys and refresh token). Does not revoke it at Connect. */
-  async forget(collection: string): Promise<void> {
-    const id = collection.toLowerCase();
-    this.forgotten.add(id);
-    this.tokens.delete(id);
-    await (await this.store()).deleteGrant(id);
+  async forget(collection: string, options: { readonly expectedNoisePublicKey?: string } = {}): Promise<void> {
+    const id = collection.toLowerCase(), expected = options.expectedNoisePublicKey;
+    await this.withLock(id, "commit", async () => {
+      const store=await this.store(),current=await store.getGrant(id);
+      if(expected!==undefined && current && b64u(current.noisePublicKey)!==expected)throw grantChanged();
+      await store.deleteGrant(id);
+      this.forgotten.add(id);
+      this.tokens.delete(id);
+    });
   }
-}
-
-/** The SDK's own packaged runtime, fetched against its pinned digest. */
-async function packagedSetupEngine(declaration: Readonly<{ environment: "lab" | "production"; origin: string }>, fetcher: typeof fetch): Promise<PrivateSetupEngine> {
-  const [{ AppSetupEngine }, { packagedApplicationAssets }, { applicationAssetLoader }] = await Promise.all([
-    import("../app-host/setup-engine.js"), import("../application/packaged-assets.js"), import("../application/asset-loader.js")]);
-  const assets = packagedApplicationAssets(declaration.environment, declaration.origin);
-  const load = applicationAssetLoader(assets.runtime, { origin: declaration.origin, environment: declaration.environment, fetch: fetcher });
-  return AppSetupEngine.create(new Uint8Array(await load({ signal: new AbortController().signal })));
 }

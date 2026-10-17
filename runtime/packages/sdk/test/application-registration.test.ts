@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { afterEach, expect, it, vi } from "vitest";
 import { parseVersionedAppManifest } from "@mdbase-dev/connect-protocol/manifest";
 import { resolveApplicationRegistration } from "../src/application/registration.js";
-import { describeError } from "../src/describe-error.js";
+import { describeDiagnostic, describeError } from "../src/describe-error.js";
 import type { MdbaseApplicationDeclaration } from "../src/application/declaration.js";
 import * as trust from "../src/application/packaged-trust.js";
 const id = "5cdfa020-c201-4da8-845a-f2cc9969eade",
@@ -103,7 +103,7 @@ it.each([false, true])(
             method: "POST",
             credentials: "omit",
             redirect: "error",
-            cache: "no-store",
+            cache: "default",
             referrerPolicy: "no-referrer",
         });
         expect(JSON.parse(options!.body as string)).toEqual({
@@ -352,8 +352,8 @@ it("accepts the CP's new id for a changed manifest only when it binds to the man
     await expect(resolveApplicationRegistration(f.input)).resolves.toEqual({
         id: other, name: "TaskNotes", manifestDigest: digest, supersededDeclaredId: id,
     });
-    expect(describeError("application_registration_id_superseded")).toMatchObject({ severity: "info", action: "none" });
-    expect(describeError("application_registration_id_superseded")!.developerMessage).toContain("registered ID");
+    expect(describeError("application_registration_id_superseded")).toBeNull();
+    expect(describeDiagnostic("application_registration_id_superseded")).toContain("registered ID");
     for (const change of ["identity", "manifest"] as const) {
         const reply = superseded();
         if (change === "identity") reply.application.canonical_identity = `bundle:dev.other.app:sha256:${digest}`;
@@ -367,3 +367,18 @@ function canonicalJson(value: unknown): string {
     if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
     return `{${Object.entries(value).filter(([, v]) => v !== undefined).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(",")}}`;
 }
+
+it("P5: a warm open reuses the verified registration; a changed manifest registers again", async () => {
+    const store = new Map<string, string>();
+    vi.stubGlobal("localStorage", { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => { store.set(k, v); }, removeItem: (k: string) => { store.delete(k); } });
+    try {
+        const f = fixture();
+        const first = await resolveApplicationRegistration(f.input);
+        expect(await resolveApplicationRegistration(f.input)).toEqual(first);
+        expect(f.fetch).toHaveBeenCalledOnce();
+        // A changed manifest has another digest: no cached receipt applies.
+        const changed = { ...f.input, declaration: { ...f.input.declaration, manifest: { ...(f.input.declaration.manifest as Record<string, unknown>), redirect_uris: ["http://127.0.0.1:48218/other"] } } };
+        await resolveApplicationRegistration(changed).catch(() => {});
+        expect(f.fetch).toHaveBeenCalledTimes(2);
+    } finally { vi.unstubAllGlobals(); }
+});

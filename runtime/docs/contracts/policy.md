@@ -337,8 +337,9 @@ these contracts:
 | `background.schedule` | none on a replica: the control plane's timer service (`timer-service-api.md`) and push channel registration check it | — |
 | `offline.replica` | — | permits enrolling an `app-runtime` device for the app; **first-party apps only** |
 
-- **Grants in `e2e` need a device approval** (§5.1). The control plane authors the
-  `grant` op. In an end-to-end collection that alone authorizes nothing.
+- **Private app grants use account consent alone** (§5.1). The control plane
+  authors the `grant` op. A signed-in serving device automatically materializes
+  the exact sealed scope; there is no second computer-side user decision.
 - **Folder-scoped file access** (`file_folders`) is the one narrowing below the
   collection, kept from Connect's file capability (`docs/files.md`, "selected
   folders"):
@@ -363,13 +364,14 @@ these contracts:
   device and need none. Every other client of a replica (local IPC apps, plugins
   attached as clients, remote thin clients, MCP) needs one.
 
-### 5.1 Grant approval in end-to-end collections
+### 5.1 Account consent and Private scope materialization
 
-In an `e2e` collection, the control plane could otherwise grant itself (or any key it
-holds) `collection.read`, and read the collection through the relay without ever
-holding the collection key. So a grant becomes **effective** only once a keyed device of
-the granting member approves it. The approval is a sealed, device-signed log item of kind
-`grant_approval` (`sealed-envelope.md` §2):
+Account consent is the sole user approval for Private collections, as for cloud
+collections. The daemon serves only while running and signed in to that account,
+under a fresh account-bound grant feed. It automatically materializes the exact
+client key, capabilities and folder scope as the existing sealed, device-signed
+`grant_approval` item (`sealed-envelope.md` §2). The wire name and effective-grant
+rules stay unchanged; this is scope publication, not another user decision:
 
 ```cddl
 ; ---- grant approval (policy.md §5.1) ----
@@ -382,13 +384,12 @@ grant-approval-payload = {
 }
 ```
 
-- **The approval UI** is offered to the hosting app only (`replica-client-api.md` §8.3).
-  It shows the app ID, the capabilities, the folder scope, and a fingerprint of
-  `client_pk`: the first 8 bytes of `H("mdbase/v1/client-fp", client_pk)` as 16 hex
-  digits. The app shows the same fingerprint on its consent screen.
+- **No Private confirmation UI or key-code step.** The account's access-request
+  screen is the consent surface. The device checks exact key/capability binding
+  internally, without Zenity, kdialog or an interactive fingerprint comparison.
 - **The folder scope.** The app chose its folders at consent. The control plane passes
-  them to the approving device out of band (the relay message that announces the
-  pending grant), never in the log.
+  them to the signed-in serving device out of band (the account-bound grant
+  feed), never in the control-plane-authored log item.
 - **A control item.** `grant_approval` is never compacted (`log-entry.md` §1), so policy
   state can always be computed from position 1.
 - **Validity** of a `grant_approval` at `p`: the signer is an active, keyed device of the
@@ -409,10 +410,12 @@ grant-approval-payload = {
   keyed escrow, the existing grant-approval requirement remains. This concerns
   app grants, not approval of new devices, and is evaluated at each log position.
 
-**Residual risk, documented.** A thin client learns its target's `noise_pk` from the
-control plane's routing (`replica-client-api.md` §12.3). A malicious control plane could
-therefore intercept the client's *own* session and see what that client reads and
-writes. It cannot open sessions to the collection by itself. Web apps served from
+**Trust boundary, documented.** Account authorization is trusted to the control
+plane. Automatic Private materialization is not an independent defense against a
+malicious account-authorization service. Private means data and collection keys
+stay on the serving computer; it does not promise a second user approval. The
+client also learns its target's `noise_pk` from control-plane routing
+(`replica-client-api.md` §12.3). Web apps served from
 mdbase's origin are trusted with what they display.
 
 ## 6. Deterministic evaluation at replay

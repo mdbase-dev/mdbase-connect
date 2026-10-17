@@ -52,16 +52,11 @@ impl CppClaimTicketSlot {
         {
             return Err(CppClaimSignRefused);
         }
-        let mut originals = Vec::with_capacity(96);
-        for (_, raw) in self.observed.originals() {
-            originals
-                .extend_from_slice(&mdbn_wire::hash::h("mdbase/v1/native-run-original", raw).0);
-        }
         Ok(crate::migration_action_ledger::RunBinding {
             collection: self.observed.admission().collection(),
             owner,
             started_us,
-            target: mdbn_wire::hash::h("mdbase/v1/native-run-target", &originals),
+            target: crate::migration_action_ledger::target_fingerprint(&self.observed),
         })
     }
     pub(crate) fn matches(&self, id: u64) -> bool {

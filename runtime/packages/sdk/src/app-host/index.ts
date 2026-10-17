@@ -29,8 +29,8 @@ export { AppHttpLogTransport, AppHttpLogError } from "./http-log.js";
 export type { AppLogHttpAuthority, AppLogHttpProof, AppLogHttpOptions } from "./http-log.js";
 export { AppWasmRuntime, AppStrictDeviceApprovalError } from "./wasm-runtime.js";
 export type { AppBootstrap, AppCpConnectorPin, AppHandoverSource, AppDeviceIdentityPin, AppDeviceBootstrap, AppCollectionBootstrap, AppDeviceRegistrationReceipt, AppCloudCopyCollectionPin, AppPrivateCollectionPin, AppPrivateDeviceEnrolProof, AppPrivateEnrolOperationMarker, AppPrivateCollectionOpen, AppDevicePublicIdentity, AppNoiseCustodyResult, AppCpEnrolProof, AppRuntimeObservations, AppSqlMemory, AppSqlLifetime } from "./wasm-runtime.js";
-export { AppLogPump, AppLogHostError } from "./log-pump.js";
-export type { AppLogCall, AppLogRuntime, AppLogTransport } from "./log-pump.js";
+export { AppLogPump, AppLogHostError, appLogHealth } from "./log-pump.js";
+export type { AppLogCall, AppLogHealth, AppLogRuntime, AppLogTransport } from "./log-pump.js";
 export {
   appSaveState,
   appMutationSaveState,
@@ -57,6 +57,7 @@ export { selectAppEnvironment } from "./app-environment.js";
 export type { AppEnvironmentSelection } from "./app-environment.js";
 export { createAppWebCollectionAdapter, openAppWebCollectionClient, AppWebCollectionError } from "./web-collection.js";
 export type { AppWebCollectionHandoff, AppWebNativeCollection, AppWebCollectionAdapterOptions, AppWebCollectionClient } from "./web-collection.js";
+export type { AppInitialSyncWait } from "./initial-sync.js";
 export { appCollectionControlClient, AppCollectionControlError } from "./collection-control.js";
 export type { AppCollectionControlBinding, AppCollectionControlClient } from "./collection-control.js";
 export { createAppCollectionPeople } from "./collection-people.js";
@@ -72,6 +73,6 @@ export { appBrowserDirectAccess } from "./browser-direct-access.js";
 export type { AppBrowserDirectAccessOptions, AppBrowserDirectAccessSnapshot } from "./browser-direct-access.js";
 export type { AppWebSignInProblemDetail } from "./web-sign-in-problem.js";
 export { AppWebSignInSession } from "./web-sign-in-session.js";
-export type { AppWebSignInSessionOptions, AppWebSignInSnapshot, AppWebCollectionConnection, AppWebSignInPortal } from "./web-sign-in-session.js";
+export type { AppWebSignInSessionOptions, AppWebSignInSnapshot, AppWebSignOutResult, AppWebCollectionConnection, AppWebSignInPortal } from "./web-sign-in-session.js";
 export { AppWebCloudCopyHost, AppCloudCopyHostError } from "./cloud-copy-host.js";
 export type { AppCloudCopyHostSession, AppCloudCopyHostRelease } from "./cloud-copy-host.js";

@@ -1,0 +1,4 @@
+# Public per-stack compiler inputs; generated after signature verification.
+# No private signing/KMS keys are copied here.
+local.json
+local-context.rs

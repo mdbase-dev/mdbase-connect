@@ -555,6 +555,48 @@ pub struct PendingDevice {
     pub exchange_ready: bool,
 }
 
+/// One app grant waiting for a device approval (`policy.md` §5.1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingGrant {
+    /// Grant ID (the log grant).
+    pub grant: Uuid,
+    /// App ID from the grant op (informational).
+    pub app_id: String,
+    /// Capability groups the grant op offers.
+    pub capabilities: Vec<String>,
+    /// Folder scope from the grant op (cloud copy only).
+    pub folders: Option<Vec<String>>,
+    /// Fingerprint of the app's client key, as shown on its consent screen.
+    pub client_fingerprint: String,
+}
+
+/// What this replica knows about one grant's approval, for the hosting app.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GrantApprovalState {
+    /// The grant op is active (not revoked).
+    pub active: bool,
+    /// App ID from the grant op (informational).
+    pub app_id: String,
+    /// Capability groups the grant op offers.
+    pub capabilities: Vec<String>,
+    /// The app's Noise static key from the grant op.
+    pub client_pk: [u8; 32],
+    /// The approval must carry the folder scope.
+    pub folder_scoped: bool,
+    /// Approved capabilities of the first valid approval, once applied.
+    pub approved_capabilities: Option<Vec<String>>,
+    /// Folder scope of that approval.
+    pub approved_folders: Option<Vec<String>>,
+    /// Log position of that approval.
+    pub approved_seq: Option<u64>,
+    /// Device that signed that approval.
+    pub approved_by: Option<Uuid>,
+    /// An approval from this device is queued for its append turn.
+    pub queued: bool,
+    /// Why this device's queued approval was dropped at its turn, if it was.
+    pub failure: Option<String>,
+}
+
 /// `list_files` params (§10.1).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ListFiles {
@@ -708,6 +750,39 @@ pub trait ClientApi {
 
     // ---- reads (§3, §4) ----
 
+    /// Declaration-bound setup on the original authenticated app session.
+    /// Missing producer support never falls back to ordinary resource writes.
+    fn app_collection_setup(&mut self, _session: SessionId, _request: &[u8]) -> ApiResult<Vec<u8>> {
+        Err(ErrorCode::UpgradeRequired.err_with_reason(
+            "declared_setup_unsupported",
+            "this producer does not mediate declared setup",
+        ))
+    }
+    /// Independent bounded native Bases execution on this authenticated session.
+    fn app_bases_execute(&mut self, _session: SessionId, _request: &[u8]) -> ApiResult<Vec<u8>> {
+        Err(ErrorCode::UpgradeRequired.err_with_reason(
+            "app_bases_unsupported",
+            "native Bases reads are unavailable",
+        ))
+    }
+    /// One native discovery page; supplied handles never silently restart.
+    fn app_bases_list_views(&mut self, _session: SessionId, _request: &[u8]) -> ApiResult<Vec<u8>> {
+        Err(ErrorCode::UpgradeRequired.err_with_reason(
+            "app_bases_unsupported",
+            "native Bases reads are unavailable",
+        ))
+    }
+    /// Exact native source SHA/original ordinal, never a path alias.
+    fn app_bases_read_view_source(
+        &mut self,
+        _session: SessionId,
+        _request: &[u8],
+    ) -> ApiResult<Vec<u8>> {
+        Err(ErrorCode::UpgradeRequired.err_with_reason(
+            "app_bases_unsupported",
+            "native Bases reads are unavailable",
+        ))
+    }
     /// Catalog summary.
     fn describe(&mut self, session: SessionId) -> ApiResult<Describe>;
     /// The catalog summary with each type's definition and schema and each
@@ -883,6 +958,17 @@ pub trait ClientApi {
     fn approve_device(&mut self, session: SessionId, device: Uuid, sas: String) -> ApiResult<()>;
     /// Stop offering a device here.
     fn reject_device(&mut self, session: SessionId, device: Uuid) -> ApiResult<()>;
+    /// App grants waiting for this device's approval (§5.1).
+    fn pending_grants(&mut self, session: SessionId) -> ApiResult<Vec<PendingGrant>>;
+    /// Approve a grant with the capabilities and folders the user kept;
+    /// appends the sealed `grant_approval` from this device.
+    fn approve_grant(
+        &mut self,
+        session: SessionId,
+        grant: Uuid,
+        capabilities: Vec<String>,
+        folders: Option<Vec<String>>,
+    ) -> ApiResult<()>;
 
     // ---- files (§10) ----
 

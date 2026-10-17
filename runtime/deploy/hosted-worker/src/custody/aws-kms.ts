@@ -99,7 +99,9 @@ export class HostedAwsKms {
     now: () => number = Date.now,
   ) {
     this.credentials = credentials;
-    this.fetchImpl = fetchImpl;
+    // Native Worker fetch rejects an unrelated member receiver. Keep both the
+    // default and explicitly supplied global transport as receiver-neutral calls.
+    this.fetchImpl = (input, init) => fetchImpl(input, init);
     this.now = now;
     // Commercial AWS only until another partition has a reviewed endpoint mapping.
     const match = /^arn:aws:kms:([a-z]{2}(?:-[a-z]+)+-\d):\d{12}:key\/([0-9a-f-]+)$/.exec(config.keyArn);

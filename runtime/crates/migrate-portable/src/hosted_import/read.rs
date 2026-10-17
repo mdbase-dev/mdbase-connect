@@ -6,7 +6,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::spill::GenClaims;
 use super::{Generation, ImportStats, Key, Meta, SourceRow, Spill, Table, class_of, live_of};
-use crate::budget::{MAX_HYDRATE_BYTES, MAX_HYDRATE_RECORDS};
+use crate::budget::{
+    MAX_HYDRATE_BYTES, MAX_HYDRATE_RECORDS, MAX_SOURCE_PAGE_BYTES, MAX_SOURCE_PAGE_ROWS,
+};
 use crate::live_digest::LiveDigest;
 use crate::namespace::{Namespace, Step, Summary};
 use crate::preflight::{EntityKind, PathEntity};
@@ -90,7 +92,7 @@ impl ReadGen {
             return Err(Error::Invalid("unexpected source page".into()));
         };
         let bytes: usize = rows.iter().map(|r| r.path.len()).sum();
-        if rows.len() > MAX_HYDRATE_RECORDS || bytes > MAX_HYDRATE_BYTES {
+        if rows.len() > MAX_SOURCE_PAGE_ROWS || bytes > MAX_SOURCE_PAGE_BYTES {
             return Err(Error::Invalid(format!(
                 "source page over budget: {} rows, {bytes} path bytes",
                 rows.len()

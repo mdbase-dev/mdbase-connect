@@ -123,6 +123,39 @@ export class AppCollectionJoinLedger {
   prepare(options: {signal: AbortSignal}): Promise<AppCollectionJoinAttempt> {
     return this.change("prepare", options.signal);
   }
+  /** Whether this device's replica of the collection has caught up with the
+   * log once before. Kept under its own key so the join marker keeps its
+   * original shape. A failed read answers false (wait for a full catch-up). */
+  async syncedBefore(options: {signal: AbortSignal}): Promise<boolean> {
+    return (await this.synced("read", options.signal)) === true;
+  }
+  /** Record the first completed catch-up. Best effort. */
+  async markSynced(options: {signal: AbortSignal}): Promise<void> {
+    await this.synced("mark", options.signal);
+  }
+  private async synced(change: "read" | "mark", signal: AbortSignal): Promise<boolean> {
+    let db: IDBDatabase | null = null;
+    try {
+      db = await this.open(signal); this.check(signal);
+      const key = JSON.stringify([this.options.scope.account, this.options.scope.installation, this.options.scope.collection, "synced"]);
+      return await new Promise<boolean>(resolve => {
+        const tx = db!.transaction(STORE, change === "mark" ? "readwrite" : "readonly");
+        let found = false;
+        tx.onabort = tx.onerror = () => resolve(false);
+        tx.oncomplete = () => resolve(change === "mark" || found);
+        const records = tx.objectStore(STORE);
+        if (change === "mark") records.put({version: 1, synced: true}, key);
+        else {
+          const request = records.get(key);
+          request.onsuccess = () => {
+            const value = request.result as {version?: unknown; synced?: unknown} | undefined;
+            found = !!value && value.version === 1 && value.synced === true;
+          };
+        }
+      });
+    } catch { return false; }
+    finally { db?.close(); }
+  }
   /** Call only after the SAME protected SDK completion. The marker is history,
    * never a bootstrap receipt, native readable proof or setup permission. */
   async complete(options: {signal: AbortSignal}): Promise<void> {

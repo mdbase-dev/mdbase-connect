@@ -6,7 +6,7 @@ use super::checkpoint::{Checkpoint, Step};
 use super::read::{Need, ReadGen, spill_err};
 use super::replay::{Batch, mutation_id, take_batch};
 use super::{Generation, ImportStats, Key, Meta, SourceRow, Spill, Table, live_of};
-use crate::budget::{MAX_HYDRATE_BYTES, MAX_HYDRATE_RECORDS};
+use crate::budget::{MAX_HYDRATE_RECORDS, MAX_SOURCE_PAGE_BYTES, MAX_SOURCE_PAGE_ROWS};
 use crate::live_digest::LiveDigest;
 use crate::{Error, Result};
 
@@ -46,7 +46,9 @@ pub enum Action {
         expect_head: Option<u64>,
     },
     /// The next metadata page of a table in the open read, primary-key order,
-    /// at most `max_rows` rows and `max_bytes` decoded bytes. → `Page`.
+    /// at most `max_rows` rows and `max_bytes` bytes of page metadata (IDs,
+    /// paths, hashes, sizes; never document bytes). A full page may stop short;
+    /// the rest follows from its cursor. → `Page`.
     ReadPage {
         /// Which read.
         generation: Generation,
@@ -260,6 +262,10 @@ pub enum Outcome {
 enum Ram {
     Idle,
     Read(Box<ReadGen>),
+    Gen0Plan {
+        read: Box<(u64, LiveDigest, ImportStats)>,
+        plan: super::window::Gen0Preflight,
+    },
     Gen0 {
         read: Box<(u64, LiveDigest, ImportStats)>,
         bucket: Option<u64>,
@@ -614,6 +620,26 @@ impl Driver {
 
     fn poll_import(&mut self, spill: &mut dyn Spill) -> Result<Action> {
         match &mut self.ram {
+            Ram::Gen0Plan { plan, .. } => {
+                match plan.work(spill) {
+                    Err(e) => self.stop(spill, &e.to_string())?,
+                    Ok(true) => {
+                        let Ram::Gen0Plan { read, .. } =
+                            std::mem::replace(&mut self.ram, Ram::Idle)
+                        else {
+                            unreachable!("matched above")
+                        };
+                        self.ram = Ram::Gen0 {
+                            read,
+                            bucket: None,
+                            after: None,
+                            done: false,
+                        };
+                    }
+                    Ok(false) => {}
+                }
+                Ok(Action::Continue)
+            }
             Ram::Gen0 {
                 read,
                 bucket,
@@ -728,8 +754,8 @@ impl Driver {
                 generation,
                 table,
                 cursor,
-                max_rows: MAX_HYDRATE_RECORDS,
-                max_bytes: MAX_HYDRATE_BYTES,
+                max_rows: MAX_SOURCE_PAGE_ROWS,
+                max_bytes: MAX_SOURCE_PAGE_BYTES,
             },
             Need::Work => {
                 if let Err(e) = r.work(spill) {
@@ -744,18 +770,15 @@ impl Driver {
                 match r.finish() {
                     Err(e) => self.stop(spill, &e.to_string())?,
                     Ok((head, digest, _summary, stats)) => match generation {
-                        Generation::S0 => {
-                            if let Err(e) = stats.hosted_fmt1_preflight() {
-                                self.stop(spill, &e.to_string())?;
-                                return Ok(Action::Continue);
+                        Generation::S0 => match super::window::Gen0Preflight::new(stats) {
+                            Ok(plan) => {
+                                self.ram = Ram::Gen0Plan {
+                                    read: Box::new((head, digest, stats)),
+                                    plan,
+                                }
                             }
-                            self.ram = Ram::Gen0 {
-                                read: Box::new((head, digest, stats)),
-                                bucket: None,
-                                after: None,
-                                done: false,
-                            };
-                        }
+                            Err(e) => self.stop(spill, &e.to_string())?,
+                        },
                         Generation::Final => {
                             let bytes = digest.to_bytes();
                             if self.cp.fence_first

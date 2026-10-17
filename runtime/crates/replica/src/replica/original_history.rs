@@ -79,6 +79,17 @@ impl OriginalHistory {
     pub(super) fn invalidate(&mut self) {
         self.verified = None;
     }
+    /// A generation-0 `base` install swapped only content state at the base's
+    /// position: every control record before it was applied by this instance
+    /// and nothing was read ahead or imported. Observations of generation
+    /// `from` stay verified in `to`; any other lineage stays invalid.
+    pub(super) fn carry_over_base(&mut self, from: u64, to: u64) {
+        if self.generation == from {
+            self.generation = to;
+        } else {
+            self.invalidate();
+        }
+    }
     pub(super) fn genesis(&self, generation: u64) -> Option<ObservedOriginalRecord> {
         (self.generation == generation).then_some(())?;
         self.verified.as_ref()?.genesis

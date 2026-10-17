@@ -11,6 +11,7 @@ import {
     type MdbaseApplicationDeclaration,
 } from "./declaration.js";
 import { appReleaseTrust } from "./packaged-trust.js";
+import { applicationLoopbackAllowed } from "./local-build.js";
 import {
     REGISTRATION_REFUSAL_MAX_BYTES,
     registrationRefusal,
@@ -72,7 +73,7 @@ function canonicalJson(value: unknown): string {
         .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
     return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`).join(",")}}`;
 }
-async function manifestDigest(manifest: unknown): Promise<string> {
+export async function manifestDigest(manifest: unknown): Promise<string> {
     const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalJson(manifest))));
     return Array.from(hash, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
@@ -108,7 +109,9 @@ function sameJson(left: unknown, right: unknown): boolean {
  * The sole retry exception is the exact immutable register upsert: CP uniqueness
  * preserves the same application row and reconciliation job for identical body
  * bytes. This does not authorize retrying enrollment/create/other unknown writes.
- * No app-supplied endpoint, trust, storage rebinding or registration cache. */
+ * No app-supplied endpoint, trust or storage rebinding. P5: a verified receipt
+ * is remembered per CP origin and canonical manifest digest, so a warm open
+ * registers only when the manifest changed (the CP binds the id to the digest). */
 export async function resolveApplicationRegistration(
     input: ApplicationRegistrationOptions,
 ): Promise<Readonly<ApplicationRegistration>> {
@@ -162,7 +165,7 @@ export async function resolveApplicationRegistration(
     }
     try {
         manifest = parseVersionedAppManifest(plainApplicationManifest(declaration), {
-            allowLocal: declaration.environment === "lab",
+            allowLocal: applicationLoopbackAllowed(declaration.environment),
         }).manifest;
     } catch {
         throw binding();
@@ -170,7 +173,7 @@ export async function resolveApplicationRegistration(
     // The app origin is the manifest homepage's, or one declared exactly under
     // installation_origins for this environment and installation kind
     // (Capacitor `capacitor://` and Android https, extension pages).
-    const declaredOrigins =
+    const declaredOrigins = declaration.environment === "local" ? [] :
         manifest.installation_origins?.[declaration.environment]?.[
             declaration.installationKind
         ] ?? [];
@@ -183,6 +186,25 @@ export async function resolveApplicationRegistration(
         throw binding();
     const body = JSON.stringify({ manifest }),
         url = `${environment.cpOrigin}/v1/apps/register`;
+    const cacheKey = `mdbase.app.registration.v1.${encodeURIComponent(environment.cpOrigin)}.${encodeURIComponent(manifest.id)}`;
+    const storage = (): Storage | null => { try { return globalThis.localStorage ?? null; } catch { return null; } };
+    const localDigest = storage() ? await manifestDigest(manifest).catch(() => null) : null;
+    check();
+    const remember = (registered: Readonly<ApplicationRegistration>): void => {
+        if (!localDigest) return;
+        try { storage()?.setItem(cacheKey, JSON.stringify({ v: 1, digest: localDigest, declaredId: declaration.id, ...registered })); } catch { /* optional */ }
+    };
+    {
+        let cached: Record<string, unknown> | null = null;
+        try { const raw = storage()?.getItem(cacheKey); cached = raw ? record(JSON.parse(raw)) : null; } catch { cached = null; }
+        if (cached && localDigest && cached.v === 1 && cached.digest === localDigest && cached.declaredId === declaration.id
+            && typeof cached.id === "string" && nativeId.test(cached.id) && cached.id !== nil && cached.name === manifest.name
+            && typeof cached.manifestDigest === "string" && /^[0-9a-f]{64}$/.test(cached.manifestDigest)
+            && (cached.supersededDeclaredId === undefined || cached.supersededDeclaredId === declaration.id)) {
+            return Object.freeze({ id: cached.id, name: manifest.name, manifestDigest: cached.manifestDigest,
+                ...(cached.supersededDeclaredId !== undefined ? { supersededDeclaredId: declaration.id } : {}) });
+        }
+    }
     if (
         new TextEncoder().encode(body).length >
             APPLICATION_MANIFEST_MAX_BYTES + 32 ||
@@ -322,7 +344,7 @@ export async function resolveApplicationRegistration(
         let returned: typeof manifest;
         try {
             returned = parseVersionedAppManifest(app.application_declaration, {
-                allowLocal: declaration.environment === "lab",
+                allowLocal: applicationLoopbackAllowed(declaration.environment),
             }).manifest;
         } catch {
             throw badReply();
@@ -348,7 +370,7 @@ export async function resolveApplicationRegistration(
                     signal: control.signal,
                     credentials: "omit",
                     redirect: "error",
-                    cache: "no-store",
+                    cache: "default",
                     referrerPolicy: "no-referrer",
                 });
                 current();
@@ -378,7 +400,9 @@ export async function resolveApplicationRegistration(
                             : "application_registration_refused",
                     );
                 }
-                return await receipt(await decode(response));
+                const registered = await receipt(await decode(response));
+                remember(registered);
+                return registered;
             } catch (error) {
                 void response?.body?.cancel().catch(() => {});
                 current();

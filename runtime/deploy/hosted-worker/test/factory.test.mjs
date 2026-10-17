@@ -10,6 +10,9 @@ const configured = bundled;
 mock.module("#hosted-release-trust", { namedExports: { appReleaseTrust: () => bundled } });
 const { ProductionCustody, hostedPort, productionParts, productionWrapper, ownedCppControlOrigin } = await import("../src/factory.ts");
 import { ControlClient } from "../src/control.ts";
+import { LocalSoftwareKms } from "../src/custody/local-kms.ts";
+import { localOrigin } from "../src/local-origin.ts";
+import { connectClient } from "../src/migration-connect.ts";
 
 const full = {
   KMS_KEY_ARN: "arn:aws:kms:eu-west-1:123456789012:key/11111111-1111-4111-8111-111111111111",
@@ -59,12 +62,34 @@ test("actual factory-owned transport keeps its original immutable HTTPS base", a
   assert.equal(ownedCppControlOrigin(parts.control), "https://cp.test");
 });
 
+test("managed builds reject local roots/KMS/HTTP even with local runtime configuration", () => {
+  const local = { ...configured, environment: "local", cpOrigin: "http://127.0.0.1:8111", logOrigin: "http://127.0.0.1:8222" };
+  const arn = "arn:local:kms:local:000000000000:key/11111111-1111-4111-8111-111111111111";
+  const col = "0e0e0e0e-0e0e-4e0e-8e0e-0e0e0e0e0e0e";
+  bundled = local;
+  assert.equal(productionParts({ ...full, KMS_ENVIRONMENT: "local", KMS_KEY_ARN: arn, LOCAL_KMS_KEY: "ab".repeat(32), CP_URL: local.cpOrigin, LOG_URL: local.logOrigin }), null);
+  bundled = configured;
+  for (const environment of ["local", "lab", "staging", "production"]) {
+    assert.throws(() => new LocalSoftwareKms(arn, "ab".repeat(32), environment, [col]), /invalid_config/);
+    assert.equal(localOrigin(local.cpOrigin, environment), false);
+    assert.throws(() => new ControlClient({ url: local.cpOrigin, token: "t".repeat(40), environment }));
+    assert.throws(() => connectClient({ url: local.cpOrigin, token: "t".repeat(40), environment }));
+  }
+  assert.equal(productionParts({ ...full, LOCAL_KMS_KEY: "ab".repeat(32) }), null);
+});
+
 test("fails closed unless fully configured", () => {
   assert.ok(productionParts(full));
-  for (const k of Object.keys(full).filter((k) => k !== "KMS_COLLECTIONS" && k !== "CP_ROOTS")) {
+  for (const k of Object.keys(full).filter((k) => k !== "KMS_COLLECTIONS" && k !== "CP_ROOTS" && k !== "HOSTED_SIGNERS")) {
     assert.equal(productionParts({ ...full, [k]: "" }), null, k);
   }
   assert.ok(productionParts({ ...full, CP_ROOTS: undefined }), "only bundle supplies authority");
+  for (const HOSTED_SIGNERS of ["", undefined]) {
+    assert.deepEqual(productionParts({ ...full, HOSTED_SIGNERS }).signers, [], "service devices have no external SAS signers");
+  }
+  for (const HOSTED_SIGNERS of ["not-a-uuid", "00000000-0000-0000-0000-000000000000", ",", full.HOSTED_SIGNERS + ",", Array(17).fill(full.HOSTED_SIGNERS).join(",")]) {
+    assert.equal(productionParts({ ...full, HOSTED_SIGNERS }), null, "malformed/unbounded declarations still deny");
+  }
   assert.equal(productionParts({ ...full, CP_ROOTS: "zz" }), null);
   assert.equal(productionParts({ ...full, LOG_URL: "https://wrong.test" }), null);
   bundled = null;

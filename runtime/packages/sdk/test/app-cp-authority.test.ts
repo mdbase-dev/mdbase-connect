@@ -1,16 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 import { AppCpLogAuthority, type AppCpSession } from "../src/app-host/cp-authority.js";
+import type { AppLogTokenCache } from "../src/app-host/log-token-cache.js";
 import type { AppWasmRuntime } from "../src/app-host/wasm-runtime.js";
 const C = "22222222-2222-2222-2222-222222222222", D = "44444444-4444-4444-4444-444444444444", K = "66666666-6666-6666-6666-666666666666";
 const now = 1_800_000_000_000;
 const ok = (v: unknown) => new Response(JSON.stringify(v), { headers: { "content-type": "application/json" } });
-function fixture(fetchOverride?: typeof fetch) {
+function fixture(fetchOverride?: typeof fetch, tokenCache?: AppLogTokenCache) {
   let current = true, time = now;
   const challenge = new Uint8Array(32).fill(0x11), signature = new Uint8Array(64).fill(0x77);
   const runtime = { bindCpConnector: vi.fn(), signCpLogToken: vi.fn(() => signature), signLogHttp: vi.fn(() => new Uint8Array(64)), retireLog: vi.fn() };
   const session: AppCpSession = { connectorId: K, deviceId: D, collection: C, cpOrigin: "https://cp.example", logOrigin: "https://log.example", directOrigins: ["https://object.example"], endpoint: 37, isCurrent: () => current, connectorBearer: vi.fn(async () => "private-connector-bearer") };
   const fetch = vi.fn(fetchOverride ?? (async (u: RequestInfo | URL) => String(u).endsWith("/challenge") ? ok({ challenge: "11".repeat(32), expires_at: time + 60_000 }) : ok({ token: "ls-device-token", expires_at: time + 15 * 60_000 })));
-  const authority = new AppCpLogAuthority(runtime as unknown as AppWasmRuntime, session, { fetch, now: () => time });
+  const authority = new AppCpLogAuthority(runtime as unknown as AppWasmRuntime, session, { fetch, now: () => time, ...(tokenCache ? { tokenCache } : {}) });
   return { authority, runtime, session, fetch, signature, challenge, stale: () => { current = false; }, tick: (ms: number) => { time += ms; } };
 }
 const signal = () => new AbortController().signal;
@@ -19,7 +20,7 @@ describe("app CP log-token authority", () => {
     const f = fixture(); expect(f.authority.isCurrent()).toBe(false); expect(() => f.authority.logTransport()).toThrow(); expect(f.runtime.bindCpConnector).toHaveBeenCalledWith(f.session);
     expect(await f.authority.accessToken({ signal: signal() })).toBe("ls-device-token"); expect(f.authority.isCurrent()).toBe(true); expect(f.authority.logTransport().isCurrent()).toBe(true);
     const first = f.fetch.mock.calls[0]!, second = f.fetch.mock.calls[1]!; expect(first[0]).toBe("https://cp.example/v1/next/devices/challenge"); expect(second[0]).toBe(`https://cp.example/v1/next/collections/${C}/log-token`);
-    expect(first[1]).toMatchObject({ method: "POST", credentials: "omit", redirect: "error", cache: "no-store", referrerPolicy: "no-referrer", headers: { authorization: "Bearer private-connector-bearer" } });
+    expect(first[1]).toMatchObject({ method: "POST", credentials: "omit", redirect: "error", cache: "default", referrerPolicy: "no-referrer", headers: { authorization: "Bearer private-connector-bearer" } });
     expect(JSON.parse(second[1]!.body as string)).toEqual({ device_id: D, challenge: "11".repeat(32), sig: "77".repeat(64) });
     expect(f.runtime.signCpLogToken).toHaveBeenCalledTimes(1); expect(f.signature.every(b => b === 0)).toBe(true);
     expect(await f.authority.accessToken({ signal: signal() })).toBe("ls-device-token"); expect(f.fetch).toHaveBeenCalledTimes(2);
@@ -56,5 +57,17 @@ describe("app CP log-token authority", () => {
   it("pins endpoint/origins/connector and retires on mutable identity changes", async () => {
     const f = fixture(); await f.authority.accessToken({ signal: signal() }); Object.assign(f.session, { connectorId: "77777777-7777-7777-7777-777777777777" });
     await expect(f.authority.accessToken({ signal: signal() })).rejects.toMatchObject({ reason: "fenced" }); expect(f.runtime.retireLog).toHaveBeenCalledTimes(1); expect(f.authority.isCurrent()).toBe(false);
+  });
+  it("P5: a reload reuses the stored token without a challenge; a refused token is dropped", async () => {
+    const kept = new Map<string, { value: string; expires: number }>();
+    const cache: AppLogTokenCache = { read: async k => kept.get(k) ?? null, write: async (k, t) => { kept.set(k, t); }, drop: async k => { kept.delete(k); } };
+    const first = fixture(undefined, cache); await first.authority.accessToken({ signal: signal() });
+    expect(kept.size).toBe(1);
+    const reloaded = fixture(undefined, cache);
+    expect(await reloaded.authority.accessToken({ signal: signal() })).toBe("ls-device-token");
+    expect(reloaded.fetch).not.toHaveBeenCalled(); expect(reloaded.authority.isCurrent()).toBe(true);
+    reloaded.authority.invalidateToken("ls-device-token"); await Promise.resolve();
+    expect(kept.size).toBe(0);
+    await reloaded.authority.accessToken({ signal: signal() }); expect(reloaded.fetch).toHaveBeenCalledTimes(2);
   });
 });

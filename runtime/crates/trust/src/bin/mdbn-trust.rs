@@ -22,7 +22,11 @@ const USAGE: &str = "usage: mdbn-trust verify --asset <file> --sha256 <hex> --en
 --cp-origin <origin> --log-origin <origin> --source-commit <hex> --source-version <v> [--now-ms <ms>]";
 
 fn options(args: &[String]) -> Option<BTreeMap<&str, &str>> {
-    if args.first().map(String::as_str) != Some("verify") || args.len().is_multiple_of(2) {
+    let local = args.first().map(String::as_str) == Some("verify-local")
+        && cfg!(feature = "local-rehearsal");
+    if (!local && args.first().map(String::as_str) != Some("verify"))
+        || args.len().is_multiple_of(2)
+    {
         return None;
     }
     let known = [
@@ -38,7 +42,7 @@ fn options(args: &[String]) -> Option<BTreeMap<&str, &str>> {
     let mut values = BTreeMap::new();
     for pair in args[1..].chunks_exact(2) {
         let (name, value) = (pair[0].as_str(), pair[1].as_str());
-        if !known.contains(&name)
+        if !(known.contains(&name) || local && ["--stack-root", "--signature"].contains(&name))
             || value.is_empty()
             || value.starts_with("--")
             || values.insert(name, value).is_some()
@@ -112,7 +116,23 @@ fn main() -> ExitCode {
             eprintln!("{e}");
             ExitCode::from(1)
         };
-        let trust = verify(&bytes, &context, now_ms).map_err(fail)?;
+        let trust = if args[0] == "verify-local" {
+            #[cfg(feature = "local-rehearsal")]
+            {
+                let root =
+                    hex_exact::<32>(&required("--stack-root")?, "--stack-root").map_err(fail)?;
+                let signature =
+                    hex_exact::<64>(&required("--signature")?, "--signature").map_err(fail)?;
+                mdbn_trust::verify_local(&bytes, &context, now_ms, &root, &signature)
+                    .map_err(fail)?
+            }
+            #[cfg(not(feature = "local-rehearsal"))]
+            {
+                return Err(ExitCode::from(2));
+            }
+        } else {
+            verify(&bytes, &context, now_ms).map_err(fail)?
+        };
         normalized_json(&trust, &context).map_err(fail)
     };
     match run() {

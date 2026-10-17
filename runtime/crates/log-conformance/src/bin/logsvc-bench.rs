@@ -7,6 +7,7 @@
 //! logsvc-bench --url ... blob --parts 16 --mib 8 --conc 4
 //! logsvc-bench --url ... recovery --secs 60
 //! logsvc-bench --url ... conformance [--hooks]
+//! logsvc-bench --url ... push [--origin <allowed browser origin>]
 //! ```
 //! Prints one JSON line per run.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types)]
@@ -44,6 +45,7 @@ async fn main() {
                 "blob",
                 "recovery",
                 "conformance",
+                "push",
             ]
             .contains(&a.as_str())
         })
@@ -67,6 +69,13 @@ async fn main() {
                 )
                 .await,
             );
+            std::process::exit(if ok { 0 } else { 1 });
+        }
+        "push" => {
+            let results =
+                mdbn_log_conformance::push::run(&t, &arg("--origin", "http://127.0.0.1:48218"))
+                    .await;
+            let ok = report(&t, &results);
             std::process::exit(if ok { 0 } else { 1 });
         }
         _ => unreachable!(),

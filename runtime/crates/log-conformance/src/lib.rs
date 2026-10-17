@@ -17,6 +17,7 @@
 pub mod bench;
 pub mod client;
 pub mod fixture;
+pub mod push;
 pub mod suite;
 
 pub use fixture::Target;

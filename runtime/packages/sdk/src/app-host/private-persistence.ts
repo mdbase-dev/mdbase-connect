@@ -1,5 +1,6 @@
 /** Fixed-purpose PUBLIC bootstrap outcome custody, not account/password/secret
  * custody. Unexported until persistent-platform/restart qualification completes. */
+import { LOCAL_APPLICATION_BUILD, localApplicationHttpOrigin } from "../application/local-build.js";
 import { decode, encode, type CborValue } from "../cbor.js";
 import { uuidToBytes } from "../codec.js";
 import { collectionDisplayName } from "./collection-display-name.js";
@@ -39,7 +40,7 @@ export class AppWebPrivateBootstrapPersistence implements AppPrivateBootstrapPer
       const ids = [this.pins.accountId, this.pins.connectorId, this.pins.deviceId, this.pins.installationId, this.pins.collection].map(uuidToBytes);
       if (ids.some(b => b.every(v => v === 0)) || !["create", "enrol"].includes(this.pins.purpose)) throw bad();
       for (const raw of [source.cpOrigin, source.logOrigin]) {
-        const u = new URL(raw), loopback = options.allowLoopbackHttp === true && u.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
+        const u = new URL(raw), loopback = options.allowLoopbackHttp === true && u.protocol === "http:" && (LOCAL_APPLICATION_BUILD ? localApplicationHttpOrigin(raw) : ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname));
         if ((!loopback && u.protocol !== "https:") || u.origin !== raw || u.username || u.password) throw bad();
       }
       if (!(source.rootPublicKey instanceof Uint8Array) || source.rootPublicKey.length !== 32 || source.rootPublicKey.every(v => v === 0)) throw bad();

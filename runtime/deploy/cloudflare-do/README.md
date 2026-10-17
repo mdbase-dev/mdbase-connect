@@ -130,6 +130,16 @@ requested method must be GET/POST/PUT and requested headers must be in the fixed
 list: authorization, content-type, x-mdbase-nonce, x-mdbase-sig, range,
 x-amz-checksum-sha256. Preflight does not read bodies/auth keys, generate or consume
 nonces, look up an actor, or call R2. Denied preflight has no CORS allow headers.
+Allowed preflights carry `access-control-max-age: 7200` (Chrome's cap), so a
+browser sends one OPTIONS per two hours, not one per RPC.
+
+Every signed-RPC response (`/v1/rpc` and the two closing routes) carries
+`x-mdbase-next-nonce` (exposed to allowlisted origins): a fresh nonce minted
+exactly like `GET /v1/nonce`, which the SDK uses for its next RPC so a
+steady-state call is one request. It is not authority: nonces stay stateless,
+60 s, single use per collection actor, and bound to a request only by the
+device signature. `tests/nonce-piggyback-cases.mjs` covers replay, cross-device
+and cross-collection transplant, expiry, a foreign secret and a concurrent race.
 Real responses retain their original status/body stream/WebSocket and existing
 RPC auth; allowlisted responses get exact ACAO and exposed object metadata.
 Vary preserves existing tokens and adds Origin, including on denied/no-origin

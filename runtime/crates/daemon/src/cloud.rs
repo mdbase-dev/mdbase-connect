@@ -721,6 +721,7 @@ impl Cloud {
         &self,
         connector_id: &str,
         collection: &[u8; 16],
+        display_name: &str,
         identity: &DeviceIdentity,
         current: &(dyn Fn() -> Result<(), String> + Send + Sync),
     ) -> Result<Created, CloudError> {
@@ -729,6 +730,7 @@ impl Cloud {
             "collection_id".into(),
             json!(mdbn_wire::common::B16(*collection).to_uuid_string()),
         );
+        body.insert("display_name".into(), json!(display_name));
         let v = self
             .proven_post(
                 "/v1/next/collections/private",
@@ -1790,9 +1792,16 @@ mod tests {
                                 .create_cloud_copy(CONNECTOR, c, id, &ok)
                                 .await
                                 .map(drop),
-                            K::PrivateCreate => {
-                                cloud.create_private(CONNECTOR, c, id, &ok).await.map(drop)
-                            }
+                            K::PrivateCreate => cloud
+                                .create_private(
+                                    CONNECTOR,
+                                    c,
+                                    "[test] migrated Legacy name / Δ",
+                                    id,
+                                    &ok,
+                                )
+                                .await
+                                .map(drop),
                             K::CloudCopyJoin => {
                                 cloud.join_cloud_copy(CONNECTOR, c, id, &ok).await.map(drop)
                             }
@@ -1811,6 +1820,9 @@ mod tests {
             )
             .await;
             assert!(line.starts_with(&path), "{kind:?}: {line}");
+            if kind == K::PrivateCreate {
+                assert_eq!(body["display_name"], "[test] migrated Legacy name / Δ");
+            }
             assert_eq!(body["challenge"], secrets::hex(&[7; 32]));
             assert_eq!(body["device_id"], id.public().device);
             assert_eq!(

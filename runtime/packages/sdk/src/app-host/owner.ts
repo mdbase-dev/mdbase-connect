@@ -44,10 +44,76 @@ export function acquireAppInstallationLease(locks: AppLockPort | undefined, scop
 export function isAppInstallationId(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= 64 && !/[^A-Za-z0-9_-]/.test(value);
 }
-export function acquireAppSignInLease(locks: AppLockPort | undefined, scope: Readonly<{cpOrigin: string; appId: string}>, signal?: AbortSignal): Promise<AppReplicaLease> {
+/** The same bounded protected owner used by the sign-in and grant stores. */
+export function isInstallationOwner(v: unknown): v is string {
+  return typeof v === "string" && v.length > 0 && v.length <= 256 && !/[\u0000-\u001f\u007f]/.test(v);
+}
+function appSignInLockName(scope: Readonly<{cpOrigin: string; appId: string; owner?: string}>): string {
   const u = new URL(scope.cpOrigin);
   if (u.origin !== scope.cpOrigin || u.username || u.password || !["https:", "http:"].includes(u.protocol) || !isAppInstallationId(scope.appId)) throw new AppReplicaOwnerError("invalid_scope");
-  return acquireNamedLease(locks, `mdbase-app-sign-in-v1-${scope.appId}-${scope.cpOrigin}`, signal);
+  // Unowned callers retain their original namespace. Owned callers lock the
+  // exact protected store, so a scoped child cannot collide with its live root.
+  if (scope.owner === undefined) return `mdbase-app-sign-in-v1-${scope.appId}-${scope.cpOrigin}`;
+  if (!isInstallationOwner(scope.owner)) throw new AppReplicaOwnerError("invalid_scope");
+  return `mdbase-app-sign-in-v2-${JSON.stringify([scope.cpOrigin, scope.owner, scope.appId])}`;
+}
+export function acquireAppSignInLease(locks: AppLockPort | undefined, scope: Readonly<{cpOrigin: string; appId: string; owner?: string}>, signal?: AbortSignal): Promise<AppReplicaLease> {
+  const ownedName = appSignInLockName(scope);
+  const legacyName = appSignInLockName({cpOrigin: scope.cpOrigin, appId: scope.appId});
+  if (scope.owner === undefined) return acquireNamedLease(locks, legacyName, signal);
+  return (async () => {
+    // Older OWNED builds also held v1. Taking both excludes those roots without
+    // changing the protected ledger or treating a name as recovery authority.
+    const legacy = await acquireNamedLease(locks, legacyName, signal);
+    try {
+      const owned = await acquireNamedLease(locks, ownedName, signal);
+      return {release: async () => {await owned.release(); await legacy.release();}};
+    } catch (error) {await legacy.release(); throw error;}
+  })();
+}
+/** Internal scoped-facade bridge. The root takes REAL v1 for its whole lifetime;
+ * its fixed root/child composition borrows that guard while each protected store
+ * also takes its real owner-v2 lease. All native custody requests pass through.
+ * Compatibility consumer: older owned SDK builds whose sole sign-in lease is v1.
+ * Remove this bridge only when those builds are no longer supported. */
+export function createAppSignInRootGuard(locks: AppLockPort, scope: Readonly<{cpOrigin: string; appId: string}>, signal: AbortSignal): {locks: AppLockPort; close(): Promise<void>} {
+  const name = appSignInLockName({cpOrigin: scope.cpOrigin, appId: scope.appId});
+  let root: Promise<AppReplicaLease> | null = null, closed = false, borrowers = 0;
+  const guarded: AppLockPort = {
+    request: async (requested, options, hold) => {
+      if (closed) throw new AppReplicaOwnerError("aborted");
+      if (requested !== name) return locks.request(requested, options, hold);
+      root ??= acquireNamedLease(locks, name, signal).catch(error => {root = null; throw error;});
+      try {await root;} catch (error) {
+        // Preserve Web Locks ifAvailable semantics and the typed busy outcome.
+        if (error instanceof AppReplicaOwnerError && error.reason === "busy") return hold(null);
+        throw error;
+      }
+      if (closed) throw new AppReplicaOwnerError("aborted");
+      ++borrowers;
+      try {await hold({});} finally {--borrowers;}
+    },
+  };
+  return {locks: guarded, close: async () => {
+    closed = true;
+    // Closing all original stores must precede releasing the migration guard.
+    // A failed drain retains it until Worker termination, never a second owner.
+    if (borrowers !== 0) throw new AppReplicaOwnerError("shutdown_failed");
+    let lease: AppReplicaLease;
+    try {if (!root) return; lease = await root;} catch {return;} // failed acquisition owns nothing
+    await lease.release();
+  }};
+}
+/** Waiting (not owning) side of the Web Locks API. */
+export interface AppLockWaitPort {
+  request(name: string, options: { mode: "shared"; signal: AbortSignal }, granted: (lock: object | null) => Promise<void>): Promise<void>;
+}
+/** Resolves once no other tab holds this app's sign-in slot (the "open in
+ * another tab" case). Shared and released at once: it never owns the slot, so
+ * the caller still acquires it normally and may lose to a faster tab. */
+export function waitForAppSignInRelease(locks: AppLockWaitPort, scope: Readonly<{cpOrigin: string; appId: string; owner?: string}>, signal: AbortSignal): Promise<void> {
+  try { return locks.request(appSignInLockName(scope), { mode: "shared", signal }, async () => {}); }
+  catch (error) { return Promise.reject(error); }
 }
 function acquireNamedLease(locks: AppLockPort | undefined, name: string, signal?: AbortSignal): Promise<AppReplicaLease> {
   if (!locks) return Promise.reject(new AppReplicaOwnerError("unavailable"));

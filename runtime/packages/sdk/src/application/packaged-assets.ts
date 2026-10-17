@@ -4,6 +4,7 @@ import {mdbaseError} from "../errors.js";
 import type {ApplicationAsset} from "./asset-loader.js";
 import type {PackagedApplicationNativeAssets} from "./native-assets.js";
 import {appReleaseTrust} from "./packaged-trust.js";
+import {applicationEnvironmentAllowed} from "./local-build.js";
 import pins from "./asset-pins.json" with {type:"json"};
 
 // Exact original source-qualified bytes; integrity pins are NOT separate
@@ -15,8 +16,8 @@ const unavailable = () => mdbaseError("unavailable", "SDK packaged application a
 /** Private SDK selector, not an application configuration callback. UI and
  * Worker use the same ESM artifact anchor. Selection performs no IO, storage,
  * Worker construction, dynamic imports or WASM initialization. */
-export function packagedApplicationAssets(environment:"lab"|"production",appOrigin:string):PackagedApplicationNativeAssets {
-  if(environment!=="lab"&&environment!=="production")throw unavailable();
+export function packagedApplicationAssets(environment:"lab"|"production"|"local",appOrigin:string):PackagedApplicationNativeAssets {
+  if(!applicationEnvironmentAllowed(environment))throw unavailable();
   if(environment==="production")throw mdbaseError("unavailable", "production trust unavailable", "application_production_trust_unavailable");
   const release=appReleaseTrust();
   selectAppEnvironment({environment,appOrigin,release});

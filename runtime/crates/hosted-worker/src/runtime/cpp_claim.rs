@@ -40,6 +40,12 @@ fn canonical_origin(origin: &str) -> bool {
     if origin.len() > 255 || !origin.is_ascii() {
         return false;
     }
+    #[cfg(feature = "local-rehearsal")]
+    if let Some(port) = origin.strip_prefix("http://127.0.0.1:") {
+        return port
+            .parse::<u16>()
+            .is_ok_and(|p| p != 0 && p != 80 && p.to_string() == port);
+    }
     let Some(authority) = origin.strip_prefix("https://") else {
         return false;
     };
@@ -294,6 +300,30 @@ mod tests {
             &sig
         ));
     }
+    #[test]
+    fn local_http_audience_requires_the_explicit_native_build_feature() {
+        assert_eq!(
+            ConfiguredCppAudience::from_owned_origin("http://127.0.0.1:8111").is_ok(),
+            cfg!(feature = "local-rehearsal")
+        );
+        for origin in [
+            "http://localhost:8111",
+            "http://127.1:8111",
+            "http://127.0.0.1:0",
+            "http://127.0.0.1:80",
+            "http://127.0.0.1:08111",
+            "http://127.0.0.1:8111/",
+            "http://127.0.0.1:8111?x",
+            "http://127.0.0.1:65536",
+            "http://other.test:8111",
+        ] {
+            assert!(
+                ConfiguredCppAudience::from_owned_origin(origin).is_err(),
+                "{origin}"
+            );
+        }
+    }
+
     #[test]
     fn only_bounded_canonical_supported_https_origins() {
         for s in [

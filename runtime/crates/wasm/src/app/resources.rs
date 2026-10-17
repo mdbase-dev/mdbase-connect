@@ -5,13 +5,12 @@ use mdbn_core::{
     contracts::jcs_digest,
     ids::Hash,
     intent::Op,
-    packs::{Action, AssessOptions, Assessment, folder_target_overrides, load_pack},
+    packs::{AssessOptions, load_pack},
     setup::envelope::{self, CollectionSetup, CollectionSetupTypePack},
     state::MemState,
     value::{Map, Value},
 };
 use mdbn_replica::api::{ClientApi, ListResources, SessionId};
-use std::collections::BTreeSet;
 const MAX: usize = 512 * 1024;
 fn invalid() -> OpenFailure {
     OpenFailure("resource setup unavailable".into())
@@ -301,153 +300,11 @@ fn decisions(value: &Value) -> Result<Decisions, OpenFailure> {
 /// installed pack keeps the targets its lock records, so a later folder change
 /// never moves (or re-plans) installed definitions.
 fn resolve(state: &MemState, setup: &mut CollectionSetup) -> Result<(), OpenFailure> {
-    if setup.type_packs.is_empty() {
-        return Ok(());
-    }
-    let initial = envelope::assess_collection_resources(state, setup).map_err(|_| invalid())?;
-    for (entry, assessed) in setup.type_packs.iter_mut().zip(&initial.type_packs) {
-        entry.options.target_overrides = match &assessed.current {
-            None => folder_target_overrides(state, &entry.pack),
-            Some(receipt) => entry
-                .pack
-                .resources
-                .iter()
-                .filter_map(|r| {
-                    receipt
-                        .resources
-                        .iter()
-                        .find(|e| e.source == r.source && e.kind == r.kind && e.target != r.target)
-                        .map(|e| (r.target.clone(), e.target.clone()))
-                })
-                .collect(),
-        };
-    }
-    Ok(())
+    setup
+        .resolve_installer_targets(state)
+        .map_err(|_| invalid())
 }
 /// The resolved targets the declared packs install.
-fn targets(setup: &CollectionSetup) -> BTreeSet<String> {
-    setup
-        .type_packs
-        .iter()
-        .flat_map(|p| {
-            p.pack.resources.iter().map(|r| {
-                p.options
-                    .target_overrides
-                    .get(&r.target)
-                    .unwrap_or(&r.target)
-                    .clone()
-            })
-        })
-        .collect()
-}
-fn row(r: &mdbn_core::packs::PlannedResource, installed: bool, adopted: Option<&Hash>) -> Value {
-    let action = if adopted.is_some() {
-        "adopt"
-    } else {
-        r.action.as_str()
-    };
-    let mut fields = vec![
-        ("target", Value::string(r.target.clone())),
-        ("kind", Value::string(r.kind.clone())),
-        (
-            "mode",
-            Value::string(match r.mode {
-                mdbn_core::packs::Mode::Managed => "managed",
-                mdbn_core::packs::Mode::Seed => "seed",
-            }),
-        ),
-        ("action", Value::string(action)),
-        ("installed", Value::Bool(installed)),
-    ];
-    if let Some(live) = adopted.or(r.live.as_ref()) {
-        fields.push(("currentDigest", Value::string(live.to_string())));
-    }
-    if let Some(reason) = &r.reason {
-        fields.push(("reason", Value::string(reason.clone())));
-    }
-    object(fields)
-}
-fn pack_review(a: &Assessment, adopted: &BTreeMap<String, Hash>) -> Value {
-    let installed = |target: &str| {
-        a.current
-            .as_ref()
-            .is_some_and(|c| c.resources.iter().any(|e| e.target == target))
-    };
-    object(vec![
-        ("id", Value::string(a.pack.0.clone())),
-        ("version", Value::string(a.pack.1.clone())),
-        ("status", Value::string(a.status.as_str())),
-        (
-            "installedVersion",
-            a.current
-                .as_ref()
-                .map_or(Value::Null, |c| Value::string(c.version.clone())),
-        ),
-        (
-            "resources",
-            Value::List(
-                a.resources
-                    .iter()
-                    .filter(|r| r.action != Action::Unchanged)
-                    .map(|r| row(r, installed(&r.target), adopted.get(&r.target)))
-                    .collect(),
-            ),
-        ),
-    ])
-}
-/// The reviewable setup: per-pack changes, configuration changes and the
-/// definition documents the setup would write (`staged`).
-fn review(
-    assessment: &envelope::CollectionResourceAssessment,
-    ops: &[Op],
-    adopted: &BTreeMap<String, Hash>,
-) -> Value {
-    let configuration = assessment
-        .configuration
-        .configuration
-        .iter()
-        .filter(|c| c.action != "current")
-        .map(|c| {
-            object(vec![
-                ("requirement", Value::string(c.requirement.clone())),
-                ("path", Value::string(c.path.clone())),
-                ("action", Value::string(c.action)),
-                ("value", c.value.clone()),
-            ])
-        })
-        .collect();
-    let staged = ops
-        .iter()
-        .filter_map(|op| match op {
-            Op::ResourcePut(r)
-                if !matches!(
-                    r.path.as_str(),
-                    "mdbase.yaml" | mdbn_core::types::LOCK_PATH | "mdbase.provisions.yaml"
-                ) =>
-            {
-                Some(object(vec![
-                    ("path", Value::string(r.path.clone())),
-                    ("document", Value::string(r.doc.clone())),
-                ]))
-            }
-            _ => None,
-        })
-        .collect();
-    object(vec![
-        (
-            "packs",
-            Value::List(
-                assessment
-                    .type_packs
-                    .iter()
-                    .map(|a| pack_review(a, adopted))
-                    .collect(),
-            ),
-        ),
-        ("configuration", Value::List(configuration)),
-        ("staged", Value::List(staged)),
-    ])
-}
 /// Assessment, its guarded writes, and the adoptions it applied.
 type Assessed = (
     envelope::CollectionResourceAssessment,
@@ -473,47 +330,8 @@ fn assess(
         full.insert_resource(path, source);
     }
     resolve(&full, &mut setup)?;
-    let owned = targets(&setup);
-    // Adoption is offered only for the subset the review advertises: a
-    // managed-mode conflict over an existing definition no install recorded.
-    // Every decision must still match exactly that row at its reviewed
-    // revision; anything else (seed, installed, changed, deleted, undeclared)
-    // is a stale or forged review and refuses rather than being ignored.
-    let eligible: BTreeMap<String, Hash> = if decisions.adopt.is_empty() {
-        BTreeMap::new()
-    } else {
-        let full_assessment =
-            envelope::assess_collection_resources(&full, &setup).map_err(|_| invalid())?;
-        full_assessment
-            .type_packs
-            .iter()
-            .flat_map(|a| {
-                a.resources.iter().filter_map(move |r| {
-                    let installed = a
-                        .current
-                        .as_ref()
-                        .is_some_and(|c| c.resources.iter().any(|e| e.target == r.target));
-                    (r.action == Action::Conflict
-                        && r.mode == mdbn_core::packs::Mode::Managed
-                        && !installed)
-                        .then_some(r.live.map(|live| (r.target.clone(), live)))
-                        .flatten()
-                })
-            })
-            .collect()
-    };
-    let mut adopted = BTreeMap::new();
-    for (target, digest) in &decisions.adopt {
-        let live = resources
-            .iter()
-            .find(|(path, _)| path == target)
-            .map(|(_, source)| mdbn_core::ids::revision(source));
-        if !owned.contains(target) || eligible.get(target) != Some(digest) || live != Some(*digest)
-        {
-            return Err(invalid());
-        }
-        adopted.insert(target.clone(), *digest);
-    }
+    let adopted = envelope::reviewed_resource_adoptions(&full, &setup, &decisions.adopt)
+        .map_err(|_| invalid())?;
     let mut state = MemState::new();
     for (path, source) in resources {
         if !adopted.contains_key(path) {
@@ -804,7 +622,15 @@ fn answer(inventory: &[(String, String)], r: &Parsed) -> Result<Cbor, OpenFailur
             ),
         ];
         if r.reviewing {
-            fields.push(("review", review(&assessment, &operations, &adopted)));
+            fields.push((
+                "review",
+                envelope::collection_setup_review(
+                    &assessment.configuration,
+                    &assessment.type_packs,
+                    &operations,
+                    &adopted,
+                ),
+            ));
         }
         object(fields)
     };

@@ -1,6 +1,7 @@
 /** First-party original-device CLOUD COPY HTTP bootstrap. No hosted-first,
  * seed loan, generic signer, runtime roots/keys discovery or readiness inference. */
 import { uuidToBytes } from "../codec.js";
+import { LOCAL_APPLICATION_BUILD, localApplicationEnvironment, localApplicationOrigin } from "../application/local-build.js";
 import { collectionDisplayName } from "./collection-display-name.js";
 import type { AppDeviceKeyCustodyPin } from "./device-key-custody.js";
 import type {
@@ -159,6 +160,7 @@ export class AppCpCloudCopyBootstrap {
     private readonly request: typeof fetch;
     private readonly now: () => number;
     private readonly loopback: boolean;
+    private readonly local: boolean;
     constructor(
         private readonly runtime: AppWasmRuntime,
         private readonly session: AppCpCloudCopySession,
@@ -193,7 +195,9 @@ export class AppCpCloudCopyBootstrap {
                 owned: session.installationOwned,
                 bearer: session.connectorBearer,
             });
-            this.loopback = options.allowLoopbackHttp === true;
+            this.local = localApplicationEnvironment(trust.environment);
+            if (LOCAL_APPLICATION_BUILD && !this.local) throw fail("binding");
+            this.loopback = options.allowLoopbackHttp === true || this.local;
             for (const v of [
                 this.scope.accountId,
                 this.scope.connectorId,
@@ -210,7 +214,7 @@ export class AppCpCloudCopyBootstrap {
                     ["lab", "staging", "production"].includes(
                         trust.environment,
                     ) ||
-                    (this.loopback && trust.environment === "test")
+                    (this.loopback && trust.environment === "test") || this.local
                 ) ||
                 trust.cpOrigin !== this.scope.cpOrigin ||
                 trust.logOrigin !== this.scope.logOrigin ||
@@ -271,6 +275,7 @@ export class AppCpCloudCopyBootstrap {
         }
     }
     private origin(raw: string): string {
+        if (this.local && !localApplicationOrigin(raw)) throw fail("binding");
         const u = new URL(raw);
         if (
             u.origin !== raw ||

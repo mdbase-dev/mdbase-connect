@@ -85,6 +85,7 @@ fn mirror_gate_replica_generation_zero_adoption() {
                 state_digest: B32([2; 32]),
                 epoch: 1,
                 item: vec![1],
+                facts: None,
             },
             B32([3; 32]),
             B16([4; 16]),

@@ -870,4 +870,71 @@ mod tests {
         assert!(verify_object(&m, bytes).is_ok());
         assert!(verify_object(&m, b"other").is_err());
     }
+
+    /// Migration hazards in the legacy reader: a record's `document` is a JSON
+    /// string the provider stored verbatim, so malformed frontmatter, duplicate
+    /// keys, a BOM, CRLF and control characters decode byte-exact. A payload
+    /// whose document is not UTF-8 (a raw invalid byte, or a lone-surrogate
+    /// escape) is refused as undecodable, never replaced with U+FFFD, and the
+    /// error quotes no content. A resource and an R2 object are bytes, kept
+    /// exactly whatever their encoding.
+    #[test]
+    fn hazard_documents_decode_exactly_and_non_utf8_is_refused_not_replaced() {
+        let dek = [5u8; 32];
+        let key = CollectionKey::from_bytes(dek);
+        let docs = [
+            "---\ntitle: never closed\nbody\n",
+            "---\ntitle: one\ntitle: two\n---\nbody\n",
+            "---\n? [complex, key]\n: v\nanchor: &a {x: 1}\nalias: *a\nbin: !!binary aGVsbG8=\n---\n",
+            "\u{feff}---\ntitle: bom\n---\nbody\n",
+            "---\r\ntitle: crlf\r\n---\r\nbody\r\nlone\r",
+            "nul\u{0}byte \u{1b}[0m",
+            "",
+        ];
+        for (i, doc) in docs.iter().enumerate() {
+            let rev = revision_of(doc.as_bytes());
+            let payload = serde_json::json!({
+                "record_id": RID, "path": "notes/a.md", "document": doc, "revision": rev,
+            });
+            let sealed = seal(
+                &dek,
+                &serde_json::to_vec(&payload).unwrap(),
+                &aad::current_record(CID, RID, 3),
+                i as u8,
+            );
+            let r = decode_record(&key, CID, RID, &rev, 3, &sealed).unwrap();
+            assert_eq!(r.document.as_bytes(), doc.as_bytes(), "{i}");
+        }
+
+        // Non-UTF-8 inside the JSON string, and a lone surrogate escape.
+        let not_utf8 = b"SECRET caf\xe9 \xff\xfe";
+        let lossy = String::from_utf8_lossy(not_utf8);
+        let rev = revision_of(lossy.as_bytes());
+        let mut raw =
+            format!(r#"{{"record_id":"{RID}","path":"notes/a.md","revision":"{rev}","document":""#)
+                .into_bytes();
+        raw.extend_from_slice(not_utf8);
+        raw.extend_from_slice(b"\"}");
+        let surrogate =
+            format!(r#"{{"record_id":"{RID}","path":"notes/a.md","revision":"{rev}","document":"SECRET \ud800"}}"#)
+                .into_bytes();
+        for (n, plain) in [raw, surrogate].into_iter().enumerate() {
+            let sealed = seal(
+                &dek,
+                &plain,
+                &aad::current_record(CID, RID, 3),
+                40 + n as u8,
+            );
+            let err = decode_record(&key, CID, RID, &rev, 3, &sealed).unwrap_err();
+            assert!(matches!(err, HostedError::Decode(_)), "{err}");
+            assert!(!err.to_string().contains("SECRET"), "{err}");
+        }
+
+        // Resources are bytes: a non-UTF-8 resource decodes exactly (gen0 then
+        // refuses it with a reason; it is never transcoded).
+        let path = "mdbase.yaml";
+        let sealed = seal(&dek, not_utf8, &aad::resource_document(CID, path), 50);
+        let got = decode_resource(&key, CID, path, &revision_of(not_utf8), &sealed).unwrap();
+        assert_eq!(got, not_utf8);
+    }
 }

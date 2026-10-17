@@ -21,6 +21,8 @@ mod asfile_query;
 mod host_views;
 #[path = "tentative_discovery/local_reads.rs"]
 mod local_reads;
+#[path = "tentative_discovery/missing_contract.rs"]
+mod missing_contract;
 #[path = "tentative_discovery/pending_inventory.rs"]
 mod pending_inventory;
 #[path = "tentative_discovery/raw_inventory.rs"]

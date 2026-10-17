@@ -139,6 +139,9 @@ interface AppExports extends Exports {
   rt_app_log_bind(endpoint: bigint, p: number, n: number): number;
   rt_app_log_generation(): bigint;
   rt_app_log_reconnect(endpoint:bigint,p:number,n:number):number;
+  /** Optional: older pinned runtimes lack it; the host then simply does not wake. */
+  rt_app_log_head?(): number;
+  rt_app_log_hello_sign?(generation: bigint, ptr: number, len: number): bigint;
   rt_app_log_http_sign(endpoint: bigint, generation: bigint, original: bigint, p: number, n: number): bigint;
   rt_app_log_calls(): bigint;
   rt_app_log_reply(id: bigint, p: number, n: number): number;
@@ -546,6 +549,33 @@ export class AppWasmRuntime extends WasmRuntime implements AppLogRuntime {
     this.pump = new AppLogPump(this, transport, { endpoint: this.endpoint, collection: this.collection });
     this.transport = transport;
     return this.pump;
+  }
+  /** HOST ONLY quiet foreground wake: asks the native replica to fetch the log
+   * head over the CURRENT authenticated session so remote entries are learned.
+   * No token, reconnect, status or readiness change; false when unsupported,
+   * not bound, already in flight, or unhealthy. Never retires the log; a trap
+   * fails the runtime exactly like tick(). */
+  requestLogHead(): boolean {
+    if (!this.active || this.retired || this.pump === null || typeof this.app.rt_app_log_head !== "function") return false;
+    return this.guard(() => this.app.rt_app_log_head!()) === 1;
+  }
+  /** True when this runtime can sign the push socket's `hello`. */
+  get supportsLogPush(): boolean { return typeof this.app.rt_app_log_hello_sign === "function"; }
+  /** Fixed ls-hello proof for the push socket of the CURRENT log generation
+   * (`nonce32 ‖ token`). Null when unsupported or refused; never a generic signer. */
+  signLogHello(nonce: Uint8Array, token: string): Uint8Array | null {
+    let owned: Uint8Array | null = null;
+    try {
+      if (!this.supportsLogPush || !this.active || this.retired || !this.pump || !this.transport || this.logGeneration === 0n || !this.transport.isCurrent()) return null;
+      if (!(nonce instanceof Uint8Array) || nonce.length !== 32 || typeof token !== "string" || token.length === 0 || token.length > 16 * 1024 || /[^\x21-\x7e]/.test(token)) return null;
+      const t = new TextEncoder().encode(token);
+      owned = new Uint8Array(32 + t.length); owned.set(nonce, 0); owned.set(t, 32); t.fill(0);
+      const generation = this.logGeneration;
+      const signature = this.guard(() => this.takeOut(this.app.rt_app_log_hello_sign!(generation, ...this.put(owned!))));
+      if (signature.length !== 64) { signature.fill(0); return null; }
+      return signature;
+    } catch { return null; }
+    finally { owned?.fill(0); }
   }
   /** HOST ONLY wake AFTER fresh authenticated authority admission: drain/abort
    * original pump before SAME-owner native session/generation replacement. May

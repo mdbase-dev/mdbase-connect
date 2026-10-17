@@ -7,6 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+# Isolated rehearsal artifact only; managed WASM never supports HTTP CPP audiences.
+local-rehearsal = []
+
 [lib]
 # cdylib for wasm32 (hosted.wasm, loaded by services/hosted-worker); rlib for native tests.
 crate-type = ["cdylib", "rlib"]

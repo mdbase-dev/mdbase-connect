@@ -56,6 +56,8 @@ export interface LegacySourceConfig {
    * renewal or a lapse is seen; inside the checkpoint `now()` is frozen.
    */
   holdExpiry(holdId: string, signal: AbortSignal): Promise<Date | null>;
+  /** End any connection kept for hold re-checks; called whenever no checkpoint is open. */
+  releaseHold?(): Promise<void>;
   objects: LegacyObjects;
   unwrapper: LegacyUnwrapper;
 }
@@ -263,6 +265,7 @@ export class LegacySource {
       return { session: id, holdExpiresAt: holdExpiresAt.toISOString() };
     } catch (e) {
       await tx.close();
+      if (!this.sessions.size) await this.config.releaseHold?.();
       throw e;
     }
   }
@@ -803,6 +806,7 @@ export class LegacySource {
     s.streams.clear();
     this.sessions.delete(id);
     await s.tx.close();
+    if (!this.sessions.size) await this.config.releaseHold?.();
   }
 }
 
@@ -862,25 +866,34 @@ function utf8Length(s: string): number {
 }
 
 /**
- * Refuse a role that could write: a superuser, or any write privilege on a
- * provider table visible in the search path (native `verify_select_only`).
+ * Refuse a role that could write: a superuser, a role that bypasses row security,
+ * any write privilege on a provider table visible in the search path, table-level
+ * or column-level (native `verify_select_only`), or any role membership (a member
+ * could `SET ROLE` to a writer even without inheriting its privileges).
  */
 async function verifySelectOnly(tx: ReadOnlyTx, signal: AbortSignal): Promise<void> {
   const [r] = await tx.query(
-    `SELECT r.rolsuper AS superuser,
+    `SELECT r.rolsuper AS superuser, r.rolbypassrls AS bypassrls,
+            (SELECT count(*) FROM pg_auth_members m WHERE m.member = r.oid) AS memberships,
             (SELECT count(*) FROM pg_tables t
               WHERE t.tablename LIKE 'hosted\\_provider\\_%'
                 AND t.schemaname = ANY (current_schemas(false))) AS tables,
             (SELECT count(*) FROM pg_tables t
               WHERE t.tablename LIKE 'hosted\\_provider\\_%'
                 AND t.schemaname = ANY (current_schemas(false))
-                AND has_table_privilege(current_user,
-                      quote_ident(t.schemaname) || '.' || quote_ident(t.tablename),
-                      'INSERT,UPDATE,DELETE,TRUNCATE')) AS writable
+                AND (has_table_privilege(current_user,
+                       quote_ident(t.schemaname) || '.' || quote_ident(t.tablename),
+                       'INSERT,UPDATE,DELETE,TRUNCATE')
+                  OR has_any_column_privilege(current_user,
+                       quote_ident(t.schemaname) || '.' || quote_ident(t.tablename),
+                       'INSERT,UPDATE'))) AS writable
      FROM pg_roles r WHERE r.rolname = current_user`, [], signal);
   signal.throwIfAborted();
-  if (!r || r.superuser !== false || int(r.writable, "writable") > 0) {
+  if (!r || r.superuser !== false || r.bypassrls !== false || int(r.writable, "writable") > 0) {
     throw new LegacySourceError("writable_role", "the database role can write; use the SELECT-only reader role");
+  }
+  if (int(r.memberships, "memberships") > 0) {
+    throw new LegacySourceError("writable_role", "the reader role is a member of another role; it must be a member of none");
   }
   if (int(r.tables, "tables") === 0) throw new LegacySourceError("no_tables", "no provider tables visible to this role");
 }

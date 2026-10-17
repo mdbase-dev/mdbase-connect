@@ -1,8 +1,7 @@
 import type {ClientOptions} from "../client.js";
 import type {AppWebCollectionHandoff} from "../app-host/web-collection.js";
-import type {ApplicationDeclarationSnapshot} from "./declaration.js";
 import type {MdbaseApplicationConnection,MdbaseApplicationReadinessSnapshot,MdbaseApplicationRequestOptions} from "./entry.js";
-import {compileApplicationManifest} from "./manifest.js";
+import type {compileApplicationManifest} from "./manifest.js";
 import {ApplicationUiConnections,ApplicationUiConnectionError} from "./ui-connections.js";
 import {ApplicationReadiness,type ApplicationReadinessFacetSource} from "./readiness.js";
 import {createApplicationConfiguration} from "./configuration.js";
@@ -10,6 +9,9 @@ import {createApplicationPeopleReadiness} from "./people-readiness.js";
 import {createApplicationNotificationReadiness} from "./notification-readiness.js";
 import {declaredTimerCriteria} from "./timer-criteria.js";
 import type {MdbaseSetupPlan,MdbaseSetupPlanOptions} from "./setup.js";
+import {bindFileAccess,type FileAction} from "../files.js";
+import {fileAccessDeclaration,fileAccessGate} from "./file-access.js";
+import {createApplicationFileReadiness} from "./file-readiness.js";
 
 /** SDK-private selected scope composition. All borrowed facets share the original
  * UI client/control/journal; neither this owner nor its inputs create a native
@@ -26,8 +28,12 @@ export class ApplicationScope {
   private readonly listeners=new Set<()=>void>();private selected:Selected|null=null;
   private epoch=0;private opening:Promise<MdbaseApplicationConnection>|null=null;
   private retiring:Promise<void>|null=null;private closing:Promise<void>|null=null;
-  constructor(declaration:Readonly<ApplicationDeclarationSnapshot>,app:ClientOptions["app"],signal:AbortSignal){
-    this.compiled=compileApplicationManifest(declaration);this.signal=signal;
+  constructor(compiled:ReturnType<typeof compileApplicationManifest>,app:ClientOptions["app"],signal:AbortSignal,private readonly typeIssues:"block"|"degrade"="block",
+    private readonly consented:(collectionId:string)=>readonly FileAction[]=()=>[]){
+    // Private UI owner consumes the entry's frozen canonical projection. A
+    // registered ID/name/storage rebind cannot alter its manifest/environment.
+    // Worker structured-clone intake still validates independently in its realm.
+    this.compiled=compiled;this.signal=signal;
     this.ui=new ApplicationUiConnections(app,signal,declaredTimerCriteria(this.compiled.manifest.notifications));
     signal.addEventListener("abort",this.abort,{once:true});
   }
@@ -36,6 +42,8 @@ export class ApplicationScope {
   subscribe(listener:()=>void):()=>void{this.listeners.add(listener);return()=>{this.listeners.delete(listener);};}
   connection(id:string):MdbaseApplicationConnection|null{return this.ui.connection(id);}
   getReadiness():MdbaseApplicationReadinessSnapshot|null{return this.selected?.readiness.getSnapshot()??null;}
+  /** The open collection this tab holds, or null. */
+  selectedId():string|null{return this.selected?.connection.id??null;}
   adopt(handoff:AppWebCollectionHandoff,caller:AbortSignal,isCurrent:()=>boolean):Promise<MdbaseApplicationConnection>{
     const epoch=this.epoch;
     const valid=()=>!this.signal.aborted&&!this.closing&&!this.retiring&&this.epoch===epoch&&isCurrent();
@@ -49,6 +57,10 @@ export class ApplicationScope {
     const pending=adoption.then(connection=>{
       if(!valid()||caller.aborted)throw new ApplicationUiConnectionError("application_connection_fenced");
       const helper=this.ui.owned();if(!helper)throw new ApplicationUiConnectionError("application_connection_binding");
+      // Optional file actions follow the person's recorded choice (advisory on
+      // an installation device: the replica does not narrow its own Host).
+      const files=fileAccessDeclaration(this.compiled);
+      if(files)bindFileAccess(connection.files,fileAccessGate(files,()=>this.consented(connection.id)));
       const lifetime=new AbortController(),signal=AbortSignal.any([this.signal,lifetime.signal]);constructing=lifetime;
       const current=()=>valid()&&connection.isCurrent();
       const binding={scope:connection.scope,generation:connection.generation,signal,isCurrent:current};
@@ -57,12 +69,16 @@ export class ApplicationScope {
       const configurationSource:ApplicationReadinessFacetSource={getSnapshot:configuration.getSnapshot,subscribe:configuration.subscribe,refresh:configuration.assess,close:configuration.close};
       const people=createApplicationPeopleReadiness({people:connection.people,...binding});
       cleanup.push(()=>people.close());
-      const notifications=createApplicationNotificationReadiness({notifications:{declaration:this.compiled.manifest.notifications},timers:connection.timers,...binding});
+      // The canonical parser normalizes `notifications: null` to no criteria; that
+      // is the validated "no notification requirement" the facet reads as null.
+      const declared=this.compiled.manifest.notifications;
+      const notifications=createApplicationNotificationReadiness({notifications:{declaration:declared?.criteria?.length?declared:null},timers:connection.timers,...binding});
       cleanup.push(()=>notifications.close());
-      const nativeRequirements=this.compiled.nativeCapabilities?{...this.compiled.nativeCapabilities,contracts:this.compiled.manifest.requirements.contracts}:null;
-      const readiness=new ApplicationReadiness({connection,nativeRequirements,signal,isCurrent:current,configuration:configurationSource,people,notifications});
-      // Files remains honestly unsupported until its current evidence producer
-      // is composed. API presence/transport availability is not facet READY.
+      const fileScope=(this.compiled.manifest.requirements.files as {readonly scope?:{readonly kind?:unknown}}|undefined)?.scope?.kind;
+      const fileReadiness=createApplicationFileReadiness({declaration:files,scope:typeof fileScope==="string"?fileScope:null,grant:()=>connection.files.grant,isCurrent:current});
+      cleanup.push(()=>fileReadiness.close());
+      const nativeRequirements=this.compiled.nativeCapabilities?{...this.compiled.nativeCapabilities,contracts:this.compiled.manifest.requirements.contracts,typeIssues:this.typeIssues}:null;
+      const readiness=new ApplicationReadiness({connection,nativeRequirements,signal,isCurrent:current,configuration:configurationSource,files:fileReadiness,people,notifications});
       const unsubscribe=readiness.subscribe(this.changed);
       this.selected={connection,lifetime,readiness,configuration,unsubscribe};constructing=null;cleanup.length=0;this.changed();return connection;
     }).catch(async error=>{

@@ -2,6 +2,9 @@
 use super::*;
 mod faults;
 mod hint_data;
+mod migration_creation;
+mod migration_gen0;
+mod migration_members;
 
 #[test]
 fn native_target_binds_complete_accepted_originals_and_refuses_changed_delivery() {

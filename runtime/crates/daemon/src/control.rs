@@ -504,6 +504,10 @@ pub struct CollectionStatus {
     /// Counters, once the replica is open.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub sync: Option<SyncCounters>,
+    /// Last content-free terminal sync incident (historical diagnostic only).
+    /// Retained after stop/restart; never permission or retry authority.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub last_sync_failure: Option<crate::sync_failure::Failure>,
     /// End-to-end synced: how many of the user's *other* device replicas are online, if
     /// known. Thin clients (web apps) can load data only while at least one device
     /// replica is online.

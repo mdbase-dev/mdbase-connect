@@ -128,6 +128,9 @@ pub struct CollectionMeta {
     pub restore_plan: Option<crate::restore_plan::RestorePlan>,
     /// Durable terminal identity, only present with Gone; old Gone has none.
     pub deletion: Option<crate::deletion::CollectionDeletionRecord>,
+    /// Storage region, set once at creation; `None` keeps the host's original
+    /// bucket and placement (every collection created before regions).
+    pub region: Option<crate::placement::Region>,
 }
 
 impl CollectionMeta {
@@ -155,6 +158,7 @@ impl CollectionMeta {
             retention_tier: RetentionTier::default(),
             restore_plan: None,
             deletion: None,
+            region: None,
         }
     }
 
@@ -220,6 +224,9 @@ impl CollectionMeta {
         }
         if let Some(deletion) = self.deletion {
             m.push((u(21), deletion.to_cbor()));
+        }
+        if let Some(region) = self.region {
+            m.push((u(22), Cbor::Text(region.as_str().into())));
         }
         cbor::encode(&Cbor::Map(m)).expect("meta encodes")
     }
@@ -304,6 +311,11 @@ impl CollectionMeta {
             }
             None => None,
         };
+        let region = match m.iter().find(|(k, _)| *k == Cbor::Uint(22)) {
+            Some((_, Cbor::Text(t))) => Some(crate::placement::Region::parse(t).ok_or_else(bad)?),
+            Some(_) => return Err(bad()),
+            None => None,
+        };
         Ok(CollectionMeta {
             id,
             head: uint(1)?,
@@ -340,6 +352,7 @@ impl CollectionMeta {
             },
             restore_plan,
             deletion,
+            region,
         })
     }
 }

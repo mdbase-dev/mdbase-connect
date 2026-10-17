@@ -55,6 +55,34 @@ pub struct CachedGrant {
     /// old-envelope compatibility layer, still through this list.
     #[serde(default)]
     pub legacy_only: bool,
+    /// Exact declaration-bound setup evidence from the verified grant feed.
+    /// Not a capability, live lease or publication authority.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declared_setup: Option<crate::declared_setup::DeclaredSetupEvidence>,
+}
+
+/// What a capability group lets an app do, in plain words for prompts.
+pub fn plain_capability(capability: &str) -> &str {
+    match capability {
+        "collection.read" => "read records and files",
+        "records.create" => "create records and files",
+        "records.edit" => "edit records and files",
+        "records.delete" => "delete records and files",
+        "views.manage" => "manage saved views",
+        "definitions.manage" => "manage types and collection setup",
+        "background.schedule" => "run scheduled background tasks",
+        "offline.replica" => "keep an offline copy",
+        other => other,
+    }
+}
+
+/// A grant's capabilities in plain words, comma separated.
+pub fn plain_capabilities(capabilities: &[String]) -> String {
+    capabilities
+        .iter()
+        .map(|c| plain_capability(c))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 impl CachedGrant {
@@ -293,7 +321,9 @@ impl AccessList {
     /// Reconcile with the control plane's current grants for `collection`, valid
     /// until `lease_expires_ms` (the feed's lease; after it, nothing for this
     /// collection is served until the next successful fetch). Returns the events to
-    /// show the user. The caller saves before serving.
+    /// show the user. The caller saves before serving. `account_approved` is
+    /// true only for synced Private grants: account consent replaces the local
+    /// opt-in approval setting, including for a fresh grant after revocation.
     ///
     /// Local refusals are **tombstones**. A denied or locally revoked
     /// grant is kept when the control plane stops listing it, and a grant that
@@ -305,6 +335,7 @@ impl AccessList {
         grants: &[CachedGrant],
         now_ms: u64,
         lease_expires_ms: u64,
+        account_approved: bool,
     ) -> Vec<AccessEvent> {
         let mut events = Vec::new();
         self.leases.insert(collection.to_string(), lease_expires_ms);
@@ -345,7 +376,16 @@ impl AccessList {
         });
         for g in grants.iter().filter(|g| g.collection == collection) {
             match self.find(&g.grant) {
-                Some(i) if self.entries[i].grant == *g => {}
+                Some(i) if self.entries[i].grant == *g => {
+                    // Upgrade the old computer-approval waiting state. Account
+                    // consent is the only user decision for Private grants.
+                    if account_approved && self.entries[i].state == AccessState::PendingApproval {
+                        self.entries[i].state = AccessState::Active;
+                        events.push(AccessEvent::NewAccess {
+                            entry: self.entries[i].clone(),
+                        });
+                    }
+                }
                 Some(i) if self.entries[i].is_refused() => {
                     // Stays refused; keep the latest terms for display.
                     self.entries[i].grant = g.clone();
@@ -360,9 +400,10 @@ impl AccessList {
                             && e.grant.collection == collection
                             && (e.grant.app_id == g.app_id || e.grant.client_pk == g.client_pk)
                     });
-                    let approval = self.require_grant_approval
-                        || refused_before
-                        || self.approval_forced.contains(collection);
+                    let approval = !account_approved
+                        && (self.require_grant_approval
+                            || refused_before
+                            || self.approval_forced.contains(collection));
                     self.generation = self
                         .generation
                         .checked_add(1)
@@ -531,7 +572,45 @@ mod tests {
             capabilities: caps.iter().map(|s| s.to_string()).collect(),
             folders: None,
             legacy_only: false,
+            declared_setup: None,
         }
+    }
+
+    #[test]
+    fn account_consent_upgrades_old_pending_grants_but_keeps_revocation() {
+        let mut list = AccessList {
+            require_grant_approval: true,
+            ..Default::default()
+        };
+        list.force_approval("c");
+        let offer = g("old", 1, &["collection.read"]);
+        list.sync_from_control_plane("c", std::slice::from_ref(&offer), 1, 1000, false);
+        assert_eq!(list.entries[0].state, AccessState::PendingApproval);
+        let events = list.sync_from_control_plane("c", std::slice::from_ref(&offer), 2, 1000, true);
+        assert!(matches!(&events[..], [AccessEvent::NewAccess { .. }]));
+        assert_eq!(list.entries[0].state, AccessState::Active);
+        list.revoke("old").unwrap();
+        list.sync_from_control_plane("c", &[offer], 3, 1000, true);
+        assert_eq!(list.entries[0].state, AccessState::RevokedLocally);
+        // Fresh account consent issues a new grant, rather than resurrecting
+        // the revoked identity. It does not require a local second decision.
+        let events = list.sync_from_control_plane(
+            "c",
+            &[g("fresh", 1, &["collection.read"])],
+            4,
+            1000,
+            true,
+        );
+        assert!(matches!(&events[..], [AccessEvent::NewAccess { .. }]));
+        assert_eq!(
+            list.entries
+                .iter()
+                .find(|e| e.grant.grant == "fresh")
+                .unwrap()
+                .state,
+            AccessState::Active
+        );
+        assert!(list.require_grant_approval);
     }
 
     #[test]
@@ -561,7 +640,7 @@ mod tests {
             g: &[CachedGrant],
             now: u64,
         ) -> Vec<AccessEvent> {
-            self.sync_from_control_plane(c, g, now, 1000)
+            self.sync_from_control_plane(c, g, now, 1000, false)
         }
     }
 
@@ -609,7 +688,7 @@ mod tests {
             l.authorize("c", "g1", &[1; 32], 0).unwrap_err(),
             Refusal::LeaseExpired
         );
-        l.sync_from_control_plane("c", &[g("g1", 1, &["read"])], 5, 100);
+        l.sync_from_control_plane("c", &[g("g1", 1, &["read"])], 5, 100, false);
         assert!(l.authorize("c", "g1", &[1; 32], 99).is_ok());
         assert_eq!(
             l.authorize("c", "g1", &[1; 32], 100).unwrap_err(),
@@ -620,7 +699,7 @@ mod tests {
     #[test]
     fn backwards_wall_clock_never_extends_monotonic_lease() {
         let mut l = AccessList::default();
-        l.sync_from_control_plane("c", &[g("g1", 1, &["read"])], 10_000, 65_000);
+        l.sync_from_control_plane("c", &[g("g1", 1, &["read"])], 10_000, 65_000, false);
         assert!(l.grant_live("c", "g1", 10_000));
         l.monotonic_leases.insert(
             "c".into(),

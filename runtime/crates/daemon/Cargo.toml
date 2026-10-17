@@ -18,6 +18,9 @@ publish.workspace = true
 # trust/lab-release-manifest.json must be supplied; missing files are a compile
 # error. Default production builds need neither file and never enable LAB.
 lab = ["mdbn-trust/lab"]
+# Explicit per-stack local artifact: embeds signed PUBLIC local trust inputs.
+# Incompatible with LAB; managed builds do not compile the local input module.
+local-rehearsal = ["mdbn-trust/local-rehearsal"]
 
 [[bin]]
 name = "mdbase"

@@ -44,6 +44,7 @@ export class RecordsApi implements Records {
     private opening: Promise<void> = Promise.resolve();
     private watch: ChangesWatch | null = null;
     private offWatch: (() => void) | null = null;
+    private offStatus: (() => void) | null = null;
     constructor(private readonly client: MdbaseClient) {}
     open(
         ref: RecordRef,
@@ -246,6 +247,16 @@ export class RecordsApi implements Records {
                     void slot.session.refresh();
         });
         this.watch = watch;
+        // An own write's confirmation is not announced as a change again, so a
+        // settled pending write refreshes the sessions from the status push.
+        let pending = -1;
+        this.offStatus = this.client.onStatus((s) => {
+            const settled = s.pending < pending;
+            pending = s.pending;
+            if (settled && this.watch === watch)
+                for (const slot of this.slots.values())
+                    if (slot.leases > 0) void slot.session.refresh();
+        });
         this.offWatch = watch.subscribe((state, error) => {
             if (this.watch !== watch) return;
             if (state === "active") {
@@ -267,6 +278,8 @@ export class RecordsApi implements Records {
     private stopWatch(): void {
         this.offWatch?.();
         this.offWatch = null;
+        this.offStatus?.();
+        this.offStatus = null;
         const watch = this.watch;
         this.watch = null;
         watch?.();

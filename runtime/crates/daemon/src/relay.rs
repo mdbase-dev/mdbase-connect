@@ -264,6 +264,7 @@ pub fn to_cached(g: &Value) -> Result<CachedGrant, AttestError> {
             .unwrap_or_default(),
         folders,
         legacy_only,
+        declared_setup: crate::declared_setup::from_feed(g, &proof)?,
     })
 }
 
@@ -286,6 +287,15 @@ pub trait RelayHost: crate::session::Handler {
         collection: &'a str,
         grant: &'a str,
     ) -> crate::session::BoxFuture<'a, bool>;
+    /// Capture a positive pending grant once, before spawning the original pipe.
+    /// Default hosts preserve immediate refusal, never infer readiness.
+    fn grant_activation<'a>(
+        self: &'a Arc<Self>,
+        _collection: &'a str,
+        _grant: &'a str,
+    ) -> crate::session::BoxFuture<'a, Option<GrantActivation>> {
+        Box::pin(async { None })
+    }
     /// Report connection state for status.
     fn set_online(&self, online: bool);
     /// Whether an old mdbase Connect daemon runs on this device (reported in
@@ -293,6 +303,19 @@ pub trait RelayHost: crate::session::Handler {
     fn old_connector_running(&self) -> bool {
         false
     }
+}
+
+/// Original captured consent/epoch/runtime/lease fence, never authority itself.
+pub type GrantActivationGuard =
+    Arc<dyn Fn() -> crate::session::BoxFuture<'static, bool> + Send + Sync>;
+
+/// A captured, cancellable pending activation. Only its authoritative wait may
+/// resolve true; the cheap guard sweeps without recapturing grant identity.
+pub struct GrantActivation {
+    /// Original-context recheck.
+    pub current: GrantActivationGuard,
+    /// Subscribe-before-query wait on the original replica's Effective result.
+    pub wait: crate::session::BoxFuture<'static, bool>,
 }
 
 /// Why a relay session ended.
@@ -309,6 +332,8 @@ struct Pipe {
     tx: mpsc::Sender<Vec<u8>>,
     collection: String,
     grant: String,
+    waiting_for_grant: Arc<std::sync::atomic::AtomicBool>,
+    activation_guard: Option<GrantActivationGuard>,
     task: tokio::task::JoinHandle<()>,
 }
 
@@ -652,7 +677,18 @@ async fn close_dead<H: RelayHost>(
 ) {
     let mut dead = Vec::new();
     for (id, p) in open.iter() {
-        if !host.grant_live(&p.collection, &p.grant).await {
+        let allowed = if p
+            .waiting_for_grant
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            match &p.activation_guard {
+                Some(current) => current().await,
+                None => false,
+            }
+        } else {
+            host.grant_live(&p.collection, &p.grant).await
+        };
+        if !allowed {
             dead.push(*id);
         }
     }
@@ -679,12 +715,14 @@ async fn open_pipe<H: RelayHost>(
     let (Some(pipe), Some(collection), Some(grant)) =
         (get("pipe_id"), get("collection_id"), get("grant_id"))
     else {
+        crate::session_diagnostics::pre_live("invalid_open_ids");
         return;
     };
     let close = |why: &str| {
         let _ = out.try_send(PipeOut::Close(pipe, why.into()));
     };
     if grant == [0u8; 16] {
+        crate::session_diagnostics::pre_live("nil_grant");
         return close("unauthenticated"); // never Host
     }
     if open.contains_key(&pipe) {
@@ -694,14 +732,41 @@ async fn open_pipe<H: RelayHost>(
         secrets::uuid_string(&collection),
         secrets::uuid_string(&grant),
     );
-    if !host.grant_live(&col_s, &grant_s).await {
+    let live = host.grant_live(&col_s, &grant_s).await;
+    let activation = if live {
+        None
+    } else {
+        host.grant_activation(&col_s, &grant_s).await
+    };
+    if !live && activation.is_none() {
+        crate::session_diagnostics::pre_live("grant_not_live");
         return close("grant_inactive");
     }
+    let activation_guard = activation.as_ref().map(|a| a.current.clone());
+    let waiting_for_grant = Arc::new(std::sync::atomic::AtomicBool::new(!live));
     let (in_tx, in_rx) = mpsc::channel(64);
     let mut carrier = PipeCarrier::new(pipe, in_rx, out.clone());
     let prologue = pipes::prologue(&collection, &grant, &identity.device_id);
     let (h, id, out2) = (host.clone(), identity.clone(), out.clone());
+    let waiting = waiting_for_grant.clone();
     let task = tokio::spawn(async move {
+        // The registered bounded FIFO keeps the relay read/feed loop live while
+        // this original pipe waits. No Noise work or session admission yet.
+        if let Some(activation) = activation {
+            let activated = tokio::time::timeout(Duration::from_secs(20), async {
+                activation.wait.await && (activation.current)().await
+            })
+            .await
+                == Ok(true);
+            if !activated {
+                crate::session_diagnostics::pre_live("grant_not_live");
+                let _ = out2
+                    .send(PipeOut::Close(pipe, "grant_inactive".into()))
+                    .await;
+                return;
+            }
+        }
+        waiting.store(false, std::sync::atomic::Ordering::SeqCst);
         let r = crate::session::serve_session(
             &mut carrier,
             &prologue,
@@ -724,10 +789,16 @@ async fn open_pipe<H: RelayHost>(
             tx: in_tx,
             collection: col_s,
             grant: grant_s,
+            waiting_for_grant,
+            activation_guard,
             task,
         },
     );
 }
+
+#[cfg(test)]
+#[path = "relay_grant_activation_tests.rs"]
+mod activation_tests;
 
 #[cfg(test)]
 mod tests {
@@ -861,6 +932,260 @@ mod tests {
         assert!(CAPABILITIES.contains(&"next_device_v1"));
         assert!(CAPABILITIES.contains(&"policy-freshness-lease-v1"));
         assert!(!CAPABILITIES.contains(&"lease_v1"));
+    }
+
+    fn declared_setup_grant() -> Value {
+        use crate::attest::{Binding, Proof, attestation_message, test_signer::Signer};
+        use sha2::{Digest, Sha256};
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/application-authorization-v4.json"
+        ))
+        .unwrap();
+        let mut declaration: Value = serde_json::from_str(include_str!(
+            "../../../packages/sdk/test/fixtures/journal-private-setup.json"
+        ))
+        .unwrap();
+        declaration["requirements"]["configuration"] = json!([]);
+        declaration["provisions"]["configuration"] = json!([]);
+        let mut binding: Binding = serde_json::from_value(fixture["binding"].clone()).unwrap();
+        let installation = Signer::from_scalar(
+            fixture["installation_signing_private_key"]
+                .as_str()
+                .unwrap(),
+            &binding.installation_signing_public_key,
+        );
+        let signing = Signer::random();
+        binding.grant_signing_public_key = signing.public_b64();
+        binding.application_declaration_id = declaration["id"].as_str().unwrap().into();
+        binding.application_manifest_digest = format!(
+            "{:x}",
+            Sha256::digest(serde_jcs::to_vec(&declaration).unwrap())
+        );
+        binding.protocol_version = 5;
+        binding.contracts.authorization_binding = 5;
+        binding.contracts.operation_transport = 3;
+        binding.contracts.semantic_capabilities = 2;
+        binding.contracts.durable_mutation = Some(1);
+        binding.requested_operations = [
+            "describe",
+            "changes",
+            "read",
+            "query",
+            "list_views",
+            "execute_view",
+            "read_view_source",
+            "validate",
+            "read_type",
+            "create",
+            "update",
+            "rename",
+            "assess_collection_setup",
+            "apply_collection_setup",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+        binding.requested_files = Some(
+            serde_json::from_value(json!({
+                "actions": ["list", "read", "add", "replace", "move"],
+                "scope": {"kind": "collection"}
+            }))
+            .unwrap(),
+        );
+        binding.redirect_uri = Some(declaration["redirect_uris"][0].as_str().unwrap().into());
+        let proof = Proof {
+            signature: installation.sign(&binding.signing_message().unwrap()),
+            binding,
+        };
+        let client_pk = crate::noise::public_key(&[9u8; 32]);
+        let authorization = attest::uuid_bytes(&proof.binding.authorization_id).unwrap();
+        json!({
+            "id": "11111111-1111-4111-8111-111111111111",
+            "account_id": "22222222-2222-4222-8222-222222222222",
+            "application_id": proof.binding.application_id,
+            "collection_id": "33333333-3333-4333-8333-333333333333",
+            "application_name": "Journal",
+            "capabilities": ["collection.read", "records.create", "records.edit"],
+            "operations": proof.binding.requested_operations,
+            "client_pk": secrets::hex(&client_pk),
+            "client_key_signature": signing.sign(&attestation_message(&authorization, &client_pk)),
+            "application_authorization": proof,
+            "application_declaration": declaration
+        })
+    }
+
+    #[test]
+    fn declared_setup_is_retained_without_definition_management() {
+        let feed = declared_setup_grant();
+        let cached = to_cached(&feed).unwrap();
+        assert!(
+            !cached
+                .capabilities
+                .iter()
+                .any(|c| c == "definitions.manage")
+        );
+        let persisted = serde_json::to_value(cached).unwrap();
+        assert_eq!(
+            persisted["declared_setup"]["declaration"],
+            feed["application_declaration"]
+        );
+    }
+
+    #[test]
+    fn declared_setup_core_bridge_uses_only_signed_journal_packs() {
+        let cached = to_cached(&declared_setup_grant()).unwrap();
+        let evidence = cached.declared_setup.as_ref().unwrap();
+        let setup = evidence.core_setup().unwrap();
+        assert_eq!(setup.application_id, evidence.application_id());
+        assert_eq!(setup.declaration_digest.to_string(), evidence.digest());
+        assert_eq!(setup.type_packs.len(), 1);
+        assert!(
+            setup
+                .type_packs
+                .iter()
+                .all(|p| p.options.installed_by == setup.application_id)
+        );
+    }
+
+    #[test]
+    fn declared_setup_native_source_requires_synced_account_custody_consent_and_lease() {
+        use crate::{
+            access::AccessList,
+            authority::Authority,
+            cloud::AccountRecord,
+            registry::{Entry, Origin, Registry, SyncMode},
+        };
+        let cached = to_cached(&declared_setup_grant()).unwrap();
+        let authority = Authority::default();
+        let identity = crate::secrets::DeviceIdentity::generate().unwrap();
+        let record = AccountRecord {
+            schema_version: 1,
+            epoch: 1,
+            signed_in: true,
+            connector_id: Some("test".into()),
+            account_id: cached.account_id.clone(),
+        };
+        let config = CloudConfig {
+            account_epoch: 1,
+            connector_id: Some("test".into()),
+            ..Default::default()
+        };
+        authority
+            .publish_account_identity(&record, &config, &identity)
+            .unwrap();
+        let mut registration = Entry {
+            id: cached.collection.clone(),
+            name: "test".into(),
+            root: "/not-opened".into(),
+            replica_id: cached.grant.clone(),
+            mode: SyncMode::SyncedE2e,
+            origin: Origin::Created,
+            description: None,
+            added_at_ms: 0,
+            paused: false,
+            ever_e2e: true,
+            owner_account: None,
+            device: Some(secrets::uuid_string(&identity.device_id)),
+        };
+        let publish_registry = |entry: &Entry| {
+            authority.publish_registry(&Registry {
+                collections: vec![entry.clone()],
+                ..Default::default()
+            })
+        };
+        publish_registry(&registration);
+        let mut access = AccessList::default();
+        let now = crate::fsutil::now_ms() as u64;
+        access.sync_from_control_plane(
+            &cached.collection,
+            std::slice::from_ref(&cached),
+            now,
+            now + 50_000,
+            false,
+        );
+        authority.publish_access(&access);
+        let grant = mdbn_wire::common::B16(attest::uuid_bytes(&cached.grant).unwrap());
+        let source = authority
+            .source(mdbn_wire::common::B16(
+                attest::uuid_bytes(&cached.collection).unwrap(),
+            ))
+            .unwrap();
+        let current = source.declared_setup(&grant).unwrap();
+        assert_eq!(current.generation, access.entries[0].generation);
+        assert_eq!(current.client_pk.0, crate::noise::public_key(&[9; 32]));
+        assert!(
+            source.grant(&grant).is_none(),
+            "setup must not infer local owner permissions for synced grants"
+        );
+        // Uninterrupted renewal preserves a review; an expiry gap followed by
+        // renewal changes its incarnation, even with identical grant terms.
+        access.sync_from_control_plane(
+            &cached.collection,
+            std::slice::from_ref(&cached),
+            now,
+            now + 50_000,
+            false,
+        );
+        authority.publish_access(&access);
+        assert_eq!(
+            source.declared_setup(&grant).unwrap().lease_generation,
+            current.lease_generation
+        );
+        access
+            .monotonic_leases
+            .insert(cached.collection.clone(), std::time::Instant::now());
+        authority.publish_access(&access);
+        assert!(source.declared_setup(&grant).is_none());
+        access.sync_from_control_plane(
+            &cached.collection,
+            std::slice::from_ref(&cached),
+            now,
+            now + 50_000,
+            false,
+        );
+        authority.publish_access(&access);
+        assert!(source.declared_setup(&grant).unwrap().lease_generation > current.lease_generation);
+        registration.paused = true;
+        publish_registry(&registration);
+        assert!(source.declared_setup(&grant).is_none());
+        registration.paused = false;
+        publish_registry(&registration);
+        access.revoke(&cached.grant).unwrap();
+        authority.publish_access(&access);
+        assert!(source.declared_setup(&grant).is_none());
+        // Source replacement is permanently account-epoch fenced.
+        authority.invalidate(2);
+        assert!(source.declared_setup(&grant).is_none());
+    }
+
+    #[test]
+    fn declared_setup_substitution_is_refused() {
+        let mut feed = declared_setup_grant();
+        feed["application_declaration"]["provisions"]["type_packs"] = json!([]);
+        assert!(to_cached(&feed).is_err());
+    }
+
+    #[test]
+    fn declared_setup_missing_evidence_partial_pair_and_unsigned_operation_are_refused() {
+        let original = declared_setup_grant();
+        let mut missing = original.clone();
+        missing
+            .as_object_mut()
+            .unwrap()
+            .remove("application_declaration");
+        assert!(to_cached(&missing).is_err());
+        let mut partial = original.clone();
+        partial["operations"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|op| op != "apply_collection_setup");
+        assert!(to_cached(&partial).is_err());
+        let mut unsigned = original;
+        unsigned["operations"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!("create_type"));
+        assert!(to_cached(&unsigned).is_err());
     }
 
     #[test]
