@@ -1,0 +1,9 @@
+{
+  "reason": "Move the existing pg-mem memory-database setup and its query-compatibility shims out of services/server/src/db.ts into one memory-only module, loaded lazily for DATABASE_URL=memory. Behaviour is unchanged. db.ts is a migration-sensitive file for production release safety checks, and its pg-mem string literals (for example CREATE TABLE markers) were read as unnumbered control-plane schema changes. One file, one export, one type import and one dynamic import.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 2,
+    "typeScriptExportDeclarations": 1,
+    "services/server": 1
+  }
+}
