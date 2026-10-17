@@ -2,10 +2,10 @@ import { createPrivateKey, sign, verify, createPublicKey } from "node:crypto";
 import { readFileSync } from "node:fs";
 import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
-import { describe, expect, it } from "vitest";
-import { configuredClaimAudience, serviceClaimReadDigest, type ServiceClaimFacts } from "./migration-claim-auth.js";
+import { describe, expect, it, vi } from "vitest";
+import { configuredClaimAudience, issueServiceClaimChallenge, serviceClaimReadDigest, type ServiceClaimFacts } from "./migration-claim-auth.js";
 import { registerMigrationProviderRoutes } from "./migration-provider.js";
-import type { DatabasePool } from "../../database-types.js";
+import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 
 const golden = JSON.parse(readFileSync(new URL("./fixtures/migration-claim-read-v1.json", import.meta.url), "utf8")) as Record<string, string>;
 const facts: ServiceClaimFacts = { collection_id: golden.collection_id!, owner_account: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", started_us: "1791655200123456",
@@ -43,6 +43,24 @@ describe("closed hosted migration claim authentication DATA", () => {
     expect(() => serviceClaimReadDigest(audience, facts, Buffer.alloc(33))).toThrow();
     expect(() => serviceClaimReadDigest(audience, { ...facts, started_us: "1\n" }, nonce)).toThrow();
     expect(() => serviceClaimReadDigest(audience, { ...facts, target: { ...facts.target!, hosted: { ...facts.target!.hosted, sign_pk: golden.sign_pk + "\n" } } }, nonce)).toThrow();
+  });
+  it.each([20, 21])("refuses an excessive unconsumed-live aggregate of %i without issuing a nonce", async n => {
+    // The production partial unique index allows only one unused nonce/subject.
+    // Exercise the defensive aggregate bound without weakening that SQL index.
+    const query = vi.fn().mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [{ n }], rowCount: 1 });
+    const client = { query, release() {} } as DatabaseConnection;
+    await expect(issueServiceClaimChallenge(client, audience, facts, facts.target!.hosted.device_id))
+      .rejects.toMatchObject({ status: 429, code: "challenge_rate_limited" });
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query.mock.calls[1]![0]).toContain("AND used_at IS NULL AND expires_at > clock_timestamp()");
+  });
+  it("keeps the one-live-nonce refusal below the aggregate bound", async () => {
+    const query = vi.fn().mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [{ n: 1 }], rowCount: 1 });
+    await expect(issueServiceClaimChallenge({ query, release() {} } as DatabaseConnection, audience, facts, facts.target!.hosted.device_id))
+      .rejects.toMatchObject({ status: 409, code: "challenge_pending" });
+    expect(query).toHaveBeenCalledTimes(2);
   });
   it("authenticates the hosted role before JSON parsing or database work", async () => {
     const forbidden = async () => { throw new Error("unauthenticated database access"); };

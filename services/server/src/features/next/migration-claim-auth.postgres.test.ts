@@ -231,13 +231,24 @@ suite("hosted own-collection migration proof (isolated PostgreSQL)", () => {
     try { expect((await f.request("challenge", { device_id: f.device })).statusCode).toBe(409); }
     finally { await f.app.close(); }
   });
-  it("enforces a persistent per-subject bound after nonce consumption", async () => {
-    const f = await fixture();
+  it("allows 445 sequential fresh issue/consume cycles without counting consumed nonces against the cap", async () => {
+    const f = await fixture(), seen = new Set<string>();
     try {
-      for (let i = 0; i < 20; i++) { const challenge = await f.nonce(); expect((await f.request("read", f.proof(challenge))).statusCode).toBe(200); }
-      expect((await f.request("challenge", { device_id: f.device })).statusCode).toBe(429);
+      for (let i = 0; i < 445; i++) {
+        const challenge = await f.nonce();
+        expect(seen.has(challenge)).toBe(false); seen.add(challenge);
+        expect((await f.request("read", f.proof(challenge))).statusCode).toBe(200);
+      }
+      expect(seen.size).toBe(445);
+      // All recent consumed rows still exist: success is not cleanup, a time
+      // advance, nonce reuse, or a test-only bypass of one-live enforcement.
+      expect((await db.query("SELECT count(*)::int AS n FROM next_device_challenges WHERE service_collection_id=$1 AND used_at IS NOT NULL", [f.collection])).rows[0].n).toBe(445);
+      const next = await f.nonce();
+      expect((await f.request("challenge", { device_id: f.device })).statusCode).toBe(409);
+      expect((await f.request("read", f.proof(next))).statusCode).toBe(200);
+      expect((await f.request("read", f.proof(next))).statusCode).toBe(409);
     } finally { await f.app.close(); }
-  });
+  }, 60_000);
   it("rolls back nonce consumption when deletion arrives after the consume SQL await", async () => {
     let collection = "", inject = false;
     const wrapped: DatabasePool = { query: db.query.bind(db), end: db.end.bind(db), connect: async () => {

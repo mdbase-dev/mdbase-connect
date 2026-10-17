@@ -78,17 +78,17 @@ export async function issueServiceClaimChallenge(client: DatabaseConnection, aud
   const identity = hosted(facts);
   if (identity.device !== device) throw new CreateError(409, "migration_subject_not_current");
   const scope = [facts.collection_id, device, PURPOSE, audience];
-  // Keep consumed recent rows for the bounded per-subject rate check. Expired
-  // unused rows cannot authorize anything and must release the unique slot.
+  // Recent consumed rows may remain until housekeeping, but must not throttle
+  // sequential reads. Expired unused rows must release the unique slot.
   await client.query(`DELETE FROM next_device_challenges WHERE connector_id IS NULL
     AND service_collection_id=$1 AND service_device_id=$2 AND service_purpose=$3 AND service_audience=$4
     AND expires_at <= clock_timestamp() AND (used_at IS NULL OR expires_at < clock_timestamp()-interval '1 minute')`, scope);
-  const rows = await client.query<{ n: number; live: boolean }>(`SELECT count(*)::int AS n,
-    coalesce(bool_or(used_at IS NULL AND expires_at > clock_timestamp()),false) AS live
+  const rows = await client.query<{ n: number }>(`SELECT count(*)::int AS n
     FROM next_device_challenges WHERE connector_id IS NULL AND service_collection_id=$1 AND service_device_id=$2
-      AND service_purpose=$3 AND service_audience=$4 AND expires_at > clock_timestamp()-interval '1 minute'`, scope);
-  if (rows.rows[0]?.live) throw new CreateError(409, "challenge_pending");
-  if ((rows.rows[0]?.n ?? 20) >= 20) throw new CreateError(429, "challenge_rate_limited");
+      AND service_purpose=$3 AND service_audience=$4 AND used_at IS NULL AND expires_at > clock_timestamp()`, scope);
+  const live = rows.rows[0]?.n ?? 20;
+  if (live >= 20) throw new CreateError(429, "challenge_rate_limited");
+  if (live > 0) throw new CreateError(409, "challenge_pending");
   const challenge = randomBytes(32);
   await client.query(`INSERT INTO next_device_challenges
     (challenge,service_collection_id,service_device_id,service_purpose,service_audience,service_subject_hash,expires_at)
