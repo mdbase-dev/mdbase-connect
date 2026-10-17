@@ -3231,63 +3231,23 @@ async fn linked_projection_rebuild_restarts_preparation_then_completes_boundedly
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
-async fn projection_indexing_recovers_after_a_concurrent_exact_write() {
+async fn projection_indexing_catches_up_after_a_concurrent_exact_write() {
     let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
         .expect("MDBASE_PROJECTION_DATABASE_URL is required");
     let fixture = FileLifecycleFixture::new(&database_url).await;
     make_collection_unindexed(&fixture).await;
-    let binding = sqlx::query(
-        "SELECT head, resource_revision FROM hosted_provider_collections WHERE id = $1",
-    )
-    .bind(fixture.collection_id)
-    .fetch_one(&fixture.pool)
-    .await
-    .unwrap();
-    let requested = fixture
-        .provider
-        .request_projection_indexing(
-            fixture.collection_id,
-            u64::try_from(binding.get::<i64, _>("head")).unwrap(),
-            binding.get("resource_revision"),
-        )
-        .await
-        .unwrap();
-    let stale_generation = requested.building_generation.unwrap().generation_id;
-    let replica = sqlx::query(
-        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
-    )
-    .bind(fixture.collection_id)
-    .fetch_one(&fixture.pool)
-    .await
-    .unwrap();
+    let generation = request_current_indexing(&fixture).await;
+    let (replica_id, scope_epoch) = fixture_replica(&fixture).await;
     put(
         &fixture,
-        replica.get("id"),
-        u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap(),
+        replica_id,
+        scope_epoch,
         Uuid::now_v7(),
         None,
         "concurrent.md",
         "A write while indexing is in progress.\n",
     )
     .await;
-    let mut stale_code = None;
-    for _ in 0..4 {
-        match fixture
-            .provider
-            .advance_projection_generation(fixture.collection_id, stale_generation)
-            .await
-        {
-            Ok(_) => {}
-            Err(error) => {
-                stale_code = Some(error.code);
-                break;
-            }
-        }
-    }
-    assert_eq!(
-        stale_code.as_deref(),
-        Some("projection_source_head_changed")
-    );
     let still_unbound = fixture
         .provider
         .projection_status(fixture.collection_id)
@@ -3295,7 +3255,190 @@ async fn projection_indexing_recovers_after_a_concurrent_exact_write() {
         .unwrap();
     assert!(!still_unbound.ready);
 
-    for _ in 0..16 {
+    // The write landed after the snapshot; completion replays it instead of
+    // abandoning the generation and re-projecting the collection.
+    advance_until_complete(&fixture, generation).await.unwrap();
+    assert_caught_up_and_verified(&fixture, generation).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn projection_catch_up_resolves_links_and_deletes_written_after_the_snapshot() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let (replica_id, scope_epoch) = fixture_replica(&fixture).await;
+    let source_id = Uuid::now_v7();
+    let doomed_id = Uuid::now_v7();
+    let later_id = Uuid::now_v7();
+    let source = put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        source_id,
+        None,
+        "notes/source.md",
+        "---\ntitle: Source\n---\nSee [[later]].\n",
+    )
+    .await;
+    let doomed = put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        doomed_id,
+        None,
+        "notes/doomed.md",
+        "---\ntitle: Doomed\n---\nGone soon.\n",
+    )
+    .await;
+    // Unchanged after the snapshot: only relationship revalidation can bind
+    // its dangling link to the target created later.
+    let watcher_id = Uuid::now_v7();
+    put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        watcher_id,
+        None,
+        "notes/watcher.md",
+        "---\ntitle: Watcher\n---\nWaiting for [[later]].\n",
+    )
+    .await;
+    make_collection_unindexed(&fixture).await;
+    let generation = request_current_indexing(&fixture).await;
+    // Prepare part of the snapshot first so the delta arrives mid-build.
+    fixture
+        .provider
+        .advance_projection_generation(fixture.collection_id, generation)
+        .await
+        .unwrap();
+
+    put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        later_id,
+        None,
+        "notes/later.md",
+        "---\ntitle: Later\n---\nCreated after the snapshot.\n",
+    )
+    .await;
+    delete(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        doomed_id,
+        doomed.revision,
+    )
+    .await;
+    put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        source_id,
+        Some(source.revision),
+        "notes/source.md",
+        "---\ntitle: Source\n---\nSee [[later]] again.\n",
+    )
+    .await;
+    let transient_id = Uuid::now_v7();
+    let transient = put(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        transient_id,
+        None,
+        "notes/transient.md",
+        "Created and deleted after the snapshot.\n",
+    )
+    .await;
+    delete(
+        &fixture,
+        replica_id,
+        scope_epoch,
+        transient_id,
+        transient.revision,
+    )
+    .await;
+
+    advance_until_complete(&fixture, generation).await.unwrap();
+    assert_caught_up_and_verified(&fixture, generation).await;
+    let target: Option<Uuid> = sqlx::query_scalar(
+        r#"SELECT target_record_id
+           FROM hosted_provider_record_relationships
+           WHERE collection_id = $1 AND generation_id = $2
+             AND source_record_id = $3 AND valid_to_sequence IS NULL"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation)
+    .bind(source_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .expect("the caught-up source has one current relationship");
+    assert_eq!(target, Some(later_id));
+    let watcher_target: Option<Uuid> = sqlx::query_scalar(
+        r#"SELECT target_record_id
+           FROM hosted_provider_record_relationships
+           WHERE collection_id = $1 AND generation_id = $2
+             AND source_record_id = $3 AND valid_to_sequence IS NULL"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation)
+    .bind(watcher_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .expect("the unchanged watcher has one current relationship");
+    assert_eq!(watcher_target, Some(later_id));
+    let current: Vec<Uuid> = sqlx::query_scalar(
+        r#"SELECT record_id FROM hosted_provider_record_projections
+           WHERE collection_id = $1 AND generation_id = $2
+             AND valid_to_sequence IS NULL
+           ORDER BY record_id"#,
+    )
+    .bind(fixture.collection_id)
+    .bind(generation)
+    .fetch_all(&fixture.pool)
+    .await
+    .unwrap();
+    assert!(current.contains(&later_id));
+    assert!(current.contains(&source_id));
+    assert!(!current.contains(&doomed_id));
+    assert!(!current.contains(&transient_id));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn projection_catch_up_over_budget_restarts_and_recovers() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    make_collection_unindexed(&fixture).await;
+    let stale_generation = request_current_indexing(&fixture).await;
+    let (replica_id, scope_epoch) = fixture_replica(&fixture).await;
+    for index in 0..65 {
+        put(
+            &fixture,
+            replica_id,
+            scope_epoch,
+            Uuid::now_v7(),
+            None,
+            &format!("bulk/{index:03}.md"),
+            "Written while indexing is in progress.\n",
+        )
+        .await;
+    }
+    let error = advance_until_complete(&fixture, stale_generation)
+        .await
+        .expect_err("a delta above the catch-up budget restarts the rebuild");
+    assert_eq!(error.code, "projection_source_head_changed");
+    let still_unbound = fixture
+        .provider
+        .projection_status(fixture.collection_id)
+        .await
+        .unwrap();
+    assert!(!still_unbound.ready);
+
+    for _ in 0..32 {
         fixture
             .provider
             .recover_projection_generations(1)
@@ -3308,10 +3451,88 @@ async fn projection_indexing_recovers_after_a_concurrent_exact_write() {
             .unwrap();
         if status.ready {
             assert!(status.active_generation_id.is_some());
+            assert_ne!(status.active_generation_id, Some(stale_generation));
             return;
         }
     }
     panic!("projection indexing did not recover within its bounded test loop");
+}
+
+async fn fixture_replica(fixture: &FileLifecycleFixture) -> (Uuid, u64) {
+    let replica = sqlx::query(
+        "SELECT id, scope_epoch FROM hosted_provider_replicas WHERE collection_id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    (
+        replica.get("id"),
+        u64::try_from(replica.get::<i64, _>("scope_epoch")).unwrap(),
+    )
+}
+
+async fn request_current_indexing(fixture: &FileLifecycleFixture) -> Uuid {
+    let binding = sqlx::query(
+        "SELECT head, resource_revision FROM hosted_provider_collections WHERE id = $1",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    fixture
+        .provider
+        .request_projection_indexing(
+            fixture.collection_id,
+            u64::try_from(binding.get::<i64, _>("head")).unwrap(),
+            binding.get("resource_revision"),
+        )
+        .await
+        .unwrap()
+        .building_generation
+        .expect("indexing opens a building generation")
+        .generation_id
+}
+
+async fn advance_until_complete(
+    fixture: &FileLifecycleFixture,
+    generation: Uuid,
+) -> Result<(), mdbase_connect_hosted_provider::ApiError> {
+    for _ in 0..32 {
+        let batch = fixture
+            .provider
+            .advance_projection_generation(fixture.collection_id, generation)
+            .await?;
+        if batch.generation.status == "complete" {
+            return Ok(());
+        }
+    }
+    panic!("projection generation did not complete within its bounded test loop");
+}
+
+async fn assert_caught_up_and_verified(fixture: &FileLifecycleFixture, generation: Uuid) {
+    let status = fixture
+        .provider
+        .projection_status(fixture.collection_id)
+        .await
+        .unwrap();
+    assert!(status.ready, "{status:?}");
+    assert_eq!(status.active_generation_id, Some(generation));
+    let head: i64 = sqlx::query_scalar(
+        "SELECT head FROM hosted_provider_collections
+         WHERE id = $1 AND active_projection_head = head",
+    )
+    .bind(fixture.collection_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .expect("the caught-up generation is bound at the current head");
+    assert!(head > 0);
+    let verification = fixture
+        .provider
+        .verify_projection_index(fixture.collection_id)
+        .await
+        .unwrap();
+    assert!(verification.verified, "{:?}", verification.failures);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -6211,7 +6432,7 @@ async fn exercise_candidate_b_projection_lifecycle() {
     .await
     .unwrap();
     assert_eq!(pruned_first_generation, 0);
-    let _new_record = put(
+    let new_record = put(
         &fixture,
         replica_id,
         scope_epoch,
@@ -6231,28 +6452,55 @@ async fn exercise_candidate_b_projection_lifecycle() {
             break;
         }
     }
-    let error = loop {
-        match fixture
+    // The write after the rebuild's source head is replayed at completion,
+    // so the rebuilt generation replaces the active one at the current head.
+    loop {
+        let batch = fixture
             .provider
             .resolve_generation_batch(fixture.collection_id, stale_generation.generation_id, 200)
             .await
-        {
-            Ok(batch) if batch.generation.status == "complete" => {
-                panic!("stale source-head generation activated")
-            }
-            Ok(_) => continue,
-            Err(error) => break error,
+            .unwrap();
+        if batch.generation.status == "complete" {
+            break;
         }
-    };
-    assert_eq!(error.code, "projection_source_head_changed");
-    let active_generation: Uuid = sqlx::query_scalar(
-        "SELECT active_projection_generation_id FROM hosted_provider_collections WHERE id = $1",
+    }
+    let active = sqlx::query(
+        "SELECT active_projection_generation_id, active_projection_head, head
+         FROM hosted_provider_collections WHERE id = $1",
     )
     .bind(fixture.collection_id)
     .fetch_one(&fixture.pool)
     .await
     .unwrap();
-    assert_eq!(active_generation, second_generation);
+    assert_eq!(
+        active.get::<Option<Uuid>, _>("active_projection_generation_id"),
+        Some(stale_generation.generation_id)
+    );
+    assert_eq!(
+        active.get::<Option<i64>, _>("active_projection_head"),
+        Some(active.get::<i64, _>("head"))
+    );
+    let new_record_projected: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+           SELECT 1 FROM hosted_provider_record_projections
+           WHERE collection_id = $1 AND generation_id = $2 AND record_id = $3
+             AND valid_to_sequence IS NULL AND resolution_complete
+         )",
+    )
+    .bind(fixture.collection_id)
+    .bind(stale_generation.generation_id)
+    .bind(new_record.record_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert!(new_record_projected);
+    let verification = fixture
+        .provider
+        .verify_projection_index(fixture.collection_id)
+        .await
+        .unwrap();
+    assert!(verification.verified, "{:?}", verification.failures);
+    let second_generation = stale_generation.generation_id;
 
     let application_token = format!("candidate-b-query-{}-{}", Uuid::new_v4(), Uuid::new_v4());
     fixture
