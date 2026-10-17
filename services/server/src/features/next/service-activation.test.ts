@@ -72,6 +72,39 @@ describe("durable cloud-copy service activation", () => {
     expect(retries.map(([, values]) => values)).toEqual([[collection, "hosted", "9007199254740993"], [collection, "escrow", "9007199254740993"]]);
     expect(JSON.stringify(db.query.mock.calls)).not.toContain("private");
   });
+  it.each(["custody_collection_gone", "custody_collection_not_allowed"])("a Worker 409 %s is terminal for that batch: no retry backoff, logged once", async (code) => {
+    vi.stubEnv("MDBASE_CONNECT_ENVIRONMENT", "lab");
+    const logs: string[] = []; const logger = vi.spyOn(console, "info").mockImplementation((line: string) => { logs.push(line); });
+    try {
+      const db = database();
+      await activatePendingServices(db, deployments, async () => Response.json({ error: code }, { status: 409 }));
+      expect(db.query.mock.calls.filter(([sql]) => sql.includes("SET activated_at"))).toHaveLength(0);
+      expect(db.query.mock.calls.filter(([sql]) => sql.includes("make_interval"))).toHaveLength(0);
+      const terminal = db.query.mock.calls.filter(([sql]) => sql.includes("activation_next_at = 'infinity'"));
+      expect(terminal.map(([, values]) => values)).toEqual([[collection, "hosted", "9007199254740993"], [collection, "escrow", "9007199254740993"]]);
+      // Only this batch: a newer batch still bypasses (attempt batch < latest) and the row stays unactivated.
+      for (const [sql] of terminal) {
+        expect(sql).toContain("activation_attempt_batch_id = $3::bigint");
+        expect(sql).not.toContain("activation_batch_id =");
+        expect(sql).toContain("activation_attempt_batch_id <= $3::bigint");
+      }
+      const events = logs.map((line) => JSON.parse(line) as Record<string, unknown>);
+      expect(events.filter((e) => e.phase === "refused").map((e) => e.reason)).toEqual([code, code]);
+      expect(events.filter((e) => e.phase === "retry")).toHaveLength(0);
+    } finally { logger.mockRestore(); vi.unstubAllEnvs(); }
+  });
+  it.each([
+    ["unknown code", () => Response.json({ error: "custody_unavailable" }, { status: 409 })],
+    ["extra field", () => Response.json({ error: "custody_collection_gone", extra: 1 }, { status: 409 })],
+    ["not JSON", () => new Response("custody_collection_gone", { status: 409 })],
+    ["oversized", () => new Response(JSON.stringify({ error: "custody_collection_gone" + "x".repeat(1025) }), { status: 409 })],
+    ["refusal on a 200", () => Response.json({ error: "custody_collection_gone" })],
+  ])("any other 409 or body (%s) stays pending with bounded retry", async (_name, reply) => {
+    const db = database();
+    await activatePendingServices(db, deployments, async () => reply());
+    expect(db.query.mock.calls.filter(([sql]) => sql.includes("'infinity'"))).toHaveLength(0);
+    expect(db.query.mock.calls.filter(([sql]) => sql.includes("make_interval"))).toHaveLength(2);
+  });
   it("idle polls do not contact deployments", async () => {
     const db = database(); db.query.mockReset();
     db.query.mockResolvedValue({ rows: [], rowCount: 0, command: "SELECT", oid: 0, fields: [] });
