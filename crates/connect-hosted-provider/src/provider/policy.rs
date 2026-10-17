@@ -115,10 +115,39 @@ pub(super) fn authorize_application_operation(
     authorize_application_origin(replica, request_origin)
 }
 
+/// Verify origin and any required application proof before recording its replay nonce.
+pub(super) fn verify_application_origin_and_proof(
+    replica: &Replica,
+    token: &str,
+    request_origin: Option<&str>,
+    proof: Option<&AuthorityRequestProof>,
+) -> ApiResult<Option<Uuid>> {
+    authorize_application_origin(replica, request_origin)?;
+    let Some(public_key) = replica.proof_public_key.as_deref() else {
+        return Ok(None);
+    };
+    let proof = proof.ok_or_else(|| {
+        ApiError::unauthorized(
+            "authority_proof_required",
+            "The hosted capability requires proof from its approved application key.",
+        )
+    })?;
+    verify_hosted_request_proof(public_key, token, proof)?;
+    Ok(Some(proof.nonce))
+}
+
 pub(super) fn authorize_application_origin(
     replica: &Replica,
     request_origin: Option<&str>,
 ) -> ApiResult<()> {
+    // Node device-flow clients omit Origin. Only proof-bound portable application
+    // grants may equate that absence with "null"; the request gate still verifies proof.
+    let request_origin = request_origin.or_else(|| {
+        (replica.purpose == ReplicaPurpose::Application
+            && replica.allowed_origin.as_deref() == Some("null")
+            && replica.proof_public_key.is_some())
+        .then_some("null")
+    });
     if replica.allowed_origin.as_deref() != request_origin {
         return Err(ApiError::forbidden(
             "origin_denied",
