@@ -4,6 +4,20 @@
 
 <!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
 
+## 0.1.0-beta.131
+
+### Fixed
+
+- Allow Node and CLI device-flow applications to use hosted record, sync, and file operations without an `Origin` header when their approved portable capability requires a valid application-key proof. Browser origin restrictions and mirror authorization are unchanged.
+- Preserve hosted provider authorization denial codes in typed SDK outcomes instead of reporting them as unknown problems.
+
+- Next-only apps now receive a specific collection-upgrade outcome for an authorized local collection still held by its legacy desktop installation, instead of a misleading offline, key-registration or approval failure. Updating the desktop app is explained in plain language without exposing unavailable collections or granting legacy access.
+
+### Security
+
+- Add fixed production NEXT trust publication and verification under the existing protected release identity, with the same independent publisher/asset pins as staging.
+- Allow admin certificate tooling to receive root keys over an inherited pipe instead of a plaintext key file.
+
 ## 0.1.0-beta.130
 
 ### Added

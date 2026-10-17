@@ -1,6 +1,0 @@
-{
-  "reason": "Extract the existing application origin/proof verification into one provider-internal pure boundary, shared by request authorization and hermetic security regressions. Replay nonce persistence stays in the transaction; no external API is added.",
-  "growth": {
-    "rustPublicDeclarations": 1
-  }
-}
