@@ -837,68 +837,28 @@ impl HostedProvider {
         if completed {
             let current_head = number(collection.get::<i64, _>("head"), "collection head")?;
             if current_head > source_head {
-                // Writes landed after this generation's snapshot. Replaying a
-                // small delta through the write-path maintenance yields the
-                // state those writes would have produced had the generation
-                // already been active; restarting would re-project the whole
-                // collection and, under steady writes, never converge.
-                let mut savepoint = sqlx::Acquire::begin(&mut transaction).await?;
-                match self
-                    .activate_generation_with_catch_up(
-                        &mut savepoint,
+                // Writes landed after this generation's snapshot; catch up a
+                // small delta instead of restarting the whole rebuild.
+                if let Some(batch) = self
+                    .complete_generation_with_catch_up(
+                        &mut transaction,
                         collection_id,
                         generation_id,
-                        &catalog_revision,
+                        catalog_revision.clone(),
                         format_version,
-                        &engine_version,
+                        engine_version.clone(),
                         source_head,
                         current_head,
                         fence,
                         &data_key,
+                        resolved_count,
+                        projection_bytes,
+                        started,
                     )
-                    .await
+                    .await?
                 {
-                    Ok(caught_up) => {
-                        savepoint.commit().await?;
-                        transaction.commit().await?;
-                        tracing::info!(
-                            target: "mdbase_connect::metrics",
-                            metric = "hosted_projection_resolution_batch",
-                            records_resolved = resolved_count,
-                            records_caught_up = caught_up,
-                            projection_bytes,
-                            completed,
-                            elapsed_ms = started.elapsed().as_millis() as u64,
-                            "privacy-safe hosted provider metric"
-                        );
-                        return Ok(HostedProjectionBatch {
-                            generation: HostedProjectionGeneration {
-                                collection_id,
-                                generation_id,
-                                catalog_revision,
-                                projection_format_version: format_version as u32,
-                                semantic_engine_version: engine_version,
-                                source_head,
-                                phase: "resolution".to_string(),
-                                status: "complete".to_string(),
-                                lease_fencing_generation: fence,
-                            },
-                            records_projected: 0,
-                            records_resolved: resolved_count,
-                            ciphertext_bytes: 0,
-                            projection_bytes,
-                            phase_advanced: true,
-                        });
-                    }
-                    Err(error) => {
-                        savepoint.rollback().await?;
-                        tracing::info!(
-                            %collection_id,
-                            %generation_id,
-                            error_code = %error.code,
-                            "projection catch-up declined; the rebuild restarts at the new head"
-                        );
-                    }
+                    transaction.commit().await?;
+                    return Ok(batch);
                 }
             }
             let activated = sqlx::query(

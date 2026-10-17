@@ -1,4 +1,89 @@
 impl HostedProvider {
+    /// Try to complete a resolved generation that fell behind the collection
+    /// head by replaying the delta (see `activate_generation_with_catch_up`).
+    ///
+    /// Replaying a small delta through the write-path maintenance yields the
+    /// state those writes would have produced had the generation already been
+    /// active; restarting would re-project the whole collection and, under
+    /// steady writes, never converge. Returns `None` after rolling the
+    /// savepoint back when catch-up declines, so the caller restarts the
+    /// rebuild at the new head. The caller commits on `Some`.
+    #[allow(clippy::too_many_arguments)]
+    async fn complete_generation_with_catch_up(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        collection_id: Uuid,
+        generation_id: Uuid,
+        catalog_revision: String,
+        format_version: u64,
+        engine_version: String,
+        source_head: u64,
+        current_head: u64,
+        fence: u64,
+        data_key: &[u8; 32],
+        records_resolved: u64,
+        projection_bytes: u64,
+        started: Instant,
+    ) -> ApiResult<Option<HostedProjectionBatch>> {
+        let mut savepoint = sqlx::Acquire::begin(&mut *transaction).await?;
+        let caught_up = match self
+            .activate_generation_with_catch_up(
+                &mut savepoint,
+                collection_id,
+                generation_id,
+                &catalog_revision,
+                format_version,
+                &engine_version,
+                source_head,
+                current_head,
+                fence,
+                data_key,
+            )
+            .await
+        {
+            Ok(caught_up) => caught_up,
+            Err(error) => {
+                savepoint.rollback().await?;
+                tracing::info!(
+                    %collection_id,
+                    %generation_id,
+                    error_code = %error.code,
+                    "projection catch-up declined; the rebuild restarts at the new head"
+                );
+                return Ok(None);
+            }
+        };
+        savepoint.commit().await?;
+        tracing::info!(
+            target: "mdbase_connect::metrics",
+            metric = "hosted_projection_resolution_batch",
+            records_resolved,
+            records_caught_up = caught_up,
+            projection_bytes,
+            completed = true,
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "privacy-safe hosted provider metric"
+        );
+        Ok(Some(HostedProjectionBatch {
+            generation: HostedProjectionGeneration {
+                collection_id,
+                generation_id,
+                catalog_revision,
+                projection_format_version: format_version as u32,
+                semantic_engine_version: engine_version,
+                source_head,
+                phase: "resolution".to_string(),
+                status: "complete".to_string(),
+                lease_fencing_generation: fence,
+            },
+            records_projected: 0,
+            records_resolved,
+            ciphertext_bytes: 0,
+            projection_bytes,
+            phase_advanced: true,
+        }))
+    }
+
     /// Activate a resolved generation whose source head fell behind the
     /// collection head, replaying the records changed since its snapshot
     /// through the same maintenance a write applies to an active generation.

@@ -1,0 +1,7 @@
+{
+  "reason": "Projection rebuild catch-up is split into its own module beside the batch code so a resolved generation that fell behind the head can replay a bounded delta through the existing write-path maintenance instead of restarting; it adds no route, migration, crypto or data operation.",
+  "growth": {
+    "productionFiles": 1,
+    "crates/connect-hosted-provider": 1
+  }
+}
