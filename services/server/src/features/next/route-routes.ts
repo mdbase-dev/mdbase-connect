@@ -18,14 +18,15 @@ import { RelayBrokerUnavailableError, type RelayBroker } from "../../relay-broke
 import { hostedClientOrigin, hostedRouteTarget, type RouteTarget } from "./hosted-route-target.js";
 export type { RouteTarget } from "./hosted-route-target.js";
 import { pitrCollection, type LabPitrConfig } from "./lab-pitr-config.js";
-import { nativeDevices, nativeGrant, nativeGrantStanding, supersededLegacyGrant } from "./native-grant-target.js";
+import { nativeDevices, nativeGrant, nativeGrantStanding, supersededLegacyGrant, unmigratedLocalCollection } from "./native-grant-target.js";
+import { CutoverProblemError } from "./cutover-problems.js";
 import type { MigrationRouting } from "./migration-routing.js";
 import { CreateError, currentMember } from "./bootstrap-common.js";
 
 /** Whether the app can open the collection now and, if not, why (SDK describeError reasons). */
 export type RouteAvailability =
   | { state: "available" }
-  | { state: "unavailable"; reason: "device_offline" | "desktop_update_required" | "old_connector_running" | "sync_required" | "access_removed" | "no_device_registered" };
+  | { state: "unavailable"; reason: "device_offline" | "desktop_update_required" | "old_connector_running" | "sync_required" | "access_removed" | "no_device_registered" | "collection_not_yet_migrated" };
 
 const routeGrant = (collection: string, row: { grant_id: string; authorization_grant: string }) => ({
   collection, grant: row.grant_id,
@@ -96,8 +97,8 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
     const origin = pitrCollection(options.labPitr, id) ? options.labPitr!.hostedUrl : hostedOrigin;
     const hosted = origin || options.migrationRouting ? await hostedRouteTarget(options.db, tokenHash(token), id, origin, options.migrationRouting) : null;
     const hash = tokenHash(token);
-    const grant = await options.db.query<{ grant_id: string; authorization_grant: string; policy_required: boolean; policy_active: boolean; has_client_key: boolean; device_id: string | null; kind: RegisteredDeviceKind | null; noise_pk: Buffer | null; local_id: string; connector_id: string; relay_generation: string; last_active_ms: number | null; update_required: boolean }>(
-      `SELECT COALESCE(binding.log_grant_id, g.id) AS grant_id, g.id AS authorization_grant,
+    const grant = await options.db.query<{ user_id: string; grant_id: string; authorization_grant: string; policy_required: boolean; policy_active: boolean; has_client_key: boolean; device_id: string | null; kind: RegisteredDeviceKind | null; noise_pk: Buffer | null; local_id: string; connector_id: string; relay_generation: string; last_active_ms: number | null; update_required: boolean }>(
+      `SELECT g.user_id, COALESCE(binding.log_grant_id, g.id) AS grant_id, g.id AS authorization_grant,
               (nc.runtime = 'next') AS policy_required, COALESCE(binding.active, false) AS policy_active,
               (k.grant_id IS NOT NULL) AS has_client_key,
               d.id AS device_id, d.kind, d.noise_pk, col.local_id,
@@ -130,6 +131,11 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
       const superseded = await supersededLegacyGrant(options.db, hash, id);
       if (superseded) return unavailableRoute(id, superseded, "sync_required");
       return reply.code(401).send(apiError("invalid_token", "Access token is invalid or expired for this collection."));
+    }
+    // A valid scoped grant proves visibility, not next readiness. Explain the
+    // exact legacy authority before suggesting another key/approval attempt.
+    if (grant.rows[0] && await unmigratedLocalCollection(options.db, id, grant.rows[0].user_id)) {
+      throw new CutoverProblemError("not_yet_migrated");
     }
     if (!row.has_client_key) {
       // The binding's authorization ID lets a client that still holds the grant
@@ -184,14 +190,14 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
     if (!self) return reply.code(401).send(apiError("invalid_token", "Access token is invalid or expired."));
     const grants = await options.db.query<{
       grant_id: string; authorization_grant: string; collection: string; display_name: string; operations: string[];
-      sync: "private" | "cloud_copy" | null; routable: boolean; native: boolean; superseded: boolean;
+      sync: "private" | "cloud_copy" | null; routable: boolean; native: boolean; superseded: boolean; local: boolean;
     }>(
       `SELECT COALESCE(binding.log_grant_id, g.id) AS grant_id, g.id AS authorization_grant,
               COALESCE(col.local_id::text, hc.id::text, g.next_collection_id::text) AS collection,
               CASE WHEN nc.runtime='next' AND nc.sync IN ('cloud_copy','private') AND nc.left_sync_at IS NULL THEN COALESCE(nc.display_name,'New collection')
                    ELSE COALESCE(col.display_name, hc.display_name, nc.display_name) END AS display_name, g.operations,
               nc.sync, (k.grant_id IS NOT NULL AND (nc.runtime IS DISTINCT FROM 'next' OR binding.active = true)) AS routable,
-              (g.next_collection_id IS NOT NULL) AS native,
+              (g.next_collection_id IS NOT NULL) AS native, (g.collection_id IS NOT NULL) AS local,
               (g.collection_id IS NOT NULL AND col.authority_state = 'retired') AS superseded
        FROM grants g
        LEFT JOIN collections col ON col.id = g.collection_id
@@ -214,7 +220,9 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
     const collections = await Promise.all(rows.map(async (row) => {
       let availability: RouteAvailability | undefined;
       let role: string | null = null;
-      if (row.superseded) availability = { state: "unavailable", reason: "sync_required" };
+      const unmigrated = row.local && !row.superseded && await unmigratedLocalCollection(options.db, row.collection, self.user_id);
+      if (unmigrated) availability = { state: "unavailable", reason: "collection_not_yet_migrated" };
+      else if (row.superseded) availability = { state: "unavailable", reason: "sync_required" };
       else if (row.native && row.routable) {
         const standing = await nativeGrantStanding(options.db, row.collection, self.user_id);
         // Display and UI gating only; every action is still checked where it lands.
@@ -237,7 +245,7 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
         ...(row.authorization_grant !== row.grant_id ? { authorization_grant: row.authorization_grant } : {}),
         state: row.sync === "cloud_copy" ? "synced" : row.sync === "private" ? "synced_e2e" : "local",
         operations: row.operations,
-        routable: row.routable && !row.superseded,
+        routable: row.routable && !row.superseded && !unmigrated,
         ...(availability ? { availability } : {}),
         ...(role === "owner" || role === "editor" || role === "viewer" ? { role } : {})
       };

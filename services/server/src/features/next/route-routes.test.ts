@@ -11,7 +11,7 @@ const device = (n: number) => `00000000-0000-4000-8000-${n.toString().padStart(1
 async function route(rows: Array<{ device: number; kind?: string; active?: number | null }>, online: number[] = [], result?: unknown, failure?: Error, publicUrl = "https://connect.example") {
   const id = randomUUID();
   const query = vi.fn().mockResolvedValue({ rows: rows.map((r) => ({
-    grant_id: id, has_client_key: true, device_id: device(r.device), kind: r.kind ?? "desktop",
+    user_id: id, grant_id: id, has_client_key: true, device_id: device(r.device), kind: r.kind ?? "desktop",
     noise_pk: randomBytes(32), local_id: id, connector_id: id, relay_generation: "7", last_active_ms: r.active ?? null
   })) });
   const request = vi.fn(async (_connector: string, _generation: string, command: { message: unknown }) => {
@@ -77,6 +77,7 @@ describe("route target metadata handler (hermetic)", () => {
     const id = randomUUID(), authorization = randomUUID();
     const query = vi.fn()
       .mockResolvedValueOnce({ rows: [{ grant_id: id, authorization_grant: id, has_client_key: false, device_id: null }] })
+      .mockResolvedValueOnce({ rows: [] }) // no positive legacy-local registration
       .mockResolvedValueOnce({ rows: [{ authorization_id: authorization }] });
     const app = Fastify();
     registerNextRouteRoutes(app, { db: { query }, publicUrl: "https://connect.example", broker: { request: vi.fn() } });

@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { localGrantFixture } from "./next-fixtures.test-helper.js";
 import { nativeReadApp } from "./test/native-grant.js";
 import cookie from "@fastify/cookie";
 import Fastify from "fastify";
@@ -334,6 +335,22 @@ describePostgres("Private native collection grants", () => {
   });
 
   const webApp = (legacy = false, setup = false) => nativeReadApp(db, portal, legacy, setup ? JOURNAL_SETUP : undefined);
+
+  it("explains an owned legacy local target during signed next approval, without minting authority",async()=>{
+    const collection=await localGrantFixture(db),request=await webApp();
+    await db.query("UPDATE collections SET enabled=true,present=true,authority_state='active' WHERE id=$1",[collection]);
+    const own=await request(collection,collection),response=await own.approve();
+    expect(response.statusCode,response.body).toBe(409);
+    expect(response.json().error).toMatchObject({code:"collection_not_yet_migrated",
+      message:"This collection will appear here once you update the mdbase desktop app on the computer that holds it."});
+    expect((await db.query("SELECT grant_id,completed_at FROM authorization_requests WHERE id=$1",[own.id])).rows[0]).toEqual({grant_id:null,completed_at:null});
+    expect((await db.query("SELECT id FROM grants WHERE next_collection_id=$1",[collection])).rows).toEqual([]);
+    const stranger=await user(),foreign=await request(stranger,collection),missing=await request(stranger,randomUUID());
+    const refused=await foreign.approve(),absent=await missing.approve();
+    expect(refused.statusCode).toBe(absent.statusCode);
+    expect(refused.json().error).toEqual(absent.json().error);
+    expect(refused.json().error.code).not.toBe("collection_not_yet_migrated");
+  });
 
   it("approves Journal-shaped declaration-bound Private setup without arbitrary definition management", async () => {
     const owner = await user(), desktop = await device(owner), collection = await privateCollection(owner, [desktop]);

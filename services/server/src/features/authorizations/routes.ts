@@ -59,6 +59,7 @@ import {
 import { declarationIdFromFamilyIdentity } from "../applications/identity.js";
 import { createLocalApprovalService, liveAuthorizationCollections } from "./local-collections.js";
 import { approveHostedAuthorization } from "./hosted-approval-service.js";
+import { unmigratedLocalCollection } from "../next/native-grant-target.js";
 import { approveNativeAuthorization, resolveNativeCollectionAccess } from "./native-approval-service.js";
 import { createNativeApprovalDelivery } from "./native-approval-delivery.js";
 import { PEOPLE_PERMISSIONS } from "@mdbase-dev/connect-protocol";
@@ -860,7 +861,8 @@ export function registerAuthorizationRoutes(
         peoplePermissions: input.people_permissions,
         contractSetups: input.contract_setups
       });
-    } else if (await resolveNativeCollectionAccess(options.db, user.id, input.collection_id)) {
+    } else if (await resolveNativeCollectionAccess(options.db, user.id, input.collection_id)
+      || (options.nextClientKeys && await unmigratedLocalCollection(options.db, input.collection_id, user.id))) {
       if (input.contract_setups.length > 0) {
         throw new RequestValidationError("Private collections are set up by the application after it connects.");
       }

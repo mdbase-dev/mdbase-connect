@@ -14,6 +14,8 @@ import type { DatabasePool } from "../../db.js";
 import { planFreshNextGrant } from "../next/fresh-authorization.js";
 import { audit } from "../../platform/audit-events.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
+import { CutoverProblemError } from "../next/cutover-problems.js";
+import { unmigratedLocalCollection } from "../next/native-grant-target.js";
 import { CreateError, currentMember } from "../next/bootstrap-common.js";
 import { copyClientNoiseKeyToGrant } from "../next/client-key.js";
 import { queueNextGrantPolicy } from "../next/grant-policy.js";
@@ -127,6 +129,11 @@ export async function approveNativeAuthorizationInTransaction(connection: Databa
     if (!isSupportedOperationTransport(pending.operation_transport_protocol ?? 0)
         || !pending.application_signing_public_key || !pending.application_authorization || !pending.has_client_key) {
       throw new RequestValidationError("Private collections require a signed, key-bound application authorization request.");
+    }
+    // Only this authenticated owner gets the legacy-local explanation. Do not
+    // treat an unknown/inaccessible collection as migration evidence or mint a grant.
+    if (await unmigratedLocalCollection(connection, input.collectionId, input.userId)) {
+      throw new CutoverProblemError("not_yet_migrated");
     }
     // Account and collection authority are locked and rechecked inside the transaction.
     if (!await lockCollectionSharingAuthority(connection, input.collectionId)) {

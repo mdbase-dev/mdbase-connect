@@ -1,4 +1,4 @@
-/** Where old clients are sent to update after their collection moves to mdbase-next. */
+/** Plain-language update outcomes on either side of a collection cutover. */
 const DEFAULT_CLIENT_UPDATE_URL = "https://mdbase.dev/downloads";
 /** A fenced collection usually finishes its cutover within minutes. */
 const COLLECTION_MIGRATING_RETRY_SECONDS = 300;
@@ -20,7 +20,7 @@ export const DEFAULT_CLIENT_UPDATE_POLICY: ClientUpdatePolicy = {
  */
 export class CutoverProblemError extends Error {
   constructor(
-    readonly kind: "moved" | "onboarding_moved" | "migrating" | "suspended"
+    readonly kind: "moved" | "onboarding_moved" | "not_yet_migrated" | "migrating" | "suspended"
   ) {
     super(kind);
   }
@@ -58,6 +58,13 @@ export function cutoverProblem(error: CutoverProblemError, policy: ClientUpdateP
         + "then reload this page to continue. Open an updated app to finish setting "
         + `up your starter collection. For desktop or mobile, update from ${policy.updateUrl}.`,
       details: moved
+    };
+  }
+  if (error.kind === "not_yet_migrated") {
+    return {
+      status: 409,
+      code: "collection_not_yet_migrated",
+      message: "This collection will appear here once you update the mdbase desktop app on the computer that holds it."
     };
   }
   if (error.kind === "migrating") {
