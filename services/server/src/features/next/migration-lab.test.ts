@@ -129,6 +129,25 @@ describe("lab-run", () => {
     expect(w.calls.slice(0, 2)).toEqual(["run", "status"]);
   });
 
+  it("prints one timeline line per Worker status change, ignoring repeats", async () => {
+    const withLast = (status: WorkerStatus, kind: number) => ({ ...status, run: { ...status.run!, last: { sequence: kind + 1, kind } } });
+    const w = fakeWorker([ok(withLast(st("waiting", 3, { reason: "draining" }), 12)), ok(withLast(st("waiting", 3, { reason: "draining" }), 12)),
+      ok(withLast(st("running", STEP.drained), 12)), ok(st("running", 9)), ok(st("running", 9)), ok(st("done", STEP.routed))]);
+    const events: Record<string, unknown>[] = [];
+    let t = 1_000;
+    const result = await labRun(account, hold, { ...deps(w.worker, fakeConnect().connect), now: () => (t += 250), log: event => events.push(event) });
+    expect(result).toHaveProperty("done");
+    const timeline = events.filter(e => e.step === "worker_timeline");
+    expect(timeline.map(({ t_ms: _t, ...rest }) => rest)).toEqual([
+      { step: "worker_timeline", state: "waiting", reason: "draining", checkpoint_step: 3, last_kind: 12 },
+      { step: "worker_timeline", state: "running", reason: null, checkpoint_step: STEP.drained, last_kind: 12 },
+      { step: "worker_timeline", state: "running", reason: null, checkpoint_step: 9, last_kind: null },
+      { step: "worker_timeline", state: "done", reason: null, checkpoint_step: STEP.routed, last_kind: null }
+    ]);
+    const times = timeline.map(e => e.t_ms as number);
+    expect(times.every((v, i) => v > 0 && (i === 0 || v > times[i - 1]!))).toBe(true);
+  });
+
   it("retries timer_source_changed and re-imports on the flip's timers_source_changed", async () => {
     let imports = 0, flips = 0;
     const c = fakeConnect({
