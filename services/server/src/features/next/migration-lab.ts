@@ -38,7 +38,9 @@ const ROLLBACK_KINDS: Readonly<Record<number, string>> = { 20: "Unrevoke", 21: "
 
 const statusSchema = z.object({
   run: z.object({ state: z.string(), reason: z.string().nullable(), backup_hold: z.string(), migration_id: z.string().nullable(),
-    stop_before_flip: z.boolean().optional(), resumed_run_sequence: z.number().int().positive().nullable().optional() }).nullable(),
+    stop_before_flip: z.boolean().optional(), resumed_run_sequence: z.number().int().positive().nullable().optional(),
+    /** The last prepared action; timeline DATA only, absent from older Workers. */
+    last: z.object({ sequence: z.number().int().nonnegative(), kind: z.number().int().nonnegative() }).nullable().optional() }).nullable(),
   native: z.union([
     z.object({ error: z.string() }),
     z.object({
@@ -400,6 +402,13 @@ const commands = (account: string, hold?: string) => ({
   routeBack: `${CLI} route-back ${account}`
 });
 
+/** One timeline line per Worker status change (DATA only, no decisions). */
+function workerTimeline(status: WorkerStatus, tMs: number) {
+  const checkpoint = "error" in status.native ? null : status.native.checkpoint;
+  return { step: "worker_timeline", t_ms: tMs, state: status.run?.state ?? null, reason: status.run?.reason ?? null,
+    checkpoint_step: checkpoint?.step ?? null, last_kind: status.run?.last?.kind ?? null };
+}
+
 /** Poll the Worker with capped exponential backoff; status reads are read-only. */
 async function poller(deps: LabDeps) {
   const sleep = deps.sleep ?? (ms => new Promise<void>(resolve => setTimeout(resolve, ms)));
@@ -409,7 +418,8 @@ async function poller(deps: LabDeps) {
     sleep,
     expired: () => now() > deadline,
     async wait(status?: WorkerStatus) {
-      const next = JSON.stringify(status ?? null);
+      // Pacing ignores the timeline-only `last` field, as before it was parsed.
+      const next = JSON.stringify(status ? { ...status, run: status.run && { ...status.run, last: undefined } } : null);
       delay = next !== signature ? 1000 : Math.min(delay * 2, 5_000);
       signature = next;
       await sleep(delay);
@@ -445,6 +455,7 @@ export async function labRun(account: string, backupHold: string, deps: LabDeps,
 async function driveLabRun(account: string, backupHold: string, pre: Awaited<ReturnType<LabConnect["preflight"]>>,
   deps: LabDeps, stopBeforeFlip: boolean): Promise<LabOutcome> {
   const cmd = commands(account, backupHold), log = deps.log ?? (() => undefined);
+  const now = deps.now ?? Date.now, startedAt = now();
   const stop = (step: string, reason: string, routeBack = false, diagnostic?: WorkerRunReplyDiagnostic, target?: TargetReplyDiagnostic): LabOutcome =>
     ({ stopped: { step, reason, inspect: cmd.inspect, resume: reason === PAUSE_REASON ? cmd.resume
       : routeBack ? cmd.routeBack : cmd.labRun + (stopBeforeFlip ? " --stop-before-flip" : ""),
@@ -487,10 +498,12 @@ async function driveLabRun(account: string, backupHold: string, pre: Awaited<Ret
     }
     log({ step: "worker_run", state: confirmed.status.run.state });
 
-    let timersImported = false;
+    let timersImported = false, timeline = "";
     for (;;) {
       const reply = await readStatus(deps, collection, pace);
       if (reply.kind !== "ok") return stop("worker_status", reply.kind === "refused" ? reply.code : reply.reason);
+      const line = workerTimeline(reply.status, now() - startedAt), key = JSON.stringify({ ...line, t_ms: 0 });
+      if (key !== timeline) { timeline = key; log(line); }
       const decision = decidePoll(reply.status, timersImported);
       if (decision.action === "stop") return stop("worker_status", decision.reason, decision.routeBack);
       if (decision.action === "routed") break;

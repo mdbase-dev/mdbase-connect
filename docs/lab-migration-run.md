@@ -90,7 +90,11 @@ After an unknown outcome a mutation is never sent again; a rerun reads state fir
    reply is resolved by reading the run back. A run with another hold stops.
 3. **worker_status**: poll `POST /internal/v1/migration/status` with capped backoff
    (1 s doubling to 30 s, two hours in total). The Worker fences, drains, imports,
-   revokes and records the cutover through Connect itself.
+   revokes and records the cutover through Connect itself. Each time the status
+   changes, stdout gets one `worker_timeline` line:
+   `{step, t_ms, state, reason, checkpoint_step, last_kind}`. `t_ms` counts from
+   the start of the run, and `last_kind` is the kind of the last prepared action.
+   Older Workers that leave out `run.last` print `null` for it.
 4. **import_timers**: once the native checkpoint is fenced and drained, run the strict
    paged timer import (`next-timers copy-hosted`) for the collection. It is idempotent.
 5. **cutover**: when the run is done and routed, the cutover must be recorded and legacy
