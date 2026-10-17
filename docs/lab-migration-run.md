@@ -2,8 +2,11 @@
 
 `next-migration-lab` (`services/server/src/features/next/migration-lab-cli.ts`) drives one
 [tiny LAB fixture](lab-fixture-migration-start.md) account through its hosted migration,
-or routes it back before cutover. It refuses to start unless `MDBASE_CONNECT_ENVIRONMENT`
-is exactly `lab`, and the account must have started with the `lab-fixture-v1` profile.
+or routes it back before cutover. It refuses to start unless the deployment's own
+`MDBASE_CONNECT_ENVIRONMENT` is exactly `lab` or `staging`; production and local deployments
+are refused. In LAB the account must have started with the `lab-fixture-v1` profile. In
+staging it must have taken the ordinary archived start (no profile), and the flip completes
+the cohort only on its accepted archive (staging never writes the LAB completion event).
 
 ```sh
 pnpm --filter @mdbase/connect-server next:migration-lab lab-run <account id> <backup hold id> [--stop-before-flip]
@@ -17,7 +20,8 @@ through its SELECT-only reader role), `MDBASE_CONNECT_HOSTED_PROVIDER_*`, `MDBAS
 `MDBASE_NEXT_TIMERS=1`, and `MDBASE_NEXT_HOSTED_SERVICE_URL` (https) with
 `MDBASE_NEXT_HOSTED_SERVICE_TOKEN` for the hosted Worker's internal migration entry. The
 backup hold is the in-force `hosted_provider_backup_holds` id taken by the operator.
-`lab-run` additionally uses the existing `PUBLIC_URL=https://connect-lab.mdbase.dev`
+`lab-run` additionally uses the existing `PUBLIC_URL` (exactly `https://connect-lab.mdbase.dev`
+in LAB, `https://connect-staging.mdbase.dev` in staging)
 and `MDBASE_NEXT_MIGRATION_INTERNAL_TOKEN` to call the canonical migration target
 creator before the first Worker Run POST. That creator installs the SHADOW cloud
 copy, immutable hosted/escrow service-device records and appended original genesis.
@@ -149,7 +153,7 @@ expected_action_sequence}`), bound to the sequence the status reported.
 | run `stopped`/`done` before cutover intent, nothing outstanding | `rollback` with the current run sequence, then wait |
 | outstanding `Unrevoke` or `Unfence` (lost rollback reply) | `resolve` it; the Worker settles it from the provider's rollback receipt |
 | any other outstanding action | stop (`outstanding_unknown:<kind>`) |
-| checkpoint `rolled_back` | LAB timer cleanup for the rolled-back provider run, then `restart` with the current run sequence |
+| checkpoint `rolled_back` | Timer cleanup (as the deployment's LAB or staging environment) for the rolled-back provider run, then `restart` with the current run sequence |
 | `rolling_back` while stopped (for example `rollback_needs_operator`) | stop |
 | cutover intent or later, failed or gone | stop |
 | run `running`/`waiting` while rolling back | wait |
