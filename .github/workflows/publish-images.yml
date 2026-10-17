@@ -9,21 +9,21 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Publish images or sign the reviewed fixed LAB/staging trust extension
+        description: Publish images or sign the reviewed fixed environment trust extension
         required: true
         default: images
         type: choice
-        options: [images, lab-trust, staging-trust]
+        options: [images, lab-trust, staging-trust, production-trust]
       image_publication_run_id:
         description: Existing successful image-bundle run (trust extensions only)
         required: false
         type: string
       expected_publisher_commit:
-        description: Independently approved main publisher SHA (mandatory for staging-trust)
+        description: Independently approved main publisher SHA (mandatory outside LAB)
         required: false
         type: string
       expected_trust_asset_sha256:
-        description: Independently approved canonical staging asset digest (mandatory for staging-trust)
+        description: Independently approved canonical asset digest (mandatory outside LAB)
         required: false
         type: string
       source_commit:
@@ -338,7 +338,7 @@ jobs:
           retention-days: 90
 
   trust-bundle:
-    if: github.event_name == 'workflow_dispatch' && (inputs.operation == 'lab-trust' || inputs.operation == 'staging-trust')
+    if: github.event_name == 'workflow_dispatch' && (inputs.operation == 'lab-trust' || inputs.operation == 'staging-trust' || inputs.operation == 'production-trust')
     name: Sign reviewed fixed environment trust assets
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -350,7 +350,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       IMAGE_PUBLICATION_RUN_ID: ${{ inputs.image_publication_run_id }}
       RELEASE_TAG: ${{ inputs.release_tag }}
-      TRUST_ENVIRONMENT: ${{ inputs.operation == 'staging-trust' && 'staging' || 'lab' }}
+      TRUST_ENVIRONMENT: ${{ inputs.operation == 'production-trust' && 'production' || inputs.operation == 'staging-trust' && 'staging' || 'lab' }}
       EXPECTED_PUBLISHER_COMMIT: ${{ inputs.expected_publisher_commit }}
       EXPECTED_TRUST_ASSET_SHA256: ${{ inputs.expected_trust_asset_sha256 }}
     steps:
@@ -369,12 +369,12 @@ jobs:
           [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
           [[ "$IMAGE_PUBLICATION_RUN_ID" =~ ^[1-9][0-9]*$ ]]
           [[ "$RELEASE_TAG" =~ ^v0\.1\.0-beta\.[1-9][0-9]*$ ]]
-          [[ "$TRUST_ENVIRONMENT" == lab || "$TRUST_ENVIRONMENT" == staging ]]
+          [[ "$TRUST_ENVIRONMENT" == lab || "$TRUST_ENVIRONMENT" == staging || "$TRUST_ENVIRONMENT" == production ]]
           # Fixed reviewed asset only. No creation, LAB fallback or dispatch override.
           asset="config/next-trust/$TRUST_ENVIRONMENT.json"
           test -f "$asset" && test ! -L "$asset"
           test "$(jq -er .environment "$asset")" = "$TRUST_ENVIRONMENT"
-          if [[ "$TRUST_ENVIRONMENT" == staging ]]; then
+          if [[ "$TRUST_ENVIRONMENT" != lab ]]; then
             # Pin the approved bytes, not whichever qualified main was selected.
             # These hashes are not an approval or a new trust/signing anchor.
             [[ "$EXPECTED_PUBLISHER_COMMIT" =~ ^[0-9a-f]{40}$ ]]

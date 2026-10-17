@@ -10,15 +10,16 @@ import { createRequire } from 'node:module';
 const require=createRequire(new URL('../../packages/protocol/package.json',import.meta.url));
 const {parse}=require('yaml');
 const workflow=parse(readFileSync(new URL('../../.github/workflows/publish-images.yml',import.meta.url),'utf8'));
-test('fixed LAB/staging selector does not schedule image publication',()=>{
- assert.deepEqual(workflow.on.workflow_dispatch.inputs.operation.options,['images','lab-trust','staging-trust']);
+test('fixed LAB/staging/production selector does not schedule image publication',()=>{
+ assert.deepEqual(workflow.on.workflow_dispatch.inputs.operation.options,['images','lab-trust','staging-trust','production-trust']);
  const guard=workflow.jobs.changes.if;
  assert.ok(guard.includes("inputs.operation == 'images'"));
  assert.ok(!guard.includes("inputs.operation != 'lab-trust'"));
  const job=workflow.jobs['trust-bundle'];
  assert.ok(job.if.includes("inputs.operation == 'lab-trust'"));
  assert.ok(job.if.includes("inputs.operation == 'staging-trust'"));
- assert.equal(job.env.TRUST_ENVIRONMENT,"${{ inputs.operation == 'staging-trust' && 'staging' || 'lab' }}");
+ assert.ok(job.if.includes("inputs.operation == 'production-trust'"));
+ assert.equal(job.env.TRUST_ENVIRONMENT,"${{ inputs.operation == 'production-trust' && 'production' || inputs.operation == 'staging-trust' && 'staging' || 'lab' }}");
  assert.equal(job.permissions['id-token'],'write');
  const qualify=job.steps.find(s=>s.id==='publisher-qualification').run;
  for(const gate of ['test "$GITHUB_REF" = refs/heads/main','test "$GITHUB_REPOSITORY" = mdbase-dev/mdbase-connect','asset="config/next-trust/$TRUST_ENVIRONMENT.json"','test -f "$asset" && test ! -L "$asset"','test "$(jq -er .environment "$asset")" = "$TRUST_ENVIRONMENT"','scripts/ci/verify-qualified-commit "$GITHUB_SHA"'])assert.ok(qualify.includes(gate),gate);
@@ -55,12 +56,13 @@ function qualificationFixture(t, environment='staging') {
  return {root,asset,run};
 }
 
-test('staging approval pins retain publisher qualification, not signing authority',t=>{
- const f=qualificationFixture(t),r=f.run();assert.equal(r.status,0,r.stderr);
+for (const environment of ['staging', 'production']) {
+test(`${environment} approval pins retain publisher qualification, not signing authority`,t=>{
+ const f=qualificationFixture(t,environment),r=f.run();assert.equal(r.status,0,r.stderr);
  assert.equal(readFileSync(path.join(f.root,'qualified'),'utf8'),'called');
 });
-test('staging missing, malformed or changed approval pins stop before qualification/fetch/sign',t=>{
- const f=qualificationFixture(t);
+test(`${environment} missing, malformed or changed approval pins stop before qualification/fetch/sign`,t=>{
+ const f=qualificationFixture(t,environment);
  for(const changes of [{EXPECTED_PUBLISHER_COMMIT:''},{EXPECTED_PUBLISHER_COMMIT:'x'.repeat(40)},
   {EXPECTED_PUBLISHER_COMMIT:'b'.repeat(40)},{EXPECTED_TRUST_ASSET_SHA256:''},
   {EXPECTED_TRUST_ASSET_SHA256:'X'.repeat(64)},{EXPECTED_TRUST_ASSET_SHA256:'b'.repeat(64)}]){
@@ -68,16 +70,17 @@ test('staging missing, malformed or changed approval pins stop before qualificat
  }
  assert.throws(()=>readFileSync(path.join(f.root,'qualified')),{code:'ENOENT'});
 });
-test('changed canonical bytes cannot inherit an approved digest',t=>{
- const f=qualificationFixture(t);writeFileSync(f.asset,JSON.stringify({environment:'staging',fixture:'changed'}));
+test(`${environment} changed canonical bytes cannot inherit an approved digest`,t=>{
+ const f=qualificationFixture(t,environment);writeFileSync(f.asset,JSON.stringify({environment,fixture:'changed'}));
  assert.notEqual(f.run().status,0);assert.throws(()=>readFileSync(path.join(f.root,'qualified')),{code:'ENOENT'});
 });
-test('staging canonical asset cannot use symlink ancestry',t=>{
- const f=qualificationFixture(t),target=path.join(f.root,'actual');
- mkdirSync(target);writeFileSync(path.join(target,'staging.json'),readFileSync(f.asset));
+test(`${environment} canonical asset cannot use symlink ancestry`,t=>{
+ const f=qualificationFixture(t,environment),target=path.join(f.root,'actual');
+ mkdirSync(target);writeFileSync(path.join(target,`${environment}.json`),readFileSync(f.asset));
  rmSync(path.join(f.root,'config/next-trust'),{recursive:true});symlinkSync(target,path.join(f.root,'config/next-trust'));
  assert.notEqual(f.run().status,0);assert.throws(()=>readFileSync(path.join(f.root,'qualified')),{code:'ENOENT'});
 });
+}
 test('LAB keeps its original qualifier and does not require staging pins',t=>{
  const f=qualificationFixture(t,'lab'),r=f.run({EXPECTED_PUBLISHER_COMMIT:'',EXPECTED_TRUST_ASSET_SHA256:''});
  assert.equal(r.status,0,r.stderr);assert.equal(readFileSync(path.join(f.root,'qualified'),'utf8'),'called');

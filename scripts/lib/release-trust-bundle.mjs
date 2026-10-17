@@ -9,7 +9,7 @@ const commit = s => typeof s === 'string' && /^[0-9a-f]{40}$/.test(s);
 const digest = s => typeof s === 'string' && /^[0-9a-f]{64}$/.test(s);
 const origin = s => { try { const u = new URL(s); return u.protocol === 'https:' && u.origin === s && !u.username && !u.password; } catch { return false; } };
 function need(ok, message) { if (!ok) throw new Error(message); }
-const environment = s => s === 'lab' || s === 'staging';
+const environment = s => s === 'lab' || s === 'staging' || s === 'production';
 
 /** Caller authenticates the original image bundle BEFORE invoking this builder. */
 export function buildTrustBundle({ imageBundleBytes, assetBytes, publication, qualification }) {
@@ -19,7 +19,7 @@ export function buildTrustBundle({ imageBundleBytes, assetBytes, publication, qu
   need(release.publication.workflow === 'publish-images.yml' && positive(release.publication.runId) && positive(release.publication.runAttempt), 'image publication');
   // Crypto/canonical payload validation belongs to the reference encoder, invoked
   // by the fixed publisher CLI. Never treat the calculated hash as authentication.
-  need(environment(asset.environment), 'only LAB or staging trust inventory is supported');
+  need(environment(asset.environment), 'only LAB, staging or production trust inventory is supported');
   need(assetBytes.length > 0 && assetBytes.length <= 65536, 'asset size');
   need(origin(asset.control_plane_origin) && origin(asset.log_origin), 'asset origins');
   need(exact(asset.source, ['repository', 'commit', 'version']) && asset.source.repository === release.repository && asset.source.commit === release.commit && asset.source.version === release.version, 'asset release binding');
@@ -46,5 +46,6 @@ export function validateTrustBundle(m) {
   need(Array.isArray(m.trustAssets) && m.trustAssets.length === 1, 'exact approved asset set');
   const a = m.trustAssets[0];
   need(exact(a, ['path','length','sha256','environment','controlPlaneOrigin','logOrigin','source']) && environment(a.environment) && a.path === `next-trust/${a.environment}.json` && positive(a.length) && a.length <= 65536 && digest(a.sha256) && origin(a.controlPlaneOrigin) && origin(a.logOrigin), 'asset binding');
+  need(a.environment !== 'production' || a.controlPlaneOrigin === 'https://connect.mdbase.dev', 'fixed production CP origin');
   need(exact(a.source, ['repository','commit','version']) && a.source.repository === m.repository && a.source.commit === m.commit && a.source.version === m.version, 'asset source');
 }

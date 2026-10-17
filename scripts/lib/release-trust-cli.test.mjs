@@ -44,24 +44,28 @@ test('reference CLI preserves exact LAB bytes and refuses wrong externally suppl
    const bad=[...args];bad[position]=value;assert.notEqual(invoke('verify-release-trust-asset.mts',bad).status,0);
   }
   writeFileSync(payload,readFileSync(payload).toString()+' ');assert.notEqual(invoke('verify-release-trust-asset.mts',args).status,0);
+  for (const environment of ['staging', 'production']) {
+  const cpOrigin = environment === 'production' ? 'https://connect.mdbase.dev' : 'https://stage.example';
   // OFFLINE structure/certificate test only. Reusing public LAB fixture pins here
   // creates no staging authority; the real manifest must be independently signed.
-  const stageBytes=Buffer.from(canonical({...asset,environment:'staging',control_plane_origin:'https://stage.example'}));
-  writeFileSync(path.join(sandbox,'config/next-trust/staging.json'),stageBytes);
-  const stageBuilt=invokeSandbox('staging');assert.equal(stageBuilt.status,0,stageBuilt.stderr);
-  assert.deepEqual(readFileSync(path.join(missing,'next-trust/staging.json')),stageBytes);
+  const stageBytes=Buffer.from(canonical({...asset,environment,control_plane_origin:cpOrigin}));
+  writeFileSync(path.join(sandbox,`config/next-trust/${environment}.json`),stageBytes);
+  rmSync(missing,{recursive:true,force:true});
+  const stageBuilt=invokeSandbox(environment);assert.equal(stageBuilt.status,0,stageBuilt.stderr);
+  assert.deepEqual(readFileSync(path.join(missing,`next-trust/${environment}.json`)),stageBytes);
   const builtStageInventory=JSON.parse(readFileSync(path.join(missing,'release-trust-bundle.json')));
-  assert.equal(builtStageInventory.trustAssets[0].path,'next-trust/staging.json');
-  assert.equal(builtStageInventory.trustAssets[0].environment,'staging');
+  assert.equal(builtStageInventory.trustAssets[0].path,`next-trust/${environment}.json`);
+  assert.equal(builtStageInventory.trustAssets[0].environment,environment);
   const stageManifest=buildTrustBundle({imageBundleBytes:Buffer.from(JSON.stringify(release)),assetBytes:stageBytes,
    publication:{workflow:'publish-images.yml',runId:12,runAttempt:1,publisherCommit:'c'.repeat(40)},
    qualification:{workflow:'server-ci.yml',runId:13,runAttempt:1}});
   const stagePayload=path.join(dir,'staging.json'),stageInventory=path.join(dir,'staging-manifest.json');
   writeFileSync(stagePayload,stageBytes);writeFileSync(stageInventory,JSON.stringify(stageManifest));
-  const stageArgs=[stageInventory,stagePayload,asset.source.commit,asset.source.version,'staging','https://stage.example',asset.log_origin];
+  const stageArgs=[stageInventory,stagePayload,asset.source.commit,asset.source.version,environment,cpOrigin,asset.log_origin];
   assert.equal(invoke('verify-release-trust-asset.mts',stageArgs).status,0);
-  for(const [position,value] of [[4,'lab'],[4,'production'],[5,asset.control_plane_origin],[6,'https://wrong.example']]){
+  for(const [position,value] of [[4,'lab'],[4,environment === 'production' ? 'staging' : 'production'],[5,asset.control_plane_origin],[6,'https://wrong.example']]){
    const bad=[...stageArgs];bad[position]=value;assert.notEqual(invoke('verify-release-trust-asset.mts',bad).status,0);
+  }
   }
  } finally {rmSync(dir,{recursive:true,force:true});}
 });
