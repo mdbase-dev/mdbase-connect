@@ -10,6 +10,7 @@ import {
   readHoldExpiry, holdReader, type LegacySourceEnv, type PgClient, type PgConnect,
 } from "./bindings.ts";
 import { LegacySourceError } from "./source.ts";
+import { aad, LegacyCryptoError, unwrapCollectionKey } from "./crypto.ts";
 
 const CID = "4c18af2e-b04a-4b77-b83e-493c3695962e";
 const OTHER = "5d29bf3f-c15b-4c88-a94f-5a4d47a6a73f";
@@ -56,6 +57,61 @@ test("missing bindings fail closed with a typed error naming only the settings",
   // Outside LAB nothing is configured, whatever else is set.
   assert.throws(() => legacyBindingSettings(env({ LAB: undefined })), binding("legacy_source_unconfigured"));
   assert.throws(() => legacyBindingSettings(env({ LAB: "0" })), binding("legacy_source_unconfigured"));
+});
+
+test("admission matrix: LAB or staging only, production refused before any other setting", async () => {
+  const staging = (over: Partial<LegacySourceEnv> = {}) =>
+    env({ LAB: undefined, KMS_ENVIRONMENT: "staging", LEGACY_SOURCE_ENVIRONMENT: "staging", ...over });
+  // Admitted: [env, tier].
+  const admitted: Array<[LegacySourceEnv, string]> = [
+    [env(), "lab"],
+    [env({ KMS_ENVIRONMENT: "lab" }), "lab"],
+    [env({ KMS_ENVIRONMENT: "" }), "lab"],
+    [staging(), "staging"],
+    [staging({ LAB: "0" }), "staging"],
+  ];
+  for (const [e, tier] of admitted) assert.equal(legacyBindingSettings(e).tier, tier, JSON.stringify([e.LAB, e.KMS_ENVIRONMENT]));
+  // Refused: [env, code, the setting the message names].
+  const refused: Array<[LegacySourceEnv, string, string]> = [
+    [env({ KMS_ENVIRONMENT: "production" }), "legacy_source_unconfigured", "production"],
+    [staging({ KMS_ENVIRONMENT: "production" }), "legacy_source_unconfigured", "production"],
+    [env({ KMS_ENVIRONMENT: "production", LEGACY_SOURCE_ENVIRONMENT: "production" }), "legacy_source_unconfigured", "KMS_ENVIRONMENT"],
+    [{ KMS_ENVIRONMENT: "production" }, "legacy_source_unconfigured", "production"],
+    [env({ KMS_ENVIRONMENT: "staging" }), "legacy_source_misconfigured", "KMS_ENVIRONMENT"],
+    [env({ LAB: undefined }), "legacy_source_unconfigured", "KMS_ENVIRONMENT"],
+    [env({ LAB: undefined, KMS_ENVIRONMENT: "lab" }), "legacy_source_unconfigured", "LAB"],
+    [env({ LAB: undefined, KMS_ENVIRONMENT: "Staging" }), "legacy_source_unconfigured", "KMS_ENVIRONMENT"],
+    [staging({ LEGACY_SOURCE_ENVIRONMENT: "lab" }), "legacy_source_misconfigured", "LEGACY_SOURCE_ENVIRONMENT"],
+    [staging({ LEGACY_SOURCE_ENVIRONMENT: "production" }), "legacy_source_misconfigured", "LEGACY_SOURCE_ENVIRONMENT"],
+    [staging({ LEGACY_SOURCE_ENVIRONMENT: undefined }), "legacy_source_unconfigured", "LEGACY_SOURCE_ENVIRONMENT"],
+    [staging({ LEGACY_MASTER_KEY: undefined }), "legacy_source_unconfigured", "LEGACY_MASTER_KEY"],
+    [env({ LEGACY_SOURCE_ENVIRONMENT: "staging" }), "legacy_source_misconfigured", "LEGACY_SOURCE_ENVIRONMENT"],
+  ];
+  for (const [e, code, name] of refused) {
+    assert.throws(() => legacyBindingSettings(e), (err: unknown) => binding(code)(err) && (err as Error).message.includes(name)
+      && !(err as Error).message.includes(SECRET_KEY) && !(err as Error).message.includes(MASTER), `${code} ${name}`);
+  }
+  // Nothing connects for a refused tier; staging opens a bound source with its allowlist.
+  const pg = fakePg();
+  await assert.rejects(openLegacySource(staging({ KMS_ENVIRONMENT: "production" }), CID, { connect: pg.connect }), binding("legacy_source_unconfigured"));
+  await assert.rejects(openLegacySource(staging(), OTHER, { connect: pg.connect }), binding("legacy_source_foreign_collection"));
+  assert.ok(await openLegacySource(staging(), CID, { connect: pg.connect }) instanceof BoundLegacySource);
+  assert.deepEqual(pg.counts(), { connects: 0, ends: 0 });
+});
+
+test("staging unwraps legacy-key collection keys only; a KMS-wrapped key is refused, never sent anywhere", async () => {
+  const master = await crypto.subtle.importKey("raw", Buffer.alloc(32, 7), "AES-GCM", false, ["encrypt", "decrypt"]);
+  const raw = new Uint8Array(32).fill(9), iv = new Uint8Array(12).fill(1);
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: aad.collectionKey(CID) }, master, raw));
+  const legacyWrapped = new Uint8Array([1, ...iv, ...ct]);
+  const decryptOnly = await crypto.subtle.importKey("raw", Buffer.alloc(32, 7), "AES-GCM", false, ["decrypt"]);
+  const unwrapper = { environment: "staging", legacyMasterKey: decryptOnly };
+  const key = await unwrapCollectionKey(unwrapper, legacyWrapped, CID, signal());
+  assert.equal(key.extractable, false);
+  const keyRef = new TextEncoder().encode("arn:aws:kms:ap-southeast-1:000000000000:key/mrk-0123");
+  const kmsWrapped = new Uint8Array([0x4d, 0x44, 0x42, 0x4b, 1, 1, 0, keyRef.length, 0, 0, 0, 4, ...keyRef, 1, 2, 3, 4]);
+  await assert.rejects(unwrapCollectionKey(unwrapper, kmsWrapped, CID, signal()),
+    (e: unknown) => e instanceof LegacyCryptoError && e.code === "kms" && /not supported by this legacy source/.test(e.message));
 });
 
 test("misconfigured bindings fail closed and never echo a value", () => {

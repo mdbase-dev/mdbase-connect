@@ -47,7 +47,7 @@ test("ready/engine-open exceptions return a finite typed 500 before any run save
     assert.equal(stored.size, 0);
     const observed = await o.fetch(request("status", { collection }));
     assert.equal(observed.status, 200);
-    assert.deepEqual(await observed.json(), { run: null, native: { run_sequence: null, checkpoint: null, outstanding: null } });
+    assert.deepEqual(await observed.json(), { verification: null, run: null, native: { run_sequence: null, checkpoint: null, outstanding: null } });
     assert.equal(calls.filter(call => call === "ready").length, 1);
   }
 });

@@ -4,6 +4,8 @@
  * MDBK remains the existing KMS envelope wire format, not a custody exemption. */
 import { LOCAL_REHEARSAL_BUILD } from '#hosted-local-build';
 import { configuredEnvelope, encodeEnvelope } from './envelope.ts';
+import { allowlist } from './aws-kms.ts';
+import type { KmsAllowlist } from './kms-allowlist.ts';
 
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
 const validUuid = (id: string) => UUID.test(id) && id !== '00000000-0000-0000-0000-000000000000';
@@ -14,12 +16,11 @@ export function localKeyReference(value: string): boolean {
 
 export class LocalSoftwareKms {
   private readonly keyBytes: Uint8Array;
-  private readonly collections: ReadonlySet<string>;
-  constructor(private readonly keyArn: string, keyHex: string, environment: string, collections: readonly string[]) {
-    if (!LOCAL_REHEARSAL_BUILD || environment !== 'local' || !localKeyReference(keyArn) || !/^[0-9a-f]{64}$/.test(keyHex)
-      || collections.length > 500 || !collections.every(validUuid)) throw Error('kms_invalid_config');
+  private readonly collections: KmsAllowlist;
+  constructor(private readonly keyArn: string, keyHex: string, environment: string, collections: KmsAllowlist | readonly string[]) {
+    if (!LOCAL_REHEARSAL_BUILD || environment !== 'local' || !localKeyReference(keyArn) || !/^[0-9a-f]{64}$/.test(keyHex)) throw Error('kms_invalid_config');
+    this.collections = allowlist(collections);
     this.keyBytes = Uint8Array.from(keyHex.match(/../g)!, value => parseInt(value, 16));
-    this.collections = new Set(collections);
   }
   private context(collection: string, device: string): Uint8Array {
     if (!validUuid(collection) || !validUuid(device) || !this.collections.has(collection)) throw Error('kms_collection_not_allowed');

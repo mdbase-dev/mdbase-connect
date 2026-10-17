@@ -79,6 +79,7 @@ interface Exports extends WebAssembly.Exports {
   hd_log_retire(): void;
   hd_log_request_head(): number;
   hd_migration_gen0_refusal(): number;
+  hd_migration_sample(p: number, n: number): bigint;
   hd_attachment_object(): bigint;
   hd_attachment_allowed(ticket: number): number;
   hd_attachment_reserve(ticket: number, size: number): number;
@@ -393,6 +394,15 @@ export class Engine {
       fingerprint: Array.from(data[6], v => v.toString(16).padStart(2, "0")).join("") });
     this.#migrationTickets.set(ticket, data[0] as number); this.#migrationLive = ticket;
     return ticket;
+  }
+
+  /** Read-only digest sample of the target store (`migration-sample.ts`):
+   * IDs, digests and sizes only. Throws when native refuses the request. */
+  migrationSample(request: Uint8Array): CborValue {
+    if (request.length === 0) throw new Error("migration_sample_refused");
+    const out = this.ex.hd_migration_sample(...this.put(request));
+    if (out === 0n) throw new Error("migration_sample_refused");
+    return this.takeDecoded(out);
   }
 
   /** Why the last `beginMigrationPending` saved nothing (native `Idle`; 9 =

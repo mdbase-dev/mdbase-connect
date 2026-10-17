@@ -31,10 +31,47 @@ export interface CheckpointView {
   revoked: string[];
   attempts: number;
   failure: string | null;
+  /** H7: `LiveDigest::digest` of the S_final source read (hex), recorded with `verified`. */
+  sourceDigest: string | null;
+  /** The latest rebuilt-cache compare's target side: digest (hex), log head, counts. */
+  target: { digest: string; head: number; records: number; files: number; fileBytes: number } | null;
+}
+
+/** The status `verification` projection: digests and counts only, never content. */
+export interface VerificationView {
+  records: number;
+  files: number;
+  file_bytes: number;
+  source_digest: string;
+  target_digest: string;
+  log_head: number;
 }
 
 function uint(v: CborValue | undefined): number | null {
   return typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : null;
+}
+
+const hex32 = (v: CborValue | undefined): string | null =>
+  v instanceof Uint8Array && v.length === 32 ? Array.from(v, b => b.toString(16).padStart(2, "0")).join("") : null;
+
+/** Optional B32 (absent is null; present must be 32 bytes). */
+function optHash(m: Map<CborValue, CborValue>, k: number): string | null {
+  if (!m.has(k)) return null;
+  const h = hex32(m.get(k));
+  if (h === null) throw new Error("migration_checkpoint_invalid");
+  return h;
+}
+
+/** Target facts (keys 23-27) are all present or all absent, as native writes them. */
+function targetFacts(m: Map<CborValue, CborValue>): CheckpointView["target"] {
+  const keys = [23, 24, 25, 26, 27];
+  const present = keys.filter(k => m.has(k)).length;
+  if (present === 0) return null;
+  const digest = optHash(m, 23), [head, records, files, fileBytes] = [24, 25, 26, 27].map(k => uint(m.get(k)));
+  if (present !== keys.length || digest === null || head === null || records === null || files === null || fileBytes === null) {
+    throw new Error("migration_checkpoint_invalid");
+  }
+  return { digest, head, records, files, fileBytes };
 }
 
 /** Decode `mig_checkpoint.v`; throws on anything but the fmt-1 map. */
@@ -52,7 +89,16 @@ export function decodeCheckpoint(bytes: Uint8Array): CheckpointView {
     step, attempts, fenced: m.get(9) === true, fenceFirst: m.get(21) === true,
     sFinal: uint(m.get(10)), baseSeq: uint(m.get(7)), cutoverSeq: uint(m.get(13)),
     revoked: [...revoked as string[]].sort(), failure: typeof failure === "string" ? failure : null,
+    sourceDigest: optHash(m, 22), target: targetFacts(m),
   };
+}
+
+/** Recorded at native step `verified` (8), kept through `routed` (13); null
+ * before, after a rollback or failure, or while either side is missing. */
+export function verificationView(cp: CheckpointView | null): VerificationView | null {
+  if (!cp || cp.step < STEP.verified || cp.step > STEP.routed || !cp.sourceDigest || !cp.target) return null;
+  return { records: cp.target.records, files: cp.target.files, file_bytes: cp.target.fileBytes,
+    source_digest: cp.sourceDigest, target_digest: cp.target.digest, log_head: cp.target.head };
 }
 
 export interface NativeState {
@@ -192,9 +238,11 @@ export async function migrationStatusRequest(request: Request, token?: string): 
   return body instanceof Response ? body : { collection: body.collection as string };
 }
 
-/** The status body: run record and checkpoint view, no secrets or content. */
+/** The status body: run record, checkpoint view and the verification
+ * projection; no secrets or content. */
 export function migrationStatus(run: RunRecord | null, native: NativeState | { error: string }) {
   return {
+    verification: "error" in native ? null : verificationView(native.checkpoint),
     run: run && { state: run.state, reason: run.reason, stop_before_flip: run.pauseBeforeCutover, resumed_run_sequence: run.resumeRunSequence, backup_hold: run.backupHold, migration_id: run.migrationId,
       members_base: run.membersBase, members_final: run.membersFinal, last: run.last,
       started_at: new Date(run.startedAt).toISOString(), updated_at: new Date(run.updatedAt).toISOString() },

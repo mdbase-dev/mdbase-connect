@@ -2,10 +2,10 @@
 
 use mdbn_wire::common::{B16, B32};
 
-use super::checkpoint::{Checkpoint, Step};
+use super::checkpoint::{Checkpoint, Step, TargetFacts};
 use super::read::{Need, ReadGen, spill_err};
 use super::replay::{Batch, mutation_id, take_batch};
-use super::{Generation, ImportStats, Key, Meta, SourceRow, Spill, Table, live_of};
+use super::{Class, Generation, ImportStats, Key, Meta, SourceRow, Spill, Table, live_of};
 use crate::budget::{MAX_HYDRATE_RECORDS, MAX_SOURCE_PAGE_BYTES, MAX_SOURCE_PAGE_ROWS};
 use crate::live_digest::LiveDigest;
 use crate::{Error, Result};
@@ -282,6 +282,8 @@ enum Ram {
         rebuilt: bool,
         cursor: Option<String>,
         digest: Box<LiveDigest>,
+        /// The rebuild's head and the target counts so far (records, files, file bytes).
+        tally: Tally,
     },
     /// Fence-first: the fence is acknowledged; drain next.
     Drain,
@@ -291,8 +293,8 @@ enum Ram {
     ParkCheck(Option<Key>),
     /// Every parking path allocates: the cutover intent may be saved.
     ParkChecked,
-    /// The final compare matched: route.
-    Route,
+    /// The final compare matched: route. Its target facts are saved with `Routed`.
+    Route(TargetFacts),
     Replay {
         batch: Option<Batch>,
         find_first: bool,
@@ -445,7 +447,7 @@ impl Driver {
                 },
             },
             Replaying => return self.poll_replay(spill),
-            Replayed if matches!(self.ram, Ram::Route) => Action::Route {
+            Replayed if matches!(self.ram, Ram::Route(_)) => Action::Route {
                 s_final: self.cp.s_final.ok_or_else(missing)?,
                 cutover_seq: self.cp.cutover_seq.ok_or_else(missing)?,
                 barrier_f: self.cp.barrier_f.ok_or_else(missing)?,
@@ -596,8 +598,10 @@ impl Driver {
                 Ok(())
             }
             (Replaying, o) => self.complete_replay(spill, o),
-            (Replayed, Outcome::Ok) if matches!(self.ram, Ram::Route) => {
-                self.ram = Ram::Idle;
+            (Replayed, Outcome::Ok) if matches!(self.ram, Ram::Route(_)) => {
+                if let Ram::Route(target) = std::mem::replace(&mut self.ram, Ram::Idle) {
+                    self.cp.target = Some(target);
+                }
                 self.save_step(spill, Routed)
             }
             (Replayed, o) => self.complete_compare(spill, Generation::Final, o),
@@ -787,6 +791,7 @@ impl Driver {
                                 // S0 is S_final: any difference is a fault, caught before cutover.
                                 self.stop(spill, "fence-first: the S_final read differs from S0")?;
                             } else {
+                                self.cp.source_digest = Some(digest.digest());
                                 self.cp.final_digest = Some(bytes);
                                 self.save_step(spill, Step::Verified)?;
                             }
@@ -856,6 +861,7 @@ impl Driver {
                 rebuilt: false,
                 cursor: None,
                 digest: Box::default(),
+                tally: Tally::default(),
             };
         }
         let Ram::Compare {
@@ -893,6 +899,7 @@ impl Driver {
             rebuilt,
             cursor,
             digest,
+            tally,
             ..
         } = &mut self.ram
         else {
@@ -908,6 +915,10 @@ impl Driver {
                 *rebuilt = true;
                 *cursor = None;
                 **digest = LiveDigest::new();
+                *tally = Tally {
+                    head,
+                    ..Tally::default()
+                };
                 Ok(())
             }
             Outcome::NewPage { rows, next } => {
@@ -919,6 +930,7 @@ impl Driver {
                 }
                 for (k, m) in &rows {
                     digest.add(&live_of(k, m)?);
+                    tally.add(m)?;
                 }
                 if next.is_some() {
                     *cursor = next;
@@ -931,8 +943,11 @@ impl Driver {
                 .ok_or_else(missing)?;
                 let expected = LiveDigest::from_bytes(expected)?;
                 let got = std::mem::take(&mut **digest);
+                let target = tally.facts(got.digest());
                 self.ram = Ram::Idle;
                 if got.digest() != expected.digest() {
+                    // Kept with the stop: the divergence is evidence (digests only).
+                    self.cp.target = Some(target);
                     let windows = got.differing_windows(&expected).len();
                     return self.stop(
                         spill,
@@ -944,10 +959,14 @@ impl Driver {
                     );
                 }
                 match against {
-                    Generation::S0 => self.save_step(spill, Step::Shadowed),
-                    // Verified at F: route next (the Route outcome lands above).
+                    Generation::S0 => {
+                        self.cp.target = Some(target);
+                        self.save_step(spill, Step::Shadowed)
+                    }
+                    // Verified at F: route next (the Route outcome lands above and
+                    // saves these facts with `Routed`; nothing is saved here).
                     Generation::Final => {
-                        self.ram = Ram::Route;
+                        self.ram = Ram::Route(target);
                         Ok(())
                     }
                 }
@@ -1144,6 +1163,43 @@ impl Driver {
 
     fn save(&mut self, spill: &mut dyn Spill) -> Result<()> {
         spill.save(&self.cp.to_bytes()?).map_err(spill_err)
+    }
+}
+
+/// Target counts of one compare, accumulated page by page.
+#[derive(Clone, Copy, Debug, Default)]
+struct Tally {
+    head: u64,
+    records: u64,
+    files: u64,
+    file_bytes: u64,
+}
+
+impl Tally {
+    fn add(&mut self, m: &Meta) -> Result<()> {
+        let over = || Error::Invalid("target counts overflow".into());
+        match m.class {
+            Class::Resource => {}
+            // Both come from legacy record rows (an oversized document is a file).
+            Class::Record | Class::UnindexedMarkdown => {
+                self.records = self.records.checked_add(1).ok_or_else(over)?;
+            }
+            Class::Attachment => {
+                self.files = self.files.checked_add(1).ok_or_else(over)?;
+                self.file_bytes = self.file_bytes.checked_add(m.size).ok_or_else(over)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn facts(&self, digest: B32) -> TargetFacts {
+        TargetFacts {
+            digest,
+            head: self.head,
+            records: self.records,
+            files: self.files,
+            file_bytes: self.file_bytes,
+        }
     }
 }
 

@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MigrationExecutor, IDLE, PAGE_LIMITS, MAX_REFUSALS } from "../src/migration-executor.ts";
+import { MigrationExecutor, IDLE, PAGE_LIMITS, MAX_REFUSALS, BASE_WAIT_MS, WAIT_MS, RETRY_MS, RETRY_DEADLINE_MS, MAX_TRIES } from "../src/migration-executor.ts";
 import { PAUSE_REASON, STEP, newRun } from "../src/migration-run.ts";
 import { LegacySourceError } from "../src/legacy-source/source.ts";
+import { SettlementRefused } from "../src/migration-executor.ts";
 import { FakeNative, mapStore, providerPlan, HOLD } from "./fixtures/migration-fake-native.ts";
 import { LARGE_RECORD_TEXT, fakeSource, placement, gen0Source, gen0Plan, fileRow as file, recordRow as record } from "./fixtures/migration-fake-source.mjs";
 
@@ -33,13 +34,30 @@ function connect(overrides = {}) {
   return { client, calls };
 }
 
-function setup({ plan = providerPlan(), overrides, source, pause = false } = {}) {
+/** A fake clock: `sleep` advances it; `slept` records each in-wake sleep. */
+function fakeClock(start = 1) {
+  const clock = { t: start, slept: [], now: () => clock.t, sleep: async ms => { clock.slept.push(ms); clock.t += ms; } };
+  return clock;
+}
+
+function setup({ plan = providerPlan(), overrides, source, pause = false, clock } = {}) {
   const store = mapStore(), native = new FakeNative(plan, store), c = connect(overrides);
-  let run = newRun(native.collection, HOLD, 1, pause);
-  const runStore = { load: async () => run && structuredClone(run), save: async r => { run = structuredClone(r); } };
+  let run = newRun(native.collection, HOLD, clock ? clock.t : 1, pause);
+  const saves = [];
+  const runStore = { load: async () => run && structuredClone(run), save: async r => { saves.push([r.state, r.reason]); run = structuredClone(r); } };
   const executor = new MigrationExecutor({ collection: native.collection, host: native, connect: () => c.client,
-    source: async () => source, store: runStore, sleep: async () => {} });
-  return { native, store, connect: c, executor, runStore, run: () => run };
+    source: async () => source, store: runStore, ...(clock ? { now: clock.now, sleep: clock.sleep } : { sleep: async () => {} }) });
+  return { native, store, connect: c, executor, runStore, saves, run: () => run };
+}
+
+/** Capture `migration_step` trace lines for the duration of `fn`. */
+async function traced(fn) {
+  const events = [], info = console.info;
+  console.info = (line, ...rest) => {
+    try { const e = JSON.parse(line); if (e.event === "migration_step") { events.push(e); return; } } catch { /* not ours */ }
+    info(line, ...rest);
+  };
+  try { return { result: await fn(), events }; } finally { console.info = info; }
 }
 
 /** Wake until the run stops or finishes (waits are skipped in time). */
@@ -137,7 +155,8 @@ test("members-policy: not queued is queued then retried, 503 waits, refusals sto
   const w = setup({ overrides: { membersPolicy: async () => (++n === 1 ? err(503, "unavailable") : ok({})) } });
   const r = await drive(w.executor);
   assert.equal(r.state, "done");
-  assert.ok(r.seen.includes("members_unavailable"));
+  assert.equal(n, 2);
+  assert.ok(w.saves.some(([state, reason]) => state === "waiting" && reason === "members_unavailable"), "retried in the wake");
 
   for (const code of ["migration_policy_blocked", "migration_members_over_cap", "migration_members_invalid"]) {
     const x = setup({ overrides: { membersPolicy: async () => err(409, code) } });
@@ -363,4 +382,65 @@ test("empty files seal once; short/long streams and over-policy files never sett
       assert.deepEqual(s.native.calls.filter(c => c.startsWith("gen0FileChunk")), ["gen0FileChunk:f1:0:0"]);
     } else { assert.equal(result.reason, expected); assert.equal(s.native.results.filter(r => r.kind === 4).length,0); }
   }
+});
+
+test("idle waits back off per reason from BASE_WAIT_MS to WAIT_MS and reset after progress", async () => {
+  const clock = fakeClock();
+  const s = setup({ clock, plan: [
+    { kind: 0, step: STEP.backupHeld, settle: "provider", idleBefore: Array(6).fill(IDLE.waitDraining) },
+    { kind: 0, step: STEP.routed, settle: "provider", idleBefore: [IDLE.waitDraining, IDLE.waitPaused] },
+  ] });
+  const spacing = [];
+  for (;;) {
+    const r = await s.executor.wake(new AbortController().signal);
+    if (r.state === "done") break;
+    assert.equal(r.state, "waiting");
+    spacing.push([r.reason, r.nextAt - clock.t]);
+    clock.t = r.nextAt;
+  }
+  assert.deepEqual(spacing, [
+    ["draining", 1000], ["draining", 2000], ["draining", 4000], ["draining", WAIT_MS], ["draining", WAIT_MS], ["draining", WAIT_MS],
+    ["draining", BASE_WAIT_MS], ["paused", BASE_WAIT_MS],
+  ]);
+  assert.deepEqual(clock.slept, [], "one-shot Driver waits always end the wake");
+});
+
+test("log evidence not yet present is retried inside the wake about 1 s apart", async () => {
+  const clock = fakeClock();
+  const s = setup({ clock, plan: [{ kind: 8, step: STEP.routed, settle: "log" }] });
+  const settle = s.native.logResult.bind(s.native);
+  let refusals = 3 * 4; // four whole #log rounds of three settlement attempts
+  s.native.logResult = async t => { if (refusals-- > 0) throw new SettlementRefused("migration_log_not_yet"); return settle(t); };
+  const { result, events } = await traced(() => s.executor.wake(new AbortController().signal));
+  assert.equal(result.state, "done", "one wake: no alarm/refresh/sync between retries");
+  assert.deepEqual(clock.slept.filter(ms => ms === BASE_WAIT_MS).length, 4);
+  const waits = events.filter(e => e.outcome === "wait");
+  assert.deepEqual(waits.map(e => [e.reason, e.wait_ms, e.in_wake, e.kind]), Array(4).fill(["log_pending:8", BASE_WAIT_MS, true, 8]));
+  assert.deepEqual(events.at(-2).outcome, "settled");
+  assert.deepEqual(events.at(-1), { event: "migration_step", outcome: "done", kind: null, reason: null, step: STEP.routed,
+    t_ms: clock.t - s.run().startedAt, wait_ms: null, in_wake: false });
+  assert.ok(events.every(e => typeof e.t_ms === "number" && e.t_ms >= 0));
+});
+
+test("held-ticket retries stay in the wake budget and give up on the old MAX_TRIES x RETRY_MS clock", async () => {
+  const clock = fakeClock(), start = clock.t;
+  const s = setup({ clock, plan: [{ kind: 12, step: STEP.routed, settle: "provider" }],
+    overrides: { source: async () => err(503, "unavailable") } });
+  let wakes = 0, r;
+  for (;;) {
+    const wakeStart = clock.t;
+    r = await s.executor.wake(new AbortController().signal);
+    wakes++;
+    assert.ok(clock.t - wakeStart <= 60_000, "in-wake sleeps never pass the 60 s wake budget");
+    if (r.state !== "waiting") break;
+    clock.t = r.nextAt;
+  }
+  assert.deepEqual([r.state, r.reason], ["stopped", "retry_exhausted:connect_retry:unavailable"]);
+  const elapsed = clock.t - start;
+  assert.equal(RETRY_DEADLINE_MS, MAX_TRIES * RETRY_MS);
+  assert.ok(elapsed >= RETRY_DEADLINE_MS && elapsed <= RETRY_DEADLINE_MS + RETRY_MS, String(elapsed));
+  assert.ok(wakes <= 7, `few wakes, not one per retry (${wakes})`);
+  const asks = s.connect.calls.filter(c => c === "source").length;
+  assert.ok(asks >= MAX_TRIES && asks <= MAX_TRIES + 5, `about the old number of asks (${asks})`);
+  assert.equal(s.store.saved.outstanding.kind, 12, "the saved action stays for an operator");
 });

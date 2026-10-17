@@ -17,6 +17,13 @@
  * explicit "no outcome, retry" replies (503, busy, retention pending) and log
  * evidence that has not arrived yet (the held ticket is retried in this
  * instance; an eviction meanwhile makes it UNKNOWN, as above).
+ *
+ * Spacing: idle and retry waits start at BASE_WAIT_MS and back off per reason
+ * up to WAIT_MS/RETRY_MS; any settled step resets them. A retry (no outcome,
+ * nothing new to prepare) sleeps inside the wake while its budget allows,
+ * instead of ending the wake; the next wake would only redo the same step.
+ * Held-ticket retries give up after RETRY_DEADLINE_MS, the old MAX_TRIES ×
+ * RETRY_MS spacing, measured on the clock rather than by count.
  */
 import type { CborValue } from "../../../packages/sdk/src/cbor.js";
 import type { MigrationPendingTicket } from "./engine.js";
@@ -42,12 +49,22 @@ const OTHER_WRITER = new Set([15, 16, 17, 18]);
 
 /** Reader page bound: at most 64 rows, and the executor's own 1 MiB of documents. */
 export const PAGE_LIMITS = { maxRecords: 64, maxDecodedBytes: 1 << 20 } as const;
+/** Cap of the backed-off spacing of the Driver's one-shot waits. */
 export const WAIT_MS = 5_000;
 /** Spacing of native refusals/unavailability: MAX_REFUSALS of these before an operator stop. */
 export const REFUSAL_WAIT_MS = 30_000;
+/** Cap of the backed-off spacing of explicit retries. */
 export const RETRY_MS = 5_000;
-/** Held-ticket retries (log evidence, explicit Connect retry) before an operator stop. */
+/** First wait of a reason; doubles per consecutive wait up to the cap. */
+export const BASE_WAIT_MS = 1_000;
+/** Log evidence is our own log catching up: retried at a flat BASE_WAIT_MS. */
+const FLAT_REASONS = new Set(["log_pending"]);
+/** Held-ticket retries (log evidence, explicit Connect retry) span MAX_TRIES of
+ * the old fixed RETRY_MS spacing before an operator stop. */
 export const MAX_TRIES = 60;
+export const RETRY_DEADLINE_MS = MAX_TRIES * RETRY_MS;
+/** Count backstop for a stalled clock: the deadline at the fastest spacing. */
+const MAX_ATTEMPTS = RETRY_DEADLINE_MS / BASE_WAIT_MS;
 /** Consecutive refusals with nothing saved before an operator stop. */
 export const MAX_REFUSALS = 5;
 const RETENTION_MS = 90 * 24 * 3600_000;
@@ -117,11 +134,15 @@ export interface ExecutorDeps {
 /** When to wake again (`null`: stopped, done or no run). */
 export interface WakeResult { state: RunRecord["state"] | "idle"; reason: string | null; nextAt: number | null }
 
-type Live = { ticket: MigrationPendingTicket; fields: CborValue[]; tries: number; posted: boolean; sealed?: Gen0Sealed };
-type Step = { settled: true } | { wait: string; ms: number } | { stop: string };
+type Live = { ticket: MigrationPendingTicket; fields: CborValue[]; tries: number; retryingSince: number | null; posted: boolean; sealed?: Gen0Sealed };
+/** A wait's class: `retry` redoes the same step (may sleep in the wake), `idle`
+ * is the Driver's one-shot wait, `refusal` a native refusal (fixed spacing). */
+type WaitClass = "retry" | "idle" | "refusal";
+type Step = { settled: true } | { wait: string; cls: WaitClass } | { stop: string };
 const settled: Step = { settled: true };
 const stop = (code: string): Step => ({ stop: code });
-const wait = (reason: string, ms = RETRY_MS): Step => ({ wait: reason, ms });
+const wait = (reason: string, cls: WaitClass = "retry"): Step => ({ wait: reason, cls });
+const reasonKey = (reason: string) => reason.split(":", 1)[0]!;
 
 const TABLES = ["resources", "files", "records"] as const;
 const hex = (b: Uint8Array) => Array.from(b, v => v.toString(16).padStart(2, "0")).join("");
@@ -144,6 +165,8 @@ export class MigrationExecutor {
   #read: { session: string; S0: number } | null = null;
   #sourcePort: MigrationSource | null = null;
   #running: Promise<WakeResult> | null = null;
+  /** Consecutive waits per reason since the last settled step (spacing only). */
+  readonly #backoff = new Map<string, number>();
 
   constructor(deps: ExecutorDeps) {
     this.#d = deps;
@@ -164,20 +187,31 @@ export class MigrationExecutor {
     const deadline = this.#now() + budget.ms;
     for (let i = 0; i < budget.actions && this.#now() < deadline; i++) {
       if (signal.aborted) break;
+      const heldKind = this.#live?.ticket.kind ?? null, lastSeq = run.last?.sequence;
       let step: Step;
       try {
         step = this.#live ? await this.#execute(run, signal) : await this.#next(run, signal);
       } catch (error) {
         step = stop(error instanceof SettlementUnknown ? "settlement_unknown" : `executor_error:${code(error)}`);
       }
+      const kind = heldKind ?? (run.last && run.last.sequence !== lastSeq ? run.last.kind : null);
       if ("settled" in step) {
+        this.#backoff.clear();
+        this.#trace(run, "settled", kind, null, null, false);
         if (run.state !== "running" || run.reason !== null) await this.#save(run, "running", null);
         continue;
       }
       if ("wait" in step) {
+        const ms = this.#spacing(step);
+        // A retry redoes the same step: sleep here while the budget allows
+        // rather than pay the next alarm's refresh and full sync first.
+        const inWake = step.cls === "retry" && i + 1 < budget.actions && this.#now() + ms < deadline && !signal.aborted;
+        this.#trace(run, "wait", kind, step.wait, ms, inWake);
         await this.#save(run, "waiting", step.wait);
-        return { state: "waiting", reason: step.wait, nextAt: this.#now() + step.ms };
+        if (inWake) { await this.#sleep(ms); continue; }
+        return { state: "waiting", reason: step.wait, nextAt: this.#now() + ms };
       }
+      this.#trace(run, step.stop === "done" ? "done" : "stop", kind, step.stop === "done" ? null : step.stop, null, false);
       if (step.stop === "done") {
         await this.#closeRead();
         await this.#save(run, "done", null);
@@ -189,6 +223,26 @@ export class MigrationExecutor {
       return { state: "stopped", reason: step.stop, nextAt: null };
     }
     return { state: run.state, reason: run.reason, nextAt: this.#now() + 100 };
+  }
+
+  /** Backed-off spacing for this wait (refusals keep their fixed spacing). */
+  #spacing(step: { wait: string; cls: WaitClass }): number {
+    if (step.cls === "refusal") return REFUSAL_WAIT_MS;
+    const key = reasonKey(step.wait), n = this.#backoff.get(key) ?? 0;
+    this.#backoff.set(key, n + 1);
+    if (FLAT_REASONS.has(key)) return BASE_WAIT_MS;
+    return Math.min(step.cls === "idle" ? WAIT_MS : RETRY_MS, BASE_WAIT_MS * 2 ** Math.min(n, 16));
+  }
+
+  /** One compact line per step transition for `wrangler tail` (DATA only:
+   * codes, kinds and timings; never fields, bodies or bindings). */
+  #trace(run: RunRecord, outcome: string, kind: number | null, reason: string | null, waitMs: number | null, inWake: boolean): void {
+    try {
+      let step: number | null = null;
+      try { step = this.#d.host.state().checkpoint?.step ?? null; } catch { /* Unavailable native: no step. */ }
+      console.info(JSON.stringify({ event: "migration_step", outcome, kind, reason, step,
+        t_ms: this.#now() - run.startedAt, wait_ms: waitMs, in_wake: inWake }));
+    } catch { /* Logging is not authority. */ }
   }
 
   async #save(run: RunRecord, state: RunRecord["state"], reason: string | null): Promise<void> {
@@ -230,7 +284,7 @@ export class MigrationExecutor {
     run.refusals = 0;
     run.last = { sequence: prepared.ticket.sequence, kind: prepared.ticket.kind };
     await this.#d.store.save(run);
-    this.#live = { ticket: prepared.ticket, fields: prepared.fields, tries: 0, posted: false };
+    this.#live = { ticket: prepared.ticket, fields: prepared.fields, tries: 0, retryingSince: null, posted: false };
     return this.#execute(run, signal);
   }
 
@@ -238,9 +292,9 @@ export class MigrationExecutor {
     switch (idle) {
       case IDLE.continue: return settled;
       // A one-shot Wait after "not yet": the next prepare asks again.
-      case IDLE.waitPaused: return wait("paused", WAIT_MS);
-      case IDLE.waitDraining: return wait("draining", WAIT_MS);
-      case IDLE.waitKeying: return wait("keying", WAIT_MS);
+      case IDLE.waitPaused: return wait("paused", "idle");
+      case IDLE.waitDraining: return wait("draining", "idle");
+      case IDLE.waitKeying: return wait("keying", "idle");
       case IDLE.done: {
         const cp = this.#d.host.state().checkpoint;
         return stop(cp?.step === STEP.routed ? "done" : `terminal:${cp?.step ?? "unknown"}`);
@@ -253,7 +307,7 @@ export class MigrationExecutor {
         if (this.#d.host.state().outstanding) return stop("outstanding_unknown");
         run.refusals++;
         if (run.refusals > MAX_REFUSALS) return stop(idle === IDLE.unavailable ? "native_unavailable" : "native_refused");
-        return wait(idle === IDLE.unavailable ? "native_unavailable" : "native_refused", REFUSAL_WAIT_MS);
+        return wait(idle === IDLE.unavailable ? "native_unavailable" : "native_refused", "refusal");
     }
   }
 
@@ -267,7 +321,12 @@ export class MigrationExecutor {
       else throw error;
     }
     if ("settled" in step) this.#live = null;
-    else if ("wait" in step && ++live.tries > MAX_TRIES) return stop(`retry_exhausted:${step.wait}`);
+    else if ("wait" in step) {
+      // The same window as MAX_TRIES waits of RETRY_MS, whatever the spacing.
+      const now = this.#now();
+      live.retryingSince ??= now;
+      if (++live.tries > MAX_ATTEMPTS || now - live.retryingSince >= RETRY_DEADLINE_MS) return stop(`retry_exhausted:${step.wait}`);
+    }
     return step;
   }
 

@@ -1,5 +1,5 @@
 /**
- * The Worker's **legacy source bindings**: how a LAB hosted Worker reaches the
+ * The Worker's **legacy source bindings**: how a LAB or staging hosted Worker reaches the
  * data it migrates from, read-only, for exactly the collections it is configured
  * for. Builds the `LegacySourceConfig` that `source.ts` reads through.
  *
@@ -14,8 +14,15 @@
  *   another account). Only `GET` is ever sent, and only for this collection's
  *   committed blob keys (`v1/blobs/<collection>/<transfer>[.<attempt>]`).
  * - **Unwrap:** the provider's legacy master key (`LEGACY_MASTER_KEY`, base64 of 32
- *   bytes), imported non-extractable for `decrypt` and wiped. LAB only: the LAB
- *   provider wraps with its legacy key (environment `local`); KMS is not configured.
+ *   bytes), imported non-extractable for `decrypt` and wiped. This is the only
+ *   supported wrapping: the LAB provider wraps with its legacy key (environment
+ *   `local`); a staging collection key in that form unwraps the same way. A KMS
+ *   (`MDBK`) wrapped key is refused (`kms`, "KMS-wrapped collection keys are not
+ *   supported by this legacy source"): no KMS unwrap path is configured here.
+ * - **Admission:** LAB (`LAB` = "1", `LEGACY_SOURCE_ENVIRONMENT` = "lab",
+ *   `KMS_ENVIRONMENT` unset or "lab") or staging (`KMS_ENVIRONMENT` = "staging",
+ *   `LEGACY_SOURCE_ENVIRONMENT` = "staging", `LAB` not "1"). Production
+ *   (`KMS_ENVIRONMENT` = "production") and every other combination are refused.
  * - **Scope:** `LEGACY_SOURCE_COLLECTIONS` is an explicit allowlist, never inferred
  *   from a request; the source is bound to one of its collections and refuses to
  *   open any other.
@@ -23,7 +30,7 @@
  * Any missing or malformed setting fails closed with a typed `LegacyBindingError`
  * whose message names settings, never their values.
  *
- * Settings (vars unless noted): `LAB` = "1", `LEGACY_SOURCE_ENVIRONMENT` = "lab",
+ * Settings (vars unless noted): `LAB` / `KMS_ENVIRONMENT` and `LEGACY_SOURCE_ENVIRONMENT` (above),
  * `LEGACY_SOURCE_COLLECTIONS`, `LEGACY_DB` (Hyperdrive), `LEGACY_R2_ENDPOINT`
  * (`https://<account>.r2.cloudflarestorage.com`), `LEGACY_R2_BUCKET`, and secrets
  * `LEGACY_R2_ACCESS_KEY_ID`, `LEGACY_R2_SECRET_ACCESS_KEY`, `LEGACY_R2_SESSION_TOKEN`
@@ -51,6 +58,7 @@ export class LegacyBindingError extends Error {
 
 export interface LegacySourceEnv {
   LAB?: string;
+  KMS_ENVIRONMENT?: string;
   LEGACY_SOURCE_ENVIRONMENT?: string;
   LEGACY_SOURCE_COLLECTIONS?: string;
   LEGACY_DB?: { connectionString?: unknown };
@@ -78,7 +86,11 @@ export interface LegacyR2Settings {
   sessionToken?: string;
 }
 
+/** Where the legacy source is admitted (production never is). */
+export type LegacySourceTier = "lab" | "staging";
+
 export interface LegacyBindingSettings {
+  tier: LegacySourceTier;
   collections: string[];
   connectionString: string;
   r2: LegacyR2Settings;
@@ -113,11 +125,27 @@ function decodeKey(value: string): Uint8Array {
   return Uint8Array.from(bin, (c) => c.charCodeAt(0));
 }
 
+/**
+ * The admission tier from the deployment's own environment, before any other
+ * setting is read. Production is refused outright; staging needs the staging KMS
+ * environment and no LAB flag; LAB needs `LAB=1` and no other KMS environment.
+ */
+function admissionTier(env: LegacySourceEnv): LegacySourceTier {
+  const kms = env.KMS_ENVIRONMENT;
+  if (kms === "production") {
+    throw new LegacyBindingError("legacy_source_unconfigured", "legacy source bindings are refused in production (KMS_ENVIRONMENT)");
+  }
+  if (env.LAB === "1") {
+    if (kms !== undefined && kms !== "" && kms !== "lab") throw misconfigured("KMS_ENVIRONMENT");
+    return "lab";
+  }
+  if (kms === "staging") return "staging";
+  throw new LegacyBindingError("legacy_source_unconfigured", "legacy source bindings are LAB- or staging-only (LAB, KMS_ENVIRONMENT)");
+}
+
 /** Parse and check every setting; refuse (typed) on anything missing or malformed. */
 export function legacyBindingSettings(env: LegacySourceEnv): LegacyBindingSettings {
-  if (env.LAB !== "1") {
-    throw new LegacyBindingError("legacy_source_unconfigured", "legacy source bindings are LAB-only");
-  }
+  const tier = admissionTier(env);
   const required = {
     LEGACY_SOURCE_ENVIRONMENT: env.LEGACY_SOURCE_ENVIRONMENT,
     LEGACY_SOURCE_COLLECTIONS: env.LEGACY_SOURCE_COLLECTIONS,
@@ -132,7 +160,7 @@ export function legacyBindingSettings(env: LegacySourceEnv): LegacyBindingSettin
   if (missing.length) {
     throw new LegacyBindingError("legacy_source_unconfigured", `legacy source bindings missing: ${missing.join(", ")}`);
   }
-  if (env.LEGACY_SOURCE_ENVIRONMENT !== "lab") throw misconfigured("LEGACY_SOURCE_ENVIRONMENT");
+  if (env.LEGACY_SOURCE_ENVIRONMENT !== tier) throw misconfigured("LEGACY_SOURCE_ENVIRONMENT");
   const collections = env.LEGACY_SOURCE_COLLECTIONS!.split(",").map((c) => c.trim());
   if (!collections.length || collections.length > MAX_COLLECTIONS || collections.some((c) => !UUID.test(c))
       || new Set(collections).size !== collections.length || collections.includes("00000000-0000-0000-0000-000000000000")) {
@@ -150,6 +178,7 @@ export function legacyBindingSettings(env: LegacySourceEnv): LegacyBindingSettin
     throw misconfigured("LEGACY_R2_SESSION_TOKEN");
   }
   return {
+    tier,
     collections,
     connectionString: cs,
     r2: {
@@ -372,7 +401,8 @@ export async function openLegacySource(env: LegacySourceEnv, collection: string,
     settings.masterKey.fill(0);
   }
   const { connect } = deps;
-  const unwrapper: LegacyUnwrapper = { environment: "local", legacyMasterKey };
+  // Legacy-key wrapping only; no `kms` here, so an MDBK row refuses (crypto.ts).
+  const unwrapper: LegacyUnwrapper = { environment: settings.tier === "lab" ? "local" : "staging", legacyMasterKey };
   const hold = holdReader(connect, settings.connectionString);
   return new BoundLegacySource(collection, {
     openTx: (signal) => openReadOnlyTx(connect, settings.connectionString, signal),

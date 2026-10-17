@@ -67,7 +67,7 @@ pub use account::{
     AccountAction, AccountView, CollectionStatus, CutoverRecord, flip_evidence, may_fence,
     next_account_action,
 };
-pub use checkpoint::{Checkpoint, Step};
+pub use checkpoint::{Checkpoint, Step, TargetFacts, Verification};
 pub use driver::{Action, Driver, Outcome, Wait};
 pub use gen0::{ImportStats, bucket_range, bucket16};
 mod window;
