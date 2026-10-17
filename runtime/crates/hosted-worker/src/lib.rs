@@ -39,6 +39,7 @@ pub mod log_http;
 mod migration_action_ledger;
 pub mod migration_checkpoint;
 pub mod migration_rollback_receipt;
+pub mod migration_sample;
 pub mod migration_source;
 pub mod noise_sessions;
 pub mod original_app;

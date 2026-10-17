@@ -48,7 +48,8 @@ import { IDLE, MigrationExecutor, SettlementRefused, SettlementUnknown, type Mig
 import { connectClient } from "./migration-connect.ts";
 import { hasGen0Objects, putGen0Object } from "./migration-objects.ts";
 import { migrationOperatorBody, migrationOperatorRequest, type MigrationOperatorRequest } from "./migration-operator.ts";
-import { PAUSE_REASON, atPreCutoverPause, migrationRunRequest, migrationStatus, migrationStatusRequest, newRun, readNativeState, storageRunStore } from "./migration-run.ts";
+import { PAUSE_REASON, STEP, atPreCutoverPause, migrationRunRequest, migrationStatus, migrationStatusRequest, newRun, readNativeState, storageRunStore } from "./migration-run.ts";
+import { migrationSampleBody, migrationSampleRequest, nativeSampleRequest } from "./migration-sample.ts";
 import { LegacyBindingError, openLegacySource, type LegacySourceEnv, type PgConnect } from "./legacy-source/bindings.ts";
 import { isPermanentCustodyRefusal, withCustodyRetry } from "./custody-retry.ts";
 import { ProductionCustody, deploymentRelease, productionParts, productionWrapper, type FactoryEnv } from "./factory.ts";
@@ -124,6 +125,11 @@ function pitrConfigured(env: Env): boolean {
   const p = env as Env & PitrFactorySettings & { PITR_PHASE?: R2Bucket };
   return p.PITR_BINDING !== undefined || p.PITR_MINIMUM_EPOCH !== undefined
     || p.PITR_ESCROW_SERVICE_TOKEN !== undefined || p.PITR_PHASE !== undefined;
+}
+
+/** A lasting custody verdict on an activation: an answer the CP records, not a 5xx. */
+function verdictAnswer(error: unknown): Response {
+  return Response.json({ error: (error as Error).message }, { status: 409, headers: { "cache-control": "no-store" } });
 }
 
 export class HostedCollection extends DurableObject<Env> {
@@ -604,7 +610,8 @@ export class HostedCollection extends DurableObject<Env> {
       logAppend: (t) => confirmed(t).migrationLogAppend(t),
       logResult: (t, signal) => this.#commitMigrationLogResult(t, signal),
       release: (t) => { this.engine?.finishMigrationPending(t); this.#migrationConfirmed.delete(t); },
-      pump: async (_signal, head) => { const e = this.engine; if (e) { if (head) e.requestHead(); await this.sync(e); } },
+      // Ticks first, as the alarm does: retries can now repeat inside one wake.
+      pump: async (_signal, head) => { const e = this.engine; if (e) { if (head) e.requestHead(); e.tick(Date.now()); await this.sync(e); } },
       resetForRebuild: async () => {
         const collection = this.collection;
         if (!collection || this.opening) throw new Error("migration_host_unavailable");
@@ -1224,6 +1231,24 @@ export class HostedCollection extends DurableObject<Env> {
           { status: 409, headers: { "cache-control": "no-store" } });
       } finally { this.#migrationOperatorRunning = false; }
     }
+    if (url.pathname === "/v1/hosted/migration/sample") {
+      // Read-only digest sample for a post-routed verifier (migration-sample.ts).
+      if (this.escrow) return new Response("not found", { status: 404 });
+      const token = (this.env as unknown as { HOSTED_SERVICE_TOKEN?: string }).HOSTED_SERVICE_TOKEN;
+      const json = (status: number, body: unknown) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
+      const input = await migrationSampleRequest(request, token);
+      if (input instanceof Response) return input;
+      if (input.collection !== collection) return json(400, { error: "invalid_request" });
+      this.requirePhysicalCollection(collection);
+      let step: number | null;
+      try { step = readNativeState(this.ctx.storage.sql).checkpoint?.step ?? null; }
+      catch { return json(409, { error: "migration_state_unreadable" }); }
+      if (step === null || step < STEP.verified || step > STEP.routed) return json(409, { error: "migration_not_verified" });
+      try {
+        const engine = await this.ready(collection);
+        return json(200, migrationSampleBody(input, step, engine.migrationSample(nativeSampleRequest(input))));
+      } catch { return json(503, { error: "migration_sample_unavailable" }); }
+    }
     if (url.pathname === "/v1/hosted/migration/run" || url.pathname === "/v1/hosted/migration/status") {
       if (this.escrow) return new Response("not found", { status: 404 });
       const token = (this.env as unknown as { HOSTED_SERVICE_TOKEN?: string }).HOSTED_SERVICE_TOKEN;
@@ -1285,14 +1310,20 @@ export class HostedCollection extends DurableObject<Env> {
         // A lasting verdict (deleted, left sync, not this deployment's) is an
         // answer, not a failure: ready() already retired the actor. The CP keeps
         // the batch pending and retries on its own backoff.
-        if (isPermanentCustodyRefusal(error)) {
-          return Response.json({ error: (error as Error).message }, { status: 409, headers: { "cache-control": "no-store" } });
-        }
+        if (isPermanentCustodyRefusal(error)) return verdictAnswer(error);
         throw error;
       }
       const generation = this.logGen;
       engine.refresh();
-      await this.sync(engine);
+      try { await this.sync(engine); }
+      catch (error) {
+        // A warm engine learns of the verdict through its fresh log token (the
+        // activation dropped the held one): retire as the alarm path does, and
+        // give the CP the same definite answer as a cold open.
+        if (!isPermanentCustodyRefusal(error)) throw error;
+        await this.retireForVerdict();
+        return verdictAnswer(error);
+      }
       if (tag && this.engine === engine && this.logGen === generation) wakeLog(tag, this.escrow ? "escrow" : "hosted", "activation_complete");
       return Response.json({ activated: true }, { headers: { "cache-control": "no-store" } });
     }
@@ -1570,6 +1601,17 @@ export default {
       const body = "backupHold" in input && "pauseBeforeCutover" in input ? { collection: input.collection, backup_hold: input.backupHold, stop_before_flip: input.pauseBeforeCutover } : { collection: input.collection };
       return stub.fetch(new Request(`${url.origin}/v1/hosted/migration/${run ? "run" : "status"}?collection=${input.collection}`, {
         method: "POST", headers, body: JSON.stringify(body),
+      }));
+    }
+    if (url.pathname === "/internal/v1/migration/sample") {
+      if (kind !== "hosted") return new Response("not found", { status: 404 });
+      const input = await migrationSampleRequest(request, e.HOSTED_SERVICE_TOKEN);
+      if (input instanceof Response) return input;
+      const stub = namedStub(env.COLLECTIONS, input.collection, hint);
+      const headers = new Headers(request.headers);
+      headers.delete("content-length");
+      return stub.fetch(new Request(`${url.origin}/v1/hosted/migration/sample?collection=${input.collection}`, {
+        method: "POST", headers, body: JSON.stringify(input),
       }));
     }
     if (url.pathname === "/internal/v1/collections/activate") {

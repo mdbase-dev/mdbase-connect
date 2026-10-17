@@ -160,3 +160,30 @@ test("CP activation of a refused collection gets a definite 409 answer, not an u
   t.o.ready = async () => { throw new Error("custody_unavailable"); };
   await assert.rejects(t.o.fetch(activate()), /custody_unavailable/);
 });
+
+test("activation of a warm engine whose fresh token carries a verdict answers 409 and retires the actor", async () => {
+  const token = "s".repeat(40);
+  const activate = () => new Request(`https://w.test/v1/hosted/activate?collection=${collection}`, {
+    method: "POST", headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ collection }) });
+  for (const code of PERMANENT) {
+    const t = object(false); const w = warmEngine(t);
+    t.o.env = { ...t.o.env, HOSTED_SERVICE_TOKEN: token };
+    t.setAlarm(Date.now() + 30_000);
+    let tokens = 0;
+    t.o.token = async () => { tokens++; throw new Error(code); };
+    const response = await t.o.fetch(activate());
+    assert.equal(response.status, 409, `${code}: a definite answer, not a 5xx`);
+    assert.deepEqual(await response.json(), { error: code });
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.equal(tokens, 1);
+    assert.equal(t.o.engine, null, "the engine stops serving");
+    assert.equal(w.wiped(), 1);
+    assert.equal(t.alarm(), null, "no further wake");
+  }
+  // A transient token refusal is still a failure the CP retries; the engine stays.
+  const t = object(false); const w = warmEngine(t);
+  t.o.env = { ...t.o.env, HOSTED_SERVICE_TOKEN: token };
+  t.o.token = async () => { throw new Error("custody_unavailable"); };
+  await assert.rejects(t.o.fetch(activate()), /custody_unavailable/);
+  assert.equal(t.o.engine, w.engine);
+});

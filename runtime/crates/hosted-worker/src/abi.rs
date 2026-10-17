@@ -1382,6 +1382,21 @@ pub extern "C" fn hd_migration_pending_finish(h: f64) {
 }
 
 /// 1 when the engine serves sessions (rebuilt from the log), else 0.
+/// Read-only digest sample of the target (`crate::migration_sample`): CBOR
+/// request in, CBOR reply out; empty output = refused. Digests and sizes only.
+///
+/// # Safety
+/// Input is alloc-owned initialized bytes of `len` (at most 1 KiB).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hd_migration_sample(ptr: *mut u8, len: usize) -> u64 {
+    let input = unsafe { take(ptr, len) };
+    if input.len() > 1024 {
+        return 0;
+    }
+    with(|s| crate::migration_sample::answer(s.engine.replica().store(), &input).map_or(0, give))
+        .unwrap_or(0)
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn hd_serving() -> u32 {
     with(|s| u32::from(s.engine.serving())).unwrap_or(0)

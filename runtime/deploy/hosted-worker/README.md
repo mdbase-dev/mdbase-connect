@@ -79,8 +79,49 @@ node build-release-trust.mjs --verifier /trusted/mdbn-trust --asset /trusted/env
   --sha256 <manifest-sha256> --environment <lab|staging|production> \
   --cp-origin <manifest-https-origin> --log-origin <manifest-https-origin> \
   --source-commit <manifest-commit> --source-version <manifest-version>
+# BEFORE any deploy/dry-run bundle: the KMS collection allowlist (below).
+node build-kms-allowlist.mjs --collections <allowlist.txt> --sha256 <manifest-sha256> \
+  --previous <served-allowlist.txt> --previous-sha256 <prior-manifest-sha256>
 npx wrangler types && npx tsc --noEmit
 ```
+
+## KMS collection allowlist (bundled data)
+
+KMS custody serves only the collections in a bundled allowlist module. Wrangler's
+fixed `#hosted-kms-collections` alias requires the create-only
+`.generated/kms-collections.ts`, written by `build-kms-allowlist.mjs`; a missing
+module refuses bundling.
+
+- **Format.** Canonical text: each lowercase, non-nil UUID followed by `\n`, in
+  strictly ascending order, nothing else. Empty text is deny-all. The digest is
+  the plain SHA-256 of that text. The build refuses non-canonical input rather
+  than normalizing it.
+- **Limit.** At most 100,000 entries (`MAX_KMS_COLLECTIONS`): 3.7 MB of text,
+  about 2 MB compressed, inside the Worker script size limit next to the engine.
+  Each isolate validates and hashes it once (tens of milliseconds at the cap).
+  Lookup is a binary search over the fixed-width text, with no per-entry objects.
+- **Pinning.** The deploy manifest pins the allowlist digest. The build refuses
+  when the file's digest differs from `--sha256`. The deployment declares the
+  same digest as the plain var `KMS_COLLECTIONS_SHA256`. Custody refuses to start
+  (DENY) unless that var equals the bundled module's digest and the module's
+  text hashes to it.
+- **Cumulative.** A serving allowlist only grows. The build needs the allowlist
+  the deployed version serves (`--previous`, with its pinned digest), or
+  `--initial` for a deployment that has never served one. It refuses any change
+  that drops a previously served collection (`kms_allowlist_shrinks`) unless that
+  collection is named in the separate retire list (`--retire FILE
+  --retire-sha256 HEX`). A retire list may name only served collections that the
+  change stops serving. The receipt on stdout records both digests and the
+  added/retired counts.
+- **Transition.** The `KMS_COLLECTIONS` secret is still read. With a bundled
+  module the module wins, and a secret that is still set must list exactly the
+  same collections, or custody refuses. Without a module (source and test
+  default, `src/unconfigured-kms-collections.ts`) the secret alone is used, and a
+  declared `KMS_COLLECTIONS_SHA256` refuses. Remove the secret once deploy
+  tooling bundles the allowlist.
+- A collection outside the allowlist gets `kms_collection_not_allowed` from KMS
+  custody, surfaced as the verdict `custody_collection_not_allowed`. CP
+  activation of such a collection answers 409, not 5xx.
 
 ## Historical local end-to-end (no Cloudflare account)
 

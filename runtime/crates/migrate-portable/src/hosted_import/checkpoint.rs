@@ -116,7 +116,29 @@ wire_struct! {
         19 opt failure: String,
         20 req attempts: u64,
         21 opt fence_first: bool,
+        22 opt source_digest: B32,
+        23 opt target_digest: B32,
+        24 opt target_head: u64,
+        25 opt target_records: u64,
+        26 opt target_files: u64,
+        27 opt target_file_bytes: u64,
     }
+}
+
+/// What the latest rebuilt-cache compare saw on the target: digests and counts
+/// only, never content. Evidence for an external verifier; never authority.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct TargetFacts {
+    /// `LiveDigest::digest` of the rebuilt target cache.
+    pub digest: B32,
+    /// The log head the rebuild reached (at least the compared base or barrier F).
+    pub head: u64,
+    /// Indexed records.
+    pub records: u64,
+    /// Attachment files.
+    pub files: u64,
+    /// Attachment plaintext bytes.
+    pub file_bytes: u64,
 }
 
 /// The durable state of one collection's migration. Metadata only.
@@ -165,9 +187,50 @@ pub struct Checkpoint {
     /// Fence-first mode: fence and drain before the import, so S0 = `S_final` and
     /// the H9 replay is empty (no delta capture needed). Fixed at start.
     pub fence_first: bool,
+    /// H7: `LiveDigest::digest` of the `S_final` source read (the digest `Route`
+    /// carries), recorded with `Verified`.
+    pub source_digest: Option<B32>,
+    /// H5/H10: the target side of the latest compare (S0 shadow, then the final
+    /// compare once routed).
+    pub target: Option<TargetFacts>,
+}
+
+/// The verification projection a post-routed verifier compares: digests and
+/// counts only. Present from `Verified` through `Routed` once both sides exist.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Verification {
+    /// Target indexed records.
+    pub records: u64,
+    /// Target attachment files.
+    pub files: u64,
+    /// Target attachment plaintext bytes.
+    pub file_bytes: u64,
+    /// `LiveDigest::digest` of the `S_final` source read.
+    pub source_digest: B32,
+    /// `LiveDigest::digest` of the rebuilt target cache.
+    pub target_digest: B32,
+    /// The log head the target rebuild reached.
+    pub log_head: u64,
 }
 
 impl Checkpoint {
+    /// The verification projection, recorded at `Verified` (8). `None` before it,
+    /// after a rollback or failure, or when either side is missing.
+    pub fn verification(&self) -> Option<Verification> {
+        if self.step < Step::Verified || self.step > Step::Routed {
+            return None;
+        }
+        let (source, target) = (self.source_digest?, self.target?);
+        Some(Verification {
+            records: target.records,
+            files: target.files,
+            file_bytes: target.file_bytes,
+            source_digest: source,
+            target_digest: target.digest,
+            log_head: target.head,
+        })
+    }
+
     /// A fresh checkpoint for `collection`.
     pub fn new(collection: &str) -> Checkpoint {
         Checkpoint {
@@ -192,6 +255,8 @@ impl Checkpoint {
             failure: None,
             attempts: 0,
             fence_first: false,
+            source_digest: None,
+            target: None,
         }
     }
 
@@ -219,6 +284,12 @@ impl Checkpoint {
             failure: self.failure.clone(),
             attempts: self.attempts,
             fence_first: self.fence_first.then_some(true),
+            source_digest: self.source_digest,
+            target_digest: self.target.map(|t| t.digest),
+            target_head: self.target.map(|t| t.head),
+            target_records: self.target.map(|t| t.records),
+            target_files: self.target.map(|t| t.files),
+            target_file_bytes: self.target.map(|t| t.file_bytes),
         }
         .to_bytes()
         .map_err(|e| Error::Invalid(format!("checkpoint encode: {e:?}")))
@@ -228,6 +299,29 @@ impl Checkpoint {
     pub fn from_bytes(b: &[u8]) -> CResult<Checkpoint> {
         let e = Encoded::from_bytes(b)
             .map_err(|e| Error::Invalid(format!("checkpoint decode: {e:?}")))?;
+        let target = match (
+            e.target_digest,
+            e.target_head,
+            e.target_records,
+            e.target_files,
+            e.target_file_bytes,
+        ) {
+            (Some(digest), Some(head), Some(records), Some(files), Some(file_bytes)) => {
+                Some(TargetFacts {
+                    digest,
+                    head,
+                    records,
+                    files,
+                    file_bytes,
+                })
+            }
+            (None, None, None, None, None) => None,
+            _ => {
+                return Err(Error::Invalid(
+                    "checkpoint target facts are incomplete".into(),
+                ));
+            }
+        };
         Ok(Checkpoint {
             collection: e.collection,
             step: Step::from_u64(e.step)
@@ -251,6 +345,8 @@ impl Checkpoint {
             failure: e.failure,
             attempts: e.attempts,
             fence_first: e.fence_first.unwrap_or(false),
+            source_digest: e.source_digest,
+            target,
         })
     }
 }

@@ -4,6 +4,7 @@
  */
 import { AwsClient } from "aws4fetch";
 import { configuredEnvelope, encodeEnvelope } from "./envelope.ts";
+import { KmsAllowlist } from "./kms-allowlist.ts";
 
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
 const NIL = "00000000-0000-0000-0000-000000000000";
@@ -23,8 +24,9 @@ export interface HostedKmsConfig {
   keyArn: string;
   region: string;
   environment: "lab" | "staging" | "production";
-  /** Exact deployment-owned collections; never inferred from a request. */
-  collections: readonly string[];
+  /** Exact deployment-owned collections; never inferred from a request. A list
+   * is validated into an allowlist (bounded by MAX_KMS_COLLECTIONS). */
+  collections: KmsAllowlist | readonly string[];
 }
 
 function fail(code: string): never { throw new Error(code); }
@@ -82,11 +84,17 @@ async function boundedJson(response: Response, signal: AbortSignal): Promise<Rec
   }
 }
 
+/** A validated allowlist, or kms_invalid_config. */
+export function allowlist(collections: KmsAllowlist | readonly string[]): KmsAllowlist {
+  if (collections instanceof KmsAllowlist) return collections;
+  try { return KmsAllowlist.fromList(collections); } catch { return fail("kms_invalid_config"); }
+}
+
 export class HostedAwsKms {
   private readonly keyArn: string;
   private readonly region: string;
   private readonly environment: HostedKmsConfig["environment"];
-  private readonly collections: ReadonlySet<string>;
+  private readonly collections: KmsAllowlist;
   private readonly endpoint: string;
   private readonly credentials: () => AwsCredentials | null;
   private readonly fetchImpl: typeof fetch;
@@ -106,12 +114,11 @@ export class HostedAwsKms {
     // Commercial AWS only until another partition has a reviewed endpoint mapping.
     const match = /^arn:aws:kms:([a-z]{2}(?:-[a-z]+)+-\d):\d{12}:key\/([0-9a-f-]+)$/.exec(config.keyArn);
     if (!match || match[1] !== config.region || !validUuid(match[2]) ||
-        !["lab", "staging", "production"].includes(config.environment) ||
-        config.collections.length > 500 || !config.collections.every(validUuid)) fail("kms_invalid_config");
+        !["lab", "staging", "production"].includes(config.environment)) fail("kms_invalid_config");
+    this.collections = allowlist(config.collections);
     this.keyArn = config.keyArn;
     this.region = config.region;
     this.environment = config.environment;
-    this.collections = new Set(config.collections);
     this.endpoint = `https://kms.${this.region}.amazonaws.com/`;
   }
 

@@ -121,7 +121,7 @@ export async function unwrapCollectionKey(u: LegacyUnwrapper, wrapped: Uint8Arra
     if (!u.legacyMasterKey) throw new LegacyCryptoError("wrapped_key", "legacy key not configured");
     return importKey(await openEnvelope(u.legacyMasterKey, w.envelope, aad.collectionKey(cid)));
   }
-  if (!u.kms) throw new LegacyCryptoError("kms", "KMS not configured");
+  if (!u.kms) throw new LegacyCryptoError("kms", "KMS-wrapped collection keys are not supported by this legacy source");
   const { keyId, plaintext } = await u.kms.decrypt(w.ciphertext, kmsContext(u.environment, cid), signal);
   signal.throwIfAborted();
   if (!sameKmsKey(keyId, w.keyRef)) {

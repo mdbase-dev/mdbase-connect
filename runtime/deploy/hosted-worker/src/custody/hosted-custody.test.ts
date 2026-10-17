@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { HostedCustody, type HostedControlPort, type HostedDeviceRecord } from "./hosted-custody.ts";
 import { encodeEnvelope } from "./envelope.ts";
+import { HostedAwsKms } from "./aws-kms.ts";
+import { KmsAllowlist } from "./kms-allowlist.ts";
 import { cpCustody } from "../cp-custody.ts";
 import { ControlError } from "../control.ts";
 import { labRawError, readyDiagnostic } from "../ready-diagnostic.ts";
@@ -399,6 +401,17 @@ test("a KMS that does not serve the collection is a verdict, not a retryable out
   await assert.rejects(s.custody.openSealer(COL, signal()), (e: Error) => e.message === "custody_collection_not_allowed");
   const transient = setup({unwrap: async () => {throw new Error("kms_unavailable");}});
   await assert.rejects(transient.custody.openSealer(COL, signal()), (e: Error) => e.message === "custody_unavailable");
+});
+
+test("a collection outside a 1,000+ entry KMS allowlist is refused as custody_collection_not_allowed, before any KMS call", async () => {
+  const members = Array.from({ length: 1_000 }, (_, i) => `${(i + 1).toString(16).padStart(8, "0")}-abcd-4000-8000-${(i + 1).toString(16).padStart(12, "0")}`);
+  let kmsCalls = 0;
+  const kms = new HostedAwsKms({ keyArn: ARN, region: "us-east-1", environment: "staging", collections: KmsAllowlist.fromList(members) },
+    () => null, async () => { kmsCalls++; throw new Error("unexpected"); });
+  const control: HostedControlPort = { serviceDevice: async () => record(), logToken: async () => ({token, expiresAt: NOW + 900_000}), forget: () => {} };
+  const custody = new HostedCustody(config(), control, kms, () => record(), () => true, () => NOW);
+  await assert.rejects(custody.openSealer(COL, signal()), (e: Error) => e.message === "custody_collection_not_allowed");
+  assert.equal(kmsCalls, 0);
 });
 
 // Held log token (LogTokenCache): reuse, margin, bound and every drop path.
