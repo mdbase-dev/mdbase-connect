@@ -1,6 +1,0 @@
-{
-  "reason": "Hosted and escrow deployments call the control plane's internal routes from shared egress addresses, one Durable Object per collection, and exhausted the global per-IP limit. The existing global limiter gains a key generator and max that count requests carrying a valid hosted/escrow token (checked by the existing serviceKind) against a per-service bucket. One export from the existing hosted-routes module, imported by app.ts where the limiter is registered; no new route, store, credential or configuration.",
-  "growth": {
-    "typeScriptExportDeclarations": 1
-  }
-}

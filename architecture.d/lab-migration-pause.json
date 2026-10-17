@@ -1,4 +1,0 @@
-{
-  "reason": "Add the requested LAB pre-cutover operator boundary to the existing migration CLI and Worker adapter, not a parallel orchestration path. The existing run loop accepts explicit pause mode and resume validates the immutable native run sequence before continuing it. No new route, credential, configured state, provider semantics or production file; two exports name the shared pause reason and explicit resume orchestration.",
-  "growth": { "typeScriptExportDeclarations": 2 }
-}

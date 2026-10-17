@@ -1,9 +1,0 @@
-{
-  "reason": "One LAB-only authenticated adapter composes the existing canonical migration target creator before Worker Run custody. It replaces the broken direct-preflight-to-Run ordering, not the creator, record lookup, serving admission or native H1. One production file and export plus three relative imports are the exact boundary growth; fixed LAB origin/migration credential, bounded public reply, no generic endpoint selector or alternate bootstrap.",
-  "growth": {
-    "productionFiles": 1,
-    "relativeImports": 3,
-    "typeScriptExportDeclarations": 1,
-    "services/server": 1
-  }
-}

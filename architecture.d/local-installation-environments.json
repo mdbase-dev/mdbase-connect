@@ -1,7 +1,0 @@
-{
-  "reason": "Reuse one compiled-local/server-environment/exact-origin predicate in existing timer composition and declaration codecs, with trusted server context explicitly forwarded through pairing, frozen consent and notification reads. Three imports into existing production files (app, declaration, resolver type) and two server-only exports (the shared predicate and its finite environment type) replace repeated environment enumeration. No new production file, route, configuration, public protocol schema or authorization path. Existing managed checks and original consent/device/scope policy remain.",
-  "growth": {
-    "relativeImports": 3,
-    "typeScriptExportDeclarations": 2
-  }
-}

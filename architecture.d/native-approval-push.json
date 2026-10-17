@@ -1,9 +1,0 @@
-{
-  "reason": "One shared post-commit Native approval delivery boundary serves ordinary approval, composed installation approval and original credential completion. It reuses exact Native relay admission audience checks and the existing bounded policy ACK; no new credential authority, persisted state, retry queue or wire contract. Credential issuance releases its connection before delivery, and failed delivery retains the existing renewal fallback.",
-  "growth": {
-    "productionFiles": 1,
-    "services/server": 1,
-    "relativeImports": 7,
-    "typeScriptExportDeclarations": 1
-  }
-}

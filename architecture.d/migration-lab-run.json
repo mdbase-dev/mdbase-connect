@@ -1,9 +1,0 @@
-{
-  "reason": "LAB-only operator orchestration of one fixture account's hosted migration and its pre-cutover route-back: one module (decision tables, the hosted Worker client with its operator-entry adapter, the control-plane port and the two runs) plus its CLI entry. It reuses the existing start, timer import, cutover, flip, completion and timer-cleanup functions; the cleanup function is exported for it. No SQL migration.",
-  "growth": {
-    "productionFiles": 2,
-    "relativeImports": 13,
-    "typeScriptExportDeclarations": 16,
-    "services/server": 2
-  }
-}

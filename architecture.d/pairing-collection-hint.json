@@ -1,6 +1,0 @@
-{
-  "reason": "Three portal-internal exports centralize the existing new-collection sentinel, preserve only the collection_hint during repeated inspection, and behavior-test initial picker choice. The hint only selects from the confirmed account's existing approvable list; it is URL metadata, not another authorization mechanism. No new production file, package, import edge, persisted field or migration.",
-  "growth": {
-    "typeScriptExportDeclarations": 3
-  }
-}

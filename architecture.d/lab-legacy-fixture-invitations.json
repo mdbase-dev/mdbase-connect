@@ -1,9 +1,0 @@
-{
-  "reason": "LAB migration rehearsals need per-invitation legacy-born fixtures while ordinary signup retains the next deployment default. The nullable canonical invitation field avoids deriving account authority from audit/diagnostic state or overloading tokens, actor names or entitlements. The one added internal module moves the existing static auth-admin help text out of its 1000-line-budgeted command dispatcher; it replaces and deletes that inline block, has no runtime state or alternate account-creation path, and advertises the guarded option. No public SDK exports or global backend defaults change.",
-  "growth": {
-    "productionFiles": 1,
-    "relativeImports": 1,
-    "typeScriptExportDeclarations": 1,
-    "services/server": 1
-  }
-}

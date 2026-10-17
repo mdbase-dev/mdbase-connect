@@ -5,31 +5,31 @@
     "apps/editor/src/TypeBrowser.tsx": 1989
   },
   "productionFileBudgetsByPackage": {
-    "apps/desktop": 46,
-    "apps/editor": 121,
-    "apps/portal": 16,
+    "apps/desktop": 41,
+    "apps/editor": 116,
+    "apps/portal": 23,
     "crates/connect-agent": 37,
     "crates/connect-cli": 8,
     "crates/connect-core": 36,
-    "crates/connect-hosted-provider": 110,
+    "crates/connect-hosted-provider": 116,
     "crates/connect-hosted-storage-benchmark": 6,
     "crates/connect-mirror": 18,
     "crates/connect-protocol": 19,
     "crates/connect-runtime": 3,
     "crates/connect-testbed-adapter": 1,
-    "packages/app-ui": 21,
+    "packages/app-ui": 34,
     "packages/client": 83,
     "packages/devkit": 3,
     "packages/management": 1,
     "packages/pickle": 2,
-    "packages/protocol": 15,
+    "packages/protocol": 20,
     "packages/sync": 47,
     "packages/testing": 3,
     "packages/ui": 3,
     "packages/webhooks": 1,
     "services/feedback": 1,
-    "services/mcp": 11,
-    "services/server": 169
+    "services/mcp": 15,
+    "services/server": 252
   },
   "deadCodeReferencesByFile": {
     "crates/connect-hosted-provider/src/workspace.rs": 1,
@@ -44,11 +44,11 @@
     "semanticProjectionFormatVersion": 9
   },
   "reviewBudgets": {
-    "productionFiles": 781,
-    "relativeImports": 1816,
+    "productionFiles": 889,
+    "relativeImports": 2452,
     "workspacePackages": 25,
-    "rustPublicDeclarations": 3384,
-    "typeScriptExportDeclarations": 2917,
+    "rustPublicDeclarations": 3447,
+    "typeScriptExportDeclarations": 3454,
     "mdbaseCollectionReferences": 17,
     "typedCollectionReferences": 1
   }

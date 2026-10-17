@@ -1,6 +1,0 @@
-{
-  "reason": "The local collection refusal helper reuses the existing cutover refusal so old clients of a desktop collection taken over by mdbase-next see the update prompt instead of an invalid token.",
-  "growth": {
-    "relativeImports": 1
-  }
-}

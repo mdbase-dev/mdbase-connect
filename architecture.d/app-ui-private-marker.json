@@ -1,6 +1,0 @@
-{
-  "reason": "One shared component, PrivateMark, renders the Private label for a collection row and for the switcher header's open collection, so the label, lock glyph and hint stay the same in both places instead of being duplicated.",
-  "growth": {
-    "typeScriptExportDeclarations": 1
-  }
-}

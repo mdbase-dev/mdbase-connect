@@ -1,9 +1,0 @@
-{
-  "reason": "The application manifest JSON Schemas are precompiled into one generated module of standalone validators, checked for freshness like the other generated protocol files, so consumers validate synchronously with identical rules without bundling the Ajv compiler. The module exports the current and legacy validators that manifest.ts imports.",
-  "growth": {
-    "productionFiles": 1,
-    "relativeImports": 1,
-    "typeScriptExportDeclarations": 2,
-    "packages/protocol": 1
-  }
-}

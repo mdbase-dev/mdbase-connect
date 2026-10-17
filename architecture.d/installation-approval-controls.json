@@ -1,8 +1,0 @@
-{
-  "reason": "The device approval page drew its consent checkboxes by hand, and the reminders checkbox inherited a 44px input height that turned it into a tall block. @mdbase-dev/ui gains one module with a labelled Checkbox row and a CheckboxGroup fieldset, so the portal uses the shared control instead of per-page CSS.",
-  "growth": {
-    "productionFiles": 1,
-    "typeScriptExportDeclarations": 2,
-    "packages/app-ui": 1
-  }
-}

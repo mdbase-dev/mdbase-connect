@@ -1,9 +1,0 @@
-{
-  "reason": "One read-only SQL migration-sharing module isolates bounded original flip/cohort/archive/inventory verification from sharing orchestration without importing migration rollout and creating an account-management cycle. The four internal declarations are its typed retry refusal, invitation participation guard, strict original terminal-ledger readback, and acceptance-only sharing lock. Four added relative imports connect those boundaries to the original invitation acceptance path; the shared HTTP handler owns canonical retry responses. Global topology/archive/source guards, signing domains, schemas and provider transports are unchanged; this is not a second migration controller or a generic completion permission.",
-  "growth": {
-    "productionFiles": 1,
-    "relativeImports": 4,
-    "typeScriptExportDeclarations": 4,
-    "services/server": 1
-  }
-}

@@ -1,3 +1,0 @@
-## Added
-
-- An installation can ask for an optional file action that its manifest declares in `requirements.files.optional` (for example `add`) on one collection it can already open, with a one-line reason. The approval page shows a focused Allow / Don't allow screen with that reason. The decision is recorded for that app and collection, and the app learns the outcome (`file_access_updated` or `declined`) from its request. An installation's collection listing includes approved file actions when asked with `?include=file_actions`. The approval records the person's choice for the app to follow. It does not narrow the installation device's access to the collection.

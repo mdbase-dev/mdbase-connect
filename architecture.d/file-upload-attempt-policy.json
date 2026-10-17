@@ -1,6 +1,0 @@
-{
-  "reason": "co0309m/co0311m authorize generic bounded upload attempts and caller-owned abort policy with existing defaults unchanged. One internal pure validator is shared before streamed-reader acquisition and upload IO; it introduces no endpoint, protocol field, package, production file, credential or seeder-specific behavior. The only added export is this internal options validator. Existing upload retry loops now take the validated finite bound; unreachable fallthrough bookkeeping was removed to remain within the unchanged browser bundle ceiling.",
-  "growth": {
-    "typeScriptExportDeclarations": 1
-  }
-}

@@ -1,9 +1,0 @@
-{
-  "reason": "The approved own-collection hosted-role read adds one server authentication module for the fixed native/CP wire digest and typed one-use service-subject challenge housekeeping. It reuses the existing migration registrar and its canonical claim reader in the same transaction, existing connector challenge table, revocation verifier, key validators and signature/key-object machinery; no parallel migration reducer, credential issuer, native permission or provider effect. The six exports are the public facts type plus five real registrar/test composition functions. Six relative imports compose those existing boundaries.",
-  "growth": {
-    "productionFiles": 1,
-    "relativeImports": 6,
-    "typeScriptExportDeclarations": 6,
-    "services/server": 1
-  }
-}
