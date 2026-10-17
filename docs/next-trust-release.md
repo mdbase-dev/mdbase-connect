@@ -68,6 +68,22 @@ No new release-signing key or arbitrary Cosign certificate is accepted.
 Observe the exact new run/attempt after publication; reconcile uncertain outcomes
 instead of blindly redispatching.
 
+## Prepared beta.130 staging asset
+
+`config/next-trust/staging.json` is prepared for image release
+`v0.1.0-beta.130`, source `215c23a487f9a5ce931b732cf49ab2e5f8a3da7d`.
+The original image publication is run `39030472904`, attempt `1`, with source
+Server CI run `39030451854`. Its fixed origins are
+`https://connect-staging.mdbase.dev` and `https://log-staging.mdbase.dev`.
+The canonical asset is **853 bytes**, SHA-256
+`5bf78ef2c6cc414558c39e594c54a96a8cbc330928077770e42de0aefbc50ea1`.
+It contains independent staging root/policy public pins, not LAB material.
+
+These are preparation pins, **not published trust, deployment evidence or
+publication authorization**. The protected main publisher must still qualify
+itself and authenticate the original image release before signing the exact
+asset. No production asset or production log origin is inferred from staging.
+
 ## Verification and embedding
 
 The private cloud-ops `release lab|staging|production verify-trust` front doors
