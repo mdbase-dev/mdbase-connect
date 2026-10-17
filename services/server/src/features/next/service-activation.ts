@@ -18,27 +18,39 @@ const MAX_ACK_BYTES = 1024;
 function wakeCollectionTag(collection: string): string {
   return createHash("sha256").update("mdbase-service-wake-v1:").update(collection).digest("hex").slice(0, 24);
 }
-function wakeLog(collection: string, role: ServiceKind, phase: "sent" | "outcome" | "retry", facts: { accepted?: boolean; http_status?: number; elapsed_ms?: number } = {}): void {
+function wakeLog(collection: string, role: ServiceKind, phase: "sent" | "outcome" | "retry" | "refused", facts: { accepted?: boolean; http_status?: number; elapsed_ms?: number; reason?: Refusal } = {}): void {
   if (process.env.MDBASE_CONNECT_ENVIRONMENT !== "lab") return;
   try { console.info(JSON.stringify({ event: "next_service_wake", at: new Date().toISOString(), collection_tag: wakeCollectionTag(collection), role, phase, ...facts })); } catch { /* Logging never changes delivery/commit outcomes. */ }
 }
 
-async function accepted(response: Response): Promise<boolean> {
-  if (response.status !== 200) { await response.body?.cancel(); return false; }
+/** The Worker's lasting verdicts (409 `{error}`): the collection is deleted or
+ * left sync, or this deployment does not serve it. Retrying the same batch cannot
+ * change either; a newer batch is tried again. */
+const REFUSALS = ["custody_collection_gone", "custody_collection_not_allowed"] as const;
+type Refusal = typeof REFUSALS[number];
+type Outcome = { kind: "accepted" } | { kind: "refused"; reason: Refusal } | { kind: "unknown" };
+
+async function smallJson(response: Response): Promise<unknown> {
   const reader = response.body?.getReader();
-  if (!reader) return false;
+  if (!reader) return undefined;
   const chunks: Uint8Array[] = []; let total = 0;
   for (;;) {
     const next = await reader.read();
     if (next.done) break;
     total += next.value.byteLength;
-    if (total > MAX_ACK_BYTES) { await reader.cancel(); return false; }
+    if (total > MAX_ACK_BYTES) { await reader.cancel(); return undefined; }
     chunks.push(next.value);
   }
-  try {
-    const ack: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-    return !!ack && typeof ack === "object" && Object.keys(ack).length === 1 && "activated" in ack && ack.activated === true;
-  } catch { return false; }
+  try { return JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { return undefined; }
+}
+
+async function outcome(response: Response): Promise<Outcome> {
+  if (response.status !== 200 && response.status !== 409) { await response.body?.cancel(); return { kind: "unknown" }; }
+  const body = await smallJson(response);
+  if (!body || typeof body !== "object" || Object.keys(body).length !== 1) return { kind: "unknown" };
+  if (response.status === 200) return "activated" in body && body.activated === true ? { kind: "accepted" } : { kind: "unknown" };
+  const reason = "error" in body ? REFUSALS.find((r) => r === body.error) : undefined;
+  return reason ? { kind: "refused", reason } : { kind: "unknown" };
 }
 
 /** Run after policy drain, and on every later poll/restart. No network I/O holds a
@@ -91,7 +103,7 @@ export async function activatePendingServices(
     const url = new URL("internal/v1/collections/activate", `${deployment.url.replace(/\/+$/u, "")}/`);
     // The log's recorded region places a new actor next to it; absent, the Worker's default.
     const region = isLogRegion(stored) ? stored : undefined;
-    let ok = false;
+    let result: Outcome = { kind: "unknown" };
     let status: number | undefined;
     const started = Date.now();
     try {
@@ -101,12 +113,20 @@ export async function activatePendingServices(
         headers: { authorization: `Bearer ${deployment.token}`, "content-type": "application/json" },
         body: JSON.stringify({ collection, ...(region ? { region } : {}) }), signal: AbortSignal.timeout(TIMEOUT_MS) });
       status = response.status;
-      ok = await accepted(response);
+      result = await outcome(response);
     } catch { /* Fixed persisted retry facts only; no response/URL/token/errors stored. */ }
-    wakeLog(collection, kind, "outcome", { accepted: ok, http_status: status, elapsed_ms: Math.max(0, Date.now() - started) });
-    if (ok) {
+    wakeLog(collection, kind, "outcome", { accepted: result.kind === "accepted", http_status: status, elapsed_ms: Math.max(0, Date.now() - started) });
+    if (result.kind === "accepted") {
       await db.query(`UPDATE next_service_devices SET activated_at = now(), activation_batch_id = $3::bigint,
           activation_attempt_batch_id = $3::bigint, activation_attempts = 0, activation_next_at = now()
+        WHERE collection_id = $1 AND kind = $2 AND activation_batch_id < $3::bigint
+          AND activation_attempt_batch_id <= $3::bigint`, [collection, kind, batch]);
+    } else if (result.kind === "refused") {
+      // Terminal for this batch: no retry loop. The row stays unactivated, and a
+      // newer batch (activation_attempt_batch_id < latest.id) is tried at once.
+      wakeLog(collection, kind, "refused", { reason: result.reason });
+      await db.query(`UPDATE next_service_devices SET activation_next_at = 'infinity',
+          activation_attempts = 0, activation_attempt_batch_id = $3::bigint
         WHERE collection_id = $1 AND kind = $2 AND activation_batch_id < $3::bigint
           AND activation_attempt_batch_id <= $3::bigint`, [collection, kind, batch]);
     } else {
