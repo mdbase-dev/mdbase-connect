@@ -35,7 +35,7 @@
     "@embedpdf/react-pdf-viewer": "2.15.1",
     "@lezer/highlight": "^1.2.3",
     "@mdbase-dev/connect": "workspace:*",
-    "@mdbase-dev/sdk": "file:vendor/mdbase-dev-sdk-dev-72f8ea6c.tgz",
+    "@mdbase-dev/sdk": "file:vendor/mdbase-dev-sdk-dev-0ecbef41.tgz",
     "@mdbase-dev/connect-protocol": "workspace:*",
     "@mdbase-dev/ui": "workspace:*",
     "@phosphor-icons/react": "^2.1.10",
