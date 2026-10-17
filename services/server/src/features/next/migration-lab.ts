@@ -402,7 +402,7 @@ async function poller(deps: LabDeps) {
     expired: () => now() > deadline,
     async wait(status?: WorkerStatus) {
       const next = JSON.stringify(status ?? null);
-      delay = next !== signature ? 1000 : Math.min(delay * 2, 30_000);
+      delay = next !== signature ? 1000 : Math.min(delay * 2, 5_000);
       signature = next;
       await sleep(delay);
     }
