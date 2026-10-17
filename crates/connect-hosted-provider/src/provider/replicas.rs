@@ -419,17 +419,8 @@ impl HostedProvider {
         consume_proof_nonce: bool,
         allow_originless_extension_get: bool,
     ) -> ApiResult<(AuthorizedRequest, Option<String>)> {
-        // Originless mirror traffic is rechecked by the operation; application
-        // traffic without proof still fails the operation-level origin check.
-        if request_origin.is_none() && proof.is_none() {
-            return Ok((
-                AuthorizedRequest {
-                    operation_transport_protocol: None,
-                    operation_transport_recovery_protocols: Vec::new(),
-                },
-                None,
-            ));
-        }
+        // Resolve the replica even without Origin or proof: only its persisted
+        // purpose can distinguish a mirror from a proof-bound Node application.
         let mut transaction = self.pool.begin().await?;
         let row = sqlx::query(
             r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection, allowed_operations,

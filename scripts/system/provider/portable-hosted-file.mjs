@@ -188,8 +188,8 @@ export async function portableHostedFileE2E({
       },
       body: captured.body
     });
-    assert.equal(noProofOrOrigin.status, 403);
-    assert.equal((await noProofOrOrigin.json()).error.code, "origin_denied");
+    assert.equal(noProofOrOrigin.status, 401);
+    assert.equal((await noProofOrOrigin.json()).error.code, "authority_proof_required");
     const replay = await fetch(captured.url, {
       method: captured.method,
       headers: { ...captured.headers, origin: "null" },
@@ -209,8 +209,15 @@ export async function portableHostedFileE2E({
       headers: captured.headers,
       body: captured.body
     });
-    assert.equal(missingOrigin.status, 403);
-    assert.equal((await missingOrigin.json()).error.code, "origin_denied");
+    assert.equal(missingOrigin.status, 401);
+    assert.equal((await missingOrigin.json()).error.code, "authority_proof_replayed");
+    const otherOrigin = await fetch(captured.url, {
+      method: captured.method,
+      headers: { ...captured.headers, origin: "https://other.example" },
+      body: captured.body
+    });
+    assert.equal(otherOrigin.status, 403);
+    assert.equal((await otherOrigin.json()).error.code, "origin_denied");
 
     const independentPage = await context.newPage();
     await independentPage.goto(new URL(`file://${file}`).href);
