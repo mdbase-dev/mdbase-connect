@@ -1,7 +1,0 @@
-{
-  "reason": "One shared positive legacy-local authority query is consumed by scoped routing, signed native approval and confirmed recovery. It replaces misleading generic readiness failures without adding persisted migration state or a fallback transport.",
-  "growth": {
-    "relativeImports": 6,
-    "typeScriptExportDeclarations": 1
-  }
-}
