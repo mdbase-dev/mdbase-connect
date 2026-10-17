@@ -27,6 +27,17 @@ export type ConnectOutcome<
 > = ConnectSuccess<Value> | ConnectFailure<Code>;
 
 export type CommonOperationProblemCode =
+  | "application_authorization_issuance_disabled"
+  | "application_reauthorization_required"
+  | "application_semantic_version_mismatch"
+  | "invalid_replica"
+  | "notification_grant_reauthorization_required"
+  | "origin_denied"
+  | "replica_scope_denied"
+  | "scope_changed"
+  | "scope_denied"
+  | "scope_epoch_stale"
+  | "timer_grant_unavailable"
   | "access_denied"
   | "access_paused"
   | "application_declaration_mismatch"
@@ -62,6 +73,17 @@ export type CommonOperationProblemCode =
   | "unsupported_operation";
 
 export const COMMON_OPERATION_PROBLEM_CODES = [
+  "application_authorization_issuance_disabled",
+  "application_reauthorization_required",
+  "application_semantic_version_mismatch",
+  "invalid_replica",
+  "notification_grant_reauthorization_required",
+  "origin_denied",
+  "replica_scope_denied",
+  "scope_changed",
+  "scope_denied",
+  "scope_epoch_stale",
+  "timer_grant_unavailable",
   "access_denied",
   "access_paused",
   "application_declaration_mismatch",
@@ -124,6 +146,11 @@ export const REGISTRATION_PROBLEM_CODES = [
 
 export type AuthorizationProblemCode =
   | RegistrationProblemCode
+  | "application_authorization_issuance_disabled"
+  | "application_reauthorization_required"
+  | "application_semantic_version_mismatch"
+  | "invalid_replica"
+  | "origin_denied"
   | "access_denied"
   | "application_declaration_mismatch"
   | "application_identity_unavailable"
@@ -162,6 +189,11 @@ export type AuthorizationProblemCode =
 
 export const AUTHORIZATION_PROBLEM_CODES = [
   ...REGISTRATION_PROBLEM_CODES,
+  "application_authorization_issuance_disabled",
+  "application_reauthorization_required",
+  "application_semantic_version_mismatch",
+  "invalid_replica",
+  "origin_denied",
   "access_denied",
   "application_declaration_mismatch",
   "application_identity_unavailable",
@@ -201,6 +233,7 @@ export const AUTHORIZATION_PROBLEM_CODES = [
 
 export type NotificationProblemCode =
   | RegistrationProblemCode
+  | "notification_grant_reauthorization_required"
   | "authorization_expired"
   | "invalid_operation_response"
   | "invalid_push_subscription"
@@ -215,6 +248,7 @@ export type NotificationProblemCode =
 
 export const NOTIFICATION_PROBLEM_CODES = [
   ...REGISTRATION_PROBLEM_CODES,
+  "notification_grant_reauthorization_required",
   "authorization_expired",
   "invalid_operation_response",
   "invalid_push_subscription",

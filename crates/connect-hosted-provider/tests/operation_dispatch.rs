@@ -520,7 +520,13 @@ async fn retired_application_credentials_replay_only_exact_terminal_mutations() 
     .unwrap();
     let conflict = client
         .post(format!("http://{address}{target}"))
-        .bearer_auth(&token)
+        .headers(signed_application_headers(
+            &signing_key,
+            &token,
+            "POST",
+            &target,
+            &conflict_body,
+        ))
         .header("content-type", "application/json")
         .body(conflict_body)
         .send()
@@ -539,9 +545,33 @@ async fn retired_application_credentials_replay_only_exact_terminal_mutations() 
         "input": input
     }))
     .unwrap();
-    let replay = client
+    // Exact recovery does not bypass the archived application's origin/proof
+    // binding. The legitimate SDK retains its old key for signed recovery.
+    let unsigned_replay = client
         .post(format!("http://{address}{target}"))
         .bearer_auth(&token)
+        .header("origin", "https://tasks.example")
+        .header("content-type", "application/json")
+        .body(replay_body.clone())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unsigned_replay.status(), reqwest::StatusCode::UNAUTHORIZED);
+    let unsigned_problem: Value = unsigned_replay.json().await.unwrap();
+    assert_eq!(
+        unsigned_problem["error"]["code"],
+        "authority_proof_required"
+    );
+
+    let replay = client
+        .post(format!("http://{address}{target}"))
+        .headers(signed_application_headers(
+            &signing_key,
+            &token,
+            "POST",
+            &target,
+            &replay_body,
+        ))
         .header("content-type", "application/json")
         .body(replay_body)
         .send()

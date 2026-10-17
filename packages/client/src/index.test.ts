@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   MdbaseBrowserSelection,
@@ -21,7 +22,7 @@ import {
   MemoryApplicationIdentityStore,
   MemoryGrantKeyStore
 } from "./crypto-entry.js";
-import { deriveP256SharedSecret } from "./crypto.js";
+import { authorityProofMessage, deriveP256SharedSecret } from "./crypto.js";
 import { MdbaseSession } from "./session.js";
 import { MdbaseConnectInternals } from "./connect.js";
 import type { ConnectRequestOptions } from "./operation-types.js";
@@ -3827,6 +3828,74 @@ describe("authorization renewal", () => {
       .toBe("Bearer hsa_direct");
   });
 
+  it("signs Node hosted creates without manufacturing an Origin header", async () => {
+    expect(typeof window).toBe("undefined");
+    const keyStore = new MemoryGrantKeyStore();
+    const key = await keyStore.create("hosted-node-test-key");
+    const { connect } = hostedConnection(["create"], { keyStore, publicKey: key.signingPublicKey });
+    const publicKey = await crypto.subtle.importKey(
+      "raw", new Uint8Array(Buffer.from(key.signingPublicKey, "base64url")),
+      { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]
+    );
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      const headers = new Headers(init?.headers);
+      expect(headers.has("origin")).toBe(false);
+      expect(headers.get("authorization")).toBe("Bearer hsa_direct");
+      const message = await authorityProofMessage({
+        method: init!.method!,
+        target: new URL(String(url)).pathname,
+        body: String(init!.body),
+        credential: "hsa_direct",
+        timestamp: Number(headers.get(AUTHORITY_PROOF_HEADERS.timestamp)),
+        nonce: headers.get(AUTHORITY_PROOF_HEADERS.nonce)!
+      });
+      expect(await crypto.subtle.verify(
+        { name: "ECDSA", hash: "SHA-256" }, publicKey,
+        new Uint8Array(Buffer.from(headers.get(AUTHORITY_PROOF_HEADERS.signature)!, "base64url")),
+        new TextEncoder().encode(message)
+      )).toBe(true);
+      const operation = JSON.parse(String(init!.body));
+      return jsonResponse({
+        protocol_version: 3, request_id: operation.request_id, ok: true,
+        result: {
+          valid: true, diagnostics: [],
+          result: { file: { path: "node.md" }, frontmatter: {}, effective_frontmatter: {}, body: "Node" }
+        }
+      });
+    });
+
+    await expect(connect.create({ path: "node.md", frontmatter: {}, body: "Node" }))
+      .resolves.toMatchObject({ ok: true, value: { file: { path: "node.md" }, body: "Node" } });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(connect.pendingMutations()).toEqual([]);
+  });
+
+  it.each([
+    "application_authorization_issuance_disabled",
+    "application_reauthorization_required",
+    "application_semantic_version_mismatch",
+    "invalid_replica",
+    "notification_grant_reauthorization_required",
+    "origin_denied",
+    "replica_scope_denied",
+    "scope_changed",
+    "scope_denied",
+    "scope_epoch_stale",
+    "timer_grant_unavailable"
+  ])("preserves the hosted forbidden code %s through the SDK outcome boundary", async (code) => {
+    const { connect } = hostedConnection(["create"]);
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse({ error: { code, message: "Hosted authorization denied." } }, 403)
+    );
+
+    await expect(connect.create({ path: "denied.md", frontmatter: {} })).resolves.toMatchObject({
+      ok: false,
+      problem: { code, category: "authorization", recovery: "reauthorize" }
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(connect.pendingMutations()).toEqual([]);
+  });
+
   it("preserves a typed hosted HTTP failure when an error body is not JSON", async () => {
     const { connect } = hostedConnection(["query"]);
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
@@ -5736,7 +5805,10 @@ async function rotateEncryptedFixture(
   }, fixture.applicationId, "rotated-key");
 }
 
-function hostedConnection(operations: Array<"query" | "create">) {
+function hostedConnection(
+  operations: Array<"query" | "create">,
+  proof?: { keyStore: MemoryGrantKeyStore; publicKey: string }
+) {
   const storage = new MemoryStorage();
   const serverUrl = "https://connect.example";
   const providerUrl = "https://provider.example";
@@ -5749,6 +5821,7 @@ function hostedConnection(operations: Array<"query" | "create">) {
     collectionId: TEST_COLLECTION_ID,
     collectionName: "Worklog",
     operations,
+    ...(proof ? { keyHandle: "hosted-node-test-key" } : {}),
     scope: { contracts: [], access: "full_collection" },
     expiresAt: Date.now() + 60_000,
     refreshExpiresAt: Date.now() + 120_000,
@@ -5758,7 +5831,8 @@ function hostedConnection(operations: Array<"query" | "create">) {
       filesUrl: `${providerUrl}/v1/authorities/${TEST_COLLECTION_ID}/files`,
       replicaId: "00000000-0000-0000-0000-000000000003",
       version: 1,
-      accessToken: "hsa_direct"
+      accessToken: "hsa_direct",
+      ...(proof ? { proofPublicKey: proof.publicKey } : {})
     }
   }));
   const manager = new MdbaseConnect({
@@ -5766,7 +5840,8 @@ function hostedConnection(operations: Array<"query" | "create">) {
     manifest: manifestUrl,
     redirectUri: "https://tasks.example/callback",
     storage,
-    relayEncryption: "disabled"
+    relayEncryption: "disabled",
+    keyStore: proof?.keyStore
   });
   return { connect: manager.connection(TEST_COLLECTION_ID)!, manager };
 }

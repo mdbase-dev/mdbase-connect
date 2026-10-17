@@ -1110,12 +1110,7 @@ fn application_capabilities_bind_operations_mode_and_origin() {
         }
     }
     authorize_application_operation(&portable_replica, "query", Some("null")).unwrap();
-    assert_eq!(
-        authorize_application_operation(&portable_replica, "query", None)
-            .unwrap_err()
-            .code,
-        "origin_denied"
-    );
+    authorize_application_operation(&portable_replica, "query", None).unwrap();
     assert_eq!(
         authorize_application_operation(&portable_replica, "query", Some("https://tasks.example"))
             .unwrap_err()
@@ -1393,6 +1388,166 @@ fn authority_request_proofs_bind_the_body_credential_and_timestamp() {
             .unwrap_err()
             .code,
         "invalid_authority_proof"
+    );
+}
+
+#[test]
+fn node_device_capabilities_require_proof_and_preserve_origin_boundaries() {
+    use p256::ecdsa::{signature::Signer, SigningKey};
+
+    let signing_key = SigningKey::random(&mut rand_core::OsRng);
+    let public_key = URL_SAFE_NO_PAD.encode(
+        signing_key
+            .verifying_key()
+            .to_encoded_point(false)
+            .as_bytes(),
+    );
+    let mut replica = Replica {
+        id: Uuid::new_v4(),
+        purpose: ReplicaPurpose::Application,
+        mode: SyncReplicaMode::ReadWrite,
+        allowed_types: Vec::new(),
+        contract_scope: Vec::new(),
+        full_collection: true,
+        allowed_operations: vec!["create".to_string(), "read".to_string()],
+        operation_transport_protocol: Some(3),
+        operation_transport_recovery_protocols: vec![2],
+        file_capability: Some(FileCapability {
+            kind: mdbase_connect_protocol::FileCapabilityKind::Files,
+            protocol_version: FILE_PROTOCOL_VERSION,
+            actions: vec![FileAction::List],
+            scope: FileScope::Collection,
+        }),
+        allowed_origin: Some("null".to_string()),
+        proof_public_key: Some(public_key.clone()),
+        grant_id: Some(Uuid::new_v4()),
+        scope_epoch: 1,
+    };
+    let token = "hsa_node_device_test";
+    for (method, target, body) in [
+        (
+            "POST",
+            "/v1/authorities/example/operations/create",
+            br#"{"path":"task.md"}"#.as_slice(),
+        ),
+        (
+            "GET",
+            "/v1/authorities/example/operations/read",
+            b"".as_slice(),
+        ),
+        (
+            "POST",
+            "/v1/collections/example/sync/session",
+            b"".as_slice(),
+        ),
+        (
+            "POST",
+            "/v1/authorities/example/files/list",
+            b"{}".as_slice(),
+        ),
+    ] {
+        let mut proof = AuthorityRequestProof {
+            version: AUTHORITY_PROOF_VERSION,
+            timestamp: Utc::now().timestamp(),
+            nonce: Uuid::new_v4(),
+            signature: String::new(),
+            method: method.to_string(),
+            target: target.to_string(),
+            body: body.to_vec(),
+        };
+        let signature: Signature =
+            signing_key.sign(authority_proof_message(token, &proof).as_bytes());
+        proof.signature = URL_SAFE_NO_PAD.encode(signature.to_bytes());
+        for origin in [None, Some("null")] {
+            assert_eq!(
+                verify_application_origin_and_proof(&replica, token, origin, Some(&proof)).unwrap(),
+                Some(proof.nonce),
+            );
+            assert_eq!(
+                verify_application_origin_and_proof(&replica, token, origin, None)
+                    .unwrap_err()
+                    .code,
+                "authority_proof_required",
+            );
+        }
+        assert_eq!(
+            verify_application_origin_and_proof(
+                &replica,
+                token,
+                Some("https://other.example"),
+                Some(&proof)
+            )
+            .unwrap_err()
+            .code,
+            "origin_denied",
+        );
+        proof.body.push(b'!');
+        assert_eq!(
+            verify_application_origin_and_proof(&replica, token, None, Some(&proof))
+                .unwrap_err()
+                .code,
+            "invalid_authority_proof",
+        );
+    }
+    // Secondary operation, sync and file policy checks must agree with the proof gate.
+    authorize_application_operation(&replica, "create", None).unwrap();
+    authorize_sync_access(&replica, "read", None).unwrap();
+    authorize_file_access(&replica, FileAction::List, None, None).unwrap();
+    for origin in [Some("https://other.example"), Some("")] {
+        assert_eq!(
+            authorize_application_operation(&replica, "create", origin)
+                .unwrap_err()
+                .code,
+            "origin_denied"
+        );
+        assert_eq!(
+            authorize_sync_access(&replica, "read", origin)
+                .unwrap_err()
+                .code,
+            "origin_denied"
+        );
+        assert_eq!(
+            authorize_file_access(&replica, FileAction::List, None, origin)
+                .unwrap_err()
+                .code,
+            "origin_denied"
+        );
+    }
+    replica.allowed_origin = Some("https://tasks.example".to_string());
+    assert_eq!(
+        authorize_application_origin(&replica, None)
+            .unwrap_err()
+            .code,
+        "origin_denied"
+    );
+    authorize_application_origin(&replica, Some("https://tasks.example")).unwrap();
+    replica.allowed_origin = Some("null".to_string());
+    replica.proof_public_key = None;
+    assert_eq!(
+        authorize_application_origin(&replica, None)
+            .unwrap_err()
+            .code,
+        "origin_denied"
+    );
+    replica.purpose = ReplicaPurpose::Mirror;
+    replica.allowed_origin = None;
+    replica.mode = SyncReplicaMode::ReadOnly;
+    replica.proof_public_key = Some(public_key);
+    authorize_sync_access(&replica, "read", None).unwrap();
+    for origin in [Some("null"), Some("https://tasks.example")] {
+        assert_eq!(
+            authorize_sync_access(&replica, "read", origin)
+                .unwrap_err()
+                .code,
+            "origin_denied"
+        );
+    }
+    replica.allowed_origin = Some("null".to_string());
+    assert_eq!(
+        authorize_application_origin(&replica, None)
+            .unwrap_err()
+            .code,
+        "origin_denied"
     );
 }
 
