@@ -128,5 +128,4 @@ which takes a SCRAM verifier, not a password. Undo it with
 that the role refuses writes, DDL and reads outside its allowlist.
 
 The database is reached privately (Workers VPC through a tunnel), never through
-a public database endpoint. The binding list is in `wrangler.jsonc`; the design
-is in `docs/ship/interfaces/2026-10-13-native-migration-legacy-bindings.md`.
+a public database endpoint. The binding list is in `wrangler.jsonc`.

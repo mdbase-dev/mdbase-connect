@@ -2,7 +2,7 @@ import {expect,it} from "vitest";
 import {createTestApp,createTestMdbase} from "../src/testing/index.js";
 import {describeError} from "../src/describe-error.js";
 
-it("createTestApp: preset screens, real records when ready, and production-shaped faults",async()=>{
+it("createTestApp: preset screens, real records when ready, and realistic faults",async()=>{
   const app=await createTestApp({phase:"signed_out",collections:[{name:"Notes",records:[{path:"hello.md",body:"Hi"}]},{name:"Work"}]});
   try{
     const a=app.application;

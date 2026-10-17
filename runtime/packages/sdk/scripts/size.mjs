@@ -21,7 +21,7 @@ const KiB = 1024;
 const entries = [
   { name: "thin-client", entry: "src/thin-client.ts", ceiling: 68 * KiB, forbidden: ["ajv", "ajv-formats", "yaml"] },
   // Measured at 192.4 KiB with bounded Private relay-close diagnostic detail.
-  // Coordinator-approved 196 KiB ceiling (2026-10-14); thin stays at 68 KiB.
+  // Ceiling 196 KiB; thin stays at 68 KiB.
   // The app-grant entry itself loads lazily.
   { name: "sdk", entry: "src/index.ts", ceiling: 196 * KiB, forbidden: ["ajv", "ajv-formats"] },
 ];

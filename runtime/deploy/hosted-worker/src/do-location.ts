@@ -13,7 +13,7 @@
  * collection's region (`region`: one of the regions, or `default`) so the actor
  * is created next to the collection's log actor and storage. The control plane
  * takes it from the log service's `create_log` reply (key 2), so the log must
- * exist before the actor's first request (docs/ship/rollout.md §1.2). Every other request
+ * exist before the actor's first request. Every other request
  * uses the default. Hints only affect objects that do not exist yet; existing
  * actors stay put.
  */

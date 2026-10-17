@@ -1,6 +1,6 @@
 //! Hosted migration on the log path: the `hosted-import` base this hosted replica
 //! signs and appends, and the log evidence a native migration ledger settles
-//! from (`docs/ship/interfaces/2026-10-12-native-migration-log-path.md`).
+//! from.
 //!
 //! Every call takes the expected full native hosted admission and refuses on any
 //! drift. Nothing here is a verdict of its own: a base counts only once this
