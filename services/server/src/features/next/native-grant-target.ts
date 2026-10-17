@@ -119,6 +119,30 @@ export async function nativeAdmission(db: DatabaseQueryable, tokenHash: string, 
 }
 
 /**
+ * Positive current local authority on a legacy connector, for this exact owner
+ * and collection. This is the same registration distinction used by local
+ * takeover: next enrollment disqualifies a legacy connector. Missing next rows,
+ * socket presence and account backend alone never establish legacy authority.
+ * Shadow/next collection rows are deliberately excluded (migration/readiness
+ * have their own outcomes). Callers still own request/grant authorization.
+ */
+export async function unmigratedLocalCollection(db: DatabaseQueryable, collection: string, account: string): Promise<boolean> {
+  const result = await db.query<{ unmigrated: boolean }>(
+    `SELECT true AS unmigrated FROM collections col
+     JOIN connectors c ON c.id = col.connector_id AND c.user_id = col.user_id
+     JOIN users u ON u.id = col.user_id
+     LEFT JOIN next_devices d ON d.connector_id = c.id
+     LEFT JOIN next_collections n ON n.collection_id = col.local_id
+     WHERE col.local_id = $1 AND col.user_id = $2
+       AND col.present = true AND col.enabled = true AND col.removed_at IS NULL
+       AND col.authority_state = 'active' AND c.revoked_at IS NULL AND u.suspended_at IS NULL
+       AND d.id IS NULL AND n.collection_id IS NULL LIMIT 1`,
+    [collection, account]
+  );
+  return result.rows[0]?.unmigrated === true;
+}
+
+/**
  * A still-active grant whose local-connector collection has been taken over by a
  * native collection (the legacy row is retired or disabled). The app must be
  * set up again for the native collection.

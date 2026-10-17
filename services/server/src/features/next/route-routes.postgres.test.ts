@@ -3,6 +3,7 @@ import Fastify from "fastify";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
+import { registerErrorHandler } from "../../platform/error-handler.js";
 import { tokenHash } from "../../security.js";
 import { localGrantFixture } from "./next-fixtures.test-helper.js";
 import { registerNextRouteRoutes } from "./route-routes.js";
@@ -27,6 +28,7 @@ describePostgres("mdbase-next route endpoint", () => {
     await admin.query(`CREATE SCHEMA "${schema}"`);
     url.searchParams.set("options", `-csearch_path=${schema}`);
     db = await createDatabase(url.toString());
+    registerErrorHandler(app);
     registerNextRouteRoutes(app, { db, publicUrl: "https://connect.example", broker });
   }, 60_000);
 
@@ -51,8 +53,7 @@ describePostgres("mdbase-next route endpoint", () => {
   it("routes a keyed grant to its daemon through the relay", async () => {
     const { id, route } = await grantWithToken();
     await db.query("INSERT INTO next_grant_client_keys(grant_id, client_pk) VALUES($1,$2)", [id, randomBytes(32)]);
-    expect((await route()).json()).toEqual({ collection: id, grant: id, targets: [], reason: "no_device_registered",
-      availability: { state: "unavailable", reason: "no_device_registered" } });
+    expect((await route()).json()).toMatchObject({error:{code:"collection_not_yet_migrated"}});
     const device = randomUUID();
     const noisePk = randomBytes(32);
     await db.query("INSERT INTO next_devices(id, connector_id, user_id, kind, sign_pk, kem_pk, noise_pk) VALUES($1,$2,$3,'desktop',$4,$5,$6)",
@@ -87,6 +88,9 @@ describePostgres("mdbase-next route endpoint", () => {
 
   it("refuses grants without a client key, other collections, and revoked grants or tokens", async () => {
     const { id, token, route } = await grantWithToken();
+    // A next local-only desktop still needs a client key; this is not legacy.
+    await db.query("INSERT INTO next_devices(id,connector_id,user_id,kind,sign_pk,kem_pk,noise_pk) VALUES($1,$2,$2,\'desktop\',$3,$4,$5)",
+      [randomUUID(),id,randomBytes(32),randomBytes(32),randomBytes(32)]);
     const unkeyed = await route();
     expect([unkeyed.statusCode, unkeyed.json().error.code]).toEqual([409, "client_key_required"]);
     const other = await app.inject({ method: "GET", url: `/v1/next/collections/${randomUUID()}/route`, headers: { authorization: `Bearer ${token}` } });
@@ -115,8 +119,26 @@ describePostgres("mdbase-next route endpoint", () => {
     const collections = response.json().collections as Array<Record<string, unknown>>;
     expect(collections.map((entry) => entry.grant).sort()).toEqual([id, second].sort());
     expect(collections.find((entry) => entry.grant === second)).toMatchObject({ collection: second, state: "synced_e2e", routable: true });
-    expect(collections.find((entry) => entry.grant === id)).toMatchObject({ collection: id, state: "local", routable: false });
+    expect(collections.find((entry) => entry.grant === id)).toMatchObject({ collection: id, state: "local", routable: false,
+      availability:{state:"unavailable",reason:"collection_not_yet_migrated"} });
     expect((await app.inject({ method: "GET", url: "/v1/next/apps/collections" })).statusCode).toBe(401);
+  });
+
+  it("refuses a keyed legacy collection before routing, without leaking state to other or revoked tokens",async()=>{
+    const {id,token,route}=await grantWithToken();
+    await db.query("INSERT INTO next_grant_client_keys(grant_id,client_pk) VALUES($1,$2)",[id,randomBytes(32)]);
+    const response=await route();
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({error:{code:"collection_not_yet_migrated",
+      message:"This collection will appear here once you update the mdbase desktop app on the computer that holds it."}});
+    expect(response.headers["retry-after"]).toBeUndefined();
+    expect(response.json().targets).toBeUndefined();
+    const inventory=await app.inject({method:"GET",url:"/v1/next/apps/collections",headers:{authorization:`Bearer ${token}`}});
+    expect(inventory.json().collections).toMatchObject([{routable:false,availability:{state:"unavailable",reason:"collection_not_yet_migrated"}}]);
+    const other=await grantWithToken();
+    expect((await app.inject({method:"GET",url:`/v1/next/collections/${id}/route`,headers:{authorization:`Bearer ${other.token}`}})).statusCode).toBe(401);
+    await db.query("UPDATE access_tokens SET revoked_at=now() WHERE grant_id=$1",[id]);
+    expect((await route()).statusCode).toBe(401);
   });
 
   it("lists hosted collections only while they are active and not quarantined", async () => {

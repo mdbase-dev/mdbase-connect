@@ -718,6 +718,29 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect((await db.query("SELECT collection_id FROM installation_collection_scopes WHERE connector_id=$1",[original.selected.connector_id])).rows).toEqual([{collection_id:hosted}]);
     expect((await app.inject({method:"GET",url:"/test/installation-scope",headers:{authorization:`Bearer ${credential.token}`}})).statusCode).toBe(200);
   });
+  it.each(["own","foreign","missing"])("recovery explains only the confirmed account's exact legacy target (%s)",async variant=>{
+    const owner=await account(),holder=variant==="foreign"?await account():owner;
+    const target=randomUUID(),legacy=randomUUID();
+    if(variant!=="missing"){
+      await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'Old desktop',$3)",[legacy,holder.user,randomUUID()]);
+      await db.query("INSERT INTO collections(id,user_id,connector_id,local_id,display_name,spec_version,enabled,present,authority_state) VALUES($1,$2,$3,$1,'Original local collection','0.3.0',true,true,'active')",[target,holder.user,legacy]);
+    }
+    const input=original();input.installation.recovery_collection_id=target;
+    const flow=await start(input);
+    const before=await app.inject({method:"GET",url:flow.base,headers:owner.headers});
+    expect(before.statusCode,before.body).toBe(200);
+    expect(before.json().pairing.collections).toEqual([]);
+    expect((await app.inject({method:"POST",url:`${flow.base}/select-account`,headers:owner.headers})).statusCode).toBe(200);
+    const inspected=await app.inject({method:"GET",url:flow.base,headers:owner.headers});
+    expect(inspected.statusCode).toBe(variant==="own"?409:403);
+    expect(inspected.json().error.code).toBe(variant==="own"?"collection_not_yet_migrated":"installation_collection_unavailable");
+    if(variant==="own")expect(inspected.json().error.message).toContain("update the mdbase desktop app");
+    const selected=(await flow.exchange()).json();
+    expect(selected.status).toBe("account_selected");
+    expect(selected.token).toBeUndefined();
+    expect((await db.query("SELECT id FROM next_devices WHERE id=$1",[input.installation.device_id])).rows).toEqual([]);
+    expect((await db.query("SELECT connector_id FROM installation_collection_scopes WHERE connector_id=$1",[selected.connector_id])).rows).toEqual([]);
+  });
   it("recovery target echoes its original CID before proof and credential commit", async () => {
     const owner=await account(), target=await scopeCollection(owner.user);
     const p=await prepared("app-runtime",false,owner,undefined,tasknotesId,target);

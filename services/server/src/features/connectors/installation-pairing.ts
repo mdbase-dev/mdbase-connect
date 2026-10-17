@@ -21,6 +21,8 @@ import { findInstallationApplication } from "../applications/store.js";
 import { installationTimerDeclaration, readInstallationTimerDeclaration, type InstallationTimerBinding, type InstallationTimerDeclaration } from "../next/timers/installation-declaration.js";
 import { InstallationPairingError } from "./installation-pairing-error.js";
 export { InstallationPairingError } from "./installation-pairing-error.js";
+import { CutoverProblemError } from "../next/cutover-problems.js";
+import { unmigratedLocalCollection } from "../next/native-grant-target.js";
 import { attachNativeAuthorization, approveInstallationNativeChoice, privateInstallationChoices } from "./installation-native-authorization.js";
 function fail(code: string, status = 409): never {
   throw new InstallationPairingError(
@@ -370,7 +372,14 @@ export async function inspectInstallationPairing(
     return [...hosted,...native];
   }) : [];
   const collections = r.recovery_collection_id ? eligible.filter(collection => collection.collection_id===r.recovery_collection_id) : eligible;
-  if (r.recovery_collection_id && r.account_selected_at && !collections.length) fail("installation_collection_unavailable",403);
+  if (r.recovery_collection_id && r.account_selected_at && !collections.length) {
+    // An explicitly confirmed portal account may learn its own legacy state;
+    // URL hints and pre-confirmation requests never trigger this lookup.
+    if (r.portal_account_confirmed_at && await unmigratedLocalCollection(db,r.recovery_collection_id,user)) {
+      throw new CutoverProblemError("not_yet_migrated");
+    }
+    fail("installation_collection_unavailable",403);
+  }
   // A URL-carried UX hint, not persisted selection or consent. Never look up the
   // target: unavailable and nonexistent IDs produce the same response.
   const hint = r.portal_account_confirmed_at && collections.some(collection => collection.collection_id === collectionHint) ? collectionHint : null;
