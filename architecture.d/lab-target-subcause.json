@@ -1,7 +1,0 @@
-{
-  "reason": "Two internal target diagnostic exports (failure constructor and LAB-only WeakMap lookup) plus one orchestration import replace opaque target failure collapse. Reuse the existing exclusive bounded private capture and final-output sanitizer for both Worker and target errors. No new production file, capture adapter, storage, environment alias, route, serving/custody authority or retries. Real loopback HTTP tests cover the canonical creator refusal and all finite guard/fetch/HTTP/schema boundaries.",
-  "growth": {
-    "relativeImports": 1,
-    "typeScriptExportDeclarations": 2
-  }
-}

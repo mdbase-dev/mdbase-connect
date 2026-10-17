@@ -1,6 +1,0 @@
-{
-  "reason": "The migration rehearsal job's environment gate (LAB or staging, read from the deployment's own configuration) is one exported predicate shared by the CLI entry, the target bootstrap and the control-plane port, so the three cannot drift apart.",
-  "growth": {
-    "typeScriptExportDeclarations": 1
-  }
-}

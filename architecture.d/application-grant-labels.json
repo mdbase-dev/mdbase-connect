@@ -1,6 +1,0 @@
-{
-  "reason": "Add one shared UI-only origin label formatter beside existing permission presentation helpers. It distinguishes exact loopback web origins from remote and mobile origins for grant review; it grants no trust or permissions and replaces the misleading application-homepage label.",
-  "growth": {
-    "typeScriptExportDeclarations": 1
-  }
-}

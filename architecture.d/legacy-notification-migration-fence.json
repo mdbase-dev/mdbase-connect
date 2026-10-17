@@ -1,8 +1,0 @@
-{
-  "reason": "The approved original notification fence adds one crate-internal, serde-skipped drain metadata field for the authenticated strong ETag; it is not a CPP/native DTO, SDK API, delivery authority or new runtime seam. Two private modules isolate the existing effect callback with original persisted-attempt admission and the complete RR read-only drain/watermark responsibility, keeping the existing 1000-line budgets unchanged. Original public method and ActionProvider signatures are retained. No new crate edge or runtime initializer is introduced.",
-  "growth": {
-    "productionFiles": 2,
-    "rustPublicDeclarations": 1,
-    "crates/connect-hosted-provider": 2
-  }
-}

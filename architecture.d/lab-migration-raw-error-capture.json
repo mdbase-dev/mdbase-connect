@@ -1,9 +1,0 @@
-{
-  "reason": "Coordinator 2026-10-14 assigns LAB-only raw Worker ready/run error capture; migrerun requires mode-600 exclusive capture in an owned mode-700 directory with no raw progress/final-result stdout. One server file separates sensitive filesystem capture from normal orchestration and public CLI output. Two exports are the private event-capture boundary and final-result sanitizer, exercised directly by filesystem/negative tests. Two CLI imports compose this boundary and replace unsafe direct raw serialization. No new route, authority, migration driver, retry, production environment policy or general growth allowance.",
-  "growth": {
-    "productionFiles": 1,
-    "relativeImports": 2,
-    "typeScriptExportDeclarations": 2,
-    "services/server": 1
-  }
-}

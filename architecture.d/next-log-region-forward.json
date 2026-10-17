@@ -1,7 +1,0 @@
-{
-  "reason": "Connect reads the region the log service recorded from the create_log reply, stores it on the collection's genesis outbox row (existing JSON column, no migration) and forwards it to the hosted Worker on activation and migration admission. One region type and guard shared by the log client, outbox, activation and admission, plus one outbox reader; the two new relative imports are activation and admission reading them.",
-  "growth": {
-    "relativeImports": 2,
-    "typeScriptExportDeclarations": 3
-  }
-}

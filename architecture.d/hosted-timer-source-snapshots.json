@@ -1,6 +1,0 @@
-{
-  "reason": "Replace the lossy hosted timer projection with one canonical bounded SELECT-only original source reader. Three exported DATA types describe the required original timer DTO, exact SQL row and keyset cursor/fence binding used by its importer and tests. No authority booleans, runtime store, new controller, persistent schema, signer or dependency is added. The unsafe legacy CLI importer is removed and fails closed until the strict authenticated paged caller is connected.",
-  "growth": {
-    "typeScriptExportDeclarations": 3
-  }
-}

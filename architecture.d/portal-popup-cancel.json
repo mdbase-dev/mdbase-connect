@@ -1,6 +1,0 @@
-{
-  "reason": "The portal's denied-pairing finish is a pure helper in portal-model so the popup Cancel path (close the opener's window, else show the cancelled page) is unit-tested without rendering. One exported function; no new route, crypto or data operation.",
-  "growth": {
-    "typeScriptExportDeclarations": 1
-  }
-}

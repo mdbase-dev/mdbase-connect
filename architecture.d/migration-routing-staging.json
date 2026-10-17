@@ -1,7 +1,0 @@
-{
-  "reason": "Migration routing becomes environment-generic in its existing module: one environment predicate, its named refusal and the single production switch (each pinned by the environment-matrix tests), the per-collection retirement check its existing consumers share, and the LAB-only route registrar for retiring a disposed fixture's route, which reuses the existing internal-route authentication helpers. The boolean collection classifier is replaced by a route classifier, not duplicated.",
-  "growth": {
-    "relativeImports": 4,
-    "typeScriptExportDeclarations": 5
-  }
-}

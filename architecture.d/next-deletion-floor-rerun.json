@@ -1,8 +1,0 @@
-{
-  "reason": "An operator CLI re-sends an owner-deleted collection's committed CP deletion tuple to the native registry after a lost or failed reply. It reuses the existing log client and config parser; exact retries are idempotent and a conflicting record is reported, never overwritten.",
-  "growth": {
-    "productionFiles": 1,
-    "relativeImports": 4,
-    "services/server": 1
-  }
-}

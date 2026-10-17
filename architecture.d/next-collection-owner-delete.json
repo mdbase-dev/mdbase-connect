@@ -1,6 +1,0 @@
-{
-  "reason": "Owner deletion of a synced next collection lives beside rename and reuses its owner checks. It imports the existing audit-event writer, so the deletion leaves the same audit trail as other account mutations. No new module, export or data path is added.",
-  "growth": {
-    "relativeImports": 1
-  }
-}

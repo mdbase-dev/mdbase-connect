@@ -1,9 +1,0 @@
-{
-  "reason": "New accounts must land on the backend the live apps use (MDBASE_NEW_ACCOUNT_BACKEND). The flip's provisioning writes move into one small module shared by the staged flip and every account-creation path (OAuth, email signup, invitation), so a next account is created exactly as a flipped account with no collections instead of duplicating those writes. Each creation path imports the shared writer and its backend type.",
-  "growth": {
-    "productionFiles": 1,
-    "relativeImports": 11,
-    "typeScriptExportDeclarations": 4,
-    "services/server": 1
-  }
-}

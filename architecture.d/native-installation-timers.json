@@ -1,9 +1,0 @@
-{
-  "reason": "One frozen installation timer declaration module is the registry/consent boundary reused by pairing, current grant resolution and notifications. Existing People/current-device validation, timer store/receipt/worker, sealed channel and notification dispatch engines remain canonical; native identity never fabricates a legacy OAuth grant. Ten imports and eight declarations wire those shared boundaries, not parallel adapters. This named feature allowance covers the exact implementation delta without changing the shared ratchet.",
-  "growth": {
-    "productionFiles": 1,
-    "relativeImports": 10,
-    "typeScriptExportDeclarations": 8,
-    "services/server": 1
-  }
-}
