@@ -7,8 +7,8 @@ import { validateReleaseBundle } from './lib/release-components.mjs';
 import { buildTrustBundle } from './lib/release-trust-bundle.mjs';
 const root = path.resolve(import.meta.dirname, '..');
 const input = process.argv[2], output = process.argv[3], environment = process.argv[4];
-if (!input || !output || process.argv.length !== 5 || (environment !== 'lab' && environment !== 'staging')) throw new Error('Expected authenticated image bundle, new output directory and fixed lab|staging environment');
-// No caller-selected path, origin, root or fallback. Absent staging asset refuses.
+if (!input || !output || process.argv.length !== 5 || !['lab', 'staging', 'production'].includes(environment)) throw new Error('Expected authenticated image bundle, new output directory and fixed lab|staging|production environment');
+// No caller-selected path, origin, root or fallback. Absent environment asset refuses.
 const assetPath = `next-trust/${environment}.json`;
 const file = path.join(root, 'config', assetPath);
 const info = await lstat(file);

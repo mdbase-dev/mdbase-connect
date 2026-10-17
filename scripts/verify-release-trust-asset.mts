@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { validateNextTrustPayload } from '../services/server/src/features/next/trust-payload.js';
 import { validateTrustBundle } from './lib/release-trust-bundle.mjs';
 const [manifestPath, assetPath, commit, version, environment, cp, log] = process.argv.slice(2);
-if (process.argv.length !== 9 || (environment !== 'lab' && environment !== 'staging')) throw new Error('Expected authenticated manifest, asset and independent approved LAB/staging release/origin context');
+if (process.argv.length !== 9 || !['lab', 'staging', 'production'].includes(environment)) throw new Error('Expected authenticated manifest, asset and independent approved LAB/staging/production release/origin context');
 const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
 validateTrustBundle(manifest);
 const entry = manifest.trustAssets[0];
