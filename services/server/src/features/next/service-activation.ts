@@ -5,7 +5,7 @@ import type { DatabaseQueryable } from "../../database-types.js";
 import type { NextControlPlaneConfig } from "./policy-keys.js";
 import type { ServiceKind } from "./service-devices.js";
 import { pitrCollection, pitrDeployments, type LabPitrConfig } from "./lab-pitr-config.js";
-import { migrationDeployments, type LabMigrationRouting } from "./lab-migration-routing.js";
+import { migrationDeployments, type MigrationRouting } from "./migration-routing.js";
 import { isLogRegion } from "./log-service-client.js";
 
 const LIMIT = 4;
@@ -64,7 +64,7 @@ export async function activatePendingServices(
   fetchImpl: typeof fetch = fetch,
   collectionId?: string,
   pitr?: LabPitrConfig,
-  migrationRouting?: LabMigrationRouting
+  migrationRouting?: MigrationRouting
 ): Promise<void> {
   const values: unknown[] = [LIMIT];
   let exclusion = "";
@@ -72,6 +72,9 @@ export async function activatePendingServices(
     values.push([pitr.active, pitr.deleted]);
     exclusion = `AND NOT (device.kind = 'escrow' AND device.collection_id = ANY($${values.length}::uuid[]))`;
   }
+  // A retired migration route (LAB fixture disposal) has no service deployments to wake.
+  if (migrationRouting) exclusion += `
+     AND NOT EXISTS (SELECT 1 FROM next_migration_routing_retirements retired WHERE retired.collection_id = device.collection_id)`;
   let selection = "";
   if (collectionId) {
     values.push(collectionId);
@@ -99,7 +102,9 @@ export async function activatePendingServices(
   await Promise.all(pending.rows.map(async ({ collection_id: collection, kind, batch_id: batch, region: stored }) => {
     // Do not manufacture an activation ACK for an intentionally stateless record.
     if (kind === "escrow" && pitrCollection(pitr, collection)) return;
-    const deployment = (await migrationDeployments(db, pitrDeployments(deployments, pitr, collection), migrationRouting, collection))[kind];
+    const selected = await migrationDeployments(db, pitrDeployments(deployments, pitr, collection), migrationRouting, collection);
+    if (!selected) return; // Retired after selection; the next poll excludes it.
+    const deployment = selected[kind];
     const url = new URL("internal/v1/collections/activate", `${deployment.url.replace(/\/+$/u, "")}/`);
     // The log's recorded region places a new actor next to it; absent, the Worker's default.
     const region = isLogRegion(stored) ? stored : undefined;

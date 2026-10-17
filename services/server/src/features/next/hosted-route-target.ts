@@ -1,6 +1,6 @@
 // Discovery only: the hosted Worker decides live Noise/policy/key admission.
 import type { DatabaseQueryable } from "../../database-types.js";
-import { migrationAccount, type LabMigrationRouting } from "./lab-migration-routing.js";
+import { migrationAccount, migrationRouteRetired, type MigrationRouting } from "./migration-routing.js";
 import type { RegisteredDeviceKind } from "./policy-wire.js";
 
 export interface RouteTarget {
@@ -42,7 +42,7 @@ interface HostedRouteGrant {
  * recorded service device, an appended enrolment nor an activation ACK is readiness.
  * The last appended device op must still be enrolment of this exact hosted key.
  */
-export async function hostedRouteTarget(db: DatabaseQueryable, tokenDigest: string, collection: string, origin: string | undefined, migrationRouting?: LabMigrationRouting): Promise<{ grant: HostedRouteGrant; target: RouteTarget | null } | null> {
+export async function hostedRouteTarget(db: DatabaseQueryable, tokenDigest: string, collection: string, origin: string | undefined, migrationRouting?: MigrationRouting): Promise<{ grant: HostedRouteGrant; target: RouteTarget | null } | null> {
   if (!origin && !migrationRouting) return null;
   const rows = await db.query<HostedRouteGrant>(
     `SELECT parent.owner_user_id::text AS owner_account, COALESCE(binding.log_grant_id, g.id) AS grant_id, g.id AS authorization_grant,
@@ -91,7 +91,10 @@ export async function hostedRouteTarget(db: DatabaseQueryable, tokenDigest: stri
   );
   const grant = rows.rows[0];
   if (!grant) return null;
-  const selected = await migrationAccount(db, migrationRouting, grant.owner_account) ? migrationRouting!.hosted.url : origin;
+  const routed = await migrationAccount(db, migrationRouting, grant.owner_account);
+  // A retired migration route has no hosted app; it never falls back to the default.
+  if (routed && await migrationRouteRetired(db, migrationRouting, collection)) return null;
+  const selected = routed ? migrationRouting!.hosted.url : origin;
   // A scoped destination never supplies a missing default for other accounts.
   if (!selected) return null;
   const pk = grant.hosted_noise_pk;
