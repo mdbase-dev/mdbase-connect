@@ -1,5 +1,6 @@
 // Operator CLI for the LAB one-account migration rehearsal (migration-lab.ts).
-// Runs only with MDBASE_CONNECT_ENVIRONMENT exactly `lab`.
+// Runs only where this deployment's MDBASE_CONNECT_ENVIRONMENT is exactly `lab`
+// or `staging` (or an explicit local build); production is refused.
 //
 //   next-migration-lab lab-run <account id> <backup hold id> [--stop-before-flip]
 //   next-migration-lab resume <account id>
@@ -19,7 +20,7 @@ import { localBuild, localDeployment } from "../../local-deployment.js";
 import { HostedProviderClient } from "../../hosted-provider.js";
 import { captureLabWorkerError, sanitizedLabOutcome } from "./migration-lab-raw-error.js";
 import { labLegacySourceConnection } from "./migration-lab-source-tls.js";
-import { labTargetBootstrap } from "./migration-lab-target.js";
+import { labTargetBootstrap, migrationRehearsalEnvironment } from "./migration-lab-target.js";
 import { hostedProviderConfigFromEnv } from "../../runtime-config.js";
 import { labRun, resumeLab, labStatus, labWorkerClient, postgresLabConnect, routeBack, type LabOutcome } from "./migration-lab.js";
 
@@ -27,8 +28,8 @@ const USAGE = "usage: next-migration-lab lab-run <account id> <backup hold id> [
 
 async function main(argv: string[]): Promise<void> {
   // The environment is checked before anything else is read or opened.
-  if (localBuild() ? !localDeployment(process.env.MDBASE_CONNECT_ENVIRONMENT, process.env.PUBLIC_URL ?? "") : process.env.MDBASE_CONNECT_ENVIRONMENT !== "lab")
-    throw new Error("next-migration-lab requires MDBASE_CONNECT_ENVIRONMENT=lab or an explicit local build and exact local origin.");
+  if (localBuild() ? !localDeployment(process.env.MDBASE_CONNECT_ENVIRONMENT, process.env.PUBLIC_URL ?? "") : !migrationRehearsalEnvironment(process.env.MDBASE_CONNECT_ENVIRONMENT))
+    throw new Error("next-migration-lab requires MDBASE_CONNECT_ENVIRONMENT=lab or staging, or an explicit local build and exact local origin.");
   const [command, account, hold, flag] = argv;
   const stopBeforeFlip = flag === "--stop-before-flip";
   if (!account || (command === "lab-run" ? !hold || !(argv.length === 3 || argv.length === 4 && stopBeforeFlip)

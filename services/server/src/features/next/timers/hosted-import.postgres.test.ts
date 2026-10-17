@@ -10,7 +10,8 @@ import { registerNextCollection } from "../policy-outbox.js";
 import { flipAccountBackend, flipEvidenceDigest, recordCollectionCutover, type TimerFlipGate } from "../migration-rollout.js";
 import { legacyTimerGrantResolver } from "./grants.js";
 import { importHostedCollectionTimers, type TimerSourceProvider } from "./hosted-import.js";
-import { registerMigrationTimerCleanupRoute } from "../migration-timer-cleanup.js";
+import { cleanUpRolledBackTimerImport, registerMigrationTimerCleanupRoute } from "../migration-timer-cleanup.js";
+import { postgresLabConnect } from "../migration-lab.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -252,6 +253,24 @@ suite("strict hosted timer import and the account-flip timer gate (synthetic Pos
     await refence(f);
     expect((await run(f)).timers).toBe(71);
     expect((await allRows(f.grant)).find(row => row.timer_id === "timer-0000")!.generation).toBe("8");
+  });
+
+  it("the staging rehearsal job cleans up a rolled-back run through its own port; the HTTP route stays LAB-only", async () => {
+    const f = await fixture(3);
+    await run(f);
+    await rolledBack(f, f.migration);
+    const provider = { ...f.provider, async legacyMigrationDrain() { return { ...f.provider.drain }; } };
+    expect((await cleanup(f, { environment: "staging" })).json().error.code).toBe("migration_lab_only");
+    const startedUs = (await db.query("SELECT (extract(epoch FROM started_at)*1000000)::bigint::text AS us FROM next_migration_cohort_members WHERE account_id=$1", [f.user])).rows[0].us;
+    for (const environment of ["production", "local", "LAB", undefined]) {
+      expect(await failure(cleanUpRolledBackTimerImport(db, provider, environment, f.collection,
+        { owner_account: f.user, started_us: startedUs, migration_id: f.migration }))).toBe("migration_lab_only");
+    }
+    expect(await targetRows(f.grant)).toBe(3);
+    const connect = postgresLabConnect({ db, source: sourcePool, actor: "test-operator", timers: true, environment: "staging",
+      provider: provider as unknown as Parameters<typeof postgresLabConnect>[0]["provider"] });
+    expect(await connect.cleanupTimers(f.collection, f.migration)).toEqual({ collection_id: f.collection, migration_id: f.migration, deleted: 3 });
+    expect(await targetRows(f.grant)).toBe(0);
   });
 
   it("refuses an unauthenticated, non-LAB, unbound or unsettled cleanup and deletes nothing", async () => {

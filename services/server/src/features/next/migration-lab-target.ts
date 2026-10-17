@@ -1,4 +1,4 @@
-// LAB runner composition of the existing authenticated SHADOW target creator.
+// Rehearsal (LAB/staging) runner composition of the existing authenticated SHADOW target creator.
 // No new bootstrap, custody exemption, target selector, serving or H1 authority.
 import { z } from "zod";
 import { localBuild, localDeployment, rehearsalDiagnostics } from "../../local-deployment.js";
@@ -41,8 +41,20 @@ const metadata = z.object({
   service_devices: z.array(z.object({ kind: z.enum(["hosted", "escrow"]), device_id: migrationUuid }).passthrough()).length(2)
 }).passthrough();
 
+// The managed rehearsal deployments the migration job runs in, each bound to
+// its own canonical Connect origin. Production and local are never admitted.
+const REHEARSAL_ORIGINS = { lab: "https://connect-lab.mdbase.dev/", staging: "https://connect-staging.mdbase.dev/" } as const;
+type MigrationRehearsalEnvironment = keyof typeof REHEARSAL_ORIGINS;
+
+/** The deployment's own environment (server configuration, never a caller
+ * flag) when it is a managed rehearsal deployment; otherwise undefined. */
+export function migrationRehearsalEnvironment(environment: string | undefined): MigrationRehearsalEnvironment | undefined {
+  return !localBuild() && (environment === "lab" || environment === "staging") ? environment : undefined;
+}
+
 export function labTargetBootstrap(config: { environment?: string; url: string; token: string; account: string }, fetchImpl: typeof fetch = fetch) {
-  if (localBuild() ? !localDeployment(config.environment, config.url) : config.environment !== "lab")
+  const rehearsal = migrationRehearsalEnvironment(config.environment);
+  if (localBuild() ? !localDeployment(config.environment, config.url) : !rehearsal)
     throw new RolloutRefused("lab_only", "Rehearsal target bootstrap is unavailable in this build/environment.", 503);
   const unavailable = (cause: TargetCause): never => labTargetUnavailable(config.environment, cause);
   // Guard failures are part of the same prepare_target stop/capture as HTTP
@@ -51,7 +63,7 @@ export function labTargetBootstrap(config: { environment?: string; url: string; 
     let origin: URL;
     try { origin = new URL(config.url); } catch { return unavailable({ call: "guard", guard: "origin" }); }
     if (config.environment === "local" ? !localDeployment(config.environment, config.url)
-      : origin.origin !== "https://connect-lab.mdbase.dev" || origin.href !== "https://connect-lab.mdbase.dev/") return unavailable({ call: "guard", guard: "origin" });
+      : !rehearsal || origin.href !== REHEARSAL_ORIGINS[rehearsal]) return unavailable({ call: "guard", guard: "origin" });
     if (config.token.length < 32 || /[\r\n]/u.test(config.token)) return unavailable({ call: "guard", guard: "token" });
     if (!migrationUuid.safeParse(config.account).success) return unavailable({ call: "guard", guard: "account" });
     if (!migrationUuid.safeParse(collection).success) return unavailable({ call: "guard", guard: "collection" });

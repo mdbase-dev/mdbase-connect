@@ -469,27 +469,38 @@ describe("Worker client", () => {
 });
 
 describe("CLI", () => {
-  it.each([undefined, "LAB", " lab", "lab ", "staging", "production"])("refuses environment %j before opening anything", async environment => {
+  /** Runs the CLI module once under a deployment environment; returns its single stderr line. */
+  async function cliUnder(environment: string | undefined) {
     vi.resetModules();
     const createDatabase = vi.fn(), openDatabase = vi.fn();
     vi.doMock("../../db.js", () => ({ createDatabase, openDatabase }));
-    const saved = { argv: process.argv, exitCode: process.exitCode, environment: process.env.MDBASE_CONNECT_ENVIRONMENT };
+    const keys = ["MDBASE_CONNECT_ENVIRONMENT", "DATABASE_URL", "MDBASE_LEGACY_PROVIDER_DATABASE_URL"] as const;
+    const saved = { argv: process.argv, exitCode: process.exitCode, env: keys.map(key => process.env[key]) };
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
-      if (environment === undefined) delete process.env.MDBASE_CONNECT_ENVIRONMENT; else process.env.MDBASE_CONNECT_ENVIRONMENT = environment;
+      for (const key of keys) delete process.env[key];
+      if (environment !== undefined) process.env.MDBASE_CONNECT_ENVIRONMENT = environment;
       process.argv = ["node", "next-migration-lab", "lab-run", account, hold];
       await import("./migration-lab-cli.js");
       await vi.waitFor(() => expect(error).toHaveBeenCalledOnce());
-      expect(String(error.mock.calls[0]![0])).toContain("MDBASE_CONNECT_ENVIRONMENT=lab");
       expect(createDatabase).not.toHaveBeenCalled();
       expect(openDatabase).not.toHaveBeenCalled();
       expect(process.exitCode).toBe(1);
+      return String(error.mock.calls[0]![0]);
     } finally {
       process.argv = saved.argv;
       process.exitCode = saved.exitCode;
-      if (saved.environment === undefined) delete process.env.MDBASE_CONNECT_ENVIRONMENT; else process.env.MDBASE_CONNECT_ENVIRONMENT = saved.environment;
+      keys.forEach((key, index) => { const value = saved.env[index]; if (value === undefined) delete process.env[key]; else process.env[key] = value; });
       error.mockRestore();
       vi.doUnmock("../../db.js");
     }
+  }
+  it.each([undefined, "", "LAB", " lab", "lab ", "Staging", "staging ", "production", "local"])("refuses environment %j before opening anything", async environment => {
+    expect(await cliUnder(environment)).toContain("MDBASE_CONNECT_ENVIRONMENT=lab or staging");
+  });
+  it.each(["lab", "staging"])("admits the %s deployment past the environment gate (then requires its configuration)", async environment => {
+    const message = await cliUnder(environment);
+    expect(message).not.toContain("MDBASE_CONNECT_ENVIRONMENT");
+    expect(message).toContain("DATABASE_URL");
   });
 });

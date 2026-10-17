@@ -31,13 +31,21 @@ suite("lab-run against the control plane (synthetic PostgreSQL, scripted Worker)
   afterAll(async () => { await db?.end(); if (admin && schema) await admin.query(`DROP SCHEMA "${schema}" CASCADE`); await admin?.end(); });
 
   /** One LAB-profile account with one hosted collection, its SHADOW cloud copy and a fenced legacy source. */
-  async function fixture(archived = false) {
+  async function fixture(archived = false, environment: "lab" | "staging" = "lab", start: "lab" | "staging" = environment) {
     const user = randomUUID(), collection = randomUUID(), cohort = `lab-${randomUUID()}`;
     await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Synthetic LAB')", [user, `${user}@example.test`]);
     await db.query("INSERT INTO hosted_collections(id,user_id,display_name,template,provider_url,authority_state) VALUES($1,$2,'Synthetic','mdbase','https://provider.example','active')", [collection, user]);
     await createCohort(db, cohort, actor); await addToCohort(db, cohort, [user], actor);
     await setCohortFrozen(db, cohort, true, "synthetic freeze", actor); await releaseCohort(db, cohort, actor); await setPaused(db, false, "synthetic", actor);
-    if (archived) {
+    if (start === "staging") {
+      // The staging deployment's ordinary start: a verified staging (v4) archive, no fixture profile.
+      const clock = new Date((await db.query("SELECT date_trunc('milliseconds',clock_timestamp()) AS now")).rows[0].now).toISOString();
+      await acceptCohortArchive(db, cohort, { schema: "mdbase-recovery-set/v4", environment: "staging", bucket: "synthetic-archives",
+        prefix: `legacy-archive/staging/2026/10/10/${cohort}`, backup_id: cohort,
+        complete_sha256: "a".repeat(64), manifest_sha256: "b".repeat(64), source_commit: "f".repeat(40),
+        migration_batch: await cohortArchiveBinding(db, cohort), archive_created_at: clock, archive_completed_at: clock,
+        retention: { mode: "GOVERNANCE", days: 116, retain_until: new Date(Date.parse(clock) + 116 * 86_400_000).toISOString(), inventory_digest: "c".repeat(64), count: "1" } }, "staging");
+    } else if (archived) {
       // A verified LAB archive is accepted, so the cohort completes on it, not on the LAB completion event.
       const clock = new Date((await db.query("SELECT date_trunc('milliseconds',clock_timestamp()) AS now")).rows[0].now).toISOString();
       const component = (name: string, hex: string) => ({ commit: hex.repeat(40), image_digest: `sha256:${hex.repeat(64)}`, service_id: `srv-synthetic${name}` });
@@ -48,11 +56,12 @@ suite("lab-run against the control plane (synthetic PostgreSQL, scripted Worker)
         retention: { mode: "GOVERNANCE", days: 116, retain_until: new Date(Date.parse(clock) + 116 * 86_400_000).toISOString(), inventory_digest: "c".repeat(64), count: "1" },
         runtime_provenance: { connect: component("connect", "a"), hosted_provider: component("provider", "b"), relay: component("relay", "c"), mcp: component("mcp", "d") } }, "lab");
     }
-    await startAccountMigration(db, user, "lab", await cohortArchiveBinding(db, cohort));
+    if (start === "staging") await startAccountMigration(db, user, "staging");
+    else await startAccountMigration(db, user, "lab", await cohortArchiveBinding(db, cohort));
     await registerNextCollection(db, { collectionId: collection, ownerUserId: user, runtime: "shadow", sync: "cloud_copy", rootKeyId: Buffer.alloc(16, 17),
       ops: [{ op: "genesis", owner: user, root: Buffer.alloc(16, 17), state: "cloud-copy" }, { op: "member-set", account: user, role: "owner" }] });
     const provider = fakeLegacyProvider(collection);
-    const connect = postgresLabConnect({ db, source: db, actor, timers: true, provider,
+    const connect = postgresLabConnect({ db, source: db, actor, timers: true, environment, provider,
       // This fixture preinstalls its SHADOW parent; native/device bootstrap is
       // exercised by service-cloud-copy/provider suites, not its scripted Worker.
       prepareTarget: async () => {
@@ -116,6 +125,25 @@ suite("lab-run against the control plane (synthetic PostgreSQL, scripted Worker)
     // The operator resolved the run; the same command continues from the Worker's state.
     expect("done" in await labRun(f.user, hold, deps(f, routed()))).toBe(true);
     expect(await labRun(f.user, hold, deps(f, [status("stopped", 0, "must_not_be_read")]))).toMatchObject({ done: { lab_complete: true } });
+  });
+
+  it("staging deployment: an ordinary archived start runs, flips as staging and completes on the accepted archive", async () => {
+    const f = await fixture(false, "staging");
+    expect(await labRun(f.user, hold, deps(f, routed()))).toEqual({ done: { account_id: f.user, collection_id: f.collection, backend: "next", lab_complete: true } });
+    expect(await backend(f.user)).toBe("next");
+    expect(f.provider.source.state).toBe("migrated");
+    await requireCompletedAccountMigration(db, f.collection, f.user);
+    // The staging flip completes the cohort on its archive; no LAB completion event is ever written.
+    expect((await db.query("SELECT 1 FROM next_migration_cohorts WHERE name=$1 AND completed_at IS NOT NULL", [f.cohort])).rows).toHaveLength(1);
+    expect((await db.query("SELECT 1 FROM audit_events WHERE event_type='next_migration.lab_complete' AND subject_id=$1", [f.cohort])).rows).toHaveLength(0);
+  });
+
+  it("each rehearsal deployment refuses the other's start profile at preflight", async () => {
+    const labStart = await fixture(false, "staging", "lab");
+    expect(await labRun(labStart.user, hold, deps(labStart, routed()))).toMatchObject({ stopped: { step: "preflight", reason: "start_profile_invalid" } });
+    const stagingStart = await fixture(false, "lab", "staging");
+    expect(await labRun(stagingStart.user, hold, deps(stagingStart, routed()))).toMatchObject({ stopped: { step: "preflight", reason: "lab_profile_missing" } });
+    expect(await backend(labStart.user)).toBe("legacy"); expect(await backend(stagingStart.user)).toBe("legacy");
   });
 
   it("stops at the flip when the start's starter reservation drifted", async () => {

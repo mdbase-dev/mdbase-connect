@@ -1,4 +1,4 @@
-// LAB-only cleanup of one rolled-back provider run's imported timers, so the
+// Rehearsal-only (LAB route; LAB/staging job) cleanup of one rolled-back provider run's imported timers, so the
 // next fenced run can import the collection again (an earlier run's rows would
 // otherwise refuse it with timer_import_conflict).
 //
@@ -53,11 +53,11 @@ async function requireSettledRollback(db: DatabaseQueryable, collection: string,
 }
 
 /** Delete the presented rolled-back run's imported timer rows; see the file header.
- * Also called directly by the LAB route-back command (migration-lab.ts). */
+ * Also called directly by the rehearsal route-back command (migration-lab.ts). */
 export async function cleanUpRolledBackTimerImport(
   db: DatabasePool, provider: Provider | undefined, environment: string | undefined, collection: string, presented: Binding
 ): Promise<{ collection_id: string; migration_id: string; deleted: number }> {
-  if (environment !== "lab") throw new RolloutRefused("migration_lab_only", "Timer rollback cleanup is available in LAB only.", 403);
+  if (environment !== "lab" && environment !== "staging") throw new RolloutRefused("migration_lab_only", "Timer rollback cleanup is available in rehearsal environments only.", 403);
   if (!provider) throw new RolloutRefused("migration_source_unavailable", "The legacy provider is unavailable.", 503);
   await bound(db, collection, presented);
   await requireSettledRollback(db, collection, presented);
@@ -128,6 +128,8 @@ export function registerMigrationTimerCleanupRoute(app: FastifyInstance, options
       return reply.code(400).send(apiError("invalid_request", "A canonical collection UUID, the current claim and the rolled-back provider run are required."));
     }
     try {
+      // The HTTP route stays LAB-only; the staging rehearsal job calls the function directly.
+      if (options.environment !== "lab") throw new RolloutRefused("migration_lab_only", "Timer rollback cleanup is available in LAB only.", 403);
       return await cleanUpRolledBackTimerImport(options.db, options.provider, options.environment, p.data.id, body.data);
     } catch (error) {
       if (error instanceof RolloutRefused) return reply.code(error.status).send(apiError(error.code, error.message));
