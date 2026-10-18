@@ -2934,11 +2934,38 @@ impl Daemon {
     /// is simply repeated later.
     async fn import_mirrors(&self) {
         use crate::takeover::mirror_import::{self, Capture, Progress};
-        let legacy = self.takeover_paths().legacy;
+        use crate::takeover::mirror_join;
+        let paths = self.takeover_paths();
+        let legacy = paths.legacy.clone();
         let Ok(ids) = mirror_import::captured(&legacy) else {
             return;
         };
+        if ids.is_empty() {
+            return;
+        }
+        // Only once the old engine is retired on this device: before that, an old
+        // mirror could still upload the same edits itself.
+        if !matches!(
+            crate::takeover::record::Record::load(&paths.record),
+            Ok(Some(r)) if r.state == crate::takeover::record::State::Complete
+        ) {
+            return;
+        }
         for id in ids {
+            // Bring the collection back here (the ordinary join), when due.
+            let now = fsutil::now_ms() as u64;
+            match mirror_join::step(&legacy, &id, &mut DaemonJoiner { d: self }, now).await {
+                Ok(mirror_join::Step::Registered(_)) => {}
+                Ok(mirror_join::Step::Removed) => continue,
+                Ok(mirror_join::Step::Waiting { reason, .. }) => {
+                    tracing::info!(collection = %id, %reason, "hosted collection not joined yet; its unsent edits stay captured");
+                    continue;
+                }
+                Err(e) => {
+                    tracing::warn!(collection = %id, error = %e, "joining the hosted collection paused; retried later");
+                    continue;
+                }
+            }
             let complete = match (Capture::load(&legacy, &id), Progress::load(&legacy, &id)) {
                 (Ok(Some(c)), Ok(p)) => p.complete(&c),
                 _ => true, // unreadable: reported by status, never written over
@@ -2947,8 +2974,11 @@ impl Daemon {
                 continue;
             }
             let Ok(rt) = self.runtime_of(&id).await else {
-                continue; // not joined here yet, or not caught up
+                continue; // not caught up yet
             };
+            if !self.mirror_cut_over(&legacy, &id).await {
+                continue;
+            }
             // Serialized with takeover runs and hold resolutions.
             let Ok(_run) = self.takeover.run.try_lock() else {
                 continue;
@@ -2973,6 +3003,70 @@ impl Daemon {
                 }
             }
         }
+    }
+
+    /// Whether a hosted collection's migration cutover is confirmed, so captured
+    /// edits may be written to it. Checked once (then remembered), only for a
+    /// collection that syncs with the hosted log, with backoff while pending.
+    async fn mirror_cut_over(&self, legacy: &std::path::Path, id: &str) -> bool {
+        use crate::takeover::mirror_join::{self, JoinState};
+        let synced = {
+            let inner = self.inner.lock().await;
+            inner
+                .registry
+                .get(id)
+                .is_some_and(|e| matches!(e.mode, SyncMode::Synced | SyncMode::SyncedE2e))
+        };
+        if !synced {
+            return true;
+        }
+        let Ok(state) = JoinState::load(legacy, id) else {
+            return false;
+        };
+        if state.cut_over {
+            return true;
+        }
+        let now = fsutil::now_ms() as u64;
+        if now < state.next_attempt_ms() {
+            return false;
+        }
+        let reason = match self.read_migration_record(id).await {
+            Ok(()) => return mirror_join::confirm_cut_over(legacy, id).is_ok(),
+            Err(reason) => reason,
+        };
+        tracing::info!(collection = %id, %reason, "migration cutover not confirmed; unsent edits wait");
+        let _ = mirror_join::cut_over_pending(legacy, id, &reason, now);
+        false
+    }
+
+    /// Read the collection's migration record as this paired device. `Err` is a
+    /// snake_case reason.
+    async fn read_migration_record(&self, id: &str) -> Result<(), String> {
+        let (ctx, _) = self.sync_parts().map_err(|e| e.reason.unwrap_or(e.code))?;
+        let collection = crate::attest::uuid_bytes(id).ok_or("invalid_collection")?;
+        let source = self
+            .authority
+            .source(mdbn_wire::common::B16(collection))
+            .map_err(|_| "account_changed".to_string())?;
+        let owner = source.active_account().ok_or("account_changed")?;
+        let current = || {
+            source
+                .active_account()
+                .filter(|a| a == &owner)
+                .map(|_| ())
+                .ok_or_else(|| "account_changed".to_string())
+        };
+        let tls = crate::cloud::tls_config().map_err(|_| "tls_unavailable".to_string())?;
+        ctx.cloud
+            .migration_record(&tls, id, id, &current)
+            .await
+            .map(|_| ())
+            .map_err(|e| match e {
+                crate::cloud::CloudError::Server(_, code) => code,
+                crate::cloud::CloudError::Network(_) => "sync_unreachable".into(),
+                crate::cloud::CloudError::Unauthenticated => "not_signed_in".into(),
+                crate::cloud::CloudError::Local(m) => m,
+            })
     }
 
     /// Ask the existing authenticated rollout endpoint, never infer permission
@@ -3291,6 +3385,8 @@ impl Daemon {
                     let inner = self.inner.lock().await;
                     let registered = inner.registry.get(&id);
                     v["registered"] = json!(registered.is_some());
+                    v["join"] = crate::takeover::mirror_join::status(&paths.legacy, &id)
+                        .unwrap_or_else(|e| json!({"state": "error", "reason": e.to_string()}));
                     if let Some(e) = registered {
                         v["name"] = json!(e.name);
                         v["root"] = json!(e.root);
@@ -3781,6 +3877,36 @@ async fn read_back(
             .map_err(|_| ControlError::internal("the replica's receipt does not decode")),
         Err(e) if e.code == "not_found" => Ok(None),
         Err(e) => Err(e),
+    }
+}
+
+/// The device's own `collection.join`, as the mirror join drives it.
+struct DaemonJoiner<'a> {
+    d: &'a Daemon,
+}
+
+impl crate::takeover::mirror_join::Joiner for DaemonJoiner<'_> {
+    async fn registered(&mut self, collection: &str) -> Option<std::path::PathBuf> {
+        let inner = self.d.inner.lock().await;
+        inner.registry.get(collection).map(|e| e.root.clone())
+    }
+
+    async fn join(
+        &mut self,
+        collection: &str,
+        folder: &std::path::Path,
+        name: &str,
+    ) -> Result<(), crate::takeover::mirror_join::Refused> {
+        self.d
+            .join(JoinCollection {
+                collection: collection.to_owned(),
+                path: folder.to_path_buf(),
+                name: Some(name.to_owned()),
+                private: false,
+            })
+            .await
+            .map(|_| ())
+            .map_err(|e| crate::takeover::mirror_join::Refused(e.reason.unwrap_or(e.code)))
     }
 }
 

@@ -1,6 +1,9 @@
 //! Security regression tests for consent and feed persistence boundaries.
 #[path = "server_capture_stop_tests.rs"]
 mod capture_stop_tests;
+#[cfg(unix)]
+#[path = "server_mirror_join_tests.rs"]
+mod mirror_join_tests;
 use super::*;
 use crate::access::{AccessState, FeedCursor};
 use crate::confirm::{Answer, Confirmer};
@@ -1252,10 +1255,21 @@ async fn captured_mirror_edits_are_imported_listed_and_resolvable() {
     let legacy = d.takeover_paths().legacy;
     crate::takeover::mirror_import::capture(&legacy, &old, &entry, "2026-10-18T00:00:00Z").unwrap();
 
+    // Nothing happens before the takeover is complete (an old mirror could
+    // still be uploading).
+    d.import_mirrors().await;
+    assert_eq!(
+        d.takeover_status().await.unwrap()["mirror_imports"][HOSTED]["applied"],
+        0
+    );
+    complete_takeover_record(&d, &old);
+
     d.import_mirrors().await;
 
     let st = d.takeover_status().await.unwrap();
     let mi = &st["mirror_imports"][HOSTED];
+    assert_eq!(mi["join"]["state"], "joined", "{st}");
+    assert_eq!(mi["join"]["folder"], json!(folder.canonicalize().unwrap()));
     assert_eq!(mi["complete"], true, "{st}");
     assert_eq!(mi["registered"], true);
     assert_eq!(mi["name"], "Hosted");
@@ -1296,6 +1310,19 @@ async fn captured_mirror_edits_are_imported_listed_and_resolvable() {
     for host in inner.hosts.iter_mut() {
         host.close().await;
     }
+}
+
+fn complete_takeover_record(d: &Daemon, old: &std::path::Path) {
+    use crate::takeover::record::{Record, SCHEMA_VERSION, State};
+    Record {
+        schema_version: SCHEMA_VERSION,
+        state: State::Complete,
+        updated_at: "2026-10-18T00:00:00Z".into(),
+        old_state_dir: old.to_path_buf(),
+        collections: Default::default(),
+    }
+    .save(&d.takeover_paths().record)
+    .unwrap();
 }
 
 async fn doc_at(rt: &Arc<crate::runtime::Runtime>, path: &str) -> Option<String> {

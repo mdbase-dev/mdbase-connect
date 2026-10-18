@@ -34,6 +34,14 @@ export interface MirrorImport {
   name?: string;
   root?: string;
   error?: string;
+  /** Bringing the hosted collection back on this computer (an ordinary join). */
+  join?: {
+    state: "waiting" | "joined" | "error" | string;
+    folder?: string | null;
+    reason?: string | null;
+    attempts?: number;
+    cut_over?: boolean;
+  };
 }
 
 export interface TakeoverStatus {
@@ -149,6 +157,20 @@ const hidden: TakeoverView = {
   inProgress: false
 };
 
+const JOIN_WAIT_REASONS: Record<string, string> = {
+  not_signed_in: "Sign in to mdbase to continue",
+  account_changed: "Sign in to mdbase to continue",
+  sync_unreachable: "mdbase will retry when it can reach the server",
+  sync_refused: "mdbase will retry once this collection has finished moving",
+  unexpected_status: "mdbase will retry once this collection has finished moving",
+  folder_not_empty: "mdbase will retry in a new folder"
+};
+
+function waitReason(reason: string | null | undefined): string {
+  if (!reason) return "mdbase will retry shortly";
+  return JOIN_WAIT_REASONS[reason] ?? `mdbase will retry (${reason.replaceAll("_", " ")})`;
+}
+
 const RECOVERY_REASONS: Record<string, string> = {
   not_text: "it is not a text file"
 };
@@ -175,8 +197,22 @@ function presentMirrorImports(
       continue;
     }
     const waiting = imp.waiting ?? 0;
-    if (!imp.registered && waiting > 0) {
-      notices.push(`${plural(waiting, "edit", "edits")} made in “${name}” before the move ${waiting === 1 ? "was" : "were"} not uploaded. ${waiting === 1 ? "It is" : "They are"} kept and added when you join this hosted collection on this computer.`);
+    const edits = `${plural(waiting, "edit", "edits")} made in “${name}” before the move`;
+    const join = imp.join;
+    const folder = join?.folder ?? undefined;
+    const oldFolder = imp.mirror_root && folder && folder !== imp.mirror_root
+      ? ` The old folder ${imp.mirror_root} is kept as it was.`
+      : "";
+    if (waiting > 0 && !imp.registered && join?.state === "joined") {
+      incidents.push(`You removed “${name}” from this computer, so ${edits} ${waiting === 1 ? "was" : "were"} not added to it. ${waiting === 1 ? "It is" : "They are"} still in ${imp.mirror_root ?? "the old folder"}.`);
+    } else if (waiting > 0 && !imp.registered) {
+      const where = folder ? ` in ${folder}` : "";
+      notices.push(`${edits} ${waiting === 1 ? "was" : "were"} not uploaded yet and ${waiting === 1 ? "is" : "are"} kept. mdbase is adding “${name}” back to this computer${where}. ${waitReason(join?.reason)}.`);
+    } else if (waiting > 0) {
+      const after = join && join.cut_over === false && join.reason
+        ? ` ${waitReason(join.reason)}.`
+        : "";
+      notices.push(`“${name}” syncs again${folder ? ` in ${folder}` : ""}. ${edits} ${waiting === 1 ? "is" : "are"} added once it has caught up.${after}${oldFolder}`);
     }
     const held = imp.held ?? 0;
     if (held > 0) {

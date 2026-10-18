@@ -44,6 +44,7 @@ pub mod mirror_driver;
 pub mod mirror_evidence;
 pub mod mirror_hold;
 pub mod mirror_import;
+pub mod mirror_join;
 pub mod record;
 pub mod retirement;
 
@@ -715,4 +716,4 @@ impl Gate {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

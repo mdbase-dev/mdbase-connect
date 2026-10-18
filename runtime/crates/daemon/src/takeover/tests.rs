@@ -17,7 +17,7 @@ use super::record::{CollectionState, Record, State};
 use super::*;
 
 #[path = "../../tests/fixtures/old_agent.rs"]
-pub(super) mod old_agent;
+pub(crate) mod old_agent;
 use old_agent::{CID, RID};
 const MIRROR: &str = "9d1e0c55-0000-4000-8000-00000000000a";
 

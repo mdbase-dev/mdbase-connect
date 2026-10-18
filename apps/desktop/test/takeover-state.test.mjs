@@ -88,8 +88,22 @@ test("unsent edits from old hosted mirrors: waiting until joined, then conflicts
   assert.equal(waiting.visible, true);
   assert.equal(waiting.tone, "info");
   assert.deepEqual(waiting.incidents, []);
-  assert.match(waiting.notices[0], /^3 edits made in “Hosted notes” before the move were not uploaded/);
-  assert.match(waiting.notices[0], /when you join/);
+  assert.match(waiting.notices[0], /^3 edits made in “Hosted notes” before the move were not uploaded yet and are kept/);
+  assert.match(waiting.notices[0], /adding “Hosted notes” back to this computer\. mdbase will retry shortly\./);
+
+  const offline = presentTakeover({ ...done, mirror_imports: { h: { ...imp, join: {
+    state: "waiting", folder: "/home/me/Hosted notes (synced)", reason: "sync_unreachable", attempts: 2, cut_over: false
+  } } } });
+  assert.match(offline.notices[0], /back to this computer in \/home\/me\/Hosted notes \(synced\)\. mdbase will retry when it can reach the server\./);
+
+  const syncing = presentTakeover({ ...done, mirror_imports: { h: { ...imp, registered: true, name: "Hosted notes", join: {
+    state: "joined", folder: "/home/me/Hosted notes (synced)", reason: "unexpected_status", cut_over: false
+  } } } });
+  assert.match(syncing.notices[0], /^“Hosted notes” syncs again in \/home\/me\/Hosted notes \(synced\)\. 3 edits .* are added once it has caught up\. mdbase will retry once this collection has finished moving\. The old folder \/home\/me\/Hosted notes is kept as it was\.$/);
+
+  const removed = presentTakeover({ ...done, mirror_imports: { h: { ...imp, join: { state: "joined", folder: "/x" } } } });
+  assert.deepEqual(removed.notices, []);
+  assert.match(removed.incidents[0], /You removed “Hosted notes” from this computer, so 3 edits .* still in \/home\/me\/Hosted notes\./);
 
   const imported = presentTakeover({ ...done, mirror_imports: { h: {
     ...imp, applied: 1, held: 1, waiting: 0, complete: true, registered: true, name: "Hosted",
