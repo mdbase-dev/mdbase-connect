@@ -13,7 +13,7 @@ const suite = testUrl && approved ? describe : describe.skip;
 const token = "synthetic-migration-token-".repeat(2);
 const sorted = (ids: string[]) => [...ids].sort();
 
-interface Source { state: string; run: string | null; storageOwner: string; replicas: Map<string, string | null> }
+interface Source { state: string; run: string | null; inFlight: number; storageOwner: string; replicas: Map<string, string | null> }
 
 suite("migration replica, unfence and cutover-policy fronts (isolated real PostgreSQL, synthetic provider)", () => {
   let db: DatabasePool, admin: pg.Pool, schema: string;
@@ -41,7 +41,7 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
     const replicas = new Map<string, string | null>([[randomUUID(), null], [randomUUID(), null]]);
     const storage = (await db.query<{ provider_account_id: string }>("SELECT provider_account_id::text FROM account_storage_accounts WHERE user_id=$1", [owner])).rows[0]!;
     expect(storage.provider_account_id).not.toBe(owner);
-    sources.set(id, { state: "migrating", run: randomUUID(), storageOwner: storage.provider_account_id, replicas });
+    sources.set(id, { state: "migrating", run: randomUUID(), inFlight: 0, storageOwner: storage.provider_account_id, replicas });
     return id;
   }
 
@@ -59,7 +59,7 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
       async legacyMigrationDrain(id) {
         const s = src(id);
         return { collection_id: id, state: s.state, migration_id: s.run, head: 42, started_at: s.run ? "2026-10-12T00:00:00.000Z" : null,
-          retain_until: null, in_flight: 0, unresolved: 0, applied_unreceipted: 0 };
+          retain_until: null, in_flight: s.inFlight, unresolved: 0, applied_unreceipted: 0 };
       },
       async legacyMigrationReplicas(id) {
         return { replicas: [...src(id).replicas].filter(([, by]) => by === null).map(([r]) => ({ id: r, head: 42, acknowledged_sequence: 42,
@@ -138,6 +138,44 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
     expect(r.statusCode, r.body).toBe(200); return r;
   };
   const cutover = (f: F, revoked: string[], id = f.a) => f.call("cutover-policy", { ...f.binding(id), revoked, base_seq: 10 }, id);
+
+  async function retainedIntent(f: F) {
+    const body = f.rollbackBody(), original = { owner_account_id: f.owner, provider_migration_id: body.migration_id,
+      authority_epoch: 1, fixed_head: body.fixed_head, driver_id: body.driver_id, action_id: body.action_id, replica_ids: body.replica_ids };
+    await db.query("INSERT INTO audit_events(id,user_id,event_type,subject_id,metadata) VALUES($1,$2,'next_migration.rollback_intent',$3,$4)",
+      [randomUUID(), f.owner, f.a, { migration_id: body.migration_id, binding: original }]);
+    return { body, original };
+  }
+
+  it("redrive absence is a closed genuine provider outcome, without creating dispatch state", async () => {
+    const f = await fixture(); try {
+      await revokeAll(f);
+      const { body, original } = await retainedIntent(f), before = await f.events("next_migration.rollback_intent");
+      const r = await f.call("rollback-receipt", body);
+      expect(r.statusCode, r.body).toBe(404);
+      expect(r.json().error.code).toBe("migration_rollback_unknown");
+      expect(r.json().absence).toEqual({ schema: "mdbase-rollback-receipt-absence/1", collection_id: f.a, binding: original });
+      expect(await f.events("next_migration.rollback_intent")).toEqual(before);
+      expect(await f.events("next_migration.rollback_provider_binding")).toEqual([]);
+      expect(await f.events("next_migration.rollback")).toEqual([]);
+      expect(f.effects.filter(x => x.startsWith("rollback:"))).toEqual([]);
+    } finally { await f.app.close(); }
+  });
+
+  it("redrive known-intent replay requalifies drained source before any effect", async () => {
+    const f = await fixture(); try {
+      await revokeAll(f);
+      const { body } = await retainedIntent(f);
+      f.src(f.a).inFlight = 1;
+      for (const kind of ["rollback-receipt", "rollback"]) {
+        const r = await f.call(kind, body);
+        expect(r.statusCode, r.body).toBe(409);
+        expect(r.json().absence).toBeUndefined();
+      }
+      expect(f.effects.filter(x => x.startsWith("rollback:"))).toEqual([]);
+      expect(f.src(f.a).state).toBe("migrating");
+    } finally { await f.app.close(); }
+  });
 
   it("lists, revokes and queues exactly one cutover policy; a repeat finds it", async () => {
     const f = await fixture(); try {

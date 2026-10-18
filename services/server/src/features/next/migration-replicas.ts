@@ -86,6 +86,7 @@ async function onRun(provider: Provider, collection: string, presented: Binding,
   if (source.state !== "migrating" || source.retain_until !== null || !source.started_at || source.migration_id !== presented.migration_id) {
     throw new RolloutRefused("migration_run_not_current", "The provider run is not the presented fenced run.");
   }
+  return source;
 }
 
 interface QueuedCutover { legacyCollection: string; revoked: string[]; frozen: boolean | null }
@@ -229,78 +230,101 @@ async function intended(db: DatabaseQueryable, collection: string, account: stri
   return rows.length > 0;
 }
 
-/** Atomic receipted pre-cutover rollback, or a read of its receipt. The first
- * dispatch needs the presented fenced run and a scope covering every revocation
- * the run owns; Connect adds the current epoch and records the binding before
- * dispatch. A replay or read presents the rest of that binding again. */
+/** Expected negative lookup, not an exception or replay capability. */
+class AbsentRollbackReceipt {
+  constructor(readonly collection: string, readonly binding: ProviderBinding) {}
+}
+
+/** One shared fresh/replay/lookup path; known intents never bypass source gates. */
 async function rollback(kind: "rollback" | "rollback-receipt", collection: string, body: RollbackBody,
   options: Options & { provider: Provider }, deadline: number) {
   return serialized(options.db, collection, async () => {
-    await refuseQueuedCutover(options.db, collection);
     const input = providerBinding(body, await currentEpoch(options.db, collection));
     const physicalOwner = await currentProviderAccount(options.db, body.owner_account);
     const known = await intended(options.db, collection, body.owner_account, input);
-    // A presented epoch names a recorded original binding; it is never authority for a fresh dispatch.
     if ((kind === "rollback-receipt" || body.authority_epoch !== undefined) && !known) {
       throw new RolloutRefused("migration_rollback_unknown", "No rollback with this exact binding was dispatched.", 404);
     }
     if (body.authority_epoch !== undefined && body.authority_epoch !== input.authority_epoch) {
       throw new RolloutRefused("migration_rollback_binding_conflict", "The presented epoch is not the recorded binding's.");
     }
-    if (!known) {
-      await onRun(options.provider, collection, body, deadline);
+    const envelope = { provider_account_id: physicalOwner, binding: input };
+    const current = async (client: DatabaseQueryable, locked: boolean, shadow: boolean) => {
+      const claim = await bound(client, collection, body, locked);
+      await refuseQueuedCutover(client, collection);
+      if (await currentEpoch(client, collection, locked) !== input.authority_epoch) throw epochMoved();
+      if (await currentProviderAccount(client, claim.account, locked) !== physicalOwner) {
+        throw new RolloutRefused("migration_rollback_binding_conflict", "The provider storage mapping changed.");
+      }
+      const retained = await intended(client, collection, claim.account, input);
+      if (known && !retained) throw new Error("rollback intent disappeared");
+      await providerBindingRecord(client, collection, claim.account, input, physicalOwner, false);
+      if (shadow && (!await existingCloudCopy(client, collection, claim.account)
+        || !(await client.query("SELECT 1 FROM next_collections WHERE collection_id=$1 AND runtime='shadow' FOR SHARE", [collection])).rows.length)) {
+        throw new RolloutRefused("migration_target_unavailable", "No current SHADOW cloud-copy target.");
+      }
+      return claim;
+    };
+    await inTransaction(options.db, client => current(client, true, false));
+    const request = async (read: boolean) => {
+      try {
+        return read ? await options.provider.legacyMigrationRollbackReceipt(collection, envelope, { deadline })
+          : await options.provider.legacyMigrationRollback(collection, envelope, { deadline });
+      } catch (error) {
+        if (error instanceof HostedProviderResponseError) {
+          // Freeze typed status before any diagnostic/code getter; never match text.
+          const status = error.status, code = error.code;
+          if (status === 409 && code === "legacy_rollback_binding_conflict") {
+            throw new RolloutRefused("migration_rollback_binding_conflict", "The provider source or receipt does not match this binding.");
+          }
+          if (read && status === 404 && code === "legacy_rollback_receipt_unknown") return null;
+        }
+        throw error;
+      }
+    };
+    let receipt = known ? await request(true) : null;
+    if (!receipt) {
+      const drained = async () => {
+        const source = await onRun(options.provider, collection, body, deadline);
+        if (source.head !== input.fixed_head || source.in_flight !== 0 || source.unresolved !== 0 || source.applied_unreceipted !== 0) {
+          throw new RolloutRefused("migration_source_not_current", "No exact drained original source.");
+        }
+        return source;
+      };
+      const before = await drained();
       const owned = await options.provider.legacyMigrationRevokedReplicas(collection, { deadline });
-      if (owned.migration_id !== body.migration_id) throw new RolloutRefused("migration_run_not_current", "The provider run changed.");
+      if (owned.collection_id !== collection || owned.migration_id !== body.migration_id) {
+        throw new RolloutRefused("migration_run_not_current", "The provider run changed.");
+      }
       if (owned.revoked.some(id => !body.replica_ids.includes(id))) {
         throw new RolloutRefused("migration_revoked_set_mismatch", "The rollback scope must cover every revocation the run owns.");
       }
+      if ((await drained()).started_at !== before.started_at) {
+        throw new RolloutRefused("migration_run_not_current", "The original source start changed.");
+      }
+      await inTransaction(options.db, async client => {
+        const claim = await current(client, true, true);
+        if (kind === "rollback") {
+          if (!known) await audit(client, claim.account, ROLLBACK_INTENT, collection, { migration_id: body.migration_id, binding: input });
+          await providerBindingRecord(client, collection, claim.account, input, physicalOwner, true);
+        }
+      });
+      if (kind === "rollback-receipt") return new AbsentRollbackReceipt(collection, input);
+      receipt = await request(false);
     }
-    await inTransaction(options.db, async client => {
-      const current = await bound(client, collection, body, true);
-      await refuseQueuedCutover(client, collection);
-      if (await currentEpoch(client, collection, true) !== input.authority_epoch) throw epochMoved();
-      if (await currentProviderAccount(client, current.account, true) !== physicalOwner) {
-        throw new RolloutRefused("migration_rollback_binding_conflict", "The provider storage mapping changed.");
-      }
-      if (!await intended(client, collection, current.account, input)) {
-        if (known) throw new Error("rollback intent disappeared");
-        await audit(client, current.account, ROLLBACK_INTENT, collection, { migration_id: body.migration_id, binding: input });
-      }
-      await providerBindingRecord(client, collection, current.account, input, physicalOwner, kind === "rollback");
-    });
-    const envelope = { provider_account_id: physicalOwner, binding: input };
-    let receipt;
-    try {
-      receipt = kind === "rollback" ? await options.provider.legacyMigrationRollback(collection, envelope, { deadline })
-        : await options.provider.legacyMigrationRollbackReceipt(collection, envelope, { deadline });
-    } catch (error) {
-      if (error instanceof HostedProviderResponseError && error.code === "legacy_rollback_binding_conflict") {
-        throw new RolloutRefused("migration_rollback_binding_conflict", "The provider source or receipt does not match this binding.");
-      }
-      if (error instanceof HostedProviderResponseError && error.code === "legacy_rollback_receipt_unknown") {
-        throw new RolloutRefused("migration_rollback_unknown", "The provider holds no receipt for this exact binding.", 404);
-      }
-      throw error;
-    }
-    if (receipt.collection_id !== collection || !sameBinding(receipt.binding, input) || receipt.restored_ids.some(id => !input.replica_ids.includes(id))) {
+    if (!receipt || receipt.collection_id !== collection || !sameBinding(receipt.binding, input)
+      || receipt.restored_ids.some(id => !input.replica_ids.includes(id))) {
       throw new RolloutRefused("migration_source_unavailable", "The provider receipt does not echo this binding.", 503);
     }
-    // Evidence of the provider's receipt, once; a repeated read records nothing.
+    const original = receipt;
     return inTransaction(options.db, async client => {
-      const current = await bound(client, collection, body, true);
-      if (await currentEpoch(client, collection, true) !== input.authority_epoch) throw epochMoved();
-      if (await currentProviderAccount(client, current.account, true) !== physicalOwner) {
-        throw new RolloutRefused("migration_rollback_binding_conflict", "The provider storage mapping changed.");
-      }
-      await providerBindingRecord(client, collection, current.account, input, physicalOwner, false);
+      const claim = await current(client, true, false);
       const recorded = await client.query(
         "SELECT 1 FROM audit_events WHERE user_id=$1 AND event_type=$2 AND subject_id=$3 AND metadata->>'migration_id'=$4 LIMIT 1",
-        [current.account, ROLLBACK_DONE, collection, body.migration_id]);
-      if (!recorded.rows.length) {
-        await audit(client, current.account, ROLLBACK_DONE, collection,
-          { migration_id: body.migration_id, binding: input, restored_ids: receipt.restored_ids, recorded_at: receipt.recorded_at });
-      }
-      return receipt;
+        [claim.account, ROLLBACK_DONE, collection, body.migration_id]);
+      if (!recorded.rows.length) await audit(client, claim.account, ROLLBACK_DONE, collection,
+        { migration_id: body.migration_id, binding: input, restored_ids: original.restored_ids, recorded_at: original.recorded_at });
+      return original;
     });
   });
 }
@@ -386,7 +410,12 @@ export function registerMigrationReplicaRoutes(app: FastifyInstance, options: Op
       }
       try {
         if (!options.provider) throw new RolloutRefused("migration_source_unavailable", "The legacy provider is unavailable.", 503);
-        return await step(kind, p.data.id, body.data, { ...options, provider: options.provider });
+        const result = await step(kind, p.data.id, body.data, { ...options, provider: options.provider });
+        if (result instanceof AbsentRollbackReceipt) return reply.code(404).send({
+          ...apiError("migration_rollback_unknown", "The provider holds no receipt for this exact binding."),
+          absence: { schema: "mdbase-rollback-receipt-absence/1", collection_id: result.collection, binding: result.binding }
+        });
+        return result;
       } catch (error) {
         if (error instanceof RolloutRefused) return reply.code(error.status).send(apiError(error.code, error.message));
         if (error instanceof CreateError) return reply.code(error.status).send(apiError(error.code, "No current migration target."));
