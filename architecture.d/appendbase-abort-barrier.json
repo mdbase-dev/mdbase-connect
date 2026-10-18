@@ -1,6 +1,0 @@
-{
-  "reason": "Consolidate duplicated synthetic signed-log transport into one test helper for real PolicyEmitter/PostgreSQL qualification. The only import growth is the second test suite consuming that existing test boundary; no production package or exported surface grows.",
-  "growth": {
-    "relativeImports": 1
-  }
-}
