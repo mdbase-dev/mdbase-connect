@@ -3,6 +3,7 @@ import Fastify from "fastify";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
+import type { DatabaseConnection } from "../../database-types.js";
 import { serviceClaimReadDigest, type ServiceClaimFacts } from "./migration-claim-auth.js";
 import { registerMigrationProviderRoutes } from "./migration-provider.js";
 
@@ -35,7 +36,7 @@ suite("hosted own-collection migration proof (isolated PostgreSQL)", () => {
     await admin?.end();
   });
 
-  async function fixture(target = true, database = db) {
+  async function fixture(target = true, database = db, routingMode?: "standard" | "csv" | "cohort") {
     const account = randomUUID(), collection = randomUUID(), device = randomUUID(), root = Buffer.alloc(16, 0x13), cohort = `c-${randomUUID().slice(0, 8)}`;
     await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Test')", [account, `${account}@example.test`]);
     await db.query("INSERT INTO hosted_collections(id,user_id,display_name,template) VALUES($1,$2,'Source','mdbase')", [collection, account]);
@@ -50,8 +51,13 @@ suite("hosted own-collection migration proof (isolated PostgreSQL)", () => {
     } : null };
     const app = Fastify();
     const forbidden = async () => { throw new Error("read attempted provider effect"); };
-    registerMigrationProviderRoutes(app, { db: database, token: adminToken, hostedRead: { token, audience }, provider: { legacyMigrationDrain: forbidden, legacyMigrationSource: forbidden, legacyMigrationFence: forbidden } });
-    const request = (kind: "challenge" | "read", payload: object, auth = token, suffix = "") => app.inject({ method: "POST",
+    const inbound = "synthetic-migration-role-".repeat(3);
+    const migrationRouting = routingMode && routingMode !== "standard" ? {
+      environment: "lab" as const, accounts: new Set(routingMode === "csv" ? [account] : []), inboundToken: inbound,
+      hosted: { url: "https://mdbase-next-hosted-mig-lab.example.workers.dev", token: "outbound".repeat(6) }
+    } : undefined;
+    registerMigrationProviderRoutes(app, { db: database, token: adminToken, hostedRead: { token, audience, migrationRouting }, provider: { legacyMigrationDrain: forbidden, legacyMigrationSource: forbidden, legacyMigrationFence: forbidden } });
+    const request = (kind: "challenge" | "read", payload: object, auth = migrationRouting ? inbound : token, suffix = "") => app.inject({ method: "POST",
       url: `/internal/v1/next/migration/collections/${collection}/claim/${kind}${suffix}`, headers: { authorization: `Bearer ${auth}` }, payload });
     const nonce = async () => {
       const result = await request("challenge", { device_id: device });
@@ -63,9 +69,248 @@ suite("hosted own-collection migration proof (isolated PostgreSQL)", () => {
       sig: sign(null, serviceClaimReadDigest(origin, input, Buffer.from(challenge, "hex")), signer).toString("hex") });
     return { account, collection, device, root, facts, app, request, nonce, proof };
   }
+  // Transparent real-PG observation/fault boundary. No product hooks, SQL values
+  // in evidence, or client substitution across transaction statements.
+  function tapped(after: (sql: string, client: DatabaseConnection) => Promise<void> | void, failed?: (error: unknown) => void): DatabasePool {
+    return { query: db.query.bind(db), end: db.end.bind(db), connect: async () => {
+      const client = await db.connect();
+      return { release: client.release.bind(client), query: async <R extends pg.QueryResultRow>(text: string, values?: unknown[]) => {
+        let result: pg.QueryResult<R>;
+        try { result = await client.query<R>(text, values); }
+        catch (error) { failed?.(error); throw error; }
+        await after(text.replace(/\s+/gu, " ").trim(), client);
+        return result;
+      } };
+    } };
+  }
+  it.each((["standard", "csv", "cohort"] as const).flatMap(mode => [0, 10].map(delay => ({ mode, delay }))))(
+    "consolidates only route-local claim SQL with four fresh snapshots: $mode, response delay $delay", async ({ mode, delay }) => {
+    const calls: string[] = []; let injected = 0;
+    const f = await fixture(true, tapped(async sql => {
+      calls.push(sql);
+      if (delay) { const start = performance.now(); await new Promise(resolve => setTimeout(resolve, delay)); injected += performance.now() - start; }
+    }), mode);
+    try {
+      const start = performance.now(), challenge = await f.nonce(), challengeMs = performance.now() - start, challengeCalls = calls.splice(0);
+      const readStart = performance.now(), result = await f.request("read", f.proof(challenge)), readMs = performance.now() - readStart;
+      expect(result.statusCode, result.body).toBe(200);
+      expect(result.json()).toEqual({ schema: "mdbase-migration-claim/1", ...f.facts });
+      const readCalls = calls.splice(0), pair = [...challengeCalls, ...readCalls];
+      const fingerprint = (queries: string[]) => Object.fromEntries([...new Set(queries)].sort().map(sql => [sql, queries.filter(q => q === sql).length]));
+      // Static SQL only: no parameters, account IDs, nonce values or content.
+      console.log("MIGRATION_CLAIM_SQL " + JSON.stringify({ mode, response_delay_ms: delay, actual_injected_ms: injected, challenge_ms: challengeMs, read_ms: readMs,
+        challenge: challengeCalls.length, read: readCalls.length,
+        challenge_fingerprint: fingerprint(challengeCalls), read_fingerprint: fingerprint(readCalls) }));
+      const extra = mode === "standard" ? 0 : mode === "csv" ? 1 : 2;
+      expect(challengeCalls).toHaveLength(20 + extra);
+      expect(readCalls).toHaveLength(18 + extra);
+      expect(pair.filter(sql => sql === "BEGIN")).toHaveLength(2);
+      expect(pair.filter(sql => sql === "COMMIT")).toHaveLength(2);
+      expect(pair.filter(sql => sql.startsWith("SET LOCAL"))).toEqual([
+        "SET LOCAL lock_timeout = '5s'", "SET LOCAL statement_timeout = '5s'",
+        "SET LOCAL lock_timeout = '5s'", "SET LOCAL statement_timeout = '5s'"
+      ]);
+      expect(pair.filter(sql => sql.includes("pg_advisory_xact_lock"))).toHaveLength(2);
+      expect(pair.filter(sql => sql.includes("FROM hosted_collections h"))).toHaveLength(8);
+      expect(pair.filter(sql => sql.includes("revoked AS"))).toHaveLength(4); // Already canonical on main, not new savings.
+      expect(pair.filter(sql => sql.includes("FOR SHARE OF device, parent"))).toHaveLength(4);
+    } finally { await f.app.close(); }
+  });
   async function unused(challenge: string) {
     return (await db.query("SELECT used_at FROM next_device_challenges WHERE challenge=$1", [Buffer.from(challenge, "hex")])).rows[0]?.used_at === null;
   }
+  it.each(["root", "device", "sign", "kem", "noise", "start", "owner", "runtime", "left"] as const)("rereads projected target/source after consume, not an earlier locked snapshot: %s", async kind => {
+    let armed = false, collection = "", account = "";
+    const database = tapped(async (sql, client) => {
+      if (!armed || !sql.startsWith("UPDATE next_device_challenges SET used_at")) return;
+      armed = false;
+      if (kind === "root") await client.query("UPDATE next_collections SET root_key_id=$2 WHERE collection_id=$1", [collection, Buffer.alloc(16, 0x52)]);
+      else if (kind === "device") {
+        // The live nonce FK intentionally forbids UPDATE of its device ID.
+        // Genuine replacement deletes (cascading that nonce), then inserts.
+        await client.query("DELETE FROM next_service_devices WHERE collection_id=$1", [collection]);
+        await client.query("INSERT INTO next_service_devices(collection_id,kind,device_id,sign_pk,kem_pk,noise_pk,wrapped_keys,kms_key_arn) VALUES($1,\'hosted\',$2,$3,$4,$5,$6,\'synthetic-private-kms-label\')",
+          [collection, randomUUID(), signPk, kemPk, noisePk, Buffer.from("synthetic-private-wrapper")]);
+      }
+      else if (kind === "start") await client.query("UPDATE next_migration_cohort_members SET started_at=started_at+interval '1 microsecond' WHERE account_id=$1", [account]);
+      else if (kind === "runtime") await client.query("UPDATE next_collections SET runtime='next' WHERE collection_id=$1", [collection]);
+      else if (kind === "left") await client.query("UPDATE next_collections SET left_sync_at=clock_timestamp() WHERE collection_id=$1", [collection]);
+      else if (kind === "owner") {
+        const other = randomUUID();
+        await client.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Other')", [other, `${other}@example.test`]);
+        await client.query("UPDATE next_collections SET owner_user_id=$2 WHERE collection_id=$1", [collection, other]);
+      } else await client.query(`UPDATE next_service_devices SET ${kind}_pk=$2 WHERE collection_id=$1`, [collection, publicBytes(privateKey(kind === "sign" ? "6570" : "656e", 0x64))]);
+    });
+    const f = await fixture(true, database); collection = f.collection; account = f.account;
+    try {
+      const challenge = await f.nonce(); armed = true;
+      expect((await f.request("read", f.proof(challenge))).statusCode).toBe(409);
+      expect(armed).toBe(false); expect(await unused(challenge)).toBe(true);
+      // The fault and consumption rolled back together, independently read back.
+      expect((await f.request("read", f.proof(challenge))).statusCode).toBe(200);
+    } finally { armed = false; await f.app.close(); }
+  });
+  it("unknown challenge COMMIT acknowledgment leaves the original live slot, never a success or replacement", async () => {
+    let loseAck = true;
+    const f = await fixture(true, tapped(sql => {
+      if (loseAck && sql === "COMMIT") { loseAck = false; throw new Error("synthetic lost challenge commit acknowledgment"); }
+    }));
+    try {
+      expect((await f.request("challenge", { device_id: f.device })).statusCode).toBe(500);
+      expect((await db.query("SELECT count(*)::int AS n FROM next_device_challenges WHERE service_collection_id=$1 AND used_at IS NULL", [f.collection])).rows[0].n).toBe(1);
+      expect((await f.request("challenge", { device_id: f.device })).json().error.code).toBe("challenge_pending");
+    } finally { await f.app.close(); }
+  });
+  it.each(["55P03", "57014", "40P01", "40001"])("rolls back failed bounded transaction setup with no claim: %s", async code => {
+    let fail = true;
+    const f = await fixture(true, tapped(sql => {
+      if (fail && sql.startsWith("SET LOCAL")) { fail = false; throw Object.assign(new Error("synthetic setup failure"), { code }); }
+    }));
+    try {
+      const result = await f.request("challenge", { device_id: f.device });
+      expect(result.statusCode, result.body).toBe(503); expect(result.json().error.code).toBe("busy");
+      expect((await db.query("SELECT count(*)::int AS n FROM next_device_challenges WHERE service_collection_id=$1", [f.collection])).rows[0].n).toBe(0);
+      expect(await f.nonce()).toMatch(/^[0-9a-f]{64}$/u);
+    } finally { await f.app.close(); }
+  });
+  const phases = ["source", "advisory", "deletion", "parent", "device", "revocation", "nonce", "final-source"] as const;
+  const phaseCases = (["standard", "csv", "cohort"] as const).flatMap(mode =>
+    (["challenge", "read"] as const).flatMap(route => (["deletion", "cutover"] as const).flatMap(fact => phases.map(phase => ({ mode, route, fact, phase })))));
+  it.each(phaseCases)("rechecks $fact at $phase in $route ($mode), including nonce rollback", async ({ mode, route, fact, phase }) => {
+    let armed = false, injected = false, sources = 0, collection = "", account = "";
+    const database = tapped(async sql => {
+      if (!armed) return;
+      if (sql.includes("FROM hosted_collections h")) sources++;
+      const hit = phase === "source" ? sources === 1
+        : phase === "advisory" ? sql.includes("pg_advisory_xact_lock")
+        : phase === "deletion" ? sql.startsWith("SELECT 1 FROM next_collection_deletion_facts")
+        : phase === "parent" ? sql.includes("FROM next_collections WHERE")
+        : phase === "device" ? sql.includes("FROM next_service_devices")
+        : phase === "revocation" ? sql.includes("revoked AS")
+        : phase === "nonce" ? sql.startsWith(route === "challenge" ? "INSERT INTO next_device_challenges" : "UPDATE next_device_challenges SET used_at")
+        : sources === 3;
+      if (!hit) return;
+      armed = false; injected = true;
+      if (fact === "deletion") await db.query("INSERT INTO next_collection_deletion_facts(collection_id,deletion_id,lifecycle_epoch,authority) VALUES($1,$2,1,'native-registry')", [collection, randomUUID()]);
+      else await db.query("INSERT INTO next_migration_collections(collection_id,account_id,s_final,cutover_seq,barrier_f,final_digest) VALUES($1,$2,42,2,2,$3)", [collection, account, "ab".repeat(32)]);
+    });
+    const f = await fixture(true, database, mode); collection = f.collection; account = f.account;
+    try {
+      const challenge = route === "read" ? await f.nonce() : null;
+      armed = true;
+      const result = await f.request(route, challenge ? f.proof(challenge) : { device_id: f.device });
+      expect(injected, phase).toBe(true);
+      expect(result.statusCode, result.body).toBe(409);
+      if (challenge) expect(await unused(challenge)).toBe(true);
+      else expect((await db.query("SELECT count(*)::int AS n FROM next_device_challenges WHERE service_collection_id=$1", [f.collection])).rows[0].n).toBe(0);
+    } finally { armed = false; await f.app.close(); }
+  });
+  it.each(["standard", "csv", "cohort"] as const)("serializes concurrent issue and single consume without a replacement nonce: %s", async mode => {
+    const f = await fixture(true, db, mode);
+    try {
+      const issued = await Promise.all(Array.from({ length: 8 }, () => f.request("challenge", { device_id: f.device })));
+      expect(issued.filter(r => r.statusCode === 200)).toHaveLength(1);
+      expect(issued.filter(r => r.statusCode === 409 && r.json().error.code === "challenge_pending")).toHaveLength(7);
+      const challenge = issued.find(r => r.statusCode === 200)!.json().challenge as string;
+      const consumed = await Promise.all(Array.from({ length: 8 }, () => f.request("read", f.proof(challenge))));
+      expect(consumed.filter(r => r.statusCode === 200)).toHaveLength(1);
+      expect(consumed.filter(r => r.statusCode === 409 && r.json().error.code === "challenge_invalid")).toHaveLength(7);
+      expect(await unused(challenge)).toBe(false);
+      expect((await db.query("SELECT count(*)::int AS n FROM next_device_challenges WHERE service_collection_id=$1", [f.collection])).rows[0].n).toBe(1);
+    } finally { await f.app.close(); }
+  });
+  it("keeps the database one-outstanding index stronger than the aggregate20 guard, and expiry releases it", async () => {
+    const f = await fixture();
+    try {
+      const challenge = await f.nonce();
+      // Twenty simultaneous unused rows are not a reachable schema state. Do
+      // not drop the real index to fabricate an API/concurrency qualification.
+      await expect(db.query(`INSERT INTO next_device_challenges
+        (challenge,service_collection_id,service_device_id,service_purpose,service_audience,service_subject_hash,expires_at)
+        SELECT $1,service_collection_id,service_device_id,service_purpose,service_audience,service_subject_hash,expires_at
+        FROM next_device_challenges WHERE challenge=$2`, [Buffer.alloc(32, 0x93), Buffer.from(challenge, "hex")])).rejects.toMatchObject({ code: "23505" });
+      expect((await f.request("challenge", { device_id: f.device })).json().error.code).toBe("challenge_pending");
+      await db.query("UPDATE next_device_challenges SET expires_at=clock_timestamp()-interval '1 millisecond' WHERE service_collection_id=$1", [f.collection]);
+      expect(await f.nonce()).not.toBe(challenge);
+      expect((await db.query("SELECT count(*)::int AS n FROM next_device_challenges WHERE service_collection_id=$1", [f.collection])).rows[0].n).toBe(1);
+    } finally { await f.app.close(); }
+  });
+  it.each(["direct", "same-row-after", "same-row-before", "historic-reenrol", "other-device", "other-account"] as const)("preserves canonical permanent revocation/ordinality after consume: %s", async kind => {
+    let armed = false, collection = "", device = "", account = "";
+    // A genuine competing policy writer is parent/advisory-lock serialized
+    // (tested below). This same-transaction fault tests the final fresh guard.
+    const database = tapped(async (sql, client) => {
+      if (!armed || !sql.startsWith("UPDATE next_device_challenges SET used_at")) return;
+      armed = false;
+      const enrol = { op: "device-enrol", device, account }, removal = { op: "member-remove", account };
+      const ops = kind === "direct" ? [{ op: "device-revoke", device }]
+        : kind === "other-device" ? [{ op: "device-revoke", device: randomUUID() }]
+        : kind === "other-account" ? [enrol, { ...removal, account: randomUUID() }]
+        : kind === "same-row-before" ? [removal, enrol] : [enrol, removal];
+      await client.query("INSERT INTO next_policy_outbox(collection_id,ops) VALUES($1,$2)", [collection, { ops }]);
+      if (kind === "historic-reenrol") await client.query("INSERT INTO next_policy_outbox(collection_id,ops) VALUES($1,$2)", [collection, { ops: [{ ...enrol, account: randomUUID() }] }]);
+    });
+    const f = await fixture(true, database); collection = f.collection; device = f.device; account = f.account;
+    try {
+      const challenge = await f.nonce(); armed = true;
+      const result = await f.request("read", f.proof(challenge));
+      expect(armed).toBe(false);
+      const denied = ["direct", "same-row-after", "historic-reenrol"].includes(kind);
+      expect(result.statusCode, result.body).toBe(denied ? 409 : 200);
+      expect(await unused(challenge)).toBe(denied);
+    } finally { armed = false; await f.app.close(); }
+  });
+  it("holds the exact device key share lock across proof/nonce/final-read until COMMIT", async () => {
+    let release!: () => void, observed!: () => void, armed = false;
+    const gate = new Promise<void>(resolve => { release = resolve; }), seen = new Promise<void>(resolve => { observed = resolve; });
+    const database = tapped(async sql => { if (armed && sql.includes("FROM next_service_devices")) { armed = false; observed(); await gate; } });
+    const f = await fixture(true, database), writer = await db.connect();
+    let pending: ReturnType<typeof f.request> | undefined;
+    try {
+      const challenge = await f.nonce(); armed = true;
+      pending = f.request("read", f.proof(challenge)); void pending.then(() => undefined);
+      await seen;
+      await writer.query("BEGIN"); await writer.query("SET LOCAL lock_timeout='150ms'");
+      await expect(writer.query("UPDATE next_service_devices SET sign_pk=$2 WHERE collection_id=$1", [f.collection, Buffer.alloc(32, 0x61)])).rejects.toMatchObject({ code: "55P03" });
+      await writer.query("ROLLBACK");
+      await writer.query("BEGIN"); await writer.query("SET LOCAL lock_timeout='150ms'");
+      await expect(writer.query("INSERT INTO next_policy_outbox(collection_id,ops) VALUES($1,$2)", [f.collection,
+        { ops: [{ op: "device-revoke", device: f.device }] }])).rejects.toMatchObject({ code: "55P03" });
+      await writer.query("ROLLBACK"); release();
+      expect((await pending).statusCode).toBe(200);
+    } finally { release(); await pending; await writer.query("ROLLBACK"); writer.release(); await f.app.close(); }
+  });
+  it("a genuine device lock timeout refuses without issuing a nonce", async () => {
+    const f = await fixture(), holder = await db.connect();
+    try {
+      await holder.query("BEGIN"); await holder.query("SELECT device_id FROM next_service_devices WHERE collection_id=$1 FOR UPDATE", [f.collection]);
+      const result = await f.request("challenge", { device_id: f.device });
+      expect(result.statusCode, result.body).toBe(503); expect(result.json().error.code).toBe("busy");
+      expect((await db.query("SELECT count(*)::int AS n FROM next_device_challenges WHERE service_collection_id=$1", [f.collection])).rows[0].n).toBe(0);
+    } finally { await holder.query("ROLLBACK"); holder.release(); await f.app.close(); }
+  }, 15_000);
+  it("a real reciprocal device/advisory deadlock refuses with no claim outcome", async () => {
+    let armed = true, collection = "", databaseError: string | undefined, observed!: () => void, release!: () => void;
+    const seen = new Promise<void>(resolve => { observed = resolve; }), gate = new Promise<void>(resolve => { release = resolve; });
+    const database = tapped(async (sql, client) => {
+      if (sql === "BEGIN") await client.query("SET LOCAL deadlock_timeout='50ms'");
+      if (armed && sql.includes("FROM next_collections WHERE")) { armed = false; observed(); await gate; }
+    }, error => { databaseError = (error as { code?: string }).code; });
+    const f = await fixture(true, database), holder = await db.connect(); collection = f.collection;
+    let pending: ReturnType<typeof f.request> | undefined, waiting: Promise<unknown> | undefined;
+    try {
+      await holder.query("BEGIN"); await holder.query("SET LOCAL statement_timeout='5s'"); await holder.query("SET LOCAL deadlock_timeout='5s'");
+      await holder.query("SELECT device_id FROM next_service_devices WHERE collection_id=$1 FOR UPDATE", [collection]);
+      pending = f.request("challenge", { device_id: f.device }); void pending.then(() => undefined);
+      await seen;
+      waiting = holder.query("SELECT pg_advisory_xact_lock(hashtextextended($1::uuid::text, 20261005))", [collection]);
+      release(); const result = await pending;
+      expect(databaseError).toBe("40P01");
+      expect(result.statusCode, result.body).toBe(503); expect(result.json().error.code).toBe("busy");
+      await waiting;
+      expect((await db.query("SELECT count(*)::int AS n FROM next_device_challenges WHERE service_collection_id=$1", [collection])).rows[0].n).toBe(0);
+    } finally { release(); await pending; await waiting?.catch(() => undefined); await holder.query("ROLLBACK"); holder.release(); await f.app.close(); }
+  }, 15_000);
   it("accepts fresh DB cohort members for the LAB role without an environment account pin", async () => {
     const own = await fixture(); const inbound = "synthetic-db-cohort-role-".repeat(3), scoped = Fastify();
     registerMigrationProviderRoutes(scoped, { db, token: adminToken, hostedRead: { token, audience, migrationRouting: {
