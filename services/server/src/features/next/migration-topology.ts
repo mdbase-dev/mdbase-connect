@@ -95,28 +95,41 @@ export async function requireNextAccountNotMigrationFrozen(client: DatabaseConne
   return lockAccountsNotMigrationFrozen(client, [accountId, ...otherAccountIds], true);
 }
 
+export interface NextMigrationFreezeRow {
+  account_id: string; account_backend: string; started_at: Date | null; terminal_excluded_at: Date | null;
+  completed_at: Date | null; completed_revision: string | null; flipped_at: Date | null;
+}
+
 /** Read-only UI projection of the SAME next-authority policy. Mutations must
  * acquire the ordered account/member/cohort locks through the guard above. */
 export async function nextAccountsMigrationFrozen(db: DatabaseQueryable, accounts: readonly string[]): Promise<boolean> {
-  const rows = (await db.query<{
-    account_id: string; account_backend: string; started_at: Date | null; terminal_excluded_at: Date | null;
-    completed_at: Date | null; completed_revision: string | null; flipped_at: Date | null;
-  }>(
+  const rows = (await db.query<NextMigrationFreezeRow>(
     `SELECT u.id::text AS account_id,u.account_backend,m.started_at,m.terminal_excluded_at,c.completed_at,c.completed_revision,f.flipped_at
      FROM next_migration_cohort_members m JOIN users u ON u.id=m.account_id
      JOIN next_migration_cohorts c ON c.name=m.cohort
      LEFT JOIN next_migration_account_flips f ON f.account_id=u.id
      WHERE m.account_id=ANY($1::uuid[]) AND c.frozen_at IS NOT NULL`, [accounts]
   )).rows;
-  if (rows.some(row => row.account_backend !== "next" || row.started_at === null || row.terminal_excluded_at !== null
-    || row.completed_at === null || row.completed_revision === null || row.flipped_at === null
-    || new Date(row.flipped_at).getTime() < new Date(row.started_at).getTime()
-    || new Date(row.flipped_at).getTime() > new Date(row.completed_at).getTime())) return true;
-  for (const row of rows) {
+  return (await projectNextMigrationFreeze(db, rows)).size > 0;
+}
+
+/** Project frozen-account rows from the caller's read snapshot. Deduplicate
+ * owners before validating their original completion proof; never cache across
+ * requests or replace mutation-time locks with this management metadata. */
+export async function projectNextMigrationFreeze(db: DatabaseQueryable, rows: readonly NextMigrationFreezeRow[]): Promise<ReadonlySet<string>> {
+  const frozen = new Set<string>();
+  for (const row of new Map(rows.map(row => [row.account_id, row])).values()) {
+    if (row.account_backend !== "next" || row.started_at === null || row.terminal_excluded_at !== null
+      || row.completed_at === null || row.completed_revision === null || row.flipped_at === null
+      || new Date(row.flipped_at).getTime() < new Date(row.started_at).getTime()
+      || new Date(row.flipped_at).getTime() > new Date(row.completed_at).getTime()) {
+      frozen.add(row.account_id);
+      continue;
+    }
     try { await requireCompletedNextAccountMigration(db, row.account_id); }
-    catch (error) { if (error instanceof InvitationMigrationPending) return true; throw error; }
+    catch (error) { if (error instanceof InvitationMigrationPending) frozen.add(row.account_id); else throw error; }
   }
-  return false;
+  return frozen;
 }
 
 async function lockAccountsNotMigrationFrozen(client: DatabaseConnection, accountIds: readonly string[], nextAuthority: boolean): Promise<boolean> {

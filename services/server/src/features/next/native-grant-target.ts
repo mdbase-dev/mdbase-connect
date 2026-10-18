@@ -3,7 +3,7 @@
 // approval. The serving device materializes the exact signed grant and sealed
 // Private folder scope automatically; these checks locate that account's device.
 import type { DatabaseQueryable } from "../../database-types.js";
-import { CreateError, ENROLMENT, currentMember, exactEnrolment, refuseRevoked } from "./bootstrap-common.js";
+import { CreateError, DEVICE_REVOCATIONS, currentMember } from "./bootstrap-common.js";
 import { requireCollectionNotDeleted } from "./collection-deletion.js";
 import type { RegisteredDeviceKind } from "./policy-wire.js";
 
@@ -78,29 +78,46 @@ export async function nativeGrantStanding(db: DatabaseQueryable, collection: str
  * granting account's own devices).
  */
 export async function nativeDevices(db: DatabaseQueryable, collection: string, account: string, only?: string): Promise<NativeDevice[]> {
-  const devices = await db.query<NativeDevice & { sign_pk: Buffer; kem_pk: Buffer }>(
-    `SELECT d.id AS device_id, d.kind, d.sign_pk, d.kem_pk, d.noise_pk,
-            c.id AS connector_id, c.relay_generation::text AS relay_generation,
-            (extract(epoch FROM c.last_seen_at) * 1000)::double precision AS last_active_ms,
-            (c.incompatibility_code IS NOT NULL) AS update_required
-     FROM next_devices d
-     JOIN connectors c ON c.id = d.connector_id AND c.revoked_at IS NULL
-     WHERE d.user_id = $1 AND d.kind IN ('desktop', 'cli') AND ($2::uuid IS NULL OR d.id = $2::uuid)
-     ORDER BY d.id`,
-    [account, only ?? null]
+  return (await nativeDevicesByCollection(db, [collection], account, only)).get(collection.toLowerCase())!;
+}
+
+/** Same serving-device discovery in one read for a bounded management inventory.
+ * Returned map keys are canonical PostgreSQL UUIDs, including empty inventories. */
+export async function nativeDevicesByCollection(db: DatabaseQueryable, collections: readonly string[], account: string, only?: string): Promise<ReadonlyMap<string, NativeDevice[]>> {
+  const ids = [...new Set(collections.map(id => id.toLowerCase()))];
+  const current = new Map(ids.map(id => [id, [] as NativeDevice[]]));
+  if (ids.length === 0) return current;
+  const devices = await db.query<NativeDevice & { collection_id: string }>(
+    `WITH devices AS (
+       SELECT d.id AS device_id,d.kind,d.sign_pk,d.kem_pk,d.noise_pk,
+         c.id AS connector_id,c.relay_generation::text AS relay_generation,
+         (extract(epoch FROM c.last_seen_at)*1000)::double precision AS last_active_ms,
+         (c.incompatibility_code IS NOT NULL) AS update_required
+       FROM next_devices d JOIN connectors c ON c.id=d.connector_id AND c.revoked_at IS NULL
+       WHERE d.user_id=$2::uuid AND d.kind IN ('desktop','cli') AND ($3::uuid IS NULL OR d.id=$3::uuid)
+     ), policy_ops AS (
+       SELECT o.collection_id,o.id AS outbox_id,e.ord,e.value FROM next_policy_outbox o
+       CROSS JOIN LATERAL jsonb_array_elements(o.ops->'ops') WITH ORDINALITY AS e(value,ord)
+       WHERE o.collection_id=ANY($1::uuid[])
+     ), first_enrolment AS (
+       SELECT DISTINCT ON (p.collection_id,d.device_id) p.collection_id,d.device_id,p.outbox_id
+       FROM policy_ops p JOIN devices d ON p.value @> jsonb_build_object(
+         'op','device-enrol','device',d.device_id::text,'account',$2::uuid::text,'kind',d.kind,
+         'signPublicKey',jsonb_build_object('$hex',encode(d.sign_pk,'hex')),
+         'kemPublicKey',jsonb_build_object('$hex',encode(d.kem_pk,'hex')),
+         'noisePublicKey',jsonb_build_object('$hex',encode(d.noise_pk,'hex')))
+       ORDER BY p.collection_id,d.device_id,p.outbox_id
+     ), revoked AS (${DEVICE_REVOCATIONS})
+     SELECT enrolled.collection_id,d.device_id,d.kind,d.noise_pk,d.connector_id,
+       d.relay_generation,d.last_active_ms,d.update_required
+     FROM first_enrolment enrolled JOIN devices d ON d.device_id=enrolled.device_id
+     JOIN next_policy_outbox o ON o.id=enrolled.outbox_id
+     JOIN next_policy_batches b ON b.id=o.batch_id AND b.lost_at IS NULL AND b.state='appended'
+     WHERE NOT EXISTS (SELECT 1 FROM revoked r WHERE r.collection_id=enrolled.collection_id AND r.device_id=d.device_id::text)
+     ORDER BY enrolled.collection_id,d.device_id`,
+    [ids, account, only ?? null]
   );
-  const current: NativeDevice[] = [];
-  for (const { sign_pk, kem_pk, ...device } of devices.rows) {
-    const enrolment = await db.query<{ state: string | null }>(ENROLMENT,
-      [collection, exactEnrolment(device.device_id, account, { sign_pk, kem_pk, noise_pk: device.noise_pk, kind: device.kind })]);
-    if (enrolment.rows[0]?.state !== "appended") continue;
-    try { await refuseRevoked(db, collection, device.device_id); }
-    catch (error) {
-      if (error instanceof CreateError) continue;
-      throw error;
-    }
-    current.push(device);
-  }
+  for (const { collection_id, ...device } of devices.rows) current.get(collection_id)!.push(device);
   return current;
 }
 

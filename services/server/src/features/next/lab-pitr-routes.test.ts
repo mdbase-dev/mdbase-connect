@@ -67,12 +67,13 @@ async function fixture(failure?: string) {
       collection:failure==="grant-collection"?D:A,scope:failure==="grant-scope"?{access:"selected_contracts",contracts:[]}:grantSource.scope,
       client_pk:failure==="grant-key"?Buffer.alloc(32,9):failure==="grant-zero"?Buffer.alloc(32):grantSource.client_pk,
       terms_digest:failure==="grant-terms"?Buffer.alloc(32,9):projectNextGrant(grantSource).terms}]}; }
-    if (sql.includes("JOIN next_policy_outbox removal")) {
-      // Current-main permanent member removal is a distinct historical denial
-      // lookup, not the later full immutable enrolment-tuple acceptance query.
-      expect([DEVICE,HOSTED]).toContain(values[2]);
-      expect(values).toEqual([A, JSON.stringify([{op:"device-enrol",device:values[2]}]), values[2]]);
-      return {rows:failure === "member-device-revoked" ? [{one:1}] : []};
+    if (sql.includes("WITH policy_ops AS")) {
+      // Both permanent denials use the same canonical revocation relation.
+      expect([DEVICE,HOSTED]).toContain(values[1]);
+      expect(values).toEqual([A,values[1]]);
+      expect(sql).toContain("value->>'op'='device-revoke'");
+      expect(sql).toContain("removal.value->>'op'='member-remove'");
+      return {rows:["revoked","member-device-revoked"].includes(failure??"") ? [{one:1}] : []};
     }
     if (sql.includes("FROM next_policy_outbox")) {
       const op = JSON.parse(String(values[1]))[0];
@@ -82,7 +83,6 @@ async function fixture(failure?: string) {
         if(failure==="grant-clock") now=cert.notAfter;
         return {rows:failure==="grant-pending"?[]:[{one:1}]};
       }
-      if (op.op === "device-revoke") return {rows:failure === "revoked" ? [{one:1}] : []};
       if (op.op === "cp-key-revoke") { if(failure==="cp-clock")now=cert.notAfter; return {rows:failure === "security-key"||(failure==="nil-second-security"&&values[0]===D) ? [{one:1}] : []}; }
       if (op.op === "device-enrol") {
         expect(op).toHaveProperty("signPublicKey"); expect(op).toHaveProperty("kemPublicKey"); expect(op).toHaveProperty("noisePublicKey");

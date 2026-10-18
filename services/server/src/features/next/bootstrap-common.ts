@@ -120,28 +120,31 @@ export const exactEnrolment = (device: string, account: string, d: Device) => JS
   noisePublicKey: { $hex: d.noise_pk.toString("hex") }
 }]);
 
+/** Canonical revocation relation over policy_ops(collection_id,outbox_id,ord,value).
+ * Shared by individual guards and inventory discovery; removal permanently
+ * denies every historical device enrolment, including earlier ops in one row. */
+export const DEVICE_REVOCATIONS = `
+  SELECT collection_id,value->>'device' AS device_id FROM policy_ops
+  WHERE value->>'op'='device-revoke'
+  UNION
+  SELECT enrolled.collection_id,enrolled.value->>'device' AS device_id
+  FROM policy_ops enrolled JOIN policy_ops removal ON removal.collection_id=enrolled.collection_id
+    AND (removal.outbox_id>enrolled.outbox_id OR (removal.outbox_id=enrolled.outbox_id AND removal.ord>enrolled.ord))
+  WHERE enrolled.value->>'op'='device-enrol' AND removal.value->>'op'='member-remove'
+    AND removal.value->>'account'=enrolled.value->>'account'`;
+
 /** A historical enrolment is never current once the device has been revoked. */
 export async function refuseRevoked(client: DatabaseQueryable, collection: string, device: string): Promise<void> {
   const revoked = await client.query(
-    "SELECT 1 FROM next_policy_outbox WHERE collection_id = $1 AND ops->'ops' @> $2::jsonb LIMIT 1",
-    [collection, JSON.stringify([{ op: "device-revoke", device }])]
+    `WITH policy_ops AS (
+       SELECT o.collection_id,o.id AS outbox_id,e.ord,e.value FROM next_policy_outbox o
+       CROSS JOIN LATERAL jsonb_array_elements(o.ops->'ops') WITH ORDINALITY AS e(value,ord)
+       WHERE o.collection_id=$1
+     ), revoked AS (${DEVICE_REVOCATIONS})
+     SELECT 1 FROM revoked WHERE device_id=$2 LIMIT 1`,
+    [collection, device]
   );
   if (revoked.rows.length) throw new CreateError(409, "device_revoked");
-  // Member removal permanently revokes that account's already-enrolled devices.
-  // A later invitation/member-set does not restore the historical device tuple.
-  const removed = await client.query(
-    `SELECT 1 FROM next_policy_outbox enrolled
-     CROSS JOIN LATERAL jsonb_array_elements(enrolled.ops->'ops') WITH ORDINALITY AS e(value, ord)
-     JOIN next_policy_outbox removal ON removal.collection_id = enrolled.collection_id AND removal.id >= enrolled.id
-     CROSS JOIN LATERAL jsonb_array_elements(removal.ops->'ops') WITH ORDINALITY AS r(value, ord)
-     WHERE enrolled.collection_id = $1 AND enrolled.ops->'ops' @> $2::jsonb
-       AND e.value->>'op' = 'device-enrol' AND e.value->>'device' = $3
-       AND r.value->>'op' = 'member-remove' AND r.value->>'account' = e.value->>'account'
-       AND (removal.id > enrolled.id OR r.ord > e.ord)
-     LIMIT 1`,
-    [collection, enrolmentKey(device), device]
-  );
-  if (removed.rows.length) throw new CreateError(409, "device_revoked");
 }
 
 export function refuse(reply: FastifyReply, error: unknown, message: string) {
