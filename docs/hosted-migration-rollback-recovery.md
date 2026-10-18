@@ -1,7 +1,9 @@
 # Receipted rollback: owner namespaces, detached custody and exact-original redrive
 
-Status: design for review; not implemented or deployment authority. These are
-production migration blockers. Existing UNKNOWN actions, intents and receipts
+Status: approved design; section 1 is implemented in this Connect change.
+Sections 2 and 3 remain separate native implementation work, not available
+recovery commands. This document grants no deployment or recovery authority.
+These are production migration blockers. Existing UNKNOWN actions, intents and receipts
 must not be edited, cleared, relabelled or replaced to make recovery succeed.
 
 ## Proven failure boundaries
@@ -55,8 +57,10 @@ The actual epoch is derived/checked, never the illustrative constant above.
 The server, not operator input, selects the mapping from the exact current
 Connect user. Missing, ambiguous or changed mappings refuse. Recheck the owner,
 epoch, mapping and run around awaits and in the final publication transaction.
-Record the physical provider-account binding once before dispatch, beside the
-existing immutable seven-field intent; reject conflicting readback. Retain old
+Record the physical provider-account binding once before dispatch in
+`next_migration.rollback_provider_binding`, beside the existing immutable
+seven-field intent; reject conflicting readback. This pins an uncertain effect
+before a provider receipt exists. Receipt-only lookup never creates that record. Retain old
 intent bytes, including an intent recorded before this repair.
 
 The authenticated provider v2 checks its collection's actual account_id against
@@ -81,7 +85,10 @@ retains its old checks. New Connect uses v2 exclusively, with no fallback to v1,
 UUID identity assumptions or bare active/restored results. Remove v1 routes once
 all CP clients/operator consumers have moved; legacy persisted receipts retain
 the explicit identity-only read rule until those rows are legitimately removed.
-Deploy/qualify provider v2 before enabling the new CP caller.
+Deploy/qualify provider v2 and its append-only migration before enabling the
+new CP caller. Do not downgrade the provider below this boundary while v2
+callers or receipts remain; neither rewriting receipt owners nor a v1 caller
+fallback is a rollback strategy.
 
 Files:
 - `services/server/src/features/next/migration-replicas.ts`: mapped physical

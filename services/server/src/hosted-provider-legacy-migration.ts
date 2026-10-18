@@ -4,8 +4,8 @@
 import { z } from "zod";
 import { readBoundedJson } from "./platform/bounded-json.js";
 import { HostedProviderResponseError, migrationUuid, legacyMigrationDrainSchema, migrationFenceSchema,
-  legacyMigrationRollbackRequestSchema, legacyMigrationRollbackReceiptSchema, legacyNotificationWatermarkSchema,
-  migrationRetainedSchema, type LegacyMigrationDrain, type LegacyMigrationFence, type LegacyMigrationRollbackRequest,
+  legacyMigrationRollbackEnvelopeSchema, legacyMigrationRollbackReceiptSchema, legacyNotificationWatermarkSchema,
+  migrationRetainedSchema, type LegacyMigrationDrain, type LegacyMigrationFence, type LegacyMigrationRollbackEnvelope,
   type LegacyMigrationRollbackReceipt, type LegacyNotificationWatermark, type LegacyMigrationRetained
 } from "./hosted-provider-replies.js";
 
@@ -81,12 +81,12 @@ export async function legacyMigrationRetain(request: LegacyMigrationRequest, col
 /** Native rollback guards required; a lost response is UNKNOWN, never auto-retried.
  * A receipt lookup uses the ORIGINAL binding; missing/active-only is not success. */
 export async function legacyMigrationRollback(request: LegacyMigrationRequest, action: "rollback" | "rollback-receipt",
-  collectionId: string, binding: LegacyMigrationRollbackRequest): Promise<LegacyMigrationRollbackReceipt> {
+  collectionId: string, envelope: LegacyMigrationRollbackEnvelope): Promise<LegacyMigrationRollbackReceipt> {
   const id = migrationUuid.parse(collectionId);
-  const input = legacyMigrationRollbackRequestSchema.parse(binding);
-  const result = legacyMigrationRollbackReceiptSchema.parse(await request("POST", path(id, `/${action}`), input,
+  const input = legacyMigrationRollbackEnvelopeSchema.parse(envelope);
+  const result = legacyMigrationRollbackReceiptSchema.parse(await request("POST", path(id, `/${action}-v2`), input,
     response => readBoundedJson(response, 128 * 1024), 1));
-  if (result.collection_id !== id || JSON.stringify(result.binding) !== JSON.stringify(input)) {
+  if (result.collection_id !== id || JSON.stringify(result.binding) !== JSON.stringify(input.binding)) {
     throw invalid("Rollback receipt binding does not match.");
   }
   return result;

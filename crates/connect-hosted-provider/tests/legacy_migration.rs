@@ -1,5 +1,7 @@
 // Freezing and retaining hosted collections for the mdbase-next migration
 // (mdbase-next docs/ship/migration.md H6-H10, §6).
+#[path = "legacy_migration/rollback_owner_namespace.rs"]
+mod rollback_owner_namespace;
 #[allow(dead_code, unused_imports)]
 mod support;
 #[path = "support/test_postgres.rs"]
