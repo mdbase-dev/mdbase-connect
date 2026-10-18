@@ -1,0 +1,6 @@
+{
+  "reason": "The backlink consumer imports the existing Editor Markdown reference parser used by forward navigation, rather than introducing a second parser or native metadata projection. This one dependency keeps code-span/fence exclusions and link targets consistent without adding production files or public APIs.",
+  "growth": {
+    "relativeImports": 1
+  }
+}

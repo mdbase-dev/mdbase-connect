@@ -2,6 +2,7 @@ import { isMdbaseError, MdbaseError } from "@mdbase-dev/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { editorPermissions } from "./gateway";
 import { CollectionIndexController } from "./collection-index-controller";
+import { backlinksFor } from "./links";
 import type { EditorCollectionChange, NoteObservationSnapshot } from "./model";
 import { NativeEditorGateway } from "./native-gateway";
 import { outdatedPersonStarter } from "./person-setup";
@@ -181,6 +182,29 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
       expect(index.getSnapshot().total).toBe(3);
       await index.reload();
       expect(index.getSnapshot().total).toBe(3);
+    } finally { index.reset(); }
+  });
+
+  it("hydrates native bodies into Linked from and removes backlinks after a saved edit", async () => {
+    const f = await fixture({}, replica => {
+      replica.seed({ path: "notes/alpha.md", types: ["note"], frontmatter: {}, body: "# Alpha note\n\n[[Beta note]]" });
+      replica.seed({ path: "notes/beta.md", types: ["note"], frontmatter: {}, body: "# Beta note\n\n[[Alpha note]]" });
+    });
+    const index = new CollectionIndexController(f.gateway);
+    try {
+      await index.reload();
+      expect(index.getSnapshot().contentComplete).toBe(false);
+      await index.hydrate();
+      expect(index.getSnapshot().contentComplete).toBe(true);
+      expect(index.getSnapshot().notes.every(note => note.file?.links === undefined)).toBe(true);
+      const linkedFrom = (path: string) => backlinksFor(path, index.getSnapshot().notes).map(note => note.path);
+      expect(linkedFrom("notes/alpha.md")).toEqual(["notes/beta.md"]);
+      expect(linkedFrom("notes/beta.md")).toEqual(["notes/alpha.md"]);
+
+      const beta = await f.gateway.read("notes/beta.md");
+      await f.gateway.update(beta, { body: "# Beta note\n\nNo outgoing link." });
+      await vi.waitFor(() => expect(linkedFrom("notes/alpha.md")).toEqual([]));
+      expect(linkedFrom("notes/beta.md")).toEqual(["notes/alpha.md"]);
     } finally { index.reset(); }
   });
 
