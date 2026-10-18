@@ -13,7 +13,7 @@ const suite = testUrl && approved ? describe : describe.skip;
 const token = "synthetic-migration-token-".repeat(2);
 const sorted = (ids: string[]) => [...ids].sort();
 
-interface Source { state: string; run: string | null; replicas: Map<string, string | null> }
+interface Source { state: string; run: string | null; storageOwner: string; replicas: Map<string, string | null> }
 
 suite("migration replica, unfence and cutover-policy fronts (isolated real PostgreSQL, synthetic provider)", () => {
   let db: DatabasePool, admin: pg.Pool, schema: string;
@@ -29,6 +29,7 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
   async function account() {
     const id = randomUUID(), cohort = `c-${randomUUID().slice(0, 8)}`;
     await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Test')", [id, `${id}@example.test`]);
+    await db.query("INSERT INTO account_storage_accounts(user_id,provider_account_id) VALUES($1,$2)", [id, randomUUID()]);
     await db.query("INSERT INTO next_migration_cohorts(name,released_at,frozen_at) VALUES($1,now(),now())", [cohort]);
     await db.query("INSERT INTO next_migration_cohort_members(account_id,cohort,started_at) VALUES($1,$2,now())", [id, cohort]);
     return id;
@@ -38,7 +39,9 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
     await db.query("INSERT INTO hosted_collections(id,user_id,display_name,template) VALUES($1,$2,'Source','mdbase')", [id, owner]);
     await db.query("INSERT INTO next_collections(collection_id,owner_user_id,runtime,sync,root_key_id) VALUES($1,$2,'shadow','cloud_copy',$3)", [id, owner, Buffer.alloc(16, 7)]);
     const replicas = new Map<string, string | null>([[randomUUID(), null], [randomUUID(), null]]);
-    sources.set(id, { state: "migrating", run: randomUUID(), replicas });
+    const storage = (await db.query<{ provider_account_id: string }>("SELECT provider_account_id::text FROM account_storage_accounts WHERE user_id=$1", [owner])).rows[0]!;
+    expect(storage.provider_account_id).not.toBe(owner);
+    sources.set(id, { state: "migrating", run: randomUUID(), storageOwner: storage.provider_account_id, replicas });
     return id;
   }
 
@@ -80,7 +83,9 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
         return { collection_id: id, state: "active", migration_id: null, started_at: null, retain_until: null, restored: [] };
       },
       // Provider semantics: owner + its own epoch, one receipt per run, exact binding on replay/read.
-      async legacyMigrationRollback(id, binding) {
+      async legacyMigrationRollback(id, envelope) {
+        if (envelope.provider_account_id !== src(id).storageOwner) conflict();
+        const { binding } = envelope;
         effects.push(`rollback:${id}`);
         const existing = receipt(id, binding); if (existing) return existing;
         const s = src(id);
@@ -92,7 +97,9 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
         receipts.set(`${id}:${binding.provider_migration_id}`, made);
         return tamper ? tamper(structuredClone(made)) : made;
       },
-      async legacyMigrationRollbackReceipt(id, binding) {
+      async legacyMigrationRollbackReceipt(id, envelope) {
+        if (envelope.provider_account_id !== src(id).storageOwner) conflict();
+        const { binding } = envelope;
         effects.push(`receipt:${id}`);
         const found = receipt(id, binding);
         if (!found) throw new HostedProviderResponseError(404, "legacy_rollback_receipt_unknown", "x");
@@ -353,6 +360,86 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
       expect(await f.events("next_migration.rollback_intent")).toHaveLength(1);
       if (field === "authority_epoch") await db.query("UPDATE hosted_collections SET authority_epoch=1 WHERE id=$1", [f.a]);
       expect((await f.call("rollback-receipt", body)).statusCode).toBe(200);
+    } finally { await f.app.close(); }
+  });
+
+  it("uses the non-identity physical mapping without rewriting the original intent", async () => {
+    const f = await fixture(); try {
+      await revokeAll(f);
+      const body = f.rollbackBody(), original = { owner_account_id: f.owner, provider_migration_id: body.migration_id,
+        authority_epoch: 1, fixed_head: body.fixed_head, driver_id: body.driver_id, action_id: body.action_id, replica_ids: body.replica_ids };
+      await db.query("INSERT INTO audit_events(id,user_id,event_type,subject_id,metadata) VALUES($1,$2,'next_migration.rollback_intent',$3,$4)",
+        [randomUUID(), f.owner, f.a, JSON.stringify({ migration_id: body.migration_id, binding: original })]);
+      const before = await f.events("next_migration.rollback_intent");
+      const done = await f.call("rollback", body);
+      expect(done.statusCode, done.body).toBe(200);
+      expect(done.json().binding).toEqual(original);
+      expect(f.src(f.a).storageOwner).not.toBe(f.owner);
+      const physical = await f.events("next_migration.rollback_provider_binding");
+      expect(physical).toEqual([{ migration_id: body.migration_id, binding: original, provider_account_id: f.src(f.a).storageOwner }]);
+      const count = f.effects.length;
+      await db.query("UPDATE account_storage_accounts SET provider_account_id=$2 WHERE user_id=$1", [f.owner, randomUUID()]);
+      for (const kind of ["rollback", "rollback-receipt"]) {
+        const changed = await f.call(kind, body);
+        expect(changed.statusCode, changed.body).toBe(409);
+        expect(changed.json().error.code).toBe("migration_rollback_binding_conflict");
+      }
+      expect(f.effects).toHaveLength(count);
+      expect(await f.events("next_migration.rollback_intent")).toEqual(before);
+      expect(await f.events("next_migration.rollback_provider_binding")).toEqual(physical);
+      await db.query("UPDATE account_storage_accounts SET provider_account_id=$2 WHERE user_id=$1", [f.owner, f.src(f.a).storageOwner]);
+      expect((await f.call("rollback-receipt", body)).json()).toEqual(done.json());
+    } finally { await f.app.close(); }
+  });
+
+  it("refuses a missing mapping before recording an intent or calling the provider", async () => {
+    const f = await fixture(); try {
+      await revokeAll(f);
+      await db.query("DELETE FROM account_storage_accounts WHERE user_id=$1", [f.owner]);
+      const effects = f.effects.length;
+      for (const kind of ["rollback", "rollback-receipt"]) {
+        const response = await f.call(kind, f.rollbackBody());
+        expect(response.statusCode, response.body).toBe(409);
+        expect(response.json().error.code).toBe("migration_source_not_current");
+      }
+      expect(f.effects).toHaveLength(effects);
+      expect(await f.events("next_migration.rollback_intent")).toEqual([]);
+    } finally { await f.app.close(); }
+  });
+
+  it("pins an uncertain dispatch before any receipt and refuses a different physical target", async () => {
+    const f = await fixture(); try {
+      await revokeAll(f);
+      f.providerEpoch = 2; // Provider refuses before making any receipt/effect.
+      const body = f.rollbackBody(), first = await f.call("rollback", body);
+      expect(first.json().error.code).toBe("migration_rollback_binding_conflict");
+      expect(f.src(f.a).state).toBe("migrating");
+      const intent = await f.events("next_migration.rollback_intent");
+      const physical = await f.events("next_migration.rollback_provider_binding");
+      expect(physical).toHaveLength(1);
+      await db.query("UPDATE account_storage_accounts SET provider_account_id=$2 WHERE user_id=$1", [f.owner, randomUUID()]);
+      const effects = f.effects.length;
+      for (const kind of ["rollback", "rollback-receipt"]) {
+        expect((await f.call(kind, body)).json().error.code).toBe("migration_rollback_binding_conflict");
+      }
+      expect(f.effects).toHaveLength(effects);
+      expect(await f.events("next_migration.rollback_intent")).toEqual(intent);
+      expect(await f.events("next_migration.rollback_provider_binding")).toEqual(physical);
+    } finally { await f.app.close(); }
+  });
+
+  it("receipt-only lookup never creates a missing physical dispatch correlation", async () => {
+    const f = await fixture(); try {
+      await revokeAll(f);
+      const body = f.rollbackBody(), done = await f.call("rollback", body);
+      expect(done.statusCode, done.body).toBe(200);
+      // A predecessor intent may have no physical CP audit. The genuine
+      // provider receipt still must qualify its own exact physical owner.
+      await db.query("DELETE FROM audit_events WHERE event_type='next_migration.rollback_provider_binding' AND subject_id=$1", [f.a]);
+      const before = await f.events("next_migration.rollback_intent");
+      expect((await f.call("rollback-receipt", body)).json()).toEqual(done.json());
+      expect(await f.events("next_migration.rollback_provider_binding")).toEqual([]);
+      expect(await f.events("next_migration.rollback_intent")).toEqual(before);
     } finally { await f.app.close(); }
   });
 

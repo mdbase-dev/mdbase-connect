@@ -65,6 +65,11 @@ export const legacyMigrationRollbackRequestSchema = z.object({
   driver_id: migrationUuid, action_id: migrationUuid, replica_ids: rollbackReplicaIds
 }).strict();
 export type LegacyMigrationRollbackRequest = z.infer<typeof legacyMigrationRollbackRequestSchema>;
+/** V2 physical storage owner is distinct from the original Connect-owner binding. */
+export const legacyMigrationRollbackEnvelopeSchema = z.object({
+  provider_account_id: migrationUuid, binding: legacyMigrationRollbackRequestSchema
+}).strict();
+export type LegacyMigrationRollbackEnvelope = z.infer<typeof legacyMigrationRollbackEnvelopeSchema>;
 export const legacyMigrationRollbackReceiptSchema = z.object({
   collection_id: migrationUuid, binding: legacyMigrationRollbackRequestSchema,
   restored_ids: rollbackReplicaIds, recorded_at: z.iso.datetime({ offset: true }).max(64)
