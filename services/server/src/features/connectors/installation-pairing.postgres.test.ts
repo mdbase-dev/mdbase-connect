@@ -292,9 +292,15 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect((await flow.exchange()).json()).toMatchObject({ status: "account_selected", account_id: owner.user });
     expect((await app.inject({ method: "GET", url: flow.base, headers: owner.headers })).json().pairing.account_upgraded).toBe(false);
   });
-  it("refuses legacy account selection without claiming the request or issuing a device", async () => {
+  it("shows upgrade readiness before account selection without claiming the request or issuing a device", async () => {
     const owner = await account(), input = original(), flow = await start(input);
+    const inspect = () => app.inject({ method: "GET", url: flow.base, headers: owner.headers });
+    expect((await inspect()).json().pairing.account_upgrade).toBeNull();
     await db.query("UPDATE users SET account_backend='legacy' WHERE id=$1", [owner.user]);
+    const beforeConsent = await inspect();
+    expect(beforeConsent.statusCode).toBe(200);
+    expect(beforeConsent.json().pairing).toMatchObject({ account_upgrade: "not_scheduled", account_selected: false, collections: [] });
+    expect((await flow.exchange()).json()).toEqual({ status: "pending" });
     const refused = await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: owner.headers });
     expect(refused.statusCode).toBe(409);
     expect(refused.json().error.code).toBe("installation_legacy_backend");
@@ -303,15 +309,18 @@ describePg("installation device sign-in on daemon pairing", () => {
     const cohort = `refusal-${randomUUID()}`;
     await db.query("INSERT INTO next_migration_cohorts(name) VALUES($1)", [cohort]);
     await db.query("INSERT INTO next_migration_cohort_members(account_id,cohort) VALUES($1,$2)", [owner.user, cohort]);
+    expect((await inspect()).json().pairing.account_upgrade).toBe("scheduled");
     const scheduled = await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: owner.headers });
     expect(scheduled.json().error.details).toEqual({ upgrade: "scheduled" });
     await db.query("UPDATE next_migration_cohort_members SET started_at=now() WHERE account_id=$1", [owner.user]);
+    expect((await inspect()).json().pairing.account_upgrade).toBe("in_progress");
     const upgrading = await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: owner.headers });
     expect(upgrading.json().error).toMatchObject({ message: expect.stringMatching(/being upgraded/), details: { upgrade: "in_progress" } });
     expect((await flow.exchange()).json()).toEqual({ status: "pending" });
     expect((await db.query("SELECT user_id FROM pairing_requests WHERE id=$1", [input.installation.request_id])).rows[0].user_id).toBeNull();
     expect((await db.query("SELECT device_id FROM installation_device_credentials WHERE pairing_id=$1", [input.installation.request_id])).rows).toEqual([]);
     await db.query("UPDATE users SET account_backend='next' WHERE id=$1", [owner.user]);
+    expect((await inspect()).json().pairing.account_upgrade).toBeNull();
     expect((await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: owner.headers })).statusCode).toBe(200);
   });
   it("tells the requesting app, by its secret only, that its window was cancelled", async () => {
