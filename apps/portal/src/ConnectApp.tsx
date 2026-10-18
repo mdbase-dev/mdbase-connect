@@ -88,6 +88,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
   const busyRef = useRef(new Set<string>());
   const refreshGenerationRef = useRef(0);
+  const refreshInFlightRef = useRef<{ promise: Promise<void>; signal?: AbortSignal } | null>(null);
   const lifecycleRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -96,8 +97,10 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
     return () => lifecycle.abort("Connect management closed");
   }, []);
 
-  const refresh = useCallback((signal?: AbortSignal): Promise<void> => {
-    if (accountDeleted) return Promise.resolve();
+  const refresh = useCallback((signal = lifecycleRef.current?.signal): Promise<void> => {
+    if (accountDeleted || signal?.aborted) return Promise.resolve();
+    const pending = refreshInFlightRef.current;
+    if (pending && !pending.signal?.aborted) return pending.promise;
     const generation = ++refreshGenerationRef.current;
     const request = (async () => {
       try {
@@ -114,7 +117,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
           setSessions(sessionResult.sessions);
         }
       } catch (reason) {
-        if (signal?.aborted) return;
+        if (signal?.aborted || generation !== refreshGenerationRef.current) return;
         if (reason instanceof ManagementApiError && reason.status === 401) {
           location.href = new URL("/login", management.baseUrl).href;
           return;
@@ -122,6 +125,11 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
         setRefreshError(errorMessage(reason));
       }
     })();
+    refreshInFlightRef.current = { promise: request, signal };
+    const settled = () => {
+      if (refreshInFlightRef.current?.promise === request) refreshInFlightRef.current = null;
+    };
+    void request.then(settled, settled);
     return request;
   }, [accountDeleted]);
 
@@ -129,11 +137,9 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
     const controller = new AbortController();
     void refresh(controller.signal);
     const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") void refresh();
+      if (document.visibilityState === "visible") void refresh(controller.signal);
     };
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void refresh();
-    }, 15_000);
+    const timer = window.setInterval(refreshWhenVisible, 15_000);
     document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
       controller.abort();
@@ -174,7 +180,12 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
       }
     } finally {
       lifecycle.removeEventListener("abort", abort);
-      if (!lifecycle.aborted) await refresh(lifecycle);
+      // A pre-mutation overview cannot confirm this operation. Let that read
+      // settle, then request a fresh snapshot without overlapping inventory scans.
+      if (!lifecycle.aborted) {
+        await refreshInFlightRef.current?.promise;
+        if (!lifecycle.aborted) await refresh(lifecycle);
+      }
       busyRef.current.delete(id);
       if (!lifecycle.aborted) setBusy(new Set(busyRef.current));
     }
@@ -244,7 +255,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   }, [accountDeleted, data, requestedCollectionId, selectedCollectionId, view]);
 
   if (accountDeleted) return <DeletedAccount client={management} />;
-  if (!data) return <ConnectLoading error={refreshError} />;
+  if (!data) return <ConnectLoading error={refreshError} onRetry={() => { setRefreshError(""); void refresh(); }} />;
 
   const activeView = selectedCollection || !isCollectionView(view) ? view : "collections";
   const freshlyAuthorized = new Set(data.grants
@@ -778,13 +789,13 @@ function RouteLink({ view, collectionId, navigate, children, className = "", ari
 
 const connectLoadingFailed = { kind: "error", id: 1 } as const;
 
-function ConnectLoading({ error }: { error: string }) {
+function ConnectLoading({ error, onRetry }: { error: string; onRetry(): void }) {
   const { reportError } = useFeedback();
   const reportedInitialFailure = useRef(false);
   useEffect(() => {
     if (error && !reportedInitialFailure.current) { reportedInitialFailure.current = true; reportError({ code: "unknown_error" }); }
   }, [error, reportError]);
-  return <div className="connect-loading" aria-busy={!error}><MdbaseMark motion="orbit" signal={error ? connectLoadingFailed : null} className="wordmark-mark" /><strong>{error ? "mdbase connect is unavailable" : "Opening mdbase connect"}</strong><p>{error || "Loading your account and collections…"}</p><FeedbackButton topic={error ? "problem" : undefined} /></div>;
+  return <div className="connect-loading" aria-busy={!error}><MdbaseMark motion="orbit" signal={error ? connectLoadingFailed : null} className="wordmark-mark" /><strong>{error ? "mdbase connect is unavailable" : "Opening mdbase connect"}</strong><p>{error || "Loading your account and collections…"}</p>{error && <button onClick={onRetry}>Try again</button>}<FeedbackButton topic={error ? "problem" : undefined} /></div>;
 }
 
 function DesktopRecoveryHelp({ action }: { action: string }) {

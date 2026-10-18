@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { ConnectManagementClient, type AccountData, type ManagementOverview } from "@mdbase/connect-management";
 import { AccountManagement } from "./AccountManagement";
 import userEvent from "@testing-library/user-event";
@@ -407,6 +408,61 @@ describe("ConnectApp", () => {
     })).toHaveAttribute("href", "https://example.test/connect-update");
   });
 
+  it("displays a slow successful overview instead of starving it with background generations", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((input, init) => new URL(String(input)).pathname === "/v1/me"
+      ? new Promise<Response>(resolve => setTimeout(() => resolve(Response.json(overview)), 20_000))
+      : originalFetch(input, init));
+    render(<ConnectApp />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    expect(screen.getByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.filter(([input]) => new URL(String(input)).pathname === "/v1/me")).toHaveLength(1);
+  });
+
+  it("offers a read-only retry when the initial overview is unavailable", async () => {
+    const read = vi.spyOn(ConnectManagementClient.prototype, "overview")
+      .mockRejectedValueOnce(new Error("The management request timed out."))
+      .mockResolvedValue(overview);
+    render(<ConnectApp />);
+    await screen.findByText("mdbase connect is unavailable");
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(fetch).mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+  });
+
+  it("starts a fresh read after a mutation rather than reusing its pre-mutation snapshot", async () => {
+    const updated = structuredClone(overview);
+    updated.hosted_collections.push({ ...hostedCollection(), id: "created", display_name: "Created while loading" });
+    let finishOld!: (value: ManagementOverview) => void;
+    const read = vi.spyOn(ConnectManagementClient.prototype, "overview")
+      .mockResolvedValueOnce(overview)
+      .mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve; }))
+      .mockResolvedValue(updated);
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    await screen.findByRole("heading", { name: "Garden notes" });
+    await user.click(screen.getByRole("link", { name: "All collections" }));
+    await user.click(screen.getByRole("button", { name: "Add collection" }));
+    await chooseOption(user, screen.getByRole("combobox", { name: "Location" }), "Hosted");
+    fireEvent(document, new Event("visibilitychange"));
+    expect(read).toHaveBeenCalledTimes(2);
+    await user.click(screen.getByRole("button", { name: "Create" }));
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("button", { name: "Creating…" })).toBeDisabled();
+    await act(async () => finishOld(overview));
+    expect(await screen.findByText("Created while loading")).toBeInTheDocument();
+    expect(read).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not reuse an aborted initial read when effects restart", async () => {
+    render(<StrictMode><ConnectApp /></StrictMode>);
+    expect(await screen.findByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.filter(([input]) => new URL(String(input)).pathname === "/v1/me")).toHaveLength(2);
+  });
+
   it("pauses background refresh while the page is hidden and refreshes on return", async () => {
     const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
     vi.useFakeTimers();
@@ -427,7 +483,7 @@ describe("ConnectApp", () => {
     expect(overviewCalls()).toBe(2);
   });
 
-  it("ignores an older refresh that arrives after a newer generation", async () => {
+  it("coalesces visibility refreshes until the pending overview settles", async () => {
     const older = structuredClone(overview);
     let resolveOlder: ((response: Response) => void) | undefined;
     let overviewCall = 0;
@@ -448,10 +504,13 @@ describe("ConnectApp", () => {
     await waitFor(() => expect(overviewCall).toBe(1));
 
     fireEvent(document, new Event("visibilitychange"));
-    expect(await screen.findByRole("heading", { name: "Newest collection" })).toBeInTheDocument();
+    expect(overviewCall).toBe(1);
     await act(async () => resolveOlder?.(Response.json(older)));
+    expect(await screen.findByRole("heading", { name: "Garden notes" })).toBeInTheDocument();
 
-    expect(screen.getByRole("heading", { name: "Newest collection" })).toBeInTheDocument();
+    fireEvent(document, new Event("visibilitychange"));
+    expect(await screen.findByRole("heading", { name: "Newest collection" })).toBeInTheDocument();
+    expect(overviewCall).toBe(2);
     expect(screen.queryByRole("heading", { name: "Garden notes" })).not.toBeInTheDocument();
   });
 
