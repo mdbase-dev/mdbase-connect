@@ -1,6 +1,7 @@
 import { isMdbaseError, MdbaseError } from "@mdbase-dev/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { editorPermissions } from "./gateway";
+import { CollectionIndexController } from "./collection-index-controller";
 import type { EditorCollectionChange, NoteObservationSnapshot } from "./model";
 import { NativeEditorGateway } from "./native-gateway";
 import { outdatedPersonStarter } from "./person-setup";
@@ -144,6 +145,7 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     const created = await f.gateway.create({ title: "Draft", body: "Draft body", path: "notes/draft.md", properties: { status: "open" } });
     expect(created).toMatchObject({ path: "notes/draft.md", frontmatter: { status: "open" } });
     await settled(observation, (snapshot) => snapshot.records.some((record) => record.path === "notes/draft.md"));
+    expect(observation.getSnapshot().total).toBe(3);
     expect(changes).toContainEqual({ source: "native", kind: "record.created", path: "notes/draft.md", revision: created.revision });
 
     const renamed = await f.gateway.rename("notes/draft.md", "notes/final.md", created.revision);
@@ -153,12 +155,33 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
 
     await f.gateway.delete("notes/final.md", renamed.revision);
     await settled(observation, (snapshot) => !snapshot.records.some((record) => record.path === "notes/final.md"));
+    expect(observation.getSnapshot().total).toBe(2);
     expect(changes).toContainEqual({ source: "native", kind: "record.deleted", path: "notes/final.md" });
 
     expect(await observation.hydrate()).toEqual({ ok: true });
     expect(observation.getSnapshot().records.find((record) => record.path === "notes/plan.md")?.body).toBe("# Plan\n");
     observation.close();
     expect(observation.getSnapshot().state).toBe("closed");
+  });
+
+  it("keeps the complete collection count current when journal-folder notes arrive and leave", async () => {
+    const f = await fixture({}, seedNotes);
+    const index = new CollectionIndexController(f.gateway);
+    try {
+      await index.reload();
+      expect(index.getSnapshot().total).toBe(2);
+      const create = (path: string) => f.gateway.create({ path, title: "Journal entry", body: "Entry", properties: {} });
+      const first = await create("journal/2026-10-17.md");
+      await create("journal/2026-10-18.md");
+      await vi.waitFor(() => expect(index.getSnapshot().notes).toHaveLength(4));
+      expect(index.getSnapshot().total).toBe(4);
+
+      await f.gateway.delete(first.path, first.revision);
+      await vi.waitFor(() => expect(index.getSnapshot().notes).toHaveLength(3));
+      expect(index.getSnapshot().total).toBe(3);
+      await index.reload();
+      expect(index.getSnapshot().total).toBe(3);
+    } finally { index.reset(); }
   });
 
   it("optimistic overlays show until settled and roll back exactly", async () => {
@@ -168,7 +191,9 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     const plan = observation.getSnapshot().records.find((record) => record.path === "notes/plan.md")!;
     const staged = observation.optimistic([], ["notes/plan.md"]);
     expect(observation.getSnapshot().records.some((record) => record.path === "notes/plan.md")).toBe(false);
+    expect(observation.getSnapshot().total).toBe(1);
     staged.rollback();
+    expect(observation.getSnapshot().total).toBe(2);
     expect(observation.getSnapshot().records).toContainEqual(plan);
     observation.close();
   });
