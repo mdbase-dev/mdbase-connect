@@ -37,7 +37,9 @@ export function TakeoverPanel({ names }: { names: Record<string, string> }) {
   }, [load, running]);
 
   const view = presentTakeover(status, names, running);
-  if (!view.visible) return null;
+  // A refused move must stay on screen even when the daemon's status alone
+  // would hide the panel (for example, the server said the account isn't ready).
+  if (!view.visible && !failure) return null;
 
   const start = async () => {
     setFailure(null);
@@ -54,8 +56,8 @@ export function TakeoverPanel({ names }: { names: Record<string, string> }) {
 
   return (
     <section className={`takeover-panel ${view.tone}`} role="status" aria-live="polite" aria-label="Move to the new sync engine">
-      <strong>{view.title}</strong>
-      <p>{view.detail}</p>
+      {view.title && <strong>{view.title}</strong>}
+      {view.detail && <p>{view.detail}</p>}
       {view.advice && <p className="takeover-advice"><span>What to do: </span>{view.advice}</p>}
       {view.incidents.map((incident) => <p key={incident} className="takeover-incident">{incident}</p>)}
       {failure && <p className="takeover-incident">{failure}</p>}

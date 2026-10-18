@@ -38,6 +38,11 @@ test("account refusals no retry can fix cancel the window in plain words; others
   assert.equal(upgrading.cancel, false);
   assert.match(upgrading.message, /being upgraded/);
   assert.match(upgrading.message, /try again/i);
+  const postponed = model.installationRefusal({ status: 409, code: "installation_legacy_backend", message: "x", details: { upgrade: "postponed" } }, "Reader");
+  assert.equal(postponed.cancel, true);
+  assert.match(postponed.message, /Reader can't use it yet/);
+  assert.match(postponed.message, /current mdbase apps/);
+  assert.doesNotMatch(postponed.message, /being upgraded|try again|legacy|backend|migrat/i);
   const unscheduled = model.installationRefusal({ status: 409, code: "installation_legacy_backend", message: "x", details: { upgrade: "not_scheduled" } }, "Reader");
   assert.equal(unscheduled.cancel, true);
   assert.match(unscheduled.message, /support@mdbase\.dev/);

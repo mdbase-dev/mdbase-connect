@@ -316,6 +316,22 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect((await inspect()).json().pairing.account_upgrade).toBe("in_progress");
     const upgrading = await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: owner.headers });
     expect(upgrading.json().error).toMatchObject({ message: expect.stringMatching(/being upgraded/), details: { upgrade: "in_progress" } });
+    // A receipted rollback keeps the start claim; the denial stops saying "being upgraded".
+    const hosted = randomUUID();
+    await db.query("INSERT INTO hosted_collections(id,user_id,display_name,template) VALUES($1,$2,'Notes','mdbase')", [hosted, owner.user]);
+    const step = (type: string, at: string) => db.query(
+      "INSERT INTO audit_events(id,user_id,event_type,subject_id,metadata,created_at) VALUES($1,$2,$3,$4,'{}',$5)",
+      [randomUUID(), owner.user, type, hosted, at]);
+    await step("next_migration.fence", "2026-10-18T01:00:00Z");
+    expect((await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: owner.headers })).json().error.details).toEqual({ upgrade: "in_progress" });
+    await step("next_migration.rollback", "2026-10-18T02:00:00Z");
+    const postponed = await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: owner.headers });
+    expect(postponed.statusCode).toBe(409);
+    expect(postponed.json().error).toMatchObject({ code: "installation_legacy_backend", message: expect.stringMatching(/paused/), details: { upgrade: "postponed" } });
+    expect(postponed.json().error.message).not.toMatch(/being upgraded|try again|legacy|backend|migrat/i);
+    // An operator restart fences again: the upgrade is in progress once more.
+    await step("next_migration.fence", "2026-10-18T03:00:00Z");
+    expect((await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: owner.headers })).json().error.details).toEqual({ upgrade: "in_progress" });
     expect((await flow.exchange()).json()).toEqual({ status: "pending" });
     expect((await db.query("SELECT user_id FROM pairing_requests WHERE id=$1", [input.installation.request_id])).rows[0].user_id).toBeNull();
     expect((await db.query("SELECT device_id FROM installation_device_credentials WHERE pairing_id=$1", [input.installation.request_id])).rows).toEqual([]);

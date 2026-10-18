@@ -59,8 +59,15 @@ export async function performAuthorizationRefresh(
   if (!response.ok) {
     const latest = options.currentToken();
     if (latest?.refreshToken && latest.refreshToken !== attemptedRefreshToken) return latest;
+    const code = oauthErrorCode(body) ?? body?.error?.code;
+    // Only a refusal of the credential itself ends this connection. A collection
+    // being upgraded (409), a suspended account, rate limiting or a server fault
+    // leaves the refresh token valid: keep it, so the app recovers by itself.
+    if (!genuineAuthorizationFailure(response.status, code)) {
+      throw apiError(body, "temporarily_unavailable", "mdbase is temporarily unavailable. Try again in a few minutes.", response.status);
+    }
     if (!options.directCapable(current)) options.removeToken(current.keyHandle);
-    if ((oauthErrorCode(body) ?? body?.error?.code) === "invalid_grant") {
+    if (code === "invalid_grant") {
       throw connectError(
         "authorization_expired",
         body?.error_description ?? body?.error?.message ?? "Reconnect this application to continue.",
@@ -70,4 +77,11 @@ export async function performAuthorizationRefresh(
     throw apiError(body, "authorization_expired", "Reconnect this application to continue.", response.status);
   }
   return options.storeTokenResponse(body, current.clientId, current.keyHandle);
+}
+
+const AUTHORIZATION_FAILURES = new Set(["invalid_grant", "invalid_client", "unauthorized_client", "invalid_token"]);
+
+/** A refresh refusal that means the stored credential can never work again. */
+export function genuineAuthorizationFailure(status: number, code: unknown): boolean {
+  return status === 401 || (typeof code === "string" && AUTHORIZATION_FAILURES.has(code));
 }

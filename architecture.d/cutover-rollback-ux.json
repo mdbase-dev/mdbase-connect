@@ -1,0 +1,9 @@
+{
+  "reason": "A rolled-back account upgrade is derived from the audited migration steps in one read-only server module, shared by installation pairing and its rollback regression test, so the start claim never has to be reset. The legacy SDK exports its refresh-failure classifier so the token-retention rule is tested directly.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 2,
+    "typeScriptExportDeclarations": 2,
+    "services/server": 1
+  }
+}

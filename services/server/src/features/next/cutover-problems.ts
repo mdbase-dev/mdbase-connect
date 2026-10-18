@@ -71,8 +71,9 @@ export function cutoverProblem(error: CutoverProblemError, policy: ClientUpdateP
     return {
       status: 409,
       code: "collection_migrating",
-      message: "This collection is being upgraded. Your data is safe, and editing "
-        + "will resume once the upgrade finishes. Try again in a few minutes.",
+      message: "This collection is being upgraded, which usually takes a few minutes. "
+        + "Changes made while it's upgrading may not be saved. When it's finished, "
+        + "check your recent changes and make them again if they're missing.",
       details: { retry_after_seconds: COLLECTION_MIGRATING_RETRY_SECONDS },
       retryAfterSeconds: COLLECTION_MIGRATING_RETRY_SECONDS
     };

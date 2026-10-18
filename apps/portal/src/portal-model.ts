@@ -97,6 +97,9 @@ export function installationRefusal(reason: unknown, app: string): { heading: st
     // Mid-upgrade the same window works once it finishes, so keep it open.
     if (upgrade === "in_progress")
       return { heading: "Account upgrade in progress", cancel: false, message: "Your mdbase account is being upgraded. This usually takes a few minutes. Try again shortly." };
+    // Rolled back: nothing is upgrading the account now, so stop the app waiting.
+    if (upgrade === "postponed")
+      return { heading: "Account upgrade paused", cancel: true, message: `Your mdbase account's upgrade was paused, so ${app} can't use it yet. Your account and collections still work with your current mdbase apps. Email support@mdbase.dev if you need help.` };
     if (upgrade === "scheduled")
       return { heading: "Account upgrade scheduled", cancel: true, message: `Your mdbase account will be upgraded soon, so ${app} can't use it yet. Sign in again from ${app} once it is.` };
     return { heading: "Account upgrade needed", cancel: true, message: `Your mdbase account hasn't been upgraded yet, so ${app} can't use it. Email support@mdbase.dev and we'll upgrade it, or go back to ${app} to sign in with a different account.` };

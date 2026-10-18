@@ -147,9 +147,12 @@ describe("cutover refusals old clients can explain", () => {
     expect(response.headers["retry-after"]).toBe("300");
     expect(response.json().error).toMatchObject({
       code: "collection_migrating",
-      message: expect.stringContaining("Your data is safe"),
+      message: expect.stringContaining("may not be saved"),
       details: { retry_after_seconds: 300 }
     });
+    // A refused legacy write is not retried: never claim the data is safe.
+    expect(response.json().error.message).not.toMatch(/data is safe/i);
+    expect(response.json().error.message).toMatch(/make them again/);
   });
   it("tells an old client its desktop collection moved once mdbase-next took it over", async () => {
     const db = await createDatabase("memory");

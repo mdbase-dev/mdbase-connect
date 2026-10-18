@@ -22,6 +22,7 @@ import { installationTimerDeclaration, readInstallationTimerDeclaration, type In
 import { InstallationPairingError } from "./installation-pairing-error.js";
 export { InstallationPairingError } from "./installation-pairing-error.js";
 import { CutoverProblemError } from "../next/cutover-problems.js";
+import { accountUpgradeRolledBack } from "../next/migration-rollback-state.js";
 import { unmigratedLocalCollection } from "../next/native-grant-target.js";
 import { attachNativeAuthorization, approveInstallationNativeChoice, privateInstallationChoices } from "./installation-native-authorization.js";
 function fail(code: string, status = 409): never {
@@ -161,7 +162,7 @@ async function active(
   user: string,
   lock = false,
   allowLegacy = false,
-): Promise<"in_progress" | "scheduled" | "not_scheduled" | null> {
+): Promise<"in_progress" | "postponed" | "scheduled" | "not_scheduled" | null> {
   const account = (await c.query<{ account_backend: string }>(
     `SELECT account_backend FROM users WHERE id=$1 AND suspended_at IS NULL ${lock ? "FOR UPDATE" : ""}`,
     [user],
@@ -173,9 +174,14 @@ async function active(
       "SELECT started_at IS NOT NULL AS started FROM next_migration_cohort_members WHERE account_id=$1 AND terminal_excluded_at IS NULL",
       [user],
     )).rows[0];
-    const upgrade = member?.started ? "in_progress" : member ? "scheduled" : "not_scheduled";
+    // A rolled-back upgrade keeps its start claim, but nothing is migrating it:
+    // "being upgraded" would keep the person waiting indefinitely.
+    const upgrade = member?.started
+      ? await accountUpgradeRolledBack(c, user) ? "postponed" : "in_progress"
+      : member ? "scheduled" : "not_scheduled";
     if (!allowLegacy) throw new InstallationPairingError(409, "installation_legacy_backend", {
       in_progress: "Your mdbase account is being upgraded. Try again in a few minutes.",
+      postponed: "Your mdbase account's upgrade was paused, so it still uses mdbase Connect. Keep using your current mdbase apps for now.",
       scheduled: "Your mdbase account will be upgraded soon. Sign in again once it is.",
       not_scheduled: "Your mdbase account hasn't been upgraded yet. Email support@mdbase.dev and we'll upgrade it.",
     }[upgrade], { upgrade });

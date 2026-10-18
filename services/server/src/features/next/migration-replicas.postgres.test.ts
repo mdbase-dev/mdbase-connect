@@ -11,6 +11,7 @@ import { LogServiceClient } from "./log-service-client.js";
 import { decodeCbor, type PolicySigner } from "./policy-wire.js";
 import { ed25519RawPublicKey } from "./policy-keys.js";
 import { FakeLogService, certify, field, bytes } from "../../../test/policy-log.js";
+import { accountUpgradeRolledBack } from "./migration-rollback-state.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -440,7 +441,12 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
       const body = f.rollbackBody(), expected = {
         owner_account_id: f.owner, provider_migration_id: body.migration_id, authority_epoch: 1, fixed_head: 42,
         driver_id: body.driver_id, action_id: body.action_id, replica_ids: f.replicas() };
+      expect(await accountUpgradeRolledBack(db, f.owner)).toBe(false);
       const done = await f.call("rollback", body); expect(done.statusCode, done.body).toBe(200);
+      // The receipt makes the account's upgrade read as rolled back, while its
+      // start claim stays (the receipt reads below still bind to it).
+      expect(await accountUpgradeRolledBack(db, f.owner)).toBe(true);
+      expect((await db.query("SELECT started_at FROM next_migration_cohort_members WHERE account_id=$1", [f.owner])).rows[0].started_at).not.toBeNull();
       expect(done.json()).toEqual({ collection_id: f.a, binding: expected, restored_ids: f.replicas(), recorded_at: expect.any(String) });
       expect(f.src(f.a)).toMatchObject({ state: "active", run: null });
       // Re-reads with or without the original receipt's epoch return it unchanged.
@@ -463,6 +469,13 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
       f.tamper = null;
       const settled = await f.call("rollback-receipt", lostBody, f.b);
       expect(settled.statusCode, settled.body).toBe(200); expect(settled.json().restored_ids).toEqual(f.replicas(f.b));
+      // A later fence of each rolled-back collection (an operator restart) means it is migrating again.
+      for (const id of [f.a, f.b]) {
+        expect(await accountUpgradeRolledBack(db, f.owner)).toBe(true);
+        await db.query("INSERT INTO audit_events(id,user_id,event_type,subject_id,metadata,created_at) VALUES($1,$2,'next_migration.fence',$3,'{}',now()+interval '1 second')",
+          [randomUUID(), f.owner, id]);
+      }
+      expect(await accountUpgradeRolledBack(db, f.owner)).toBe(false);
     } finally { await f.app.close(); }
   });
 

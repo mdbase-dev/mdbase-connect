@@ -4206,6 +4206,55 @@ describe("authorization renewal", () => {
     });
     expect(manager.connections()).toEqual([]);
   });
+
+  describe("keeps the stored authorization when a refresh fails for a reason other than the credential", () => {
+    const serverUrl = "https://connect.example";
+    const manifestUrl = "https://tasks.example/.well-known/mdbase-app.json";
+    const seed = (storage: MemoryStorage) => storage.setItem(storedTokenKey(serverUrl, manifestUrl, TEST_COLLECTION_ID), JSON.stringify({
+      version: 1,
+      accessToken: "mdb_expired",
+      refreshToken: "ref_still_valid",
+      clientId: "00000000-0000-0000-0000-000000000001",
+      collectionId: TEST_COLLECTION_ID,
+      collectionName: "Worklog",
+      operations: ["query"],
+      scope: { contracts: [], access: "full_collection" },
+      expiresAt: Date.now() - 1,
+      refreshExpiresAt: Date.now() + 60_000
+    }));
+    const json = (status: number, body: unknown) =>
+      new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+    it.each([
+      ["a collection upgrade (409)", () => json(409, { error: { code: "collection_migrating", message: "This collection is being upgraded.", details: { retry_after_seconds: 300 } } }), "collection_migrating"],
+      ["a suspended account (403)", () => json(403, { error: { code: "account_suspended", message: "Suspended." } }), "account_suspended"],
+      ["rate limiting (429)", () => json(429, { error: { code: "rate_limited", message: "Slow down." } }), undefined],
+      ["a server fault (503)", () => json(503, {}), "temporarily_unavailable"]
+    ] as const)("on %s", async (_label, reply, code) => {
+      const storage = new MemoryStorage();
+      seed(storage);
+      vi.spyOn(globalThis, "fetch").mockImplementation(async () => reply());
+      const manager = new MdbaseConnect({ serverUrl, manifest: manifestUrl, redirectUri: "https://tasks.example/callback", storage, relayEncryption: "disabled" });
+      const result = await manager.connection(TEST_COLLECTION_ID)!.query();
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        if (code) expect([result.problem.code, (result.problem as { server_code?: string }).server_code]).toContain(code);
+        expect(result.problem.code).not.toBe("authorization_expired");
+        expect(result.problem.code).not.toBe("not_authorized");
+      }
+      expect(JSON.parse(storage.getItem(storedTokenKey(serverUrl, manifestUrl, TEST_COLLECTION_ID))!))
+        .toEqual(expect.objectContaining({ refreshToken: "ref_still_valid" }));
+    });
+
+    it("still forgets the authorization on a 401", async () => {
+      const storage = new MemoryStorage();
+      seed(storage);
+      vi.spyOn(globalThis, "fetch").mockImplementation(async () => json(401, { error: { code: "invalid_token", message: "Unknown token." } }));
+      const manager = new MdbaseConnect({ serverUrl, manifest: manifestUrl, redirectUri: "https://tasks.example/callback", storage, relayEncryption: "disabled" });
+      await expect(manager.connection(TEST_COLLECTION_ID)!.query()).resolves.toMatchObject({ ok: false });
+      expect(storage.getItem(storedTokenKey(serverUrl, manifestUrl, TEST_COLLECTION_ID))).toBeNull();
+    });
+  });
 });
 
 describe("direct loopback routing", () => {
