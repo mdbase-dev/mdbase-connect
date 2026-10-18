@@ -15,6 +15,7 @@
 // exact binding before the first dispatch; a retry or receipt read must present
 // that same binding, and the provider receipt is returned only after its echo
 // of the binding is verified (hosted-provider-legacy-migration.ts).
+import { createHash } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "../../database-types.js";
@@ -31,6 +32,7 @@ import { migrationServiceRateLimit } from "./migration-rate-limit.js";
 import { RolloutRefused } from "./migration-rollout.js";
 import { queueNextPolicy, type PolicyEmitter } from "./policy-outbox.js";
 import { existingCloudCopy } from "./service-cloud-copy.js";
+import { domainHash, encodeCbor, uuidBytes } from "./policy-wire.js";
 
 type Provider = Pick<HostedProviderClient, "legacyMigrationDrain" | "legacyMigrationReplicas" | "legacyMigrationRevokeReplicas"
   | "legacyMigrationRestoreReplicas" | "legacyMigrationRevokedReplicas" | "legacyMigrationUnfence"
@@ -53,7 +55,15 @@ const rollbackBody = binding.extend({
   /** Only to re-read a recorded rollback; it must equal that binding's epoch. */
   authority_epoch: counter.min(1).optional()
 }).strict();
+const abortBarrierBody = binding.extend({
+  driver_id: uuid, action_id: uuid, run_sequence: counter.min(1), action_sequence: counter.min(1),
+  fingerprint: z.string().regex(/^[0-9a-f]{64}(?![\s\S])/u),
+  checkpoint_digest: z.string().regex(/^[0-9a-f]{64}(?![\s\S])/u)
+}).strict();
+type AbortBarrierBody = z.infer<typeof abortBarrierBody>;
 const bodies = {
+  "appendbase-abort-barrier": abortBarrierBody,
+  "appendbase-abort-barrier-receipt": abortBarrierBody,
   replicas: binding,
   "replicas/revoke": binding.extend({ replica_ids: ids(1) }).strict(),
   "replicas/unrevoke": binding.extend({ replica_ids: ids(1) }).strict(),
@@ -86,6 +96,7 @@ async function onRun(provider: Provider, collection: string, presented: Binding,
   if (source.state !== "migrating" || source.retain_until !== null || !source.started_at || source.migration_id !== presented.migration_id) {
     throw new RolloutRefused("migration_run_not_current", "The provider run is not the presented fenced run.");
   }
+  return source;
 }
 
 interface QueuedCutover { legacyCollection: string; revoked: string[]; frozen: boolean | null }
@@ -132,6 +143,9 @@ async function step(kind: Kind, collection: string, body: Record<string, unknown
     return listed;
   }
   return serialized(options.db, collection, async () => {
+    if (kind === "appendbase-abort-barrier" || kind === "appendbase-abort-barrier-receipt") {
+      return abortBarrier(collection, body as AbortBarrierBody, options, deadline, kind.endsWith("-receipt"));
+    }
     if (kind === "cutover-policy") return cutoverPolicy(collection, body as Binding & { revoked: string[]; base_seq: number }, options, deadline);
     if (kind === "members-policy") return membersPolicy(collection, presented, options);
     await refuseQueuedCutover(options.db, collection);
@@ -369,6 +383,72 @@ async function membersPolicy(collection: string, body: Binding, options: Options
   });
   if (result.queued) await options.emitter?.drainCollection(collection).catch(() => undefined);
   return result;
+}
+
+const ABORT_BARRIER = "next_migration.appendbase_abort_barrier";
+
+/** Negative fence only. The existing collection session lock serializes this
+ * intent with migration cutover. Audit + one freeze outbox row commit together;
+ * retries find that full tuple, never queue a replacement correlation. */
+async function abortBarrier(collection: string, body: AbortBarrierBody,
+  options: Options & { provider: Provider }, deadline: number, readOnly: boolean) {
+  const digest = Buffer.from(domainHash("mdbase/v1/migration-appendbase-abort-barrier", encodeCbor([
+    uuidBytes(collection), uuidBytes(body.owner_account), body.started_us, uuidBytes(body.migration_id),
+    uuidBytes(body.driver_id), uuidBytes(body.action_id), body.run_sequence, body.action_sequence,
+    Buffer.from(body.fingerprint, "hex"), Buffer.from(body.checkpoint_digest, "hex")
+  ]))).toString("hex");
+  const drained = async () => {
+    const source = await onRun(options.provider, collection, body, deadline);
+    if (source.in_flight !== 0 || source.unresolved !== 0 || source.applied_unreceipted !== 0) {
+      throw new RolloutRefused("migration_source_not_drained", "The fenced source is not drained.");
+    }
+  };
+  const shadow = async (client: DatabaseConnection) => {
+    const current = await bound(client, collection, body, true);
+    await refuseQueuedCutover(client, collection);
+    if (!await existingCloudCopy(client, collection, current.account)
+      || (await client.query("SELECT 1 FROM next_collections WHERE collection_id=$1 AND runtime='shadow'", [collection])).rows.length !== 1) {
+      throw new RolloutRefused("migration_target_unavailable", "No current SHADOW cloud-copy target.");
+    }
+    return current;
+  };
+  await drained();
+  await inTransaction(options.db, async client => {
+    const current = await shadow(client);
+    const intents = (await client.query<{ metadata: { digest: string; binding: AbortBarrierBody } }>(
+      `SELECT metadata FROM audit_events WHERE event_type=$1 AND subject_id=$2
+       AND metadata->'binding'->>'driver_id'=$3 AND metadata->'binding'->>'action_id'=$4`,
+      [ABORT_BARRIER, collection, body.driver_id, body.action_id])).rows;
+    if (intents.length > 1 || intents.some(({ metadata }) => metadata.digest !== digest
+      || !metadata.binding || Object.keys(metadata.binding).length !== Object.keys(body).length
+      || (Object.keys(body) as Array<keyof AbortBarrierBody>).some(key => metadata.binding[key] !== body[key]))) {
+      throw new RolloutRefused("migration_abort_binding_conflict", "A different AppendBase abort binding was recorded.");
+    }
+    if (intents.length) return;
+    if (readOnly) throw new RolloutRefused("migration_abort_barrier_unknown", "No barrier for this exact binding.", 404);
+    if (!await queueNextPolicy(client, collection, [{ op: "freeze", frozen: true, reason: digest }])) {
+      throw new RolloutRefused("migration_target_unavailable", "No current SHADOW cloud-copy target.");
+    }
+    await audit(client, current.account, ABORT_BARRIER, collection, { digest, binding: body });
+  });
+  // Reconciliation never drives the outbox. Ordinary retries may wake the same
+  // retained batch; an uncertain send retains its exact signed bytes.
+  if (!readOnly) await options.emitter?.drainCollection(collection).catch(() => undefined);
+  await drained();
+  await inTransaction(options.db, shadow);
+  const rows = (await options.db.query<{ seq: string; item: Buffer; state: string }>(
+    `SELECT DISTINCT b.id,b.seq,b.item,b.state FROM next_policy_outbox o
+     JOIN next_policy_batches b ON b.id=o.batch_id WHERE o.collection_id=$1
+       AND o.ops->'ops' @> $2::jsonb AND b.lost_at IS NULL ORDER BY b.id LIMIT 2`,
+    [collection, JSON.stringify([{ op: "freeze", frozen: true, reason: digest }])])).rows;
+  if (rows.length > 1) throw new RolloutRefused("migration_abort_barrier_ambiguous", "Multiple current barrier batches.", 503);
+  const batch = rows[0], sequence = batch ? Number(batch.seq) : null;
+  if (batch && (!Number.isSafeInteger(sequence) || sequence! < 1)) throw new Error("invalid retained barrier sequence");
+  const appended = batch?.state === "appended";
+  return { schema: "mdbase-appendbase-abort-barrier/1", collection_id: collection,
+    driver_id: body.driver_id, action_id: body.action_id, digest,
+    state: appended ? "appended" : "queued", sequence: appended ? sequence : null,
+    item_sha256: appended ? createHash("sha256").update(batch.item).digest("hex") : null };
 }
 
 export function registerMigrationReplicaRoutes(app: FastifyInstance, options: Options): void {
