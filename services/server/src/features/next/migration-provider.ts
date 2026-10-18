@@ -15,8 +15,8 @@ import { migrationServiceRateLimit } from "./migration-rate-limit.js";
 import { requireCurrentCohortArchive, RolloutRefused } from "./migration-rollout.js";
 import { SCOPED_HOSTED_ARCHIVE_SCHEMA } from "./migration-archive-profile.js";
 import { requireOriginalArchiveSource } from "./migration-scoped-archive.js";
-import { createServiceCloudCopy, existingCloudCopy, type CloudCopyBootstrapOptions } from "./service-cloud-copy.js";
-import { loadServiceDevice } from "./service-devices.js";
+import { createServiceCloudCopy, type CloudCopyBootstrapOptions } from "./service-cloud-copy.js";
+import { requireCollectionNotDeleted } from "./collection-deletion.js";
 import { migrationAccount, migrationRouteRetired, type MigrationRouting } from "./migration-routing.js";
 
 interface Claim { account: string; started_us: string; display_name: string }
@@ -72,35 +72,54 @@ export async function claim(db: DatabaseQueryable, collection: string, locked = 
 /** Authenticated current CP facts for a native consumer's independent checks.
  * No provider/network/bootstrap effects, freshness lease or readiness boolean.
  * A missing target is ordinary pre-bootstrap DATA, not H1 permission. */
-async function currentClaim(client: DatabaseConnection, collection: string, serviceRead = false) {
-    const before = await claim(client, collection, true);
-    // Same owner-before-collection order and immutable tuple checks as bootstrap.
-    await lock(client, collection);
+async function openClaimRead(client: DatabaseConnection, collection: string, serviceRead = false) {
+  const observe = async (before: Claim) => {
+    // This route projects the SHADOW root from the same locked canonical parent,
+    // rather than re-reading it in another statement. Missing is pre-bootstrap
+    // DATA; a present foreign/left/non-cloud-copy/non-SHADOW parent still refuses.
+    try { await requireCollectionNotDeleted(client, collection); }
+    catch (error) {
+      if (error instanceof Error && error.message === "collection_deleted") throw new CreateError(409, "collection_deleted");
+      throw error;
+    }
+    const parent = (await client.query<{ owner_user_id: string; sync: string; left: boolean; shadow_root: Buffer | null }>(
+      `SELECT owner_user_id, sync, left_sync_at IS NOT NULL AS left,
+         CASE WHEN runtime='shadow' AND octet_length(root_key_id)=16 THEN root_key_id END AS shadow_root
+       FROM next_collections WHERE collection_id=$1 FOR UPDATE`, [collection]
+    )).rows[0];
     let observedTarget = null;
-    if (await existingCloudCopy(client, collection, before.account)) {
-      const row = (await client.query<{ root_key_id: Buffer }>(
-        "SELECT root_key_id FROM next_collections WHERE collection_id=$1 AND runtime='shadow' AND octet_length(root_key_id)=16", [collection]
+    if (parent) {
+      if (parent.owner_user_id !== before.account || parent.sync !== "cloud_copy" || parent.left || !parent.shadow_root) throw new CreateError(409, "collection_exists");
+      // Parent FOR UPDATE precedes the device share lock. Both key/context reads
+      // are now one statement; keep the exact current-parent join and hosted kind.
+      const device = (await client.query<{ device_id: string; sign_pk: Buffer; kem_pk: Buffer; noise_pk: Buffer }>(
+        `SELECT device.device_id::text AS device_id, device.sign_pk, device.kem_pk, device.noise_pk
+         FROM next_service_devices device JOIN next_collections parent ON parent.collection_id=device.collection_id
+         WHERE device.collection_id=$1 AND device.kind='hosted' AND parent.sync='cloud_copy' AND parent.left_sync_at IS NULL
+         FOR SHARE OF ${serviceRead ? "device, parent" : "parent"}`, [collection]
       )).rows[0];
-      if (!row) throw new CreateError(409, "collection_exists");
-      // The service proof must use a key that cannot be replaced across SQL
-      // awaits/verification/consume/COMMIT. Parent/context checks stay canonical.
-      if (serviceRead) await client.query("SELECT device_id FROM next_service_devices WHERE collection_id=$1 AND kind='hosted' FOR SHARE", [collection]);
-      // The H1 subject is hosted; no new escrow or app-grant obligation.
-      const device = await loadServiceDevice(client, collection, { kind: "hosted" });
       if (!device || device.device_id === "00000000-0000-0000-0000-000000000000") throw new CreateError(503, "not_ready");
       if (serviceRead) await refuseRevoked(client, collection, device.device_id);
-      observedTarget = { runtime: "shadow", root_key_id: row.root_key_id.toString("hex"), hosted: {
+      observedTarget = { runtime: "shadow", root_key_id: parent.shadow_root.toString("hex"), hosted: {
         device_id: device.device_id, sign_pk: device.sign_pk.toString("hex"),
         kem_pk: device.kem_pk.toString("hex"), noise_pk: device.noise_pk.toString("hex")
       } };
+    } else {
+      const other = await client.query("SELECT 1 FROM collections WHERE local_id=$1 AND user_id<>$2 AND removed_at IS NULL", [collection, before.account]);
+      if (other.rows.length) throw new CreateError(409, "collection_exists");
     }
-    // Includes independently inserted deletion/cutover facts after SQL awaits.
+    // Every observation retains its own fresh before/after canonical source read.
     const after = await claim(client, collection, true);
-    if (after.account !== before.account || after.started_us !== before.started_us) {
-      throw new RolloutRefused("migration_source_changed", "The migration claim changed.");
-    }
+    if (after.account !== before.account || after.started_us !== before.started_us) throw new RolloutRefused("migration_source_changed", "The migration claim changed.");
     return { schema: "mdbase-migration-claim/1", collection_id: collection,
       owner_account: before.account, started_us: before.started_us, target: observedTarget };
+  };
+  // Private transaction-scoped closure, not an alreadyLocked caller flag/cache.
+  // Own the original h/u/m locks before the advisory lock, then retain it through
+  // both observations and COMMIT. Rechecking never reacquires or skips facts.
+  const before = await claim(client, collection, true);
+  await lock(client, collection);
+  return { initial: await observe(before), reread: () => claim(client, collection, true).then(observe) };
 }
 
 async function target(collection: string, options: Options) {
@@ -239,7 +258,8 @@ export function registerMigrationProviderRoutes(app: FastifyInstance, options: O
         if (!p.success || !body.success || !empty.safeParse(request.query).success) return reply.code(400).send(apiError("invalid_request", "A canonical service proof is required."));
         try {
           return await inTransaction(options.db, async client => {
-            const before = await currentClaim(client, p.data.id, true);
+            const observation = await openClaimRead(client, p.data.id, true);
+            const before = observation.initial;
             const routing = hostedRead.migrationRouting;
             const routed = await migrationAccount(client, routing, before.owner_account);
             if (routed && await migrationRouteRetired(client, routing, p.data.id)) throw new CreateError(403, "wrong_service_scope");
@@ -250,7 +270,7 @@ export function registerMigrationProviderRoutes(app: FastifyInstance, options: O
             else await consumeServiceClaimChallenge(client, audience, before, readBody.parse(body.data));
             // Same transaction: the consume cannot commit without the final
             // canonical source/target/key/revocation read and exact comparison.
-            const after = await currentClaim(client, p.data.id, true);
+            const after = await observation.reread();
             if (!sameServiceClaim(before, after)) throw new CreateError(409, "migration_subject_not_current");
             return kind === "challenge" ? nonce! : after;
           });
@@ -276,7 +296,7 @@ export function registerMigrationProviderRoutes(app: FastifyInstance, options: O
           return reply.code(400).send(apiError("invalid_request", "A canonical collection UUID and no caller-selected source facts are required."));
         }
         try {
-          if (kind === "claim") return await inTransaction(options.db, client => currentClaim(client, p.data.id));
+          if (kind === "claim") return await inTransaction(options.db, async client => (await openClaimRead(client, p.data.id)).initial);
           if (kind === "target") return await target(p.data.id, options);
           const outcome = await action(p.data.id, kind === "fence", options);
           // The body stays the exact provider shape; the watermark is a header.
