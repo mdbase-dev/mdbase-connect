@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, generateKeyPairSync, randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -6,6 +6,11 @@ import { createDatabase, type DatabasePool } from "../../db.js";
 import { HostedProviderResponseError, type HostedProviderClient, type LegacyMigrationRollbackReceipt,
   type LegacyMigrationRollbackRequest } from "../../hosted-provider.js";
 import { registerMigrationReplicaRoutes } from "./migration-replicas.js";
+import { PolicyEmitter, registerNextCollection } from "./policy-outbox.js";
+import { LogServiceClient } from "./log-service-client.js";
+import { decodeCbor, type PolicySigner } from "./policy-wire.js";
+import { ed25519RawPublicKey } from "./policy-keys.js";
+import { FakeLogService, certify, field, bytes } from "../../../test/policy-log.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -13,7 +18,7 @@ const suite = testUrl && approved ? describe : describe.skip;
 const token = "synthetic-migration-token-".repeat(2);
 const sorted = (ids: string[]) => [...ids].sort();
 
-interface Source { state: string; run: string | null; replicas: Map<string, string | null> }
+interface Source { state: string; run: string | null; replicas: Map<string, string | null>; inFlight: number }
 
 suite("migration replica, unfence and cutover-policy fronts (isolated real PostgreSQL, synthetic provider)", () => {
   let db: DatabasePool, admin: pg.Pool, schema: string;
@@ -38,11 +43,27 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
     await db.query("INSERT INTO hosted_collections(id,user_id,display_name,template) VALUES($1,$2,'Source','mdbase')", [id, owner]);
     await db.query("INSERT INTO next_collections(collection_id,owner_user_id,runtime,sync,root_key_id) VALUES($1,$2,'shadow','cloud_copy',$3)", [id, owner, Buffer.alloc(16, 7)]);
     const replicas = new Map<string, string | null>([[randomUUID(), null], [randomUUID(), null]]);
-    sources.set(id, { state: "migrating", run: randomUUID(), replicas });
+    sources.set(id, { state: "migrating", run: randomUUID(), replicas, inFlight: 0 });
     return id;
   }
 
-  async function fixture() {
+  async function signedEmitter(collectionId: string, ownerUserId: string) {
+    const root = generateKeyPairSync("ed25519").privateKey, policy = generateKeyPairSync("ed25519").privateKey;
+    const issuer = generateKeyPairSync("ed25519").privateKey, transport = generateKeyPairSync("ed25519").privateKey;
+    const signer: PolicySigner = certify(root, policy, Date.now());
+    const service = new FakeLogService(ed25519RawPublicKey(issuer));
+    const pem = (key: typeof issuer) => key.export({ format: "pem", type: "pkcs8" }).toString();
+    const log = new LogServiceClient({ url: "http://log.test", tokenIssuerKeyPem: pem(issuer), transportKeyPem: pem(transport) }, service.fetch);
+    const emitter = new PolicyEmitter(db, log, signer);
+    // Replace this fixture's empty placeholder with the real durable genesis.
+    await db.query("DELETE FROM next_collections WHERE collection_id=$1", [collectionId]);
+    await registerNextCollection(db, { collectionId, ownerUserId, runtime: "shadow", sync: "cloud_copy", rootKeyId: signer.cert.root,
+      ops: [{ op: "genesis", owner: ownerUserId, root: signer.cert.root, state: "cloud-copy" }, { op: "member-set", account: ownerUserId, role: "owner" }] });
+    expect(await emitter.drainCollection(collectionId)).toBe(1);
+    return { emitter, log, service, signer };
+  }
+
+  async function fixture(signed = false) {
     const sources = new Map<string, Source>(), effects: string[] = [];
     const receipts = new Map<string, LegacyMigrationRollbackReceipt>();
     let head = 10, providerEpoch = 1, tamper: ((r: LegacyMigrationRollbackReceipt) => LegacyMigrationRollbackReceipt) | null = null;
@@ -56,7 +77,7 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
       async legacyMigrationDrain(id) {
         const s = src(id);
         return { collection_id: id, state: s.state, migration_id: s.run, head: 42, started_at: s.run ? "2026-10-12T00:00:00.000Z" : null,
-          retain_until: null, in_flight: 0, unresolved: 0, applied_unreceipted: 0 };
+          retain_until: null, in_flight: s.inFlight, unresolved: 0, applied_unreceipted: 0 };
       },
       async legacyMigrationReplicas(id) {
         return { replicas: [...src(id).replicas].filter(([, by]) => by === null).map(([r]) => ({ id: r, head: 42, acknowledged_sequence: 42,
@@ -106,9 +127,11 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
       if (found && JSON.stringify(found.binding) !== JSON.stringify(binding)) conflict();
       return found;
     }
+    const real = signed ? await signedEmitter(a, owner) : null;
     const app = Fastify();
-    registerMigrationReplicaRoutes(app, { db, token, provider, log: { head: async () => ({ seq: head, chain: new Uint8Array(32) }) },
-      emitter: { drainCollection: async () => 0 } });
+    if (real) app.addHook("onClose", async () => real.emitter.close());
+    registerMigrationReplicaRoutes(app, { db, token, provider, log: real?.log ?? { head: async () => ({ seq: head, chain: new Uint8Array(32) }) },
+      emitter: real?.emitter ?? { drainCollection: async () => 0 } });
     const claim = (await db.query<{ started_us: string }>(
       "SELECT (extract(epoch FROM started_at)*1000000)::bigint::text AS started_us FROM next_migration_cohort_members WHERE account_id=$1", [owner])).rows[0]!;
     const binding = (id = a) => ({ owner_account: owner, started_us: claim.started_us, migration_id: src(id).run });
@@ -122,7 +145,9 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
       driver_id: driver, action_id: action, replica_ids: replicas(id), ...extra });
     const events = async (type: string, id = a) => (await db.query<{ metadata: Record<string, unknown> }>(
       "SELECT metadata FROM audit_events WHERE event_type=$1 AND subject_id=$2 ORDER BY id", [type, id])).rows.map(r => r.metadata);
-    return { owner, a, b, src, app, call, binding, replicas, cutovers, effects, rollbackBody, events,
+    return { owner, a, b, src, app, call, binding, replicas, cutovers, effects, rollbackBody, events, real,
+      abortBody: () => ({ ...binding(), driver_id: driver, action_id: action, run_sequence: 1, action_sequence: 186,
+        fingerprint: "37".repeat(32), checkpoint_digest: "48".repeat(32) }),
       set head(v: number) { head = v; }, set providerEpoch(v: number) { providerEpoch = v; }, set tamper(v: typeof tamper) { tamper = v; } };
   }
   type F = Awaited<ReturnType<typeof fixture>>;
@@ -131,6 +156,141 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
     expect(r.statusCode, r.body).toBe(200); return r;
   };
   const cutover = (f: F, revoked: string[], id = f.a) => f.call("cutover-policy", { ...f.binding(id), revoked, base_seq: 10 }, id);
+
+  it("authenticates both barrier routes and rejects caller proof/force or malformed tuples without intent", async () => {
+    const f = await fixture(); try {
+      const input = f.abortBody();
+      const malformed: Array<Record<string, unknown>> = [
+        { source: {} }, { barrier: {} }, { outcome: "aborted" }, { force: true },
+        { owner_account: "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA" },
+        { driver_id: "00000000-0000-0000-0000-000000000000" },
+        { started_us: input.started_us + "\n" }, { run_sequence: 1.5 },
+        { action_sequence: 0 }, { action_sequence: Number.MAX_SAFE_INTEGER + 1 },
+        { fingerprint: input.fingerprint + "\n" }, { checkpoint_digest: "ff" }
+      ];
+      for (const kind of ["appendbase-abort-barrier", "appendbase-abort-barrier-receipt"]) {
+        for (const headers of [{}, { authorization: "Bearer wrong-token" }]) {
+          const response = await f.app.inject({ method: "POST", headers, payload: input,
+            url: `/internal/v1/next/migration/collections/${f.a}/${kind}` });
+          expect(response.statusCode, response.body).toBe(401);
+          expect(response.headers["cache-control"]).toBe("no-store");
+        }
+        for (const extra of malformed) {
+          const response = await f.call(kind, { ...input, ...extra });
+          expect(response.statusCode, response.body).toBe(400);
+        }
+      }
+      expect(await f.events("next_migration.appendbase_abort_barrier")).toEqual([]);
+      expect((await db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1", [f.a])).rowCount).toBe(0);
+      expect(f.effects).toEqual([]);
+    } finally { await f.app.close(); }
+  });
+
+  it("retains exact signed barrier bytes across committed-append/lost-response; lookup cannot emit", async () => {
+    const f = await fixture(true); try {
+      const input = f.abortBody(), real = f.real!;
+      real.service.dropNextResponse = "append";
+      const first = await f.call("appendbase-abort-barrier", input);
+      expect(first.statusCode, first.body).toBe(200);
+      expect(first.json()).toMatchObject({ state: "queued", sequence: null, item_sha256: null });
+      const batches = async () => (await db.query<{ id: string; seq: string; item: Buffer; state: string }>(
+        "SELECT id,seq,item,state FROM next_policy_batches WHERE collection_id=$1 AND seq>1 ORDER BY id", [f.a])).rows;
+      const [original] = await batches(); expect(original!.state).toBe("sending");
+      const retained = real.service.logs.get(f.a.replaceAll("-", ""))!;
+      expect(retained).toHaveLength(2);
+      expect(original!.item).toEqual(retained[1]);
+      const lookup = await f.call("appendbase-abort-barrier-receipt", input);
+      expect(lookup.statusCode, lookup.body).toBe(200); expect(lookup.json()).toEqual(first.json());
+      expect((await batches())[0]!.state).toBe("sending");
+      expect(retained).toHaveLength(2);
+      const retry = await f.call("appendbase-abort-barrier", input);
+      expect(retry.statusCode, retry.body).toBe(200);
+      expect(retry.json()).toMatchObject({ ...first.json(), state: "appended", sequence: 2,
+        item_sha256: createHash("sha256").update(original!.item).digest("hex") });
+      expect(await batches()).toEqual([{ ...original!, state: "appended" }]);
+      expect(retained).toHaveLength(2);
+      // Real signer/certificate and exact existing wire op; no cutover, grants,
+      // membership, epoch, keys or positive Base evidence is manufactured.
+      expect(real.service.policyOps(f.a, real.signer.cert.policyPublicKey)).toEqual([["1", "4"], ["11"]]);
+      const payload = decodeCbor(bytes(field(decodeCbor(retained[1]!), 11)));
+      const [freeze] = field(payload, 3) as unknown[];
+      expect(field(freeze as never, 1)).toBe(true);
+      expect(field(freeze as never, 2)).toBe(first.json().digest);
+      expect(await f.events("next_migration.appendbase_abort_barrier")).toEqual([{ digest: first.json().digest, binding: input }]);
+      expect(f.effects).toEqual([]);
+    } finally { await f.app.close(); }
+  });
+
+  it.each(["in-flight", "next", "left"])("refuses changed qualification across the real signed append await: %s", async mode => {
+    const f = await fixture(true); try {
+      f.real!.service.beforeAppend = async () => {
+        if (mode === "in-flight") f.src(f.a).inFlight = 1;
+        if (mode === "next") await db.query("UPDATE next_collections SET runtime='next' WHERE collection_id=$1", [f.a]);
+        if (mode === "left") await db.query("UPDATE next_collections SET left_sync_at=now() WHERE collection_id=$1", [f.a]);
+      };
+      const response = await f.call("appendbase-abort-barrier", f.abortBody());
+      expect(response.statusCode, response.body).toBe(409);
+      expect(await f.events("next_migration.appendbase_abort_barrier")).toHaveLength(1);
+      expect(f.effects).toEqual([]);
+    } finally { await f.app.close(); }
+  });
+
+  it("queues only one correlated negative freeze; receipt lookup cannot create or requeue", async () => {
+    const f = await fixture(); try {
+      const input = f.abortBody();
+      const missing = await f.call("appendbase-abort-barrier-receipt", input);
+      expect(missing.statusCode, missing.body).toBe(404);
+      expect(await f.events("next_migration.appendbase_abort_barrier")).toHaveLength(0);
+      const first = await f.call("appendbase-abort-barrier", input);
+      expect(first.statusCode, first.body).toBe(200);
+      const result = first.json();
+      expect(result).toEqual({ schema: "mdbase-appendbase-abort-barrier/1", collection_id: f.a,
+        driver_id: input.driver_id, action_id: input.action_id, digest: expect.stringMatching(/^[0-9a-f]{64}$/u),
+        state: "queued", sequence: null, item_sha256: null });
+      for (const kind of ["appendbase-abort-barrier", "appendbase-abort-barrier-receipt"]) {
+        const retry = await f.call(kind, input); expect(retry.statusCode, retry.body).toBe(200);
+        expect(retry.json()).toEqual(result);
+      }
+      const rows = (await db.query<{ ops: { ops: unknown[] } }>("SELECT ops FROM next_policy_outbox WHERE collection_id=$1", [f.a])).rows;
+      expect(rows.map(row => row.ops.ops)).toEqual([[{ op: "freeze", frozen: true, reason: result.digest }]]);
+      expect(await f.events("next_migration.appendbase_abort_barrier")).toEqual([{ digest: result.digest, binding: input }]);
+      expect(f.effects).toEqual([]);
+    } finally { await f.app.close(); }
+  });
+
+  it("serializes concurrent barrier creation and rejects changed full-tuple retries", async () => {
+    const f = await fixture(); try {
+      const input = f.abortBody();
+      const replies = await Promise.all(Array.from({ length: 4 }, () => f.call("appendbase-abort-barrier", input)));
+      for (const reply of replies) expect([200, 503], reply.body).toContain(reply.statusCode);
+      expect(replies.some(r => r.statusCode === 200)).toBe(true);
+      for (const changes of [{ fingerprint: "59".repeat(32) }, { checkpoint_digest: "6a".repeat(32) },
+        { action_sequence: 187 }, { run_sequence: 2 }]) {
+        const response = await f.call("appendbase-abort-barrier", { ...input, ...changes });
+        expect(response.statusCode, response.body).toBe(409);
+        expect(response.json().error.code).toBe("migration_abort_binding_conflict");
+      }
+      expect(await f.events("next_migration.appendbase_abort_barrier")).toHaveLength(1);
+      expect((await db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1", [f.a])).rowCount).toBe(1);
+    } finally { await f.app.close(); }
+  });
+
+  it.each(["in-flight", "active", "foreign-run", "next", "queued-cutover"])("refuses an ineligible barrier without creating an intent: %s", async mode => {
+    const f = await fixture(); try {
+      const input = f.abortBody();
+      if (mode === "in-flight") f.src(f.a).inFlight = 1;
+      if (mode === "active") f.src(f.a).state = "active";
+      if (mode === "foreign-run") f.src(f.a).run = randomUUID();
+      if (mode === "next") await db.query("UPDATE next_collections SET runtime='next' WHERE collection_id=$1", [f.a]);
+      if (mode === "queued-cutover") {
+        await revokeAll(f); const response = await cutover(f, f.replicas()); expect(response.statusCode, response.body).toBe(200);
+      }
+      const response = await f.call("appendbase-abort-barrier", input);
+      expect(response.statusCode, response.body).toBe(409);
+      expect(await f.events("next_migration.appendbase_abort_barrier")).toHaveLength(0);
+      expect((await db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1 AND ops->'ops' @> '[{\"op\":\"freeze\",\"frozen\":true}]'::jsonb", [f.a])).rowCount).toBe(0);
+    } finally { await f.app.close(); }
+  });
 
   it("lists, revokes and queues exactly one cutover policy; a repeat finds it", async () => {
     const f = await fixture(); try {

@@ -1,7 +1,7 @@
 # Proposed AppendBase abort barrier (G5)
 
 Status: rollback-only negative fence and rooted-prefix publication-exclusion
-proof approved; implementation pending.
+proof approved and implemented behind authenticated migration-service operations.
 No deployment or live operator authority. Targets mdbase-next main and a
 separately reviewed Connect CP route.
 
@@ -104,7 +104,8 @@ A missing, pruned, void, foreign or unavailable barrier refuses. A successful
 original Base wins the race: resolve normally, never cancel it as absent.
 This is a **publication-exclusion proof**, not original-slot equality. Verify
 the COMPLETE contiguous, bounded, hash-chained control-only prefix from the
-trusted root through the correlated freeze and to the final read-back head.
+trusted root through the correlated freeze and to the final read-back head
+(at most 64 positions and 256 KiB of retained item bytes).
 No missing, unreadable, oversized or unverified slot is permitted. No installed
 Base or cutover is permitted. Sealing requires an applied unfrozen head, so
 every original seal is at or before this freeze; every such position is now
@@ -162,6 +163,24 @@ or exactly:
 Absent means unsupported predecessor. Closure requires the four-field record
 bound to native.run_sequence, checkpoint.step=21, fenced=false, outstanding=null
 and quiescence. No barrier permission is inferred just from this status proposal.
+
+## Rollout and compatibility
+
+Receipted rollback requires the separately reviewed owner-namespace correction:
+provider migration49/v2 routes before Connect #878, with no v1 fallback or
+provider downgrade beneath v2 consumers/receipts. Native warm-Driver repair
+#911 is a separate prerequisite for reliable same-instance recovery.
+
+Make the CP barrier routes available before this native consumer. An old CP
+refusal is not permission to synthesize a barrier. Older status readers see the
+new cancellation capability as unsupported, never as an empty positive proof.
+Do not downgrade a native writer after it has recorded an AppendBase
+cancellation: the predecessor does not validate that disposition/publication
+proof. Recovery writers must understand both immutable cancellation tables and
+the canonical pending projection. No historical action or intent is translated.
+
+These changes authorize neither deployment nor a live recovery. Only the
+original receipted rollback and physical acknowledgement can establish closure.
 
 ## G6 recommendation
 
