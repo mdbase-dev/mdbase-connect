@@ -1,5 +1,33 @@
 import { expect, test } from "../../editor/tests/auth-portal";
 
+for (const width of [1280, 390]) test(`names account readiness and policy refusal at ${width}px`, async ({page,authPortal}) => {
+  await page.setViewportSize({width,height:844});
+  let upgrade: "not_scheduled" | null = "not_scheduled";
+  const mutations: string[] = [];
+  await page.route(`${authPortal}/v1/**`, async route => {
+    const request = route.request();
+    if (request.method() === "POST") {
+      const action = new URL(request.url()).pathname.split("/").at(-1)!;
+      mutations.push(action);
+      if (action === "select-account") return route.fulfill({status:409,json:{error:{code:"installation_legacy_backend",message:"Upgrade needed",details:{upgrade:"not_scheduled"}}}});
+      return route.fulfill({json:{ok:true}});
+    }
+    return route.fulfill({json:{pairing:{connector_name:"Reader",approved_at:null,installation_device:true,account_selection_confirmed:false,signed_in_account_email:"fixture@example.test",account_upgrade:upgrade,collections:[]}}});
+  });
+  await page.goto(`${authPortal}/pair/00000000-0000-4000-8000-000000000001`);
+  await expect(page.getByRole("heading",{name:"Account upgrade needed"})).toBeVisible();
+  await expect(page.getByRole("button",{name:"Use this account"})).toHaveCount(0);
+  expect(mutations).toEqual([]);
+  upgrade = null;
+  await page.getByRole("button",{name:"Check again"}).click();
+  await page.getByRole("button",{name:"Use this account"}).click();
+  await expect(page.getByRole("heading",{name:"Account upgrade needed"})).toBeVisible();
+  await expect(page.getByRole("heading",{name:"Sign-in cancelled"})).toHaveCount(0);
+  await expect(page.locator(".mdbase-connect-lead",{hasText:"support@mdbase.dev"})).toBeVisible();
+  expect(mutations).toEqual(["select-account","deny"]);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});
+
 for (const width of [1280, 390]) test(`searches approval collections without changing access at ${width}px`, async ({page,authPortal}) => {
   await page.setViewportSize({width,height:844});
   const calls:string[]=[];

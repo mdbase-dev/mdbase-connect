@@ -89,21 +89,21 @@ export function message(value: unknown) {
 /** A device sign-in step the portal refused. `cancel` marks refusals that no
  * retry in this window can fix: the portal cancels the window so the app stops
  * waiting and can offer sign-in again. Everything else stays retryable here. */
-export function installationRefusal(reason: unknown, app: string): { message: string; cancel: boolean } {
+export function installationRefusal(reason: unknown, app: string): { heading: string | null; message: string; cancel: boolean } {
   const code = reason && typeof reason === "object" && "code" in reason ? (reason as { code?: unknown }).code : undefined;
   if (code === "installation_legacy_backend") {
     const details = (reason as { details?: unknown }).details;
     const upgrade = details && typeof details === "object" ? (details as { upgrade?: unknown }).upgrade : undefined;
     // Mid-upgrade the same window works once it finishes, so keep it open.
     if (upgrade === "in_progress")
-      return { cancel: false, message: "Your mdbase account is being upgraded. This usually takes a few minutes. Try again shortly." };
+      return { heading: "Account upgrade in progress", cancel: false, message: "Your mdbase account is being upgraded. This usually takes a few minutes. Try again shortly." };
     if (upgrade === "scheduled")
-      return { cancel: true, message: `Your mdbase account will be upgraded soon, so ${app} can't use it yet. Sign in again from ${app} once it is.` };
-    return { cancel: true, message: `Your mdbase account hasn't been upgraded yet, so ${app} can't use it. Email support@mdbase.dev and we'll upgrade it, or go back to ${app} to sign in with a different account.` };
+      return { heading: "Account upgrade scheduled", cancel: true, message: `Your mdbase account will be upgraded soon, so ${app} can't use it yet. Sign in again from ${app} once it is.` };
+    return { heading: "Account upgrade needed", cancel: true, message: `Your mdbase account hasn't been upgraded yet, so ${app} can't use it. Email support@mdbase.dev and we'll upgrade it, or go back to ${app} to sign in with a different account.` };
   }
   if (code === "strict_device_approval")
-    return { cancel: true, message: `This account approves new devices from the mdbase desktop app. Add this device from the desktop app, then sign in again in ${app}.` };
-  return { cancel: false, message: message(reason) };
+    return { heading: "Desktop approval needed", cancel: true, message: `This account approves new devices from the mdbase desktop app. Add this device from the desktop app, then sign in again in ${app}.` };
+  return { heading: null, cancel: false, message: message(reason) };
 }
 export function host(value: string) { try { return new URL(value).host; } catch { return value; } }
 export function formatDeviceCode(value: string) {

@@ -29,6 +29,50 @@ export class ApiError extends Error {
   }
 }
 
+export interface DevicePairing {
+  connector_name: string;
+  approved_at: string | null;
+  installation_device?: boolean;
+  kind?: "app-runtime" | "mobile";
+  account_selected?: boolean;
+  account_selection_confirmed?: boolean;
+  account_email?: string | null;
+  account_provider?: string;
+  account_login?: string;
+  signed_in_account_email?: string | null;
+  signed_in_account_provider?: string;
+  signed_in_account_login?: string;
+  selected_collection_id?: string | null;
+  native_authorization_id?: string | null;
+  collection_hint?: string | null;
+  can_create_collection?: boolean;
+  creation?: {collection_id:string;display_name:string;completed:boolean} | null;
+  attested?: boolean;
+  fingerprint?: string | null;
+  app_origin?: string;
+  return_url?: string | null;
+  timer_declaration?: {digest:string};
+  timer_consent?: boolean | null;
+  requested_create_collections?: boolean;
+  approved_create_collections?: boolean;
+  approved_collection_ids?: string[];
+  scope_only?: boolean;
+  account_upgraded?: boolean;
+  account_upgrade?: "in_progress" | "scheduled" | "not_scheduled" | null;
+  retained_collection_ids?: string[];
+  retained_create_collections?: boolean;
+  collections?: Array<{collection_id:string;display_name:string;role:string;kind?:"private"}>;
+  file_access?: FileAccessRequest;
+}
+interface FileAccessRequest {
+  collection_id: string;
+  collection_name: string | null;
+  actions: FileAction[];
+  reason: string;
+  approved_actions: FileAction[] | null;
+}
+export type FileAction = "list" | "read" | "add" | "replace" | "move" | "delete";
+
 export interface HostedReplica {
   id: string;
   name: string;
