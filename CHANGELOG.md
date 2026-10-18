@@ -4,6 +4,12 @@
 
 <!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
 
+## 0.1.0-beta.132
+
+### Fixed
+
+- Keep hosted migration claim issuance available across sequential authenticated reads by counting only unconsumed, unexpired challenges against the subject cap. One-live-nonce enforcement, expiry, proof scope and atomic consumption are unchanged.
+
 ## 0.1.0-beta.131
 
 ### Fixed
