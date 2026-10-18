@@ -1487,7 +1487,7 @@ test("adds schema properties and edits the complete Markdown record", async ({ p
   await expect(panel.getByRole("textbox", { name: "Complete record source" })).toContainText("Source tail.");
 });
 
-test("keeps a ten-thousand-note collection responsive and virtualized", async ({ page }) => {
+test("keeps a ten-thousand-note collection responsive and virtualized", { tag: "@performance" }, async ({ page }) => {
   const started = Date.now();
   await page.goto("?demo=10000");
   await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();

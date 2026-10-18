@@ -22,6 +22,10 @@ export default defineConfig({
     timeout: 120_000
   },
   projects: [
-    { name: "chromium", use: { ...devices["Desktop Chrome"] } }
+    { name: "chromium", use: { ...devices["Desktop Chrome"] }, grepInvert: /@performance/ },
+    // Wall-clock budgets run alone, after the main suite, so a parallel worker
+    // (for example the auth portal's Vite dev server compiling on demand) never
+    // shares the CPU with the measurement. Budgets are unchanged.
+    { name: "performance", use: { ...devices["Desktop Chrome"] }, grep: /@performance/, dependencies: ["chromium"] }
   ]
 });
