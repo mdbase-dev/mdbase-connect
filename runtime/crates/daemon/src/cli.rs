@@ -238,12 +238,15 @@ enum SyncCmd {
 enum MigrateCmd {
     /// Takeover progress per collection (works with the daemon stopped).
     Status,
-    /// Explicitly run or resume takeover (automatic runs wait for the account's batch flip).
+    /// Explicitly run or resume takeover once Connect allows it for this account.
     Start {
         /// Proceed past old hosted mirror folders once their upload queues are
         /// empty; they stop syncing until they join the migrated collection.
         #[arg(long)]
         stop_mirrors: bool,
+        /// Operator override: move without Connect's rollout permission.
+        #[arg(long, hide = true)]
+        ignore_rollout: bool,
     },
 }
 
@@ -1115,13 +1118,15 @@ async fn run_command(
             migrate_print(out, &v);
             Ok(ExitCode::SUCCESS)
         }
-        Command::Migrate(MigrateCmd::Start { stop_mirrors }) => {
-            let v = call(
-                profile,
-                Method::MIGRATE_START,
-                json!({ "stop_mirrors": stop_mirrors }),
-            )
-            .await?;
+        Command::Migrate(MigrateCmd::Start {
+            stop_mirrors,
+            ignore_rollout,
+        }) => {
+            let mut params = json!({ "stop_mirrors": stop_mirrors });
+            if ignore_rollout {
+                params["ignore_rollout"] = json!(true);
+            }
+            let v = call(profile, Method::MIGRATE_START, params).await?;
             migrate_print(out, &v);
             Ok(ExitCode::SUCCESS)
         }

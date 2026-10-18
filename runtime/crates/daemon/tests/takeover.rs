@@ -148,7 +148,21 @@ async fn automatic_takeover_waits_for_a_flipped_batch_and_fails_closed() {
         })
         .await;
         assert_untouched();
+        // An explicit move asks the same gate and changes nothing when refused:
+        // the old connector keeps serving a legacy account.
         let mut c = ControlClient::connect(&profile.control).await.unwrap();
+        c.authenticate(keys.as_ref()).await.unwrap();
+        match c.call(Method::MIGRATE_START, json!({})).await {
+            Err(ClientError::Remote(e)) => {
+                assert_eq!(e.reason.as_deref(), Some("takeover_not_allowed"), "{e:?}");
+                if denied == 3 {
+                    assert!(e.message.contains("hasn't been upgraded"), "{e:?}");
+                }
+            }
+            other => panic!("{other:?}"),
+        }
+        assert_untouched();
+        assert_eq!(status(&profile).await["account_legacy"], denied == 3);
         c.call(Method::SHUTDOWN, json!({})).await.unwrap();
         d.await.unwrap().unwrap();
     }
@@ -239,12 +253,13 @@ async fn automatic_takeover_waits_for_a_flipped_batch_and_fails_closed() {
     assert!(!claim.exists());
     std::fs::write(&claim, saved).unwrap();
 
-    // Explicit operator runs remain separate: no fresh rollout permission needed.
+    // An explicit run asks for fresh rollout permission too, then retires.
     mode.store(5, Ordering::SeqCst); // fixture retirement endpoint now available
     c.authenticate(keys.as_ref()).await.unwrap();
     let before_calls = calls.load(Ordering::SeqCst);
     let confirmed = c.call(Method::MIGRATE_START, json!({})).await.unwrap();
-    assert_eq!(calls.load(Ordering::SeqCst), before_calls);
+    assert_eq!(calls.load(Ordering::SeqCst), before_calls + 1);
+    assert_eq!(confirmed["account_legacy"], false);
     assert_eq!(
         confirmed["retirement"],
         json!({"retired":true,

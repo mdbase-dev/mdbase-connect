@@ -1329,7 +1329,9 @@ impl Daemon {
             Method::MIGRATE_STATUS => self.takeover_status().await,
             Method::MIGRATE_START => {
                 let p: crate::control::MigrateStart = params(req)?;
-                self.clone().takeover_run(p.stop_mirrors, false).await
+                self.clone()
+                    .takeover_run(p.stop_mirrors, false, p.ignore_rollout)
+                    .await
             }
             Method::ACCESS_LIST => {
                 let c: Option<String> = req
@@ -2922,53 +2924,66 @@ impl Daemon {
     /// Background takeover (startup, after sign-in): errors are logged and kept for
     /// `doctor`.
     async fn takeover_task(self: Arc<Self>, stop_mirrors: bool) {
-        if let Err(e) = self.takeover_run(stop_mirrors, true).await {
+        if let Err(e) = self.takeover_run(stop_mirrors, true, false).await {
             tracing::warn!(error = %e.message, "local takeover did not run");
         }
     }
 
     /// Ask the existing authenticated rollout endpoint, never infer permission
     /// from finding old state. Caller holds account_gate through the takeover.
-    async fn automatic_takeover_allowed(&self) -> bool {
+    /// Also records whether the account is (still, or again) on legacy Connect,
+    /// so status can say why nothing moved.
+    async fn takeover_rollout(&self) -> crate::takeover::RolloutGate {
+        use crate::takeover::RolloutGate;
         let Some(inc) = self.authority.incarnation() else {
-            return false;
+            return RolloutGate::Unknown;
         };
         let Ok(Some(cfg)) = crate::cloud::CloudConfig::load(&self.profile.cloud_file()) else {
-            return false;
+            return RolloutGate::Unknown;
         };
         let Ok(record) = crate::cloud::AccountRecord::load(&self.profile.account_file()) else {
-            return false;
+            return RolloutGate::Unknown;
         };
         if !record.permits(&cfg)
             || record.active_account() != Some(inc.account)
             || record.epoch != inc.epoch
         {
-            return false;
+            return RolloutGate::Unknown;
         }
         let Ok(tls) = crate::cloud::tls_config() else {
-            return false;
+            return RolloutGate::Unknown;
         };
         let Ok(cloud) = crate::cloud::Cloud::new(&tls, &cfg.server_url, self.secrets.as_ref())
         else {
-            return false;
+            return RolloutGate::Unknown;
         };
         let current = || {
             (self.authority.incarnation() == Some(inc))
                 .then_some(())
                 .ok_or_else(|| "account_changed".to_owned())
         };
-        cloud
-            .local_takeover_allowed(&tls, &current)
-            .await
-            .unwrap_or(false)
+        let gate = match cloud.rollout(&tls, &current).await {
+            Ok(r) => RolloutGate::from_rollout(&r),
+            Err(_) => RolloutGate::Unknown,
+        };
+        if gate != RolloutGate::Unknown {
+            self.takeover.account_legacy.store(
+                gate == RolloutGate::Legacy,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+        }
+        gate
     }
 
     /// Run (or resume) the local takeover, then register what it took over.
-    /// Automatic runs require fresh server permission; explicit operator runs do not.
+    /// Every run requires fresh server permission before the old connector is
+    /// touched: the server only retires it for an upgraded account. Only an
+    /// explicit operator override (`ignore_rollout`) skips the check.
     async fn takeover_run(
         self: Arc<Self>,
         stop_mirrors: bool,
         automatic: bool,
+        ignore_rollout: bool,
     ) -> Result<Value, ControlError> {
         let Some(old) = crate::takeover::old_state_dir(&self.profile) else {
             return self.takeover_status().await;
@@ -2978,12 +2993,21 @@ impl Daemon {
             return self.takeover_status().await;
         }
         let account_gate = self.account_gate.lock().await;
-        if automatic && !self.automatic_takeover_allowed().await {
+        if (automatic || !ignore_rollout)
+            && self.takeover_rollout().await != crate::takeover::RolloutGate::Allowed
+        {
             self.refence_old_service(old).await;
             self.takeover
                 .waiting_for_batch
                 .store(true, std::sync::atomic::Ordering::Relaxed);
-            return self.takeover_status().await;
+            if automatic {
+                return self.takeover_status().await;
+            }
+            return Err(crate::takeover::not_allowed_error(
+                self.takeover
+                    .account_legacy
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            ));
         }
         self.takeover
             .waiting_for_batch
@@ -3224,6 +3248,7 @@ impl Daemon {
             "holds": holds,
             "held_interrupted_writes": record.as_ref().map(|r| r.held_interrupted_writes()).unwrap_or(0),
             "waiting_for_migration_batch": self.takeover.waiting_for_batch.load(std::sync::atomic::Ordering::Relaxed),
+            "account_legacy": self.takeover.account_legacy.load(std::sync::atomic::Ordering::Relaxed),
             "retirement": self.takeover.retirement.lock().unwrap_or_else(|p| p.into_inner()).clone(),
         }))
     }

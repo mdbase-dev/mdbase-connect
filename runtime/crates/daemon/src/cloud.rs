@@ -377,6 +377,16 @@ impl Cloud {
         tls: &Arc<rustls::ClientConfig>,
         current: &(dyn Fn() -> Result<(), String> + Send + Sync),
     ) -> Result<bool, CloudError> {
+        Ok(self.rollout(tls, current).await?.permits_takeover())
+    }
+
+    /// The authenticated, uncached rollout answer: takeover permission and the
+    /// account's backend (`legacy` while it is not, or no longer, upgrading).
+    pub async fn rollout(
+        &self,
+        tls: &Arc<rustls::ClientConfig>,
+        current: &(dyn Fn() -> Result<(), String> + Send + Sync),
+    ) -> Result<Rollout, CloudError> {
         // Do not accept a permission from a redirected origin.
         let client = reqwest::Client::builder()
             .use_preconfigured_tls((**tls).clone())
@@ -391,7 +401,7 @@ impl Cloud {
         let v = self
             .send_current_status(request, current, Some(200))
             .await?;
-        parse_local_takeover(v)
+        parse_rollout(v)
     }
 
     /// Retire ONLY the exact full old connector (clients migration contract).
@@ -1173,24 +1183,41 @@ fn parse_legacy_retirement(value: Value, expected: &str) -> Result<(), CloudErro
     Ok(())
 }
 
-/// A released cohort alone is not permission.
-/// Apps must already be routed to next before folders are claimed.
+/// The account's backend as the rollout endpoint reports it.
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountBackend {
+    /// Still (or again) on legacy mdbase Connect.
+    Legacy,
+    /// Upgraded.
+    Next,
+}
+
+/// `GET /v1/next/rollout`, strictly decoded.
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Rollout {
+    /// Explicit takeover permission.
+    pub local_takeover: bool,
+    /// The account's backend, when reported.
+    pub account_backend: Option<AccountBackend>,
+}
+
+impl Rollout {
+    /// A released cohort alone is not permission.
+    /// Apps must already be routed to next before folders are claimed.
+    pub fn permits_takeover(&self) -> bool {
+        self.local_takeover && self.account_backend == Some(AccountBackend::Next)
+    }
+}
+
+fn parse_rollout(v: Value) -> Result<Rollout, CloudError> {
+    serde_json::from_value(v).map_err(|_| CloudError::Server(200, "malformed".into()))
+}
+
+#[cfg(test)]
 fn parse_local_takeover(v: Value) -> Result<bool, CloudError> {
-    #[derive(Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct Rollout {
-        local_takeover: bool,
-        account_backend: Option<Backend>,
-    }
-    #[derive(Deserialize, PartialEq)]
-    #[serde(rename_all = "snake_case")]
-    enum Backend {
-        Legacy,
-        Next,
-    }
-    let r: Rollout =
-        serde_json::from_value(v).map_err(|_| CloudError::Server(200, "malformed".into()))?;
-    Ok(r.local_takeover && r.account_backend == Some(Backend::Next))
+    Ok(parse_rollout(v)?.permits_takeover())
 }
 
 /// Bound on the strict response's recovery-device set: larger is refused as
