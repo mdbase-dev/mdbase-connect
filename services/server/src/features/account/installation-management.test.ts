@@ -1,7 +1,17 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { buildApp } from "../../app.js";
 import { createDatabase } from "../../db.js";
+import { nativeDevicesByCollection } from "../next/native-grant-target.js";
+
+// This serialization fixture has only app-runtime/mobile devices, never a
+// serving desktop/CLI. Native policy SQL is qualified by real PostgreSQL, not
+// emulated by pg-mem; keep that empty discovery boundary explicit here.
+vi.mock("../next/native-grant-target.js", async importOriginal => ({
+  ...await importOriginal<typeof import("../next/native-grant-target.js")>(),
+  nativeDevicesByCollection: vi.fn(async (_db: unknown, collections: readonly string[]) =>
+    new Map(collections.map(id => [id, []])))
+}));
 
 it("lists real installation consent as app access and preserves unknown/legacy computer rows", async () => {
   const db = await createDatabase("memory");
@@ -47,6 +57,7 @@ it("lists real installation consent as app access and preserves unknown/legacy c
     const response = await app.inject({ url: "/v1/me", headers: { cookie } });
     expect(response.statusCode, response.body).toBe(200);
     const overview = response.json();
+    expect(nativeDevicesByCollection).toHaveBeenCalledExactlyOnceWith(db, [collection], owner);
     expect(overview.connectors.map((row: { id: string }) => row.id).sort()).toEqual([legacy.id, mobile.id, unknown.id].sort());
     expect(overview.installation_access).toHaveLength(4);
     expect(overview.installation_access).toContainEqual(expect.objectContaining({ connector_id: mobileApp.id, device_kind: "mobile", collection_id: null }));

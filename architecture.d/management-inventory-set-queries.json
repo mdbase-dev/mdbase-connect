@@ -1,0 +1,6 @@
+{
+  "reason": "Five server-internal exports replace repeated inventory lookups with shared canonical boundaries: stored membership-policy decoding (single and bulk reads), a frozen-account row type and projector (single checks and joined inventory snapshots), the permanent policy-device revocation relation (individual guards and bulk discovery), and bulk serving-device discovery (single-device wrapper and account overview). No SDK/package entrypoint, configuration, persisted state or per-file cap changes; no parallel permission adapter is introduced.",
+  "growth": {
+    "typeScriptExportDeclarations": 5
+  }
+}
