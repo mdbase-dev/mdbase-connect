@@ -1,6 +1,7 @@
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import type { NoteSummary } from "./model";
 import { basename, folder, noteTitle } from "./note";
+import { markdownReferences } from "./markdown-references";
 
 export interface LinkSuggestion {
   path: string;
@@ -99,8 +100,16 @@ export function backlinksFor(
   types: CollectionTypeDescriptor[] = []
 ): NoteSummary[] {
   const index = linkIndex(notes);
+  const suggestions = linkSuggestions(notes, [], types);
   return notes
-    .filter((note) => referencesFor(note).some((reference) => resolveReference(note.path, reference, index)?.path === targetPath))
+    .filter((note) => {
+      // Native records expose hydrated bodies, not the connector's file link
+      // projections. Use the same parser and resolution as forward navigation.
+      const bodyLinked = note.body !== undefined && markdownReferences(note.body).some(reference =>
+        resolveLinkSuggestion(reference.target, suggestions, note.path, reference.format)?.path === targetPath);
+      // Connector projections also include frontmatter references.
+      return bodyLinked || referencesFor(note).some(reference => resolveReference(note.path, reference, index)?.path === targetPath);
+    })
     .sort((left, right) => noteTitle(left, types).localeCompare(noteTitle(right, types)) || left.path.localeCompare(right.path));
 }
 
