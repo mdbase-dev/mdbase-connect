@@ -3,6 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { EditorRail } from "./EditorRail";
 
+const feedback = vi.hoisted(() => ({ enabled: false, open: vi.fn(), reportError: vi.fn(), wiggle: 0 }));
+vi.mock("@mdbase-dev/ui/feedback", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@mdbase-dev/ui/feedback")>(),
+  useFeedback: () => feedback
+}));
+
 function renderRail(links = false, mobileReturn = false) {
   const onTypes = vi.fn();
   const onSettings = vi.fn();
@@ -57,6 +63,25 @@ describe("collection rail regions", () => {
     await user.tab({ shift: true });
     await user.keyboard("{Enter}");
     expect(onTypes).toHaveBeenCalledOnce();
+  });
+
+  it("ends the fixed tools group with the feedback entry when feedback is available", async () => {
+    const user = userEvent.setup();
+    feedback.enabled = true;
+    try {
+      renderRail();
+      const tools = screen.getByRole("group", { name: "Collection tools" });
+      expect([...tools.children].map((element) => element.textContent)).toEqual(["Types1", "Settings", "Send feedback"]);
+      screen.getByRole("button", { name: "Settings" }).focus();
+      await user.tab();
+      const entry = within(tools).getByRole("button", { name: "Send feedback" });
+      expect(entry).toHaveFocus();
+      await user.keyboard("{Enter}");
+      expect(feedback.open).toHaveBeenCalledOnce();
+      expect(feedback.open).toHaveBeenCalledWith();
+    } finally {
+      feedback.enabled = false;
+    }
   });
 
   it("keeps the mobile return outside the scroll and tools regions", () => {

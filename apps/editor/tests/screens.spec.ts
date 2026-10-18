@@ -189,7 +189,7 @@ test.describe("responsive themed view readiness", () => {
       await composer.getByRole("button", { name: "Cancel", exact: true }).click();
 
       await installAuthRoutes(page, authPortal);
-      await page.goto(`connect?server=${encodeURIComponent(authPortal)}`);
+      await page.goto(`${authPortal}/login`);
       await expect(page).toHaveURL(`${authPortal}/login`);
       await expect(page.getByRole("button", { name: "Continue with Google" })).toBeEnabled();
       await expect(page.locator(".provider-divider")).toHaveCount(1);
