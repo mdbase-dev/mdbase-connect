@@ -80,3 +80,30 @@ test("a run in progress cannot be started again; a clean finish hides the panel 
   const marker = presentTakeover({ ...base, record: { state: "complete", collections: { a: { state: "complete", marker_incident: true } } } });
   assert.match(marker.incidents[0], /marker/);
 });
+
+test("unsent edits from old hosted mirrors: waiting until joined, then conflicts and recovered copies are shown", () => {
+  const done = { ...base, record: { state: "complete", collections: { a: { state: "complete", registered: true } } } };
+  const imp = { mirror_root: "/home/me/Hosted notes", edits: 3, applied: 0, held: 0, recovered: [], waiting: 3, complete: false, registered: false };
+  const waiting = presentTakeover({ ...done, mirror_imports: { h: imp } });
+  assert.equal(waiting.visible, true);
+  assert.equal(waiting.tone, "info");
+  assert.deepEqual(waiting.incidents, []);
+  assert.match(waiting.notices[0], /^3 edits made in “Hosted notes” before the move were not uploaded/);
+  assert.match(waiting.notices[0], /when you join/);
+
+  const imported = presentTakeover({ ...done, mirror_imports: { h: {
+    ...imp, applied: 1, held: 1, waiting: 0, complete: true, registered: true, name: "Hosted",
+    recovered: [{ path: "d.md", reason: "not_text", file: "/home/me/Hosted notes (unsent edits)/d.md" }]
+  } } });
+  assert.equal(imported.tone, "attention");
+  assert.deepEqual(imported.notices, []);
+  assert.match(imported.incidents[0], /1 unsent edit in “Hosted” conflict/);
+  assert.match(imported.incidents[1], /d\.md.*not a text file.*\(unsent edits\)\/d\.md/);
+
+  const clean = presentTakeover({ ...done, mirror_imports: { h: { ...imp, applied: 3, waiting: 0, complete: true, registered: true } } });
+  assert.equal(clean.visible, false);
+
+  const failed = presentTakeover({ ...base, record: { state: "postponed", collections: { a: { state: "postponed", reason: "mirror_capture_failed" } } } });
+  assert.match(failed.title, /could not be saved/);
+  assert.equal(failed.offerStopMirrors, false);
+});

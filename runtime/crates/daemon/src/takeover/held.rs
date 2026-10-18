@@ -44,6 +44,10 @@ pub struct Held {
     pub intended: Option<Vec<u8>>,
     /// When the takeover recorded it (ms; the import's time).
     pub since: i64,
+    /// An unsent edit from an old hosted mirror (`mirror_import`), rather than an
+    /// interrupted local write: the folder has the current version, `intended` is
+    /// the edit that never uploaded.
+    pub unsent: bool,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -99,16 +103,36 @@ pub fn hold_id(path: &str) -> String {
 /// The open takeover holds of `collection`, in evidence order.
 pub fn open(legacy: &Path, collection: &str) -> io::Result<Vec<Held>> {
     let dir = dir_of(legacy, collection)?;
-    let Some(ev) = Evidence::load(legacy, collection)? else {
-        return Ok(Vec::new());
-    };
     let resolved = load_resolved(legacy, collection)?;
-    let since = std::fs::metadata(dir.join("import.json"))
-        .and_then(|m| m.modified())
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map_or(0, |d| d.as_millis() as i64);
+    let since_of = |file: &Path| {
+        std::fs::metadata(file)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_millis() as i64)
+    };
     let mut out = Vec::new();
+    let unsent = super::mirror_import::holds(legacy, collection)?;
+    if !unsent.is_empty() {
+        let since = since_of(&dir.join("mirror").join("capture.json"));
+        for (path, cause, bytes) in unsent {
+            if resolved.paths.contains(&path) {
+                continue;
+            }
+            out.push(Held {
+                id: hold_id(&path),
+                path,
+                cause,
+                intended: Some(bytes),
+                since,
+                unsent: true,
+            });
+        }
+    }
+    let Some(ev) = Evidence::load(legacy, collection)? else {
+        return Ok(out);
+    };
+    let since = since_of(&dir.join("import.json"));
     for h in ev.holds {
         if resolved.paths.contains(&h.path) {
             continue;
@@ -123,6 +147,7 @@ pub fn open(legacy: &Path, collection: &str) -> io::Result<Vec<Held>> {
             cause: h.reason,
             intended,
             since,
+            unsent: false,
         });
     }
     Ok(out)

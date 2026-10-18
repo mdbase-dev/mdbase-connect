@@ -1186,3 +1186,120 @@ fn adopt_is_refused_while_takeover_or_replica_holds_are_open() {
         assert_eq!(e.reason.as_deref(), Some("holds_pending"));
     }
 }
+
+// A captured old hosted mirror is imported once its collection serves here.
+use crate::takeover::mirror_import::tests::hosted_mirror::{self, HOSTED};
+
+fn uuid(s: &str) -> [u8; 16] {
+    secrets::hex_decode(&s.replace('-', ""))
+        .unwrap()
+        .try_into()
+        .unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn captured_mirror_edits_are_imported_listed_and_resolvable() {
+    let dir = crate::testutil::TestDir::new("mi-daemon");
+    let d = paired_daemon(&dir).await;
+    // The hosted collection, registered here under its own ID (as a joined
+    // collection would be), served locally for the test.
+    let joined = crate::testutil::TestDir::new("mi-daemon-joined");
+    let folder = joined.path().join("Hosted");
+    std::fs::create_dir_all(folder.join(".mdbase")).unwrap();
+    let replica =
+        crate::registry::StoreIds::get_or_issue(&d.profile.store_ids_file(), HOSTED).unwrap();
+    std::fs::write(
+        folder.join(".mdbase/connect-role.json"),
+        serde_json::to_vec(
+            &json!({"version": 2, "role": "replica", "collection": HOSTED,
+            "replica_id": replica, "runtime": "mdbase-next",
+            "claimed_at": "2026-10-18T00:00:00Z", "notice": "test"}),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    d.add(crate::control::AddCollection {
+        path: folder.clone(),
+        name: Some("Hosted".into()),
+    })
+    .await
+    .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while d.runtime_of(HOSTED).await.is_err() {
+        assert!(std::time::Instant::now() < deadline, "never served");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    let rt = d.runtime_of(HOSTED).await.unwrap();
+    for (rid, path, doc) in hosted_mirror::server_records() {
+        let ops = vec![mdbn_wire::intent::Op::Create(mdbn_wire::intent::Create {
+            id: mdbn_wire::common::B16(uuid(rid)),
+            path: Some(path.into()),
+            type_name: None,
+            frontmatter: None,
+            body: None,
+            document: Some(mdbn_wire::common::Text::Inline(doc.into())),
+        })];
+        assert_eq!(
+            submit_as(&rt, ops, new_uuid_v7()).await.unwrap(),
+            crate::takeover::held::Outcome::Confirmed
+        );
+    }
+
+    // Captured at the takeover (before any join).
+    let elsewhere = crate::testutil::TestDir::new("mi-daemon-old");
+    let old = elsewhere.path().join("connect");
+    let entry = hosted_mirror::build(&old, &elsewhere.path().join("Hosted notes"));
+    let legacy = d.takeover_paths().legacy;
+    crate::takeover::mirror_import::capture(&legacy, &old, &entry, "2026-10-18T00:00:00Z").unwrap();
+
+    d.import_mirrors().await;
+
+    let st = d.takeover_status().await.unwrap();
+    let mi = &st["mirror_imports"][HOSTED];
+    assert_eq!(mi["complete"], true, "{st}");
+    assert_eq!(mi["registered"], true);
+    assert_eq!(mi["name"], "Hosted");
+    assert_eq!(mi["applied"], 4);
+    assert_eq!(mi["held"], 1);
+    assert_eq!(mi["recovered"][0]["path"], "d.md");
+    assert_eq!(doc_at(&rt, "a.md").await.as_deref(), Some("A edited"));
+
+    // The conflict is listed with the replica's own holds and resolves there.
+    let holds = d.holds(HOSTED).await.unwrap();
+    let hold = holds
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|h| h["reason"] == crate::takeover::mirror_import::HOLD_REASON)
+        .unwrap_or_else(|| panic!("{holds}"))
+        .clone();
+    assert_eq!(hold["path"], "e.md");
+    d.resolve_hold(ResolveHold {
+        collection: HOSTED.into(),
+        id: hold["id"].as_str().unwrap().into(),
+        how: HoldAction::KeepBoth,
+    })
+    .await
+    .unwrap();
+    assert_eq!(doc_at(&rt, "e.md").await.as_deref(), Some("E theirs"));
+    assert_eq!(
+        doc_at(&rt, "e (old version).md").await.as_deref(),
+        Some("E mine")
+    );
+    let st = d.takeover_status().await.unwrap();
+    assert_eq!(st["mirror_imports"][HOSTED]["held"], 0, "{st}");
+
+    // Another pass changes nothing.
+    d.import_mirrors().await;
+    assert_eq!(doc_at(&rt, "n.md").await.as_deref(), Some("New"));
+    let mut inner = d.inner.lock().await;
+    for host in inner.hosts.iter_mut() {
+        host.close().await;
+    }
+}
+
+async fn doc_at(rt: &Arc<crate::runtime::Runtime>, path: &str) -> Option<String> {
+    use crate::takeover::mirror_import::Target;
+    let mut t = HostTarget { rt: rt.clone() };
+    t.get(path).await.unwrap().map(|c| c.document)
+}

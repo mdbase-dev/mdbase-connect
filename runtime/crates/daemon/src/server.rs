@@ -2922,8 +2922,56 @@ impl Daemon {
     /// Background takeover (startup, after sign-in): errors are logged and kept for
     /// `doctor`.
     async fn takeover_task(self: Arc<Self>, stop_mirrors: bool) {
-        if let Err(e) = self.takeover_run(stop_mirrors, true).await {
+        if let Err(e) = self.clone().takeover_run(stop_mirrors, true).await {
             tracing::warn!(error = %e.message, "local takeover did not run");
+        }
+        self.import_mirrors().await;
+    }
+
+    /// Import old hosted mirrors' captured unsent edits into their collections
+    /// once those are registered here and serving (`takeover::mirror_import`).
+    /// Each pass is idempotent; one that cannot finish (offline, not yet joined)
+    /// is simply repeated later.
+    async fn import_mirrors(&self) {
+        use crate::takeover::mirror_import::{self, Capture, Progress};
+        let legacy = self.takeover_paths().legacy;
+        let Ok(ids) = mirror_import::captured(&legacy) else {
+            return;
+        };
+        for id in ids {
+            let complete = match (Capture::load(&legacy, &id), Progress::load(&legacy, &id)) {
+                (Ok(Some(c)), Ok(p)) => p.complete(&c),
+                _ => true, // unreadable: reported by status, never written over
+            };
+            if complete {
+                continue;
+            }
+            let Ok(rt) = self.runtime_of(&id).await else {
+                continue; // not joined here yet, or not caught up
+            };
+            // Serialized with takeover runs and hold resolutions.
+            let Ok(_run) = self.takeover.run.try_lock() else {
+                continue;
+            };
+            let mut target = HostTarget { rt };
+            match mirror_import::import(&legacy, &id, &mut target, &mut new_uuid_v7).await {
+                Ok(pass) => {
+                    if pass.settled > 0 {
+                        tracing::info!(
+                            collection = %id,
+                            settled = pass.settled,
+                            waiting = pass.waiting,
+                            complete = pass.complete,
+                            "unsent hosted mirror edits imported"
+                        );
+                        drop(_run);
+                        self.bump();
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(collection = %id, error = %e, "unsent edit import paused; retried later")
+                }
+            }
         }
     }
 
@@ -3009,6 +3057,8 @@ impl Daemon {
         let isolated = self.profile.target == crate::paths::Target::IsolatedProfile;
         let opts = crate::takeover::Options {
             stop_mirrors,
+            // Automatic runs passed the rollout gate: the account has moved.
+            account_moved: automatic,
             drain: crate::takeover::DRAIN,
             now: crate::takeover::now_rfc3339(),
         };
@@ -3234,8 +3284,27 @@ impl Daemon {
                 }
             }
         }
+        let mut mirror_imports = serde_json::Map::new();
+        for id in crate::takeover::mirror_import::captured(&paths.legacy).unwrap_or_default() {
+            let entry = match crate::takeover::mirror_import::status(&paths.legacy, &id) {
+                Ok(Some(mut v)) => {
+                    let inner = self.inner.lock().await;
+                    let registered = inner.registry.get(&id);
+                    v["registered"] = json!(registered.is_some());
+                    if let Some(e) = registered {
+                        v["name"] = json!(e.name);
+                        v["root"] = json!(e.root);
+                    }
+                    v
+                }
+                Ok(None) => continue,
+                Err(e) => json!({"error": e.to_string()}),
+            };
+            mirror_imports.insert(id, entry);
+        }
         Ok(json!({
             "record": record,
+            "mirror_imports": mirror_imports,
             "revived": self.takeover.revived.load(std::sync::atomic::Ordering::Relaxed),
             "error": self.takeover.error.lock().unwrap_or_else(|p| p.into_inner()).clone(),
             "holds": holds,
@@ -3587,11 +3656,17 @@ fn takeover_hold_summary(h: &crate::takeover::held::Held) -> HoldSummary {
     HoldSummary {
         id: h.id.clone(),
         path: h.path.clone(),
-        reason: crate::takeover::held::REASON.into(),
+        reason: if h.unsent {
+            crate::takeover::mirror_import::HOLD_REASON
+        } else {
+            crate::takeover::held::REASON
+        }
+        .into(),
         since: h.since,
         saves: 0,
         has_theirs: true,
-        binary: !is_markdown_path(&h.path)
+        // An unsent edit is always text (other files were recovered instead).
+        binary: (!h.unsent && !is_markdown_path(&h.path))
             || h.intended
                 .as_ref()
                 .is_some_and(|b| std::str::from_utf8(b).is_err()),
@@ -3706,6 +3781,78 @@ async fn read_back(
             .map_err(|_| ControlError::internal("the replica's receipt does not decode")),
         Err(e) if e.code == "not_found" => Ok(None),
         Err(e) => Err(e),
+    }
+}
+
+/// The replica a mirror import writes to: a serving collection runtime, as the
+/// hosting app (this device's own writes).
+struct HostTarget {
+    rt: Arc<crate::runtime::Runtime>,
+}
+
+fn import_io(e: ControlError) -> std::io::Error {
+    std::io::Error::other(format!(
+        "{}: {}",
+        e.reason.as_deref().unwrap_or(&e.code),
+        e.message
+    ))
+}
+
+impl crate::takeover::mirror_import::Target for HostTarget {
+    async fn get(
+        &mut self,
+        key: &str,
+    ) -> std::io::Result<Option<crate::takeover::mirror_import::Current>> {
+        use mdbn_wire::Wire;
+        use mdbn_wire::cbor::Cbor;
+        let include = mdbn_wire::client::Include {
+            effective: None,
+            body: None,
+            document: Some(true),
+            diagnostics: None,
+        };
+        let id = mdbn_legacy::is_uuid(key)
+            .then(|| secrets::hex_decode(&key.replace('-', "")).ok())
+            .flatten()
+            .and_then(|v| <[u8; 16]>::try_from(v.as_slice()).ok());
+        let reference = match id {
+            Some(b) => mdbn_wire::common::B16(b).to_cbor(),
+            None => Cbor::Text(key.into()),
+        };
+        let params = Cbor::Map(vec![
+            (Cbor::Uint(0), reference),
+            (Cbor::Uint(1), include.to_cbor()),
+        ]);
+        let view = match host_call(&self.rt, "get", params).await {
+            Ok(v) => mdbn_wire::client::RecordView::from_cbor(&v)
+                .map_err(|_| std::io::Error::other("the replica's record does not decode"))?,
+            Err(e) if e.code == "not_found" => return Ok(None),
+            Err(e) => return Err(import_io(e)),
+        };
+        let Some(document) = view.document else {
+            return Err(std::io::Error::other("the replica returned no document"));
+        };
+        Ok(Some(crate::takeover::mirror_import::Current {
+            id: view.id.0,
+            path: view.path,
+            revision: view.revision.0,
+            document,
+        }))
+    }
+
+    async fn submit(
+        &mut self,
+        ops: Vec<mdbn_wire::intent::Op>,
+        mutation: [u8; 16],
+    ) -> std::io::Result<crate::takeover::held::Outcome> {
+        submit_as(&self.rt, ops, mutation).await.map_err(import_io)
+    }
+
+    async fn receipt(
+        &mut self,
+        mutation: [u8; 16],
+    ) -> std::io::Result<Option<crate::takeover::held::Outcome>> {
+        read_back(&self.rt, mutation).await.map_err(import_io)
     }
 }
 
@@ -5213,6 +5360,7 @@ impl Daemon {
         loop {
             tokio::time::sleep(OLD_CONNECTOR_POLL).await;
             self.check_old_connector().await;
+            self.import_mirrors().await;
         }
     }
 

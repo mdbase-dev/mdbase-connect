@@ -126,7 +126,8 @@ const HOLD_REASONS: Record<string, string> = {
   read_only: "Changed while read-only",
   editor_busy: "Open in an editor",
   suspect_write: "Looked like an accidental overwrite",
-  taken_over: "Differed when mdbase took over from the old app; this computer's version is in the folder"
+  taken_over: "Differed when mdbase took over from the old app; this computer's version is in the folder",
+  unsent_edit: "Edited here before the move but never uploaded, and changed elsewhere since; the current version is in the folder"
 };
 
 function Holds({ collection, busy, onAct, onLoaded }: {
@@ -158,6 +159,12 @@ function Holds({ collection, busy, onAct, onLoaded }: {
               </div>
               : hold.binary
               ? <small>Resolve this file in the app that uses it.</small>
+              : hold.reason === "unsent_edit"
+              ? <div className="row-actions">
+                <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "keep_mine")}>Keep current</button>
+                <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "take_theirs")}>Use my unsent edit</button>
+                <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "keep_both")}>Keep both</button>
+              </div>
               : <div className="row-actions">
                 <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "keep_mine")}>Keep this computer's</button>
                 {hold.has_theirs && <button className="quiet-action" disabled={busy} onClick={() => resolve(hold, "take_theirs")}>Take the other version</button>}

@@ -19,9 +19,10 @@
 //!    v1 mirror marker, a foreign claim or an invalid marker are postponed.
 //! 4. Before the first T1 only:
 //!    - **old mirrors**: T1 stops the whole old daemon, which also runs hosted
-//!      mirrors. Until mirror join lands, a device with registered mirrors is
-//!      postponed, so the old daemon keeps uploading their queued edits; with
-//!      `stop_mirrors` it proceeds only once every mirror's queue is empty;
+//!      mirrors. A manual run without `stop_mirrors` is postponed while mirrors are
+//!      registered. With `stop_mirrors`, or once the account has moved (automatic
+//!      runs), each mirror's unsent edits are captured durably first
+//!      ([`mirror_import`]) and imported once the collection is joined here;
 //!    - **journal drain**: wait (bounded) for the old daemon to finish in-flight
 //!      requests (`claimed`/`prepared`/`applied` without a receipt), so fewer
 //!      outcomes are unknown. Whatever is still in flight is settled by T4 (engine
@@ -42,6 +43,7 @@ pub mod held;
 pub mod mirror_driver;
 pub mod mirror_evidence;
 pub mod mirror_hold;
+pub mod mirror_import;
 pub mod record;
 pub mod retirement;
 
@@ -65,8 +67,12 @@ pub const NOTICE: &str = "This folder is now managed by the new mdbase app. \
 /// Options for one run.
 #[derive(Clone, Debug)]
 pub struct Options {
-    /// Proceed past registered old mirrors once their queues are empty.
+    /// The user allowed old hosted mirrors to stop: their unsent edits are
+    /// captured for import, then the takeover proceeds.
     pub stop_mirrors: bool,
+    /// The account has moved to mdbase (fresh rollout permission, automatic runs):
+    /// old mirrors can no longer upload, so they stop as with `stop_mirrors`.
+    pub account_moved: bool,
     /// How long to wait for the old daemon's in-flight requests (before the first T1).
     pub drain: Duration,
     /// RFC 3339 time of this run (the record and the marker's `claimed_at`).
@@ -148,7 +154,17 @@ fn old_daemon_running(old_state_dir: &Path) -> io::Result<bool> {
 }
 
 /// Why old mirrors keep this device from taking over now, if they do.
-fn mirrors_block(old_state_dir: &Path, stop_mirrors: bool) -> io::Result<Option<&'static str>> {
+///
+/// Stopping the old daemon (T1) stops its hosted mirrors too. A mirror may stop
+/// once the user allowed it (`stop_mirrors`) or once the account has moved (an
+/// automatic run: its mirrors can no longer upload anyway). Before it stops, its
+/// unsent edits are captured durably for import (`mirror_import`); only a mirror
+/// whose queue cannot be read or captured still holds the takeover back.
+fn mirrors_block(
+    paths: &Paths,
+    old_state_dir: &Path,
+    opts: &Options,
+) -> io::Result<Option<&'static str>> {
     use mdbn_legacy::mirror;
     let mirrors: Vec<_> = mirror::read_registry(old_state_dir)
         .map_err(legacy)?
@@ -158,20 +174,27 @@ fn mirrors_block(old_state_dir: &Path, stop_mirrors: bool) -> io::Result<Option<
     if mirrors.is_empty() {
         return Ok(None);
     }
-    if !stop_mirrors {
+    if !opts.stop_mirrors && !opts.account_moved {
         return Ok(Some("mirrors_present"));
     }
     for m in &mirrors {
-        let Some(state) = mirror::read_rust_state(old_state_dir, &m.replica_id).map_err(legacy)?
-        else {
-            return Ok(Some("mirror_state_unreadable"));
-        };
-        if !state.unreceipted.is_empty()
-            || !mirror::queued_writes(&state, &m.path)
-                .map_err(legacy)?
-                .is_empty()
+        if mirror::read_rust_state(old_state_dir, &m.replica_id)
+            .map_err(legacy)?
+            .is_none()
         {
-            return Ok(Some("mirror_queue_not_empty"));
+            return Ok(Some("mirror_state_unreadable"));
+        }
+        match mirror_import::capture(&paths.legacy, old_state_dir, m, &opts.now) {
+            Ok(c) => tracing::info!(
+                collection = %m.collection_id,
+                edits = c.edits,
+                existing = c.existing,
+                "unsent hosted mirror edits captured for import"
+            ),
+            Err(e) => {
+                tracing::error!(collection = %m.collection_id, error = %e, "could not capture a hosted mirror's unsent edits");
+                return Ok(Some("mirror_capture_failed"));
+            }
         }
     }
     Ok(None)
@@ -281,8 +304,18 @@ pub fn run(
         }
     }
 
+    // Capture old mirrors' unsent edits whenever they may stop, so a device with
+    // only hosted mirrors (or one taken over earlier) keeps them too.
+    let mirror_block = if started || candidates.is_empty() {
+        if let Some(why) = mirrors_block(paths, old_state_dir, opts)? {
+            tracing::info!(reason = why, "old hosted mirrors not captured");
+        }
+        None
+    } else {
+        mirrors_block(paths, old_state_dir, opts)?
+    };
     if !started && !candidates.is_empty() {
-        if let Some(why) = mirrors_block(old_state_dir, opts.stop_mirrors)? {
+        if let Some(why) = mirror_block {
             for c in &candidates {
                 let e = record.collections.get_mut(&c.id).expect("discovered");
                 e.state = CollectionState::Postponed;
