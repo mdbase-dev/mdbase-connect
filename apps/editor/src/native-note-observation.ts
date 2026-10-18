@@ -244,7 +244,11 @@ export class NativeNoteObservation implements NoteObservation {
 
   private publish(patch: Partial<Omit<NoteObservationSnapshot, "records">>, reason: Reason): void {
     if (this.closed) return;
-    this.snapshot = { ...this.snapshot, ...patch, records: this.records() };
+    const records = this.records();
+    const next = { ...this.snapshot, ...patch, records };
+    // Pagination totals belong to the old read. A ready snapshot is the full
+    // live membership, including watched changes and optimistic overlays.
+    this.snapshot = next.state === "ready" ? { ...next, total: records.length } : next;
     for (const listener of [...this.listeners]) listener(this.snapshot, { reason });
   }
 

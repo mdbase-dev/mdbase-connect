@@ -15,11 +15,17 @@ describe("editor observe presentation", () => {
     const observe = vi.spyOn(source, "observe");
     const index = new CollectionIndexController(source, gatewayError);
     const lengths: number[] = [];
-    index.subscribe(() => lengths.push(index.getSnapshot().notes.length));
+    const counts: Array<[number, number | undefined]> = [];
+    index.subscribe(() => {
+      const state = index.getSnapshot();
+      lengths.push(state.notes.length);
+      counts.push([state.notes.length, state.total]);
+    });
     const load = index.reload();
     expect((await load).notes).toHaveLength(250);
     expect(lengths).toContain(200);
-    expect(index.getSnapshot()).toMatchObject({ structureComplete: true, contentComplete: true });
+    expect(counts).toContainEqual([200, 250]);
+    expect(index.getSnapshot()).toMatchObject({ total: 250, structureComplete: true, contentComplete: true });
     await index.hydrate();
     expect(observe).toHaveBeenCalledOnce();
     index.reset();
