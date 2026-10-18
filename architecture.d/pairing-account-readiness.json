@@ -1,6 +1,0 @@
-{
-  "reason": "Move the existing pairing response and file-action types from the at-cap presentation module to the portal API module, their transport boundary. The two exports are portal-internal types, not new SDK entrypoints; no production file or runtime abstraction is added.",
-  "growth": {
-    "typeScriptExportDeclarations": 2
-  }
-}

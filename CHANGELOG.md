@@ -4,6 +4,26 @@
 
 <!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
 
+## 0.1.0-beta.133
+
+### Added
+
+- Add migration-service-only, idempotent AppendBase abort-barrier and receipt
+  endpoints. A signed freeze fences publication on the original uncutover
+  shadow log; metadata alone cannot authorize native cancellation or rollback.
+  Requires the separately qualified native publication-exclusion consumer and
+  receipt-qualified rollback. Never unfreezes or renews an expired backup hold.
+
+### Fixed
+
+- Replace per-collection account-overview authority, freeze and serving-device reads with set-based inventory queries. Preserve current membership-policy decoding, deletion/suspension denial and permanent device/member-removal rules; validate completed migration evidence once per distinct owner rather than once per collection.
+
+- Keep portal management reads single-flight so slow account loading is not continually superseded by background refreshes. Unavailable initial reads can be retried without signing in again; completed mutations still get a fresh post-operation snapshot.
+
+- Explain account upgrade requirements before app sign-in offers account confirmation, and show policy refusals as the actual blocking state rather than a user cancellation. Upgrading accounts can recheck readiness without granting access.
+
+- Preserve the original Connect-owner migration rollback binding while qualifying the separate provider storage account. Receipts retain both identities atomically, and non-identity accounts can roll back without rewriting an existing intent. Deploy the provider migration and v2 routes before the control plane; the new control plane never falls back to v1. Existing UNKNOWN actions still require their original recovery flow.
+
 ## 0.1.0-beta.132
 
 ### Fixed

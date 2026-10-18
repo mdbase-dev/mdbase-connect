@@ -11,7 +11,7 @@
     "crates/connect-agent": 37,
     "crates/connect-cli": 8,
     "crates/connect-core": 36,
-    "crates/connect-hosted-provider": 116,
+    "crates/connect-hosted-provider": 117,
     "crates/connect-hosted-storage-benchmark": 6,
     "crates/connect-mirror": 18,
     "crates/connect-protocol": 19,
@@ -44,11 +44,11 @@
     "semanticProjectionFormatVersion": 9
   },
   "reviewBudgets": {
-    "productionFiles": 889,
+    "productionFiles": 890,
     "relativeImports": 2458,
     "workspacePackages": 25,
-    "rustPublicDeclarations": 3448,
-    "typeScriptExportDeclarations": 3455,
+    "rustPublicDeclarations": 3458,
+    "typeScriptExportDeclarations": 3464,
     "mdbaseCollectionReferences": 17,
     "typedCollectionReferences": 1
   }
