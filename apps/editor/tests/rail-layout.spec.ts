@@ -42,7 +42,7 @@ for (const width of [1440, 360, 390]) {
     for (const target of [
       tools.getByRole("button", { name: "Types (1)" }),
       tools.getByRole("button", { name: "Settings", exact: true }),
-      tools.getByRole("link", { name: "Connect", exact: true })
+      tools.getByRole("button", { name: "Send feedback", exact: true })
     ]) {
       await expect(target).toBeInViewport({ ratio: 1 });
       if (width <= 760) expect((await target.boundingBox())!.height).toBeGreaterThanOrEqual(44);
@@ -53,7 +53,7 @@ for (const width of [1440, 360, 390]) {
     await page.keyboard.press("Tab");
     await expect(tools.getByRole("button", { name: "Settings", exact: true })).toBeFocused();
     await page.keyboard.press("Tab");
-    await expect(tools.getByRole("link", { name: "Connect", exact: true })).toBeFocused();
+    await expect(tools.getByRole("button", { name: "Send feedback", exact: true })).toBeFocused();
     await page.keyboard.press("Shift+Tab");
     await page.keyboard.press("Enter");
     await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
