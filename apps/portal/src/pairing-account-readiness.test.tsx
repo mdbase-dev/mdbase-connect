@@ -62,10 +62,29 @@ describe("account readiness before app consent", () => {
     await screen.findByRole("button", { name: "Use this account" });
     vi.mocked(api).mockRejectedValue(new TypeError("Failed to fetch"));
     fireEvent.click(screen.getByRole("button", { name: "Use this account" }));
-    expect(await screen.findByRole("heading", { name: "Couldn't finish sign-in" })).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/connection and try again/);
+    expect(screen.getByRole("button", { name: "Use this account" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
     expect(screen.queryByRole("heading", { name: "Sign-in cancelled" })).not.toBeInTheDocument();
     expect(vi.mocked(api).mock.calls.some(([path]) => path.endsWith("/deny"))).toBe(false);
+  });
+
+  it("retains the original collection form and explicit resume after a lost creation reply", async () => {
+    const original = { ...pairing(), account_selection_confirmed: true, attested: true,
+      fingerprint: "1234-5678-1234-5678", can_create_collection: true,
+      creation: { collection_id: "original", display_name: "Original name", completed: false } };
+    inspect(original);
+    await screen.findByRole("button", { name: "Approve" });
+    vi.mocked(api).mockImplementation(async (path, options) => {
+      if (options?.method === "POST") throw new ApiError(503, "Creation is not finished");
+      return { pairing: original };
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Creation is not finished");
+    expect(screen.getByRole("textbox", { name: "New collection name" })).toHaveValue("Original name");
+    expect(screen.getByRole("textbox", { name: "New collection name" })).toHaveAttribute("readonly");
+    expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled();
+    expect(vi.mocked(api).mock.calls.filter(([, options]) => options?.method === "POST")).toHaveLength(1);
   });
 
   it("shows readiness before a file consent too, and still lets the person decline it", async () => {

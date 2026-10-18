@@ -187,7 +187,8 @@ export function Pairing({ pairingId }: { pairingId: string }) {
           catch { /* Keep the window; the user can retry or cancel. */ }
         }
         if (current !== generation.current) return;
-        setOutcome(refusal);
+        if (refusal.heading) setOutcome(refusal);
+        else setError(refusal.message);
         setRetry(windowCancelled ? null : action);
       } else setError(message(reason));
     } finally {
@@ -229,7 +230,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       <PageBrand label="connect" error={error} />
       <h1>{refusal.heading}</h1>
       {installationAccountLabel(pairing) && <p className="installation-account-label">Account: {installationAccountLabel(pairing)}</p>}
-      <p className="mdbase-connect-lead" role="status">{refusal.message}</p>
+      <p className="mdbase-connect-lead" role="alert">{refusal.message}</p>
       {!outcome && <button className="mdbase-button" disabled={busy} onClick={() => setAttempt(value => value + 1)}>Check again</button>}
       {retry && <button className="mdbase-button" disabled={busy} onClick={() => void act(retry)}>Try again</button>}
       {(!outcome || retry) && <div className="decision-actions"><button className="mdbase-button" disabled={busy} onClick={() => void act("deny")}>Cancel</button></div>}
