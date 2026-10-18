@@ -13,15 +13,16 @@ async fn rollback_v2_cp_owner_http_nonidentity() {
     let token = "rollback-owner-fixture-internal-token-".repeat(2);
     let state = AppState::new(fixture.provider.clone(), &token).unwrap();
     let server = tokio::spawn(async move { axum::serve(listener, app(state)).await.unwrap() });
-    // Pulled test binaries execute from the checkout, not the remote compiler's
-    // embedded manifest path. Require that boundary explicitly.
-    let root = std::env::current_dir().unwrap();
-    assert!(
-        root.join("services/server/package.json").is_file(),
-        "invoke from repository root"
-    );
+    // Cargo runs integration tests from the crate directory; pulled binaries
+    // may run from the workspace root. Resolve that single workspace boundary
+    // from cwd, never from a remote compiler's embedded manifest path.
+    let cwd = std::env::current_dir().unwrap();
+    let root = cwd
+        .ancestors()
+        .find(|path| path.join("services/server/package.json").is_file())
+        .expect("test must run inside the Connect workspace");
     let mut command = tokio::process::Command::new("node");
-    command.arg(root.join("test/fixtures/rollback-owner-cp.mjs")).current_dir(&root)
+    command.arg(root.join("test/fixtures/rollback-owner-cp.mjs")).current_dir(root)
         .env("MDBASE_ROLLBACK_OWNER_FIXTURE", json!({
             "database_url": database.url(), "provider_url": format!("http://{address}"),
             "provider_token": token, "collection": fixture.collection_id,

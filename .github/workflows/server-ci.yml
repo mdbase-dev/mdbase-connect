@@ -690,21 +690,6 @@ jobs:
         if: matrix.browser && steps.playwright-cache.outputs.cache-hit == 'true'
         run: pnpm exec playwright install chromium
         timeout-minutes: 5
-      - name: Qualify non-identity rollback over CP/provider HTTP
-        if: matrix.shard == 'provider'
-        run: |
-          container=$(docker run --detach --publish 127.0.0.1::5432 -e POSTGRES_USER=mdbase -e POSTGRES_PASSWORD=rollback-test -e POSTGRES_DB=rollback_owner_test postgres:17)
-          trap 'docker rm --force "$container" >/dev/null' EXIT
-          ready=false
-          for attempt in $(seq 1 30); do
-            if docker exec "$container" pg_isready -U mdbase -d rollback_owner_test; then ready=true; break; fi
-            sleep 1
-          done
-          test "$ready" = true
-          port=$(docker port "$container" 5432/tcp | cut -d: -f2)
-          export MDBASE_PROJECTION_DATABASE_URL="postgres://mdbase:rollback-test@127.0.0.1:$port/rollback_owner_test"
-          export MDBASE_APPROVE_DESTRUCTIVE_HOSTED_TESTS=operation_dispatch_uuid_schema_v1
-          cargo test --locked -p mdbase-connect-hosted-provider --test legacy_migration rollback_owner_namespace -- --ignored --nocapture
       - name: Run ${{ matrix.shard }} system suites
         run: node test/system/run.mjs --suite "${{ matrix.suites }}" --no-prepare
         env:

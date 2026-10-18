@@ -10,7 +10,13 @@ assert.equal(Number(process.versions.node.split(".")[0]), 24, "Node24 fixture ru
 assert.equal(process.env.MDBASE_APPROVE_DESTRUCTIVE_HOSTED_TESTS, "operation_dispatch_uuid_schema_v1");
 const f = JSON.parse(process.env.MDBASE_ROLLBACK_OWNER_FIXTURE);
 const url = new URL(f.database_url), providerUrl = new URL(f.provider_url);
-assert.ok(["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) && /test/i.test(url.pathname));
+assert.ok(["postgres:", "postgresql:"].includes(url.protocol));
+assert.ok(["localhost", "127.0.0.1", "[::1]"].includes(url.hostname));
+assert.equal(url.searchParams.size, 1);
+assert.equal(url.hash, "");
+// The registered adversarial suite names its disposable database `mdbase`.
+// The ownership boundary is its explicit approval + loopback-only connection
+// and Rust-created unique schema, not a heuristic substring in a DB name.
 assert.match(url.searchParams.get("options"), /^-csearch_path=mdbase_operation_dispatch_[a-f0-9]{32}$/);
 assert.equal(providerUrl.hostname, "127.0.0.1");
 const require = createRequire(new URL("../../services/server/package.json", import.meta.url));

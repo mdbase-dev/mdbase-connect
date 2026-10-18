@@ -56,7 +56,6 @@ export const ciOnlySteps = [
   { prefix: "cargo build --locked --workspace", reason: "implied by cargo test --workspace" },
   { prefix: "tar -", reason: "binary transfer between CI jobs" },
   { prefix: "node test/system/run.mjs --suite", reason: "system suites need PostgreSQL and services; run with pnpm test:system" },
-  { prefix: "container=$(docker run", reason: "provider shard's non-identity rollback fixture needs disposable loopback PostgreSQL and built server JS; locally run its explicit ignored Rust tests with the same approval" },
   { prefix: "if [[ \"$RUN_FULL\" == true ]]", reason: "aggregates the CI lanes into one required check" },
   { prefix: "kind=fast", reason: "records qualification inputs" }
 ];
