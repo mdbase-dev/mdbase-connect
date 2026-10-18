@@ -179,7 +179,8 @@ async function step(kind: Kind, collection: string, body: Record<string, unknown
 }
 
 const ROLLBACK_INTENT = "next_migration.rollback_intent", ROLLBACK_DONE = "next_migration.rollback";
-type ProviderBinding = Parameters<Provider["legacyMigrationRollback"]>[1];
+type ProviderBinding = Parameters<Provider["legacyMigrationRollback"]>[1]["binding"];
+const ROLLBACK_PROVIDER = "next_migration.rollback_provider_binding";
 const providerBinding = (b: RollbackBody, epoch: number): ProviderBinding => ({ owner_account_id: b.owner_account, provider_migration_id: b.migration_id,
   authority_epoch: epoch, fixed_head: b.fixed_head, driver_id: b.driver_id, action_id: b.action_id, replica_ids: b.replica_ids });
 const sameBinding = (a: Record<string, unknown>, b: ProviderBinding) => (Object.keys(b) as Array<keyof ProviderBinding>)
@@ -196,6 +197,37 @@ async function currentEpoch(db: DatabaseQueryable, collection: string, locked = 
   return Number(epoch);
 }
 const epochMoved = () => new RolloutRefused("migration_epoch_not_current", "The collection's authority epoch changed since the rollback was recorded.");
+
+/** Physical storage identity is not the Connect user/native owner UUID. */
+async function currentProviderAccount(db: DatabaseQueryable, account: string, locked = false): Promise<string> {
+  const rows = (await db.query<{ provider_account_id: string }>(
+    `SELECT provider_account_id::text FROM account_storage_accounts WHERE user_id=$1${locked ? " FOR SHARE" : ""}`, [account])).rows;
+  const id = rows[0]?.provider_account_id;
+  if (rows.length !== 1 || !id || !UUID.test(id) || id === NIL) {
+    throw new RolloutRefused("migration_source_not_current", "No exact provider storage-account mapping.");
+  }
+  return id;
+}
+
+/** Pin the pre-dispatch physical target beside, not inside, the original
+ * intent. This also covers uncertain effects with no provider receipt yet.
+ * Receipt-only lookup never manufactures a missing dispatch record. */
+async function providerBindingRecord(db: DatabaseQueryable, collection: string, account: string,
+  input: ProviderBinding, physicalOwner: string, record: boolean) {
+  const rows = (await db.query<{ metadata: { binding?: Record<string, unknown>; provider_account_id?: string } }>(
+    `SELECT metadata FROM audit_events WHERE user_id=$1 AND event_type=$2 AND subject_id=$3
+     AND metadata->>'migration_id'=$4 LIMIT 2`, [account, ROLLBACK_PROVIDER, collection, input.provider_migration_id])).rows;
+  if (rows.length > 1) throw new Error("ambiguous retained rollback provider binding");
+  if (rows[0]) {
+    const saved = rows[0].metadata;
+    if (!saved.binding || !sameBinding(saved.binding, input) || saved.provider_account_id !== physicalOwner) {
+      throw new RolloutRefused("migration_rollback_binding_conflict", "The original rollback storage binding changed.");
+    }
+  } else if (record) {
+    await audit(db, account, ROLLBACK_PROVIDER, collection,
+      { migration_id: input.provider_migration_id, binding: input, provider_account_id: physicalOwner });
+  }
+}
 
 /** Whether Connect recorded this exact binding for the run; any other binding
  * for the same run (another driver, action, epoch, head or scope) refuses. */
@@ -220,6 +252,7 @@ async function rollback(kind: "rollback" | "rollback-receipt", collection: strin
   return serialized(options.db, collection, async () => {
     await refuseQueuedCutover(options.db, collection);
     const input = providerBinding(body, await currentEpoch(options.db, collection));
+    const physicalOwner = await currentProviderAccount(options.db, body.owner_account);
     const known = await intended(options.db, collection, body.owner_account, input);
     // A presented epoch names a recorded original binding; it is never authority for a fresh dispatch.
     if ((kind === "rollback-receipt" || body.authority_epoch !== undefined) && !known) {
@@ -235,18 +268,25 @@ async function rollback(kind: "rollback" | "rollback-receipt", collection: strin
       if (owned.revoked.some(id => !body.replica_ids.includes(id))) {
         throw new RolloutRefused("migration_revoked_set_mismatch", "The rollback scope must cover every revocation the run owns.");
       }
-      await inTransaction(options.db, async client => {
-        const current = await bound(client, collection, body, true);
-        await refuseQueuedCutover(client, collection);
-        if (await currentEpoch(client, collection, true) !== input.authority_epoch) throw epochMoved();
-        if (await intended(client, collection, current.account, input)) return;
-        await audit(client, current.account, ROLLBACK_INTENT, collection, { migration_id: body.migration_id, binding: input });
-      });
     }
+    await inTransaction(options.db, async client => {
+      const current = await bound(client, collection, body, true);
+      await refuseQueuedCutover(client, collection);
+      if (await currentEpoch(client, collection, true) !== input.authority_epoch) throw epochMoved();
+      if (await currentProviderAccount(client, current.account, true) !== physicalOwner) {
+        throw new RolloutRefused("migration_rollback_binding_conflict", "The provider storage mapping changed.");
+      }
+      if (!await intended(client, collection, current.account, input)) {
+        if (known) throw new Error("rollback intent disappeared");
+        await audit(client, current.account, ROLLBACK_INTENT, collection, { migration_id: body.migration_id, binding: input });
+      }
+      await providerBindingRecord(client, collection, current.account, input, physicalOwner, kind === "rollback");
+    });
+    const envelope = { provider_account_id: physicalOwner, binding: input };
     let receipt;
     try {
-      receipt = kind === "rollback" ? await options.provider.legacyMigrationRollback(collection, input, { deadline })
-        : await options.provider.legacyMigrationRollbackReceipt(collection, input, { deadline });
+      receipt = kind === "rollback" ? await options.provider.legacyMigrationRollback(collection, envelope, { deadline })
+        : await options.provider.legacyMigrationRollbackReceipt(collection, envelope, { deadline });
     } catch (error) {
       if (error instanceof HostedProviderResponseError && error.code === "legacy_rollback_binding_conflict") {
         throw new RolloutRefused("migration_rollback_binding_conflict", "The provider source or receipt does not match this binding.");
@@ -262,6 +302,11 @@ async function rollback(kind: "rollback" | "rollback-receipt", collection: strin
     // Evidence of the provider's receipt, once; a repeated read records nothing.
     return inTransaction(options.db, async client => {
       const current = await bound(client, collection, body, true);
+      if (await currentEpoch(client, collection, true) !== input.authority_epoch) throw epochMoved();
+      if (await currentProviderAccount(client, current.account, true) !== physicalOwner) {
+        throw new RolloutRefused("migration_rollback_binding_conflict", "The provider storage mapping changed.");
+      }
+      await providerBindingRecord(client, collection, current.account, input, physicalOwner, false);
       const recorded = await client.query(
         "SELECT 1 FROM audit_events WHERE user_id=$1 AND event_type=$2 AND subject_id=$3 AND metadata->>'migration_id'=$4 LIMIT 1",
         [current.account, ROLLBACK_DONE, collection, body.migration_id]);

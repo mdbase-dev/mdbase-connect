@@ -21,12 +21,12 @@ import { safeEqual } from "./security.js";
 import { collectionContractDescriptorSchema } from "./protocol-schemas.js";
 import { z } from "zod";
 import { asProviderError, readResponse, HostedProviderResponseError, HostedProviderUnavailableError,
-  type LegacyMigrationDrain, type LegacyMigrationFence, type LegacyMigrationRollbackRequest,
+  type LegacyMigrationDrain, type LegacyMigrationFence, type LegacyMigrationRollbackEnvelope,
   type LegacyMigrationRollbackReceipt, type LegacyMigrationRetained } from "./hosted-provider-replies.js";
 import * as legacy from "./hosted-provider-legacy-migration.js";
 import type { LegacyMigrationRequest, LegacyMigrationSource } from "./hosted-provider-legacy-migration.js";
 export { HostedProviderResponseError, HostedProviderUnavailableError, type LegacyMigrationDrain, type LegacyMigrationFence,
-  type LegacyMigrationRollbackRequest, type LegacyMigrationRollbackReceipt,
+  type LegacyMigrationRollbackRequest, type LegacyMigrationRollbackEnvelope, type LegacyMigrationRollbackReceipt,
   type LegacyNotificationWatermark, type LegacyMigrationRetained } from "./hosted-provider-replies.js";
 export type { LegacyMigrationSource } from "./hosted-provider-legacy-migration.js";
 
@@ -330,11 +330,11 @@ export class HostedProviderClient {
   legacyMigrationRestoreReplicas = (id: string, ids: string[], options?: HostedProviderOperationOptions) => legacy.legacyMigrationRestoreReplicas(this.legacyRequest(options), id, ids);
   legacyMigrationRevokedReplicas = (id: string, options?: HostedProviderOperationOptions) => legacy.legacyMigrationRevokedReplicas(this.legacyRequest(options), id);
   legacyMigrationUnfence = (id: string, options?: HostedProviderOperationOptions) => legacy.legacyMigrationUnfence(this.legacyRequest(options), id);
-  legacyMigrationRollback(collectionId: string, binding: LegacyMigrationRollbackRequest,
+  legacyMigrationRollback(collectionId: string, binding: LegacyMigrationRollbackEnvelope,
     options?: HostedProviderOperationOptions): Promise<LegacyMigrationRollbackReceipt> {
     return legacy.legacyMigrationRollback(this.legacyRequest(options), "rollback", collectionId, binding);
   }
-  legacyMigrationRollbackReceipt(collectionId: string, binding: LegacyMigrationRollbackRequest,
+  legacyMigrationRollbackReceipt(collectionId: string, binding: LegacyMigrationRollbackEnvelope,
     options?: HostedProviderOperationOptions): Promise<LegacyMigrationRollbackReceipt> {
     return legacy.legacyMigrationRollback(this.legacyRequest(options), "rollback-receipt", collectionId, binding);
   }

@@ -13,7 +13,10 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use crate::{error::ApiResult, provider::LegacyRollbackRequest};
+use crate::{
+    error::ApiResult,
+    provider::{LegacyRollbackEnvelope, LegacyRollbackRequest},
+};
 
 use super::AppState;
 
@@ -67,6 +70,14 @@ pub(super) fn legacy_migration_routes() -> Router<AppState> {
         .route(
             "/internal/v1/collections/{collection_id}/legacy-migration/rollback-receipt",
             post(rollback_receipt),
+        )
+        .route(
+            "/internal/v1/collections/{collection_id}/legacy-migration/rollback-v2",
+            post(rollback_v2),
+        )
+        .route(
+            "/internal/v1/collections/{collection_id}/legacy-migration/rollback-receipt-v2",
+            post(rollback_receipt_v2),
         )
 }
 
@@ -184,6 +195,34 @@ async fn rollback_receipt(
     let receipt = state
         .provider
         .legacy_migration_rollback_receipt(collection_id, &input)
+        .await?;
+    Ok(Json(json!(receipt)))
+}
+
+async fn rollback_v2(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(collection_id): Path<Uuid>,
+    Json(input): Json<LegacyRollbackEnvelope>,
+) -> ApiResult<Json<Value>> {
+    state.authorize_internal(&headers)?;
+    let receipt = state
+        .provider
+        .rollback_legacy_migration_v2(collection_id, &input)
+        .await?;
+    Ok(Json(json!(receipt)))
+}
+
+async fn rollback_receipt_v2(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(collection_id): Path<Uuid>,
+    Json(input): Json<LegacyRollbackEnvelope>,
+) -> ApiResult<Json<Value>> {
+    state.authorize_internal(&headers)?;
+    let receipt = state
+        .provider
+        .legacy_migration_rollback_receipt_v2(collection_id, &input)
         .await?;
     Ok(Json(json!(receipt)))
 }

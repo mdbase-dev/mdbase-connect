@@ -1,0 +1,9 @@
+{
+  "reason": "Separate the existing rollback binding/receipt behavior from the near-cap collection transition module. One owned provider rollback module replaces its original code, with a v2 physical-storage-owner envelope and two versioned provider methods. The native/CP seven-field binding and existing intents stay unchanged; the provider receipt gains one physical-owner column and a separate pre-dispatch audit correlation pins uncertain effects without editing the original intent. No new workspace package or generic recovery mechanism.",
+  "growth": {
+    "productionFiles": 1,
+    "rustPublicDeclarations": 10,
+    "typeScriptExportDeclarations": 2,
+    "crates/connect-hosted-provider": 1
+  }
+}
