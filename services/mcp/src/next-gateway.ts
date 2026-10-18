@@ -107,12 +107,24 @@ export class NextGateway {
     } catch {
       throw new GatewayOperationError("control_unreachable", "Connect could not be reached. Try again shortly.");
     }
-    const body = await response.json().catch(() => null) as { grant?: unknown; targets?: unknown[]; error?: { code?: string; details?: Record<string, unknown> } } | null;
+    const body = await response.json().catch(() => null) as { grant?: unknown; targets?: unknown[]; error?: { code?: string; message?: string; details?: Record<string, unknown> } } | null;
     if (response.status === 404 || response.status === 405) return LEGACY; // no next control plane
     if (response.status === 401) throw new GatewayOperationError("authority_authentication_expired", "Connect access expired.");
     if (response.status === 409 && body?.error?.code === "client_key_required" && attach) {
       if (await this.attach(connection, accessToken, body.error.details, signal)) return this.route(connection, accessToken, false, signal);
       throw reconnectRequired(connection);
+    }
+    // Cutover outcomes are not approval problems: re-approving cannot fix them.
+    // A local collection still served by the old desktop connector is answered
+    // by the legacy path; the others carry plain server copy for the user.
+    if (response.status === 409 && body?.error?.code === "collection_not_yet_migrated") return LEGACY;
+    if ((response.status === 409 || response.status === 403) && cutoverRefusal(body?.error?.code)) {
+      const retryAfter = body?.error?.details?.retry_after_seconds;
+      throw new GatewayOperationError(
+        body!.error!.code!,
+        typeof body?.error?.message === "string" && body.error.message ? body.error.message : `${connection.display_name} is not available right now.`,
+        typeof retryAfter === "number" && retryAfter > 0 ? { retry_after_ms: retryAfter * 1000 } : undefined
+      );
     }
     if (response.status === 409) throw reconnectRequired(connection);
     if (!response.ok || typeof body?.grant !== "string" || !Array.isArray(body.targets)) {
@@ -289,6 +301,10 @@ async function settle(pending: Promise<Write>, record = true): Promise<RecordVie
   const view = receipt.records?.[0] ?? write.records[0];
   if (!view) throw new GatewayOperationError("invalid_operation_response", "The replica confirmed the write without the resulting record.");
   return view;
+}
+
+function cutoverRefusal(code: string | undefined): boolean {
+  return code === "collection_migrating" || code === "account_suspended";
 }
 
 function reconnectRequired(connection: NextConnection): GatewayOperationError {

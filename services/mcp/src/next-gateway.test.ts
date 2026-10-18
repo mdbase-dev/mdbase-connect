@@ -71,6 +71,22 @@ describe("NextGateway", () => {
     }
   });
 
+  it("answers a not-yet-migrated local collection through the legacy path instead of asking for re-approval", async () => {
+    const f = await fixture([{ status: 409, body: { error: { code: "collection_not_yet_migrated", message: "This collection will appear here once you update the mdbase desktop app on the computer that holds it." } } }]);
+    expect(await f.gateway.run(connection, "access", "query", {}, "req-1")).toBe(LEGACY);
+    expect(f.open).not.toHaveBeenCalled();
+  });
+
+  it("passes upgrade and suspension refusals through with the server's message, not a re-approval link", async () => {
+    const upgrading = "This collection is being upgraded. Your data is safe, and editing will resume once the upgrade finishes. Try again in a few minutes.";
+    const migrating = await fixture([{ status: 409, body: { error: { code: "collection_migrating", message: upgrading, details: { retry_after_seconds: 300 } } } }]);
+    await expect(migrating.gateway.run(connection, "access", "query", {}, "req-1")).rejects.toMatchObject({ code: "collection_migrating", message: upgrading, details: { retry_after_ms: 300_000 } });
+    const suspended = await fixture([{ status: 403, body: { error: { code: "account_suspended", message: "This mdbase account is suspended." } } }]);
+    await expect(suspended.gateway.run(connection, "access", "query", {}, "req-1")).rejects.toMatchObject({ code: "account_suspended", message: "This mdbase account is suspended." });
+    const other = await fixture([{ status: 409, body: { error: { code: "application_reauthorization_required" } } }]);
+    await expect(other.gateway.run(connection, "access", "query", {}, "req-1")).rejects.toMatchObject({ code: "reconnect_required" });
+  });
+
   it("maps an expired access token to the refresh path", async () => {
     const f = await fixture([{ status: 401, body: {} }]);
     await expect(f.gateway.run(connection, "access", "query", {}, "req-1")).rejects.toMatchObject({ code: "authority_authentication_expired" });
