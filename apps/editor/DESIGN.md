@@ -97,12 +97,11 @@ Settings remain the primary editing group. The header shows the brand lockup abo
 shared collection switcher, which names the current collection and lists the
 account's collections, adding a collection, managing access and sign-out. Feedback is not squeezed beside the connection status.
 The independently scrolling middle contains All notes, the folder tree without
-a section heading, and a quiet New folder action. Types, Settings, and Connect
+a section heading, and a quiet New folder action. Types, Settings, and Send feedback
 form a fixed bottom group above connection status, so large folder trees never
 push them out of reach. Keyboard order follows the visual order: header, note
-and folder navigation, New folder, Types, Settings, Connect, then status actions.
-Connect remains visibly secondary until a pending authorization count requires
-attention. Counts use
+and folder navigation, New folder, Types, Settings, Send feedback, then status actions.
+Closing the feedback dialog returns focus to Send feedback. Counts use
 UI text with tabular numerals and appear only on hover, focus, or the selected
 row; accessible names always include them.
 

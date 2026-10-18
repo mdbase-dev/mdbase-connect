@@ -135,6 +135,13 @@
 .collection-rail nav .context-menu-target:hover small,
 .collection-rail nav .context-menu-target:focus-within small { opacity: 1; }
 
+/* The feedback entry reads as a rail row, not the shared standalone trigger. */
+.collection-rail nav .rail-feedback {
+  font: inherit;
+  font-size: var(--font-size-ui);
+  border-radius: 0;
+}
+
 .rail-filter-section { margin-top: var(--space-1); }
 .rail-filter-items { display: grid; }
 .collection-rail nav .rail-new-folder { color: var(--muted); }

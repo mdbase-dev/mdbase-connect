@@ -7,6 +7,8 @@ import {
   SidebarSimpleIcon as PanelLeftClose
 } from "./icons";
 import { Wordmark } from "@mdbase-dev/ui/brand";
+import { FeedbackBug, useFeedback } from "@mdbase-dev/ui/feedback";
+import "@mdbase-dev/ui/feedback.css";
 import { RailDropTarget, type RailDropActions } from "./RailDropTarget";
 
 export type EditorRailSurface = "notes" | "types" | "settings";
@@ -59,6 +61,7 @@ export function EditorRail({
       <div className="rail-bottom-group" role="group" aria-label="Collection tools">
         <RailLink destination={types} selected={surface === "types"} label="Types" ariaLabel={typeCount === undefined ? "Types" : `Types (${typeCount})`} icon={<Braces aria-hidden="true" />} count={typeCount} />
         <RailLink destination={settings} selected={surface === "settings"} label="Settings" icon={<Settings aria-hidden="true" />} />
+        <RailFeedback />
       </div>
     </nav>
     <footer className="connection-footer">{footer}</footer>
@@ -78,6 +81,16 @@ function RailLink({ destination, selected, label, ariaLabel, icon, count }: {
     return <a className={`editor-rail-link${selected ? " selected" : ""}`} href={destination.href} aria-label={ariaLabel} aria-current={selected ? "page" : undefined}>{content}</a>;
   }
   return <button className={selected ? "selected" : ""} aria-label={ariaLabel} aria-current={selected ? "page" : undefined} onClick={destination.onClick}>{content}</button>;
+}
+
+/** The workspace's feedback entry, last in the fixed tools group so it stays reachable
+ * however long the folder tree grows. The feedback dialog returns focus here on close. */
+function RailFeedback() {
+  const feedback = useFeedback();
+  if (!feedback.enabled) return null;
+  return <button type="button" className="mdbase-feedback-trigger rail-feedback" onClick={() => feedback.open()}>
+    <span><FeedbackBug wiggle={feedback.wiggle} /><span className="rail-row-label">Send feedback</span></span>
+  </button>;
 }
 
 function RailCollapseButton({ onClick }: { onClick: () => void }) {
