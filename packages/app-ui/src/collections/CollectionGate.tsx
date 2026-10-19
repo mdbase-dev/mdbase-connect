@@ -2,6 +2,7 @@ import type { MdbaseApplicationConnection } from "@mdbase-dev/sdk";
 import { useId, useLayoutEffect, useRef, useState, type JSX, type ReactNode } from "react";
 
 import { describeError } from "@mdbase-dev/sdk/describe";
+import { OpeningScreen } from "../screens.js";
 import { SwitcherContent } from "./CollectionSwitcher.js";
 import { RowDialogs, SignOutDialog } from "./dialogs.js";
 import { problemControl, actionNotice, type CollectionView } from "./model.js";
@@ -126,15 +127,18 @@ function GateScreen({ ui, layout, extraActions }: { ui: CollectionUi; layout: "p
     if (!active || active === document.body || root.current?.contains(active)) heading.current?.focus({ preventScroll: true });
   }, [view.kind]);
   const Heading = layout === "page" ? "h1" : "h2";
-  const announce = view.kind === "starting" || view.kind === "opening" || view.kind === "authorizing" ? view.heading : "";
+  const opening = view.kind === "starting" || view.kind === "opening";
+  const announce = view.kind === "authorizing" ? view.heading : "";
   return <div ref={root} className="mdbase-collections mdbase-collections-gate" data-layout={layout} data-phase={view.kind} aria-busy={ui.busy !== null || undefined}>
     <div className="mdbase-collections-gate-body">
-      <p className="mdbase-collections-brand">
+      {!opening && <p className="mdbase-collections-brand">
         {options.app.mark && <span className="mdbase-collections-brand-mark" aria-hidden="true">{options.app.mark}</span>}
         <span>{options.app.name}</span>
-      </p>
-      <Heading ref={heading} tabIndex={-1} className="mdbase-collections-heading">{headingText}</Heading>
-      {lead && <p className="mdbase-collections-lead">{lead}</p>}
+      </p>}
+      <Heading ref={heading} tabIndex={-1} className={opening ? "mdbase-collections-visually-hidden" : "mdbase-collections-heading"}>{headingText}</Heading>
+      {opening
+        ? <OpeningScreen app={options.app} layout={layout} title={headingText} detail={lead ?? undefined} />
+        : lead && <p className="mdbase-collections-lead">{lead}</p>}
       <GateBody ui={ui} extraActions={view.kind === "signed_out" ? extra : undefined} onDialog={setDialog} />
       {ui.error && <NoticeBlock notice={ui.error} ui={ui} variant="inline" />}
       <GateFooter ui={ui} chooseAnother={showsChooseAnother(view)} extra={view.kind === "signed_out" ? undefined : extra} />
@@ -166,7 +170,7 @@ function GateBody({ ui, extraActions, onDialog }: {
   switch (view.kind) {
     case "starting":
     case "opening":
-      return <p className="mdbase-collections-progress"><span className="mdbase-collections-spinner" aria-hidden="true" /></p>;
+      return null;
     case "signed_out":
       return <>
         {view.notice && <NoticeBlock notice={view.notice} ui={ui} variant="inline" />}

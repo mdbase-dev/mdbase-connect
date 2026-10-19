@@ -76,6 +76,28 @@ const button = (name: string | RegExp) => {
 };
 const key = (element: Element, value: string) => act(() => { element.dispatchEvent(new KeyboardEvent("keydown", { key: value, bubbles: true })); });
 
+describe("opening presentation", () => {
+  it("uses the shared scanning opening screen for starting and keeps embedded landmarks valid", () => {
+    const { entry } = fakeMdbase({ kind: "starting" }, { status: "starting", signIn: null });
+    render(<main><CollectionGate mdbase={entry} app={app} layout="panel">{() => null}</CollectionGate></main>);
+    expect(container.querySelectorAll("main")).toHaveLength(1);
+    expect(container.querySelector('[data-loading-state="opening"] .mdbase-motion-scan')).not.toBeNull();
+    expect(container.querySelector(".mdbase-collections-spinner")).toBeNull();
+    expect(container.querySelector('[role="status"]')?.textContent).toContain("TaskNotes");
+  });
+
+  it("retains slow-opening copy, account actions and choose-another without a spinner", () => {
+    const { entry, set } = fakeMdbase({ kind: "opening", collectionId: A, displayName: "Alpha", slow: false });
+    render(<CollectionGate mdbase={entry} app={app}>{() => null}</CollectionGate>);
+    expect(container.querySelector("main")?.textContent).toContain("Opening Alpha");
+    act(() => set({ phase: { kind: "opening", collectionId: A, displayName: "Alpha", slow: true } }));
+    expect(container.querySelector('[role="status"]')?.textContent).toContain("This is taking longer than usual.");
+    expect(button("Choose a different collection")).toBeDefined();
+    expect(button("Sign out")).toBeDefined();
+    expect(container.querySelector(".mdbase-collections-spinner")).toBeNull();
+  });
+});
+
 describe("popup calls run inside the click", () => {
   it("calls signIn before the click handler returns", () => {
     const { mdbase, entry } = fakeMdbase({ kind: "signed_out", notice: null }, { signIn: null, collections: [] });
