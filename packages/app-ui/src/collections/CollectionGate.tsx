@@ -195,8 +195,6 @@ function GateBody({ ui, extraActions, onDialog }: {
         <div className="mdbase-collections-actions">
           <ActionButton tone={view.collections.length > 0 ? "secondary" : "primary"} inert={inert} progress={busy === "add" ? copy.addingCollection : null}
             onClick={actions.addCollection}>{copy.addCollection}</ActionButton>
-          {ui.options.allowPrivate !== false && <ActionButton tone="secondary" inert={inert} progress={busy === "add_private" ? copy.addingCollection : null}
-            onClick={actions.addPrivateCollection}>{copy.addPrivateCollection}</ActionButton>}
         </div>
       </>;
     case "needs_approval":

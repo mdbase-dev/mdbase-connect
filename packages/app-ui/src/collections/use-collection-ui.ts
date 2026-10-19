@@ -86,7 +86,7 @@ export interface CollectionUiOptions {
    * Connect window it opens still counts as the person's gesture.
    */
   readonly onBeforeLeave?: ((intent: LeaveIntent) => boolean | Promise<boolean>) | undefined;
-  /** Offer the SDK Private add action. Disable when the app supplies its own Private section/action. Default true. */
+  /** @deprecated Presentation-only compatibility option; the single Add entry always uses the SDK chooser. */
   readonly allowPrivate?: boolean | undefined;
   /** Offer "Delete collection…" to owners. Default false. */
   readonly allowDelete?: boolean | undefined;
@@ -98,6 +98,7 @@ export interface CollectionUiOptions {
   readonly rowDetail?: ((row: CollectionRow) => string | null | undefined) | undefined;
 }
 
+/** `add_private` remains available to legacy track callers; both add APIs now emit `add`. */
 export type CollectionActionName = "sign_in" | "add" | "add_private" | "approve" | "select" | "choose_another" | "assess" | "start" | "sign_out" | "setup";
 
 interface ActionError { readonly kind: CollectionView["kind"]; readonly notice: CollectionNotice }
@@ -121,6 +122,7 @@ export interface CollectionUi {
 export interface CollectionActions {
   signIn(): void;
   addCollection(): void;
+  /** @deprecated Use addCollection. Both names open the same SDK chooser. */
   addPrivateCollection(): void;
   approve(collectionId: string | null): void;
   select(collectionId: string): void;
@@ -221,10 +223,11 @@ export function useCollectionUi(options: CollectionUiOptions): CollectionUi {
       if (answer === true) go();
       else if (answer !== false) void answer.then((ok) => { if (ok) go(); }, () => {});
     };
+    const addCollection = () => leave("add", () => { void run("add", (signal) => mdbase.addCollection({ signal })); });
     const actions: CollectionActions = {
       signIn: () => { void run("sign_in", (signal) => mdbase.signIn({ signal })); },
-      addCollection: () => leave("add", () => { void run("add", (signal) => mdbase.addCollection({ signal })); }),
-      addPrivateCollection: () => leave("add", () => { void run("add_private", (signal) => mdbase.addPrivateCollection({ signal })); }),
+      addCollection,
+      addPrivateCollection: addCollection,
       approve: (id) => { void run("approve", (signal) => mdbase.approve(id ?? undefined, { signal })); },
       select: (id) => {
         const app = appOpenItem(latest.current.options.sections);
