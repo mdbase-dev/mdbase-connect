@@ -13,10 +13,10 @@ afterEach(async () => {
 });
 
 describe("password authentication HTTP boundary", () => {
-  it("honors only an admin-issued LAB fixture override through normal public signup", async () => {
-    const { app, db, policy, invitation: ordinary } = await fixture({ environment: "lab", newAccountBackend: "next" });
-    const accounts = new PasswordAccountService(db, policy, "next", "lab");
-    const invite = await accounts.createInvitation({ email: "http-fixture@lab.invalid", actor: "operator:test",
+  it.each(["lab", "staging"])("honors only an admin-issued %s fixture override through normal public signup", async environment => {
+    const { app, db, policy, invitation: ordinary } = await fixture({ environment, newAccountBackend: "next" });
+    const accounts = new PasswordAccountService(db, policy, "next", environment);
+    const invite = await accounts.createInvitation({ email: `http-fixture@${environment}.invalid`, actor: "operator:test",
       reason: "[test] HTTP migration fixture", entitlementProfile: null, accountBackend: "legacy" });
     for (const [invitation, name, backend] of [[invite, "[test] HTTP fixture", "legacy"], [ordinary, "Normal user", "next"]] as const) {
       const payload = { invitation_token: invitation.token, name, password: "a durable signup fixture password",
@@ -30,10 +30,10 @@ describe("password authentication HTTP boundary", () => {
         .toEqual([{ account_backend: backend }]);
     }
   });
-  it("refuses stored LAB overrides on the production signup route without consuming the invitation", async () => {
+  it.each(["lab", "staging"])("refuses stored %s overrides on the production signup route without consuming the invitation", async environment => {
     const { app, db, policy } = await fixture({ environment: "production", newAccountBackend: "next" });
-    const invite = await new PasswordAccountService(db, policy, "next", "lab").createInvitation({
-      email: "http-fixture@lab.invalid", actor: "operator:test", reason: "[test] HTTP fixture", entitlementProfile: null, accountBackend: "legacy" });
+    const invite = await new PasswordAccountService(db, policy, "next", environment).createInvitation({
+      email: `http-fixture@${environment}.invalid`, actor: "operator:test", reason: "[test] HTTP fixture", entitlementProfile: null, accountBackend: "legacy" });
     const rejected = await app.inject({ method: "POST", url: "/v1/auth/password/signup", headers: { origin }, payload: {
       invitation_token: invite.token, name: "[test] Fixture", password: "a durable signup fixture password",
       terms_version: invite.termsVersion, privacy_version: invite.privacyVersion } });

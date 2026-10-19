@@ -25,11 +25,11 @@ afterEach(async () => {
 });
 
 describe("invite-only password accounts", () => {
-  it("creates a genuine LAB legacy fixture via invitation signup without changing the next default", async () => {
+  it.each(["lab", "staging"])("creates a genuine %s legacy fixture via invitation signup without changing the next default", async environment => {
     const { db, policy } = await fixture();
-    const service = new PasswordAccountService(db, policy, "next", "lab");
+    const service = new PasswordAccountService(db, policy, "next", environment);
     const invitation = await service.createInvitation({
-      email: "seeder-backend-fixture@lab.invalid", actor: "operator:test",
+      email: `seeder-backend-fixture@${environment}.invalid`, actor: "operator:test",
       reason: "[test] disposable migration fixture", entitlementProfile: null,
       accountBackend: "legacy"
     });
@@ -65,19 +65,39 @@ describe("invite-only password accounts", () => {
       entitlementProfile: null, accountBackend: "legacy" })).rejects.toThrow(/LAB \[test\] fixture/);
     expect((await db.query("SELECT id FROM invitations")).rows).toEqual([]);
   });
-  it("refuses fixture redemption after environment change or without [test] account marking", async () => {
+  it.each(["lab", "staging"])("refuses %s fixture redemption after environment change or without [test] account marking", async environment => {
     const { db, policy } = await fixture();
-    const service = new PasswordAccountService(db, policy, "next", "lab");
-    const invitation = await service.createInvitation({ email: "fixture@lab.invalid", actor: "operator:test",
+    const service = new PasswordAccountService(db, policy, "next", environment);
+    const invitation = await service.createInvitation({ email: `fixture@${environment}.invalid`, actor: "operator:test",
       reason: "[test] migration fixture", entitlementProfile: null, accountBackend: "legacy" });
     const input = { invitationToken: invitation.token, name: "[test] Fixture",
       password: "a durable fixture account password", termsVersion: invitation.termsVersion, privacyVersion: invitation.privacyVersion };
     await expect(new PasswordAccountService(db, policy, "next", "production").acceptInvitation(input))
       .rejects.toThrow(InvalidInvitationError);
+    await expect(new PasswordAccountService(db, policy, "next", environment === "lab" ? "staging" : "lab").acceptInvitation(input))
+      .rejects.toThrow(InvalidInvitationError);
     await expect(service.acceptInvitation({ ...input, name: "Ordinary account" })).rejects.toThrow(InvalidInvitationError);
     expect((await db.query("SELECT id FROM users")).rows).toEqual([]);
     expect((await db.query("SELECT accepted_at FROM invitations WHERE id = $1", [invitation.id])).rows)
       .toEqual([{ accepted_at: null }]);
+  });
+  it.each([
+    [undefined, "fixture@staging.invalid", "[test] fixture"],
+    ["dev", "fixture@staging.invalid", "[test] fixture"],
+    ["production", "fixture@staging.invalid", "[test] fixture"],
+    ["lab", "fixture@staging.invalid", "[test] fixture"],
+    ["STAGING", "fixture@staging.invalid", "[test] fixture"],
+    ["staging", "fixture@lab.invalid", "[test] fixture"],
+    ["staging", "fixture@staging.invalid.evil.example", "[test] fixture"],
+    ["staging", "person@example.com", "[test] fixture"],
+    ["staging", "fixture@staging.invalid", "ordinary invitation"],
+    ["staging", "fixture@staging.invalid", "[test]not-marked"]
+  ])("refuses mismatched staging fixture scope (%s/%s/%s)", async (environment, email, reason) => {
+    const { db, policy } = await fixture();
+    const service = new PasswordAccountService(db, policy, "next", environment);
+    await expect(service.createInvitation({ email, reason, actor: "operator:test",
+      entitlementProfile: null, accountBackend: "legacy" })).rejects.toThrow(TypeError);
+    expect((await db.query("SELECT id FROM invitations")).rows).toEqual([]);
   });
   it("rejects an omitted entitlement even when called without the operator CLI", async () => {
     const { db, service } = await fixture();
