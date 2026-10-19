@@ -39,6 +39,35 @@ test("a legacy or rolled-back account never offers the move, and moved collectio
   assert.doesNotMatch(`${moved.title} ${moved.detail} ${moved.advice}`, /legacy|backend|rollback|rolled back/i);
 });
 
+test("captured mirror notices preserve the closed rollout gate", () => {
+  const waiting = presentTakeover({
+    ...base,
+    waiting_for_migration_batch: true,
+    account_legacy: true,
+    mirror_imports: { h: { name: "Hosted", waiting: 1, registered: false } }
+  });
+  assert.equal(waiting.canStart, false);
+  assert.equal(waiting.title, "Your collections still use mdbase Connect");
+  assert.equal(waiting.notices.length, 1);
+});
+
+test("a returned account with only a joined mirror does not falsely claim it syncs again", () => {
+  const returned = presentTakeover({
+    ...base,
+    account_legacy: true,
+    record: { state: "complete", collections: {} },
+    mirror_imports: { h: {
+      name: "Hosted", registered: true, waiting: 1,
+      join: { state: "joined", folder: "/home/me/Hosted (synced)", cut_over: false }
+    } }
+  });
+  assert.equal(returned.tone, "attention");
+  assert.equal(returned.title, "Your account still uses mdbase Connect");
+  assert.equal(returned.canStart, false);
+  assert.equal(returned.offerStopMirrors, false);
+  assert.deepEqual(returned.notices, []);
+});
+
 test("an unconfirmed retirement of the old connector stays visible after a move", () => {
   const done = { ...base, record: { state: "complete", collections: { a: { state: "complete", registered: true } } } };
   assert.equal(presentTakeover({ ...done, retirement: { retired: true, legacy_connector_id: "c" } }).visible, false);
@@ -107,12 +136,12 @@ test("unsent edits from old hosted mirrors: waiting until joined, then conflicts
 
   const imported = presentTakeover({ ...done, mirror_imports: { h: {
     ...imp, applied: 1, held: 1, waiting: 0, complete: true, registered: true, name: "Hosted",
-    recovered: [{ path: "d.md", reason: "not_text", file: "/home/me/Hosted notes (unsent edits)/d.md" }]
+    recovered: [{ path: "d.md", reason: "not_text", file: "/home/me/profile/legacy/h/mirror/bytes/abcd" }]
   } } });
   assert.equal(imported.tone, "attention");
   assert.deepEqual(imported.notices, []);
   assert.match(imported.incidents[0], /1 unsent edit in “Hosted” conflict/);
-  assert.match(imported.incidents[1], /d\.md.*not a text file.*\(unsent edits\)\/d\.md/);
+  assert.match(imported.incidents[1], /d\.md.*not a text file.*profile\/legacy\/h\/mirror\/bytes\/abcd/);
 
   const clean = presentTakeover({ ...done, mirror_imports: { h: { ...imp, applied: 3, waiting: 0, complete: true, registered: true } } });
   assert.equal(clean.visible, false);

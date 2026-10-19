@@ -35,7 +35,8 @@
 //! **held** like a takeover hold (`collection.holds`, reason `unsent_edit`), with
 //! the current version in the folder and the unsent one kept for keep both / take
 //! it. An edit the replica cannot take (not text, or refused) is **recovered**: a
-//! copy is written next to the old mirror folder and its path is reported.
+//! hash-verified file in the durable capture is retained and its path is reported.
+//! Recovery never creates a second copy beside a user folder.
 //!
 //! Progress is `progress.json`. A write's mutation ID is saved there before it is
 //! submitted; a retry after a crash reads its receipt back or resubmits under the
@@ -575,73 +576,12 @@ pub trait Target {
     async fn receipt(&mut self, mutation: [u8; 16]) -> io::Result<Option<Outcome>>;
 }
 
-/// Where unimportable edits are copied: next to the old mirror folder, so the
-/// user finds them beside their files and outside every collection.
-pub fn recovery_root(c: &Capture) -> PathBuf {
-    let name = c
-        .mirror_root
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "mdbase".into());
-    let parent = c
-        .mirror_root
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| c.mirror_root.clone());
-    parent.join(format!("{name} (unsent edits)"))
-}
-
-/// Copy `bytes` to the recovery folder at `path`, never over another file.
-/// Falls back to the capture directory when the folder cannot be written.
-fn recover(legacy: &Path, c: &Capture, path: &str, bytes: &[u8]) -> io::Result<PathBuf> {
-    let safe = !path.is_empty()
-        && path
-            .split('/')
-            .all(|s| !s.is_empty() && s != "." && s != "..");
-    let candidates = [
-        recovery_root(c),
-        dir(legacy, &c.collection_id)?.join("recovered"),
-    ];
-    let mut last = io::Error::other("no recovery location");
-    for root in candidates {
-        let target = if safe {
-            root.join(path)
-        } else {
-            root.join(hex_of(bytes))
-        };
-        let attempt = (|| -> io::Result<PathBuf> {
-            if let Ok(existing) = std::fs::read(&target) {
-                if existing == bytes {
-                    return Ok(target.clone());
-                }
-                // Something else is there: keep both, by digest.
-                let alt = target.with_file_name(format!(
-                    "{} ({}).{}",
-                    target
-                        .file_stem()
-                        .map(|s| s.to_string_lossy().into_owned())
-                        .unwrap_or_default(),
-                    &hex_of(bytes)[..8],
-                    target
-                        .extension()
-                        .map(|s| s.to_string_lossy().into_owned())
-                        .unwrap_or_else(|| "bin".into())
-                ));
-                std::fs::write(&alt, bytes)?;
-                return Ok(alt);
-            }
-            if let Some(p) = target.parent() {
-                std::fs::create_dir_all(p)?;
-            }
-            fsutil::write_atomic(&target, bytes)?;
-            Ok(target.clone())
-        })();
-        match attempt {
-            Ok(p) => return Ok(p),
-            Err(e) => last = e,
-        }
-    }
-    Err(last)
+/// Keep recovery in the already-owned, content-addressed capture. The original
+/// path remains in capture/status; no user-adjacent directory is created or used.
+fn recover(legacy: &Path, c: &Capture, bytes: &[u8]) -> io::Result<PathBuf> {
+    let root = dir(legacy, &c.collection_id)?;
+    let digest = keep_bytes(&root, bytes)?;
+    Ok(root.join("bytes").join(digest))
 }
 
 fn uuid_of(s: &str) -> Option<[u8; 16]> {
@@ -782,12 +722,7 @@ pub async fn import<T: Target>(
             Plan::Hold(cause) => Some(held_done(edit, cause)),
             Plan::Recover(cause) => Some(Done::Recovered {
                 cause: (*cause).into(),
-                file: recover(
-                    legacy,
-                    &c,
-                    edit.path(),
-                    bytes.as_deref().unwrap_or_default(),
-                )?,
+                file: recover(legacy, &c, bytes.as_deref().unwrap_or_default())?,
             }),
             Plan::Edit { .. } | Plan::Create { .. } | Plan::Delete { .. } => None,
         };
@@ -820,7 +755,7 @@ pub async fn import<T: Target>(
                     (_, Some(b)) if matches!(p, Plan::Create { .. }) && at_path.is_none() => {
                         Done::Recovered {
                             cause: "refused".into(),
-                            file: recover(legacy, &c, edit.path(), b)?,
+                            file: recover(legacy, &c, b)?,
                         }
                     }
                     _ => held_done(edit, "refused"),

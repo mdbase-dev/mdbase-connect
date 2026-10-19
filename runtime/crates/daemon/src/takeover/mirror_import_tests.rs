@@ -245,7 +245,7 @@ fn assert_imported(s: &Setup, f: &Fake) {
     assert_eq!(held[0].cause, "changed_elsewhere");
     assert!(held[0].unsent);
     assert_eq!(held[0].intended.as_deref(), Some(&b"E mine"[..]));
-    // The non-text edit is recovered beside the old folder, byte for byte.
+    // The non-text edit is retained in the owned capture, byte for byte.
     let st = status(&s.legacy, HOSTED).unwrap().unwrap();
     assert_eq!(st["complete"], true, "{st}");
     assert_eq!(st["applied"], 4, "{st}");
@@ -254,7 +254,13 @@ fn assert_imported(s: &Setup, f: &Fake) {
     assert_eq!(rec["path"], "d.md");
     assert_eq!(rec["reason"], "not_text");
     let file = PathBuf::from(rec["file"].as_str().unwrap());
-    assert_eq!(file, s.dir.path().join("Hosted notes (unsent edits)/d.md"));
+    assert_eq!(
+        file,
+        dir(&s.legacy, HOSTED)
+            .unwrap()
+            .join("bytes")
+            .join(hx(&[0xff, 0xfe, 0x00, 0x01]))
+    );
     assert_eq!(fs::read(file).unwrap(), [0xff, 0xfe, 0x00, 0x01]);
 }
 
@@ -323,6 +329,77 @@ fn a_crash_during_capture_leaves_no_partial_capture() {
     let got = capture(&s.legacy, &s.old, &s.entry, "2026-10-18T00:00:00Z").unwrap();
     assert_eq!(got.edits, 6);
     assert_eq!(captured(&s.legacy).unwrap(), [HOSTED]);
+}
+
+#[test]
+fn recovery_preserves_occupied_user_files_and_replays_retained_bytes() {
+    let s = setup("mi-recovery-preserve");
+    capture(&s.legacy, &s.old, &s.entry, "2026-10-18T00:00:00Z").unwrap();
+    let bytes = [0xff, 0xfe, 0x00, 0x01];
+    let adjacent = s.dir.path().join("Hosted notes (unsent edits)");
+    fs::create_dir_all(&adjacent).unwrap();
+    fs::write(adjacent.join("d.md"), b"existing primary").unwrap();
+    fs::write(
+        adjacent.join(format!("d ({}).md", &hx(&bytes)[..8])),
+        b"existing alternative",
+    )
+    .unwrap();
+    let before = snapshot(&adjacent);
+    let mut target = Fake::new();
+    let pass = block_on(import(&s.legacy, HOSTED, &mut target, &mut counter())).unwrap();
+    assert!(pass.complete);
+    assert_eq!(
+        snapshot(&adjacent),
+        before,
+        "recovery must not replace unrelated bytes"
+    );
+    let expected = dir(&s.legacy, HOSTED)
+        .unwrap()
+        .join("bytes")
+        .join(hx(&bytes));
+    let state = status(&s.legacy, HOSTED).unwrap().unwrap();
+    assert_eq!(
+        PathBuf::from(state["recovered"][0]["file"].as_str().unwrap()),
+        expected
+    );
+    assert_eq!(fs::read(&expected).unwrap(), bytes);
+    let submits = target.submits;
+    let replay = block_on(import(&s.legacy, HOSTED, &mut target, &mut counter())).unwrap();
+    assert_eq!(
+        replay,
+        Pass {
+            settled: 0,
+            waiting: 0,
+            complete: true
+        }
+    );
+    assert_eq!(target.submits, submits);
+    assert_eq!(status(&s.legacy, HOSTED).unwrap().unwrap(), state);
+    assert_eq!(snapshot(&adjacent), before);
+    assert_eq!(fs::read(expected).unwrap(), bytes);
+}
+
+#[cfg(unix)]
+#[test]
+fn recovery_does_not_follow_a_user_adjacent_symlink() {
+    let s = setup("mi-recovery-symlink");
+    capture(&s.legacy, &s.old, &s.entry, "2026-10-18T00:00:00Z").unwrap();
+    let outside = s.dir.path().join("other-files");
+    fs::create_dir_all(&outside).unwrap();
+    fs::write(outside.join("d.md"), b"unrelated bytes").unwrap();
+    std::os::unix::fs::symlink(&outside, s.dir.path().join("Hosted notes (unsent edits)")).unwrap();
+    let before = snapshot(&outside);
+    let pass = block_on(import(&s.legacy, HOSTED, &mut Fake::new(), &mut counter())).unwrap();
+    assert!(pass.complete);
+    assert_eq!(
+        snapshot(&outside),
+        before,
+        "recovery must not write through a sibling link"
+    );
+    let state = status(&s.legacy, HOSTED).unwrap().unwrap();
+    let file = PathBuf::from(state["recovered"][0]["file"].as_str().unwrap());
+    assert!(file.starts_with(dir(&s.legacy, HOSTED).unwrap().join("bytes")));
+    assert_eq!(fs::read(file).unwrap(), [0xff, 0xfe, 0x00, 0x01]);
 }
 
 #[test]

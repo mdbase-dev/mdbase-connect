@@ -297,12 +297,14 @@ export function presentTakeover(
   // Moved on this computer, but the account is on mdbase Connect (it was never
   // upgraded, or its upgrade was paused and returned). Collections look ready
   // here, yet apps that use mdbase Connect cannot reach them: say so.
-  if (legacy && rows.some((row) => MOVED.has(row.state))) {
+  if (legacy && (rows.some((row) => MOVED.has(row.state))
+      || Object.values(status.mirror_imports ?? {}).some((imp) => imp.registered))) {
     return {
       ...view,
       tone: "attention",
       canStart: false,
       offerStopMirrors: false,
+      notices: [],
       title: "Your account still uses mdbase Connect",
       detail: "This computer moved your collections to the new sync engine, but your mdbase account hasn't been upgraded yet, or its upgrade was paused. Your files are safe in their folders, but changes made on this computer may not reach your other mdbase apps until your account is upgraded.",
       advice: "Email support@mdbase.dev and include a diagnostics report. We'll finish your upgrade or move this computer back to mdbase Connect."

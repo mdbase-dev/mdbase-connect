@@ -3151,8 +3151,9 @@ impl Daemon {
         let isolated = self.profile.target == crate::paths::Target::IsolatedProfile;
         let opts = crate::takeover::Options {
             stop_mirrors,
-            // Automatic runs passed the rollout gate: the account has moved.
-            account_moved: automatic,
+            // Every run above passed fresh moved-account permission, including
+            // an explicit retry. `automatic` changes refusal presentation only.
+            account_moved: true,
             drain: crate::takeover::DRAIN,
             now: crate::takeover::now_rfc3339(),
         };

@@ -372,7 +372,7 @@ async fn unsent_mirror_edits_are_captured_at_takeover_and_imported_across_a_cras
     assert_eq!(holds[0].path, "e.md");
     assert!(holds[0].unsent);
     assert_eq!(holds[0].intended.as_deref(), Some(&b"E mine"[..]));
-    // The non-UTF-8 edit is not written, and is recovered beside the old folder.
+    // The non-UTF-8 edit is not applied; its bytes stay in the owned capture.
     assert_eq!(c.doc(RD).await, Some(("d.md".into(), "D".into())));
     let st = mirror_import::status(&paths.legacy, HOSTED)
         .unwrap()
@@ -381,7 +381,18 @@ async fn unsent_mirror_edits_are_captured_at_takeover_and_imported_across_a_cras
     assert_eq!(st["applied"], 4, "{st}");
     assert_eq!(st["held"], 1);
     let file = PathBuf::from(st["recovered"][0]["file"].as_str().unwrap());
-    assert_eq!(file, root.join("Hosted notes (unsent edits)/d.md"));
+    let digest: String = mdbn_wire::hash::sha256(&BINARY)
+        .0
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    assert_eq!(
+        file,
+        mirror_import::dir(&paths.legacy, HOSTED)
+            .unwrap()
+            .join("bytes")
+            .join(digest)
+    );
     assert_eq!(std::fs::read(&file).unwrap(), BINARY);
     // The files on disk follow the collection.
     let joined = cfg(&root).root;

@@ -71,7 +71,7 @@ pub struct Options {
     /// The user allowed old hosted mirrors to stop: their unsent edits are
     /// captured for import, then the takeover proceeds.
     pub stop_mirrors: bool,
-    /// The account has moved to mdbase (fresh rollout permission, automatic runs):
+    /// The account has moved to mdbase (fresh rollout permission for this run):
     /// old mirrors can no longer upload, so they stop as with `stop_mirrors`.
     pub account_moved: bool,
     /// How long to wait for the old daemon's in-flight requests (before the first T1).

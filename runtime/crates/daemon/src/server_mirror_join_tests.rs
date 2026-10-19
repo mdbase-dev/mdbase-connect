@@ -537,9 +537,25 @@ async fn takeover_joins_the_migrated_collection_and_imports_with_no_manual_step(
     assert_eq!(mi["applied"], 4, "{st}");
     assert_eq!(mi["held"], 1);
     assert_eq!(mi["recovered"][0]["path"], "d.md");
+    let recovered = std::path::PathBuf::from(mi["recovered"][0]["file"].as_str().unwrap());
+    let digest: String = mdbn_wire::hash::sha256(&BINARY)
+        .0
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
     assert_eq!(
-        std::fs::read(elsewhere.path().join("Hosted notes (unsent edits)/d.md")).unwrap(),
-        BINARY
+        recovered,
+        crate::takeover::mirror_import::dir(&paths.legacy, HOSTED)
+            .unwrap()
+            .join("bytes")
+            .join(digest)
+    );
+    assert_eq!(std::fs::read(recovered).unwrap(), BINARY);
+    assert!(
+        !elsewhere
+            .path()
+            .join("Hosted notes (unsent edits)")
+            .exists()
     );
 
     // The edits reached the hosted replica through the log.
