@@ -9,7 +9,27 @@ export interface PolicyLock extends DatabaseQueryable {
   commit(): Promise<void>;
 }
 
+// Per process, shared by every emitter/recovery caller, not per collection or
+// pool. Six owners use 30% of the 20-connection CP pool; queued work borrows no
+// connection and is not rejected. A handoff reserves the slot for the oldest
+// waiter, so a new arrival cannot overtake it or increase the admitted count.
+const MAX_POLICY_OWNERS = 6;
+let activePolicyOwners = 0;
+const policyWaiters: Array<() => void> = [];
+
 export async function withPolicyLock<T>(db: DatabasePool, collectionId: string, run: (lock: PolicyLock) => Promise<T>): Promise<T> {
+  if (activePolicyOwners < MAX_POLICY_OWNERS) activePolicyOwners += 1;
+  else await new Promise<void>(resolve => { policyWaiters.push(resolve); });
+  try {
+    return await withPolicySession(db, collectionId, run);
+  } finally {
+    const next = policyWaiters.shift();
+    if (next) next();
+    else activePolicyOwners -= 1;
+  }
+}
+
+async function withPolicySession<T>(db: DatabasePool, collectionId: string, run: (lock: PolicyLock) => Promise<T>): Promise<T> {
   const client = await db.connect();
   let acquired = false;
   let failed = false;
