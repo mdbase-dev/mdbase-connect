@@ -163,6 +163,33 @@ async fn automatic_takeover_waits_for_a_flipped_batch_and_fails_closed() {
         }
         assert_untouched();
         assert_eq!(status(&profile).await["account_legacy"], denied == 3);
+        if denied == 3 {
+            // A control client cannot reintroduce the removed CLI bypass.
+            match c
+                .call(Method::MIGRATE_START, json!({"ignore_rollout": true}))
+                .await
+            {
+                Err(ClientError::Remote(e)) => {
+                    assert_eq!(e.reason.as_deref(), Some("takeover_not_allowed"))
+                }
+                other => panic!("{other:?}"),
+            }
+            assert_untouched();
+            // Keep this daemon alive: status retains its last definite Legacy
+            // answer, but the current Unknown answer must use retryable copy.
+            mode.store(4, Ordering::SeqCst);
+            match c.call(Method::MIGRATE_START, json!({})).await {
+                Err(ClientError::Remote(e)) => {
+                    assert_eq!(e.reason.as_deref(), Some("takeover_not_allowed"));
+                    assert!(e.message.contains("couldn't confirm"), "{e:?}");
+                    assert!(e.message.contains("try again"), "{e:?}");
+                    assert!(!e.message.contains("hasn't been upgraded"), "{e:?}");
+                }
+                other => panic!("{other:?}"),
+            }
+            assert_eq!(status(&profile).await["account_legacy"], true);
+            assert_untouched();
+        }
         c.call(Method::SHUTDOWN, json!({})).await.unwrap();
         d.await.unwrap().unwrap();
     }

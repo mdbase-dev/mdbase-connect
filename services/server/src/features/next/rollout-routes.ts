@@ -5,6 +5,7 @@
 //   credentials, sessions and anonymous callers get 401.
 // - The account comes only from the credential; query parameters and headers
 //   never select an account or open the gate.
+// - Response shape is frozen: deployed daemons reject unknown fields; extend via a new endpoint/version.
 // - The answer is exactly the daemon contract `{local_takeover, account_backend}`
 //   from `localTakeoverAllowed`, which is true only for an account on the next
 //   backend (a flipped migration or a new next account), and is never cached.

@@ -712,10 +712,6 @@ pub struct MigrateStart {
     /// syncing until they join the migrated collection).
     #[serde(default)]
     pub stop_mirrors: bool,
-    /// Operator override: move without the server's rollout permission. The
-    /// server still refuses to retire the old connector for a legacy account.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub ignore_rollout: bool,
 }
 
 /// Device settings.

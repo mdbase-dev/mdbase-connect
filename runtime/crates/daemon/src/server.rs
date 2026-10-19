@@ -1329,9 +1329,7 @@ impl Daemon {
             Method::MIGRATE_STATUS => self.takeover_status().await,
             Method::MIGRATE_START => {
                 let p: crate::control::MigrateStart = params(req)?;
-                self.clone()
-                    .takeover_run(p.stop_mirrors, false, p.ignore_rollout)
-                    .await
+                self.clone().takeover_run(p.stop_mirrors, false).await
             }
             Method::ACCESS_LIST => {
                 let c: Option<String> = req
@@ -2924,7 +2922,7 @@ impl Daemon {
     /// Background takeover (startup, after sign-in): errors are logged and kept for
     /// `doctor`.
     async fn takeover_task(self: Arc<Self>, stop_mirrors: bool) {
-        if let Err(e) = self.takeover_run(stop_mirrors, true, false).await {
+        if let Err(e) = self.takeover_run(stop_mirrors, true).await {
             tracing::warn!(error = %e.message, "local takeover did not run");
         }
     }
@@ -2977,13 +2975,11 @@ impl Daemon {
 
     /// Run (or resume) the local takeover, then register what it took over.
     /// Every run requires fresh server permission before the old connector is
-    /// touched: the server only retires it for an upgraded account. Only an
-    /// explicit operator override (`ignore_rollout`) skips the check.
+    /// touched: the server only retires it for an upgraded account.
     async fn takeover_run(
         self: Arc<Self>,
         stop_mirrors: bool,
         automatic: bool,
-        ignore_rollout: bool,
     ) -> Result<Value, ControlError> {
         let Some(old) = crate::takeover::old_state_dir(&self.profile) else {
             return self.takeover_status().await;
@@ -2993,9 +2989,8 @@ impl Daemon {
             return self.takeover_status().await;
         }
         let account_gate = self.account_gate.lock().await;
-        if (automatic || !ignore_rollout)
-            && self.takeover_rollout().await != crate::takeover::RolloutGate::Allowed
-        {
+        let gate = self.takeover_rollout().await;
+        if gate != crate::takeover::RolloutGate::Allowed {
             self.refence_old_service(old).await;
             self.takeover
                 .waiting_for_batch
@@ -3004,9 +2999,7 @@ impl Daemon {
                 return self.takeover_status().await;
             }
             return Err(crate::takeover::not_allowed_error(
-                self.takeover
-                    .account_legacy
-                    .load(std::sync::atomic::Ordering::Relaxed),
+                gate == crate::takeover::RolloutGate::Legacy,
             ));
         }
         self.takeover

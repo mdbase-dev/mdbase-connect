@@ -244,9 +244,6 @@ enum MigrateCmd {
         /// empty; they stop syncing until they join the migrated collection.
         #[arg(long)]
         stop_mirrors: bool,
-        /// Operator override: move without Connect's rollout permission.
-        #[arg(long, hide = true)]
-        ignore_rollout: bool,
     },
 }
 
@@ -1118,15 +1115,13 @@ async fn run_command(
             migrate_print(out, &v);
             Ok(ExitCode::SUCCESS)
         }
-        Command::Migrate(MigrateCmd::Start {
-            stop_mirrors,
-            ignore_rollout,
-        }) => {
-            let mut params = json!({ "stop_mirrors": stop_mirrors });
-            if ignore_rollout {
-                params["ignore_rollout"] = json!(true);
-            }
-            let v = call(profile, Method::MIGRATE_START, params).await?;
+        Command::Migrate(MigrateCmd::Start { stop_mirrors }) => {
+            let v = call(
+                profile,
+                Method::MIGRATE_START,
+                json!({ "stop_mirrors": stop_mirrors }),
+            )
+            .await?;
             migrate_print(out, &v);
             Ok(ExitCode::SUCCESS)
         }
@@ -1754,6 +1749,17 @@ fn print_private_collections(v: &Value) {
         .flatten()
     {
         println!("  {}", c);
+    }
+}
+
+#[cfg(test)]
+mod takeover_cli_tests {
+    use super::*;
+
+    #[test]
+    fn migrate_start_has_no_rollout_override() {
+        assert!(Cli::try_parse_from(["mdbase", "migrate", "start"]).is_ok());
+        assert!(Cli::try_parse_from(["mdbase", "migrate", "start", "--ignore-rollout"]).is_err());
     }
 }
 
