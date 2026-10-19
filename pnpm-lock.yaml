@@ -170,8 +170,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/protocol
       '@mdbase-dev/sdk':
-        specifier: file:vendor/mdbase-dev-sdk-dev-0ecbef41.tgz
-        version: file:apps/editor/vendor/mdbase-dev-sdk-dev-0ecbef41.tgz
+        specifier: file:vendor/sdk-dev-0fabaf20.tgz
+        version: file:apps/editor/vendor/sdk-dev-0fabaf20.tgz
       '@mdbase-dev/ui':
         specifier: workspace:*
         version: link:../../packages/app-ui
@@ -293,8 +293,8 @@ importers:
         specifier: ^6.43.12
         version: 6.43.12
       '@mdbase-dev/sdk':
-        specifier: file:../../apps/editor/vendor/mdbase-dev-sdk-dev-0ecbef41.tgz
-        version: file:apps/editor/vendor/mdbase-dev-sdk-dev-0ecbef41.tgz
+        specifier: file:../../apps/editor/vendor/sdk-dev-0fabaf20.tgz
+        version: file:apps/editor/vendor/sdk-dev-0fabaf20.tgz
       '@types/react':
         specifier: ^19.3.0
         version: 19.3.0
@@ -1826,8 +1826,8 @@ packages:
   '@marijn/find-cluster-break@1.0.4':
     resolution: {integrity: sha512-Wy0V7+SGUjnF9/TkiM1hKVDPj7jKXduPNboMVtHTA8dySMURWqfg/JZ9E2Sq8JgSJmkl7k7Qe9FLeMSrSraWmQ==}
 
-  '@mdbase-dev/sdk@file:apps/editor/vendor/mdbase-dev-sdk-dev-0ecbef41.tgz':
-    resolution: {integrity: sha512-4OZ2+PnQOIoHOq1M5ctvKt3DNYsdPHGcGcKiP1nPD9v6udkLXnDNN3qc0TQGUfmtazKNIEQpSfogffzcZlHJeA==, tarball: file:apps/editor/vendor/mdbase-dev-sdk-dev-0ecbef41.tgz}
+  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-dev-0fabaf20.tgz':
+    resolution: {integrity: sha512-3y+3UNP3nNdi7GAOhmK+1l38H4eUKCS7X7Bu9bq/m6vXNstcRllsIcykO4VRbruoPakrmmJQ8/JisA99fTiIFA==, tarball: file:apps/editor/vendor/sdk-dev-0fabaf20.tgz}
     version: 0.0.0
     engines: {node: '>=20'}
     bundledDependencies:
@@ -6896,7 +6896,7 @@ snapshots:
 
   '@marijn/find-cluster-break@1.0.4': {}
 
-  '@mdbase-dev/sdk@file:apps/editor/vendor/mdbase-dev-sdk-dev-0ecbef41.tgz':
+  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-dev-0fabaf20.tgz':
     dependencies:
       '@noble/ciphers': 2.4.0
       '@noble/curves': 2.4.0
