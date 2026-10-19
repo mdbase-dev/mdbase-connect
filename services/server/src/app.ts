@@ -277,7 +277,7 @@ export async function buildApp(options: BuildOptions) {
         options.db,
         new LogServiceClient(options.nextControlPlane.logService),
         nextPolicySigner!,
-        (error, collectionId) => app.log.error({ err: error, collectionId }, "mdbase-next policy emission failed"),
+        (_error, _collectionId, details) => app.log.error(details, "mdbase-next policy emission failed"),
         2_000,
         Date.now,
         serviceDeployments

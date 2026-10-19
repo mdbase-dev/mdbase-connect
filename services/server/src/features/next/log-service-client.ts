@@ -114,7 +114,15 @@ function deletionRow(value: Decoded): CollectionDeletionFact {
   return {collection:deletionUuid(value[0]),deletionId:deletionUuid(value[1]),lifecycleEpoch:deletionUint(value[2],true)};
 }
 
+type FailurePhase = "head" | "control-item" | "create_log" | "append" | "recover" | "unknown";
+const RPC_PHASES: Record<string, FailurePhase> = { head: "head", read: "control-item", create_log: "create_log", append: "append" };
+const SAFE_ERROR_CODES = new Set(["ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "EHOSTUNREACH", "ENETUNREACH", "EPIPE",
+  "UND_ERR_SOCKET", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT", "ABORT_ERR",
+  "ERR_TLS_CERT_ALTNAME_INVALID", "CERT_HAS_EXPIRED", "DEPTH_ZERO_SELF_SIGNED_CERT", "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "unavailable", "rate_limited", "unauthenticated", "invalid", "not_found", "exists"]);
+
 export class LogServiceClient {
+  private static readonly failures = new WeakMap<Error, { phase: FailurePhase; step: "nonce" | "rpc" | undefined }>();
   private readonly issuer: KeyObject;
   private readonly transport: KeyObject;
   private readonly transportPublicKey: Uint8Array;
@@ -139,6 +147,30 @@ export class LogServiceClient {
       this.pitrPublicIdentity = Object.freeze({ transportPublicKey: Buffer.from(this.transportPublicKey).toString("hex"),
         issuerKeyId: Buffer.from(keyId(issuerPublicKey)).toString("hex") });
     }
+  }
+
+  /** Closed diagnostic vocabulary only: never serialize the error/message,
+   * request, collection, full stack, endpoint, token or arbitrary remote code. */
+  static failureDetails(error: unknown, phase?: "recover") {
+    const context = error instanceof Error ? this.failures.get(error) : undefined;
+    let errorCode = "unknown";
+    let cursor = error;
+    for (let depth = 0; depth < 4 && cursor instanceof Error; depth += 1) {
+      if (cursor instanceof DOMException && (cursor.name === "TimeoutError" || cursor.name === "AbortError")) { errorCode = cursor.name; break; }
+      const code = (cursor as Error & { code?: unknown }).code;
+      // RPC error frames cannot claim a database SQLSTATE or echo arbitrary codes.
+      const sqlState = !(cursor instanceof LogServiceError) && typeof code === "string" && /^(?:[0-9][0-9A-Z]|F0|HV|P0|XX)[0-9A-Z]{3}$/.test(code);
+      if (typeof code === "string" && (SAFE_ERROR_CODES.has(code) || sqlState)) { errorCode = code; break; }
+      cursor = cursor.cause;
+    }
+    const stack = error instanceof Error && typeof error.stack === "string" ? error.stack : "";
+    const summary = stack.split("\n", 24).slice(1).flatMap(line => {
+      const frame = /[/\\](log-service-client|policy-outbox|policy-recovery|service-activation|policy-wire|bounded-json|migration-routing|app|db)\.(ts|js):(\d{1,6}):(\d{1,6})\)?$/.exec(line.trim());
+      return frame ? [`${frame[1]}.${frame[2]}:${frame[3]}:${frame[4]}`] : [];
+    }).slice(0, 8);
+    return { callback_phase: phase ?? context?.phase ?? "unknown", transport_step: context?.step ?? "unknown",
+      route: context?.step === "nonce" ? "/v1/nonce" : context?.step === "rpc" ? "/v1/rpc" : undefined,
+      error_code: errorCode, stack_summary: summary };
   }
 
   pitrControlIdentity(): Readonly<{ transportPublicKey: string; issuerKeyId: string }> | null {
@@ -188,47 +220,57 @@ export class LogServiceClient {
   }
 
   private async rpc(method: string, params: Cbor, deletion = false, isolatedRegistry = false): Promise<Decoded> {
-    if (isolatedRegistry && (!this.pitr || method !== "registry_collection_deletions")) throw new Error("lab_pitr_registry_configuration_required");
-    const requestId = ++this.requestId;
-    const body = encodeCbor(struct([[0, 0], [1, requestId], [2, method], [3, params]]));
-    const decoded = field(decodeCbor(body), 3)!;
-    // Registry deletion writes name the original subject in field 1, not nil field 0.
-    const subject = field(decoded, method === "registry_record_collection_deletion" ? 1 : 0);
-    const hex = subject instanceof Uint8Array && subject.length === 16 ? Buffer.from(subject).toString("hex") : "";
-    const id = `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
-    const base = isolatedRegistry ? this.pitr!.logUrl : pitrLogUrl(this.baseUrl, this.pitr, id);
-    const nonceHex = new TextDecoder().decode(await this.fetchBytes("/v1/nonce", { method: "GET" }, deletion ? 256 : undefined, base)).trim();
-    if (!/^[0-9a-f]{64}$/u.test(nonceHex)) throw new LogServiceError("unavailable", "nonce");
-    const token = this.controlPlaneToken();
-    const collectionField = field(decoded, 0);
-    const collection = collectionField instanceof Uint8Array && collectionField.length === 16
-      ? collectionField : new Uint8Array(16);
-    // auth::http_digest: method is the LS RPC method, not HTTP POST.
-    const digest = domainHash("mdbase/v1/ls-http", Buffer.concat([
-      Buffer.from(method), Buffer.of(0), Buffer.from("/v1/rpc"), Buffer.of(0), collection,
-      createHash("sha256").update(token, "utf8").digest(), createHash("sha256").update(body).digest(),
-      Buffer.from(nonceHex, "hex"),
-    ]));
-    const frame = decodeCbor(await this.fetchBytes("/v1/rpc", {
-      method: "POST",
-      headers: {
-        "content-type": "application/vnd.mdbase.v1+cbor",
-        authorization: `Bearer ${token}`,
-        "x-mdbase-nonce": nonceHex,
-        "x-mdbase-sig": Buffer.from(sign(null, digest, this.transport)).toString("hex"),
-      },
-      body: Buffer.from(body),
-    }, deletion ? DELETION_REPLY_BYTES : undefined, base), deletion ? {canonicalStructs:true,maxDepth:12} : undefined);
-    if (deletion && (!(frame instanceof Map) || frame.size !== 3 || field(frame,0) !== 1 || field(frame,1) !== requestId || (frame.has(2) === frame.has(3)))) return deletionUnavailable();
-    const error = field(frame, 3);
-    if (error !== undefined) {
-      const code = field(error, 0);
-      const reason = field(error, 1);
-      throw new LogServiceError(typeof code === "string" ? code : "invalid", typeof reason === "string" ? reason : undefined, field(error, 4));
+    let transportStep: "nonce" | "rpc" | undefined;
+    try {
+      if (isolatedRegistry && (!this.pitr || method !== "registry_collection_deletions")) throw new Error("lab_pitr_registry_configuration_required");
+      const requestId = ++this.requestId;
+      const body = encodeCbor(struct([[0, 0], [1, requestId], [2, method], [3, params]]));
+      const decoded = field(decodeCbor(body), 3)!;
+      // Registry deletion writes name the original subject in field 1, not nil field 0.
+      const subject = field(decoded, method === "registry_record_collection_deletion" ? 1 : 0);
+      const hex = subject instanceof Uint8Array && subject.length === 16 ? Buffer.from(subject).toString("hex") : "";
+      const id = `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+      const base = isolatedRegistry ? this.pitr!.logUrl : pitrLogUrl(this.baseUrl, this.pitr, id);
+      transportStep = "nonce";
+      const nonceHex = new TextDecoder().decode(await this.fetchBytes("/v1/nonce", { method: "GET" }, deletion ? 256 : undefined, base)).trim();
+      if (!/^[0-9a-f]{64}$/u.test(nonceHex)) throw new LogServiceError("unavailable", "nonce");
+      const token = this.controlPlaneToken();
+      const collectionField = field(decoded, 0);
+      const collection = collectionField instanceof Uint8Array && collectionField.length === 16
+        ? collectionField : new Uint8Array(16);
+      // auth::http_digest: method is the LS RPC method, not HTTP POST.
+      const digest = domainHash("mdbase/v1/ls-http", Buffer.concat([
+        Buffer.from(method), Buffer.of(0), Buffer.from("/v1/rpc"), Buffer.of(0), collection,
+        createHash("sha256").update(token, "utf8").digest(), createHash("sha256").update(body).digest(),
+        Buffer.from(nonceHex, "hex"),
+      ]));
+      transportStep = "rpc";
+      const frame = decodeCbor(await this.fetchBytes("/v1/rpc", {
+        method: "POST",
+        headers: {
+          "content-type": "application/vnd.mdbase.v1+cbor",
+          authorization: `Bearer ${token}`,
+          "x-mdbase-nonce": nonceHex,
+          "x-mdbase-sig": Buffer.from(sign(null, digest, this.transport)).toString("hex"),
+        },
+        body: Buffer.from(body),
+      }, deletion ? DELETION_REPLY_BYTES : undefined, base), deletion ? {canonicalStructs:true,maxDepth:12} : undefined);
+      if (deletion && (!(frame instanceof Map) || frame.size !== 3 || field(frame,0) !== 1 || field(frame,1) !== requestId || (frame.has(2) === frame.has(3)))) return deletionUnavailable();
+      const error = field(frame, 3);
+      if (error !== undefined) {
+        const code = field(error, 0);
+        const reason = field(error, 1);
+        throw new LogServiceError(typeof code === "string" ? code : "invalid", typeof reason === "string" ? reason : undefined, field(error, 4));
+      }
+      const result = field(frame, 2);
+      if (field(frame, 0) !== 1 || result === undefined) throw new Error("malformed log service response");
+      return result;
+    } catch (error) {
+      // Side metadata preserves even frozen original errors and every existing
+      // retry/parking decision. Never record request bytes, identifiers or URLs.
+      if (error instanceof Error) LogServiceClient.failures.set(error, { phase: RPC_PHASES[method] ?? "unknown", step: transportStep });
+      throw error;
     }
-    const result = field(frame, 2);
-    if (field(frame, 0) !== 1 || result === undefined) throw new Error("malformed log service response");
-    return result;
   }
 
   /** Exact-position control read; control items are never compacted. */

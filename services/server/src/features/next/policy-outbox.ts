@@ -9,7 +9,7 @@
 // - any other refusal parks the collection's queue (order matters) until an operator
 //   looks at it. Nothing is dropped silently.
 import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
-import { isLogRegion, LogServiceError, type LogPlacement, type LogRegion, type LogServiceClient } from "./log-service-client.js";
+import { isLogRegion, LogServiceError, type LogPlacement, type LogRegion, LogServiceClient } from "./log-service-client.js";
 import { signPolicyItem, type PolicyOp, type PolicySigner } from "./policy-wire.js";
 import { recoverLostPolicy, withPolicyLock, type PolicyLock } from "./policy-recovery.js";
 import { DEFAULT_COLLECTION_DISPLAY_NAME } from "./collection-display-name.js";
@@ -168,18 +168,22 @@ export class PolicyEmitter {
     private readonly db: DatabasePool,
     private readonly log: LogServiceClient,
     private readonly signer: PolicySigner,
-    private readonly onError: (error: unknown, collectionId?: string) => void = () => undefined,
+    private readonly onError: (error: unknown, collectionId: string | undefined, details: ReturnType<typeof LogServiceClient.failureDetails>) => void = () => undefined,
     private readonly pollIntervalMs = 2_000,
     private readonly now: () => number = Date.now,
     private readonly activateServices: (collectionId?: string) => Promise<void> = async () => undefined
   ) {}
 
+  private reportFailure(error: unknown, collectionId?: string, phase?: "recover"): void {
+    this.onError(error, collectionId, LogServiceClient.failureDetails(error, phase));
+  }
+
   start(): void {
     if (this.closed) throw new Error("policy emitter closed");
     if (this.timer) return;
-    this.timer = setInterval(() => void this.drain().catch((error) => this.onError(error)), this.pollIntervalMs);
+    this.timer = setInterval(() => void this.drain().catch((error) => this.reportFailure(error)), this.pollIntervalMs);
     this.timer.unref();
-    void this.drain().catch((error) => this.onError(error));
+    void this.drain().catch((error) => this.reportFailure(error));
   }
 
   async close(): Promise<void> {
@@ -218,7 +222,7 @@ export class PolicyEmitter {
     // Only a wake hint, not activation/keying evidence. The original callback
     // retains its 30s transport/body bound and captured-batch ACK/CAS protections.
     const work = Promise.resolve().then(() => this.activateServices(collectionId))
-      .catch(error => this.onError(error, collectionId))
+      .catch(error => this.reportFailure(error, collectionId))
       .finally(() => { if (this.wakeWork.get(collectionId) === work) this.wakeWork.delete(collectionId); });
     this.wakeWork.set(collectionId, work);
     // The failure was delivered to onError; a throwing diagnostic callback must
@@ -255,7 +259,7 @@ export class PolicyEmitter {
       } catch (error) {
         failedVerification.add(collectionId);
         this.verificationHints.add(collectionId);
-        this.onError(error, collectionId);
+        this.reportFailure(error, collectionId, "recover");
       }
     }
     const collections = await this.db.query<{ collection_id: string }>(
@@ -268,7 +272,7 @@ export class PolicyEmitter {
       try {
         appended += await this.drainCollection(collectionId);
       } catch (error) {
-        this.onError(error, collectionId);
+        this.reportFailure(error, collectionId);
       }
     }
     // Durable service-device rows select only verified appended genesis batches.
