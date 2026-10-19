@@ -18,17 +18,22 @@ export async function auditPortalInstallationApproval(localPage, origin) {
     ]
   };
   const page = await localPage();
-  let pairing = structuredClone(base), posts = [], failCreation = false, loseApproval = false;
+  let pairing = structuredClone(base), posts = [], failCreation = false, loseApproval = false, holdAttestation = false;
   const errors = [];
   page.on("pageerror", error => errors.push(String(error)));
   await page.route("**/v1/pairing-requests/**", async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
     if (request.method() === "GET") {
+      if (pairing.account_selection_confirmed && !holdAttestation) Object.assign(pairing, {attested:true,fingerprint:base.fingerprint});
       const hint = new URL(request.url()).searchParams.get("collection_hint");
       return route.fulfill({json: {pairing: {...pairing, collection_hint: pairing.account_selection_confirmed && pairing.collections.some(collection => collection.collection_id === hint) ? hint : null}}});
     }
     const body = request.postDataJSON();
     posts.push({path, body});
+    if (path.endsWith("/select-account")) {
+      Object.assign(pairing, {account_selection_confirmed:true,account_email:base.account_email});
+      return route.fulfill({json:{ok:true}});
+    }
     if (path.endsWith("/collections")) {
       pairing.creation = {collection_id: created, display_name: body.display_name, completed: !failCreation};
       if (failCreation) return route.fulfill({status: 503, json: {error: "creation_incomplete", message: "Collection creation is incomplete."}});
@@ -45,12 +50,31 @@ export async function auditPortalInstallationApproval(localPage, origin) {
   const selectedLabel = () => picker().locator("option:checked").innerText();
   const approve = () => page.getByRole("button", {name: "Approve", exact: true});
   const load = async hint => {
-    pairing = structuredClone(base); posts = []; failCreation = false; loseApproval = false;
+    pairing = structuredClone(base); posts = []; failCreation = false; loseApproval = false; holdAttestation = false;
     await page.goto(`${url}${hint ? `?collection_hint=${hint}` : ""}`); await picker().waitFor();
   };
   const choose = async name => { await picker().selectOption({label: name}); };
   const done = () => page.getByRole("heading", {name: "Access approved", exact: true}).waitFor();
   try {
+    await load();
+    Object.assign(pairing, {account_selection_confirmed:false,account_email:null,signed_in_account_email:base.account_email,attested:false,fingerprint:null,app_origin:undefined});
+    holdAttestation = true;
+    await page.reload(); await picker().waitFor();
+    assert.equal(await page.getByRole("button", {name:"Use this account",exact:true}).count(), 0);
+    assert.equal(await picker().inputValue(), "");
+    assert.equal(posts.length, 0, "the first-party catalog preview never selects an account");
+    await page.getByText("Details", {exact:true}).click();
+    await page.getByText("Requested by TaskNotes. No requesting origin is available.", {exact:true}).waitFor();
+    assert.doesNotMatch(await page.locator("body").innerText(), /Requested from\s*\./);
+    await choose("Personal notes");
+    assert.equal(posts.length, 0, "choosing is not consent");
+    await approve().click();
+    await page.getByRole("button", {name:"Approving…",exact:true}).waitFor();
+    assert.deepEqual(posts.map(post => post.path.split("/").at(-1)), ["select-account"]);
+    holdAttestation = false; await done();
+    assert.equal(await page.locator(".installation-details").getByText(base.fingerprint, {exact:true}).count(), 1, "done retains the informational device key under Details");
+    assert.deepEqual(posts.map(post => post.path.split("/").at(-1)), ["select-account","approve"], "one confirm waits for attestation and performs the original approval");
+    assert.deepEqual(posts[1].body, {fingerprint:base.fingerprint,collection_ids:[first],create_collections:true,selected_collection_id:first});
     // The inline native list replaces the popover: no upward-flipping layer can
     // cover its filter, including in a short approval popup with a long catalog.
     for (const colorScheme of ["light", "dark"]) {

@@ -31,11 +31,10 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   const [deepLink, setDeepLink] = useState("");
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
-  const [preparationAttempt, setPreparationAttempt] = useState(0);
   const [preparationError, setPreparationError] = useState("");
   const [busy, setBusy] = useState(false);
   // The step to repeat after a retryable refusal; cancelled once a refusal no retry can fix.
-  const [retry, setRetry] = useState<"select-account" | "approve" | null>(null);
+  const [retry, setRetry] = useState<"approve" | null>(null);
   const [outcome, setOutcome] = useState<"cancelled" | ReturnType<typeof installationRefusal> | null>(null);
   const [collectionIds,setCollectionIds] = useState<string[]>([]);
   const [createCollections,setCreateCollections] = useState(false);
@@ -48,6 +47,8 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   const [declined,setDeclined] = useState(false);
   const generation = useRef(0);
   const dispatching = useRef(false);
+  const accountSelectionSucceeded = useRef(false);
+  const cancelPreparation = useRef<(() => void) | null>(null);
   const handBack = useRef(false);
   const inspectionPath = pairingInspectionPath(pairingId, location.search);
 
@@ -66,6 +67,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     setOutcome(null);
     setBusy(false);
     setDeclined(false);
+    accountSelectionSucceeded.current = false;
     dispatching.current = false;
     api<{ pairing: DevicePairing }>(inspectionPath)
       .then((value) => {
@@ -85,6 +87,8 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       });
     return () => {
       ++generation.current;
+      cancelPreparation.current?.();
+      cancelPreparation.current = null;
     };
   }, [pairingId, attempt, inspectionPath]);
 
@@ -100,7 +104,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       onError: reason => setPreparationError(message(reason)),
       onTimeout: () => setPreparationError(`We couldn't prepare ${pairing.connector_name}.`),
     });
-  },[pairing,pairingId,inspectionPath,preparationAttempt,outcome]);
+  },[pairing,pairingId,inspectionPath,outcome]);
   useEffect(()=>{
     if (!pairing?.installation_device || !pairing.account_selection_confirmed || !pairing.attested || pairing.approved_at || pairing.native_authorization_id || outcome || !pairing.collections?.some(c=>c.kind==="private")) return;
     return watchPairingPreparation({
@@ -113,7 +117,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     });
   },[pairing,inspectionPath,outcome]);
 
-  async function act(action: "approve" | "select-account" | "deny" | "remove-access") {
+  async function act(action: "approve" | "deny" | "remove-access") {
     if (dispatching.current || !pairing) return;
     const current = generation.current;
     dispatching.current = true;
@@ -121,24 +125,59 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     setError("");
     setRetry(null);
     setOutcome(null);
+    let approvalAttempted = false;
     try {
       let selected = selectedCollectionId;
+      let approval = pairing;
+      if (action === "approve" && pairing.installation_device && !pairing.file_access) {
+        const privateTarget = pairing.collections?.some(c => c.collection_id === selected && c.kind === "private");
+        const ready = (value: DevicePairing) => !!(value.account_selection_confirmed && value.attested && value.fingerprint && (!privateTarget || value.native_authorization_id));
+        if (!ready(approval)) {
+          // Only this explicit confirm may disclose the account to the SDK.
+          if (!approval.account_selection_confirmed && !accountSelectionSucceeded.current) {
+            await api(`/v1/pairing-requests/${pairingId}/select-account`, { method: "POST" });
+            if (current !== generation.current) return;
+            // Avoid repeating a successful mutation even if inspection hangs.
+            // This is not authority: ready() still requires the server's confirmation.
+            accountSelectionSucceeded.current = true;
+          }
+          approval = await new Promise<DevicePairing>((resolve, reject) => {
+            const stop = watchPairingPreparation<DevicePairing>({
+              read: async signal => (await api<{pairing:DevicePairing}>(inspectionPath, {signal})).pairing,
+              isDispatching: () => false,
+              ready: value => ready(value) || !!value.approved_at,
+              onReady: resolve,
+              onError: reject,
+              onTimeout: () => reject(new Error(`We couldn't prepare ${pairing.connector_name}. Keep the app open and try again.`)),
+            });
+            cancelPreparation.current = () => { stop(); reject(new Error("The original sign-in changed.")); };
+          });
+          if (current !== generation.current) return;
+          setPairing(approval);
+          if (approval.approved_at) return;
+        }
+        if (!installationAccountLabel(pairing) || installationAccountLabel(approval) !== installationAccountLabel(pairing)) throw new Error("The signed-in account changed. Start sign-in again from the app.");
+        if (selected !== NEW_COLLECTION && !approval.collections?.some(c => c.collection_id === selected && (c.kind === "private") === !!privateTarget)) throw new Error("This collection is no longer available. Choose a collection again.");
+      }
       if (action === "approve" && pairing.installation_device && selected === NEW_COLLECTION) {
+        approvalAttempted = true;
         const created = await api<{collection_id:string}>(`/v1/pairing-requests/${pairingId}/collections`, {method:"POST",body:JSON.stringify({display_name:newCollectionName})});
         if (current !== generation.current) return;
         const inspected = await api<{pairing:DevicePairing}>(inspectionPath);
         if (current !== generation.current) return;
         setPairing(inspected.pairing);
+        approval = inspected.pairing;
         if (!inspected.pairing.creation?.completed || inspected.pairing.creation.collection_id !== created.collection_id || !inspected.pairing.collections?.some(collection=>collection.collection_id===created.collection_id)) throw new Error("We couldn't confirm collection creation finished. Please try again.");
         selected = created.collection_id;
         setSelectedCollectionId(selected);
         setNewCollectionName(inspected.pairing.creation.display_name);
       }
-      const privateChoice=pairing.collections?.some(c=>c.collection_id===selected && c.kind==="private")===true;
-      const approvedIds = privateChoice ? [] : [...new Set([...collectionIds, selected])].filter(id=>id && !pairing.retained_collection_ids?.includes(id));
+      const privateChoice=approval.collections?.some(c=>c.collection_id===selected && c.kind==="private")===true;
+      const approvedIds = privateChoice ? [] : [...new Set([...collectionIds, selected])].filter(id=>id && !approval.retained_collection_ids?.includes(id));
+      if (action === "approve") approvalAttempted = true;
       const result = await api<{ deep_link?: string; native_authorization_uri?:string }>(
         `/v1/pairing-requests/${pairingId}/${action}`,
-        { method: "POST", ...(action==="remove-access" ? {body:JSON.stringify({collection_id:removingId,confirm:true})} : action==="approve" && pairing.file_access ? {body:JSON.stringify({fingerprint:pairing.fingerprint,collection_ids:[],file_actions:pairing.file_access.actions})} : action==="approve" && pairing.installation_device ? {body:JSON.stringify({fingerprint:pairing.fingerprint,collection_ids:approvedIds,create_collections:!privateChoice && createCollections && !pairing.retained_create_collections,selected_collection_id:selected,...(privateChoice?{selected_collection_kind:"private"}:pairing.timer_declaration?{timer_consent:allowReminders}:{})})} : {}) },
+        { method: "POST", ...(action==="remove-access" ? {body:JSON.stringify({collection_id:removingId,confirm:true})} : action==="approve" && pairing.file_access ? {body:JSON.stringify({fingerprint:pairing.fingerprint,collection_ids:[],file_actions:pairing.file_access.actions})} : action==="approve" && pairing.installation_device ? {body:JSON.stringify({fingerprint:approval.fingerprint,collection_ids:approvedIds,create_collections:!privateChoice && createCollections && !approval.retained_create_collections,selected_collection_id:selected,...(privateChoice?{selected_collection_kind:"private"}:approval.timer_declaration?{timer_consent:allowReminders}:{})})} : {}) },
       );
       if (current !== generation.current) return;
       if (action === "deny" && pairing.file_access) {
@@ -151,7 +190,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       }
       if (action==="approve" && result.native_authorization_uri) {
         const target=new URL(result.native_authorization_uri,location.origin);
-        if (target.origin!==location.origin || target.pathname!=="/oauth/authorize" || target.searchParams.get("request_id")!==pairing.native_authorization_id) throw new Error("The original app approval changed.");
+        if (target.origin!==location.origin || target.pathname!=="/oauth/authorize" || target.searchParams.get("request_id")!==approval.native_authorization_id) throw new Error("The original app approval changed.");
         window.location.assign(target.href);
         return;
       }
@@ -163,7 +202,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       // Observe uncertain creation/approval without replaying either mutation.
       // Restore the server's original name/target before an explicit user retry.
       let approved = false;
-      if (action === "approve" && pairing.installation_device && current === generation.current) {
+      if (approvalAttempted && pairing.installation_device && current === generation.current) {
         try {
           const inspected = await api<{pairing:DevicePairing}>(inspectionPath);
           if (current === generation.current) {
@@ -178,7 +217,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       }
       if (current !== generation.current) return;
       if (approved) setError("");
-      else if (action === "select-account" || action === "approve") {
+      else if (action === "approve") {
         const refusal = installationRefusal(reason, pairing.connector_name);
         let windowCancelled = false;
         // Cancel the window so the app stops waiting and can start sign-in again.
@@ -193,6 +232,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       } else setError(message(reason));
     } finally {
       if (current === generation.current) {
+        cancelPreparation.current = null;
         dispatching.current = false;
         setBusy(false);
       }
@@ -304,9 +344,8 @@ export function Pairing({ pairingId }: { pairingId: string }) {
             ) : (
               <>
                 <h1>Open {pairing.connector_name}</h1>
-                {appOriginKind(pairing.app_origin) && <p className="installation-account-label">Requested by the {pairing.connector_name} {appOriginKind(pairing.app_origin)}.</p>}
-                {pairing.account_upgraded && <p className="mdbase-connect-notice">mdbase was upgraded. Approve {pairing.connector_name} once to continue. Your collections and notes are unchanged.</p>}
-                <p className="mdbase-connect-lead">Choose a collection to use in {pairing.connector_name}. Approve only if you started sign-in in this app.</p>
+                <p className="mdbase-connect-lead">Choose a collection to use in {pairing.connector_name}.</p>
+                <p className="installation-account-label">Requested by {pairing.connector_name}{appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""}{pairing.app_origin?.trim() && <> from <code>{pairing.app_origin}</code></>}. Approve only if you started sign-in in this app.</p>
                 {installationAccountLabel(pairing) ? (
                   <p className="installation-account-label">Account: {installationAccountLabel(pairing)}</p>
                 ) : (
@@ -315,27 +354,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     <a className="button secondary link-button installation-account-action" href={`/login?return_to=${encodeURIComponent(location.href)}`}>Sign in again</a>
                   </>
                 )}
-                {!pairing.account_selection_confirmed ? (
-                  <>
-                    <p>Use this account to continue. You'll choose collection access next.</p>
-                    <button
-                      className="mdbase-button is-primary"
-                      disabled={busy || !installationAccountLabel(pairing)}
-                      onClick={() => void act("select-account")}
-                    >
-                      Use this account
-                    </button>
-                  </>
-                ) : !pairing.attested ? (
-                  <>
-                    {preparationError ? <>
-                      <p role="alert">{preparationError}</p>
-                      <p>Keep {pairing.connector_name} open and check your internet connection. If you use mdbase desktop, make sure it's running and up to date. Then try again.</p>
-                      <button className="mdbase-button is-primary" disabled={busy} onClick={() => setPreparationAttempt(value => value + 1)}>Try again</button>
-                    </> : <p role="status">Preparing {pairing.connector_name}… This page updates automatically.</p>}
-                  </>
-                ) : (
-                  <>
+                {pairing.account_selection_confirmed && !pairing.attested && <p role="status">{preparationError || `Preparing ${pairing.connector_name}…`}</p>}
                     <label className="installation-choice">
                       <span>Find a collection</span>
                       <input type="search" value={collectionSearch} disabled={busy} placeholder="Search by name" onChange={event => setCollectionSearch(event.currentTarget.value)} />
@@ -391,12 +410,10 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     </div>}
                     {revokingId && <p role="status">Removing access to {pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??"this collection"}…</p>}
                     <button className="mdbase-button is-primary"
-                      disabled={busy || !pairing.fingerprint || !selectedCollectionId || (privateChoice && !pairing.native_authorization_id) || (selectedCollectionId===NEW_COLLECTION ? !pairing.can_create_collection || !newCollectionName.trim() : !pairing.collections?.some(collection=>collection.collection_id===selectedCollectionId))}
+                      disabled={busy || !installationAccountLabel(pairing) || !selectedCollectionId || (selectedCollectionId===NEW_COLLECTION ? !pairing.can_create_collection || !newCollectionName.trim() : !pairing.collections?.some(collection=>collection.collection_id===selectedCollectionId))}
                       onClick={()=>void act("approve")}>
                       {busy ? "Approving…" : "Approve"}
                     </button>
-                  </>
-                )}
                 <div className="decision-actions">
                   <button
                     className="mdbase-button"
@@ -406,14 +423,16 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     Cancel
                   </button>
                 </div>
-                <details className="installation-details">
-                  <summary>Details</summary>
-                  <p>Requested from <code>{pairing.app_origin}</code>. The origin shown here is not proof of who made the request.</p>
-                  <p>This device can keep an offline copy of approved collections, including their files and current account/member information. Access applies only to the collections you allow.</p>
-                  {pairing.fingerprint && <p>Device key: <code>{pairing.fingerprint}</code></p>}
-                </details>
               </>
             )}
+            {outcome !== "cancelled" && <details className="installation-details">
+              <summary>Details</summary>
+              {pairing.app_origin?.trim()
+                ? <p>Requested from <code>{pairing.app_origin}</code>. The origin shown here is not proof of who made the request.</p>
+                : <p>Requested by {pairing.connector_name}. No requesting origin is available.</p>}
+              <p>This device can keep an offline copy of approved collections, including their files and current account/member information. Access applies only to the collections you allow.</p>
+              {pairing.fingerprint && <p>Device key: <code>{pairing.fingerprint}</code></p>}
+            </details>}
           </>
         ) : deepLink ? (
           <>

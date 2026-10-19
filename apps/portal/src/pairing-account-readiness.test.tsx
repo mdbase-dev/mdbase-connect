@@ -9,7 +9,7 @@ afterEach(() => vi.restoreAllMocks());
 function pairing(account_upgrade: DevicePairing["account_upgrade"] = null): DevicePairing {
   return { connector_name: "Notes", approved_at: null, installation_device: true,
     account_selection_confirmed: false, signed_in_account_email: "person@example.test",
-    app_origin: "https://notes.example", account_upgrade, collections: [] };
+    app_origin: "https://notes.example", account_upgrade, collections: [{ collection_id: "notes", display_name: "Notes", role: "owner" }] };
 }
 
 function inspect(value = pairing()) {
@@ -37,20 +37,21 @@ describe("account readiness before app consent", () => {
     const checkAgain = await screen.findByRole("button", { name: "Check again" });
     vi.mocked(api).mockResolvedValue({ pairing: pairing() });
     fireEvent.click(checkAgain);
-    expect(await screen.findByRole("button", { name: "Use this account" })).toBeEnabled();
+    expect(await screen.findByRole("listbox", { name: "Open in Notes" })).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled();
     await waitFor(() => expect(vi.mocked(api)).toHaveBeenCalledTimes(2));
     expect(vi.mocked(api).mock.calls.every(([, options]) => !options?.method || options.method === "GET")).toBe(true);
   });
 
   it("names a policy refusal rather than pretending the person cancelled", async () => {
     inspect();
-    await screen.findByRole("button", { name: "Use this account" });
+    fireEvent.change(await screen.findByRole("listbox", { name: "Open in Notes" }), { target: { value: "notes" } });
     vi.mocked(api).mockImplementation(async path => {
       if (path.endsWith("/select-account")) throw new ApiError(409, "Upgrade needed", "installation_legacy_backend", { upgrade: "not_scheduled" });
       if (path.endsWith("/deny")) return {};
       return { pairing: pairing() };
     });
-    fireEvent.click(screen.getByRole("button", { name: "Use this account" }));
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     expect(await screen.findByRole("heading", { name: "Account upgrade needed" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Sign-in cancelled" })).not.toBeInTheDocument();
     expect(screen.getByText(/support@mdbase\.dev/)).toHaveClass("mdbase-connect-lead");
@@ -59,18 +60,18 @@ describe("account readiness before app consent", () => {
 
   it("keeps retryable failures actionable without labelling them cancelled", async () => {
     inspect();
-    await screen.findByRole("button", { name: "Use this account" });
+    fireEvent.change(await screen.findByRole("listbox", { name: "Open in Notes" }), { target: { value: "notes" } });
     vi.mocked(api).mockRejectedValue(new TypeError("Failed to fetch"));
-    fireEvent.click(screen.getByRole("button", { name: "Use this account" }));
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/connection and try again/);
-    expect(screen.getByRole("button", { name: "Use this account" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
     expect(screen.queryByRole("heading", { name: "Sign-in cancelled" })).not.toBeInTheDocument();
     expect(vi.mocked(api).mock.calls.some(([path]) => path.endsWith("/deny"))).toBe(false);
   });
 
   it("retains the original collection form and explicit resume after a lost creation reply", async () => {
-    const original = { ...pairing(), account_selection_confirmed: true, attested: true,
+    const original = { ...pairing(), account_selection_confirmed: true, account_email: "person@example.test", attested: true,
       fingerprint: "1234-5678-1234-5678", can_create_collection: true,
       creation: { collection_id: "original", display_name: "Original name", completed: false } };
     inspect(original);

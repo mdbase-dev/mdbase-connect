@@ -12,7 +12,7 @@ for (const width of [1280, 390]) test(`names account readiness and policy refusa
       if (action === "select-account") return route.fulfill({status:409,json:{error:{code:"installation_legacy_backend",message:"Upgrade needed",details:{upgrade:"not_scheduled"}}}});
       return route.fulfill({json:{ok:true}});
     }
-    return route.fulfill({json:{pairing:{connector_name:"Reader",approved_at:null,installation_device:true,account_selection_confirmed:false,signed_in_account_email:"fixture@example.test",account_upgrade:upgrade,collections:[]}}});
+    return route.fulfill({json:{pairing:{connector_name:"Reader",approved_at:null,installation_device:true,account_selection_confirmed:false,signed_in_account_email:"fixture@example.test",account_upgrade:upgrade,collections:[{collection_id:"notes",display_name:"Notes",role:"owner"}]}}});
   });
   await page.goto(`${authPortal}/pair/00000000-0000-4000-8000-000000000001`);
   await expect(page.getByRole("heading",{name:"Account upgrade needed"})).toBeVisible();
@@ -20,7 +20,9 @@ for (const width of [1280, 390]) test(`names account readiness and policy refusa
   expect(mutations).toEqual([]);
   upgrade = null;
   await page.getByRole("button",{name:"Check again"}).click();
-  await page.getByRole("button",{name:"Use this account"}).click();
+  await page.getByRole("listbox",{name:"Open in Reader"}).selectOption("notes");
+  expect(mutations).toEqual([]);
+  await page.getByRole("button",{name:"Approve",exact:true}).click();
   await expect(page.getByRole("heading",{name:"Account upgrade needed"})).toBeVisible();
   await expect(page.getByRole("heading",{name:"Sign-in cancelled"})).toHaveCount(0);
   await expect(page.locator(".mdbase-connect-lead",{hasText:"support@mdbase.dev"})).toBeVisible();
