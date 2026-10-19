@@ -4,6 +4,7 @@
  */
 export { CollectionGate, CollectionPanel, CollectionProblem } from "./collections/CollectionGate.js";
 export type { AppCollectionContext, CollectionExtraActions, CollectionGateOwnProps, CollectionGateProps, CollectionPanelProps, CollectionProblemProps } from "./collections/CollectionGate.js";
+export { CollectionSaveWarning, useCollectionSaveWarning } from "./collections/CollectionSaveWarning.js";
 export { CollectionSwitcher } from "./collections/CollectionSwitcher.js";
 export type { CollectionSwitcherProps } from "./collections/CollectionSwitcher.js";
 export { SetupReview as CollectionSetupReview } from "./collections/SetupReview.js";

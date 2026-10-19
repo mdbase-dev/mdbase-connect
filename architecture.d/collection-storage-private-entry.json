@@ -1,0 +1,9 @@
+{
+  "reason": "Restore the existing shared CollectionSaveWarning component and hook, their gate context and SDK-owned Private collection entry so Reader, TaskNotes and Editor retain their deployed UI API.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 2,
+    "typeScriptExportDeclarations": 4,
+    "packages/app-ui": 1
+  }
+}

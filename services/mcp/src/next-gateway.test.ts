@@ -62,7 +62,7 @@ describe("NextGateway", () => {
   });
 
   it("falls back to the legacy authority without a next control plane or route target", async () => {
-    for (const route of [{ status: 404, body: {} }, { status: 200, body: { collection: "col-1", grant: "g", targets: [] } }]) {
+    for (const route of [{ status: 404, body: {} }, { status: 405, body: {} }, { status: 200, body: { collection: "col-1", grant: "g", targets: [] } }]) {
       const f = await fixture([route]);
       expect(await f.gateway.run(connection, "access", "query", {}, "req-1")).toBe(LEGACY);
       expect(await f.gateway.run(connection, "access", "query", {}, "req-2")).toBe(LEGACY);
