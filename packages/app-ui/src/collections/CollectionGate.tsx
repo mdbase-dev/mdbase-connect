@@ -176,7 +176,7 @@ function GateBody({ ui, extraActions, onDialog }: {
       return <>
         {view.notice && <NoticeBlock notice={view.notice} ui={ui} variant="inline" />}
         <div className="mdbase-collections-actions">
-          <ActionButton tone="primary" inert={inert} progress={busy === "sign_in" ? copy.addingCollection : null} onClick={actions.signIn}>{copy.signIn}</ActionButton>
+          <ActionButton tone="primary" inert={inert} progress={busy === "sign_out" ? copy.signingOut : busy === "sign_in" ? copy.addingCollection : null} onClick={actions.signIn}>{copy.signIn}</ActionButton>
           {extraActions}
         </div>
         <AppSections ui={ui} onDialog={onDialog} />
