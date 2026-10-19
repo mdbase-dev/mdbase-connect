@@ -46,14 +46,17 @@ export async function auditPortalInstallationApproval(localPage, origin) {
     return route.fulfill({json: {ok: true}});
   });
   const url = `${origin}/pair/00000000-0000-4000-8000-000000000001`;
-  const picker = () => page.getByRole("listbox", {name: "Open in TaskNotes", exact: true});
-  const selectedLabel = () => picker().locator("option:checked").innerText();
-  const approve = () => page.getByRole("button", {name: "Approve", exact: true});
+  const picker = () => page.getByRole("combobox", {name: "Open in TaskNotes", exact: true});
+  const list = () => page.getByRole("listbox", {name: "Open in TaskNotes", exact: true});
+  const approve = () => page.getByRole("button", {name: /^Open TaskNotes(?: with .+)?$/});
   const load = async hint => {
     pairing = structuredClone(base); posts = []; failCreation = false; loseApproval = false; holdAttestation = false;
     await page.goto(`${url}${hint ? `?collection_hint=${hint}` : ""}`); await picker().waitFor();
   };
-  const choose = async name => { await picker().selectOption({label: name}); };
+  const choose = async name => {
+    if (name === "Create a new collection…") await page.getByRole("button", {name, exact:true}).click();
+    else await list().getByRole("option", {name, exact:true}).click();
+  };
   const done = () => page.getByRole("heading", {name: "Access approved", exact: true}).waitFor();
   try {
     await load();
@@ -61,7 +64,7 @@ export async function auditPortalInstallationApproval(localPage, origin) {
     holdAttestation = true;
     await page.reload(); await picker().waitFor();
     assert.equal(await page.getByRole("button", {name:"Use this account",exact:true}).count(), 0);
-    assert.equal(await picker().inputValue(), "");
+    assert.equal(await picker().getAttribute("data-value"), "");
     assert.equal(posts.length, 0, "the first-party catalog preview never selects an account");
     await page.getByText("Details", {exact:true}).click();
     await page.getByText("Requested by TaskNotes. No requesting origin is available.", {exact:true}).waitFor();
@@ -75,8 +78,7 @@ export async function auditPortalInstallationApproval(localPage, origin) {
     assert.equal(await page.locator(".installation-details").getByText(base.fingerprint, {exact:true}).count(), 1, "done retains the informational device key under Details");
     assert.deepEqual(posts.map(post => post.path.split("/").at(-1)), ["select-account","approve"], "one confirm waits for attestation and performs the original approval");
     assert.deepEqual(posts[1].body, {fingerprint:base.fingerprint,collection_ids:[first],create_collections:true,selected_collection_id:first});
-    // The inline native list replaces the popover: no upward-flipping layer can
-    // cover its filter, including in a short approval popup with a long catalog.
+    // The searchable inline list never covers the input, even in a short popup.
     for (const colorScheme of ["light", "dark"]) {
       await page.emulateMedia({colorScheme, reducedMotion: "no-preference"});
       for (const viewport of [{width: 639, height: 444}, {width: 390, height: 844}, {width: 320, height: 568}]) {
@@ -85,29 +87,36 @@ export async function auditPortalInstallationApproval(localPage, origin) {
           collection_id: `${index.toString(16).padStart(8, "0")}-4444-4444-8444-444444444444`,
           display_name: `Fixture collection ${index}`, role: "owner"
         })));
-        await page.reload(); await picker().waitFor(); await picker().focus();
-        await picker().evaluate(list => list.scrollIntoView({block: "center"}));
-        const appearance = await picker().evaluate(list => {
-          const box = list.getBoundingClientRect();
-          return {rows: list.size, width: box.width, height: box.height,
+        await page.reload(); await picker().waitFor();
+        await list().evaluate(element => element.scrollIntoView({block: "center"}));
+        const appearance = await list().evaluate(element => {
+          const box = element.getBoundingClientRect();
+          return {width: box.width, height: box.height,
             fits: box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight};
         });
-        assert.ok(appearance.rows > 1, "the collection list is inline, not a dropdown");
+        assert.equal(await list().getByRole("option").count(), pairing.collections.length, "all candidates are inline");
         assert.ok(appearance.width > 0 && appearance.height > 0 && appearance.fits, "long picker is bounded by the popup viewport");
-        const search = page.getByRole("searchbox", {name: "Find a collection", exact: true});
+        const search = picker();
+        await search.scrollIntoViewIfNeeded();
         assert.equal(await search.evaluate(input => {
           const box = input.getBoundingClientRect();
           return document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2) === input;
         }), true, "collection search stays pointer-reachable while the long picker is open; Escape is not required");
         await search.click(); await search.fill("fixture collection 60");
-        assert.equal(await picker().locator("option").count(), 3, "filter leaves only the disabled placeholder, creation and the matching collection");
-        assert.equal(await picker().inputValue(), "", "filtering never chooses a collection");
+        assert.equal(await list().getByRole("option").count(), 1, "filter leaves only the matching collection");
+        assert.equal(await picker().getAttribute("data-value"), "", "filtering never chooses a collection");
         await page.getByRole("option", {name: "Fixture collection 60", exact: true}).waitFor();
         await search.fill("");
-        assert.equal(await picker().locator("option").count(), pairing.collections.length + 2, "clearing search restores the full catalog");
+        assert.equal(await list().getByRole("option").count(), pairing.collections.length, "clearing search restores the full catalog");
         await picker().focus(); await page.keyboard.press("p");
-        assert.equal(await picker().inputValue(), first, "native keyboard navigation selects Personal notes");
+        assert.equal(await picker().getAttribute("data-value"), "", "typing is not selection");
         await page.keyboard.press("Enter");
+        assert.equal(await picker().getAttribute("data-value"), "", "bare Enter is not selection");
+        await search.fill("personal"); await page.keyboard.press("ArrowDown");
+        assert.equal(await picker().getAttribute("data-value"), "", "arrows only highlight");
+        await page.keyboard.press("Enter");
+        assert.equal(await picker().getAttribute("data-value"), first, "Enter commits the highlighted candidate");
+        assert.equal(await approve().innerText(), "Open TaskNotes with Personal notes");
         assert.equal(posts.length, 0, "focus, filtering and keyboard selection never approve or create a collection");
       }
     }
@@ -135,18 +144,20 @@ export async function auditPortalInstallationApproval(localPage, origin) {
       }
     }
     await load(first);
-    assert.equal(await picker().inputValue(), first, "eligible link target is preselected");
+    assert.equal(await picker().getAttribute("data-value"), "", "even an eligible link target requires explicit selection");
+    assert.equal(await approve().isEnabled(), false);
     assert.equal(posts.length, 0, "a hint never triggers approval");
     await choose("Work notes"); await approve().click(); await done();
     assert.deepEqual(posts.map(post => post.body), [{fingerprint: base.fingerprint, collection_ids: [second], create_collections: true, selected_collection_id: second}], "choose another overrides the requested hint without granting it");
     await load(created);
-    assert.equal(await picker().inputValue(), "", "unavailable hint does not reveal a name or select another collection");
+    assert.equal(await picker().getAttribute("data-value"), "", "unavailable hint does not reveal a name or select another collection");
     assert.equal(await approve().isEnabled(), false);
     assert.equal(posts.length, 0);
     await load(first);
     pairing.creation = {collection_id: created, display_name: "Original name", completed: false};
     await page.reload(); await picker().waitFor();
-    assert.equal(await selectedLabel(), "Create a new collection…", "original creation overrides a hint");
+    assert.equal(await picker().getAttribute("data-value"), "", "unfinished creation is not preselected");
+    await choose("Create a new collection…");
     assert.equal(await page.getByLabel("New collection name", {exact: true}).inputValue(), "Original name", "original creation keeps the server's name");
     assert.equal(await page.getByLabel("New collection name", {exact: true}).getAttribute("readonly"), "");
     assert.equal(posts.length, 0);

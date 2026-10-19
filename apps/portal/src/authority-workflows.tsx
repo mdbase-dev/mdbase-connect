@@ -6,8 +6,9 @@ import {
   type DevicePairing,
   type FileAction,
 } from "./api";
-import { finishDeniedPairing, initialInstallationCollection, installationAccountLabel, installationRefusal, message, NEW_COLLECTION, pairingInspectionPath } from "./portal-model";
+import { finishDeniedPairing, rememberCollection, installationAccountLabel, installationRefusal, message, NEW_COLLECTION, pairingInspectionPath } from "./portal-model";
 import { Loading, PageBrand } from "./portal-ui";
+import { CollectionPicker } from "./CollectionPicker";
 import { watchPairingPreparation } from "./pairing-progress";
 import { Checkbox, CheckboxGroup } from "@mdbase-dev/ui/checkbox";
 import { Select } from "@mdbase-dev/ui/select";
@@ -40,7 +41,6 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   const [createCollections,setCreateCollections] = useState(false);
   const [allowReminders,setAllowReminders] = useState(false);
   const [selectedCollectionId,setSelectedCollectionId] = useState("");
-  const [collectionSearch,setCollectionSearch] = useState("");
   const [newCollectionName,setNewCollectionName] = useState("");
   const [removingId,setRemovingId] = useState("");
   const [revokingId,setRevokingId] = useState("");
@@ -59,7 +59,6 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     setCreateCollections(false);
     setAllowReminders(false);
     setSelectedCollectionId("");
-    setCollectionSearch("");
     setNewCollectionName("");
     setDeepLink("");
     setError("");
@@ -74,7 +73,6 @@ export function Pairing({ pairingId }: { pairingId: string }) {
         if (current !== generation.current) return;
         setPairing(value.pairing);
         setCollectionIds([...new Set([...(value.pairing.retained_collection_ids??[]),...(value.pairing.approved_collection_ids??[])])]);
-        setSelectedCollectionId(initialInstallationCollection(value.pairing));
         setNewCollectionName(value.pairing.creation?.display_name ?? "");
         setCreateCollections(value.pairing.retained_create_collections || value.pairing.approved_create_collections || value.pairing.requested_create_collections || false);
         setAllowReminders(value.pairing.timer_consent === true);
@@ -188,6 +186,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
         if (finishDeniedPairing(pairing, window) === "cancelled") setOutcome("cancelled");
         return;
       }
+      if (action === "approve" && pairing.installation_device && !pairing.file_access) rememberCollection(selected);
       if (action==="approve" && result.native_authorization_uri) {
         const target=new URL(result.native_authorization_uri,location.origin);
         if (target.origin!==location.origin || target.pathname!=="/oauth/authorize" || target.searchParams.get("request_id")!==approval.native_authorization_id) throw new Error("The original app approval changed.");
@@ -260,11 +259,9 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   const refusal = outcome && outcome !== "cancelled" ? outcome : pairing.account_upgrade
     ? installationRefusal({ code: "installation_legacy_backend", details: { upgrade: pairing.account_upgrade } }, pairing.connector_name)
     : null;
-  const privateChoice=pairing.collections?.some(c=>c.collection_id===selectedCollectionId && c.kind==="private")===true;
-  const collectionQuery = collectionSearch.trim().toLocaleLowerCase();
-  const matchingCollections = (pairing.collections ?? []).filter(collection => collection.display_name.toLocaleLowerCase().includes(collectionQuery));
-  // Searching narrows candidates, never changes the user's current approval choice.
-  const visibleCollections = (pairing.collections ?? []).filter(collection => collection.collection_id === selectedCollectionId || matchingCollections.includes(collection));
+  const selectedCollection=pairing.collections?.find(collection=>collection.collection_id===selectedCollectionId);
+  const privateChoice=selectedCollection?.kind==="private";
+  const selectedName=selectedCollectionId===NEW_COLLECTION ? newCollectionName.trim() || "a new collection" : selectedCollection?.display_name;
   if (installation && !pairing.approved_at && !declined && outcome !== "cancelled" && refusal) {
     return <main className="mdbase-connect-screen installation-approval"><section>
       <PageBrand label="connect" error={error} />
@@ -355,20 +352,14 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                   </>
                 )}
                 {pairing.account_selection_confirmed && !pairing.attested && <p role="status">{preparationError || `Preparing ${pairing.connector_name}…`}</p>}
-                    <label className="installation-choice">
-                      <span>Find a collection</span>
-                      <input type="search" value={collectionSearch} disabled={busy} placeholder="Search by name" onChange={event => setCollectionSearch(event.currentTarget.value)} />
-                    </label>
-                    <label className="installation-choice">
-                      <span>Open in {pairing.connector_name}</span>
-                      <select className="installation-collection-list" aria-label={`Open in ${pairing.connector_name}`} disabled={busy} size={6} value={selectedCollectionId}
-                        onChange={event => setSelectedCollectionId(event.currentTarget.value)}>
-                        <option value="" disabled>Choose a collection</option>
-                        {pairing.can_create_collection && !pairing.creation?.completed && <option value={NEW_COLLECTION}>Create a new collection…</option>}
-                        {visibleCollections.map(collection => <option key={collection.collection_id} value={collection.collection_id}>{collection.display_name}</option>)}
-                      </select>
-                    </label>
-                    {collectionQuery && matchingCollections.length === 0 && <p role="status">No collections match. Try another name; your current choice stays selected.</p>}
+                    <CollectionPicker
+                      label={`Open in ${pairing.connector_name}`}
+                      collections={(pairing.collections ?? []).map(collection=>({id:collection.collection_id,name:collection.display_name,kind:collection.kind,
+                        hint:collection.role==="owner"?"Owner":collection.role?"Shared with you":undefined}))}
+                      value={selectedCollectionId} onChoose={setSelectedCollectionId} disabled={busy}
+                      onCreate={pairing.can_create_collection && !pairing.creation?.completed ? ()=>setSelectedCollectionId(NEW_COLLECTION) : undefined}
+                      creationSelected={selectedCollectionId===NEW_COLLECTION}
+                    />
                     {selectedCollectionId === NEW_COLLECTION && <div className="installation-choice">
                       <label htmlFor="installation-collection-name">New collection name</label>
                       <input id="installation-collection-name" aria-describedby="installation-collection-note" value={newCollectionName} maxLength={200} disabled={busy} readOnly={!!pairing.creation} onChange={event=>setNewCollectionName(event.target.value)} />
@@ -412,7 +403,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     <button className="mdbase-button is-primary"
                       disabled={busy || !installationAccountLabel(pairing) || !selectedCollectionId || (selectedCollectionId===NEW_COLLECTION ? !pairing.can_create_collection || !newCollectionName.trim() : !pairing.collections?.some(collection=>collection.collection_id===selectedCollectionId))}
                       onClick={()=>void act("approve")}>
-                      {busy ? "Approving…" : "Approve"}
+                      {busy ? "Approving…" : selectedName ? `Open ${pairing.connector_name} with ${selectedName}` : `Open ${pairing.connector_name}`}
                     </button>
                 <div className="decision-actions">
                   <button

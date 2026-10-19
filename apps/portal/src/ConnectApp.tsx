@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState, Component, type FormEvent, ty
 import { AccountManagement, DeletedAccount } from "./AccountManagement";
 import {readCollectionCreation, keepCollectionCreation, finishCollectionCreation, type CollectionCreationIntent} from "./collection-creation-intent";
 import { Brand, ThemeMenu } from "./portal-ui";
+import { readRememberedCollection, rememberCollection } from "./portal-model";
 import { MdbaseMark } from "@mdbase-dev/ui/brand";
 
 import {
@@ -847,18 +848,6 @@ function collectionInvitationUrl(token: string): string {
   const url = new URL("/", management.baseUrl);
   url.hash = new URLSearchParams({ "collection-invitation": token }).toString();
   return url.href;
-}
-
-function collectionPreferenceKey(): string {
-  return `mdbase-connect:last-collection:${new URL(management.baseUrl).origin}`;
-}
-
-function readRememberedCollection(): string | null {
-  try { return localStorage.getItem(collectionPreferenceKey()); } catch { return null; }
-}
-
-function rememberCollection(collectionId: string): void {
-  try { localStorage.setItem(collectionPreferenceKey(), collectionId); } catch { /* Storage is optional. */ }
 }
 
 function permissionSummary(grants: Grant[]): string {

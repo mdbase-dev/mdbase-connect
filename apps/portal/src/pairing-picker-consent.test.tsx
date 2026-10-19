@@ -26,29 +26,29 @@ async function fixture(extra: Partial<DevicePairing> = {}) {
   const view = render(<Pairing pairingId="original" />);
   const picker = await screen.findByRole("listbox", { name: "Open in Reader" });
   const posts = () => vi.mocked(api).mock.calls.filter(([, options]) => options?.method === "POST");
-  const choose = () => fireEvent.change(picker, { target: { value: "notes" } });
+  const choose = () => fireEvent.click(screen.getByRole("option", { name: extra.collections?.[0]?.display_name ?? "Notes" }));
   return { ...view, picker, posts, choose, attest: () => { attested = true; }, remove: () => { catalog = []; } };
 }
 
 describe("one explicit collection consent", () => {
   it("lands directly on the picker with app/origin/warning, and no account or approval mutation", async () => {
     const f = await fixture();
-    expect(f.picker).toHaveAttribute("size", "6");
-    expect(f.picker).toHaveValue("");
-    expect(screen.getByRole("option", { name: "Choose a collection" })).toBeDisabled();
+    expect(f.container.querySelector("select")).toBeNull();
+    expect(screen.getByRole("combobox", { name: "Open in Reader" })).toBeInTheDocument();
+    expect(screen.queryAllByRole("option", { selected: true })).toEqual([]);
     expect(screen.queryByRole("button", { name: "Use this account" })).not.toBeInTheDocument();
     expect(screen.queryByText(/mdbase was upgraded/)).not.toBeInTheDocument();
     expect(screen.getByText(/Approve only if you started sign-in/)).toHaveTextContent("https://reader.example");
     expect(screen.getByText("Details")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled();
-    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Notes" } });
+    expect(screen.getByRole("button", { name: /^Open Reader(?: with .+)?$/ })).toBeDisabled();
+    fireEvent.change(screen.getByRole("combobox", { name: "Open in Reader" }), { target: { value: "Notes" } });
     f.choose(); fireEvent.keyDown(f.picker, { key: "Enter" });
     expect(f.posts()).toEqual([]);
   });
 
   it("one confirm selects the account, waits for actual attestation, then approves the selected collection", async () => {
     const f = await fixture(); f.choose(); vi.useFakeTimers();
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Open Reader(?: with .+)?$/ }));
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     expect(f.posts().map(([path]) => path.split("/").at(-1))).toEqual(["select-account"]);
     expect(screen.getByRole("button", { name: "Approving…" })).toBeDisabled();
@@ -67,7 +67,7 @@ describe("one explicit collection consent", () => {
       if (path.endsWith("/approve")) await new Promise<void>(resolve => { finish = resolve; });
       return implementation(path, options);
     });
-    vi.useFakeTimers(); fireEvent.click(screen.getByRole("button", { name: "Approve" })); f.attest();
+    vi.useFakeTimers(); fireEvent.click(screen.getByRole("button", { name: /^Open Reader(?: with .+)?$/ })); f.attest();
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
     expect(screen.getByRole("button", { name: "Approving…" })).toBeDisabled();
     expect(screen.getByText("1234-5678").closest("details")).toHaveClass("installation-details");
@@ -79,7 +79,7 @@ describe("one explicit collection consent", () => {
 
   it("stops at the bounded preparation deadline; reads and explicit retry never replay approval", async () => {
     const f = await fixture(); f.choose(); vi.useFakeTimers();
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Open Reader(?: with .+)?$/ }));
     await act(async () => { await vi.advanceTimersByTimeAsync(30_001); });
     expect(screen.getByRole("alert")).toHaveTextContent(/couldn't prepare Reader/);
     expect(f.posts()).toHaveLength(1);
@@ -94,7 +94,7 @@ describe("one explicit collection consent", () => {
     const implementation = vi.mocked(api).getMockImplementation()!;
     let hung = true;
     vi.mocked(api).mockImplementation((path, options) => options?.method === "POST" || !hung ? implementation(path, options) : new Promise(() => {}));
-    vi.useFakeTimers(); fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    vi.useFakeTimers(); fireEvent.click(screen.getByRole("button", { name: /^Open Reader(?: with .+)?$/ }));
     await act(async () => { await vi.advanceTimersByTimeAsync(30_001); });
     expect(screen.getByRole("alert")).toHaveTextContent(/couldn't prepare Reader/);
     expect(f.posts()).toHaveLength(1);
@@ -106,16 +106,32 @@ describe("one explicit collection consent", () => {
 
   it("does not treat the successful-call marker as server account-confirmation authority", async () => {
     const f = await fixture({account_selection_confirmed:false}); f.choose(); vi.useFakeTimers();
-    fireEvent.click(screen.getByRole("button", { name: "Approve" })); f.attest();
+    fireEvent.click(screen.getByRole("button", { name: /^Open Reader(?: with .+)?$/ })); f.attest();
     await act(async () => { await vi.advanceTimersByTimeAsync(30_001); });
     expect(screen.getByRole("alert")).toHaveTextContent(/couldn't prepare Reader/);
     expect(f.posts().map(([path]) => path.split("/").at(-1))).toEqual(["select-account"]);
   });
 
+  it("lists cloud and Private together, labels Private, and never selects a server hint on load", async () => {
+    const f = await fixture({collection_hint:"private", selected_collection_id:"private", collections:[
+      {collection_id:"notes",display_name:"Notes",role:"owner"},
+      {collection_id:"private",display_name:"Private notes",role:"member",kind:"private"},
+    ]});
+    expect(screen.getAllByRole("listbox")).toHaveLength(1);
+    expect(screen.getAllByRole("option")).toHaveLength(2);
+    const privateRow = screen.getByRole("option", {name:"Private notes"});
+    expect(privateRow).toHaveAccessibleDescription("Private · Shared with you");
+    expect(screen.queryAllByRole("option", {selected:true})).toEqual([]);
+    expect(screen.getByRole("button", {name:"Open Reader"})).toBeDisabled();
+    fireEvent.click(privateRow);
+    expect(screen.getByRole("button", {name:"Open Reader with Private notes"})).toBeEnabled();
+    expect(f.posts()).toEqual([]);
+  });
+
   it("waits for the original native companion, not just its catalog entry and attestation", async () => {
     const binding: Partial<DevicePairing> = {collections:[{collection_id:"notes",display_name:"Private notes",role:"owner",kind:"private"}],native_authorization_id:null};
     const f = await fixture(binding); f.choose(); vi.useFakeTimers();
-    fireEvent.click(screen.getByRole("button", { name: "Approve" })); f.attest();
+    fireEvent.click(screen.getByRole("button", { name: /^Open Reader(?: with .+)?$/ })); f.attest();
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
     expect(f.posts()).toHaveLength(1);
     binding.native_authorization_id = "original-native";
@@ -125,7 +141,7 @@ describe("one explicit collection consent", () => {
 
   it("never approves after the displayed account identity changes", async () => {
     const f = await fixture({account_email:"changed@example.test"}); f.choose(); vi.useFakeTimers();
-    fireEvent.click(screen.getByRole("button", { name: "Approve" })); f.attest();
+    fireEvent.click(screen.getByRole("button", { name: /^Open Reader(?: with .+)?$/ })); f.attest();
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
     expect(screen.getByRole("alert")).toHaveTextContent(/signed-in account changed/);
     expect(f.posts()).toHaveLength(1);
@@ -133,7 +149,7 @@ describe("one explicit collection consent", () => {
 
   it("never approves a collection withdrawn while preparing", async () => {
     const f = await fixture(); f.choose(); vi.useFakeTimers();
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Open Reader(?: with .+)?$/ }));
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     f.remove(); f.attest();
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
@@ -143,7 +159,7 @@ describe("one explicit collection consent", () => {
 
   it("cancels the pending original confirmation on unmount", async () => {
     const f = await fixture(); f.choose(); vi.useFakeTimers();
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Open Reader(?: with .+)?$/ }));
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     f.unmount(); f.attest();
     await act(async () => { await vi.advanceTimersByTimeAsync(30_001); });
