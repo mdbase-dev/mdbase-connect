@@ -38,21 +38,22 @@ describe("account readiness before app consent", () => {
     const checkAgain = await screen.findByRole("button", { name: "Check again" });
     vi.mocked(api).mockResolvedValue({ pairing: pairing() });
     fireEvent.click(checkAgain);
-    expect(await screen.findByRole("listbox", { name: "Open in Notes" })).toHaveValue("");
-    expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled();
+    await screen.findByRole("combobox", { name: "Open in Notes" });
+    expect(screen.queryAllByRole("option", { selected: true })).toEqual([]);
+    expect(screen.getByRole("button", { name: /^Open Notes(?: with .+)?$/ })).toBeDisabled();
     await waitFor(() => expect(vi.mocked(api)).toHaveBeenCalledTimes(2));
     expect(vi.mocked(api).mock.calls.every(([, options]) => !options?.method || options.method === "GET")).toBe(true);
   });
 
   it("names a policy refusal rather than pretending the person cancelled", async () => {
     inspect();
-    fireEvent.change(await screen.findByRole("listbox", { name: "Open in Notes" }), { target: { value: "notes" } });
+    fireEvent.click(await screen.findByRole("option", { name: "Notes" }));
     vi.mocked(api).mockImplementation(async path => {
       if (path.endsWith("/select-account")) throw new ApiError(409, "Upgrade needed", "installation_legacy_backend", { upgrade: "not_scheduled" });
       if (path.endsWith("/deny")) return {};
       return { pairing: pairing() };
     });
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Open Notes(?: with .+)?$/ }));
     expect(await screen.findByRole("heading", { name: "Account upgrade needed" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Sign-in cancelled" })).not.toBeInTheDocument();
     expect(screen.getByText(/support@mdbase\.dev/)).toHaveClass("mdbase-connect-lead");
@@ -61,11 +62,11 @@ describe("account readiness before app consent", () => {
 
   it("keeps retryable failures actionable without labelling them cancelled", async () => {
     inspect();
-    fireEvent.change(await screen.findByRole("listbox", { name: "Open in Notes" }), { target: { value: "notes" } });
+    fireEvent.click(await screen.findByRole("option", { name: "Notes" }));
     vi.mocked(api).mockRejectedValue(new TypeError("Failed to fetch"));
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Open Notes(?: with .+)?$/ }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/connection and try again/);
-    expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /^Open Notes(?: with .+)?$/ })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
     expect(screen.queryByRole("heading", { name: "Sign-in cancelled" })).not.toBeInTheDocument();
     expect(vi.mocked(api).mock.calls.some(([path]) => path.endsWith("/deny"))).toBe(false);
@@ -76,16 +77,16 @@ describe("account readiness before app consent", () => {
       fingerprint: "1234-5678-1234-5678", can_create_collection: true,
       creation: { collection_id: "original", display_name: "Original name", completed: false } };
     inspect(original);
-    await screen.findByRole("button", { name: "Approve" });
+    fireEvent.click(await screen.findByRole("button", { name: "Create a new collection…" }));
     vi.mocked(api).mockImplementation(async (path, options) => {
       if (options?.method === "POST") throw new ApiError(503, "Creation is not finished");
       return { pairing: original };
     });
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Open Notes(?: with .+)?$/ }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Creation is not finished");
     expect(screen.getByRole("textbox", { name: "New collection name" })).toHaveValue("Original name");
     expect(screen.getByRole("textbox", { name: "New collection name" })).toHaveAttribute("readonly");
-    expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /^Open Notes(?: with .+)?$/ })).toBeEnabled();
     expect(vi.mocked(api).mock.calls.filter(([, options]) => options?.method === "POST")).toHaveLength(1);
   });
 

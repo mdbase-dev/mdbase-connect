@@ -3,43 +3,57 @@ import { describe, expect, it, vi } from "vitest";
 import { Pairing } from "./authority-workflows";
 import { api } from "./api";
 vi.mock("./api", async importOriginal => ({...await importOriginal<typeof import("./api")>(),api:vi.fn()}));
-const collections = [...Array.from({length:60},(_,i)=>({collection_id:`collection-${i}`,display_name:`[test] Notes ${i}`,role:"owner"})),{collection_id:"named-new",display_name:"New collection",role:"owner"},{collection_id:"named-create",display_name:"create collection",role:"owner"}];
-function show(canCreate=true, selected="") {
+const collections = [...Array.from({length:160},(_,i)=>({collection_id:`collection-${i}`,display_name:`[test] Notes ${i}`,role:"owner"})),{collection_id:"named-new",display_name:"New collection",role:"owner"},{collection_id:"named-create",display_name:"create collection",role:"owner"}];
+async function show(canCreate=true, selected="", hint=selected) {
   vi.mocked(api).mockClear();
-  vi.mocked(api).mockResolvedValue({pairing:{connector_name:"Reader",approved_at:null,installation_device:true,kind:"app-runtime",account_selection_confirmed:true,attested:true,account_email:"test@example.test",app_origin:"https://reader.example",selected_collection_id:selected,can_create_collection:canCreate,collections}});
-  render(<Pairing pairingId="pairing"/>);
-  return screen.findByRole("listbox",{name:"Open in Reader"});
+  vi.mocked(api).mockResolvedValue({pairing:{connector_name:"Reader",approved_at:null,installation_device:true,kind:"app-runtime",account_selection_confirmed:true,attested:true,account_email:"test@example.test",app_origin:"https://reader.example",selected_collection_id:selected,collection_hint:hint,can_create_collection:canCreate,collections}});
+  const view=render(<Pairing pairingId="pairing"/>);
+  return {...view,picker:await screen.findByRole("listbox",{name:"Open in Reader"}),input:screen.getByRole("combobox",{name:"Open in Reader"})};
 }
 describe("approval collection chooser",()=>{
-  it("pins explicit creation first, preserves stored names, and disables the empty placeholder",async()=>{
-    const picker=await show();
-    expect(picker).toHaveAttribute("size","6");
-    const options=within(picker).getAllByRole("option");
-    expect(options[0]).toHaveTextContent("Choose a collection");
-    expect(options[0]).toBeDisabled();
-    expect(options[1]).toHaveTextContent("Create a new collection…");
+  it("replaces the native select with one combobox/listbox and an explicit creation button",async()=>{
+    const f=await show();
+    expect(f.container.querySelector("select")).toBeNull();
+    expect(within(f.picker).getAllByRole("option")).toHaveLength(collections.length);
+    expect(screen.getByRole("button",{name:"Create a new collection…"})).toBeInTheDocument();
     expect(screen.getByRole("option",{name:"New collection"})).toBeInTheDocument();
     expect(screen.getByRole("option",{name:"create collection"})).toBeInTheDocument();
-    expect(picker).toHaveValue("");
+    expect(screen.queryAllByRole("option",{selected:true})).toEqual([]);
+    expect(screen.getByRole("button",{name:"Open Reader"})).toBeDisabled();
   });
-  it("filters the visible list without Escape, auto-selection or approval",async()=>{
-    const picker=await show();picker.focus();
-    fireEvent.change(screen.getByRole("searchbox",{name:"Find a collection"}),{target:{value:"notes 59"}});
-    expect(within(picker).getAllByRole("option")).toHaveLength(3);
-    expect(screen.getByRole("option",{name:"[test] Notes 59"})).toBeInTheDocument();
-    expect(picker).toHaveValue("");expect(vi.mocked(api)).toHaveBeenCalledTimes(1);
+  it("filters without Escape, auto-selection or approval and names the explicit choice",async()=>{
+    const f=await show();f.input.focus();
+    fireEvent.change(f.input,{target:{value:"notes 159"}});
+    expect(within(f.picker).getAllByRole("option")).toHaveLength(1);
+    fireEvent.keyDown(f.input,{key:"Enter"});expect(screen.queryAllByRole("option",{selected:true})).toEqual([]);
+    fireEvent.keyDown(f.input,{key:"ArrowDown"});expect(screen.queryAllByRole("option",{selected:true})).toEqual([]);
+    fireEvent.keyDown(f.input,{key:"Enter"});
+    expect(screen.getByRole("option",{name:"[test] Notes 159"})).toHaveAttribute("aria-selected","true");
+    expect(screen.getByRole("button",{name:"Open Reader with [test] Notes 159"})).toBeEnabled();
+    expect(vi.mocked(api)).toHaveBeenCalledTimes(1);
   });
-  it("keeps the chosen collection visible when the query excludes it",async()=>{
-    const picker=await show(false,"collection-8");fireEvent.change(screen.getByRole("searchbox",{name:"Find a collection"}),{target:{value:"notes 59"}});
-    expect(picker).toHaveValue("collection-8");
-    expect(screen.getByRole("option",{name:"[test] Notes 8"})).toHaveProperty("selected",true);
-    expect(screen.queryByRole("option",{name:"Create a new collection…"})).not.toBeInTheDocument();
+  it("does not preselect a collection hint on a fresh approval",async()=>{
+    const f=await show(false,"","collection-8");
+    expect(screen.queryAllByRole("option",{selected:true})).toEqual([]);
+    expect(screen.getByRole("button",{name:"Open Reader"})).toBeDisabled();
+    expect(screen.queryByRole("button",{name:"Create a new collection…"})).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("option",{name:"[test] Notes 8"}));
+    fireEvent.change(f.input,{target:{value:"notes 159"}});
+    expect(screen.queryByRole("option",{name:"[test] Notes 8"})).not.toBeInTheDocument();
+    expect(screen.getByRole("button",{name:"Open Reader with [test] Notes 8"})).toBeEnabled();
     expect(vi.mocked(api)).toHaveBeenCalledTimes(1);
   });
   it("announces no matches and restores the catalog after clearing search",async()=>{
-    const picker=await show(false);const input=screen.getByRole("searchbox",{name:"Find a collection"});fireEvent.change(input,{target:{value:"absent-name"}});
-    expect(screen.getByRole("status")).toHaveTextContent("No collections match");fireEvent.change(input,{target:{value:""}});
-    expect(within(picker).getAllByRole("option")).toHaveLength(collections.length+1);
+    const f=await show(false);fireEvent.change(f.input,{target:{value:"absent-name"}});
+    expect(screen.getByRole("status")).toHaveTextContent("No collections match");fireEvent.change(f.input,{target:{value:""}});
+    expect(within(f.picker).getAllByRole("option")).toHaveLength(collections.length);
+  });
+  it("keeps creation an explicit choice with its named approval and no mutation from selection",async()=>{
+    await show();fireEvent.click(screen.getByRole("button",{name:"Create a new collection…"}));
+    expect(screen.getByRole("button",{name:"Open Reader with a new collection"})).toBeDisabled();
+    fireEvent.change(screen.getByRole("textbox",{name:"New collection name"}),{target:{value:"New notes"}});
+    expect(screen.getByRole("button",{name:"Open Reader with New notes"})).toBeEnabled();
+    expect(vi.mocked(api)).toHaveBeenCalledTimes(1);
   });
   async function privateChoice(native="native-request") {
     vi.mocked(api).mockClear();
@@ -50,13 +64,13 @@ describe("approval collection chooser",()=>{
       collections:[{collection_id:"original-private",display_name:"[test] Original Private",role:"owner",kind:"private"}],
     }});
     render(<Pairing pairingId="pairing"/>);
-    fireEvent.change(await screen.findByRole("listbox",{name:"Open in Reader"}),{target:{value:"original-private"}});
+    fireEvent.click(await screen.findByRole("option",{name:"[test] Original Private"}));
   }
-  it("uses the SAME chooser/Approve for Private without creating or granting Hosted scopes",async()=>{
+  it("uses the SAME chooser/confirm for Private without creating or granting Hosted scopes",async()=>{
     await privateChoice();
-    expect(screen.getByRole("listbox",{name:"Open in Reader"})).toHaveValue("original-private");
+    expect(screen.getByRole("option",{name:"[test] Original Private"})).toHaveAttribute("aria-selected","true");
     expect(screen.queryByText("Advanced: allow more collections")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button",{name:"Approve"}));
+    fireEvent.click(screen.getByRole("button",{name:"Open Reader with [test] Original Private"}));
     await waitFor(()=>expect(vi.mocked(api)).toHaveBeenCalledWith("/v1/pairing-requests/pairing/approve",expect.objectContaining({method:"POST"})));
     const approval=vi.mocked(api).mock.calls.find(([path])=>String(path).endsWith("/approve"))!;
     expect(JSON.parse(approval[1]!.body as string)).toEqual({fingerprint:"1234-5678-1234-5678",collection_ids:[],create_collections:false,selected_collection_id:"original-private",selected_collection_kind:"private"});
@@ -65,7 +79,7 @@ describe("approval collection chooser",()=>{
   it("does not approve Private from catalog metadata before its signed companion is prepared",async()=>{
     await privateChoice("");
     expect(screen.getByRole("status")).toHaveTextContent("Preparing Reader");
-    fireEvent.click(screen.getByRole("button",{name:"Approve"}));
+    fireEvent.click(screen.getByRole("button",{name:"Open Reader with [test] Original Private"}));
     await waitFor(() => expect(screen.getByRole("button",{name:"Approving…"})).toBeDisabled());
     expect(vi.mocked(api).mock.calls.some(([,options])=>options?.method==="POST")).toBe(false);
   });

@@ -3,30 +3,37 @@ import test from "node:test";
 import * as model from "./src/portal-model.ts";
 
 const a = "11111111-1111-4111-8111-111111111111";
-const b = "22222222-2222-4222-8222-222222222222";
-const pairing = { account_selection_confirmed: true, collection_hint: a, collections: [{ collection_id: a }, { collection_id: b }] };
 
 test("pairing inspection forwards only the collection hint, not other URL data", () => {
   assert.equal(model.pairingInspectionPath(a, `?collection_hint=${a}&return_to=%2F&token=do-not-forward`), `/v1/pairing-requests/${a}?collection_hint=${a}`);
   assert.equal(model.pairingInspectionPath(a, "?other=value"), `/v1/pairing-requests/${a}`);
 });
 
-test("pairing preselects an eligible hint only after explicit account confirmation", () => {
-  assert.equal(model.initialInstallationCollection(pairing), a);
-  assert.equal(model.initialInstallationCollection({ ...pairing, account_selection_confirmed: false }), "");
-  assert.equal(model.initialInstallationCollection({ ...pairing, collections: [{ collection_id: b }] }), "");
-  assert.equal(model.initialInstallationCollection({ ...pairing, collection_hint: null }), "");
+test("the existing last-used collection preference is shared with portal navigation", () => {
+  const location = Object.getOwnPropertyDescriptor(globalThis, "location"), storage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  const values = new Map();
+  try {
+    Object.defineProperty(globalThis, "location", { configurable: true, value: { origin: "https://connect.example" } });
+    Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) } });
+    assert.equal(model.readRememberedCollection(), null);
+    model.rememberCollection(a);
+    assert.equal(values.get("mdbase-connect:last-collection:https://connect.example"), a);
+    assert.equal(model.readRememberedCollection(), a);
+  } finally {
+    if (location) Object.defineProperty(globalThis, "location", location); else delete globalThis.location;
+    if (storage) Object.defineProperty(globalThis, "localStorage", storage); else delete globalThis.localStorage;
+  }
 });
 
-test("unknown hints do not fall back to the sole available collection", () => {
-  assert.equal(model.initialInstallationCollection({ ...pairing, collections: [{ collection_id: b }] }), "");
-  assert.equal(model.initialInstallationCollection({ account_selection_confirmed: true, collections: [{ collection_id: b }] }), "");
-});
-
-test("explicit approval and original creation take precedence over a hint", () => {
-  assert.equal(model.initialInstallationCollection({ ...pairing, selected_collection_id: b }), b);
-  assert.equal(model.initialInstallationCollection({ ...pairing, creation: { collection_id: b, completed: true } }), b);
-  assert.equal(model.initialInstallationCollection({ ...pairing, creation: { collection_id: b, completed: false } }), "new-collection");
+test("unavailable preference storage does not prevent choosing a collection", () => {
+  const storage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  try {
+    Object.defineProperty(globalThis, "localStorage", { configurable: true, get: () => { throw new Error("denied"); } });
+    assert.equal(model.readRememberedCollection(), null);
+    assert.doesNotThrow(() => model.rememberCollection(a));
+  } finally {
+    if (storage) Object.defineProperty(globalThis, "localStorage", storage); else delete globalThis.localStorage;
+  }
 });
 
 test("account refusals no retry can fix cancel the window in plain words; others stay retryable", () => {
