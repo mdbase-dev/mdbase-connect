@@ -28,6 +28,9 @@ suite("transactional membership policy and native sharing (isolated PostgreSQL)"
   let admin: pg.Pool;
   let schema: string;
   const app = Fastify();
+  // This suite checks the SQL/HTTP boundary; canonical emission has its own
+  // real-log suite. Assert that HTTP removal waits for this explicit seam.
+  const publishCommitted = vi.fn(async (_collection: string) => {});
 
   beforeAll(async () => {
     const url = new URL(testUrl!);
@@ -39,7 +42,8 @@ suite("transactional membership policy and native sharing (isolated PostgreSQL)"
     db = await createDatabase(url.toString());
     await app.register(cookie);
     registerErrorHandler(app);
-    registerHostedSharingRoutes(app, { db, hostedCollections: true, hostedSharing: true });
+    registerHostedSharingRoutes(app, { db, hostedCollections: true, hostedSharing: true,
+      nativePolicyEmitter: { publishCommitted } });
   }, 60_000);
 
   afterAll(async () => {
@@ -108,6 +112,7 @@ suite("transactional membership policy and native sharing (isolated PostgreSQL)"
     expect(changed.statusCode, changed.body).toBe(200);
     const removed = await app.inject({ method: "DELETE", url: `${base}/members/${membership}`, headers: ownerHeaders });
     expect(removed.statusCode, removed.body).toBe(200);
+    expect(publishCommitted).toHaveBeenCalledWith(f.collection);
     expect(await memberOps(f)).toEqual([
       { op: "member-set", account: f.member.id, role: "editor" },
       { op: "member-set", account: f.member.id, role: "viewer" },

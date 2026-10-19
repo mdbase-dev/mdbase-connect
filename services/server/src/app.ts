@@ -594,7 +594,8 @@ export async function buildApp(options: BuildOptions) {
     db: options.db,
     hostedCollections: options.hostedCollections,
     hostedSharing: options.hostedSharing,
-    tailscaleAuth: options.tailscaleAuth
+    tailscaleAuth: options.tailscaleAuth,
+    nativePolicyEmitter: nextPolicyEmitter
   });
   registerOnboardingRoutes(app, {
     db: options.db,

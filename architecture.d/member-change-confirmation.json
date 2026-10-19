@@ -1,0 +1,6 @@
+{
+  "reason": "Hosted sharing reuses the canonical PolicyEmitter publication contract and shared HTTP error formatter instead of adding another policy producer or error representation.",
+  "growth": {
+    "relativeImports": 2
+  }
+}

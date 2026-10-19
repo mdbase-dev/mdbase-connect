@@ -22,7 +22,9 @@ export async function nextDevicePeople(client: DatabaseConnection, connector: Co
   return nativeCollectionMembers(client,collection,issuer);
 }
 
-/** Current members of a native collection, from its acknowledged policy log. */
+/** Current members of a native collection, from its acknowledged policy log.
+ * Pending removals already deny the removed principal at admission, but must not
+ * tell the owner that native removal has completed before it reaches the log. */
 export async function nativeCollectionMembers(client: DatabaseQueryable, collection: string, issuer: string) {
   const profile = (row:{id:string;public_subject:string;name:string}) => ({issuer,subject:row.public_subject,name:row.name,account_id:row.id});
   const members = await client.query<{id:string;public_subject:string;name:string;role:"owner"|"editor"|"viewer"}>(
@@ -32,9 +34,9 @@ export async function nativeCollectionMembers(client: DatabaseQueryable, collect
        FROM next_policy_outbox o LEFT JOIN next_policy_batches b ON b.id=o.batch_id
        CROSS JOIN LATERAL jsonb_array_elements(o.ops->'ops') WITH ORDINALITY e(value,ord)
        WHERE o.collection_id=$1 AND e.value->>'account'=u.id::text
-         AND (e.value->>'op'='member-remove' OR (e.value->>'op'='member-set' AND b.state='appended' AND b.lost_at IS NULL))
-       ORDER BY CASE WHEN b.state='appended' AND b.lost_at IS NULL THEN 0 ELSE 1 END DESC,
-         b.seq DESC NULLS LAST,o.id DESC,e.ord DESC LIMIT 1
+         AND e.value->>'op' IN ('member-remove','member-set')
+         AND b.state='appended' AND b.lost_at IS NULL
+       ORDER BY b.seq DESC,o.id DESC,e.ord DESC LIMIT 1
      ) m ON m.op='member-set' WHERE u.suspended_at IS NULL ORDER BY u.id LIMIT 1001`, [collection]
   );
   if (members.rows.length>1000) throw new CreateError(409,"people_member_limit");
