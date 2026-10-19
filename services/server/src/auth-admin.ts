@@ -462,7 +462,7 @@ async function createAndDeliverInvitation(
   );
   const requestedBackend = flags.get("account-backend");
   if (requestedBackend !== undefined && requestedBackend !== "legacy") {
-    throw new AuthAdminUsageError("Only --account-backend legacy is supported for LAB [test] fixtures.");
+    throw new AuthAdminUsageError("Only --account-backend legacy is supported for LAB/staging [test] fixtures.");
   }
   const invitation = await passwordAccounts.createInvitation({
     email: requiredFlag(flags, "email"),

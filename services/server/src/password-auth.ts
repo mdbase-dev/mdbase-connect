@@ -189,8 +189,8 @@ export class PasswordAccountService {
     const normalizedEmail = normalizeEmailAddress(input.email);
     const email = input.email.trim().normalize("NFC");
     if (input.accountBackend !== undefined &&
-      (input.accountBackend !== "legacy" || !this.isLabFixture(normalizedEmail, reason))) {
-      throw new TypeError("Legacy invitation backend requires a LAB [test] fixture at lab.invalid.");
+      (input.accountBackend !== "legacy" || !this.isMigrationFixture(normalizedEmail, reason))) {
+      throw new TypeError("Legacy invitation backend requires a LAB [test] fixture at lab.invalid or a staging [test] fixture at staging.invalid.");
     }
     const lifetime = input.expiresInSeconds ?? DEFAULT_INVITATION_LIFETIME_SECONDS;
     if (
@@ -421,13 +421,14 @@ export class PasswordAccountService {
     }
   }
 
-  private isLabFixture(email: string, marking: string): boolean {
-    return this.environment === "lab" && email.endsWith("@lab.invalid") && /^\[test\](?:\s|$)/i.test(marking);
+  private isMigrationFixture(email: string, marking: string): boolean {
+    const domain = this.environment === "lab" ? "@lab.invalid" : this.environment === "staging" ? "@staging.invalid" : null;
+    return domain !== null && email.endsWith(domain) && /^\[test\](?:\s|$)/i.test(marking);
   }
 
   private invitationBackend(row: InvitationRow, name: string): AccountBackend {
     if (row.account_backend === null) return this.newAccountBackend;
-    if (row.account_backend !== "legacy" || !this.isLabFixture(row.normalized_email, name)) {
+    if (row.account_backend !== "legacy" || !this.isMigrationFixture(row.normalized_email, name)) {
       throw new InvalidInvitationError();
     }
     return "legacy";
