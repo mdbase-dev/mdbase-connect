@@ -238,7 +238,7 @@ enum SyncCmd {
 enum MigrateCmd {
     /// Takeover progress per collection (works with the daemon stopped).
     Status,
-    /// Explicitly run or resume takeover (automatic runs wait for the account's batch flip).
+    /// Explicitly run or resume takeover once Connect allows it for this account.
     Start {
         /// Proceed past old hosted mirror folders once their upload queues are
         /// empty; they stop syncing until they join the migrated collection.
@@ -1749,6 +1749,17 @@ fn print_private_collections(v: &Value) {
         .flatten()
     {
         println!("  {}", c);
+    }
+}
+
+#[cfg(test)]
+mod takeover_cli_tests {
+    use super::*;
+
+    #[test]
+    fn migrate_start_has_no_rollout_override() {
+        assert!(Cli::try_parse_from(["mdbase", "migrate", "start"]).is_ok());
+        assert!(Cli::try_parse_from(["mdbase", "migrate", "start", "--ignore-rollout"]).is_err());
     }
 }
 

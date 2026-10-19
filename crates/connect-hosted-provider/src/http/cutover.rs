@@ -74,8 +74,9 @@ fn cutover_refusal(
     let (code, message, details, retry_after) = match cutover_state {
         "migrating" => (
             "collection_migrating",
-            "This collection is being upgraded. Your data is safe, and editing will resume \
-             once the upgrade finishes. Try again in a few minutes."
+            "This collection is being upgraded, which usually takes a few minutes. Changes made \
+             while it's upgrading may not be saved. When it's finished, check your recent \
+             changes and make them again if they're missing."
                 .to_owned(),
             json!({ "retry_after_seconds": COLLECTION_MIGRATING_RETRY_SECONDS }),
             Some(COLLECTION_MIGRATING_RETRY_SECONDS),

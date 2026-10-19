@@ -1,7 +1,8 @@
 // Presents the daemon's `migrate.status` (the move from the old Connect engine to
 // mdbase). The app never starts a move on its own: the daemon moves automatically
-// once the account's rollout allows it, and this panel only offers an explicit,
-// user-initiated "Move to the new sync engine".
+// once the account's rollout allows it. This panel offers an explicit "Move to the
+// new sync engine" only to finish a move the server already allowed; it is never
+// offered while the account is waiting for, or was returned from, its upgrade.
 
 export interface TakeoverCollection {
   state: "pending" | "postponed" | "complete" | "held" | "rolled_back" | string;
@@ -29,6 +30,11 @@ export interface TakeoverStatus {
   holds?: Record<string, TakeoverHold[]>;
   held_interrupted_writes?: number;
   waiting_for_migration_batch?: boolean;
+  /** The server's last answer: the account is on mdbase Connect (not upgraded
+   * yet, or its upgrade was rolled back). Absent from older daemons. */
+  account_legacy?: boolean;
+  /** Whether the server confirmed retiring the old connector after a move. */
+  retirement?: { retired: boolean; reason?: string; legacy_connector_id?: string } | null;
 }
 
 export interface TakeoverRow {
@@ -97,6 +103,7 @@ const reasons: Record<string, { label: string; advice: string }> = {
 };
 
 const MIRROR_REASONS = new Set(["mirrors_present", "mirror_queue_not_empty"]);
+const MOVED = new Set(["complete", "held"]);
 const UNSETTLED = new Set(["pending", "postponed"]);
 
 function describe(reason: string | undefined): { label?: string; advice?: string } {
@@ -133,21 +140,23 @@ export function presentTakeover(
     incidents.push(`${interrupted} interrupted ${interrupted === 1 ? "write was" : "writes were"} kept for review; your files were left as they were.`);
   }
 
+  const legacy = status.account_legacy === true;
   if (!record) {
     if (starting) return { ...hidden, visible: true, tone: "progress", title: "Moving your collections to mdbase…", detail: "Keep mdbase open. This can take a few minutes.", incidents, inProgress: true };
     if (status.waiting_for_migration_batch) {
+      // The server has not allowed a move: it would refuse to retire the old
+      // connector, so there is nothing to start here.
       return {
         ...hidden,
         visible: true,
         tone: "info",
-        title: "Move to the new sync engine",
-        detail: "Your collections still run on the old mdbase Connect engine. They move automatically when your account is scheduled, or you can move them now. Your files stay where they are.",
-        incidents,
-        canStart: true
+        title: "Your collections still use mdbase Connect",
+        detail: "They move to the new sync engine automatically once your mdbase account is upgraded. Until then, mdbase Connect keeps syncing them. Your files stay where they are.",
+        incidents
       };
     }
     if (status.error) {
-      return { ...hidden, visible: true, tone: "attention", title: "Move to the new sync engine", detail: "The move could not finish.", incidents, canStart: true };
+      return { ...hidden, visible: true, tone: "attention", title: "Move to the new sync engine", detail: "The move could not finish.", incidents, canStart: !legacy };
     }
     return hidden;
   }
@@ -170,10 +179,27 @@ export function presentTakeover(
   const offerStopMirrors = Object.values(record.collections)
     .some((collection) => MIRROR_REASONS.has(collection.reason ?? ""));
   const held = rows.filter((row) => row.state === "held");
-  const view = { ...hidden, visible: true, rows, incidents, offerStopMirrors, canStart: !starting && unsettled.length > 0 };
+  const view = { ...hidden, visible: true, rows, incidents, offerStopMirrors, canStart: !starting && !legacy && unsettled.length > 0 };
 
   if (starting || record.state === "started") {
     return { ...view, tone: "progress", canStart: false, inProgress: true, title: "Moving your collections to mdbase…", detail: "Keep mdbase open. Your files stay where they are." };
+  }
+  // Moved on this computer, but the account is on mdbase Connect (it was never
+  // upgraded, or its upgrade was paused and returned). Collections look ready
+  // here, yet apps that use mdbase Connect cannot reach them: say so.
+  if (legacy && rows.some((row) => MOVED.has(row.state))) {
+    return {
+      ...view,
+      tone: "attention",
+      canStart: false,
+      offerStopMirrors: false,
+      title: "Your account still uses mdbase Connect",
+      detail: "This computer moved your collections to the new sync engine, but your mdbase account hasn't been upgraded yet, or its upgrade was paused. Your files are safe in their folders, but changes made on this computer may not reach your other mdbase apps until your account is upgraded.",
+      advice: "Email support@mdbase.dev and include a diagnostics report. We'll finish your upgrade or move this computer back to mdbase Connect."
+    };
+  }
+  if (!legacy && status.retirement && status.retirement.retired === false && rows.some((row) => MOVED.has(row.state))) {
+    incidents.push("The server hasn't confirmed that the old mdbase Connect on this computer is retired. Keep using mdbase as normal. If this message stays, email support@mdbase.dev.");
   }
   if (record.state === "postponed" || unsettled.length > 0) {
     const first = unsettled.find((row) => row.reason) ?? unsettled[0];

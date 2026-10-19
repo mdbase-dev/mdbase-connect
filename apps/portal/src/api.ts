@@ -58,7 +58,7 @@ export interface DevicePairing {
   approved_collection_ids?: string[];
   scope_only?: boolean;
   account_upgraded?: boolean;
-  account_upgrade?: "in_progress" | "scheduled" | "not_scheduled" | null;
+  account_upgrade?: "in_progress" | "postponed" | "scheduled" | "not_scheduled" | null;
   retained_collection_ids?: string[];
   retained_create_collections?: boolean;
   collections?: Array<{collection_id:string;display_name:string;role:string;kind?:"private"}>;

@@ -5,7 +5,7 @@ Only acceptance of an existing emailed invitation has a migration-specific shari
 The acceptance lock first uses the original account/cohort locks, then requires actual NEXT authority and rechecks the same owner/authority under the collection lock. A migrating collection refuses with HTTP409, `Retry-After: 5`, `Cache-Control: no-store` and the shared canonical error body:
 
 ```json
-{"error":{"code":"collection_migrating","message":"This collection is being upgraded. Try again shortly.","details":{"retry_after_seconds":5}}}
+{"error":{"code":"collection_migrating","message":"This collection is being upgraded, which usually takes a few minutes. Changes made while it's upgrading may not be saved. When it's finished, check your recent changes and make them again if they're missing.","details":{"retry_after_seconds":5}}}
 ```
 
 For an archived completed cohort the read-only guard requires the original account flip ledger, complete current owned collection set, recomputed original cutover digest, NEXT/cloud-copy registry, original flip audit readback and completed cohort revision matching its accepted archive. It also recomputes the original entire cohort/account inventory digest. Labels, omitted/foreign collection IDs, changed digests and arbitrary unfreeze reasons do not authorize acceptance. Bounded inventory overflow refuses; it does not silently truncate.

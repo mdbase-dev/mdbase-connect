@@ -14,6 +14,8 @@ mod holds_tests;
 #[path = "server_native_pending_tests.rs"]
 mod native_pending_tests;
 
+const CAPTURE_CONFIG: &[u8] = b"spec_version: 0.3.0\nsettings:\n  timezone: UTC\n";
+
 struct CaptureFixture {
     _profile: crate::testutil::TestDir,
     folder: crate::testutil::TestDir,
@@ -29,6 +31,9 @@ async fn capture_fixture(tag: &str) -> CaptureFixture {
     let folder = crate::testutil::TestDir::new(&format!("{tag}-folder"));
     let note = b"---\ntitle: '[test] original capture source'\n---\nOriginal toy bytes\n".to_vec();
     std::fs::write(folder.path().join("original.md"), &note).unwrap();
+    // Initial fixture state, before the watcher starts. A post-start config
+    // write races its quiet-window marker even when inventory requests a rescan.
+    std::fs::write(folder.path().join("mdbase.yaml"), CAPTURE_CONFIG).unwrap();
     // Private hermetic CP pin: never let a failed guard reach real LAB.
     // Holding the listener proves no bootstrap/enrolment request was dispatched.
     let bootstrap = std::net::TcpListener::bind("127.0.0.1:0").unwrap();

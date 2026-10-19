@@ -580,6 +580,44 @@ impl OldService for IsolatedOldService {
     }
 }
 
+/// The rollout endpoint's answer for starting a takeover.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RolloutGate {
+    /// Upgraded account with explicit permission.
+    Allowed,
+    /// The account is on legacy Connect: the server would refuse to retire the
+    /// old connector, so it must keep running.
+    Legacy,
+    /// No definite answer (offline, signed out, refused or malformed): wait.
+    Unknown,
+}
+
+impl RolloutGate {
+    /// Classify a strictly decoded rollout answer.
+    pub fn from_rollout(r: &crate::cloud::Rollout) -> RolloutGate {
+        if r.permits_takeover() {
+            RolloutGate::Allowed
+        } else if r.account_backend == Some(crate::cloud::AccountBackend::Legacy) {
+            RolloutGate::Legacy
+        } else {
+            RolloutGate::Unknown
+        }
+    }
+}
+
+/// An explicit move refused because the server has not allowed it. Nothing
+/// was changed: the old connector keeps serving its collections.
+pub fn not_allowed_error(account_legacy: bool) -> crate::control::ControlError {
+    crate::control::ControlError::unavailable(
+        "takeover_not_allowed",
+        if account_legacy {
+            "Your mdbase account hasn't been upgraded yet, so your collections stay on mdbase Connect for now. Nothing was changed."
+        } else {
+            "mdbase couldn't confirm that your account is ready to move. Nothing was changed. Check your connection and try again."
+        },
+    )
+}
+
 /// The server's takeover state: one run at a time, and what the last one found.
 #[derive(Debug, Default)]
 pub struct Gate {
@@ -589,6 +627,9 @@ pub struct Gate {
     pub revived: std::sync::atomic::AtomicBool,
     /// Automatic takeover is waiting for a flipped account's server permission.
     pub waiting_for_batch: std::sync::atomic::AtomicBool,
+    /// The last definite rollout answer said the account is on legacy Connect
+    /// (not upgraded yet, or its upgrade was rolled back).
+    pub account_legacy: std::sync::atomic::AtomicBool,
     /// Latest current retirement response or safe pending reason (not authorization).
     pub retirement: std::sync::Mutex<Option<serde_json::Value>>,
     /// The last run's error, for `doctor` (no content, no secrets).
