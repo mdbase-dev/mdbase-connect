@@ -1,7 +1,7 @@
 import { generateKeyPairSync, sign, type KeyObject } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import type { DatabasePool } from "../../database-types.js";
-import { LogServiceClient } from "./log-service-client.js";
+import { LogServiceClient, LogServiceError } from "./log-service-client.js";
 import { PolicyEmitter } from "./policy-outbox.js";
 import { certToJson, ed25519RawPublicKey } from "./policy-keys.js";
 import { certDigest, keyId, type PolicySigner } from "./policy-wire.js";
@@ -91,6 +91,7 @@ describe("policy failure attribution", () => {
     expect(LogServiceClient.failureDetails(error)).toEqual({ callback_phase: "unknown", transport_step: "unknown", route: undefined, error_code: "unknown", stack_summary: [] });
     expect(JSON.stringify(LogServiceClient.failureDetails("Bearer secret-token"))).not.toContain("secret-token");
     expect(LogServiceClient.failureDetails(Object.assign(new Error("SQL message with identifiers"), { code: "25P03" })).error_code).toBe("25P03");
+    expect(LogServiceClient.failureDetails(new LogServiceError("25P03", "secret-token")).error_code).toBe("unknown");
   });
 
   it("actual app wiring logs only sanitized facts at error level, never raw err or collectionId", async () => {

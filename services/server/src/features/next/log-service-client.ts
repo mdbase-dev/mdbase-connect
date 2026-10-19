@@ -158,8 +158,9 @@ export class LogServiceClient {
     for (let depth = 0; depth < 4 && cursor instanceof Error; depth += 1) {
       if (cursor instanceof DOMException && (cursor.name === "TimeoutError" || cursor.name === "AbortError")) { errorCode = cursor.name; break; }
       const code = (cursor as Error & { code?: unknown }).code;
-      // Standard SQLSTATE is a fixed five-character diagnostic, not a message.
-      if (typeof code === "string" && (SAFE_ERROR_CODES.has(code) || /^(?:[0-9][0-9A-Z]|F0|HV|P0|XX)[0-9A-Z]{3}$/.test(code))) { errorCode = code; break; }
+      // RPC error frames cannot claim a database SQLSTATE or echo arbitrary codes.
+      const sqlState = !(cursor instanceof LogServiceError) && typeof code === "string" && /^(?:[0-9][0-9A-Z]|F0|HV|P0|XX)[0-9A-Z]{3}$/.test(code);
+      if (typeof code === "string" && (SAFE_ERROR_CODES.has(code) || sqlState)) { errorCode = code; break; }
       cursor = cursor.cause;
     }
     const stack = error instanceof Error && typeof error.stack === "string" ? error.stack : "";
