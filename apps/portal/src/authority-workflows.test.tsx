@@ -4,9 +4,9 @@ import { Pairing } from "./authority-workflows";
 import { api } from "./api";
 vi.mock("./api", async importOriginal => ({...await importOriginal<typeof import("./api")>(),api:vi.fn()}));
 const collections = [...Array.from({length:160},(_,i)=>({collection_id:`collection-${i}`,display_name:`[test] Notes ${i}`,role:"owner"})),{collection_id:"named-new",display_name:"New collection",role:"owner"},{collection_id:"named-create",display_name:"create collection",role:"owner"}];
-async function show(canCreate=true, selected="") {
+async function show(canCreate=true, selected="", hint=selected) {
   vi.mocked(api).mockClear();
-  vi.mocked(api).mockResolvedValue({pairing:{connector_name:"Reader",approved_at:null,installation_device:true,kind:"app-runtime",account_selection_confirmed:true,attested:true,account_email:"test@example.test",app_origin:"https://reader.example",selected_collection_id:selected,collection_hint:selected,can_create_collection:canCreate,collections}});
+  vi.mocked(api).mockResolvedValue({pairing:{connector_name:"Reader",approved_at:null,installation_device:true,kind:"app-runtime",account_selection_confirmed:true,attested:true,account_email:"test@example.test",app_origin:"https://reader.example",selected_collection_id:selected,collection_hint:hint,can_create_collection:canCreate,collections}});
   const view=render(<Pairing pairingId="pairing"/>);
   return {...view,picker:await screen.findByRole("listbox",{name:"Open in Reader"}),input:screen.getByRole("combobox",{name:"Open in Reader"})};
 }
@@ -32,8 +32,8 @@ describe("approval collection chooser",()=>{
     expect(screen.getByRole("button",{name:"Open Reader with [test] Notes 159"})).toBeEnabled();
     expect(vi.mocked(api)).toHaveBeenCalledTimes(1);
   });
-  it("does not preselect a server hint or previous target on load",async()=>{
-    const f=await show(false,"collection-8");
+  it("does not preselect a collection hint on a fresh approval",async()=>{
+    const f=await show(false,"","collection-8");
     expect(screen.queryAllByRole("option",{selected:true})).toEqual([]);
     expect(screen.getByRole("button",{name:"Open Reader"})).toBeDisabled();
     expect(screen.queryByRole("button",{name:"Create a new collection…"})).not.toBeInTheDocument();

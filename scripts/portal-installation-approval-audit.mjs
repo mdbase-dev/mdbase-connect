@@ -55,7 +55,13 @@ export async function auditPortalInstallationApproval(localPage, origin) {
   };
   const choose = async name => {
     if (name === "Create a new collection…") await page.getByRole("button", {name, exact:true}).click();
-    else await list().getByRole("option", {name, exact:true}).click();
+    else {
+      const option = list().getByRole("option", {name, exact:true});
+      const offeredId = await option.getAttribute("data-value");
+      assert.ok(offeredId, "each offered collection exposes its exact CID");
+      await option.click();
+      assert.equal(await picker().getAttribute("data-value"), offeredId, "the committed CID matches the offered collection");
+    }
   };
   const done = () => page.getByRole("heading", {name: "Access approved", exact: true}).waitFor();
   try {
@@ -156,10 +162,24 @@ export async function auditPortalInstallationApproval(localPage, origin) {
     await load(first);
     pairing.creation = {collection_id: created, display_name: "Original name", completed: false};
     await page.reload(); await picker().waitFor();
-    assert.equal(await picker().getAttribute("data-value"), "", "unfinished creation is not preselected");
-    await choose("Create a new collection…");
+    assert.equal(await picker().getAttribute("data-value"), "new-collection", "restore the person's original unfinished creation, not the hint");
     assert.equal(await page.getByLabel("New collection name", {exact: true}).inputValue(), "Original name", "original creation keeps the server's name");
     assert.equal(await page.getByLabel("New collection name", {exact: true}).getAttribute("readonly"), "");
+    assert.equal(posts.length, 0);
+    await load(first);
+    pairing.selected_collection_id = second;
+    await page.reload(); await picker().waitFor();
+    assert.equal(await picker().getAttribute("data-value"), second, "restore a server-recorded explicit choice, never the conflicting hint");
+    assert.equal(await approve().innerText(), "Open TaskNotes with Work notes");
+    await picker().fill("Personal");
+    assert.equal(await picker().getAttribute("data-value"), second, "filtering keeps the restored choice");
+    assert.equal(posts.length, 0);
+    await load(first);
+    pairing.creation = {collection_id: created, display_name: "Original name", completed: true};
+    pairing.collections.push({collection_id: created, display_name: "Original name", role: "owner"});
+    await page.reload(); await picker().waitFor();
+    assert.equal(await picker().getAttribute("data-value"), created, "restore the person's completed creation");
+    assert.equal(await approve().innerText(), "Open TaskNotes with Original name");
     assert.equal(posts.length, 0);
     await load();
     pairing.account_email = null; pairing.account_provider = "github"; pairing.account_login = "original";

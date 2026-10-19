@@ -65,7 +65,7 @@ export function CollectionPicker({ label, collections, value, onChoose, disabled
     <span id={`${id}-help`} className="sr-only">Type to filter. Arrow keys highlight; Enter chooses. Typing does not change your choice.</span>
     <div ref={list} id={`${id}-list`} role="listbox" aria-labelledby={`${id}-label`} aria-disabled={disabled} className="collection-picker-list">
       {filtered.map((collection, index) => <div
-        key={collection.id} id={`${id}-option-${index}`} role="option" aria-label={collection.name}
+        key={collection.id} id={`${id}-option-${index}`} role="option" aria-label={collection.name} data-value={collection.id}
         aria-selected={collection.id === value} aria-disabled={disabled}
         aria-describedby={collection.kind === "private" || collection.hint || collection.id === recent ? `${id}-hint-${index}` : undefined}
         className={`collection-picker-option${collection.id === value ? " is-selected" : ""}${index === active ? " is-highlighted" : ""}`}

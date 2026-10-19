@@ -113,7 +113,7 @@ describe("one explicit collection consent", () => {
   });
 
   it("lists cloud and Private together, labels Private, and never selects a server hint on load", async () => {
-    const f = await fixture({collection_hint:"private", selected_collection_id:"private", collections:[
+    const f = await fixture({collection_hint:"private", collections:[
       {collection_id:"notes",display_name:"Notes",role:"owner"},
       {collection_id:"private",display_name:"Private notes",role:"member",kind:"private"},
     ]});
@@ -121,10 +121,40 @@ describe("one explicit collection consent", () => {
     expect(screen.getAllByRole("option")).toHaveLength(2);
     const privateRow = screen.getByRole("option", {name:"Private notes"});
     expect(privateRow).toHaveAccessibleDescription("Private · Shared with you");
+    expect(privateRow).toHaveAttribute("data-value", "private");
     expect(screen.queryAllByRole("option", {selected:true})).toEqual([]);
     expect(screen.getByRole("button", {name:"Open Reader"})).toBeDisabled();
     fireEvent.click(privateRow);
     expect(screen.getByRole("button", {name:"Open Reader with Private notes"})).toBeEnabled();
+    expect(f.posts()).toEqual([]);
+  });
+
+  it("restores the person's unfinished creation ahead of an earlier recorded selection or hint", async () => {
+    const f = await fixture({can_create_collection:true, selected_collection_id:"notes", collection_hint:"notes",
+      creation:{collection_id:"creating",display_name:"Original creation",completed:false}});
+    expect(screen.getByRole("combobox", {name:"Open in Reader"})).toHaveAttribute("data-value", "new-collection");
+    expect(screen.getByRole("button", {name:"Create a new collection…"})).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("textbox", {name:"New collection name"})).toHaveValue("Original creation");
+    expect(screen.getByRole("textbox", {name:"New collection name"})).toHaveAttribute("readonly");
+    expect(screen.getByRole("button", {name:"Open Reader with Original creation"})).toBeEnabled();
+    expect(f.posts()).toEqual([]);
+  });
+
+  it("restores the server-recorded choice ahead of completed creation or an unrelated hint", async () => {
+    const f = await fixture({selected_collection_id:"notes", collection_hint:"not-the-choice",
+      creation:{collection_id:"created",display_name:"Earlier creation",completed:true}});
+    expect(screen.getByRole("combobox", {name:"Open in Reader"})).toHaveAttribute("data-value", "notes");
+    expect(screen.getByRole("option", {name:"Notes"})).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", {name:"Open Reader with Notes"})).toBeEnabled();
+    expect(f.posts()).toEqual([]);
+  });
+
+  it("restores the person's completed creation when no separate choice was recorded", async () => {
+    const f = await fixture({collection_hint:"not-the-choice",
+      creation:{collection_id:"notes",display_name:"Notes",completed:true}});
+    expect(screen.getByRole("combobox", {name:"Open in Reader"})).toHaveAttribute("data-value", "notes");
+    expect(screen.getByRole("option", {name:"Notes"})).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", {name:"Open Reader with Notes"})).toBeEnabled();
     expect(f.posts()).toEqual([]);
   });
 

@@ -73,6 +73,10 @@ export function Pairing({ pairingId }: { pairingId: string }) {
         if (current !== generation.current) return;
         setPairing(value.pairing);
         setCollectionIds([...new Set([...(value.pairing.retained_collection_ids??[]),...(value.pairing.approved_collection_ids??[])])]);
+        // Resume the person's server-recorded work, never a URL hint or browser preference.
+        const original = value.pairing;
+        setSelectedCollectionId(original.creation && !original.creation.completed ? NEW_COLLECTION
+          : original.selected_collection_id || original.creation?.collection_id || "");
         setNewCollectionName(value.pairing.creation?.display_name ?? "");
         setCreateCollections(value.pairing.retained_create_collections || value.pairing.approved_create_collections || value.pairing.requested_create_collections || false);
         setAllowReminders(value.pairing.timer_consent === true);
