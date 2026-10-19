@@ -141,14 +141,10 @@
   font-size: var(--_font-size-section);
 }
 
-.mdbase-collections-heading:focus {
+/* Phase headings receive focus for context, not as interactive controls. */
+:is(h1, h2).mdbase-collections-heading[tabindex="-1"]:focus,
+:is(h1, h2).mdbase-collections-visually-hidden[tabindex="-1"]:focus {
   outline: none;
-}
-
-.mdbase-collections-heading:focus-visible {
-  outline: 2px solid var(--_accent);
-  outline-offset: 4px;
-  border-radius: var(--_radius-sm);
 }
 
 .mdbase-collections-lead {

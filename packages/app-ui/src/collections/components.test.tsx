@@ -77,6 +77,20 @@ const button = (name: string | RegExp) => {
 const key = (element: Element, value: string) => act(() => { element.dispatchEvent(new KeyboardEvent("keydown", { key: value, bubbles: true })); });
 
 describe("opening presentation", () => {
+  it.each(["page", "panel"] as const)("preserves programmatic focus on visible and hidden %s headings", (layout) => {
+    const { entry, set } = fakeMdbase({ kind: "starting" }, { status: "starting", signIn: null });
+    render(<CollectionGate mdbase={entry} app={app} layout={layout}>{() => null}</CollectionGate>);
+    act(() => set({ phase: { kind: "signed_out", notice: null } }));
+    const heading = container.querySelector(layout === "page" ? "h1" : "h2")!;
+    expect(heading.tabIndex).toBe(-1);
+    expect(heading.className).toBe("mdbase-collections-heading");
+    expect(document.activeElement).toBe(heading);
+    act(() => set({ phase: { kind: "opening", collectionId: A, displayName: "Alpha", slow: false } }));
+    expect(heading.className).toBe("mdbase-collections-visually-hidden");
+    expect(heading.tabIndex).toBe(-1);
+    expect(document.activeElement).toBe(heading);
+  });
+
   it("uses the shared scanning opening screen for starting and keeps embedded landmarks valid", () => {
     const { entry } = fakeMdbase({ kind: "starting" }, { status: "starting", signIn: null });
     render(<main><CollectionGate mdbase={entry} app={app} layout="panel">{() => null}</CollectionGate></main>);
@@ -416,6 +430,13 @@ describe("section item actions", () => {
 });
 
 describe("styles", () => {
+  it("suppresses only noninteractive heading outlines and retains control focus-visible rings", () => {
+    const css = readFileSync(join(import.meta.dirname, "../../css/collections.css"), "utf8");
+    expect(css).toMatch(/:is\(h1, h2\)\.mdbase-collections-heading\[tabindex="-1"\]:focus,\s*:is\(h1, h2\)\.mdbase-collections-visually-hidden\[tabindex="-1"\]:focus\s*\{\s*outline: none;/);
+    expect(css).not.toMatch(/\.mdbase-collections-heading:focus-visible/);
+    expect(css).toMatch(/\.mdbase-collections-button:focus-visible,[\s\S]*?\.mdbase-collections-field:focus-visible\s*\{\s*outline: 2px solid var\(--_accent\);/);
+  });
+
   it("defines every collections class the components use", () => {
     const css = readFileSync(join(import.meta.dirname, "../../css/collections.css"), "utf8");
     const used = new Set<string>();
