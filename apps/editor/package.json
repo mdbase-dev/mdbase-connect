@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "pnpm manifest && vite --host 127.0.0.1",
     "build": "pnpm check:styles && pnpm manifest && pnpm manifest:validate && tsc -b && vite build",
-    "build:lab": "VITE_MDBASE_ENV=lab pnpm build",
+    "build:lab": "MDBASE_EDITOR_ORIGIN=https://editor-lab.mdbase.dev VITE_MDBASE_ENV=lab pnpm build",
     "build:e2e": "pnpm check:styles && pnpm manifest && pnpm manifest:validate && tsc -b && vite build --mode e2e",
     "check:bundle": "node --test scripts/bundle-assets.test.mjs && node scripts/check-bundle-size.mjs",
     "check:csp": "node scripts/check-csp.mjs",
@@ -35,7 +35,7 @@
     "@embedpdf/react-pdf-viewer": "2.15.1",
     "@lezer/highlight": "^1.2.3",
     "@mdbase-dev/connect": "workspace:*",
-    "@mdbase-dev/sdk": "file:vendor/mdbase-dev-sdk-dev-0ecbef41.tgz",
+    "@mdbase-dev/sdk": "file:vendor/sdk-dev-0fabaf20.tgz",
     "@mdbase-dev/connect-protocol": "workspace:*",
     "@mdbase-dev/ui": "workspace:*",
     "@phosphor-icons/react": "^2.1.10",

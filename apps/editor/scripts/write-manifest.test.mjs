@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import { pathToFileURL } from "node:url";
-import { copyFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -28,6 +28,35 @@ it("generates a self-registered HTTPS LAB declaration with exact extra origin, r
     assert.notEqual(spawnSync(process.execPath, [script], {env: {...env, MDBASE_EDITOR_ORIGIN: env.MDBASE_EDITOR_LAB_ORIGIN}}).status, 0);
     assert.equal(parseVersionedAppManifest(manifest).contractVersion, 2);
   } finally { rmSync(root, {recursive: true, force: true}); }
+});
+
+it("build:lab passes the canonical public LAB declaration and SDK environment to the build", () => {
+  const root = mkdtempSync(join(tmpdir(), "editor-lab-build-"));
+  try {
+    mkdirSync(join(root, "scripts"));
+    mkdirSync(join(root, "bin"));
+    const script = join(root, "scripts/write-manifest.mjs");
+    copyFileSync(new URL("./write-manifest.mjs", import.meta.url), script);
+    const capture = join(root, "capture.mjs");
+    writeFileSync(capture, `import { writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(join(root, "environment.json"))}, JSON.stringify({ environment: process.env.VITE_MDBASE_ENV }));
+await import(${JSON.stringify(pathToFileURL(script).href)});
+`);
+    // Exercise the actual package command, replacing only its build subprocess
+    // so this contract test neither compiles nor changes the real public file.
+    writeFileSync(join(root, "bin/pnpm"), `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(capture)} "$@"\n`, { mode: 0o700 });
+    const env = { ...process.env, PATH: `${join(root, "bin")}:${process.env.PATH}` };
+    for (const key of ["MDBASE_EDITOR_ORIGIN", "MDBASE_EDITOR_BASE_PATH", "MDBASE_CONNECT_URL", "MDBASE_EDITOR_LAB_ORIGIN", "VITE_MDBASE_ENV"]) delete env[key];
+    const { scripts } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+    const result = spawnSync("sh", ["-c", scripts["build:lab"]], { cwd: root, env, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    const manifest = JSON.parse(readFileSync(join(root, "public/.well-known/mdbase-app.json"), "utf8"));
+    assert.equal(manifest.homepage, "https://editor-lab.mdbase.dev/");
+    assert.deepEqual(manifest.redirect_uris, ["https://editor-lab.mdbase.dev/"]);
+    assert.equal(manifest.installation_origins, undefined);
+    assert.equal(JSON.parse(readFileSync(join(root, "environment.json"), "utf8")).environment, "lab");
+    assert.deepEqual(manifest.requirements, bundled.requirements);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 it("generates the bundled v2 artifact normally and keeps callback configuration", async () => {

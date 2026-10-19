@@ -77,25 +77,27 @@ publication is implied.
 - Disposing the adapter aborts its lifetime and drops cached base views. It does
   not close the shared sign-in session's client.
 
-## Remaining integration
+## LAB candidate and remaining qualification
 
-Runtime composition, the production entry point, native record-session recovery
-state (an interrupted write is recovered from the pending-operation notice),
-typed schemas, file uploads and file change notifications wait for public SDK
-APIs or qualification. The launch uses relay/hosted routes only; direct access
-is hidden in native mode. Do not copy TaskNotes' Worker, lease, authentication or
+The LAB integration lane uses the original producer-qualified
+`sdk-dev-0fabaf20.tgz` archive, recorded in `vendor/mdbase-next-sdk.json` with
+verified SHA256/SHA512. It includes the native runtime from `a350db1c`; no archive
+members are rewritten. The editor and shared UI development dependency use the
+same archive. `pnpm build:lab` generates the canonical
+`https://editor-lab.mdbase.dev/` declaration and selects the SDK's LAB environment.
+The ordinary build retains its production declaration defaults.
+
+This native entry replaces the legacy `ConnectCollectionGateway` bootstrap for
+this lane. The old OAuth collection chooser does not expose next `cloud_copy`
+collections; widening its eligibility filter would not install a native client.
+No collection version or consent policy is relaxed. The pin and offline build
+are not per-app trust/origin/runtime/session/operation approval, publication, or
+live qualification. Publishing the LAB candidate requires separate approval.
+
+Native record-session recovery, typed schemas, file uploads and file change
+notifications still require public SDK APIs or qualification. Direct access is
+hidden in native mode. Do not copy TaskNotes' Worker, lease, authentication or
 SQL-bootstrap glue into the editor.
-
-The SDK is release's original `ad69a506` dev archive (not release-qualified),
-recorded in `vendor/mdbase-next-sdk.json` with verified SHA256/SHA512. It exposes
-the public `MdbaseConnect` declaration helper, the structural
-`MdbaseApplicationEntry` type and the `createApplicationFixture` test seam. Its
-original connect-protocol dependency archive sits beside it in `vendor/` and
-both are ordinary file dependencies; nothing is repacked, aliased or swapped.
-Both Docker dependency-install contexts copy both files before installation.
-This pin is not per-app trust/origin/runtime/session/operation approval, and
-its public constructor remains an explicit unavailable shell until runtime
-composition lands in the SDK.
 
 Unit tests use SDK MemoryReplica and are not native/LAB evidence. SDK811 now honors
 `create.document` through its shared synthetic parser; restore verifies the actual

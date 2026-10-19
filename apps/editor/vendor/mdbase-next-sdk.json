@@ -1,11 +1,16 @@
 {
   "package": "@mdbase-dev/sdk",
   "version": "0.0.0",
-  "artifact": "mdbase-dev-sdk-dev-0ecbef41.tgz",
-  "sourceCommit": "0ecbef415a8b18cf7eb1bdbe41c2e963cc4de4d2",
-  "label": "dev intake, not release-qualified",
-  "sha256": "30658b0877383a53577172782a164e5bab3f07552c3c3cc97ec7df8ffa420a76",
-  "integrity": "sha512-4OZ2+PnQOIoHOq1M5ctvKt3DNYsdPHGcGcKiP1nPD9v6udkLXnDNN3qc0TQGUfmtazKNIEQpSfogffzcZlHJeA==",
+  "artifact": "sdk-dev-0fabaf20.tgz",
+  "sourceCommit": "0fabaf20553b7f296f771dd52ea0b65d2d04fcbf",
+  "label": "LAB native candidate; original producer-qualified archive, not release-qualified or deployed",
+  "sha256": "0e3959e947a5b03bc11ac4f3594c9c20d82f3f3c4b39b45d2a8e8a7c328f5b88",
+  "integrity": "sha512-3y+3UNP3nNdi7GAOhmK+1l38H4eUKCS7X7Bu9bq/m6vXNstcRllsIcykO4VRbruoPakrmmJQ8/JisA99fTiIFA==",
+  "native": {
+    "sourceCommit": "a350db1ca88fa3572de3a8c97c43020d7039d035",
+    "bytes": 3668115,
+    "sha256": "28c261f86e6126091b9da07a8f744b54a0ee71ebfede9a7ea2c273be3e5d3b26"
+  },
   "includesPublicApplicationEntry": true,
   "includesPublicApplicationFixture": true,
   "sourceOnly": false,
