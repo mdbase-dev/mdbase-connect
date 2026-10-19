@@ -975,6 +975,14 @@ select {
   min-height: 44px;
 }
 
+.installation-collection-list {
+  padding: 0;
+}
+
+.installation-collection-list option {
+  padding: 0.5rem 0.7rem;
+}
+
 .button.installation-account-action {
   min-height: 44px;
 }
