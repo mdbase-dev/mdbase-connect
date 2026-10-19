@@ -1,102 +1,87 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { X509Certificate } from "node:crypto";
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import type { PeerCertificate } from "node:tls";
+import { describe, expect, it } from "vitest";
 import pg from "pg";
 import { postgresPoolConfig } from "../../db.js";
-import { labLegacySourceConnection, LAB_LEGACY_SOURCE_CERT_SHA256 } from "./migration-lab-source-tls.js";
+import { labLegacySourceConnection } from "./migration-lab-source-tls.js";
 
 const host = "dpg-dabpdaon74is7380br1g-a";
 const database = "mdbase_lab_beta94_202609020323211110102";
 const role = "mdbn_lab_migration_cli_reader";
-const rootPath = new URL("./fixtures/lab-legacy-postgres.pem", import.meta.url).pathname;
-const actual = new X509Certificate(readFileSync(rootPath));
-const uri = (ca = rootPath) => `postgresql://${role}:synthetic@${host}:5432/${database}?sslmode=verify-ca&sslrootcert=${encodeURIComponent(ca)}&options=-cdefault_transaction_read_only%3Don`;
-const peer = (cert: X509Certificate) => ({ fingerprint256: cert.fingerprint256, raw: cert.raw, subject: { CN: cert.subject.slice(3) } }) as PeerCertificate;
-let scratch: string, other: X509Certificate;
-beforeAll(() => {
-  scratch = mkdtempSync(join(tmpdir(), "lab-source-pin-test-"));
-  // A real, different self-signed certificate with the SAME CN. No LAB key.
-  execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", `/${actual.subject}`, "-keyout", join(scratch, "key.pem"), "-out", join(scratch, "cert.pem")], { stdio: "ignore" });
-  other = new X509Certificate(readFileSync(join(scratch, "cert.pem")));
+const readonlyOptions = "options=-cdefault_transaction_read_only%3Don";
+const uri = (query = `sslmode=require&${readonlyOptions}`) =>
+  `postgresql://${role}:synthetic@${host}:5432/${database}?${query}`;
+const refused = /migration_lab_source_tls_.*refused/u;
+
+function parameters(config: ReturnType<typeof labLegacySourceConnection>) {
+  // The genuine pg parser must retain explicit TLS and PostgreSQL read-only
+  // options. Constructor only: no connection, credentials or live endpoint.
+  return (new pg.Client(postgresPoolConfig(config.url, config.ssl)) as unknown as {
+    connectionParameters: { ssl: typeof config.ssl; options: string }
+  }).connectionParameters;
+}
+
+describe("LAB internal legacy source encrypted TLS", () => {
+  it.each([host, `${host}.own-d9fbuuv41pts73dspdcg.svc.cluster.local`])(
+    "requires encrypted, unpinned TLS for the scoped internal host %s", (hostname) => {
+      const config = labLegacySourceConnection(uri().replace(host, hostname), "lab");
+      expect(config.ssl).toEqual({ rejectUnauthorized: false });
+      expect(new URL(config.url).searchParams.has("sslmode")).toBe(false);
+      expect(new URL(config.url).searchParams.has("sslrootcert")).toBe(false);
+      expect(parameters(config).ssl).toEqual({ rejectUnauthorized: false });
+      expect(parameters(config).options).toBe("-cdefault_transaction_read_only=on");
+    }
+  );
+  it.each([
+    readonlyOptions,
+    `sslmode=verify-ca&sslrootcert=%2Fnonexistent%2Fprevious-cert.pem&${readonlyOptions}`,
+    `sslmode=disable&${readonlyOptions}`
+  ])("forces TLS without reading or depending on URL certificate material: %s", (query) => {
+    const config = labLegacySourceConnection(uri(query), "lab");
+    expect(parameters(config).ssl).toEqual({ rejectUnauthorized: false });
+    expect(new URL(config.url).searchParams.has("sslmode")).toBe(false);
+    expect(new URL(config.url).searchParams.has("sslrootcert")).toBe(false);
+  });
+  it.each([
+    uri().replace(`/${database}`, "/other_database"),
+    uri().replace(role, "owner_role"), uri().replace(":5432", ":5433"), uri().replace(":5432", ""),
+    uri().replace(":synthetic@", ":@"), uri().replace("postgresql:", "https:"),
+    uri() + "&host=other.invalid", uri() + "&ssl=false", uri() + "&uselibpqcompat=true", uri() + "#fragment"
+  ])("retains internal host/database/role/override checks", (value) => {
+    expect(() => labLegacySourceConnection(value, "lab")).toThrow(refused);
+  });
 });
-afterAll(() => rmSync(scratch, { recursive: true, force: true }));
 
 describe("LAB rehearsal owner-readonly exception", () => {
   const owner = "synthetic_lab_owner";
   const ownerUri = () => uri().replace(role, owner);
-  it("requires explicit exact owner identity and retains the genuine pg read-only option/pin", () => {
-    expect(() => labLegacySourceConnection(ownerUri(), "lab")).toThrow("migration_lab_source_tls_pin_refused");
+  it("requires explicit owner identity and retains PostgreSQL read-only options", () => {
+    expect(() => labLegacySourceConnection(ownerUri(), "lab")).toThrow(refused);
     const config = labLegacySourceConnection(ownerUri(), "lab", owner);
-    const params = (new pg.Client(postgresPoolConfig(config.url, config.ssl)) as unknown as {
-      connectionParameters: { ssl: typeof config.ssl; options: string }
-    }).connectionParameters;
-    expect(params.options).toBe("-cdefault_transaction_read_only=on");
-    expect(params.ssl?.rejectUnauthorized).toBe(true);
-    expect(params.ssl?.checkServerIdentity?.(host, peer(other))).toBeInstanceOf(Error);
+    expect(parameters(config).options).toBe("-cdefault_transaction_read_only=on");
+    expect(parameters(config).ssl).toEqual({ rejectUnauthorized: false });
   });
   it.each([
     [ownerUri(), "staging", owner], [ownerUri(), "production", owner],
     [ownerUri(), "lab", ""], [ownerUri(), "lab", "other_owner"], [ownerUri(), "lab", role],
     [ownerUri().replace(/&options=[^&]+/u, ""), "lab", owner],
     [ownerUri().replace("read_only%3Don", "read_only%3Doff"), "lab", owner],
-    [ownerUri() + "&options=-cdefault_transaction_read_only%3Don", "lab", owner],
+    [ownerUri() + `&${readonlyOptions}`, "lab", owner],
     [ownerUri().replace(host, "external.invalid"), "lab", owner],
     [ownerUri().replace(":5432", ""), "lab", owner]
-  ])("refuses unbound owner identity/scope/read-only options", (value, environment, ownerRole) => {
-    expect(() => labLegacySourceConnection(value!, environment, ownerRole)).toThrow("migration_lab_source_tls_pin_refused");
+  ])("retains owner identity/scope/read-only checks", (value, environment, ownerRole) => {
+    expect(() => labLegacySourceConnection(value!, environment, ownerRole)).toThrow(refused);
   });
 });
 
-describe("exact LAB legacy source certificate pin", () => {
-  it("pins the captured public DER and keeps CA verification enabled", () => {
-    expect(actual.fingerprint256.replace(/:/gu, "")).toBe(LAB_LEGACY_SOURCE_CERT_SHA256);
-    expect(actual.subject).toBe(actual.issuer); expect(actual.subjectAltName).toBeUndefined();
-    const config = labLegacySourceConnection(uri(), "lab");
-    expect(config.ssl?.rejectUnauthorized).toBe(true); expect(config.ssl?.ca).toBe(actual.toString());
-    expect(config.ssl?.checkServerIdentity?.(host, peer(actual))).toBeUndefined();
-    expect(new URL(config.url).searchParams.get("options")).toBe("-cdefault_transaction_read_only=on");
-    expect(new URL(config.url).searchParams.has("sslmode")).toBe(false);
-    expect(new URL(config.url).searchParams.has("sslrootcert")).toBe(false);
+describe("non-LAB TLS policy is unchanged", () => {
+  it.each(["staging", "production", undefined])("does not enable the internal exception in %s", (environment) => {
+    expect(() => labLegacySourceConnection(uri(), environment)).toThrow(refused);
   });
-  it("rejects a wrong fingerprint", () => {
-    const check = labLegacySourceConnection(uri(), "lab").ssl!.checkServerIdentity!;
-    expect(check(host, { ...peer(actual), fingerprint256: "00:".repeat(31) + "00" })).toBeInstanceOf(Error);
-  });
-  it("rejects a different real self-signed certificate with matching CN", () => {
-    expect(other.subject).toBe(actual.subject); expect(other.fingerprint256).not.toBe(actual.fingerprint256);
-    expect(labLegacySourceConnection(uri(), "lab").ssl!.checkServerIdentity!(host, peer(other))).toBeInstanceOf(Error);
-    expect(() => labLegacySourceConnection(uri(join(scratch, "cert.pem")), "lab")).toThrow("migration_lab_source_tls_pin_refused");
-  });
-  it("rejects another hostname even with the pinned certificate", () => {
-    expect(labLegacySourceConnection(uri(), "lab").ssl!.checkServerIdentity!("other.invalid", peer(actual))).toBeInstanceOf(Error);
-  });
-  it("retains the identity hook through the genuine pinned pg configuration parser", () => {
-    const config = labLegacySourceConnection(uri(), "lab"), pool = postgresPoolConfig(config.url, config.ssl);
-    const client = new pg.Client(pool); // Constructor only: no connect/query.
-    const params = (client as unknown as { connectionParameters: { ssl: typeof config.ssl } }).connectionParameters;
-    expect(params.ssl?.rejectUnauthorized).toBe(true); expect(params.ssl?.ca).toBe(actual.toString());
-    expect(params.ssl?.checkServerIdentity).toBe(config.ssl?.checkServerIdentity);
-    expect(params.ssl?.checkServerIdentity?.(host, peer(other))).toBeInstanceOf(Error);
-  });
-  it("keeps ordinary control/public/staging pool policy untouched", () => {
+  it.each(["lab", "staging", "production", undefined])("leaves ordinary public/control URLs untouched in %s", (environment) => {
     const publicUrl = "postgres://synthetic:synthetic@external.invalid/control?sslmode=verify-full";
-    expect(labLegacySourceConnection(publicUrl, "lab")).toEqual({ url: publicUrl });
-    expect(postgresPoolConfig(publicUrl)).not.toHaveProperty("ssl");
-    expect(() => labLegacySourceConnection(uri(), "staging")).toThrow("migration_lab_source_tls_pin_refused");
-    expect(() => labLegacySourceConnection(uri(), "production")).toThrow("migration_lab_source_tls_pin_refused");
-  });
-  it.each([
-    uri().replace(`/${database}`, "/other_database"),
-    uri().replace(role, "owner_role"), uri().replace(":5432", ":5433"), uri().replace(":5432", ""),
-    uri().replace("sslmode=verify-ca", "sslmode=require"),
-    uri() + "&host=other.invalid", uri() + "&ssl=false", uri() + "&uselibpqcompat=true",
-    uri() + "&sslrootcert=/other.pem", uri() + "#fragment",
-    uri().replace(/&sslrootcert=[^&]+/u, "")
-  ])("refuses a scope/TLS override without reading credentials", (value) => {
-    expect(() => labLegacySourceConnection(value, "lab")).toThrow("migration_lab_source_tls_pin_refused");
+    const config = labLegacySourceConnection(publicUrl, environment);
+    expect(config).toEqual({ url: publicUrl });
+    expect(postgresPoolConfig(config.url)).not.toHaveProperty("ssl");
+    expect(parameters(config).ssl?.rejectUnauthorized).not.toBe(false);
+    expect(new URL(config.url).searchParams.get("sslmode")).toBe("verify-full");
   });
 });
