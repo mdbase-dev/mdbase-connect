@@ -5486,6 +5486,188 @@ async fn candidate_b_query_receipt_maintenance_is_global_and_bounded() {
     );
 }
 
+async fn install_query_receipt_serialization_conflicts(
+    fixture: &FileLifecycleFixture,
+    conflicts: i64,
+    sqlstate: &str,
+) -> String {
+    assert!(matches!(sqlstate, "40001" | "40P01"));
+    let suffix = fixture.collection_id.simple();
+    let sequence = format!("query_receipt_conflicts_{suffix}");
+    let function = format!("inject_query_receipt_conflict_{suffix}");
+    // nextval survives rollback, so the real database deterministically aborts
+    // exactly this many receipt inserts without a production hook or a sleep.
+    // Audited dynamic DDL: identifiers contain only a generated UUID; the count
+    // is an integer and SQLSTATE is the closed literal set asserted above.
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SEQUENCE {sequence}")))
+        .execute(&fixture.pool)
+        .await
+        .unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "CREATE FUNCTION {function}() RETURNS trigger LANGUAGE plpgsql AS $$
+         BEGIN
+           IF nextval('{sequence}') <= {conflicts} THEN
+             RAISE EXCEPTION 'test query receipt database conflict'
+               USING ERRCODE = '{sqlstate}';
+           END IF;
+           RETURN NEW;
+         END $$"
+    )))
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "CREATE TRIGGER {sequence} BEFORE INSERT
+         ON hosted_provider_query_page_receipts
+         FOR EACH ROW WHEN (NEW.collection_id = '{}'::uuid)
+         EXECUTE FUNCTION {function}()",
+        fixture.collection_id
+    )))
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    sequence
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn query_receipts_retry_transient_database_conflicts_within_budget() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let budgets =
+        &mdbase_connect_hosted_provider::HostedExecutionBudgetManifest::published().defaults;
+    let deadline = Duration::from_millis(
+        budgets
+            .operation_deadline_ms
+            .min(budgets.snapshot_lifetime_ms),
+    );
+    for sqlstate in ["40001", "40P01"] {
+        let fixture = FileLifecycleFixture::new(&database_url).await;
+        let (replica_id, token) = register_query_application(&fixture, Vec::new()).await;
+        // Seven losing admissions are the worst case for one of eight peers.
+        let conflicts = 7;
+        let sequence =
+            install_query_receipt_serialization_conflicts(&fixture, conflicts, sqlstate).await;
+        let request_id = Uuid::new_v4();
+        let input = json!({"limit": 1, "order_by": [{"field": "file.path"}]});
+        let started = Instant::now();
+        let result = fixture
+            .provider
+            .operation(
+                fixture.collection_id,
+                &token,
+                "query",
+                request_id,
+                input.clone(),
+                None,
+            )
+            .await;
+        // No caller retry: both the old four-attempt cap and merely raising
+        // that cap without backoff must fail this regression.
+        assert_eq!(result.unwrap()["valid"], true, "{sqlstate}");
+        assert!(
+            started.elapsed() < deadline,
+            "retry must share the existing deadline"
+        );
+        assert!(
+            started.elapsed() >= Duration::from_millis(405),
+            "seven retries must back off"
+        );
+        // Replays use the identical operation ID and input. Aborted attempts
+        // and successful replays must not duplicate receipts or quota usage.
+        for _ in 0..2 {
+            let result = fixture
+                .provider
+                .operation(
+                    fixture.collection_id,
+                    &token,
+                    "query",
+                    request_id,
+                    input.clone(),
+                    None,
+                )
+                .await
+                .unwrap();
+            assert_eq!(result["valid"], true);
+        }
+        let attempts: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT last_value FROM {sequence}"
+        )))
+        .fetch_one(&fixture.pool)
+        .await
+        .unwrap();
+        assert_eq!(attempts, conflicts + 1);
+        let (receipts, usage, usage_bytes, receipt_bytes): (i64, i64, i64, i64) = sqlx::query_as(
+            "SELECT count(receipt.request_id), usage.receipt_count,
+                        usage.ciphertext_bytes, sum(receipt.response_ciphertext_bytes)::bigint
+                 FROM hosted_provider_query_page_receipts receipt
+                 JOIN hosted_provider_query_receipt_usage usage
+                   ON usage.scope_kind = 'replica' AND usage.scope_id = receipt.replica_id
+                 WHERE receipt.replica_id = $1
+                 GROUP BY usage.receipt_count, usage.ciphertext_bytes",
+        )
+        .bind(replica_id)
+        .fetch_one(&fixture.pool)
+        .await
+        .unwrap();
+        assert_eq!((receipts, usage), (1, 1));
+        assert_eq!(usage_bytes, receipt_bytes);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
+async fn query_receipts_stop_at_conflict_budget_without_committing() {
+    let database_url = std::env::var("MDBASE_PROJECTION_DATABASE_URL")
+        .expect("MDBASE_PROJECTION_DATABASE_URL is required");
+    let fixture = FileLifecycleFixture::new(&database_url).await;
+    let (replica_id, token) = register_query_application(&fixture, Vec::new()).await;
+    let sequence = install_query_receipt_serialization_conflicts(&fixture, 100, "40001").await;
+    let started = Instant::now();
+    let error = fixture
+        .provider
+        .operation(
+            fixture.collection_id,
+            &token,
+            "query",
+            Uuid::new_v4(),
+            json!({"limit": 1, "order_by": [{"field": "file.path"}]}),
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.status.as_u16(), 503);
+    assert_eq!(error.code, "provider_database_retryable");
+    assert_eq!(error.details.unwrap()["retry_class"], "serialization");
+    let budgets =
+        &mdbase_connect_hosted_provider::HostedExecutionBudgetManifest::published().defaults;
+    assert!(started.elapsed() < Duration::from_millis(budgets.operation_deadline_ms));
+    let attempts: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT last_value FROM {sequence}"
+    )))
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(attempts, 17, "sixteen retries must remain a hard cap");
+    let receipts: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hosted_provider_query_page_receipts WHERE replica_id = $1",
+    )
+    .bind(replica_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    let usage: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(sum(receipt_count), 0)::bigint
+         FROM hosted_provider_query_receipt_usage
+         WHERE scope_kind = 'replica' AND scope_id = $1",
+    )
+    .bind(replica_id)
+    .fetch_one(&fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!((receipts, usage), (0, 0));
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires MDBASE_PROJECTION_DATABASE_URL; run against a disposable PostgreSQL database"]
 async fn concurrent_query_receipts_retry_repeatable_read_conflicts() {
