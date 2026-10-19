@@ -969,3 +969,10 @@
     flex: 1 1 auto;
   }
 }
+
+.mdbase-collections-save-warning {
+  color: var(--mdbase-collections-text-soft, var(--color-text-soft, inherit));
+  font-size: var(--mdbase-collections-font-size-caption, var(--font-size-caption, 0.75rem));
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}

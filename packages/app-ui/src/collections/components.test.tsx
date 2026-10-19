@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import type { Mdbase, MdbasePhase, MdbaseSnapshot } from "@mdbase-dev/sdk";
+import { describeError } from "@mdbase-dev/sdk/describe";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CollectionGate, CollectionSwitcher, DeleteCollectionDialog, useCollectionUi, type CollectionSection, type DeleteCollectionOutcome } from "../collections.js";
+import { CollectionGate, CollectionSwitcher, CollectionSaveWarning, DeleteCollectionDialog, useCollectionUi, type CollectionSection, type DeleteCollectionOutcome } from "../collections.js";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -41,6 +42,7 @@ function fakeMdbase(phase: MdbasePhase, extra: Partial<MdbaseSnapshot> = {}) {
     subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener); },
     signIn: vi.fn(pending),
     addCollection: vi.fn(pending),
+    addPrivateCollection: vi.fn(pending),
     approve: vi.fn(pending),
     select: vi.fn(pending),
     chooseAnother: vi.fn(pending),
@@ -146,6 +148,61 @@ describe("popup calls run inside the click", () => {
       await Promise.resolve();
       expect(second.mdbase.addCollection).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+describe("SDK storage and Private states", () => {
+  it("adds Private in the gesture and renders the SDK computer-approval state", async () => {
+    const { mdbase, entry, set } = fakeMdbase({ kind: "choosing", lastApproval: null });
+    render(<CollectionGate mdbase={entry} app={app}>{() => null}</CollectionGate>);
+    act(() => {
+      button("Add a Private collection").click();
+      expect(mdbase.addPrivateCollection).toHaveBeenCalledWith(expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    });
+    const problem = describeError("device_approval_required")!;
+    act(() => set({ phase: { kind: "problem", collectionId: A, problem } }));
+    expect(container.textContent).toContain(problem.title);
+    expect(container.textContent).toContain(problem.message);
+  });
+
+  it("offers Private from the ready switcher and obeys the app leave guard", async () => {
+    const { mdbase, entry } = fakeMdbase({ kind: "ready", collectionId: A, collection: { collectionId: A, displayName: "Alpha", role: "owner" }, connection: {} as never, rechecking: false, problem: null, unavailableTypes: [] });
+    const before = vi.fn(() => false);
+    render(<CollectionSwitcher mdbase={entry} app={app} onBeforeLeave={before} />);
+    act(() => button("Switch collection, current: Alpha").click());
+    act(() => button("Add a Private collection").click());
+    expect(before).toHaveBeenCalledWith("add");
+    expect(mdbase.addPrivateCollection).not.toHaveBeenCalled();
+    render(<CollectionSwitcher mdbase={entry} app={app} />);
+    act(() => button("Switch collection, current: Alpha").click());
+    act(() => button("Add a Private collection").click());
+    expect(mdbase.addPrivateCollection).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows only the SDK save warning and removes it on confirmation", () => {
+    const { entry, set } = fakeMdbase({ kind: "ready", collectionId: A, collection: { collectionId: A, displayName: "Alpha", role: "owner" }, connection: {} as never, rechecking: false, problem: null, unavailableTypes: [] }, { saveWarning: null });
+    render(<CollectionGate mdbase={entry} app={app}>{() => <CollectionSaveWarning />}</CollectionGate>);
+    expect(container.querySelector(".mdbase-collections-save-warning")).toBeNull();
+    act(() => set({ saveWarning: "storage_may_be_evicted" }));
+    expect(container.querySelector(".mdbase-collections-save-warning")?.textContent).toBe(describeError("storage_may_be_evicted")?.message);
+    act(() => set({ saveWarning: null }));
+    expect(container.querySelector(".mdbase-collections-save-warning")).toBeNull();
+  });
+
+  it.each(["browser_unsupported", "application_storage_unavailable"])("renders SDK unavailable copy for %s", (code) => {
+    const problem = describeError(code)!;
+    const { entry } = fakeMdbase({ kind: "unavailable", problem }, { signIn: null });
+    render(<CollectionGate mdbase={entry} app={app}>{() => null}</CollectionGate>);
+    expect(container.textContent).toContain(problem.title);
+    expect(container.textContent).toContain(problem.message);
+  });
+
+  it("clears the cancellation notice when the SDK reports a successful later add", () => {
+    const { entry, set } = fakeMdbase({ kind: "choosing", lastApproval: { kind: "add", outcome: "closed", collectionId: null } });
+    render(<CollectionGate mdbase={entry} app={app}>{() => null}</CollectionGate>);
+    expect(container.textContent).toContain("No collection was added.");
+    act(() => set({ phase: { kind: "choosing", lastApproval: { kind: "add", outcome: "added", collectionId: A } } }));
+    expect(container.textContent).not.toContain("No collection was added.");
   });
 });
 

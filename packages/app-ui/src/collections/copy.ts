@@ -23,6 +23,7 @@ export const defaultCollectionCopy = {
   noCollectionAdded: "No collection was added.",
   accessNotGiven: "Access wasn't given.",
   addCollection: "Add a collection…",
+  addPrivateCollection: "Add a Private collection",
   addingCollection: "Opening mdbase…",
   manageAccess: "Manage access",
   signedInAs: "Signed in as {account}",

@@ -86,6 +86,8 @@ export interface CollectionUiOptions {
    * Connect window it opens still counts as the person's gesture.
    */
   readonly onBeforeLeave?: ((intent: LeaveIntent) => boolean | Promise<boolean>) | undefined;
+  /** Offer the SDK Private add action. Disable when the app supplies its own Private section/action. Default true. */
+  readonly allowPrivate?: boolean | undefined;
   /** Offer "Delete collection…" to owners. Default false. */
   readonly allowDelete?: boolean | undefined;
   /** Replacement or translated copy by key. */
@@ -96,7 +98,7 @@ export interface CollectionUiOptions {
   readonly rowDetail?: ((row: CollectionRow) => string | null | undefined) | undefined;
 }
 
-export type CollectionActionName = "sign_in" | "add" | "approve" | "select" | "choose_another" | "assess" | "start" | "sign_out" | "setup";
+export type CollectionActionName = "sign_in" | "add" | "add_private" | "approve" | "select" | "choose_another" | "assess" | "start" | "sign_out" | "setup";
 
 interface ActionError { readonly kind: CollectionView["kind"]; readonly notice: CollectionNotice }
 
@@ -119,6 +121,7 @@ export interface CollectionUi {
 export interface CollectionActions {
   signIn(): void;
   addCollection(): void;
+  addPrivateCollection(): void;
   approve(collectionId: string | null): void;
   select(collectionId: string): void;
   /** Open an app section item, closing whatever app item was open. */
@@ -140,7 +143,7 @@ export interface CollectionActions {
   track(name: CollectionActionName, call: () => Promise<unknown>): Promise<unknown>;
 }
 
-const popupActions: ReadonlySet<CollectionActionName> = new Set(["sign_in", "add", "approve"]);
+const popupActions: ReadonlySet<CollectionActionName> = new Set(["sign_in", "add", "add_private", "approve"]);
 
 /** The first current item across the app's sections. */
 export function appOpenItem(sections: readonly CollectionSection[] | undefined): OpenSectionItem | null {
@@ -221,6 +224,7 @@ export function useCollectionUi(options: CollectionUiOptions): CollectionUi {
     const actions: CollectionActions = {
       signIn: () => { void run("sign_in", (signal) => mdbase.signIn({ signal })); },
       addCollection: () => leave("add", () => { void run("add", (signal) => mdbase.addCollection({ signal })); }),
+      addPrivateCollection: () => leave("add", () => { void run("add_private", (signal) => mdbase.addPrivateCollection({ signal })); }),
       approve: (id) => { void run("approve", (signal) => mdbase.approve(id ?? undefined, { signal })); },
       select: (id) => {
         const app = appOpenItem(latest.current.options.sections);
