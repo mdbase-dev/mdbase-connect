@@ -19,7 +19,7 @@ export interface TakeoverHold {
 }
 
 /** Unsent edits captured from an old hosted mirror, and how their import went. */
-export interface MirrorImport {
+interface MirrorImport {
   mirror_root?: string;
   captured_at?: string;
   edits?: number;
