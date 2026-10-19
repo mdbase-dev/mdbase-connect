@@ -23,6 +23,7 @@ describe("account readiness before app consent", () => {
     ["not_scheduled", "Account upgrade needed", /support@mdbase\.dev/],
     ["scheduled", "Account upgrade scheduled", /upgraded soon/],
     ["in_progress", "Account upgrade in progress", /few minutes/],
+    ["postponed", "Account upgrade paused", /current mdbase apps/],
   ] as const)("explains %s before offering to use the account", async (upgrade, heading, detail) => {
     inspect(pairing(upgrade));
     expect(await screen.findByRole("heading", { name: heading })).toBeInTheDocument();

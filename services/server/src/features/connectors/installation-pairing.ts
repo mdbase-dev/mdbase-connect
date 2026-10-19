@@ -157,12 +157,8 @@ function live(r: Row): void {
   if (new Date(r.expires_at).getTime() <= Date.now())
     fail("installation_pairing_expired", 404);
 }
-async function active(
-  c: Pick<Connection, "query">,
-  user: string,
-  lock = false,
-  allowLegacy = false,
-): Promise<"in_progress" | "postponed" | "scheduled" | "not_scheduled" | null> {
+async function active(c: Pick<Connection, "query">, user: string, lock = false, allowLegacy = false)
+  : Promise<"in_progress" | "postponed" | "scheduled" | "not_scheduled" | null> {
   const account = (await c.query<{ account_backend: string }>(
     `SELECT account_backend FROM users WHERE id=$1 AND suspended_at IS NULL ${lock ? "FOR UPDATE" : ""}`,
     [user],
@@ -174,8 +170,7 @@ async function active(
       "SELECT started_at IS NOT NULL AS started FROM next_migration_cohort_members WHERE account_id=$1 AND terminal_excluded_at IS NULL",
       [user],
     )).rows[0];
-    // A rolled-back upgrade keeps its start claim, but nothing is migrating it:
-    // "being upgraded" would keep the person waiting indefinitely.
+    // Rollback keeps the start claim, but must not tell the person to keep waiting.
     const upgrade = member?.started
       ? await accountUpgradeRolledBack(c, user) ? "postponed" : "in_progress"
       : member ? "scheduled" : "not_scheduled";

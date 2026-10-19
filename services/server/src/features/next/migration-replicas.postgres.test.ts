@@ -201,6 +201,7 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
       const first = await f.call("appendbase-abort-barrier", input);
       expect(first.statusCode, first.body).toBe(200);
       expect(first.json()).toMatchObject({ state: "queued", sequence: null, item_sha256: null });
+      expect(await accountUpgradeRolledBack(db, f.owner)).toBe(false);
       const batches = async () => (await db.query<{ id: string; seq: string; item: Buffer; state: string }>(
         "SELECT id,seq,item,state FROM next_policy_batches WHERE collection_id=$1 AND seq>1 ORDER BY id", [f.a])).rows;
       const [original] = await batches(); expect(original!.state).toBe("sending");
@@ -216,6 +217,7 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
       expect(retry.json()).toMatchObject({ ...first.json(), state: "appended", sequence: 2,
         item_sha256: createHash("sha256").update(original!.item).digest("hex") });
       expect(await batches()).toEqual([{ ...original!, state: "appended" }]);
+      expect(await accountUpgradeRolledBack(db, f.owner)).toBe(false);
       expect(retained).toHaveLength(2);
       // Real signer/certificate and exact existing wire op; no cutover, grants,
       // membership, epoch, keys or positive Base evidence is manufactured.
@@ -252,6 +254,7 @@ suite("migration replica, unfence and cutover-policy fronts (isolated real Postg
       const first = await f.call("appendbase-abort-barrier", input);
       expect(first.statusCode, first.body).toBe(200);
       const result = first.json();
+      expect(await accountUpgradeRolledBack(db, f.owner)).toBe(false);
       expect(result).toEqual({ schema: "mdbase-appendbase-abort-barrier/1", collection_id: f.a,
         driver_id: input.driver_id, action_id: input.action_id, digest: expect.stringMatching(/^[0-9a-f]{64}$/u),
         state: "queued", sequence: null, item_sha256: null });

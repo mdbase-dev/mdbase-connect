@@ -40,6 +40,7 @@ test("account refusals no retry can fix cancel the window in plain words; others
   assert.match(upgrading.message, /try again/i);
   const postponed = model.installationRefusal({ status: 409, code: "installation_legacy_backend", message: "x", details: { upgrade: "postponed" } }, "Reader");
   assert.equal(postponed.cancel, true);
+  assert.equal(postponed.heading, "Account upgrade paused");
   assert.match(postponed.message, /Reader can't use it yet/);
   assert.match(postponed.message, /current mdbase apps/);
   assert.doesNotMatch(postponed.message, /being upgraded|try again|legacy|backend|migrat/i);
