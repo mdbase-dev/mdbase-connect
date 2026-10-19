@@ -314,8 +314,8 @@ importers:
         specifier: ^6.43.12
         version: 6.43.12
       '@mdbase-dev/sdk':
-        specifier: file:vendor/mdbase-dev-sdk-dev-1629d11e.tgz
-        version: file:packages/app-ui/vendor/mdbase-dev-sdk-dev-1629d11e.tgz
+        specifier: file:vendor/sdk-dev-bd131b16.tgz
+        version: file:packages/app-ui/vendor/sdk-dev-bd131b16.tgz
       '@types/react':
         specifier: ^19.3.0
         version: 19.3.0
@@ -1863,8 +1863,8 @@ packages:
     bundledDependencies:
       - '@mdbase-dev/connect-protocol'
 
-  '@mdbase-dev/sdk@file:packages/app-ui/vendor/mdbase-dev-sdk-dev-1629d11e.tgz':
-    resolution: {integrity: sha512-2m/EqrTvLBv/Pu9l94XTY4sTiUKuUm6CDChfTFm2UJumJuWwI1H0N8tHK9W5/81RfxxJE6d0roXOqbJrTPDddQ==, tarball: file:packages/app-ui/vendor/mdbase-dev-sdk-dev-1629d11e.tgz}
+  '@mdbase-dev/sdk@file:packages/app-ui/vendor/sdk-dev-bd131b16.tgz':
+    resolution: {integrity: sha512-+0HHz8nPUQ070jZh32D2D06eOpJv8rGgJvPfm2NE6xiyRs9+jbAYw3sAvls/mAnfiWjWfrtVUexZ8j4f0dZqfQ==, tarball: file:packages/app-ui/vendor/sdk-dev-bd131b16.tgz}
     version: 0.0.0
     engines: {node: '>=20'}
     bundledDependencies:
@@ -6939,7 +6939,7 @@ snapshots:
       '@noble/curves': 2.4.0
       '@noble/hashes': 2.4.0
 
-  '@mdbase-dev/sdk@file:packages/app-ui/vendor/mdbase-dev-sdk-dev-1629d11e.tgz':
+  '@mdbase-dev/sdk@file:packages/app-ui/vendor/sdk-dev-bd131b16.tgz':
     dependencies:
       '@noble/ciphers': 2.4.0
       '@noble/curves': 2.4.0
