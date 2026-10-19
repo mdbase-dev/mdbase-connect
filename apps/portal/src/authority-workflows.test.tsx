@@ -64,8 +64,9 @@ describe("approval collection chooser",()=>{
   });
   it("does not approve Private from catalog metadata before its signed companion is prepared",async()=>{
     await privateChoice("");
-    expect(screen.getByRole("button",{name:"Approve"})).toBeDisabled();
     expect(screen.getByRole("status")).toHaveTextContent("Preparing Reader");
+    fireEvent.click(screen.getByRole("button",{name:"Approve"}));
+    await waitFor(() => expect(screen.getByRole("button",{name:"Approving…"})).toBeDisabled());
     expect(vi.mocked(api).mock.calls.some(([,options])=>options?.method==="POST")).toBe(false);
   });
 });

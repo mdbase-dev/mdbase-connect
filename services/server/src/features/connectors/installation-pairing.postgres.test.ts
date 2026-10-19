@@ -936,7 +936,8 @@ describePg("installation device sign-in on daemon pairing", () => {
   it("surfaces a collection hint only after explicit account confirmation and only from its approvable list", async () => {
     const owner = await account(), hint = await scopeCollection(owner.user), input = original(), flow = await start(input);
     const inspect = () => app.inject({ method: "GET", url: `${flow.base}?collection_hint=${hint}`, headers: owner.headers });
-    expect((await inspect()).json().pairing).toMatchObject({ collections: [], collection_hint: null, selected_collection_id: null });
+    expect((await inspect()).json().pairing).toMatchObject({ collections: [{collection_id:hint}], collection_hint: null, selected_collection_id: null });
+    expect((await flow.exchange()).json()).toEqual({ status: "pending" });
     expect((await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: owner.headers })).statusCode).toBe(200);
     expect((await inspect()).json().pairing).toMatchObject({ collection_hint: hint, selected_collection_id: null, approved_collection_ids: [] });
   });
@@ -1018,6 +1019,23 @@ describePg("installation device sign-in on daemon pairing", () => {
     await expect(db.query("UPDATE installation_device_pairings SET created_collection_ids=$2 WHERE pairing_id=$1",[p.input.installation.request_id,[randomUUID()]])).rejects.toMatchObject({code:"23514"});
     const row=(await db.query("SELECT portal_account_email,selected_collection_id,created_collection_ids FROM installation_device_pairings WHERE pairing_id=$1",[p.input.installation.request_id])).rows[0];
     expect(row).toEqual({portal_account_email:p.selected.account_email,selected_collection_id:null,created_collection_ids:[]});
+  });
+  it("previews only the authenticated portal account's catalog without disclosing it or identity to the SDK",async()=>{
+    const owner=await account(), other=await account();
+    const own=await scopeCollection(owner.user), foreign=await scopeCollection(other.user);
+    const input=original(), flow=await start(input);
+    expect((await app.inject({method:"GET",url:flow.base})).statusCode).toBe(401);
+    const shown=(await app.inject({method:"GET",url:flow.base,headers:owner.headers})).json().pairing;
+    expect(shown).toMatchObject({app_origin:webOrigin,account_selected:false,signed_in_account_email:`${owner.user}@example.test`});
+    expect(shown.collections.map((c:{collection_id:string})=>c.collection_id)).toEqual([own]);
+    expect(shown.collections.some((c:{collection_id:string})=>c.collection_id===foreign)).toBe(false);
+    expect(shown.account_selection_confirmed).toBeUndefined();
+    expect((await flow.exchange()).json()).toEqual({status:"pending"});
+    const row=(await db.query("SELECT p.user_id,d.portal_account_confirmed_at,d.account_selected_at FROM pairing_requests p JOIN installation_device_pairings d ON d.pairing_id=p.id WHERE p.id=$1",[input.installation.request_id])).rows[0];
+    expect(row).toEqual({user_id:null,portal_account_confirmed_at:null,account_selected_at:null});
+    expect((await db.query("SELECT id FROM next_devices WHERE id=$1",[input.installation.device_id])).rows).toEqual([]);
+    expect((await app.inject({method:"POST",url:`${flow.base}/approve`,headers:owner.headers,payload:{collection_ids:[own],selected_collection_id:own,create_collections:false}})).statusCode).toBeGreaterThanOrEqual(400);
+    expect((await flow.exchange()).json()).toEqual({status:"pending"});
   });
   it("emits explicit account/email confirmation only for the authenticated original request",async()=>{
     const owner=await account(),input=original(),flow=await start(input);

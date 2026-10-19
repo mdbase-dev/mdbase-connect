@@ -370,12 +370,14 @@ export async function inspectInstallationPairing(
   // Display the signed-in person's readiness before consent, without selecting
   // the account or relaxing the independent mutation-time checks.
   const accountUpgrade = await active(db, user, false, true);
-  const eligible = r.account_selected_at ? await tx(db, async c => {
+  // First-party authenticated portal preview only. No account is selected and
+  // the requesting SDK learns nothing until the person's explicit confirmation.
+  const eligible = await tx(db, async c => {
     const hosted=await installationCollections(c,user,undefined,r.device_id);
     const native=r.file_access_collection_id ? [] : await privateInstallationChoices(c,user,r.app_id);
     if (hosted.length+native.length>1000) fail("installation_scope_limit");
     return [...hosted,...native];
-  }) : [];
+  });
   const collections = r.recovery_collection_id ? eligible.filter(collection => collection.collection_id===r.recovery_collection_id) : eligible;
   if (r.recovery_collection_id && r.account_selected_at && !collections.length) {
     // An explicitly confirmed portal account may learn its own legacy state;
