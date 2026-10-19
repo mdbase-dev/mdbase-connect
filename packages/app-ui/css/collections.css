@@ -1,3 +1,7 @@
+@import "./brand.css";
+@import "./motion.css";
+@import "./screens.css";
+
 /*
  * Shared collection screens (@mdbase-dev/ui/collections). Every rule reads
  * private --_* properties defined below. Each one takes, in order: the public
@@ -545,6 +549,27 @@
 
 .mdbase-collections-account-label {
   overflow-wrap: anywhere;
+}
+
+/* OpeningScreen owns the loading presentation; the gate retains its actions. */
+.mdbase-collections-gate .mdbase-opening {
+  min-height: 160px;
+  height: auto;
+  background: transparent;
+}
+
+.mdbase-collections-gate .mdbase-opening-message {
+  color: var(--_text-soft);
+  --mark-accent: var(--_accent);
+}
+
+.mdbase-collections-gate .mdbase-opening-message p {
+  font-size: var(--_font-size);
+}
+
+.mdbase-collections-gate .mdbase-opening-message small {
+  color: var(--_text-soft);
+  font-size: var(--_font-size-caption);
 }
 
 .mdbase-collections-spinner {

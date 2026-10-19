@@ -14,25 +14,34 @@ import { FLOCK_TIMING, flockFrame } from "./flock.js";
  * `useLaunchEntrancePlaying()` so a fast open does not cut the entrance off.
  */
 export function OpeningScreen(props: {
-  readonly app: MdbaseAppId;
+  /** A built-in app wordmark, or the name of an independent collection app. */
+  readonly app: MdbaseAppId | { readonly name: string; readonly mark?: ReactNode };
+  /** Embedded gates must not add a second main landmark. */
+  readonly layout?: "page" | "panel" | undefined;
   readonly title: string;
   readonly detail?: string | undefined;
   readonly error?: string | null | undefined;
   readonly onRetry?: (() => void) | undefined;
   readonly entrance?: "flock" | undefined;
 }): JSX.Element {
-  if (props.entrance === "flock") return <LaunchScreen {...props} />;
+  if (props.entrance === "flock" && typeof props.app === "string") return <LaunchScreen {...props} app={props.app} />;
   const { app, title, detail, error, onRetry } = props;
-  return <main className="mdbase-opening" data-loading-state={error ? "failed" : "opening"} aria-label={title} aria-busy={!error}>
+  const Container = props.layout === "panel" ? "div" : "main";
+  return <Container className="mdbase-opening" data-loading-state={error ? "failed" : "opening"} aria-label={title} aria-busy={!error}>
     <div className="mdbase-opening-message" role={error ? "alert" : "status"}>
-      <Wordmark app={app} motion="scan" signal={error ? openingFailed : null} />
+      {typeof app === "string"
+        ? <Wordmark app={app} motion="scan" signal={error ? openingFailed : null} />
+        : <span className="wordmark">
+          <span className="wordmark-mark mdbase-motion-scan" aria-hidden="true">{app.mark ?? <MdbaseMark signal={error ? openingFailed : null} />}</span>
+          <span className="wordmark-label">{app.name}</span>
+        </span>}
       <div>
         <p>{error ?? title}</p>
         {!error && detail && <small>{detail}</small>}
       </div>
       {error && onRetry && <button type="button" className="mdbase-button" onClick={onRetry}>Try again</button>}
     </div>
-  </main>;
+  </Container>;
 }
 
 const openingFailed = { kind: "error", id: 1 } as const;
