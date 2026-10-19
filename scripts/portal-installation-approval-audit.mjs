@@ -72,6 +72,7 @@ export async function auditPortalInstallationApproval(localPage, origin) {
     await page.getByRole("button", {name:"Approving…",exact:true}).waitFor();
     assert.deepEqual(posts.map(post => post.path.split("/").at(-1)), ["select-account"]);
     holdAttestation = false; await done();
+    assert.equal(await page.locator(".installation-details").getByText(base.fingerprint, {exact:true}).count(), 1, "done retains the informational device key under Details");
     assert.deepEqual(posts.map(post => post.path.split("/").at(-1)), ["select-account","approve"], "one confirm waits for attestation and performs the original approval");
     assert.deepEqual(posts[1].body, {fingerprint:base.fingerprint,collection_ids:[first],create_collections:true,selected_collection_id:first});
     // The inline native list replaces the popover: no upward-flipping layer can

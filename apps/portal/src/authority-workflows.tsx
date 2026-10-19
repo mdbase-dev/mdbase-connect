@@ -47,6 +47,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   const [declined,setDeclined] = useState(false);
   const generation = useRef(0);
   const dispatching = useRef(false);
+  const accountSelectionSucceeded = useRef(false);
   const cancelPreparation = useRef<(() => void) | null>(null);
   const handBack = useRef(false);
   const inspectionPath = pairingInspectionPath(pairingId, location.search);
@@ -66,6 +67,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     setOutcome(null);
     setBusy(false);
     setDeclined(false);
+    accountSelectionSucceeded.current = false;
     dispatching.current = false;
     api<{ pairing: DevicePairing }>(inspectionPath)
       .then((value) => {
@@ -132,8 +134,13 @@ export function Pairing({ pairingId }: { pairingId: string }) {
         const ready = (value: DevicePairing) => !!(value.account_selection_confirmed && value.attested && value.fingerprint && (!privateTarget || value.native_authorization_id));
         if (!ready(approval)) {
           // Only this explicit confirm may disclose the account to the SDK.
-          if (!approval.account_selection_confirmed) await api(`/v1/pairing-requests/${pairingId}/select-account`, { method: "POST" });
-          if (current !== generation.current) return;
+          if (!approval.account_selection_confirmed && !accountSelectionSucceeded.current) {
+            await api(`/v1/pairing-requests/${pairingId}/select-account`, { method: "POST" });
+            if (current !== generation.current) return;
+            // Avoid repeating a successful mutation even if inspection hangs.
+            // This is not authority: ready() still requires the server's confirmation.
+            accountSelectionSucceeded.current = true;
+          }
           approval = await new Promise<DevicePairing>((resolve, reject) => {
             const stop = watchPairingPreparation<DevicePairing>({
               read: async signal => (await api<{pairing:DevicePairing}>(inspectionPath, {signal})).pairing,
@@ -416,16 +423,16 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     Cancel
                   </button>
                 </div>
-                <details className="installation-details">
-                  <summary>Details</summary>
-                  {pairing.app_origin?.trim()
-                    ? <p>Requested from <code>{pairing.app_origin}</code>. The origin shown here is not proof of who made the request.</p>
-                    : <p>Requested by {pairing.connector_name}. No requesting origin is available.</p>}
-                  <p>This device can keep an offline copy of approved collections, including their files and current account/member information. Access applies only to the collections you allow.</p>
-                  {pairing.fingerprint && <p>Device key: <code>{pairing.fingerprint}</code></p>}
-                </details>
               </>
             )}
+            {outcome !== "cancelled" && <details className="installation-details">
+              <summary>Details</summary>
+              {pairing.app_origin?.trim()
+                ? <p>Requested from <code>{pairing.app_origin}</code>. The origin shown here is not proof of who made the request.</p>
+                : <p>Requested by {pairing.connector_name}. No requesting origin is available.</p>}
+              <p>This device can keep an offline copy of approved collections, including their files and current account/member information. Access applies only to the collections you allow.</p>
+              {pairing.fingerprint && <p>Device key: <code>{pairing.fingerprint}</code></p>}
+            </details>}
           </>
         ) : deepLink ? (
           <>

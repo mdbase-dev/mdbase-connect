@@ -59,6 +59,24 @@ describe("one explicit collection consent", () => {
     expect(screen.getByRole("heading", { name: "Access approved" })).toBeInTheDocument();
   });
 
+  it("keeps the informational device key under Details after preparation and on the approved screen", async () => {
+    const f = await fixture(); f.choose();
+    const implementation = vi.mocked(api).getMockImplementation()!;
+    let finish!: () => void;
+    vi.mocked(api).mockImplementation(async (path, options) => {
+      if (path.endsWith("/approve")) await new Promise<void>(resolve => { finish = resolve; });
+      return implementation(path, options);
+    });
+    vi.useFakeTimers(); fireEvent.click(screen.getByRole("button", { name: "Approve" })); f.attest();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(screen.getByRole("button", { name: "Approving…" })).toBeDisabled();
+    expect(screen.getByText("1234-5678").closest("details")).toHaveClass("installation-details");
+    await act(async () => { finish(); await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByRole("heading", { name: "Access approved" })).toBeInTheDocument();
+    expect(screen.getByText("Details")).toBeInTheDocument();
+    expect(screen.getByText("1234-5678").closest("details")).toHaveClass("installation-details");
+  });
+
   it("stops at the bounded preparation deadline; reads and explicit retry never replay approval", async () => {
     const f = await fixture(); f.choose(); vi.useFakeTimers();
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
@@ -68,18 +86,30 @@ describe("one explicit collection consent", () => {
     expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
     f.attest(); fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
-    expect(f.posts().map(([path]) => path.split("/").at(-1))).toEqual(["select-account", "select-account", "approve"]);
+    expect(f.posts().map(([path]) => path.split("/").at(-1))).toEqual(["select-account", "approve"]);
   });
 
-  it("bounds a hung preparation read without starting an unbounded reconciliation read", async () => {
+  it("bounds a hung read and retries without repeating successful account selection, even without a refreshed snapshot", async () => {
     const f = await fixture(); f.choose();
     const implementation = vi.mocked(api).getMockImplementation()!;
-    vi.mocked(api).mockImplementation((path, options) => options?.method === "POST" ? implementation(path, options) : new Promise(() => {}));
+    let hung = true;
+    vi.mocked(api).mockImplementation((path, options) => options?.method === "POST" || !hung ? implementation(path, options) : new Promise(() => {}));
     vi.useFakeTimers(); fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     await act(async () => { await vi.advanceTimersByTimeAsync(30_001); });
     expect(screen.getByRole("alert")).toHaveTextContent(/couldn't prepare Reader/);
     expect(f.posts()).toHaveLength(1);
     expect(vi.mocked(api).mock.calls.filter(([, options]) => options?.signal)).toHaveLength(1);
+    hung = false; f.attest(); fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(f.posts().map(([path]) => path.split("/").at(-1))).toEqual(["select-account", "approve"]);
+  });
+
+  it("does not treat the successful-call marker as server account-confirmation authority", async () => {
+    const f = await fixture({account_selection_confirmed:false}); f.choose(); vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("button", { name: "Approve" })); f.attest();
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_001); });
+    expect(screen.getByRole("alert")).toHaveTextContent(/couldn't prepare Reader/);
+    expect(f.posts().map(([path]) => path.split("/").at(-1))).toEqual(["select-account"]);
   });
 
   it("waits for the original native companion, not just its catalog entry and attestation", async () => {
