@@ -41,43 +41,50 @@ export async function auditPortalInstallationApproval(localPage, origin) {
     return route.fulfill({json: {ok: true}});
   });
   const url = `${origin}/pair/00000000-0000-4000-8000-000000000001`;
-  const picker = () => page.getByRole("combobox", {name: "Open in TaskNotes", exact: true});
+  const picker = () => page.getByRole("listbox", {name: "Open in TaskNotes", exact: true});
+  const selectedLabel = () => picker().locator("option:checked").innerText();
   const approve = () => page.getByRole("button", {name: "Approve", exact: true});
   const load = async hint => {
     pairing = structuredClone(base); posts = []; failCreation = false; loseApproval = false;
     await page.goto(`${url}${hint ? `?collection_hint=${hint}` : ""}`); await picker().waitFor();
   };
-  const choose = async name => {
-    await picker().click(); await page.getByRole("option", {name, exact: true}).click();
-  };
+  const choose = async name => { await picker().selectOption({label: name}); };
   const done = () => page.getByRole("heading", {name: "Access approved", exact: true}).waitFor();
   try {
-    // A long list must cover the approval heading opaquely even in its first
-    // animation frame. The default short popup can only fit it above the field.
+    // The inline native list replaces the popover: no upward-flipping layer can
+    // cover its filter, including in a short approval popup with a long catalog.
     for (const colorScheme of ["light", "dark"]) {
       await page.emulateMedia({colorScheme, reducedMotion: "no-preference"});
-      for (const viewport of [{width: 639, height: 444}, {width: 390, height: 844}]) {
+      for (const viewport of [{width: 639, height: 444}, {width: 390, height: 844}, {width: 320, height: 568}]) {
         await page.setViewportSize(viewport); await load();
         pairing.collections.push(...Array.from({length: 61}, (_, index) => ({
           collection_id: `${index.toString(16).padStart(8, "0")}-4444-4444-8444-444444444444`,
           display_name: `Fixture collection ${index}`, role: "owner"
         })));
-        await page.reload(); await picker().waitFor(); await picker().click();
-        const appearance = await page.locator('[role="listbox"]:popover-open').evaluate(list => {
-          const animations = list.getAnimations();
-          for (const animation of animations) {animation.pause(); animation.currentTime = 0;}
-          const style = getComputedStyle(list), box = list.getBoundingClientRect();
-          const observed = {opacity: style.opacity, display: style.display, width: box.width, height: box.height,
+        await page.reload(); await picker().waitFor(); await picker().focus();
+        await picker().evaluate(list => list.scrollIntoView({block: "center"}));
+        const appearance = await picker().evaluate(list => {
+          const box = list.getBoundingClientRect();
+          return {rows: list.size, width: box.width, height: box.height,
             fits: box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight};
-          for (const animation of animations) animation.finish();
-          return observed;
         });
-        assert.equal(appearance.opacity, "1", "first-frame popover never shows approval text through its surface");
-        assert.equal(appearance.display, "block");
-        assert.ok(appearance.width > 0 && appearance.height > 0 && appearance.fits, "long picker is open and bounded by the popup viewport");
-        await page.keyboard.press("Escape");
-        assert.equal(await picker().getAttribute("aria-expanded"), "false");
-        assert.equal(posts.length, 0, "opening and dismissing the picker never approves or creates a collection");
+        assert.ok(appearance.rows > 1, "the collection list is inline, not a dropdown");
+        assert.ok(appearance.width > 0 && appearance.height > 0 && appearance.fits, "long picker is bounded by the popup viewport");
+        const search = page.getByRole("searchbox", {name: "Find a collection", exact: true});
+        assert.equal(await search.evaluate(input => {
+          const box = input.getBoundingClientRect();
+          return document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2) === input;
+        }), true, "collection search stays pointer-reachable while the long picker is open; Escape is not required");
+        await search.click(); await search.fill("fixture collection 60");
+        assert.equal(await picker().locator("option").count(), 3, "filter leaves only the disabled placeholder, creation and the matching collection");
+        assert.equal(await picker().inputValue(), "", "filtering never chooses a collection");
+        await page.getByRole("option", {name: "Fixture collection 60", exact: true}).waitFor();
+        await search.fill("");
+        assert.equal(await picker().locator("option").count(), pairing.collections.length + 2, "clearing search restores the full catalog");
+        await picker().focus(); await page.keyboard.press("p");
+        assert.equal(await picker().inputValue(), first, "native keyboard navigation selects Personal notes");
+        await page.keyboard.press("Enter");
+        assert.equal(posts.length, 0, "focus, filtering and keyboard selection never approve or create a collection");
       }
     }
     for (const colorScheme of ["light", "dark"]) {
@@ -104,18 +111,18 @@ export async function auditPortalInstallationApproval(localPage, origin) {
       }
     }
     await load(first);
-    assert.match(await picker().innerText(), /Personal notes/, "eligible link target is preselected");
+    assert.equal(await picker().inputValue(), first, "eligible link target is preselected");
     assert.equal(posts.length, 0, "a hint never triggers approval");
     await choose("Work notes"); await approve().click(); await done();
     assert.deepEqual(posts.map(post => post.body), [{fingerprint: base.fingerprint, collection_ids: [second], create_collections: true, selected_collection_id: second}], "choose another overrides the requested hint without granting it");
     await load(created);
-    assert.match(await picker().innerText(), /Choose a collection/, "unavailable hint does not reveal a name or select another collection");
+    assert.equal(await picker().inputValue(), "", "unavailable hint does not reveal a name or select another collection");
     assert.equal(await approve().isEnabled(), false);
     assert.equal(posts.length, 0);
     await load(first);
     pairing.creation = {collection_id: created, display_name: "Original name", completed: false};
     await page.reload(); await picker().waitFor();
-    assert.equal(await picker().innerText(), "Create a new collection…", "original creation overrides a hint");
+    assert.equal(await selectedLabel(), "Create a new collection…", "original creation overrides a hint");
     assert.equal(await page.getByLabel("New collection name", {exact: true}).inputValue(), "Original name", "original creation keeps the server's name");
     assert.equal(await page.getByLabel("New collection name", {exact: true}).getAttribute("readonly"), "");
     assert.equal(posts.length, 0);

@@ -342,9 +342,12 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     </label>
                     <label className="installation-choice">
                       <span>Open in {pairing.connector_name}</span>
-                      <Select aria-label={`Open in ${pairing.connector_name}`} disabled={busy} value={selectedCollectionId} placeholder="Choose a collection"
-                        options={[...(pairing.can_create_collection && !pairing.creation?.completed ? [{value:NEW_COLLECTION,label:"Create a new collection…"}] : []),...visibleCollections.map(collection=>({value:collection.collection_id,label:collection.display_name}))]}
-                        onChange={setSelectedCollectionId} />
+                      <select className="installation-collection-list" aria-label={`Open in ${pairing.connector_name}`} disabled={busy} size={6} value={selectedCollectionId}
+                        onChange={event => setSelectedCollectionId(event.currentTarget.value)}>
+                        <option value="" disabled>Choose a collection</option>
+                        {pairing.can_create_collection && !pairing.creation?.completed && <option value={NEW_COLLECTION}>Create a new collection…</option>}
+                        {visibleCollections.map(collection => <option key={collection.collection_id} value={collection.collection_id}>{collection.display_name}</option>)}
+                      </select>
                     </label>
                     {collectionQuery && matchingCollections.length === 0 && <p role="status">No collections match. Try another name; your current choice stays selected.</p>}
                     {selectedCollectionId === NEW_COLLECTION && <div className="installation-choice">
