@@ -152,7 +152,7 @@ export function collectionView(snapshot: Snapshot, options: CollectionViewOption
       const detail = typeof progress === "string" && Object.hasOwn(progressCopy, progress)
         ? progressCopy[progress as keyof typeof progressCopy] : null;
       return { ...common, kind: "opening", collectionId: phase.collectionId, slow: phase.slow,
-        heading: name ? say(copy.openingHeading, name) : say(copy.openingHeadingUnnamed), lead: detail ? say(detail) : phase.slow ? say(copy.openingSlow) : null };
+        heading: name ? say(copy.openingHeading, name) : say(copy.openingHeadingUnnamed), lead: detail ? [say(detail), ...(phase.slow ? [say(copy.openingSlow)] : [])].join("\n") : phase.slow ? say(copy.openingSlow) : null };
     }
     case "needs_approval": {
       const name = nameOf(phase.collectionId, phase.displayName);

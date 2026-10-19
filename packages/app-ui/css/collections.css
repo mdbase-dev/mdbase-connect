@@ -77,6 +77,12 @@
   white-space: nowrap;
 }
 
+/* Keep a known opening stage and its slow warning on separate lines. */
+.mdbase-collections-lead,
+.mdbase-collections .mdbase-opening-message small {
+  white-space: pre-line;
+}
+
 /* Gate: one column, heading, lead, the screen's own content, then the footer. */
 .mdbase-collections-gate {
   display: grid;

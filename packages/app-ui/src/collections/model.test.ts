@@ -37,9 +37,10 @@ describe("collectionView", () => {
     ["loading_snapshot", "Loading the collection snapshot…"], ["replaying", "Applying collection updates…"],
     ["waiting_for_key", "Waiting for the collection key…"], ["verifying_read", "Checking the collection is readable…"],
     ["checking_setup", "Checking collection setup…"],
-  ])("shows only truthful fixed progress copy for %s, including slow opens", (progress, lead) => {
-    const phase = {kind: "opening" as const, collectionId: A, displayName: "Notes", slow: true, progress};
-    expect(collectionView(snapshot(phase), app)).toMatchObject({kind: "opening", lead, slow: true});
+  ])("shows only truthful fixed progress copy for %s", (progress, lead) => {
+    const phase = {kind: "opening" as const, collectionId: A, displayName: "Notes", slow: false, progress};
+    expect(collectionView(snapshot(phase), app)).toMatchObject({kind: "opening", lead, slow: false});
+    expect(collectionView(snapshot({...phase, slow: true}), app)).toMatchObject({kind: "opening", lead: `${lead}\nThis is taking longer than usual.`, slow: true});
   });
   it("keeps the older-SDK fallback and never renders unknown progress text", () => {
     for (const progress of [undefined, "private document name", "__proto__", "constructor"]) {
