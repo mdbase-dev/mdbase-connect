@@ -8,8 +8,6 @@ use mdbn_wire::snapshot::TextOrBlob;
 #[tokio::test]
 async fn complete_seeded_hold_capture_refuses_only_holds_and_resumes_original_local() {
     let f = capture_fixture("capture-complete-seeded-hold").await;
-    let config = b"spec_version: 0.3.0\nsettings:\n  timezone: UTC\n";
-    std::fs::write(f.folder.path().join("mdbase.yaml"), config).unwrap();
     let original = f
         .daemon
         .inner
@@ -165,7 +163,7 @@ async fn complete_seeded_hold_capture_refuses_only_holds_and_resumes_original_lo
     );
     assert_eq!(
         std::fs::read(f.folder.path().join("mdbase.yaml")).unwrap(),
-        config
+        CAPTURE_CONFIG
     );
     close_fixture(&f).await;
 }
