@@ -17,7 +17,7 @@ use super::record::{CollectionState, Record, State};
 use super::*;
 
 #[path = "../../tests/fixtures/old_agent.rs"]
-pub(super) mod old_agent;
+pub(crate) mod old_agent;
 use old_agent::{CID, RID};
 const MIRROR: &str = "9d1e0c55-0000-4000-8000-00000000000a";
 
@@ -66,6 +66,7 @@ fn failpoint_t1() {
 fn opts() -> Options {
     Options {
         stop_mirrors: false,
+        account_moved: false,
         drain: Duration::ZERO,
         now: "2026-10-08T12:00:00Z".into(),
     }
@@ -369,8 +370,8 @@ fn mirror(d: &Device, folder_bytes: &[u8]) {
 }
 
 #[test]
-fn old_mirrors_postpone_the_device_until_their_queues_are_empty() {
-    // A queued (un-uploaded) mirror edit: T1 would stop its upload, so wait.
+fn old_mirrors_unsent_edits_are_captured_then_the_device_proceeds() {
+    // A queued (un-uploaded) mirror edit. Without consent a manual run waits.
     let d = device("tko-mirror");
     mirror(&d, b"M edited, not uploaded");
     let mut old = Old::default();
@@ -382,7 +383,14 @@ fn old_mirrors_postpone_the_device_until_their_queues_are_empty() {
         Some("mirrors_present")
     );
     assert_eq!(old.0, 0, "the old daemon keeps running");
-    let ran = run(
+    assert!(mirror_import::captured(&d.paths.legacy).unwrap().is_empty());
+
+    // Allowed to stop: the unsent edit is captured, then the takeover proceeds
+    // (it used to wait for a queue that can never drain once the account moved).
+    let mstate = d.old.join("mirrors").join(MIRROR).join("state.json");
+    let mstate_before = fs::read(&mstate).unwrap();
+    let before = old_files(&d);
+    run(
         &d.paths,
         &d.old,
         &mut old,
@@ -392,14 +400,39 @@ fn old_mirrors_postpone_the_device_until_their_queues_are_empty() {
         },
     )
     .unwrap();
+    assert_taken_over(&d, &before);
+    let hosted = "4c18af2e-b04a-4b77-b83e-493c3695962f";
+    let c = mirror_import::Capture::load(&d.paths.legacy, hosted)
+        .unwrap()
+        .unwrap();
+    assert_eq!(c.edits.len(), 1);
+    assert!(matches!(&c.edits[0], mirror_import::Edit::Update { path, .. } if path == "m.md"));
+    // The old mirror's queue is left as it was: the original copy.
+    assert_eq!(fs::read(&mstate).unwrap(), mstate_before);
+    let mroot = d.state.parent().unwrap().join("mirror");
     assert_eq!(
-        ran.record.unwrap().collections[CID].reason.as_deref(),
-        Some("mirror_queue_not_empty")
+        fs::read(mroot.join("m.md")).unwrap(),
+        b"M edited, not uploaded"
     );
-    assert_eq!(old.0, 0);
-    assert_eq!(marker::read(&d.root).unwrap(), Marker::Absent);
 
-    // Drained: with --stop-mirrors it proceeds.
+    // An automatic run (the account has moved) proceeds the same way.
+    let d = device("tko-mirror-moved");
+    mirror(&d, b"M edited, not uploaded");
+    let before = old_files(&d);
+    run(
+        &d.paths,
+        &d.old,
+        &mut Old::default(),
+        &Options {
+            account_moved: true,
+            ..opts()
+        },
+    )
+    .unwrap();
+    assert_taken_over(&d, &before);
+    assert_eq!(mirror_import::captured(&d.paths.legacy).unwrap(), [hosted]);
+
+    // A drained mirror proceeds too, with an empty capture.
     let d = device("tko-mirror-empty");
     mirror(&d, b"M");
     let before = old_files(&d);
@@ -414,6 +447,28 @@ fn old_mirrors_postpone_the_device_until_their_queues_are_empty() {
     )
     .unwrap();
     assert_taken_over(&d, &before);
+}
+
+#[test]
+fn a_mirror_whose_queue_cannot_be_captured_still_postpones() {
+    let d = device("tko-mirror-unreadable");
+    mirror(&d, b"M edited");
+    fs::remove_file(d.old.join("mirrors").join(MIRROR).join("state.json")).unwrap();
+    let ran = run(
+        &d.paths,
+        &d.old,
+        &mut Old::default(),
+        &Options {
+            account_moved: true,
+            ..opts()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        ran.record.unwrap().collections[CID].reason.as_deref(),
+        Some("mirror_state_unreadable")
+    );
+    assert_eq!(marker::read(&d.root).unwrap(), Marker::Absent);
 }
 
 #[test]

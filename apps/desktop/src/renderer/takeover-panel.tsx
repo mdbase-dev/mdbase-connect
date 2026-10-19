@@ -61,6 +61,7 @@ export function TakeoverPanel({ names }: { names: Record<string, string> }) {
       {view.advice && <p className="takeover-advice"><span>What to do: </span>{view.advice}</p>}
       {view.incidents.map((incident) => <p key={incident} className="takeover-incident">{incident}</p>)}
       {failure && <p className="takeover-incident">{failure}</p>}
+      {view.notices.map((notice) => <p key={notice}>{notice}</p>)}
       {view.rows.length > 0 && <ul className="takeover-rows">
         {view.rows.map((row) => (
           <li key={row.id}>
