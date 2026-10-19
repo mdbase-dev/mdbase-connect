@@ -114,6 +114,34 @@ describe("opening presentation", () => {
   });
 });
 
+describe("sign-out progress", () => {
+  it.each(["page", "panel"] as const)("explains a pending sign-out on the signed-out %s screen until the original action settles", async (layout) => {
+    const { mdbase, entry, set } = fakeMdbase({ kind: "choosing", lastApproval: null });
+    let finish!: (snapshot: MdbaseSnapshot) => void;
+    mdbase.signOut.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    render(<CollectionGate mdbase={entry} app={app} layout={layout}>{() => null}</CollectionGate>);
+    act(() => button("Sign out").click());
+    expect(mdbase.signOut).toHaveBeenCalledOnce();
+    expect(button("Signing out…").getAttribute("aria-disabled")).toBe("true");
+
+    // The SDK publishes signed_out after installation erasure, before its
+    // original terminal Worker close finishes. That snapshot is not permission
+    // for the UI to pretend its outstanding signOut promise has completed.
+    act(() => set({ status: "signed_out", phase: { kind: "signed_out", notice: null }, signIn: null, collections: [],
+      signOutResult: { server: "revoked", local: "erased", webPush: false } }));
+    expect(container.textContent).toContain("You've signed out of TaskNotes on this device.");
+    expect(container.textContent).toContain("Signing out…");
+    act(() => button("Signing out…").click());
+    expect(mdbase.signIn).not.toHaveBeenCalled();
+    expect(mdbase.signOut).toHaveBeenCalledOnce();
+
+    await act(async () => { finish(entry.getSnapshot()); });
+    expect(container.textContent).not.toContain("Signing out…");
+    expect(button("Sign in").getAttribute("aria-disabled")).toBeNull();
+    act(() => { button("Sign in").click(); expect(mdbase.signIn).toHaveBeenCalledOnce(); });
+  });
+});
+
 describe("popup calls run inside the click", () => {
   it("calls signIn before the click handler returns", () => {
     const { mdbase, entry } = fakeMdbase({ kind: "signed_out", notice: null }, { signIn: null, collections: [] });
