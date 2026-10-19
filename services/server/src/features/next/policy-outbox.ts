@@ -11,7 +11,7 @@
 import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import { isLogRegion, LogServiceError, type LogPlacement, type LogRegion, type LogServiceClient } from "./log-service-client.js";
 import { signPolicyItem, type PolicyOp, type PolicySigner } from "./policy-wire.js";
-import { recoverLostPolicy, withPolicyLock } from "./policy-recovery.js";
+import { recoverLostPolicy, withPolicyLock, type PolicyLock } from "./policy-recovery.js";
 import { DEFAULT_COLLECTION_DISPLAY_NAME } from "./collection-display-name.js";
 
 const OUTBOX_FORMAT = 1;
@@ -38,7 +38,7 @@ function deserializeOps(value: unknown): PolicyOp[] {
   return revived.ops;
 }
 
-export type HostedSync = "private" | "cloud_copy";
+type HostedSync = "private" | "cloud_copy";
 
 /** The genesis row's stored placement; anything malformed is no placement. */
 function storedPlacement(value: unknown): LogPlacement | undefined {
@@ -296,86 +296,92 @@ export class PolicyEmitter {
   }
 
   private step(collectionId: string): Promise<DrainOutcome> {
-    return withPolicyLock(this.db, collectionId, () => this.sendStep(collectionId));
+    return withPolicyLock(this.db, collectionId, lock => this.sendStep(lock, collectionId));
   }
 
-  private async sendStep(collectionId: string): Promise<DrainOutcome> {
-    const batch = await this.claim(collectionId);
+  private async sendStep(lock: PolicyLock, collectionId: string): Promise<DrainOutcome> {
+    const batch = await this.claim(lock, collectionId);
     if (batch === "idle" || batch === "blocked") return batch;
     const seq = Number(batch.seq);
     try {
+      // No send decision after loss of this physical session's ownership. If it
+      // dies DURING the request, the original persisted bytes remain uncertain;
+      // only a live successor may acknowledge their idempotent retry.
+      await lock.assertOwned();
       if (seq === 1) {
         // The genesis row is the collection's first outbox row.
-        const genesis = (await this.db.query<{ id: string; ops: unknown }>(
+        const genesis = (await lock.query<{ id: string; ops: unknown }>(
           "SELECT id, ops FROM next_policy_outbox WHERE collection_id = $1 ORDER BY id LIMIT 1", [collectionId]
         )).rows[0];
         const { region } = await this.log.createLog(collectionId, batch.item, storedPlacement(genesis?.ops));
         // Recorded before the batch counts as appended, so activation (which waits for
         // an appended genesis) always sees it. A retry answers the same stored region.
         if (region && genesis) {
-          await this.db.query("UPDATE next_policy_outbox SET ops = jsonb_set(ops, '{region}', to_jsonb($2::text)) WHERE id = $1", [genesis.id, region]);
+          await lock.assertOwned();
+          await lock.query("UPDATE next_policy_outbox SET ops = jsonb_set(ops, '{region}', to_jsonb($2::text)) WHERE id = $1", [genesis.id, region]);
         }
       } else {
         const result = await this.log.append(collectionId, seq, batch.prev, [batch.item]);
         if (result.kind === "head-moved") {
-          await this.release(batch.id);
+          await this.release(lock, batch.id);
           return "rebuild";
         }
         if (result.kind === "duplicate") throw new LogServiceError("invalid", "duplicate");
       }
     } catch (error) {
+      await lock.assertOwned();
       if (error instanceof LogServiceError && !error.retryable) {
-        await this.db.query("UPDATE next_policy_batches SET state = 'parked', error = $2, attempts = attempts + 1 WHERE id = $1 AND state = 'sending'", [batch.id, error.message]);
+        await lock.query("UPDATE next_policy_batches SET state = 'parked', error = $2, attempts = attempts + 1 WHERE id = $1 AND state = 'sending'", [batch.id, error.message]);
       } else {
-        await this.db.query("UPDATE next_policy_batches SET attempts = attempts + 1, error = $2 WHERE id = $1 AND state = 'sending'", [batch.id, String((error as Error).message ?? error)]);
+        await lock.query("UPDATE next_policy_batches SET attempts = attempts + 1, error = $2 WHERE id = $1 AND state = 'sending'", [batch.id, String((error as Error).message ?? error)]);
       }
       throw error;
     }
-    await this.db.query("UPDATE next_policy_batches SET state = 'appended', appended_at = now(), error = NULL WHERE id = $1 AND state = 'sending'", [batch.id]);
+    await lock.assertOwned();
+    await lock.query("UPDATE next_policy_batches SET state = 'appended', appended_at = now(), error = NULL WHERE id = $1 AND state = 'sending'", [batch.id]);
     return "appended";
   }
 
-  /** Return the collection's open batch, or build and persist the next one. */
-  private async claim(collectionId: string): Promise<Batch | "idle" | "blocked"> {
-    const client = await this.db.connect();
+  /** One item per lost batch, before fresh policy work; never coalesce reissues. */
+  private async pending(lock: PolicyLock, collectionId: string): Promise<Array<{ id: string; ops: unknown; reissue_of: string | null }>> {
+    const recovery = await lock.query<{ id: string; ops: unknown; reissue_of: string }>(
+      `SELECT id, ops, reissue_of FROM next_policy_outbox WHERE collection_id = $1 AND batch_id IS NULL
+       AND reissue_of IS NOT NULL ORDER BY reissue_of LIMIT 1`, [collectionId]
+    );
+    if (recovery.rows.length) return recovery.rows;
+    return (await lock.query<{ id: string; ops: unknown; reissue_of: null }>(
+      `SELECT id, ops, reissue_of FROM next_policy_outbox WHERE collection_id = $1 AND batch_id IS NULL
+       AND reissue_of IS NULL ORDER BY id LIMIT $2`, [collectionId, MAX_ROWS_PER_ITEM]
+    )).rows;
+  }
+
+  /** Return the immutable open batch, or persist a new one before sending. */
+  private async claim(lock: PolicyLock, collectionId: string): Promise<Batch | "idle" | "blocked"> {
+    const open = await lock.query<Batch & { state: string }>(
+      "SELECT id, seq, prev, item, state FROM next_policy_batches WHERE collection_id = $1 AND state <> 'appended' ORDER BY id LIMIT 1", [collectionId]
+    );
+    if (open.rows[0]) return open.rows[0].state === "parked" ? "blocked" : open.rows[0];
+    const preview = await this.pending(lock, collectionId);
+    if (!preview.length) return "idle";
+    const genesis = deserializeOps(preview[0]!.ops)[0]?.op === "genesis";
+    const head = genesis ? { seq: 0, chain: ZERO_CHAIN } : await this.log.head(collectionId);
+
+    await lock.query("BEGIN");
     try {
-      await client.query("BEGIN");
-      const collection = await client.query<{ last_issued_at: string; root_key_id: Buffer }>(
-        "SELECT last_issued_at, root_key_id FROM next_collections WHERE collection_id = $1 FOR NO KEY UPDATE",
-        [collectionId]
+      await lock.assertOwned();
+      const collection = await lock.query<{ last_issued_at: string; root_key_id: Buffer }>(
+        "SELECT last_issued_at, root_key_id FROM next_collections WHERE collection_id = $1 FOR NO KEY UPDATE", [collectionId]
       );
       const row = collection.rows[0];
-      if (!row) {
-        await client.query("ROLLBACK");
-        return "idle";
-      }
-      const open = await client.query<Batch & { state: string }>(
-        "SELECT id, seq, prev, item, state FROM next_policy_batches WHERE collection_id = $1 AND state <> 'appended' ORDER BY id LIMIT 1",
-        [collectionId]
-      );
-      if (open.rows[0]) {
-        await client.query("COMMIT");
-        return open.rows[0].state === "parked" ? "blocked" : open.rows[0];
-      }
-      const recovery = await client.query<{ id: string; ops: unknown; reissue_of: string }>(
-        `SELECT id, ops, reissue_of FROM next_policy_outbox WHERE collection_id = $1 AND batch_id IS NULL
-         AND reissue_of IS NOT NULL ORDER BY reissue_of LIMIT 1`, [collectionId]
-      );
-      // One item per lost batch, before fresh policy work; never coalesce reissues.
-      const pending = recovery.rows.length ? recovery : await client.query<{ id: string; ops: unknown }>(
-        `SELECT id, ops FROM next_policy_outbox WHERE collection_id = $1 AND batch_id IS NULL
-         AND reissue_of IS NULL ORDER BY id LIMIT $2`, [collectionId, MAX_ROWS_PER_ITEM]
-      );
-      if (pending.rows.length === 0) {
-        await client.query("COMMIT");
-        return "idle";
-      }
-      const ops = pending.rows.flatMap((entry) => deserializeOps(entry.ops));
-      // Monotonic per collection (policy.md §3 rule 4), even if the clock steps back.
+      if (!row) { await lock.query("ROLLBACK"); return "idle"; }
+      // Queue writers may commit while the head is in flight. Reload their
+      // stored ops under the row lock, without keeping a transaction over I/O.
+      const pending = await this.pending(lock, collectionId);
+      if (!pending.length) { await lock.commit(); return "idle"; }
+      const ops = pending.flatMap(entry => deserializeOps(entry.ops));
+      if ((ops[0]?.op === "genesis") !== genesis) throw new Error("policy claim changed during head read");
       const previousIssuedAt = Number(row.last_issued_at);
       const issuedAt = Math.max(this.now(), previousIssuedAt + 1);
-      const genesis = ops[0]?.op === "genesis";
-      const head = genesis ? { seq: 0, chain: ZERO_CHAIN } : await this.log.head(collectionId);
       const seq = head.seq + 1;
       let item: Uint8Array;
       try {
@@ -384,42 +390,39 @@ export class PolicyEmitter {
         }
         item = signPolicyItem(this.signer, { collection: collectionId, seq, prev: head.chain, issuedAt, previousIssuedAt, ops });
       } catch (error) {
-        if (!recovery.rows.length) throw error;
-        await client.query("UPDATE next_policy_batches SET state = 'parked', error = $2 WHERE id = $1", [recovery.rows[0]!.reissue_of, String((error as Error).message)]);
-        await client.query("COMMIT");
+        const reissue = pending[0]!.reissue_of;
+        if (reissue === null) throw error;
+        await lock.query("UPDATE next_policy_batches SET state = 'parked', error = $2 WHERE id = $1", [reissue, String((error as Error).message)]);
+        await lock.commit();
         return "blocked";
       }
-      const inserted = await client.query<{ id: string }>(
+      const inserted = await lock.query<{ id: string }>(
         `INSERT INTO next_policy_batches (collection_id, seq, prev, item, issued_at, state)
          VALUES ($1, $2, $3, $4, $5, 'sending') RETURNING id`,
         [collectionId, seq, Buffer.from(head.chain), Buffer.from(item), issuedAt]
       );
       const batchId = inserted.rows[0]!.id;
-      await client.query("UPDATE next_policy_outbox SET batch_id = $1 WHERE id = ANY($2::bigint[])", [batchId, pending.rows.map((entry) => entry.id)]);
-      await client.query("UPDATE next_collections SET last_issued_at = $2 WHERE collection_id = $1", [collectionId, issuedAt]);
-      await client.query("COMMIT");
+      await lock.query("UPDATE next_policy_outbox SET batch_id = $1 WHERE id = ANY($2::bigint[])", [batchId, pending.map(entry => entry.id)]);
+      await lock.query("UPDATE next_collections SET last_issued_at = $2 WHERE collection_id = $1", [collectionId, issuedAt]);
+      await lock.commit();
       return { id: batchId, seq: String(seq), prev: Buffer.from(head.chain), item: Buffer.from(item) };
     } catch (error) {
-      await client.query("ROLLBACK").catch(() => undefined);
+      await lock.query("ROLLBACK").catch(() => undefined);
       throw error;
-    } finally {
-      client.release();
     }
   }
 
   /** The log moved past this item's position without it: return its ops to the queue. */
-  private async release(batchId: string): Promise<void> {
-    const client = await this.db.connect();
+  private async release(lock: PolicyLock, batchId: string): Promise<void> {
+    await lock.query("BEGIN");
     try {
-      await client.query("BEGIN");
-      await client.query("UPDATE next_policy_outbox SET batch_id = NULL WHERE batch_id = $1", [batchId]);
-      await client.query("DELETE FROM next_policy_batches WHERE id = $1 AND state = 'sending'", [batchId]);
-      await client.query("COMMIT");
+      await lock.assertOwned();
+      await lock.query("UPDATE next_policy_outbox SET batch_id = NULL WHERE batch_id = $1", [batchId]);
+      await lock.query("DELETE FROM next_policy_batches WHERE id = $1 AND state = 'sending'", [batchId]);
+      await lock.commit();
     } catch (error) {
-      await client.query("ROLLBACK").catch(() => undefined);
+      await lock.query("ROLLBACK").catch(() => undefined);
       throw error;
-    } finally {
-      client.release();
     }
   }
 }

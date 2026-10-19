@@ -5,9 +5,9 @@ import { tokenHash } from "../../security.js";
 import { capabilityOperations } from "@mdbase-dev/connect-protocol";
 import { createNativeApprovalDelivery } from "../authorizations/native-approval-delivery.js";
 import { queueNextGrantPolicy } from "./grant-policy.js";
-import { recoverLostPolicy } from "./policy-recovery.js";
+import { recoverLostPolicy, withPolicyLock } from "./policy-recovery.js";
 import { registerPolicyRecoveryRoutes } from "./policy-recovery-routes.js";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { LogServiceClient } from "./log-service-client.js";
 import { PolicyEmitter, queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
@@ -90,6 +90,314 @@ describePostgres("mdbase-next policy outbox", () => {
     await registerNextCollection(database.db, { collectionId, ownerUserId: owner, runtime: "next", sync: "cloud_copy", rootKeyId: signer.cert.root, ops: genesisOps(owner, signer.cert.root) });
     return collectionId;
   }
+
+  function gate() {
+    let release!: () => void;
+    const promise = new Promise<void>(resolve => { release = resolve; });
+    return { promise, release };
+  }
+
+  function trackedPool() {
+    const pids: number[] = [];
+    const db: DatabasePool = { ...database.db, async connect() {
+      const connection = await database.db.connect();
+      pids.push((await connection.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0]!.pid);
+      return connection;
+    } };
+    return { db, pids };
+  }
+
+  async function transactions(pids: number[]) {
+    return (await database.db.query(
+      "SELECT pid, state FROM pg_stat_activity WHERE pid = ANY($1::int[]) AND xact_start IS NOT NULL", [pids]
+    )).rows;
+  }
+
+  it("does not hold SQL transactions or borrow another connection while the remote head is pending", async () => {
+    const collectionId = await register(await newUser(database.db));
+    const initial = new PolicyEmitter(database.db, client, signer);
+    await initial.drainCollection(collectionId);
+    await initial.close();
+    await queueNextPolicy(database.db, collectionId, [{ op: "freeze", frozen: true }]);
+    const entered = gate(), finish = gate(), tracked = trackedPool();
+    const head = client.head.bind(client);
+    const spy = vi.spyOn(client, "head").mockImplementationOnce(async id => {
+      entered.release(); await finish.promise; return head(id);
+    });
+    const emitter = new PolicyEmitter(tracked.db, client, signer);
+    const work = emitter.drainCollection(collectionId);
+    try {
+      await entered.promise;
+      expect(await transactions(tracked.pids)).toEqual([]);
+      expect(tracked.pids).toHaveLength(1);
+      expect((await database.db.query("SELECT 1 FROM pg_locks WHERE locktype='advisory' AND granted AND pid=ANY($1::int[])", [tracked.pids])).rows).toHaveLength(1);
+    } finally { finish.release(); await work; spy.mockRestore(); await emitter.close(); }
+    expect((await client.head(collectionId)).seq).toBe(2);
+  });
+
+  it("retries a failed global verification on a fresh connection before draining its queued work", async () => {
+    const collectionId = await register(await newUser(database.db));
+    const initial = new PolicyEmitter(database.db, client, signer);
+    await initial.drainCollection(collectionId); await initial.close();
+    await queueNextPolicy(database.db, collectionId, [{ op: "freeze", frozen: true }]);
+    const entered = gate(), finish = gate(), tracked = trackedPool(), errors = vi.fn();
+    const read = client.controlItemAt.bind(client);
+    const spy = vi.spyOn(client, "controlItemAt").mockImplementation(async (id, seq) => {
+      if (id === collectionId) { entered.release(); await finish.promise; }
+      return read(id, seq);
+    });
+    const emitter = new PolicyEmitter(tracked.db, client, signer, errors);
+    const work = emitter.drain();
+    try {
+      await entered.promise;
+      await database.db.query("SELECT pg_terminate_backend($1)", [tracked.pids.at(-1)]);
+      finish.release();
+      await work;
+      expect(errors.mock.calls.some(([, id]) => id === collectionId)).toBe(true);
+      expect((await client.head(collectionId)).seq).toBe(1);
+    } finally { finish.release(); await work; spy.mockRestore(); }
+    await emitter.drain();
+    expect((await client.head(collectionId)).seq).toBe(2);
+    await emitter.close();
+  });
+
+  it("releases a healthy owner's lock even when its callback throws", async () => {
+    const collectionId = randomUUID(), tracked = trackedPool(), failure = new Error("callback failed");
+    await expect(withPolicyLock(tracked.db, collectionId, async () => { throw failure; })).rejects.toBe(failure);
+    expect(await withPolicyLock(tracked.db, collectionId, async () => 42)).toBe(42);
+    expect((await database.db.query("SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=ANY($1::int[])", [tracked.pids])).rows).toEqual([]);
+  });
+
+  it("keeps a multi-page policy history verification outside SQL transactions", async () => {
+    const collectionId = await register(await newUser(database.db));
+    const emitter = new PolicyEmitter(database.db, client, signer);
+    await emitter.drainCollection(collectionId);
+    // More than one 64-row page, using real signed/acknowledged policy batches.
+    for (let i = 0; i < 65; i++) {
+      await queueNextPolicy(database.db, collectionId, [{ op: "freeze", frozen: i % 2 === 0 }]);
+      await emitter.drainCollection(collectionId);
+    }
+    const entered = gate(), finish = gate(), tracked = trackedPool();
+    const read = client.controlItemAt.bind(client);
+    let reads = 0;
+    const spy = vi.spyOn(client, "controlItemAt").mockImplementation(async (id, seq) => {
+      if (++reads === 65) { entered.release(); await finish.promise; }
+      return read(id, seq);
+    });
+    const work = recoverLostPolicy(tracked.db, client, collectionId);
+    try {
+      await entered.promise;
+      expect(await transactions(tracked.pids)).toEqual([]);
+      expect(tracked.pids).toHaveLength(1);
+    } finally { finish.release(); await work; spy.mockRestore(); await emitter.close(); }
+    expect(reads).toBe(66);
+    expect((await database.db.query("SELECT 1 FROM next_policy_batches WHERE collection_id=$1 AND lost_at IS NOT NULL", [collectionId])).rows).toEqual([]);
+  });
+
+  it("preserves the callback error after lock connection termination and admits a fresh owner", async () => {
+    const collectionId = randomUUID(), tracked = trackedPool(), entered = gate(), finish = gate();
+    const original = new Error("original verification unavailable");
+    const work = withPolicyLock(tracked.db, collectionId, async () => {
+      entered.release(); await finish.promise; throw original;
+    });
+    const observed = work.catch(error => error);
+    try {
+      await entered.promise;
+      await database.db.query("SELECT pg_terminate_backend($1)", [tracked.pids[0]]);
+      finish.release();
+      expect(await observed).toBe(original);
+    } finally { finish.release(); await observed; }
+    expect(await withPolicyLock(tracked.db, collectionId, async () => 42)).toBe(42);
+    expect(tracked.pids.at(-1)).not.toBe(tracked.pids[0]);
+    expect((await database.db.query("SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=ANY($1::int[])", [tracked.pids])).rows).toEqual([]);
+  });
+
+  it("fences a terminated sender while takeover retries the original bytes, without a stale ACK or fork", async () => {
+    const collectionId = await register(await newUser(database.db));
+    const initial = new PolicyEmitter(database.db, client, signer);
+    await initial.drainCollection(collectionId); await initial.close();
+    await queueNextPolicy(database.db, collectionId, [{ op: "freeze", frozen: true }]);
+    const firstEntered = gate(), firstFinish = gate(), nextEntered = gate(), nextFinish = gate();
+    const append = client.append.bind(client);
+    const spy = vi.spyOn(client, "append")
+      .mockImplementationOnce(async (...args) => { firstEntered.release(); await firstFinish.promise; return append(...args); })
+      .mockImplementationOnce(async (...args) => { nextEntered.release(); await nextFinish.promise; return append(...args); });
+    const tracked = trackedPool();
+    const first = new PolicyEmitter(tracked.db, client, signer), next = new PolicyEmitter(database.db, client, signer);
+    const original = first.drainCollection(collectionId).catch(error => error);
+    let takeover: Promise<number> | undefined;
+    try {
+      await firstEntered.promise;
+      await database.db.query("SELECT pg_terminate_backend($1)", [tracked.pids[0]]);
+      takeover = next.drainCollection(collectionId);
+      await nextEntered.promise;
+      expect(spy.mock.calls[1]).toEqual(spy.mock.calls[0]);
+      firstFinish.release();
+      expect(await original).toBeInstanceOf(Error);
+      // The old sender may have reached the log. Only the live owner may ACK it.
+      expect((await database.db.query("SELECT state FROM next_policy_batches WHERE collection_id=$1 AND seq=2", [collectionId])).rows).toEqual([{ state: "sending" }]);
+      nextFinish.release();
+      expect(await takeover).toBe(1);
+      expect((await client.head(collectionId)).seq).toBe(2);
+      expect(service.policyOps(collectionId, signer.cert.policyPublicKey)).toEqual([["1", "4", "2", "2"], ["11"]]);
+    } finally {
+      firstFinish.release(); nextFinish.release();
+      await original; await takeover;
+      spy.mockRestore(); await first.close(); await next.close();
+    }
+  });
+
+  it("does not claim or send after the owner dies during a remote head read", async () => {
+    const collectionId = await register(await newUser(database.db));
+    const initial = new PolicyEmitter(database.db, client, signer);
+    await initial.drainCollection(collectionId); await initial.close();
+    await queueNextPolicy(database.db, collectionId, [{ op: "freeze", frozen: true }]);
+    const entered = gate(), finish = gate(), tracked = trackedPool();
+    const head = client.head.bind(client);
+    const headSpy = vi.spyOn(client, "head").mockImplementationOnce(async id => {
+      entered.release(); await finish.promise; return head(id);
+    });
+    const appendSpy = vi.spyOn(client, "append");
+    const emitter = new PolicyEmitter(tracked.db, client, signer);
+    const work = emitter.drainCollection(collectionId).catch(error => error);
+    try {
+      await entered.promise;
+      await database.db.query("SELECT pg_terminate_backend($1)", [tracked.pids[0]]);
+      finish.release();
+      expect(await work).toBeInstanceOf(Error);
+      expect(appendSpy).not.toHaveBeenCalled();
+      expect((await database.db.query("SELECT 1 FROM next_policy_batches WHERE collection_id=$1 AND seq=2", [collectionId])).rows).toEqual([]);
+    } finally { finish.release(); await work; headSpy.mockRestore(); appendSpy.mockRestore(); }
+    expect(await emitter.drainCollection(collectionId)).toBe(1);
+    await emitter.close();
+  });
+
+  it("does not start an append after ownership dies between the claim commit and send decision", async () => {
+    const collectionId = await register(await newUser(database.db));
+    const initial = new PolicyEmitter(database.db, client, signer);
+    await initial.drainCollection(collectionId); await initial.close();
+    await queueNextPolicy(database.db, collectionId, [{ op: "freeze", frozen: true }]);
+    const entered = gate(), finish = gate(), tracked = trackedPool();
+    const emitter = new PolicyEmitter(tracked.db, client, signer);
+    const steps = emitter as unknown as { claim(...args: unknown[]): Promise<unknown> };
+    const claim = steps.claim.bind(emitter);
+    const claimSpy = vi.spyOn(steps, "claim").mockImplementationOnce(async (...args) => {
+      const batch = await claim(...args); entered.release(); await finish.promise; return batch;
+    });
+    const appendSpy = vi.spyOn(client, "append");
+    const work = emitter.drainCollection(collectionId).catch(error => error);
+    try {
+      await entered.promise;
+      await database.db.query("SELECT pg_terminate_backend($1)", [tracked.pids[0]]);
+      finish.release();
+      expect(await work).toBeInstanceOf(Error);
+      expect(appendSpy).not.toHaveBeenCalled();
+      expect((await database.db.query("SELECT state FROM next_policy_batches WHERE collection_id=$1 AND seq=2", [collectionId])).rows).toEqual([{ state: "sending" }]);
+    } finally { finish.release(); await work; claimSpy.mockRestore(); appendSpy.mockRestore(); }
+    expect(await emitter.drainCollection(collectionId)).toBe(1);
+    await emitter.close();
+  });
+
+  it("refuses to commit when the physical session is alive but no longer owns the lock", async () => {
+    const collectionId = randomUUID();
+    await expect(withPolicyLock(database.db, collectionId, async lock => {
+      await lock.query("BEGIN");
+      try {
+        await lock.query("SELECT pg_advisory_unlock(hashtextextended($1, 20261004))", [collectionId]);
+        await lock.commit();
+      } catch (error) {
+        await lock.query("ROLLBACK");
+        throw error;
+      }
+    })).rejects.toThrow("policy lock ownership lost; outcome unknown");
+    expect(await withPolicyLock(database.db, collectionId, async lock => { await lock.assertOwned(); return 42; })).toBe(42);
+  });
+
+  it("does not schedule loss after the owner dies during verification, then recovers exactly once", async () => {
+    const collectionId = await register(await newUser(database.db));
+    const emitter = new PolicyEmitter(database.db, client, signer);
+    await emitter.drainCollection(collectionId);
+    for (const frozen of [true, false]) {
+      await queueNextPolicy(database.db, collectionId, [{ op: "freeze", frozen }]);
+      await emitter.drainCollection(collectionId);
+    }
+    service.logs.get(collectionId.replaceAll("-", ""))!.splice(1, 1, Buffer.from("a0", "hex"));
+    const entered = gate(), finish = gate(), tracked = trackedPool();
+    const read = client.controlItemAt.bind(client);
+    const spy = vi.spyOn(client, "controlItemAt").mockImplementation(async (id, seq) => {
+      if (seq === 3) { entered.release(); await finish.promise; }
+      return read(id, seq);
+    });
+    const work = recoverLostPolicy(tracked.db, client, collectionId).catch(error => error);
+    try {
+      await entered.promise;
+      await database.db.query("SELECT pg_terminate_backend($1)", [tracked.pids[0]]);
+      finish.release();
+      expect(await work).toBeInstanceOf(Error);
+      expect((await database.db.query("SELECT 1 FROM next_policy_batches WHERE collection_id=$1 AND lost_at IS NOT NULL", [collectionId])).rows).toEqual([]);
+      expect((await database.db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1 AND reissue_of IS NOT NULL", [collectionId])).rows).toEqual([]);
+    } finally { finish.release(); await work; spy.mockRestore(); }
+    expect(await recoverLostPolicy(database.db, client, collectionId)).toBe(1);
+    expect(await recoverLostPolicy(database.db, client, collectionId)).toBe(0);
+    expect(await emitter.drainCollection(collectionId)).toBe(1);
+    await emitter.close();
+  });
+
+  it("does not commit a partial loss plan when a later verification read fails", async () => {
+    const collectionId = await register(await newUser(database.db));
+    const emitter = new PolicyEmitter(database.db, client, signer);
+    await emitter.drainCollection(collectionId);
+    for (const frozen of [true, false]) {
+      await queueNextPolicy(database.db, collectionId, [{ op: "freeze", frozen }]);
+      await emitter.drainCollection(collectionId);
+    }
+    service.logs.get(collectionId.replaceAll("-", ""))!.splice(1, 1, Buffer.from("a0", "hex"));
+    const read = client.controlItemAt.bind(client);
+    const failure = new Error("later verification read failed");
+    const spy = vi.spyOn(client, "controlItemAt").mockImplementation(async (id, seq) => {
+      if (seq === 3) throw failure;
+      return read(id, seq);
+    });
+    try {
+      await expect(recoverLostPolicy(database.db, client, collectionId)).rejects.toBe(failure);
+      expect((await database.db.query("SELECT 1 FROM next_policy_batches WHERE collection_id=$1 AND lost_at IS NOT NULL", [collectionId])).rows).toEqual([]);
+      expect((await database.db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1 AND reissue_of IS NOT NULL", [collectionId])).rows).toEqual([]);
+    } finally { spy.mockRestore(); await emitter.close(); }
+  });
+
+  it("survives the actual idle-transaction timeout during remote work without disabling it", async () => {
+    const connection = await database.db.connect();
+    // Shorten ONLY this disposable test session's timeout. Restore it before
+    // returning the physical client; pool and production settings are unchanged.
+    await connection.query("SET idle_in_transaction_session_timeout = '50ms'");
+    const released = vi.fn();
+    const db: DatabasePool = { ...database.db, connect: async () => ({ query: connection.query.bind(connection), release: released }) };
+    try {
+      expect((await connection.query("SHOW idle_session_timeout")).rows[0]!.idle_session_timeout).toBe("0");
+      expect(await withPolicyLock(db, randomUUID(), async () => {
+        // A separate backend supplies a deterministic server-side elapsed wait;
+        // the lock owner's connection receives no SQL/heartbeat during it.
+        await database.db.query("SELECT pg_sleep(0.15)");
+        return 42;
+      })).toBe(42);
+      expect(released).toHaveBeenCalledOnce();
+      expect((await connection.query("SHOW idle_in_transaction_session_timeout")).rows[0]!.idle_in_transaction_session_timeout).toBe("50ms");
+    } finally {
+      await connection.query("RESET idle_in_transaction_session_timeout").catch(() => undefined);
+      connection.release();
+    }
+  });
+
+  it("keeps the 64-row batch cap and drains the next batch without dropping queued policy", async () => {
+    const collectionId = await register(await newUser(database.db));
+    const emitter = new PolicyEmitter(database.db, client, signer);
+    await emitter.drainCollection(collectionId);
+    for (let i = 0; i < 65; i++) await queueNextPolicy(database.db, collectionId, [{ op: "freeze", frozen: i % 2 === 0 }]);
+    expect(await emitter.drainCollection(collectionId)).toBe(2);
+    expect(service.policyOps(collectionId, signer.cert.policyPublicKey).map(ops => ops.length)).toEqual([4, 64, 1]);
+    expect((await database.db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1 AND batch_id IS NULL", [collectionId])).rows).toEqual([]);
+    await emitter.close();
+  });
 
   it("creates the log with the genesis item, then appends queued ops as one item", async () => {
     const owner = await newUser(database.db);
