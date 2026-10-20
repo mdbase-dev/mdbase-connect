@@ -58,5 +58,5 @@ async function main() {
   }
 }
 
-// Node canonicalizes the module URL, including macOS /var and directory junctions.
-if (process.argv[1] && await realpath(process.argv[1]).catch(() => null) === fileURLToPath(import.meta.url)) await main();
+// Canonicalize both sides with the same API: module URLs can retain aliases.
+if (process.argv[1] && await realpath(process.argv[1]).catch(() => null) === await realpath(fileURLToPath(import.meta.url))) await main();
