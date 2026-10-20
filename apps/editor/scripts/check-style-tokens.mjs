@@ -2,7 +2,9 @@ import { readFile, readdir, realpath } from "node:fs/promises";
 import { dirname, resolve, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const editorRoot = resolve(import.meta.dirname, "..");
+// Package resolution canonicalizes installed CSS; derive diagnostics from the
+// same physical workspace even when Node preserves an ancestor/module alias.
+const editorRoot = resolve(await realpath(import.meta.dirname), "..");
 const workspaceRoot = resolve(editorRoot, "../..");
 
 // Mask comments and strings, retaining line positions. No dependency or CSS rewrite needed.

@@ -9,7 +9,8 @@ import { checkStyleTokens } from "./check-style-tokens.mjs";
 const check = (css) => checkStyleTokens(css, "fixture.css");
 
 test("checks the installed UI CSS, not a different workspace copy", async () => {
-  const root = await mkdtemp(join(tmpdir(), "editor-style-package-"));
+  const sandbox = await mkdtemp(join(tmpdir(), "editor-style-package-"));
+  const root = join(sandbox, "workspace");
   const put = async (name, content) => {
     const target = join(root, name);
     await mkdir(dirname(target), { recursive: true });
@@ -47,19 +48,29 @@ test("checks the installed UI CSS, not a different workspace copy", async () => 
     assert.equal(preservedAlias.status, 0, preservedAlias.stderr);
     assert.match(preservedAlias.stdout, /2 editor\/shared stylesheets checked/);
 
+    // An ancestor alias (like macOS /var -> /private/var) must not change the
+    // workspace-relative diagnostic when package resolution canonicalizes CSS.
+    const workspaceAlias = join(sandbox, "workspace-alias");
+    await symlink(root, workspaceAlias, "junction");
+    const ancestorEntry = join(workspaceAlias, "apps/editor/scripts/check-style-tokens.mjs");
+    const throughAncestor = run(ancestorEntry, ["--preserve-symlinks-main"]);
+    assert.equal(throughAncestor.status, 0, throughAncestor.stderr);
+    assert.match(throughAncestor.stdout, /2 editor\/shared stylesheets checked/);
+
     await put("apps/editor/node_modules/@mdbase-dev/ui/css/shared.css", ".shared { font-size: 9px; }");
     const expected = `${join("apps", "editor", "node_modules", "@mdbase-dev", "ui", "css", "shared.css")}:1: font-size must use shared tokens (9px).\n`;
     for (const [entry, flags] of [
       [script, []],
       [join(alias, "scripts/check-style-tokens.mjs"), []],
-      [join(alias, "scripts/check-style-tokens.mjs"), ["--preserve-symlinks-main"]]
+      [join(alias, "scripts/check-style-tokens.mjs"), ["--preserve-symlinks-main"]],
+      [ancestorEntry, ["--preserve-symlinks-main"]]
     ]) {
       const invalid = run(entry, flags);
       assert.equal(invalid.status, 1);
       assert.equal(invalid.stderr, expected);
     }
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await rm(sandbox, { recursive: true, force: true });
   }
 });
 
