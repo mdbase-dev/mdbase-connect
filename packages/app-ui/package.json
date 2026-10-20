@@ -118,7 +118,7 @@
   },
   "devDependencies": {
     "@codemirror/view": "^6.43.12",
-    "@mdbase-dev/sdk": "file:../../apps/editor/vendor/sdk-dev-ff190f963.tgz",
+    "@mdbase-dev/sdk": "file:../../apps/editor/vendor/sdk-dev-eaa4e697-staging.tgz",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "jsdom": "^29.1.1",

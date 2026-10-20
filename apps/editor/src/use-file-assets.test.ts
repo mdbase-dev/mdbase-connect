@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { FileAssetStore } from "./file-asset-store";
-import type { CollectionFile } from "./model";
+import type { CollectionFile, FileReadRequest } from "./model";
 import { useEmbeddedFileAssets } from "./use-file-assets";
 
 const file: CollectionFile = {
@@ -12,6 +12,27 @@ const files = [file];
 const hidden = new Set<string>();
 
 describe("embedded file asset identity", () => {
+  it.each(["contentProfile", "confirmedSeq"] as const)("reacquires a stable-reference selection after its %s changes without a digest change", async field => {
+    const selected: CollectionFile = { ...file, contentProfile: "ordinary_blob", confirmedSeq: 7 };
+    const selectedFiles = [selected];
+    const signals: AbortSignal[] = [];
+    const readFile = vi.fn((_file: CollectionFile, options?: FileReadRequest) => {
+      signals.push(options!.signal!);
+      return new Promise<Blob>(() => {});
+    });
+    const store = new FileAssetStore({ readFile });
+    const hook = renderHook(() => useEmbeddedFileAssets(store, "![[image.png]]", selectedFiles));
+    await waitFor(() => expect(readFile).toHaveBeenCalledTimes(1));
+    if (field === "contentProfile") selected.contentProfile = "ordinary_attachment_v1";
+    else selected.confirmedSeq = 8;
+    hook.rerender();
+    await waitFor(() => expect(readFile).toHaveBeenCalledTimes(2));
+    expect(signals[0].aborted).toBe(true);
+    expect(signals[1].aborted).toBe(false);
+    hook.unmount();
+    expect(signals[1].aborted).toBe(true);
+    store.reset();
+  });
   it("publishes async acquired assets and invalidates on store replacement", async () => {
     const createURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:ready");
     const revokeURL = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});

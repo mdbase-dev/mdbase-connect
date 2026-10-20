@@ -1,12 +1,14 @@
 {
   "package": "@mdbase-dev/sdk",
   "version": "0.0.0",
-  "artifact": "sdk-dev-ff190f963.tgz",
-  "sourceCommit": "ff190f9634beeae89eb25ee270daab058d7e9ae6",
-  "label": "SDK-owned Native routing candidate; original producer archive, not per-app live acceptance or deployment",
-  "bytes": 4456058,
-  "sha256": "5bea0c6058c0e70b39946535e05333df6b8d3dffba6ab945474921beab2140be",
-  "integrity": "sha512-r33dVIhsyJgBC6ilqs8l2PC+prMDYNLuYITJLQEGABwB2vd7ecVLq1fMbqhyusdN/9W2LNevM1XjoYSfkpnmAw==",
+  "artifact": "sdk-dev-eaa4e697-staging.tgz",
+  "sourceCommit": "eaa4e697fc1198f32fc3714f377342a24c56d985",
+  "label": "Original cancellation-fixed Product A STAGING SDK (PR944); not per-app live acceptance or deployment",
+  "bytes": 4461608,
+  "sha256": "15eb64b50fc7c2809ff3dba9cce5104fe48d8592208b3af8acb529862a1af18c",
+  "integrity": "sha512-OZcexDhkjwROq0pSf/rSV1aU9H2AArhB5S2/UQU4ZTYMqJz7mpOhSFznZKSjDh6nb4EVROvBS926O3+HUePbjA==",
+  "artifactFacts": "sdk-dev-eaa4e697-staging.facts.json",
+  "artifactFactsSha256": "d54aef71521ab3561bd9a81cd1303410a3fde29f8fbd35a1e0041e58d0569de3",
   "ui": {
     "package": "@mdbase-dev/ui",
     "version": "0.1.0-beta.133",
@@ -17,9 +19,9 @@
     "integrity": "sha512-d2ZON59oK8AWkDxI/TJ2HNI++ZqhjdGXOwxcZj0lown72+3rQ6CMG9gyRKlfmGb5zSj6EE8R2Xf4RNKryhWHpA=="
   },
   "native": {
-    "sourceCommit": "6ec021f6050ea87f3b2dc3ff1b621fce4ff38826",
-    "bytes": 3671668,
-    "sha256": "a57387f8d4c9bdebd2cef61534d0a1df80712a814ca712459242d23b3aa38414"
+    "sourceCommit": "725d72b2e43b2b744062e055e43feaeb41838399",
+    "bytes": 3676583,
+    "sha256": "6984f87d98e29d9f99c6b07f7728f716d1f7b2e3585a74bcc2046ba259a8afab"
   },
   "includesPublicApplicationEntry": true,
   "includesPublicApplicationFixture": true,

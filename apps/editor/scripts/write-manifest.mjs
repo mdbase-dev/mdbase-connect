@@ -8,7 +8,21 @@ const basePath = normalizeBasePath(process.env.MDBASE_EDITOR_BASE_PATH ?? defaul
 const appUrl = new URL(basePath, `${origin}/`).href;
 const connectUrl = process.env.MDBASE_CONNECT_URL?.trim();
 const labOrigin = process.env.MDBASE_EDITOR_LAB_ORIGIN;
+const environment = process.env.MDBASE_ENV ?? process.env.VITE_MDBASE_ENV;
+if ((environment !== undefined && !["lab", "staging", "production"].includes(environment))
+  || (process.env.MDBASE_ENV !== undefined && process.env.VITE_MDBASE_ENV !== undefined
+    && process.env.MDBASE_ENV !== process.env.VITE_MDBASE_ENV)) {
+  throw new Error("Invalid or mismatched Editor application environment");
+}
 let installationOrigins;
+if (environment === "staging" || environment === "production") {
+  const expectedOrigin = environment === "staging" ? "https://editor-staging.mdbase.dev" : defaultOrigin;
+  const expectedConnect = environment === "staging" ? "https://connect-staging.mdbase.dev" : "https://connect.mdbase.dev";
+  if (origin !== expectedOrigin || (connectUrl && connectUrl !== expectedConnect)) {
+    throw new Error("Editor application/Connect origin differs from its native environment");
+  }
+  installationOrigins = { [environment]: { "app-runtime": [origin] } };
+}
 if (labOrigin !== undefined) {
   const url = new URL(labOrigin);
   if (process.env.MDBASE_ENV !== "lab" || url.origin !== labOrigin
