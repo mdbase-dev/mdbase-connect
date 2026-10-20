@@ -170,11 +170,11 @@ importers:
         specifier: workspace:*
         version: link:../../packages/protocol
       '@mdbase-dev/sdk':
-        specifier: file:vendor/sdk-dev-0fabaf20.tgz
-        version: file:apps/editor/vendor/sdk-dev-0fabaf20.tgz
+        specifier: file:vendor/sdk-dev-ff190f963.tgz
+        version: file:apps/editor/vendor/sdk-dev-ff190f963.tgz
       '@mdbase-dev/ui':
-        specifier: workspace:*
-        version: link:../../packages/app-ui
+        specifier: file:vendor/mdbase-dev-ui-dev-b2d7c464.tgz
+        version: file:apps/editor/vendor/mdbase-dev-ui-dev-b2d7c464.tgz(@codemirror/view@6.43.12)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-dev-ff190f963.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@phosphor-icons/react':
         specifier: ^2.1.10
         version: 2.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -293,8 +293,8 @@ importers:
         specifier: ^6.43.12
         version: 6.43.12
       '@mdbase-dev/sdk':
-        specifier: file:../../apps/editor/vendor/sdk-dev-0fabaf20.tgz
-        version: file:apps/editor/vendor/sdk-dev-0fabaf20.tgz
+        specifier: file:../../apps/editor/vendor/sdk-dev-ff190f963.tgz
+        version: file:apps/editor/vendor/sdk-dev-ff190f963.tgz
       '@types/react':
         specifier: ^19.3.0
         version: 19.3.0
@@ -1826,12 +1826,28 @@ packages:
   '@marijn/find-cluster-break@1.0.4':
     resolution: {integrity: sha512-Wy0V7+SGUjnF9/TkiM1hKVDPj7jKXduPNboMVtHTA8dySMURWqfg/JZ9E2Sq8JgSJmkl7k7Qe9FLeMSrSraWmQ==}
 
-  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-dev-0fabaf20.tgz':
-    resolution: {integrity: sha512-3y+3UNP3nNdi7GAOhmK+1l38H4eUKCS7X7Bu9bq/m6vXNstcRllsIcykO4VRbruoPakrmmJQ8/JisA99fTiIFA==, tarball: file:apps/editor/vendor/sdk-dev-0fabaf20.tgz}
+  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-dev-ff190f963.tgz':
+    resolution: {integrity: sha512-r33dVIhsyJgBC6ilqs8l2PC+prMDYNLuYITJLQEGABwB2vd7ecVLq1fMbqhyusdN/9W2LNevM1XjoYSfkpnmAw==, tarball: file:apps/editor/vendor/sdk-dev-ff190f963.tgz}
     version: 0.0.0
     engines: {node: '>=20'}
     bundledDependencies:
       - '@mdbase-dev/connect-protocol'
+
+  '@mdbase-dev/ui@file:apps/editor/vendor/mdbase-dev-ui-dev-b2d7c464.tgz':
+    resolution: {integrity: sha512-d2ZON59oK8AWkDxI/TJ2HNI++ZqhjdGXOwxcZj0lown72+3rQ6CMG9gyRKlfmGb5zSj6EE8R2Xf4RNKryhWHpA==, tarball: file:apps/editor/vendor/mdbase-dev-ui-dev-b2d7c464.tgz}
+    version: 0.1.0-beta.133
+    peerDependencies:
+      '@codemirror/view': ^6.0.0
+      '@mdbase-dev/sdk': '*'
+      react: ^19.2.0
+      react-dom: ^19.2.0
+    peerDependenciesMeta:
+      '@codemirror/view':
+        optional: true
+      '@mdbase-dev/sdk':
+        optional: true
+      react-dom:
+        optional: true
 
   '@modelcontextprotocol/sdk@1.32.1':
     resolution: {integrity: sha512-2DdE+SJDtzLEEWzY1ZjY7Q+VcPhcV1KisD3zI4u0XZyktsjHum1mwbMI+JaulUBi2OZk+KJAi2uPXzxichPkdw==}
@@ -6896,11 +6912,21 @@ snapshots:
 
   '@marijn/find-cluster-break@1.0.4': {}
 
-  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-dev-0fabaf20.tgz':
+  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-dev-ff190f963.tgz':
     dependencies:
       '@noble/ciphers': 2.4.0
       '@noble/curves': 2.4.0
       '@noble/hashes': 2.4.0
+
+  '@mdbase-dev/ui@file:apps/editor/vendor/mdbase-dev-ui-dev-b2d7c464.tgz(@codemirror/view@6.43.12)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-dev-ff190f963.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@fontsource-variable/atkinson-hyperlegible-next': 5.3.0
+      '@fontsource/azeret-mono': 5.3.0
+      react: 19.3.0
+    optionalDependencies:
+      '@codemirror/view': 6.43.12
+      '@mdbase-dev/sdk': file:apps/editor/vendor/sdk-dev-ff190f963.tgz
+      react-dom: 19.3.0(react@19.3.0)
 
   '@modelcontextprotocol/sdk@1.32.1(supports-color@10.2.2)(zod@4.6.5)':
     dependencies:

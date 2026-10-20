@@ -105,6 +105,32 @@ describe("SdkEditorRoot behind the shared collection gate", () => {
   });
 });
 
+describe("SDK-owned Private collection presentation", () => {
+  it("keeps the Private editor open and selects Private switcher rows through the SDK", async () => {
+    const h = await readyFixture({}, (replica) => replica.seed({ path: "notes/plan.md", frontmatter: { title: "Plan" }, body: "Private body\n" }),
+      [{ id: ARCHIVE, name: "Private archive", role: "editor" }]);
+    const close = vi.spyOn(h.client, "close");
+    const { container, unmount } = render(<SdkEditorRoot sdk={h.mdbase} />);
+    expect(await screen.findByRole("textbox", { name: "Note body" }, { timeout: 10_000 })).toHaveValue("Private body\n");
+    const current = h.mdbase.getSnapshot();
+    act(() => h.controls.publishSnapshot({ ...current, collections: current.collections.map((entry) => ({
+      ...entry, kind: "private" as const, availability: { state: "available" as const }
+    })) }));
+    expect(screen.getByRole("textbox", { name: "Note body" })).toHaveValue("Private body\n");
+    const trigger = container.querySelector<HTMLButtonElement>(".collection-rail .mdbase-collections-trigger");
+    if (!trigger) throw new Error("No SDK Private collection switcher");
+    fireEvent.click(trigger);
+    const archive = [...document.querySelectorAll<HTMLElement>("[role=radio]")].find((row) => within(row).queryByText("Private archive"));
+    if (!archive) throw new Error("No SDK Private archive row");
+    expect(screen.queryByRole("region", { name: "Private collections" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add a Private collection" })).toBeNull();
+    fireEvent.click(archive);
+    await waitFor(() => expect(h.calls("select").at(-1)).toMatchObject({ collectionId: ARCHIVE }));
+    unmount();
+    expect(close).not.toHaveBeenCalled(); // only the SDK owns the Native client
+  });
+});
+
 describe("createEditorMdbase", () => {
   it("constructs on the editor's own origin without allocating a Worker or claiming READY", () => {
     const worker = vi.fn();

@@ -1,8 +1,47 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { spawnSync } from "node:child_process";
 import { checkStyleTokens } from "./check-style-tokens.mjs";
 
 const check = (css) => checkStyleTokens(css, "fixture.css");
+
+test("checks the installed UI CSS, not a different workspace copy", async () => {
+  const root = await mkdtemp(join(tmpdir(), "editor-style-package-"));
+  const put = async (name, content) => {
+    const target = join(root, name);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, content);
+  };
+  try {
+    await Promise.all([
+      put("apps/editor/src/editor.css", ".editor { font-size: var(--font-size-ui); }"),
+      put("packages/app-ui/css/old.css", ".old { font-size: 9px; }"),
+      put("apps/editor/node_modules/@mdbase-dev/ui/package.json", JSON.stringify({
+        name: "@mdbase-dev/ui", exports: { "./tokens.css": "./css/tokens.css" }
+      })),
+      put("apps/editor/node_modules/@mdbase-dev/ui/css/tokens.css", ":root { --font-size-ui: 13px; }"),
+      put("apps/editor/node_modules/@mdbase-dev/ui/css/shared.css", ".shared { font-size: var(--font-size-ui); }"),
+      put("apps/editor/scripts/check-style-tokens.mjs", "")
+    ]);
+    const script = join(root, "apps/editor/scripts/check-style-tokens.mjs");
+    await copyFile(new URL("./check-style-tokens.mjs", import.meta.url), script);
+    const run = () => spawnSync(process.execPath, [script], { encoding: "utf8" });
+    const valid = run();
+    assert.equal(valid.status, 0, valid.stderr);
+    assert.match(valid.stdout, /2 editor\/shared stylesheets checked/);
+
+    await put("apps/editor/node_modules/@mdbase-dev/ui/css/shared.css", ".shared { font-size: 9px; }");
+    const invalid = run();
+    assert.equal(invalid.status, 1);
+    assert.match(invalid.stderr, /node_modules\/@mdbase-dev\/ui\/css\/shared\.css:1/);
+    assert.doesNotMatch(invalid.stderr, /packages\/app-ui/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("rejects raw pixel typography including shorthands and variable fallbacks", () => {
   assert.equal(check(".a { font-size: 13px; font: 600 12px/1.5 sans-serif; --control-font-size: 11px; }").length, 3);

@@ -1,10 +1,9 @@
 import { readFile, readdir } from "node:fs/promises";
-import { resolve, relative } from "node:path";
+import { dirname, resolve, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const editorRoot = resolve(import.meta.dirname, "..");
 const workspaceRoot = resolve(editorRoot, "../..");
-const tokenFile = resolve(workspaceRoot, "packages/app-ui/css/tokens.css");
 
 // Mask comments and strings, retaining line positions. No dependency or CSS rewrite needed.
 export function checkStyleTokens(css, filename) {
@@ -43,9 +42,10 @@ async function cssFiles(directory) {
 }
 
 async function main() {
+  const tokenFile = fileURLToPath(import.meta.resolve("@mdbase-dev/ui/tokens.css"));
   const files = (await Promise.all([
     cssFiles(resolve(editorRoot, "src")),
-    cssFiles(resolve(workspaceRoot, "packages/app-ui/css"))
+    cssFiles(dirname(tokenFile))
   ])).flat().filter((file) => file !== tokenFile).sort();
   const errors = (await Promise.all(files.map(async (file) =>
     checkStyleTokens(await readFile(file, "utf8"), relative(workspaceRoot, file))
