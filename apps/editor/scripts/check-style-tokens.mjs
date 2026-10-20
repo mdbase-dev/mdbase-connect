@@ -1,11 +1,14 @@
-import { readFile, readdir, realpath } from "node:fs/promises";
+import { realpathSync } from "node:fs";
+import { readFile, readdir } from "node:fs/promises";
 import { dirname, resolve, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Package resolution canonicalizes installed CSS; derive diagnostics from the
-// same physical workspace even when Node preserves an ancestor/module alias.
-const editorRoot = resolve(await realpath(import.meta.dirname), "..");
-const workspaceRoot = resolve(editorRoot, "../..");
+// Use one physical namespace for every URL/argv/root/CSS comparison. The
+// native API also expands Windows 8.3 paths; Node URL resolution may retain them.
+const canonicalPath = (path) => realpathSync.native(path);
+const moduleFile = canonicalPath(fileURLToPath(import.meta.url));
+const editorRoot = canonicalPath(resolve(dirname(moduleFile), ".."));
+const workspaceRoot = canonicalPath(resolve(editorRoot, "../.."));
 
 // Mask comments and strings, retaining line positions. No dependency or CSS rewrite needed.
 export function checkStyleTokens(css, filename) {
@@ -35,16 +38,17 @@ export function checkStyleTokens(css, filename) {
 }
 
 async function cssFiles(directory) {
-  const entries = await readdir(directory, { withFileTypes: true });
+  const root = canonicalPath(directory);
+  const entries = await readdir(root, { withFileTypes: true });
   const nested = await Promise.all(entries.map((entry) => {
-    const path = resolve(directory, entry.name);
-    return entry.isDirectory() ? cssFiles(path) : entry.name.endsWith(".css") ? [path] : [];
+    const path = resolve(root, entry.name);
+    return entry.isDirectory() ? cssFiles(path) : entry.name.endsWith(".css") ? [canonicalPath(path)] : [];
   }));
   return nested.flat();
 }
 
 async function main() {
-  const tokenFile = fileURLToPath(import.meta.resolve("@mdbase-dev/ui/tokens.css"));
+  const tokenFile = canonicalPath(fileURLToPath(import.meta.resolve("@mdbase-dev/ui/tokens.css")));
   const files = (await Promise.all([
     cssFiles(resolve(editorRoot, "src")),
     cssFiles(dirname(tokenFile))
@@ -60,5 +64,10 @@ async function main() {
   }
 }
 
-// Canonicalize both sides with the same API: module URLs can retain aliases.
-if (process.argv[1] && await realpath(process.argv[1]).catch(() => null) === await realpath(fileURLToPath(import.meta.url))) await main();
+let entryFile;
+try {
+  if (process.argv[1]) entryFile = canonicalPath(process.argv[1]);
+} catch {
+  // A non-file entry (for example node -e) is an import, not this CLI.
+}
+if (entryFile === moduleFile) await main();

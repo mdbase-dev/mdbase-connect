@@ -57,13 +57,19 @@ test("checks the installed UI CSS, not a different workspace copy", async () => 
     assert.equal(throughAncestor.status, 0, throughAncestor.stderr);
     assert.match(throughAncestor.stdout, /2 editor\/shared stylesheets checked/);
 
+    const preserveAll = ["--preserve-symlinks-main", "--preserve-symlinks"];
+    const throughPreservedPackage = run(ancestorEntry, preserveAll);
+    assert.equal(throughPreservedPackage.status, 0, throughPreservedPackage.stderr);
+    assert.match(throughPreservedPackage.stdout, /2 editor\/shared stylesheets checked/);
+
     await put("apps/editor/node_modules/@mdbase-dev/ui/css/shared.css", ".shared { font-size: 9px; }");
     const expected = `${join("apps", "editor", "node_modules", "@mdbase-dev", "ui", "css", "shared.css")}:1: font-size must use shared tokens (9px).\n`;
     for (const [entry, flags] of [
       [script, []],
       [join(alias, "scripts/check-style-tokens.mjs"), []],
       [join(alias, "scripts/check-style-tokens.mjs"), ["--preserve-symlinks-main"]],
-      [ancestorEntry, ["--preserve-symlinks-main"]]
+      [ancestorEntry, ["--preserve-symlinks-main"]],
+      [ancestorEntry, preserveAll]
     ]) {
       const invalid = run(entry, flags);
       assert.equal(invalid.status, 1);
