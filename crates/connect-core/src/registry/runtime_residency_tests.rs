@@ -155,6 +155,26 @@ fn shutdown_waits_for_windows_delete_sharing_after_clearing_residency() {
     assert!(windows_tree_is_delete_shared(Path::new(&collection.path)));
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn shutdown_releases_collection_directory_handles() {
+    let root = tempfile::tempdir().unwrap();
+    let registry = CollectionRegistry::open(root.path().join("state")).unwrap();
+    let collection = registry
+        .create(root.path().join("notes"), None, "UTC")
+        .unwrap();
+    registry.shutdown_runtimes();
+    let held: Vec<_> = std::fs::read_dir("/proc/self/fd")
+        .unwrap()
+        .filter_map(|entry| std::fs::read_link(entry.ok()?.path()).ok())
+        .filter(|path| path == Path::new(&collection.path))
+        .collect();
+    assert!(
+        held.is_empty(),
+        "shutdown retained collection directory handles: {held:?}"
+    );
+}
+
 #[test]
 fn stale_cold_registration_cannot_republish_removed_or_disabled_runtime() {
     let root = tempfile::tempdir().unwrap();
