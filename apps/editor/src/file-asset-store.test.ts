@@ -94,11 +94,16 @@ describe("FileAssetStore", () => {
       release?.();
       return load;
     });
-    expect(pending.map(({ signal }) => signal?.aborted)).toEqual([...Array(8).fill(true), false, false]);
-    expect(files.filter((value) => store.get(value).status === "loading")).toEqual(files.slice(-2));
+    // Last-reference release cancels immediately, even below the cache limit.
+    // The last two load-only requests survive; released index 8 does not.
+    expect(pending.map(({ signal }) => signal?.aborted)).toEqual([
+      true, true, true, true, true, true, true, false, true, false
+    ]);
+    expect(files.filter((value) => store.get(value).status === "loading")).toEqual([files[7], files[9]]);
     pending.forEach(({ resolve }) => resolve(new Blob(["x"])));
     await Promise.all(loads);
-    expect(files.slice(0, -2).every((value) => store.get(value).status === "idle")).toBe(true);
+    expect(files.filter((value) => value !== files[7] && value !== files[9])
+      .every((value) => store.get(value).status === "idle")).toBe(true);
     expect(URL.createObjectURL).toHaveBeenCalledTimes(2);
     store.reset();
     expect(URL.revokeObjectURL).toHaveBeenCalledTimes(2);
@@ -174,7 +179,8 @@ describe("FileAssetStore", () => {
       signal = options?.signal;
       return new Promise<Blob>((yes) => { resolve = yes; });
     });
-    const store = new FileAssetStore({ readFile }, { maxEntries: 0 });
+    // Default budgets: cancellation must not depend on eviction pressure.
+    const store = new FileAssetStore({ readFile });
     const current = file("one.png", "r1", 1);
     const first = store.acquire(current);
     const second = store.acquire(current);
@@ -190,6 +196,17 @@ describe("FileAssetStore", () => {
     resolve(new Blob(["late"]));
     await loading;
     expect(URL.createObjectURL).not.toHaveBeenCalled();
+    const releaseFresh = store.acquire(current);
+    const freshSignal = signal;
+    expect(freshSignal?.aborted).toBe(false);
+    expect(readFile).toHaveBeenCalledTimes(2);
+    const fresh = store.load(current);
+    resolve(new Blob(["fresh"]));
+    expect((await fresh).status).toBe("ready");
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+    releaseFresh();
+    store.reset();
+    expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1);
   });
 
   it("enforces a zero-entry budget for immediate oversized loads and retries", async () => {
@@ -218,6 +235,83 @@ describe("FileAssetStore", () => {
     await old;
     expect(store.getVersion()).toBe(version);
     expect(store.get(current).status).toBe("idle");
+  });
+
+  it.each([{ contentProfile: "unindexed_markdown_blob" as const }, { confirmedSeq: 9 }, { path: "moved.png" }, { size: 3 }])(
+    "does not reuse ready payloads or errors across metadata changes: %j", async change => {
+      const readFile = vi.fn().mockResolvedValueOnce(new Blob(["old"]))
+        .mockRejectedValueOnce(new Error("old metadata failed")).mockResolvedValue(new Blob(["fresh"]));
+      const store = new FileAssetStore({ readFile });
+      const current = file("one.png", "r1", 2);
+      expect((await store.load(current)).status).toBe("ready");
+      const replacement = { ...current, ...change };
+      expect(store.get(replacement).status).toBe("idle");
+      expect((await store.load(replacement)).status).toBe("error");
+      expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1);
+      store.invalidate(current.fileId);
+      expect(store.get(replacement).status).toBe("idle");
+      expect((await store.load(replacement)).status).toBe("ready");
+      expect(readFile).toHaveBeenCalledTimes(3);
+      store.reset();
+      expect(URL.revokeObjectURL).toHaveBeenCalledTimes(2);
+    }
+  );
+
+  it.each(["unindexed_markdown_blob", "unindexed_markdown_attachment_v1"] as const)(
+    "publishes verified source and a byte-identical safe original only for %s", async contentProfile => {
+      const source = "# Héllo\r\n\n**unchanged**\n";
+      const blob = new Blob([source], { type: "text/html" });
+      const store = new FileAssetStore({ readFile: vi.fn().mockResolvedValue(blob) });
+      const current = { ...file("note.md", "r1", blob.size), contentProfile };
+      expect(await store.load(current)).toMatchObject({ status: "ready", sourceText: source });
+      const original = vi.mocked(URL.createObjectURL).mock.calls[0][0] as Blob;
+      expect(original.type).toBe("text/plain;charset=utf-8");
+      expect(new Uint8Array(await original.arrayBuffer())).toEqual(new Uint8Array(await blob.arrayBuffer()));
+      store.reset();
+      expect(store.get(current)).not.toHaveProperty("sourceText");
+      expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it.each(["resolve", "reject"] as const)("fences a late Markdown decode %s after release and same-key replacement", async outcome => {
+    let resolve!: (buffer: ArrayBuffer) => void;
+    let reject!: (reason: Error) => void;
+    const buffer = new Promise<ArrayBuffer>((yes, no) => { resolve = yes; reject = no; });
+    const blob = new Blob(["old"]);
+    const decode = vi.spyOn(blob, "arrayBuffer").mockReturnValue(buffer);
+    const readFile = vi.fn().mockResolvedValueOnce(blob).mockResolvedValue(new Blob(["new"]));
+    const store = new FileAssetStore({ readFile });
+    const current = { ...file("note.md", "r1", 3), contentProfile: "unindexed_markdown_blob" as const };
+    const release = store.acquire(current);
+    const old = store.load(current);
+    await Promise.resolve();
+    expect(decode).toHaveBeenCalledTimes(1);
+    expect(store.get(current).status).toBe("loading");
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+    release();
+    const replacement = await store.load(current);
+    expect(replacement).toMatchObject({ status: "ready", sourceText: "new" });
+    const version = store.getVersion();
+    if (outcome === "resolve") resolve(new TextEncoder().encode("old").buffer);
+    else reject(new Error("stale decode failed"));
+    await old;
+    expect(store.getVersion()).toBe(version);
+    expect(store.get(current)).toEqual(replacement);
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["invalid", "decode failure", "download failure"])("never publishes Markdown text or URL on %s", async failure => {
+    const blob = new Blob([new Uint8Array([0xc3, 0x28])]);
+    if (failure === "decode failure") vi.spyOn(blob, "arrayBuffer").mockRejectedValue(new Error("decode failed"));
+    const readFile = failure === "download failure"
+      ? vi.fn().mockRejectedValue(new Error("incomplete verification")) : vi.fn().mockResolvedValue(blob);
+    const store = new FileAssetStore({ readFile });
+    const current = { ...file("note.md", "r1", 2), contentProfile: "unindexed_markdown_blob" as const };
+    const snapshot = await store.load(current);
+    expect(snapshot.status).toBe("error");
+    expect(snapshot).not.toHaveProperty("sourceText");
+    expect(snapshot).not.toHaveProperty("url");
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
   });
 
   it("uses access order even when the clock does not advance", async () => {

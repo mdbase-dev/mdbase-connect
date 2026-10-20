@@ -26,7 +26,10 @@ export type NoteFrontmatter = JsonObject;
  * bindings but no type schemas/versions or contract schemas/implementation
  * digests. Those fields are then empty and must not drive upgrade decisions. */
 export type EditorCollectionDescription = CollectionDescription & { readonly typing?: "names_only" };
-export type CollectionFile = CollectionFileDescriptor;
+/** Native inventory metadata stays exact. Legacy/demo descriptors omit it;
+ * absence (including an unknown future profile) never implies Markdown. */
+export type CollectionFile = CollectionFileDescriptor
+  & Partial<Pick<import("@mdbase-dev/sdk").FileView, "contentProfile" | "confirmedSeq">>;
 
 export interface NoteSummary extends QueryRecord<NoteFrontmatter> {
   frontmatter: NoteFrontmatter;

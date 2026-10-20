@@ -22,6 +22,8 @@ import type {
 } from "@mdbase-dev/connect";
 import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
 import { NativeNoteObservation } from "./native-note-observation";
+import { downloadNativeFile, type NativeFileSelection } from "./native-file-download";
+import { fileAssetKey } from "./file-reference-resolution";
 import { NextEditorRecords, plain } from "./next-editor-records";
 import type {
   CollectionAuthorizationOptions,
@@ -83,6 +85,7 @@ export class NativeEditorGateway implements CollectionGateway {
   private readonly records: NextEditorRecords;
   private readonly listeners = new Set<(snapshot: CollectionSessionSnapshot) => void>();
   private disposed = false;
+  private readonly fileReads = new AbortController();
   private readonly plans = new Map<string, TypePackPlan>();
 
   /** `declaration` is the bundled app declaration; with it the summary reports
@@ -110,6 +113,7 @@ export class NativeEditorGateway implements CollectionGateway {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.fileReads.abort("The editor collection scope was retired");
     this.records.dispose();
     const snapshot = this.sessionSnapshot();
     for (const listener of [...this.listeners]) listener(snapshot);
@@ -281,16 +285,36 @@ export class NativeEditorGateway implements CollectionGateway {
   }
 
   async readFile(file: CollectionFile, { signal, onProgress }: FileReadRequest = {}): Promise<Blob> {
-    const current = this.signal(signal);
-    const view = await this.connection.files.get(file.fileId, current);
-    this.check();
-    if (view.digest !== file.revision) throw new Error("This file changed. Reload its preview.");
-    const bytes = await this.connection.files.download(view, {
-      signal: current,
-      ...(onProgress ? { onProgress: (progress: wire.TransferProgress) => onProgress({ phase: "downloading", transferredBytes: progress.done, totalBytes: progress.total }) } : {})
-    });
-    this.check();
-    return new Blob([bytes as BlobPart]);
+    const current = AbortSignal.any([this.signal(signal), this.fileReads.signal]);
+    if (file.confirmedSeq === undefined)
+      throw new Error("This file has no native confirmation metadata. Reload its preview.");
+    const key = fileAssetKey(file);
+    const selected: NativeFileSelection = {
+      id: file.fileId, path: file.path, digest: file.revision, size: file.size,
+      contentProfile: file.contentProfile, confirmedSeq: file.confirmedSeq
+    };
+    // Selection/inventory effects abort the caller's request. Also fence scalar
+    // mutation and every settlement against this original borrowed scope.
+    const isCurrent = () => this.current() && !current.aborted && fileAssetKey(file) === key;
+    const check = () => {
+      if (!isCurrent()) throw new MdbaseError({ code: "cancelled", recovery: "none", message: "This file selection is no longer current." });
+    };
+    check();
+    try {
+      const bytes = await downloadNativeFile({
+        downloadStream: (ref, options) => this.connection.files.downloadStream(ref, {
+          ...options,
+          ...(onProgress ? { onProgress: (progress: wire.TransferProgress) => {
+            if (isCurrent()) onProgress({ phase: "downloading", transferredBytes: progress.done, totalBytes: progress.total });
+          } } : {})
+        })
+      }, selected, { signal: current, isCurrent });
+      check();
+      return new Blob([bytes as BlobPart]);
+    } catch (error) {
+      check();
+      throw error;
+    }
   }
 
   async uploadFile(path: string, source: MdbaseFileSource, { signal, onProgress, transferId }: FileUploadRequest = {}): Promise<CollectionFile> {
@@ -512,6 +536,9 @@ function collectionFile(file: wire.FileView): CollectionFile {
     contentDigest: file.digest as `sha256:${string}`,
     size: file.size,
     mediaClass: file.media,
+    ...(file.mediaType === undefined ? {} : { mediaType: file.mediaType }),
+    ...(file.contentProfile === undefined ? {} : { contentProfile: file.contentProfile }),
+    confirmedSeq: file.confirmedSeq,
     // Consumers treat an unparsable time as unknown; no time is invented.
     modifiedAt: file.mtime === undefined ? "" : new Date(file.mtime).toISOString()
   };

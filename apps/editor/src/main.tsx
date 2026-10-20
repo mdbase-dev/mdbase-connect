@@ -30,7 +30,13 @@ const demoDelay = demoCount > 0
   : 0;
 const demoGateway = demoCount > 0 ? new DemoCollectionGateway(demoCount, demoDelay) : null;
 const environment = import.meta.env.VITE_MDBASE_ENV ?? (import.meta.env.DEV ? "lab" : "production");
-if (environment !== "lab" && environment !== "production") throw new Error("Invalid Editor application environment");
+if (environment !== "lab" && environment !== "staging" && environment !== "production") throw new Error("Invalid Editor application environment");
+// The explicit demo build has no native SDK owner; preserve its loopback E2E
+// entry while applying exact target origins to every real native entry.
+if (!demoGateway && ((environment === "staging" && location.origin !== "https://editor-staging.mdbase.dev")
+  || (environment === "production" && location.origin !== "https://editor.mdbase.dev"))) {
+  throw new Error("Invalid Editor application origin for its environment");
+}
 // The Private collection consent popup returns here: hand its result to the
 // waiting editor tab and close, without starting a second SDK owner.
 const grantCallback = isAppGrantCallback(new URL(location.href));

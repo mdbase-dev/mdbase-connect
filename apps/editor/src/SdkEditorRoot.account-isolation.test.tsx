@@ -1,4 +1,4 @@
-// @vitest-environment-options {"url": "https://editor.mdbase.dev/"}
+// @vitest-environment-options {"url": "https://editor-staging.mdbase.dev/"}
 // Editor contract tests: real public grant crypto/storage, scripted CP, public
 // SDK account-view fixture. NOT actual Worker sign-out/wipe/native admission.
 // Muse's SDK cleanup and bound-inventory proofs remain separate release gates.
@@ -60,7 +60,7 @@ async function setup() {
   };
   const mount = () => {
     injected.sdk = h.mdbase;
-    const sdk = createEditorMdbase({ origin: location.origin, environment: "lab" });
+    const sdk = createEditorMdbase({ origin: location.origin, environment: script.declaration.environment });
     return render(<SdkEditorRoot sdk={sdk} renderNative={() => <p>Unexpected A data view</p>} />);
   };
   const connectors = vi.spyOn(MdbaseAppGrants.prototype, "connector");

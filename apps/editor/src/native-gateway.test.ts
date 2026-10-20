@@ -288,10 +288,18 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     await f.client.files.upload("attachments/a.txt", Uint8Array.from([104, 101, 108, 108, 111]));
     const upload = vi.spyOn(f.client.files, "upload");
     const files = await f.gateway.listFiles();
-    expect(files).toEqual([expect.objectContaining({ path: "attachments/a.txt", size: 5, revision: expect.stringMatching(/^sha256:/) })]);
+    const get = vi.spyOn(f.client.files, "get");
+    const download = vi.spyOn(f.client.files, "download");
+    const stream = vi.spyOn(f.client.files, "downloadStream");
+    expect(files).toEqual([expect.objectContaining({ path: "attachments/a.txt", size: 5, revision: expect.stringMatching(/^sha256:/), confirmedSeq: expect.any(Number) })]);
     expect(files[0]!.contentDigest).toBe(files[0]!.revision);
     expect(await (await f.gateway.readFile(files[0]!)).text()).toBe("hello");
-    await expect(f.gateway.readFile({ ...files[0]!, revision: "sha256:00" })).rejects.toThrow("changed");
+    expect(stream).toHaveBeenCalledWith(files[0]!.fileId, { revision: files[0]!.revision, signal: expect.any(AbortSignal) });
+    // A well-formed but stale digest exercises the SDK's pinned revision check,
+    // rather than failing its revision-token parser before the request opens.
+    await expect(f.gateway.readFile({ ...files[0]!, revision: `sha256:${"0".repeat(64)}` })).rejects.toThrow("changed");
+    expect(get).not.toHaveBeenCalled();
+    expect(download).not.toHaveBeenCalled();
     vi.spyOn(f.client.files, "grant", "get").mockReturnValue(null);
     const snapshot = f.gateway.sessionSnapshot();
     expect(editorPermissions(snapshot.status === "ready" ? snapshot.connection : null).canAttachFiles).toBe(false);

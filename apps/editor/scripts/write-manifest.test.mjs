@@ -30,6 +30,36 @@ it("generates a self-registered HTTPS LAB declaration with exact extra origin, r
   } finally { rmSync(root, {recursive: true, force: true}); }
 });
 
+for (const [environment, origin, connect] of [
+  ["staging", "https://editor-staging.mdbase.dev", "https://connect-staging.mdbase.dev"],
+  ["production", "https://editor.mdbase.dev", "https://connect.mdbase.dev"],
+]) {
+  it(`declares the exact ${environment} native installation origin with unchanged identity/capabilities`, () => {
+    const root = mkdtempSync(join(tmpdir(), "editor-target-manifest-"));
+    try {
+      mkdirSync(join(root, "scripts"));
+      const script = join(root, "scripts/write-manifest.mjs");
+      copyFileSync(new URL("./write-manifest.mjs", import.meta.url), script);
+      const env = { ...process.env, MDBASE_ENV: environment, VITE_MDBASE_ENV: environment, MDBASE_EDITOR_ORIGIN: origin,
+        MDBASE_EDITOR_BASE_PATH: "/", MDBASE_CONNECT_URL: connect };
+      delete env.MDBASE_EDITOR_LAB_ORIGIN;
+      const result = spawnSync(process.execPath, [script], { env, encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+      const manifest = JSON.parse(readFileSync(join(root, "public/.well-known/mdbase-app.json"), "utf8"));
+      assert.equal(manifest.id, bundled.id); assert.equal(manifest.name, bundled.name);
+      assert.equal(manifest.homepage, origin + "/");
+      assert.deepEqual(manifest.installation_origins, { [environment]: { "app-runtime": [origin] } });
+      assert.deepEqual(manifest.requirements, bundled.requirements);
+      assert.equal(parseVersionedAppManifest(manifest).contractVersion, 2);
+      for (const patch of [{ MDBASE_EDITOR_ORIGIN: "http://127.0.0.1:48219" },
+        { MDBASE_CONNECT_URL: "https://connect-lab.mdbase.dev" }, { MDBASE_ENV: "unknown", VITE_MDBASE_ENV: "unknown" },
+        { VITE_MDBASE_ENV: "lab" }, { MDBASE_EDITOR_LAB_ORIGIN: "http://127.0.0.1:48219" }]) {
+        assert.notEqual(spawnSync(process.execPath, [script], { env: { ...env, ...patch } }).status, 0, JSON.stringify(patch));
+      }
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+}
+
 it("build:lab passes the canonical public LAB declaration and SDK environment to the build", () => {
   const root = mkdtempSync(join(tmpdir(), "editor-lab-build-"));
   try {

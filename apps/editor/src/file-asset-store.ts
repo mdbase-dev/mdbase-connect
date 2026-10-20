@@ -4,7 +4,7 @@ import type { CollectionFile, CollectionGateway } from "./model";
 export type FileAssetSnapshot =
   | { status: "idle"; file: CollectionFile }
   | { status: "loading"; file: CollectionFile }
-  | { status: "ready"; file: CollectionFile; url: string }
+  | { status: "ready"; file: CollectionFile; url: string; sourceText?: string }
   | { status: "too_large"; file: CollectionFile; error: string }
   | { status: "error"; file: CollectionFile; error: string };
 
@@ -12,6 +12,7 @@ interface AssetEntry {
   file: CollectionFile;
   status: FileAssetSnapshot["status"];
   url?: string;
+  sourceText?: string;
   error?: string;
   references: number;
   lastUsed: number;
@@ -28,6 +29,12 @@ export interface FileAssetStoreOptions {
 const DEFAULT_MAX_PREVIEW_BYTES = 64 * 1024 * 1024;
 const DEFAULT_MAX_CACHE_BYTES = 96 * 1024 * 1024;
 const DEFAULT_MAX_ENTRIES = 24;
+
+/** Profile identity is authoritative; paths, MIME and media class are not. */
+export function isReadOnlyMarkdownFile(file: Pick<CollectionFile, "contentProfile">): boolean {
+  return file.contentProfile === "unindexed_markdown_blob"
+    || file.contentProfile === "unindexed_markdown_attachment_v1";
+}
 
 /** Bounded, revision-aware cache for browser-previewable collection files. */
 export class FileAssetStore {
@@ -58,7 +65,10 @@ export class FileAssetStore {
   get(file: CollectionFile): FileAssetSnapshot {
     const entry = this.entries.get(fileAssetKey(file));
     if (!entry) return { status: "idle", file };
-    if (entry.status === "ready" && entry.url) return { status: "ready", file: entry.file, url: entry.url };
+    if (entry.status === "ready" && entry.url) return {
+      status: "ready", file: entry.file, url: entry.url,
+      ...(entry.sourceText !== undefined ? { sourceText: entry.sourceText } : {})
+    };
     if (entry.status === "too_large") return { status: "too_large", file: entry.file, error: entry.error! };
     if (entry.status === "error") return { status: "error", file: entry.file, error: entry.error! };
     return { status: entry.status === "loading" ? "loading" : "idle", file: entry.file };
@@ -75,6 +85,14 @@ export class FileAssetStore {
       active = false;
       entry.references = Math.max(0, entry.references - 1);
       entry.lastUsed = ++this.usage;
+      // Loading bytes have no cache value once their last consumer leaves.
+      // Fence their late settlement even when cache budgets need no eviction.
+      const key = fileAssetKey(entry.file);
+      if (entry.references === 0 && entry.status === "loading" && this.entries.get(key) === entry) {
+        this.disposeEntry(entry);
+        this.entries.delete(key);
+        this.changed();
+      }
       this.evict();
     };
   }
@@ -121,7 +139,9 @@ export class FileAssetStore {
       }
     }
     const entry: AssetEntry = {
-      file,
+      // Capture identity: a caller's later metadata update must not retarget
+      // this entry's request ownership or last-reference cancellation key.
+      file: { ...file },
       status: "idle",
       references: 0,
       lastUsed: ++this.usage
@@ -146,9 +166,23 @@ export class FileAssetStore {
     entry.status = "loading";
     entry.error = undefined;
     const promise = this.source.readFile(entry.file, { signal: controller.signal })
-      .then((blob) => {
+      .then(async (blob) => {
         if (!this.ownsRequest(entry, controller)) return;
-        entry.url = URL.createObjectURL(blob);
+        // readFile's Blob is the whole verified download, never provisional
+        // stream bytes. Decode fatally before publishing either text or URL.
+        let sourceText: string | undefined;
+        let original = blob;
+        if (isReadOnlyMarkdownFile(entry.file)) {
+          const bytes = await blob.arrayBuffer();
+          if (!this.ownsRequest(entry, controller)) return;
+          sourceText = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+          // Preserve original bytes, not a reserialization of the preview.
+          // Never open attacker-selected HTML MIME at the application's origin.
+          original = new Blob([blob], { type: "text/plain;charset=utf-8" });
+        }
+        if (!this.ownsRequest(entry, controller)) return;
+        entry.url = URL.createObjectURL(original);
+        entry.sourceText = sourceText;
         entry.status = "ready";
         entry.lastUsed = ++this.usage;
       })
@@ -198,6 +232,7 @@ export class FileAssetStore {
     entry.promise = undefined;
     if (entry.url) URL.revokeObjectURL(entry.url);
     entry.url = undefined;
+    entry.sourceText = undefined;
   }
 
   private changed(): void {
