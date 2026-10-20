@@ -8,7 +8,7 @@ import { inTransaction } from "./bootstrap-common.js";
 import { SCOPED_HOSTED_ARCHIVE_SCHEMA } from "./migration-archive-profile.js";
 import { prearchiveInventory } from "./migration-prearchive-inventory.js";
 import { registerMigrationProviderRoutes } from "./migration-provider.js";
-import { acceptCohortArchive, addToCohort, createCohort, parseVerifiedBatchArchive, readCohortCaptureSnapshot, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "./migration-rollout.js";
+import { acceptCohortArchive, addToCohort, createCohort, parseVerifiedBatchArchive, readCohortCaptureSnapshot, registerMigrationRolloutRoutes, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "./migration-rollout.js";
 
 const testUrl=process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved=process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -55,6 +55,7 @@ suite("accepted scoped archive original-H6 bridge (isolated real PostgreSQL)",()
       legacyMigrationSource:vi.fn(async()=>({drain:{...source},notificationWatermark:watermark})),
       legacyMigrationFence:vi.fn(async()=>{throw new Error("Unexpected physical refence");})};
     const app=Fastify();registerMigrationProviderRoutes(app,{db,token,environment,provider});
+    registerMigrationRolloutRoutes(app,{db,token,environment});
     const request=(kind="fence",credential=token)=>app.inject({method:kind==="fence"?"POST":"GET",
       url:`/internal/v1/next/migration/collections/${collection}/${kind}`,headers:{authorization:`Bearer ${credential}`},...(kind==="fence"?{payload:{}}:{})});
     const accept=()=>acceptCohortArchive(db,name,verified,environment);
@@ -67,6 +68,11 @@ suite("accepted scoped archive original-H6 bridge (isolated real PostgreSQL)",()
       await expect(f.start()).rejects.toMatchObject({code:"backup_missing"});
       expect((await f.request()).statusCode).toBe(409);
       await f.accept();expect((await f.request()).statusCode).toBe(409); // start guard retained
+      const receiving=await f.app.inject({url:`/internal/v1/next/migration/cohorts/${f.name}/archive-binding?view=receiving-v1`,
+        headers:{authorization:`Bearer ${token}`}});
+      expect(receiving.statusCode,receiving.body).toBe(200);
+      expect(receiving.json().archive.verified_result).toEqual(f.verified);
+      expect(receiving.json().members.map((member:{view:{account_id:string}})=>member.view.account_id)).toEqual([f.account]);
       await f.start();
       const fenced=await f.request();expect(fenced.statusCode,fenced.body).toBe(200);
       expect(fenced.json()).toEqual({collection_id:f.collection,state:"migrating",migration_id:f.source.migration_id,

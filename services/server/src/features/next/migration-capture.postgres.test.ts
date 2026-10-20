@@ -74,8 +74,8 @@ suite("pre-acceptance capture-v1 (isolated real PG; metadata is not export autho
       expect((await db.query("SELECT 1 FROM next_migration_archive_acceptances WHERE cohort=$1", [f.name])).rowCount).toBe(0);
       expect((await db.query("SELECT 1 FROM next_migration_cohort_members WHERE cohort=$1 AND started_at IS NOT NULL", [f.name])).rowCount).toBe(0);
       await expect(startAccountMigration(db, f.accounts[0]!, environment)).rejects.toMatchObject({ code: "backup_missing" });
-      // Receiving/fixture receipt access is a separate LAB/staging-only gate.
-      expect((await request(app, f.name, "?view=receiving-v1")).statusCode).toBe(environment === "production" ? 503 : 409);
+      // Receiving still needs an accepted current archive, in every environment.
+      expect((await request(app, f.name, "?view=receiving-v1")).statusCode).toBe(409);
       expect((await request(app, f.name, "")).statusCode).toBe(409);
     } finally { await app.close(); }
   });

@@ -39,7 +39,7 @@ describe("managed archive and first-H6 route admission keeps dedicated authority
       const admitted = ["lab", "staging", "production"].includes(environment);
       const url = "/internal/v1/next/migration/cohorts/migration-one/archive-binding";
       try {
-        for (const view of ["capture-v1", "zero-hosted-v1"]) {
+        for (const view of ["capture-v1", "zero-hosted-v1", "receiving-v1"]) {
           const before = databaseCalls;
           expect((await app.inject({ url: url + "?view=" + view })).statusCode).toBe(401);
           expect(databaseCalls).toBe(before);
