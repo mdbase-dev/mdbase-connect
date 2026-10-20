@@ -87,6 +87,27 @@ publication authorization**. The protected main publisher must still qualify
 itself and authenticate the original image release before signing the exact
 asset. No production asset or production log origin is inferred from staging.
 
+## Prepared beta.134 production asset
+
+`config/next-trust/production.json` is prepared for the **same immutable image
+release** `v0.1.0-beta.134`, source
+`f45df4598a5bff891de68eec3431ec7744885067`, image run `39368946447`.
+This binding does not claim that those image bytes are the current production CP.
+The canonical asset is **840 bytes**, SHA-256
+`928bee179b7ab0510a17ae80ce39e8e58101a31a17711bdc37b2ae72408208d2`.
+Its fixed origins are `https://connect.mdbase.dev` and `https://log.mdbase.dev`.
+It preserves the existing production root `70a2bd532b5544dfb77617d4040ca6a2`,
+policy `c580fb092af10eb030605bd6e478e6f1` and original root-signed certificate;
+no private key, new signature, key generation, rotation or staging/LAB pin is used
+in preparation. The certificate remains valid at the asset's issue time.
+
+This is **not published trust or production authorization**. Callum's explicit
+trust-publication GO must independently approve the actual post-merge publisher
+SHA and exact asset digest before Co dispatches `production-trust`. The protected
+workflow then qualifies that publisher and authenticates the original image
+release before signing the supplemental inventory with its unchanged identity.
+No dispatch, deployment, CP flag or route change is performed by this source PR.
+
 ## Verification and embedding
 
 The private cloud-ops `release lab|staging|production verify-trust` front doors
@@ -112,8 +133,8 @@ membership, CP equality, grant/Noise admission, readiness or recovery acceptance
 Trust publication authenticates the trust asset, **not** an integrated Worker
 byte inventory. That inventory requires separately qualified protected production
 of its exact bytes; never use the trust operation as an arbitrary blob signer.
-Production publication remains blocked without a reviewed production asset and
-its final log origin; keys alone authorize nothing.
+Production publication still requires approval of the reviewed production asset,
+its final log origin and exact publisher; prepared keys/bytes alone authorize nothing.
 
 Bounded offline tests: `pnpm test:release-trust`. Synthetic fixture keys and tests
 are not publication or staging/production authority. See the
