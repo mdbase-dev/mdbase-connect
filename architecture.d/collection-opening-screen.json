@@ -1,6 +1,0 @@
-{
-  "reason": "The collection gate imports the existing shared OpeningScreen instead of maintaining its own loading spinner and presentation.",
-  "growth": {
-    "relativeImports": 1
-  }
-}

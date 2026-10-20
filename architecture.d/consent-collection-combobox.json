@@ -1,9 +1,0 @@
-{
-  "reason": "Replace the native consent select and separate filter with one reusable manual-selection combobox; share the existing portal recent-collection preference helpers rather than duplicate storage logic.",
-  "growth": {
-    "productionFiles": 1,
-    "relativeImports": 3,
-    "typeScriptExportDeclarations": 2,
-    "apps/portal": 1
-  }
-}
