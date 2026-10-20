@@ -4,6 +4,80 @@
 
 <!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
 
+## 0.1.0-beta.134
+
+### Added
+
+- Show fixed, content-free SDK opening progress in collection gates; retain the slow-opening fallback for older SDKs or unknown stages.
+
+- Shared collection choosers offer Add a Private collection through the SDK.
+- Apps can show SDK storage eviction warnings beside their save status; unsupported-browser and unavailable-storage screens retain SDK problem copy.
+
+- Allow staging migration fixtures to use the existing operator-only legacy invitation option with `@staging.invalid` addresses and `[test]` marking at issuance and signup. Production still refuses overrides, and ordinary invitations keep the configured account backend.
+
+### Changed
+
+- Choose Cloud copy and Private collections from one searchable consent list, with Private lock badges and owner/shared hints. Typing and arrow keys never select or approve; explicitly choose a row before opening the named collection. Keep creation as an explicit action and never preselect a link hint.
+
+- Reduce authenticated hosted-migration claim SQL round trips while preserving
+  fresh source/target checks, key locks, one-use nonce expiry and acknowledged
+  transaction commits. No protocol, schema, timeout or readiness changes.
+
+- Show the collection picker immediately during app sign-in. One explicit approval confirms the account, waits for the original app's device preparation, and approves the chosen access; browsing and filtering never grant access. Keep the app identity, sign-in warning and Details on the picker, and show the app name when a requesting origin is unavailable.
+
+- Attribute policy-emission failures with sanitized callback phase, nonce/RPC
+  step, route name, error code and bounded owned-frame summary. Keep failures at
+  error level without logging raw errors, collection identifiers, tokens or
+  endpoint URLs; retry, ownership and durable acknowledgment semantics are unchanged.
+
+- Queue policy emission and recovery before database checkout when six policy
+  owners are already active in this process. Reserve the other control-plane
+  pool connections for foreground work, without rejecting queued policy work or
+  releasing its admission before lock cleanup and physical connection release.
+
+- Offer one “Add a collection…” action in the shared collection gate and switcher, using the SDK chooser, coordinated with its hosted/Private picker update. Keep the legacy `allowPrivate` presentation option as a deprecated no-op and `addPrivateCollection` UI action as a deprecated alias of normal Add; leave guards, gesture-bound calls, cancellation and save warnings are unchanged. This does not add new Private collection creation.
+
+- Extend the invitation fixture database constraint to accept the reserved `staging.invalid` domain as well as `lab.invalid`. Runtime staging invitation admission is a separate change; existing invitations and account backends are unchanged.
+
+### Fixed
+
+- Keep collection gate headings focused for screen readers without drawing an interactive focus ring; keyboard focus rings remain on controls.
+
+- Use the shared scanning wordmark and opening status in collection gates, including embedded panels, while retaining account and collection-switch actions.
+
+- Keep “Signing out…” visible when the SDK has published its signed-out screen
+  but the original sign-out action is still finishing. Sign in becomes available
+  only after that action settles; SDK shutdown and acknowledgment behavior is unchanged.
+
+- After an account's upgrade is paused and returned to mdbase Connect, app sign-in windows now close with a plain explanation instead of asking people to wait and try again. Installation pairing reports the new `postponed` upgrade state.
+- The legacy SDK keeps the stored authorization when a token refresh fails for a reason other than the credential (for example a collection being upgraded, a rate limit or an outage), and reports it as temporarily unavailable. Only genuine authorization failures remove it.
+- The "collection is being upgraded" message no longer claims changes are safe; it says changes made during the upgrade may not be saved and to check them afterwards.
+- Desktop no longer offers "Move to the new sync engine" before the server allows the move, shows why a move was refused, and explains when this computer moved its collections but the account still uses mdbase Connect. The bundled daemon refuses an explicit move the rollout check does not allow, before stopping the old connector.
+
+- Retry hosted query serialization and deadlock conflicts with bounded, jittered exponential backoff inside the existing operation deadline, preserving exact replay receipts and quota accounting under concurrent queries.
+
+- Keep LAB internal migration-source PostgreSQL connections encrypted without pinning Render's rotating self-signed certificate. Source identity and read-only checks remain in place; staging, production, and ordinary database TLS policy are unchanged.
+
+- Confirm native collection member changes before reporting completion.
+
+- Keep collection search usable in short approval windows by showing a bounded
+  inline collection list instead of a dropdown that can cover its filter.
+  Filtering does not select or approve a collection; existing access and
+  explicit approval behavior are unchanged.
+
+- Keep policy emission and recovery serialized without holding SQL transactions
+  across log-service calls. Fence writes and append decisions on the same owned
+  database session; a disconnected sender cannot acknowledge an uncertain batch
+  after another worker takes over. Preserve original retry bytes, recovery order,
+  atomic loss scheduling and database timeouts.
+
+- Preserve unsent edits from old hosted mirrors during takeover, rejoin their collections automatically, and show waiting imports, recoveries and conflicts without modifying the old folders.
+- Vendor the canonical daemon importer from NEXT #931 (`18f32bd5a`), retaining recovery bytes in its existing owned capture and using fresh rollout permission for explicit retries as well as startup.
+
+- Release collection directory handles after runtime shutdown by updating the
+  canonical filesystem engine's derived-cache ownership. Windows cleanup no
+  longer waits on a stale global identity handle.
+
 ## 0.1.0-beta.133
 
 ### Added
