@@ -13,10 +13,10 @@ const runner=path.join(root,'services/server/node_modules/.bin/tsx');
 const assetPath=path.join(root,'config/next-trust/lab.json');
 const asset=JSON.parse(readFileSync(assetPath));
 function invoke(script,args,env={}){return spawnSync(runner,[path.join(root,'scripts',script),...args],{cwd:root,encoding:'utf8',env:{...process.env,...env}});}
-test('committed staging asset has independent beta.130 context and real certified pins (offline, NOT publication authentication)',()=>{
+test('committed staging asset has independent beta.134 context and real certified pins (offline, NOT publication authentication)',()=>{
  const stagingPath=path.join(root,'config/next-trust/staging.json');
  const staging=JSON.parse(readFileSync(stagingPath));
- const commit='215c23a487f9a5ce931b732cf49ab2e5f8a3da7d',version='0.1.0-beta.130';
+ const commit='f45df4598a5bff891de68eec3431ec7744885067',version='0.1.0-beta.134';
  assert.equal(staging.environment,'staging');
  assert.equal(staging.control_plane_origin,'https://connect-staging.mdbase.dev');
  assert.equal(staging.log_origin,'https://log-staging.mdbase.dev');
