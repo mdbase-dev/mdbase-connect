@@ -62,7 +62,7 @@ suite("accepted scoped archive original-H6 bridge (isolated real PostgreSQL)",()
     return {app,provider,verified,source,account,collection,name,capture,request,accept,start};
   }
 
-  it.each(["lab","staging"])("ordinary start follows acceptance; native fronts consume ORIGINAL without physical fence: %s",async environment=>{
+  it.each(["lab","staging","production"])("ordinary start follows acceptance; native fronts consume ORIGINAL without physical fence: %s",async environment=>{
     const f=await fixture(environment);try{
       await expect(f.start()).rejects.toMatchObject({code:"backup_missing"});
       expect((await f.request()).statusCode).toBe(409);

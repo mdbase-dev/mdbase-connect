@@ -121,7 +121,7 @@ export function registerPrearchiveMigrationRoutes(app: FastifyInstance, options:
         reply.header("cache-control", "no-store");
         const token = bearerToken(request);
         if (!token || !safeEqual(token, options.token)) return reply.code(401).send(apiError("invalid_internal_token", "The dedicated migration token is required."));
-        if (options.environment !== "lab" && options.environment !== "staging") return reply.code(503).send(apiError("migration_prearchive_unavailable", "Pre-archive preparation is LAB/staging only."));
+        if (options.environment !== "lab" && options.environment !== "staging" && options.environment !== "production") return reply.code(503).send(apiError("migration_prearchive_unavailable", "Pre-archive preparation requires a fixed managed environment."));
       }
     }, async (request, reply) => {
       const p = params.safeParse(request.params), body = (kind === "fence" ? requestBody : drainBody).safeParse(request.body);

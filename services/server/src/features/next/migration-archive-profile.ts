@@ -100,11 +100,11 @@ const labVerifiedArchiveSchema = v4VerifiedArchiveSchema.extend({
   runtime_provenance: z.object({ connect: labRuntimeComponentSchema, hosted_provider: labRuntimeComponentSchema,
     relay: labRuntimeComponentSchema, mcp: labRuntimeComponentSchema }).strict()
 }).strict();
-// Only the scoped inventory/provenance artifacts are archived. Production
-// capture stays closed; this is not permission to omit any hosted payload.
+// Only the scoped inventory/provenance artifacts are archived. Every managed
+// environment uses the same closed zero-hosted profile, never omits held payloads.
 const zeroHostedVerifiedArchiveSchema = v4VerifiedArchiveSchema.extend({
-  schema: z.literal(ZERO_HOSTED_ARCHIVE_SCHEMA), environment: localBuild() ? z.literal("local") : z.enum(["lab", "staging"]),
-  prefix: z.string().max(128).regex(localBuild() ? ARCHIVE_PREFIX : /^legacy-archive\/(lab|staging)\/20[0-9]{2}\/(0[1-9]|1[0-2])\/(0[1-9]|[12][0-9]|3[01])\/[a-z0-9][a-z0-9-]{0,79}(?![\s\S])/),
+  schema: z.literal(ZERO_HOSTED_ARCHIVE_SCHEMA), environment: localBuild() ? z.literal("local") : z.enum(["lab", "staging", "production"]),
+  prefix: z.string().max(128).regex(localBuild() ? ARCHIVE_PREFIX : /^legacy-archive\/(lab|staging|production)\/20[0-9]{2}\/(0[1-9]|1[0-2])\/(0[1-9]|[12][0-9]|3[01])\/[a-z0-9][a-z0-9-]{0,79}(?![\s\S])/),
   retention: v4VerifiedArchiveSchema.shape.retention.extend({ count: z.literal(ZERO_HOSTED_ARCHIVE_PAYLOAD_COUNT) }).strict()
 }).strict();
 // Original physical H6 identities are authenticated ONLY by the ONE verifier
@@ -118,7 +118,7 @@ const originalScopedFence = z.object({
   fence_reply_sha256: z.string().regex(HEX64), drain_reply_sha256: z.string().regex(HEX64)
 }).strict();
 const scopedHostedVerifiedArchiveSchema = v4VerifiedArchiveSchema.extend({
-  schema: z.literal(SCOPED_HOSTED_ARCHIVE_SCHEMA), environment: z.enum(["lab", "staging"]),
+  schema: z.literal(SCOPED_HOSTED_ARCHIVE_SCHEMA), environment: z.enum(["lab", "staging", "production"]),
   prefix: zeroHostedVerifiedArchiveSchema.shape.prefix,
   retention: v4VerifiedArchiveSchema.shape.retention.refine(value => BigInt(value.count) >= 5n),
   scoped_recovery: z.object({
