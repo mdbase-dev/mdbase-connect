@@ -493,12 +493,14 @@ describe("CLI", () => {
     vi.resetModules();
     const createDatabase = vi.fn(), openDatabase = vi.fn();
     vi.doMock("../../db.js", () => ({ createDatabase, openDatabase }));
-    const keys = ["MDBASE_CONNECT_ENVIRONMENT", "DATABASE_URL", "MDBASE_LEGACY_PROVIDER_DATABASE_URL"] as const;
+    const keys = ["MDBASE_CONNECT_ENVIRONMENT", "PUBLIC_URL", "DATABASE_URL", "MDBASE_LEGACY_PROVIDER_DATABASE_URL"] as const;
     const saved = { argv: process.argv, exitCode: process.exitCode, env: keys.map(key => process.env[key]) };
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       for (const key of keys) delete process.env[key];
       if (environment !== undefined) process.env.MDBASE_CONNECT_ENVIRONMENT = environment;
+      process.env.PUBLIC_URL = environment === "production" ? "https://connect.mdbase.dev"
+        : environment === "staging" ? "https://connect-staging.mdbase.dev" : "https://connect-lab.mdbase.dev";
       process.argv = ["node", "next-migration-lab", "lab-run", account, hold];
       await import("./migration-lab-cli.js");
       await vi.waitFor(() => expect(error).toHaveBeenCalledOnce());
@@ -514,10 +516,10 @@ describe("CLI", () => {
       vi.doUnmock("../../db.js");
     }
   }
-  it.each([undefined, "", "LAB", " lab", "lab ", "Staging", "staging ", "production", "local"])("refuses environment %j before opening anything", async environment => {
-    expect(await cliUnder(environment)).toContain("MDBASE_CONNECT_ENVIRONMENT=lab or staging");
+  it.each([undefined, "", "LAB", " lab", "lab ", "Staging", "staging ", "Production", "prod", "production ", "local"])("refuses environment %j before opening anything", async environment => {
+    expect(await cliUnder(environment)).toContain("MDBASE_CONNECT_ENVIRONMENT=lab, staging or production");
   });
-  it.each(["lab", "staging"])("admits the %s deployment past the environment gate (then requires its configuration)", async environment => {
+  it.each(["lab", "staging", "production"])("admits the %s deployment past the environment gate (then requires its configuration)", async environment => {
     const message = await cliUnder(environment);
     expect(message).not.toContain("MDBASE_CONNECT_ENVIRONMENT");
     expect(message).toContain("DATABASE_URL");

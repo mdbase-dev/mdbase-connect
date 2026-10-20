@@ -1,4 +1,4 @@
-// Rehearsal (LAB/staging) runner composition of the existing authenticated SHADOW target creator.
+// Migration runner composition of the existing authenticated SHADOW target creator.
 // No new bootstrap, custody exemption, target selector, serving or H1 authority.
 import { z } from "zod";
 import { localBuild, localDeployment, rehearsalDiagnostics } from "../../local-deployment.js";
@@ -41,29 +41,38 @@ const metadata = z.object({
   service_devices: z.array(z.object({ kind: z.enum(["hosted", "escrow"]), device_id: migrationUuid }).passthrough()).length(2)
 }).passthrough();
 
-// The managed rehearsal deployments the migration job runs in, each bound to
-// its own canonical Connect origin. Production and local are never admitted.
-const REHEARSAL_ORIGINS = { lab: "https://connect-lab.mdbase.dev/", staging: "https://connect-staging.mdbase.dev/" } as const;
-type MigrationRehearsalEnvironment = keyof typeof REHEARSAL_ORIGINS;
+// Reviewed CP identities, not caller-selected origins. Worker/publication and
+// custody qualification remain the ordinary deployment's independent gates.
+const MIGRATION_ORIGINS = {
+  lab: "https://connect-lab.mdbase.dev/", staging: "https://connect-staging.mdbase.dev/", production: "https://connect.mdbase.dev/"
+} as const;
+type MigrationJobEnvironment = keyof typeof MIGRATION_ORIGINS;
 
 /** The deployment's own environment (server configuration, never a caller
- * flag) when it is a managed rehearsal deployment; otherwise undefined. */
-export function migrationRehearsalEnvironment(environment: string | undefined): MigrationRehearsalEnvironment | undefined {
-  return !localBuild() && (environment === "lab" || environment === "staging") ? environment : undefined;
+ * flag). Unknown labels and managed environments in local builds fail closed. */
+export function migrationJobEnvironment(environment: string | undefined): MigrationJobEnvironment | undefined {
+  return !localBuild() && (environment === "lab" || environment === "staging" || environment === "production") ? environment : undefined;
+}
+
+/** Pure target admission, also run by the CLI before opening either database,
+ * including resume/status invocations which do not create a fresh target. */
+export function requireMigrationTargetOrigin(environment: string | undefined, url: string): URL {
+  let origin: URL;
+  try { origin = new URL(url); } catch { return labTargetUnavailable(environment, { call: "guard", guard: "origin" }); }
+  const job = migrationJobEnvironment(environment);
+  if (localBuild() ? !localDeployment(environment, url) : !job || origin.href !== MIGRATION_ORIGINS[job])
+    return labTargetUnavailable(environment, { call: "guard", guard: "origin" });
+  return origin;
 }
 
 export function labTargetBootstrap(config: { environment?: string; url: string; token: string; account: string }, fetchImpl: typeof fetch = fetch) {
-  const rehearsal = migrationRehearsalEnvironment(config.environment);
-  if (localBuild() ? !localDeployment(config.environment, config.url) : !rehearsal)
-    throw new RolloutRefused("lab_only", "Rehearsal target bootstrap is unavailable in this build/environment.", 503);
+  if (localBuild() ? !localDeployment(config.environment, config.url) : !migrationJobEnvironment(config.environment))
+    throw new RolloutRefused("lab_only", "Migration target bootstrap is unavailable in this build/environment.", 503);
   const unavailable = (cause: TargetCause): never => labTargetUnavailable(config.environment, cause);
   // Guard failures are part of the same prepare_target stop/capture as HTTP
   // failures, not an opaque top-level exit before orchestration can record them.
   return async (collection: string): Promise<void> => {
-    let origin: URL;
-    try { origin = new URL(config.url); } catch { return unavailable({ call: "guard", guard: "origin" }); }
-    if (config.environment === "local" ? !localDeployment(config.environment, config.url)
-      : !rehearsal || origin.href !== REHEARSAL_ORIGINS[rehearsal]) return unavailable({ call: "guard", guard: "origin" });
+    const origin = requireMigrationTargetOrigin(config.environment, config.url);
     if (config.token.length < 32 || /[\r\n]/u.test(config.token)) return unavailable({ call: "guard", guard: "token" });
     if (!migrationUuid.safeParse(config.account).success) return unavailable({ call: "guard", guard: "account" });
     if (!migrationUuid.safeParse(collection).success) return unavailable({ call: "guard", guard: "collection" });
