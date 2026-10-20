@@ -98,7 +98,8 @@ test("Editor has distinct guarded main and tag publication paths; staging remain
     assert.ok(position > 0 && position < production.indexOf("wrangler pages deploy"));
   }
   assert.match(text, /group: editor-pages-\$\{\{ github.event_name == 'workflow_dispatch' && inputs.target == 'production' && 'production' \|\| github.ref \}\}/);
-  assert.match(text, /cancel-in-progress: \$\{\{ github.event_name != 'workflow_dispatch' \|\| inputs.target != 'production' \}\}/);
+  // Native source dispatches never cancel an uploader; blank source retains the legacy policy.
+  assert.match(text, /cancel-in-progress: \$\{\{ inputs.source_sha == '' && \(github.event_name != 'workflow_dispatch' \|\| inputs.target != 'production'\) \}\}/);
   assert.match(text, /node --test scripts\/lib\/\*publication\*.test.mjs/);
   assert.match(text.split("  deploy-cloudflare-staging:\n")[1], /github.ref == 'refs\/heads\/main'/);
 });
