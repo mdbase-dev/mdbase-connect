@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -101,6 +101,38 @@ test("accepts the actual production manifest generator output", (t) => {
   const value = JSON.parse(readFileSync(join(directory, "public", ".well-known", "mdbase-app.json"), "utf8"));
   assert.equal(value.requirements.capabilities.contract_version, 2);
   assert.doesNotThrow(() => assertEditorManifest(value, homepage));
+});
+
+test("runs the manifest CLI through canonical and preserved ancestor aliases", (t) => {
+  const sandbox = mkdtempSync(join(tmpdir(), "editor-manifest-cli-"));
+  t.after(() => rmSync(sandbox, { recursive: true, force: true }));
+  const root = join(sandbox, "workspace");
+  mkdirSync(join(root, "scripts"), { recursive: true });
+  const script = join(root, "scripts", "verify-deployment-manifest.mjs");
+  copyFileSync(new URL("./verify-deployment-manifest.mjs", import.meta.url), script);
+  const alias = join(sandbox, "workspace-alias");
+  symlinkSync(root, alias, "junction");
+  const aliasScript = join(alias, "scripts", "verify-deployment-manifest.mjs");
+  const source = join(root, "manifest.json");
+  const variants = [
+    [script, []],
+    [aliasScript, []],
+    [aliasScript, ["--preserve-symlinks-main"]],
+    [aliasScript, ["--preserve-symlinks-main", "--preserve-symlinks"]]
+  ];
+  const run = (entry, flags) => spawnSync(process.execPath, [...flags, entry, source, homepage], { encoding: "utf8" });
+  writeFileSync(source, JSON.stringify(manifest(2)));
+  for (const [entry, flags] of variants) {
+    const result = run(entry, flags);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, `Verified editor file access in ${source}\n`);
+  }
+  writeFileSync(source, JSON.stringify({ ...manifest(2), homepage: "https://other.invalid/" }));
+  for (const [entry, flags] of variants) {
+    const result = run(entry, flags);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Editor manifest does not provide binary file access: homepage must be/);
+  }
 });
 
 function manifest(version) {

@@ -1,15 +1,25 @@
 {
   "package": "@mdbase-dev/sdk",
   "version": "0.0.0",
-  "artifact": "sdk-dev-0fabaf20.tgz",
-  "sourceCommit": "0fabaf20553b7f296f771dd52ea0b65d2d04fcbf",
-  "label": "LAB native candidate; original producer-qualified archive, not release-qualified or deployed",
-  "sha256": "0e3959e947a5b03bc11ac4f3594c9c20d82f3f3c4b39b45d2a8e8a7c328f5b88",
-  "integrity": "sha512-3y+3UNP3nNdi7GAOhmK+1l38H4eUKCS7X7Bu9bq/m6vXNstcRllsIcykO4VRbruoPakrmmJQ8/JisA99fTiIFA==",
+  "artifact": "sdk-dev-ff190f963.tgz",
+  "sourceCommit": "ff190f9634beeae89eb25ee270daab058d7e9ae6",
+  "label": "SDK-owned Native routing candidate; original producer archive, not per-app live acceptance or deployment",
+  "bytes": 4456058,
+  "sha256": "5bea0c6058c0e70b39946535e05333df6b8d3dffba6ab945474921beab2140be",
+  "integrity": "sha512-r33dVIhsyJgBC6ilqs8l2PC+prMDYNLuYITJLQEGABwB2vd7ecVLq1fMbqhyusdN/9W2LNevM1XjoYSfkpnmAw==",
+  "ui": {
+    "package": "@mdbase-dev/ui",
+    "version": "0.1.0-beta.133",
+    "artifact": "mdbase-dev-ui-dev-b2d7c464.tgz",
+    "sourceCommit": "b2d7c464bed5741ab452d2e1ab81684dc424ea0f",
+    "bytes": 91010,
+    "sha256": "8f785294454321c40596bdaad976dc4c5374c3f23dfa828f47e3e7b3139b77e5",
+    "integrity": "sha512-d2ZON59oK8AWkDxI/TJ2HNI++ZqhjdGXOwxcZj0lown72+3rQ6CMG9gyRKlfmGb5zSj6EE8R2Xf4RNKryhWHpA=="
+  },
   "native": {
-    "sourceCommit": "a350db1ca88fa3572de3a8c97c43020d7039d035",
-    "bytes": 3668115,
-    "sha256": "28c261f86e6126091b9da07a8f744b54a0ee71ebfede9a7ea2c273be3e5d3b26"
+    "sourceCommit": "6ec021f6050ea87f3b2dc3ff1b621fce4ff38826",
+    "bytes": 3671668,
+    "sha256": "a57387f8d4c9bdebd2cef61534d0a1df80712a814ca712459242d23b3aa38414"
   },
   "includesPublicApplicationEntry": true,
   "includesPublicApplicationFixture": true,

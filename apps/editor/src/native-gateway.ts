@@ -64,18 +64,18 @@ const INSTALLED_BY = "dev.mdbase.editor";
 const PLAN_MEMORY = 8;
 const RECEIPT_TIMEOUT_MS = 30_000;
 
-/** What the gateway needs from its scope's owner: the SDK application for cloud
- * copies, or the editor's own Private collection session. */
+/** Production scopes belong to the SDK, for both cloud copies and Private
+ * collections. Isolated tests may supply their own fenced scope actions. */
 export type EditorScopeActions = Pick<MdbaseApplication, "chooseAnother" | "reauthorize" | "select" | "forget">
   & Partial<Pick<MdbaseApplication, "getSnapshot" | "subscribe">>;
 
-/** One open collection. A Private collection opened through an app grant has no
- * people client: the app-grant API exposes no people authority yet. */
+/** One borrowed collection. People access exists only when the SDK supplies its
+ * scoped client; document access never implies metadata permission. */
 export type EditorConnection = Pick<MdbaseApplicationConnection, "id" | "displayName" | "generation" | "records" | "files" | "isCurrent">
   & { readonly people?: MdbaseApplicationConnection["people"] };
 
 /** The editor's collection gateway over one borrowed public SDK connection.
- * `SdkEditorRoot` owns lifecycle, selection and readiness; this adapter never
+ * The root follows SDK lifecycle, selection and readiness; this adapter never
  * closes the client, never retries a write under a fresh identity, and stops
  * at every await once the original connection is no longer current. */
 export class NativeEditorGateway implements CollectionGateway {
@@ -103,7 +103,7 @@ export class NativeEditorGateway implements CollectionGateway {
     };
   }
 
-  /** Absent when the connection has no people client (Private collections). */
+  /** Absent when the scope supplies no people client (including custom test adapters). */
   readonly peopleDirectory?: CollectionGateway["peopleDirectory"];
 
   /** Retire this scope. The borrowed client stays open for its SDK owner. */

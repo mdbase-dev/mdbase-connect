@@ -21,10 +21,14 @@ publication is implied.
   `allowDelete`). Its `onBeforeLeave` confirms unsaved type or creation drafts
   and, for a switch, drains pending saves and mutations first. Adding a
   collection resolves inside the click so its Connect window keeps the gesture.
-- Private collections (app grants relayed to a computer) are listed in a section
-  beside the gate while choosing, because the gate lists only the installation's
-  collections. An opened Private collection owns its own client and closes it
-  when the editor leaves it; owners delete through the shared delete dialog.
+- Private collections use the SDK's account-bound Native inventory, canonical
+  Add action and shared gate/switcher rows, not an app-owned section or raw
+  authorization adapter. Unknown browser grants are not imported or relabeled;
+  approve them again through Add a collection. Legitimate current-account
+  inventory, including collections needing synchronization, remains available.
+  The SDK owns Native clients and sign-out cleanup; the editor never closes them.
+  Custom adapters and their fenced client lifetimes are isolated test seams,
+  ignored outside test builds. Native owner-delete parity is not yet qualified.
 
 ## Native gateway
 
@@ -80,10 +84,17 @@ publication is implied.
 ## LAB candidate and remaining qualification
 
 The LAB integration lane uses the original producer-qualified
-`sdk-dev-0fabaf20.tgz` archive, recorded in `vendor/mdbase-next-sdk.json` with
-verified SHA256/SHA512. It includes the native runtime from `a350db1c`; no archive
-members are rewritten. The editor and shared UI development dependency use the
-same archive. `pnpm build:lab` generates the canonical
+`sdk-dev-ff190f963.tgz` archive paired with the original shared UI archive
+`mdbase-dev-ui-dev-b2d7c464.tgz`, recorded in `vendor/mdbase-next-sdk.json` with
+verified SHA256/SHA512. The SDK includes the accepted original native runtime
+SHA256 `a57387f8…` from source `6ec021f6`, not from the SDK's source commit.
+Neither archive is rewritten. SDK sign-out attempts whole-store grant cleanup;
+SDK results report incomplete cleanup, and account-bound routing must still
+hide another account's surviving grants. The editor and workspace UI development
+dependency use the same SDK archive. Editor imports the packed UI, not workspace
+UI source; its style-token gate checks the installed UI CSS. The shared UI owns
+opening progress, slow warnings, focus, storage warnings and Private entry; no
+app-side progress or warning shim is provided. `pnpm build:lab` generates the canonical
 `https://editor-lab.mdbase.dev/` declaration and selects the SDK's LAB environment.
 The ordinary build retains its production declaration defaults.
 
@@ -103,5 +114,8 @@ Unit tests use SDK MemoryReplica and are not native/LAB evidence. SDK811 now hon
 `create.document` through its shared synthetic parser; restore verifies the actual
 SDK document submission without an app-side source-create fixture bridge.
 
-Tests use the SDK's `createApplicationFixture` for lifecycle/readiness and real
-public SDK clients over MemoryReplica for data. They are not native/LAB evidence.
+DOM tests use the SDK's public `createTestApp` account-view fixture for
+lifecycle/readiness and public SDK clients over MemoryReplica for data. Separate
+qualification-only tests drive the real SDK entry and grant crypto/store/cleanup,
+with scripted Worker, CP and native transport/setup boundaries. Neither suite
+proves live Worker reference verification, P2P admission or LAB operation.
