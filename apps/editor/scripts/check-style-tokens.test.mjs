@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -28,16 +28,26 @@ test("checks the installed UI CSS, not a different workspace copy", async () => 
     ]);
     const script = join(root, "apps/editor/scripts/check-style-tokens.mjs");
     await copyFile(new URL("./check-style-tokens.mjs", import.meta.url), script);
-    const run = () => spawnSync(process.execPath, [script], { encoding: "utf8" });
+    const run = (entry = script) => spawnSync(process.execPath, [entry], { encoding: "utf8" });
     const valid = run();
     assert.equal(valid.status, 0, valid.stderr);
     assert.match(valid.stdout, /2 editor\/shared stylesheets checked/);
 
+    // macOS temp paths are aliases (/var -> /private/var). A directory junction
+    // also exercises the original argv/canonical-module mismatch on Windows.
+    const alias = join(root, "editor-alias");
+    await symlink(join(root, "apps/editor"), alias, "junction");
+    const throughAlias = run(join(alias, "scripts/check-style-tokens.mjs"));
+    assert.equal(throughAlias.status, 0, throughAlias.stderr);
+    assert.match(throughAlias.stdout, /2 editor\/shared stylesheets checked/);
+
     await put("apps/editor/node_modules/@mdbase-dev/ui/css/shared.css", ".shared { font-size: 9px; }");
-    const invalid = run();
-    assert.equal(invalid.status, 1);
-    assert.match(invalid.stderr, /node_modules\/@mdbase-dev\/ui\/css\/shared\.css:1/);
-    assert.doesNotMatch(invalid.stderr, /packages\/app-ui/);
+    const expected = `${join("apps", "editor", "node_modules", "@mdbase-dev", "ui", "css", "shared.css")}:1: font-size must use shared tokens (9px).\n`;
+    for (const entry of [script, join(alias, "scripts/check-style-tokens.mjs")]) {
+      const invalid = run(entry);
+      assert.equal(invalid.status, 1);
+      assert.equal(invalid.stderr, expected);
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }
