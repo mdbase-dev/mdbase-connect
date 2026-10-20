@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { labTargetBootstrap, labTargetSubCause, migrationRehearsalEnvironment } from "./migration-lab-target.js";
+import { labTargetBootstrap, labTargetSubCause, migrationJobEnvironment } from "./migration-lab-target.js";
 import { postgresLabConnect } from "./migration-lab.js";
 
 const account = "10000000-0000-4000-8000-000000000001", collection = "20000000-0000-4000-8000-000000000002";
@@ -47,25 +47,33 @@ describe("existing migration target bootstrap composition", () => {
       headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" } });
     expect(request.signal).toBeInstanceOf(AbortSignal);
   });
-  it.each([undefined, "", "LAB", "Staging", "production", "local", "lab ", "staging\n"])("refuses non-rehearsal environment %j before network", environment => {
+  it.each([undefined, "", "LAB", "Staging", "Production", "prod", "local", "lab ", "staging\n", "production "])("refuses unknown environment %j before network", environment => {
     const fetchImpl = vi.fn();
     expect(() => labTargetBootstrap({ ...config, environment }, fetchImpl)).toThrow(expect.objectContaining({ code: "lab_only" }));
     expect(fetchImpl).not.toHaveBeenCalled();
   });
-  it("admits a staging deployment only against its own canonical origin", async () => {
-    const staging = { ...config, environment: "staging", url: "https://connect-staging.mdbase.dev" };
-    const fetchImpl = vi.fn(async () => Response.json(body()));
-    await labTargetBootstrap(staging, fetchImpl)(collection);
+  it.each([
+    ["staging", "https://connect-staging.mdbase.dev"], ["production", "https://connect.mdbase.dev"]
+  ])("admits %s only against its fixed canonical origin", async (environment, url) => {
+    const managed = { ...config, environment, url };
+    const fetchImpl = vi.fn<typeof fetch>(async () => Response.json(body()));
+    await labTargetBootstrap(managed, fetchImpl)(collection);
     expect((fetchImpl.mock.calls[0]! as unknown as [URL])[0].href)
-      .toBe(`https://connect-staging.mdbase.dev/internal/v1/next/migration/collections/${collection}/target`);
-    // Each rehearsal deployment is pinned to its own origin, never the other's.
-    for (const [environment, url] of [["staging", "https://connect-lab.mdbase.dev"], ["lab", "https://connect-staging.mdbase.dev"],
-      ["staging", "https://connect.mdbase.dev"], ["staging", "http://connect-staging.mdbase.dev"]] as const) {
-      const refused = vi.fn();
-      const error = await labTargetBootstrap({ ...config, environment, url }, refused)(collection).catch(error => error);
-      expect(error).toHaveProperty("code", "migration_target_unavailable");
-      expect(refused).not.toHaveBeenCalled();
-    }
+      .toBe(`${url}/internal/v1/next/migration/collections/${collection}/target`);
+    expect(fetchImpl.mock.calls[0]![1]).toMatchObject({ method: "POST", body: "{}", redirect: "error" });
+  });
+  it.each([
+    ["staging", "https://connect-lab.mdbase.dev"], ["lab", "https://connect-staging.mdbase.dev"],
+    ["staging", "https://connect.mdbase.dev"], ["staging", "http://connect-staging.mdbase.dev"],
+    ["production", "https://connect-staging.mdbase.dev"], ["production", "https://connect-lab.mdbase.dev"],
+    ...["", "not a URL", "http://connect.mdbase.dev", "https://arbitrary.invalid", "https://connect.mdbase.dev:444",
+      "https://user:secret@connect.mdbase.dev", "https://connect.mdbase.dev/path", "https://connect.mdbase.dev/?target=other",
+      "https://connect.mdbase.dev/#fragment"].map(url => ["production", url])
+  ])("refuses %s target %s before transport", async (environment, url) => {
+    const refused = vi.fn();
+    await expect(labTargetBootstrap({ ...config, environment, url: url! }, refused)(collection))
+      .rejects.toHaveProperty("code", "migration_target_unavailable");
+    expect(refused).not.toHaveBeenCalled();
   });
   it.each(["http://connect-lab.mdbase.dev", "https://connect.mdbase.dev", "https://user:secret@connect-lab.mdbase.dev", "https://connect-lab.mdbase.dev/?scope=other"])("refuses noncanonical origin %s", async url => {
     const fetchImpl = vi.fn();
@@ -74,7 +82,7 @@ describe("existing migration target bootstrap composition", () => {
     expect(labTargetSubCause(error, "production")).toBeUndefined();
     expect(fetchImpl).not.toHaveBeenCalled();
   });
-  it.each(["collection", "owner", "private", "device-missing", "device-kind", "device-nil"])("does not treat HTTP200 as target identity proof: %s", kind => {
+  it.each(["collection", "owner", "private", "device-missing", "device-kind", "device-nil"])("does not treat HTTP200 as target identity proof: %s", async kind => {
     const value = body();
     if (kind === "collection") value.collection_id = account;
     if (kind === "owner") value.owner_account = collection;
@@ -82,7 +90,10 @@ describe("existing migration target bootstrap composition", () => {
     if (kind === "device-missing") value.service_devices = [];
     if (kind === "device-kind") value.service_devices[1]!.kind = "hosted";
     if (kind === "device-nil") value.service_devices[0]!.device_id = "00000000-0000-0000-0000-000000000000";
-    return expect(labTargetBootstrap(config, async () => Response.json(value))(collection)).rejects.toMatchObject({ code: "migration_target_unavailable" });
+    for (const [environment, url] of [["lab", config.url], ["staging", "https://connect-staging.mdbase.dev"], ["production", "https://connect.mdbase.dev"]]) {
+      await expect(labTargetBootstrap({ ...config, environment, url: url! }, async () => Response.json(value))(collection))
+        .rejects.toMatchObject({ code: "migration_target_unavailable" });
+    }
   });
   it("retains only finite network causes, not exception messages or arbitrary names/codes", async () => {
     for (const code of ["ENOTFOUND", "private credential not for capture"]) {
@@ -104,13 +115,36 @@ describe("existing migration target bootstrap composition", () => {
 });
 
 describe("migration job environment gate (deployment configuration only)", () => {
-  it.each([["lab", "lab"], ["staging", "staging"], ["production", undefined], ["local", undefined],
+  it.each([["lab", "lab"], ["staging", "staging"], ["production", "production"], ["local", undefined],
     [undefined, undefined], ["", undefined], ["LAB", undefined], ["STAGING", undefined]] as const)("%j -> %j", (environment, expected) => {
-    expect(migrationRehearsalEnvironment(environment)).toBe(expected);
+    expect(migrationJobEnvironment(environment)).toBe(expected);
   });
-  it.each(["production", "local", "LAB", "", undefined])("refuses to compose the job's control-plane port in a %j deployment", environment => {
+  it.each(["Production", "prod", "local", "LAB", "", undefined])("refuses to compose the job's control-plane port in a %j deployment", environment => {
     const db = { query: vi.fn() } as unknown as Parameters<typeof postgresLabConnect>[0]["db"];
     expect(() => postgresLabConnect({ db, source: db, actor: "test", timers: true, environment,
       provider: {} as Parameters<typeof postgresLabConnect>[0]["provider"] })).toThrow(expect.objectContaining({ code: "lab_only" }));
+    expect(db.query).not.toHaveBeenCalled();
+  });
+  it.each(["lab", "staging", "production"])("%s retains its own start-profile admission", async environment => {
+    const query = vi.fn()
+      .mockResolvedValueOnce({ rows: [{ backend: "legacy", member: true, released: true, frozen: true, started: true, excluded: false }] })
+      .mockResolvedValueOnce({ rows: [{ present: 1 }] })
+      .mockResolvedValueOnce({ rows: [{ id: collection, state: "active" }] });
+    const db = { query } as unknown as Parameters<typeof postgresLabConnect>[0]["db"];
+    const connect = postgresLabConnect({ db, source: db, actor: "operator", timers: true, environment,
+      provider: {} as Parameters<typeof postgresLabConnect>[0]["provider"] });
+    expect(await connect.preflight(account)).toEqual({ collection, backend: "legacy" });
+    expect(query.mock.calls[1]).toEqual([expect.stringContaining("IS NOT DISTINCT FROM $2"),
+      [account, environment === "lab" ? "lab-fixture-v1" : null]]);
+  });
+  it.each(["staging", "production"])("%s cannot substitute a LAB fixture start for ordinary archive admission", async environment => {
+    const query = vi.fn()
+      .mockResolvedValueOnce({ rows: [{ member: true, released: true, frozen: true, started: true }] })
+      .mockResolvedValueOnce({ rows: [] });
+    const db = { query } as unknown as Parameters<typeof postgresLabConnect>[0]["db"];
+    const connect = postgresLabConnect({ db, source: db, actor: "operator", timers: true, environment,
+      provider: {} as Parameters<typeof postgresLabConnect>[0]["provider"] });
+    await expect(connect.preflight(account)).rejects.toHaveProperty("code", "start_profile_invalid");
+    expect(query).toHaveBeenCalledTimes(2);
   });
 });

@@ -3,10 +3,14 @@
 `next-migration-lab` (`services/server/src/features/next/migration-lab-cli.ts`) drives one
 [tiny LAB fixture](lab-fixture-migration-start.md) account through its hosted migration,
 or routes it back before cutover. It refuses to start unless the deployment's own
-`MDBASE_CONNECT_ENVIRONMENT` is exactly `lab` or `staging`; production and local deployments
-are refused. In LAB the account must have started with the `lab-fixture-v1` profile. In
-staging it must have taken the ordinary archived start (no profile), and the flip completes
-the cohort only on its accepted archive (staging never writes the LAB completion event).
+`MDBASE_CONNECT_ENVIRONMENT` is exactly `lab`, `staging` or `production`, with its fixed
+Connect origin. Local deployments require the separate explicit local build. In LAB the
+account must have started with the `lab-fixture-v1` profile. Staging and production use
+the SAME ordinary archived start (no profile), and the flip completes the cohort only
+on its accepted archive (managed runs never write the LAB completion event).
+Production admission here is not deployment readiness: the independent authenticated
+Worker target/publication, archive, custody and migration-routing gates must also admit
+the deployment. Missing or unresolved production bindings remain a refusal.
 
 ```sh
 pnpm --filter @mdbase/connect-server next:migration-lab lab-run <account id> <backup hold id> [--stop-before-flip]
@@ -20,9 +24,10 @@ through its SELECT-only reader role), `MDBASE_CONNECT_HOSTED_PROVIDER_*`, `MDBAS
 `MDBASE_NEXT_TIMERS=1`, and `MDBASE_NEXT_HOSTED_SERVICE_URL` (https) with
 `MDBASE_NEXT_HOSTED_SERVICE_TOKEN` for the hosted Worker's internal migration entry. The
 backup hold is the in-force `hosted_provider_backup_holds` id taken by the operator.
-`lab-run` additionally uses the existing `PUBLIC_URL` (exactly `https://connect-lab.mdbase.dev`
-in LAB, `https://connect-staging.mdbase.dev` in staging)
-and `MDBASE_NEXT_MIGRATION_INTERNAL_TOKEN` to call the canonical migration target
+Every command checks the existing `PUBLIC_URL` before opening either database: exactly
+`https://connect-lab.mdbase.dev` in LAB, `https://connect-staging.mdbase.dev` in staging,
+and `https://connect.mdbase.dev` in production. No arbitrary origin selector is accepted.
+`lab-run` additionally uses `MDBASE_NEXT_MIGRATION_INTERNAL_TOKEN` to call the canonical migration target
 creator before the first Worker Run POST. That creator installs the SHADOW cloud
 copy, immutable hosted/escrow service-device records and appended original genesis.
 It does not grant serving/H1 authority or flip the account. Provisioning failure
@@ -100,7 +105,7 @@ After an unknown outcome a mutation is never sent again; a rerun reads state fir
 5. **cutover**: when the run is done and routed, the cutover must be recorded and legacy
    `migrated`. A recorded cutover whose legacy source is still `migrating` gets the same
    cutover retried, which starts retention.
-6. **flip**: the account flip with the timer gate, environment `lab`.
+6. **flip**: the account flip with the timer gate, using the deployment's own environment.
 7. **verify_completion**: the cohort's `next_migration.lab_complete` event exists and the
    completion readback (`requireCompletedAccountMigration`) accepts the account.
 
@@ -157,7 +162,7 @@ expected_action_sequence}`), bound to the sequence the status reported.
 | run `stopped`/`done` before cutover intent, nothing outstanding | `rollback` with the current run sequence, then wait |
 | outstanding `Unrevoke` or `Unfence` (lost rollback reply) | `resolve` it; the Worker settles it from the provider's rollback receipt |
 | any other outstanding action | stop (`outstanding_unknown:<kind>`) |
-| checkpoint `rolled_back` | Timer cleanup (as the deployment's LAB or staging environment) for the rolled-back provider run, then `restart` with the current run sequence |
+| checkpoint `rolled_back` | Timer cleanup (as the deployment's LAB, staging or production environment) for the rolled-back provider run, then `restart` with the current run sequence |
 | `rolling_back` while stopped (for example `rollback_needs_operator`) | stop |
 | cutover intent or later, failed or gone | stop |
 | run `running`/`waiting` while rolling back | wait |

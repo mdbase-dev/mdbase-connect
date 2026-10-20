@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 // Tests the actual helpers/creator client with only the compiled build literal substituted.
 vi.mock("../../local-build.js", () => ({ LOCAL_REHEARSAL_BUILD: true }));
 import { localDeployment } from "../../local-deployment.js";
-import { labTargetBootstrap } from "./migration-lab-target.js";
-import { labWorkerClient } from "./migration-lab.js";
+import { labTargetBootstrap, migrationJobEnvironment } from "./migration-lab-target.js";
+import { labWorkerClient, postgresLabConnect } from "./migration-lab.js";
 import { parseNextControlPlaneEnv } from "./policy-keys.js";
 import { configuredClaimAudience } from "./migration-claim-auth.js";
 import type { DatabaseQueryable } from "../../database-types.js";
@@ -64,6 +64,18 @@ describe("explicit local build transport scope", () => {
     }
     expect(transport).not.toHaveBeenCalled();
     expect(() => labTargetBootstrap({ environment: "lab", url: "https://connect-lab.mdbase.dev", token, account }, transport)).toThrow();
+  });
+  it("never composes a managed migration port in a local build", () => {
+    const query = vi.fn();
+    const db = { query } as unknown as Parameters<typeof postgresLabConnect>[0]["db"];
+    for (const environment of ["lab", "staging", "production", undefined]) {
+      expect(migrationJobEnvironment(environment)).toBeUndefined();
+      expect(() => postgresLabConnect({ db, source: db, actor: "test", timers: true, environment,
+        provider: {} as Parameters<typeof postgresLabConnect>[0]["provider"] })).toThrow(expect.objectContaining({ code: "lab_only" }));
+    }
+    expect(() => postgresLabConnect({ db, source: db, actor: "test", timers: true, environment: "local",
+      provider: {} as Parameters<typeof postgresLabConnect>[0]["provider"] })).not.toThrow();
+    expect(query).not.toHaveBeenCalled();
   });
   it("local factory URLs require local build and exact local origin; token separation is unchanged", () => {
     expect(parseNextControlPlaneEnv(env)?.cloudCopyBootstrap?.hosted.url).toBe(env.MDBASE_NEXT_HOSTED_SERVICE_URL);

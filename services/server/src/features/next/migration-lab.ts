@@ -1,6 +1,6 @@
-// LAB orchestration of one fixture account's hosted migration (`lab-run`) and
+// Shared orchestration of one account's hosted migration (`lab-run`) and
 // of its pre-cutover route-back (`route-back`), for the operator CLI
-// (migration-lab-cli.ts). The deployment's environment `lab` or `staging` only.
+// (migration-lab-cli.ts). Staging and production share the ordinary archived path.
 //
 // The hosted Worker's migration run (POST /internal/v1/migration/run|status on
 // the next hosted service) fences, drains, imports, revokes and cuts the
@@ -19,7 +19,7 @@ import type { DatabasePool } from "../../database-types.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";
 import { flipEvidenceDigest } from "./account-backend-flip.js";
 import { claim } from "./migration-provider.js";
-import { labTargetSubCause, labTargetUnavailable, migrationRehearsalEnvironment } from "./migration-lab-target.js";
+import { labTargetSubCause, labTargetUnavailable, migrationJobEnvironment } from "./migration-lab-target.js";
 import { cutOverCollection, flipAccountBackend, RolloutRefused } from "./migration-rollout.js";
 import { requireCompletedAccountMigration } from "./migration-sharing.js";
 import { cleanUpRolledBackTimerImport } from "./migration-timer-cleanup.js";
@@ -239,11 +239,10 @@ export function postgresLabConnect(options: {
   prepareTarget?: (collection: string) => Promise<void>;
 }): LabConnect {
   const { db, provider } = options;
-  // The job runs as the deployment's own rehearsal environment: staging uses the
-  // ordinary archived start and no LAB completion event; LAB (and an explicit
-  // local build) keeps the LAB fixture profile. Anything else is refused here too.
-  const job = localBuild() ? "lab" : migrationRehearsalEnvironment(options.environment);
-  if (!job) throw new RolloutRefused("lab_only", "The migration rehearsal job is unavailable in this build/environment.", 503);
+  // Staging and production use the SAME ordinary archived start and completion;
+  // only LAB (and an explicit local deployment) keeps the LAB fixture profile.
+  const job = localBuild() ? (options.environment === "local" ? "lab" : undefined) : migrationJobEnvironment(options.environment);
+  if (!job) throw new RolloutRefused("lab_only", "The migration job is unavailable in this build/environment.", 503);
   return {
     async preflight(account) {
       const row = (await db.query<{ backend: string; member: boolean; released: boolean; frozen: boolean; started: boolean; excluded: boolean }>(
@@ -256,7 +255,7 @@ export function postgresLabConnect(options: {
       if (row.excluded) throw new RolloutRefused("account_deletion_accepted", "The account's deletion was accepted.");
       if (!row.frozen) throw new RolloutRefused("cohort_not_frozen", "The account's cohort is not frozen.");
       if (!row.started) throw new RolloutRefused("account_not_started", "The account's migration has not started.");
-      // LAB requires the fixture-profile start; staging the ordinary archived start (no profile).
+      // LAB requires the fixture-profile start; managed runs require the ordinary archived start (no profile).
       const start = await db.query(
         `SELECT 1 FROM audit_events WHERE user_id=$1 AND event_type='next_migration.start' AND subject_id=$1::text
            AND metadata->>'profile' IS NOT DISTINCT FROM $2::text LIMIT 1`, [account, job === "lab" ? "lab-fixture-v1" : null]);
