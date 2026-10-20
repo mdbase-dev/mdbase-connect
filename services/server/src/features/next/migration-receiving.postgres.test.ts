@@ -13,7 +13,7 @@ const suite = testUrl && approved ? describe : describe.skip;
 const token = "synthetic-receiving-token-".repeat(2), actor = "synthetic-source-test";
 const hex = (n: number) => n.toString(16).padStart(64, "0");
 
-suite("staging receiving-v1 (isolated real PostgreSQL; synthetic verifier metadata)", () => {
+suite("managed receiving-v1 (isolated real PostgreSQL; synthetic verifier metadata)", () => {
   let db: DatabasePool, admin: pg.Pool, schema: string;
   beforeAll(async () => {
     const url = new URL(testUrl!);
@@ -25,7 +25,7 @@ suite("staging receiving-v1 (isolated real PostgreSQL; synthetic verifier metada
   }, 60_000);
   afterAll(async () => { await db?.end(); if (admin && schema) await admin.query(`DROP SCHEMA "${schema}" CASCADE`); await admin?.end(); });
 
-  async function fixture(count = 3, withHosted = true) {
+  async function fixture(count = 3, withHosted = true, environment = "staging") {
     const accounts: string[] = [], ids: string[] = [], name = `r-${randomUUID().slice(0, 8)}`;
     for (let i = 0; i < count; i++) {
       const account = randomUUID(); accounts.push(account);
@@ -43,11 +43,11 @@ suite("staging receiving-v1 (isolated real PostgreSQL; synthetic verifier metada
     await setCohortFrozen(db, name, true, "synthetic archive capture", actor);
     const binding = await cohortArchiveBinding(db, name);
     const clock = new Date((await db.query("SELECT date_trunc('milliseconds',clock_timestamp()) AS now")).rows[0].now).toISOString();
-    const archive = { schema: "mdbase-recovery-set/v4", environment: "staging", bucket: "synthetic-archives",
-      prefix: `staging/2026/10/11/${name}`, backup_id: name, complete_sha256: hex(1), manifest_sha256: hex(2), source_commit: "a".repeat(40),
+    const archive = { schema: "mdbase-recovery-set/v4", environment, bucket: "synthetic-archives",
+      prefix: `${environment}/2026/10/11/${name}`, backup_id: name, complete_sha256: hex(1), manifest_sha256: hex(2), source_commit: "a".repeat(40),
       migration_batch: binding, archive_created_at: clock, archive_completed_at: clock,
       retention: { mode: "GOVERNANCE", days: 116, retain_until: new Date(Date.parse(clock) + 116 * 86_400_000).toISOString(), inventory_digest: hex(3), count: "3" } };
-    const accepted = count ? await acceptCohortArchive(db, name, archive, "staging") : null;
+    const accepted = count ? await acceptCohortArchive(db, name, archive, environment) : null;
     return { name, accounts, ids, binding, archive, accepted };
   }
   async function front(database = db, environment = "staging") {
@@ -63,8 +63,8 @@ suite("staging receiving-v1 (isolated real PostgreSQL; synthetic verifier metada
     return recordCollectionCutover(db, collection, { s_final: 42, cutover_seq: 5 + index, barrier_f: 6 + index, final_digest: hex(10 + index) });
   }
 
-  it("returns the exact complete sorted ten-field inventory including suspended/collectionless/terminal members without replacing the public four-field header", async () => {
-    const f = await fixture(), app = await front(); try {
+  it.each(["staging", "production"])("returns the exact complete inventory including suspended/collectionless/terminal members without replacing the public header: %s", async environment => {
+    const f = await fixture(3, true, environment), app = await front(db, environment); try {
       await db.query("UPDATE next_migration_cohort_members SET terminal_excluded_at=now() WHERE account_id=$1", [f.accounts[2]]);
       const plain = await request(app, f.name, ""); expect(plain.statusCode, plain.body).toBe(200); expect(plain.json()).toEqual(f.binding);
       const response = await request(app, f.name); expect(response.statusCode, response.body).toBe(200); expect(response.headers["cache-control"]).toBe("no-store");
@@ -83,9 +83,9 @@ suite("staging receiving-v1 (isolated real PostgreSQL; synthetic verifier metada
       expect(await localTakeoverAllowed(db, f.accounts[0]!)).toEqual({ local_takeover: false, account_backend: null });
     } finally { await app.close(); }
   });
-  it("publishes current nonempty F evidence only for the complete held set, preserving original recorded timestamps as DATA", async () => {
-    const f = await fixture(), app = await front(); try {
-      const started = await startAccountMigration(db, f.accounts[0]!, "staging");
+  it.each(["staging", "production"])("publishes current nonempty F evidence only for the complete held set, preserving original timestamps as DATA: %s", async environment => {
+    const f = await fixture(3, true, environment), app = await front(db, environment); try {
+      const started = await startAccountMigration(db, f.accounts[0]!, environment);
       await cut(f, 0);
       let result = (await request(app, f.name)).json(); expect(result.cutover_evidence_digest).toBeNull();
       await cut(f, 1);
@@ -102,8 +102,8 @@ suite("staging receiving-v1 (isolated real PostgreSQL; synthetic verifier metada
       expect((await db.query("SELECT suspended_at FROM users WHERE id=$1", [f.accounts[0]])).rows[0].suspended_at).not.toBeNull();
     } finally { await app.close(); }
   });
-  it("does not synthesize a positive digest for a collectionless cohort", async () => {
-    const f = await fixture(2, false), app = await front(); try {
+  it.each(["staging", "production"])("does not synthesize a positive digest for a collectionless cohort: %s", async environment => {
+    const f = await fixture(2, false, environment), app = await front(db, environment); try {
       const result = await request(app, f.name); expect(result.statusCode, result.body).toBe(200); expect(result.json().cutover_evidence_digest).toBeNull();
     } finally { await app.close(); }
   });
@@ -113,7 +113,7 @@ suite("staging receiving-v1 (isolated real PostgreSQL; synthetic verifier metada
   it.each(["?view=other", "?view=receiving-v1&limit=1", "?view=receiving-v1&view=receiving-v1"])("refuses caller selectors/duplicate view: %s", async query => {
     const f = await fixture(), app = await front(); try { expect((await request(app, f.name, query)).statusCode).toBe(400); } finally { await app.close(); }
   });
-  it.each([{environment:"production",status:503},{environment:"lab",status:409},{environment:"",status:503}])("refuses unsupported environment or mismatched accepted archive: $environment", async ({environment,status}) => {
+  it.each([{environment:"production",status:409},{environment:"lab",status:409},{environment:"PRODUCTION",status:503},{environment:"local",status:503},{environment:"",status:503}])("refuses unsupported environment or mismatched accepted archive: $environment", async ({environment,status}) => {
     const f = await fixture(), app = await front(db, environment); try { expect((await request(app, f.name)).statusCode).toBe(status); } finally { await app.close(); }
   });
   it.each(["membership", "owner", "coverage"])("refuses stale accepted archive after raw topology drift: %s", async change => {

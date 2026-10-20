@@ -12,16 +12,16 @@ const fixture = () => ({
 });
 
 describe("named zero-hosted archive metadata (not signature or live archive proof)", () => {
-  it.each(["lab", "staging"])("accepts exactly two actual inventory/provenance artifacts in %s", environment => {
+  it.each(["lab", "staging", "production"])("accepts exactly two actual inventory/provenance artifacts in %s", environment => {
     const body = { ...fixture(), environment, prefix: `legacy-archive/${environment}/2026/10/14/zero-one` };
     expect(parseVerifiedBatchArchive(body)).toEqual(body);
   });
   it.each(["0", "1", "3", "02", 2])("refuses an invented/empty artifact count %s", count => {
     expect(() => parseVerifiedBatchArchive({ ...fixture(), retention: { ...fixture().retention, count } })).toThrow();
   });
-  it("keeps production, routine/unscoped prefixes, extra fields and absent provenance hashes closed", () => {
+  it("keeps environment aliases, routine/unscoped prefixes, extra fields and absent provenance hashes closed", () => {
     for (const body of [
-      { ...fixture(), environment: "production", prefix: "legacy-archive/production/2026/10/14/zero-one" },
+      { ...fixture(), environment: "PRODUCTION", prefix: "legacy-archive/production/2026/10/14/zero-one" },
       { ...fixture(), prefix: "lab/2026/10/14/zero-one" },
       { ...fixture(), prefix: "routine/lab/2026/10/14/zero-one" },
       { ...fixture(), selected_hosted: [] },

@@ -142,8 +142,8 @@ async function readArchiveBinding(client: DatabaseQueryable, name: string) {
 
 /** Pre-acceptance inventory DATA only; never source/fence/restore permission. */
 async function cohortCaptureSnapshot(db: DatabasePool, name: string, environment: string | undefined, zeroHostedOnly = false) {
-  if (localBuild() ? environment !== "local" || !zeroHostedOnly : environment !== "staging" && environment !== "lab") {
-    throw new RolloutRefused("capture_unavailable", "The rehearsal capture view is unavailable.", 503);
+  if (localBuild() ? environment !== "local" || !zeroHostedOnly : environment !== "staging" && environment !== "production" && environment !== "lab") {
+    throw new RolloutRefused("capture_unavailable", "The environment capture view is unavailable.", 503);
   }
   return inTransaction(db, async client => {
     await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
@@ -297,7 +297,7 @@ async function buildReceivingSnapshot(client: DatabaseQueryable, current: Awaite
 
 /** Complete bounded service-role DATA, never a native/original-success receipt. */
 async function cohortReceivingSnapshot(db: DatabasePool, name: string, environment: string | undefined) {
-  if (environment !== "staging" && environment !== "lab") throw new RolloutRefused("receiving_unavailable", "The rehearsal receiving view is unavailable.", 503);
+  if (environment !== "staging" && environment !== "production" && environment !== "lab") throw new RolloutRefused("receiving_unavailable", "The environment receiving view is unavailable.", 503);
   return inTransaction(db, async client => {
     // No hosted/user/member row locks after the batch lock: avoid inversion with
     // effect transactions. Repeatable-read keeps every canonical read coherent;

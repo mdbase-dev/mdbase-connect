@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import Fastify from "fastify";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -80,7 +81,7 @@ describePg("H0 acceptance/currentness (isolated local PostgreSQL; synthetic veri
     expect(await cohortArchiveBinding(db, name)).toEqual(binding);
   });
 
-  it.each(["lab", "staging"])("accepts the named zero-hosted profile through start, empty flip and completion in %s", async environment => {
+  it.each(["lab", "staging", "production"])("accepts the named zero-hosted profile through start, empty flip and completion in %s", async environment => {
     const account = await user(), name = await batch([account]), base = await metadata(name);
     const body = { ...base, schema: ZERO_HOSTED_ARCHIVE_SCHEMA, environment,
       prefix: `legacy-archive/${environment}/2026/10/08/${name}`, retention: { ...base.retention, count: "2" } };
@@ -97,7 +98,7 @@ describePg("H0 acceptance/currentness (isolated local PostgreSQL; synthetic veri
     expect((await db.query("SELECT verified_result FROM next_migration_archive_acceptances WHERE cohort=$1", [name])).rows[0].verified_result).toEqual(body);
   });
 
-  it("preserves SQL elapsed/immutability guards and refuses production or false zero-profile artifact counts", async () => {
+  it("preserves SQL elapsed/immutability guards and refuses unknown environments or false zero-profile artifact counts", async () => {
     const account = await user(), name = await batch([account]), base = await metadata(name);
     const valid = { ...base, schema: ZERO_HOSTED_ARCHIVE_SCHEMA, environment: "staging",
       prefix: `legacy-archive/staging/2026/10/08/${name}`, retention: { ...base.retention, count: "2" } };
@@ -105,7 +106,7 @@ describePg("H0 acceptance/currentness (isolated local PostgreSQL; synthetic veri
     expect(await elapsed(valid)).toBe(true);
     expect(await elapsed(base)).toBe(true); // Existing non-empty v4 semantics stay unchanged.
     for (const body of [
-      { ...valid, environment: "production" },
+      { ...valid, environment: "unknown" },
       { ...valid, environment: null },
       ...["0", "1", "3", 2].map(count => ({ ...valid, retention: { ...valid.retention, count } })),
       { ...valid, retention: { ...valid.retention, retain_until: new Date(Date.parse(valid.retention.retain_until) + 1).toISOString() } }
@@ -119,10 +120,30 @@ describePg("H0 acceptance/currentness (isolated local PostgreSQL; synthetic veri
     expect(await acceptCohortArchive(db, name, valid, "staging")).toEqual(accepted);
   });
 
-  it("returns a complete frozen zero-only capture, refuses unauthenticated/unfrozen/mixed/production views", async () => {
+  it("upgrades the same SQL guard without rewriting a historical accepted receipt", async () => {
+    const account = await user(), name = await batch([account]), base = await metadata(name);
+    await acceptCohortArchive(db, name, base, "production");
+    const stored = () => db.query("SELECT verified_result::text AS receipt,accepted_at::text AS accepted FROM next_migration_archive_acceptances WHERE cohort=$1", [name]);
+    const original = (await stored()).rows;
+    const previous = await readFile(new URL("../../../migrations/0082_next_migration_scoped_archive.sql", import.meta.url), "utf8");
+    const upgrade = await readFile(new URL("../../../migrations/0085_managed_migration_archive_profiles.sql", import.meta.url), "utf8");
+    const zero = { ...base, schema: ZERO_HOSTED_ARCHIVE_SCHEMA,
+      prefix: `legacy-archive/production/2026/10/08/${name}`, retention: { ...base.retention, count: "2" } };
+    const elapsed = async () => (await db.query("SELECT next_migration_archive_elapsed_valid($1::jsonb,$2::timestamptz,$2::timestamptz) AS valid",
+      [JSON.stringify(zero), base.archive_completed_at])).rows[0].valid;
+    try {
+      await db.query(previous);
+      expect(await elapsed()).toBe(false);
+      await db.query(upgrade);
+      expect(await elapsed()).toBe(true);
+      expect((await stored()).rows).toEqual(original);
+    } finally { await db.query(upgrade); }
+  });
+
+  it.each(["lab", "staging", "production"])("returns a complete frozen zero-only capture, refuses unauthenticated/unfrozen/mixed views: %s", async environment => {
     const a = await user(), b = await user(), name = await batch([a, b]);
     await db.query("UPDATE users SET suspended_at=now() WHERE id=$1", [b]);
-    const app = Fastify(); registerMigrationRolloutRoutes(app, { db, token, environment: "lab" });
+    const app = Fastify(); registerMigrationRolloutRoutes(app, { db, token, environment });
     const url = `/internal/v1/next/migration/cohorts/${name}/archive-binding?view=zero-hosted-v1`, headers = { authorization: `Bearer ${token}` };
     try {
       expect((await app.inject({ method: "GET", url })).statusCode).toBe(401);
@@ -143,9 +164,9 @@ describePg("H0 acceptance/currentness (isolated local PostgreSQL; synthetic veri
       const empty = await batch([]);
       expect((await app.inject({ method: "GET", url: url.replace(name, empty), headers })).statusCode).toBe(409);
     } finally { await app.close(); }
-    const production = Fastify(); registerMigrationRolloutRoutes(production, { db, token, environment: "production" });
-    try { expect((await production.inject({ method: "GET", url, headers })).statusCode).toBe(503); }
-    finally { await production.close(); }
+    const unknown = Fastify(); registerMigrationRolloutRoutes(unknown, { db, token, environment: "unknown" });
+    try { expect((await unknown.inject({ method: "GET", url, headers })).statusCode).toBe(503); }
+    finally { await unknown.close(); }
   });
 
   it("refuses zero-hosted acceptance, current start and completion when any current member holds hosted data", async () => {

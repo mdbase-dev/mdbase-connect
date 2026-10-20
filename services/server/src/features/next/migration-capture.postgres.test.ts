@@ -55,7 +55,7 @@ suite("pre-acceptance capture-v1 (isolated real PG; metadata is not export autho
     headers: { authorization: `Bearer ${credential}` }
   });
 
-  it.each(["lab", "staging"])("returns the same full pre-freeze metadata without accepting an archive or starting accounts: %s", async environment => {
+  it.each(["lab", "staging", "production"])("returns the same full pre-freeze metadata without accepting an archive or starting accounts: %s", async environment => {
     const f = await fixture(), app = front(environment);
     try {
       const response = await request(app, f.name);
@@ -74,6 +74,7 @@ suite("pre-acceptance capture-v1 (isolated real PG; metadata is not export autho
       expect((await db.query("SELECT 1 FROM next_migration_archive_acceptances WHERE cohort=$1", [f.name])).rowCount).toBe(0);
       expect((await db.query("SELECT 1 FROM next_migration_cohort_members WHERE cohort=$1 AND started_at IS NOT NULL", [f.name])).rowCount).toBe(0);
       await expect(startAccountMigration(db, f.accounts[0]!, environment)).rejects.toMatchObject({ code: "backup_missing" });
+      // Receiving still needs an accepted current archive, in every environment.
       expect((await request(app, f.name, "?view=receiving-v1")).statusCode).toBe(409);
       expect((await request(app, f.name, "")).statusCode).toBe(409);
     } finally { await app.close(); }
@@ -142,7 +143,7 @@ suite("pre-acceptance capture-v1 (isolated real PG; metadata is not export autho
     const f = await fixture(), app = front();
     try { expect((await request(app, f.name, undefined, credential)).statusCode).toBe(401); } finally { await app.close(); }
   });
-  it.each(["production", ""])("never opens capture for another environment: %s", async environment => {
+  it.each(["local", "PRODUCTION", "unknown", ""])("never opens capture for another environment: %s", async environment => {
     const f = await fixture(), app = front(environment);
     try { expect((await request(app, f.name)).statusCode).toBe(503); } finally { await app.close(); }
   });

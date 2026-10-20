@@ -60,7 +60,7 @@ suite("prearchive original first-H6 authorization (real isolated PG)",()=>{
     return {app,accounts,collections,name,capture,inventory,target,provider,body,run,request,setSource:(value:Partial<LegacyMigrationDrain>)=>{source={...source,...value};}};
   }
 
-  it.each(["lab","staging"])("authenticates first H6 before freeze/archive/start and preserves existing start-gated paths: %s",async environment=>{
+  it.each(["lab","staging","production"])("authenticates first H6 before freeze/archive/start and preserves existing start-gated paths: %s",async environment=>{
     const f=await fixture(environment);
     try{
       expect(f.capture.frozen_at).toBeNull();
@@ -81,8 +81,8 @@ suite("prearchive original first-H6 authorization (real isolated PG)",()=>{
     }finally{await f.app.close();}
   });
 
-  it.each(["hash","binding","other-cohort","ordinal","extra","query","token","production"])("refuses untrusted scope/role before provider IO: %s",async kind=>{
-    const f=await fixture(kind==="production"?"production":"lab");
+  it.each(["hash","binding","other-cohort","ordinal","extra","query","token","unknown-environment"])("refuses untrusted scope/role before provider IO: %s",async kind=>{
+    const f=await fixture(kind==="unknown-environment"?"unknown":"lab");
     try{
       const body=structuredClone(f.body);
       if(kind==="hash")body.inventory_sha256="0".repeat(64);
