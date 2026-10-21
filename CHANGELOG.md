@@ -4,6 +4,28 @@
 
 <!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
 
+## 0.1.0-beta.135
+
+### Changed
+
+- Production migration archives use the same scoped-hosted and zero-hosted acceptance profiles, frozen cohort capture, current receiving snapshots, and pre-archive fences as staging, with unchanged environment, membership, retention, and verifier-role checks.
+
+- Prepare canonical beta.134 staging trust metadata while preserving the existing staging roots and certified policy keys.
+
+### Fixed
+
+- Admit the fixed production Connect identity through the same migration CLI and authenticated target bootstrap used by staging, retaining ordinary archive admission, LAB-only custody restrictions and independent deployment-readiness gates.
+- Refuse missing, foreign or arbitrary Connect origins before migration CLI database access, including resume and status commands.
+
+- Add a migration-token route that returns a never-started account's hosted collection from a pre-archive fence to active after its archive failed before acceptance. It undoes only Connect's own latest recorded pre-archive fence run, refuses accepted archives, started or cut-over accounts, superseded or changed runs, run-owned replica revocations and inactive authority, keeps the authority epoch unchanged, serializes with the other migration steps and calls the provider once.
+
+- The native scoped recovered-byte proof now admits staging and production data with the provider's default legacy-only `local` key custody, alongside same-environment keys. `local` custody with any KMS reply and cross-environment keys still refuse, and LAB is unchanged.
+- Native recovered-byte refusals keep the single fixed stderr line but exit with a stage code: 2 header and environment, 3 key preflight, 4 object proof, 1 invocation or framing.
+
+### Security
+
+- Prepare the production NEXT trust asset from existing certified production public pins and canonical CP/log origins, bound to the immutable beta.134 image release. Publication still requires separate approval; no private keys, signing, deployment or rotation are performed.
+
 ## 0.1.0-beta.134
 
 ### Added
