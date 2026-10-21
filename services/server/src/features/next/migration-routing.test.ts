@@ -232,7 +232,7 @@ describe("migration routing environment gate (deployment configuration only)", (
   const production = generic("production", "https://connect.mdbase.dev", "mdbase-next-hosted-mig-production");
   const refusal = (fn: () => unknown) => { try { fn(); } catch (error) { return error instanceof MigrationRoutingRefused ? error.code : "other"; } return "admitted"; };
 
-  it.each([["lab", "lab"], ["staging", "staging"], ["production", "migration_routing_production_disabled"], ["local", "migration_routing_environment_refused"],
+  it.each([["lab", "lab"], ["staging", "staging"], ["production", "production"], ["local", "migration_routing_environment_refused"],
     [undefined, "migration_routing_environment_refused"], ["", "migration_routing_environment_refused"], ["LAB", "migration_routing_environment_refused"],
     ["Staging", "migration_routing_environment_refused"], ["staging ", "migration_routing_environment_refused"]] as const)("%j -> %s", (environment, expected) => {
     let verdict: string;
@@ -246,10 +246,11 @@ describe("migration routing environment gate (deployment configuration only)", (
     expect(parseMigrationRouting({ MDBASE_CONNECT_ENVIRONMENT: "production" })).toBeUndefined();
   });
   it("refuses production by name while the single switch is off, and local always", () => {
-    expect(PRODUCTION_MIGRATION_ROUTING_ENABLED).toBe(false);
-    expect(refusal(() => parseMigrationRouting(production))).toBe("migration_routing_production_disabled");
+    expect(PRODUCTION_MIGRATION_ROUTING_ENABLED).toBe(true);
+    const off = { productionEnabled: false };
+    expect(refusal(() => parseMigrationRouting(production, off))).toBe("migration_routing_production_disabled");
     // A request or flag cannot enable it: only the deployment environment is read.
-    expect(refusal(() => parseMigrationRouting({ ...production, MDBASE_NEXT_MIGRATION_PRODUCTION: "1" }))).toBe("migration_routing_production_disabled");
+    expect(refusal(() => parseMigrationRouting({ ...production, MDBASE_NEXT_MIGRATION_PRODUCTION: "1" }, off))).toBe("migration_routing_production_disabled");
     for (const environment of ["local", "development", "test"]) {
       expect(refusal(() => parseMigrationRouting({ ...staging, MDBASE_CONNECT_ENVIRONMENT: environment }))).toBe("migration_routing_environment_refused");
       expect(refusal(() => parseMigrationRouting({ ...staging, MDBASE_CONNECT_ENVIRONMENT: environment }, { productionEnabled: true }))).toBe("migration_routing_environment_refused");
@@ -287,8 +288,9 @@ describe("migration routing environment gate (deployment configuration only)", (
     expect(parseNextControlPlaneEnv(full)?.migrationRouting?.environment).toBe("staging");
     expect(() => parseNextControlPlaneEnv({ ...full, MDBASE_NEXT_MIGRATION_INBOUND_TOKEN: "M".repeat(40) })).toThrow();
     expect(() => parseNextControlPlaneEnv({ ...full, MDBASE_NEXT_MIGRATION_INTERNAL_TOKEN: undefined })).toThrow();
-    expect(() => parseNextControlPlaneEnv({ ...full, MDBASE_CONNECT_ENVIRONMENT: "production", PUBLIC_URL: "https://connect.mdbase.dev",
-      MDBASE_NEXT_MIGRATION_HOSTED_URL: production.MDBASE_NEXT_MIGRATION_HOSTED_URL })).toThrow("migration_routing_production_disabled");
+    expect(parseNextControlPlaneEnv({ ...full, MDBASE_CONNECT_ENVIRONMENT: "production", PUBLIC_URL: "https://connect.mdbase.dev",
+      MDBASE_NEXT_MIGRATION_HOSTED_URL: production.MDBASE_NEXT_MIGRATION_HOSTED_URL })?.migrationRouting?.environment).toBe("production");
+    expect(() => parseNextControlPlaneEnv({ ...full, MDBASE_CONNECT_ENVIRONMENT: "production", PUBLIC_URL: "https://connect.mdbase.dev" })).toThrow();
   });
   it("a retired route has no deployments, while other routes are unchanged", async () => {
     const db = database([]);

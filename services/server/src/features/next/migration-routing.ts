@@ -11,10 +11,9 @@ import { apiError } from "../../platform/http-errors.js";
 import { bearerToken } from "../../platform/request-authentication.js";
 import { safeEqual } from "../../security.js";
 
-/** The single production switch. Production routing stays refused until it is
- * explicitly enabled here, together with the production migration Worker's
- * custody, backup and monitoring readiness. */
-export const PRODUCTION_MIGRATION_ROUTING_ENABLED = false;
+/** The single production switch. Production still routes only when its
+ * deployment carries the production migration Worker's own origin and tokens. */
+export const PRODUCTION_MIGRATION_ROUTING_ENABLED = true;
 
 // Each environment's canonical Connect origin and migration Worker name.
 const ENVIRONMENTS = {
