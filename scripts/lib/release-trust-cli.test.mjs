@@ -16,10 +16,10 @@ function invoke(script,args,env={}){return spawnSync(runner,[path.join(root,'scr
 for(const [environment,rootId,policyId] of [
  ['staging','ed034ffa359b2e6086fdb05fb6bab2de','6d730f62b69b214537485aa70016d116'],
  ['production','70a2bd532b5544dfb77617d4040ca6a2','c580fb092af10eb030605bd6e478e6f1'],
-]) test(`committed ${environment} asset has independent beta.134 context and real certified pins (offline, NOT publication authentication)`,()=>{
+]) test(`committed ${environment} asset has independent pinned-release context and real certified pins (offline, NOT publication authentication)`,()=>{
  const assetPath=path.join(root,`config/next-trust/${environment}.json`);
  const prepared=JSON.parse(readFileSync(assetPath));
- const commit='f45df4598a5bff891de68eec3431ec7744885067',version='0.1.0-beta.134';
+ const [commit,version]=environment==='staging'?['471c357a98d591a7f0807665d92a072d4cc897d0','0.1.0-beta.135']:['f45df4598a5bff891de68eec3431ec7744885067','0.1.0-beta.134'];
  const suffix=environment==='staging'?'-staging':'',cp=`https://connect${suffix}.mdbase.dev`,log=`https://log${suffix}.mdbase.dev`;
  assert.equal(prepared.environment,environment);
  assert.equal(prepared.control_plane_origin,cp);
