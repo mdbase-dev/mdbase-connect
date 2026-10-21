@@ -592,20 +592,28 @@ describePg("migration topology freeze (isolated real PostgreSQL; synthetic refer
     const upsert = vi.fn(async () => ({})), usage = vi.fn(async () => ({})), reconcile = vi.fn(async () => undefined);
     const provider = { upsertAccount: upsert, accountUsage: usage, reconcileCollectionAccount: reconcile } as unknown as HostedProviderClient;
     const mutation = { operationId: randomUUID(), actor: "operator:synthetic", reason: "Synthetic release reconciliation" };
-    const result = await reconcileActiveHostedEntitlements(db, provider, mutation);
-    expect(result.migration_frozen_accounts).toBeGreaterThanOrEqual(1);
-    expect(JSON.stringify(result)).not.toContain(frozen);
-    const accounts = upsert.mock.calls.map((call) => (call as unknown[])[0]);
-    expect(accounts).toContain(storage.get(open));
-    if (storage.has(frozen)) expect(accounts).not.toContain(storage.get(frozen));
-    const audited = (await db.query<{ user_id: string }>(
-      "SELECT user_id FROM audit_events WHERE event_type = 'entitlement.reconciled' AND metadata->>'operation_id' = $1", [mutation.operationId]
-    )).rows.map((row) => row.user_id);
-    expect(audited).toContain(open);
-    expect(audited).not.toContain(frozen);
-    const calls = upsert.mock.calls.length;
-    expect(await reconcileActiveHostedEntitlements(db, provider, mutation)).toEqual(result);
-    expect(upsert).toHaveBeenCalledTimes(calls);
+    // The batch selects every active hosted account in this shared schema; keep it to this case's two accounts.
+    const others = (await db.query<{ id: string }>(
+      "UPDATE users SET suspended_at = now() WHERE suspended_at IS NULL AND NOT (id = ANY($1::uuid[])) RETURNING id", [[frozen, open]]
+    )).rows.map((row) => row.id);
+    try {
+      const result = await reconcileActiveHostedEntitlements(db, provider, mutation);
+      expect(result).toMatchObject({ reconciled_accounts: 1, migration_frozen_accounts: 1 });
+      expect(JSON.stringify(result)).not.toContain(frozen);
+      const accounts = upsert.mock.calls.map((call) => (call as unknown[])[0]);
+      expect(accounts).toContain(storage.get(open));
+      if (storage.has(frozen)) expect(accounts).not.toContain(storage.get(frozen));
+      const audited = (await db.query<{ user_id: string }>(
+        "SELECT user_id FROM audit_events WHERE event_type = 'entitlement.reconciled' AND metadata->>'operation_id' = $1", [mutation.operationId]
+      )).rows.map((row) => row.user_id);
+      expect(audited).toContain(open);
+      expect(audited).not.toContain(frozen);
+      const calls = upsert.mock.calls.length;
+      expect(await reconcileActiveHostedEntitlements(db, provider, mutation)).toEqual(result);
+      expect(upsert).toHaveBeenCalledTimes(calls);
+    } finally {
+      await db.query("UPDATE users SET suspended_at = NULL WHERE id = ANY($1::uuid[])", [others]);
+    }
   });
 
   it("serializes two actual creates and a freeze before effects without a parent-lock upgrade deadlock", async () => {
