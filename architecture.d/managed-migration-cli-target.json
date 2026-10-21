@@ -1,6 +1,0 @@
-{
-  "reason": "Expose one pure fixed-Connect-origin admission helper so CLI pre-I/O validation and the existing target bootstrap share the same closed environment/identity check instead of duplicating it.",
-  "growth": {
-    "typeScriptExportDeclarations": 1
-  }
-}
