@@ -35,47 +35,75 @@ fn seal(key: &[u8; 32], plain: &[u8], aad: &[u8]) -> String {
         bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()
     )
 }
-#[test]
-fn real_cli_authenticates_metadata_and_recovers_original_bytes_not_fake_json() {
+const BODY: &[u8] = b"original SDK file body";
+/// Framed stdin for one synthetic collection: `environment` data, `local`
+/// legacy-only key custody (the provider default), wrapped with master `[9;32]`
+/// and unwrapped with `[master;32]`.
+fn wire(environment: &str, master: u8) -> Vec<u8> {
     use mdbn_legacy::hosted::aad;
     let (cid, fid, account) = (
         "11111111-1111-4111-8111-111111111111",
         "22222222-2222-4222-8222-222222222222",
         "33333333-3333-4333-8333-333333333333",
     );
-    let body = b"original SDK file body";
+    let body = BODY;
     let plain=serde_json::to_vec(&json!({"path":"private-metadata-path","content_digest":mdbn_legacy::revision_of(body),"media_type":null,"media_class":"other"})).unwrap();
     let current = json!({"file_id":fid,"sequence":"4","revision":"original-r","size":body.len(),"object_key":"original-opaque-key",
         "payload_ciphertext":seal(&[7;32],&plain,&aad::current_file(cid,fid,4))});
     let mut retained = current.clone();
     retained["payload_ciphertext"] = json!(seal(&[7; 32], &plain, &aad::file_version(cid, fid, 4)));
-    let header=serde_json::to_vec(&json!({"schema":"mdbase-scoped-native-recovery-input/1","environment":"lab","source_rows_sha256":"a".repeat(64),
-        "keys":{"environment":"local","legacy_master_key":base64::engine::general_purpose::STANDARD.encode([9;32]),"kms":[]},
+    let header=serde_json::to_vec(&json!({"schema":"mdbase-scoped-native-recovery-input/1","environment":environment,"source_rows_sha256":"a".repeat(64),
+        "keys":{"environment":"local","legacy_master_key":base64::engine::general_purpose::STANDARD.encode([master;32]),"kms":[]},
         "collections":[{"collection_id":cid,"account_id":account,"wrapped_data_key":seal(&[9;32],&[7;32],&aad::collection_key(cid)),"current":[current],"retained":[retained]}],
         "objects":[{"object_key":"original-opaque-key","size_bytes":body.len(),"sha256":&mdbn_legacy::revision_of(body)[7..]}]})).unwrap();
-    let wire = [
+    [
         &(header.len() as u32).to_be_bytes()[..],
         header.as_slice(),
-        body.as_slice(),
+        body,
     ]
-    .concat();
-    let output = run(&wire, &[]);
-    assert!(output.status.success());
-    assert!(output.stderr.is_empty());
-    let proof: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(proof["files"].as_array().unwrap().len(), 1);
-    assert_eq!(proof["files"][0]["current"], true);
-    assert_eq!(proof["files"][0]["retained"], true);
-    assert_eq!(
-        proof["files"][0]["plaintext"]["sha256"],
-        mdbn_legacy::revision_of(body)[7..]
-    );
-    assert!(!String::from_utf8_lossy(&output.stdout).contains("private-metadata-path"));
-    let mut corrupt = wire;
-    *corrupt.last_mut().unwrap() ^= 1;
-    let output = run(&corrupt, &[]);
-    assert!(!output.status.success());
+    .concat()
+}
+const REFUSED: &str = "native recovered-byte proof refused; no archive acceptance\n";
+fn assert_refused(output: &std::process::Output, code: i32) {
+    assert_eq!(output.status.code(), Some(code));
     assert!(output.stdout.is_empty());
+    assert_eq!(String::from_utf8_lossy(&output.stderr), REFUSED);
+}
+#[test]
+fn real_cli_authenticates_metadata_and_recovers_original_bytes_not_fake_json() {
+    // LAB, staging and production all admit legacy-only `local` key custody.
+    for environment in ["lab", "staging", "production"] {
+        let wire = wire(environment, 9);
+        let output = run(&wire, &[]);
+        assert!(output.status.success(), "{environment}");
+        assert!(output.stderr.is_empty());
+        let proof: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(proof["files"].as_array().unwrap().len(), 1);
+        assert_eq!(proof["files"][0]["current"], true);
+        assert_eq!(proof["files"][0]["retained"], true);
+        assert_eq!(
+            proof["files"][0]["plaintext"]["sha256"],
+            mdbn_legacy::revision_of(BODY)[7..]
+        );
+        assert!(!String::from_utf8_lossy(&output.stdout).contains("private-metadata-path"));
+        let mut corrupt = wire;
+        *corrupt.last_mut().unwrap() ^= 1;
+        assert_refused(&run(&corrupt, &[]), 4);
+    }
+}
+#[test]
+fn refusal_exit_code_names_the_stage_with_one_fixed_stderr_line() {
+    // 2: header / data environment / key custody environment.
+    assert_refused(&run(&wire("development", 9), &[]), 2);
+    // 3: key and metadata preflight (wrong legacy master key).
+    assert_refused(&run(&wire("staging", 8), &[]), 3);
+    // 4: original object proof (truncated body).
+    let mut truncated = wire("staging", 9);
+    truncated.pop();
+    assert_refused(&run(&truncated, &[]), 4);
+    // 1: invocation / framing.
+    assert_refused(&run(&wire("staging", 9), &["extra"]), 1);
+    assert_refused(&run(&[0, 0, 0], &[]), 1);
 }
 #[test]
 fn private_failure_values_never_appear_and_arguments_do_not_select_a_source() {

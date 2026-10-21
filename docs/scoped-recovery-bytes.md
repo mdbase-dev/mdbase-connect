@@ -30,9 +30,10 @@ this format; simply copying an opaque SHA without the native checks is invalid.
 ## Private framed stdin (no arguments)
 
 - Four-byte big-endian header length, then <=64MiB JSON.
-- Header schema `mdbase-scoped-native-recovery-input/1`: LAB/staging environment,
-  signed `source_rows_sha256`, sorted selected `collections`, protected `keys`,
-  and complete sorted `objects` (original key, size_bytes, sha256).
+- Header schema `mdbase-scoped-native-recovery-input/1`: `lab`, `staging` or
+  `production` data environment, signed `source_rows_sha256`, sorted selected
+  `collections`, protected `keys`, and complete sorted `objects` (original key,
+  size_bytes, sha256).
 - Each collection: account_id, collection_id, original PG-hex wrapped_data_key,
   current and retained rows (file_id, decimal-string sequence, original revision,
   size, original object_key, PG-hex payload_ciphertext). Each current version must
@@ -40,12 +41,41 @@ this format; simply copying an opaque SHA without the native checks is invalid.
 - Keys: original key environment, optional private base64 legacy_master_key,
   authenticated KMS replies (ciphertext_sha256, key_id, base64 plaintext, exact
   five-field context). No credential/network configuration is selected here.
+  The key environment must match the data environment:
+
+  | Data environment | Admitted key environment |
+  | --- | --- |
+  | `lab` | `lab` or `local` |
+  | `staging` | `staging`, or `local` with a legacy_master_key and NO KMS replies |
+  | `production` | `production`, or `local` with a legacy_master_key and NO KMS replies |
+
+  `local` for staging/production is the provider's default custody, which is
+  legacy-key only. `local` with any KMS reply, a missing legacy key, and every
+  cross-environment pairing (for example staging data with production keys)
+  refuse before any object read. Native unwrap still authenticates every
+  collection key, so admitting the environment never substitutes for a correct
+  key.
 - Concatenated original object bytes, exactly the declared sizes/order, then EOF.
   <=1GiB per object, <=100000 current and retained rows each, <=1000 collections.
 - Output ONLY `mdbase-scoped-recovery-inventory/1`: signed source-row hash plus
   ordered account/collection/file/revision/sequence/current/retained/logical-size/
   original-key/opaque-and-plaintext size/digest tuples. No metadata paths/keys or
   file contents. Errors are generic; private keys/buffers are wiped in native code.
+
+## Exit status
+
+Every refusal writes the same single fixed stderr line
+(`native recovered-byte proof refused; no archive acceptance`) and no stdout.
+Only the exit code names the refusing stage; callers must treat any non-zero
+status as refusal.
+
+| Code | Stage |
+| --- | --- |
+| 0 | Inventory written |
+| 1 | Invocation (arguments), stdin framing, or output I/O |
+| 2 | Header: bounds, JSON, schema, data environment or key environment |
+| 3 | Key preflight: key unwrap, metadata authentication/decode, reference closure |
+| 4 | Object proof: original object bytes, trailing input, inventory emission |
 
 No source re-fencing, original H6 timer reset, archive acceptance, signing or
 trust-root substitution occurs. Ops#921 must supply the SAME complete pipeline,

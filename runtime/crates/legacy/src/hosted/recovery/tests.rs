@@ -48,6 +48,49 @@ fn fixture() -> (Value, Vec<u8>) {
         [old.as_slice(), current.as_slice()].concat(),
     )
 }
+const KMS_KEY: &str = "arn:aws:kms:ap-southeast-2:445617516211:key/mrk-synthetic";
+const KMS_BLOB: &[u8] = b"synthetic AWS KMS blob";
+/// Replace the fixture's legacy custody with a KMS-enveloped collection key
+/// and its (test double) KMS reply bound to `environment`.
+fn use_kms_custody(value: &mut Value, environment: &str) {
+    let mut envelope = b"MDBK\x01\x01".to_vec();
+    envelope.extend((KMS_KEY.len() as u16).to_be_bytes());
+    envelope.extend((KMS_BLOB.len() as u32).to_be_bytes());
+    envelope.extend(KMS_KEY.as_bytes());
+    envelope.extend(KMS_BLOB);
+    value["keys"]["environment"] = json!(environment);
+    value["keys"]["legacy_master_key"] = Value::Null;
+    value["collections"][0]["wrapped_data_key"] = json!(pghex(&envelope));
+    value["keys"]["kms"] = json!([kms_reply(environment)]);
+}
+fn kms_reply(environment: &str) -> Value {
+    json!({"ciphertext_sha256":&crate::revision_of(KMS_BLOB)[7..],"key_id":KMS_KEY,
+        "plaintext":b64(&[7;32]),"context":super::super::kms_context(environment,CID)})
+}
+fn with_environments(value: &Value, data: &str, keys: &str) -> Value {
+    let mut value = value.clone();
+    value["environment"] = json!(data);
+    value["keys"]["environment"] = json!(keys);
+    value
+}
+fn accepted(value: &Value, body: &[u8]) -> bool {
+    recover_inventory_staged(
+        &serde_json::to_vec(value).unwrap(),
+        &mut Cursor::new(body.to_vec()),
+    )
+    .is_ok()
+}
+/// Refusal stage, asserting it happened before ANY object read.
+fn refused_stage(value: &Value) -> Stage {
+    let mut reader = CountReader {
+        bytes: Cursor::new(Vec::new()),
+        calls: 0,
+    };
+    let (stage, _) = recover_inventory_staged(&serde_json::to_vec(value).unwrap(), &mut reader)
+        .expect_err("must refuse");
+    assert_eq!(reader.calls, 0, "refusal must precede ANY object read");
+    stage
+}
 struct CountReader {
     bytes: Cursor<Vec<u8>>,
     calls: usize,
@@ -154,7 +197,7 @@ fn malformed_whole_scope_or_metadata_stops_before_blob_io() {
             "object-key" => value["objects"][0]["object_key"] = json!("foreign-original-key"),
             "native-digest" => value["objects"][0]["sha256"] = json!("f".repeat(64)),
             "unsafe-size" => value["collections"][0]["current"][0]["size"] = json!(1073741825u64),
-            "environment" => value["environment"] = json!("production"),
+            "environment" => value["environment"] = json!("development"),
             "wrong-master" => value["keys"]["legacy_master_key"] = json!(b64(&[8; 32])),
             "wrong-aad" => {
                 let ct = value["collections"][0]["current"][0]["payload_ciphertext"].clone();
@@ -213,18 +256,7 @@ fn complete_object_closure_before_reads_and_original_body_check() {
 fn kms_context_identity_and_native_authenticated_metadata_use_existing_unwrapper() {
     // KMS TRANSPORT is an I/O double; AES unwrap/decode and object proofs are real.
     let (mut value, body) = fixture();
-    let key_ref = "arn:aws:kms:ap-southeast-2:445617516211:key/mrk-synthetic";
-    let ciphertext = b"synthetic AWS KMS blob";
-    let mut envelope = b"MDBK\x01\x01".to_vec();
-    envelope.extend((key_ref.len() as u16).to_be_bytes());
-    envelope.extend((ciphertext.len() as u32).to_be_bytes());
-    envelope.extend(key_ref.as_bytes());
-    envelope.extend(ciphertext);
-    value["keys"]["environment"] = json!("lab");
-    value["keys"]["legacy_master_key"] = Value::Null;
-    value["collections"][0]["wrapped_data_key"] = json!(pghex(&envelope));
-    value["keys"]["kms"] = json!([{"ciphertext_sha256":&crate::revision_of(ciphertext)[7..],"key_id":key_ref,
-        "plaintext":b64(&[7;32]),"context":super::super::kms_context("lab",CID)}]);
+    use_kms_custody(&mut value, "lab");
     assert!(
         recover_inventory(&serde_json::to_vec(&value).unwrap(), &mut Cursor::new(body)).is_ok()
     );
@@ -286,4 +318,123 @@ fn original_int8_sequence_never_rounds_in_json_proof() {
         recover_inventory(&serde_json::to_vec(&value).unwrap(), &mut Cursor::new(body)).unwrap();
     let proof: Value = serde_json::from_slice(&proof).unwrap();
     assert_eq!(proof["files"][0]["sequence"], i64::MAX.to_string());
+}
+#[test]
+fn managed_environments_admit_legacy_only_default_local_custody() {
+    // Provider default custody: `local` key environment, legacy master key
+    // only, no KMS replies. Admitted for staging and production data.
+    let (original, body) = fixture();
+    for data in ["staging", "production"] {
+        let value = with_environments(&original, data, "local");
+        assert!(accepted(&value, &body), "{data} legacy-only local custody");
+        let result = recover_inventory(
+            &serde_json::to_vec(&value).unwrap(),
+            &mut Cursor::new(body.clone()),
+        )
+        .unwrap();
+        let result: Value = serde_json::from_slice(&result).unwrap();
+        assert_eq!(result["files"].as_array().unwrap().len(), 2);
+        // Same-environment keys (legacy and KMS) remain admitted.
+        assert!(accepted(&with_environments(&original, data, data), &body));
+        let mut kms = original.clone();
+        use_kms_custody(&mut kms, data);
+        kms["environment"] = json!(data);
+        assert!(accepted(&kms, &body), "{data} same-environment KMS custody");
+        // Legacy-only still means the legacy key must be RIGHT: native unwrap
+        // refuses a wrong master before any object read.
+        let mut wrong = value.clone();
+        wrong["keys"]["legacy_master_key"] = json!(b64(&[8; 32]));
+        assert_eq!(refused_stage(&wrong), Stage::KeyPreflight);
+    }
+}
+#[test]
+fn managed_local_custody_with_any_kms_reply_or_no_legacy_key_refuses() {
+    let (original, _) = fixture();
+    for data in ["staging", "production"] {
+        // Legacy key plus an (unused) local KMS reply.
+        let mut value = with_environments(&original, data, "local");
+        value["keys"]["kms"] = json!([kms_reply("local")]);
+        assert_eq!(refused_stage(&value), Stage::Header, "{data} local+KMS");
+        // KMS-only local custody whose reply would otherwise unwrap.
+        let mut kms = original.clone();
+        use_kms_custody(&mut kms, "local");
+        kms["environment"] = json!(data);
+        assert_eq!(refused_stage(&kms), Stage::Header, "{data} local KMS-only");
+        // Local with neither legacy key nor KMS is not legacy-only custody.
+        let mut none = with_environments(&original, data, "local");
+        none["keys"]["legacy_master_key"] = Value::Null;
+        assert_eq!(refused_stage(&none), Stage::Header, "{data} local no key");
+    }
+}
+#[test]
+fn cross_environment_key_custody_refuses() {
+    let (original, _) = fixture();
+    for (data, keys) in [
+        ("staging", "production"),
+        ("production", "staging"),
+        ("staging", "lab"),
+        ("production", "lab"),
+        ("lab", "staging"),
+        ("lab", "production"),
+        ("staging", ""),
+        ("production", "Production"),
+    ] {
+        let value = with_environments(&original, data, keys);
+        assert_eq!(
+            refused_stage(&value),
+            Stage::Header,
+            "{data} data, {keys} keys"
+        );
+    }
+    // Cross-environment KMS custody with a reply bound to the key environment.
+    for (data, keys) in [("staging", "production"), ("production", "staging")] {
+        let mut kms = original.clone();
+        use_kms_custody(&mut kms, keys);
+        kms["environment"] = json!(data);
+        assert_eq!(
+            refused_stage(&kms),
+            Stage::Header,
+            "{data} data, {keys} KMS"
+        );
+    }
+    for data in ["", "prod", "Staging", "local", "development"] {
+        let value = with_environments(&original, data, "local");
+        assert_eq!(refused_stage(&value), Stage::Header, "{data:?} data");
+    }
+}
+#[test]
+fn lab_key_custody_rule_is_unchanged() {
+    let (original, body) = fixture();
+    assert!(accepted(
+        &with_environments(&original, "lab", "local"),
+        &body
+    ));
+    assert!(accepted(&with_environments(&original, "lab", "lab"), &body));
+    // LAB keeps admitting `local` keys alongside KMS replies, as before.
+    let mut value = with_environments(&original, "lab", "local");
+    value["keys"]["kms"] = json!([kms_reply("local")]);
+    assert!(accepted(&value, &body));
+    let mut kms = original.clone();
+    use_kms_custody(&mut kms, "local");
+    assert!(accepted(&kms, &body));
+}
+#[test]
+fn refusal_stage_distinguishes_header_key_preflight_and_object_proof() {
+    let (original, body) = fixture();
+    assert_eq!(refused_stage(&json!({"schema":"unknown"})), Stage::Header);
+    let mut wrong = original.clone();
+    wrong["keys"]["legacy_master_key"] = json!(b64(&[8; 32]));
+    assert_eq!(refused_stage(&wrong), Stage::KeyPreflight);
+    let mut tampered = body.clone();
+    tampered[0] ^= 1;
+    let (stage, _) = recover_inventory_staged(
+        &serde_json::to_vec(&original).unwrap(),
+        &mut Cursor::new(tampered),
+    )
+    .unwrap_err();
+    assert_eq!(stage, Stage::ObjectProof);
+    assert_eq!(
+        [Stage::Header, Stage::KeyPreflight, Stage::ObjectProof].map(Stage::exit_code),
+        [2, 3, 4]
+    );
 }
