@@ -46,6 +46,6 @@
     "playwright-core": "^1.61.1",
     "sigstore": "4.1.1",
     "typescript": "^7.0.2",
-    "vite": "^8.1.5"
+    "vite": "^8.1.6"
   }
 }
