@@ -115,8 +115,10 @@ async function refuseQueuedCutover(db: DatabaseQueryable, collection: string) {
 }
 
 /** Session advisory lock on a dedicated connection with no open transaction:
- * never waits (busy instead), always released before the connection returns. */
-async function serialized<T>(db: DatabasePool, collection: string, run: () => Promise<T>): Promise<T> {
+ * never waits (busy instead), always released before the connection returns.
+ * Also taken by the pre-archive unfence (migration-prearchive.ts), so it never
+ * interleaves with this file's unfence, rollback or revocations. */
+export async function serialized<T>(db: DatabasePool, collection: string, run: () => Promise<T>): Promise<T> {
   const connection: DatabaseConnection = await db.connect();
   let locked = false, broken = false;
   try {

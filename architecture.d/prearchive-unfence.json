@@ -1,0 +1,7 @@
+{
+  "reason": "The pre-archive unfence must take the exact session advisory lock the started-claim unfence, rollback and revocations use, so the existing lock helper is exported and imported once instead of duplicating its lock class and release rules.",
+  "growth": {
+    "relativeImports": 1,
+    "typeScriptExportDeclarations": 1
+  }
+}
