@@ -16,7 +16,6 @@ import {
   InstanceAdminConflictError,
   type OperatorMutation
 } from "./instance-admin.js";
-import { RequestValidationError } from "./platform/http-errors.js";
 
 export async function inspectAccountEntitlements(
   db: DatabasePool,
@@ -148,7 +147,7 @@ export async function reconcileActiveHostedEntitlements(
         // A migrating or migrated account's hosted topology is frozen for good
         // (the freeze is never cleared). Its limits are not reconciled here,
         // and it must not fail the batch: every later release would fail too.
-        if (!(error instanceof RequestValidationError && error.code === "migration_frozen")) throw error;
+        if (!isMigrationFrozen(error)) throw error;
         state = await skipMigrationFrozenAccount(connection, mutation, state, userId);
         continue;
       }
@@ -355,6 +354,13 @@ function isOutput(
     && (candidate.migration_frozen_accounts === undefined
       || nonNegativeInteger(candidate.migration_frozen_accounts))
   );
+}
+
+/** The topology guard's refusal (`RequestValidationError`, code
+ * `migration_frozen`, 409), matched by shape. */
+function isMigrationFrozen(error: unknown): boolean {
+  const candidate = error as { code?: unknown; statusCode?: unknown } | null;
+  return error instanceof Error && candidate?.code === "migration_frozen" && candidate.statusCode === 409;
 }
 
 function stringArray(value: unknown): value is string[] {
