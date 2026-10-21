@@ -13,6 +13,12 @@
 // migrating it. One such collection is enough: the account cannot finish its
 // upgrade until that collection is migrated again.
 //
+// The pre-archive fence and unfence (`next_migration.prearchive_*`,
+// migration-prearchive.ts) are deliberately not steps here: they only touch
+// accounts that never started. Counting a pre-archive unfence would tell an
+// account started after a failed archive that its upgrade was postponed before
+// its first started fence.
+//
 // Never authority: no migration route reads this.
 import type { DatabaseQueryable } from "../../database-types.js";
 
