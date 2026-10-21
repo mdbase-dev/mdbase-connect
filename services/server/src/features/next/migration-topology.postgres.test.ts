@@ -15,6 +15,7 @@ import { audit } from "../../platform/audit-events.js";
 import { ProviderRevocationWorker, quarantineMissingHostedCollection, quarantineMissingHostedCollectionOnTransaction } from "../../hosted-capability-lifecycle.js";
 import { HostedProviderClient, HostedProviderResponseError, HostedProviderUnavailableError } from "../../hosted-provider.js";
 import { materializePublicSignupEntitlement, reconcileHostedAccountCollections } from "../../entitlements.js";
+import { reconcileActiveHostedEntitlements } from "../../auth-admin-entitlements.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -576,6 +577,35 @@ describePg("migration topology freeze (isolated real PostgreSQL; synthetic refer
     expect(await run()).toMatchObject({ reconciledCollections: 0 });
     expect(reconcile).toHaveBeenCalledOnce();
     expect((await db.query("SELECT quarantined_at FROM hosted_collections WHERE id=$1", [collection.id])).rows[0].quarantined_at).not.toBeNull();
+  });
+
+  it("skips migration-frozen accounts in the active-hosted entitlement batch instead of failing it", async () => {
+    const frozen = await user(), open = await user(), name = await batch([frozen]), reference = new HostedAuthorityRegistry(db);
+    for (const account of [frozen, open]) {
+      await createHostedCollectionForUser({ db, hostedCollections: true }, reference, "https://synthetic.example.test", account, "Synthetic", "mdbase", "UTC");
+      await materializePublicSignupEntitlement(db, account);
+    }
+    await setCohortFrozen(db, name, true, "capture", OP);
+    const storage = new Map((await db.query<{ user_id: string; provider_account_id: string }>(
+      "SELECT user_id, provider_account_id FROM account_storage_accounts WHERE user_id = ANY($1::uuid[])", [[frozen, open]]
+    )).rows.map((row) => [row.user_id, row.provider_account_id]));
+    const upsert = vi.fn(async () => ({})), usage = vi.fn(async () => ({})), reconcile = vi.fn(async () => undefined);
+    const provider = { upsertAccount: upsert, accountUsage: usage, reconcileCollectionAccount: reconcile } as unknown as HostedProviderClient;
+    const mutation = { operationId: randomUUID(), actor: "operator:synthetic", reason: "Synthetic release reconciliation" };
+    const result = await reconcileActiveHostedEntitlements(db, provider, mutation);
+    expect(result.migration_frozen_accounts).toBeGreaterThanOrEqual(1);
+    expect(JSON.stringify(result)).not.toContain(frozen);
+    const accounts = upsert.mock.calls.map((call) => (call as unknown[])[0]);
+    expect(accounts).toContain(storage.get(open));
+    if (storage.has(frozen)) expect(accounts).not.toContain(storage.get(frozen));
+    const audited = (await db.query<{ user_id: string }>(
+      "SELECT user_id FROM audit_events WHERE event_type = 'entitlement.reconciled' AND metadata->>'operation_id' = $1", [mutation.operationId]
+    )).rows.map((row) => row.user_id);
+    expect(audited).toContain(open);
+    expect(audited).not.toContain(frozen);
+    const calls = upsert.mock.calls.length;
+    expect(await reconcileActiveHostedEntitlements(db, provider, mutation)).toEqual(result);
+    expect(upsert).toHaveBeenCalledTimes(calls);
   });
 
   it("serializes two actual creates and a freeze before effects without a parent-lock upgrade deadlock", async () => {

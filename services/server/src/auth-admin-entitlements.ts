@@ -16,6 +16,7 @@ import {
   InstanceAdminConflictError,
   type OperatorMutation
 } from "./instance-admin.js";
+import { RequestValidationError } from "./platform/http-errors.js";
 
 export async function inspectAccountEntitlements(
   db: DatabasePool,
@@ -68,12 +69,16 @@ interface ActiveHostedReconciliationOutput {
   hosted_collections: number;
   reconciled_collections: number;
   users_inspected: number;
+  /** Selected accounts skipped because a migration froze their topology. */
+  migration_frozen_accounts: number;
 }
 
 interface ActiveHostedReconciliationState {
   state: "running";
   selected_user_ids: string[];
   completed_user_ids: string[];
+  /** Absent in states recorded before migration-frozen accounts were skipped. */
+  migration_frozen_user_ids?: string[];
   hosted_collections: number;
   reconciled_collections: number;
   users_inspected: number;
@@ -126,16 +131,27 @@ export async function reconcileActiveHostedEntitlements(
 
     for (const userId of state.selected_user_ids) {
       if (state.completed_user_ids.includes(userId)) continue;
-      const reconciled = await reconcileHostedAccountCollections(
-        db,
-        provider,
-        userId,
-        {
-          onMissingCollection: async (collectionId, client) => {
-            await quarantineMissingHostedCollectionOnTransaction(client, collectionId);
+      if (state.migration_frozen_user_ids?.includes(userId)) continue;
+      let reconciled;
+      try {
+        reconciled = await reconcileHostedAccountCollections(
+          db,
+          provider,
+          userId,
+          {
+            onMissingCollection: async (collectionId, client) => {
+              await quarantineMissingHostedCollectionOnTransaction(client, collectionId);
+            }
           }
-        }
-      );
+        );
+      } catch (error) {
+        // A migrating or migrated account's hosted topology is frozen for good
+        // (the freeze is never cleared). Its limits are not reconciled here,
+        // and it must not fail the batch: every later release would fail too.
+        if (!(error instanceof RequestValidationError && error.code === "migration_frozen")) throw error;
+        state = await skipMigrationFrozenAccount(connection, mutation, state, userId);
+        continue;
+      }
       state = await completeAccount(
         connection,
         mutation,
@@ -152,7 +168,8 @@ export async function reconcileActiveHostedEntitlements(
       reconciled_accounts: state.completed_user_ids.length,
       hosted_collections: state.hosted_collections,
       reconciled_collections: state.reconciled_collections,
-      users_inspected: state.users_inspected
+      users_inspected: state.users_inspected,
+      migration_frozen_accounts: state.migration_frozen_user_ids?.length ?? 0
     };
     await connection.query(
       `UPDATE operator_operations SET result = $2::jsonb
@@ -255,6 +272,24 @@ async function completeAccount(
   }
 }
 
+async function skipMigrationFrozenAccount(
+  connection: DatabaseConnection,
+  mutation: OperatorMutation,
+  state: ActiveHostedReconciliationState,
+  userId: string
+): Promise<ActiveHostedReconciliationState> {
+  const next: ActiveHostedReconciliationState = {
+    ...state,
+    migration_frozen_user_ids: [...(state.migration_frozen_user_ids ?? []), userId]
+  };
+  await connection.query(
+    `UPDATE operator_operations SET result = $2::jsonb
+     WHERE operation_id = $1`,
+    [mutation.operationId, JSON.stringify(next)]
+  );
+  return next;
+}
+
 function assertOperation(
   stored: StoredOperatorOperation,
   mutation: OperatorMutation
@@ -285,6 +320,14 @@ function runningState(value: unknown): ActiveHostedReconciliationState {
     || candidate.completed_user_ids.some(
       (userId) => !candidate.selected_user_ids!.includes(userId)
     )
+    || (candidate.migration_frozen_user_ids !== undefined && (
+      !stringArray(candidate.migration_frozen_user_ids)
+      || new Set(candidate.migration_frozen_user_ids).size !== candidate.migration_frozen_user_ids.length
+      || candidate.migration_frozen_user_ids.some(
+        (userId) => !candidate.selected_user_ids!.includes(userId)
+          || candidate.completed_user_ids!.includes(userId)
+      )
+    ))
     || !nonNegativeInteger(candidate.hosted_collections)
     || !nonNegativeInteger(candidate.reconciled_collections)
     || !nonNegativeInteger(candidate.users_inspected)
@@ -308,6 +351,9 @@ function isOutput(
     && nonNegativeInteger(candidate.hosted_collections)
     && nonNegativeInteger(candidate.reconciled_collections)
     && nonNegativeInteger(candidate.users_inspected)
+    // Outputs recorded before migration-frozen accounts were skipped lack it.
+    && (candidate.migration_frozen_accounts === undefined
+      || nonNegativeInteger(candidate.migration_frozen_accounts))
   );
 }
 
