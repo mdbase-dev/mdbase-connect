@@ -713,7 +713,8 @@ describe("authentication operator command", () => {
       reconciled_accounts: 2,
       hosted_collections: 3,
       reconciled_collections: 2,
-      users_inspected: 4
+      users_inspected: 4,
+      migration_frozen_accounts: 0
     });
     expect(JSON.stringify(result)).not.toContain(activeA);
     expect(JSON.stringify(result)).not.toContain(activeB);
