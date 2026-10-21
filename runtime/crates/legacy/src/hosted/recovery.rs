@@ -228,23 +228,92 @@ struct Prepared {
 /// Only the supplied byte stream is read; there is no source lookup, restore,
 /// database/path/network selector or admission side effect.
 pub fn recover_inventory(header: &[u8], reader: &mut impl Read) -> Result<Vec<u8>> {
+    recover_inventory_staged(header, reader).map_err(|(_, error)| error)
+}
+
+/// The stage at which [`recover_inventory_staged`] refused. Carries no private
+/// value; the binary maps it to a small fixed exit code only.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stage {
+    /// Header bounds/JSON/schema, data environment or key custody environment.
+    Header,
+    /// Legacy key/KMS unwrap, metadata authentication/decode or reference
+    /// closure, before any object read.
+    KeyPreflight,
+    /// Original object bytes, trailing input or inventory emission.
+    ObjectProof,
+}
+
+impl Stage {
+    /// Fixed process exit code for this refusal stage (1 is reserved for
+    /// invocation/framing/output I/O in the binary).
+    pub fn exit_code(self) -> u8 {
+        match self {
+            Stage::Header => 2,
+            Stage::KeyPreflight => 3,
+            Stage::ObjectProof => 4,
+        }
+    }
+}
+
+/// [`recover_inventory`], also reporting the refusal [`Stage`].
+pub fn recover_inventory_staged(
+    header: &[u8],
+    reader: &mut impl Read,
+) -> std::result::Result<Vec<u8>, (Stage, HostedError)> {
+    let input = admit_header(header).map_err(|error| (Stage::Header, error))?;
+    let closure = preflight(&input).map_err(|error| (Stage::KeyPreflight, error))?;
+    prove_objects(input, closure, reader).map_err(|error| (Stage::ObjectProof, error))
+}
+
+/// Header stage: bounded JSON, schema, admitted data environment and key
+/// custody environment, and collection/object/KMS-reply count bounds.
+fn admit_header(header: &[u8]) -> Result<Input> {
     require(header.len() <= MAX_HEADER)?;
     let input: Input = serde_json::from_slice(header).map_err(|_| bad())?;
     require(
         input.schema == "mdbase-scoped-native-recovery-input/1"
-            && ["lab", "staging"].contains(&input.environment.as_str())
+            && ["lab", "staging", "production"].contains(&input.environment.as_str())
             && hex(&input.source_rows_sha256, 64),
     )?;
-    require(
-        (input.environment == "lab" && ["lab", "local"].contains(&input.keys.environment.as_str()))
-            || (input.environment == "staging" && input.keys.environment == "staging"),
-    )?;
+    require(key_environment_admitted(&input.environment, &input.keys))?;
     require(
         !input.collections.is_empty()
             && input.collections.len() <= 1000
             && input.objects.len() <= MAX_ROWS
             && input.keys.kms.len() <= 1000,
     )?;
+    Ok(input)
+}
+
+/// Original key custody environment admitted for a data environment.
+///
+/// LAB accepts `lab` or `local` keys. Managed staging/production accept keys
+/// recorded for the SAME environment, or the provider's default `local`
+/// custody only when it is legacy-only: a legacy master key and NO KMS replies.
+/// `local` with any KMS reply and every cross-environment pairing refuse.
+fn key_environment_admitted(environment: &str, keys: &Keys) -> bool {
+    match environment {
+        "lab" => ["lab", "local"].contains(&keys.environment.as_str()),
+        "staging" | "production" => {
+            keys.environment == environment
+                || (keys.environment == "local"
+                    && keys.kms.is_empty()
+                    && keys.legacy_master_key.is_some())
+        }
+        _ => false,
+    }
+}
+
+type Closure = (
+    BTreeMap<(String, String, u64), Prepared>,
+    BTreeMap<String, Vec<(String, String, u64)>>,
+);
+
+/// Key preflight stage: unwrap every selected collection key, authenticate and
+/// decode ALL current+retained metadata, and prove the complete object
+/// reference closure, all before the first object read.
+fn preflight(input: &Input) -> Result<Closure> {
     let legacy = input
         .keys
         .legacy_master_key
@@ -394,8 +463,18 @@ pub fn recover_inventory(header: &[u8], reader: &mut impl Read) -> Result<Vec<u8
                 && format!("sha256:{}", object.sha256) == *digest,
         )?;
     }
+    Ok((prepared, by_object))
+}
+
+/// Object proof stage: read and verify each original object, reject trailing
+/// bytes, and emit the inventory.
+fn prove_objects(
+    input: Input,
+    (mut prepared, by_object): Closure,
+    reader: &mut impl Read,
+) -> Result<Vec<u8>> {
     // All decrypts, owners, original keys and opaque/native digest agreement
-    // above precede the FIRST recovered object read.
+    // in `preflight` precede the FIRST recovered object read.
     for object in &input.objects {
         let length = usize::try_from(object.size_bytes).map_err(|_| bad())?;
         let mut body = Zeroizing::new(Vec::new());
