@@ -77,8 +77,11 @@ This monorepo is the sole source and publisher for the editor. The retired
 standalone `mdbase-dev/mdbase-editor` repository must remain archived and must
 never publish to the shared Cloudflare Pages project.
 
-The same workflow publishes a permanent staging build at
-`https://editor-staging.mdbase.dev/`. It uses the `staging` Pages branch,
+`https://editor-staging.mdbase.dev/` serves the native Editor, published from
+`release/native-staging` (see `apps/editor/NATIVE_PUBLISHER.md` on that branch).
+Main pushes do not deploy staging. An explicit `target: staging` dispatch of this
+workflow from main still publishes the legacy-SDK build there and replaces the
+native one, so use it only to deliberately roll staging back. That build uses the `staging` Pages branch,
 generates a manifest for the staging editor origin, and targets the same-site
 `https://connect-staging.mdbase.dev` control-plane origin. The Pages API attaches the
 custom domain idempotently; Cloudflare DNS must proxy
