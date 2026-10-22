@@ -1,0 +1,167 @@
+name: Consumer SDK canary
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'packages/client/**'
+      - 'scripts/ci/consumer-canary.mjs'
+      - 'scripts/ci/verify-consumer-canary'
+      - 'scripts/lib/consumer-canary*.test.mjs'
+      - '.github/workflows/consumer-canary.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: consumer-canary-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      commit: ${{ steps.identity.outputs.commit }}
+      qualification_run_id: ${{ steps.qualification.outputs.run_id }}
+      artifact_run_id: ${{ steps.qualification.outputs.artifact_run_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: identity
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Require full exact qualification for release evidence
+        if: github.event_name == 'workflow_dispatch'
+        id: qualification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/ci/verify-qualified-commit "$GITHUB_SHA"
+      - name: Download the tarballs that npm publication will use
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: qualified-npm-packages
+          path: ${{ runner.temp }}/npm-packages
+          run-id: ${{ steps.qualification.outputs.artifact_run_id }}
+          github-token: ${{ github.token }}
+      - if: github.event_name == 'pull_request'
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - if: github.event_name == 'pull_request'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Pack advisory PR candidate (not release qualification)
+        if: github.event_name == 'pull_request'
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build:packages
+          mkdir -p "$RUNNER_TEMP/npm-packages"
+          while IFS=$'\t' read -r package_name package_dir; do
+            pnpm --dir "$package_dir" pack --pack-destination "$RUNNER_TEMP/npm-packages"
+          done < <(node scripts/public-packages.mjs)
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: consumer-canary-candidate
+          path: ${{ runner.temp }}/npm-packages/*.tgz
+          if-no-files-found: error
+          retention-days: 30
+
+  smoke:
+    name: Canary / ${{ matrix.consumer }}
+    needs: candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - consumer: tasknotes
+            repository: callumalpass/tasknotes-app
+            app: .
+          - consumer: writer
+            repository: mdbase-dev/mdbase-writer
+            app: apps/writer
+          - consumer: reader
+            repository: mdbase-dev/mdbase-reader
+            app: apps/reader
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: sdk
+          persist-credentials: false
+      # These are public repositories. No cross-org credential or dispatch receiver is needed.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ matrix.repository }}
+          ref: main
+          path: consumer
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: consumer-canary-candidate
+          path: ${{ runner.temp }}/npm-packages
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 10.7.0
+          package_json_file: consumer/package.json
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Install browser OS dependencies
+        working-directory: consumer
+        run: pnpm dlx playwright@1.61.1 install-deps chromium
+      - name: Run consumer-owned suite with unpatched candidate packages
+        env:
+          CANARY_REPORT: ${{ runner.temp }}/consumer-canary.json
+        run: |
+          node sdk/scripts/ci/consumer-canary.mjs \
+            '${{ matrix.consumer }}' consumer "$RUNNER_TEMP/npm-packages"
+      - name: Record exact release evidence
+        env:
+          CANDIDATE_COMMIT: ${{ needs.candidate.outputs.commit }}
+          QUALIFICATION_RUN_ID: ${{ needs.candidate.outputs.qualification_run_id }}
+          ARTIFACT_RUN_ID: ${{ needs.candidate.outputs.artifact_run_id }}
+          REPORT: ${{ runner.temp }}/consumer-canary.json
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const report = JSON.parse(readFileSync(process.env.REPORT));
+          Object.assign(report, {
+            candidate_commit: process.env.CANDIDATE_COMMIT,
+            qualification_run_id: process.env.QUALIFICATION_RUN_ID,
+            artifact_run_id: process.env.ARTIFACT_RUN_ID,
+            event: process.env.GITHUB_EVENT_NAME,
+            run_id: process.env.GITHUB_RUN_ID,
+            run_attempt: process.env.GITHUB_RUN_ATTEMPT,
+          });
+          writeFileSync(process.env.REPORT, JSON.stringify(report, null, 2) + '\n');
+          NODE
+          cat "$REPORT" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: consumer-canary-${{ matrix.consumer }}
+          path: |
+            ${{ runner.temp }}/consumer-canary.json
+            consumer/playwright-report/
+            consumer/test-results/
+            consumer/${{ matrix.app }}/out/
+          if-no-files-found: warn
+          retention-days: 30
+
+  gate:
+    name: Consumer canary gate
+    needs: [candidate, smoke]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require every suite (PR result is advisory, never release evidence)
+        env:
+          CANDIDATE_RESULT: ${{ needs.candidate.result }}
+          SMOKE_RESULT: ${{ needs.smoke.result }}
+        run: test "$CANDIDATE_RESULT" = success && test "$SMOKE_RESULT" = success
