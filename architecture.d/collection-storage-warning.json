@@ -1,8 +1,0 @@
-{
-  "reason": "One shared presentation-only storage-warning component and hook read the SDK snapshot and its error copy. The gate supplies a context so every app can place this warning beside its own existing save status without copying storage policy or subscribing through app-specific adapters. The five export declarations are the context/hook/component implementation and the component/hook re-exports from the shared collections entry. No new transport or storage implementation.",
-  "growth": {
-    "productionFiles": 1,
-    "typeScriptExportDeclarations": 5,
-    "packages/app-ui": 1
-  }
-}

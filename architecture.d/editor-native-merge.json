@@ -1,7 +1,0 @@
-{
-  "reason": "Merging release/native-staging makes the native-SDK Editor main's Editor. Its existing native declarations covered growth measured against the native line, where removing the retired /connect console offset the new files; main had already moved that console to apps/portal (#808), so the offset is gone and the line's net Editor growth now shows against main. The remaining files are the already-reviewed native Editor modules (SDK root, native gateway, note observation, records, Private collections, file download, read-only Markdown, shared collection binding), the immutable native publisher scripts under apps/editor/scripts/native and the bundle-asset reporter. No new route, authentication handler, poller, SQL, persistent journal, workspace package or SDK/protocol surface is added by the merge itself.",
-  "growth": {
-    "productionFiles": 2,
-    "apps/editor": 14
-  }
-}
