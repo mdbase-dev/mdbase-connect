@@ -1,6 +1,0 @@
-{
-  "reason": "verifyPublication moves the native Editor's two-origin verification out of the hosting.mjs CLI block into one exported function, so the alias settle window can be unit-tested with an injected verifier and clock. It adds no route, network surface or credential use; the CLI calls it with the same inputs as before.",
-  "growth": {
-    "typeScriptExportDeclarations": 1
-  }
-}

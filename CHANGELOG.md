@@ -4,6 +4,99 @@
 
 <!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
 
+## 0.1.0-beta.140
+
+### Added
+
+- `@mdbase-dev/ui/collections`: `CollectionGate` and `CollectionPanel` start the SDK front door themselves (`autoStart`, default true, safe with several gates). `extraActions` now appears on every gate screen (beside Sign in when signed out, in the footer otherwise) and can be a function of the screen. App-provided `sections` list collections the SDK doesn't, on the gate's choosing and signed-out screens and in the switcher, and `renderAppCollection` shows one while it's open, with a way back to the list. The switcher takes a leading `icon` (or `"mark"`), rows take an app `rowDetail` line, and `DeleteCollectionDialog`'s `onClose` reports `deleted`, `cancelled` or `failed`. `@mdbase-dev/ui/collections/testing` exports `shareTestDocument()` for Node test setups.
+- `collections.css` falls back to built-in values for every design token, so it renders without `tokens.css`, and every value is customisable through a `--mdbase-collections-*` property. The current-row highlight no longer turns pink on grey surfaces written as `oklch(L 0 0)`.
+
+- `@mdbase-dev/ui/collections` and `@mdbase-dev/ui/collections.css`: shared collection UI for apps built on the SDK front door, covering the collection switcher, adding a collection, the gate and blocked screens, sign-out and Manage access. It includes a headless `collectionView`, React components and `mountCollectionUi()` for hosts that don't use React. Problems appear with their fix inside them, collection names wrap instead of truncating, popup calls run inside the click, and the layout works by keyboard and at phone width. The SDK is an optional peer dependency.
+
+- `@mdbase-dev/ui/collections`: rows for a Private collection (the SDK entry's
+  `kind: "private"`) show a "Private" label with a lock, in the switcher, its
+  header and the chooser. The word is part of the row's accessible name.
+
+- `@mdbase-dev/ui/collections`: app section items take `actions`, shown in the same row menu as SDK collections, with danger styling for destructive ones. An action's `confirmDelete(onClose?)` opens `DeleteCollectionDialog` for the item, so an app can offer "Delete collection…" on its own collections with the usual typed-name confirmation. Closing a row dialog opened from the switcher returns focus to the switcher.
+
+- Shared collection choosers offer Add a Private collection through the SDK.
+- Apps can show SDK storage eviction warnings beside their save status; unsupported-browser and unavailable-storage screens retain SDK problem copy.
+
+- Add a source-only native SDK record-operation adapter for the editor integration lane. It requires complete, revision-consistent mutation bases and confirmed, unprotected readback, and preserves exact recovery identities after ambiguous SDK failures. The existing Connect gateway remains active pending shared sign-in and collection integration.
+
+### Changed
+
+- The Editor now registers its offline-app service worker after it first becomes usable, instead of from the page head, so a first visit no longer installs and precaches the whole app while the collection is opening. The large-collection loading budget again measures a real first visit.
+
+- The Editor now uses the public SDK application entry for sign-in, requested collection approval, reauthorization and collection selection. It keeps the bundled registration declaration unchanged and opens the editor only for the SDK's usable, current, ready collection. Demo and Connect-management routes are preserved.
+
+- The native-SDK Editor from `release/native-staging` is now main's Editor. It publishes only through the native dispatch path on `release/native-<target>`; the legacy main and version-tag Pages jobs and their `verify-editor-publication` guard are removed, so no main push or tag dispatch publishes the Editor.
+- Old Editor `/connect` links and the **Open Connect** command open the Connect portal for the build's environment (staging builds use `connect-staging.mdbase.dev`).
+
+- Give the editor's existing connection screen owner-supplied native SDK sign-in actions, automatic approval status, popup completion cleanup, and explicit blocked-window recovery. Native collection opening still requires qualified composition inputs; the default gateway is unchanged.
+- Pin the release-qualified SDK archive containing the shared native collection factory and provider-receipt helpers, including both Docker dependency-install contexts.
+
+- Prepare the native Editor staging path with the original cancellation-fixed staging SDK and canonical protocol, exact staging entry/installation origins, verified read-only file previews, and a manual branch-preserving immutable publisher. Keep private collection selection and Native lifecycle SDK-owned. Static source/build checks do not imply live acceptance or production authorization.
+
+- Serve a not-found page with status 404 for unknown Editor paths instead of the app shell. Old `/connect` links still open the editor.
+
+- Editor no longer shows Connected while offline. The collection status says "Offline" while the collection can't be reached, and "Saved on this device; waiting for sync" while changes are kept on this device until they sync; the note's save status says the same.
+
+- Pin the editor to the original ad69a506 SDK dev archive with its original connect-protocol dependency archive, installed as ordinary file dependencies in both Docker dependency-install contexts. The archive is a dev intake, not release-qualified.
+- Port the editor's SDK mode onto the public `MdbaseApplicationEntry`: `SdkEditorRoot` forwards SDK lifecycle, selection, setup, readiness and connection currentness, and opens the existing editor over a native gateway using the borrowed connection's records, files and people clients. The app-owned native sign-in binding and popup are removed; the Connect gateway remains the production default.
+
+- Pin the editor's original release-qualified SDK837 archive, including shared host/caller lifetime composition and optional bounded SDK832 diagnostics. Keep native collection opening disabled until the editor's own composition is qualified; update both Docker dependency-install archive paths.
+
+- Pin the editor and shared collection UI to the unified sign-in SDK. Native callbacks defer closing the original popup to the SDK until completion and custody acknowledgement.
+
+- Admit production migration routing. Production routes migrated owners only when its own deployment is configured with the production migration Worker origin and distinct tokens; LAB and staging are unchanged and local deployments stay refused.
+
+- Prepare the source-bound beta.139 staging trust asset with the existing independent staging roots and certified policy keys; authenticated publication and deployment remain separate gates.
+
+### Fixed
+
+- `@mdbase-dev/ui/collections`: long collection names wrap in switcher rows even
+  when the host app styles `button > span` to one ellipsized line, and the
+  switcher trigger shows up to two lines of the name before cutting it short. The
+  full name stays in the trigger's accessible name and title.
+
+- `@mdbase-dev/ui/collections`: the setup review plans again by itself, with
+  backoff, while the SDK reports a transient refusal (for example another tab
+  finishing setup), instead of stopping at "Try again".
+
+- Cache the Editor app shell and lazy assets for offline reloads through the shared SDK build hook.
+- Do not offer recovery for edits already in the note; explain why editing is paused when a genuinely unsaved recovery copy needs a decision.
+- Preserve another tab's unsaved recovery copy when a saved note is acknowledged.
+
+- Editor now uses local date-time and date-only pickers for schema-declared date/date-time unions, including task schedules and deadlines.
+- Properties omits unavailable filesystem size and modification facts instead of showing Unknown. Frontmatter dates remain separate from file metadata.
+
+- Load readable names for generated-filename notes in the notes list without needing to open them first. Meaningful filenames and declared name fields keep the lightweight metadata-only path.
+
+- Editor's Linked from panel now finds links and embeds in native collection notes after content indexing, using the same Markdown parser and target resolution as forward navigation.
+
+- Editor's All notes badge now follows the complete live note index after additions, deletions and pending changes, including notes in Journal folders, while keeping pagination totals during loading.
+
+- Native Editor publication now re-verifies the custom domain for up to five minutes after the immutable deployment passes, so a Pages alias that briefly keeps serving the previous deployment no longer fails an otherwise good publish. Failures on the immutable deployment remain terminal.
+
+- Use the SDK's native file grant for Editor attachment permissions, failing closed when the grant is unknown or lacks add permission.
+- Upload through the original SDK file API and report success only after the original receipt and file readback match; keep the original mutation ID on uncertain or retired-scope outcomes.
+
+- Prepare the native Editor LAB entry with the producer-qualified SDK 0fabaf20 and native runtime a350db1c, replacing its previous SDK archive. LAB builds now generate the canonical Editor LAB declaration rather than the production declaration. This candidate is not deployed or live-qualified; the legacy OAuth chooser's collection eligibility and format checks are unchanged.
+
+- The editor declares the file actions that pair with its optional record capabilities, so next accounts no longer refuse its Private collection consent.
+
+- Restore the editor's Send feedback entry, lost when the shared collection switcher replaced the editor's own switcher dialog. It now sits last in the collection rail's fixed tools group, after Types and Settings.
+
+- Use the opening readable line as a display-only name for notes with generated UUID filenames when no name or heading is declared. Editing their body does not write that name into the note.
+- Use plain language in type settings, keep type paths and versions under Details, and put undeclared properties on typed notes under Additional properties. Underlying values remain available in Advanced.
+
+- The Editor can open Your person record after person definitions are applied. Contract queries now use bounded pages and continue through the returned cursor instead of requesting an unsupported page size.
+
+### Security
+
+- The Editor now uses SDK-owned, account-bound Native approvals, collection routing and client lifetime instead of an app-owned historical-grant section. Unbound approvals left by older browser sessions are not listed or opened; approve those collections again through Add a collection. Existing browser grants are not imported or relabeled. The pinned SDK attempts whole-store grant cleanup on sign-out; another account's surviving grants remain hidden even if cleanup fails. Isolated custom-adapter lifecycle tests do not add a production fallback.
+
 ## 0.1.0-beta.139
 
 ### Changed

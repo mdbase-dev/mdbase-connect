@@ -1,9 +1,0 @@
-{
-  "reason": "The shared collection UI moves the gate, switcher, setup review and sign-out screens that each app built separately into one app-ui subpath. It is split by role: copy, the pure view model, the hook, shared parts, dialogs, setup review, switcher, gate and the non-React mount, plus the subpath entry. Most exports are public prop and view types that apps need to type their hosts. It adds no transport, storage or SDK logic and only reads the SDK front door's snapshot.",
-  "growth": {
-    "productionFiles": 10,
-    "relativeImports": 34,
-    "typeScriptExportDeclarations": 66,
-    "packages/app-ui": 10
-  }
-}

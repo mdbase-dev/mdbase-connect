@@ -1,7 +1,0 @@
-{
-  "reason": "Replaces the editor's app-owned native sign-in binding, popup capability and its screen (three files removed) with the public SDK MdbaseApplicationEntry path: SdkEditorRoot (declaration helper, public lifecycle/selection/readiness/currentness), a native CollectionGateway over the borrowed connection's records/files/people, and a native note observation over complete pages() snapshots and the SDK change watch. No production file count growth. The added relative imports are those modules' links to the existing editor domain model, record adapter and App; the added exports are the native gateway, the native observation and the honest names-only description type. No authentication handler, poller, persistent journal, SQL bootstrap, route, private SDK import or SDK/protocol surface is added; the legacy Connect gateway stays the production default.",
-  "growth": {
-    "relativeImports": 6,
-    "typeScriptExportDeclarations": 3
-  }
-}

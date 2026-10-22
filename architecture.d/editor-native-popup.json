@@ -1,9 +1,0 @@
-{
-  "reason": "Three editor leaf modules provide the existing connection screen's public SDK action/presentation binding and UI-only owned popup capability. The same synchronous popup/terminal-status behavior is already used by the other launch apps. There is no new authentication handler, poller, session engine, persistent journal, SQL bootstrap, route or data store. App selects this explicit owner binding before mounting the existing legacy collection stores. The optional legacy/native boundary names the current Connect gateway consumer and will be removed when qualified native composition replaces the production entry point. Growth is exactly three source files, four relative imports and fifteen internal TypeScript export declarations; no SDK/public protocol surface is added. Scope assigned by coordinator co2348a.",
-  "growth": {
-    "productionFiles": 3,
-    "relativeImports": 4,
-    "typeScriptExportDeclarations": 15,
-    "apps/editor": 3
-  }
-}

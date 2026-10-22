@@ -6,7 +6,7 @@
   },
   "productionFileBudgetsByPackage": {
     "apps/desktop": 41,
-    "apps/editor": 116,
+    "apps/editor": 135,
     "apps/portal": 24,
     "crates/connect-agent": 37,
     "crates/connect-cli": 8,
@@ -44,11 +44,11 @@
     "semanticProjectionFormatVersion": 9
   },
   "reviewBudgets": {
-    "productionFiles": 893,
-    "relativeImports": 2469,
+    "productionFiles": 912,
+    "relativeImports": 2503,
     "workspacePackages": 25,
     "rustPublicDeclarations": 3458,
-    "typeScriptExportDeclarations": 3471,
+    "typeScriptExportDeclarations": 3541,
     "mdbaseCollectionReferences": 17,
     "typedCollectionReferences": 1
   }

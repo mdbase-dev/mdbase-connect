@@ -1,8 +1,0 @@
-{
-  "reason": "Follow-ups to the shared collection UI from the apps that adopted it. The one new production file is the @mdbase-dev/ui/collections/testing subpath, kept apart so app bundles never include it. The new exports are public prop and slot types (app sections, extra actions, the app-collection render context, the delete outcome) plus useAutoStart and the test helper. It adds no transport, storage or SDK logic.",
-  "growth": {
-    "productionFiles": 1,
-    "typeScriptExportDeclarations": 13,
-    "packages/app-ui": 1
-  }
-}
