@@ -100,7 +100,12 @@ test("Editor has distinct guarded main and tag publication paths; staging remain
   assert.match(text, /group: editor-pages-\$\{\{ github.event_name == 'workflow_dispatch' && inputs.target == 'production' && 'production' \|\| github.ref \}\}/);
   assert.match(text, /cancel-in-progress: \$\{\{ github.event_name != 'workflow_dispatch' \|\| inputs.target != 'production' \}\}/);
   assert.match(text, /node --test scripts\/lib\/\*publication\*.test.mjs/);
-  assert.match(text.split("  deploy-cloudflare-staging:\n")[1], /github.ref == 'refs\/heads\/main'/);
+  const staging = text.split("  deploy-cloudflare-staging:\n")[1];
+  assert.match(staging, /github.ref == 'refs\/heads\/main'/);
+  // A main push must not overwrite the native staging Editor with the legacy-SDK build.
+  assert.match(staging, /github.event_name == 'workflow_dispatch' &&/);
+  assert.match(staging, /inputs.target == 'staging'/);
+  assert.doesNotMatch(staging.split("runs-on:")[0], /'push'/);
 });
 
 test("remote annotated tag must still identify the exact version and commit", () => {

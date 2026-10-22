@@ -157,12 +157,15 @@ jobs:
           MDBASE_ASSET_VERIFY_ATTEMPTS: 61
           MDBASE_ASSET_VERIFY_DELAY_MS: 5000
 
+  # Explicit dispatch only. editor-staging serves the native Editor published from
+  # release/native-staging (apps/editor/NATIVE_PUBLISHER.md there); a main push
+  # must not overwrite it with this legacy-SDK build.
   deploy-cloudflare-staging:
     if: >-
-      github.event_name != 'pull_request' &&
+      github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main' &&
       vars.CLOUDFLARE_PAGES_ENABLED == '1' &&
-      (github.event_name == 'push' || inputs.target == 'staging')
+      inputs.target == 'staging'
     needs: test
     runs-on: ubuntu-latest
     environment:
