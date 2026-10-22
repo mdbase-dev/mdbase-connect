@@ -98,6 +98,56 @@ describePg("H0 acceptance/currentness (isolated local PostgreSQL; synthetic veri
     expect((await db.query("SELECT verified_result FROM next_migration_archive_acceptances WHERE cohort=$1", [name])).rows[0].verified_result).toEqual(body);
   });
 
+  it("supersedes an accepted never-started zero-hosted revision on unfreeze, keeps its receipt, and refuses once started", async () => {
+    const account = await user(), name = await batch([account]);
+    const zero = async () => {
+      const base = await metadata(name);
+      return { ...base, schema: ZERO_HOSTED_ARCHIVE_SCHEMA, environment: "staging",
+        prefix: `legacy-archive/staging/2026/10/08/${name}`, retention: { ...base.retention, count: "2" } };
+    };
+    const receipts = async () => (await db.query(`SELECT membership_revision::text AS revision,verified_result::text AS receipt,accepted_at::text AS accepted
+      FROM next_migration_archive_acceptances WHERE cohort=$1 ORDER BY membership_revision`, [name])).rows;
+    const revision = async () => (await db.query("SELECT membership_revision::text AS r FROM next_migration_cohorts WHERE name=$1", [name])).rows[0].r;
+    const first = await zero();
+    await acceptCohortArchive(db, name, first, "staging");
+    const original = await receipts();
+    expect(await setCohortFrozen(db, name, false, "rerun accepted, never started", OP)).toEqual({ frozen_at: null });
+    expect(await revision()).toBe(String(BigInt(first.migration_batch.membership_revision) + 1n));
+    expect(await receipts()).toEqual(original);
+    expect((await db.query(`SELECT metadata FROM audit_events WHERE event_type='next_migration.unfreeze' AND metadata->>'cohort'=$1`, [name])).rows[0].metadata)
+      .toMatchObject({ membership_revision: first.migration_batch.membership_revision, superseded_acceptance: true, next_membership_revision: await revision() });
+    expect(await startedAt(account)).toBeNull();
+    await expect(startAccountMigration(db, account, "staging")).rejects.toMatchObject({ code: "backup_missing" });
+    // The normal rerun: fresh freeze, the old receipt is not current, a new archive is accepted.
+    await setCohortFrozen(db, name, true, "rerun capture", OP);
+    await expect(startAccountMigration(db, account, "staging")).rejects.toMatchObject({ code: "backup_missing" });
+    await expect(acceptCohortArchive(db, name, first, "staging")).rejects.toThrow();
+    const second = await zero();
+    expect(second.migration_batch.membership_revision).toBe(await revision());
+    await acceptCohortArchive(db, name, second, "staging");
+    expect(await startAccountMigration(db, account, "staging")).toMatchObject({ account_id: account });
+    await expect(setCohortFrozen(db, name, false, "after start", OP)).rejects.toMatchObject({ code: "migration_frozen" });
+    expect(await revision()).toBe(second.migration_batch.membership_revision);
+    expect((await receipts()).map(row => row.revision)).toEqual([first.migration_batch.membership_revision, second.migration_batch.membership_revision]);
+    expect((await receipts())[0]).toEqual(original[0]);
+  });
+
+  it("keeps refusing unfreeze of an accepted zero-hosted revision when a member is not legacy or a v4 revision", async () => {
+    const zeroBody = async (name: string) => {
+      const base = await metadata(name);
+      return { ...base, schema: ZERO_HOSTED_ARCHIVE_SCHEMA, environment: "staging",
+        prefix: `legacy-archive/staging/2026/10/08/${name}`, retention: { ...base.retention, count: "2" } };
+    };
+    const a = await user(), b = await user(), mixed = await batch([a, b]);
+    await acceptCohortArchive(db, mixed, await zeroBody(mixed), "staging");
+    await db.query("UPDATE users SET account_backend='next' WHERE id=$1", [b]);
+    await expect(setCohortFrozen(db, mixed, false, "member is next", OP)).rejects.toMatchObject({ code: "migration_frozen" });
+    const c = await user(), v4 = await batch([c]);
+    await acceptCohortArchive(db, v4, await metadata(v4), "production");
+    await expect(setCohortFrozen(db, v4, false, "v4 accepted", OP)).rejects.toMatchObject({ code: "migration_frozen" });
+    for (const name of [mixed, v4]) expect((await db.query("SELECT frozen_at FROM next_migration_cohorts WHERE name=$1", [name])).rows[0].frozen_at).not.toBeNull();
+  });
+
   it("preserves SQL elapsed/immutability guards and refuses unknown environments or false zero-profile artifact counts", async () => {
     const account = await user(), name = await batch([account]), base = await metadata(name);
     const valid = { ...base, schema: ZERO_HOSTED_ARCHIVE_SCHEMA, environment: "staging",
