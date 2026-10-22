@@ -1,5 +1,10 @@
 import { expect, test } from "@playwright/test";
 
+// The offline-shell service worker precaches the CodeEditor chunk. Requests it
+// serves bypass page.route, so the gated chunk could load ungated (and the
+// test hang) whenever the worker won the race. Keep this spec on the network.
+test.use({ serviceWorkers: "block" });
+
 test("a delayed CodeEditor chunk does not steal sidebar search typing", async ({ page }) => {
   let releaseChunk!: () => void;
   const chunkGate = new Promise<void>((resolve) => { releaseChunk = resolve; });
