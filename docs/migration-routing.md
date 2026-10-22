@@ -3,8 +3,11 @@
 Migrated collections are served by the environment's hosted migration Worker
 (`mdbase-next-hosted-mig-<environment>`), before and after the account's backend
 flip. Releases never shrink that serving. The control plane therefore routes the
-hosted role of every **released, frozen, nonterminal cohort member** to that
-Worker: hosted service-device generation, durable policy wakes, migration
+hosted role of every **legacy hosted collection** (a `hosted_collections` id) of a
+**released, frozen, nonterminal cohort member** to that Worker. Every other
+collection, including one a migrated owner creates after the flip and any
+CP-native cloud copy it already had, stays on the control plane's own hosted and
+escrow deployments. The route covers hosted service-device generation, durable policy wakes, migration
 admission, app (`/v1/hosted/app`) discovery and the hosted record, state,
 log-token and claim readers. No account label, HTTP account field, grant owner
 supplied by a caller, or new-account default selects a destination. It does not
@@ -60,17 +63,18 @@ credential remains `MDBASE_NEXT_MIGRATION_INTERNAL_TOKEN` on CP and
 
 ## Routing
 
-Existing collections resolve their owner through authoritative retained native,
-hosted, local and logical identity mappings. Ambiguous ownership fails closed.
-A not-yet-registered collection's factory uses only the authenticated creator
-whose identity the existing bootstrap rechecks around network effects. Neither
-migration admission nor policy wakes has that creation fallback. App discovery
-uses the owner in the same authenticated grant/parent query, not the caller's
-account (members may belong to another account).
+A collection is migration routed only when it is a legacy hosted collection
+(`hosted_collections` row) whose owner is routed. Its owner resolves through
+authoritative retained native, hosted, local and logical identity mappings;
+ambiguous ownership fails closed. A not-yet-registered collection has no mapping,
+so creating a collection always generates both service devices on the control
+plane's own deployments, whoever creates it. Migrated collections keep their
+legacy id, so this never moves a migrated collection.
 
-One DB-backed account classifier covers hosted service-device generation,
-durable policy wakes, migration admission, direct Noise discovery and claim readers.
-It joins the account's actual cohort membership to its release/freeze state and
+One DB-backed collection route covers hosted service-device generation,
+durable policy wakes, migration admission, direct Noise discovery and claim
+readers, so they always agree on a collection's deployment. Its account part
+joins the owner's actual cohort membership to its release/freeze state and
 rejects terminal exclusion. It continues routing before/after start and backend
 flip and does not use the global rollout pause as a routing switch. Hosted record, state,
 log-token and CPP claim readers reject the wrong deployment credential for the

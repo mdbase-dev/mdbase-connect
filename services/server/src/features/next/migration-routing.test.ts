@@ -17,8 +17,9 @@ const env = { MDBASE_CONNECT_ENVIRONMENT: "lab", PUBLIC_URL: "https://connect-la
   MDBASE_NEXT_LAB_MIGRATION_HOSTED_TOKEN: "m".repeat(40), MDBASE_NEXT_LAB_MIGRATION_INBOUND_TOKEN: "i".repeat(40) };
 const routing = parseMigrationRouting(env)!;
 function result(rows: object[]) { return { rows, rowCount: rows.length, command: "SELECT", oid: 0, fields: [] }; }
-function database(owners: string[]) {
-  const query = vi.fn<DatabaseQueryable["query"]>().mockResolvedValue(result(owners.map(owner => ({ owner }))));
+// `legacy`: the collection is a legacy hosted_collections id (a migrated collection).
+function database(owners: string[], legacy = true) {
+  const query = vi.fn<DatabaseQueryable["query"]>().mockResolvedValue(result(owners.map(owner => ({ owner, legacy }))));
   return { query };
 }
 
@@ -31,7 +32,7 @@ describe("exact LAB account routing", () => {
     const db = database([]);
     db.query.mockImplementation(async sql => {
       if (sql.includes("next_migration_cohort_members")) return result([{ eligible: true }]);
-      if (sql.includes("UNION SELECT")) return result([{ owner: foreign }]);
+      if (sql.includes("UNION SELECT")) return result([{ owner: foreign, legacy: true }]);
       if (sql.includes("parent.owner_user_id::text AS owner_account")) return result([{ owner_account: foreign,
         grant_id: "grant", authorization_grant: "grant", policy_required: true, policy_active: true, has_client_key: true,
         hosted_device: collection, hosted_noise_pk: Buffer.alloc(32, 1) }]);
@@ -49,6 +50,33 @@ describe("exact LAB account routing", () => {
       } finally { await app.close(); }
     }
     expect(db.query.mock.calls.some(([, values]) => JSON.stringify(values) === JSON.stringify([foreign]))).toBe(true);
+  });
+  it.each(["bootstrap", "wake", "discovery", "inbound"])("keeps a routed owner's non-legacy collection on the CP deployments through %s", async consumer => {
+    const db = database([]);
+    db.query.mockImplementation(async sql => {
+      if (sql.includes("UNION SELECT")) return result([{ owner: account, legacy: false }]);
+      if (sql.includes("parent.owner_user_id::text AS owner_account")) return result([{ owner_account: account,
+        grant_id: "grant", authorization_grant: "grant", policy_required: true, policy_active: true, has_client_key: true,
+        hosted_device: collection, hosted_noise_pk: Buffer.alloc(32, 1) }]);
+      if (sql.includes("next_service_devices")) return result([{ collection_id: collection, kind: "hosted", batch_id: "1" }]);
+      return result([]);
+    });
+    if (consumer === "bootstrap") expect(await migrationDeployments(db, normal, routing, collection)).toBe(normal);
+    if (consumer === "wake") {
+      const seen: string[] = [];
+      await activatePendingServices(db, normal, async url => { seen.push(String(url)); return Response.json({ activated: true }); }, undefined, undefined, routing);
+      expect(seen).toEqual([`${normal.hosted.url}/internal/v1/collections/activate`]);
+    }
+    if (consumer === "discovery") expect((await hostedRouteTarget(db, "opaque", collection, normal.hosted.url, routing))!.target!.url).toContain(normal.hosted.url.replace("https:", "wss:"));
+    if (consumer === "inbound") {
+      const app = Fastify();
+      registerNextHostedRoutes(app, { db: db as unknown as DatabasePool, tokens: { hosted: "H".repeat(40) }, migrationRouting: routing });
+      try {
+        const request = (token: string) => app.inject({ method: "GET", url: `/internal/v1/next/collections/${collection}/state`, headers: { authorization: `Bearer ${token}` } });
+        expect((await request(routing.inboundToken)).statusCode).toBe(403);
+        expect((await request("H".repeat(40))).statusCode).not.toBe(403);
+      } finally { await app.close(); }
+    }
   });
   it("is absent by default and requires the whole exact LAB configuration", () => {
     expect(parseMigrationRouting({})).toBeUndefined();
@@ -70,13 +98,13 @@ describe("exact LAB account routing", () => {
     expect(multi.accounts).toEqual(new Set([account, foreign]));
     for (const owner of [account, foreign]) {
       expect(await migrationDeployments(database([owner]), normal, multi, collection)).toEqual({ ...normal, hosted: multi.hosted });
-      expect(await migrationRoute(database([]), multi, collection, owner)).toBe("migration");
-      const db = database([]);
+      expect(await migrationRoute(database([owner]), multi, collection)).toBe("migration");
+      const db = database([owner]);
       db.query.mockResolvedValueOnce(result([{ owner_account: owner, grant_id: "grant", authorization_grant: "grant", policy_required: true,
         policy_active: true, has_client_key: true, hosted_device: collection, hosted_noise_pk: Buffer.alloc(32, 1) }]));
       expect((await hostedRouteTarget(db, "opaque", collection, undefined, multi))!.target!.url).toContain(multi.hosted.url.replace("https:", "wss:"));
       const inbound = database([owner]);
-      inbound.query.mockImplementation(async sql => sql.includes("UNION SELECT") ? result([{ owner }]) : result([]));
+      inbound.query.mockImplementation(async sql => sql.includes("UNION SELECT") ? result([{ owner, legacy: true }]) : result([]));
       const app = Fastify();
       registerNextHostedRoutes(app, { db: inbound as unknown as DatabasePool, tokens: { hosted: "H".repeat(40), escrow: "E".repeat(40) }, migrationRouting: multi });
       try {
@@ -89,7 +117,6 @@ describe("exact LAB account routing", () => {
     const outsider = "44444444-4444-4444-8444-444444444444";
     expect(await migrationDeployments(database([outsider]), normal, multi, collection)).toBe(normal);
     await expect(migrationRoute(database([account, foreign]), multi, collection)).rejects.toThrow("ambiguous_collection_owner");
-    await expect(migrationRoute(database([account]), multi, collection, foreign)).rejects.toThrow("foreign_collection_owner");
   });
   it.each([`${account},`, `,${account}`, `${account},${account}`, `${account},[test]`, `${account},00000000-0000-0000-0000-000000000000`])(
     "refuses malformed or duplicate allowlist %s", value => expect(() => parseMigrationRouting({ ...env, MDBASE_NEXT_LAB_MIGRATION_ACCOUNT: value })).toThrow());
@@ -119,17 +146,21 @@ describe("exact LAB account routing", () => {
     }
     expect(() => parseNextControlPlaneEnv({ ...full, MDBASE_NEXT_CLOUD_COPY_BOOTSTRAP: "0" })).toThrow();
   });
-  it("uses authoritative collection ownership, not a creator spoof or missing mapping", async () => {
+  it("routes only a routed owner's legacy hosted collection, by authoritative ownership", async () => {
     const db = database([account]);
     expect(await migrationDeployments(db, normal, routing, collection)).toEqual({ ...normal, hosted: routing.hosted });
     expect(db.query.mock.calls[0]![1]).toEqual([collection]);
     for (const table of ["next_collections", "hosted_collections", "collections", "collection_identities"]) expect(db.query.mock.calls[0]![0]).toContain(table);
     expect(await migrationDeployments(database([foreign]), normal, routing, collection)).toBe(normal);
-    expect(await migrationDeployments(database([]), normal, routing, collection)).toBe(normal);
-    await expect(migrationRoute(database([foreign]), routing, collection, account)).rejects.toThrow("foreign_collection_owner");
     await expect(migrationRoute(database([account, foreign]), routing, collection)).rejects.toThrow("ambiguous_collection_owner");
-    expect(await migrationRoute(database([]), routing, collection, foreign)).toBe("default");
-    expect(await migrationRoute(database([]), routing, collection, account)).toBe("migration");
+    // A not-yet-registered collection (a new collection being created) has no owner
+    // mapping and is never migration routed, whoever creates it.
+    expect(await migrationDeployments(database([]), normal, routing, collection)).toBe(normal);
+    expect(await migrationRoute(database([]), routing, collection)).toBe("default");
+    // A routed owner's collection that is not a legacy hosted id (created after the
+    // flip, or a CP-native cloud copy it already had) stays on the CP deployments.
+    expect(await migrationDeployments(database([account], false), normal, routing, collection)).toBe(normal);
+    expect(await migrationRoute(database([account], false), routing, collection)).toBe("default");
     const disabled = database([]);
     expect(await migrationDeployments(disabled, normal, undefined, collection)).toBe(normal);
     expect(disabled.query).not.toHaveBeenCalled();
@@ -143,7 +174,7 @@ describe("exact LAB account routing", () => {
     expect(seen[0]!.headers.get("authorization")).toBe(`Bearer ${owner === account ? routing.hosted.token : normal.hosted.token}`);
   });
   it.each([account, foreign])("discovery derives account from the authenticated grant/parent SQL for %s", async owner => {
-    const db = database([]);
+    const db = database([owner]);
     db.query.mockResolvedValueOnce(result([{ owner_account: owner, grant_id: "grant", authorization_grant: "grant", policy_required: true, policy_active: true, has_client_key: true,
       hosted_device: collection, hosted_noise_pk: Buffer.alloc(32, 1) }]));
     const target = await hostedRouteTarget(db, "opaque-token-hash", collection, normal.hosted.url, routing);
@@ -157,7 +188,8 @@ describe("exact LAB account routing", () => {
     const db = database([]);
     db.query.mockImplementation(async sql => sql.includes("parent.owner_user_id::text AS owner_account")
       ? result([{ owner_account: owner, grant_id: "grant", authorization_grant: "grant", policy_required: true, policy_active: true,
-        has_client_key: true, hosted_device: collection, hosted_noise_pk: Buffer.alloc(32, 1) }]) : result([]));
+        has_client_key: true, hosted_device: collection, hosted_noise_pk: Buffer.alloc(32, 1) }])
+      : sql.includes("UNION SELECT") ? result([{ owner, legacy: true }]) : result([]));
     const app = Fastify();
     const broker = { request: vi.fn() };
     registerNextRouteRoutes(app, { db, broker, publicUrl: "https://connect-lab.mdbase.dev", hostedClientUrl: globalUrl, migrationRouting: routing });
@@ -178,7 +210,7 @@ describe("exact LAB account routing", () => {
   });
   it.each([[account, "normal", 403], [foreign, "migration", 403], [account, "migration", 200], [foreign, "normal", 200]] as const)("inbound %s/%s is account scoped", async (owner, caller, status) => {
     const db = database([owner]);
-    db.query.mockImplementation(async sql => sql.includes("UNION SELECT") ? result([{ owner }]) : result([]));
+    db.query.mockImplementation(async sql => sql.includes("UNION SELECT") ? result([{ owner, legacy: true }]) : result([]));
     const app = Fastify();
     // State reads never connect. A foreign scope must be refused before directory SQL.
     registerNextHostedRoutes(app, { db: db as unknown as DatabasePool, tokens: { hosted: "H".repeat(40), escrow: "E".repeat(40) }, migrationRouting: routing });
@@ -260,7 +292,7 @@ describe("migration routing environment gate (deployment configuration only)", (
   });
   it("a retired route has no deployments, while other routes are unchanged", async () => {
     const db = database([]);
-    db.query.mockImplementation(async sql => sql.includes("UNION SELECT") ? result([{ owner: account }])
+    db.query.mockImplementation(async sql => sql.includes("UNION SELECT") ? result([{ owner: account, legacy: true }])
       : sql.includes("next_migration_routing_retirements") ? result([{ retired: true }]) : result([]));
     expect(await migrationRoute(db, routing, collection)).toBe("retired");
     expect(await migrationDeployments(db, normal, routing, collection)).toBeNull();

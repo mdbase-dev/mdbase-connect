@@ -1,6 +1,6 @@
 // Discovery only: the hosted Worker decides live Noise/policy/key admission.
 import type { DatabaseQueryable } from "../../database-types.js";
-import { migrationAccount, migrationRouteRetired, type MigrationRouting } from "./migration-routing.js";
+import { migrationRoute, type MigrationRouting } from "./migration-routing.js";
 import type { RegisteredDeviceKind } from "./policy-wire.js";
 
 export interface RouteTarget {
@@ -91,10 +91,10 @@ export async function hostedRouteTarget(db: DatabaseQueryable, tokenDigest: stri
   );
   const grant = rows.rows[0];
   if (!grant) return null;
-  const routed = await migrationAccount(db, migrationRouting, grant.owner_account);
+  const route = await migrationRoute(db, migrationRouting, collection);
   // A retired migration route has no hosted app; it never falls back to the default.
-  if (routed && await migrationRouteRetired(db, migrationRouting, collection)) return null;
-  const selected = routed ? migrationRouting!.hosted.url : origin;
+  if (route === "retired") return null;
+  const selected = route === "migration" ? migrationRouting!.hosted.url : origin;
   // A scoped destination never supplies a missing default for other accounts.
   if (!selected) return null;
   const pk = grant.hosted_noise_pk;
