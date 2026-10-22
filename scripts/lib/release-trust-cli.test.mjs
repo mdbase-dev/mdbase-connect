@@ -20,12 +20,19 @@ for(const [environment,rootId,policyId] of [
 ]) test(`committed ${environment} asset has independent pinned-release context and real certified pins (offline, NOT publication authentication)`,()=>{
  const assetPath=path.join(root,`config/next-trust/${environment}.json`);
  const prepared=JSON.parse(readFileSync(assetPath));
- const [commit,version]=environment==='staging'?['36abd4b065be9495a7f5ae0808865a1f2279af04','0.1.0-beta.141']:['f45df4598a5bff891de68eec3431ec7744885067','0.1.0-beta.134'];
+ const [commit,version]=environment==='staging'?['36abd4b065be9495a7f5ae0808865a1f2279af04','0.1.0-beta.141']:['36abd4b065be9495a7f5ae0808865a1f2279af04','0.1.0-beta.141'];
  if(environment==='staging'){
   const bytes=readFileSync(assetPath);
   assert.equal(bytes.length,853);
   assert.equal(createHash('sha256').update(bytes).digest('hex'),'18ae86a26f9c8b2442235c537b8d58dcc059c05e4bb0f175607fd0aeacc3f0ad');
   assert.equal(prepared.issued_at,1792695401615);
+  assert.equal(bytes.toString(),canonical(prepared));
+ }
+ if(environment==='production'){
+  const bytes=readFileSync(assetPath);
+  assert.equal(bytes.length,840);
+  assert.equal(createHash('sha256').update(bytes).digest('hex'),'7912e40838213e60b65848350d319a48019021317b112e3326429b250f0133d7');
+  assert.equal(prepared.issued_at,1792698307649);
   assert.equal(bytes.toString(),canonical(prepared));
  }
  const suffix=environment==='staging'?'-staging':'',cp=`https://connect${suffix}.mdbase.dev`,log=`https://log${suffix}.mdbase.dev`;
