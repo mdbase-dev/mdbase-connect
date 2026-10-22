@@ -1,1 +1,3 @@
-Prepare the source-bound beta.140 staging trust asset for exact #940 merge `31b477e0de59c12b2e0eb26da39a1c986692d211`. Preserve existing certified staging keys, validity windows and fixed origins; leave LAB and production unchanged. Original image publication and qualified main publisher authentication remain mandatory before signing or deployment.
+## Changed
+
+- Prepare the source-bound beta.140 staging trust asset for exact #940 merge `31b477e0de59c12b2e0eb26da39a1c986692d211`. Preserve existing certified staging keys, validity windows and fixed origins; leave LAB and production unchanged. Original image publication and qualified main publisher authentication remain mandatory before signing or deployment.
