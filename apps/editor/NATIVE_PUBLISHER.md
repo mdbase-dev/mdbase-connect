@@ -54,8 +54,13 @@ Production has no supplied target intake here and refuses; do not reuse Stage.
    inventory are checked immediately before the sole upload.
 5. Resolve the actual full UUID using page20 plus exact uploaded URL, full source
    and Pages channel; the short URL prefix is not a UUID. Verify ALL served bytes,
-   source-owned headers and routes on BOTH deployment URL and custom alias, under
-   one bounded deadline. Security failures are not transient retries. Retain an
+   source-owned headers and routes on BOTH deployment URL and custom alias. The
+   immutable deployment URL is verified once, within 3 minutes; any failure there
+   is terminal, and security failures are never retried inside a verification.
+   Only after it passes is the alias re-verified in full, read-only, every 15
+   seconds within a 5-minute settle window, because the alias can briefly keep
+   serving the previous deployment. A failed attempt is never accepted; the
+   receipt records every alias attempt and the final report per origin. Retain an
    honest incomplete/failure receipt; never rebuild, redispatch or roll back as
    an automatic verification response.
 

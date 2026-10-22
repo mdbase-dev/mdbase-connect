@@ -11,7 +11,7 @@ import { assertDispatch, assertCurrentHead } from './refs.mjs';
 import { loadOriginals, protectedHashes } from './originals.mjs';
 import { assertArtifactMetadata, assertArtifactRun, assertArtifactDirectory } from './artifact.mjs';
 import { inventoryDirectory } from './native-publish-bytes.mjs';
-import { headersPolicy, redirectsPolicy, assertHostingSource, verifyHosting } from './hosting.mjs';
+import { headersPolicy, redirectsPolicy, assertHostingSource, verifyHosting, verifyPublication } from './hosting.mjs';
 import { assertBuiltManifest, captureDeployment, createReceipt } from './publisher.mjs';
 const repoRoot=fileURLToPath(new URL('../../../../',import.meta.url));
 const hashes={NATIVE_SDK_SHA256:'15eb64b50fc7c2809ff3dba9cce5104fe48d8592208b3af8acb529862a1af18c',
@@ -130,4 +130,35 @@ it('runs main pushes as checks only and isolates build from protected upload dep
  assert.doesNotMatch(commands,/pnpm (install|build|rebuild)|npm run|npx/);
  assert.match(commands,/refs\.mjs/);assert.match(commands,/--commit-hash/);assert.match(commands,/--no-bundle/);
  assert.match(workflow.jobs.test.if,/source_sha/);
+});
+it('re-verifies only the custom alias inside a bounded settle window after the immutable deployment passes',async()=>{
+ const plan={sha:source,tree,target:'staging',origin,pagesBranch:'staging'};
+ const report=ok=>({ok,verified:[],controls:[],unverified:[],probes:[],failures:ok?[]:[{path:'/',reason:'trusted-live-header-policy-failed'}]});
+ const harness=outcomes=>{
+  let clock=0;const calls=[],sleeps=[];
+  return {calls,sleeps,options:{plan,inventory:[],deployment,now:()=>clock,sleep:async ms=>{sleeps.push(ms);clock+=ms;},
+   verify:async({origin:target,totalTimeoutMs})=>{calls.push({origin:target,totalTimeoutMs});clock+=1000;return report(outcomes(target,calls.length));}}};
+ };
+ // Alias still serving the previous deployment twice, then converged.
+ const settling=harness((target,n)=>target===deployment.url || n>=4);
+ const settled=await verifyPublication(settling.options);
+ assert.equal(settled.ok,true);
+ assert.deepEqual(settling.calls.map(c=>c.origin),[deployment.url,origin,origin,origin]);
+ assert.deepEqual(settling.sleeps,[15000,15000]);
+ assert.deepEqual(settled.aliasAttempts.map(a=>a.ok),[false,false,true]);
+ assert.equal(settled.aliasAttempts[0].failures[0].reason,'trusted-live-header-policy-failed');
+ assert.deepEqual(settled.origins.map(r=>r.origin),[deployment.url,origin],'receipt needs exactly one final report per origin');
+ assert.equal(settled.origin,origin);
+ // A failing immutable deployment is terminal: one alias report, no settle wait.
+ const broken=harness(()=>false);
+ const failed=await verifyPublication(broken.options);
+ assert.equal(failed.ok,false);assert.equal(broken.calls.length,2);assert.deepEqual(broken.sleeps,[]);
+ // An alias that never converges stops inside the window and stays failed.
+ const stuck=harness(target=>target===deployment.url);
+ const never=await verifyPublication(stuck.options);
+ assert.equal(never.ok,false);assert.equal(never.origins.length,2);assert.ok(never.aliasAttempts.length>2);
+ assert.ok(stuck.sleeps.reduce((a,b)=>a+b,0)<=300000);
+ assert.ok(stuck.calls.every(c=>c.totalTimeoutMs>0 && c.totalTimeoutMs<=180000));
+ assert.ok(never.aliasAttempts.at(-1).startedMs<=300000);
+ await assert.rejects(verifyPublication({...stuck.options,deployment:{...deployment,sourceSha:'c'.repeat(40)}}),/mismatch/);
 });
