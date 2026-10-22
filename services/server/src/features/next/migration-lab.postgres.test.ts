@@ -9,7 +9,7 @@ import { fakeLegacyProvider, recordEmptyTimerImport } from "./legacy-provider.te
 import { labRun, postgresLabConnect, STEP, type LabWorker, type WorkerStatus } from "./migration-lab.js";
 import { acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, cutOverCollection, releaseCohort, setCohortFrozen, setPaused,
   startAccountMigration } from "./migration-rollout.js";
-import { requireCompletedAccountMigration, requireCompletedNextAccountMigration, requireMigrationJobCompletion } from "./migration-sharing.js";
+import { requireCompletedAccountMigration, requireCompletedNextAccountMigration } from "./migration-sharing.js";
 import { registerNextCollection } from "./policy-outbox.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
@@ -143,7 +143,7 @@ suite("lab-run against the control plane (synthetic PostgreSQL, scripted Worker)
     await db.query("UPDATE users SET suspended_at=now(), session_epoch=session_epoch+1 WHERE id=$1", [f.user]);
     expect(await labRun(f.user, hold, deps(f, routed()))).toEqual({ done: { account_id: f.user, collection_id: f.collection, backend: "next", lab_complete: true } });
     expect(await backend(f.user)).toBe("next");
-    await requireMigrationJobCompletion(db, f.collection, f.user);
+    await requireCompletedAccountMigration(db, f.collection, f.user, { suspendedOwner: true });
     // Sharing, timers and other post-migration guards keep refusing the suspended owner.
     await expect(requireCompletedAccountMigration(db, f.collection, f.user)).rejects.toMatchObject({ code: "collection_migrating" });
     await expect(requireCompletedNextAccountMigration(db, f.user)).rejects.toMatchObject({ code: "collection_migrating" });
@@ -157,7 +157,7 @@ suite("lab-run against the control plane (synthetic PostgreSQL, scripted Worker)
   it("a suspended owner's incomplete migration still fails the migration job's completion readback", async () => {
     const f = await fixture(false, "staging");
     await db.query("UPDATE users SET suspended_at=now() WHERE id=$1", [f.user]);
-    await expect(requireMigrationJobCompletion(db, f.collection, f.user)).rejects.toMatchObject({ code: "collection_migrating" });
+    await expect(requireCompletedAccountMigration(db, f.collection, f.user, { suspendedOwner: true })).rejects.toMatchObject({ code: "collection_migrating" });
   });
 
   it("each rehearsal deployment refuses the other's start profile at preflight", async () => {

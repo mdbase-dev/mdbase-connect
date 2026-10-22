@@ -21,7 +21,7 @@ import { flipEvidenceDigest } from "./account-backend-flip.js";
 import { claim } from "./migration-provider.js";
 import { labTargetSubCause, labTargetUnavailable, migrationJobEnvironment } from "./migration-lab-target.js";
 import { cutOverCollection, flipAccountBackend, RolloutRefused } from "./migration-rollout.js";
-import { requireMigrationJobCompletion } from "./migration-sharing.js";
+import { requireCompletedAccountMigration } from "./migration-sharing.js";
 import { cleanUpRolledBackTimerImport } from "./migration-timer-cleanup.js";
 import { legacyTimerGrantResolver } from "./timers/grants.js";
 import { importHostedCollectionTimers } from "./timers/hosted-import.js";
@@ -309,7 +309,7 @@ export function postgresLabConnect(options: {
       // A cohort completes on an accepted archive OR, without one, on the LAB
       // completion event; the strict readback requires exactly one of the two.
       // A suspended owner's migration completes too (suspension is unchanged).
-      try { await requireMigrationJobCompletion(db, collection, account); } catch (error) {
+      try { await requireCompletedAccountMigration(db, collection, account, { suspendedOwner: true }); } catch (error) {
         if ((error as { code?: unknown })?.code === "collection_migrating") {
           throw new RolloutRefused("lab_completion_missing", "The completion readback refuses this account.");
         }

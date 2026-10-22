@@ -55,9 +55,16 @@ export async function requireCompletedMigrationInvitation(client:DatabaseConnect
 
 /** Strict original terminal-ledger readback, never the ordinary-account early
  * return. Caller retains its normal locks/authority/freeze checks separately;
- * this read-only observation does not authorize another freeze exception. */
-export async function requireCompletedAccountMigration(client:DatabaseQueryable,collection:string,owner:string):Promise<void> {
-  await validateCompletedAccountMigration(client,collection,owner);
+ * this read-only observation does not authorize another freeze exception.
+ *
+ * `suspendedOwner: true` is for the migration job's OWN completion readback
+ * (`migration-lab.ts` completion()) only: the SAME strict terminal proof, except
+ * that a suspended owner's migration still completes. Suspension is untouched by
+ * migration and this observation grants nothing. Sharing, timers, operation
+ * guards and every user-facing caller keep the default and refuse suspended owners. */
+export async function requireCompletedAccountMigration(client:DatabaseQueryable,collection:string,owner:string,
+  options:{suspendedOwner?:boolean}={}):Promise<void> {
+  await validateCompletedAccountMigration(client,collection,owner,options);
 }
 
 /** Same original server-side completion/flip proof, without requiring a
@@ -65,16 +72,6 @@ export async function requireCompletedAccountMigration(client:DatabaseQueryable,
  * are not themselves part of the original cutover inventory. */
 export async function requireCompletedNextAccountMigration(client:DatabaseQueryable,owner:string):Promise<void> {
   await validateCompletedAccountMigration(client,null,owner);
-}
-
-/** The migration job's own completion readback (`migration-lab.ts`
- * completion()) only: the SAME strict terminal proof, except that a suspended
- * owner's migration still completes. Suspension is untouched by migration and
- * this observation grants nothing. Every sharing, timer, operation or other
- * user-facing caller uses requireCompletedAccountMigration, which refuses
- * suspended owners. */
-export async function requireMigrationJobCompletion(client:DatabaseQueryable,collection:string,owner:string):Promise<void> {
-  await validateCompletedAccountMigration(client,collection,owner,{suspendedOwner:true});
 }
 
 async function validateCompletedAccountMigration(client:DatabaseQueryable,collection:string|null,owner:string,

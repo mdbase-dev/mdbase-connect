@@ -11,7 +11,7 @@ import {registerErrorHandler} from "../../platform/error-handler.js";
 import {tokenHash} from "../../security.js";
 import {createCohort,addToCohort,setCohortFrozen,releaseCohort,setPaused,cohortArchiveBinding,registerMigrationRolloutRoutes,acceptCohortArchive,flipEvidenceDigest} from "./migration-rollout.js";
 import {registerNextCollection} from "./policy-outbox.js";
-import {labCohortCompletionEvidence,requireCompletedAccountMigration,requireCompletedMigrationInvitation,requireMigrationJobCompletion} from "./migration-sharing.js";
+import {labCohortCompletionEvidence,requireCompletedAccountMigration,requireCompletedMigrationInvitation} from "./migration-sharing.js";
 import {completeMigrationBatch} from "./migration-topology.js";
 import {provisionNewAccountBackend} from "./account-backend-flip.js";
 import {fakeLegacyProvider,recordEmptyTimerImport,type FakeLegacyProvider} from "./legacy-provider.test-helper.js";
@@ -167,7 +167,7 @@ suite("original emailed invite continuity (CP counterexamples, NOT native migrat
   it("a suspended owner's completed migration keeps every original invitation pending; only the migration job readback passes",async()=>{
     const f=await fixture("viewer");await shadow(f);await guardedFlip(f);
     await db.query("UPDATE users SET suspended_at=now(),session_epoch=session_epoch+1 WHERE id=$1",[f.owner.id]);
-    await guarded(client=>requireMigrationJobCompletion(client,f.collection,f.owner.id));
+    await guarded(client=>requireCompletedAccountMigration(client,f.collection,f.owner.id,{suspendedOwner:true}));
     await guarded(client=>expect(requireCompletedMigrationInvitation(client,f.collection,f.owner.id)).rejects.toMatchObject({code:"collection_migrating"}));
     await guarded(client=>expect(requireCompletedAccountMigration(client,f.collection,f.owner.id)).rejects.toMatchObject({code:"collection_migrating"}));
     expect((await accept(f)).statusCode).not.toBe(201);await originalPending(f);
