@@ -15,8 +15,8 @@
     "@mdbase/connect-ui": "workspace:*",
     "@mdbase-dev/connect-protocol": "workspace:*",
     "@mdbase-dev/ui": "workspace:*",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "7.0.0",
