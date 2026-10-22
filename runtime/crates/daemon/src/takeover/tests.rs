@@ -17,7 +17,7 @@ use super::record::{CollectionState, Record, State};
 use super::*;
 
 #[path = "../../tests/fixtures/old_agent.rs"]
-pub(super) mod old_agent;
+pub(crate) mod old_agent;
 use old_agent::{CID, RID};
 const MIRROR: &str = "9d1e0c55-0000-4000-8000-00000000000a";
 
@@ -66,6 +66,7 @@ fn failpoint_t1() {
 fn opts() -> Options {
     Options {
         stop_mirrors: false,
+        account_moved: false,
         drain: Duration::ZERO,
         now: "2026-10-08T12:00:00Z".into(),
     }
@@ -369,8 +370,8 @@ fn mirror(d: &Device, folder_bytes: &[u8]) {
 }
 
 #[test]
-fn old_mirrors_postpone_the_device_until_their_queues_are_empty() {
-    // A queued (un-uploaded) mirror edit: T1 would stop its upload, so wait.
+fn old_mirrors_unsent_edits_are_captured_then_the_device_proceeds() {
+    // A queued (un-uploaded) mirror edit. Without consent a manual run waits.
     let d = device("tko-mirror");
     mirror(&d, b"M edited, not uploaded");
     let mut old = Old::default();
@@ -382,7 +383,14 @@ fn old_mirrors_postpone_the_device_until_their_queues_are_empty() {
         Some("mirrors_present")
     );
     assert_eq!(old.0, 0, "the old daemon keeps running");
-    let ran = run(
+    assert!(mirror_import::captured(&d.paths.legacy).unwrap().is_empty());
+
+    // Allowed to stop: the unsent edit is captured, then the takeover proceeds
+    // (it used to wait for a queue that can never drain once the account moved).
+    let mstate = d.old.join("mirrors").join(MIRROR).join("state.json");
+    let mstate_before = fs::read(&mstate).unwrap();
+    let before = old_files(&d);
+    run(
         &d.paths,
         &d.old,
         &mut old,
@@ -392,14 +400,39 @@ fn old_mirrors_postpone_the_device_until_their_queues_are_empty() {
         },
     )
     .unwrap();
+    assert_taken_over(&d, &before);
+    let hosted = "4c18af2e-b04a-4b77-b83e-493c3695962f";
+    let c = mirror_import::Capture::load(&d.paths.legacy, hosted)
+        .unwrap()
+        .unwrap();
+    assert_eq!(c.edits.len(), 1);
+    assert!(matches!(&c.edits[0], mirror_import::Edit::Update { path, .. } if path == "m.md"));
+    // The old mirror's queue is left as it was: the original copy.
+    assert_eq!(fs::read(&mstate).unwrap(), mstate_before);
+    let mroot = d.state.parent().unwrap().join("mirror");
     assert_eq!(
-        ran.record.unwrap().collections[CID].reason.as_deref(),
-        Some("mirror_queue_not_empty")
+        fs::read(mroot.join("m.md")).unwrap(),
+        b"M edited, not uploaded"
     );
-    assert_eq!(old.0, 0);
-    assert_eq!(marker::read(&d.root).unwrap(), Marker::Absent);
 
-    // Drained: with --stop-mirrors it proceeds.
+    // An automatic run (the account has moved) proceeds the same way.
+    let d = device("tko-mirror-moved");
+    mirror(&d, b"M edited, not uploaded");
+    let before = old_files(&d);
+    run(
+        &d.paths,
+        &d.old,
+        &mut Old::default(),
+        &Options {
+            account_moved: true,
+            ..opts()
+        },
+    )
+    .unwrap();
+    assert_taken_over(&d, &before);
+    assert_eq!(mirror_import::captured(&d.paths.legacy).unwrap(), [hosted]);
+
+    // A drained mirror proceeds too, with an empty capture.
     let d = device("tko-mirror-empty");
     mirror(&d, b"M");
     let before = old_files(&d);
@@ -414,6 +447,28 @@ fn old_mirrors_postpone_the_device_until_their_queues_are_empty() {
     )
     .unwrap();
     assert_taken_over(&d, &before);
+}
+
+#[test]
+fn a_mirror_whose_queue_cannot_be_captured_still_postpones() {
+    let d = device("tko-mirror-unreadable");
+    mirror(&d, b"M edited");
+    fs::remove_file(d.old.join("mirrors").join(MIRROR).join("state.json")).unwrap();
+    let ran = run(
+        &d.paths,
+        &d.old,
+        &mut Old::default(),
+        &Options {
+            account_moved: true,
+            ..opts()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        ran.record.unwrap().collections[CID].reason.as_deref(),
+        Some("mirror_state_unreadable")
+    );
+    assert_eq!(marker::read(&d.root).unwrap(), Marker::Absent);
 }
 
 #[test]
@@ -531,4 +586,81 @@ fn a_missing_or_altered_marker_is_a_sticky_incident_never_rewritten() {
     assert!(!marker_is_ours(&d.root, CID, &d.paths.store_ids).unwrap());
     run(&d.paths, &d.old, &mut Old::default(), &opts()).unwrap();
     assert!(Record::load(&d.paths.record).unwrap().unwrap().collections[CID].marker_incident);
+}
+
+/// A hold resolution resolves the hold only once its mutation is confirmed.
+/// Pending or unknown leave the hold open and keep the resolution's identity, so
+/// a retry (or a readback) uses the same mutation and record IDs; another action
+/// is refused while one is in flight.
+#[test]
+fn a_hold_resolves_only_on_a_confirmed_outcome_and_keeps_its_identity() {
+    use super::held::{self, Outcome};
+    let d = device("tko-settle");
+    run(&d.paths, &d.old, &mut Old::default(), &opts()).unwrap();
+    let (legacy, record) = (&d.paths.legacy, &d.paths.record);
+    let open = || -> Vec<String> {
+        held::open(legacy, CID)
+            .unwrap()
+            .into_iter()
+            .map(|h| h.path)
+            .collect()
+    };
+    let count = || Record::load(record).unwrap().unwrap().collections[CID].holds;
+    assert_eq!(
+        (open(), count()),
+        (vec!["a.md".to_string(), "c.md".into()], 2)
+    );
+
+    let first = held::begin(legacy, CID, "a.md", "take_theirs", || ([1; 16], [2; 16]))
+        .unwrap()
+        .unwrap();
+    for outcome in [Outcome::Pending, Outcome::Unknown] {
+        assert!(!held::settle(record, legacy, CID, "a.md", outcome).unwrap());
+        assert_eq!(
+            (open().len(), count()),
+            (2, 2),
+            "{outcome:?} left the hold open"
+        );
+        let again = held::begin(legacy, CID, "a.md", "take_theirs", || unreachable!())
+            .unwrap()
+            .unwrap();
+        assert_eq!(again, first, "{outcome:?} kept the original identity");
+    }
+    assert_eq!(
+        held::begin(legacy, CID, "a.md", "keep_both", || unreachable!()).unwrap(),
+        Err(first.clone())
+    );
+
+    assert!(held::settle(record, legacy, CID, "a.md", Outcome::Confirmed).unwrap());
+    assert_eq!((open(), count()), (vec!["c.md".to_string()], 1));
+    assert_eq!(held::resolving(legacy, CID, "a.md").unwrap(), None);
+
+    // A rejection drops the identity: the hold stays open for another choice.
+    held::begin(legacy, CID, "c.md", "take_theirs", || ([3; 16], [4; 16]))
+        .unwrap()
+        .unwrap();
+    assert!(!held::settle(record, legacy, CID, "c.md", Outcome::Rejected).unwrap());
+    assert_eq!((open(), count()), (vec!["c.md".to_string()], 1));
+    assert_eq!(held::resolving(legacy, CID, "c.md").unwrap(), None);
+}
+
+/// Takeover state is addressed only by a canonical collection ID.
+#[test]
+fn takeover_holds_refuse_a_non_canonical_collection_id() {
+    use super::held;
+    let d = device("tko-cid");
+    run(&d.paths, &d.old, &mut Old::default(), &opts()).unwrap();
+    for bad in [
+        "../x",
+        "",
+        &CID.to_uppercase(),
+        &format!("{CID}/.."),
+        "00000000-0000-0000-0000-000000000000",
+    ] {
+        assert!(!held::is_collection_id(bad), "{bad}");
+        let e = held::open(&d.paths.legacy, bad).unwrap_err();
+        assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput, "{bad}");
+        assert!(held::resolve(&d.paths.record, &d.paths.legacy, bad, &["a.md".into()]).is_err());
+    }
+    assert!(held::is_collection_id(CID));
 }

@@ -29,6 +29,7 @@ fn entry(dir: &Path, mode: SyncMode) -> Entry {
         replica_id: "55555555-5555-4555-8555-555555555555".into(),
         mode,
         origin: Origin::Created,
+        description: None,
         added_at_ms: 0,
         paused: false,
         ever_e2e: false,
@@ -164,6 +165,7 @@ fn ctx(dir: &Path, server: Option<&str>, trust: Option<crate::trust::Trust>) -> 
         authority,
         notify: Arc::new(|| {}),
         sync,
+        old_connector_running: Default::default(),
     }
 }
 
@@ -216,6 +218,8 @@ async fn mirror_closed_sqlite_startup_reports_counts_without_opening_folder() {
                 device_id: [3; 16],
                 root: dir.join("folder"),
                 private_dir: private.clone(),
+                adopt: None,
+                id_hints: vec![],
                 sync: None,
             },
             mdbn_replica::DeviceSecrets {
@@ -593,6 +597,41 @@ async fn a_token_is_refused_when_the_authority_changes_during_the_request() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[tokio::test]
+async fn reconstructed_host_reports_last_fatal_incident_after_actor_stop() {
+    let dir = crate::testutil::TestDir::new("host-fatal-diagnostic");
+    std::fs::create_dir_all(dir.path().join("folder")).unwrap();
+    let context = ctx(dir.path(), None, None);
+    let private_dir = context.collections_dir.join(COLLECTION);
+    crate::fsutil::ensure_private_dir(&private_dir).unwrap();
+    let shared = crate::sync_failure::Shared::default();
+    let observed = status(
+        3,
+        7,
+        mdbn_wire::client::Connection::Online,
+        &[mdbn_wire::client::IncidentKind::VerificationMismatch],
+    );
+    let failure = crate::sync_failure::Failure::project(&observed, &None).unwrap();
+    crate::sync_failure::retain_and_stop(&shared, &private_dir, failure, || {}, async {}).await;
+    drop(shared); // like the failed actor/process: no in-memory incidents left
+    let mut reopened = host(dir.path(), SyncMode::SyncedE2e, context);
+    let reported = reopened.status();
+    let diagnostic = reported.last_sync_failure.as_ref().unwrap();
+    assert_eq!(
+        diagnostic.kind,
+        crate::sync_failure::Kind::VerificationMismatch
+    );
+    assert_eq!(diagnostic.seq, 3);
+    assert_eq!(
+        diagnostic.persisted, None,
+        "recovery cannot prove the original directory fsync"
+    );
+    let json = serde_json::to_value(&reported).unwrap();
+    assert_eq!(json["last_sync_failure"]["kind"], "verification_mismatch");
+    assert!(json["last_sync_failure"]["persisted"].is_null());
+    reopened.close().await;
+}
+
 fn status(
     through: u64,
     head: u64,
@@ -888,6 +927,8 @@ fn a_refused_cache_is_refused_before_the_folder_is_opened() {
         device_id: [6; 16],
         root: dir.join("no-such-folder"),
         private_dir: state,
+        adopt: None,
+        id_hints: vec![],
         sync: Some(crate::runtime::Synced {
             log_url: "https://log.lab.example".into(),
             chosen_state: mdbn_wire::policy::CState::CloudCopy,

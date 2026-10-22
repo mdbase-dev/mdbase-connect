@@ -1,6 +1,6 @@
 //! Bounded primary UUID inventory discovery. No type-index shortcut or fallback.
 use super::*;
-use crate::{api::SessionId, store_query::QueryProjectionState};
+use crate::{api::SessionId, store::Head};
 use mdbn_core::views::bases::IncrementalBasesBudget;
 use std::collections::BTreeMap;
 
@@ -36,8 +36,8 @@ pub struct BasesViewSource {
 }
 struct Entry {
     token: BasesDiscoveryHandle,
-    fence: SetupCaptureFence,
-    snapshot: QueryProjectionState,
+    fence: BasesReadFence,
+    head: Head,
     as_of: u64,
     clock: OpClock,
     after: Option<Uuid>,
@@ -69,43 +69,41 @@ fn source_error(error: crate::store::StoreError) -> crate::api::ApiError {
     }
 }
 impl<S: Store> Replica<S> {
-    fn discovery_snapshot(&self) -> ApiResult<QueryProjectionState> {
-        let state = self
-            .store
-            .query_projection_state()
-            .map_err(|_| unavailable())?
-            .ok_or_else(unavailable)?;
-        if !state.ready
-            || state.head != self.head
-            || self
-                .query_context
-                .as_deref()
-                .is_none_or(|context| context.generation() != state.generation)
-        {
+    // Discovery reads primary UUID/size metadata and raw record bytes, not the
+    // optional ClockNone typed projection. Its completeness witness is primary
+    // universe exhaustion under this applied head and the full BasesReadFence.
+    fn discovery_head(&self) -> ApiResult<Head> {
+        let head = self.store.head().map_err(|_| unavailable())?;
+        if head != self.head {
             return Err(unavailable());
         }
-        Ok(state)
+        Ok(head)
     }
     fn recheck_discovery(&self, session: SessionId, entry: &Entry) -> ApiResult<()> {
         self.authorize_bases_read(session)?;
-        self.recheck_collection_setup_capture(&entry.fence)?;
-        if self.view_version != entry.as_of || self.discovery_snapshot()? != entry.snapshot {
+        self.recheck_bases_read_capture(&entry.fence)?;
+        if self.view_version != entry.as_of || self.discovery_head()? != entry.head {
             return Err(stale_discovery());
         }
         Ok(())
     }
     fn new_discovery(&mut self, timezone: Option<&str>) -> ApiResult<Entry> {
-        let mut fence = self.collection_setup_capture_fence(None)?;
+        let mut fence = self.bases_read_capture_fence()?;
         fence.release_discovery_catalog_pin();
-        let snapshot = self.discovery_snapshot()?;
-        if !self.catalog.is_valid()
+        let head = self.discovery_head()?;
+        if !self.bases_read_catalog().is_valid()
             || !self
-                .catalog
+                .bases_read_catalog()
                 .contracts()
                 .iter()
                 .any(|contract| contract.id == BASES_CONTRACT)
         {
-            return Err(unavailable());
+            // Name the missing contract, as indexed execution does; it is not
+            // an incomplete inventory and retrying never clears it.
+            return Err(ErrorCode::Unavailable.err_with_reason(
+                "bases_contract_not_installed",
+                "the obsidian.base data contract is not installed and valid",
+            ));
         }
         let zone = timezone
             .map(str::to_owned)
@@ -122,7 +120,7 @@ impl<S: Store> Replica<S> {
         let entry = Entry {
             token: BasesDiscoveryHandle([0; 32]),
             fence,
-            snapshot,
+            head,
             as_of: self.view_version,
             clock: OpClock {
                 instant_ms,
@@ -139,7 +137,7 @@ impl<S: Store> Replica<S> {
             + 128
             + entry.clock.tz.capacity() as u64
             + entry.clock.local_date.capacity() as u64
-            + SetupCaptureFence::discovery_catalog_allocation_bytes();
+            + BasesReadFence::discovery_catalog_allocation_bytes();
         if metadata_bytes > SLOT_BYTES {
             return Err(budget("bases_discovery_slot_metadata"));
         }
@@ -187,14 +185,24 @@ impl<S: Store> Replica<S> {
         if timezone.is_some_and(|zone| zone != entry.clock.tz) {
             return Err(invalid());
         }
+        let (steps, bytes) = self.bases_local_metadata_cost(SOURCE_ROWS)?;
+        ledger.retain(bytes).map_err(failure)?;
+        ledger
+            .admit(|work| {
+                if work.charge(steps, bytes) {
+                    Ok(())
+                } else {
+                    Err(work.failure().expect("local discovery metadata"))
+                }
+            })
+            .map_err(failure)?;
         let metadata = self
-            .store
-            .query_record_sizes_at(
+            .bases_local_sizes(
                 Page {
                     after: entry.after,
                     limit: SOURCE_ROWS,
                 },
-                entry.snapshot.head,
+                entry.head,
             )
             .map_err(|_| unavailable())?;
         if metadata.len() > SOURCE_ROWS as usize {
@@ -234,8 +242,7 @@ impl<S: Store> Replica<S> {
         let rows = if ids.is_empty() {
             Vec::new()
         } else {
-            self.store
-                .hydrate_query_at(&ids, entry.snapshot.head, &mut sources)
+            self.bases_local_hydrate(&ids, entry.head, &mut sources)
                 .map_err(source_error)?
         };
         if rows.len() != count {
@@ -269,7 +276,13 @@ impl<S: Store> Replica<S> {
                     if !work.charge(footprint.values, footprint.estimated_heap_bytes) {
                         return Err(work.failure().expect("discovery structure"));
                     }
-                    discover_base_record(&self.catalog, &row.path, &document, &entry.clock, work)
+                    discover_base_record(
+                        self.bases_read_catalog(),
+                        &row.path,
+                        &document,
+                        &entry.clock,
+                        work,
+                    )
                 })
                 .map_err(failure)?;
             let start = entry
@@ -353,8 +366,7 @@ impl<S: Store> Replica<S> {
                 .retain(bytes + (count as u64) * 512)
                 .map_err(failure)?;
             let final_rows = self
-                .store
-                .hydrate_query_at(&ids, entry.snapshot.head, &mut sources)
+                .bases_local_hydrate(&ids, entry.head, &mut sources)
                 .map_err(source_error)?;
             if final_rows.len() != rows.len() {
                 return Err(stale_discovery());
@@ -411,33 +423,9 @@ impl<S: Store> Replica<S> {
         ledger.retain(SLOT_BYTES).map_err(failure)?;
         let entry = self.new_discovery(timezone)?;
         self.recheck_discovery(session, &entry)?;
-        let request = crate::store_query::QueryProjectionRequest {
-            generation: entry.snapshot.generation,
-            head: entry.snapshot.head,
-            predicate: crate::store_query::QueryPredicate::All,
-            bases_candidate: None,
-            bases_records: Some(vec![selection.record]),
-            after: None,
-            limit: 1,
-            max_bytes: 1024 * 1024,
-            fields: Vec::new(),
-            tags: false,
-        };
-        request.check().map_err(|_| invalid())?;
-        let metadata = self
-            .store
-            .query_projection_page(&request)
-            .map_err(|_| unavailable())?;
-        metadata.check(&request).map_err(|_| invalid())?;
-        let meta = metadata
-            .rows
-            .first()
-            .filter(|_| metadata.rows.len() == 1)
-            .ok_or_else(stale_discovery)?;
-        if meta.id != selection.record || meta.source_sha != selection.revision {
-            return Err(stale_discovery());
-        }
-        if meta.source_bytes > INITIAL_BYTES {
+        ledger.retain(16 * 1024).map_err(failure)?;
+        let source_bytes = self.bases_local_source_bytes(selection, entry.head)?;
+        if source_bytes > INITIAL_BYTES {
             return Err(budget("bases_view_source_bytes"));
         }
         // Cover the bounded encoded record and parsed/output source ownership
@@ -445,18 +433,17 @@ impl<S: Store> Replica<S> {
         ledger.retain(1024 * 1024).map_err(failure)?;
         let mut sources = QueryBudget::new(2, 1024 * 1024);
         let rows = self
-            .store
-            .hydrate_query_at(&[selection.record], entry.snapshot.head, &mut sources)
+            .bases_local_hydrate(&[selection.record], entry.head, &mut sources)
             .map_err(source_error)?;
         let row = rows
             .first()
             .filter(|_| rows.len() == 1)
             .ok_or_else(invalid)?;
-        self.check_discovery_source(row, selection.record, meta.source_bytes, &mut ledger)?;
-        if row.path != meta.path
-            || row.revision != selection.revision
-            || row.doc.len() as u64 != meta.source_bytes
-        {
+        if row.doc.len() as u64 > source_bytes {
+            return Err(stale_discovery());
+        }
+        self.check_discovery_source(row, selection.record, source_bytes, &mut ledger)?;
+        if row.revision != selection.revision {
             return Err(stale_discovery());
         }
         let (document, footprint) = ledger
@@ -476,7 +463,13 @@ impl<S: Store> Replica<S> {
                 if !work.charge(footprint.values, footprint.estimated_heap_bytes) {
                     return Err(work.failure().expect("exact source structure"));
                 }
-                discover_base_record(&self.catalog, &row.path, &document, &entry.clock, work)
+                discover_base_record(
+                    self.bases_read_catalog(),
+                    &row.path,
+                    &document,
+                    &entry.clock,
+                    work,
+                )
             })
             .map_err(failure)?
             .ok_or_else(invalid)?;
@@ -533,14 +526,13 @@ impl<S: Store> Replica<S> {
         self.recheck_discovery(session, &entry)?;
         ledger.retain(1024 * 1024).map_err(failure)?;
         let final_rows = self
-            .store
-            .hydrate_query_at(&[selection.record], entry.snapshot.head, &mut sources)
+            .bases_local_hydrate(&[selection.record], entry.head, &mut sources)
             .map_err(source_error)?;
         let final_row = final_rows
             .first()
             .filter(|_| final_rows.len() == 1)
             .ok_or_else(stale_discovery)?;
-        self.check_discovery_source(final_row, row.id, meta.source_bytes, &mut ledger)?;
+        self.check_discovery_source(final_row, row.id, row.doc.len() as u64, &mut ledger)?;
         if final_row.path != row.path
             || final_row.path_key != row.path_key
             || final_row.revision != row.revision
@@ -553,7 +545,7 @@ impl<S: Store> Replica<S> {
     }
     fn check_discovery_source(
         &self,
-        row: &RecordRow,
+        row: &LocalRecord,
         id: Uuid,
         encoded_bytes: u64,
         ledger: &mut IncrementalBasesBudget,
@@ -563,16 +555,7 @@ impl<S: Store> Replica<S> {
             || row.path.len() > 4096
             || row.doc.len() > INITIAL_BYTES as usize
             || row.path_key != mdbn_core::paths::path_key(&row.path)
-            || self
-                .store
-                .record_at(&row.path_key)
-                .map_err(|_| unavailable())?
-                != Some(row.id)
-            || self
-                .store
-                .file_at(&row.path_key)
-                .map_err(|_| unavailable())?
-                .is_some()
+            || !self.bases_local_holder_matches(row)?
         {
             return Err(invalid());
         }

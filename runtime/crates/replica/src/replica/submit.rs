@@ -172,6 +172,12 @@ impl<S: Store> Replica<S> {
             .get(&session)
             .ok_or_else(|| ErrorCode::Unauthenticated.err("no such session"))?
             .clone();
+        if self.adopt_gates() {
+            return Err(ErrorCode::Unavailable.err_with_reason(
+                "adopting",
+                "the folder is being adopted; retry once sync is on",
+            ));
+        }
         // Capabilities per operation, against the grant in the confirmed policy
         // (`policy.md` §7.2). The writer re-checks at head and replicas at replay (V6).
         if s.grant().is_some() {

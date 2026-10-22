@@ -7,13 +7,28 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import type { CborValue } from "./cbor.js";
 import { hash as hashCodec, hashFromBytes, list, uint, uuid as uuidCodec } from "./codec.js";
-import type { MdbaseClient, Write, WriteOptions } from "./client.js";
+import type { ChangesWatch, MdbaseClient, Write, WriteOptions } from "./client.js";
 import { isMdbaseError, mdbaseError } from "./errors.js";
-import type { Session } from "./session.js";
+import { withMutation, type Session } from "./session.js";
 import { uuidv7 } from "./values.js";
+
+/** How long an upload waits for the replica's attachment region (a file read
+ * holds it at most a minute without progress) before reporting it busy. */
+const UPLOAD_BUSY_WAIT_MS = 90_000;
+function uploadPause(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(mdbaseError("cancelled", "upload aborted"));
+    const done = () => { signal?.removeEventListener("abort", stop); resolve(); };
+    const timer = setTimeout(done, ms);
+    const stop = () => { clearTimeout(timer); reject(mdbaseError("cancelled", "upload aborted")); };
+    signal?.addEventListener("abort", stop, { once: true });
+  });
+}
 import {
+  ChangesResult,
   FileChunk,
   fileChunk,
+  HelloResult,
   FileView,
   fileView,
   listFilesResult,
@@ -38,6 +53,55 @@ export const MAX_CONVENIENCE_BYTES = 64 * 1024 * 1024;
 const EARLY_CHUNK_BYTES = 8 * 1024 * 1024;
 
 export type FileRef = Uuid | { path: string } | FileView;
+
+/** What a session may do with files. Same vocabulary as Connect's file capability. */
+export type FileAction = "list" | "read" | "add" | "replace" | "move" | "delete";
+/** Where file actions apply: the whole file namespace, or only these folders
+ * (compared by the replica's path key; records are never folder-scoped). */
+export type FileScope = { readonly kind: "collection" } | { readonly kind: "selected_folders"; readonly folders: readonly string[] };
+export interface FileGrant {
+  readonly actions: readonly FileAction[];
+  readonly scope: FileScope;
+}
+
+// policy.md §5: files have no capability group of their own.
+const FILE_ACTION_CAPABILITY: ReadonlyArray<readonly [FileAction, string]> = [
+  ["list", "collection.read"],
+  ["read", "collection.read"],
+  ["add", "records.create"],
+  ["replace", "records.edit"],
+  ["move", "records.edit"],
+  ["delete", "records.delete"],
+];
+
+/**
+ * The file actions and folder scope of a session, mapped from its native grant.
+ * `null` when the scope is unknown: a grant session on a producer before API 1.2,
+ * which does not report `file_folders`. The replica still checks every call.
+ */
+export function fileGrant(hello: HelloResult): FileGrant | null {
+  const { grant } = hello;
+  if (grant.grant !== undefined && hello.version.major === 1 && hello.version.minor < 2) return null;
+  const held = new Set(grant.capabilities);
+  // A grant is bounded by its member's role: viewers never write.
+  const actions = FILE_ACTION_CAPABILITY
+    .filter(([, capability]) => held.has(capability) && (capability === "collection.read" || grant.role !== "viewer"))
+    .map(([action]) => action);
+  const scope: FileScope = grant.fileFolders === undefined
+    ? Object.freeze({ kind: "collection" as const })
+    : Object.freeze({ kind: "selected_folders" as const, folders: Object.freeze([...grant.fileFolders]) });
+  return Object.freeze({ actions: Object.freeze(actions), scope });
+}
+
+/** SDK-internal: the app's declared file actions joined with the person's
+ * recorded choices. Not exported from the package index. */
+export interface FileAccessGate {
+  /** Throws a typed `forbidden` error (`access_required` / `access_undeclared`). */
+  check(action: FileAction): void;
+  allows(action: FileAction): boolean;
+}
+const gates = new WeakMap<FilesApi, FileAccessGate>();
+export function bindFileAccess(files: FilesApi, gate: FileAccessGate): void { gates.set(files, gate); }
 
 function fileRef(f: FileRef): CborValue {
   if (typeof f === "string") return uuidCodec.enc(f);
@@ -72,6 +136,11 @@ export interface UploadOptions {
 /** Anything the SDK can upload from. */
 export type UploadSource = Uint8Array | Blob | ArrayBuffer;
 
+/** A tracked upload receipt with its original, replica-owned file identity. */
+export interface FileWrite extends Write {
+  readonly fileId: Uuid;
+}
+
 async function sliceBytes(src: UploadSource, start: number, end: number): Promise<Uint8Array> {
   if (src instanceof Uint8Array) return src.subarray(start, end);
   if (src instanceof ArrayBuffer) return new Uint8Array(src, start, end - start);
@@ -92,6 +161,35 @@ export class FilesApi {
 
   constructor(private client: MdbaseClient) {
     client.onSession((s) => this.wire(s));
+  }
+
+  /** The current session's file actions and folder scope ({@link fileGrant}). */
+  get grant(): FileGrant | null {
+    const grant = fileGrant(this.client.hello), gate = gates.get(this);
+    // Reads are not gated; writes the person has not allowed are not offered.
+    return grant && gate ? Object.freeze({ ...grant, actions: Object.freeze(grant.actions.filter((a) => a === "list" || a === "read" || gate.allows(a))) }) : grant;
+  }
+
+  /**
+   * Follow non-record file changes: uploads and replacements are puts, a move is
+   * a removal at the old path then a put at the new one, deletions are removals.
+   * It is {@link MdbaseClient.watchChanges} narrowed to files, with the same
+   * lifecycle, reconnect and `reset` (re-read your file cache) semantics; batches
+   * with no file change are skipped. A removal the replica could not classify
+   * is passed on (dropping an unknown ID is harmless); an unclassified put turns
+   * the batch into a reset. Requires API 1.2, else `upgrade_required`.
+   */
+  watch(onChanges: (batch: ChangesResult) => void, options: { cursor?: string } = {}): ChangesWatch {
+    const { version } = this.client.hello;
+    if (version.major !== 1 || version.minor < 2) {
+      throw mdbaseError("upgrade_required", "this replica's change feed does not name files", "change_entity_unsupported");
+    }
+    return this.client.watchChanges(options.cursor, (batch) => {
+      const changes = batch.changes.filter((c) => c.entity === "file" || (c.entity === undefined && c.kind === "remove"));
+      const unclassified = batch.changes.some((c) => c.entity === undefined && c.kind === "put");
+      if (unclassified) onChanges({ changes: [], cursor: batch.cursor, reset: true });
+      else if (changes.length || batch.reset) onChanges({ changes, cursor: batch.cursor, reset: batch.reset });
+    });
   }
 
   private wire(s: Session): void {
@@ -182,7 +280,8 @@ export class FilesApi {
    * the replica lacks. Returns the `file_put` write: `confirmed` means the bytes are
    * durable in the collection.
    */
-  async upload(path: string, source: UploadSource, o: UploadOptions = {}): Promise<Write> {
+  async upload(path: string, source: UploadSource, o: UploadOptions = {}): Promise<FileWrite> {
+    gates.get(this)?.check(o.fileId ? "replace" : "add");
     const size = sizeOf(source);
     // The client's digest commitment, checked by the replica at commit.
     const h = sha256.create();
@@ -194,25 +293,49 @@ export class FilesApi {
     if (o.fileId) open.fileId = o.fileId;
     if (o.ifRevision) open.ifRevision = o.ifRevision;
     if (o.onProgress) this.progress.set(transfer, o.onProgress);
+    const busyUntil = Date.now() + UPLOAD_BUSY_WAIT_MS;
     for (;;) {
+      const phase = { committing: false };
       try {
-        return await this.uploadOnce(source, size, open, o);
+        return await this.uploadOnce(source, size, open, o, phase);
       } catch (e) {
         // Retry after a dropped link; the transfer survives on the replica.
-        if (!(isMdbaseError(e, "unavailable") && this.client.link === "reconnecting")) {
-          this.progress.delete(transfer);
-          throw e;
+        if (isMdbaseError(e, "unavailable") && this.client.link === "reconnecting") continue;
+        // The replica's one attachment region is in use (often a file being read):
+        // nothing was opened, so wait as asked and open again, within a bound.
+        if (isMdbaseError(e, "unavailable") && e.reason === "hosted_chunk_busy" && Date.now() < busyUntil) {
+          await uploadPause(Math.min(Math.max(e.retryAfterMs ?? 1000, 250), 5000), o.signal);
+          continue;
         }
+        this.progress.delete(transfer);
+        // Nothing can have been captured before commit: release the replica's
+        // upload lane so a failed transfer never blocks the next one. A retry
+        // under the same transferId and mutationId opens it afresh.
+        if (!phase.committing) await this.abortUpload(transfer).catch(() => {});
+        // Resume under the same transferId and mutationId; never a new identity.
+        throw withMutation(e, "upload", { mutationId: open.mutationId });
       }
     }
   }
 
-  private async uploadOnce(source: UploadSource, size: number, open: OpenUploadParams, o: UploadOptions): Promise<Write> {
+  private async uploadOnce(source: UploadSource, size: number, open: OpenUploadParams, o: UploadOptions, phase: { committing: boolean }): Promise<FileWrite> {
     const s = await this.session(o.signal);
     const sig = o.signal ? { signal: o.signal } : {};
     const opened = await s.request("open_upload", openUploadParams.enc(open), { codec: openUploadResult, ...sig });
+    if (opened.fileId === undefined) {
+      const required = s.hello.version.minor >= 1;
+      throw mdbaseError(required ? "internal" : "upgrade_required", "the replica does not return upload file identity", {
+        reason: required ? "file_upload_identity_missing" : "file_upload_identity_unsupported",
+      });
+    }
+    if (opened.transfer !== open.transfer || (open.fileId !== undefined && opened.fileId !== open.fileId)) {
+      throw mdbaseError("internal", "the replica returned an unrelated upload identity", {
+        reason: "file_upload_identity_mismatch",
+      });
+    }
     const have = new Set(opened.received);
-    const chunks = Math.max(1, Math.ceil(size / opened.chunkSize));
+    // Empty uploads have no input fragments; native commit seals the empty object.
+    const chunks = Math.ceil(size / opened.chunkSize);
     let done = have.size * opened.chunkSize;
     // A few chunks in flight keeps the link busy without unbounded buffering.
     const inflight = new Set<Promise<void>>();
@@ -231,11 +354,12 @@ export class FilesApi {
       if (inflight.size >= 4) await Promise.race(inflight);
     }
     await Promise.all(inflight);
+    phase.committing = true;
     const r = await s.request("commit_upload", m([[0, uuidCodec.enc(open.transfer)]]), {
       codec: receiptCodec,
       ...sig,
     });
-    const w = this.client._track(r);
+    const w = Object.assign(this.client._track(r), { fileId: opened.fileId });
     if (o.onProgress) {
       void w.confirmed.finally(() => this.progress.delete(open.transfer)).catch(() => {});
     } else {
@@ -370,6 +494,7 @@ export class FilesApi {
     to: string,
     o: WriteOptions & { updateRefs?: boolean; ifRevision?: string } = {},
   ): Promise<Write> {
+    gates.get(this)?.check("move");
     const op = { kind: "file_move" as const, id: f.id, from: f.path, to, updateRefs: o.updateRefs ?? true };
     const [w] = await this.client.submit([o.ifRevision ? { ...op, ifRevision: o.ifRevision } : op], o);
     return w!;
@@ -377,6 +502,7 @@ export class FilesApi {
 
   /** Delete a file. With a FileView, a concurrent replacement supersedes the delete. */
   async delete(f: FileRef, o: WriteOptions & { ifRevision?: string } = {}): Promise<Write> {
+    gates.get(this)?.check("delete");
     const op: import("./wire.js").Op = { kind: "file_delete", id: fileId(f) };
     if (typeof f === "object" && "digest" in f) op.base = f.digest;
     if (o.ifRevision) op.ifRevision = o.ifRevision;

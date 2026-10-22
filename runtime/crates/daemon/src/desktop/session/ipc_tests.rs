@@ -63,6 +63,7 @@ fn pending() -> AccessEntry {
             capabilities: vec!["records.read".to_owned()],
             folders: None,
             legacy_only: false,
+            declared_setup: None,
         },
         state: AccessState::PendingApproval,
         first_seen_ms: 1,

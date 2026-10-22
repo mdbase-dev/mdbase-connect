@@ -67,6 +67,17 @@ impl ControlClient {
     /// Call a method and wait for its response (pushes received meanwhile are
     /// dropped; use [`ControlClient::next_push`] after `status.subscribe`).
     pub async fn call(&mut self, method: &str, params: Value) -> Result<Value, ClientError> {
+        self.call_within(method, params, CALL_TIMEOUT).await
+    }
+
+    /// [`ControlClient::call`] with its own bound, for methods that may legitimately
+    /// run longer than [`CALL_TIMEOUT`] (the local takeover).
+    pub async fn call_within(
+        &mut self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+    ) -> Result<Value, ClientError> {
         let id = self.next_id;
         self.next_id += 1;
         let req = Request {
@@ -92,7 +103,7 @@ impl ControlClient {
                 };
             }
         };
-        tokio::time::timeout(CALL_TIMEOUT, fut)
+        tokio::time::timeout(timeout, fut)
             .await
             .map_err(|_| ClientError::Timeout)?
     }

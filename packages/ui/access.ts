@@ -96,15 +96,17 @@ const authorizationOperationLabels: Record<string, string> = {
   create_view_source: "Create saved views",
   update_view_source: "Change saved views",
   delete_view_source: "Delete saved views",
-  read_type: "Inspect type definitions",
-  create_type: "Create type definitions",
-  update_type: "Change type definitions",
-  assess_type_pack: "Check collection definitions",
-  apply_type_pack: "Update collection definitions",
-  list_timers: "List application timers",
-  put_timer: "Create or update timers",
-  cancel_timer: "Cancel timers",
-  reconcile_timers: "Reconcile application timers"
+  read_type: "View record types",
+  create_type: "Add record types",
+  update_type: "Change record types",
+  assess_type_pack: "Check available record types",
+  apply_type_pack: "Install or update record types",
+  assess_collection_setup: "Check what this app needs to set up",
+  apply_collection_setup: "Set up this app in the collection",
+  list_timers: "See this app's scheduled activity",
+  put_timer: "Create or update this app's scheduled activity",
+  cancel_timer: "Cancel this app's scheduled activity",
+  reconcile_timers: "Replace this app's scheduled activity"
 };
 
 const TRANSPORT_CAPABILITIES = new Set(["sync"]);
@@ -179,6 +181,16 @@ export function groupAuthorizationOperations(
 export function authorizationOperationLabel(operation: string): string {
   return authorizationOperationLabels[operation]
     ?? `${operation[0]?.toUpperCase() ?? ""}${operation.slice(1).replaceAll("_", " ")}`;
+}
+
+/** Display the grant's exact origin, not the application's general homepage.
+ * A loopback web origin is development only; this label confers no trust. */
+export function applicationAccessOriginLabel(origin: string): string {
+  try {
+    const url = new URL(origin);
+    return ["http:", "https:"].includes(url.protocol) && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
+      ? `Local development (${url.host})` : url.host || origin;
+  } catch { return origin; }
 }
 
 function compareGrants<Grant extends ApplicationAccessGrant>(left: Grant, right: Grant): number {

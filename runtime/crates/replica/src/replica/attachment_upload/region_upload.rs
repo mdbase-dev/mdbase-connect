@@ -1,5 +1,5 @@
-//! Additive grant-owned fixed-region upload driver. No source/body ownership:
-//! the hosted Engine lends its ONE region. LS HasObjects/PutObject callbacks
+//! Shared native session-owned fixed-region upload driver. No source/body ownership:
+//! the adapter lends its ONE region. LS HasObjects/PutObject callbacks
 //! retain the existing authenticated native reply scopes; no host boolean
 //! confirms storage. SQL progress is possible only after the encrypted resume
 //! object has a known native successful PUT reply. Unknown outcomes are terminal.
@@ -12,10 +12,10 @@ use crate::crypto::chunked_blob::{
 };
 use zeroize::Zeroize;
 
-/// Native input for CREATE only; adapter replacement fields must be refused.
+/// Native input for CREATE, or replace of a live Ordinary File when `replace` is set.
 #[derive(Debug, Clone)]
 pub struct HostedAttachmentTransferParams {
-    /// Wire transfer identity, scoped to current grant/client/account.
+    /// Wire transfer identity, scoped to the actual native Grant or Host owner.
     pub transfer: Uuid,
     /// Exact destination.
     pub path: String,
@@ -23,8 +23,10 @@ pub struct HostedAttachmentTransferParams {
     pub size: u64,
     /// Optional immutable whole digest.
     pub digest: Option<Hash>,
-    /// Delegated mutation; minted natively when omitted.
+    /// Mutation; minted natively when omitted.
     pub mutation: Option<Uuid>,
+    /// Replace this live file (same path, `records.edit`, revision CAS).
+    pub replace: Option<crate::replica::FileReplacement>,
 }
 /// Trusted-host metadata only, NOT current authority or a SQL commit receipt.
 /// A newly reported checkpoint has a known native encrypted-object PUT reply.
@@ -44,21 +46,23 @@ pub struct HostedAttachmentTransferProgress {
 pub(super) struct HostedRegion {
     pub(super) transfer: Uuid,
     digest: Option<Hash>,
-    expires_at_ms: u64,
+    pub(super) expires_at_ms: u64,
     pub(super) committed_chunks: u64,
-    checkpoint: Option<UploadResumeRefV1>,
+    pub(super) checkpoint: Option<UploadResumeRefV1>,
     pending: Option<ChunkRefV1>,
     resume: Option<AuthenticatedUploadResumeV1>,
 }
 impl<S: Store> Replica<S> {
-    /// Start a native grant-owned CREATE that waits for fixed-region chunks.
-    /// Does not activate wire upload, allocate a file buffer or authorize R2/SQL.
-    pub fn start_hosted_attachment_region_upload(
+    /// Start a native session-owned CREATE that waits for fixed-region chunks.
+    /// Returns original (mutation, file) before input. Does not activate wire
+    /// upload, allocate a file buffer or authorize R2/SQL.
+    pub(crate) fn start_attachment_region_upload(
         &mut self,
         session: SessionId,
         params: HostedAttachmentTransferParams,
-    ) -> ApiResult<Uuid> {
-        let context = self.hosted_attachment_create_context(session, &params.path, params.size)?;
+    ) -> ApiResult<(Uuid, Uuid)> {
+        let context =
+            self.attachment_create_context(session, &params.path, params.size, params.replace)?;
         self.hosted_upload_capacity(context.grant())?;
         let mutation = params.mutation.unwrap_or_else(|| self.mint_v7());
         self.region_mutation_free(mutation)?;
@@ -77,7 +81,7 @@ impl<S: Store> Replica<S> {
             params: AttachmentUploadParams {
                 file: context.file(),
                 path: params.path,
-                if_revision: None,
+                if_revision: context.replace().map(|r| r.if_revision),
                 mutation: Some(mutation),
             },
             source: None,
@@ -107,25 +111,111 @@ impl<S: Store> Replica<S> {
             }),
             lifetime: Some(HostedLifetime::new(self.now(), expires)),
         };
+        let file = up.params.file;
         self.attachment_uploads.map.insert(mutation, up);
         self.attachment_uploads.queue.push_back(mutation);
-        Ok(mutation)
+        Ok((mutation, file))
+    }
+    /// Establish original CREATE identity before wire open can expose it, even
+    /// when no chunks have been supplied. Only the real ClientApi lane calls this.
+    pub(crate) fn start_client_upload_journal(
+        &mut self,
+        session: SessionId,
+        mutation: &Uuid,
+    ) -> ApiResult<()> {
+        if !self.client_upload_tracks(session, *mutation) {
+            return Err(
+                ErrorCode::Internal.err("initial journal requires the exact native client lane")
+            );
+        }
+        self.with_region_upload(session, mutation, |r, up| {
+            let h = up.hosted.as_ref().expect("region_check established region");
+            let w = up.writer.as_ref().expect("fresh region owns writer");
+            if up.call.is_some()
+                || h.checkpoint.is_some()
+                || h.pending.is_some()
+                || !w.chunks().is_empty()
+            {
+                return Err(ErrorCode::Internal.err("initial journal must precede chunk input"));
+            }
+            let ctx = up
+                .origin
+                .delegated
+                .as_ref()
+                .expect("region_check established owner");
+            let expires_at_ms = h.expires_at_ms;
+            let metadata = UploadResumeMetadataV1 {
+                context: w.context(),
+                owner: ctx.resume_owner(h.transfer),
+                file: up.params.file,
+                mutation: up.mutation,
+                path: up.params.path.clone(),
+                total_plain_bytes: up.total,
+                expected_whole_hash: h.digest,
+                expires_at_ms,
+                chunks: Vec::new(),
+                replace_revision: up.params.if_revision,
+            };
+            let (object, reference) = r
+                .sealer
+                .seal_hosted_upload_resume(&metadata, r.host.entropy.as_mut())
+                .map_err(|_| {
+                    ErrorCode::Unavailable.err("the initial resume journal could not be sealed")
+                })?;
+            r.attachment_call(
+                up,
+                Call::HostedPutResume {
+                    reference,
+                    chunks: 0,
+                    expires_at_ms,
+                },
+                LogRequest::PutObject {
+                    collection: r.cfg.collection,
+                    address: object.cipher_hash,
+                    kind: ItemKind::BlobPart,
+                    bytes: object.bytes,
+                },
+            );
+            Ok(())
+        })
     }
     /// Authenticate the encrypted journal for the fresh CURRENT native subject,
     /// restore original server file/context only from it, and wait for rehash.
     /// Entire region wiped on every path. No stale session/wake permit survives.
-    pub fn resume_hosted_attachment_region_upload(
+    pub(crate) fn resume_attachment_region_upload(
         &mut self,
         session: SessionId,
         params: HostedAttachmentTransferParams,
         reference: UploadResumeRefV1,
         region: &mut [u8],
-    ) -> ApiResult<Uuid> {
+    ) -> ApiResult<(Uuid, Uuid)> {
         let result = (|| {
             // Native policy/folder/health/currentness BEFORE decrypt/digest work.
             let preflight =
-                self.hosted_attachment_create_context(session, &params.path, params.size)?;
+                self.attachment_create_context(session, &params.path, params.size, params.replace)?;
             self.hosted_upload_capacity(preflight.grant())?;
+            let resume =
+                self.authenticate_attachment_region_resume(session, &params, reference, region)?;
+            self.start_authenticated_attachment_region_resume(session, params, reference, resume)
+        })();
+        region.zeroize();
+        result
+    }
+    /// One native journal authentication path; it cannot start CREATE or emit a receipt.
+    pub(in crate::replica) fn authenticate_attachment_region_resume(
+        &mut self,
+        session: SessionId,
+        params: &HostedAttachmentTransferParams,
+        reference: UploadResumeRefV1,
+        region: &mut [u8],
+    ) -> ApiResult<crate::crypto::chunked_blob::upload_resume::AuthenticatedUploadResumeV1> {
+        let result = (|| {
+            let preflight = self.attachment_upload_authority_context(
+                session,
+                &params.path,
+                params.size,
+                params.replace,
+            )?;
             let owner = preflight.resume_owner(params.transfer);
             let resume = self
                 .sealer
@@ -146,57 +236,82 @@ impl<S: Store> Replica<S> {
                     "the resume request or expiry changed",
                 ));
             }
-            let context =
-                self.hosted_attachment_resume_context(session, &params.path, params.size, &resume)?;
-            let mutation = m.mutation;
-            self.region_mutation_free(mutation)?;
-            let limits = AttachmentLimits::default();
-            let writer =
-                AttachmentWriter::resume(&*self.sealer, m.context, m.total_plain_bytes, limits)
-                    .map_err(|e| stream_problem(&e))?;
-            let committed = m.chunks.len() as u64;
-            let expires = m.expires_at_ms;
-            let up = Upload {
-                mutation,
-                params: AttachmentUploadParams {
-                    file: context.file(),
-                    path: params.path,
-                    if_revision: None,
-                    mutation: Some(mutation),
-                },
-                source: None,
-                total: params.size,
-                limits,
-                writer: Some(writer),
-                before: None,
-                recorded: vec![],
-                finished: None,
-                phase: Phase::HostedChunks,
-                call: None,
-                unsure: None,
-                retry_at: None,
-                rounds: 0,
-                origin: Origin {
-                    delegated: Some(context),
-                    ..Default::default()
-                },
-                hosted: Some(HostedRegion {
-                    transfer: params.transfer,
-                    digest: params.digest,
-                    expires_at_ms: expires,
-                    committed_chunks: committed,
-                    checkpoint: Some(reference),
-                    pending: None,
-                    resume: if committed == 0 { None } else { Some(resume) },
-                }),
-                lifetime: Some(HostedLifetime::new(self.now(), expires)),
-            };
-            self.attachment_uploads.map.insert(mutation, up);
-            self.attachment_uploads.queue.push_back(mutation);
-            Ok(mutation)
+            self.attachment_resume_authority_context(
+                session,
+                &params.path,
+                params.size,
+                &resume,
+                params.replace,
+            )?;
+            Ok(resume)
         })();
         region.zeroize();
         result
+    }
+    /// Only the ordinary CREATE path restores a writer, with destination absence.
+    pub(in crate::replica) fn start_authenticated_attachment_region_resume(
+        &mut self,
+        session: SessionId,
+        params: HostedAttachmentTransferParams,
+        reference: UploadResumeRefV1,
+        resume: crate::crypto::chunked_blob::upload_resume::AuthenticatedUploadResumeV1,
+    ) -> ApiResult<(Uuid, Uuid)> {
+        let m = resume.metadata();
+        let context = self.attachment_resume_context(
+            session,
+            &params.path,
+            params.size,
+            &resume,
+            params.replace,
+        )?;
+        self.hosted_upload_capacity(context.grant())?;
+        let mutation = m.mutation;
+        self.region_mutation_free(mutation)?;
+        let limits = AttachmentLimits::default();
+        let writer =
+            AttachmentWriter::resume(&*self.sealer, m.context, m.total_plain_bytes, limits)
+                .map_err(|e| stream_problem(&e))?;
+        let committed = m.chunks.len() as u64;
+        let expires = m.expires_at_ms;
+        let up = Upload {
+            mutation,
+            params: AttachmentUploadParams {
+                file: context.file(),
+                path: params.path,
+                if_revision: m.replace_revision,
+                mutation: Some(mutation),
+            },
+            source: None,
+            total: params.size,
+            limits,
+            writer: Some(writer),
+            before: None,
+            recorded: vec![],
+            finished: None,
+            phase: Phase::HostedChunks,
+            call: None,
+            unsure: None,
+            retry_at: None,
+            rounds: 0,
+            origin: Origin {
+                delegated: Some(context),
+                ..Default::default()
+            },
+            hosted: Some(HostedRegion {
+                transfer: params.transfer,
+                digest: params.digest,
+                expires_at_ms: expires,
+                committed_chunks: committed,
+                checkpoint: Some(reference),
+                pending: None,
+                resume: if committed == 0 { None } else { Some(resume) },
+            }),
+            lifetime: Some(HostedLifetime::new(self.now(), expires)),
+        };
+        let file = up.params.file;
+        self.attachment_uploads.map.insert(mutation, up);
+        self.attachment_uploads.queue.push_back(mutation);
+        Ok((mutation, file))
     }
     pub(super) fn region_expiry(&self) -> u64 {
         u64::try_from(self.now())
@@ -222,9 +337,9 @@ impl<S: Store> Replica<S> {
             .as_ref()
             .filter(|_| up.hosted.is_some() && !matches!(up.phase, Phase::Done(_)))
             .ok_or_else(|| ErrorCode::Unavailable.err("the hosted region upload is not active"))?;
-        self.hosted_attachment_upload_caller_check(session, context)?;
+        self.attachment_create_caller_check(session, context)?;
         self.hosted_upload_lifetime_check(up)?;
-        self.hosted_attachment_create_check(context, &up.params.path, up.total, &up.params.file)?;
+        self.attachment_create_check(context, &up.params.path, up.total, &up.params.file)?;
         if up
             .hosted
             .as_ref()
@@ -261,7 +376,7 @@ impl<S: Store> Replica<S> {
     }
     /// Next committed prefix object to rehash. Only ciphertext identities leave
     /// native memory; progress cannot proceed until all rehash chunks authenticate.
-    pub fn hosted_attachment_rehash_need(
+    pub(crate) fn attachment_rehash_need(
         &self,
         session: SessionId,
         mutation: &Uuid,
@@ -293,7 +408,7 @@ impl<S: Store> Replica<S> {
     }
     /// Authenticate next committed-prefix chunk, feed native digest and wipe the
     /// SAME region. New authority checks precede plaintext work; no app output.
-    pub fn supply_hosted_attachment_rehash(
+    pub(crate) fn supply_attachment_rehash(
         &mut self,
         session: SessionId,
         mutation: &Uuid,
@@ -342,7 +457,7 @@ impl<S: Store> Replica<S> {
     }
     /// Seal next exact crypto chunk in the lent region. This is tentative RAM
     /// progress ONLY; neither plaintext nor ciphertext is copied into the queue.
-    pub fn push_hosted_attachment_region_chunk(
+    pub(crate) fn push_attachment_region_chunk(
         &mut self,
         session: SessionId,
         mutation: &Uuid,
@@ -378,9 +493,65 @@ impl<S: Store> Replica<S> {
         }
         result
     }
+    /// Actual new fragment acceptance renews idle activity, never original expiry
+    /// or committed journal progress. Readonly and retry probes do not call this.
+    pub(crate) fn attachment_region_accept_fragment(
+        &mut self,
+        session: SessionId,
+        mutation: &Uuid,
+    ) -> ApiResult<()> {
+        self.with_region_upload(session, mutation, |_, _| Ok(()))
+    }
+    /// Stage only the exact native sealed span through authenticated LS. The
+    /// successful PUT must still pass the existing LS probe and known encrypted
+    /// journal PUT before committed progress. Always wipe the entire lent region.
+    pub(crate) fn put_attachment_region_chunk(
+        &mut self,
+        session: SessionId,
+        mutation: &Uuid,
+        region: &mut [u8],
+        span: SealedChunkSpan,
+    ) -> ApiResult<()> {
+        let result = self.with_region_upload(session, mutation, |r, up| {
+            let h = up
+                .hosted
+                .as_ref()
+                .ok_or_else(|| ErrorCode::Internal.err("no region state"))?;
+            let chunk = h
+                .pending
+                .ok_or_else(|| ErrorCode::InvalidRequest.err("no sealed chunk pending"))?;
+            if up.call.is_some() || !matches!(up.phase, Phase::HostedChunks) {
+                return Err(ErrorCode::InvalidRequest.err("chunk storage already pending"));
+            }
+            if chunk != span.reference() {
+                return Err(ErrorCode::InvalidRequest.err("sealed chunk identity does not match"));
+            }
+            let bytes = region
+                .get(span.range())
+                .ok_or_else(|| ErrorCode::InvalidRequest.err("sealed chunk region is truncated"))?;
+            if mdbn_wire::hash::sha256(bytes) != chunk.cipher_hash {
+                return Err(ErrorCode::InvalidRequest.err("sealed chunk ciphertext changed"));
+            }
+            r.attachment_call(
+                up,
+                Call::RegionPutChunk {
+                    address: chunk.cipher_hash,
+                },
+                LogRequest::PutObject {
+                    collection: r.cfg.collection,
+                    address: chunk.cipher_hash,
+                    kind: ItemKind::BlobPart,
+                    bytes: bytes.to_vec(),
+                },
+            );
+            Ok(())
+        });
+        region.zeroize();
+        result
+    }
     /// After adapter's staged PUT/commit, ask authoritative LS whether the exact
     /// pending native object is committed. Host claims confer NO progress.
-    pub fn verify_hosted_attachment_region_chunk(
+    pub(crate) fn verify_attachment_region_chunk(
         &mut self,
         session: SessionId,
         mutation: &Uuid,
@@ -411,7 +582,7 @@ impl<S: Store> Replica<S> {
     }
     /// Current native confirmed checkpoint only; adapter still checks its engine/
     /// wake/socket/live admission/resource before SQL progress/output/after await.
-    pub fn hosted_attachment_region_progress(
+    pub(crate) fn attachment_region_progress(
         &self,
         session: SessionId,
         mutation: &Uuid,
@@ -436,12 +607,17 @@ impl<S: Store> Replica<S> {
     }
     /// Every chunk must have known metadata commit/rehash before final native
     /// manifest PUT + authoritative HasObjects + delegated capture loop.
-    pub fn commit_hosted_attachment_region_upload(
+    pub(crate) fn commit_attachment_region_upload(
         &mut self,
         session: SessionId,
         mutation: &Uuid,
     ) -> ApiResult<()> {
         self.with_region_upload(session, mutation, |r, up| {
+            // Polling an already-started canonical commit never reseals or queues
+            // a second manifest. Current authority still precedes this branch.
+            if matches!(up.phase, Phase::Manifest | Phase::Verify) {
+                return Ok(());
+            }
             let h = up
                 .hosted
                 .as_ref()
@@ -516,6 +692,24 @@ impl<S: Store> Replica<S> {
             return up.fail(e.into_problem());
         }
         match (call, response) {
+            (Call::RegionPutChunk { address }, LogResponse::PutObject { .. }) => {
+                if up
+                    .hosted
+                    .as_ref()
+                    .and_then(|h| h.pending)
+                    .is_none_or(|c| c.cipher_hash != address)
+                {
+                    return up.fail(ErrorCode::Internal.problem("staged chunk identity changed"));
+                }
+                self.attachment_call(
+                    up,
+                    Call::HostedVerifyChunk { address },
+                    LogRequest::HasObjects {
+                        collection: self.cfg.collection,
+                        addresses: vec![address],
+                    },
+                );
+            }
             (Call::HostedVerifyChunk { address }, LogResponse::HasObjects(flags))
                 if flags == [true] =>
             {
@@ -542,6 +736,7 @@ impl<S: Store> Replica<S> {
                     expected_whole_hash: h.digest,
                     expires_at_ms: expiry,
                     chunks: w.chunks().to_vec(),
+                    replace_revision: up.params.if_revision,
                 };
                 let chunks = metadata.chunks.len() as u64;
                 match self
@@ -576,6 +771,32 @@ impl<S: Store> Replica<S> {
                 },
                 LogResponse::PutObject { .. },
             ) => {
+                if self.client_upload_tracks(session, up.mutation) {
+                    let ctx = up
+                        .origin
+                        .delegated
+                        .as_ref()
+                        .expect("region_check established owner");
+                    let transfer = up
+                        .hosted
+                        .as_ref()
+                        .expect("region_check established region")
+                        .transfer;
+                    let owner = ctx.resume_owner(transfer);
+                    if let Err(error) = self.persist_client_resume_reference(owner, Some(reference))
+                    {
+                        if !matches!(error, crate::store::StoreError::CommitAborted(_)) {
+                            self.terminal_store_fault("file_upload_checkpoint_store_unknown");
+                        }
+                        return up.fail(ErrorCode::Unavailable.problem_with_reason(
+                            "file_upload_checkpoint_store_failed",
+                            "the local committed resume reference could not be durably recorded",
+                        ));
+                    }
+                    let binding = super::client_resume::capture_reference_meta(owner, reference);
+                    up.origin.meta.retain(|(key, _)| key != &binding.0);
+                    up.origin.meta.push(binding);
+                }
                 let Some(h) = up.hosted.as_mut() else {
                     return up.fail(ErrorCode::Internal.problem("no hosted region state"));
                 };

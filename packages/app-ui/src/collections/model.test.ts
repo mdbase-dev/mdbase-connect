@@ -31,6 +31,24 @@ function snapshot(phase: MdbasePhase, extra: Partial<MdbaseSnapshot> = {}): Mdba
 const app = { appName: "TaskNotes" };
 
 describe("collectionView", () => {
+  it.each([
+    ["joining", "Connecting your collection…"], ["opening_store", "Opening the local collection…"],
+    ["connecting_log", "Connecting to sync…"], ["syncing", "Syncing your collection…"],
+    ["loading_snapshot", "Loading the collection snapshot…"], ["replaying", "Applying collection updates…"],
+    ["waiting_for_key", "Waiting for the collection key…"], ["verifying_read", "Checking the collection is readable…"],
+    ["checking_setup", "Checking collection setup…"],
+  ])("shows only truthful fixed progress copy for %s", (progress, lead) => {
+    const phase = {kind: "opening" as const, collectionId: A, displayName: "Notes", slow: false, progress};
+    expect(collectionView(snapshot(phase), app)).toMatchObject({kind: "opening", lead, slow: false});
+    expect(collectionView(snapshot({...phase, slow: true}), app)).toMatchObject({kind: "opening", lead: `${lead}\nThis is taking longer than usual.`, slow: true});
+  });
+  it("keeps the older-SDK fallback and never renders unknown progress text", () => {
+    for (const progress of [undefined, "private document name", "__proto__", "constructor"]) {
+      const phase = {kind: "opening" as const, collectionId: A, displayName: "Notes", slow: true, progress};
+      expect(collectionView(snapshot(phase), app).lead).toBe("This is taking longer than usual.");
+      expect(collectionView(snapshot({...phase, slow: false}), app).lead).toBeNull();
+    }
+  });
   it("names the blocked collection in the heading, puts its fix inside the problem, and lists it once as current", () => {
     const problem = describeError("collection_migrating")!;
     const view = collectionView(snapshot({ kind: "problem", collectionId: A, problem: { ...problem, transient: false } }, { status: "blocked", selectedCollectionId: A }), app);

@@ -16,12 +16,12 @@ need to understand relays, OAuth, or networking to control access.
 ## Product Purpose
 
 mdbase connect makes a user's local and hosted collections safely available to
-applications they choose. The editor's Connect workspace is the primary web
-surface for collections, application access, computers, browser sessions, and
-the account. The desktop client remains the authority for adding local folders,
-on-device availability, and optional local mirrors. The small Connect portal
-handles only transactional browser flows: sign-in, account recovery, pairing,
-and grant approval. The hosted service supplies identity, short-lived
+applications they choose. The Connect portal is the primary web surface for
+collections, application access, computers, browser sessions, and the account
+at `/account`. The Editor links to this portal and remains an independently
+authorized collection application. The desktop client remains the authority
+for adding local folders, on-device availability, and optional local mirrors.
+The portal also handles sign-in, account recovery, pairing, and grant approval. The hosted service supplies identity, short-lived
 authorization, routing, an outbound-only relay for local authorities, and a
 durable authority for hosted collections. Hosted collections are always mdbase
 collections—application contracts are optional consumers, never the storage

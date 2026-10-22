@@ -5,8 +5,11 @@ export const CONNECT_PROBLEM_VERSION = 1 as const;
 export const CONNECT_PROBLEM_CATALOG = {
   "access_denied": { category: "authorization", recovery: "reauthorize" },
   "access_paused": { category: "availability", recovery: "resume_connector_access" },
+  "application_authorization_issuance_disabled": { category: "authorization", recovery: "reauthorize" },
   "application_declaration_mismatch": { category: "authorization", recovery: "reauthorize" },
   "application_identity_unavailable": { category: "compatibility", recovery: "upgrade_application" },
+  "application_reauthorization_required": { category: "authorization", recovery: "reauthorize" },
+  "application_semantic_version_mismatch": { category: "authorization", recovery: "reauthorize" },
   "approval_window_blocked": { category: "authorization", recovery: "reauthorize" },
   "authority_authorization_changed": { category: "authorization", recovery: "reauthorize" },
   "authorization_binding_incompatible": { category: "compatibility", recovery: "upgrade_application" },
@@ -70,6 +73,7 @@ export const CONNECT_PROBLEM_CATALOG = {
   "invalid_push_payload": { category: "validation", recovery: "fix_request" },
   "invalid_push_subscription": { category: "validation", recovery: "fix_request" },
   "invalid_read_cursor": { category: "validation", recovery: "fix_request" },
+  "invalid_replica": { category: "authorization", recovery: "reauthorize" },
   "invalid_request": { category: "validation", recovery: "fix_request" },
   "invalid_token_response": { category: "integrity", recovery: "contact_support" },
   "legacy_scope_reauthorization_required": { category: "authorization", recovery: "reauthorize" },
@@ -83,6 +87,7 @@ export const CONNECT_PROBLEM_CATALOG = {
   "not_authorized": { category: "authorization", recovery: "reauthorize" },
   "not_remote_authority": { category: "compatibility", recovery: "choose_collection" },
   "notification_criterion_not_declared": { category: "validation", recovery: "fix_request" },
+  "notification_grant_reauthorization_required": { category: "authorization", recovery: "reauthorize" },
   "notification_reauthorization_required": { category: "authorization", recovery: "reauthorize" },
   "notification_registration_failed": { category: "availability", recovery: "retry" },
   "notification_unregistration_failed": { category: "availability", recovery: "retry" },
@@ -92,6 +97,7 @@ export const CONNECT_PROBLEM_CATALOG = {
   "operation_failed": { category: "internal", recovery: "contact_support" },
   "operation_invalid": { category: "validation", recovery: "fix_request" },
   "operation_outcome_unknown": { category: "conflict", recovery: "resolve_outcome" },
+  "origin_denied": { category: "authorization", recovery: "reauthorize" },
   "path_occupied": { category: "conflict", recovery: "resolve_conflict" },
   "pending_mutation_unresolved": { category: "conflict", recovery: "resolve_outcome" },
   "query_snapshot_changed": { category: "conflict", recovery: "refresh" },
@@ -106,8 +112,11 @@ export const CONNECT_PROBLEM_CATALOG = {
   "registry_schema_incompatible": { category: "compatibility", recovery: "upgrade_connector" },
   "relay_authorization_expired": { category: "authorization", recovery: "reauthorize" },
   "relay_unavailable": { category: "availability", recovery: "retry" },
+  "replica_scope_denied": { category: "authorization", recovery: "reauthorize" },
   "sandbox_unsupported": { category: "compatibility", recovery: "fix_request" },
+  "scope_changed": { category: "authorization", recovery: "reauthorize" },
   "scope_denied": { category: "authorization", recovery: "reauthorize" },
+  "scope_epoch_stale": { category: "authorization", recovery: "reauthorize" },
   "session_destroyed": { category: "cancellation", recovery: "none" },
   "session_not_started": { category: "validation", recovery: "fix_request" },
   "session_starting": { category: "availability", recovery: "retry" },
@@ -116,6 +125,7 @@ export const CONNECT_PROBLEM_CATALOG = {
   "sync_failed": { category: "availability", recovery: "retry" },
   "temporarily_unavailable": { category: "availability", recovery: "retry" },
   "timeout": { category: "availability", recovery: "retry" },
+  "timer_grant_unavailable": { category: "authorization", recovery: "reauthorize" },
   "token_exchange_failed": { category: "availability", recovery: "retry" },
   "transport_protocol_incompatible": { category: "compatibility", recovery: "upgrade_connector" },
   "type_pack_provision_failed": { category: "validation", recovery: "repair_collection" },
@@ -142,8 +152,11 @@ export interface ConnectProblemDetailsByCode {
   "return_to"?: string;
 };
   "access_paused": undefined;
+  "application_authorization_issuance_disabled": undefined;
   "application_declaration_mismatch": undefined;
   "application_identity_unavailable": undefined;
+  "application_reauthorization_required": undefined;
+  "application_semantic_version_mismatch": undefined;
   "approval_window_blocked": {
   "user_code": string;
   "verification_uri": string;
@@ -260,6 +273,7 @@ export interface ConnectProblemDetailsByCode {
   "invalid_push_payload": undefined;
   "invalid_push_subscription": undefined;
   "invalid_read_cursor": undefined;
+  "invalid_replica": undefined;
   "invalid_request": undefined;
   "invalid_token_response": undefined;
   "legacy_scope_reauthorization_required": undefined;
@@ -275,6 +289,7 @@ export interface ConnectProblemDetailsByCode {
   "not_authorized": undefined;
   "not_remote_authority": undefined;
   "notification_criterion_not_declared": undefined;
+  "notification_grant_reauthorization_required": undefined;
   "notification_reauthorization_required": undefined;
   "notification_registration_failed": undefined;
   "notification_unregistration_failed": undefined;
@@ -289,6 +304,7 @@ export interface ConnectProblemDetailsByCode {
   "operation_outcome_unknown": {
   "request_id": string;
 };
+  "origin_denied": undefined;
   "path_occupied": undefined;
   "pending_mutation_unresolved": undefined;
   "query_snapshot_changed": undefined;
@@ -305,8 +321,11 @@ export interface ConnectProblemDetailsByCode {
   "registry_schema_incompatible": undefined;
   "relay_authorization_expired": undefined;
   "relay_unavailable": undefined;
+  "replica_scope_denied": undefined;
   "sandbox_unsupported": undefined;
+  "scope_changed": undefined;
   "scope_denied": undefined;
+  "scope_epoch_stale": undefined;
   "session_destroyed": undefined;
   "session_not_started": undefined;
   "session_starting": undefined;
@@ -315,6 +334,7 @@ export interface ConnectProblemDetailsByCode {
   "sync_failed": undefined;
   "temporarily_unavailable": undefined;
   "timeout": undefined;
+  "timer_grant_unavailable": undefined;
   "token_exchange_failed": undefined;
   "transport_protocol_incompatible": {
   "contract": string;
@@ -343,6 +363,12 @@ export interface ConnectProblemByCode {
     recovery: "resume_connector_access";
     details?: never;
   };
+  "application_authorization_issuance_disabled": ConnectProblemBase & {
+    code: "application_authorization_issuance_disabled";
+    category: "authorization";
+    recovery: "reauthorize";
+    details?: never;
+  };
   "application_declaration_mismatch": ConnectProblemBase & {
     code: "application_declaration_mismatch";
     category: "authorization";
@@ -353,6 +379,18 @@ export interface ConnectProblemByCode {
     code: "application_identity_unavailable";
     category: "compatibility";
     recovery: "upgrade_application";
+    details?: never;
+  };
+  "application_reauthorization_required": ConnectProblemBase & {
+    code: "application_reauthorization_required";
+    category: "authorization";
+    recovery: "reauthorize";
+    details?: never;
+  };
+  "application_semantic_version_mismatch": ConnectProblemBase & {
+    code: "application_semantic_version_mismatch";
+    category: "authorization";
+    recovery: "reauthorize";
     details?: never;
   };
   "approval_window_blocked": ConnectProblemBase & {
@@ -733,6 +771,12 @@ export interface ConnectProblemByCode {
     recovery: "fix_request";
     details?: never;
   };
+  "invalid_replica": ConnectProblemBase & {
+    code: "invalid_replica";
+    category: "authorization";
+    recovery: "reauthorize";
+    details?: never;
+  };
   "invalid_request": ConnectProblemBase & {
     code: "invalid_request";
     category: "validation";
@@ -811,6 +855,12 @@ export interface ConnectProblemByCode {
     recovery: "fix_request";
     details?: never;
   };
+  "notification_grant_reauthorization_required": ConnectProblemBase & {
+    code: "notification_grant_reauthorization_required";
+    category: "authorization";
+    recovery: "reauthorize";
+    details?: never;
+  };
   "notification_reauthorization_required": ConnectProblemBase & {
     code: "notification_reauthorization_required";
     category: "authorization";
@@ -864,6 +914,12 @@ export interface ConnectProblemByCode {
     category: "conflict";
     recovery: "resolve_outcome";
     details: ConnectProblemDetailsByCode["operation_outcome_unknown"];
+  };
+  "origin_denied": ConnectProblemBase & {
+    code: "origin_denied";
+    category: "authorization";
+    recovery: "reauthorize";
+    details?: never;
   };
   "path_occupied": ConnectProblemBase & {
     code: "path_occupied";
@@ -949,14 +1005,32 @@ export interface ConnectProblemByCode {
     recovery: "retry";
     details?: never;
   };
+  "replica_scope_denied": ConnectProblemBase & {
+    code: "replica_scope_denied";
+    category: "authorization";
+    recovery: "reauthorize";
+    details?: never;
+  };
   "sandbox_unsupported": ConnectProblemBase & {
     code: "sandbox_unsupported";
     category: "compatibility";
     recovery: "fix_request";
     details?: never;
   };
+  "scope_changed": ConnectProblemBase & {
+    code: "scope_changed";
+    category: "authorization";
+    recovery: "reauthorize";
+    details?: never;
+  };
   "scope_denied": ConnectProblemBase & {
     code: "scope_denied";
+    category: "authorization";
+    recovery: "reauthorize";
+    details?: never;
+  };
+  "scope_epoch_stale": ConnectProblemBase & {
+    code: "scope_epoch_stale";
     category: "authorization";
     recovery: "reauthorize";
     details?: never;
@@ -1007,6 +1081,12 @@ export interface ConnectProblemByCode {
     code: "timeout";
     category: "availability";
     recovery: "retry";
+    details?: never;
+  };
+  "timer_grant_unavailable": ConnectProblemBase & {
+    code: "timer_grant_unavailable";
+    category: "authorization";
+    recovery: "reauthorize";
     details?: never;
   };
   "token_exchange_failed": ConnectProblemBase & {

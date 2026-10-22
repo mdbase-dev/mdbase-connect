@@ -27,20 +27,29 @@ export interface TimerReconciliation extends TimerList { cancelledIds: string[] 
 export interface TimerCancellation { namespace: string; id: string; cancelled: boolean }
 export interface TimerChannelRegistration { channelId: string; installationId: string; criteria: string[] }
 export interface WebPushChannelOptions extends TimerRequestOptions {
-  serviceWorker: ServiceWorkerRegistration;
+  /** Defaults to `navigator.serviceWorker.ready`. */
+  serviceWorker?: ServiceWorkerRegistration;
+  /** Manifest criterion ids. Defaults to every timer criterion the app declares. */
   criteria?: string[];
   installationId?: string;
 }
 export interface FcmChannelOptions extends TimerRequestOptions {
   /** Native FCM registration token; never logged or retained by this class. */
   token: string;
+  /** Manifest criterion ids. Defaults to every timer criterion the app declares. */
   criteria?: string[];
   installationId?: string;
 }
+/** Port-side channel options: the facade has resolved every default. */
+export type ResolvedWebPushChannelOptions = WebPushChannelOptions & { serviceWorker: ServiceWorkerRegistration };
+export interface TimersApiDefaults {
+  /** The app's declared timer criteria, used when a registration names none. */
+  criteria?: readonly string[];
+}
 
 /**
- * A narrow retained-app-grant port, supplied by the Connect client. Its owner
- * authenticates fixed timer/channel HTTP routes, enforces grant lifetime and
+ * A narrow original-app-consent port, supplied by the Connect client or owned
+ * native Worker. Its owner authenticates fixed timer/channel routes, enforces grant lifetime and
  * bounds response bodies. No bearer, signer, arbitrary URL or request callback.
  * Writes MUST NOT retry after ambiguous admission. This is not a replica port.
  */
@@ -53,7 +62,7 @@ export interface AppTimersPort {
   reconcileWithReceipt?(namespace: string, body: { criterion_id: string; timers: { id: string; fire_at: string }[];
     recovery: { protocol_version: 1; operation_id: string; expected_revision: number } }, options: TimerRequestOptions): Promise<unknown>;
   lookupOperation?(namespace: string, operationId: string, options: TimerRequestOptions): Promise<unknown>;
-  registerWebPush(options: WebPushChannelOptions): Promise<TimerChannelRegistration>;
+  registerWebPush(options: ResolvedWebPushChannelOptions): Promise<TimerChannelRegistration>;
   unregisterWebPush(serviceWorker: ServiceWorkerRegistration | undefined, options: TimerRequestOptions): Promise<void>;
   registerFcm(options: FcmChannelOptions): Promise<TimerChannelRegistration & { transport: "fcm" }>;
   unregisterFcm(options: TimerRequestOptions): Promise<void>;
@@ -133,10 +142,25 @@ function receipt(value: unknown, identity: TimerOperationIdentity): TimerOperati
   return { protocolVersion: 1, ...identity, committedRevision: r.committed_revision as number, result };
 }
 
+async function readyServiceWorker(signal: AbortSignal | undefined): Promise<ServiceWorkerRegistration> {
+  const container = (globalThis as { navigator?: { serviceWorker?: ServiceWorkerContainer } }).navigator?.serviceWorker;
+  if (!container) throw mdbaseError("invalid_request", "Web Push needs a service worker.", "timer_push_platform");
+  // `ready` never rejects: it waits until a service worker is active.
+  return await new Promise<ServiceWorkerRegistration>((resolve, reject) => {
+    const abort = () => reject(mdbaseError("cancelled", "Timer request cancelled before dispatch."));
+    if (signal?.aborted) return abort();
+    signal?.addEventListener("abort", abort, { once: true });
+    container.ready.then(resolve, reject).finally(() => signal?.removeEventListener("abort", abort));
+  });
+}
+
 /** Opaque timer HTTP API. Works without opening a data-replica/Noise session. */
 export class TimersApi {
   private readonly lifetime = new AbortController();
-  constructor(private readonly port: AppTimersPort) {}
+  private readonly criteria: string[] | undefined;
+  constructor(private readonly port: AppTimersPort, defaults: TimersApiDefaults = {}) {
+    this.criteria = defaults.criteria?.length ? [...defaults.criteria] : undefined;
+  }
   /** Stops this facade; an uncertain write is never replayed or reported cancelled. */
   close(): void {
     if (this.lifetime.signal.aborted) return;
@@ -243,14 +267,20 @@ export class TimersApi {
       throw mdbaseError("outcome_unknown", "Original timer operation could not be recovered.");
     });
   }
-  registerWebPush(options: WebPushChannelOptions): Promise<TimerChannelRegistration> {
-    return this.run(options, true, o => this.port.registerWebPush({ ...options, ...o }));
+  /** Subscribe this browser for the app's notifications. Both options are optional. */
+  registerWebPush(options: WebPushChannelOptions = {}): Promise<TimerChannelRegistration> {
+    const criteria = options.criteria ?? this.criteria;
+    return this.run(options, true, async o => {
+      const serviceWorker = options.serviceWorker ?? await readyServiceWorker(o.signal);
+      return this.port.registerWebPush({ ...options, ...(criteria ? { criteria: [...criteria] } : {}), serviceWorker, ...o });
+    });
   }
   unregisterWebPush(serviceWorker?: ServiceWorkerRegistration, options: TimerRequestOptions = {}): Promise<void> {
     return this.run(options, true, o => this.port.unregisterWebPush(serviceWorker, o));
   }
   registerFcm(options: FcmChannelOptions): Promise<TimerChannelRegistration & { transport: "fcm" }> {
-    return this.run(options, true, o => this.port.registerFcm({ ...options, ...o }));
+    const criteria = options.criteria ?? this.criteria;
+    return this.run(options, true, o => this.port.registerFcm({ ...options, ...(criteria ? { criteria: [...criteria] } : {}), ...o }));
   }
   unregisterFcm(options: TimerRequestOptions = {}): Promise<void> {
     return this.run(options, true, o => this.port.unregisterFcm(o));

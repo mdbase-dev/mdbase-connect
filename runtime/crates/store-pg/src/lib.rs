@@ -233,6 +233,8 @@ fn file_row(r: &Row) -> StoreResult<FileRow> {
         modified_seq: u64_of(r.get(5))?,
         bucket: u16::try_from(bucket).map_err(|_| corrupt("bucket", bucket))?,
         local: local_from(r.get(7))?,
+        // This legacy codec cannot emit timestamped Ordinary attachments.
+        mtime: None,
     })
 }
 
@@ -1488,6 +1490,13 @@ impl Store for PgStore {
     }
 
     fn commit(&mut self, tx: Tx) -> StoreResult<CommitReport> {
+        // Refuse the whole unsupported batch before opening a transaction or
+        // executing any effects; never silently discard replicated metadata.
+        if tx.files_put.iter().any(|f| f.mtime.is_some()) {
+            return Err(StoreError::CommitAborted(
+                "file capture mtime has no Postgres codec".into(),
+            ));
+        }
         if tx.is_empty() {
             return Ok(CommitReport::default());
         }

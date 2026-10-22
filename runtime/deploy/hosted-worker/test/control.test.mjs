@@ -44,7 +44,7 @@ test("original genesis is mandatory exact bounded canonical structure, not autho
 });
 
 test("maps statuses, bounds answers, refuses http", async () => {
-  for (const [status, code] of [[409, "not_standard"], [404, "not_found"], [503, "unavailable"], [403, "refused"]]) {
+  for (const [status, code] of [[409, "not_standard"], [404, "not_found"], [503, "unavailable"], [403, "wrong_scope"], [401, "refused"]]) {
     const { fetchImpl } = fake(() => new Response("x", { status }));
     await assert.rejects(new ControlClient(config, fetchImpl).serviceDevice(collection, signal()), { code });
   }

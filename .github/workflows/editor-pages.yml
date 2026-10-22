@@ -15,7 +15,6 @@ on:
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - ".github/workflows/editor-pages.yml"
-      - "scripts/verify-editor-publication.mjs"
       - "scripts/verify-client-publication.mjs"
       - "scripts/lib/*publication*.test.mjs"
       - "config/native-publish/**"
@@ -23,15 +22,11 @@ on:
   workflow_dispatch:
     inputs:
       source_sha:
-        description: Native path only - exact full HEAD of target release/native-* branch. Blank preserves the existing main/tag path.
-        required: false
-        type: string
-      production_verified_commit:
-        description: Tagged coordinated releases only - full SHA independently verified after backend production deployment. Leave blank for Editor-only production dispatches from main.
+        description: Exact full HEAD of the target release/native-* branch. Blank runs the Editor checks only and publishes nothing.
         required: false
         type: string
       target:
-        description: Staging by default. Production from main publishes Editor only; production from a version tag uses the coordinated release gate.
+        description: Native publication target; dispatch on release/native-<target>.
         required: true
         default: staging
         type: choice
@@ -44,9 +39,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: editor-pages-${{ github.event_name == 'workflow_dispatch' && inputs.target == 'production' && 'production' || github.ref }}
-  cancel-in-progress: ${{ inputs.source_sha == '' && (github.event_name != 'workflow_dispatch' || inputs.target != 'production') }}
+  group: editor-pages-${{ github.ref }}
+  # Native source dispatches never cancel an uploader; check-only runs supersede.
+  cancel-in-progress: ${{ inputs.source_sha == '' }}
 
+# Editor publication is native-only. main, pull requests and blank-source
+# dispatches run the Editor checks and publish nothing; editor-staging and
+# editor.mdbase.dev change only through an explicit native dispatch on
+# release/native-<target> with its exact source_sha (apps/editor/NATIVE_PUBLISHER.md).
 jobs:
   test:
     if: inputs.source_sha == ''
@@ -97,133 +97,6 @@ jobs:
           MDBASE_EDITOR_BASE_PATH: /
       - run: pnpm --filter mdbase-editor check:bundle
       - run: pnpm --filter mdbase-editor check:csp
-
-  deploy-cloudflare:
-    if: >-
-      github.event_name == 'workflow_dispatch' &&
-      inputs.source_sha == '' &&
-      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) &&
-      inputs.target == 'production' &&
-      vars.CLOUDFLARE_PAGES_ENABLED == '1'
-    needs: test
-    runs-on: ubuntu-latest
-    environment:
-      name: cloudflare-pages
-      url: https://editor.mdbase.dev/
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-        with:
-          version: 11.15.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build:packages
-      - name: Build editor
-        run: pnpm --filter mdbase-editor build
-        env:
-          MDBASE_EDITOR_ORIGIN: https://editor.mdbase.dev
-          MDBASE_EDITOR_BASE_PATH: /
-          VITE_MDBASE_BUILD_REVISION: ${{ github.sha }}
-          VITE_MDBASE_ENV: production
-          VITE_MDBASE_FEEDBACK_URL: ${{ vars.MDBASE_FEEDBACK_URL }}
-          VITE_MDBASE_TURNSTILE_SITE_KEY: ${{ vars.MDBASE_FEEDBACK_TURNSTILE_SITE_KEY }}
-      - name: Verify editor manifest
-        run: node apps/editor/scripts/verify-deployment-manifest.mjs apps/editor/dist/.well-known/mdbase-app.json https://editor.mdbase.dev/
-      - name: Require exact full Server CI qualification
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: scripts/ci/verify-qualified-commit "$GITHUB_SHA"
-      - name: Verify exact production candidate before coordinated client publication
-        if: startsWith(github.ref, 'refs/tags/v')
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PRODUCTION_VERIFIED_COMMIT: ${{ inputs.production_verified_commit }}
-        run: node scripts/verify-client-publication.mjs
-      - name: Verify independent Editor compatibility with production
-        if: github.ref == 'refs/heads/main'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PRODUCTION_VERIFIED_COMMIT: ${{ inputs.production_verified_commit }}
-        run: node scripts/verify-editor-publication.mjs
-      - name: Deploy editor
-        run: npx --yes --package wrangler@4.114.0 wrangler pages deploy apps/editor/dist --project-name=mdbase-editor --branch=main
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      - name: Verify production custom domain
-        run: node apps/editor/scripts/verify-deployment-manifest.mjs https://editor.mdbase.dev/.well-known/mdbase-app.json https://editor.mdbase.dev/
-        env:
-          MDBASE_MANIFEST_VERIFY_ATTEMPTS: 12
-          MDBASE_MANIFEST_VERIFY_DELAY_MS: 5000
-      - name: Verify production assets
-        run: node apps/editor/scripts/verify-deployment-assets.mjs apps/editor/dist/assets https://editor.mdbase.dev/
-        env:
-          MDBASE_ASSET_VERIFY_ATTEMPTS: 61
-          MDBASE_ASSET_VERIFY_DELAY_MS: 5000
-
-  deploy-cloudflare-staging:
-    if: >-
-      github.event_name != 'pull_request' &&
-      inputs.source_sha == '' &&
-      github.ref == 'refs/heads/main' &&
-      vars.CLOUDFLARE_PAGES_ENABLED == '1' &&
-      (github.event_name == 'push' || inputs.target == 'staging')
-    needs: test
-    runs-on: ubuntu-latest
-    environment:
-      name: cloudflare-pages-staging
-      url: https://editor-staging.mdbase.dev/
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-        with:
-          version: 11.15.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build:packages
-      - name: Build staging editor
-        run: pnpm --filter mdbase-editor build
-        env:
-          MDBASE_EDITOR_ORIGIN: https://editor-staging.mdbase.dev
-          MDBASE_EDITOR_BASE_PATH: /
-          MDBASE_CONNECT_URL: https://connect-staging.mdbase.dev
-          VITE_MDBASE_CONNECT_URL: https://connect-staging.mdbase.dev
-          VITE_MDBASE_BUILD_REVISION: ${{ github.sha }}
-          VITE_MDBASE_ENV: staging
-          VITE_MDBASE_FEEDBACK_URL: ${{ vars.MDBASE_FEEDBACK_URL }}
-          VITE_MDBASE_TURNSTILE_SITE_KEY: ${{ vars.MDBASE_FEEDBACK_TURNSTILE_SITE_KEY }}
-      - name: Verify staging editor manifest
-        run: node apps/editor/scripts/verify-deployment-manifest.mjs apps/editor/dist/.well-known/mdbase-app.json https://editor-staging.mdbase.dev/ https://connect-staging.mdbase.dev
-      - name: Deploy staging editor
-        run: npx --yes --package wrangler@4.114.0 wrangler pages deploy apps/editor/dist --project-name=mdbase-editor --branch=staging
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      - name: Attach staging domain
-        run: node apps/editor/scripts/ensure-pages-domain.mjs
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_PAGES_PROJECT: mdbase-editor
-          CLOUDFLARE_PAGES_DOMAIN: editor-staging.mdbase.dev
-      - name: Verify staging custom domain
-        run: node apps/editor/scripts/verify-deployment-manifest.mjs https://editor-staging.mdbase.dev/.well-known/mdbase-app.json https://editor-staging.mdbase.dev/ https://connect-staging.mdbase.dev
-        env:
-          MDBASE_MANIFEST_VERIFY_ATTEMPTS: 12
-          MDBASE_MANIFEST_VERIFY_DELAY_MS: 5000
-      - name: Verify staging assets
-        run: node apps/editor/scripts/verify-deployment-assets.mjs apps/editor/dist/assets https://editor-staging.mdbase.dev/
-        env:
-          MDBASE_ASSET_VERIFY_ATTEMPTS: 61
-          MDBASE_ASSET_VERIFY_DELAY_MS: 5000
 
   native-dispatch:
     # No checkout/environment/credentials before validating the exact manual ref.
@@ -325,7 +198,8 @@ jobs:
     name: Protected immutable Editor upload
     needs: [native-inputs, native-build]
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # Upload, then up to 3 min immutable verification plus a 5 min alias settle window.
+    timeout-minutes: 20
     concurrency:
       group: editor-native-upload-${{ inputs.target }}
       cancel-in-progress: false

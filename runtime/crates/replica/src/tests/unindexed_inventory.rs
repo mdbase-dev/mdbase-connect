@@ -19,6 +19,7 @@ fn file(c: FileContent) -> FileRow {
         kind: FileKindV1::UnindexedOversizedMarkdown,
         media: MediaClass::Other,
         modified_seq: 3,
+        mtime: None,
         bucket: 0,
         local: FileLocal::Remote,
     }

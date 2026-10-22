@@ -174,6 +174,7 @@ mod tests {
             &mut super::super::IsolatedOldService,
             &super::super::Options {
                 stop_mirrors: false,
+                account_moved: false,
                 drain: Duration::ZERO,
                 now: "2026-10-08T12:00:00Z".into(),
             },

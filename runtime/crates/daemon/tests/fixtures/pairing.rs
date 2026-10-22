@@ -11,13 +11,38 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 pub const ACCOUNT: &str = "11111111-1111-4111-8111-111111111111";
 
 pub async fn pair(profile: &Profile, keys: &Arc<MemoryStore>) {
-    // The fixture control plane is loopback, not the build environment's.
-    mdbn_daemon::trust::allow_loopback_control_plane_for_tests();
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    // Local artifacts keep their exact authenticated origin, even in tests.
+    // Serialize this fixed-port fixture only; ordinary managed test fixtures
+    // remain ephemeral and all authentication/lifecycle assertions stay intact.
+    #[cfg(feature = "local-rehearsal")]
+    static ENDPOINT: std::sync::OnceLock<Arc<tokio::sync::Mutex<()>>> = std::sync::OnceLock::new();
+    #[cfg(feature = "local-rehearsal")]
+    let _endpoint = ENDPOINT
+        .get_or_init(|| Arc::new(tokio::sync::Mutex::new(())))
+        .lock()
+        .await;
+    #[cfg(feature = "local-rehearsal")]
+    let address = mdbn_daemon::trust::Environment::embedded()
+        .control_plane()
+        .strip_prefix("http://")
+        .unwrap();
+    #[cfg(not(feature = "local-rehearsal"))]
+    let address = {
+        mdbn_daemon::trust::allow_loopback_control_plane_for_tests();
+        "127.0.0.1:0"
+    };
+    let listener = tokio::net::TcpListener::bind(address).await.unwrap();
     let server = format!("http://{}", listener.local_addr().unwrap());
+    #[cfg(feature = "local-rehearsal")]
+    assert_eq!(
+        server,
+        mdbn_daemon::trust::Environment::embedded().control_plane()
+    );
     let server2 = server.clone();
     let fixture = tokio::spawn(async move {
-        for exchange in [false, true] {
+        let mut exchange = false;
+        let mut completed = 0;
+        while completed < 2 {
             let (mut socket, _) = listener.accept().await.unwrap();
             let mut request = Vec::new();
             loop {
@@ -43,11 +68,32 @@ pub async fn pair(profile: &Profile, keys: &Arc<MemoryStore>) {
                 }
             }
             let text = std::str::from_utf8(&request).unwrap();
-            assert!(text.starts_with(if exchange {
-                "POST /v1/pairing-requests/fixture/exchange "
-            } else {
-                "POST /v1/pairing-requests "
-            }));
+            // Local profiles share their compiled exact origin. A previous
+            // profile's ordinary refresh/sync can reach the next fixture;
+            // refuse those unrelated calls rather than misclassify as pairing.
+            // Pairing retains its original path/auth assertions below.
+            if cfg!(feature = "local-rehearsal")
+                && (text.starts_with("GET ")
+                    || text.starts_with("POST /v1/connectors/sync ")
+                    || text.starts_with("POST /v1/next/devices/challenge "))
+            {
+                socket
+                    .write_all(
+                        b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    )
+                    .await
+                    .unwrap();
+                continue;
+            }
+            assert!(
+                text.starts_with(if exchange {
+                    "POST /v1/pairing-requests/fixture/exchange "
+                } else {
+                    "POST /v1/pairing-requests "
+                }),
+                "unexpected fixture method/path: {}",
+                text.lines().next().unwrap_or("empty")
+            );
             let body = if exchange {
                 assert!(text.to_ascii_lowercase().contains("authorization: bearer fixture-secret\r\n"));
                 json!({"status":"paired", "account_id": ACCOUNT,"connector":{"id":"22222222-2222-4222-8222-222222222222"},"token":"con_hermetic_pairing_fixture_12345"})
@@ -60,6 +106,8 @@ pub async fn pair(profile: &Profile, keys: &Arc<MemoryStore>) {
                 body
             );
             socket.write_all(response.as_bytes()).await.unwrap();
+            completed += 1;
+            exchange = true;
         }
     });
     // Authenticate this separate control connection; the ordinary lifecycle client

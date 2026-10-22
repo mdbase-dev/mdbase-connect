@@ -22,6 +22,7 @@ pub const NAMES: &[&str] = &[
     // The same slice over the real log service and the exact-frame network.
     "slice-real",
     "slice-real-chaos",
+    "slice-real-revocation",
     "slice-real-snapshots",
     "slice-real-snapshot-install",
     // The join-ahead keying order: B enrolled and granted after A's content.
@@ -103,6 +104,8 @@ pub const HOLD_CEILINGS: &[(&str, u64)] = &[
     ("tap-sealed", 0),
     // Measured 2026-10-07 on main 77f8f1f9 over seeds 1..1000: zero holds.
     ("slice-real", 0),
+    // Ordinary revocation must not strand surviving writers in holds.
+    ("slice-real-revocation", 0),
     ("slice-real-snapshots", 0),
     // Join-ahead keying measured across seeds 1..1000: zero holds.
     ("slice-real-join-ahead", 0),
@@ -146,6 +149,7 @@ pub const SWEEP: &[&str] = &[
     "journal",
     "tap-sealed",
     "slice-real",
+    "slice-real-revocation",
     "slice-real-snapshots",
     "slice-real-join-ahead",
     "slice-real-join-ahead-waiting",
@@ -198,6 +202,7 @@ pub fn run_seed(name: &str, seed: u64, opts: &Opts) -> Option<Report> {
         "slice-chaos-storm" => scenarios::slice::run(&mut w, true, true),
         "slice-real" => scenarios::slice_real::run(&mut w, false),
         "slice-real-chaos" => scenarios::slice_real::run(&mut w, true),
+        "slice-real-revocation" => scenarios::slice_real::run_revocation(&mut w),
         "slice-real-snapshots" => scenarios::slice_real::run_snapshots(&mut w),
         "slice-real-snapshot-install" => scenarios::slice_real::run_snapshot_install(&mut w),
         "slice-real-join-ahead" => scenarios::slice_real::run_join_ahead(&mut w, false),

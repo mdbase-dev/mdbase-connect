@@ -419,17 +419,8 @@ impl HostedProvider {
         consume_proof_nonce: bool,
         allow_originless_extension_get: bool,
     ) -> ApiResult<(AuthorizedRequest, Option<String>)> {
-        // Originless mirror traffic is rechecked by the operation; application
-        // traffic without proof still fails the operation-level origin check.
-        if request_origin.is_none() && proof.is_none() {
-            return Ok((
-                AuthorizedRequest {
-                    operation_transport_protocol: None,
-                    operation_transport_recovery_protocols: Vec::new(),
-                },
-                None,
-            ));
-        }
+        // Resolve the replica even without Origin or proof: only its persisted
+        // purpose can distinguish a mirror from a proof-bound Node application.
         let mut transaction = self.pool.begin().await?;
         let row = sqlx::query(
             r#"SELECT id, purpose, mode, allowed_types, contract_scope, full_collection, allowed_operations,
@@ -501,38 +492,34 @@ impl HostedProvider {
                 {
                     effective_origin = replica.allowed_origin.clone();
                 }
-                authorize_application_origin(&replica, effective_origin.as_deref())?;
-                if let Some(public_key) = replica.proof_public_key.as_deref() {
-                    let proof = proof.ok_or_else(|| {
-                        ApiError::unauthorized(
-                            "authority_proof_required",
-                            "The hosted capability requires proof from its approved application key.",
-                        )
-                    })?;
-                    verify_hosted_request_proof(public_key, token, proof)?;
-                    if !retired_credential && consume_proof_nonce {
-                        let inserted = sqlx::query(
-                            r#"INSERT INTO hosted_provider_request_proofs (replica_id, nonce)
-                               VALUES ($1, $2)
-                               ON CONFLICT (replica_id, nonce) DO NOTHING
-                               RETURNING nonce"#,
-                        )
-                        .bind(replica.id)
-                        .bind(proof.nonce)
-                        .fetch_optional(&mut *transaction)
-                        .await?;
-                        if inserted.is_none() {
-                            return Err(ApiError::unauthorized(
-                                "authority_proof_replayed",
-                                "The authority request proof has already been used.",
-                            ));
-                        }
-                        sqlx::query(
-                            "DELETE FROM hosted_provider_request_proofs WHERE created_at < now() - interval '10 minutes'",
-                        )
-                        .execute(&mut *transaction)
-                        .await?;
+                let nonce = verify_application_origin_and_proof(
+                    &replica,
+                    token,
+                    effective_origin.as_deref(),
+                    proof,
+                )?;
+                if let Some(nonce) = nonce.filter(|_| !retired_credential && consume_proof_nonce) {
+                    let inserted = sqlx::query(
+                        r#"INSERT INTO hosted_provider_request_proofs (replica_id, nonce)
+                           VALUES ($1, $2)
+                           ON CONFLICT (replica_id, nonce) DO NOTHING
+                           RETURNING nonce"#,
+                    )
+                    .bind(replica.id)
+                    .bind(nonce)
+                    .fetch_optional(&mut *transaction)
+                    .await?;
+                    if inserted.is_none() {
+                        return Err(ApiError::unauthorized(
+                            "authority_proof_replayed",
+                            "The authority request proof has already been used.",
+                        ));
                     }
+                    sqlx::query(
+                        "DELETE FROM hosted_provider_request_proofs WHERE created_at < now() - interval '10 minutes'",
+                    )
+                    .execute(&mut *transaction)
+                    .await?;
                 }
             }
         }

@@ -1,5 +1,6 @@
 /** Bounded first-party original-device ciphertext IO. No CryptoKey/seed export,
  * replacement, delete, generic KV, collection SQL or implicit recovery. */
+import { currentAppOrigin, isAppOrigin } from "./app-origin.js";
 import { uuidToBytes } from "../codec.js";
 import type { AppDeviceKeyCustodyPin, AppDeviceKeyProtectedStore } from "./device-key-custody.js";
 const STORE="original-device-keys", KEY="custody", MAX=256;
@@ -35,8 +36,7 @@ export class AppIndexedDbDeviceKeyProtectedStore implements AppDeviceKeyProtecte
     const current=source.isCurrent,owned=source.installationOwned;
     const isCurrent=()=>{try{return !signal.aborted && source.isCurrent===current && source.installationOwned===owned && current.call(source)===true && owned.call(source)===true && (Object.keys(scope) as (keyof typeof scope)[]).every(k=>source[k]===scope[k]);}catch{return false;}};
     const ids=[scope.accountId,scope.connectorId,scope.deviceId,scope.installationId].map(v=>{const b=uuidToBytes(v);if(b.every(v=>v===0))throw fail();return Array.from(b,v=>v.toString(16).padStart(2,"0")).join("");});
-    const endpoint=new URL(origin),loopback=options.allowLoopbackHttp===true && endpoint.protocol==="http:" && ["localhost","127.0.0.1","[::1]"].includes(endpoint.hostname);
-    if ((!loopback && endpoint.protocol!=="https:") || endpoint.origin!==origin || endpoint.username || endpoint.password || globalThis.location?.origin!==origin || !["fresh","existing"].includes(mode) || !isCurrent() || !globalThis.indexedDB) throw fail();
+    if (!isAppOrigin(origin, options.allowLoopbackHttp===true) || currentAppOrigin()!==origin || !["fresh","existing"].includes(mode) || !isCurrent() || !globalThis.indexedDB) throw fail();
     const namespace=`mdbase.app-device-keys.v1:${ids.join(":")}`,name=`mdbase.app.device-keys.v1.${ids.join(".")}`;
     const db=await new Promise<IDBDatabase>((resolve,reject)=>{
       const request=indexedDB.open(name,1);let abandoned=false;
@@ -52,7 +52,7 @@ export class AppIndexedDbDeviceKeyProtectedStore implements AppDeviceKeyProtecte
   }
   private check(signal: AbortSignal, namespace=this.namespace): void {
     try {
-      if(this.closed || signal.aborted || namespace!==this.namespace || globalThis.location?.origin!==this.origin || this.source.isCurrent!==this.current || this.source.installationOwned!==this.owned || this.current.call(this.source)!==true || this.owned.call(this.source)!==true || (Object.keys(this.scope) as (keyof typeof this.scope)[]).some(k=>this.source[k]!==this.scope[k]))throw fail();
+      if(this.closed || signal.aborted || namespace!==this.namespace || currentAppOrigin()!==this.origin || this.source.isCurrent!==this.current || this.source.installationOwned!==this.owned || this.current.call(this.source)!==true || this.owned.call(this.source)!==true || (Object.keys(this.scope) as (keyof typeof this.scope)[]).some(k=>this.source[k]!==this.scope[k]))throw fail();
     }catch{throw fail();}
   }
   async read(namespace: string, options: {signal:AbortSignal}): Promise<Uint8Array|null> {

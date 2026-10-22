@@ -108,7 +108,26 @@ impl AppSqlHost for Schema {
                                 ..StmtResult::default()
                             }
                         } else {
-                            StmtResult::default()
+                            // Empty schema-only reads still carry SQLite's SELECT
+                            // column metadata. No rows, readiness or persistence
+                            // are invented by this bootstrap host fixture.
+                            let columns = if !stmt.sql.starts_with("SELECT ") {
+                                0
+                            } else if stmt.sql.contains("FROM st_qraw_state ") {
+                                3
+                            } else if stmt.sql.contains("FROM st_qstate ")
+                                || stmt.sql.contains("FROM st_qspec ")
+                            {
+                                2
+                            } else if stmt.sql.contains("FROM st_kv WHERE k='head'") {
+                                1
+                            } else {
+                                0
+                            };
+                            StmtResult {
+                                columns,
+                                ..StmtResult::default()
+                            }
                         }
                     })
                     .collect(),
@@ -326,6 +345,39 @@ fn open() -> AppRuntime {
         host(),
     )
     .unwrap()
+}
+#[test]
+fn resource_declaration_and_host_bootstrap_do_not_mint_a_native_read_session() {
+    let mut runtime = open();
+    for session in [0, 8, u64::MAX] {
+        let mut request = cbor::encode(&Cbor::Array(vec![
+            Cbor::Uint(1),
+            Cbor::Uint(0),
+            Cbor::Map(vec![
+                (
+                    Cbor::Text("id".into()),
+                    Cbor::Text("org.example.app".into()),
+                ),
+                (Cbor::Text("requirements".into()), Cbor::Map(Vec::new())),
+                (Cbor::Text("provisions".into()), Cbor::Map(Vec::new())),
+            ]),
+            Cbor::Null,
+        ]))
+        .unwrap();
+        let result = runtime.resources_consuming(session, &mut request);
+        assert!(request.iter().all(|b| *b == 0));
+        assert_eq!(
+            cbor::decode(&result).unwrap(),
+            Cbor::Array(vec![Cbor::Uint(1), Cbor::Bool(false), Cbor::Null])
+        );
+    }
+    let mut oversized = vec![3; 512 * 1024 + 1];
+    let result = runtime.resources_consuming(8, &mut oversized);
+    assert!(oversized.iter().all(|b| *b == 0));
+    assert_eq!(
+        cbor::decode(&result).unwrap(),
+        Cbor::Array(vec![Cbor::Uint(1), Cbor::Bool(false), Cbor::Null])
+    );
 }
 #[test]
 fn protected_account_loan_requires_real_policy_and_always_wipes_without_keyed_inference() {

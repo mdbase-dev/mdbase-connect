@@ -110,7 +110,6 @@ pnpm e2e
 pnpm e2e:relay
 pnpm e2e:provider
 pnpm e2e:files
-pnpm e2e:desktop:container
 pnpm test:browser-storage
 pnpm package:audit
 pnpm check:release-readiness

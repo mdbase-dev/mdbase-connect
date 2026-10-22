@@ -1,8 +1,8 @@
 # Beta release checklist
 
 mdbase connect desktop bundles contain the Electron client and the matching
-Rust `mdbase` daemon/CLI. A release is one tested unit; mixing desktop
-and daemon versions is unsupported.
+mdbase daemon/CLI (the mdbn-daemon built from `runtime/`). A release is one
+tested unit; mixing desktop and daemon versions is unsupported.
 
 Until the stable `0.1.0` contract is ready, releases use
 `0.1.0-beta.N`. Beta tags are immutable test releases: increment `N` for every
@@ -42,18 +42,31 @@ pnpm test:browser-storage
 pnpm test:accessibility
 pnpm e2e
 pnpm e2e:container
-pnpm e2e:desktop:container
 pnpm e2e:relay
 pnpm e2e:sync
 pnpm e2e:provider
-pnpm --filter @mdbase/connect-desktop package
+MDBN_DAEMON_BIN=<absolute path to a release build of runtime/ mdbase> \
+  pnpm --filter @mdbase/connect-desktop package
 ```
 
-The package command compiles the release daemon/CLI, creates the platform
-Electron bundle, and verifies that `app.asar` and the `mdbase` executable are
-both present. The release workflow also smoke-tests that exact native
-executable's CLI and foreground-daemon entry points, then publishes it as a
-standalone headless archive with the same tag-bound provenance and checksums.
+The package command stages that daemon build as `Resources/mdbase-next/`
+(`mdbase` plus a `VERSION` file from its `--version`; set `MDBN_DAEMON_VERSION`
+to require an exact version), creates the platform Electron bundle, and verifies
+that `app.asar` and the bundled daemon are present, that the daemon reports its
+`VERSION`, and that the old connector binary is not shipped.
+
+The release workflow builds the daemon from [`runtime/`](../runtime/) in this
+repository on each platform runner:
+`cargo build --release --locked -p mdbn-daemon --bin mdbase` with
+`MDBN_RELEASE_VERSION` set to the app version, after
+`runtime/scripts/check-release-features.sh` confirms that no test-only feature
+reaches the shipped package. On macOS the app's signing covers the nested
+`Resources/mdbase-next/mdbase`, and the workflow requires that binary to carry
+the app's Team ID.
+
+The release workflow also smoke-tests that exact native executable's CLI and
+foreground-daemon entry points, then publishes it as a standalone headless
+archive with the same tag-bound provenance and checksums.
 Run the packaged application once with a fresh user-data directory and complete
 pairing, collection registration, encrypted application authorization, one write,
 pause/resume, and revocation.
@@ -167,9 +180,11 @@ Creating the tag does not publish clients. Complete guarded production promotion
 and independent exact-service verification before dispatching any client workflow.
 Follow the [post-production publication transition](release-contract.md#public-client-release-publication):
 select the existing tag as the workflow ref and supply the exact full
-`production_verified_commit` SHA. Publish npm first, then desktop, then Editor
-with target `production`. Production Editor dispatches from `main` are no longer
-accepted; staging remains on `main`. Reader is excluded from this rollout.
+`production_verified_commit` SHA. Publish npm first, then desktop. The Editor
+is not part of the tag-ref transition: it publishes only through its native
+dispatch path on `release/native-<target>` (see
+[Editor publication](release-contract.md#editor-publication)). Reader is
+excluded from this rollout.
 
 The explicit desktop dispatch starts the full desktop build. The four platform
 builders do not open deployment records; the single publish job enters the
@@ -195,7 +210,9 @@ Set `UPDATE_ROLLOUT_PERCENTAGE` on the `desktop-release` environment to a number
 from 0 through 100; it defaults to 100. Set `UPDATE_BLOCKED_VERSIONS` to a
 comma-separated list of exact versions only when a higher recovery release
 must bypass rollout for affected installations. Both values are captured in
-the signed manifest and require a new immutable tag to change.
+the signed manifest and require a new immutable tag to change. Every published
+version below `config/desktop-update-minimum.json` is added to the blocked list
+automatically; raise it only when older apps must not keep running.
 
 Before publishing a version, record the exact `mdbase-rs` revision, run the
 local protocol-1, relay, sync, and production-provider end-to-end suites,

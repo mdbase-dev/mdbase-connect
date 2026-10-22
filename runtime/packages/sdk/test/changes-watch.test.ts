@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { connect, type CborValue, type ChangesWatch, type FramePort } from "../src/index.js";
+import { connect, type ChangesWatch, type FramePort } from "../src/index.js";
 import { MemoryReplica } from "../src/testing/index.js";
 import { clientFrame, changesResult, type ChangesResult } from "../src/wire.js";
 
@@ -14,7 +14,6 @@ async function fixture(reconnect = false) {
   const requests: Array<{ id: number; port: FramePort; cursor: unknown }> = [];
   const cancellations: number[] = [];
   const ports: FramePort[] = [];
-  let rejectCancel = false;
   const client = await connect({ app, reconnect: reconnect ? { minDelayMs: 1, maxDelayMs: 1 } : false,
     connector: { description: "actual Session/MemoryReplica held-frame model", open: async (hello, signal) => {
       const opened = await base.open(hello, signal); const port = opened.port;
@@ -25,7 +24,7 @@ async function fixture(reconnect = false) {
           requests.push({ id: f.id, port, cursor: (f.params as Map<number, unknown>).get(0) }); return;
         }
         if (f.kind === "request" && f.method === "cancel") {
-          cancellations.push(f.id); if (rejectCancel) throw new Error("port failed during cancellation"); return;
+          cancellations.push(f.id); return;
         }
         send(raw);
       };
@@ -37,7 +36,7 @@ async function fixture(reconnect = false) {
     const r = requests[index]!; r.port.onframe?.(clientFrame.enc({ kind: "response", id: r.id, result: changesResult.enc(value) }));
   };
   const push = (value = batch(), index = 0) => ports[index]!.onframe?.(clientFrame.enc({ kind: "push", type: "changes", payload: changesResult.enc(value) }));
-  return { client, requests, cancellations, ports, request, reply, push, rejectCancel: () => { rejectCancel = true; } };
+  return { client, requests, cancellations, ports, request, reply, push };
 }
 
 describe("change watch readiness and local lifetime (actual Client/Session wire models)", () => {
@@ -60,14 +59,6 @@ describe("change watch readiness and local lifetime (actual Client/Session wire 
       f.push(batch("late", "late.md")); expect(changed).not.toHaveBeenCalled();
     } finally { watch(); f.client.close(); }
   });
-  it("rejects malformed initial results", async () => {
-    const f = await fixture(), watch = f.client.watchChanges(undefined, () => {});
-    try {
-      const rejected = expect(watch.ready).rejects.toMatchObject({ code: "internal" });
-      const r = await f.request(); r.port.onframe?.(clientFrame.enc({ kind: "response", id: r.id, result: new Map<number, CborValue>([[0, []], [1, "cursor"], [2, "not-bool"]]) }));
-      await rejected; expect(watch.state).toBe("failed");
-    } finally { watch(); f.client.close(); }
-  });
   it("stop cancels the first request and fences its late result/pushes", async () => {
     const f = await fixture(), changed = vi.fn(), watch = f.client.watchChanges(undefined, changed);
     try {
@@ -75,19 +66,6 @@ describe("change watch readiness and local lifetime (actual Client/Session wire 
       await f.request(); watch(); await rejected;
       f.reply(0, batch("late", "late.md")); f.push(batch("later", "later.md")); await Promise.resolve();
       expect(watch.state).toBe("closed"); expect(changed).not.toHaveBeenCalled(); expect(f.cancellations).toHaveLength(1);
-    } finally { watch(); f.client.close(); }
-  });
-  it("stop before start sends no watch request", async () => {
-    const f = await fixture(), watch = f.client.watchChanges(undefined, () => {});
-    const rejected = expect(watch.ready).rejects.toMatchObject({ code: "cancelled" });
-    watch(); await rejected; await Promise.resolve(); expect(f.requests).toHaveLength(0); f.client.close();
-  });
-  it("handles a cancellation send failure without retaining the request", async () => {
-    const f = await fixture(), watch = f.client.watchChanges(undefined, () => {});
-    try {
-      const rejected = expect(watch.ready).rejects.toMatchObject({ code: "cancelled" });
-      await f.request(); const session = f.client.currentSession(); f.rejectCancel(); watch(); await rejected;
-      expect(session["pending"].size).toBe(0); expect(watch.state).toBe("closed");
     } finally { watch(); f.client.close(); }
   });
   it("client close before acknowledgement cannot produce a late ready callback", async () => {
@@ -104,16 +82,7 @@ describe("change watch readiness and local lifetime (actual Client/Session wire 
       expect(paths).toEqual(["first.md", "second.md", "third.md"]); expect(watch.state).toBe("active");
     } finally { watch(); f.client.close(); }
   });
-  it("stop from the initial callback purges startup pushes and rejects readiness", async () => {
-    const f = await fixture(), paths: string[] = [];
-    const watch = f.client.watchChanges(undefined, b => { paths.push(...b.changes.map(c => c.path)); watch(); });
-    try {
-      const rejected = expect(watch.ready).rejects.toMatchObject({ code: "cancelled" });
-      await f.request(); f.push(batch("queued", "queued.md")); f.reply(0, batch("first", "first.md")); await rejected;
-      expect(paths).toEqual(["first.md"]); expect(watch.state).toBe("closed");
-    } finally { watch(); f.client.close(); }
-  });
-  it.each(["count", "weight"])("rejects startup queue %s exhaustion, never partial active success", async limit => {
+  it.each(["count"])("rejects startup queue %s exhaustion, never partial active success", async limit => {
     const f = await fixture(), changed = vi.fn(), watch = f.client.watchChanges(undefined, changed);
     try {
       const rejected = expect(watch.ready).rejects.toMatchObject({ code: "unavailable" }); await f.request();

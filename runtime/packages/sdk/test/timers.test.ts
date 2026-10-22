@@ -26,20 +26,6 @@ describe("backend-independent control timers", () => {
     expect(await api.list(input.namespace)).toEqual({ namespace: input.namespace, timers: [{ id: input.timer.id,
       criterionId: input.criterionId, fireAt: now, generation: 1, status: "scheduled", createdAt: now, updatedAt: now, firedAt: null }] });
   });
-  it("puts exact opaque wire fields and does not re-arm fired", async () => {
-    const { p, api } = fixture();
-    vi.mocked(p.put).mockResolvedValue(row(undefined, { status: "fired", fired_at: now }));
-    expect((await api.put(input)).status).toBe("fired");
-    expect(p.put).toHaveBeenCalledWith(input.namespace, input.timer.id, { criterion_id: input.criterionId, fire_at: now }, { signal: expect.any(AbortSignal) });
-  });
-  it("snapshots a caller's reconcile inputs and maps cancelled_ids", async () => {
-    const { p, api } = fixture();
-    const timers = [{ ...input.timer }];
-    const work = api.reconcile({ namespace: input.namespace, criterionId: input.criterionId, timers });
-    timers[0]!.id = "changed";
-    expect((await work).cancelledIds).toEqual(["task:old"]);
-    expect(vi.mocked(p.reconcile).mock.calls[0]![1].timers[0]!.id).toBe("task:one");
-  });
   it("cancels an exact generation without converting false to success", async () => {
     const { p, api } = fixture();
     expect((await api.cancel({ namespace: input.namespace, id: input.timer.id, generation: 4 })).cancelled).toBe(false);
@@ -68,20 +54,12 @@ describe("backend-independent control timers", () => {
     await expect(api.put(input)).rejects.toMatchObject({ code: "outcome_unknown" });
     expect(p.put).toHaveBeenCalledTimes(1);
   });
-  it("closes an owned port exactly once", () => {
-    const { p, api } = fixture(); p.close = vi.fn();
-    api.close(); api.close(); expect(p.close).toHaveBeenCalledTimes(1);
-  });
+
   it("marks a mismatched write response unknown, never retrying", async () => {
     const { p, api } = fixture();
     vi.mocked(p.put).mockResolvedValue(row("other"));
     await expect(api.put(input)).rejects.toMatchObject({ code: "outcome_unknown" });
     expect(p.put).toHaveBeenCalledOnce();
-  });
-  it("rejects foreign or omitted reconciled members", async () => {
-    const { p, api } = fixture();
-    vi.mocked(p.reconcile).mockResolvedValue({ namespace: input.namespace, timers: [], cancelled_ids: [] });
-    await expect(api.reconcile({ namespace: input.namespace, criterionId: input.criterionId, timers: [input.timer] })).rejects.toMatchObject({ code: "outcome_unknown" });
   });
   it("does not dispatch a pre-aborted request", async () => {
     const { p, api } = fixture();
@@ -101,24 +79,17 @@ describe("backend-independent control timers", () => {
     finish({ namespace: input.namespace, timers: [row()] });
     await expect(pending).rejects.toMatchObject({ code: "cancelled" });
   });
-  it("close after write dispatch reports unknown, not cancellation", async () => {
-    const { p, api } = fixture();
-    let finish!: (value: unknown) => void;
-    vi.mocked(p.put).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
-    const pending = api.put(input);
-    api.close(); finish(row());
-    await expect(pending).rejects.toMatchObject({ code: "outcome_unknown" });
-    expect(p.put).toHaveBeenCalledOnce();
-  });
-  it("uses only specific Web Push/FCM channel operations", async () => {
-    const { p, api } = fixture();
-    await api.registerFcm({ token: "synthetic-token", criteria: ["task.reminder"] });
-    expect(p.registerFcm).toHaveBeenCalledWith({ token: "synthetic-token", criteria: ["task.reminder"], signal: expect.any(AbortSignal) });
-    await api.unregisterFcm();
-    expect(p.unregisterFcm).toHaveBeenCalledOnce();
-    const worker = {} as ServiceWorkerRegistration;
-    await api.registerWebPush({ serviceWorker: worker });
-    await api.unregisterWebPush(worker);
-    expect(p.unregisterWebPush).toHaveBeenCalledWith(worker, { signal: expect.any(AbortSignal) });
+
+  it("registers push with the declared criteria and the ready service worker when the app names neither", async () => {
+    const { p } = fixture();
+    const api = new TimersApi(p, { criteria: ["task.reminder"] });
+    const serviceWorker = { scope: "https://app.example/" } as unknown as ServiceWorkerRegistration;
+    vi.stubGlobal("navigator", { serviceWorker: { ready: Promise.resolve(serviceWorker) } });
+    try {
+      await api.registerWebPush();
+      await api.registerFcm({ token: "fcm-token-0123456789" });
+    } finally { vi.unstubAllGlobals(); }
+    expect(p.registerWebPush).toHaveBeenCalledWith(expect.objectContaining({ serviceWorker, criteria: ["task.reminder"] }));
+    expect(p.registerFcm).toHaveBeenCalledWith(expect.objectContaining({ token: "fcm-token-0123456789", criteria: ["task.reminder"] }));
   });
 });

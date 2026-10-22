@@ -16,6 +16,7 @@ import {
 } from "@mdbase-dev/connect-protocol";
 import { copyClientNoiseKeyToGrant } from "../next/client-key.js";
 import { queueNextGrantPolicy } from "../next/grant-policy.js";
+import { planFreshNextGrant } from "../next/fresh-authorization.js";
 import { requireCollectionAction, resolveLocalCollectionAccess, type CollectionAccessContext } from "../../collection-access.js";
 import type { DatabasePool } from "../../db.js";
 import { planCollectionGrant } from "../../grant-planner.js";
@@ -56,6 +57,7 @@ export async function approvePortalAuthorization(
   let applicationManifestDigest = "";
   let grant: GrantPolicy;
   let grantAccess: CollectionAccessContext;
+  let freshLegacy: Parameters<typeof queueNextGrantPolicy>[2];
   try {
     await connection.query("BEGIN");
     const authorization = await connection.query<{
@@ -211,7 +213,7 @@ export async function approvePortalAuthorization(
       requiredContractsForRequirements(pending.requirements),
       selected.contracts
     );
-    const plan = planCollectionGrant({
+    const fresh = await planFreshNextGrant(connection, selected.local_id, {
       requestedOperations: input.operations,
       applicationOperationCeiling:
         pending.requested_operations as CollectionOperation[],
@@ -220,6 +222,8 @@ export async function approvePortalAuthorization(
       requirements: pending.requirements,
       access: grantAccess
     });
+    const plan = fresh.plan;
+    freshLegacy = fresh.legacy;
     const operations = plan.operations;
     assertCollectionSupportsOperations(selected.spec_version, operations);
     const scope = plan.scope;
@@ -390,7 +394,7 @@ export async function approvePortalAuthorization(
       [grantId, JSON.stringify(finalScope)]
     );
     grant!.scope = finalScope;
-    await queueNextGrantPolicy(finalize, grantId);
+    await queueNextGrantPolicy(finalize, grantId, freshLegacy);
     // Recovery is an exclusive transition for one app installation. Entering
     // the bridge retires every earlier grant; leaving it retires the live
     // recovery grant. Ordinary repeat authorizations keep their independent

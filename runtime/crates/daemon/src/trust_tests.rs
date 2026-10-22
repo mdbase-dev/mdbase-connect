@@ -22,7 +22,7 @@ fn lab_embeds_exactly_the_authenticated_asset() {
     assert!(Environment::Lab.trust_at(0).is_err());
 }
 
-#[cfg(not(feature = "lab"))]
+#[cfg(not(any(feature = "lab", feature = "local-rehearsal")))]
 #[test]
 fn absent_lab_feature_refuses_lab_trust_without_a_fallback() {
     assert!(
@@ -60,6 +60,9 @@ fn production_embeds_no_trust_yet() {
 
 #[test]
 fn the_build_feature_selects_the_environment() {
+    #[cfg(feature = "local-rehearsal")]
+    let expected = Environment::Local;
+    #[cfg(not(feature = "local-rehearsal"))]
     let expected = if cfg!(feature = "lab") {
         Environment::Lab
     } else {
@@ -80,9 +83,10 @@ fn the_build_feature_selects_the_environment() {
 #[test]
 fn sign_in_defaults_to_and_only_accepts_the_build_environment() {
     for env in [Environment::Lab, Environment::Production] {
-        let other = match env {
-            Environment::Lab => Environment::Production,
-            Environment::Production => Environment::Lab,
+        let other = if env == Environment::Lab {
+            Environment::Production
+        } else {
+            Environment::Lab
         };
         assert_eq!(sign_in_server_for(env, None).unwrap(), env.control_plane());
         // The same origin in any accepted spelling.
@@ -109,6 +113,36 @@ fn sign_in_defaults_to_and_only_accepts_the_build_environment() {
         ] {
             assert!(sign_in_server_for(env, Some(wrong)).is_err(), "{wrong}");
         }
+    }
+}
+
+#[cfg(feature = "local-rehearsal")]
+#[test]
+fn local_embeds_signed_exact_stack_and_refuses_managed_or_other_origins() {
+    let trust = authenticated().unwrap();
+    assert_eq!(trust.environment, "local");
+    assert_eq!(trust.cp_origin, Environment::Local.control_plane());
+    assert_eq!(trust.log_origin, local_input::LOG_ORIGIN);
+    assert_eq!(trust.roots.len(), 1);
+    assert_eq!(trust.policy_pins.validate(), Ok(()));
+    assert!(Environment::Local.trust_at(0).is_err());
+    assert!(Environment::Lab.trust().is_err());
+    assert!(Environment::Production.trust().is_err());
+    assert_eq!(sign_in_server(None).unwrap(), trust.cp_origin);
+    assert_eq!(
+        sign_in_server(Some(&trust.cp_origin)).unwrap(),
+        trust.cp_origin
+    );
+    for origin in [
+        "https://connect-lab.mdbase.dev",
+        "https://connect.mdbase.dev",
+        "http://localhost:9",
+        "http://127.0.0.1:0",
+    ] {
+        assert!(sign_in_server(Some(origin)).is_err(), "{origin}");
+    }
+    for suffix in ["/", "/path", "?query=1", "#fragment"] {
+        assert!(sign_in_server(Some(&format!("{}{suffix}", trust.cp_origin))).is_err());
     }
 }
 

@@ -165,6 +165,9 @@ wire_struct! {
         1 req1 capabilities: Vec<String>,
         /// The granting member's role.
         2 req role: Role,
+        /// The grant's folder scope of the file namespace (API 1.2; absent:
+        /// unrestricted). Key 3 is reserved.
+        4 opt1 file_folders: Vec<String>,
     }
 }
 
@@ -607,6 +610,22 @@ wire_struct! {
         2 req kind: ChangeKind,
         /// Local view version.
         3 req version: u64,
+        /// What changed (API 1.2); absent when the producer cannot tell, as for
+        /// a removal that left no tombstone. Key 4 is reserved.
+        5 opt entity: ChangeEntity,
+        /// A record's types (the last ones, for a removal); absent for files
+        /// and when the producer cannot tell.
+        6 opt types: Vec<String>,
+    }
+}
+
+wire_enum! {
+    /// What a change-feed entry is about.
+    pub enum ChangeEntity {
+        /// A record.
+        Record = 0,
+        /// A non-record file.
+        File = 1,
     }
 }
 
@@ -734,6 +753,10 @@ wire_struct! {
         6 req confirmed_seq: u64,
         /// Hold.
         7 opt hold: HoldRef,
+        /// Writing-device commit/capture clock in milliseconds; absent stays unknown.
+        8 opt mtime: i64,
+        /// IANA media type derived from the path's extension; absent when unknown.
+        9 opt media_type: String,
     }
 }
 
@@ -768,6 +791,8 @@ wire_struct! {
         2 req received: Vec<u64>,
         /// Expiry.
         3 req expires_at: i64,
+        /// Native-owned file identity (API 1.1); never inferred from the path.
+        4 opt file_id: Uuid,
     }
 }
 
@@ -900,3 +925,6 @@ wire_struct! {
         4 req last_seen: i64,
     }
 }
+
+#[cfg(test)]
+mod upload_identity_tests;

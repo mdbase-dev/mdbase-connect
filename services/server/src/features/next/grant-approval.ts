@@ -9,9 +9,10 @@
 // this only lets the control plane's own services (timers, channels, delivery) honour
 // what the user approved.
 import { createHash, verify } from "node:crypto";
-import { APPLICATION_CAPABILITY_DEFINITIONS, type ApplicationCapabilityId } from "@mdbase-dev/connect-protocol";
+import { APPLICATION_CAPABILITY_DEFINITIONS, type ApplicationCapabilityId, type FileCapability } from "@mdbase-dev/connect-protocol";
 import type { DatabaseQueryable } from "../../database-types.js";
 import { grantCapabilityGroups } from "./devices.js";
+import { exactNextGrantCapabilities } from "./grant-policy.js";
 import type { LogServiceClient } from "./log-service-client.js";
 import { ed25519PublicKeyObject } from "./policy-keys.js";
 import { decodeCbor, domainHash, encodeCbor, uuidBytes, type Decoded } from "./policy-wire.js";
@@ -49,6 +50,7 @@ export function grantApprovalReportDigest(collection: string, grant: string, seq
 interface GrantContext {
   id: string;
   log_grant_id: string;
+  next_bound: boolean;
   user_id: string;
   active: boolean;
   collection: string | null;
@@ -63,16 +65,17 @@ interface GrantContext {
 async function grantContext(db: DatabaseQueryable, grantId: string): Promise<GrantContext | null> {
   const result = await db.query<GrantContext>(
     `SELECT g.id, COALESCE(binding.log_grant_id, g.id) AS log_grant_id, g.user_id,
+            (binding.grant_id IS NOT NULL) AS next_bound,
             (g.revoked_at IS NULL AND g.activated_at IS NOT NULL AND u.suspended_at IS NULL
              AND (nc.runtime IS DISTINCT FROM 'next' OR binding.active = true)) AS active,
-            COALESCE(col.local_id::text, g.hosted_collection_id::text) AS collection, nc.sync,
+            COALESCE(col.local_id::text, g.hosted_collection_id::text, g.next_collection_id::text) AS collection, nc.sync,
             g.application_id, g.operations, g.file_capability,
             (g.application_authorization->'binding'->'contracts'->>'semantic_capabilities')::int AS semantic_capabilities,
             k.client_pk
      FROM grants g
      JOIN users u ON u.id = g.user_id
      LEFT JOIN collections col ON col.id = g.collection_id
-     LEFT JOIN next_collections nc ON nc.collection_id::text = COALESCE(col.local_id::text, g.hosted_collection_id::text)
+     LEFT JOIN next_collections nc ON nc.collection_id::text = COALESCE(col.local_id::text, g.hosted_collection_id::text, g.next_collection_id::text)
      LEFT JOIN next_grant_client_keys k ON k.grant_id = g.id
      LEFT JOIN next_grant_bindings binding ON binding.grant_id = g.id
      WHERE g.id = $1 OR binding.log_grant_id = $1`,
@@ -116,7 +119,7 @@ export async function reportGrantApproval(
   if (!grant.client_pk || !Buffer.from(clientKeyDigest(grant.client_pk)).equals(clientFp)) {
     throw new GrantApprovalReportError(409, "client_key_mismatch", "The approval names another app key than the grant's.");
   }
-  const offered = new Set(grantCapabilityGroups(grant.semantic_capabilities ?? undefined, grant.operations) ?? []);
+  const offered = new Set(grantCapabilityGroups(grant.semantic_capabilities ?? undefined, grant.operations, grant.next_bound, grant.file_capability as FileCapability | null) ?? []);
   if (!capabilities.every((capability) => offered.has(capability))) {
     throw new GrantApprovalReportError(409, "capabilities_not_offered", "The approved capabilities must be a subset of the grant's.");
   }
@@ -204,4 +207,49 @@ export function approvalAllowsOperation(approval: GrantApproval, operation: stri
   if (!approval.approved || !approval.capabilities) return false;
   return approval.capabilities.some((capability) =>
     (APPLICATION_CAPABILITY_DEFINITIONS[capability as ApplicationCapabilityId] as readonly string[] | undefined)?.includes(operation) === true);
+}
+
+export interface GrantApprovalTerms {
+  grant: string;
+  authorization_grant: string;
+  collection: string;
+  app: { name: string; declaration_id: string | null };
+  capabilities: string[];
+  folders: string[] | null;
+  /** Full `H("mdbase/v1/client-fp", client_pk)`, 64 hex; the replica shows its first 8 bytes. */
+  client_fp: string;
+}
+
+/**
+ * What a device of the granting account shows and signs when approving a pending
+ * grant on a Private collection: the app, its capability groups, folders and key.
+ * The device still checks the fingerprint and capabilities against its replica's
+ * pending grant before approving. Null (404) for anyone else or any other grant.
+ */
+export async function grantApprovalTerms(db: DatabaseQueryable, connector: { id: string; user_id: string }, grantId: string): Promise<GrantApprovalTerms | null> {
+  const grant = await grantContext(db, grantId);
+  if (!grant || !grant.active || grant.sync !== "private" || !grant.collection || !grant.client_pk
+      || grant.user_id !== connector.user_id || grant.log_grant_id === grant.id) return null;
+  const device = await db.query(
+    `SELECT 1 FROM next_devices d JOIN connectors c ON c.id = d.connector_id
+     WHERE d.connector_id = $1 AND d.user_id = $2 AND c.revoked_at IS NULL LIMIT 1`,
+    [connector.id, grant.user_id]
+  );
+  if (!device.rows.length) return null;
+  const app = (await db.query<{ name: string; declaration_id: string | null }>(
+    `SELECT a.name, g.application_authorization->'binding'->>'application_declaration_id' AS declaration_id
+     FROM grants g JOIN applications a ON a.id = g.application_id WHERE g.id = $1`,
+    [grant.id]
+  )).rows[0];
+  if (!app) return null;
+  const files = grant.file_capability as FileCapability | null;
+  return {
+    grant: grant.log_grant_id,
+    authorization_grant: grant.id,
+    collection: grant.collection,
+    app,
+    capabilities: exactNextGrantCapabilities(grant.semantic_capabilities, grant.operations, files, grant.next_bound),
+    folders: files?.scope.kind === "selected_folders" ? [...files.scope.folders].sort() : null,
+    client_fp: Buffer.from(clientKeyDigest(grant.client_pk)).toString("hex")
+  };
 }

@@ -1,0 +1,90 @@
+{
+  "manifest_version": 1,
+  "id": "dev.mdbase.journal-prototype",
+  "name": "Journal (prototype)",
+  "homepage": "https://mdbase-journal.callum-artifacts.pages.dev/",
+  "icon": "https://mdbase-journal.callum-artifacts.pages.dev/pwa-512.png",
+  "redirect_uris": [
+    "https://mdbase-journal.callum-artifacts.pages.dev/auth/mdbase/callback"
+  ],
+  "requirements": {
+    "contracts": [
+      {
+        "id": "journal.entry",
+        "version": "0.1.0",
+        "digest": "sha256:7e95bdf03621919fb0e722e5a29b48a68d7a4eaa3a94aea033d96ea2f7ec34cc"
+      }
+    ],
+    "access": "full_collection",
+    "capabilities": {
+      "contract_version": 2,
+      "required": [
+        "collection.read",
+        "records.create",
+        "records.edit"
+      ]
+    },
+    "files": {
+      "required": [
+        "list",
+        "read",
+        "add",
+        "replace",
+        "move"
+      ],
+      "scope": {
+        "kind": "collection"
+      }
+    }
+  },
+  "provisions": {
+    "type_packs": [
+      {
+        "manifest": {
+          "kind": "mdbase.type-pack",
+          "id": "journal.entry",
+          "version": "0.1.1",
+          "name": "Journal entries",
+          "description": "The journal.entry contract and a starter type that implements it.",
+          "resources": [
+            {
+              "kind": "contract",
+              "mode": "managed",
+              "source": "contracts/journal.entry/0.1.0.md",
+              "target": "_contracts/journal.entry.md",
+              "digest": "sha256:3aa76c614d5f832f29ee16334015de3b83964973bd210f366227bbcc855ff964"
+            },
+            {
+              "kind": "type",
+              "mode": "seed",
+              "source": "types/journal-entry/2.md",
+              "target": "_types/journal-entry.md",
+              "digest": "sha256:aa1ded0093568783349e4c4057e20fee64bb4540ba33f584f7363762ca3ed952",
+              "upgrade_from": {
+                "digest": "sha256:3a7784b7e5b4eeb0dd56c94bc1ee71c9123fdd5d0304c3e740990302739e476a",
+                "document": "---\nkind: mdbase.type\nname: journal-entry\nversion: 1\ndescription: A note written in Journal.\nmatch:\n  where:\n    type: journal-entry\nschema:\n  dialect: json-schema-2020-12\n  value:\n    $schema: https://json-schema.org/draft/2020-12/schema\n    title: Journal entry\n    type: object\n    required: [type, created]\n    properties:\n      type:\n        const: journal-entry\n        description: Identifies this note as a journal entry. Set by Journal when it creates the note.\n      created:\n        type: string\n        format: date-time\n        description: When the page was opened, with the writer's local UTC offset. Set by Journal.\n      modified:\n        type: string\n        format: date-time\n        description: When the entry last changed. Maintained by this type's lifecycle rules.\n    additionalProperties: true\nlifecycle:\n  on_create:\n    set:\n      modified: { now: true }\n  on_update:\n    set:\n      modified: { now: true }\nimplements:\n  - contract: journal.entry\n    version: 0.1.0\n    fields:\n      created: created\n---\n\n# Journal entry\n\nOne note per page written in Journal. Journal sets `created` when the note is\nfirst saved and writes the text as the note's body. It never reads entries back,\nso open them in Editor or any other app.\n\nThis type belongs to your collection. Journal installed it once and will not\nchange it again, so customise it freely.\n\n## Add fields that fill themselves in\n\nLifecycle rules run whenever an entry is created or saved. To tag every new\nentry, add a `tags` field to the schema and a rule under `on_create`:\n\n```yaml\nlifecycle:\n  on_create:\n    set:\n      modified: { now: true }\n      tags: { literal: [journal] }\n```\n\nOther providers include `{ today: true }` for a plain date and `{ uuid: true }`\nfor a stable identifier. Rules under `on_update` run on every save; `modified`\nis kept current that way.\n\n## Rename fields\n\nJournal relies only on the `journal.entry` contract, not on these field names.\nTo store the time as `date` instead, rename the property in the schema and\nupdate the mapping:\n\n```yaml\nimplements:\n  - contract: journal.entry\n    version: 0.1.0\n    fields:\n      created: date\n```\n\nKeep exactly one type implementing `journal.entry`. With two, Journal cannot\ntell which one new entries should use.\n"
+              }
+            }
+          ]
+        },
+        "resources": [
+          {
+            "source": "contracts/journal.entry/0.1.0.md",
+            "document": "---\nkind: mdbase.contract\ncontract_type: record\nid: journal.entry\nversion: 0.1.0\nname: Journal entry\ndescription: A note written at a moment in time. The Markdown body is the entry.\n\nrecord_schema:\n  dialect: json-schema-2020-12\n  value:\n    $schema: \"https://json-schema.org/draft/2020-12/schema\"\n    type: object\n    required: [created]\n    additionalProperties: false\n    properties:\n      created:\n        type: string\n        format: date-time\n        description: When the writer opened the page, with their local UTC offset.\n---\n\n# Journal entry\n\nA journal entry is one note written at one moment. The contract asks for a\nsingle field, `created`; the entry itself is the record's Markdown body.\n\nJournal writes `created` through this contract and then saves the body with\nordinary whole-record updates. Everything else about an entry belongs to the\ntype that implements this contract: its field names, extra fields, and the\nlifecycle rules that fill them in.\n"
+          },
+          {
+            "source": "types/journal-entry/2.md",
+            "document": "---\nkind: mdbase.type\nname: journal-entry\nversion: 2\ndescription: A note written in Journal.\nmatch:\n  where:\n    type: journal-entry\nschema:\n  dialect: json-schema-2020-12\n  value:\n    $schema: https://json-schema.org/draft/2020-12/schema\n    title: Journal entry\n    type: object\n    required: [created]\n    properties:\n      created:\n        type: string\n        format: date-time\n        description: When the page was opened, with the writer's local UTC offset. Set by Journal.\n      modified:\n        type: string\n        format: date-time\n        description: When the entry last changed. Maintained by this type's lifecycle rules.\n    additionalProperties: true\nlifecycle:\n  on_create:\n    set:\n      modified: { now: true }\n  on_update:\n    set:\n      modified: { now: true }\nimplements:\n  - contract: journal.entry\n    version: 0.1.0\n    fields:\n      created: created\n---\n\n# Journal entry\n\nOne note per page written in Journal. Journal sets `created` when the note is\nfirst saved and writes the text as the note's body. It never reads entries back,\nso open them in Editor or any other app.\n\nJournal names this type explicitly when it creates a note, so the collection\nrecords it under its own type key (`type` by default). The schema does not\nrequire that key; the `match` rule only recognises notes written by hand with\n`type: journal-entry`.\n\nThis type belongs to your collection. Journal installed it once and will not\nchange it again, so customise it freely.\n\n## Add fields that fill themselves in\n\nLifecycle rules run whenever an entry is created or saved. To tag every new\nentry, add a `tags` field to the schema and a rule under `on_create`:\n\n```yaml\nlifecycle:\n  on_create:\n    set:\n      modified: { now: true }\n      tags: { literal: [journal] }\n```\n\nOther providers include `{ today: true }` for a plain date and `{ uuid: true }`\nfor a stable identifier. Rules under `on_update` run on every save; `modified`\nis kept current that way.\n\n## Rename fields\n\nJournal relies only on the `journal.entry` contract, not on these field names.\nTo store the time as `date` instead, rename the property in the schema and\nupdate the mapping:\n\n```yaml\nimplements:\n  - contract: journal.entry\n    version: 0.1.0\n    fields:\n      created: date\n```\n\nKeep exactly one type implementing `journal.entry`. With two, Journal cannot\ntell which one new entries should use.\n"
+          }
+        ],
+        "provides": [
+          {
+            "id": "journal.entry",
+            "version": "0.1.0",
+            "digest": "sha256:7e95bdf03621919fb0e722e5a29b48a68d7a4eaa3a94aea033d96ea2f7ec34cc"
+          }
+        ]
+      }
+    ]
+  }
+}

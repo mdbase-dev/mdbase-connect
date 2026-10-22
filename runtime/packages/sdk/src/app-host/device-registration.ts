@@ -1,5 +1,6 @@
 /** First-party protected device registration ONLY. No collection bootstrap,
  * private-enrol/create/SAS/Noise handshake, retry or provider activation. */
+import { LOCAL_APPLICATION_BUILD, localApplicationHttpOrigin } from "../application/local-build.js";
 import { uuidToBytes } from "../codec.js";
 import type { AppDeviceIdentityPin, AppDeviceRegistrationReceipt, AppNoiseCustodyResult, AppWasmRuntime } from "./wasm-runtime.js";
 
@@ -38,7 +39,7 @@ export class AppCpDeviceRegistration {
       for (const id of [this.scope.connectorId,this.scope.deviceId,this.scope.installationId]) if (uuidToBytes(id).every(b=>b===0)) throw fail("binding");
       if (session.kind!=="mobile" && session.kind!=="app-runtime") throw fail("binding");
       this.rawOrigin=session.cpOrigin;const u=new URL(this.rawOrigin);
-      if (u.username || u.password || u.pathname!=="/" || u.search || u.hash || (u.protocol!=="https:" && !(options.allowLoopbackHttp===true && u.protocol==="http:" && ["localhost","127.0.0.1","[::1]"].includes(u.hostname)))) throw fail("binding");
+      if (u.username || u.password || u.pathname!=="/" || u.search || u.hash || (u.protocol!=="https:" && !(options.allowLoopbackHttp===true && u.protocol==="http:" && (LOCAL_APPLICATION_BUILD ? localApplicationHttpOrigin(this.rawOrigin) : ["localhost","127.0.0.1","[::1]"].includes(u.hostname))))) throw fail("binding");
       this.origin=u.origin;this.now=options.now??Date.now;this.fetchImpl=options.fetch??globalThis.fetch;
       if (!(custody.envelope instanceof Uint8Array) || !custody.envelope.length || custody.envelope.length>1024) throw fail("binding");
       if (!runtime.deviceCustodyCurrent(session,custody)) throw fail("binding");
@@ -55,7 +56,7 @@ export class AppCpDeviceRegistration {
     parent.addEventListener("abort",abort,{once:true});this.lifetime.signal.addEventListener("abort",abort,{once:true});
     const bytes=new Uint8Array(32*1024);let count=0,response:Response|null=null,reader:ReadableStreamDefaultReader<Uint8Array>|null=null;
     try {
-      const fetchImpl=this.fetchImpl;response=await fetchImpl(`${this.origin}${path}`,{method:"POST",headers:{authorization:`Bearer ${bearer}`,...(body===undefined?{}:{"content-type":"application/json"})},body,signal:ctrl.signal,redirect:"error",credentials:"omit",cache:"no-store",referrerPolicy:"no-referrer"});
+      const fetchImpl=this.fetchImpl;response=await fetchImpl(`${this.origin}${path}`,{method:"POST",headers:{authorization:`Bearer ${bearer}`,...(body===undefined?{}:{"content-type":"application/json"})},body,signal:ctrl.signal,redirect:"error",credentials:"omit",cache:"default",referrerPolicy:"no-referrer"});
       this.check(parent);if (ctrl.signal.aborted || !response.ok) throw fail("unavailable");
       // Fetch's decoded stream is authoritative for the cap, not wire length.
       const length=response.headers.get("content-length");if (length!==null && /^(0|[1-9][0-9]*)$/.test(length) && Number(length)>bytes.length) {ctrl.abort();throw fail("response");}

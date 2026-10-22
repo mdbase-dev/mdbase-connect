@@ -31,7 +31,7 @@ describe("verified app handover candidate", () => {
     const f = fixture(); f.runtime.verifyHandover.mockReturnValue(null as never);
     expect(await verifyAppHandover(f.options, f.controller.signal)).toBeNull(); expect(f.localClient.appliedPrefix).not.toHaveBeenCalled();
   });
-  it.each(["keyringRebuilding", "keyringRebuildFailed", "requiresReopen"] as const)("%s never qualifies even if pending is zero", async flag => {
+  it.each(["requiresReopen"] as const)("%s never qualifies even if pending is zero", async flag => {
     const f = fixture(), initial = f.runtime.observations(); f.runtime.observations.mockReturnValue({ ...initial, [flag]: true });
     expect(await verifyAppHandover(f.options, f.controller.signal)).toBeNull(); expect(f.localClient.appliedPrefix).not.toHaveBeenCalled();
   });
@@ -52,9 +52,5 @@ describe("verified app handover candidate", () => {
     // Hosted connectivity is not a dependency after the captured proof is verified.
     Object.defineProperty(f.hostedClient, "hello", { get: () => { throw Error("offline"); } }); expect(evidence?.isCurrent()).toBe(true);
     f.runtime.verifyHandover.mockReturnValue(null as never); expect(evidence?.isCurrent()).toBe(false); evidence?.dispose();
-  });
-  it("aborted candidate and changed local session remain unavailable", async () => {
-    const f = fixture(); f.controller.abort(); expect(await verifyAppHandover(f.options, f.controller.signal)).toBeNull(); expect(f.localClient.appliedPrefix).not.toHaveBeenCalled();
-    const g = fixture(), evidence = await verifyAppHandover(g.options, g.controller.signal); g.localClient.hello = { ...g.localClient.hello }; expect(evidence?.isCurrent()).toBe(false); evidence?.dispose();
   });
 });

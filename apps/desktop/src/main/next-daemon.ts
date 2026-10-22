@@ -5,12 +5,14 @@ import { join } from "node:path";
 import { compareVersions } from "./update-policy";
 
 /**
- * Installing the bundled mdbase-next daemon from the bridge release
- * (mdbase-next packaging interface, 2026-10-04, section 6.7).
+ * Keeping the installed mdbase daemon at the version this app bundles.
  *
- * The bridge never stops or disables the old connector itself: the new
- * daemon's takeover (T1) does that. This module only registers and starts the
- * new daemon's own service, in its own state directory and unit names.
+ * The app update delivers the daemon: each app version ships `Resources/mdbase-next`,
+ * and on launch `mdbase service install` swaps it into `<state>/runtime/mdbase`,
+ * keeping the replaced copy as `mdbase.previous`. If the new copy does not become
+ * ready, the previous copy installs itself again and this bundled version is held
+ * back until the next app update. The old connector is never started or stopped
+ * here; the daemon's takeover owns that.
  */
 
 export const NEXT_DAEMON_TIMEOUT_MS = 60_000;
@@ -24,7 +26,16 @@ export type CliRunner = (args: string[]) => Promise<CliResult>;
 
 export type NextDaemonOutcome =
   | { outcome: "already_installed"; version: string; started: boolean }
-  | { outcome: "installed"; version: string };
+  | { outcome: "installed"; version: string }
+  /** The bundled version did not become ready; `version` is the restored previous one. */
+  | { outcome: "rolled_back"; version: string; failed: string; reason: string };
+
+export interface EnsureOptions {
+  /** The previous runtime copy's CLI, when `mdbase.previous` exists. */
+  rollback?: CliRunner | null;
+  /** A bundled version that already failed and was rolled back: don't retry it. */
+  heldBack?: string | null;
+}
 
 interface ServiceStatus {
   registration: unknown;
@@ -58,27 +69,61 @@ function atLeast(version: string | null, bundled: string): boolean {
   }
 }
 
+/** Registered and ready, running `version` (any version when omitted). */
+function healthy(value: Record<string, unknown> | null, version?: string): value is Record<string, unknown> & ServiceStatus {
+  const health = value as ServiceStatus | null;
+  return !!health && health.registration === "installed" && health.readiness?.ready === true &&
+    typeof health.readiness.binary_version === "string" &&
+    (version === undefined || health.readiness.binary_version === version);
+}
+
 /**
- * Install the bundled daemon unless an equal or newer one (it updates itself)
- * is already registered; start it if registered but not running. Healthy
- * means exit 0, registered, ready, and running the bundled version.
+ * Install the bundled daemon unless an equal or newer one (it updates itself) or a
+ * held-back fallback is registered; start it if registered but not running. If the
+ * swapped-in bundle does not become ready, restore `mdbase.previous`.
  */
-export async function ensureNextDaemon(run: CliRunner, bundledVersion: string): Promise<NextDaemonOutcome> {
+export async function ensureNextDaemon(
+  run: CliRunner,
+  bundledVersion: string,
+  options: EnsureOptions = {}
+): Promise<NextDaemonOutcome> {
   const status = serviceStatus(await run(["--json", "service", "status"]), "status");
-  if (status.registration === "installed" && atLeast(installedVersion(status), bundledVersion)) {
-    const version = installedVersion(status)!;
+  const version = installedVersion(status);
+  if (status.registration === "installed" && version &&
+      (atLeast(version, bundledVersion) || options.heldBack === bundledVersion)) {
     if (status.readiness === null || status.readiness === undefined) {
       const started = await run(["--json", "service", "start"]);
       if (started.exitCode !== 0) throw new Error(`mdbase service start failed (exit ${started.exitCode}).`);
-      const health = started.value as ServiceStatus | null;
-      if (!health || health.registration !== "installed" || health.readiness?.ready !== true ||
-          !atLeast(typeof health.readiness.binary_version === "string" ? health.readiness.binary_version : null, bundledVersion)) {
+      if (!healthy(started.value, version)) {
         throw new Error("The installed mdbase daemon did not become ready after starting.");
       }
       return { outcome: "already_installed", version, started: true };
     }
     return { outcome: "already_installed", version, started: false };
   }
+  let failure: Error;
+  try {
+    return await installBundled(run, bundledVersion);
+  } catch (error) {
+    failure = error instanceof Error ? error : new Error(String(error));
+  }
+  if (!options.rollback) throw failure;
+  // Roll back only a completed swap: the registered runtime is now the bundled copy.
+  const after = await run(["--json", "service", "status"]).catch(() => null);
+  if (!after?.value || installedVersion(after.value as unknown as ServiceStatus) !== bundledVersion) throw failure;
+  const restored = await options.rollback(["--json", "service", "install"]);
+  if (restored.exitCode !== 0 || !healthy(restored.value)) {
+    throw new Error(`${failure.message} Restoring the previous mdbase daemon also failed.`);
+  }
+  return {
+    outcome: "rolled_back",
+    version: restored.value.readiness!.binary_version as string,
+    failed: bundledVersion,
+    reason: failure.message
+  };
+}
+
+async function installBundled(run: CliRunner, bundledVersion: string): Promise<NextDaemonOutcome> {
   const installed = await run(["--json", "service", "install"]);
   if (installed.exitCode !== 0) {
     throw new Error(
@@ -89,11 +134,7 @@ export async function ensureNextDaemon(run: CliRunner, bundledVersion: string): 
           : `mdbase service install failed (exit ${installed.exitCode}).`
     );
   }
-  const health = installed.value as ServiceStatus | null;
-  if (
-    !health || health.registration !== "installed" || health.readiness?.ready !== true ||
-    health.readiness.binary_version !== bundledVersion
-  ) {
+  if (!healthy(installed.value, bundledVersion)) {
     throw new Error("The mdbase daemon did not report a healthy installation of the bundled version.");
   }
   return { outcome: "installed", version: bundledVersion };
@@ -141,10 +182,4 @@ export function nextDaemonRunner(binary: string, environment: NodeJS.ProcessEnv 
       resolve({ exitCode, value });
     });
   });
-}
-
-/** Whether Connect's rollout allows this account's local takeover. Closed on any doubt. */
-export function rolloutAllowsLocalTakeover(value: unknown): boolean {
-  return !!value && typeof value === "object" && !Array.isArray(value) &&
-    (value as Record<string, unknown>).local_takeover === true;
 }

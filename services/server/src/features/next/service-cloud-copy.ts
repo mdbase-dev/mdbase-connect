@@ -2,14 +2,16 @@
 // callers. The caller supplies current-principal authorization; runtime is an
 // internal composition choice, never a public request field. No readiness claim.
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
+import { migrationDeployments } from "./migration-routing.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import { CreateError, enrolOp, inTransaction, lock, SERVICE_ACCOUNT } from "./bootstrap-common.js";
 import { requireCollectionNotDeleted } from "./collection-deletion.js";
-import { requireAccountNotMigrationFrozen } from "./migration-topology.js";
-import type { LogServiceClient } from "./log-service-client.js";
+import { requireNextAccountNotMigrationFrozen } from "./migration-topology.js";
+import type { LogPlacement, LogServiceClient } from "./log-service-client.js";
 import type { NextControlPlaneConfig } from "./policy-keys.js";
 import { registerNextCollection, type PolicyEmitter } from "./policy-outbox.js";
 import { generateServiceDevice, loadServiceDevice, storeServiceDevice, type ServiceDeviceRecord } from "./service-devices.js";
+import { pitrCollection, pitrLabel, pitrLogUrl, pitrDeployments, type LabPitrConfig } from "./lab-pitr-config.js";
 
 export interface CloudCopyBootstrapOptions {
   db: DatabasePool; next: NextControlPlaneConfig; emitter: PolicyEmitter;
@@ -26,11 +28,15 @@ async function notDeleted(client: DatabaseConnection, collection: string): Promi
 }
 
 /** False when free, true when this owner's current cloud copy; never adopt another owner. */
-export async function existingCloudCopy(client: DatabaseConnection, collection: string, owner: string): Promise<boolean> {
+export async function existingCloudCopy(client: DatabaseConnection, collection: string, owner: string, pitr?: LabPitrConfig): Promise<boolean> {
   await notDeleted(client, collection);
-  const row = (await client.query<{ owner_user_id: string; sync: string; left: boolean }>(
-    "SELECT owner_user_id, sync, left_sync_at IS NOT NULL AS left FROM next_collections WHERE collection_id = $1 FOR UPDATE", [collection]
+  const isolated = pitrCollection(pitr, collection);
+  const row = (await client.query<{ owner_user_id: string; sync: string; left: boolean; created_at?: Date; display_name?: string }>(
+    isolated ? "SELECT owner_user_id, sync, left_sync_at IS NOT NULL AS left, created_at, display_name FROM next_collections WHERE collection_id = $1 FOR UPDATE"
+      : "SELECT owner_user_id, sync, left_sync_at IS NOT NULL AS left FROM next_collections WHERE collection_id = $1 FOR UPDATE", [collection]
   )).rows[0];
+  if (isolated && (owner !== pitr!.owner || (row && (!(row.created_at instanceof Date)
+      || !Number.isFinite(row.created_at.getTime()) || row.created_at.getTime() < pitr!.createdAfter || row.display_name !== pitrLabel(pitr!, collection))))) throw new CreateError(409, "collection_exists");
   if (row && (row.owner_user_id !== owner || row.sync !== "cloud_copy" || row.left)) throw new CreateError(409, "collection_exists");
   if (!row) {
     const other = await client.query("SELECT 1 FROM collections WHERE local_id = $1 AND user_id <> $2 AND removed_at IS NULL", [collection, owner]);
@@ -48,10 +54,12 @@ export async function currentCloudCopy(client: DatabaseConnection, collection: s
 }
 
 /** Each deployment generates its own keys; no collection or principal lock spans the await. */
-export function generateCloudCopyServices(options: CloudCopyBootstrapOptions, collection: string) {
+export async function generateCloudCopyServices(options: CloudCopyBootstrapOptions, collection: string) {
   const deployments = options.next.cloudCopyBootstrap;
   if (!deployments) throw new CreateError(503, "not_ready");
-  return Promise.all(KINDS.map(kind => generateServiceDevice(deployments[kind], kind, collection, options.fetchImpl)));
+  const selected = await migrationDeployments(options.db, pitrDeployments(deployments, options.next.logService.labPitr, collection), options.next.migrationRouting, collection);
+  if (!selected) throw new CreateError(409, "migration_routing_retired");
+  return Promise.all(KINDS.map(kind => generateServiceDevice(selected[kind], kind, collection, options.fetchImpl)));
 }
 
 /** Verify exact appended bytes at the saved position, never just an outbox row/202. */
@@ -82,7 +90,7 @@ export function cloudCopyMetadata(options: CloudCopyBootstrapOptions, collection
   head: { seq: number; chain: Uint8Array }, genesis: Buffer, records: ServiceDeviceRecord[]) {
   return {
     collection_id: collection, state: "cloud-copy", owner_account: owner,
-    log_url: options.next.logService.url, head: { seq: head.seq, chain: Buffer.from(head.chain).toString("hex") },
+    log_url: pitrLogUrl(options.next.logService.url, options.next.logService.labPitr, collection), head: { seq: head.seq, chain: Buffer.from(head.chain).toString("hex") },
     root_public_key: Buffer.from(options.next.rootPublicKey).toString("hex"), policy_cert: options.next.policyCert,
     genesis: { seq: 1, item: genesis.toString("hex") }, service_devices: records.map(record => ({
       kind: record.kind, device_id: record.device_id,
@@ -97,19 +105,26 @@ export function cloudCopyMetadata(options: CloudCopyBootstrapOptions, collection
 export async function createServiceCloudCopy(options: CloudCopyBootstrapOptions, input: {
   collection: string; owner: string; runtime: "shadow" | "next"; displayName: string;
   current: (client: DatabaseConnection) => Promise<void>;
+  /** Seals the collection's initial content after genesis, on every call. It must be
+   * idempotent per collection, so a retry converges on the same content. */
+  initialContent?: () => Promise<unknown>;
+  /** Storage-region inputs; see `registerNextCollection`. */
+  placement?: LogPlacement;
 }) {
-  const { collection, owner, runtime, displayName, current } = input;
+  const { collection, owner, runtime, displayName, current, initialContent, placement } = input;
   const rootKeyId = Buffer.from(options.next.policyCert.root_key_id, "hex");
+  const pitr = options.next.logService.labPitr;
+  if (pitrCollection(pitr, collection) && (runtime !== "next" || owner !== pitr!.owner || displayName !== pitrLabel(pitr!, collection))) throw new CreateError(403, "lab_pitr_fixture_required");
   const check = async (client: DatabaseConnection) => {
     // Owner/principal first, then collection: do not invert deletion/freeze locks.
     await current(client);
     await lock(client, collection);
-    const exists = await existingCloudCopy(client, collection, owner);
+    const exists = await existingCloudCopy(client, collection, owner, pitr);
     if (exists) {
       const exact = await client.query("SELECT 1 FROM next_collections WHERE collection_id=$1 AND runtime=$2 AND root_key_id=$3", [collection, runtime, rootKeyId]);
       if (!exact.rows.length) throw new CreateError(409, "collection_exists");
     } else if (runtime === "next") {
-      try { await requireAccountNotMigrationFrozen(client, owner); }
+      try { await requireNextAccountNotMigrationFrozen(client, owner); }
       catch (error) {
         if (error instanceof RequestValidationError) throw new CreateError(error.statusCode, error.code);
         throw error;
@@ -124,7 +139,7 @@ export async function createServiceCloudCopy(options: CloudCopyBootstrapOptions,
       // A concurrent creator's committed keys win; retry reads them rather than
       // replacing them with the generated candidate tuple.
       if (await check(client)) throw new CreateError(503, "not_ready");
-      await registerNextCollection(client, { collectionId: collection, ownerUserId: owner, runtime, sync: "cloud_copy", rootKeyId, displayName,
+      await registerNextCollection(client, { collectionId: collection, ownerUserId: owner, runtime, sync: "cloud_copy", rootKeyId, displayName, placement,
         ops: [{ op: "genesis", owner, root: rootKeyId, state: "cloud-copy" }, { op: "member-set", account: owner, role: "owner" },
           ...generated.map(record => enrolOp(record.device_id, SERVICE_ACCOUNT, record))] });
       for (const record of generated) await storeServiceDevice(client, collection, record);
@@ -135,6 +150,10 @@ export async function createServiceCloudCopy(options: CloudCopyBootstrapOptions,
   await inTransaction(options.db, check);
   const genesis = await appendedCloudCopyGenesis(options, collection);
   await inTransaction(options.db, check);
+  if (initialContent) {
+    await initialContent();
+    await inTransaction(options.db, check);
+  }
   const head = await options.log.head(collection);
   return inTransaction(options.db, async client => {
     if (!await check(client)) throw new CreateError(409, "not_current_cloud_copy");

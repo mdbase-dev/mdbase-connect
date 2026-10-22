@@ -1,0 +1,39 @@
+{
+  "sourceRepository": "callumalpass/tasknotes-app",
+  "sourceCommit": "252e1b1a0af0c7ef0e6f90680f699b84a8413fb9",
+  "manifest": "src/generated/mdbase-app.json",
+  "manifestSha256": "f04a649e36eacddaee7d502e4fbef757ee1bb72fb3e805fa245c8de552330753",
+  "installedBy": "dev.tasknotes.app",
+  "packManifest": "pack-manifest.json",
+  "packManifestSha256": "6442d93108f28800a3354e49268b3793fd9fa825e5f596e0b7316e9283bf4eeb",
+  "resources": [
+    {
+      "source": "contracts/tasknotes.task/0.3.0-rc.5.md",
+      "target": "_contracts/tasknotes.task.md",
+      "file": "task-contract.md",
+      "sha256": "ecadd00700e249940f4244aaa5b5985a96557d13340463ec491dfa5e89b032a4",
+      "bytes": 12297
+    },
+    {
+      "source": "types/tasknotes-task/5.md",
+      "target": "_types/task.md",
+      "file": "task.md",
+      "sha256": "b3cf8dbe8885b331c494d2eeb36abfb052890e06b757877d655c269e666487dc",
+      "bytes": 11357
+    },
+    {
+      "source": "schemas/tasknotes.task/0.3.0-rc.5.schema.json",
+      "target": "_schemas/tasknotes/tasknotes-task.schema.json",
+      "file": "task.schema.json",
+      "sha256": "aec95578a093be95cbce0fb500964e7aeaeeacc611624fc2893074637dbd4125",
+      "bytes": 4022
+    },
+    {
+      "source": "schemas/tasknotes.task.binding/0.3.0-rc.5.schema.json",
+      "target": "_schemas/tasknotes/tasknotes-task-binding.schema.json",
+      "file": "task-binding.schema.json",
+      "sha256": "5b38e8a1c426b7f7fa92d8353fe35dd98e632305cbb15ffccde387473166b267",
+      "bytes": 10163
+    }
+  ]
+}

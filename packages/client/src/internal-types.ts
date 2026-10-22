@@ -9,7 +9,7 @@ import type {
   MdbaseOperationRequest,
   MutationOperationIdentifier
 } from "@mdbase-dev/connect-protocol";
-import type { MdbaseApplicationRequirements as ApplicationRequirements } from "./application-contract.js";
+import type { MdbaseApplicationRequirements as ApplicationRequirements } from "@mdbase-dev/connect-protocol";
 import { encryptRelayRequest } from "./crypto.js";
 
 export interface Application {
@@ -108,4 +108,4 @@ export interface OperationAttempt {
   resumingMutation?: boolean;
 }
 
-export { DEFAULT_OPERATIONS } from "./application-contract.js";
+export { DEFAULT_OPERATIONS } from "@mdbase-dev/connect-protocol";

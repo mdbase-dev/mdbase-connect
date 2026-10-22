@@ -79,8 +79,49 @@ node build-release-trust.mjs --verifier /trusted/mdbn-trust --asset /trusted/env
   --sha256 <manifest-sha256> --environment <lab|staging|production> \
   --cp-origin <manifest-https-origin> --log-origin <manifest-https-origin> \
   --source-commit <manifest-commit> --source-version <manifest-version>
+# BEFORE any deploy/dry-run bundle: the KMS collection allowlist (below).
+node build-kms-allowlist.mjs --collections <allowlist.txt> --sha256 <manifest-sha256> \
+  --previous <served-allowlist.txt> --previous-sha256 <prior-manifest-sha256>
 npx wrangler types && npx tsc --noEmit
 ```
+
+## KMS collection allowlist (bundled data)
+
+KMS custody serves only the collections in a bundled allowlist module. Wrangler's
+fixed `#hosted-kms-collections` alias requires the create-only
+`.generated/kms-collections.ts`, written by `build-kms-allowlist.mjs`; a missing
+module refuses bundling.
+
+- **Format.** Canonical text: each lowercase, non-nil UUID followed by `\n`, in
+  strictly ascending order, nothing else. Empty text is deny-all. The digest is
+  the plain SHA-256 of that text. The build refuses non-canonical input rather
+  than normalizing it.
+- **Limit.** At most 100,000 entries (`MAX_KMS_COLLECTIONS`): 3.7 MB of text,
+  about 2 MB compressed, inside the Worker script size limit next to the engine.
+  Each isolate validates and hashes it once (tens of milliseconds at the cap).
+  Lookup is a binary search over the fixed-width text, with no per-entry objects.
+- **Pinning.** The deploy manifest pins the allowlist digest. The build refuses
+  when the file's digest differs from `--sha256`. The deployment declares the
+  same digest as the plain var `KMS_COLLECTIONS_SHA256`. Custody refuses to start
+  (DENY) unless that var equals the bundled module's digest and the module's
+  text hashes to it.
+- **Cumulative.** A serving allowlist only grows. The build needs the allowlist
+  the deployed version serves (`--previous`, with its pinned digest), or
+  `--initial` for a deployment that has never served one. It refuses any change
+  that drops a previously served collection (`kms_allowlist_shrinks`) unless that
+  collection is named in the separate retire list (`--retire FILE
+  --retire-sha256 HEX`). A retire list may name only served collections that the
+  change stops serving. The receipt on stdout records both digests and the
+  added/retired counts.
+- **Transition.** The `KMS_COLLECTIONS` secret is still read. With a bundled
+  module the module wins, and a secret that is still set must list exactly the
+  same collections, or custody refuses. Without a module (source and test
+  default, `src/unconfigured-kms-collections.ts`) the secret alone is used, and a
+  declared `KMS_COLLECTIONS_SHA256` refuses. Remove the secret once deploy
+  tooling bundles the allowlist.
+- A collection outside the allowlist gets `kms_collection_not_allowed` from KMS
+  custody, surfaced as the verdict `custody_collection_not_allowed`. CP
+  activation of such a collection answers 409, not 5xx.
 
 ## Historical local end-to-end (no Cloudflare account)
 
@@ -110,3 +151,22 @@ without opening a collection. It does not attest readiness: check the token-guar
 `mdbase-next-log-hosted-e2e` (frozen log bundle, own R2 bucket, fixture root and a
 LAB-only stand-in token issuer) and `mdbase-next-hosted-lab`, seeds the fixture and
 runs the SDK smoke. Requires R2 enabled on the account.
+
+## Legacy source (migration, LAB only)
+
+`src/legacy-source/bindings.ts` opens today's hosted provider as a read-only
+migration source, using:
+- a Hyperdrive binding `LEGACY_DB`, connecting as `mdbn_hosted_legacy_reader`;
+- object-read-only R2 S3 credentials;
+- the legacy wrapping key.
+
+It also enforces an explicit collection allowlist. A missing or malformed
+binding refuses with a typed `LegacyBindingError`, without echoing the value.
+
+The reader role comes from the operator recipe `sql/legacy-reader-role.sql`,
+which takes a SCRAM verifier, not a password. Undo it with
+`sql/legacy-reader-role-drop.sql`. `sql/legacy-reader-role-proof.sql` shows
+that the role refuses writes, DDL and reads outside its allowlist.
+
+The database is reached privately (Workers VPC through a tunnel), never through
+a public database endpoint. The binding list is in `wrangler.jsonc`.

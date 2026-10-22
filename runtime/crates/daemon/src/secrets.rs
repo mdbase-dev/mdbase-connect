@@ -94,6 +94,10 @@ impl<T: SecretStore + ?Sized> SecretStore for std::sync::Arc<T> {
 /// Select the OS keychain. Only debug builds/unit tests compile the alternative
 /// file backend, which additionally requires both test variables.
 pub fn store_for(namespace: &str, _state_dir: &Path) -> Box<dyn SecretStore> {
+    // An isolated HOME alone does not isolate an OS keychain. Local artifacts
+    // partition by their immutable per-stack public asset before any lookup;
+    // never consult the user's/LAB profile namespace or add a custody fallback.
+    let namespace = profile_namespace(namespace);
     #[cfg(any(test, debug_assertions))]
     {
         let test_env = std::env::var("MDBASE_ENV").as_deref() == Ok("test");
@@ -108,6 +112,32 @@ pub fn store_for(namespace: &str, _state_dir: &Path) -> Box<dyn SecretStore> {
     Box::new(KeychainStore {
         namespace: namespace.to_string(),
     })
+}
+
+fn profile_namespace(namespace: &str) -> String {
+    #[cfg(feature = "local-rehearsal")]
+    return format!("local:{}:{namespace}", crate::trust::local_asset_digest());
+    #[cfg(not(feature = "local-rehearsal"))]
+    namespace.to_string()
+}
+
+#[cfg(test)]
+#[test]
+fn profile_namespace_is_pure_and_never_reuses_lab_for_local() {
+    #[cfg(feature = "local-rehearsal")]
+    {
+        assert_eq!(
+            profile_namespace("default"),
+            format!("local:{}:default", crate::trust::local_asset_digest())
+        );
+        assert_ne!(profile_namespace("default"), "default");
+        assert_ne!(profile_namespace("lab"), "lab");
+    }
+    #[cfg(not(feature = "local-rehearsal"))]
+    {
+        assert_eq!(profile_namespace("default"), "default");
+        assert_eq!(profile_namespace("lab"), "lab");
+    }
 }
 
 /// The OS credential store.

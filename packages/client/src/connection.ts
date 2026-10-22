@@ -16,7 +16,7 @@ import {
   semanticContractVersion,
   validateAuthorizationSelection,
   type MdbaseApplicationCapabilityId as ApplicationCapabilityId
-} from "./application-contract.js";
+} from "@mdbase-dev/connect-protocol";
 import { MdbaseCollectionClient } from "./collection-client.js";
 import { AuthorityFeatures, authorityCapabilities } from "./authority-features.js";
 import { filePage } from "./file-metadata.js";

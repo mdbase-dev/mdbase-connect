@@ -51,6 +51,21 @@ impl Layer {
             .collect()
     }
 
+    /// Borrow pending record changes without copying their documents or keys.
+    pub(crate) fn record_changes(
+        &self,
+    ) -> impl Iterator<Item = (&RecordId, &Option<StoredRecord>)> {
+        self.records.iter()
+    }
+    /// Borrow one actual pending change; no inventory scan or source copy.
+    pub(crate) fn record_change(&self, id: &RecordId) -> Option<&Option<StoredRecord>> {
+        self.records.get(id)
+    }
+    /// Bound overlay bookkeeping before a caller copies keys or source values.
+    pub(crate) fn touched_count(&self) -> usize {
+        self.records.len().saturating_add(self.files.len())
+    }
+
     /// Whether the layer knows `id` as a file (put or removed).
     pub fn file_known(&self, id: &Uuid) -> bool {
         self.files.contains_key(id)
@@ -61,6 +76,11 @@ impl Layer {
         self.resources.contains_key(path)
     }
 
+    /// Borrow exact pending resource overrides without copying an inventory.
+    pub(crate) fn resource_changes(&self) -> impl Iterator<Item = (&String, &Option<Arc<str>>)> {
+        self.resources.iter()
+    }
+
     /// Any pending resource put or deletion prevents a confirmed inventory.
     pub(crate) fn resources_pending(&self) -> bool {
         !self.resources.is_empty()
@@ -69,6 +89,11 @@ impl Layer {
     /// Whether `id` is overridden by the layer.
     pub fn touches(&self, id: &Uuid) -> bool {
         self.records.contains_key(id) || self.files.contains_key(id)
+    }
+
+    /// Borrow the effective catalogue without retaining a second map owner.
+    pub(crate) fn catalog_ref(&self) -> Option<&Arc<Catalog>> {
+        self.catalog.as_ref()
     }
 
     /// The layered catalog, if resources changed in the layer.
@@ -109,7 +134,9 @@ impl Layer {
             Effect::PutFile { id, path, blob } => {
                 self.put_file_content(base, *id, path, FileContent::Blob(*blob));
             }
-            Effect::PutAttachmentFile { id, path, content } => {
+            Effect::PutAttachmentFile {
+                id, path, content, ..
+            } => {
                 self.put_file_content(base, *id, path, FileContent::AttachmentV1(*content));
             }
             Effect::PutUnindexedMarkdown { id, path, content } => {

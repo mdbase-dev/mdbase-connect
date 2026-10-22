@@ -13,6 +13,7 @@ import { FolderChangeDialog, type FolderChangeActions } from "./FolderChangeDial
 import { FOLDER_PATH_MIME } from "./folder-change";
 import { RailDropTarget } from "./RailDropTarget";
 import { EditorRail } from "./EditorRail";
+import { connectServerUrl } from "./connect-endpoint";
 import type { CollectionFile, ConnectionSummary, NoteSummary } from "./model";
 import type { ConnectionState, EditorSyncState } from "./app-state-types";
 import { folderTree, type FolderTreeNode } from "./note";
@@ -292,6 +293,11 @@ function facetCountLabel(kind: NoteFilter["kind"], item: { name: string; count: 
 }
 
 
+export function connectWorkspaceUrl(collectionId: string): string {
+  const url = new URL("/", connectServerUrl());
+  url.searchParams.set("collection", collectionId);
+  return url.href;
+}
 
 /** The collection link state and its retry; the rail shows it always, the mobile note bar only when not connected. */
 export function ConnectionStatus({ state, issue, onReconnect }: { state: ShownConnectionState; issue?: string | undefined; onReconnect: () => void }) {

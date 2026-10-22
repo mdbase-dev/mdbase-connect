@@ -74,6 +74,8 @@ pub enum HoldCause {
     EditorBusy,
     /// Provenance could not be verified.
     SuspectWrite,
+    /// Held when mdbase took over from the old connector.
+    TakenOver,
     /// A reason this companion does not know.
     Other,
 }
@@ -88,6 +90,7 @@ impl HoldCause {
             "read_only" => Self::ReadOnly,
             "editor_busy" => Self::EditorBusy,
             "suspect_write" => Self::SuspectWrite,
+            "taken_over" => Self::TakenOver,
             _ => Self::Other,
         }
     }
@@ -101,6 +104,7 @@ impl HoldCause {
             Self::ReadOnly => "you can only read this collection",
             Self::EditorBusy => "an editor still has unsaved changes",
             Self::SuspectWrite => "the write could not be verified",
+            Self::TakenOver => "the old connector was changing it when mdbase took over",
             Self::Other => "mdbase kept your version to be safe",
         }
     }

@@ -9,8 +9,8 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// 0 = legacy/unreleased, 1 = flipped next, 2 = unavailable, 3 = released cohort
-/// still on legacy, 4 = connection closes without an answer, 5 = explicit operator
-/// retirement is available (automatic rollout still closed).
+/// still on legacy, 4 = connection closes without an answer, 5 = flipped next and
+/// the retirement endpoint is available.
 /// Nothing here is a deployed control plane.
 pub async fn pair(
     profile: &Profile,
@@ -18,9 +18,23 @@ pub async fn pair(
     mode: Arc<AtomicU8>,
     calls: Arc<AtomicUsize>,
 ) -> tokio::task::JoinHandle<()> {
-    mdbn_daemon::trust::allow_loopback_control_plane_for_tests();
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    #[cfg(feature = "local-rehearsal")]
+    let address = mdbn_daemon::trust::Environment::embedded()
+        .control_plane()
+        .strip_prefix("http://")
+        .unwrap();
+    #[cfg(not(feature = "local-rehearsal"))]
+    let address = {
+        mdbn_daemon::trust::allow_loopback_control_plane_for_tests();
+        "127.0.0.1:0"
+    };
+    let listener = tokio::net::TcpListener::bind(address).await.unwrap();
     let server = format!("http://{}", listener.local_addr().unwrap());
+    #[cfg(feature = "local-rehearsal")]
+    assert_eq!(
+        server,
+        mdbn_daemon::trust::Environment::embedded().control_plane()
+    );
     let server2 = server.clone();
     let fixture = tokio::spawn(async move {
         loop {
@@ -76,7 +90,7 @@ pub async fn pair(
                     continue;
                 }
                 match mode.load(Ordering::SeqCst) {
-                    1 => (200, json!({"local_takeover":true,"account_backend":"next"})),
+                    1 | 5 => (200, json!({"local_takeover":true,"account_backend":"next"})),
                     2 => (503, json!({"local_takeover":true,"account_backend":"next"})),
                     3 => (
                         200,

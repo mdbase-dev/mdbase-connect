@@ -33,6 +33,7 @@ fn file(id: u8, c: FileContent) -> FileRow {
         kind: FileKindV1::UnindexedOversizedMarkdown,
         media: MediaClass::Other,
         modified_seq: 1,
+        mtime: None,
         bucket: crate::store::bucket16(&B16([id; 16])),
         local: FileLocal::Remote,
     }

@@ -255,6 +255,7 @@ fn main() {
             seed: B32([113; 32]),
             source: Source::Api,
             ops: vec![rt::Op::FileAttach(FileAttach {
+                mtime: None,
                 id: FILE,
                 path: "files/large.bin".into(),
                 content: content.clone(),
@@ -268,6 +269,7 @@ fn main() {
         },
         status: mdbn_wire::entry::Status::Applied,
         effects: vec![rt::Effect::PutAttachmentFile(PutAttachmentFile {
+            mtime: None,
             id: FILE,
             path: "files/large.bin".into(),
             content,

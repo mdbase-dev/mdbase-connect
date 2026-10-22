@@ -59,6 +59,8 @@ pub struct KeychainKeyring<S> {
     /// `None`: a local-only collection (no epoch keys); everything passes through.
     secrets: Option<Arc<dyn SecretStore>>,
     collection: Uuid,
+    #[cfg(test)]
+    capture_fixture_fault: Option<crate::runtime::native_pending_fixture::Fault>,
 }
 
 impl<S: Store> KeychainKeyring<S> {
@@ -79,7 +81,29 @@ impl<S: Store> KeychainKeyring<S> {
             inner,
             secrets,
             collection: *collection,
+            #[cfg(test)]
+            capture_fixture_fault: None,
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn capture_fixture_arm(
+        &mut self,
+        fault: crate::runtime::native_pending_fixture::Fault,
+    ) -> Result<(), String> {
+        if self.capture_fixture_fault.is_some() || self.secrets.is_some() {
+            return Err("fixture hook already installed or nonlocal store".into());
+        }
+        self.capture_fixture_fault = Some(fault);
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn capture_fixture_witness(&self) -> (Option<PendingRow>, bool, u64) {
+        self.capture_fixture_fault
+            .as_ref()
+            .map(|f| f.witness())
+            .unwrap_or_default()
     }
 
     /// The committed keyring generation, if any.
@@ -190,6 +214,56 @@ impl<S: Store> Store for KeychainKeyring<S> {
     ) -> StoreResult<Option<mdbn_replica::store::BoundedResource>> {
         self.inner.resource_bounded(path, copy_limit)
     }
+    // The wrapper changes key custody, not resource-source authority. Forward
+    // the original observation/fence/retention operations (including their
+    // borrowed async owners), never the trait's unavailable/no-op defaults.
+    fn defer_disk_observations(&mut self, tokens: &[ObservationId]) -> StoreResult<()> {
+        self.inner.defer_disk_observations(tokens)
+    }
+    fn resource_observation_refused(
+        &mut self,
+        tokens: &[ObservationId],
+        mutation: Uuid,
+    ) -> StoreResult<()> {
+        self.inner.resource_observation_refused(tokens, mutation)
+    }
+    fn resource_observation_text(
+        &mut self,
+        observation: &Observation,
+        limit: usize,
+    ) -> StoreResult<Option<String>> {
+        self.inner.resource_observation_text(observation, limit)
+    }
+    fn resource_observation_text_async<'a>(
+        &'a mut self,
+        observation: &'a Observation,
+        limit: usize,
+    ) -> StoreFuture<'a, Option<String>> {
+        self.inner
+            .resource_observation_text_async(observation, limit)
+    }
+    fn resource_observation_current(&mut self, observation: &Observation) -> StoreResult<bool> {
+        self.inner.resource_observation_current(observation)
+    }
+    fn resource_observation_current_async<'a>(
+        &'a mut self,
+        observation: &'a Observation,
+    ) -> StoreFuture<'a, bool> {
+        self.inner.resource_observation_current_async(observation)
+    }
+    fn resource_observation_batch_complete(
+        &self,
+        observations: &[Observation],
+    ) -> StoreResult<bool> {
+        self.inner.resource_observation_batch_complete(observations)
+    }
+    fn resource_observation_batch_complete_async<'a>(
+        &'a self,
+        observations: &'a [Observation],
+    ) -> StoreFuture<'a, bool> {
+        self.inner
+            .resource_observation_batch_complete_async(observations)
+    }
     fn settings(&self) -> StoreResult<Option<FileInclusion>> {
         self.inner.settings()
     }
@@ -283,6 +357,12 @@ impl<S: Store> Store for KeychainKeyring<S> {
     fn observe(&mut self, paths: Option<&[String]>) -> StoreResult<Vec<Observation>> {
         self.inner.observe(paths)
     }
+    fn observe_async<'a>(
+        &'a mut self,
+        paths: Option<&'a [String]>,
+    ) -> StoreFuture<'a, Vec<Observation>> {
+        self.inner.observe_async(paths)
+    }
     fn take_publish_results(&mut self) -> Vec<PublishResult> {
         self.inner.take_publish_results()
     }
@@ -312,6 +392,10 @@ impl<S: Store> Store for KeychainKeyring<S> {
     }
     fn commit(&mut self, mut tx: Tx) -> StoreResult<CommitReport> {
         let Some(secrets) = self.secrets.clone() else {
+            #[cfg(test)]
+            if let Some(fault) = &mut self.capture_fixture_fault {
+                return fault.commit(&mut self.inner, tx);
+            }
             return self.inner.commit(tx);
         };
         let mut keyring = None;
@@ -436,3 +520,7 @@ impl<S: Store> Store for KeychainKeyring<S> {
 #[cfg(test)]
 #[path = "keyring_store_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "keyring_resource_delegation_tests.rs"]
+mod resource_delegation_tests;

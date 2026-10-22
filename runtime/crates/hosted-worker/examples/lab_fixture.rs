@@ -59,6 +59,25 @@ fn uuid_str(u: &B16) -> String {
     )
 }
 
+// Independently pinned public TEST identities, never learned from log bytes or
+// runtime inputs. These are not a release trust asset or managed LAB authority.
+fn normalized_test_pins() -> Vec<u8> {
+    let root = signed_root();
+    let policy = DeviceSigner::from_seed(&SIGNED_CP_SEED).public();
+    let pins = Cbor::Array(vec![
+        Cbor::Array(vec![Cbor::Array(vec![
+            mdbn_replica::policy::key_id(&root).to_cbor(),
+            B32(root).to_cbor(),
+        ])]),
+        Cbor::Array(vec![Cbor::Array(vec![
+            mdbn_replica::policy::key_id(&policy).to_cbor(),
+            B32(policy).to_cbor(),
+            mdbn_replica::policy::key_id(&root).to_cbor(),
+        ])]),
+    ]);
+    cbor::encode(&pins).expect("normalized public test pins")
+}
+
 struct Dev {
     id: B16,
     sign: [u8; 32],
@@ -205,7 +224,8 @@ fn main() {
     }));
     assert!(matches!(r, Ok(LogResponse::Append(_))), "{r:?}");
 
-    // Sanity: the hosted engine over this log becomes keyed and serving.
+    // Sanity: strict public origin verification precedes keyed/serving checks.
+    let original = svc.items(&collection)[0].clone();
     let cfg = Cbor::Map(vec![
         (Cbor::Uint(0), collection.to_cbor()),
         (Cbor::Uint(1), REPLICA.to_cbor()),
@@ -220,6 +240,9 @@ fn main() {
         ),
         (Cbor::Uint(5), Cbor::Bytes(devs[1].sign.to_vec())),
         (Cbor::Uint(6), Cbor::Bytes(devs[1].kem.to_vec())),
+        (Cbor::Uint(8), Cbor::Bytes(normalized_test_pins())),
+        (Cbor::Uint(9), Cbor::Bytes(original.clone())),
+        (Cbor::Uint(10), mdbn_wire::hash::sha256(&original).to_cbor()),
     ]);
     let clock = Rc::new(Cell::new(1_791_200_000_000));
     let host = Host {
@@ -234,6 +257,9 @@ fn main() {
         HostedProfile::default(),
     )
     .expect("open");
+    // The scoped local FakeLog is configured for this exact fixture collection.
+    // No real log-HTTP/Noise transport or managed service admission is claimed.
+    assert!(e.bind_log(collection), "bind the fixture's exact log scope");
     let mut log = svc.client(HOSTED);
     for _ in 0..20 {
         for call in e.take_log_calls() {
@@ -241,7 +267,14 @@ fn main() {
             e.on_log_reply(call.id, reply);
         }
     }
-    assert!(e.serving(), "hosted engine serves over the fixture");
+    let admission = match e.admission() {
+        mdbn_replica::HostedAdmission::Deny(reason) => format!("{reason:?}"),
+        mdbn_replica::HostedAdmission::Verified(_) => "Verified".to_owned(),
+    };
+    assert!(
+        e.serving(),
+        "hosted engine serves over the fixture (admission: {admission})"
+    );
     if app {
         // The live admission the Worker's bridge consumes: verified, with this key.
         match e.admission() {
@@ -307,4 +340,63 @@ fn main() {
         hex(&devs[0].kem),
         app_json,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mdbn_hosted_worker::host_trust::verify_hosted_genesis;
+
+    fn signed_origin(collection: B16) -> Vec<u8> {
+        let svc = FakeLogService::new();
+        TestControlPlane::signed(collection).append(
+            &svc,
+            vec![PolicyOp::Genesis(Genesis {
+                owner: TEST_OWNER,
+                root: mdbn_replica::policy::key_id(&signed_root()),
+                state: CState::CloudCopy,
+            })],
+        );
+        svc.items(&collection)[0].clone()
+    }
+
+    #[test]
+    fn fixture_public_pins_verify_exact_real_signed_origin() {
+        let collection = B16([0x0e; 16]);
+        let original = signed_origin(collection);
+        let verified = verify_hosted_genesis(
+            collection,
+            &normalized_test_pins(),
+            &original,
+            mdbn_wire::hash::sha256(&original),
+        )
+        .expect("real public fixture origin");
+        assert_eq!(verified.collection(), collection);
+        assert_eq!(verified.item_sha256(), mdbn_wire::hash::sha256(&original));
+    }
+
+    #[test]
+    fn fixture_pins_do_not_waive_hash_collection_or_signature_checks() {
+        let collection = B16([0x0e; 16]);
+        let original = signed_origin(collection);
+        let pins = normalized_test_pins();
+        assert!(verify_hosted_genesis(collection, &pins, &original, B32([0; 32])).is_err());
+        assert!(
+            verify_hosted_genesis(
+                B16([0x0f; 16]),
+                &pins,
+                &original,
+                mdbn_wire::hash::sha256(&original)
+            )
+            .is_err()
+        );
+        // Recompute the advertised hash after tampering: signatures still refuse.
+        let mut item = Item::from_bytes(&original).expect("original policy item");
+        item.sig = Some(mdbn_wire::common::B64([0; 64]));
+        let forged = item.to_bytes().expect("synthetic invalid signature");
+        assert!(
+            verify_hosted_genesis(collection, &pins, &forged, mdbn_wire::hash::sha256(&forged))
+                .is_err()
+        );
+    }
 }

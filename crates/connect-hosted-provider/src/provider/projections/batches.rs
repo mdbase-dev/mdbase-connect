@@ -142,7 +142,10 @@ impl HostedProvider {
         let mut ciphertext_bytes = 0_u64;
         let mut projection_bytes = 0_u64;
         let mut last_record_id = checkpoint;
-        for row in &rows {
+        for (visited, row) in rows.iter().enumerate() {
+            if visited > 0 && started.elapsed() >= PROJECTION_BATCH_LOCK_BUDGET {
+                break;
+            }
             let record_id: Uuid = row.get("record_id");
             last_record_id = Some(record_id);
             if row.get::<bool, _>("deleted") {
@@ -485,7 +488,7 @@ impl HostedProvider {
         // Resolution persistence also takes collection FK locks and can publish
         // completion. Keep collection -> generation ordering for every batch.
         let collection = sqlx::query(
-            r#"SELECT resource_revision, wrapped_data_key, resources_ciphertext
+            r#"SELECT head, resource_revision, wrapped_data_key, resources_ciphertext
                FROM hosted_provider_collections
                WHERE id = $1 AND state IN ('active', 'indexing')
                FOR UPDATE"#,
@@ -595,6 +598,9 @@ impl HostedProvider {
         let mut projection_bytes = 0_u64;
         let mut last_record_id = checkpoint;
         for row in &rows {
+            if resolved_count > 0 && started.elapsed() >= PROJECTION_BATCH_LOCK_BUDGET {
+                break;
+            }
             let record_id: Uuid = row.get("record_id");
             let valid_from = number(
                 row.get::<i64, _>("valid_from_sequence"),
@@ -829,6 +835,32 @@ impl HostedProvider {
             completed = true;
         }
         if completed {
+            let current_head = number(collection.get::<i64, _>("head"), "collection head")?;
+            if current_head > source_head {
+                // Writes landed after this generation's snapshot; catch up a
+                // small delta instead of restarting the whole rebuild.
+                if let Some(batch) = self
+                    .complete_generation_with_catch_up(
+                        &mut transaction,
+                        collection_id,
+                        generation_id,
+                        catalog_revision.clone(),
+                        format_version,
+                        engine_version.clone(),
+                        source_head,
+                        current_head,
+                        fence,
+                        &data_key,
+                        resolved_count,
+                        projection_bytes,
+                        started,
+                    )
+                    .await?
+                {
+                    transaction.commit().await?;
+                    return Ok(batch);
+                }
+            }
             let activated = sqlx::query(
                 r#"UPDATE hosted_provider_collections
                    SET active_catalog_revision = $3,

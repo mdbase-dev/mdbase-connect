@@ -23,6 +23,16 @@ describe("ConnectManagementClient", () => {
     }));
   });
 
+  it("removes genuine installation scope with explicit confirmation and account credentials", async () => {
+    const fetch = vi.fn(async () => Response.json({ ok: true, state: "revoking", collection_id: "collection" }));
+    vi.stubGlobal("fetch", fetch);
+    const client = new ConnectManagementClient("https://connect.example");
+    await client.removeInstallationAccess("registered-app", "collection");
+    expect(fetch).toHaveBeenCalledWith(new URL("https://connect.example/v1/account/applications/registered-app/remove-installation-access"), expect.objectContaining({
+      credentials: "include", method: "POST", body: JSON.stringify({ collection_id: "collection", confirm: true })
+    }));
+  });
+
   it("keeps server failures typed for authentication recovery", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
       error: { code: "not_authenticated", message: "Sign in first." }

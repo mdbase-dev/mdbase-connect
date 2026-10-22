@@ -1,5 +1,6 @@
 /** ONE exact scoped cloud-copy outcome ciphertext record. No generic KV,
  * delete/reset/retry, secret fields or missing-existing -> fresh fallback. */
+import { currentAppOrigin, isAppOrigin } from "./app-origin.js";
 import { uuidToBytes } from "../codec.js";
 import {
     APP_CLOUD_COPY_OUTCOME_MAX,
@@ -77,7 +78,7 @@ export class AppIndexedDbCloudCopyOutcomeStore implements AppCloudCopyOutcomeSto
                 this.fenced ||
                 signal !== this.lifetime ||
                 signal.aborted ||
-                globalThis.location?.origin !== this.origin ||
+                currentAppOrigin() !== this.origin ||
                 this.source.isCurrent !== this.current ||
                 this.source.installationOwned !== this.owned ||
                 this.current.call(this.source) !== true ||
@@ -109,16 +110,8 @@ export class AppIndexedDbCloudCopyOutcomeStore implements AppCloudCopyOutcomeSto
                 if (uuidToBytes(id).every((v) => v === 0)) throw bad();
                 return id.toLowerCase();
             });
-            const u = new URL(origin),
-                loopback =
-                    allowLoopbackHttp === true &&
-                    u.protocol === "http:" &&
-                    ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
             if (
-                (u.protocol !== "https:" && !loopback) ||
-                u.origin !== origin ||
-                u.username ||
-                u.password ||
+                !isAppOrigin(origin, allowLoopbackHttp === true) ||
                 !["fresh", "existing"].includes(mode) ||
                 !["create", "join"].includes(out.fields.purpose) ||
                 !/^[0-9a-f]{64}$/.test(out.fields.assetSha256) ||

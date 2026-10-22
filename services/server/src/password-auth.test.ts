@@ -12,6 +12,7 @@ import {
   PasswordLoginRejectedError
 } from "./password-auth.js";
 import { tokenHash } from "./security.js";
+import { flipEvidenceDigest } from "./features/next/migration-rollout.js";
 import {
   PASSWORD_HASH_PARAMETERS,
   passwordHashNeedsUpgrade
@@ -24,6 +25,80 @@ afterEach(async () => {
 });
 
 describe("invite-only password accounts", () => {
+  it.each(["lab", "staging"])("creates a genuine %s legacy fixture via invitation signup without changing the next default", async environment => {
+    const { db, policy } = await fixture();
+    const service = new PasswordAccountService(db, policy, "next", environment);
+    const invitation = await service.createInvitation({
+      email: `seeder-backend-fixture@${environment}.invalid`, actor: "operator:test",
+      reason: "[test] disposable migration fixture", entitlementProfile: null,
+      accountBackend: "legacy"
+    });
+    const accepted = await service.acceptInvitation({ invitationToken: invitation.token,
+      name: "[test] Legacy fixture", password: "a durable migration fixture password",
+      termsVersion: invitation.termsVersion, privacyVersion: invitation.privacyVersion });
+    expect((await db.query("SELECT account_backend FROM users WHERE id = $1", [accepted.user.id])).rows)
+      .toEqual([{ account_backend: "legacy" }]);
+    expect((await db.query("SELECT account_id FROM next_migration_account_flips WHERE account_id = $1", [accepted.user.id])).rows).toEqual([]);
+    const normal = await service.createInvitation({ email: "normal-default@example.com",
+      actor: "operator:test", reason: "Normal invitation", entitlementProfile: null });
+    const next = await service.acceptInvitation({ invitationToken: normal.token,
+      name: "Normal account", password: "a durable normal account password",
+      termsVersion: normal.termsVersion, privacyVersion: normal.privacyVersion });
+    expect((await db.query("SELECT account_backend FROM users WHERE id = $1", [next.user.id])).rows)
+      .toEqual([{ account_backend: "next" }]);
+  });
+  it.each([undefined, "dev", "staging", "production", "LAB"])("refuses the override outside explicit LAB (%s)", async environment => {
+    const { db, policy } = await fixture();
+    const service = new PasswordAccountService(db, policy, "next", environment);
+    await expect(service.createInvitation({ email: "fixture@lab.invalid", actor: "operator:test",
+      reason: "[test] migration fixture", entitlementProfile: null, accountBackend: "legacy" }))
+      .rejects.toThrow(/LAB \[test\] fixture/);
+    expect((await db.query("SELECT id FROM invitations")).rows).toEqual([]);
+  });
+  it.each([
+    ["person@example.com", "[test] fixture"], ["fixture@lab.invalid.evil.example", "[test] fixture"],
+    ["fixture@lab.invalid", "ordinary invitation"], ["fixture@lab.invalid", "[test]not-marked"]
+  ])("refuses non-fixture override inputs (%s/%s)", async (email, reason) => {
+    const { db, policy } = await fixture();
+    const service = new PasswordAccountService(db, policy, "next", "lab");
+    await expect(service.createInvitation({ email, reason, actor: "operator:test",
+      entitlementProfile: null, accountBackend: "legacy" })).rejects.toThrow(/LAB \[test\] fixture/);
+    expect((await db.query("SELECT id FROM invitations")).rows).toEqual([]);
+  });
+  it.each(["lab", "staging"])("refuses %s fixture redemption after environment change or without [test] account marking", async environment => {
+    const { db, policy } = await fixture();
+    const service = new PasswordAccountService(db, policy, "next", environment);
+    const invitation = await service.createInvitation({ email: `fixture@${environment}.invalid`, actor: "operator:test",
+      reason: "[test] migration fixture", entitlementProfile: null, accountBackend: "legacy" });
+    const input = { invitationToken: invitation.token, name: "[test] Fixture",
+      password: "a durable fixture account password", termsVersion: invitation.termsVersion, privacyVersion: invitation.privacyVersion };
+    await expect(new PasswordAccountService(db, policy, "next", "production").acceptInvitation(input))
+      .rejects.toThrow(InvalidInvitationError);
+    await expect(new PasswordAccountService(db, policy, "next", environment === "lab" ? "staging" : "lab").acceptInvitation(input))
+      .rejects.toThrow(InvalidInvitationError);
+    await expect(service.acceptInvitation({ ...input, name: "Ordinary account" })).rejects.toThrow(InvalidInvitationError);
+    expect((await db.query("SELECT id FROM users")).rows).toEqual([]);
+    expect((await db.query("SELECT accepted_at FROM invitations WHERE id = $1", [invitation.id])).rows)
+      .toEqual([{ accepted_at: null }]);
+  });
+  it.each([
+    [undefined, "fixture@staging.invalid", "[test] fixture"],
+    ["dev", "fixture@staging.invalid", "[test] fixture"],
+    ["production", "fixture@staging.invalid", "[test] fixture"],
+    ["lab", "fixture@staging.invalid", "[test] fixture"],
+    ["STAGING", "fixture@staging.invalid", "[test] fixture"],
+    ["staging", "fixture@lab.invalid", "[test] fixture"],
+    ["staging", "fixture@staging.invalid.evil.example", "[test] fixture"],
+    ["staging", "person@example.com", "[test] fixture"],
+    ["staging", "fixture@staging.invalid", "ordinary invitation"],
+    ["staging", "fixture@staging.invalid", "[test]not-marked"]
+  ])("refuses mismatched staging fixture scope (%s/%s/%s)", async (environment, email, reason) => {
+    const { db, policy } = await fixture();
+    const service = new PasswordAccountService(db, policy, "next", environment);
+    await expect(service.createInvitation({ email, reason, actor: "operator:test",
+      entitlementProfile: null, accountBackend: "legacy" })).rejects.toThrow(TypeError);
+    expect((await db.query("SELECT id FROM invitations")).rows).toEqual([]);
+  });
   it("rejects an omitted entitlement even when called without the operator CLI", async () => {
     const { db, service } = await fixture();
     const input = {
@@ -444,6 +519,31 @@ describe("invite-only password accounts", () => {
       entitlementProfile: null
     })).rejects.toBeInstanceOf(InvitationTargetConflictError);
     expect((await db.query("SELECT id FROM users")).rows).toHaveLength(3);
+  });
+
+  it.each(["legacy", "next"] as const)("creates an invited account on the configured %s backend", async (backend) => {
+    const { db, policy } = await fixture();
+    const service = new PasswordAccountService(db, policy, backend);
+    const invitation = await service.createInvitation({
+      email: "person@example.com", actor: "operator:test", reason: "Private beta", entitlementProfile: null
+    });
+    const { user } = await service.acceptInvitation({
+      invitationToken: invitation.token, name: "Person", password: "a durable private beta password",
+      termsVersion: invitation.termsVersion, privacyVersion: invitation.privacyVersion, timezone: "UTC"
+    });
+    const marker = await db.query<{ account_backend: string }>("SELECT account_backend FROM users WHERE id = $1", [user.id]);
+    expect(marker.rows[0]?.account_backend).toBe(backend);
+    const flip = await db.query<{ collections: string[]; evidence_digest: string }>(
+      "SELECT collections::text[] AS collections, evidence_digest FROM next_migration_account_flips WHERE account_id = $1", [user.id]);
+    const audited = await db.query("SELECT 1 FROM audit_events WHERE user_id = $1 AND event_type = 'next_migration.flip'", [user.id]);
+    if (backend === "legacy") {
+      expect(flip.rows).toEqual([]);
+      expect(audited.rows).toEqual([]);
+    } else {
+      // Exactly what the staged flip writes for an account with no hosted collections.
+      expect(flip.rows).toEqual([{ collections: [], evidence_digest: flipEvidenceDigest([]) }]);
+      expect(audited.rows).toHaveLength(1);
+    }
   });
 });
 

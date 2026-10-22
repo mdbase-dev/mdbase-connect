@@ -46,11 +46,16 @@
       "items": {
         "type": "object", "additionalProperties": false,
         "required": ["path", "length", "sha256", "environment", "controlPlaneOrigin", "logOrigin", "source"],
+        "oneOf": [
+          {"properties": {"path": {"const": "next-trust/lab.json"}, "environment": {"const": "lab"}}},
+          {"properties": {"path": {"const": "next-trust/staging.json"}, "environment": {"const": "staging"}}},
+          {"properties": {"path": {"const": "next-trust/production.json"}, "environment": {"const": "production"}, "controlPlaneOrigin": {"const": "https://connect.mdbase.dev"}}}
+        ],
         "properties": {
-          "path": {"const": "next-trust/lab.json"},
+          "path": {"enum": ["next-trust/lab.json", "next-trust/staging.json", "next-trust/production.json"]},
           "length": {"$ref": "#/$defs/length"},
           "sha256": {"$ref": "#/$defs/digest"},
-          "environment": {"const": "lab"},
+          "environment": {"enum": ["lab", "staging", "production"]},
           "controlPlaneOrigin": {"type": "string", "format": "uri"},
           "logOrigin": {"type": "string", "format": "uri"},
           "source": {

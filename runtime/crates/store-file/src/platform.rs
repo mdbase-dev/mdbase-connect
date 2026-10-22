@@ -526,9 +526,11 @@ pub trait FilePlatform {
     ) -> impl Future<Output = FsResult<Vec<u8>>>;
 
     /// Open `path` (a regular file, not following symlinks) for bounded
-    /// positional reads, with the metadata of the opened handle. Platforms
-    /// without a stable handle return `Unsupported`, and the store does not
-    /// ingest large files there.
+    /// positional reads, with the metadata of the opened source. A platform may
+    /// explicitly supply a size-bounded immutable byte snapshot with source
+    /// currentness checks instead of an OS handle; it must document whole-file
+    /// allocation and must not claim inode identity or true positional IO.
+    /// Platforms without either provider return `Unsupported`.
     fn open_range_read(
         &self,
         path: &RelPath,
@@ -551,7 +553,8 @@ pub trait FilePlatform {
     }
 
     /// Current metadata of the handle's file (`fstat`), to detect a change
-    /// during a read.
+    /// during a read. Explicit snapshot providers revalidate their original
+    /// source bytes/metadata and refuse changes; they do not simulate `fstat`.
     fn range_meta(&self, h: RangeHandle) -> impl Future<Output = FsResult<FileMeta>> {
         let _ = h;
         unsupported("range_meta")

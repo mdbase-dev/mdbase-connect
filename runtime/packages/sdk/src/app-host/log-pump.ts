@@ -5,6 +5,7 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { decode, type CborValue } from "../cbor.js";
 import { uuidToBytes } from "../codec.js";
+import { appServerOutcome, isAppServerProblem, type AppServerProblem } from "./cp-problem.js";
 
 const MAX_FRAME = 16 * 1024 * 1024;
 const MAX_OBJECT = 9 * 1024 * 1024;
@@ -57,7 +58,36 @@ function uint(v: unknown): bigint {
   return n;
 }
 function equal(a: Uint8Array, b: Uint8Array): boolean { return a.length === b.length && a.every((x, i) => x === b[i]); }
-interface Captured { id: bigint; call: AppLogCall }
+interface Captured { id: bigint; method: string; call: AppLogCall }
+/** Calls whose effects do not depend on the order they reach the log: a round
+ * sends each maximal run of them together (each RPC with its own nonce). Every
+ * other method is a barrier, sent alone after everything before it answered.
+ * Replies still reach Rust in call order. */
+const UNORDERED = new Set(["read", "head", "subscribe", "get_object", "has_objects", "put_object", "get_snapshot"]);
+const MAX_CONCURRENT = 6;
+/** What the last failed call says about the path to the log, for display and
+ * retry pacing. Null after any accepted reply. */
+export type AppLogHealth =
+  | { readonly kind: "offline" }
+  | { readonly kind: "unreachable" }
+  | { readonly kind: "server_busy"; readonly retryAfterMs: number | null }
+  | { readonly kind: "rate_limited"; readonly retryAfterMs: number | null }
+  | { readonly kind: "auth" };
+function serverOf(e: unknown): unknown { try { return (e as { server?: unknown }).server; } catch { return null; /* hostile getter */ } }
+function reasonOf(e: unknown): unknown { try { return (e as { reason?: unknown }).reason; } catch { return null; } }
+/** Classify a send failure. A fenced or shape failure says nothing about the network. */
+export function appLogHealth(e: unknown, online: boolean | undefined = globalThis.navigator?.onLine): AppLogHealth | null {
+  const server = serverOf(e);
+  if (isAppServerProblem(server)) {
+    const retryAfterMs = server.retryAfterMs;
+    if (server.status === 429) return { kind: "rate_limited", retryAfterMs };
+    if (server.status >= 500) return { kind: "server_busy", retryAfterMs };
+    if (server.status === 401 || server.status === 403) return { kind: "auth" };
+    return null;
+  }
+  if (reasonOf(e) !== "unavailable") return null;
+  return online === false ? { kind: "offline" } : { kind: "unreachable" };
+}
 
 /** One pump is permanently bound to one runtime/transport generation. The caller
  * supplies actual authenticated initialization; this helper does not manufacture
@@ -72,6 +102,9 @@ export class AppLogPump {
   private closed = false;
   private failed = false;
   private retired = false;
+  private problem: AppServerProblem | null = null;
+  private health: AppLogHealth | null = null;
+  private sent = 0;
   constructor(
     private readonly runtime: AppLogRuntime,
     private readonly transport: AppLogTransport,
@@ -86,6 +119,14 @@ export class AppLogPump {
     if (!Number.isSafeInteger(this.rounds) || this.rounds < 1 || this.rounds > 64) throw new RangeError("invalid app log pump rounds");
   }
   get fenced(): boolean { return this.failed; }
+  /** Calls this pump has sent so far; a host compares it across a turn to
+   * learn whether the turn did log work. */
+  get callsSent(): number { return this.sent; }
+  /** The server's latest specific refusal (migrating, moved, suspended) for
+   * this live collection; null once a reply is accepted again. Display only. */
+  get serverProblem(): AppServerProblem | null { return this.problem; }
+  /** Typed transport health from the latest failed call; null once a reply is accepted. */
+  get transportHealth(): AppLogHealth | null { return this.health; }
   private current(): boolean {
     if (this.closed || this.failed) return false;
     if (uint(this.transport.endpoint) !== this.endpoint || !equal(uuidToBytes(this.transport.collection), this.collection)) {
@@ -133,7 +174,7 @@ export class AppLogPump {
         }
         // Capture all calls before the first await; later queue mutation cannot
         // alter the bytes, sidecar, endpoint or correlation this turn sends.
-        captured.push({ id, call: { endpoint: this.endpoint, frame: call.frame.slice(), ...(call.sidecar ? { sidecar: call.sidecar.slice() } : {}) } });
+        captured.push({ id, method: frame.get(2) as string, call: { endpoint: this.endpoint, frame: call.frame.slice(), ...(call.sidecar ? { sidecar: call.sidecar.slice() } : {}) } });
       }
       return captured;
     } catch {
@@ -158,28 +199,51 @@ export class AppLogPump {
         if (!this.current()) return { quiet: true };
         const calls = this.capture(this.runtime.takeLogCalls());
         if (!calls.length) return { quiet: true };
+        this.sent += calls.length;
+        const all: Promise<{ reply: Uint8Array | null }>[] = [];
         try {
-          for (const c of calls) {
+          for (let at = 0; at < calls.length;) {
             if (!this.current()) return { quiet: true };
-            let reply: Uint8Array;
-            try { reply = await this.transport.send(c.call, { signal: this.abort.signal }); }
-            catch {
-              if (!this.current()) return { quiet: true };
-              this.runtime.logNoResponse(c.id);
-              continue;
-            }
-            try {
-              if (!this.current()) return { quiet: true };
-              if (!(reply instanceof Uint8Array) || reply.length > MAX_FRAME) {
+            let end = at + 1;
+            const unordered = (i: number) => UNORDERED.has(calls[i]!.method);
+            if (unordered(at)) while (end < calls.length && end - at < MAX_CONCURRENT && unordered(end)) end++;
+            const run = calls.slice(at, end);
+            at = end;
+            const sent = run.map(c => this.transport.send(c.call, { signal: this.abort.signal }).then(
+              reply => ({ reply, error: null as unknown }),
+              (error: unknown) => ({ reply: null, error }),
+            ));
+            all.push(...sent);
+            for (const [i, c] of run.entries()) {
+              const { reply, error } = await sent[i]!;
+              if (reply === null) {
+                if (!this.current()) return { quiet: true };
+                const server = serverOf(error);
+                if (isAppServerProblem(server) && appServerOutcome(server)) this.problem = server;
+                const health = appLogHealth(error);
+                if (health) this.health = health;
                 this.runtime.logNoResponse(c.id);
                 continue;
               }
-              // No JS decode/materialization of the remote result; Rust remains
-              // the policy/schema/correlation authority. It borrows these bytes.
-              if (this.runtime.acceptLogReply(c.id, reply) !== true) this.runtime.logNoResponse(c.id);
-            } finally { if (reply instanceof Uint8Array) reply.fill(0); }
+              try {
+                if (!this.current()) return { quiet: true };
+                if (!(reply instanceof Uint8Array) || reply.length > MAX_FRAME) {
+                  this.runtime.logNoResponse(c.id);
+                  continue;
+                }
+                // No JS decode/materialization of the remote result; Rust remains
+                // the policy/schema/correlation authority. It borrows these bytes.
+                if (this.runtime.acceptLogReply(c.id, reply) !== true) this.runtime.logNoResponse(c.id);
+                else { this.problem = null; this.health = null; }
+              } finally { if (reply instanceof Uint8Array) reply.fill(0); }
+            }
           }
-        } finally { for (const c of calls) this.wipe(c); }
+        } finally {
+          // A fenced turn may leave sends in flight (aborted): close() still
+          // drains them, and late replies are wiped, never fed to Rust.
+          for (const r of await Promise.all(all)) if (r.reply instanceof Uint8Array) r.reply.fill(0);
+          for (const c of calls) this.wipe(c);
+        }
       }
       return { quiet: false };
     } catch {

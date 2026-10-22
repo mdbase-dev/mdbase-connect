@@ -21,7 +21,28 @@ export function hasGrantAppend(frame: Uint8Array): boolean {
     });
   } catch { return false; }
 }
-export function wakeLog(tag: string, role: "hosted" | "escrow", phase: "wake_received" | "activation_complete" | "grant_emitted" | "grant_append_outcome", observation?: AppendObservation): void {
+/** LAB correlation: the first 4 bytes (hex) of each key-grant recipient device in the frame, at most 8. */
+export function grantRecipients(frame: Uint8Array): string[] {
+  if (frame.length > 64 << 10) return [];
+  try {
+    const request = decode(frame) as Map<number, CborValue>;
+    const params = request instanceof Map ? request.get(3) as Map<number, CborValue> : null;
+    const items = params instanceof Map ? params.get(3) : null;
+    if (!Array.isArray(items)) return [];
+    const out: string[] = [];
+    for (const bytes of items) {
+      if (!(bytes instanceof Uint8Array)) continue;
+      const item = decode(bytes) as Map<number, CborValue>;
+      if (!(item instanceof Map) || item.get(1) !== 4 || !(item.get(11) instanceof Uint8Array)) continue;
+      const payload = decode(item.get(11) as Uint8Array) as Map<number, CborValue>;
+      const recipient = payload instanceof Map ? payload.get(1) : null;
+      if (recipient instanceof Uint8Array && recipient.length === 16) out.push(Array.from(recipient.subarray(0, 4), (b) => b.toString(16).padStart(2, "0")).join(""));
+      if (out.length >= 8) break;
+    }
+    return out;
+  } catch { return []; }
+}
+export function wakeLog(tag: string, role: "hosted" | "escrow", phase: "wake_received" | "activation_complete" | "grant_emitted" | "grant_append_outcome", observation?: AppendObservation, recipients?: string[]): void {
   if (!/^[0-9a-f]{24}$/.test(tag)) return;
-  try { console.info(JSON.stringify({ event: "next_service_wake", at: new Date().toISOString(), collection_tag: tag, role, phase, ...(observation ? boundedAppendObservation(observation) : {}) })); } catch { /* Logging is not authority. */ }
+  try { console.info(JSON.stringify({ event: "next_service_wake", at: new Date().toISOString(), collection_tag: tag, role, phase, ...(recipients?.length ? { recipients } : {}), ...(observation ? boundedAppendObservation(observation) : {}) })); } catch { /* Logging is not authority. */ }
 }

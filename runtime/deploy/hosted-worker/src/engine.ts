@@ -3,8 +3,19 @@
  * One instance per DO wake; key material passes through `open` once and is wiped.
  */
 import { outputFrames } from "./output-frames.ts";
+import { decodePitrAppQuery } from "./pitr-app-query.ts";
+import type { ControlClient, MigrationClaimData, PitrAppGrantIdentity } from "./control.ts";
+import { ownedCppControlOrigin } from "./factory.ts";
 import { decode, encode, type CborValue } from "../../../packages/sdk/src/cbor.js";
 import { sqlHost } from "./sql.js";
+import { migrationProviderInput, PROVIDER_RESULT_KIND, type MigrationProviderResult } from "./migration-provider-result.ts";
+import { migrationSourceInput, SOURCE_RESULT_KIND, type MigrationSourceResult } from "./migration-source-result.ts";
+import {
+  decodeGen0Placements, decodeGen0Sealed, GEN0_KIND, migrationGen0FileChunkInput, migrationGen0FileInput, migrationGen0ResultInput, migrationGen0WindowInput,
+  type Gen0FileChunkInput, type Gen0FileInput, type Gen0Placements, type Gen0Result, type Gen0Sealed, type Gen0WindowInput,
+} from "./migration-gen0-input.ts";
+import { decodeRollbackScope, migrationRollbackInput, type RollbackScope } from "./migration-rollback-input.ts";
+import { decodeLogAppendSent, isLogKind, LOG_KIND, type LogAppendSent } from "./migration-log-output.ts";
 import engineModule from "../hosted.wasm";
 
 interface Exports extends WebAssembly.Exports {
@@ -12,9 +23,47 @@ interface Exports extends WebAssembly.Exports {
   alloc(n: number): number;
   dealloc(p: number, n: number): void;
   hd_open(p: number, n: number): bigint;
+  hd_open_cpp_claim(p:number,n:number,ap:number,an:number):bigint;
+  hd_cpp_claim_begin():bigint;
+  hd_cpp_claim_current(h:number):number;
+  hd_cpp_claim_sign(h:number,p:number,n:number):bigint;
+  hd_cpp_claim_finish(h:number):void;
+  hd_migration_open(h:number,p:number,n:number):number;
+  hd_migration_restart(h:number,sequence:number,p:number,n:number):number;
+  hd_migration_run(sequence:number):bigint;
+  hd_migration_rollback_request(h:number,sequence:number,p:number,n:number):number;
+  hd_migration_rollback_scope(h:number):bigint;
+  hd_migration_unknown_rollback_scope(sequence:number):bigint;
+  hd_migration_rollback_result(h:number,p:number,n:number):bigint;
+  hd_migration_resolve_base(h:number,sequence:number,p:number,n:number):bigint;
+  hd_migration_resolve_rollback(h:number,sequence:number,p:number,n:number):bigint;
+  hd_migration_pending_begin():bigint;
+  hd_migration_pending_current(h:number):number;
+  hd_migration_pending_finish(h:number):void;
+  hd_migration_pending_action(h:number):bigint;
+  hd_migration_idle():number;
+  hd_migration_keying_wait(h:number):bigint;
+  hd_migration_target_complete(h:number):bigint;
+  hd_migration_provider_result(h:number,p:number,n:number):bigint;
+  hd_migration_source_result(h:number,p:number,n:number):bigint;
+  hd_migration_gen0_placements(h:number):bigint;
+  hd_migration_gen0_file_chunk(h:number,p:number,n:number):bigint;
+  hd_migration_gen0_file(h:number,p:number,n:number):bigint;
+  hd_migration_gen0_window(h:number,p:number,n:number):bigint;
+  hd_migration_gen0_finish(h:number):bigint;
+  hd_migration_gen0_result(h:number,p:number,n:number):bigint;
+  hd_migration_log_append(h:number):bigint;
+  hd_migration_log_result(h:number):bigint;
+  hd_migration_settlement_current(h:number):number;
+  hd_migration_physical_begin(h:number):number;
+  hd_migration_physical_current(h:number):number;
+  hd_migration_physical_finish(h:number):number;
+  hd_migration_physical_close(h:number):void;
+  hd_migration_settlement_confirmed(h:number):number;
   mig_resolve(p: number, n: number): bigint;
   hd_serving(): number;
   hd_needs_reset(): number;
+  hd_pin_state(): number;
   hd_hello(gp: number, gn: number, p: number, n: number): bigint;
   hd_frame(session: number, p: number, n: number): void;
   hd_close(session: number): void;
@@ -28,6 +77,9 @@ interface Exports extends WebAssembly.Exports {
   hd_log_event(kind: number): void;
   hd_log_bind(): number;
   hd_log_retire(): void;
+  hd_log_request_head(): number;
+  hd_migration_gen0_refusal(): number;
+  hd_migration_sample(p: number, n: number): bigint;
   hd_attachment_object(): bigint;
   hd_attachment_allowed(ticket: number): number;
   hd_attachment_reserve(ticket: number, size: number): number;
@@ -43,6 +95,7 @@ interface Exports extends WebAssembly.Exports {
   hd_noise_matches(p: number, n: number): number;
   hd_noise_start(p: number, n: number): number;
   hd_noise_read1(h: number, p: number, n: number): bigint;
+  hd_pitr_app_query(h: number, p: number, n: number): bigint;
   hd_noise_write2(h: number, ep: number, en: number, p: number, n: number): bigint;
   hd_noise_seal(h: number, p: number, n: number): bigint;
   hd_noise_open(h: number, p: number, n: number): bigint;
@@ -73,8 +126,27 @@ export interface AttachmentReadOut {
   frame: Uint8Array;
 }
 
+export interface CppClaimTicket { readonly collection:string; readonly device:string; }
+/** Native pending correlation DATA, not physical commit or effect authority. */
+export interface MigrationPhysicalTicket { readonly collection: string; readonly sequence: number; }
+export interface MigrationPendingTicket {
+  readonly collection: string;
+  readonly driver: string;
+  readonly action: string;
+  readonly sequence: number;
+  readonly kind: number;
+  readonly fingerprint: string;
+}
+
 export class Engine {
   private ex!: Exports;
+  #opened=false;
+  #cppLive:CppClaimTicket|null=null;
+  readonly #cppTickets=new WeakMap<CppClaimTicket,{handle:number;signed:boolean}>();
+  #migrationLive: MigrationPendingTicket | null = null;
+  readonly #migrationTickets = new WeakMap<MigrationPendingTicket, number>();
+  #physicalLive: MigrationPhysicalTicket | null = null;
+  readonly #physicalTickets = new WeakMap<MigrationPhysicalTicket, number>();
 
   constructor(storage: DurableObjectStorage) {
     const host = sqlHost(storage, () => this.ex);
@@ -141,11 +213,426 @@ export class Engine {
   open(config: Uint8Array): void {
     let out: Uint8Array;
     try {
+      if(this.#opened) throw new Error("hosted engine already opened");
+      this.#opened=true;
       out = this.take(this.ex.hd_open(...this.put(config)));
     } finally {
       config.fill(0);
     }
     if (out.length) throw new Error(`hosted engine open: ${new TextDecoder().decode(out)}`);
+  }
+
+  /** Once/wake, actual private factory provenance; never request/config DATA. */
+  openForCppClaim(config:Uint8Array,control:ControlClient):void {
+    let audience:Uint8Array|undefined;
+    try {
+      if(this.#opened) throw new Error("hosted engine already opened");
+      this.#opened=true;
+      const origin=ownedCppControlOrigin(control);
+      if(origin===null) throw new Error("cpp_owned_control_not_established");
+      audience=new TextEncoder().encode(origin);
+      const output=this.take(this.ex.hd_open_cpp_claim(...this.put(config),...this.put(audience)));
+      if(output.length) throw new Error(`hosted engine open: ${new TextDecoder().decode(output)}`);
+    } finally {config.fill(0);audience?.fill(0);}
+  }
+
+  /** Opaque observation sequencing only; no physical/CPP/effect permission. */
+  beginCppClaim():CppClaimTicket {
+    if(this.#cppLive) throw new Error("cpp_claim_busy");
+    const data=this.takeDecoded(this.ex.hd_cpp_claim_begin());
+    if(!Array.isArray(data)||data.length!==3||typeof data[0]!=="number"||!Number.isSafeInteger(data[0])||data[0]<=0
+      ||!(data[1] instanceof Uint8Array)||data[1].length!==16||!(data[2] instanceof Uint8Array)||data[2].length!==16) throw new Error("cpp_claim_refused");
+    const uuid=(b:Uint8Array)=>{const h=Array.from(b,v=>v.toString(16).padStart(2,"0")).join("");return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;};
+    const ticket=Object.freeze({collection:uuid(data[1]),device:uuid(data[2])});
+    this.#cppTickets.set(ticket,{handle:data[0],signed:false});this.#cppLive=ticket;
+    return ticket;
+  }
+
+  /** VOID native currentness, actual physical/abort/wake checks belong to host. */
+  assertCppClaimCurrent(ticket:CppClaimTicket):void {
+    const state=this.#cppTickets.get(ticket);
+    if(!state||this.#cppLive!==ticket) throw new Error("cpp_claim_refused");
+    if(this.ex.hd_cpp_claim_current(state.handle)!==1) {this.finishCppClaim(ticket);throw new Error("cpp_claim_refused");}
+  }
+
+  /** Challenge32 is the ONLY supplied template field; one attempt per ticket. */
+  signCppClaimChallenge(ticket:CppClaimTicket,challenge:Uint8Array):Uint8Array {
+    const state=this.#cppTickets.get(ticket);
+    if(!state||this.#cppLive!==ticket||state.signed) throw new Error("cpp_claim_refused");
+    state.signed=true;
+    let input:Uint8Array|undefined;let signature:Uint8Array|undefined;
+    try {
+      if(!(challenge instanceof Uint8Array)||challenge.length!==32) throw new Error("cpp_claim_refused");
+      this.assertCppClaimCurrent(ticket);input=new Uint8Array(challenge);
+      signature=this.take(this.ex.hd_cpp_claim_sign(state.handle,...this.put(input)));
+      if(signature.length!==64) throw new Error("cpp_claim_refused");
+      this.assertCppClaimCurrent(ticket);
+      return signature;
+    } catch(error) {signature?.fill(0);this.finishCppClaim(ticket);throw error;}
+    finally {input?.fill(0);}
+  }
+
+  /** Always in caller finally; exact ticket cannot clean its successor. */
+  finishCppClaim(ticket:CppClaimTicket):void {
+    const state=this.#cppTickets.get(ticket);
+    if(!state||this.#cppLive!==ticket) return;
+    this.ex.hd_cpp_claim_finish(state.handle);this.#cppTickets.delete(ticket);this.#cppLive=null;
+  }
+
+  /** Closed source DATA from the owned-Control exchange, same native CPP slot.
+   * Native compares the actual accepted Genesis owner/original target records.
+   * Run creation is not physical commit, CPP authentication or H1 authority. */
+  openMigrationDriver(ticket: CppClaimTicket, claim: MigrationClaimData): void {
+    this.migrationDriver(ticket, claim);
+  }
+
+  /** Explicit compare-and-start. Caller MUST storage.sync before effects/success. */
+  restartMigrationDriver(ticket: CppClaimTicket, claim: MigrationClaimData, expectedSequence: number): void {
+    if (!Number.isSafeInteger(expectedSequence) || expectedSequence <= 0 || this.#migrationLive || this.#physicalLive) {
+      throw new Error("migration_run_refused");
+    }
+    this.migrationDriver(ticket, claim, expectedSequence);
+  }
+
+  /** Read-only run identity/checkpoint, newest for 0. No effect authority. */
+  migrationRun(sequence = 0): CborValue {
+    if (!Number.isSafeInteger(sequence) || sequence < 0) throw new Error("migration_run_refused");
+    const output = this.ex.hd_migration_run(sequence);
+    if (output === 0n) throw new Error("migration_run_refused");
+    return this.takeDecoded(output);
+  }
+
+  /** Operator intent only; caller owes storage.sync + the SAME CPP recheck. */
+  requestMigrationRollback(ticket: CppClaimTicket, claim: MigrationClaimData, expectedSequence: number, source: unknown | null): void {
+    if (!Number.isSafeInteger(expectedSequence) || expectedSequence <= 0 || this.#migrationLive || this.#physicalLive) throw new Error("migration_rollback_refused");
+    const claimed = this.migrationClaimInput(ticket, claim);
+    const sourceInput = source === null ? new Uint8Array() : migrationProviderInput({ kind: "drain", body: source });
+    const input = encode([claimed, sourceInput]);
+    try {
+      if (this.ex.hd_migration_rollback_request(this.#cppTickets.get(ticket)!.handle, expectedSequence, ...this.put(input)) !== 1) throw new Error("migration_rollback_refused");
+      this.assertCppClaimCurrent(ticket);
+    } finally { claimed.fill(0); sourceInput.fill(0); input.fill(0); }
+  }
+
+  migrationRollbackScope(ticket: MigrationPendingTicket): RollbackScope {
+    this.assertMigrationPendingCurrent(ticket);
+    return decodeRollbackScope(this.takeDecoded(this.ex.hd_migration_rollback_scope(this.#migrationTickets.get(ticket)!)));
+  }
+  /** Read-only DTO; no pending/effect ticket exists for this UNKNOWN action. */
+  migrationUnknownRollbackScope(expectedActionSequence: number): RollbackScope {
+    if (!Number.isSafeInteger(expectedActionSequence) || expectedActionSequence <= 0) throw new Error("migration_rollback_refused");
+    return decodeRollbackScope(this.takeDecoded(this.ex.hd_migration_unknown_rollback_scope(expectedActionSequence)));
+  }
+
+  /** Positive native proof only. The returned opaque ticket is already SETTLED,
+   * cannot pass pending/effect guards, and still needs actual physical sync. */
+  resolveMigrationAction(ticket: CppClaimTicket, claim: MigrationClaimData, expectedActionSequence: number, receipt?: unknown): MigrationPendingTicket {
+    if (!Number.isSafeInteger(expectedActionSequence) || expectedActionSequence <= 0 || this.#migrationLive || this.#physicalLive) throw new Error("migration_resolution_refused");
+    const claimed = this.migrationClaimInput(ticket, claim);
+    const receiptInput = receipt === undefined ? null : migrationRollbackInput(receipt);
+    const input = receiptInput === null ? claimed : encode([claimed, receiptInput]);
+    try {
+      const handle = this.#cppTickets.get(ticket)!.handle;
+      const raw = receiptInput === null
+        ? this.ex.hd_migration_resolve_base(handle, expectedActionSequence, ...this.put(input))
+        : this.ex.hd_migration_resolve_rollback(handle, expectedActionSequence, ...this.put(input));
+      if (raw === 0n) throw new Error("migration_resolution_unknown");
+      const data = this.takeDecoded(raw);
+      if (!Array.isArray(data) || data.length !== 8 || !(data[7] instanceof Uint8Array) || data[7].length !== 32) throw new Error("migration_resolution_unknown");
+      this.assertCppClaimCurrent(ticket);
+      const settled = this.adoptMigrationTicket(data.slice(0, 7));
+      this.assertMigrationSettlementCurrent(settled);
+      return settled;
+    } finally { claimed.fill(0); receiptInput?.fill(0); input.fill(0); }
+  }
+
+  private migrationClaimInput(ticket: CppClaimTicket, claim: MigrationClaimData): Uint8Array {
+    this.assertCppClaimCurrent(ticket);
+    const state = this.#cppTickets.get(ticket);
+    if (!state?.signed || claim.collection_id !== ticket.collection || claim.target.hosted.device_id !== ticket.device) {
+      throw new Error("migration_run_refused");
+    }
+    const bytesOf = (s: string): Uint8Array => Uint8Array.from(s.replaceAll("-", "").match(/../g) ?? [], h => Number.parseInt(h, 16));
+    const input = encode([bytesOf(claim.owner_account), claim.started_us, bytesOf(claim.target.root_key_id),
+      bytesOf(claim.target.hosted.sign_pk), bytesOf(claim.target.hosted.kem_pk), bytesOf(claim.target.hosted.noise_pk)]);
+    if (input.length > 256) throw new Error("migration_run_refused");
+    return input;
+  }
+
+  private migrationDriver(ticket: CppClaimTicket, claim: MigrationClaimData, restart?: number): void {
+    const input = this.migrationClaimInput(ticket, claim);
+    const state = this.#cppTickets.get(ticket)!;
+    try {
+      const opened = restart === undefined
+        ? this.ex.hd_migration_open(state.handle, ...this.put(input))
+        : this.ex.hd_migration_restart(state.handle, restart, ...this.put(input));
+      if (opened !== 1) {
+        throw new Error("migration_run_refused");
+      }
+      this.assertCppClaimCurrent(ticket);
+    } finally { input.fill(0); }
+  }
+
+  /** SQL-persisted sequencing DATA. Actual host must confirm physical writes. */
+  beginMigrationPending(): MigrationPendingTicket {
+    if (this.#migrationLive) throw new Error("migration_pending_unknown");
+    return this.adoptMigrationTicket(this.takeDecoded(this.ex.hd_migration_pending_begin()));
+  }
+
+  private adoptMigrationTicket(data: CborValue): MigrationPendingTicket {
+    const uuid = (b: Uint8Array): string => {
+      const h = Array.from(b, v => v.toString(16).padStart(2, "0")).join("");
+      return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;
+    };
+    if (!Array.isArray(data) || data.length !== 7 ||
+        ![data[0], data[4], data[5]].every(n => typeof n === "number" && Number.isSafeInteger(n)) ||
+        (data[0] as number) <= 0 || (data[4] as number) <= 0 || (data[5] as number) < 0 || (data[5] as number) > 21 ||
+        ![data[1], data[2], data[3]].every(b => b instanceof Uint8Array && b.length === 16 && b.some(v => v !== 0)) ||
+        !(data[6] instanceof Uint8Array) || data[6].length !== 32) throw new Error("migration_pending_refused");
+    const ticket = Object.freeze({ collection: uuid(data[1] as Uint8Array), driver: uuid(data[2] as Uint8Array),
+      action: uuid(data[3] as Uint8Array), sequence: data[4] as number, kind: data[5] as number,
+      fingerprint: Array.from(data[6], v => v.toString(16).padStart(2, "0")).join("") });
+    this.#migrationTickets.set(ticket, data[0] as number); this.#migrationLive = ticket;
+    return ticket;
+  }
+
+  /** Read-only digest sample of the target store (`migration-sample.ts`):
+   * IDs, digests and sizes only. Throws when native refuses the request. */
+  migrationSample(request: Uint8Array): CborValue {
+    if (request.length === 0) throw new Error("migration_sample_refused");
+    const out = this.ex.hd_migration_sample(...this.put(request));
+    if (out === 0n) throw new Error("migration_sample_refused");
+    return this.takeDecoded(out);
+  }
+
+  /** Why the last `beginMigrationPending` saved nothing (native `Idle`; 9 =
+   * nothing to poll). Loop DATA only, never a retry or effect permit. */
+  migrationIdle(): number {
+    const code = this.ex.hd_migration_idle();
+    return Number.isSafeInteger(code) && code >= 0 && code <= 9 ? code : 8;
+  }
+
+  /** `[kind, ...params]` of the SAME original pending action exactly as its
+   * fingerprint hashed them: the parameters the host's request uses. DATA. */
+  migrationPendingAction(ticket: MigrationPendingTicket): CborValue[] {
+    this.assertMigrationPendingCurrent(ticket);
+    const fields = this.takeDecoded(this.ex.hd_migration_pending_action(this.#migrationTickets.get(ticket)!));
+    if (!Array.isArray(fields) || fields[0] !== ticket.kind) throw new Error("migration_pending_refused");
+    return fields;
+  }
+
+  /** VOID native saved pending/target currentness, not physical/effect ACK. */
+  assertMigrationPendingCurrent(ticket: MigrationPendingTicket): void {
+    const handle = this.#migrationTickets.get(ticket);
+    if (handle === undefined || this.#migrationLive !== ticket || this.ex.hd_migration_pending_current(handle) !== 1) {
+      throw new Error("migration_pending_refused");
+    }
+  }
+
+  /** Opaque native one-slot commit sequencing, not physical ACK or effect permit. */
+  beginMigrationPhysical(ticket: MigrationPendingTicket): MigrationPhysicalTicket {
+    const handle = this.#migrationTickets.get(ticket);
+    if (handle === undefined || this.#migrationLive !== ticket || this.#physicalLive) throw new Error("migration_physical_unknown");
+    const id = this.ex.hd_migration_physical_begin(handle);
+    if (!Number.isSafeInteger(id) || id <= 0) throw new Error("migration_physical_unknown");
+    const physical = Object.freeze({ collection: ticket.collection, sequence: ticket.sequence });
+    this.#physicalTickets.set(physical, id);this.#physicalLive = physical;return physical;
+  }
+  assertMigrationPhysicalCurrent(ticket: MigrationPhysicalTicket): void {
+    const id = this.#physicalTickets.get(ticket);
+    if (id === undefined || this.#physicalLive !== ticket || this.ex.hd_migration_physical_current(id) !== 1) throw new Error("migration_physical_unknown");
+  }
+  /** ONLY closed actual-host continuation after actual storage.sync + guards.
+   * No Boolean, caller payload, supplied promise or completion DSL input. */
+  finishMigrationPhysical(ticket: MigrationPhysicalTicket): void {
+    this.assertMigrationPhysicalCurrent(ticket);
+    if (this.ex.hd_migration_physical_finish(this.#physicalTickets.get(ticket)!) !== 1) throw new Error("migration_physical_unknown");
+    this.#physicalTickets.delete(ticket);this.#physicalLive = null;
+  }
+  closeMigrationPhysical(ticket: MigrationPhysicalTicket): void {
+    const id = this.#physicalTickets.get(ticket);
+    if (id === undefined || this.#physicalLive !== ticket) return;
+    this.ex.hd_migration_physical_close(id);this.#physicalTickets.delete(ticket);this.#physicalLive = null;
+  }
+  assertMigrationSettlementConfirmed(ticket: MigrationPendingTicket): void {
+    this.assertMigrationSettlementCurrent(ticket);
+    if (this.ex.hd_migration_settlement_confirmed(this.#migrationTickets.get(ticket)!) !== 1) throw new Error("migration_physical_unknown");
+  }
+
+  /** Native negative H1 evaluation only, using existing Created(false) outcome.
+   * Its SQL result is DATA until the actual host confirms physical completion. */
+  recordMigrationKeyingWait(ticket: MigrationPendingTicket): string {
+    this.assertMigrationPendingCurrent(ticket);
+    const handle = this.#migrationTickets.get(ticket)!;
+    const result = this.take(this.ex.hd_migration_keying_wait(handle));
+    if (result.length !== 32) throw new Error("migration_settlement_unknown");
+    this.assertMigrationSettlementCurrent(ticket);
+    return Array.from(result, v => v.toString(16).padStart(2, "0")).join("");
+  }
+
+  /** Native derives exact target completion from the SAME original pending.
+   * No caller result/key/owner/verified flag; digest remains DATA until sync. */
+  recordMigrationTargetCreated(ticket: MigrationPendingTicket): string {
+    this.assertMigrationPendingCurrent(ticket);
+    const result = this.take(this.ex.hd_migration_target_complete(this.#migrationTickets.get(ticket)!));
+    if (result.length !== 32) throw new Error("migration_settlement_unknown");
+    this.assertMigrationSettlementCurrent(ticket);
+    return Array.from(result, v => v.toString(16).padStart(2, "0")).join("");
+  }
+
+  /** Native binds ONE Connect/provider result body to the SAME original pending
+   * and its run; the host decodes shape only. Digest remains DATA until sync. */
+  recordMigrationProviderResult(ticket: MigrationPendingTicket, result: MigrationProviderResult): string {
+    this.assertMigrationPendingCurrent(ticket);
+    if (PROVIDER_RESULT_KIND[result.kind] !== ticket.kind) throw new Error("migration_settlement_refused");
+    const input = migrationProviderInput(result);
+    let output: Uint8Array;
+    try { output = this.take(this.ex.hd_migration_provider_result(this.#migrationTickets.get(ticket)!, ...this.put(input))); }
+    finally { input.fill(0); }
+    if (output.length !== 32) throw new Error("migration_settlement_unknown");
+    this.assertMigrationSettlementCurrent(ticket);
+    return Array.from(output, v => v.toString(16).padStart(2, "0")).join("");
+  }
+
+  recordMigrationRollbackResult(ticket: MigrationPendingTicket, body: unknown): string {
+    this.assertMigrationPendingCurrent(ticket);
+    if (ticket.kind !== 20 && ticket.kind !== 21) throw new Error("migration_settlement_refused");
+    const input = migrationRollbackInput(body);
+    let output: Uint8Array;
+    try { output = this.take(this.ex.hd_migration_rollback_result(this.#migrationTickets.get(ticket)!, ...this.put(input))); }
+    finally { input.fill(0); }
+    if (output.length !== 32) throw new Error("migration_settlement_unknown");
+    this.assertMigrationSettlementCurrent(ticket);
+    return Array.from(output, v => v.toString(16).padStart(2, "0")).join("");
+  }
+
+  /** Native binds ONE legacy source open/page result to the SAME original
+   * pending, its run, settled hold and open; page metadata commits with it. The
+   * host maps shape only. Digest remains DATA until sync. */
+  recordMigrationSourceResult(ticket: MigrationPendingTicket, result: MigrationSourceResult): string {
+    this.assertMigrationPendingCurrent(ticket);
+    if (SOURCE_RESULT_KIND[result.kind] !== ticket.kind) throw new Error("migration_settlement_refused");
+    const input = migrationSourceInput(result);
+    let output: Uint8Array;
+    try { output = this.take(this.ex.hd_migration_source_result(this.#migrationTickets.get(ticket)!, ...this.put(input))); }
+    finally { input.fill(0); }
+    if (output.length !== 32) throw new Error("migration_settlement_unknown");
+    this.assertMigrationSettlementCurrent(ticket);
+    return Array.from(output, v => v.toString(16).padStart(2, "0")).join("");
+  }
+
+  /** Exact row/byte-bounded prefix chosen by native from the retained cursor. */
+  migrationGen0Placements(ticket: MigrationPendingTicket): Gen0Placements {
+    this.assertMigrationPendingCurrent(ticket);
+    if (ticket.kind !== GEN0_KIND.import) throw new Error("migration_settlement_refused");
+    const output = this.take(this.ex.hd_migration_gen0_placements(this.#migrationTickets.get(ticket)!));
+    if (output.length === 0) throw new Error(`migration_gen0_refused:${this.ex.hd_migration_gen0_refusal()}`);
+    return decodeGen0Placements(output);
+  }
+
+  /** Sequential AttachmentV1 chunk, same pending/custody; upload returned
+   * objects before fetching the next chunk. Native checks the complete source
+   * digest before allowing the completed file to participate in a window. */
+  migrationGen0FileChunk(ticket: MigrationPendingTicket, input: Gen0FileChunkInput): Gen0Sealed {
+    this.assertMigrationPendingCurrent(ticket);
+    if (ticket.kind !== GEN0_KIND.import) throw new Error("migration_settlement_refused");
+    const bytes = migrationGen0FileChunkInput(input);
+    let output: Uint8Array;
+    try { output = this.take(this.ex.hd_migration_gen0_file_chunk(this.#migrationTickets.get(ticket)!, ...this.put(bytes))); }
+    finally { bytes.fill(0); }
+    if (output.length === 0) throw new Error(`migration_gen0_refused:${this.ex.hd_migration_gen0_refusal()}`);
+    return decodeGen0Sealed(output);
+  }
+
+  /** Native seals ONE whole current file of the SAME original pending bucket
+   * window under its private custody, after checking the bytes against the
+   * file's S0 placement. Nothing settles; the objects are DATA to upload. */
+  migrationGen0File(ticket: MigrationPendingTicket, input: Gen0FileInput): Gen0Sealed {
+    this.assertMigrationPendingCurrent(ticket);
+    if (ticket.kind !== GEN0_KIND.import) throw new Error("migration_settlement_refused");
+    const bytes = migrationGen0FileInput(input);
+    let output: Uint8Array;
+    try { output = this.take(this.ex.hd_migration_gen0_file(this.#migrationTickets.get(ticket)!, ...this.put(bytes))); }
+    finally { bytes.fill(0); }
+    if (output.length === 0) throw new Error(`migration_gen0_refused:${this.ex.hd_migration_gen0_refusal()}`);
+    return decodeGen0Sealed(output);
+  }
+
+  /** Native seals the SAME original pending bounded window (resources, or
+   * bucket records and already sealed files) and stages its outcome until
+   * the uploads are shown present. */
+  migrationGen0Window(ticket: MigrationPendingTicket, input: Gen0WindowInput): Gen0Sealed {
+    this.assertMigrationPendingCurrent(ticket);
+    if (ticket.kind !== GEN0_KIND.import) throw new Error("migration_settlement_refused");
+    const bytes = migrationGen0WindowInput(input);
+    let output: Uint8Array;
+    try { output = this.take(this.ex.hd_migration_gen0_window(this.#migrationTickets.get(ticket)!, ...this.put(bytes))); }
+    finally { bytes.fill(0); }
+    if (output.length === 0) throw new Error(`migration_gen0_refused:${this.ex.hd_migration_gen0_refusal()}`);
+    return decodeGen0Sealed(output);
+  }
+
+  /** Native seals the SAME original pending `FinishGen0` (state digest from the
+   * S0 placements, remaining sections, manifest) and consumes its custody. */
+  migrationGen0Finish(ticket: MigrationPendingTicket): Gen0Sealed {
+    this.assertMigrationPendingCurrent(ticket);
+    if (ticket.kind !== GEN0_KIND.finish) throw new Error("migration_settlement_refused");
+    const output = this.take(this.ex.hd_migration_gen0_finish(this.#migrationTickets.get(ticket)!));
+    if (output.length === 0) throw new Error(`migration_gen0_refused:${this.ex.hd_migration_gen0_refusal()}`);
+    return decodeGen0Sealed(output);
+  }
+
+  /** Native settles the staged window or finish of the SAME original pending
+   * from HasObjects flags over exactly its addresses. A missing object refuses
+   * and keeps the staging for a re-upload. Digest remains DATA until sync. */
+  recordMigrationGen0Result(ticket: MigrationPendingTicket, result: Gen0Result): string {
+    this.assertMigrationPendingCurrent(ticket);
+    if (ticket.kind !== GEN0_KIND.import && ticket.kind !== GEN0_KIND.finish) throw new Error("migration_settlement_refused");
+    const input = migrationGen0ResultInput(result);
+    const output = this.take(this.ex.hd_migration_gen0_result(this.#migrationTickets.get(ticket)!, ...this.put(input)));
+    if (output.length !== 32) throw new Error("migration_settlement_unknown");
+    this.assertMigrationSettlementCurrent(ticket);
+    return Array.from(output, v => v.toString(16).padStart(2, "0")).join("");
+  }
+
+  /** Native seals (once per action) and sends the SAME original pending
+   * `AppendBase`'s hosted-import base through the Engine's own log session, or
+   * resends the same bytes after a dropped batch. Nothing settles; the item
+   * hash and position are DATA. */
+  migrationLogAppend(ticket: MigrationPendingTicket): LogAppendSent {
+    this.assertMigrationPendingCurrent(ticket);
+    if (ticket.kind !== LOG_KIND.appendBase) throw new Error("migration_settlement_refused");
+    const output = this.take(this.ex.hd_migration_log_append(this.#migrationTickets.get(ticket)!));
+    if (output.length === 0) throw new Error("migration_log_refused");
+    return decodeLogAppendSent(output);
+  }
+
+  /** Native settles the SAME original pending log action (base, cutover, log
+   * head, rebuild, read-new page) from the Engine's own log evidence; the host
+   * passes nothing. Digest remains DATA until sync. */
+  recordMigrationLogResult(ticket: MigrationPendingTicket): string {
+    this.assertMigrationPendingCurrent(ticket);
+    if (!isLogKind(ticket.kind)) throw new Error("migration_settlement_refused");
+    const output = this.take(this.ex.hd_migration_log_result(this.#migrationTickets.get(ticket)!));
+    if (output.length !== 32) throw new Error("migration_settlement_unknown");
+    this.assertMigrationSettlementCurrent(ticket);
+    return Array.from(output, v => v.toString(16).padStart(2, "0")).join("");
+  }
+
+  /** VOID exact ORIGINAL settlement/checkpoint readback, not physical ACK. */
+  assertMigrationSettlementCurrent(ticket: MigrationPendingTicket): void {
+    const handle = this.#migrationTickets.get(ticket);
+    if (handle === undefined || this.#migrationLive !== ticket || this.ex.hd_migration_settlement_current(handle) !== 1) {
+      throw new Error("migration_settlement_unknown");
+    }
+  }
+
+  /** Drops only the exact RAM slot; original durable pending stays UNKNOWN. */
+  finishMigrationPending(ticket: MigrationPendingTicket): void {
+    const handle = this.#migrationTickets.get(ticket);
+    if (handle === undefined || this.#migrationLive !== ticket) return;
+    this.ex.hd_migration_pending_finish(handle);
+    this.#migrationTickets.delete(ticket); this.#migrationLive = null;
   }
 
   /** Metadata-only legacy path preflight; no collection is opened here. */
@@ -196,6 +683,12 @@ export class Engine {
 
   needsReset(): boolean {
     return this.ex.hd_needs_reset() === 1;
+  }
+
+  /** The native open-time pin check on the state applied so far. */
+  pinState(): "inconsistent" | "rebuilding" | "rebuilt" | null {
+    const state = this.ex.hd_pin_state();
+    return state === 1 ? "inconsistent" : state === 2 ? "rebuilding" : state === 3 ? "rebuilt" : null;
   }
 
   hello(grant: Uint8Array | null, frame: Uint8Array): { session: number; response: Uint8Array } {
@@ -262,7 +755,18 @@ export class Engine {
   /** Re-run the subscription (a `head` RPC) to learn of new log entries: the
    * next pump re-binds the session once its token is in hand. */
   refresh(): void {
+    // Retiring the log session voids an open migration ticket
+    // (migration_pending_refused), and a head fetch out mid-window refuses gen0
+    // sealing; activations and the alarm call this freely. Defer both until the
+    // ticket settles: the executor fetches the head where it needs one.
+    if (this.#migrationLive || this.#physicalLive) return;
     this.logRetire();
+  }
+
+  /** Queue a head fetch on the current log session (no retire): learns entries
+   * other writers appended, such as the control plane's migration cutover. */
+  requestHead(): boolean {
+    return this.ex.hd_log_request_head() === 1;
   }
 
   // ---------------------------------------------------- app sessions (Noise)
@@ -292,6 +796,43 @@ export class Engine {
   noiseRead1(h: number, m1: Uint8Array): { payload: Uint8Array; peer: Uint8Array } | null {
     const r = this.items(this.ex.hd_noise_read1(h, ...this.put(m1)));
     return r.length === 2 ? { payload: r[0] as Uint8Array, peer: r[1] as Uint8Array } : null;
+  }
+
+  /** Host-only public CP-query metadata from this instance's REAL Noise handle
+   * and native Engine original/context checks. Input is trusted eleven-field
+   * declaration CBOR, NOT authenticated admission; no decoded peer substitute.
+   * Output data is historical/ALREADY KEYED, not a before-key/current CP/phase
+   * permit. No app-serving/profile hook invokes this method.
+   */
+  pitrAppQuery(h: number, declarations: Uint8Array): Readonly<PitrAppGrantIdentity> | null {
+    if (!Number.isInteger(h) || h < 1 || h > 0xffffffff || !(declarations instanceof Uint8Array)
+        || declarations.length === 0 || declarations.length > 512) return null;
+    try {
+      return decodePitrAppQuery(this.takeDecoded(this.ex.hd_pitr_app_query(h, ...this.put(declarations))));
+    } catch { return null; }
+  }
+
+  /** Uncached app CP point with fresh native re-observation after its await.
+   * Void/READ-ONLY: not a returned lease or effect hook. External phase, trusted
+   * original admission and BEFORE-key authority still belong to independent gates.
+   * A changed wake/head/generation/declaration/Noise context closes this point.
+   */
+  async assertPitrAppCurrent(h: number, declarations: Uint8Array, control: ControlClient,
+    signal: AbortSignal): Promise<void> {
+    const refused = () => { throw new Error("pitr_app_current_not_established"); };
+    if (!(declarations instanceof Uint8Array) || !declarations.length || declarations.length > 512 || signal.aborted) return refused();
+    const snapshot = declarations.slice();
+    const same = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((v, i) => b[i] === v);
+    const original = this.pitrAppQuery(h, snapshot);
+    if (!original) return refused();
+    const native = encode(this.admission());
+    const wake = this.wakeInstance();
+    if (!wake || signal.aborted) return refused();
+    try { await control.assertPitrCurrentAppGrant(original, signal); } catch { return refused(); }
+    if (signal.aborted || !same(snapshot, declarations) || this.wakeInstance() !== wake) return refused();
+    const current = this.pitrAppQuery(h, snapshot);
+    if (!current || !same(native, encode(this.admission()))
+        || !Object.entries(original).every(([k, v]) => Reflect.get(current, k) === v)) return refused();
   }
 
   /** Message 2 with a fresh CSPRNG ephemeral (generated and wiped here). */

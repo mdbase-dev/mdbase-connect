@@ -44,6 +44,7 @@ fn state() -> MemState {
 fn seeded(a: AttachmentContentV1) -> MemState {
     let mut s = state();
     s.apply_effect(&Effect::PutAttachmentFile {
+        mtime: None,
         id: id(1),
         path: "files/a.bin".into(),
         content: a,
@@ -52,6 +53,7 @@ fn seeded(a: AttachmentContentV1) -> MemState {
 }
 fn attach(a: AttachmentContentV1) -> Op {
     Op::FileAttach(FileAttach {
+        mtime: None,
         id: id(1),
         path: "files/a.bin".into(),
         content: a,
@@ -101,6 +103,29 @@ fn whole_metadata_is_exact_and_not_an_allocation() {
     assert_ne!(c, FileContent::Blob(blob(a.whole_plain_hash)));
 }
 #[test]
+fn optional_mtime_is_the_original_capture_clock_and_not_replay_time() {
+    for source in [Source::Api, Source::External] {
+        let mut m = mutation(attach(content(1)), source);
+        let instant = m.clock.instant_ms;
+        let Op::FileAttach(f) = &mut m.ops[0] else {
+            panic!()
+        };
+        f.mtime = Some(instant);
+        for stage in [Stage::Head, Stage::Resurrect] {
+            let p = mdbn_core::plan(&m, &state(), &PlanOptions { stage }).unwrap();
+            assert!(
+                matches!(p.effects.as_slice(), [Effect::PutAttachmentFile { mtime: Some(value), .. }] if *value == instant)
+            );
+        }
+        let Op::FileAttach(f) = &mut m.ops[0] else {
+            panic!()
+        };
+        f.mtime = Some(instant + 1);
+        assert!(mdbn_core::plan(&m, &state(), &PlanOptions { stage: Stage::Head }).is_err());
+    }
+}
+
+#[test]
 fn create_uses_explicit_effect_and_same_file_namespace() {
     let mut s = state();
     let a = content(1);
@@ -110,7 +135,8 @@ fn create_uses_explicit_effect_and_same_file_namespace() {
         vec![Effect::PutAttachmentFile {
             id: id(1),
             path: "files/a.bin".into(),
-            content: a
+            content: a,
+            mtime: None,
         }]
     );
     apply_both(&mut s, &p);
@@ -325,7 +351,8 @@ fn move_preserves_descriptor_and_updates_path_indexes() {
         vec![Effect::PutAttachmentFile {
             id: id(1),
             path: "files/b.bin".into(),
-            content: a
+            content: a,
+            mtime: None,
         }]
     );
     apply_both(&mut s, &p);

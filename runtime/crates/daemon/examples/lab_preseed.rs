@@ -255,6 +255,8 @@ async fn main() {
         device_id: owner.0,
         root: work.join("folder"),
         private_dir: work.join("state"),
+        adopt: None,
+        id_hints: vec![],
         sync: Some(Synced {
             log_url,
             chosen_state: CState::CloudCopy,

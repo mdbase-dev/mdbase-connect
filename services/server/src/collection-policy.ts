@@ -360,8 +360,13 @@ export async function resolveActiveMembershipPolicy(
        AND membership.revoked_at IS NULL`,
     [input.collectionId, input.userId]
   );
-  const decoded = storedPolicySchema.safeParse(result.rows[0]);
-  if (!decoded.success || decoded.data.owner_user_id !== input.ownerUserId) return null;
+  return decodeStoredMembershipPolicy(result.rows[0], input.ownerUserId);
+}
+
+/** Decode the same persisted current-policy shape for single and set-based reads. */
+export function decodeStoredMembershipPolicy(row: unknown, ownerUserId: string): CollectionMembershipPolicy | null {
+  const decoded = storedPolicySchema.safeParse(row);
+  if (!decoded.success || decoded.data.owner_user_id !== ownerUserId) return null;
   return {
     id: decoded.data.id,
     membershipId: decoded.data.membership_id,

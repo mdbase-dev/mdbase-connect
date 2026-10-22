@@ -14,6 +14,7 @@ import type { DatabasePool } from "../../database-types.js";
 import { pipeSubject, type RelayBroker, type RelayBrokerBinding } from "../../relay-broker.js";
 import { currentRelayGeneration } from "../../relay-compatibility.js";
 import { tokenHash } from "../../security.js";
+import { nativeAdmission } from "./native-grant-target.js";
 
 export const NOISE_PIPE_CAPABILITY = "noise_pipe_v1";
 const PIPE_FRAME_MAGIC = Buffer.from("MDBN");
@@ -247,7 +248,7 @@ export function registerNoisePipeClientRoute(
     let opened = false;
     let published = false;
     let terminal = false;
-    let credential: { token: string; collection: string; grant: string } | undefined;
+    let credential: { token: string; collection: string; grant: string; device: string; connector: string } | undefined;
     let revalidation: NodeJS.Timeout | undefined;
     let openTimer: NodeJS.Timeout | undefined;
     let verifying = false;
@@ -282,8 +283,9 @@ export function registerNoisePipeClientRoute(
       revalidation = setInterval(() => {
         if (terminal || !credential || verifying) return;
         verifying = true;
-        void admission(credential.token, credential.collection, credential.grant).then((result) => {
-          if (!terminal && !result.rows[0]) finish("grant_inactive", "grant_revoked");
+        const current = credential;
+        void admission(current.token, current.collection, current.grant, current.device).then((connector) => {
+          if (!terminal && connector !== current.connector) finish("grant_inactive", "grant_revoked");
         }, () => finish("connector_offline", "authorization_unavailable")).finally(() => { verifying = false; });
       }, limits.revalidateMs);
       revalidation.unref();
@@ -301,8 +303,9 @@ export function registerNoisePipeClientRoute(
       void admit(raw.toString("utf8"), pipeId).catch(() => closeWith("connector_offline"));
     });
 
-    function admission(token: string, collection: string, grant: string) {
-      return options.db.query<{ connector_id: string }>(
+    /** The connector to open the pipe on, or null to refuse. */
+    async function admission(token: string, collection: string, grant: string, device: string): Promise<string | null> {
+      const legacy = await options.db.query<{ connector_id: string }>(
         `SELECT col.connector_id
          FROM access_tokens tok
          JOIN grants g ON g.id = tok.grant_id
@@ -320,6 +323,9 @@ export function registerNoisePipeClientRoute(
            AND col.present = true AND col.authority_state = 'active'`,
         [tokenHash(token), collection, grant]
       );
+      if (legacy.rows[0]) return legacy.rows[0].connector_id;
+      // A Private native collection: only a current serving device of the granting account.
+      return nativeAdmission(options.db, tokenHash(token), collection, grant, device);
     }
 
     async function admit(text: string, id: string): Promise<void> {
@@ -333,11 +339,10 @@ export function registerNoisePipeClientRoute(
         || typeof auth.device !== "string" || typeof auth.device_noise_pk !== "string" || !/^[0-9a-f]{64}$/.test(auth.device_noise_pk)) {
         return closeWith("unauthenticated");
       }
-      const admitted = await admission(auth.access_token, auth.collection, auth.grant);
+      const connectorId = await admission(auth.access_token, auth.collection, auth.grant, auth.device);
       if (!alive()) return;
-      const connectorId = admitted.rows[0]?.connector_id;
       if (!connectorId) return closeWith("grant_inactive");
-      credential = { token: auth.access_token, collection: auth.collection, grant: auth.grant };
+      credential = { token: auth.access_token, collection: auth.collection, grant: auth.grant, device: auth.device, connector: connectorId };
       const generation = await currentRelayGeneration(options.db, connectorId);
       if (!alive()) return;
       if (!generation) return closeWith("connector_offline");

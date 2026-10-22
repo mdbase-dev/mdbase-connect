@@ -7,6 +7,7 @@ import {
   AuthRateLimiter,
   type AuthRateLimitRule
 } from "../../auth-rate-limit.js";
+import { passwordSignupIpRule } from "./password-signup-limit.js";
 import { sessionClientName } from "../../account-sessions.js";
 import { ianaTimezoneSchema } from "../../platform/timezones.js";
 import type { AuthenticationPolicyStore } from "../../authentication-policy.js";
@@ -39,6 +40,7 @@ import {
 } from "../../platform/http-errors.js";
 import { requireSameOrigin } from "../../platform/request-security.js";
 import { setSessionCookie } from "../../platform/session-cookies.js";
+import type { AccountBackend } from "../next/account-backend-flip.js";
 
 const PASSWORD_LOGIN_EMAIL_LIMIT: AuthRateLimitRule = {
   maxAttempts: 5,
@@ -60,12 +62,6 @@ const PASSWORD_SIGNUP_PREVIEW_TOKEN_LIMIT: AuthRateLimitRule = {
 };
 const PASSWORD_SIGNUP_TOKEN_LIMIT: AuthRateLimitRule = {
   maxAttempts: 5,
-  windowSeconds: 60 * 60,
-  baseBlockSeconds: 15 * 60,
-  maxBlockSeconds: 6 * 60 * 60
-};
-const PASSWORD_SIGNUP_IP_LIMIT: AuthRateLimitRule = {
-  maxAttempts: 10,
   windowSeconds: 60 * 60,
   baseBlockSeconds: 15 * 60,
   maxBlockSeconds: 6 * 60 * 60
@@ -103,11 +99,14 @@ const PASSWORD_AUTH_GLOBAL_LIMIT: AuthRateLimitRule = {
 
 interface PasswordAuthRoutesOptions {
   db: DatabasePool;
+  environment?: string;
+  passwordSignupIpMaxAttempts?: number;
   publicUrl: string;
   authenticationPolicy: AuthenticationPolicyStore;
   authRateLimitSecret?: string;
   authenticationLegalDocuments?: AuthenticationLegalDocuments;
   emailTransport?: EmailTransport;
+  newAccountBackend: AccountBackend;
   providers: {
     development: boolean;
     tailscale: boolean;
@@ -126,9 +125,12 @@ export function registerPasswordAuthRoutes(
   app: FastifyInstance,
   options: PasswordAuthRoutesOptions
 ): void {
+  const PASSWORD_SIGNUP_IP_LIMIT = passwordSignupIpRule(options.environment, options.passwordSignupIpMaxAttempts);
   const passwordAccounts = new PasswordAccountService(
     options.db,
-    options.authenticationPolicy
+    options.authenticationPolicy,
+    options.newAccountBackend,
+    options.environment
   );
   const passwordRecovery = new PasswordRecoveryService(
     options.db,
@@ -136,7 +138,8 @@ export function registerPasswordAuthRoutes(
   );
   const publicSignup = new PublicSignupService(
     options.db,
-    options.authenticationPolicy
+    options.authenticationPolicy,
+    options.newAccountBackend
   );
   const authenticationRateLimiter = options.authRateLimitSecret
     ? new AuthRateLimiter(options.db, options.authRateLimitSecret)

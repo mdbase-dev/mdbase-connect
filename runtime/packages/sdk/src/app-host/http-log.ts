@@ -1,8 +1,10 @@
 /** First-party unary LS HTTP + staged object transfers. No account/key custody defaults. */
+import { LOCAL_APPLICATION_BUILD, localApplicationHttpOrigin } from "../application/local-build.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { decode, encode, type CborValue } from "../cbor.js";
 import { uuidToBytes } from "../codec.js";
 import type { AppLogCall, AppLogTransport } from "./log-pump.js";
+import { appServerBody, appServerOutcome, appServerProblem, isAppServerProblem, type AppServerOutcome, type AppServerProblem } from "./cp-problem.js";
 
 const MAX_FRAME = 16 * 1024 * 1024, MAX_OBJECT = 9 * 1024 * 1024;
 const METHODS = new Set(["append", "read", "head", "subscribe", "unsubscribe", "put_object", "get_object", "has_objects", "put_snapshot", "get_snapshot", "endorse_snapshot", "stream_join", "stream_leave", "stream_send"]);
@@ -10,7 +12,7 @@ const FORBIDDEN = new Set(["host", "content-length", "transfer-encoding", "conne
 const utf8 = new TextEncoder();
 type MapValue = Map<CborValue, CborValue>;
 export class AppHttpLogError extends Error {
-  constructor(readonly reason: "binding" | "fenced" | "shape" | "unavailable" | "integrity") { super(`app log transport: ${reason}`); this.name = "AppHttpLogError"; }
+  constructor(readonly reason: "binding" | "fenced" | "shape" | "unavailable" | "integrity" | AppServerOutcome, readonly server?: AppServerProblem) { super(`app log transport: ${reason}`); this.name = "AppHttpLogError"; }
 }
 const error = (reason: AppHttpLogError["reason"]) => new AppHttpLogError(reason);
 /** A domain-specific proof, never a generic device signer reachable by grant clients. */
@@ -33,10 +35,13 @@ export interface AppLogHttpAuthority {
   readonly endpoint: number | bigint;
   readonly collection: string;
   readonly origin: string;
-  /** Exact approved first-party object-store origins, captured before any send. */
+  /** Approved first-party object-store origins besides `origin` itself (always
+   * approved: the log mints direct URLs there), captured before any send. */
   readonly directOrigins: readonly string[];
   isCurrent(): boolean;
   accessToken(options: { signal: AbortSignal }): Promise<string>;
+  /** The log refused this token: do not offer it again. */
+  invalidateToken?(token: string): void;
   signLogProof(proof: AppLogHttpProof, options: { signal: AbortSignal }): Promise<Uint8Array>;
 }
 export interface AppLogHttpOptions {
@@ -62,7 +67,7 @@ function hex(b: Uint8Array): string { return [...b].map(v => v.toString(16).padS
 function base64(b: Uint8Array): string { return btoa(String.fromCharCode(...b)); }
 function origin(input: string, loopback: boolean): string {
   let u: URL; try { u = new URL(input); } catch { throw error("binding"); }
-  const local = ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
+  const local = LOCAL_APPLICATION_BUILD ? localApplicationHttpOrigin(input) : ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
   if (u.username || u.password || u.pathname !== "/" || u.search || u.hash || (u.protocol !== "https:" && !(loopback && local && u.protocol === "http:"))) throw error("binding");
   return u.origin;
 }
@@ -84,6 +89,17 @@ function proof(endpoint: number | bigint, originalCallId: bigint, method: string
   return Object.freeze({ endpoint, originalCallId, frame: frame.slice(), token, method, path: "/v1/rpc", collection, nonce: nonce.slice(), bodyHash, tokenHash, digest });
 }
 interface Request { id: bigint; method: string; params: MapValue }
+/** A worker's piggybacked next nonce (`x-mdbase-next-nonce`) is minted like
+ * `GET /v1/nonce` and lives 60 s server-side; use it well inside that. */
+const SPARE_NONCE_MS = 40_000, SPARE_NONCES = 6, NEXT_NONCE = "x-mdbase-next-nonce";
+function nonceBytes(text: string): Uint8Array | null { return /^[0-9a-f]{64}$/.test(text) ? Uint8Array.from(text.match(/../g)!.map(v => parseInt(v, 16))) : null; }
+/** An auth refusal of the nonce itself (never dispatched), safe to retry once with a fresh nonce. */
+function nonceRefused(reply: Uint8Array): boolean {
+  try {
+    const e = (decode(reply) as MapValue).get(3); if (!(e instanceof Map)) return false;
+    const m = e as MapValue; return m.get(0) === "unauthenticated" && (m.get(1) === "nonce" || m.get(1) === "replay");
+  } catch { return false; }
+}
 interface Direct { url: string; headers: Headers; expires: number }
 
 /** All operations are bound to ONE immutable authenticated generation. A throw is
@@ -99,6 +115,9 @@ export class AppHttpLogTransport implements AppLogTransport {
   private readonly now: () => number;
   private readonly loopback: boolean;
   private commitId = (1n << 64n) - 1n;
+  /** Unused piggybacked nonces (one per reply, a few kept for concurrent RPCs);
+   * each is taken (never shared) by exactly one later RPC. */
+  private spares: { nonce: Uint8Array; at: number }[] = [];
   constructor(private readonly authority: AppLogHttpAuthority, options: AppLogHttpOptions = {}) {
     try {
       this.endpointId = uint64(authority.endpoint); this.endpoint = this.endpointId;
@@ -106,7 +125,9 @@ export class AppHttpLogTransport implements AppLogTransport {
       this.loopback = options.allowLoopbackHttp === true;
       this.base = origin(authority.origin, this.loopback);
       if (!Array.isArray(authority.directOrigins) || authority.directOrigins.length > 32) throw error("binding");
-      this.approved = new Set(authority.directOrigins.map(v => origin(v, this.loopback)));
+      // The log service mints its own direct URLs on its public origin, which this
+      // transport already trusts with every RPC; extra object-store origins are opt-in.
+      this.approved = new Set([this.base, ...authority.directOrigins.map(v => origin(v, this.loopback))]);
       this.fetchImpl = options.fetch ?? globalThis.fetch; this.now = options.now ?? Date.now;
     } catch { throw error("binding"); }
   }
@@ -136,7 +157,11 @@ export class AppHttpLogTransport implements AppLogTransport {
     try {
       // Free-function invocation also works with browser/Worker native fetch.
       const fetchImpl = this.fetchImpl;
-      const r = await fetchImpl(url, { ...init, signal: ctrl.signal, redirect: "error", credentials: "omit", cache: "no-store", referrerPolicy: "no-referrer" });
+      // GETs (nonce, object reads) bypass the HTTP cache. POST/PUT responses are never
+      // HTTP-cached, and "no-store" there would also make Chrome skip its CORS preflight
+      // cache, costing an OPTIONS round trip per RPC despite Access-Control-Max-Age.
+      const cache: RequestCache = (init.method ?? "GET") === "GET" ? "no-store" : "default";
+      const r = await fetchImpl(url, { ...init, signal: ctrl.signal, redirect: "error", credentials: "omit", cache, referrerPolicy: "no-referrer" });
       if (!this.isCurrent() || parent.aborted) { void r.body?.cancel().catch(() => {}); throw error("fenced"); }
       // Keep abort/timeout active through body consumption, not just headers.
       return this.withCleanup(r, () => { clearTimeout(timer); parent.removeEventListener("abort", abort); });
@@ -165,23 +190,56 @@ export class AppHttpLogTransport implements AppLogTransport {
     } catch (e) { buf.fill(0); void (reader?.cancel() ?? r.body?.cancel())?.catch(() => {}); throw e; }
     finally { reader?.releaseLock(); this.release(r); }
   }
-  private async rpc(frame: Uint8Array, method: string, id: bigint, signal: AbortSignal, originalId = id): Promise<Uint8Array> {
+  /** Bounded, sanitized server problem (code/reason/retry only). */
+  private async refusal(r: Response, signal: AbortSignal): Promise<AppHttpLogError> {
+    let body: unknown;
+    try { const raw = await this.read(r, 8 * 1024, signal); try { body = appServerBody(raw); } finally { raw.fill(0); } }
+    catch (e) { if (e instanceof AppHttpLogError && e.reason === "fenced") return e; body = undefined; }
+    const server = appServerProblem(r.status, body, r.headers);
+    return new AppHttpLogError(appServerOutcome(server) ?? "unavailable", server);
+  }
+  /** Take the newest fresh spare nonce; it is single use, so never hand it out twice. */
+  private takeSpare(): Uint8Array | null {
+    for (let spare = this.spares.pop(); spare; spare = this.spares.pop()) {
+      const age = this.now() - spare.at;
+      if (age >= 0 && age < SPARE_NONCE_MS) return spare.nonce;
+      spare.nonce.fill(0);
+    }
+    return null;
+  }
+  private keepSpare(r: Response): void {
+    const next = nonceBytes(r.headers.get(NEXT_NONCE) ?? "");
+    if (!next) return;
+    this.spares.push({ nonce: next, at: this.now() });
+    while (this.spares.length > SPARE_NONCES) this.spares.shift()!.nonce.fill(0);
+  }
+  private async freshNonce(signal: AbortSignal): Promise<Uint8Array> {
+    const nr = await this.fetch(`${this.base}/v1/nonce`, {}, signal, 15_000);
+    if (!nr.ok) throw await this.refusal(nr, signal);
+    const raw = await this.read(nr, 128, signal);
+    try { this.check(signal); const nonce = nonceBytes(new TextDecoder("utf-8", { fatal: true }).decode(raw).trim()); if (!nonce) throw error("shape"); return nonce; } finally { raw.fill(0); }
+  }
+  private async rpc(frame: Uint8Array, method: string, id: bigint, signal: AbortSignal, originalId = id, allowSpare = true): Promise<Uint8Array> {
     this.check(signal); const token = await this.authority.accessToken({ signal }); this.check(signal);
     if (typeof token !== "string" || !token || token.length > 16 * 1024 || /[\r\n]/.test(token)) throw error("shape");
-    const nr = await this.fetch(`${this.base}/v1/nonce`, {}, signal, 15_000);
-    if (!nr.ok) { void nr.body?.cancel().catch(() => {}); this.release(nr); throw error("unavailable"); }
-    const raw = await this.read(nr, 128, signal);
-    let nonce: Uint8Array;
-    try { this.check(signal); const text = new TextDecoder("utf-8", { fatal: true }).decode(raw).trim(); if (!/^[0-9a-f]{64}$/.test(text)) throw error("shape"); nonce = Uint8Array.from(text.match(/../g)!.map(v => parseInt(v, 16))); } finally { raw.fill(0); }
+    // Steady state: the previous response's piggybacked nonce, so one request per RPC.
+    // Older workers send none; then (and when it is stale) fall back to GET /v1/nonce.
+    const spare = allowSpare ? this.takeSpare() : null;
+    const nonce = spare ?? await this.freshNonce(signal);
     this.check(signal); const p = proof(this.endpoint, originalId, method, this.collection, token, frame, nonce); nonce.fill(0);
     let signature: Uint8Array | null = null;
     try {
       signature = await this.authority.signLogProof(p, { signal }); this.check(signal);
       if (!(signature instanceof Uint8Array) || signature.length !== 64) throw error("shape");
       const r = await this.fetch(`${this.base}/v1/rpc`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/cbor", "x-mdbase-nonce": hex(p.nonce), "x-mdbase-sig": hex(signature) }, body: frame as BodyInit }, signal, 15_000);
-      if (!r.ok) { void r.body?.cancel().catch(() => {}); this.release(r); throw error("unavailable"); }
+      this.keepSpare(r);
+      if (r.status === 401) this.authority.invalidateToken?.(token);
+      if (!r.ok) throw await this.refusal(r, signal);
       const reply = await this.read(r, method === "append" ? 64 * 1024 : MAX_FRAME, signal);
-      try { this.check(signal); this.response(reply, id); return reply; } catch (e) { reply.fill(0); throw e; }
+      try { this.check(signal); this.response(reply, id); } catch (e) { reply.fill(0); throw e; }
+      // A refused spare (clock skew, or reused) was rejected before dispatch: retry once fresh.
+      if (spare && nonceRefused(reply)) { reply.fill(0); return await this.rpc(frame, method, id, signal, originalId, false); }
+      return reply;
     } finally { signature?.fill(0); p.frame.fill(0); p.nonce.fill(0); p.bodyHash.fill(0); p.tokenHash.fill(0); p.digest.fill(0); }
   }
   private direct(value: CborValue | undefined, checksum: Uint8Array): Direct {
@@ -272,7 +330,11 @@ export class AppHttpLogTransport implements AppLogTransport {
         const id = this.commitId--;
         commit = encode(new Map<number, CborValue>([[0, 0], [1, id], [2, "commit_object"], [3, new Map<number, CborValue>([[0, this.collectionBytes], [1, address]])]]));
         const committed = await this.rpc(commit, "commit_object", id, options.signal, request.id);
-        try { this.check(options.signal); const c = this.response(committed, id); if (c.has(3) || c.get(2) !== true) throw error("unavailable"); }
+        try {
+          this.check(options.signal);
+          const c = this.response(committed, id), result = c.get(2);
+          if (c.has(3) || !(result instanceof Map) || result.size !== 1 || (result as Map<number, CborValue>).get(0) !== true) throw error("unavailable");
+        }
         finally { committed.fill(0); }
         const normalized = new Map(result); normalized.delete(1); normalized.set(0, 0);
         response.set(2, struct(normalized)); return encode(struct(response));
@@ -289,7 +351,14 @@ export class AppHttpLogTransport implements AppLogTransport {
         response.set(2, struct(normalized)); return encode(struct(response));
       }
       const out = reply; reply = null; return out;
-    } catch (e) { if (e instanceof AppHttpLogError) throw e; throw error(options.signal.aborted || !this.isCurrent() ? "fenced" : "unavailable"); }
+    } catch (e) {
+      if (e instanceof AppHttpLogError) throw e;
+      if (options.signal.aborted || !this.isCurrent()) throw error("fenced");
+      // The CP authority's log-token refusal (e.g. collection_migrating) stays specific.
+      let server: unknown = null; try { server = (e as {server?: unknown}).server; } catch { /* hostile getter */ }
+      const outcome = isAppServerProblem(server) ? appServerOutcome(server) : null;
+      throw outcome && isAppServerProblem(server) ? new AppHttpLogError(outcome, server) : error("unavailable");
+    }
     finally { frame?.fill(0); sidecar?.fill(0); reply?.fill(0); object?.fill(0); commit?.fill(0); }
   }
 }

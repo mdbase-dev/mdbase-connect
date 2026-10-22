@@ -99,6 +99,7 @@ impl Clock for TestClock {
 }
 
 mod bases;
+mod client_versions;
 mod collection_setup;
 mod receipt_fanout;
 
@@ -978,9 +979,46 @@ fn live_query_and_change_feed() {
     );
     let ch = b.r.changes(b.s, Some(feed.cursor), None, false).unwrap();
     assert!(!ch.reset);
-    assert!(ch.changes.iter().any(|c| c.path == "a.md"));
+    assert!(
+        ch.changes
+            .iter()
+            .any(|c| c.path == "a.md" && c.entity == Some(mdbn_wire::client::ChangeEntity::Record))
+    );
     let bad = b.r.changes(b.s, Some("1:1".into()), None, false).unwrap();
     assert!(bad.reset, "a cursor from another instance resets");
+}
+
+/// The change feed announces a write once, with the record's types; its own
+/// confirmation leaves the visible record unchanged and is not announced again.
+#[test]
+fn own_write_confirmation_is_not_announced_again() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1, MemStore::new());
+    settle(&mut [&mut a]);
+    let cursor = a.r.changes(a.s, None, None, false).unwrap().cursor;
+    a.create(10, "a.md", "hello");
+    let local = a.r.changes(a.s, Some(cursor.clone()), None, false).unwrap();
+    assert_eq!(local.changes.len(), 1, "{local:?}");
+    assert_eq!(local.changes[0].types, Some(vec![]), "an untyped record");
+    assert!(a.r.sync_status().pending > 0, "not yet confirmed");
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.sync_status().pending, 0, "confirmed");
+    let after =
+        a.r.changes(a.s, Some(local.cursor.clone()), None, false)
+            .unwrap();
+    assert!(
+        after.changes.is_empty(),
+        "the confirmation is an echo: {after:?}"
+    );
+    a.create(11, "b.md", "other");
+    let next = a.r.changes(a.s, Some(after.cursor), None, false).unwrap();
+    assert_eq!(
+        next.changes
+            .iter()
+            .map(|c| c.path.as_str())
+            .collect::<Vec<_>>(),
+        ["b.md"]
+    );
 }
 
 /// Live queries are capped per session (each is
@@ -2351,6 +2389,83 @@ fn app_keyring_is_never_stored_and_is_rebuilt_from_the_log_on_reopen() {
     assert_eq!(check.doc(3).as_deref(), Some("captured before the rebuild"));
 }
 
+/// Warm open with an app store: the host binds the log (a head fetch) while
+/// the keyring rebuild's first control read is out. That head stays valid for
+/// the stored chain, so the replica syncs without fetching another one, and
+/// both first calls can be sent together.
+#[test]
+fn app_keyring_rebuild_reuses_the_open_head_fetch() {
+    use crate::log::{LogClient, LogPush, LogRequest};
+    use crate::seal::KeyringSealer;
+    let svc = FakeLogService::new();
+    let dev = B16([101; 16]);
+    let (sign, kem) = ([0x31u8; 32], [0x32u8; 32]);
+    crate::testkit::TestControlPlane::signed(COL).genesis_with_keys(
+        &svc,
+        mdbn_wire::policy::CState::E2e,
+        dev,
+        &sign,
+        &kem,
+    );
+    let sealer = || -> Option<Box<dyn crate::seal::Sealer>> {
+        Some(Box::new(KeyringSealer::new(COL, dev, &sign, &kem)))
+    };
+    let store = MemStore::new().with_keyring_rebuild();
+    let data = store.data();
+    let mut a = node_with(&svc, 1, store, vec![], sealer());
+    settle(&mut [&mut a]);
+    a.create(1, "first.md", "first");
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.sync_status().pending, 0, "first synced");
+    drop(a);
+    let mut other = node_with(&svc, 1, MemStore::new(), vec![], sealer());
+    settle(&mut [&mut other]);
+    other.create(2, "second.md", "second");
+    settle(&mut [&mut other]);
+    drop(other);
+
+    let mut a = node_with(&svc, 1, MemStore::shared(data.clone()), vec![], sealer());
+    assert!(a.r.keyring_rebuilding());
+    let session = a.session().expect("session");
+    let _ =
+        a.r.on_authenticated_log_push(&session, |_| Ok(LogPush::Reconnected));
+    let is_head =
+        |r: &LogRequest| matches!(r, LogRequest::Subscribe { .. } | LogRequest::Head { .. });
+    let mut calls = a.r.take_authenticated_log_calls(&session).unwrap();
+    assert_eq!(
+        calls.iter().filter(|(c, _)| is_head(&c.request)).count(),
+        1,
+        "the open head fetch"
+    );
+    assert_eq!(
+        calls.len(),
+        2,
+        "control read and head fetch go out together"
+    );
+    // Answer in the network's order: head first, then the control page.
+    calls.sort_by_key(|(c, _)| !is_head(&c.request));
+    let mut later = 0;
+    for _ in 0..50 {
+        for push in a.log.poll_pushes() {
+            let _ = a.r.on_authenticated_log_push(&session, |_| Ok(push));
+        }
+        for (call, scope) in calls {
+            let reply = a.log.call(call.request);
+            let _ = a.r.on_authenticated_log_reply(scope, move |_, _| reply);
+        }
+        a.r.tick();
+        calls = a.r.take_authenticated_log_calls(&session).unwrap();
+        later += calls.iter().filter(|(c, _)| is_head(&c.request)).count();
+    }
+    assert!(!a.r.keyring_rebuilding() && !a.r.keyring_rebuild_failed());
+    assert_eq!(
+        a.doc(2).as_deref(),
+        Some("second"),
+        "caught up and decrypted"
+    );
+    assert_eq!(later, 0, "no second head fetch after the rebuild");
+}
+
 /// A store whose policy disagrees with the log's control prefix is not
 /// trusted: the rebuild fails as an integrity incident and nothing syncs.
 #[test]
@@ -3219,6 +3334,7 @@ fn folder_scoped_grant_sees_only_its_files() {
             content: mdbn_wire::attachment::FileContent::Blob(blob(id)),
             media: mdbn_wire::intent::MediaClass::Image,
             modified_seq: 1,
+            mtime: None,
             bucket: crate::store::bucket16(&B16([id; 16])),
             local: crate::store::FileLocal::Remote,
         });
@@ -3234,14 +3350,14 @@ fn folder_scoped_grant_sees_only_its_files() {
         B16([101; 16]),
     );
     settle(&mut [&mut a]);
-    let (s, _) =
+    let (s, hello) =
         a.r.hello(
             SessionAuth::Grant {
                 grant: gid,
                 client_pk: [0x57; 32],
             },
             HelloParams {
-                versions: vec![Version { major: 1, minor: 0 }],
+                versions: vec![Version { major: 1, minor: 2 }],
                 client_name: "app".into(),
                 client_version: "0".into(),
                 features: None,
@@ -3249,6 +3365,9 @@ fn folder_scoped_grant_sees_only_its_files() {
             },
         )
         .expect("approved grant session");
+    // API 1.2 reports the effective folder scope with the grant.
+    assert_eq!(hello.version, Version { major: 1, minor: 2 });
+    assert_eq!(hello.grant.file_folders, Some(vec!["photos".to_string()]));
     let list = a.r.list_files(s, ListFiles::default()).unwrap();
     assert_eq!(
         list.files
@@ -3668,6 +3787,185 @@ fn failed_grant_approval_is_not_served_before_a_verified_retry() {
             )
             .is_ok()
     );
+}
+
+#[test]
+fn device_approves_a_pending_grant_into_the_log() {
+    use crate::testkit::{TEST_OWNER, TestControlPlane};
+    use mdbn_wire::policy::{Grant, PolicyOp};
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1, MemStore::new());
+    settle(&mut [&mut a]);
+    let grant = B16([0x55; 16]);
+    let pk = [0x57; 32];
+    let mut cp = TestControlPlane::new(COL);
+    cp.append(
+        &svc,
+        vec![PolicyOp::Grant(Grant {
+            grant,
+            installation: B16([0x56; 16]),
+            app_id: "app".into(),
+            account: TEST_OWNER,
+            capabilities: vec!["collection.read".into(), "records.edit".into()],
+            client_pk: B32(pk),
+            file_folders: None,
+            folder_scoped: None,
+        })],
+    );
+    settle(&mut [&mut a]);
+    // The hosting app sees it pending; the grant authorizes nothing yet.
+    let pending = a.r.pending_grants(a.s).unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].grant, grant);
+    assert_eq!(pending[0].capabilities.len(), 2);
+    assert!(a.r.policy.grant_for_client(&grant, &pk).is_none());
+    // A granted session may neither list nor approve.
+    let hello = HelloParams {
+        versions: vec![Version { major: 1, minor: 0 }],
+        client_name: "app".into(),
+        client_version: "0".into(),
+        features: None,
+        timezone: None,
+    };
+    assert!(
+        a.r.hello(
+            SessionAuth::Grant {
+                grant,
+                client_pk: pk
+            },
+            hello.clone()
+        )
+        .is_err()
+    );
+    // Approving more than the grant offers, or folders it does not declare,
+    // is refused before anything is queued.
+    let err =
+        a.r.approve_grant(a.s, grant, vec!["records.delete".into()], None)
+            .unwrap_err();
+    assert_eq!(
+        err.problem().reason.as_deref(),
+        Some("capabilities_not_subset")
+    );
+    let err =
+        a.r.approve_grant(
+            a.s,
+            grant,
+            vec!["collection.read".into()],
+            Some(vec!["docs".into()]),
+        )
+        .unwrap_err();
+    assert_eq!(
+        err.problem().reason.as_deref(),
+        Some("folders_scope_mismatch")
+    );
+    // Approve a subset; the kind-6 item lands in the log and takes effect.
+    let head_before = a.r.head().seq;
+    a.r.approve_grant(a.s, grant, vec!["collection.read".into()], None)
+        .unwrap();
+    settle(&mut [&mut a]);
+    let state = a.r.grant_approval_state(&grant).unwrap();
+    assert_eq!(
+        state.approved_capabilities,
+        Some(vec!["collection.read".to_string()])
+    );
+    assert_eq!(state.approved_seq, Some(head_before + 1));
+    assert_eq!(state.approved_by, Some(B16([101; 16])));
+    assert!(!state.queued && state.failure.is_none());
+    assert!(a.r.pending_grants(a.s).unwrap().is_empty());
+    let (app_session, _) =
+        a.r.hello(
+            SessionAuth::Grant {
+                grant,
+                client_pk: pk,
+            },
+            hello,
+        )
+        .unwrap();
+    assert_eq!(
+        a.r.pending_grants(app_session).unwrap_err().code(),
+        Some(ErrorCode::Forbidden)
+    );
+    assert_eq!(
+        a.r.approve_grant(app_session, grant, vec!["collection.read".into()], None)
+            .unwrap_err()
+            .code(),
+        Some(ErrorCode::Forbidden)
+    );
+    // Approving again appends nothing.
+    a.r.approve_grant(a.s, grant, vec!["collection.read".into()], None)
+        .unwrap();
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.head().seq, head_before + 1);
+    // The approval position and signer survive a restart (policy format 4).
+    let reopened = node(&svc, 1, a.r.into_store());
+    let state = reopened.r.grant_approval_state(&grant).unwrap();
+    assert_eq!(state.approved_seq, Some(head_before + 1));
+    assert_eq!(state.approved_by, Some(B16([101; 16])));
+}
+
+#[test]
+fn grant_approval_retries_at_a_moved_head_and_revocation_wins() {
+    use crate::log::{LogClient, LogRequest};
+    use crate::testkit::{TEST_OWNER, TestControlPlane};
+    use mdbn_wire::policy::{Grant, PolicyOp};
+    for revoke in [false, true] {
+        let svc = FakeLogService::new();
+        let mut a = node(&svc, 1, MemStore::new());
+        settle(&mut [&mut a]);
+        let grant = B16([0x55; 16]);
+        let mut cp = TestControlPlane::new(COL);
+        cp.append(
+            &svc,
+            vec![PolicyOp::Grant(Grant {
+                grant,
+                installation: B16([0x56; 16]),
+                app_id: "app".into(),
+                account: TEST_OWNER,
+                capabilities: vec!["collection.read".into()],
+                client_pk: B32([0x57; 32]),
+                file_folders: None,
+                folder_scoped: None,
+            })],
+        );
+        settle(&mut [&mut a]);
+        a.r.approve_grant(a.s, grant, vec!["collection.read".into()], None)
+            .unwrap();
+        let session = a.session().unwrap();
+        let calls = a.r.take_authenticated_log_calls(&session).unwrap();
+        let (call, scope) = calls
+            .into_iter()
+            .find(|(c, _)| matches!(c.request, LogRequest::Append(_)))
+            .unwrap();
+        // The control plane wins the append race. Approval must be re-sealed,
+        // unless the new policy revokes the grant before the retry.
+        cp.append(
+            &svc,
+            if revoke {
+                vec![PolicyOp::GrantRevoke(mdbn_wire::policy::GrantRevoke {
+                    grant,
+                })]
+            } else {
+                vec![]
+            },
+        );
+        let reply = a.log.call(call.request);
+        assert!(matches!(
+            reply,
+            Ok(crate::log::LogResponse::Append(
+                mdbn_wire::log_service::AppendResult::HeadMoved(_)
+            ))
+        ));
+        a.r.on_authenticated_log_reply(scope, move |_, _| reply)
+            .unwrap();
+        settle(&mut [&mut a]);
+        let state = a.r.grant_approval_state(&grant).unwrap();
+        assert_eq!(state.approved_capabilities.is_some(), !revoke);
+        assert_eq!(a.r.grant_effective(&grant), !revoke);
+        assert!(!state.queued);
+        if revoke {
+            assert_eq!(state.failure.as_deref(), Some("grant_not_active"));
+        }
+    }
 }
 
 #[test]
@@ -5411,11 +5709,22 @@ fn policy_pins_gate_a_warm_reopen() {
             pump(&mut r, &mut log, 100);
             r.tick();
         }
-        (r.policy.root.is_some(), r.policy.voids)
+        (
+            r.policy.root.is_some(),
+            r.policy.voids,
+            r.hosted_pins_consistent(),
+        )
     };
-    assert!(sync(published_again()).0, "published keys apply");
-    let (applied, voids) = sync(other.clone());
+    let (applied, _, consistent) = sync(published_again());
+    assert!(applied && consistent, "published keys apply");
+    let (applied, voids, consistent) = sync(other.clone());
     assert!(!applied && voids >= 1, "unpinned keys are void");
+    // A store rebuilt from a log that was not built under the pins fails the
+    // same check its next open would.
+    assert!(
+        !consistent,
+        "a log built under other keys fails the pin check"
+    );
     let malformed = PolicyPins {
         policy_keys: vec![],
         ..other
@@ -5730,6 +6039,7 @@ fn attachment_rows_are_typed_in_the_store_and_wait_for_their_snapshot_inventory(
         content: FileContent::AttachmentV1(att.clone()),
         media: MediaClass::Image,
         modified_seq: 1,
+        mtime: None,
         bucket: bucket16(&fid),
         local: FileLocal::Remote,
     });
@@ -5810,6 +6120,7 @@ fn attachment_entry_applies_whole_with_its_legacy_effects() {
         payload
             .effects
             .push(rt::Effect::PutAttachmentFile(PutAttachmentFile {
+                mtime: None,
                 id: B16([0x33; 16]),
                 path: "assets/big.bin".into(),
                 content: AttachmentContentV1 {
@@ -5902,4 +6213,68 @@ fn indexed_projection_declines_without_store_support() {
         )
         .unwrap();
     assert_eq!(out.unwrap_err(), crate::replica::QueryDecline::Projection);
+}
+
+#[test]
+fn change_feed_marks_file_puts_and_removals_as_files() {
+    use mdbn_wire::client::{ChangeEntity, ChangeKind};
+    use mdbn_wire::intent::{BlobRef, FileDelete, FilePut};
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1, MemStore::new());
+    a.r.planner = Box::new(crate::plan::CorePlanner);
+    settle(&mut [&mut a]);
+    let cursor = a.r.changes(a.s, None, None, false).unwrap().cursor;
+    let id = B16([0x63; 16]);
+    let submit = |op: Op| SubmitParams {
+        ops: vec![op],
+        mutation_id: None,
+        conflict_mode: None,
+        timezone: None,
+        allow_partial: None,
+        mutation_ids: None,
+        dry_run: None,
+        include: None,
+        wait: None,
+    };
+    let put = Op::FilePut(FilePut {
+        id,
+        path: "photos/c.png".into(),
+        blob: BlobRef {
+            plain_hash: mdbn_wire::common::B32([0x63; 32]),
+            size: 3,
+            blob_id: mdbn_wire::common::B32([0x63; 32]),
+            id_epoch: 1,
+            part_size: 8 << 20,
+        },
+        if_revision: None,
+        base: None,
+    });
+    let r = a.r.submit(a.s, submit(put)).unwrap();
+    assert!(r.iter().all(|r| r.problem.is_none()), "{r:?}");
+    settle(&mut [&mut a]);
+    a.r.submit(
+        a.s,
+        submit(Op::FileDelete(FileDelete {
+            id,
+            if_revision: None,
+            base: None,
+        })),
+    )
+    .unwrap();
+    settle(&mut [&mut a]);
+    let feed = a.r.changes(a.s, Some(cursor), None, false).unwrap();
+    let kinds: Vec<_> = feed
+        .changes
+        .iter()
+        .filter(|c| c.id == id)
+        .map(|c| (c.kind, c.entity))
+        .collect();
+    assert!(
+        kinds.contains(&(ChangeKind::Put, Some(ChangeEntity::File))),
+        "{kinds:?}"
+    );
+    assert!(
+        kinds.contains(&(ChangeKind::Remove, Some(ChangeEntity::File))),
+        "{kinds:?}"
+    );
 }

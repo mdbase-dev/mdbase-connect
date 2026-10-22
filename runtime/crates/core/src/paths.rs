@@ -347,10 +347,71 @@ fn token_matches(tok: &Token, c: char) -> bool {
     }
 }
 
+/// The IANA media type of a file path, by its (case-insensitive) extension;
+/// `None` when the extension is not one of the common types below. Derived
+/// from the path alone, so every replica answers the same.
+pub fn media_type(path: &str) -> Option<&'static str> {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    let ext = name.rsplit_once('.')?.1.to_ascii_lowercase();
+    Some(match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "bmp" => "image/bmp",
+        "avif" => "image/avif",
+        "heic" => "image/heic",
+        "tif" | "tiff" => "image/tiff",
+        "ico" => "image/vnd.microsoft.icon",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "m4a" => "audio/mp4",
+        "ogg" | "oga" => "audio/ogg",
+        "opus" => "audio/opus",
+        "flac" => "audio/flac",
+        "aac" => "audio/aac",
+        "mp4" | "m4v" => "video/mp4",
+        "mov" => "video/quicktime",
+        "webm" => "video/webm",
+        "mkv" => "video/x-matroska",
+        "avi" => "video/x-msvideo",
+        "ogv" => "video/ogg",
+        "pdf" => "application/pdf",
+        "epub" => "application/epub+zip",
+        "zip" => "application/zip",
+        "json" => "application/json",
+        "csv" => "text/csv",
+        "txt" => "text/plain",
+        "md" | "markdown" => "text/markdown",
+        "html" | "htm" => "text/html",
+        "css" => "text/css",
+        "js" | "mjs" => "text/javascript",
+        "xml" => "application/xml",
+        "yaml" | "yml" => "application/yaml",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "woff2" => "font/woff2",
+        "woff" => "font/woff",
+        "ttf" => "font/ttf",
+        "otf" => "font/otf",
+        _ => return None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::value::Map;
+
+    #[test]
+    fn media_types_by_extension() {
+        assert_eq!(media_type("a/Photo.JPG"), Some("image/jpeg"));
+        assert_eq!(media_type("doc.pdf"), Some("application/pdf"));
+        assert_eq!(media_type("dir.v2/README"), None);
+        assert_eq!(media_type("x.unknownext"), None);
+    }
 
     #[test]
     fn keys_and_groups() {

@@ -130,8 +130,10 @@ export async function destinationDenialCases({ base, token, transport, encode, d
     }
     assert.ok(reached,'actual producer paused at nil reply while holding writer lock');
     assert.deepEqual(await harness('destination-state'),initial,'prepared quota has not committed');
+    // An unknown-length body needs the whole cap up front.
     const overlappingPositive = await signed('set_quota',quota);
-    assert.equal((await fetch(`${base}/v1/rpc`,{method:'POST',...overlappingPositive})).status,503,
+    const unsized = new ReadableStream({ start(c) { c.enqueue(overlappingPositive.body); c.close(); } });
+    assert.equal((await fetch(`${base}/v1/rpc`,{method:'POST',headers:overlappingPositive.headers,body:unsized,duplex:'half'})).status,503,
       'paused producer retains original ingress reservation; ordinary admission not weakened');
     const overlappingCloses = await Promise.all([
       call('collection_destination_close',close()),call('collection_destination_close',close()),

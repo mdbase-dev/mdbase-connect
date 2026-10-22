@@ -4,7 +4,7 @@ import {
   type LegacyApplicationCapabilityRequirements,
   type FileAction
 } from "@mdbase-dev/connect-protocol";
-import type { MdbaseApplicationCapabilityId as ApplicationCapabilityId, MdbaseApplicationManifest as MdbaseAppManifest } from "./application-contract.js";
+import type { MdbaseApplicationCapabilityId as ApplicationCapabilityId, MdbaseApplicationManifest as MdbaseAppManifest } from "@mdbase-dev/connect-protocol";
 import type { MdbaseConnectionInfo } from "./connection-types.js";
 
 export type MdbaseCapabilityState =

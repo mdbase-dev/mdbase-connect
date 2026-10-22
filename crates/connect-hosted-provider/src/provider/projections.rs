@@ -8,6 +8,13 @@ const MAX_RESOLUTION_BATCH_PROJECTION_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_RELATIONSHIP_REVALIDATION_RECORDS: usize = 200;
 const MAX_RELATIONSHIP_REVALIDATION_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_RETAINED_PROJECTION_GENERATIONS: i64 = 4;
+/// Rebuild batches hold the collection row lock, which every record write and
+/// the migration fence wait on under a 5 s `lock_timeout`. A batch stops at this
+/// budget (after at least one record) and resumes from its checkpoint.
+const PROJECTION_BATCH_LOCK_BUDGET: Duration = Duration::from_millis(1_000);
+/// A completed rebuild whose source head fell behind replays at most this many
+/// changed records through the write-path maintenance instead of restarting.
+const MAX_PROJECTION_CATCH_UP_RECORDS: i64 = 64;
 
 async fn enable_projection_digest_write(
     transaction: &mut Transaction<'_, Postgres>,
@@ -819,6 +826,7 @@ include!("projections/batches.rs");
 include!("projections/pruning.rs");
 include!("projections/rebuild_limits.rs");
 include!("projections/activation.rs");
+include!("projections/catch_up.rs");
 include!("projections/persistence.rs");
 include!("projections/indexing.rs");
 include!("projections/catalog_binding.rs");

@@ -7,13 +7,45 @@
 //   claims = {0: role (0 device, 1 control plane), ? 1: device, 2: sign_pk,
 //             3: expires_at ms, 4: "mdbase-log", ? 5: collection}
 import { createHash, createPrivateKey, sign, type KeyObject } from "node:crypto";
-import { decodeCbor, domainHash, encodeCbor, uuidBytes, type Cbor, type Decoded } from "./policy-wire.js";
+import { decodeCbor, domainHash, encodeCbor, keyId, uuidBytes, type Cbor, type Decoded } from "./policy-wire.js";
 import { ed25519RawPublicKey, type LogServiceConfig } from "./policy-keys.js";
 import type { CollectionDeletionFact, CollectionDeletionPage } from "./collection-deletion.js";
 import { readBoundedBytes } from "../../platform/bounded-json.js";
+import { pitrLogUrl, type LabPitrConfig } from "./lab-pitr-config.js";
 
 export const LOG_TOKEN_LIFETIME_MS = 15 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 10_000;
+
+/**
+ * Inputs the log service chooses a new collection's storage region from
+ * (`create_log` key 2; mdbase-next `crates/log-service/src/placement.rs`):
+ * the collection's IANA timezone and the owner's timezones on their other
+ * collections. Connect sends no location: its users do not reach it through
+ * Cloudflare, and its own address says nothing about theirs.
+ */
+export interface LogPlacement { timezone?: string; ownerTimezones?: readonly string[] }
+
+/** The regions a collection can be stored in (mdbase-next `crates/log-service/src/placement.rs`). */
+const LOG_REGIONS = ["oc", "apac", "wnam", "enam", "weur"] as const;
+export type LogRegion = (typeof LOG_REGIONS)[number];
+export const isLogRegion = (value: unknown): value is LogRegion =>
+  typeof value === "string" && (LOG_REGIONS as readonly string[]).includes(value);
+
+// The log service refuses (and so would park the genesis on) a timezone over
+// 64 bytes or more than 1000 owner timezones; anything else unmappable falls
+// back to its default, so only wire-safe IANA-shaped names are sent.
+const PLACEMENT_TIMEZONE = /^[A-Za-z][A-Za-z0-9_+\-/]*$/;
+const MAX_OWNER_TIMEZONES = 1000;
+const wireTimezone = (value: unknown): value is string =>
+  typeof value === "string" && Buffer.byteLength(value) <= 64 && PLACEMENT_TIMEZONE.test(value);
+
+/** The placement map `{4: timezone, 5: [owner timezone]}`, or nothing (the Worker default). */
+function placementField(placement: LogPlacement | undefined): Cbor | undefined {
+  const timezone = wireTimezone(placement?.timezone) ? placement!.timezone : undefined;
+  const owners = (placement?.ownerTimezones ?? []).filter(wireTimezone).slice(0, MAX_OWNER_TIMEZONES);
+  if (timezone === undefined && owners.length === 0) return undefined;
+  return struct([[4, timezone], [5, owners.length ? owners : undefined]]);
+}
 
 export type AppendResult =
   | { kind: "appended"; first: number; last: number }
@@ -82,19 +114,73 @@ function deletionRow(value: Decoded): CollectionDeletionFact {
   return {collection:deletionUuid(value[0]),deletionId:deletionUuid(value[1]),lifecycleEpoch:deletionUint(value[2],true)};
 }
 
+type FailurePhase = "head" | "control-item" | "create_log" | "append" | "recover" | "unknown";
+const RPC_PHASES: Record<string, FailurePhase> = { head: "head", read: "control-item", create_log: "create_log", append: "append" };
+const SAFE_ERROR_CODES = new Set(["ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "EHOSTUNREACH", "ENETUNREACH", "EPIPE",
+  "UND_ERR_SOCKET", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT", "ABORT_ERR",
+  "ERR_TLS_CERT_ALTNAME_INVALID", "CERT_HAS_EXPIRED", "DEPTH_ZERO_SELF_SIGNED_CERT", "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "unavailable", "rate_limited", "unauthenticated", "invalid", "not_found", "exists"]);
+
 export class LogServiceClient {
+  private static readonly failures = new WeakMap<Error, { phase: FailurePhase; step: "nonce" | "rpc" | undefined }>();
   private readonly issuer: KeyObject;
   private readonly transport: KeyObject;
   private readonly transportPublicKey: Uint8Array;
   private readonly baseUrl: string;
+  private readonly pitr: LabPitrConfig | undefined;
+  private readonly pitrPublicIdentity: Readonly<{ transportPublicKey: string; issuerKeyId: string }> | undefined;
+  private readonly pitrIssuerPublicKey: string | undefined;
   private requestId = 0;
   private cached: { token: string; expiresAt: number } | undefined;
 
   constructor(config: LogServiceConfig, private readonly fetchImpl: typeof fetch = fetch, private readonly now: () => number = Date.now) {
     this.baseUrl = config.url.replace(/\/+$/u, "");
+    this.pitr = config.labPitr ? Object.freeze({ ...config.labPitr }) : undefined;
     this.issuer = edKey(config.tokenIssuerKeyPem, "MDBASE_NEXT_LOG_TOKEN_SIGNING_KEY");
     this.transport = edKey(config.transportKeyPem, "MDBASE_NEXT_LOG_TRANSPORT_KEY");
     this.transportPublicKey = ed25519RawPublicKey(this.transport);
+    // Public metadata only, captured once from already loaded startup keys. The
+    // observer never parses a PEM, signs, mints a token or reads private material.
+    if (this.pitr) {
+      const issuerPublicKey = ed25519RawPublicKey(this.issuer);
+      this.pitrIssuerPublicKey = Buffer.from(issuerPublicKey).toString("hex");
+      this.pitrPublicIdentity = Object.freeze({ transportPublicKey: Buffer.from(this.transportPublicKey).toString("hex"),
+        issuerKeyId: Buffer.from(keyId(issuerPublicKey)).toString("hex") });
+    }
+  }
+
+  /** Closed diagnostic vocabulary only: never serialize the error/message,
+   * request, collection, full stack, endpoint, token or arbitrary remote code. */
+  static failureDetails(error: unknown, phase?: "recover") {
+    const context = error instanceof Error ? this.failures.get(error) : undefined;
+    let errorCode = "unknown";
+    let cursor = error;
+    for (let depth = 0; depth < 4 && cursor instanceof Error; depth += 1) {
+      if (cursor instanceof DOMException && (cursor.name === "TimeoutError" || cursor.name === "AbortError")) { errorCode = cursor.name; break; }
+      const code = (cursor as Error & { code?: unknown }).code;
+      // RPC error frames cannot claim a database SQLSTATE or echo arbitrary codes.
+      const sqlState = !(cursor instanceof LogServiceError) && typeof code === "string" && /^(?:[0-9][0-9A-Z]|F0|HV|P0|XX)[0-9A-Z]{3}$/.test(code);
+      if (typeof code === "string" && (SAFE_ERROR_CODES.has(code) || sqlState)) { errorCode = code; break; }
+      cursor = cursor.cause;
+    }
+    const stack = error instanceof Error && typeof error.stack === "string" ? error.stack : "";
+    const summary = stack.split("\n", 24).slice(1).flatMap(line => {
+      const frame = /[/\\](log-service-client|policy-outbox|policy-recovery|service-activation|policy-wire|bounded-json|migration-routing|app|db)\.(ts|js):(\d{1,6}):(\d{1,6})\)?$/.exec(line.trim());
+      return frame ? [`${frame[1]}.${frame[2]}:${frame[3]}:${frame[4]}`] : [];
+    }).slice(0, 8);
+    return { callback_phase: phase ?? context?.phase ?? "unknown", transport_step: context?.step ?? "unknown",
+      route: context?.step === "nonce" ? "/v1/nonce" : context?.step === "rpc" ? "/v1/rpc" : undefined,
+      error_code: errorCode, stack_summary: summary };
+  }
+
+  pitrControlIdentity(): Readonly<{ transportPublicKey: string; issuerKeyId: string }> | null {
+    return this.pitrPublicIdentity ? { ...this.pitrPublicIdentity } : null;
+  }
+
+  /** Detached public startup observation only; not current admission or a signer. */
+  pitrAdmissionIdentity(): Readonly<{ transportPublicKey: string; issuerPublicKey: string }> | null {
+    return this.pitrPublicIdentity && this.pitrIssuerPublicKey
+      ? { transportPublicKey: this.pitrPublicIdentity.transportPublicKey, issuerPublicKey: this.pitrIssuerPublicKey } : null;
   }
 
   /** Mint a log-service access token. Device tokens name the device and, narrowing them, one collection. */
@@ -120,8 +206,8 @@ export class LogServiceClient {
     return this.cached.token;
   }
 
-  private async fetchBytes(path: string, init: RequestInit, limit?: number): Promise<Uint8Array> {
-    const response = await this.fetchImpl(`${this.baseUrl}${path}`, { ...init, ...(limit === undefined ? {} : {redirect:"manual"}), signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  private async fetchBytes(path: string, init: RequestInit, limit?: number, base = this.baseUrl): Promise<Uint8Array> {
+    const response = await this.fetchImpl(`${base}${path}`, { ...init, ...(limit === undefined ? {} : {redirect:"manual"}), signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
     if (limit !== undefined && response.status >= 300 && response.status < 400) {
       await response.body?.cancel();
       throw new LogServiceError("unavailable", "redirect");
@@ -133,41 +219,58 @@ export class LogServiceClient {
     return body;
   }
 
-  private async rpc(method: string, params: Cbor, deletion = false): Promise<Decoded> {
-    const nonceHex = new TextDecoder().decode(await this.fetchBytes("/v1/nonce", { method: "GET" }, deletion ? 256 : undefined)).trim();
-    if (!/^[0-9a-f]{64}$/u.test(nonceHex)) throw new LogServiceError("unavailable", "nonce");
-    const requestId = ++this.requestId;
-    const body = encodeCbor(struct([[0, 0], [1, requestId], [2, method], [3, params]]));
-    const token = this.controlPlaneToken();
-    const collectionField = field(field(decodeCbor(body), 3)!, 0);
-    const collection = collectionField instanceof Uint8Array && collectionField.length === 16
-      ? collectionField : new Uint8Array(16);
-    // auth::http_digest: method is the LS RPC method, not HTTP POST.
-    const digest = domainHash("mdbase/v1/ls-http", Buffer.concat([
-      Buffer.from(method), Buffer.of(0), Buffer.from("/v1/rpc"), Buffer.of(0), collection,
-      createHash("sha256").update(token, "utf8").digest(), createHash("sha256").update(body).digest(),
-      Buffer.from(nonceHex, "hex"),
-    ]));
-    const frame = decodeCbor(await this.fetchBytes("/v1/rpc", {
-      method: "POST",
-      headers: {
-        "content-type": "application/vnd.mdbase.v1+cbor",
-        authorization: `Bearer ${token}`,
-        "x-mdbase-nonce": nonceHex,
-        "x-mdbase-sig": Buffer.from(sign(null, digest, this.transport)).toString("hex"),
-      },
-      body: Buffer.from(body),
-    }, deletion ? DELETION_REPLY_BYTES : undefined), deletion ? {canonicalStructs:true,maxDepth:12} : undefined);
-    if (deletion && (!(frame instanceof Map) || frame.size !== 3 || field(frame,0) !== 1 || field(frame,1) !== requestId || (frame.has(2) === frame.has(3)))) return deletionUnavailable();
-    const error = field(frame, 3);
-    if (error !== undefined) {
-      const code = field(error, 0);
-      const reason = field(error, 1);
-      throw new LogServiceError(typeof code === "string" ? code : "invalid", typeof reason === "string" ? reason : undefined, field(error, 4));
+  private async rpc(method: string, params: Cbor, deletion = false, isolatedRegistry = false): Promise<Decoded> {
+    let transportStep: "nonce" | "rpc" | undefined;
+    try {
+      if (isolatedRegistry && (!this.pitr || method !== "registry_collection_deletions")) throw new Error("lab_pitr_registry_configuration_required");
+      const requestId = ++this.requestId;
+      const body = encodeCbor(struct([[0, 0], [1, requestId], [2, method], [3, params]]));
+      const decoded = field(decodeCbor(body), 3)!;
+      // Registry deletion writes name the original subject in field 1, not nil field 0.
+      const subject = field(decoded, method === "registry_record_collection_deletion" ? 1 : 0);
+      const hex = subject instanceof Uint8Array && subject.length === 16 ? Buffer.from(subject).toString("hex") : "";
+      const id = `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+      const base = isolatedRegistry ? this.pitr!.logUrl : pitrLogUrl(this.baseUrl, this.pitr, id);
+      transportStep = "nonce";
+      const nonceHex = new TextDecoder().decode(await this.fetchBytes("/v1/nonce", { method: "GET" }, deletion ? 256 : undefined, base)).trim();
+      if (!/^[0-9a-f]{64}$/u.test(nonceHex)) throw new LogServiceError("unavailable", "nonce");
+      const token = this.controlPlaneToken();
+      const collectionField = field(decoded, 0);
+      const collection = collectionField instanceof Uint8Array && collectionField.length === 16
+        ? collectionField : new Uint8Array(16);
+      // auth::http_digest: method is the LS RPC method, not HTTP POST.
+      const digest = domainHash("mdbase/v1/ls-http", Buffer.concat([
+        Buffer.from(method), Buffer.of(0), Buffer.from("/v1/rpc"), Buffer.of(0), collection,
+        createHash("sha256").update(token, "utf8").digest(), createHash("sha256").update(body).digest(),
+        Buffer.from(nonceHex, "hex"),
+      ]));
+      transportStep = "rpc";
+      const frame = decodeCbor(await this.fetchBytes("/v1/rpc", {
+        method: "POST",
+        headers: {
+          "content-type": "application/vnd.mdbase.v1+cbor",
+          authorization: `Bearer ${token}`,
+          "x-mdbase-nonce": nonceHex,
+          "x-mdbase-sig": Buffer.from(sign(null, digest, this.transport)).toString("hex"),
+        },
+        body: Buffer.from(body),
+      }, deletion ? DELETION_REPLY_BYTES : undefined, base), deletion ? {canonicalStructs:true,maxDepth:12} : undefined);
+      if (deletion && (!(frame instanceof Map) || frame.size !== 3 || field(frame,0) !== 1 || field(frame,1) !== requestId || (frame.has(2) === frame.has(3)))) return deletionUnavailable();
+      const error = field(frame, 3);
+      if (error !== undefined) {
+        const code = field(error, 0);
+        const reason = field(error, 1);
+        throw new LogServiceError(typeof code === "string" ? code : "invalid", typeof reason === "string" ? reason : undefined, field(error, 4));
+      }
+      const result = field(frame, 2);
+      if (field(frame, 0) !== 1 || result === undefined) throw new Error("malformed log service response");
+      return result;
+    } catch (error) {
+      // Side metadata preserves even frozen original errors and every existing
+      // retry/parking decision. Never record request bytes, identifiers or URLs.
+      if (error instanceof Error) LogServiceClient.failures.set(error, { phase: RPC_PHASES[method] ?? "unknown", step: transportStep });
+      throw error;
     }
-    const result = field(frame, 2);
-    if (field(frame, 0) !== 1 || result === undefined) throw new Error("malformed log service response");
-    return result;
   }
 
   /** Exact-position control read; control items are never compacted. */
@@ -196,9 +299,14 @@ export class LogServiceClient {
     }
   }
 
-  /** `create_log`: idempotent for the same genesis bytes; `invalid`/`exists` for a different genesis. */
-  async createLog(collection: string, genesis: Uint8Array): Promise<void> {
-    await this.rpc("create_log", struct([[0, uuidBytes(collection)], [1, genesis]]));
+  /** `create_log`: idempotent for the same genesis bytes; `invalid`/`exists` for a different genesis.
+   * The placement only matters on the call that creates the log. The reply's key 2 is the
+   * region the log service recorded (on a retry too); absent for a collection with no region,
+   * and anything that is not a known region is treated as absent. */
+  async createLog(collection: string, genesis: Uint8Array, placement?: LogPlacement): Promise<{ region?: LogRegion }> {
+    const result = await this.rpc("create_log", struct([[0, uuidBytes(collection)], [1, genesis], [2, placementField(placement)]]));
+    const region = field(result, 2);
+    return isLogRegion(region) ? { region } : {};
   }
 
   async setQuota(collection: string, quotas: { storageBytes: number; itemsPerSecond: number; bytesPerSecond: number; burstItems: number }): Promise<void> {
@@ -221,16 +329,27 @@ export class LogServiceClient {
 
   /** Generation-pinned keyset page; never a cached positive liveness permit. */
   async registryCollectionDeletions(after: string | null = null, expected: bigint | null = null): Promise<CollectionDeletionPage> {
+    return this.deletionPage(after, expected, false);
+  }
+
+  /** Fixed-run nil cut, never the shared registry or a liveness permit. */
+  async labPitrCollectionDeletions(run: string, after: string | null = null, expected: bigint | null = null): Promise<CollectionDeletionPage> {
+    if (!this.pitr || run !== this.pitr.run || (after !== null && after !== this.pitr.active && after !== this.pitr.deleted)) throw new Error("lab_pitr_registry_configuration_required");
+    return this.deletionPage(after, expected, true);
+  }
+
+  private async deletionPage(after: string | null, expected: bigint | null, isolated: boolean): Promise<CollectionDeletionPage> {
     const cursor = after === null ? null : deletionUuidBytes(after);
     if (after !== null && expected === null) throw new Error("collection_deletion_generation_required");
     if (expected !== null && typeof expected !== "bigint") throw new Error("invalid_collection_deletion_generation");
     const generation = expected === null ? null : deletionUint(expected);
     const result = deletionFields(await this.rpc("registry_collection_deletions", struct([
       [0,new Uint8Array(16)],[1,cursor],[2,generation],
-    ]),true),5);
+    ]),true,isolated),5);
     const revision = deletionUint(result.get(1)), values = result.get(2), done = result.get(4);
     if (result.get(0) !== 1 || (expected !== null && revision !== expected) || !Array.isArray(values) || values.length > 128 || typeof done !== "boolean" || done !== (values.length < 128)) return deletionUnavailable();
     const rows = values.map(deletionRow);
+    if (isolated && rows.some(row => row.collection !== this.pitr!.active && row.collection !== this.pitr!.deleted)) return deletionUnavailable();
     let previous = after;
     for (const row of rows) { if (previous !== null && row.collection <= previous) return deletionUnavailable(); previous = row.collection; }
     const next = result.get(3) === null ? null : deletionUuid(result.get(3));

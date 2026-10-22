@@ -30,7 +30,7 @@ import { queueNextPolicy, registerNextCollection, type PolicyEmitter } from "./p
 import { domainHash, encodeCbor, uuidBytes } from "./policy-wire.js";
 import { collectionDisplayName, DEFAULT_COLLECTION_DISPLAY_NAME, validateInitialCollectionName } from "./collection-display-name.js";
 import { registerCollectionNameRoutes } from "./collection-name-routes.js";
-import { requireAccountNotMigrationFrozen } from "./migration-topology.js";
+import { requireNextAccountNotMigrationFrozen } from "./migration-topology.js";
 
 /** `H("mdbase/v1/private-create", cbor[challenge, connector, device, collection])`, signed by the owner's device. */
 export function privateCreateDigest(input: { challenge: Uint8Array; connector: string; device: string; collection: string }): Uint8Array {
@@ -101,11 +101,13 @@ const exactPrivateEnrolment = (device: string, account: string, d: Device, sasCo
 
 export function registerPrivateCollectionRoutes(app: FastifyInstance, options: {
   db: DatabasePool; next: NextControlPlaneConfig; emitter: PolicyEmitter;
-  log: Pick<LogServiceClient, "controlItemAt" | "head" | "mintToken">; now?: () => number;
+  log: Pick<LogServiceClient, "controlItemAt" | "head" | "mintToken">;
+  /** Native registry floor for owner deletion; absent in tests that need none. */
+  deletionFloor?: Pick<LogServiceClient, "recordCollectionDeletion">; now?: () => number;
 }): void {
   if (!options.next.privateBootstrap) throw new Error("private collection routes need MDBASE_NEXT_PRIVATE_BOOTSTRAP=1");
   // With both bootstrap modes, the cloud-copy registrar mounts this shared route.
-  if (!options.next.cloudCopyBootstrap) registerCollectionNameRoutes(app, options.db);
+  if (!options.next.cloudCopyBootstrap) registerCollectionNameRoutes(app, options.db, options.deletionFloor);
   const rootKeyId = Buffer.from(options.next.policyCert.root_key_id, "hex");
   const uuid = { type: "string", pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" };
   const proof = { device_id: uuid, challenge: { type: "string", pattern: "^[0-9a-f]{64}$" }, sig: { type: "string", pattern: "^[0-9a-f]{128}$" } };
@@ -147,7 +149,7 @@ export function registerPrivateCollectionRoutes(app: FastifyInstance, options: {
       // 1. Proof, current identity and ownership, then genesis, in one transaction.
       // Nothing here calls the network. Account first, matching the rename/freeze lock order.
       device = await inTransaction(options.db, async (client) => {
-        await requireAccountNotMigrationFrozen(client, connector.user_id);
+        await requireNextAccountNotMigrationFrozen(client, connector.user_id);
         await lock(client, collection);
         const owner = await authenticate(client, body, connector, digest);
         await currentIdentity(client, connector, body.device_id, owner);

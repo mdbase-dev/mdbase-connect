@@ -100,10 +100,18 @@ impl Store for ProjectionStore {
         self.inner.hydrate_query_at(ids, head, budget)
     }
     fn query_record_sizes_at(&self, page: Page, head: Head) -> StoreResult<Vec<QueryRecordSize>> {
-        assert!(
-            !self.armed.get(),
-            "warm executor must not enumerate source sizes"
-        );
+        if self.armed.get() {
+            // An exact selected-source identity probe is not inventory capture.
+            // Keep bulk enumeration and probes for unrelated IDs prohibited.
+            assert_eq!(page.limit, 1, "warm executor enumerated source sizes");
+            let expected = u128::from_be_bytes(self.selected.0)
+                .checked_sub(1)
+                .map(|id| mdbn_wire::common::B16(id.to_be_bytes()));
+            assert_eq!(
+                page.after, expected,
+                "warm executor probed an unrelated source"
+            );
+        }
         self.inner.query_record_sizes_at(page, head)
     }
     fn query_projection_state(&self) -> StoreResult<Option<QueryProjectionState>> {

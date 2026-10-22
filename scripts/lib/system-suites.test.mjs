@@ -19,8 +19,7 @@ test("every system suite has an existing command and known preparation steps", a
     "files-adversarial",
     "projection-scale",
     "container",
-    "linux-packages",
-    "desktop"
+    "linux-packages"
   ]);
   for (const [name, suite] of Object.entries(systemSuites)) {
     assert.ok(suite.description, `${name} needs a description`);

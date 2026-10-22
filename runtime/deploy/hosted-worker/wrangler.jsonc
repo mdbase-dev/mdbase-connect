@@ -6,7 +6,10 @@
   "main": "src/worker.ts",
   // No unsigned/source-default trust on deploy builds. Missing verified module
   // refuses bundling. Generate ONLY through shared signed-asset verifier first.
-  "alias": { "#hosted-release-trust": "./.generated/release-trust.ts" },
+  // The KMS collection allowlist is bundled data too: generate it with
+  // build-kms-allowlist.mjs (manifest-pinned digest, cumulative check) and set
+  // var KMS_COLLECTIONS_SHA256 to the same digest. Missing module refuses bundling.
+  "alias": { "#hosted-release-trust": "./.generated/release-trust.ts", "#hosted-kms-collections": "./.generated/kms-collections.ts", "#hosted-local-build": "./src/local-build.ts" },
   "compatibility_date": "2026-10-05",
   "workers_dev": true,
   "durable_objects": {
@@ -18,8 +21,26 @@
   // possession proof.
   "services": [{ "binding": "LOG", "service": "mdbase-next-log-lab-20261005" }],
   "rules": [{ "type": "CompiledWasm", "globs": ["**/*.wasm"], "fallthrough": true }],
+  // LAB /health names the serving version so a deploy can wait until it is served.
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
   // LAB=1 enables the LAB-only admin surface (token-guarded) and LAB custody from
   // secrets. Secrets: LAB_ADMIN_TOKEN, LAB_LOG_TOKEN, LAB_HOSTED_CONFIG.
   "vars": { "LAB": "1" },
+  // Legacy source bindings (migration; src/legacy-source/bindings.ts). Not declared
+  // until the LAB Hyperdrive config exists; without them the source refuses with
+  // `legacy_source_unconfigured`. When enabled (LAB or staging; never production), add:
+  //   "hyperdrive": [{ "binding": "LEGACY_DB", "id": "<LAB hyperdrive id>" }]
+  //     (origin user mdbn_hosted_legacy_reader, sql/legacy-reader-role.sql; caching off;
+  //     reached privately through Workers VPC, never a public database endpoint),
+  //   "compatibility_flags": ["nodejs_compat"] (for the pg client),
+  //   vars LEGACY_SOURCE_ENVIRONMENT="lab" (or "staging" with KMS_ENVIRONMENT="staging"), LEGACY_SOURCE_COLLECTIONS (explicit
+  //     allowlist), LEGACY_R2_ENDPOINT, LEGACY_R2_BUCKET,
+  //   secrets LEGACY_R2_ACCESS_KEY_ID, LEGACY_R2_SECRET_ACCESS_KEY,
+  //     LEGACY_R2_SESSION_TOKEN (object-read-only R2 credentials), LEGACY_MASTER_KEY.
+  //   The pg client is wired by setting `HostedCollection.legacyConnect` in the entry
+  //   module; while it is null the executor stops with `legacy_source_unconfigured`.
+  // Migration executor (src/migration-executor.ts): runs only with KMS custody
+  // (cppControl), an https CP_URL and secret CP_MIGRATION_TOKEN (Connect's
+  // migration-token routes). The internal run/status entry uses the service token.
   "observability": { "enabled": true }
 }

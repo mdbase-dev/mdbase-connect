@@ -29,7 +29,8 @@ use std::task::{Context, Poll};
 
 use crate::platform::{
     Capabilities, DirEntry, FileMeta, FilePlatform, FlushScope, FsError, FsErrorKind, FsResult,
-    Guarded, Holders, LockHandle, LockShare, PlatformEnvironment, ReadResult, RelPath,
+    Guarded, Holders, LockHandle, LockShare, MAX_READ_AT, PlatformEnvironment, RangeHandle,
+    ReadResult, RelPath,
 };
 
 /// Identifies one queued operation. Unique per queue, increasing.
@@ -52,6 +53,20 @@ pub enum FileOp {
         path: RelPath,
         offset: u64,
         len: u32,
+    },
+    OpenRangeRead {
+        path: RelPath,
+    },
+    ReadAt {
+        handle: RangeHandle,
+        offset: u64,
+        len: u32,
+    },
+    RangeMeta {
+        handle: RangeHandle,
+    },
+    CloseRangeRead {
+        handle: RangeHandle,
     },
     List {
         dir: RelPath,
@@ -135,6 +150,7 @@ pub enum FileOpOutput {
     Bytes(Vec<u8>),
     Entries(Vec<DirEntry>),
     Lock(LockHandle),
+    Range { handle: RangeHandle, meta: FileMeta },
     Guarded(Guarded),
     Holders(Holders),
 }
@@ -280,6 +296,55 @@ impl FilePlatform for QueuedPlatform {
             len,
         };
         expect_output!(self.submit(op), "read_range", FileOpOutput::Bytes(b) => b)
+    }
+
+    fn open_range_read(
+        &self,
+        path: &RelPath,
+    ) -> impl Future<Output = FsResult<(RangeHandle, FileMeta)>> {
+        expect_output!(self.submit(FileOp::OpenRangeRead { path: path.clone() }), "open_range_read", FileOpOutput::Range { handle, meta } => (handle, meta))
+    }
+
+    fn read_at(
+        &self,
+        handle: RangeHandle,
+        offset: u64,
+        len: u32,
+    ) -> impl Future<Output = FsResult<Vec<u8>>> {
+        let request = if len <= MAX_READ_AT && offset.checked_add(u64::from(len)).is_some() {
+            Some(self.submit(FileOp::ReadAt {
+                handle,
+                offset,
+                len,
+            }))
+        } else {
+            None
+        };
+        async move {
+            let Some(request) = request else {
+                return Err(FsError::new(
+                    FsErrorKind::Unsupported,
+                    "invalid bounded read_at",
+                ));
+            };
+            let bytes =
+                expect_output!(request, "read_at", FileOpOutput::Bytes(bytes) => bytes).await?;
+            if bytes.len() > len as usize {
+                return Err(FsError::new(
+                    FsErrorKind::Other,
+                    "host read_at exceeded requested length",
+                ));
+            }
+            Ok(bytes)
+        }
+    }
+
+    fn range_meta(&self, handle: RangeHandle) -> impl Future<Output = FsResult<FileMeta>> {
+        expect_output!(self.submit(FileOp::RangeMeta { handle }), "range_meta", FileOpOutput::Meta(meta) => meta)
+    }
+
+    fn close_range_read(&self, handle: RangeHandle) -> impl Future<Output = FsResult<()>> {
+        expect_output!(self.submit(FileOp::CloseRangeRead { handle }), "close_range_read", FileOpOutput::Unit => ())
     }
 
     fn list(&self, dir: &RelPath) -> impl Future<Output = FsResult<Vec<DirEntry>>> {
@@ -487,6 +552,80 @@ mod tests {
         };
         host.complete(reqs[0].0, Ok(FileOpOutput::Meta(meta.clone())));
         assert_eq!(poll(fa.as_mut()), Poll::Ready(Ok(meta)));
+        assert_eq!(host.in_flight(), 0);
+    }
+
+    #[test]
+    fn range_handles_suspend_and_validate_the_original_host_results() {
+        let (p, host) = QueuedPlatform::new(caps());
+        let path = RelPath::new("schema.json").unwrap();
+        let meta = FileMeta {
+            kind: FileKind::File,
+            size: 3,
+            mtime_ns: 7,
+            ctime_ns: None,
+            id: None,
+        };
+        let mut opened = Box::pin(p.open_range_read(&path));
+        assert!(poll(opened.as_mut()).is_pending());
+        let requests = host.take_requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].1, FileOp::OpenRangeRead { path: path.clone() });
+        let handle = RangeHandle(17);
+        host.complete(
+            requests[0].0,
+            Ok(FileOpOutput::Range {
+                handle,
+                meta: meta.clone(),
+            }),
+        );
+        assert_eq!(
+            poll(opened.as_mut()),
+            Poll::Ready(Ok((handle, meta.clone())))
+        );
+        let mut read = Box::pin(p.read_at(handle, 0, 3));
+        let mut stat = Box::pin(p.range_meta(handle));
+        assert!(poll(read.as_mut()).is_pending());
+        assert!(poll(stat.as_mut()).is_pending());
+        let requests = host.take_requests();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(
+            requests[0].1,
+            FileOp::ReadAt {
+                handle,
+                offset: 0,
+                len: 3
+            }
+        );
+        assert_eq!(requests[1].1, FileOp::RangeMeta { handle });
+        host.complete(requests[1].0, Ok(FileOpOutput::Meta(meta.clone())));
+        assert_eq!(poll(stat.as_mut()), Poll::Ready(Ok(meta)));
+        assert!(poll(read.as_mut()).is_pending());
+        host.complete(requests[0].0, Ok(FileOpOutput::Bytes(b"abc".to_vec())));
+        assert_eq!(poll(read.as_mut()), Poll::Ready(Ok(b"abc".to_vec())));
+        let mut close = Box::pin(p.close_range_read(handle));
+        assert!(poll(close.as_mut()).is_pending());
+        let requests = host.take_requests();
+        assert_eq!(requests[0].1, FileOp::CloseRangeRead { handle });
+        host.complete(requests[0].0, Ok(FileOpOutput::Unit));
+        assert_eq!(poll(close.as_mut()), Poll::Ready(Ok(())));
+        assert_eq!(host.in_flight(), 0);
+    }
+
+    #[test]
+    fn range_bounds_refuse_before_queue_and_oversized_results_fail_closed() {
+        let (p, host) = QueuedPlatform::new(caps());
+        let handle = RangeHandle(17);
+        for (offset, len) in [(0, MAX_READ_AT + 1), (u64::MAX, 1)] {
+            let mut read = Box::pin(p.read_at(handle, offset, len));
+            assert!(matches!(poll(read.as_mut()), Poll::Ready(Err(_))));
+            assert!(host.take_requests().is_empty());
+        }
+        let mut read = Box::pin(p.read_at(handle, 0, 3));
+        assert!(poll(read.as_mut()).is_pending());
+        let requests = host.take_requests();
+        host.complete(requests[0].0, Ok(FileOpOutput::Bytes(b"four".to_vec())));
+        assert!(matches!(poll(read.as_mut()), Poll::Ready(Err(_))));
         assert_eq!(host.in_flight(), 0);
     }
 

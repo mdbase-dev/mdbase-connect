@@ -13,8 +13,48 @@ use chrono::Duration as ChronoDuration;
 use serde::Deserialize;
 use sqlx::postgres::PgRow;
 
+mod notification_watermark;
+mod rollback;
+use rollback::{
+    check_rollback_owner, existing_rollback_receipt, record_rollback_receipt,
+    rollback_binding_conflict,
+};
+pub use rollback::{LegacyRollbackEnvelope, LegacyRollbackReceipt, LegacyRollbackRequest};
+
 /// Minimum retention of a migrated collection's legacy rows and objects.
 const LEGACY_RETENTION_MIN_DAYS: i64 = 90;
+
+// Count blocking rows, not distinct reminders. Expiry cannot settle a dispatch.
+// Missing runtime schema fails closed; migration must never initialize it.
+//
+// A terminal `failed` run is settled only while it holds no lease, has no active
+// attempt and every recorded attempt has a durable outcome (`succeeded` or
+// `failed`). The runtime records an interrupted or unknown dispatch as
+// `indeterminate`, never `failed`, and effect admission requires a running,
+// leased run, so such a run can never deliver again. Any other shape blocks.
+// `timers/hosted-copy.ts` in the server applies the same run rule.
+const NOTIFICATION_BLOCKERS_SQL: &str = r#"
+    SELECT CASE WHEN (SELECT version FROM mdbase_runtime_schema WHERE singleton = TRUE) = 2 THEN
+      (SELECT count(*) FROM mdbase_runtime_timers t
+       WHERE t.namespace = 'connect-hosted:' || ($1::uuid)::text || ':notifications'
+         AND (t.status NOT IN ('scheduled','fired','cancelled') OR t.lease_token IS NOT NULL
+           OR t.lease_worker IS NOT NULL OR t.lease_expires_at IS NOT NULL))
+      + (SELECT count(*) FROM mdbase_runtime_runs r
+         WHERE r.namespace = 'connect-hosted:' || ($1::uuid)::text || ':notifications'
+           AND (r.status NOT IN ('succeeded','cancelled','failed') OR r.lease_token IS NOT NULL
+             OR r.lease_worker IS NOT NULL OR r.lease_expires_at IS NOT NULL
+             OR (r.status = 'failed' AND (
+               jsonb_typeof(r.record_json->'attempts') IS DISTINCT FROM 'array'
+               OR COALESCE(jsonb_typeof(r.record_json->'active_attempt'), 'null') <> 'null'
+               OR EXISTS (SELECT 1 FROM jsonb_array_elements(
+                   CASE WHEN jsonb_typeof(r.record_json->'attempts') = 'array'
+                     THEN r.record_json->'attempts' ELSE '[]'::jsonb END) a
+                 WHERE (a->>'status') IS NULL OR (a->>'status') NOT IN ('succeeded','failed'))))))
+      + (SELECT count(*) FROM hosted_provider_runtime_outbox o
+         WHERE o.collection_id = $1 AND (o.processed_at IS NULL
+           OR o.lease_token IS NOT NULL OR o.leased_until IS NOT NULL))
+    END
+"#;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -45,35 +85,24 @@ pub struct LegacyMigrationStatus {
     pub restored: Vec<Uuid>,
 }
 
-/// Exact provider-local rollback binding. Driver/action IDs are correlation,
-/// never authority; the caller must separately qualify native rollback guards.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct LegacyRollbackRequest {
-    pub owner_account_id: Uuid,
-    pub provider_migration_id: Uuid,
-    pub authority_epoch: i64,
-    pub fixed_head: i64,
-    pub driver_id: Uuid,
-    pub action_id: Uuid,
-    pub replica_ids: Vec<Uuid>,
-}
-
-/// Persisted in the same transaction as restore + active. Historical evidence
-/// is not a fresh permission, and active state alone is never a receipt.
+/// The current provider run and the replicas whose unchanged revocation it
+/// owns: exactly the set a control-plane `migration-cutover` must name.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct LegacyRollbackReceipt {
-    pub collection_id: Uuid,
-    pub binding: LegacyRollbackRequest,
-    pub restored_ids: Vec<Uuid>,
-    pub recorded_at: DateTime<Utc>,
+pub(crate) struct MigrationRevokedReplicas {
+    collection_id: Uuid,
+    migration_id: Uuid,
+    revoked: Vec<Uuid>,
 }
 
 /// What the migration driver reads to drain a fenced collection (H6) and to fix
 /// `S_final`: the lifecycle state, the head and the accepted mutations that could
-/// still change it, all from one statement (one snapshot).
+/// still change it, plus its complete content-free notification watermark,
+/// all from one REPEATABLE READ READ ONLY snapshot.
 #[derive(Debug, Clone, Serialize)]
 pub struct LegacyMigrationDrain {
+    /// Authenticated response header DATA, never a permission or receipt.
+    #[serde(skip)]
+    pub(crate) notification_watermark: String,
     pub collection_id: Uuid,
     /// The raw lifecycle state (`active`, `migrating`, `migrated`, or another).
     pub state: String,
@@ -85,8 +114,11 @@ pub struct LegacyMigrationDrain {
     /// request may still be applying. Draining waits for zero. An expired lease
     /// cannot apply once the collection is fenced: every apply path requires
     /// `state = 'active'` under the collection row lock that the fence takes.
+    /// Also includes notification firing/unfinished delivery/lease rows, even
+    /// when their lease expired or the runtime labels an UNKNOWN terminal. An
+    /// unleased `failed` run whose attempts all have outcomes is settled.
     pub in_flight: i64,
-    /// Accepted mutations not yet resolved, live or not.
+    /// Accepted mutations and notification work not yet resolved, live or not.
     pub unresolved: i64,
     /// Mutations applied (already in `head`) whose receipt is not yet final.
     pub applied_unreceipted: i64,
@@ -125,10 +157,32 @@ fn not_found() -> ApiError {
 
 enum MigrationRestore<'a> {
     Unreceipted(&'a [Uuid]),
-    Receipted(&'a LegacyRollbackRequest),
+    Receipted(&'a LegacyRollbackRequest, Uuid),
 }
 
 impl HostedProvider {
+    /// The cutover state of `collection_id` when `token` was ever issued for one
+    /// of its replicas (revoked and expired tokens included), so a refused old
+    /// client can be told why. Unknown tokens learn nothing.
+    pub(crate) async fn cutover_state_for_token(
+        &self,
+        collection_id: Uuid,
+        token: &str,
+    ) -> ApiResult<Option<String>> {
+        Ok(sqlx::query_scalar(
+            r#"SELECT c.state
+               FROM hosted_provider_collections c
+               JOIN hosted_provider_replicas r ON r.collection_id = c.id
+               WHERE c.id = $1 AND r.token_hash = $2
+                 AND c.state IN ('migrating', 'migrated')
+               LIMIT 1"#,
+        )
+        .bind(collection_id)
+        .bind(token_hash(token))
+        .fetch_optional(&self.pool)
+        .await?)
+    }
+
     /// Move a collection between `active`, `migrating` and `migrated`.
     ///
     /// Allowed: active → migrating → migrated, and back (rollback). Repeating the
@@ -164,50 +218,6 @@ impl HostedProvider {
         .map(|(status, _)| status)
     }
 
-    /// Provider-local atomic pre-cutover rollback. The CP/native adapter must
-    /// authenticate its actual saved RollingBack/pending action and settle any
-    /// competing target effects BEFORE dispatch; this receipt proves none of that.
-    pub async fn rollback_legacy_migration(
-        &self,
-        collection_id: Uuid,
-        input: &LegacyRollbackRequest,
-    ) -> ApiResult<LegacyRollbackReceipt> {
-        let input = canonical_rollback_request(input)?;
-        let (_, receipt) = self
-            .transition_legacy_migration_state(
-                collection_id,
-                "active",
-                None,
-                false,
-                MigrationRestore::Receipted(&input),
-            )
-            .await?;
-        receipt.ok_or_else(|| ApiError::internal("Atomic rollback did not produce its receipt."))
-    }
-
-    /// Read-only lost-response settlement. Missing or superseded receipts refuse;
-    /// this NEVER retries a restore or interprets an active source as success.
-    pub async fn legacy_migration_rollback_receipt(
-        &self,
-        collection_id: Uuid,
-        input: &LegacyRollbackRequest,
-    ) -> ApiResult<LegacyRollbackReceipt> {
-        let input = canonical_rollback_request(input)?;
-        let mut transaction = self.pool.begin().await?;
-        let row = lock_migration_collection(&mut transaction, collection_id).await?;
-        check_rollback_owner(&row, &input)?;
-        let receipt = existing_rollback_receipt(&mut transaction, collection_id, &row, &input)
-            .await?
-            .ok_or_else(|| {
-                ApiError::not_found(
-                    "legacy_rollback_receipt_unknown",
-                    "No exact atomic rollback receipt exists.",
-                )
-            })?;
-        transaction.commit().await?;
-        Ok(receipt)
-    }
-
     async fn transition_legacy_migration_state(
         &self,
         collection_id: Uuid,
@@ -219,7 +229,9 @@ impl HostedProvider {
         use LegacyMigrationState::{Active, Migrated, Migrating};
         let (restore_replica_ids, rollback) = match restore {
             MigrationRestore::Unreceipted(ids) => (ids, None),
-            MigrationRestore::Receipted(input) => (input.replica_ids.as_slice(), Some(input)),
+            MigrationRestore::Receipted(input, owner) => {
+                (input.replica_ids.as_slice(), Some((input, owner)))
+            }
         };
         let target = requested_state(target)?;
         check_replica_ids(restore_replica_ids)?;
@@ -229,10 +241,11 @@ impl HostedProvider {
         let migration_id: Option<Uuid> = row.get("legacy_migration_id");
         let started_at: Option<DateTime<Utc>> = row.get("legacy_migration_started_at");
         let retained: Option<DateTime<Utc>> = row.get("legacy_retain_until");
-        if let Some(input) = rollback {
-            check_rollback_owner(&row, input)?;
+        if let Some((input, owner)) = rollback {
+            check_rollback_owner(&row, input, owner)?;
             if let Some(receipt) =
-                existing_rollback_receipt(&mut transaction, collection_id, &row, input).await?
+                existing_rollback_receipt(&mut transaction, collection_id, &row, input, owner)
+                    .await?
             {
                 transaction.commit().await?;
                 return Ok((
@@ -295,6 +308,29 @@ impl HostedProvider {
                 "Replicas are restored only by the rollback to active.",
             ));
         }
+        if (current, target) == (Active, Migrating)
+            || (current, target) == (Migrating, Migrated)
+            || rollback.is_some()
+        {
+            let pending: Option<i64> = sqlx::query_scalar(NOTIFICATION_BLOCKERS_SQL)
+                .bind(collection_id)
+                .fetch_one(&mut *transaction)
+                .await?;
+            let pending = pending.ok_or_else(|| {
+                ApiError::conflict(
+                    "legacy_notification_schema_unavailable",
+                    "The original notification runtime schema is not supported for migration.",
+                )
+            })?;
+            if pending != 0 {
+                // No state/run/retention/revocation update has happened: this
+                // collection remains active so legacy can genuinely finish.
+                return Err(ApiError::conflict(
+                    "legacy_notifications_not_drained",
+                    "Notification delivery is unsettled; retry migration after legacy completion.",
+                ));
+            }
+        }
         if (current, target) == (Migrating, Migrated) || rollback.is_some() {
             let in_flight: i64 = sqlx::query_scalar(
                 r#"SELECT count(*) FROM hosted_provider_mutation_journal j
@@ -354,8 +390,9 @@ impl HostedProvider {
                 .bind(collection_id).execute(&mut *transaction).await?;
         }
         let receipt = match rollback {
-            Some(input) => Some(
-                record_rollback_receipt(&mut transaction, collection_id, input, &restored).await?,
+            Some((input, owner)) => Some(
+                record_rollback_receipt(&mut transaction, collection_id, input, &restored, owner)
+                    .await?,
             ),
             None => None,
         };
@@ -369,18 +406,23 @@ impl HostedProvider {
             _ if current == Active => Some(Utc::now()),
             _ => started_at,
         };
-        sqlx::query(
+        let persisted = sqlx::query(
             r#"UPDATE hosted_provider_collections
                SET state = $2, legacy_migration_started_at = $3, legacy_retain_until = $4, legacy_migration_id = $5
-               WHERE id = $1"#,
+               WHERE id = $1
+               RETURNING legacy_migration_started_at, legacy_retain_until"#,
         )
         .bind(collection_id)
         .bind(target.as_str())
         .bind(started_at)
         .bind(retain_until)
         .bind(migration_id)
-        .execute(&mut *transaction)
+        .fetch_one(&mut *transaction)
         .await?;
+        // PostgreSQL persists microseconds; returning the nanosecond input clock
+        // would give fence and drain different serialized identities for one run.
+        let started_at = persisted.get("legacy_migration_started_at");
+        let retain_until = persisted.get("legacy_retain_until");
         transaction.commit().await?;
         Ok((
             LegacyMigrationStatus {
@@ -393,43 +435,6 @@ impl HostedProvider {
             },
             receipt,
         ))
-    }
-
-    /// The drain status of one collection (H6).
-    pub async fn legacy_migration_drain(
-        &self,
-        collection_id: Uuid,
-    ) -> ApiResult<LegacyMigrationDrain> {
-        let row = sqlx::query(
-            r#"SELECT c.state, c.head, c.legacy_migration_id, c.legacy_migration_started_at, c.legacy_retain_until,
-                      count(j.request_id) FILTER (
-                        WHERE j.state IN ('claimed', 'prepared') AND j.lease_expires_at > now()
-                      ) AS in_flight,
-                      count(j.request_id) FILTER (
-                        WHERE j.state IN ('claimed', 'prepared')
-                      ) AS unresolved,
-                      count(j.request_id) FILTER (WHERE j.state = 'applied') AS applied
-               FROM hosted_provider_collections c
-               LEFT JOIN hosted_provider_replicas r ON r.collection_id = c.id
-               LEFT JOIN hosted_provider_mutation_journal j ON j.replica_id = r.id
-               WHERE c.id = $1
-               GROUP BY c.id"#,
-        )
-        .bind(collection_id)
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or_else(not_found)?;
-        Ok(LegacyMigrationDrain {
-            collection_id,
-            state: row.get("state"),
-            migration_id: row.get("legacy_migration_id"),
-            head: row.get("head"),
-            started_at: row.get("legacy_migration_started_at"),
-            retain_until: row.get("legacy_retain_until"),
-            in_flight: row.get("in_flight"),
-            unresolved: row.get("unresolved"),
-            applied_unreceipted: row.get("applied"),
-        })
     }
 
     /// H8: revoke only currently live replicas and record this provider run as
@@ -473,6 +478,41 @@ impl HostedProvider {
             .bind(collection_id).bind(replica_ids).bind(run).fetch_all(&mut *transaction).await?;
         transaction.commit().await?;
         Ok(owned)
+    }
+
+    /// Read-only: the revocations the CURRENT run owns, under a share lock on
+    /// the collection row so no revoke, restore or run change interleaves.
+    /// Independent and pre-existing revocations are never included.
+    pub(crate) async fn migration_revoked_replicas(
+        &self,
+        collection_id: Uuid,
+    ) -> ApiResult<MigrationRevokedReplicas> {
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query("SET LOCAL lock_timeout = '5s'")
+            .execute(&mut *transaction)
+            .await?;
+        let row = sqlx::query("SELECT state, legacy_migration_id FROM hosted_provider_collections WHERE id = $1 FOR SHARE")
+            .bind(collection_id).fetch_optional(&mut *transaction).await?.ok_or_else(not_found)?;
+        let run = match (
+            row.get::<String, _>("state").as_str(),
+            row.get::<Option<Uuid>, _>("legacy_migration_id"),
+        ) {
+            ("migrating", Some(run)) => run,
+            _ => {
+                return Err(ApiError::conflict(
+                    "legacy_migration_not_started",
+                    "Migration revocations are read only for a fenced, uncut collection.",
+                ))
+            }
+        };
+        let revoked = sqlx::query_scalar("SELECT id FROM hosted_provider_replicas WHERE collection_id = $1 AND revoked_by_migration = $2 AND revoked_at IS NOT NULL AND revoked_at = migration_revoked_at ORDER BY id")
+            .bind(collection_id).bind(run).fetch_all(&mut *transaction).await?;
+        transaction.commit().await?;
+        Ok(MigrationRevokedReplicas {
+            collection_id,
+            migration_id: run,
+            revoked,
+        })
     }
 
     /// Rollback: restore only listed replicas whose current revocation is owned
@@ -531,130 +571,6 @@ async fn lock_migration_collection(
     .ok_or_else(not_found)
 }
 
-fn rollback_binding_conflict() -> ApiError {
-    ApiError::conflict(
-        "legacy_rollback_binding_conflict",
-        "The provider source or rollback receipt does not match the exact pending action.",
-    )
-}
-
-fn canonical_rollback_request(input: &LegacyRollbackRequest) -> ApiResult<LegacyRollbackRequest> {
-    check_replica_ids(&input.replica_ids)?;
-    let mut input = input.clone();
-    input.replica_ids.sort_unstable();
-    if input.authority_epoch <= 0
-        || input.fixed_head < 0
-        || [
-            input.owner_account_id,
-            input.provider_migration_id,
-            input.driver_id,
-            input.action_id,
-        ]
-        .iter()
-        .any(Uuid::is_nil)
-        || input.replica_ids.iter().any(Uuid::is_nil)
-        || input.replica_ids.windows(2).any(|ids| ids[0] == ids[1])
-    {
-        return Err(ApiError::bad_request(
-            "legacy_rollback_binding_invalid",
-            "Rollback needs a valid exact source and replica scope.",
-        ));
-    }
-    Ok(input)
-}
-
-fn check_rollback_owner(row: &PgRow, input: &LegacyRollbackRequest) -> ApiResult<()> {
-    if row.get::<Option<Uuid>, _>("account_id") != Some(input.owner_account_id)
-        || row.get::<i64, _>("authority_epoch") != input.authority_epoch
-    {
-        return Err(rollback_binding_conflict());
-    }
-    Ok(())
-}
-
-async fn existing_rollback_receipt(
-    transaction: &mut Transaction<'_, Postgres>,
-    collection_id: Uuid,
-    source: &PgRow,
-    input: &LegacyRollbackRequest,
-) -> ApiResult<Option<LegacyRollbackReceipt>> {
-    let Some(row) = sqlx::query(
-        "SELECT * FROM hosted_provider_legacy_rollback_receipts WHERE collection_id = $1 AND provider_migration_id = $2",
-    ).bind(collection_id).bind(input.provider_migration_id)
-        .fetch_optional(&mut **transaction).await? else { return Ok(None) };
-    let binding = LegacyRollbackRequest {
-        owner_account_id: row.get("owner_account_id"),
-        provider_migration_id: row.get("provider_migration_id"),
-        authority_epoch: row.get("authority_epoch"),
-        fixed_head: row.get("fixed_head"),
-        driver_id: row.get("driver_id"),
-        action_id: row.get("action_id"),
-        replica_ids: row.get("requested_ids"),
-    };
-    // Old writes may legitimately have advanced the head after the atomic
-    // rollback. They do not invalidate its historical receipt; a NEW migration
-    // does, even if that later run has already returned to active.
-    if binding != *input
-        || row
-            .get::<Option<DateTime<Utc>>, _>("superseded_at")
-            .is_some()
-        || source.get::<String, _>("state") != "active"
-        || source
-            .get::<Option<Uuid>, _>("legacy_migration_id")
-            .is_some()
-        || source
-            .get::<Option<DateTime<Utc>>, _>("legacy_migration_started_at")
-            .is_some()
-        || source
-            .get::<Option<DateTime<Utc>>, _>("legacy_retain_until")
-            .is_some()
-        || source.get::<i64, _>("head") < input.fixed_head
-    {
-        return Err(rollback_binding_conflict());
-    }
-    Ok(Some(LegacyRollbackReceipt {
-        collection_id,
-        binding,
-        restored_ids: row.get("restored_ids"),
-        recorded_at: row.get("recorded_at"),
-    }))
-}
-
-async fn record_rollback_receipt(
-    transaction: &mut Transaction<'_, Postgres>,
-    collection_id: Uuid,
-    input: &LegacyRollbackRequest,
-    restored: &[Uuid],
-) -> ApiResult<LegacyRollbackReceipt> {
-    let mut restored_ids = restored.to_vec();
-    restored_ids.sort_unstable();
-    let recorded_at = sqlx::query_scalar(
-        r#"INSERT INTO hosted_provider_legacy_rollback_receipts
-           (collection_id, provider_migration_id, owner_account_id, authority_epoch,
-            fixed_head, driver_id, action_id, requested_ids, restored_ids)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-           ON CONFLICT DO NOTHING RETURNING recorded_at"#,
-    )
-    .bind(collection_id)
-    .bind(input.provider_migration_id)
-    .bind(input.owner_account_id)
-    .bind(input.authority_epoch)
-    .bind(input.fixed_head)
-    .bind(input.driver_id)
-    .bind(input.action_id)
-    .bind(&input.replica_ids)
-    .bind(&restored_ids)
-    .fetch_optional(&mut **transaction)
-    .await?
-    .ok_or_else(rollback_binding_conflict)?;
-    Ok(LegacyRollbackReceipt {
-        collection_id,
-        binding: input.clone(),
-        restored_ids,
-        recorded_at,
-    })
-}
-
 /// Serialize independent revocations with migration revoke/restore using the
 /// same collection-first lock order. Revocation remains allowed while fenced.
 pub(in crate::provider) async fn lock_replica_for_revocation(
@@ -705,7 +621,9 @@ async fn restore_owned_revocations(
 fn collection_migrating() -> ApiError {
     ApiError::conflict(
         "collection_migrating",
-        "The hosted collection is moving to mdbase-next; update the client.",
+        "This collection is being upgraded, which usually takes a few minutes. Changes made \
+         while it's upgrading may not be saved. When it's finished, check your recent \
+         changes and make them again if they're missing.",
     )
 }
 
@@ -768,81 +686,46 @@ pub(in crate::provider) async fn ensure_legacy_data_disposable(
     Ok(())
 }
 
-#[cfg(test)]
-mod rollback_binding_tests {
-    use super::*;
+/// The log service accepts at most this many owner timezones.
+const MAX_OWNER_TIMEZONES: i64 = 1000;
 
-    fn input() -> LegacyRollbackRequest {
-        LegacyRollbackRequest {
-            owner_account_id: Uuid::new_v4(),
-            provider_migration_id: Uuid::new_v4(),
-            authority_epoch: 1,
-            fixed_head: 0,
-            driver_id: Uuid::new_v4(),
-            action_id: Uuid::new_v4(),
-            replica_ids: vec![Uuid::new_v4(), Uuid::new_v4()],
-        }
-    }
+/// The legacy timezones a migrated collection's storage region is chosen from
+/// (mdbase-next `crates/log-service/src/timezone.rs`): the collection's own
+/// creator-device timezone (`UTC` when unknown) and the owner's timezones across
+/// their other hosted collections. Read-only and content-free.
+#[derive(Debug, Clone, Serialize)]
+pub struct LegacyMigrationPlacement {
+    pub collection_id: Uuid,
+    pub timezone: String,
+    /// Newest first; empty when the collection has no provider account.
+    pub owner_timezones: Vec<String>,
+}
 
-    #[test]
-    fn canonical_scope_is_a_bounded_distinct_nonzero_set() {
-        let original = input();
-        let mut reversed = original.clone();
-        reversed.replica_ids.reverse();
-        assert_eq!(
-            canonical_rollback_request(&original).unwrap(),
-            canonical_rollback_request(&reversed).unwrap()
-        );
-        let mut duplicate = original.clone();
-        duplicate.replica_ids.push(duplicate.replica_ids[0]);
-        assert_eq!(
-            canonical_rollback_request(&duplicate).unwrap_err().code,
-            "legacy_rollback_binding_invalid"
-        );
-        let mut oversized = original.clone();
-        oversized.replica_ids = (0..1001).map(|_| Uuid::new_v4()).collect();
-        assert_eq!(
-            canonical_rollback_request(&oversized).unwrap_err().code,
-            "legacy_replica_limit"
-        );
-        let mut empty = original;
-        empty.replica_ids.clear();
-        assert!(canonical_rollback_request(&empty).is_ok());
-    }
-
-    #[test]
-    fn invalid_counters_and_nil_identities_are_not_bindings() {
-        for field in [
-            "owner", "provider", "driver", "action", "replica", "epoch", "head",
-        ] {
-            let mut wrong = input();
-            match field {
-                "owner" => wrong.owner_account_id = Uuid::nil(),
-                "provider" => wrong.provider_migration_id = Uuid::nil(),
-                "driver" => wrong.driver_id = Uuid::nil(),
-                "action" => wrong.action_id = Uuid::nil(),
-                "replica" => wrong.replica_ids[0] = Uuid::nil(),
-                "epoch" => wrong.authority_epoch = 0,
-                "head" => wrong.fixed_head = -1,
-                _ => unreachable!(),
-            }
-            assert_eq!(
-                canonical_rollback_request(&wrong).unwrap_err().code,
-                "legacy_rollback_binding_invalid",
-                "{field}"
-            );
-        }
-    }
-
-    #[test]
-    fn flags_do_not_create_rollback_authority() {
-        for field in ["reverse_verified", "verified", "ready", "pre_cutover"] {
-            let mut value = serde_json::to_value(input()).unwrap();
-            value[field] = serde_json::json!(true);
-            assert!(
-                serde_json::from_value::<LegacyRollbackRequest>(value).is_err(),
-                "{field}"
-            );
-        }
+impl HostedProvider {
+    pub async fn legacy_migration_placement(
+        &self,
+        collection_id: Uuid,
+    ) -> ApiResult<LegacyMigrationPlacement> {
+        let row = sqlx::query(
+            r#"SELECT c.timezone,
+                      COALESCE(ARRAY(
+                        SELECT o.timezone FROM hosted_provider_collections o
+                        WHERE o.account_id = c.account_id AND o.id <> c.id
+                        ORDER BY o.created_at DESC, o.id
+                        LIMIT $2
+                      ), ARRAY[]::text[]) AS owner_timezones
+               FROM hosted_provider_collections c
+               WHERE c.id = $1"#,
+        )
+        .bind(collection_id)
+        .bind(MAX_OWNER_TIMEZONES)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(not_found)?;
+        Ok(LegacyMigrationPlacement {
+            collection_id,
+            timezone: row.get("timezone"),
+            owner_timezones: row.get("owner_timezones"),
+        })
     }
 }

@@ -3,7 +3,7 @@
  * shared mdbn-trust signed environment-asset verification. No runtime override. */
 export interface ReleaseTrust {
   schema: "mdbn-app-trust/release/1";
-  environment: "lab" | "staging" | "production";
+  environment: "local" | "lab" | "staging" | "production";
   cpOrigin: string;
   logOrigin: string;
   assetSha256: string;

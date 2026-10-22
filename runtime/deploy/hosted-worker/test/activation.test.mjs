@@ -15,6 +15,7 @@ const compiled = await build({ entryPoints: [new URL("../src/worker.ts", import.
   name: "platform-test", setup(b) {
     b.onResolve({ filter: /^cloudflare:workers$/ }, () => ({ path: "platform", namespace: "fake" }));
     b.onLoad({ filter: /.*/, namespace: "fake" }, () => ({ contents: "export class DurableObject {}" }));
+    b.onResolve({ filter: /hosted\.wasm$/ }, () => ({ path: "hosted.wasm", namespace: "synthetic-wasm" }));
     b.onLoad({ filter: /hosted\.wasm$/ }, () => ({ contents: "export default new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0]));" }));
   },
 }] });
@@ -23,7 +24,12 @@ function object(escrow = false) {
   const data = new Map(); let alarm;
   const storage = { get: async (k) => Array.isArray(k) ? new Map(k.filter(key => data.has(key)).map(key => [key, data.get(key)])) : data.get(k), put: async (k, v) => data.set(k, v), getAlarm: async () => alarm ?? null, setAlarm: async (at) => { alarm = at; } };
   const o = Object.create(HostedCollection.prototype);
-  Object.assign(o, { escrow, ctx: { storage, getWebSockets: () => [] }, env: { HOSTED_SERVICE_TOKEN: token }, logGen: 0, readers: new Map(), staleAppends: {}, lastRefresh: 0 });
+  // Platform identity mock only; actual opaque IDs/namespaces are exercised in
+  // physical-collection-workerd.test.mjs, not native/CPP admission here.
+  const physical = { equals: expected => expected === collection };
+  Object.assign(o, { escrow, ctx: { id: physical, storage, getWebSockets: () => [] }, env: {
+    HOSTED_SERVICE_TOKEN: token, COLLECTIONS: { idFromName: name => name }
+  }, logGen: 0, readers: new Map(), staleAppends: {}, lastRefresh: 0 });
   return { o, data, alarm: () => alarm };
 }
 test("activation request is authenticated and bounded without requiring WASM", async () => {
@@ -58,6 +64,22 @@ test("both service roles persist reopen identity and an alarm before failed cust
     assert.ok(alarm() > Date.now());
     assert.equal(o.opening, null);
   }
+});
+test("wrong physical identity refuses before collection, alarm or custody effects", async () => {
+  const { o, data, alarm } = object();
+  o.ctx.id = { equals: () => false };
+  o.custody = { openSealer() { assert.fail("wrong physical object opened custody"); } };
+  await assert.rejects(o.ready(collection), /physical_collection_mismatch/);
+  assert.equal(data.size, 0); assert.equal(alarm(), undefined); assert.equal(o.collection, undefined);
+});
+test("physical mapping drift during custody await refuses before key use and wipes acquired material", async () => {
+  const { o } = object(); let wiped = 0;
+  o.custody = { async openSealer() {
+    o.env.COLLECTIONS = { idFromName: () => "different physical namespace" };
+    return { zeroize() { wiped++; } };
+  } };
+  await assert.rejects(o.ready(collection), /physical_collection_mismatch/);
+  assert.equal(wiped, 1); assert.equal(o.engine, undefined); assert.equal(o.opening, null);
 });
 test("failed cold reopen cannot push an existing alarm into the future", async () => {
   for (const escrow of [false,true]) {

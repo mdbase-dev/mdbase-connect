@@ -7,14 +7,21 @@
 // - Each hosted collection's cutover is recorded (`POST …/collections/:id/cutover`)
 //   only for a started account and a control-plane cloud copy with the preserved
 //   ID owned by that account. The record routes it (`next_collections.runtime =
-//   'next'`).
+//   'next'`). After that record commits, the route moves the legacy source to
+//   `migrated`, which starts its retention; a retry of the same cutover repeats
+//   only that idempotent step.
 // - The flip is the only setter of `users.account_backend = 'next'`
 //   (docs/account-backend.md). It requires a started account, every current hosted
 //   collection settled and cut over, and an evidence digest that this server
-//   recomputes from those cutover records.
+//   recomputes from those cutover records. It also requires the next timer
+//   service, each legacy source `migrated`, and each collection's timer import
+//   still matching the source watermark and the target rows (timers/hosted-import.ts).
+//   The account's starter reservation must equal what the start recorded, with
+//   no provisioning in flight; the flip carries it unchanged.
 // - A deleted account is terminal: its rows cascade away and
 //   every route answers not found; nothing restores it.
 // - Routes accept only the dedicated migration token; every change is audited.
+import { localBuild } from "../../local-deployment.js";
 import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -24,7 +31,21 @@ import { apiError } from "../../platform/http-errors.js";
 import { bearerToken } from "../../platform/request-authentication.js";
 import { safeEqual } from "../../security.js";
 import { drainDeferredAccountDeletions } from "../../account-management.js";
+import { migrationServiceRateLimit } from "./migration-rate-limit.js";
+import { captureProjection } from "./migration-capture.js";
+import { requireScopedArchiveCoverage } from "./migration-scoped-archive.js";
+import { archiveBindingSchema, ARCHIVE_PREFIX, COHORT_NAME, decimal, HEX64, isCompleteZeroHostedInventory,
+  millisecondTime, migrationMembershipDigest, RolloutRefused, SCOPED_HOSTED_ARCHIVE_SCHEMA, verifiedArchiveSchema, ZERO_HOSTED_ARCHIVE_SCHEMA, type VerifiedBatchArchive } from "./migration-archive-profile.js";
 import { completeMigrationBatch, releaseDeferredDeletions } from "./migration-topology.js";
+import { flipEvidenceDigest, recordAccountFlip } from "./account-backend-flip.js";
+import { HostedProviderResponseError, HostedProviderUnavailableError, type HostedProviderClient,
+  type LegacyMigrationDrain } from "../../hosted-provider.js";
+import type { LegacyMigrationSource } from "../../hosted-provider-legacy-migration.js";
+import { readFencedTimerSource, TimerImportRefused, timerFlipRefusal, type TimerSourceProvider } from "./timers/hosted-import.js";
+
+const BACKUP_ACCEPT_BODY_LIMIT = 1024 * 1024;
+
+export { flipEvidenceDigest };
 
 export interface RolloutState { paused: boolean; reason: string; changed_by: string; changed_at: string }
 
@@ -44,84 +65,11 @@ export interface AccountMigrationView {
   cut_over_collections: string[];
 }
 
-export class RolloutRefused extends Error {
-  constructor(readonly code: string, message: string, readonly status = 409) { super(message); }
-}
-
-// Canonical scalars must consume the entire string without normalization.
-const COHORT_NAME = /^[a-z0-9][a-z0-9-]{0,62}(?![\s\S])/;
-// LAB is a separate exact schema with a mandatory legacy-archive prefix.
-// Existing v4 locations retain their unchanged staging/production contract.
-const ARCHIVE_PREFIX = /^(?:legacy-archive\/)?(staging|production|lab)\/20[0-9]{2}\/(0[1-9]|1[0-2])\/(0[1-9]|[12][0-9]|3[01])\/[a-z0-9][a-z0-9-]{0,79}(?![\s\S])/;
-const HEX64 = /^[0-9a-f]{64}(?![\s\S])/;
+export { RolloutRefused, migrationMembershipDigest } from "./migration-archive-profile.js";
 const UUID_CANONICAL = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![\s\S])/;
-const UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z(?![\s\S])/;
 const DAY_MS = 86_400_000;
-
-const decimal = (max: bigint, positive = false) => z.string().max(20).refine((v) =>
-  /^(0|[1-9][0-9]*)(?![\s\S])/.test(v) && BigInt(v) <= max && (!positive || BigInt(v) > 0n));
-const millisecondTime = z.string().length(24).refine((v) => {
-  if (!UTC_MILLISECONDS.test(v) || v.startsWith("0000-")) return false;
-  const ms = Date.parse(v);
-  return Number.isFinite(ms) && new Date(ms).toISOString() === v;
-});
-const archiveBindingSchema = z.object({
-  batch_id: z.string().regex(COHORT_NAME),
-  membership_revision: decimal(9_223_372_036_854_775_807n, true),
-  membership_digest: z.string().regex(HEX64),
-  membership_changed_at: millisecondTime
-}).strict();
-const v4VerifiedArchiveSchema = z.object({
-  schema: z.literal("mdbase-recovery-set/v4"),
-  environment: z.enum(["production", "staging"]),
-  bucket: z.string().regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9](?![\s\S])/),
-  prefix: z.string().max(128).regex(ARCHIVE_PREFIX),
-  backup_id: z.string().max(80).regex(/^[a-z0-9][a-z0-9-]{0,79}(?![\s\S])/),
-  complete_sha256: z.string().regex(HEX64),
-  manifest_sha256: z.string().regex(HEX64),
-  source_commit: z.string().regex(/^[0-9a-f]{40}(?![\s\S])/),
-  migration_batch: archiveBindingSchema,
-  archive_created_at: millisecondTime,
-  archive_completed_at: millisecondTime,
-  retention: z.object({
-    mode: z.literal("GOVERNANCE"), days: z.literal(116), retain_until: millisecondTime,
-    inventory_digest: z.string().regex(HEX64), count: decimal(18_446_744_073_709_551_615n, true)
-  }).strict()
-}).strict();
-// Opaque service IDs only: fixed private LAB infrastructure mapping, image
-// signatures/attestations and live currentness are the ONE verifier's boundary.
-// Structural decoding cannot establish those facts or open source-exclusion.
-const labRuntimeComponentSchema = z.object({
-  commit: z.string().regex(/^[0-9a-f]{40}(?![\s\S])/),
-  image_digest: z.string().regex(/^sha256:[0-9a-f]{64}(?![\s\S])/),
-  service_id: z.string().max(84).regex(/^srv-[a-z0-9]{1,80}(?![\s\S])/)
-}).strict();
-const labVerifiedArchiveSchema = v4VerifiedArchiveSchema.extend({
-  schema: z.literal("mdbase-recovery-set/lab-cohort-v1"), environment: z.literal("lab"),
-  prefix: z.string().max(128).regex(/^legacy-archive\/lab\/20[0-9]{2}\/(0[1-9]|1[0-2])\/(0[1-9]|[12][0-9]|3[01])\/[a-z0-9][a-z0-9-]{0,79}(?![\s\S])/),
-  // source_commit is Ops capture/signing source, never a guessed common runtime.
-  runtime_provenance: z.object({ connect: labRuntimeComponentSchema, hosted_provider: labRuntimeComponentSchema,
-    relay: labRuntimeComponentSchema, mcp: labRuntimeComponentSchema }).strict()
-}).strict();
-const verifiedArchiveSchema = z.union([v4VerifiedArchiveSchema, labVerifiedArchiveSchema]);
 export type ArchiveBinding = z.infer<typeof archiveBindingSchema>;
-type VerifiedBatchArchive = z.infer<typeof verifiedArchiveSchema>;
 
-/** Private CP-owned inventory only; never return account/collection lists in the header. */
-export function migrationMembershipDigest(inventory: readonly (readonly [string, readonly string[]])[]): string {
-  const accounts = new Set<string>(), collections = new Set<string>();
-  const uuid = (id: string) => UUID_CANONICAL.test(id) && id !== "00000000-0000-0000-0000-000000000000";
-  const rows = inventory.map(([account, owned]) => {
-    if (!uuid(account) || accounts.has(account)) throw new RolloutRefused("backup_missing", "Invalid batch membership.");
-    accounts.add(account);
-    const ids = owned.map((id) => {
-      if (!uuid(id) || collections.has(id)) throw new RolloutRefused("backup_missing", "Invalid hosted collection coverage.");
-      collections.add(id); return id;
-    }).sort();
-    return [account, ids] as const;
-  }).sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
-  return createHash("sha256").update("mdbase-legacy-batch-membership/v1\n", "ascii").update(JSON.stringify(rows), "utf8").digest("hex");
-}
 
 /** Structural decoding is NOT signature/retention verification; only the dedicated trusted verifier route may accept this result. */
 export function parseVerifiedBatchArchive(body: unknown): VerifiedBatchArchive {
@@ -158,13 +106,13 @@ async function archiveClock(client: DatabaseQueryable): Promise<string> {
 }
 
 /** Caller holds this transaction's batch lock through inventory/currentness checks. */
-async function readArchiveBinding(client: DatabaseQueryable, name: string): Promise<{ binding: ArchiveBinding; frozenAt: string }> {
+async function readCohortBinding(client: DatabaseQueryable, name: string, requireFrozen: boolean): Promise<{ binding: ArchiveBinding; frozenAt: string | null; memberCount: number; inventory: [string, string[]][] }> {
   const batch = (await client.query<{ revision: string; changed: Date; frozen_at: Date | null }>(
     `SELECT membership_revision::text AS revision, membership_changed_at AS changed, frozen_at
      FROM next_migration_cohorts WHERE name = $1 FOR UPDATE`, [name]
   )).rows[0];
   if (!batch) throw new RolloutRefused("cohort_not_found", "Migration cohort not found.", 404);
-  if (batch.frozen_at === null) throw new RolloutRefused("backup_missing", "Migration topology must be frozen before archive capture.");
+  if (requireFrozen && batch.frozen_at === null) throw new RolloutRefused("backup_missing", "Migration topology must be frozen before archive capture.");
   const members = (await client.query<{ account: string; collection: string | null }>(
     `SELECT m.account_id::text AS account, h.id::text AS collection
      FROM next_migration_cohort_members m
@@ -183,7 +131,42 @@ async function readArchiveBinding(client: DatabaseQueryable, name: string): Prom
     membership_changed_at: new Date(batch.changed).toISOString()
   });
   if (!binding.success) throw new RolloutRefused("backup_missing", "Invalid current batch binding.");
-  return { binding: binding.data, frozenAt: new Date(batch.frozen_at).toISOString() };
+  return { binding: binding.data, frozenAt: batch.frozen_at === null ? null : new Date(batch.frozen_at).toISOString(), memberCount: inventory.size, inventory: [...inventory] };
+}
+
+async function readArchiveBinding(client: DatabaseQueryable, name: string) {
+  const current = await readCohortBinding(client, name, true);
+  if (current.frozenAt === null) throw new Error("Frozen cohort binding invariant failed.");
+  return { ...current, frozenAt: current.frozenAt };
+}
+
+/** Pre-acceptance inventory DATA only; never source/fence/restore permission. */
+async function cohortCaptureSnapshot(db: DatabasePool, name: string, environment: string | undefined, zeroHostedOnly = false) {
+  if (localBuild() ? environment !== "local" || !zeroHostedOnly : environment !== "staging" && environment !== "production" && environment !== "lab") {
+    throw new RolloutRefused("capture_unavailable", "The environment capture view is unavailable.", 503);
+  }
+  return inTransaction(db, async client => {
+    await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+    await client.query("SET LOCAL statement_timeout = '5s'");
+    return readCohortCaptureSnapshot(client, name, zeroHostedOnly);
+  });
+}
+
+/** Metadata projection inside a caller's bounded transaction. No provider I/O.
+ * Caller sets isolation before reads; this helper retains the original cohort lock. */
+export async function readCohortCaptureSnapshot(client: DatabaseQueryable, name: string, zeroHostedOnly = false) {
+  const current = await readCohortBinding(client, name, zeroHostedOnly);
+  if (zeroHostedOnly && !isCompleteZeroHostedInventory(current.inventory)) {
+    throw new RolloutRefused("backup_missing", "A complete frozen cohort with no held hosted collections is required.");
+  }
+  const refuse = (): never => { throw new RolloutRefused("capture_unavailable", "No complete bounded capture inventory.", 503); };
+  const project = captureProjection(name, current, refuse);
+  const records = new Map((await client.query<{ account: string; suspended: boolean; terminal_excluded_at: Date | null }>(
+    `SELECT u.id::text AS account, u.suspended_at IS NOT NULL AS suspended, m.terminal_excluded_at
+     FROM users u JOIN next_migration_cohort_members m ON m.account_id=u.id WHERE m.cohort=$1`, [name])).rows.map(row => [row.account, row]));
+  const observations = [];
+  for (const [account] of current.inventory) observations.push({ view: await accountMigrationView(client, account), record: records.get(account) });
+  return project(observations, await archiveClock(client));
 }
 
 export async function cohortArchiveBinding(db: DatabasePool, name: string): Promise<ArchiveBinding> {
@@ -194,12 +177,17 @@ export async function cohortArchiveBinding(db: DatabasePool, name: string): Prom
 export async function acceptCohortArchive(db: DatabasePool, name: string, body: unknown, environment: string | undefined): Promise<{ accepted_at: string }> {
   const result = parseVerifiedBatchArchive(body);
   const acceptance = await inTransaction(db, async (client) => {
-    const { binding, frozenAt } = await readArchiveBinding(client, name);
+    const { binding, frozenAt, memberCount, inventory } = await readArchiveBinding(client, name);
+    if (result.schema === ZERO_HOSTED_ARCHIVE_SCHEMA && !isCompleteZeroHostedInventory(inventory)) {
+      throw new RolloutRefused("backup_missing", "Zero-hosted archive does not cover the current hosted inventory.");
+    }
+    if (memberCount === 0) throw new RolloutRefused("backup_missing", "A nonempty frozen migration cohort is required.");
     if (Date.parse(result.archive_created_at) < Date.parse(frozenAt)) {
       throw new RolloutRefused("backup_missing", "Archive capture must follow the topology freeze.");
     }
     const now = await archiveClock(client);
     requireFreshBatchArchive(result, binding, now, now, environment ?? "");
+    if (result.schema === SCOPED_HOSTED_ARCHIVE_SCHEMA) requireScopedArchiveCoverage(await readCohortCaptureSnapshot(client, name), result);
     const old = (await client.query<{ verified_result: unknown; accepted_at: Date }>(
       `SELECT verified_result, accepted_at FROM next_migration_archive_acceptances
        WHERE cohort = $1 AND membership_revision = $2::bigint`, [name, binding.membership_revision]
@@ -226,19 +214,98 @@ export async function acceptCohortArchive(db: DatabasePool, name: string, body: 
   return acceptance;
 }
 
-async function requireCurrentCohortArchive(client: DatabaseQueryable, name: string, environment: string | undefined): Promise<void> {
-  const { binding, frozenAt } = await readArchiveBinding(client, name);
+export async function requireCurrentCohortArchive(client: DatabaseQueryable, name: string, environment: string | undefined) {
+  const { binding, frozenAt, memberCount, inventory } = await readArchiveBinding(client, name);
+  if (memberCount === 0) throw new RolloutRefused("backup_missing", "A nonempty frozen migration cohort is required.");
   const accepted = (await client.query<{ verified_result: unknown; accepted_at: Date }>(
     `SELECT verified_result, accepted_at FROM next_migration_archive_acceptances
      WHERE cohort = $1 AND membership_revision = $2::bigint`, [name, binding.membership_revision]
   )).rows[0];
   if (!accepted) throw new RolloutRefused("backup_missing", "A verified current batch archive is required.");
   const result = parseVerifiedBatchArchive(accepted.verified_result);
+  if (result.schema === ZERO_HOSTED_ARCHIVE_SCHEMA && !isCompleteZeroHostedInventory(inventory)) {
+    throw new RolloutRefused("backup_missing", "Zero-hosted archive does not cover the current hosted inventory.");
+  }
   if (Date.parse(result.archive_created_at) < Date.parse(frozenAt)) {
     throw new RolloutRefused("backup_missing", "Archive capture must follow the current topology freeze.");
   }
   requireFreshBatchArchive(result, binding,
     new Date(accepted.accepted_at).toISOString(), await archiveClock(client), environment ?? "");
+  if (result.schema === SCOPED_HOSTED_ARCHIVE_SCHEMA) requireScopedArchiveCoverage(await readCohortCaptureSnapshot(client, name), result);
+  return { binding, frozenAt, inventory, archive: {
+    accepted_at: new Date(accepted.accepted_at).toISOString(), verified_result: result
+  } };
+}
+
+const receivingUnavailable = () => new RolloutRefused("receiving_unavailable", "No complete bounded receiving snapshot.", 503);
+
+/** All reads share the caller's repeatable-read snapshot; no user/hosted row
+ * locks after the batch lock, and no bulk DTO enters native completion. */
+async function buildReceivingSnapshot(client: DatabaseQueryable, current: Awaited<ReturnType<typeof requireCurrentCohortArchive>>) {
+  const inventory = current.inventory;
+  if (inventory.length === 0 || inventory.length > 1000 || inventory.reduce((n, [, ids]) => n + ids.length, 0) > 1000) throw receivingUnavailable();
+  const members = [];
+  const allCutovers: ReturnType<typeof serializeCollectionMigrationRecord>[] = [];
+  let complete = true;
+  for (const [account, held] of inventory) {
+    const view = await accountMigrationView(client, account);
+    if (!view || view.cohort !== current.binding.batch_id || view.hosted_collections.join() !== held.join()) throw receivingUnavailable();
+    const recorded = (await client.query<{ suspended: boolean; started_at: Date | null; terminal_excluded_at: Date | null }>(
+      `SELECT u.suspended_at IS NOT NULL AS suspended, m.started_at, m.terminal_excluded_at
+       FROM users u JOIN next_migration_cohort_members m ON m.account_id=u.id
+       WHERE u.id=$1 AND m.cohort=$2`, [account, current.binding.batch_id]
+    )).rows[0];
+    if (!recorded || view.started !== (recorded.started_at !== null) || view.terminal_excluded !== (recorded.terminal_excluded_at !== null)) throw receivingUnavailable();
+    const rows = (await client.query<{
+      collection_id: string; s_final: string; cutover_seq: string; barrier_f: string; final_digest: string; cutover_at: Date;
+      runtime: string | null; sync: string | null; left_sync_at: Date | null; quarantined_at: Date | null;
+    }>(
+      `SELECT n.collection_id::text, n.s_final::text, n.cutover_seq::text, n.barrier_f::text, n.final_digest, n.cutover_at,
+              x.runtime, x.sync, x.left_sync_at, h.quarantined_at
+       FROM next_migration_collections n JOIN hosted_collections h
+         ON h.id=n.collection_id AND h.user_id=n.account_id AND h.authority_state<>'transferred'
+       LEFT JOIN next_collections x ON x.collection_id=n.collection_id AND x.owner_user_id=n.account_id
+       WHERE n.account_id=$1 ORDER BY n.collection_id`, [account]
+    )).rows;
+    const cutovers = rows.map(row => serializeCollectionMigrationRecord(row.collection_id, row));
+    if (cutovers.map(c => c.collection_id).join() !== view.cut_over_collections.join()
+        || cutovers.some(c => !held.includes(c.collection_id))) throw receivingUnavailable();
+    const settled = view.unsettled_collections.length === 0 && held.join() === cutovers.map(c => c.collection_id).join()
+      && rows.every(row => row.runtime === "next" && row.sync === "cloud_copy" && row.left_sync_at === null && row.quarantined_at === null);
+    complete &&= settled;
+    allCutovers.push(...cutovers);
+    const stored = (await client.query<{ collections: string[]; evidence_digest: string; flipped_at: Date }>(
+      "SELECT collections::text[], evidence_digest, flipped_at FROM next_migration_account_flips WHERE account_id=$1", [account]
+    )).rows[0];
+    let flip = null;
+    if (stored) {
+      // CURRENT held set, not proof this invocation originally sent/received POST.
+      if (view.backend !== "next" || !settled || [...stored.collections].sort().join() !== held.join()
+          || stored.collections.length !== held.length || flipEvidenceDigest(cutovers) !== stored.evidence_digest) throw receivingUnavailable();
+      flip = { collections: [...held], evidence_digest: stored.evidence_digest, flipped_at: stored.flipped_at.toISOString() };
+    } else if (view.backend === "next") throw receivingUnavailable();
+    members.push({ view, suspended: recorded.suspended, started_at: recorded.started_at?.toISOString() ?? null,
+      terminal_excluded_at: recorded.terminal_excluded_at?.toISOString() ?? null, cutovers, flip });
+  }
+  const result = { schema: "mdbase-migration-receiving/1" as const, binding: current.binding,
+    frozen_at: current.frozenAt, archive: current.archive, members,
+    cutover_evidence_digest: complete && allCutovers.length > 0 ? flipEvidenceDigest(allCutovers) : null };
+  // Serialization bound only, not qualified PostgreSQL heap/work/throughput.
+  if (Buffer.byteLength(JSON.stringify(result), "utf8") > 1024 * 1024) throw receivingUnavailable();
+  return result;
+}
+
+/** Complete bounded service-role DATA, never a native/original-success receipt. */
+async function cohortReceivingSnapshot(db: DatabasePool, name: string, environment: string | undefined) {
+  if (environment !== "staging" && environment !== "production" && environment !== "lab") throw new RolloutRefused("receiving_unavailable", "The environment receiving view is unavailable.", 503);
+  return inTransaction(db, async client => {
+    // No hosted/user/member row locks after the batch lock: avoid inversion with
+    // effect transactions. Repeatable-read keeps every canonical read coherent;
+    // a concurrently changed locked batch raises serialization failure, not DATA.
+    await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+    await client.query("SET LOCAL statement_timeout = '5s'");
+    return buildReceivingSnapshot(client, await requireCurrentCohortArchive(client, name, environment));
+  });
 }
 
 export async function rolloutState(db: DatabaseQueryable): Promise<RolloutState> {
@@ -327,7 +394,14 @@ async function inTransaction<T>(db: DatabasePool, run: (client: DatabaseQueryabl
  * under the same lock). Idempotent once started; a started account ignores pause.
  * Internal migration preserves suspension; ordinary account access stays denied.
  */
-export async function startAccountMigration(db: DatabasePool, account: string, environment?: string): Promise<{ account_id: string; started_at: string }> {
+export async function startAccountMigration(db: DatabasePool, account: string, environment?: string, labFixture?: ArchiveBinding): Promise<{ account_id: string; started_at: string }> {
+  // Explicit tiny-LAB profile only. The operator retains ordinary all-version
+  // read-only exported bytes and exercises route-back; no archive receipt is manufactured.
+  if (labFixture) {
+    const binding = archiveBindingSchema.safeParse(labFixture);
+    if (environment !== "lab" || !binding.success) throw new RolloutRefused("invalid_request", "An exact LAB-only fixture binding is required.", 400);
+    labFixture = binding.data;
+  }
   return inTransaction(db, async (client) => {
     const user = (await client.query<{ backend: string }>(
       "SELECT account_backend AS backend FROM users WHERE id = $1 FOR UPDATE", [account]
@@ -349,16 +423,55 @@ export async function startAccountMigration(db: DatabasePool, account: string, e
       const rollout = (await client.query<{ paused: boolean }>("SELECT paused FROM next_migration_rollout WHERE singleton FOR SHARE")).rows[0];
       if (!rollout || rollout.paused) throw new RolloutRefused("migration_paused", "The migration rollout is paused.");
     }
-    // H0 currentness/freshness precedes every claim, including idempotent retries.
-    // The batch lock prevents membership/coverage changes committing until claim.
-    await requireCurrentCohortArchive(client, row.cohort, environment);
+    // Current frozen inventory precedes every claim, including retries; ordinary
+    // starts additionally require the original fresh archive. The batch lock
+    // prevents membership/coverage changes committing until claim.
+    if (labFixture) {
+      const current = await readArchiveBinding(client, row.cohort);
+      if (current.inventory.length !== 1 || current.inventory[0]![0] !== account || current.inventory[0]![1].length !== 1
+          || current.binding.batch_id !== labFixture.batch_id || current.binding.membership_revision !== labFixture.membership_revision
+          || current.binding.membership_digest !== labFixture.membership_digest || current.binding.membership_changed_at !== labFixture.membership_changed_at)
+        throw new RolloutRefused("backup_missing", "A current frozen one-account, one-hosted-collection fixture inventory is required.");
+    } else await requireCurrentCohortArchive(client, row.cohort, environment);
     if (row.started_at) return { account_id: account, started_at: new Date(row.started_at).toISOString() };
     const started = (await client.query<{ started_at: Date }>(
       "UPDATE next_migration_cohort_members SET started_at = now() WHERE account_id = $1 RETURNING started_at", [account]
     )).rows[0]!;
-    await audit(client, account, "next_migration.start", account, {});
+    const starter_reservation = (await starterReservation(client, account)).digest;
+    await audit(client, account, "next_migration.start", account,
+      labFixture ? { profile: "lab-fixture-v1", inventory: labFixture, starter_reservation } : { starter_reservation });
     return { account_id: account, started_at: new Date(started.started_at).toISOString() };
   });
+}
+
+/** The account's starter reservation (`account_onboarding`), carried unchanged
+ * through the flip: a content-free digest of every field, or null when the
+ * account has none. Locked; the start records it and the flip compares it. */
+async function starterReservation(client: DatabaseQueryable, account: string): Promise<{ digest: string | null; inFlight: boolean }> {
+  const row = (await client.query<{ starter: string; template: string; timezone: string; provisioned: string | null; claimed: string | null }>(
+    `SELECT starter_collection_id::text AS starter, template_version AS template, timezone,
+       (extract(epoch FROM provisioned_at) * 1000000)::bigint::text AS provisioned,
+       (extract(epoch FROM provisioning_started_at) * 1000000)::bigint::text AS claimed
+     FROM account_onboarding WHERE user_id = $1 FOR UPDATE`, [account]
+  )).rows[0];
+  if (!row) return { digest: null, inFlight: false };
+  const digest = createHash("sha256").update("mdbase-starter-reservation/v1\n", "ascii")
+    .update(JSON.stringify([account, row.starter, row.template, row.timezone, row.provisioned, row.claimed]), "utf8").digest("hex");
+  return { digest, inFlight: row.claimed !== null };
+}
+
+/** Re-read the starter reservation under the flip's locks: it must equal what the
+ * start recorded, and no provisioning attempt may be in flight. */
+async function requireStarterReservationUnchanged(client: DatabaseQueryable, account: string): Promise<void> {
+  const recorded = (await client.query<{ value: string | null }>(
+    `SELECT metadata->>'starter_reservation' AS value FROM audit_events
+     WHERE user_id = $1 AND event_type = 'next_migration.start' AND subject_id = $1::text AND metadata ? 'starter_reservation'`, [account]
+  )).rows;
+  const current = await starterReservation(client, account);
+  if (recorded.length !== 1 || recorded[0]!.value !== current.digest) {
+    throw new RolloutRefused("starter_reservation_changed", "The account's starter reservation changed since its migration started.");
+  }
+  if (current.inFlight) throw new RolloutRefused("starter_provisioning_in_flight", "The account's starter collection is being provisioned.");
 }
 
 /**
@@ -369,14 +482,19 @@ export async function startAccountMigration(db: DatabasePool, account: string, e
  */
 export interface CutoverFacts { s_final: number; cutover_seq: number; barrier_f: number; final_digest: string }
 
-export async function recordCollectionCutover(
-  db: DatabasePool, collection: string, facts: CutoverFacts
-): Promise<{ collection_id: string; account_id: string }> {
+function checkCutoverFacts(facts: CutoverFacts): void {
   const { s_final: sFinal, cutover_seq: cutoverSeq, barrier_f: barrierF, final_digest: finalDigest } = facts;
   if (![sFinal, cutoverSeq, barrierF].every(Number.isSafeInteger) || sFinal < 0 || cutoverSeq <= 0
       || barrierF < cutoverSeq || !HEX64.test(finalDigest)) {
     throw new RolloutRefused("invalid_request", "s_final, cutover_seq <= barrier_f and a hex final_digest are required.", 400);
   }
+}
+
+export async function recordCollectionCutover(
+  db: DatabasePool, collection: string, facts: CutoverFacts
+): Promise<{ collection_id: string; account_id: string }> {
+  const { s_final: sFinal, cutover_seq: cutoverSeq, barrier_f: barrierF, final_digest: finalDigest } = facts;
+  checkCutoverFacts(facts);
   return inTransaction(db, async (client) => {
     const owner = (await client.query<{ account: string }>(
       "SELECT user_id::text AS account FROM hosted_collections WHERE id = $1 AND authority_state = 'active'", [collection]
@@ -416,10 +534,62 @@ export async function recordCollectionCutover(
   });
 }
 
-/** The flip evidence digest: SHA-256 over the sorted `collection:barrier_f:final_digest` lines. */
-export function flipEvidenceDigest(records: readonly { collection_id: string; barrier_f: string | number; final_digest: string }[]): string {
-  const lines = records.map((r) => `${r.collection_id.toLowerCase()}:${r.barrier_f}:${r.final_digest}\n`).sort();
-  return createHash("sha256").update(lines.join("")).digest("hex");
+/** Legacy retention after cutover: the provider requires at least 90 days from
+ * its own clock, so request one more day as clock margin. Never shortened. */
+const LEGACY_RETENTION_MS = 91 * 24 * 60 * 60 * 1000;
+export type LegacyRetentionProvider = Pick<HostedProviderClient, "legacyMigrationDrain" | "legacyMigrationRetain">;
+
+/** Legacy is fenced on one provider run: drained and `migrating` before the
+ * first record, or already `migrated` when a retry follows the transition. */
+function fencedSource(source: LegacyMigrationDrain, collection: string): void {
+  const run = source.collection_id === collection && Boolean(source.migration_id) && Boolean(source.started_at);
+  const migrating = source.state === "migrating" && source.retain_until === null && source.in_flight === 0;
+  const migrated = source.state === "migrated" && source.retain_until !== null;
+  if (!run || !(migrating || migrated)) {
+    throw new RolloutRefused("migration_source_not_drained", "The legacy source is not fenced and drained.");
+  }
+}
+
+function providerUnavailable(error: unknown): unknown {
+  return error instanceof HostedProviderResponseError || error instanceof HostedProviderUnavailableError || error instanceof z.ZodError
+    ? new RolloutRefused("migration_source_unavailable", "No verified legacy provider outcome; retry the same cutover.", 503)
+    : error;
+}
+
+/**
+ * The `/cutover` route: record the cutover, then start legacy retention.
+ *
+ * 1. Read the legacy source; it must be fenced and drained (or already migrated).
+ * 2. Commit the cutover record ([`recordCollectionCutover`], idempotent).
+ * 3. Only after that commit, move legacy to `migrated` on the same provider run.
+ *
+ * Legacy is never `migrated` without a committed record. If step 3 fails or the
+ * process dies after step 2, the collection stays `migrating` (still frozen and
+ * retained) and the same cutover retried completes step 3 alone.
+ */
+export async function cutOverCollection(
+  db: DatabasePool, provider: LegacyRetentionProvider | undefined, collection: string, facts: CutoverFacts,
+  now: () => number = Date.now
+): Promise<{ collection_id: string; account_id: string }> {
+  checkCutoverFacts(facts);
+  if (!provider) throw new RolloutRefused("migration_source_unavailable", "The legacy provider is unavailable.", 503);
+  let source: LegacyMigrationDrain;
+  try { source = await provider.legacyMigrationDrain(collection, { deadline: Date.now() + 25_000 }); }
+  catch (error) { throw providerUnavailable(error); }
+  fencedSource(source, collection);
+  const recorded = await recordCollectionCutover(db, collection, facts);
+  let retained: Awaited<ReturnType<LegacyRetentionProvider["legacyMigrationRetain"]>>;
+  try {
+    retained = await provider.legacyMigrationRetain(collection, new Date(now() + LEGACY_RETENTION_MS), { deadline: Date.now() + 25_000 });
+  } catch (error) {
+    throw new RolloutRefused("legacy_retention_pending", "The cutover is recorded; retry the same cutover to start legacy retention.",
+      error instanceof HostedProviderResponseError && error.status === 409 ? 409 : 503);
+  }
+  // A different run means legacy was unfenced and fenced again in between.
+  if (retained.migration_id !== source.migration_id || retained.started_at !== source.started_at) {
+    throw new RolloutRefused("migration_source_changed", "The legacy provider run changed during cutover.");
+  }
+  return recorded;
 }
 
 /**
@@ -428,12 +598,46 @@ export function flipEvidenceDigest(records: readonly { collection_id: string; ba
  * `evidence_digest` must equal [`flipEvidenceDigest`] over their records.
  * Idempotent for the same evidence. Pause does not apply (the account started).
  */
+export interface TimerFlipGate {
+  /** The next timer service runs here (MDBASE_NEXT_TIMERS=1). */
+  enabled: boolean;
+  provider?: TimerSourceProvider;
+}
+
+const TIMER_FLIP_REFUSALS = {
+  timers_not_imported: "A hosted collection's timers have not been imported.",
+  timers_source_changed: "A hosted collection's legacy timers changed since their import; import them again.",
+  timers_identity_mismatch: "A hosted collection's imported timers no longer match their import."
+} as const;
+
+/** Fresh provider reads taken immediately before the flip transaction. Each
+ * source must be `migrated` (cutover recorded, retention started). */
+async function migratedTimerSources(gate: TimerFlipGate, collections: readonly string[]): Promise<Map<string, LegacyMigrationSource>> {
+  if (!gate.enabled) throw new RolloutRefused("next_timers_disabled", "The next timer service is not enabled; the account cannot flip.");
+  const sources = new Map<string, LegacyMigrationSource>();
+  for (const collection of collections) {
+    let source: LegacyMigrationSource;
+    try { source = await readFencedTimerSource(gate.provider, collection); } catch (error) {
+      if (error instanceof TimerImportRefused) throw new RolloutRefused(error.code, error.message, error.status);
+      throw error;
+    }
+    if (source.drain.state !== "migrated") throw new RolloutRefused("migration_source_not_migrated", "A legacy source has not moved to migrated.");
+    sources.set(collection, source);
+  }
+  return sources;
+}
+
 export async function flipAccountBackend(
-  db: DatabasePool, account: string, collections: readonly string[], evidenceDigest: string
+  db: DatabasePool, account: string, collections: readonly string[], evidenceDigest: string, timers: TimerFlipGate,
+  environment?: string
 ): Promise<{ account_id: string; backend: "next"; flipped_at: string }> {
   const named = [...new Set(collections.map((c) => c.toLowerCase()))].sort();
   if (named.length !== collections.length) throw new RolloutRefused("collections_duplicated", "A collection is named twice.");
   if (!HEX64.test(evidenceDigest)) throw new RolloutRefused("invalid_request", "A hex evidence_digest is required.", 400);
+  // An already flipped account answers its idempotent retry without timer reads:
+  // after the flip, imported timers may legitimately fire and change.
+  const current = (await db.query<{ backend: string }>("SELECT account_backend AS backend FROM users WHERE id = $1", [account])).rows[0];
+  const sources = current && current.backend !== "next" ? await migratedTimerSources(timers, named) : null;
   const result = await inTransaction(db, async (client) => {
     const user = (await client.query<{ backend: string; started: boolean | null; terminal_excluded_at: Date | null }>(
       `SELECT u.account_backend AS backend, m.started_at IS NOT NULL AS started,m.terminal_excluded_at
@@ -481,16 +685,19 @@ export async function flipAccountBackend(
     }
     const expected = flipEvidenceDigest(held.map((c) => ({ collection_id: c.id, barrier_f: c.barrier_f!, final_digest: c.final_digest! })));
     if (expected !== evidenceDigest) throw new RolloutRefused("evidence_mismatch", "The evidence digest does not match the recorded cutovers.");
-    await client.query("UPDATE users SET account_backend = 'next' WHERE id = $1", [account]);
-    const flipped = (await client.query<{ flipped_at: Date }>(
-      `INSERT INTO next_migration_account_flips (account_id, collections, evidence_digest)
-       VALUES ($1, $2::uuid[], $3) RETURNING flipped_at`, [account, named, evidenceDigest]
-    )).rows[0]!;
-    await audit(client, account, "next_migration.flip", account, { collections: named, evidence_digest: evidenceDigest });
+    await requireStarterReservationUnchanged(client, account);
+    if (!sources) throw new Error("Timer sources were not read for an unflipped account.");
+    for (const collection of held) {
+      const refusal = await timerFlipRefusal(client, account, collection.id, sources.get(collection.id)!);
+      if (refusal) throw new RolloutRefused(refusal, TIMER_FLIP_REFUSALS[refusal]);
+    }
+    const flippedAt = await recordAccountFlip(client, account, named, evidenceDigest, {
+      migration_batch: { batch_id: member.cohort, membership_revision: batch.revision }
+    });
     // Every member must have a validated final flip OR accepted terminal
     // exclusion. An excluded account never needs a witness/cutover/flip.
-    if (batch.frozen_at !== null) await completeMigrationBatch(client, member.cohort, batch.revision, batch.frozen_at);
-    return { account_id: account, backend: "next" as const, flipped_at: new Date(flipped.flipped_at).toISOString() };
+    if (batch.frozen_at !== null) await completeMigrationBatch(client, member.cohort, batch.revision, batch.frozen_at, environment);
+    return { account_id: account, backend: "next" as const, flipped_at: new Date(flippedAt).toISOString() };
   });
   await drainDeferredAccountDeletions(db);
   return result;
@@ -523,6 +730,13 @@ export async function collectionMigrationRecord(db: DatabaseQueryable, collectio
      WHERE n.collection_id=$1 AND n.account_id=$2 FOR SHARE OF n,h`, [collection, account]
   )).rows[0];
   if (!row) return null;
+  return serializeCollectionMigrationRecord(collection, row);
+}
+
+/** Shared strict DATA serializer; authorization/locking belong to each reader. */
+function serializeCollectionMigrationRecord(collection: string, row: {
+  s_final: string; cutover_seq: string; barrier_f: string; final_digest: string; cutover_at: Date;
+}) {
   const record = {
     collection_id: collection, legacy_collection_id: collection, ids_preserved: true,
     s_final: row.s_final, cutover_seq: row.cutover_seq, barrier_f: row.barrier_f,
@@ -593,29 +807,48 @@ export async function addToCohort(db: DatabasePool, name: string, accounts: read
   });
 }
 
-/** Freeze once; unfreeze is audited and forbidden after acceptance of the current revision. */
+/** Freeze once; unfreeze is audited and forbidden after completion of the
+ * current revision, or after its acceptance once any member started. An
+ * accepted zero-hosted revision that no member ever acted on is superseded:
+ * unfreeze advances the revision, so the retained immutable acceptance is no
+ * longer current and a rerun needs a new freeze, archive and acceptance. */
 export async function setCohortFrozen(db: DatabasePool, name: string, frozen: boolean, reason: string, actor: string): Promise<{ frozen_at: string | null }> {
   const by = actorOf(actor);
   if (!reason.trim() || reason.length > 500) throw new Error("A reason of 1-500 characters is required.");
   const result = await inTransaction(db, async (client) => {
-    const batch = (await client.query<{ frozen_at: Date | null; revision: string }>(
-      "SELECT frozen_at, membership_revision::text AS revision FROM next_migration_cohorts WHERE name = $1 FOR UPDATE", [name]
+    const batch = (await client.query<{ frozen_at: Date | null; revision: string; completed: boolean }>(
+      `SELECT frozen_at, membership_revision::text AS revision, completed_revision = membership_revision AS completed
+       FROM next_migration_cohorts WHERE name = $1 FOR UPDATE`, [name]
     )).rows[0];
     if (!batch) throw new RolloutRefused("cohort_not_found", "Migration cohort not found.", 404);
-    if (!frozen && (await client.query(
-      "SELECT 1 FROM next_migration_archive_acceptances WHERE cohort = $1 AND membership_revision = $2::bigint", [name, batch.revision]
-    )).rows.length) throw new RolloutRefused("migration_frozen", "Migration topology is frozen.");
+    // A completed revision (accepted archive or LAB completion) stays frozen.
+    if (!frozen && batch.completed) throw new RolloutRefused("migration_frozen", "Migration topology is frozen.");
+    const accepted = frozen ? undefined : (await client.query<{ schema: string }>(
+      "SELECT verified_result->>'schema' AS schema FROM next_migration_archive_acceptances WHERE cohort = $1 AND membership_revision = $2::bigint",
+      [name, batch.revision]
+    )).rows[0];
+    // Start locks member then cohort and re-reads currentness after this
+    // commit, so an unlocked read here cannot miss a start that then succeeds.
+    if (accepted && (accepted.schema !== ZERO_HOSTED_ARCHIVE_SCHEMA || (await client.query(
+      `SELECT 1 FROM next_migration_cohort_members m JOIN users u ON u.id = m.account_id
+       WHERE m.cohort = $1 AND (m.started_at IS NOT NULL OR m.terminal_excluded_at IS NOT NULL OR u.account_backend <> 'legacy'
+         OR EXISTS (SELECT 1 FROM next_migration_account_flips f WHERE f.account_id = u.id)) LIMIT 1`, [name]
+    )).rows.length)) throw new RolloutRefused("migration_frozen", "Migration topology is frozen.");
     if (frozen === (batch.frozen_at !== null)) return { frozen_at: batch.frozen_at === null ? null : new Date(batch.frozen_at).toISOString() };
     // Never capture a new window between committed readiness and automatic
     // erasure. The existing freeze's final-flip readiness is unaffected.
     if (frozen && (await client.query(
       "SELECT 1 FROM next_migration_deferred_account_deletions WHERE cohort=$1 AND ready_at IS NOT NULL LIMIT 1", [name]
     )).rows.length) throw new RolloutRefused("busy", "Busy; retry.");
-    const row = (await client.query<{ frozen_at: Date | null }>(
-      "UPDATE next_migration_cohorts SET frozen_at = CASE WHEN $2 THEN date_trunc('milliseconds', clock_timestamp()) ELSE NULL END,completed_at=NULL,completed_revision=NULL WHERE name = $1 RETURNING frozen_at", [name, frozen]
+    const row = (await client.query<{ frozen_at: Date | null; revision: string }>(
+      `UPDATE next_migration_cohorts SET frozen_at = CASE WHEN $2 THEN date_trunc('milliseconds', clock_timestamp()) ELSE NULL END,completed_at=NULL,completed_revision=NULL,
+         membership_revision = membership_revision + CASE WHEN $3 THEN 1 ELSE 0 END,
+         membership_changed_at = CASE WHEN $3 THEN date_trunc('milliseconds', clock_timestamp()) ELSE membership_changed_at END
+       WHERE name = $1 RETURNING frozen_at, membership_revision::text AS revision`, [name, frozen, accepted !== undefined]
     )).rows[0]!;
     await audit(client, null, frozen ? "next_migration.freeze" : "next_migration.unfreeze", null,
-      { cohort: name, membership_revision: batch.revision, actor: by, reason });
+      { cohort: name, membership_revision: batch.revision, actor: by, reason,
+        ...(accepted ? { superseded_acceptance: true, next_membership_revision: row.revision } : {}) });
     if (!frozen && batch.frozen_at !== null) await releaseDeferredDeletions(client, name, batch.revision, batch.frozen_at);
     return { frozen_at: row.frozen_at === null ? null : new Date(row.frozen_at).toISOString() };
   });
@@ -624,7 +857,11 @@ export async function setCohortFrozen(db: DatabasePool, name: string, frozen: bo
 }
 
 /** Routes for the hosted migrator: the dedicated migration token only. */
-export function registerMigrationRolloutRoutes(app: FastifyInstance, options: { db: DatabasePool; token: string; environment?: string }): void {
+export function registerMigrationRolloutRoutes(app: FastifyInstance, options: {
+  db: DatabasePool; token: string; environment?: string; provider?: LegacyRetentionProvider & TimerSourceProvider;
+  /** The next timer service runs here (MDBASE_NEXT_TIMERS=1); the flip requires it. */
+  timers?: boolean;
+}): void {
   const migrator = (request: FastifyRequest) => {
     const presented = bearerToken(request);
     return Boolean(presented) && safeEqual(presented!, options.token);
@@ -633,7 +870,7 @@ export function registerMigrationRolloutRoutes(app: FastifyInstance, options: { 
     reply.code(401).send(apiError("invalid_internal_token", "The migration token is required."));
   const refused = (reply: { code(n: number): { send(b: unknown): unknown } }, error: unknown) => {
     if (error instanceof RolloutRefused) return reply.code(error.status).send(apiError(error.code, error.message));
-    if (["55P03", "40P01", "40001"].includes(String((error as { code?: string })?.code))) return reply.code(503).send(apiError("busy", "Busy; retry."));
+    if (["55P03", "57014", "40P01", "40001"].includes(String((error as { code?: string })?.code))) return reply.code(503).send(apiError("busy", "Busy; retry."));
     throw error;
   };
   const limit = z.object({ limit: z.coerce.number().int().min(1).max(100).default(20) }).strict();
@@ -653,10 +890,21 @@ export function registerMigrationRolloutRoutes(app: FastifyInstance, options: { 
     reply.header("cache-control", "no-store");
     if (!migrator(request)) return deny(reply);
     const p = cohortParam.safeParse(request.params);
-    if (!p.success) return reply.code(400).send(apiError("invalid_request", "A canonical batch name is required."));
-    try { return await cohortArchiveBinding(options.db, p.data.name); } catch (e) { return refused(reply, e); }
+    const q = z.object({ view: z.enum(["receiving-v1", "capture-v1", "zero-hosted-v1"]).optional() }).strict().safeParse(request.query);
+    const hasBody = (request.headers["content-length"] ?? "0") !== "0" || request.headers["transfer-encoding"] !== undefined;
+    if (!p.success || !q.success || hasBody) return reply.code(400).send(apiError("invalid_request", "A canonical batch and optional receiving view, without a body, are required."));
+    try {
+      if (q.data.view === "capture-v1" || q.data.view === "zero-hosted-v1") {
+        return await cohortCaptureSnapshot(options.db, p.data.name, options.environment, q.data.view === "zero-hosted-v1");
+      }
+      return q.data.view ? await cohortReceivingSnapshot(options.db, p.data.name, options.environment)
+        : await cohortArchiveBinding(options.db, p.data.name);
+    } catch (e) { return refused(reply, e); }
   });
-  app.post("/internal/v1/next/migration/cohorts/:name/backup-accept", { bodyLimit: 4096 }, async (request, reply) => {
+  // One complete acceptance carries the digest-bound membership plus every ordered
+  // original source fence (a full cohort is ~850 accounts / ~566 fences), so it
+  // is bounded at 1 MiB; freeze and start stay at 4 KiB.
+  app.post("/internal/v1/next/migration/cohorts/:name/backup-accept", { bodyLimit: BACKUP_ACCEPT_BODY_LIMIT }, async (request, reply) => {
     reply.header("cache-control", "no-store");
     if (!migrator(request)) return deny(reply);
     const p = cohortParam.safeParse(request.params);
@@ -691,13 +939,18 @@ export function registerMigrationRolloutRoutes(app: FastifyInstance, options: { 
     if (!view) return reply.code(404).send(apiError("account_not_found", "Account not found."));
     return view;
   });
-  app.post("/internal/v1/next/migration/accounts/:id/start", async (request, reply) => {
+  app.post("/internal/v1/next/migration/accounts/:id/start", { bodyLimit: 4096 }, async (request, reply) => {
     if (!migrator(request)) return deny(reply);
     const p = idParam.safeParse(request.params);
-    if (!p.success) return reply.code(400).send(apiError("invalid_request", "An account id is required."));
-    try { return await startAccountMigration(options.db, p.data.id.toLowerCase(), options.environment); } catch (e) { return refused(reply, e); }
+    const body = z.union([z.object({}).strict(), z.object({profile:z.literal("lab-fixture-v1"),inventory:archiveBindingSchema}).strict()]).safeParse(request.body ?? {});
+    if (!p.success || !body.success) return reply.code(400).send(apiError("invalid_request", "An account id and optional exact fixture profile are required."));
+    reply.header("cache-control", "no-store");
+    try { return await startAccountMigration(options.db, p.data.id.toLowerCase(), options.environment,
+      "inventory" in body.data ? body.data.inventory : undefined); } catch (e) { return refused(reply, e); }
   });
-  app.post("/internal/v1/next/migration/collections/:id/cutover", async (request, reply) => {
+  app.post("/internal/v1/next/migration/collections/:id/cutover", {
+    config: { rateLimit: migrationServiceRateLimit(options.token, "service:migration:cutover") }
+  }, async (request, reply) => {
     if (!migrator(request)) return deny(reply);
     const p = idParam.safeParse(request.params);
     const body = z.object({
@@ -706,7 +959,7 @@ export function registerMigrationRolloutRoutes(app: FastifyInstance, options: { 
     }).strict().safeParse(request.body);
     if (!p.success || !body.success) return reply.code(400).send(apiError("invalid_request", "s_final, cutover_seq, barrier_f and final_digest are required."));
     try {
-      return await recordCollectionCutover(options.db, p.data.id.toLowerCase(), body.data);
+      return await cutOverCollection(options.db, options.provider, p.data.id.toLowerCase(), body.data);
     } catch (e) { return refused(reply, e); }
   });
   app.post("/internal/v1/next/migration/accounts/:id/flip", async (request, reply) => {
@@ -715,7 +968,8 @@ export function registerMigrationRolloutRoutes(app: FastifyInstance, options: { 
     const body = z.object({ collections: z.array(z.uuid()).max(1000), evidence_digest: z.string() }).strict().safeParse(request.body);
     if (!p.success || !body.success) return reply.code(400).send(apiError("invalid_request", "collections and evidence_digest are required."));
     try {
-      return await flipAccountBackend(options.db, p.data.id.toLowerCase(), body.data.collections, body.data.evidence_digest);
+      return await flipAccountBackend(options.db, p.data.id.toLowerCase(), body.data.collections, body.data.evidence_digest,
+        { enabled: options.timers === true, provider: options.provider }, options.environment);
     } catch (e) { return refused(reply, e); }
   });
 }

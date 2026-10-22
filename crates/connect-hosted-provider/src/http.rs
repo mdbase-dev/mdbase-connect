@@ -47,6 +47,7 @@ use crate::{
 mod accounts;
 mod authentication;
 mod authority_import_files;
+mod cutover;
 mod diagnostics;
 mod files;
 mod legacy_migration;
@@ -59,6 +60,8 @@ use authority_import_files::{
     commit_authority_import_file_upload, open_authority_import_file_upload,
     prepare_authority_import_file_part,
 };
+use cutover::explain_cutover_refusal;
+pub use cutover::ClientUpdatePolicy;
 use diagnostics::diagnostic_routes;
 use files::file_routes;
 use legacy_migration::{delete_collection, legacy_migration_routes};
@@ -80,6 +83,7 @@ pub struct AppState {
     provider: HostedProvider,
     internal_token_hash: [u8; 32],
     request_slots: Arc<Semaphore>,
+    client_update: Arc<ClientUpdatePolicy>,
 }
 
 impl AppState {
@@ -94,7 +98,14 @@ impl AppState {
             provider,
             internal_token_hash: Sha256::digest(internal_token.as_bytes()).into(),
             request_slots: Arc::new(Semaphore::new(MAX_ADMITTED_REQUESTS)),
+            client_update: Arc::new(ClientUpdatePolicy::default()),
         })
+    }
+
+    /// Where refused old clients are told to update once their collection moved.
+    pub fn with_client_update(mut self, policy: ClientUpdatePolicy) -> Self {
+        self.client_update = Arc::new(policy);
+        self
     }
 
     fn authorize_internal(&self, headers: &HeaderMap) -> ApiResult<()> {
@@ -293,6 +304,8 @@ pub fn app(state: AppState) -> Router {
             state.clone(),
             authorize_internal_request,
         ));
+    // Old clients refused on a fenced or moved collection learn why.
+    let cutover = middleware::from_fn_with_state(state.clone(), explain_cutover_refusal);
     let sync = Router::new()
         .route(
             "/v1/authorities/{collection_id}/sync/sessions",
@@ -311,14 +324,16 @@ pub fn app(state: AppState) -> Router {
             "/v1/authorities/{collection_id}/sync/mutations",
             post(mutate),
         )
-        .route_layer(middleware::from_fn(require_bearer_request));
+        .route_layer(middleware::from_fn(require_bearer_request))
+        .route_layer(cutover.clone());
     let operations = Router::new()
         .route(
             "/v1/authorities/{collection_id}/operations/{operation}",
             post(operation),
         )
-        .route_layer(middleware::from_fn(require_bearer_request));
-    let files = file_routes();
+        .route_layer(middleware::from_fn(require_bearer_request))
+        .route_layer(cutover.clone());
+    let files = file_routes().route_layer(cutover);
     let imports = Router::new()
         .route(
             "/v1/authority-imports/{import_id}/manifest",

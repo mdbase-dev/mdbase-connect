@@ -24,7 +24,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use crate::control::{CollectionState, CollectionStatus, LogLocation, Notice};
-use crate::registry::{Entry, SyncMode};
+use crate::registry::{Entry, Origin, SyncMode};
 
 /// One hosted collection.
 pub struct CollectionHost {
@@ -45,6 +45,8 @@ pub struct CollectionHost {
     telemetry_authority: Option<crate::authority::CollectionAuthority>,
     /// Pre-open diagnostic only; never serving/permission/proof authority.
     mirror_closed: Arc<std::sync::Mutex<Option<crate::takeover::mirror_driver::Diagnostic>>>,
+    /// Last allowlisted terminal incident; retained after the actor stops.
+    last_sync_failure: crate::sync_failure::Shared,
 }
 
 /// One readiness observation as a state (terminal reasons are kept).
@@ -61,6 +63,8 @@ fn readiness_of(verdict: Result<bool, &'static str>) -> Readiness {
 enum Readiness {
     /// Not yet (or a local runtime, which needs no gate).
     Pending,
+    /// Adopting the folder: generation 0 is not applied yet.
+    Adopting,
     /// Genesis applied, keyed, caught up (or verified cache while offline).
     Ready,
     /// Never: the runtime was stopped (the reason is a status reason).
@@ -112,6 +116,11 @@ pub struct HostCtx {
     pub notify: Arc<dyn Fn() + Send + Sync>,
     /// What synced collections need; `None` until the daemon is signed in.
     pub sync: Option<SyncCtx>,
+    /// An old mdbase Connect daemon is running on this device (it holds its
+    /// `daemon.lock`). Old daemons before the takeover marker check write to the
+    /// folders they served, and they take no folder host lock, so a taken-over
+    /// collection is not opened while one runs.
+    pub old_connector_running: Arc<AtomicBool>,
 }
 
 /// What a synced collection's runtime needs beyond the device identity.
@@ -127,6 +136,9 @@ pub struct SyncCtx {
     pub trust: Option<Arc<crate::trust::Trust>>,
 }
 
+/// Status reason: a taken-over collection is closed while an old connector runs.
+pub const OLD_CONNECTOR_RUNNING: &str = "old_connector_running";
+
 /// A failed background open that never touched user files: Connect refused.
 const INELIGIBLE: &str = "ineligible: ";
 /// A failed background open of a never-opened collection while Connect was unreachable.
@@ -136,6 +148,11 @@ impl CollectionHost {
     /// Start hosting `entry`. Never touches the collection's files beyond a `stat`
     /// of its root.
     pub fn open(entry: Entry, ctx: Option<HostCtx>) -> CollectionHost {
+        let last_sync_failure = ctx.as_ref().and_then(|c| {
+            crate::sync_failure::Failure::load(&c.collections_dir.join(&entry.id))
+                .ok()
+                .flatten()
+        });
         let mut host = CollectionHost {
             entry,
             state: CollectionState::Opening,
@@ -149,6 +166,7 @@ impl CollectionHost {
             ready: Arc::new(std::sync::Mutex::new(Readiness::Pending)),
             telemetry_authority: None,
             mirror_closed: Arc::new(std::sync::Mutex::new(None)),
+            last_sync_failure: Arc::new(std::sync::Mutex::new(last_sync_failure)),
         };
         host.refresh();
         host
@@ -195,6 +213,24 @@ impl CollectionHost {
         let pins = sync.as_ref().map(|s| s.policy_pins.clone());
         let account = authority.active_account().map(|a| a.0);
         let u = |s: &str| crate::attest::uuid_bytes(s).ok_or_else(|| format!("bad uuid {s}"));
+        // A synced collection with an adopt journal adopts its folder on open
+        // until the base is applied (the readiness watch then removes the journal).
+        let journal = crate::adopt::Journal::path(&ctx.collections_dir, &self.entry.id);
+        let adopt = match &sync {
+            None => None,
+            Some(_) => crate::adopt::Journal::load(&journal)
+                .map_err(|e| format!("adopt journal: {e}"))?
+                .map(|j| j.plan()),
+        };
+        let journal = adopt.is_some().then_some(journal);
+        let id_hints = match (&self.entry.origin, ctx.collections_dir.parent()) {
+            (crate::registry::Origin::MigratedLocal, Some(state))
+                if sync.is_none() || adopt.is_some() =>
+            {
+                crate::adopt::legacy_hints(state, &self.entry.id)
+            }
+            _ => Vec::new(),
+        };
         let cfg = crate::runtime::RuntimeConfig {
             collection: u(&self.entry.id)?,
             replica_id: u(&self.entry.replica_id)?,
@@ -202,6 +238,8 @@ impl CollectionHost {
             root: self.entry.root.clone(),
             private_dir: ctx.collections_dir.join(&self.entry.id),
             sync,
+            adopt,
+            id_hints,
         };
         let secrets = mdbn_replica::DeviceSecrets {
             sign_sk: *ctx.identity.sign_seed(),
@@ -220,6 +258,8 @@ impl CollectionHost {
         self.ready = ready.clone();
         let (fill, notify, id) = (slot.clone(), ctx.notify.clone(), self.entry.id.clone());
         let mirror_closed = self.mirror_closed.clone();
+        let (last_sync_failure, failure_dir) =
+            (self.last_sync_failure.clone(), cfg.private_dir.clone());
         if let Ok(mut closed) = mirror_closed.lock() {
             *closed = None;
         }
@@ -286,19 +326,54 @@ impl CollectionHost {
                     // watched separately and never holds the opener.
                     if synced && let (Ok(rt), Some(handle)) = (&r, &handle) {
                         let (rt, ready, cancel, notify) = (rt.clone(), ready.clone(), cancel.clone(), notify.clone());
+                        let (id, journal) = (id.clone(), journal.clone());
+                        let (last_sync_failure, failure_dir) = (last_sync_failure.clone(), failure_dir.clone());
                         handle.spawn(async move {
                             // Maintained for the runtime's life, not latched at the
                             // first Ready: a reconnect or a missing key returns it to
                             // opening, a terminal verdict stops it for good.
                             let mut last = Readiness::Pending;
+                            let mut journal = journal;
                             loop {
                                 if cancel.load(Ordering::SeqCst) {
                                     return;
                                 }
-                                let Some((s, caught_up)) = rt.readiness().await else {
+                                let Some((s, caught_up, adopt)) = rt.readiness().await else {
                                     return; // stopped
                                 };
-                                let now = readiness_of(crate::runtime::synced_ready(&s, caught_up, offline));
+                                let now = match &adopt {
+                                    Some(mdbn_replica::AdoptStatus::Pending) => Readiness::Adopting,
+                                    Some(mdbn_replica::AdoptStatus::Failed(_)) => {
+                                        tracing::error!(collection = %id, "adopt failed");
+                                        Readiness::Failed("adopt_failed")
+                                    }
+                                    _ => {
+                                        // Applied: later opens are ordinary.
+                                        if let Some(path) = &journal {
+                                            match crate::adopt::Journal::remove(path) {
+                                                Ok(()) => journal = None,
+                                                Err(e) => tracing::warn!(collection = %id, error = %e, "adopt journal not removed"),
+                                            }
+                                        }
+                                        readiness_of(crate::runtime::synced_ready(&s, caught_up, offline))
+                                    }
+                                };
+                                if let Readiness::Failed(_) = now
+                                    && let Some(failure) = crate::sync_failure::Failure::project(&s, &adopt)
+                                {
+                                    crate::sync_failure::retain_and_stop(
+                                        &last_sync_failure,
+                                        &failure_dir,
+                                        failure,
+                                        || {
+                                            *ready.lock().unwrap_or_else(|e| e.into_inner()) = now;
+                                            notify();
+                                        },
+                                        rt.stop(),
+                                    ).await;
+                                    notify(); // persisted=true/false is now final
+                                    return;
+                                }
                                 if now != last {
                                     if let Ok(mut g) = ready.lock() {
                                         *g = now;
@@ -360,6 +435,8 @@ impl CollectionHost {
             (CollectionState::Opening, None) // see current()
         } else if self.ctx.is_none() {
             (CollectionState::Unavailable, Some("runtime_pending"))
+        } else if self.blocked_by_old_connector() {
+            (CollectionState::Unavailable, Some(OLD_CONNECTOR_RUNNING))
         } else if self.entry.mode != SyncMode::Local {
             match self.start_synced() {
                 Ok(()) => (CollectionState::Opening, None),
@@ -383,6 +460,15 @@ impl CollectionHost {
         };
         self.state = state;
         self.reason = reason.map(str::to_string);
+    }
+
+    /// Whether a running old connector keeps this taken-over collection closed.
+    pub fn blocked_by_old_connector(&self) -> bool {
+        self.entry.origin == Origin::MigratedLocal
+            && self
+                .ctx
+                .as_ref()
+                .is_some_and(|c| c.old_connector_running.load(Ordering::SeqCst))
     }
 
     /// Link and start a synced collection, or say why not (a status reason).
@@ -484,6 +570,7 @@ impl CollectionHost {
             (CollectionState::Opening, Some(Some(Ok(_)))) => match self.ready.lock().map(|g| *g) {
                 Ok(Readiness::Ready) => (CollectionState::Ready, None),
                 Ok(Readiness::Failed(reason)) => (CollectionState::Failed, Some(reason.into())),
+                Ok(Readiness::Adopting) => (CollectionState::Opening, Some("adopting".into())),
                 _ => (CollectionState::Opening, None),
             },
             (CollectionState::Opening, Some(Some(Err(e)))) if e.starts_with(INELIGIBLE) => (
@@ -618,6 +705,16 @@ impl CollectionHost {
                     .into(),
             });
         }
+        if self.reason.as_deref() == Some(OLD_CONNECTOR_RUNNING) {
+            notices.push(Notice {
+                code: OLD_CONNECTOR_RUNNING.into(),
+                message: "The old mdbase Connect is running on this computer and could still \
+                          change this folder, so mdbase has stopped using it. Quit mdbase \
+                          Connect (including its menu-bar or tray icon) or update it; mdbase \
+                          resumes on its own."
+                    .into(),
+            });
+        }
         if self.reason.as_deref() == Some("folder_missing") {
             notices.push(Notice {
                 code: "folder_missing".into(),
@@ -630,6 +727,7 @@ impl CollectionHost {
         CollectionStatus {
             id: e.id.clone(),
             name: e.name.clone(),
+            description: e.description.clone(),
             root: e.root.clone(),
             mode: e.mode,
             origin: e.origin,
@@ -637,6 +735,11 @@ impl CollectionHost {
             state: self.current().0,
             reason: self.current().1,
             sync: None,
+            last_sync_failure: self
+                .last_sync_failure
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone(),
             other_devices_online: self.other_devices_online,
             notices,
         }

@@ -85,6 +85,41 @@ const DEFINITION_MANAGE_OPERATIONS = [
 ];
 const SETUP_OPERATIONS = ["assess_collection_setup", "apply_collection_setup"];
 
+// Exercise real Helmet/static HTML responses from a separate app origin, without
+// cookies or approval mutations. The browser remains the existing ONE instance.
+async function verifyApprovalPopupOpener(browser) {
+  const parent = createServer((_request, response) => {
+    response.setHeader("content-type", "text/html");
+    response.setHeader("cross-origin-opener-policy", "unsafe-none");
+    response.end('<button onclick="window.reference=window.open(window.target,\'approval\')">Sign in</button>');
+  });
+  await new Promise((done) => parent.listen(0, "127.0.0.1", done));
+  const origin = `http://127.0.0.1:${parent.address().port}`;
+  const id = "00000000-0000-4000-8000-000000000001";
+  const context = await browser.newContext();
+  try {
+    for (const path of [`/pair/${id}`, `/authorize/${id}`, "/device", `/login?return_to=${encodeURIComponent(`${serverUrl}/pair/${id}`)}`]) {
+      const page = await context.newPage();
+      await page.goto(origin);
+      await page.evaluate((target) => { window.target = target; }, `${serverUrl}${path}`);
+      const opened = page.waitForEvent("popup");
+      await page.getByRole("button", { name: "Sign in" }).click();
+      const popup = await opened;
+      await popup.waitForLoadState("load");
+      await page.waitForTimeout(750);
+      if (await page.evaluate(() => window.reference.closed)) throw new Error(`approval popup lost its original WindowProxy: ${path}`);
+      if (!await popup.evaluate(() => window.opener !== null)) throw new Error(`approval popup lost its opener: ${path}`);
+      const closed = popup.waitForEvent("close");
+      await page.evaluate(() => window.reference.close());
+      await closed; await page.close();
+    }
+    console.log("Real HTTP approval popup opener retained/parent-close PASS (750ms, four routes).");
+  } finally {
+    await context.close();
+    await new Promise((done) => parent.close(done));
+  }
+}
+
 class MemoryStorage {
   values = new Map();
   get length() { return this.values.size; }
@@ -129,6 +164,7 @@ try {
   const applicationKey = initialAuthorization.grantKey;
 
   onboardingBrowser = await chromium.launch({ headless: true });
+  await verifyApprovalPopupOpener(onboardingBrowser);
   onboardingContext = await onboardingBrowser.newContext();
   const cookieSeparator = cookie.indexOf("=");
   await onboardingContext.addCookies([{

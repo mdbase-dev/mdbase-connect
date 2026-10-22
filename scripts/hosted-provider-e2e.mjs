@@ -29,6 +29,7 @@ import {
 import { availableTcpPort, delay } from "./lib/test-runtime.mjs";
 import { retryProviderDatabaseRequest } from "./lib/provider-database-retry.mjs";
 import { portableHostedFileE2E } from "./system/provider/portable-hosted-file.mjs";
+import { nodeHostedDeviceE2E } from "./system/provider/node-hosted-device.mjs";
 import { extensionOriginRecoveryE2E } from "./system/provider/extension-origin-recovery.mjs";
 import { portalLifecycleE2E } from "./system/provider/portal-lifecycle.mjs";
 import {
@@ -2228,6 +2229,8 @@ schema:
     repoRoot,
     controlRequest
   });
+  phase("creating and reading through a real Node device-flow SDK without Origin");
+  await nodeHostedDeviceE2E({ controlUrl, cookie, collectionId: genericCollectionId, controlRequest });
 
   assert.equal(
     (

@@ -166,7 +166,12 @@ fn step(steps: &mut u64) -> Result<(), EvaluationFailure> {
 fn output_bytes(row: &BasesProjectedRow, steps: &mut u64) -> Result<u64, EvaluationFailure> {
     step(steps)?;
     let mut bytes = 128u64;
-    for value in row.sort.iter().chain(row.group.iter()) {
+    for value in row
+        .sort
+        .iter()
+        .chain(row.group.iter())
+        .chain(&row.summary_inputs)
+    {
         bytes = add(bytes, value_bytes(value, 1, steps)?)?;
     }
     for cell in &row.cells {

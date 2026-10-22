@@ -1,6 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+// Reuse the protocol schema-test compiler; no additional product dependency.
+const require=createRequire(new URL('../../packages/protocol/package.json',import.meta.url));
+const Ajv2020=require('ajv/dist/2020.js').default;
+const addFormats=require('ajv-formats').default;
+const ajv=new Ajv2020({allErrors:true,strict:true});addFormats(ajv);
+const validateSchema=ajv.compile(JSON.parse(readFileSync(new URL('../../config/release-trust-bundle.schema.json',import.meta.url),'utf8')));
 import { buildTrustBundle, validateTrustBundle } from './release-trust-bundle.mjs';
 const source = { repository: 'mdbase-dev/mdbase-connect', commit: 'a'.repeat(40), version: '0.1.0-beta.129' };
 const release = { schemaVersion:1, repository:source.repository, commit:source.commit, version:source.version,
@@ -30,7 +38,25 @@ for(const [name,edit]of Object.entries({
 test('builder derives binding from asset bytes, refuses release mismatch',()=>{
  const x=input();x.assetBytes=Buffer.from(JSON.stringify({...asset,source:{...source,commit:'c'.repeat(40)}}));assert.throws(()=>buildTrustBundle(x));
 });
-test('rejects invalid UTF8 and unapproved publisher environment',()=>{
+test('staging inventory binds only its environment-specific path; publication remains outside this validator',()=>{
+ const x=input();x.assetBytes=Buffer.from(JSON.stringify({...asset,environment:'staging',control_plane_origin:'https://stage.example'}));
+ const m=buildTrustBundle(x);assert.equal(m.trustAssets[0].path,'next-trust/staging.json');validateTrustBundle(m);
+ for(const edit of [a=>a.path='next-trust/lab.json',a=>a.environment='lab',a=>a.environment='production']){
+  const bad=structuredClone(m);edit(bad.trustAssets[0]);assert.throws(()=>validateTrustBundle(bad));
+ }
+});
+test('closed JSON Schema agrees with every fixed environment/path pair and rejects crossover',()=>{
+ for(const environment of ['lab','staging','production']){
+  const x=input();x.assetBytes=Buffer.from(JSON.stringify({...asset,environment,control_plane_origin:environment==='production'?'https://connect.mdbase.dev':asset.control_plane_origin}));const m=buildTrustBundle(x);
+  assert.equal(validateSchema(m),true,JSON.stringify(validateSchema.errors));
+  for(const edit of [a=>a.path=`next-trust/${environment==='lab'?'staging':'lab'}.json`,a=>a.environment=environment==='lab'?'staging':'lab',a=>a.environment='unknown',a=>a.extra=true]){
+   const bad=structuredClone(m);edit(bad.trustAssets[0]);assert.equal(validateSchema(bad),false);
+  }
+ }
+});
+test('rejects invalid UTF8, unapproved environment and nonproduction CP',()=>{
  const x=input();x.assetBytes=Buffer.from([255]);assert.throws(()=>buildTrustBundle(x));
- x.assetBytes=Buffer.from(JSON.stringify({...asset,environment:'staging'}));assert.throws(()=>buildTrustBundle(x));
+ for (const environment of ['unknown','production']) {
+  x.assetBytes=Buffer.from(JSON.stringify({...asset,environment}));assert.throws(()=>buildTrustBundle(x));
+ }
 });

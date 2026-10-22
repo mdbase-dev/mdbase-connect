@@ -33,6 +33,7 @@ fn registration() -> Entry {
         replica_id: GRANT.into(),
         mode: SyncMode::Local,
         origin: Origin::Created,
+        description: None,
         added_at_ms: 0,
         paused: false,
         ever_e2e: false,
@@ -63,10 +64,11 @@ fn fixture() -> (Authority, CollectionAuthority, AccessList) {
         capabilities: vec![capability::READ.into()],
         folders: Some(vec!["Photos".into()]),
         legacy_only: false,
+        declared_setup: None,
     };
     let mut access = AccessList::default();
     let now = crate::fsutil::now_ms() as u64;
-    access.sync_from_control_plane(COLLECTION, &[cached], now, now + 60_000);
+    access.sync_from_control_plane(COLLECTION, &[cached], now, now + 60_000, false);
     authority.publish_access(&access);
     let source = authority.source(account_id(COLLECTION).unwrap()).unwrap();
     (authority, source, access)

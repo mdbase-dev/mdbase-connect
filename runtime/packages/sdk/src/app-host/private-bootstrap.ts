@@ -1,5 +1,6 @@
 /** First-party DEVICE-phase private bootstrap. Fixed domains/routes, one explicit
  * attempt. Authenticated response metadata is NOT native policy/keyed/readiness. */
+import { LOCAL_APPLICATION_BUILD, localApplicationHttpOrigin } from "../application/local-build.js";
 import { uuidToBytes } from "../codec.js";
 import { collectionDisplayName } from "./collection-display-name.js";
 import type { AppWasmRuntime, AppPrivateCollectionPin, AppPrivateEnrolOperationMarker, AppDeviceRegistrationReceipt } from "./wasm-runtime.js";
@@ -59,7 +60,7 @@ export class AppCpPrivateBootstrap {
    if(!this.current())throw fail("binding");
   }catch{runtime.retireLog();throw fail("binding");}
  }
- private origin(raw:string):string {const u=new URL(raw);if(u.username||u.password||u.pathname!=="/"||u.search||u.hash||(u.protocol!=="https:"&&!(this.options.allowLoopbackHttp===true&&u.protocol==="http:"&&["localhost","127.0.0.1","[::1]"].includes(u.hostname))))throw fail("binding");return u.origin;}
+ private origin(raw:string):string {const u=new URL(raw);if(u.username||u.password||u.pathname!=="/"||u.search||u.hash||(u.protocol!=="https:"&&!(this.options.allowLoopbackHttp===true&&u.protocol==="http:"&&(LOCAL_APPLICATION_BUILD ? localApplicationHttpOrigin(raw) : ["localhost","127.0.0.1","[::1]"].includes(u.hostname)))))throw fail("binding");return u.origin;}
  private current():boolean {try{return !this.lifetime.signal.aborted&&this.runtime.privateCollectionCurrent(this.session)&&this.session.isCurrent()===true&&this.session.approvalMode==="password-ak1"&&equal(this.session.rootPublicKey,this.root)&&Object.entries(this.scope).every(([k,v])=>this.session[k as keyof AppCpPrivateSession]===v);}catch{return false;}}
  private markerCopy():AppPrivateEnrolOperationMarker {const m=this.marker;if(!m)throw fail("binding");return Object.freeze({...m,sasCommitment:new Uint8Array(m.sasCommitment),signPublicKey:new Uint8Array(m.signPublicKey),kemPublicKey:new Uint8Array(m.kemPublicKey),noisePublicKey:new Uint8Array(m.noisePublicKey)});}
  private check(signal:AbortSignal):void {if(!this.current()||signal.aborted){this.close();throw fail("fenced");}}
@@ -67,7 +68,7 @@ export class AppCpPrivateBootstrap {
   this.check(signal);const controller=new AbortController(),abort=()=>controller.abort(),timer=setTimeout(abort,15000);(timer as {unref?:()=>void}).unref?.();signal.addEventListener("abort",abort,{once:true});this.lifetime.signal.addEventListener("abort",abort,{once:true});
   const buffer=new Uint8Array(1024*1024);let count=0,reader:ReadableStreamDefaultReader<Uint8Array>|null=null,response:Response|null=null;
   try {
-   const request=this.fetchImpl;response=await request(`${this.origin(this.scope.cpOrigin)}${path}`,{method:"POST",headers:{authorization:`Bearer ${bearer}`,...(body===undefined?{}:{"content-type":"application/json"})},body,signal:controller.signal,redirect:"error",credentials:"omit",cache:"no-store",referrerPolicy:"no-referrer"});this.check(signal);if(controller.signal.aborted||!response.ok)throw fail("unavailable");
+   const request=this.fetchImpl;response=await request(`${this.origin(this.scope.cpOrigin)}${path}`,{method:"POST",headers:{authorization:`Bearer ${bearer}`,...(body===undefined?{}:{"content-type":"application/json"})},body,signal:controller.signal,redirect:"error",credentials:"omit",cache:"default",referrerPolicy:"no-referrer"});this.check(signal);if(controller.signal.aborted||!response.ok)throw fail("unavailable");
    // Wire Content-Length can describe compressed bytes; bound decoded bytes.
    const length=response.headers.get("content-length");if(length!==null&&/^(0|[1-9][0-9]*)$/.test(length)&&Number(length)>buffer.length){controller.abort();throw fail("response");}if(!response.body)throw fail("response");reader=response.body.getReader();
    for(;;){const {done,value}=await reader.read();try{this.check(signal);if(controller.signal.aborted)throw fail("unavailable");if(done)break;if(count+value.length>buffer.length){controller.abort();throw fail("response");}buffer.set(value,count);count+=value.length;}finally{value?.fill(0);}}

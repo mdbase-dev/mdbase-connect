@@ -316,15 +316,16 @@ fn discovery_codec_as_of_drift_suppresses_publication_and_handle() {
     assert!(result.is_err());
 }
 #[test]
-fn discovery_codec_readiness_drift_suppresses_publication() {
+fn discovery_codec_derived_readiness_drift_does_not_certify_or_block_primary_reads() {
     let (mut r, session) = discovery_actor(THREE);
-    assert!(
-        r.encode_bases_discovery_page(session, Some("UTC"), 1, None, |r, _, _| {
+    let output = r
+        .encode_bases_discovery_page(session, Some("UTC"), 1, None, |r, page, _| {
             r.store().ready.set(false);
-            Ok(vec![1])
+            Ok(page.views[0].revision)
         })
-        .is_err()
-    );
+        .unwrap();
+    assert_eq!(output, mdbn_wire::hash::sha256(THREE.as_bytes()));
+    assert!(!r.store().query_projection_state().unwrap().unwrap().ready);
 }
 #[test]
 fn closing_session_invalidates_native_discovery_slot() {
@@ -372,7 +373,7 @@ fn exact_source_is_native_original_bytes_and_revision_not_a_reused_path() {
     assert!(!encoded.get());
 }
 #[test]
-fn exact_source_codec_authority_or_readiness_change_is_not_published() {
+fn exact_source_codec_authority_change_refuses_but_derived_readiness_is_independent() {
     let (mut r, session) = discovery_actor(THREE);
     assert!(
         r.encode_bases_view_source(session, selection(THREE, 1), Some("UTC"), |r, _, _| {
@@ -382,13 +383,14 @@ fn exact_source_codec_authority_or_readiness_change_is_not_published() {
         .is_err()
     );
     let (mut r, session) = discovery_actor(THREE);
-    assert!(
-        r.encode_bases_view_source(session, selection(THREE, 1), Some("UTC"), |r, _, _| {
+    let original = r
+        .encode_bases_view_source(session, selection(THREE, 1), Some("UTC"), |r, source, _| {
             r.store().ready.set(false);
-            Ok(vec![1])
+            Ok(source.source.clone())
         })
-        .is_err()
-    );
+        .unwrap();
+    assert_eq!(original, THREE);
+    assert!(!r.store().query_projection_state().unwrap().unwrap().ready);
 }
 #[test]
 fn malformed_actual_source_is_visible_refusal_not_empty_catalog() {

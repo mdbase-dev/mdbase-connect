@@ -20,26 +20,30 @@
 
 mod backup;
 mod collection_closing;
+mod cors;
 mod deletion_floor;
 mod deletion_registry;
 mod destination_denial;
+mod do_location;
 mod ingress;
 mod metrics;
 mod native_r2;
+mod prekey_original;
+mod push_budget;
 mod registry_backup;
 mod restore_aux;
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
 use js_sys::{Function, Reflect, Uint8Array};
 use mdbn_log_service::auth::{
-    Claims, NonceCache, Principal, collection_from_params, http_nonce, verify_http_claims,
-    verify_token_with_budget,
+    NonceCache, Principal, VerifiedToken, collection_from_params, http_nonce, http_nonce_fresh,
+    verify_http_verified_token, verify_issuer_token_with_budget,
 };
-use mdbn_log_service::backend::Verified;
 use mdbn_log_service::backend::{Archive, Backend, Mode, ObjectStore, Txn, Write};
+use mdbn_log_service::backend::{Verified, VerifiedCopy};
 use mdbn_log_service::decode::{Budget, Usage};
 use mdbn_log_service::direct::{DownloadSpan, RangeRejection};
 use mdbn_log_service::error::{Result as LsResult, ServiceError};
@@ -127,7 +131,7 @@ fn config(env: &Env) -> Config {
 
 // Cheap authentication preflight before allocating/reading an RPC body. Full
 // possession, route/scope and replay verification still happen in the actor.
-fn rpc_preflight(req: &Request, cfg: &Config, budget: &Budget) -> LsResult<Claims> {
+fn rpc_preflight(req: &Request, cfg: &Config, budget: &Budget) -> LsResult<VerifiedToken> {
     let unauth = || ServiceError::reason(mdbn_log_service::Code::Unauthenticated, "token");
     let auth = req
         .headers()
@@ -151,7 +155,7 @@ fn rpc_preflight(req: &Request, cfg: &Config, budget: &Budget) -> LsResult<Claim
     {
         return Err(unauth());
     }
-    verify_token_with_budget(token, &cfg.token_issuers, now_ms(), budget)
+    verify_issuer_token_with_budget(token, &cfg.token_issuers, now_ms(), budget)
 }
 
 // Counters restrict resources, NOT authority. The public Worker overwrites client
@@ -272,19 +276,26 @@ pub struct DoBackend {
     storage: Storage,
     lock: Rc<async_lock::Mutex<()>>,
     ns: ObjectNamespace,
+    /// Location hint for stubs this actor creates (the registry): the default
+    /// region. Invalid placement configuration fails stub creation.
+    location: std::result::Result<Option<mdbn_log_service::placement::Region>, String>,
+    /// Physical actor ID from State, never a query, token or stored projection.
+    actor_id: String,
     /// This object is the credential registry (learned from its first request).
     is_registry: std::cell::Cell<bool>,
 }
 
 impl DoBackend {
+    pub(crate) fn registry_stub(&self) -> Result<Stub> {
+        let hint = self.location.clone().map_err(Error::RustError)?;
+        do_location::stub(&self.ns, &REGISTRY.to_uuid_string(), hint)
+    }
+
     async fn registry(&self, op: &str, device: &Uuid) -> LsResult<bool> {
         if self.is_registry.get() {
             return self.registry_local(op, device);
         }
-        let stub = self
-            .ns
-            .get_by_name(&REGISTRY.to_uuid_string())
-            .map_err(ls_err)?;
+        let stub = self.registry_stub().map_err(ls_err)?;
         let url = format!(
             "https://registry/registry/{op}?c={}&d={}",
             REGISTRY.to_uuid_string(),
@@ -439,6 +450,12 @@ impl Backend for DoBackend {
         budget: &Budget,
     ) -> LsResult<Option<mdbn_log_service::deletion::CollectionDeletionRecord>> {
         self.lookup_deletion_floor(collection, budget).await
+    }
+    // DoTxn::commit refuses every publishing write set on the registry floor
+    // (and pending Closing) under the producer lock, then re-checks the local
+    // destination denial inside the synchronous storage transaction.
+    fn fences_deletion_floor_at_commit(&self) -> bool {
+        true
     }
     async fn credentials_revoked(&self, device: &Uuid) -> LsResult<bool> {
         self.registry("check", device).await
@@ -835,15 +852,71 @@ where
 
 // ---------------------------------------------------------------- objects
 
-/// R2 object store.
+/// R2 object store. A collection's objects live in its region's bucket
+/// ([`do_location`]); a collection without a region, and an actor with no
+/// collection yet (the registry), use the original `OBJECTS` binding.
 pub struct R2Objects {
-    bucket: Bucket,
+    env: Env,
+    sql: SqlStorage,
+    placement: std::result::Result<do_location::Placement, String>,
+    /// The collection's bucket, fixed once its metadata exists (regions never change).
+    resolved: RefCell<Option<Bucket>>,
+}
+
+impl R2Objects {
+    fn bucket(&self) -> LsResult<Bucket> {
+        if let Some(b) = self.resolved.borrow().as_ref() {
+            return Ok(b.clone());
+        }
+        let placement = self.placement.as_ref().map_err(ls_err)?;
+        let rows = self
+            .sql
+            .exec_raw("SELECT meta FROM meta WHERE k = 0", vec![])
+            .map_err(ls_err)?
+            .raw()
+            .collect::<Result<Vec<_>>>()
+            .map_err(ls_err)?;
+        let Some(row) = rows.first() else {
+            return placement.bucket(&self.env, None).map_err(ls_err);
+        };
+        let region = CollectionMeta::decode(&as_bytes(&row[0]))?.region;
+        let bucket = placement.bucket(&self.env, region).map_err(ls_err)?;
+        *self.resolved.borrow_mut() = Some(bucket.clone());
+        Ok(bucket)
+    }
+
+    /// Stream `o`'s body to `to` write-once with its verification metadata.
+    async fn put_verified_new(
+        &self,
+        to: &str,
+        o: worker::Object,
+        md: std::collections::HashMap<String, String>,
+        v: &Verified,
+    ) -> LsResult<bool> {
+        let body = o.body().ok_or_else(|| ls_err("no body"))?;
+        let ResponseBody::Stream(rs) = body.response_body().map_err(ls_err)? else {
+            return Err(ls_err("no stream"));
+        };
+        let r = self
+            .bucket()?
+            .put(to, Data::ReadableStream(rs))
+            .sha256(v.checksum.0.to_vec())
+            .custom_metadata(md)
+            .only_if(Conditional {
+                etag_does_not_match: Some("*".into()),
+                ..Default::default()
+            })
+            .execute()
+            .await
+            .map_err(ls_err)?;
+        Ok(r.is_some())
+    }
 }
 
 impl ObjectStore for R2Objects {
     async fn put(&self, key: &str, bytes: Vec<u8>) -> LsResult<()> {
         let ck = sha256(&bytes).0.to_vec();
-        self.bucket
+        self.bucket()?
             .put(key, bytes)
             .sha256(ck)
             .execute()
@@ -872,7 +945,7 @@ impl ObjectStore for R2Objects {
             checksum: sha256(&bytes),
         };
         let r = self
-            .bucket
+            .bucket()?
             .put(key, bytes)
             .sha256(v.checksum.0.to_vec())
             .custom_metadata(verified_md(&v))
@@ -886,7 +959,8 @@ impl ObjectStore for R2Objects {
         Ok(r.is_some())
     }
     async fn get(&self, key: &str, range: Option<(u64, u64)>) -> LsResult<Option<Vec<u8>>> {
-        let mut g = self.bucket.get(key);
+        let bucket = self.bucket()?;
+        let mut g = bucket.get(key);
         if let Some((offset, length)) = range {
             g = g.range(Range::OffsetWithLength { offset, length });
         }
@@ -897,38 +971,43 @@ impl ObjectStore for R2Objects {
         Ok(Some(b.bytes().await.map_err(ls_err)?))
     }
     async fn delete(&self, key: &str) -> LsResult<()> {
-        self.bucket.delete(key).await.map_err(ls_err)
+        self.bucket()?.delete(key).await.map_err(ls_err)
     }
     async fn verified_meta(&self, key: &str) -> LsResult<Option<Verified>> {
-        let Some(o) = self.bucket.head(key).await.map_err(ls_err)? else {
+        let Some(o) = self.bucket()?.head(key).await.map_err(ls_err)? else {
             return Ok(None);
         };
         Ok(verified_from(&o.custom_metadata().map_err(ls_err)?))
     }
     async fn copy_new(&self, from: &str, to: &str) -> LsResult<bool> {
         // Streamed: R2 → R2 through the runtime, never buffered in wasm (D2 §2.4).
-        let Some(o) = self.bucket.get(from).execute().await.map_err(ls_err)? else {
+        let Some(o) = self.bucket()?.get(from).execute().await.map_err(ls_err)? else {
             return Err(ls_err("staged object vanished"));
         };
         let md = o.custom_metadata().map_err(ls_err)?;
         let v = verified_from(&md).ok_or_else(|| ls_err("staged object not verified"))?;
-        let body = o.body().ok_or_else(|| ls_err("no body"))?;
-        let ResponseBody::Stream(rs) = body.response_body().map_err(ls_err)? else {
-            return Err(ls_err("no stream"));
+        self.put_verified_new(to, o, md, &v).await
+    }
+    async fn copy_verified_new(
+        &self,
+        from: &str,
+        to: &str,
+        accept: impl Fn(&Verified) -> LsResult<()>,
+    ) -> LsResult<VerifiedCopy> {
+        // One GET supplies the record and the streamed body: a separate HEAD is
+        // a further R2 round trip on every direct-upload commit.
+        let Some(o) = self.bucket()?.get(from).execute().await.map_err(ls_err)? else {
+            return Ok(VerifiedCopy::Unverified);
         };
-        let r = self
-            .bucket
-            .put(to, Data::ReadableStream(rs))
-            .sha256(v.checksum.0.to_vec())
-            .custom_metadata(md)
-            .only_if(Conditional {
-                etag_does_not_match: Some("*".into()),
-                ..Default::default()
-            })
-            .execute()
-            .await
-            .map_err(ls_err)?;
-        Ok(r.is_some())
+        let md = o.custom_metadata().map_err(ls_err)?;
+        let Some(verified) = verified_from(&md) else {
+            return Ok(VerifiedCopy::Unverified);
+        };
+        if let Err(e) = accept(&verified) {
+            return Ok(VerifiedCopy::Refused(e));
+        }
+        let wrote = self.put_verified_new(to, o, md, &verified).await?;
+        Ok(VerifiedCopy::Copied { verified, wrote })
     }
 }
 
@@ -954,7 +1033,7 @@ impl Archive for R2Objects {
         // runtime, never buffered in wasm (as `copy_new`). Overwrites on retry.
         let from = object_key(collection, address);
         let to = archive_object_key(collection, tier, address);
-        let Some(o) = self.bucket.get(&from).execute().await.map_err(ls_err)? else {
+        let Some(o) = self.bucket()?.get(&from).execute().await.map_err(ls_err)? else {
             return Ok(());
         };
         let md = o.custom_metadata().map_err(ls_err)?;
@@ -962,8 +1041,8 @@ impl Archive for R2Objects {
         let ResponseBody::Stream(rs) = body.response_body().map_err(ls_err)? else {
             return Err(ls_err("no stream"));
         };
-        let mut put = self
-            .bucket
+        let bucket = self.bucket()?;
+        let mut put = bucket
             .put(&to, Data::ReadableStream(rs))
             .custom_metadata(md.clone());
         if let Some(v) = verified_from(&md) {
@@ -1007,7 +1086,23 @@ struct Attachment {
     nonce: String,
     /// `Some(inline_bytes)` when subscribed.
     sub: Option<u64>,
+    /// The hello token's expiry (ms). Past it the socket is closed with
+    /// [`CLOSE_EXPIRED`] on its next frame or push; never by a timer.
+    #[serde(default)]
+    exp: Option<i64>,
+    /// Opened with a browser `n` nonce: push only (`hello`, `subscribe`,
+    /// `unsubscribe`). Browser requests go over signed HTTPS.
+    #[serde(default)]
+    push_only: bool,
 }
+
+const PUSH_ONLY_METHODS: [&str; 3] = ["hello", "subscribe", "unsubscribe"];
+
+/// Close codes (application range). The client reconnects after `EXPIRED` with a
+/// fresh token, and never after `FORBIDDEN` or `GONE`.
+const CLOSE_EXPIRED: u16 = 4401;
+const CLOSE_FORBIDDEN: u16 = 4403;
+const CLOSE_GONE: u16 = 4410;
 
 fn principal_to(p: &Option<Principal>) -> Option<String> {
     p.map(|p| match p {
@@ -1044,7 +1139,16 @@ struct Host {
     hub: RefCell<Option<Hub>>,
     sockets: RefCell<BTreeMap<u64, WebSocket>>,
     sessions: RefCell<BTreeMap<u64, (Session, Option<u64>)>>,
+    /// Hello token expiry per socket (from attachments across hibernation).
+    expiry: RefCell<BTreeMap<u64, i64>>,
+    push_only: RefCell<BTreeSet<u64>>,
+    /// Bytes pushed per socket in its current window (backpressure).
+    budget: RefCell<push_budget::PushBudget>,
     state: State,
+}
+
+fn session_exp(s: &Session) -> Option<i64> {
+    s.verified_caller().map(|c| c.expires_at())
 }
 
 impl Host {
@@ -1066,6 +1170,12 @@ impl Host {
                         .unwrap_or([0; 32]),
                 );
                 s.principal = p;
+                if let Some(exp) = a.exp {
+                    self.expiry.borrow_mut().insert(a.id, exp);
+                }
+                if a.push_only {
+                    self.push_only.borrow_mut().insert(a.id);
+                }
                 if let Some(inline) = a.sub {
                     let dev = match p {
                         Some(Principal::Device { id, .. }) => Some(id),
@@ -1079,6 +1189,39 @@ impl Host {
             }
         }
         *self.hub.borrow_mut() = Some(hub);
+    }
+}
+
+/// A `closed` push ends the socket: `gone` or anything else (`forbidden`).
+fn closed_code(payload: &mdbn_wire::cbor::Cbor) -> (u16, &'static str) {
+    let gone = matches!(payload, mdbn_wire::cbor::Cbor::Map(m) if m.iter().any(|(k, v)| {
+        *k == mdbn_wire::cbor::Cbor::Uint(1) && *v == mdbn_wire::cbor::Cbor::Text("gone".into())
+    }));
+    if gone {
+        (CLOSE_GONE, "gone")
+    } else {
+        (CLOSE_FORBIDDEN, "forbidden")
+    }
+}
+
+impl Host {
+    /// Server-side close: leave the hub, forget the session, close the socket.
+    fn close_socket(&self, id: u64, code: u16, why: &str) {
+        let s = self.sessions.borrow_mut().remove(&id);
+        if let Some((s, _)) = s {
+            let mut pushes = Vec::new();
+            for c in &s.collections {
+                pushes.extend(self.with_hub(c, |hub| hub.disconnect(s.id)));
+            }
+            self.deliver(pushes);
+        }
+        self.expiry.borrow_mut().remove(&id);
+        self.push_only.borrow_mut().remove(&id);
+        self.budget.borrow_mut().forget(id);
+        let ws = self.sockets.borrow_mut().remove(&id);
+        if let Some(ws) = ws {
+            let _ = ws.close(Some(code), Some(why));
+        }
     }
 }
 
@@ -1100,17 +1243,81 @@ impl HubHost for Host {
         f(h.get_or_insert_with(|| Hub::new(*c)))
     }
     fn deliver(&self, pushes: Vec<Push>) {
-        let socks = self.sockets.borrow();
-        for p in pushes {
-            if let Some(ws) = socks.get(&p.to) {
+        let now = now_ms();
+        let mut close = Vec::new();
+        {
+            let socks = self.sockets.borrow();
+            let expiry = self.expiry.borrow();
+            for p in pushes {
+                let Some(ws) = socks.get(&p.to) else {
+                    continue;
+                };
+                if expiry.get(&p.to).is_some_and(|&e| e <= now) {
+                    // The token behind this subscription has expired: no more
+                    // data on it. The client reconnects with a fresh token.
+                    close.push((p.to, CLOSE_EXPIRED, "expired"));
+                    continue;
+                }
+                let terminal = (p.push.kind == "closed").then(|| closed_code(&p.push.payload));
                 let f = LsFrame::Push(p.push).to_bytes().unwrap_or_default();
+                let fallback = p
+                    .fallback
+                    .map(|h| LsFrame::Push(h).to_bytes().unwrap_or_default());
+                let verdict = self.budget.borrow_mut().admit(
+                    p.to,
+                    now,
+                    p.class,
+                    f.len() as u64,
+                    fallback.as_ref().map(|h| h.len() as u64),
+                );
+                let f = match (verdict, fallback) {
+                    (push_budget::Verdict::Send, _) => f,
+                    (push_budget::Verdict::Resync, Some(head)) => head,
+                    _ => {
+                        self.metrics.event("push", "other", "shed", "ws", 0, 1);
+                        continue;
+                    }
+                };
                 let outcome = if ws.send_with_bytes(f).is_ok() {
-                    "ok"
+                    if verdict == push_budget::Verdict::Resync {
+                        "resync"
+                    } else {
+                        "ok"
+                    }
                 } else {
                     "dropped"
                 };
                 self.metrics.event("push", "other", outcome, "ws", 0, 1);
+                if let Some((code, why)) = terminal {
+                    close.push((p.to, code, why));
+                }
             }
+        }
+        for (id, code, why) in close {
+            self.close_socket(id, code, why);
+        }
+    }
+    fn credentials_revoked(&self, device: &Uuid) {
+        // Subscribed sockets learn why (`closed`), then every socket of the
+        // device is closed by the server.
+        let pushes = self
+            .hub
+            .borrow_mut()
+            .as_mut()
+            .map(|h| h.close_devices(&[*device], "revoked"))
+            .unwrap_or_default();
+        self.deliver(pushes);
+        let ids: Vec<u64> = self
+            .sessions
+            .borrow()
+            .iter()
+            .filter(|(_, (s, _))| {
+                matches!(s.principal, Some(Principal::Device { id, .. }) if id == *device)
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            self.close_socket(id, CLOSE_FORBIDDEN, "credentials_revoked");
         }
     }
     fn committed(&self, n: &CommitNotice, items: &[(u64, Vec<u8>)]) {
@@ -1120,16 +1327,186 @@ impl HubHost for Host {
     }
 }
 
-/// One collection's log service actor.
+// The isolated profile is permanently closed until positive all-path integration.
+// Presence (even empty/malformed) is enough; never read a secret/binding value.
+fn pitr_configured(env: &Env) -> bool {
+    [
+        "LOGSVC_PITR_REQUIRED",
+        "PITR_BINDING",
+        "PITR_MINIMUM_EPOCH",
+        "PITR_PHASE",
+        "PITR_AUTHORITY_TOKEN",
+        "PITR_ESCROW_SERVICE_TOKEN",
+    ]
+    .iter()
+    .any(|key| Reflect::has(env, &JsValue::from_str(key)).unwrap_or(true))
+}
+
+fn pitr_denied() -> Result<Response> {
+    let mut response = Response::empty()?.with_status(503);
+    response.headers_mut().set("cache-control", "no-store")?;
+    Ok(response)
+}
+
+enum LogMode {
+    Closed(Box<prekey_original::ClosedOriginal>),
+    Ordinary(Box<LogActor>),
+}
+
+/// SDK actor entry: isolated missing/partial profiles cannot construct a service.
 #[durable_object]
 pub struct LogCollection {
+    mode: LogMode,
+}
+
+impl DurableObject for LogCollection {
+    fn new(state: State, env: Env) -> Self {
+        let mode = if pitr_configured(&env) {
+            // The platform accepts an omitted/undefined optional argument to
+            // remove auto-response; workers-rs' setter type omits this API case.
+            state.set_websocket_auto_response(&JsValue::UNDEFINED.unchecked_into());
+            for ws in state.get_websockets() {
+                let _ = ws.close(Some(1008), Some("PITR closed"));
+            }
+            LogMode::Closed(Box::new(prekey_original::ClosedOriginal::new(state, &env)))
+        } else {
+            LogMode::Ordinary(Box::new(LogActor::new(state, env)))
+        };
+        Self { mode }
+    }
+
+    async fn fetch(&self, req: Request) -> Result<Response> {
+        match &self.mode {
+            LogMode::Closed(_) => pitr_denied(),
+            LogMode::Ordinary(actor) => actor.fetch(req).await,
+        }
+    }
+
+    async fn alarm(&self) -> Result<Response> {
+        match &self.mode {
+            LogMode::Closed(closed) => {
+                closed.state().storage().delete_alarm().await?;
+                Response::empty()
+            }
+            // Preserve the ordinary actor's existing unsupported alarm behavior.
+            LogMode::Ordinary(_) => unimplemented!("alarm() handler"),
+        }
+    }
+
+    async fn websocket_message(
+        &self,
+        ws: WebSocket,
+        message: WebSocketIncomingMessage,
+    ) -> Result<()> {
+        match &self.mode {
+            LogMode::Closed(_) => {
+                let _ = ws.close(Some(1008), Some("PITR closed"));
+                Ok(())
+            }
+            LogMode::Ordinary(actor) => actor.websocket_message(ws, message).await,
+        }
+    }
+
+    async fn websocket_close(
+        &self,
+        ws: WebSocket,
+        code: usize,
+        reason: String,
+        clean: bool,
+    ) -> Result<()> {
+        match &self.mode {
+            LogMode::Closed(_) => Ok(()),
+            LogMode::Ordinary(actor) => actor.websocket_close(ws, code, reason, clean).await,
+        }
+    }
+
+    async fn websocket_error(&self, ws: WebSocket, error: Error) -> Result<()> {
+        match &self.mode {
+            LogMode::Closed(_) => {
+                let _ = ws.close(Some(1008), Some("PITR closed"));
+                Ok(())
+            }
+            LogMode::Ordinary(actor) => actor.websocket_error(ws, error).await,
+        }
+    }
+}
+
+// Private SDK callbacks only; no Worker route or ordinary service permission.
+// These exports are denial-only until the actual CLOSED nonce/caller producer
+// exists. Constructor/physical checks must not mint a replacement witness.
+#[wasm_bindgen]
+impl LogCollection {
+    #[wasm_bindgen(js_name = prekeyBegin)]
+    pub async fn prekey_begin(
+        &self,
+        request: worker::worker_sys::web_sys::Request,
+    ) -> std::result::Result<Uint8Array, JsValue> {
+        match &self.mode {
+            LogMode::Closed(closed) => closed.begin(request).await,
+            LogMode::Ordinary(_) => Err(JsValue::from_str("prekey_context_refused")),
+        }
+    }
+
+    #[wasm_bindgen(js_name = prekeyAccept)]
+    pub fn prekey_accept(
+        &self,
+        handle: f64,
+        envelope: Uint8Array,
+    ) -> std::result::Result<(), JsValue> {
+        self.prekey_require_caller()?;
+        let handle = prekey_handle(handle)?;
+        match &self.mode {
+            LogMode::Closed(closed) => closed.accept(handle, envelope),
+            LogMode::Ordinary(_) => Err(JsValue::from_str("prekey_context_refused")),
+        }
+    }
+
+    #[wasm_bindgen(js_name = prekeyCurrent)]
+    pub fn prekey_current(&self, handle: f64) -> std::result::Result<(), JsValue> {
+        self.prekey_require_caller()?;
+        prekey_handle(handle)?;
+        Err(JsValue::from_str("prekey_caller_unavailable"))
+    }
+
+    #[wasm_bindgen(js_name = prekeyFinish)]
+    pub fn prekey_finish(&self, handle: f64) -> std::result::Result<(), JsValue> {
+        let handle = prekey_handle(handle)?;
+        match &self.mode {
+            LogMode::Closed(closed) => closed.finish(handle),
+            LogMode::Ordinary(_) => Err(JsValue::from_str("prekey_ticket_refused")),
+        }
+    }
+}
+
+impl LogCollection {
+    fn prekey_require_caller(&self) -> std::result::Result<(), JsValue> {
+        match &self.mode {
+            LogMode::Closed(closed) => closed.require_caller_producer(),
+            LogMode::Ordinary(_) => Err(JsValue::from_str("prekey_context_refused")),
+        }
+    }
+}
+
+fn prekey_handle(handle: f64) -> std::result::Result<u64, JsValue> {
+    if !handle.is_finite()
+        || handle < 1.0
+        || handle > ((1_u64 << 53) - 1) as f64
+        || handle.fract() != 0.0
+    {
+        return Err(JsValue::from_str("prekey_ticket_refused"));
+    }
+    Ok(handle as u64)
+}
+
+/// Ordinary actor implementation; never initialized by an isolated profile.
+struct LogActor {
     svc: Service<DoBackend, R2Objects>,
     heavy: async_lock::Mutex<()>,
     host: Host,
     _env: Env,
 }
 
-impl LogCollection {
+impl LogActor {
     fn collection_from(req: &Request) -> Option<Uuid> {
         let url = req.url().ok()?;
         let c = url.query_pairs().find(|(k, _)| k == "c")?.1.to_string();
@@ -1142,6 +1519,8 @@ impl LogCollection {
             if let Some((s, _)) = s {
                 session::close(&self.host, &s);
             }
+            self.host.expiry.borrow_mut().remove(&att.id);
+            self.host.push_only.borrow_mut().remove(&att.id);
             self.host.sockets.borrow_mut().remove(&att.id);
         }
     }
@@ -1152,11 +1531,13 @@ impl LogCollection {
             principal: principal_to(&s.principal),
             nonce: hex(&s.nonce),
             sub,
+            exp: self.host.expiry.borrow().get(&s.id).copied(),
+            push_only: self.host.push_only.borrow().contains(&s.id),
         });
     }
 }
 
-impl DurableObject for LogCollection {
+impl LogActor {
     fn new(state: State, env: Env) -> Self {
         let sql = state.storage().sql();
         for q in SCHEMA
@@ -1171,20 +1552,32 @@ impl DurableObject for LogCollection {
             sql.exec(q, None).expect("schema");
         }
         let backend = DoBackend {
+            actor_id: state.id().to_string(),
             sql,
             storage: state.storage(),
             lock: Rc::new(async_lock::Mutex::new(())),
             ns: env.durable_object("LOG").expect("LOG binding"),
+            location: do_location::Placement::from_env(&env).map(|p| p.default),
             is_registry: std::cell::Cell::new(false),
         };
         backend
             .is_registry
             .set(backend.route().expect("actor route") == Some(REGISTRY));
+        let placement = do_location::Placement::from_env(&env);
+        let regions = placement.as_ref().map(|p| p.regions()).unwrap_or_default();
         let objects = R2Objects {
-            bucket: env.bucket("OBJECTS").expect("OBJECTS binding"),
+            sql: state.storage().sql(),
+            env: env.clone(),
+            placement,
+            resolved: RefCell::new(None),
         };
-        let svc = Service::new(backend, objects, config(&env));
-        LogCollection {
+        let svc = Service::new(backend, objects, config(&env)).with_regions(regions);
+        // Keepalive answered by the platform: an idle socket's pings never wake
+        // (or bill) the object, so it stays hibernated.
+        if let Ok(pair) = WebSocketRequestResponsePair::new("ping", "pong") {
+            state.set_websocket_auto_response(&pair);
+        }
+        LogActor {
             svc,
             heavy: async_lock::Mutex::new(()),
             host: Host {
@@ -1192,6 +1585,9 @@ impl DurableObject for LogCollection {
                 hub: RefCell::new(None),
                 sockets: RefCell::new(BTreeMap::new()),
                 sessions: RefCell::new(BTreeMap::new()),
+                expiry: RefCell::new(BTreeMap::new()),
+                push_only: RefCell::new(BTreeSet::new()),
+                budget: RefCell::new(push_budget::PushBudget::default()),
                 state,
             },
             _env: env,
@@ -1251,12 +1647,38 @@ impl DurableObject for LogCollection {
             return Response::ok("ready");
         }
         if path == "/v1/ws" {
+            // Browsers cannot read upgrade headers: they bring a single-use HTTP
+            // nonce (`GET /v1/nonce` or an RPC's piggybacked one) as `n`, and
+            // sign their first `hello` over it. Native clients use the header.
+            let n = req
+                .url()?
+                .query_pairs()
+                .find(|(k, _)| k == "n")
+                .map(|(_, v)| v.into_owned());
+            let push_only = n.is_some();
+            let nonce: [u8; 32] = match n {
+                Some(n) => {
+                    let Some(n) = unhex(&n).and_then(|v| <[u8; 32]>::try_from(v).ok()) else {
+                        return Response::error("unauthenticated", 401);
+                    };
+                    let now = now_ms();
+                    if !http_nonce_fresh(&self.svc.config.url_secret, &n, now)
+                        || self.svc.backend.consume_http_nonce(&n, now).is_err()
+                    {
+                        return Response::error("unauthenticated", 401);
+                    }
+                    n
+                }
+                None => random_bytes(),
+            };
             let pair = WebSocketPair::new()?;
-            let nonce: [u8; 32] = random_bytes();
             // ≤ 2^53: attachments round-trip through JS numbers.
             let id = u64::from_le_bytes(random_bytes()) & ((1 << 52) - 1);
             self.host.state.accept_web_socket(&pair.server);
             let s = Session::new(id, nonce);
+            if push_only {
+                self.host.push_only.borrow_mut().insert(id);
+            }
             self.save_attachment(&pair.server, &s, None);
             self.host.sockets.borrow_mut().insert(id, pair.server);
             self.host.sessions.borrow_mut().insert(id, (s, None));
@@ -1322,7 +1744,7 @@ impl DurableObject for LogCollection {
                 let Ok(LsFrame::Request(rq)) = &decoded else {
                     return Err(ServiceError::invalid("shape"));
                 };
-                let p = verify_http_claims(
+                let caller = verify_http_verified_token(
                     &token,
                     &get("x-mdbase-nonce"),
                     &get("x-mdbase-sig"),
@@ -1337,6 +1759,7 @@ impl DurableObject for LogCollection {
                     &NonceCache::default(),
                     now_ms(),
                 )?;
+                let p = caller.principal();
                 let nonce: [u8; 32] = unhex(&get("x-mdbase-nonce"))
                     .and_then(|v| v.try_into().ok())
                     .expect("verify_http checked nonce shape");
@@ -1500,6 +1923,24 @@ impl DurableObject for LogCollection {
                 s.principal = principal_from(&att.principal);
                 (s, att.sub)
             });
+        let now = now_ms();
+        if s.principal.is_some()
+            && self
+                .host
+                .expiry
+                .borrow()
+                .get(&att.id)
+                .is_some_and(|&e| e <= now)
+            && !matches!(&decoded, Ok(LsFrame::Request(r)) if r.method == "hello")
+        {
+            // Re-hello with a fresh token is the only frame an expired session takes.
+            self.host
+                .sessions
+                .borrow_mut()
+                .insert(s.id, (s, sub_before));
+            self.host.close_socket(att.id, CLOSE_EXPIRED, "expired");
+            return Ok(());
+        }
         let before = (s.principal, s.nonce);
         // The object's isolate has 128 MB. Verifying a 9 MiB object holds several
         // copies of it, so object commits and puts run one at a time per actor.
@@ -1512,7 +1953,24 @@ impl DurableObject for LogCollection {
         } else {
             None
         };
+        let push_only = att.push_only || self.host.push_only.borrow().contains(&att.id);
         let resp = match &decoded {
+            Ok(LsFrame::Request(r))
+                if push_only && !PUSH_ONLY_METHODS.contains(&r.method.as_str()) =>
+            {
+                Some(
+                    LsFrame::Response(LsResponse {
+                        id: r.id,
+                        result: None,
+                        error: Some(
+                            ServiceError::reason(mdbn_log_service::Code::Forbidden, "push_only")
+                                .to_wire(),
+                        ),
+                    })
+                    .to_bytes()
+                    .unwrap_or_default(),
+                )
+            }
             Ok(LsFrame::Request(r)) => {
                 session::handle_request(
                     &self.svc,
@@ -1560,7 +2018,12 @@ impl DurableObject for LogCollection {
             .borrow()
             .as_ref()
             .and_then(|h| h.subscription(s.id));
-        if before != (s.principal, s.nonce) || sub_now != sub_before {
+        let exp_before = self.host.expiry.borrow().get(&s.id).copied();
+        let exp_now = session_exp(&s).or(exp_before);
+        if let Some(e) = exp_now {
+            self.host.expiry.borrow_mut().insert(s.id, e);
+        }
+        if before != (s.principal, s.nonce) || sub_now != sub_before || exp_now != exp_before {
             self.save_attachment(&ws, &s, sub_now);
         }
         self.host.sessions.borrow_mut().insert(s.id, (s, sub_now));
@@ -1596,14 +2059,72 @@ fn collection_of_rpc(r: &LsRequest) -> Option<Uuid> {
     }
 }
 
-async fn forward(env: &Env, c: &Uuid, req: Request) -> Result<Response> {
+/// Forward to the collection's actor, created (if new) with `hint`, or the
+/// default region when `None` is the creating request's choice too.
+async fn forward_placed(
+    env: &Env,
+    c: &Uuid,
+    req: Request,
+    hint: Option<mdbn_log_service::placement::Region>,
+) -> Result<Response> {
     let ns = env.durable_object("LOG")?;
-    let stub = ns.get_by_name(&c.to_uuid_string())?;
-    stub.fetch_with_request(req).await
+    do_location::stub(&ns, &c.to_uuid_string(), hint)?
+        .fetch_with_request(req)
+        .await
+}
+
+/// Forward a request that does not create a collection: default region hint.
+async fn forward(env: &Env, c: &Uuid, req: Request) -> Result<Response> {
+    let placement = do_location::Placement::from_env(env).map_err(Error::RustError)?;
+    forward_placed(env, c, req, placement.default).await
 }
 
 #[event(fetch)]
-async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
+async fn fetch(req: Request, env: Env, ctx: Context) -> Result<Response> {
+    if pitr_configured(&env) {
+        return pitr_denied();
+    }
+    let configured = env.var(cors::ENV).ok().map(|v| v.to_string());
+    let Ok(cors) = cors::Cors::parse(configured.as_deref()) else {
+        return Response::error("CORS configuration", 503);
+    };
+    // Misconfigured placement refuses loudly instead of creating actors or
+    // writing objects elsewhere.
+    if do_location::Placement::from_env(&env).is_err() {
+        return Response::error("DO placement configuration", 503);
+    }
+    let origin = req.headers().get("origin")?;
+    if req.method() == Method::Options {
+        let method = req.headers().get("access-control-request-method")?;
+        let headers = req.headers().get("access-control-request-headers")?;
+        return cors.preflight(origin.as_deref(), method.as_deref(), headers.as_deref());
+    }
+    if req.path() == "/v1/ws" && !cors.permits_upgrade(origin.as_deref()) {
+        return Response::error("origin", 403);
+    }
+    // Signed-RPC responses piggyback the caller's next nonce, so a steady-state
+    // RPC is one request instead of `GET /v1/nonce` + POST. Same generator, TTL
+    // and actor-side single-use check as `/v1/nonce`; replay protection unchanged.
+    let next_nonce = is_signed_rpc_path(req.path().as_str()).then(|| {
+        hex(&http_nonce(
+            &config(&env).url_secret,
+            now_ms(),
+            random_bytes(),
+        ))
+    });
+    // Authentication/possession/nonce handling and all original routes unchanged.
+    cors.decorate(
+        fetch_authenticated(req, env, ctx).await?,
+        origin.as_deref(),
+        next_nonce.as_deref(),
+    )
+}
+
+fn is_signed_rpc_path(path: &str) -> bool {
+    path == "/v1/rpc" || path == destination_denial::PATH || path == collection_closing::PATH
+}
+
+async fn fetch_authenticated(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     let url = req.url()?;
     let path = url.path().to_string();
     let cfg = config(&env);
@@ -1624,11 +2145,16 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
             Ok(response) if response.status_code() == 200 => {}
             _ => return Response::error("not ready", 503),
         }
-        let Ok(bucket) = env.bucket("OBJECTS") else {
+        let Ok(placement) = do_location::Placement::from_env(&env) else {
             return Response::error("not ready", 503);
         };
-        if bucket.head("__logsvc_readiness_probe__").await.is_err() {
-            return Response::error("not ready", 503);
+        for binding in placement.bindings() {
+            let Ok(bucket) = env.bucket(binding) else {
+                return Response::error("not ready", 503);
+            };
+            if bucket.head("__logsvc_readiness_probe__").await.is_err() {
+                return Response::error("not ready", 503);
+            }
         }
         return Response::ok("ready");
     }
@@ -1650,16 +2176,19 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     if path == "/debug/ingress_budget" && debug_hooks(&env) {
         return Response::ok(ingress::reserved().to_string());
     }
+    if path == "/debug/ingress_peak" && debug_hooks(&env) {
+        return Response::ok(ingress::take_peak().to_string());
+    }
     if path == "/v1/nonce" {
         return Response::ok(hex(&http_nonce(&cfg.url_secret, now_ms(), random_bytes())));
     }
     if path == "/v1/ws" {
-        let Some(c) = LogCollection::collection_from(&req) else {
+        let Some(c) = LogActor::collection_from(&req) else {
             return Response::error("missing ?c=<collection>", 400);
         };
         return forward(&env, &c, req).await;
     }
-    if path == "/v1/rpc" || path == destination_denial::PATH || path == collection_closing::PATH {
+    if is_signed_rpc_path(&path) {
         let budget = Budget::default();
         if req.method() != Method::Post {
             ingress::cancel(&req);
@@ -1708,6 +2237,8 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
             return Response::error("no collection in params", 400);
         };
         let headers = req.headers().clone();
+        // The body is fully read: let the actor credit its actual size.
+        headers.set("content-length", &body.len().to_string())?;
         let used = budget.usage();
         headers.set("x-logsvc-decode-nodes", &(used.nodes as u64).to_string())?;
         headers.set(
@@ -1715,6 +2246,10 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
             &(used.work_bytes as u64).to_string(),
         )?;
         headers.set("x-logsvc-decode-depth", &(used.depth as u64).to_string())?;
+        // Only a collection's creating request places a new actor in its region.
+        let hint = do_location::Placement::from_env(&env)
+            .map_err(Error::RustError)?
+            .hint_for(Some(&r));
         drop(r);
         let mut init = RequestInit::new();
         init.with_method(Method::Post)
@@ -1723,7 +2258,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         let fwd =
             Request::new_with_init(&format!("https://do{path}?c={}", c.to_uuid_string()), &init)?;
         let _forwarded = incoming.forwarded();
-        return forward(&env, &c, fwd).await;
+        return forward_placed(&env, &c, fwd, hint).await;
     }
     if let Some(rest) = path.strip_prefix("/debug/lose_tail/") {
         if !debug_hooks(&env) {
@@ -1757,7 +2292,10 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
             Ok(op) => op,
             Err(e) => return Response::error(e.to_string(), 403),
         };
-        let bucket = env.bucket("OBJECTS")?;
+        // The URL's MAC-bound region picks the collection's bucket.
+        let bucket = do_location::Placement::from_env(&env)
+            .map_err(Error::RustError)?
+            .bucket(&env, op.region)?;
         let key = object_key(&op.collection, &op.address);
         if req.method() == Method::Put {
             // Uploads land in the device's staging key; commit copies them

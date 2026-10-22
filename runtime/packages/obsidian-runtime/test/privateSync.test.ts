@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest";
-import { COLLECTION_OPTIONS, DEFAULT_COLLECTION_OPTION, DeviceApproval, describePrivateSync, recoverFromKey, RecoveryKeySetup, type PrivateSyncApi, type PrivateSyncFacts } from "../src/keys/privateSync.js";
+import { DeviceApproval, describePrivateSync, recoverFromKey, RecoveryKeySetup, type PrivateSyncApi, type PrivateSyncFacts } from "../src/keys/privateSync.js";
 import { formatRecoveryKey } from "../src/keys/recoveryKey.js";
 import { renderApprovals, renderPrivateSyncStatus } from "../src/keys/ui.js";
 
@@ -36,27 +36,6 @@ function api(over: Partial<PrivateSyncApi> = {}): PrivateSyncApi & { approved: s
 }
 
 describe("describePrivateSync", () => {
-  it("offers only Cloud copy and Private, defaulting to Cloud copy", () => {
-    expect(COLLECTION_OPTIONS.map(option => [option.state, option.title])).toEqual([
-      ["cloud-copy", "Cloud copy"], ["private", "Private"],
-    ]);
-    expect(DEFAULT_COLLECTION_OPTION).toBe("cloud-copy");
-  });
-  it("shows advanced Sync: off with a prompt to enable one of the two options", () => {
-    const view = describePrivateSync({ ...base, state: "local-only" });
-    expect(view.title).toBe("Sync: off");
-    expect(view.tone).toBe("attention");
-    expect(view.body.join(" ")).toMatch(/Turn sync on.*Private or Cloud copy/);
-    expect(view.actions).toEqual([]);
-  });
-  it("explains hosted availability for Cloud copy and device availability for Private", () => {
-    const cloud = describePrivateSync({ ...base, state: "cloud-copy" });
-    expect(cloud.title).toBe("Cloud copy");
-    expect(cloud.body.join(" ")).toMatch(/hosted even when your devices are off/);
-    const privateView = describePrivateSync(base);
-    expect(privateView.title).toBe("Private");
-    expect(privateView.body.join(" ")).toMatch(/End-to-end synced.*one of your devices online/);
-  });
   it("waiting device shows its code and says when nobody can approve", () => {
     const v = describePrivateSync({ ...base, keyed: false, canApprove: false, ownSas: "042917", approversOnline: 0 });
     expect(v.tone).toBe("waiting");
@@ -64,20 +43,10 @@ describe("describePrivateSync", () => {
     expect(v.body.join(" ")).toMatch(/None of your other devices is online/);
     expect(v.actions).toContain("use-recovery-key");
   });
-  it("waiting before any challenge tells the user where to start approval", () => {
-    const v = describePrivateSync({ ...base, keyed: false, ownSas: null, approversOnline: 1 });
-    expect(v.code).toBeNull();
-    expect(v.body.join(" ")).toMatch(/Review devices/);
-  });
   it("after a spent reveal, asks to request approval again", () => {
     const v = describePrivateSync({ ...base, keyed: false, needsNewApprovalRequest: true });
     expect(v.actions[0]).toBe("request-approval");
     expect(v.code).toBeNull();
-  });
-  it("waiting while offline says so", () => {
-    const v = describePrivateSync({ ...base, keyed: false, connection: "offline", ownSas: "000001" });
-    expect(v.body.join(" ")).toMatch(/offline/);
-    expect(v.actions[0]).toBe("retry-connection");
   });
   it("keyed device with pending approvals asks for review", () => {
     const v = describePrivateSync({ ...base, pending: [{ device: "d", account: "a", kind: "mobile" }] });
@@ -88,17 +57,10 @@ describe("describePrivateSync", () => {
     const v = describePrivateSync({ ...base, canApprove: false, pending: [{ device: "d", account: "a", kind: "mobile" }] });
     expect(v.actions).toEqual([]);
   });
-  it("offers a recovery key until set up or dismissed", () => {
-    expect(describePrivateSync({ ...base, recovery: "none" }).actions).toEqual(["set-up-recovery-key"]);
-    expect(describePrivateSync({ ...base, recovery: "none", recoveryKeyDismissed: true }).actions).toEqual([]);
-  });
   it("alerts on every device when the recovery key is revoked", () => {
     const v = describePrivateSync({ ...base, recovery: "revoked", recoveryKeyDismissed: true });
     expect(v.tone).toBe("error");
     expect(v.title).toMatch(/recovery key was removed/);
-  });
-  it("asks to rotate a used recovery key", () => {
-    expect(describePrivateSync({ ...base, recovery: "used" }).actions).toEqual(["replace-recovery-key"]);
   });
   it("lost identity is an error with a way forward", () => {
     const v = describePrivateSync({ ...base, identityLost: true });
@@ -159,13 +121,6 @@ describe("ui", () => {
     expect(root.textContent).toContain("Private or Cloud copy");
     expect(root.textContent).not.toContain("Local only");
     expect(root.querySelector("button")).toBeNull();
-  });
-  it("renders the waiting code and actions", () => {
-    const actions: string[] = [];
-    const root = renderPrivateSyncStatus(document.body, describePrivateSync({ ...base, keyed: false, ownSas: "042917", approversOnline: 0 }), (a) => actions.push(a));
-    expect(root.querySelector(".mdbase-sas-code")!.textContent).toBe("042 917");
-    (root.querySelector("button") as HTMLButtonElement).click();
-    expect(actions).toEqual(["use-recovery-key"]);
   });
   it("approval list: start, then type the code shown on the new device", async () => {
     const a = api();

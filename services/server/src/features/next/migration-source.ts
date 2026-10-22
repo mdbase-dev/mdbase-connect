@@ -14,6 +14,9 @@ import { safeEqual } from "../../security.js";
 import type { NextControlPlaneConfig } from "./policy-keys.js";
 import { keyId, type PolicySigner } from "./policy-wire.js";
 import { signMigrationSourceWitness } from "./migration-source-witness.js";
+import { collectionRegion } from "./policy-outbox.js";
+import { migrationDeployments } from "./migration-routing.js";
+import { migrationServiceRateLimit } from "./migration-rate-limit.js";
 
 const NIL = "00000000-0000-0000-0000-000000000000";
 const uuid = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u).refine(value => value !== NIL);
@@ -73,14 +76,18 @@ function drained(source: LegacyMigrationDrain): void {
 }
 
 async function observe(collection: string, device: string, options: Options) {
-  const deployment = options.next.cloudCopyBootstrap?.hosted;
+  const normal = options.next.cloudCopyBootstrap;
+  if (!normal) throw new Refused("migration_source_unavailable",503);
+  const deployment = (await migrationDeployments(options.db, normal, options.next.migrationRouting, collection))?.hosted;
   if (!deployment) throw new Refused("migration_source_unavailable",503);
   const url = new URL("internal/v1/migration-admission", `${deployment.url.replace(/\/+$/u, "")}/`);
   if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || deployment.token.length < 32) throw new Refused("migration_source_unavailable",503);
   const challenge = randomBytes(32).toString("base64");
+  // The log's recorded region places a new actor next to it; absent, the Worker's default.
+  const region = await collectionRegion(options.db, collection);
   const response = await (options.fetchImpl ?? fetch)(url, { method:"POST",redirect:"manual",signal:AbortSignal.timeout(10_000),
     headers:{authorization:`Bearer ${deployment.token}`,"content-type":"application/json","cache-control":"no-store"},
-    body:JSON.stringify({collection,challenge}),
+    body:JSON.stringify({collection,challenge,...(region?{region}:{})}),
   });
   if (!response.ok || !response.body) { void response.body?.cancel().catch(()=>undefined); throw new Refused("migration_source_unavailable",503); }
   const parsed = admission.parse(await readBoundedJson(response,4096));
@@ -121,7 +128,7 @@ async function issue(collection: string, options: Options) {
 export function registerMigrationSourceWitnessRoutes(app:FastifyInstance,options:Options):void {
   const token=options.next.migrationToken;
   if(!token) throw new Error("Migration witness registration needs the dedicated migration token.");
-  app.post<{Params:{id:string}}>("/internal/v1/next/migration/collections/:id/source-witness",{bodyLimit:4096,config:{rateLimit:{max:20,timeWindow:"1 minute"}}},async(request,reply)=>{
+  app.post<{Params:{id:string}}>("/internal/v1/next/migration/collections/:id/source-witness",{bodyLimit:4096,config:{rateLimit:migrationServiceRateLimit(token,"service:migration:source-witness")}},async(request,reply)=>{
     reply.header("cache-control","no-store");
     const presented=bearerToken(request);
     if(!presented||!safeEqual(presented,token))return reply.code(401).send(apiError("invalid_internal_token","The migration token is required."));

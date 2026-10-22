@@ -25,34 +25,74 @@
  */
 import { DurableObject } from "cloudflare:workers";
 import { encode, type CborValue } from "../../../packages/sdk/src/cbor.js";
-import { Engine } from "./engine.js";
+import { Engine, type CppClaimTicket, type MigrationPendingTicket, type MigrationPhysicalTicket } from "./engine.js";
+import type { MigrationProviderResult } from "./migration-provider-result.js";
+import type { MigrationSourceResult } from "./migration-source-result.js";
+import type { Gen0Result } from "./migration-gen0-input.js";
 import { AlarmLifecycle } from "./alarm-lifecycle.ts";
 import { attachmentSlots, ChunkBusy, type ChunkPermit } from "./chunk-slots.ts";
-import { httpsLog, pumpLog, StaleAppendStore, type CallTimings } from "./log.js";
+import { deploymentLog, pumpLog, PumpReport, StaleAppendStore, type CallTimings } from "./log.js";
 import { DENY_ADMISSION, DENY_CUSTODY, DENY_WRAPPER, type Admission, type Custody, type OpenKeys } from "./seams.js";
-import { generateServiceDevice, serviceCollection } from "./service-devices.js";
+import { distinctServiceTokens, generateServiceDevice, serviceActivation, serviceCollection } from "./service-devices.js";
+import { PitrCut, PitrWork } from "./pitr-cut.ts";
+import { PitrActorRestriction } from "./pitr-actor.ts";
+import { pitrFactory, type PitrFactorySettings } from "./pitr-factory.ts";
 import { migrationAdmissionRequest, migrationAdmissionObservation, migrationAdmissionUnavailable } from "./migration-admission.ts";
 import { generateDeviceKeys } from "./keygen.js";
 import engineModule from "../hosted.wasm";
 import { labCustody, labAuthorized } from "./lab.js";
 import { labStubUnwrap, labStubWrapper } from "./custody-stub.js";
 import { combinedCustody, cpCustody } from "./cp-custody.js";
-import { ControlClient } from "./control.js";
+import { ControlClient, type MigrationClaimData } from "./control.js";
+import { IDLE, MigrationExecutor, SettlementRefused, SettlementUnknown, type MigrationHost } from "./migration-executor.ts";
+import { connectClient } from "./migration-connect.ts";
+import { hasGen0Objects, putGen0Object } from "./migration-objects.ts";
+import { migrationOperatorBody, migrationOperatorRequest, type MigrationOperatorRequest } from "./migration-operator.ts";
+import { PAUSE_REASON, STEP, atPreCutoverPause, migrationRunRequest, migrationStatus, migrationStatusRequest, newRun, readNativeState, storageRunStore } from "./migration-run.ts";
+import { migrationSampleBody, migrationSampleRequest, nativeSampleRequest } from "./migration-sample.ts";
+import { LegacyBindingError, openLegacySource, type LegacySourceEnv, type PgConnect } from "./legacy-source/bindings.ts";
+import { isPermanentCustodyRefusal, withCustodyRetry } from "./custody-retry.ts";
 import { ProductionCustody, deploymentRelease, productionParts, productionWrapper, type FactoryEnv } from "./factory.ts";
+import { localBuild, localOrigin } from "./local-origin.ts";
 import { devicePublicKeys, verifyHostedGenesis } from "./keygen.js";
 import { runIndex } from "./sql.js";
 import { labHealth } from "./health.js";
+import { locationHint, namedStub } from "./do-location.ts";
 import { fetchAttachment } from "./object-reads.js";
 import { deploymentObjectOrigins, type ObjectOriginPolicy } from "./object-origins.ts";
-import { hasGrantAppend, wakeCollectionTag, wakeLog } from "./wake-observe.ts";
+import { grantRecipients, hasGrantAppend, wakeCollectionTag, wakeLog } from "./wake-observe.ts";
+import { PIN_RESET_KEY, PinParked, isPinMismatch, pinLog, pinsDigest } from "./pin-reset.ts";
+import { labRawError, readyDiagnostic, type ReadyDiagnostic, type ReadyTrace } from "./ready-diagnostic.ts";
 import { LiveAdmission, type AdmissionContext } from "./admission/live-admission.ts";
 import { FrameReader, MAX_APP_BUFFERED, MAX_APP_SESSIONS, MAX_APP_SOCKETS, evidence, frameChunks, parsePrologue, uuidString } from "./app.ts";
 
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
 /** Socket-independent hosted polling fallback; committed CP policy also wakes it. */
 const REFRESH_MS = 30_000;
+/** A failed engine open retries after REFRESH_MS, doubling per consecutive
+ * failure up to this many doublings (16 min), so actors that cannot open (control
+ * plane refusing, a store built under other keys) stop flooding the control
+ * plane. A CP activation still opens at once. */
+const OPEN_BACKOFF_STEPS = 5;
+const OPEN_FAILURES_KEY = "service-open-failures";
+const openRetryMs = (failures: number) =>
+  REFRESH_MS * 2 ** Math.min(Math.max(0, Math.floor(failures)), OPEN_BACKOFF_STEPS) + Math.floor(Math.random() * 5_000);
 /** The escrow learns of new enrolments at least this often (no push from the log). */
 const ESCROW_POLL_MS = 60_000;
+/** Idle back-off: each sync that learns nothing new doubles the polling interval
+ * (hosted 30 s, escrow 60 s) up to this cap. Every idle actor polled the log, and
+ * minted a log token, every 30-60 s; with hundreds of collections that held the
+ * control plane busy. Any activity resets to the base interval: a client request
+ * or open client socket, a CP activation, a local write, or a sync that moved
+ * anything but head checks (a new remote head means reads). The log has no push
+ * to hosted actors, so there is no notification to reset on. */
+const IDLE_POLL_CAP_MS = 10 * 60_000;
+const IDLE_STREAK_KEY = "service-idle-streak";
+const IDLE_SAME_LOOK_MS = 5_000;
+/** Doublings that reach the cap from the smaller (hosted) base. */
+const IDLE_MAX_STREAK = 5;
+export const idlePollMs = (base: number, streak: number) =>
+  Math.min(IDLE_POLL_CAP_MS, base * 2 ** Math.min(Math.max(0, Math.floor(streak)), IDLE_MAX_STREAK));
 /** Largest client frame accepted. */
 const MAX_FRAME_BYTES = 1 << 20;
 
@@ -81,16 +121,36 @@ function openConfig(collection: string, k: OpenKeys, grantOnly = false): Uint8Ar
 /** An encoded index Reset request (drop the `st_*` tables). */
 const RESET = Uint8Array.of(0x4d, 0x44, 0x42, 0x49, 0x44, 0x58, 0x00, 0x01, 1);
 
+function pitrConfigured(env: Env): boolean {
+  const p = env as Env & PitrFactorySettings & { PITR_PHASE?: R2Bucket };
+  return p.PITR_BINDING !== undefined || p.PITR_MINIMUM_EPOCH !== undefined
+    || p.PITR_ESCROW_SERVICE_TOKEN !== undefined || p.PITR_PHASE !== undefined;
+}
+
+/** A lasting custody verdict on an activation: an answer the CP records, not a 5xx. */
+function verdictAnswer(error: unknown): Response {
+  return Response.json({ error: (error as Error).message }, { status: 409, headers: { "cache-control": "no-store" } });
+}
+
 export class HostedCollection extends DurableObject<Env> {
+  /** Temporary deny-only actor mode. Only removal through reviewed all-path
+   * integration may open it; no request, R2 record or restored SQL flag can. */
+  private readonly pitrClosed: boolean;
+  private readonly pitrWork: PitrWork | null;
+  private readonly pitrRestriction: PitrActorRestriction | null = null;
+  private readonly pitrCut: PitrCut | null = null;
   private engine: Engine | null = null;
   private attachmentPermit: { engine: Engine; session: number; permit: ChunkPermit } | null = null;
   private attachmentWaiters = new Map<AbortController, { engine: Engine; session: number }>();
   private opening: Promise<Engine> | null = null;
+  /** Trace belongs to this exact cached opening, never a last-request stage. */
+  private openingTrace: ReadyTrace | null = null;
   private background: AlarmLifecycle | null = null;
   private get alarms(): AlarmLifecycle {
     return this.background ??= new AlarmLifecycle(this.ctx.storage);
   }
   private async requireBackground(): Promise<void> {
+    if (this.pitrClosed) throw new Error("pitr_actor_closed");
     if (!await this.alarms.allowed()) throw new Error("hosted_alarm_inhibited");
   }
   /** Log session generation: bumped whenever the engine is reset or replaced, so a
@@ -104,13 +164,25 @@ export class HostedCollection extends DurableObject<Env> {
   private custody: Custody;
   private admission: Admission;
   private lastRefresh = 0;
+  /** Consecutive syncs that learned nothing new (persisted: survives eviction). */
+  private idleStreak: number | null = null;
+  /** Activity since the last sync's back-off decision. */
+  private activitySeen = false;
+  /** When the last back-off decision was made (RAM). */
+  private idleDecidedAt = 0;
+  /** This open follows a pin-mismatch cache drop: check the rebuilt state. */
+  private pinRebuild = false;
+  /** The log fails the pins (see `pin-reset.ts`); nothing reopens in this isolate. */
+  private pinParked = false;
   /** Phase timings of this wake's first open (LAB status only). */
   private timings: Record<string, unknown> | null = null;
   /** When this DO instance (wake) started. */
   private readonly wokeAt = Date.now();
 
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, env: Env, requiredPitr = false) {
     super(ctx, env);
+    this.pitrClosed = requiredPitr || pitrConfigured(env);
+    this.pitrWork = this.pitrClosed ? new PitrWork(promise => ctx.waitUntil(promise)) : null;
     this.objectOrigins = deploymentObjectOrigins(env as Env & { OBJECT_STORAGE_ORIGINS?: string });
     const lab = env.LAB === "1";
     const e = env as unknown as {
@@ -118,6 +190,19 @@ export class HostedCollection extends DurableObject<Env> {
       LAB_CUSTODY_WRAP_KEY?: string; LAB_HOSTED_CONFIG?: string;
     };
     this.escrow = e.SERVICE_KIND === "escrow";
+    if (this.pitrClosed) {
+      this.production = null;
+      this.custody = DENY_CUSTODY;
+      this.admission = DENY_ADMISSION;
+      this.closePitrResources();
+      try {
+        const restriction = PitrActorRestriction.from(ctx, env, this.pitrWork!);
+        const cut = restriction?.cut(() => this.closePitrResources()) ?? null;
+        this.pitrRestriction = restriction;
+        this.pitrCut = cut;
+      } catch { /* Physical/configuration drift remains CLOSED. */ }
+      return; // No fixture, release/KMS parts, CP client, keys or engine opening.
+    }
     // LAB: the fixture's keys for its listed collections; for any other collection,
     // the control plane's service-device record opened with the custody stub.
     const release = deploymentRelease(env as unknown as FactoryEnv);
@@ -141,11 +226,28 @@ export class HostedCollection extends DurableObject<Env> {
     // Production: KMS custody when fully configured; otherwise LAB stub
     // custody on LAB builds; otherwise DENY.
     const parts = this.escrow ? null : productionParts(env as unknown as FactoryEnv);
+    this.cppControl=parts?.control??null;
     this.production = parts
-      ? new ProductionCustody(parts, () => this.replicaId(), (secret) => devicePublicKeys(engineModule, secret), verifyOriginal)
+      ? new ProductionCustody(parts, () => this.replicaId(), (secret) => devicePublicKeys(engineModule, secret), verifyOriginal, lab)
       : null;
     this.custody = this.production ?? (lab ? combinedCustody(labCustody(env, (secret) => devicePublicKeys(engineModule, secret), verifyOriginal), inFixture, cp) : DENY_CUSTODY);
     this.admission = DENY_ADMISSION;
+  }
+
+  private closePitrResources(): void {
+    this.pitrWork?.close(); // RAM fence before callback/resource work.
+    this.engineReset("pitr_close");
+    this.logGen++;
+    if (this.engine) this.releaseAttachment(this.engine);
+    for (const reader of this.readers.values()) reader.wipe();
+    this.readers.clear();
+    this.live = null;
+    this.engine = null;
+    // Hibernated sockets and auto-replies must not bypass the entrypoint closure.
+    this.ctx.setWebSocketAutoResponse();
+    for (const ws of this.ctx.getWebSockets()) {
+      try { ws.close(1012, "pitr closed"); } catch { /* Already closed. */ }
+    }
   }
 
   /** Live admission for app sessions (hosted with a Noise key), else null (deny). */
@@ -172,12 +274,18 @@ export class HostedCollection extends DurableObject<Env> {
    * the exact engine (wake) the caller is working with: after a reset, an older
    * engine's pending work never borrows the new engine's proof. */
   private admitted(engine: Engine, ctx: AdmissionContext): boolean {
-    return !!this.live && this.live.engine === engine && this.engine === engine &&
+    return !this.pitrClosed && !!this.live && this.live.engine === engine && this.engine === engine &&
       this.live.admission.recheck(ctx) === "allow";
   }
 
   /** The production KMS custody, when configured (closed on terminal events). */
   private readonly production: ProductionCustody | null;
+  private readonly cppControl: ControlClient|null=null;
+  /** Actual host confirmation provenance; not serialized or inferred from IDs. */
+  /** The claim the last migration prepare read (DATA for claim-bound calls). */
+  #migrationClaim: MigrationClaimData | null = null;
+  #migrationOperatorRunning = false;
+  readonly #migrationConfirmed = new WeakMap<MigrationPendingTicket, { engine: Engine; generation: number }>();
 
   /** A replica ID for this DO, persisted so it is stable across wakes. */
   private async replicaId(): Promise<string> {
@@ -191,50 +299,471 @@ export class HostedCollection extends DurableObject<Env> {
   /** This deployment is the escrow: no content surface, polls the log. */
   private readonly escrow: boolean;
 
-  /** Open (or return) the engine for this wake, rebuilt from the log. */
-  private async ready(collection: string): Promise<Engine> {
+  /** Actual platform references, never caller IDs or persisted collection labels.
+   * VOID physical mapping only: does not admit this namespace or grant H1. */
+  private requirePhysicalCollection(collection: string): void {
+    if (!this.ctx.id.equals(this.env.COLLECTIONS.idFromName(collection))) {
+      throw new Error("physical_collection_mismatch");
+    }
+  }
+
+  /** LAB diagnosis only: which fence a migration step failed, as fixed booleans. */
+  private hostChanged(site: string, facts: Record<string, boolean>): Error {
+    if (this.env.LAB === "1") {
+      try { console.info(JSON.stringify({ event: "migration_host_changed", site, ...facts })); } catch { /* Logging is not authority. */ }
+    }
+    return new Error("migration_host_changed");
+  }
+
+  /** An engine teardown that fences in-flight migration steps: the held log token
+   * goes with it (LAB also logs the site). */
+  private engineReset(site: string): void {
+    this.dropLogToken();
+    if (this.env.LAB === "1") {
+      try { console.info(JSON.stringify({ event: "hosted_engine_reset", site })); } catch { /* Logging is not authority. */ }
+    }
+  }
+
+  /** Closed native/owned-Control exchange, then actual physical journal ACK.
+   * Internal action-host seam only: no operator route or H1/effect permission.
+   * No caller owner/key/audience/result/ACK inputs; original CPP receipt is DATA. */
+  private async ownedMigrationClaim<T>(signal: AbortSignal, use: (engine: Engine, generation: number, cpp: CppClaimTicket, claim: MigrationClaimData, check: () => void) => Promise<T>): Promise<T> {
+    const engine = this.engine, control = this.cppControl;
+    if (!engine || !control || this.escrow) throw new Error("migration_host_unavailable");
     await this.requireBackground();
+    if (this.engine !== engine || this.cppControl !== control) {
+      throw this.hostChanged("claim_background", { engine: this.engine === engine, control: this.cppControl === control });
+    }
+    const generation = this.logGen;
+    const cpp = engine.beginCppClaim();
+    let challenge: Uint8Array | undefined, signature: Uint8Array | undefined;
+    const check = (): void => {
+      if (signal?.aborted || this.engine !== engine || this.collection !== cpp.collection ||
+          this.logGen !== generation || !this.alarms.current) {
+        throw this.hostChanged("claim_check", { aborted: !!signal?.aborted, engine: this.engine === engine,
+          collection: this.collection === cpp.collection, generation: this.logGen === generation, alarm: this.alarms.current });
+      }
+      this.requirePhysicalCollection(cpp.collection);
+      engine.assertCppClaimCurrent(cpp);
+    };
+    try {
+      check();
+      challenge = await control.migrationClaimChallenge(cpp.collection, cpp.device, signal);
+      check();
+      signature = engine.signCppClaimChallenge(cpp, challenge);
+      const hex = (b: Uint8Array): string => Array.from(b, v => v.toString(16).padStart(2, "0")).join("");
+      const claim = this.#migrationClaim = await control.migrationClaimRead(cpp.collection, {
+        device_id: cpp.device, challenge: hex(challenge), sig: hex(signature),
+      }, signal);
+      check();
+      engine.openMigrationDriver(cpp, claim);
+      return await use(engine, generation, cpp, claim, check);
+    } finally {
+      challenge?.fill(0); signature?.fill(0); engine.finishCppClaim(cpp);
+    }
+  }
+
+  private prepareMigrationPending(signal: AbortSignal): Promise<MigrationPendingTicket> {
+    return this.ownedMigrationClaim(signal, async (engine, generation, _cpp, _claim, current) => {
+      let pending: MigrationPendingTicket | undefined, physical: MigrationPhysicalTicket | undefined;
+      const check = () => { current(); if (pending) engine.assertMigrationPendingCurrent(pending); };
+      try {
+        pending = engine.beginMigrationPending();
+        check();
+        // Only the platform's actual promise confirms prior SQL/KV writes.
+        physical = engine.beginMigrationPhysical(pending);
+        engine.assertMigrationPhysicalCurrent(physical);
+        await this.ctx.storage.sync();
+        check();
+        engine.finishMigrationPhysical(physical);
+        this.#migrationConfirmed.set(pending, { engine, generation });
+        return pending;
+      } catch (error) {
+        if (pending) engine.finishMigrationPending(pending); // DB stays UNKNOWN.
+        throw error;
+      } finally { if (physical) engine.closeMigrationPhysical(physical); }
+    });
+  }
+
+  private async operateMigration(input: MigrationOperatorRequest, signal: AbortSignal): Promise<void> {
+    const store = storageRunStore(this.ctx.storage), run = await store.load();
+    if (!run || run.collection !== input.collection || (run.state !== "stopped" && run.state !== "done")) throw new Error("migration_operator_busy");
+    await this.ownedMigrationClaim(signal, async (engine, _generation, cpp, claim, check) => {
+      const native = readNativeState(this.ctx.storage.sql);
+      if (input.operation === "abandon") {
+        if (native.outstanding?.kind !== 6 || native.outstanding.sequence !== input.expectedSequence) throw new Error("migration_operator_conflict");
+        run.state = "stopped"; run.reason = "operator_abandoned:AppendBase"; run.updatedAt = Date.now();
+        await store.save(run);
+        check(); // UNKNOWN row and checkpoint were never changed.
+        return;
+      }
+      if (input.operation === "resume") {
+        if (!run.pauseBeforeCutover || run.resumeRunSequence !== null || run.state !== "stopped" || run.reason !== PAUSE_REASON) throw new Error("migration_operator_conflict");
+        const paused = (): void => {
+          check();
+          const current = readNativeState(this.ctx.storage.sql);
+          if (current.runSequence !== input.expectedSequence || !atPreCutoverPause(current)) throw new Error("migration_operator_conflict");
+        };
+        paused();
+        await this.ctx.storage.sync();
+        paused();
+        run.resumeRunSequence = input.expectedSequence;
+        run.state = "running"; run.reason = null; run.refusals = 0; run.updatedAt = Date.now();
+        await store.save(run);
+        paused();
+        return;
+      }
+      if (input.operation === "rollback" || input.operation === "restart") {
+        if (native.outstanding) throw new Error("migration_operator_outstanding_unknown");
+        if (input.operation === "restart") {
+          engine.restartMigrationDriver(cpp, claim, input.expectedSequence);
+        } else {
+          let source: unknown | null = null;
+          if (native.checkpoint?.fenced && native.checkpoint.step !== 20) {
+            const e = this.env as unknown as { CP_URL?: string; CP_MIGRATION_TOKEN?: string };
+            const reply = await connectClient({ url: e.CP_URL ?? "", token: e.CP_MIGRATION_TOKEN ?? "", environment: deploymentRelease(this.env as unknown as FactoryEnv)?.environment }).source(input.collection, signal);
+            check();
+            if (reply.status < 200 || reply.status >= 300) throw new Error("migration_rollback_source_unavailable");
+            source = reply.body;
+          }
+          engine.requestMigrationRollback(cpp, claim, input.expectedSequence, source);
+        }
+        await this.ctx.storage.sync();
+        check();
+        const next = input.operation === "restart" ? newRun(input.collection, run.backupHold, Date.now(), run.pauseBeforeCutover) : run;
+        next.state = "running"; next.reason = null; next.refusals = 0; next.updatedAt = Date.now();
+        await store.save(next);
+        check();
+        return;
+      }
+      const pending = native.outstanding;
+      if (!pending || pending.sequence !== input.expectedSequence || ![6, 20, 21].includes(pending.kind)) throw new Error("migration_operator_conflict");
+      let receipt: unknown;
+      if (pending.kind !== 6) {
+        const scope = engine.migrationUnknownRollbackScope(pending.sequence);
+        const e = this.env as unknown as { CP_URL?: string; CP_MIGRATION_TOKEN?: string };
+        const reply = await connectClient({ url: e.CP_URL ?? "", token: e.CP_MIGRATION_TOKEN ?? "", environment: deploymentRelease(this.env as unknown as FactoryEnv)?.environment }).rollbackReceipt(input.collection,
+          { owner_account: claim.owner_account, started_us: claim.started_us, migration_id: scope.providerMigrationId }, scope, signal);
+        check();
+        if (reply.status < 200 || reply.status >= 300) throw new Error("migration_receipt_unknown");
+        receipt = reply.body;
+      }
+      let settled: MigrationPendingTicket | undefined, physical: MigrationPhysicalTicket | undefined;
+      try {
+        check();
+        settled = engine.resolveMigrationAction(cpp, claim, pending.sequence, receipt);
+        physical = engine.beginMigrationPhysical(settled);
+        engine.assertMigrationPhysicalCurrent(physical);
+        await this.ctx.storage.sync();
+        check();
+        engine.assertMigrationSettlementCurrent(settled);
+        engine.finishMigrationPhysical(physical);
+        engine.assertMigrationSettlementConfirmed(settled);
+        run.state = "running"; run.reason = null; run.refusals = 0; run.updatedAt = Date.now();
+        await store.save(run);
+        check();
+      } finally {
+        if (physical) engine.closeMigrationPhysical(physical);
+        if (settled) engine.finishMigrationPending(settled);
+      }
+    });
+    if (input.operation !== "abandon") await this.alarms.schedule(Date.now() + 100, () => this.alarms.current);
+  }
+
+  /** VOID exact original host-confirmed pending, no H1/effect conversion. */
+  private assertMigrationConfirmed(ticket: MigrationPendingTicket): void {
+    const original = this.#migrationConfirmed.get(ticket);
+    if (!original || original.engine !== this.engine || original.generation !== this.logGen ||
+        this.collection !== ticket.collection || !this.alarms.current) {
+      throw this.hostChanged("confirmed", { original: !!original, engine: original?.engine === this.engine,
+        generation: original?.generation === this.logGen, collection: this.collection === ticket.collection, alarm: this.alarms.current });
+    }
+    this.requirePhysicalCollection(ticket.collection);
+    original.engine.assertMigrationPendingCurrent(ticket);
+  }
+
+  private commitMigrationKeyingWait(ticket: MigrationPendingTicket, signal?: AbortSignal): Promise<string> {
+    return this.#commitMigrationSettlement(ticket, "keying-wait", signal);
+  }
+
+  /** Internal authenticated action host only; native derives target completion.
+   * This is not reachable from the read-only admission observation route. */
+  #commitMigrationTargetCreated(ticket: MigrationPendingTicket, signal?: AbortSignal): Promise<string> {
+    return this.#commitMigrationSettlement(ticket, "target-created", signal);
+  }
+
+  /** Internal action host only: one Connect/provider body from the action's own
+   * migration-token request. Native binds it; no caller Outcome/ACK data. */
+  #commitMigrationProviderResult(ticket: MigrationPendingTicket, result: MigrationProviderResult, signal?: AbortSignal): Promise<string> {
+    return this.#commitMigrationSettlement(ticket, result, signal);
+  }
+
+  /** Internal action host only: one legacy source open/page result from the
+   * action's own bounded source read. Native binds it; no caller Outcome/ACK. */
+  #commitMigrationSourceResult(ticket: MigrationPendingTicket, result: MigrationSourceResult, signal?: AbortSignal): Promise<string> {
+    return this.#commitMigrationSettlement(ticket, { source: result }, signal);
+  }
+
+  /** Internal action host only: HasObjects flags over the addresses native
+   * returned for the pending generation-0 window or finish, after the action's
+   * own uploads. Native binds them; no caller Outcome/ACK. */
+  #commitMigrationGen0Result(ticket: MigrationPendingTicket, result: Gen0Result, signal?: AbortSignal): Promise<string> {
+    return this.#commitMigrationSettlement(ticket, { gen0: result }, signal);
+  }
+
+  /** Internal action host only: the pending log action, settled by native from
+   * the Engine's own log evidence. No caller input, Outcome or ACK. */
+  #commitMigrationLogResult(ticket: MigrationPendingTicket, signal?: AbortSignal): Promise<string> {
+    return this.#commitMigrationSettlement(ticket, "log", signal);
+  }
+
+  /** SAME original native settlement/checkpoint and actual physical ACK before
+   * output. Fixed internal operation selectors, never caller Outcome/ACK data. */
+  async #commitMigrationSettlement(ticket: MigrationPendingTicket, action: "keying-wait" | "target-created" | "log" | MigrationProviderResult | { source: MigrationSourceResult } | { gen0: Gen0Result } | { rollback: unknown }, signal?: AbortSignal): Promise<string> {
+    if (signal?.aborted) throw this.hostChanged("settlement_start", { aborted: true });
+    this.assertMigrationConfirmed(ticket);
+    const original = this.#migrationConfirmed.get(ticket)!;
+    let result: string;
+    try {
+      result = action === "keying-wait" ? original.engine.recordMigrationKeyingWait(ticket)
+        : action === "target-created" ? original.engine.recordMigrationTargetCreated(ticket)
+        : action === "log" ? original.engine.recordMigrationLogResult(ticket)
+        : "source" in action ? original.engine.recordMigrationSourceResult(ticket, action.source)
+        : "gen0" in action ? original.engine.recordMigrationGen0Result(ticket, action.gen0)
+        : "rollback" in action ? original.engine.recordMigrationRollbackResult(ticket, action.rollback)
+        : original.engine.recordMigrationProviderResult(ticket, action);
+    } catch (error) {
+      // Settlement and checkpoint are one SQL transaction: an unsettled row
+      // means nothing was written and the ticket is still live.
+      const row = this.ctx.storage.sql.exec<{ settled: number }>(
+        "SELECT settled FROM mig_native_action WHERE seq=?", ticket.sequence).toArray()[0];
+      if (row?.settled === 0) throw new SettlementRefused(error instanceof Error ? error.message : "migration_settlement_refused");
+      throw new SettlementUnknown("migration_settlement_unknown");
+    }
+    // From here any error is UNKNOWN despite a potentially landed settlement.
+    const physical = original.engine.beginMigrationPhysical(ticket);
+    try {
+      original.engine.assertMigrationPhysicalCurrent(physical);
+      await this.ctx.storage.sync();
+      if (signal?.aborted || this.engine !== original.engine || this.logGen !== original.generation ||
+          this.collection !== ticket.collection || !this.alarms.current) {
+        throw this.hostChanged("settlement_sync", { aborted: !!signal?.aborted, engine: this.engine === original.engine,
+          generation: this.logGen === original.generation, collection: this.collection === ticket.collection, alarm: this.alarms.current });
+      }
+      this.requirePhysicalCollection(ticket.collection);
+      original.engine.assertMigrationSettlementCurrent(ticket);
+      original.engine.finishMigrationPhysical(physical);
+      original.engine.assertMigrationSettlementConfirmed(ticket);
+      this.#migrationConfirmed.delete(ticket);
+      original.engine.finishMigrationPending(ticket);
+      return result;
+    } catch (error) { throw new SettlementUnknown(error instanceof Error ? error.message : "migration_settlement_unknown"); }
+    finally { original.engine.closeMigrationPhysical(physical); }
+  }
+
+  /** The legacy Postgres client factory (`pg`), installed by the deployment
+   * that enables the legacy bindings (needs `nodejs_compat`); unset, the
+   * source refuses with `legacy_source_unconfigured`. */
+  static legacyConnect: PgConnect | null = null;
+  #executorInstance: MigrationExecutor | null = null;
+
+  /** Whether this deployment can run a migration at all (no secret values). */
+  private migrationConfigured(): boolean {
+    const e = this.env as unknown as { CP_URL?: string; CP_MIGRATION_TOKEN?: string };
+    return !this.escrow && !this.pitrClosed && !!this.cppControl && (!!e.CP_URL?.startsWith("https://") || localOrigin(e.CP_URL ?? "", deploymentRelease(this.env as unknown as FactoryEnv)?.environment))
+      && (e.CP_MIGRATION_TOKEN?.length ?? 0) >= 32;
+  }
+
+  /** The executor's private bridge to this DO's native ledger and log. */
+  private migrationHost(): MigrationHost {
+    const engine = (): Engine => {
+      if (!this.engine) throw new Error("migration_host_unavailable");
+      return this.engine;
+    };
+    const confirmed = (t: MigrationPendingTicket): Engine => { this.assertMigrationConfirmed(t); return engine(); };
+    const fence = (e: Engine) => { const gen = this.logGen; return () => this.engine === e && this.logGen === gen && this.alarms.current; };
+    return {
+      state: () => readNativeState(this.ctx.storage.sql),
+      claim: () => this.#migrationClaim && { owner_account: this.#migrationClaim.owner_account, started_us: this.#migrationClaim.started_us },
+      prepare: async (signal) => {
+        let ticket: MigrationPendingTicket;
+        try { ticket = await this.prepareMigrationPending(signal); }
+        catch (error) {
+          // Only a null pending begin carries a fresh native idle reason.
+          const e = this.engine;
+          return { idle: e && error instanceof Error && error.message === "migration_pending_refused" ? e.migrationIdle() : IDLE.unavailable };
+        }
+        try { return { ticket, fields: engine().migrationPendingAction(ticket) }; }
+        catch (error) { this.engine?.finishMigrationPending(ticket); this.#migrationConfirmed.delete(ticket); throw error; }
+      },
+      keyingWait: (t, signal) => this.commitMigrationKeyingWait(t, signal),
+      targetCreated: (t, signal) => this.#commitMigrationTargetCreated(t, signal),
+      provider: (t, result, signal) => this.#commitMigrationProviderResult(t, result, signal),
+      rollbackScope: (t) => confirmed(t).migrationRollbackScope(t),
+      rollbackResult: (t, body, signal) => this.#commitMigrationSettlement(t, { rollback: body }, signal),
+      source: (t, result, signal) => this.#commitMigrationSourceResult(t, result, signal),
+      gen0Placements: (t) => confirmed(t).migrationGen0Placements(t),
+      gen0FileChunk: (t, input) => confirmed(t).migrationGen0FileChunk(t, input),
+      gen0Window: (t, input) => confirmed(t).migrationGen0Window(t, input),
+      gen0Finish: (t) => confirmed(t).migrationGen0Finish(t),
+      gen0Result: (t, result, signal) => this.#commitMigrationGen0Result(t, result, signal),
+      logAppend: (t) => confirmed(t).migrationLogAppend(t),
+      logResult: (t, signal) => this.#commitMigrationLogResult(t, signal),
+      release: (t) => { this.engine?.finishMigrationPending(t); this.#migrationConfirmed.delete(t); },
+      // Ticks first, as the alarm does: retries can now repeat inside one wake.
+      pump: async (_signal, head) => { const e = this.engine; if (e) { if (head) e.requestHead(); e.tick(Date.now()); await this.sync(e); } },
+      resetForRebuild: async () => {
+        const collection = this.collection;
+        if (!collection || this.opening) throw new Error("migration_host_unavailable");
+        if (this.engine) this.releaseAttachment(this.engine);
+        this.engineReset("migration_rebuild");
+        this.logGen++;
+        this.engine = null;
+        this.live = null;
+        for (const r of this.readers.values()) r.wipe();
+        this.readers.clear();
+        // Drops only the `st_*` cache tables; the migration ledger stays.
+        runIndex(this.ctx.storage, RESET);
+        await this.ready(collection);
+      },
+      putObject: async (collection, object, signal) => {
+        const e = engine(), live = fence(e), current = () => live() && !signal.aborted, token = await this.token();
+        await putGen0Object(this.log(), e, token, collection, object, current, signal);
+      },
+      hasObjects: async (collection, addresses, signal) => {
+        const e = engine(), live = fence(e), current = () => live() && !signal.aborted, token = await this.token();
+        return hasGen0Objects(this.log(), e, token, collection, addresses, current);
+      },
+    };
+  }
+
+  private migrationExecutor(collection: string): MigrationExecutor {
+    const e = this.env as unknown as { CP_URL?: string; CP_MIGRATION_TOKEN?: string } & LegacySourceEnv;
+    return this.#executorInstance ??= new MigrationExecutor({
+      collection, host: this.migrationHost(), store: storageRunStore(this.ctx.storage),
+      connect: () => connectClient({ url: e.CP_URL ?? "", token: e.CP_MIGRATION_TOKEN ?? "", environment: deploymentRelease(this.env as unknown as FactoryEnv)?.environment }),
+      source: async () => {
+        const connect = HostedCollection.legacyConnect;
+        if (!connect) throw new LegacyBindingError("legacy_source_unconfigured", "no legacy database client in this deployment");
+        return openLegacySource(e, collection, { connect });
+      },
+    });
+  }
+
+  /** The alarm-driven loop: run the executor's wake, schedule the next. */
+  private async migrationWake(): Promise<void> {
+    if (!this.collection || !this.engine || !this.migrationConfigured()) return;
+    const run = await storageRunStore(this.ctx.storage).load();
+    if (!run || run.collection !== this.collection || run.state === "stopped" || run.state === "done") return;
+    // The executor's own budget (60 s) bounds starting actions; this backstop only
+    // fences a stuck one. It must outlast an action started in budget: token/sealer
+    // fetches retry for up to 45 s each, and an abort at settlement stops the run.
+    const result = await this.migrationExecutor(this.collection).wake(AbortSignal.timeout(600_000));
+    if (result.nextAt !== null) await this.alarms.schedule(result.nextAt, () => this.alarms.current);
+  }
+
+  /** Open (or return) the engine for this wake, rebuilt from the log. */
+  private async ready(collection: string, diagnose?: (value: ReadyDiagnostic) => void): Promise<Engine> {
+    const trace: ReadyTrace = { stage: "background_guard" };
+    try { return await this.readyTraced(collection, trace); }
+    catch (error) {
+      diagnose?.(readyDiagnostic(trace.opening?.stage ?? trace.stage, error));
+      throw error; // Preserve error/PinParked identity for all non-migration callers.
+    }
+  }
+
+  private async readyTraced(collection: string, trace: ReadyTrace): Promise<Engine> {
+    await this.requireBackground();
+    trace.stage = "physical_collection_guard";
+    this.requirePhysicalCollection(collection);
+    trace.stage = "collection_guard";
     if (this.collection && this.collection !== collection) throw new Error("collection mismatch");
+    if (this.pinParked) throw new PinParked();
     this.collection = collection;
     // Both service roles must reopen after eviction without an app socket.
+    trace.stage = "service_collection_persist";
     await this.ctx.storage.put("service-collection", collection);
+    trace.stage = "alarm_guard";
     if (!this.alarms.current) throw new Error("hosted_alarm_inhibited");
     // Persist a retry before custody/network work; failed first-open must not
     // leave a registered service device without an alarm.
+    let openFailures = 0;
     if (!this.engine) {
-      await this.alarms.schedule(Date.now() + REFRESH_MS, () => !this.engine);
+      trace.stage = "open_retry_read";
+      const stored = await this.ctx.storage.get<unknown>(OPEN_FAILURES_KEY);
+      openFailures = typeof stored === "number" && Number.isSafeInteger(stored) && stored > 0 ? stored : 0;
+      trace.stage = "open_retry_schedule";
+      await this.alarms.schedule(Date.now() + openRetryMs(openFailures), () => !this.engine);
     }
+    trace.stage = "alarm_guard";
     if (!this.alarms.current) throw new Error("hosted_alarm_inhibited");
     if (this.engine) return this.engine;
+    const openingTrace = this.openingTrace ??= { stage: "custody_open_sealer" };
+    trace.opening = openingTrace;
     this.opening ??= (async () => {
       // First open of this wake: phase timings for the LAB status (Workers clocks
       // advance only across I/O, so CPU-only phases can read 0 ms).
       const t0 = Date.now();
       const calls: CallTimings = new Map();
-      const keys = await this.custody.openSealer(collection, AbortSignal.timeout(10_000));
+      const keys = await withCustodyRetry((signal) => this.custody.openSealer(collection, signal), this.custodyRetryOptions("open_sealer"));
       const tKeys = Date.now();
       let engine: Engine;
       let tWasm: number;
       let app: { device: string; publicKeys: NonNullable<typeof keys.publicKeys>; roots: Uint8Array[] } | null = null;
+      let pinBytes: Uint8Array, pinMismatch = false;
       try {
+        openingTrace.stage = "background_guard";
         await this.requireBackground();
+        openingTrace.stage = "physical_collection_guard";
+        this.requirePhysicalCollection(collection);
+        openingTrace.stage = "engine_construct";
+        pinBytes = new Uint8Array(keys.policyPins); // public; outlives the zeroize
         engine = new Engine(this.ctx.storage);
         tWasm = Date.now();
-        engine.open(openConfig(collection, keys, this.escrow));
+        openingTrace.stage = "engine_config";
+        const config=openConfig(collection,keys,this.escrow);
+        try {
+          openingTrace.stage = this.cppControl ? "engine_cpp_open" : "engine_open";
+          if(this.cppControl) engine.openForCppClaim(config,this.cppControl);
+          else engine.open(config); // No CPP signer in escrow/LAB-fixture/unconfigured opens.
+        } catch (error) {
+          // Only the exact pin refusal; every other open failure keeps the store.
+          if (!isPinMismatch(error)) throw error;
+          pinMismatch = true;
+        }
         // App sessions (hosted only): the Noise static secret moves into the
         // engine's RAM for this wake; the JS copy is wiped with the rest.
+        openingTrace.stage = "engine_noise_key";
         if (!this.escrow && keys.noiseSk && keys.publicKeys && engine.noiseKey(keys.noiseSk.slice())) {
           app = { device: keys.deviceId, publicKeys: keys.publicKeys, roots: keys.roots.map((r) => r.slice()) };
         }
       } finally {
+        const previousStage = openingTrace.stage;
+        openingTrace.stage = "custody_zeroize";
         keys.zeroize();
+        openingTrace.stage = previousStage; // Successful cleanup must not mask the failed stage.
       }
+      openingTrace.stage = "pin_digest";
+      const pins = await pinsDigest(pinBytes);
+      openingTrace.stage = "pin_marker_read";
+      const pinMarker = await this.ctx.storage.get<unknown>(PIN_RESET_KEY);
+      openingTrace.stage = "pin_mismatch";
+      if (pinMismatch) return this.pinMismatch(collection, pins, pinMarker);
+      this.pinRebuild = pinMarker === pins;
+      openingTrace.stage = "live_admission";
       const live = app ? await this.liveAdmission(engine, collection, app) : null;
+      openingTrace.stage = "background_guard";
       await this.requireBackground();
       this.live = live;
       const tOpen = Date.now();
       this.engine = engine;
+      // The open queued a head fetch: it counts as a refresh.
+      this.lastRefresh = Date.now();
+      openingTrace.stage = "sync";
       await this.sync(engine, calls);
+      openingTrace.stage = "pin_parked_guard";
+      if (this.pinParked) throw new PinParked();
+      openingTrace.stage = "timing_snapshot";
       const tDone = Date.now();
       const per = Object.fromEntries([...calls].map(([m, v]) => [m, v]));
       this.timings = {
@@ -247,9 +776,15 @@ export class HostedCollection extends DurableObject<Env> {
         serving: engine.serving(),
         log_calls: per,
       };
+      if (this.env.LAB === "1") {
+        // LAB: one line per first open, phase durations only (no ids or content).
+        try { console.info(JSON.stringify({ event: "hosted_first_open", role: this.escrow ? "escrow" : "hosted", ...this.timings })); } catch { /* Logging is not authority. */ }
+      }
+      openingTrace.stage = "engine_reset";
       if (engine.needsReset()) {
         // The cache disagrees with the log: drop every store table and rebuild.
         this.releaseAttachment(engine);
+        this.engineReset("cache_reset");
         this.logGen++;
         this.engine = null;
         this.live = null;
@@ -259,42 +794,178 @@ export class HostedCollection extends DurableObject<Env> {
         throw new Error("hosted cache reset; retry");
       }
       return engine;
-    })().finally(() => {
+    })().then(async (engine) => {
+      openingTrace.stage = "open_failure_clear";
+      if (openFailures) await this.ctx.storage.delete(OPEN_FAILURES_KEY);
+      return engine;
+    }, async (error: unknown) => {
+      if (isPermanentCustodyRefusal(error)) { await this.retireForVerdict(); throw error; }
+      try { await this.ctx.storage.put(OPEN_FAILURES_KEY, openFailures + 1); } catch { /* the retry alarm is already set */ }
+      throw error;
+    }).finally(() => {
       this.opening = null;
+      this.openingTrace = null;
     });
     return this.opening;
+  }
+
+  /** The cached store fails the pins (`pin-reset.ts`). The first time for these
+   * pins, drop the `st_*` cache (the migration ledger stays) and retry soon, so
+   * the next open rebuilds from the log; a rebuild that fails again backs off as
+   * any failed open does. The same refusal after that drop means the store was
+   * rebuilt from the log under these pins: park. */
+  private async pinMismatch(collection: string, pins: string, marker: unknown): Promise<never> {
+    if (marker === pins) return this.parkPins(collection);
+    if (!this.alarms.current) throw new Error("hosted_alarm_inhibited");
+    runIndex(this.ctx.storage, RESET);
+    await this.ctx.storage.put(PIN_RESET_KEY, pins);
+    pinLog(await wakeCollectionTag(collection), this.escrow ? "escrow" : "hosted", "pin_reset");
+    await this.alarms.schedule(Date.now() + REFRESH_MS, () => !this.engine);
+    throw new Error("hosted cache reset after pin mismatch; retry");
+  }
+
+  /** No alarm, no engine; a later wake in a new isolate re-evaluates the open. */
+  private async parkPins(collection: string): Promise<never> {
+    this.pinParked = true;
+    this.pinRebuild = false;
+    if (this.engine) {
+      this.releaseAttachment(this.engine);
+      this.engineReset("pin_park");
+      this.logGen++;
+      this.engine = null;
+      this.live = null;
+      for (const r of this.readers.values()) r.wipe();
+      this.readers.clear();
+    }
+    await this.ctx.storage.deleteAlarm();
+    pinLog(await wakeCollectionTag(collection), this.escrow ? "escrow" : "hosted", "pin_parked");
+    throw new PinParked();
+  }
+
+  /** Custody gave a lasting verdict (the KMS does not serve the collection, or the
+   * CP holds no current service device: deleted / left sync). Stop being a
+   * background actor for it: drop the live engine and its sessions, drop the
+   * rebuildable `st_*` cache (the migration ledger stays), forget the open
+   * backoff and cancel the alarm, so no timer wakes this collection again. Only a
+   * new CP activation or app connection re-evaluates custody; a transient
+   * refusal never reaches here and keeps its backed-off retry alarm. */
+  private async retireForVerdict(): Promise<void> {
+    if (this.engine) {
+      this.releaseAttachment(this.engine);
+      this.engineReset("custody_verdict");
+      this.logGen++;
+      this.engine = null;
+      this.live = null;
+      for (const r of this.readers.values()) r.wipe();
+      this.readers.clear();
+    }
+    runIndex(this.ctx.storage, RESET);
+    await this.ctx.storage.delete(OPEN_FAILURES_KEY);
+    await this.ctx.storage.deleteAlarm();
+    if (this.env.LAB === "1") {
+      try { console.info(JSON.stringify({ event: "hosted_custody_verdict_retired", role: this.escrow ? "escrow" : "hosted" })); } catch { /* Logging is not authority. */ }
+    }
+  }
+
+  /** After a pin-mismatch drop: park as soon as the state applied from the log
+   * fails the pins; forget the drop once the rebuild reaches the head. */
+  private async checkPinRebuild(engine: Engine): Promise<boolean> {
+    if (!this.pinRebuild || !this.collection) return true;
+    const state = engine.pinState();
+    if (state === "inconsistent") {
+      try { await this.parkPins(this.collection); } catch (error) { if (!(error instanceof PinParked)) throw error; }
+      return false;
+    }
+    if (state === "rebuilt") {
+      this.pinRebuild = false;
+      await this.ctx.storage.delete(PIN_RESET_KEY);
+      pinLog(await wakeCollectionTag(this.collection), this.escrow ? "escrow" : "hosted", "pin_rebuilt");
+    }
+    return true;
   }
 
   /** The log: the `LOG` service binding, or (`LOG_URL`) its public https origin
    * when the log Worker lives in another account. */
   private log(): Fetcher {
-    const url = (this.env as unknown as { LOG_URL?: string }).LOG_URL;
-    return url ? httpsLog(url) : this.env.LOG;
+    return deploymentLog(this.env as unknown as { LOG_URL?: string; LOG?: Fetcher });
   }
 
-  private token = () => this.custody.logToken(this.collection!, AbortSignal.timeout(10_000));
+  private token = () => withCustodyRetry((signal) => this.custody.logToken(this.collection!, signal), this.custodyRetryOptions("log_token"));
+
+  /** Drop the custody's held log token: the next `token()` asks the CP. */
+  private dropLogToken(): void {
+    try { if (this.collection) this.custody?.invalidateLogToken?.(this.collection); } catch { /* Custody errors stay inside custody. */ }
+  }
+
+  /** Activity: the next back-off decision keeps (or returns to) the base interval. */
+  private noteActivity(): void {
+    this.activitySeen = true;
+  }
+
+  /** An open socket accepted in this wake (app session or LAB host). */
+  private clientOpen(): boolean {
+    return this.ctx.getWebSockets().some((ws) => {
+      if (ws.readyState !== 1) return false;
+      return (ws.deserializeAttachment() as { wake?: string } | null)?.wake === this.wakeId;
+    });
+  }
+
+  /** The next poll after a sync: the base interval after activity, doubling per
+   * consecutive idle sync up to the cap. The streak is persisted only when it
+   * changes, so an evicted idle actor keeps backing off. */
+  private async idlePoll(active: boolean, current: () => boolean): Promise<number> {
+    const base = this.escrow ? ESCROW_POLL_MS : REFRESH_MS;
+    let prior = this.idleStreak;
+    if (prior == null) {
+      try { prior = Math.max(0, Math.min(IDLE_MAX_STREAK, Math.floor(Number(await this.ctx.storage.get<number>(IDLE_STREAK_KEY) ?? 0)) || 0)); }
+      catch { prior = 0; }
+    }
+    // Syncs moments apart (a cold open's sync, then the alarm's or activation's)
+    // are one look at the log: only the first can lengthen the interval.
+    const now = Date.now();
+    const next = active ? 0 : now - (this.idleDecidedAt ?? 0) < IDLE_SAME_LOOK_MS ? prior : Math.min(prior + 1, IDLE_MAX_STREAK);
+    this.idleDecidedAt = now;
+    this.idleStreak = next;
+    if (next !== prior && current()) {
+      try { await (next === 0 ? this.ctx.storage.delete(IDLE_STREAK_KEY) : this.ctx.storage.put(IDLE_STREAK_KEY, next)); } catch { /* RAM still backs off. */ }
+      if (this.env.LAB === "1") {
+        try { console.info(JSON.stringify({ event: "hosted_idle_poll", role: this.escrow ? "escrow" : "hosted", streak: next, poll_ms: idlePollMs(base, next) })); } catch { /* Logging is not authority. */ }
+      }
+    }
+    return idlePollMs(base, next);
+  }
+
+  /** LAB diagnosis only: each transient custody refusal a fetch retried. */
+  private custodyRetryOptions(fetch: "open_sealer" | "log_token") {
+    return this.env.LAB === "1" ? { onRetry: (facts: { attempt: number; code: string; call: string | null; name: string | null; message: string | null }) =>
+      console.info(JSON.stringify({ event: "custody_retry", fetch, ...facts })) } : {};
+  }
 
   /** Move log traffic until quiet, deliver output, schedule the next wakeup. */
   private async sync(engine: Engine, timings?: CallTimings): Promise<void> {
+    if (this.pitrClosed) { this.closePitrResources(); return; }
     const gen = this.logGen;
-    const current = () => this.alarms.current && this.logGen === gen && this.engine === engine;
+    const current = () => !this.pitrClosed && this.alarms.current && this.logGen === gen && this.engine === engine;
     if (!await this.alarms.allowed() || !current()) return;
     const tag = this.env.LAB === "1" && this.collection ? await wakeCollectionTag(this.collection) : null;
     if (!current()) return;
+    const report = new PumpReport();
+    let delivered = 0;
     await pumpLog(this.log(), engine, this.token, current, this.staleAppends, 64, timings, tag ? (call) => {
-      if (current() && hasGrantAppend(call.frame)) wakeLog(tag, this.escrow ? "escrow" : "hosted", "grant_emitted");
+      if (current() && hasGrantAppend(call.frame)) wakeLog(tag, this.escrow ? "escrow" : "hosted", "grant_emitted", undefined, grantRecipients(call.frame));
     } : undefined, tag ? (call, observation) => {
       if (current() && hasGrantAppend(call.frame)) wakeLog(tag, this.escrow ? "escrow" : "hosted", "grant_append_outcome", observation);
-    } : undefined);
-    if (!current()) return;
+    } : undefined, { tokenRefused: () => this.dropLogToken(), report });
+    if (!current() || !await this.checkPinRebuild(engine) || !current()) return;
     this.pruneAttachment();
-    this.deliver(engine); // read_file response precedes object/network waits
+    delivered += this.deliver(engine); // read_file response precedes object/network waits
     if (!this.escrow) {
       // At most manifest + one complete chunk. The engine refuses a second
       // ciphertext slot while its owned plaintext chunk still needs draining.
       for (let i = 0; i < 2 && current(); i++) {
         const read = engine.attachmentObject();
         if (!read) break;
+        delivered++;
         const permitted = () => current() && this.attachmentPermit?.engine === engine &&
           this.attachmentPermit.session === read.session && this.attachmentPermit.permit.active &&
           this.attachmentAdmitted(engine, read.session);
@@ -307,13 +978,17 @@ export class HostedCollection extends DurableObject<Env> {
         } catch { engine.attachmentFailed(read.ticket); }
         finally { read.frame.fill(0); }
         if (!current()) return;
-        this.deliver(engine);
+        delivered += this.deliver(engine);
       }
     }
     if (!current()) return;
     this.pruneAttachment();
+    const active = this.activitySeen || !report.quiet || delivered > 0 || this.clientOpen();
+    this.activitySeen = false;
+    const pollMs = await this.idlePoll(active, current);
+    if (!current()) return;
     const next = engine.nextWakeup();
-    const poll = Date.now() + (this.escrow ? ESCROW_POLL_MS : REFRESH_MS);
+    const poll = Date.now() + pollMs;
     // Preserve earlier deadlines; inhibited or stale storage continuations must
     // not schedule another wake. This local fence is not deletion currentness.
     await this.alarms.schedule(Math.min(next ?? poll, poll), current);
@@ -376,6 +1051,7 @@ export class HostedCollection extends DurableObject<Env> {
   }
 
   private attachmentAdmitted(engine: Engine, session: number): boolean {
+    if (this.pitrClosed) return false;
     const ws = this.ctx.getWebSockets().find((ws) => {
       const a = ws.deserializeAttachment() as AppAttachment | null;
       return ws.readyState === 1 && a?.wake === this.wakeId && a.session === session;
@@ -386,13 +1062,21 @@ export class HostedCollection extends DurableObject<Env> {
     return !!a.noise && this.admitted(engine, { collection: this.collection!, op: "call", grant: a.grant, clientPk: fromHex(a.client ?? "") });
   }
 
-  private deliver(engine: Engine): void {
+  /** Delivers the engine's output; returns how many outputs it had. */
+  private deliver(engine: Engine): number {
+    if (this.pitrClosed) {
+      this.closePitrResources();
+      const outputs = engine.poll();
+      for (const output of outputs) output.frame?.fill(0);
+      return outputs.length;
+    }
     const bySession = new Map<number, WebSocket>();
     for (const ws of this.ctx.getWebSockets()) {
       const a = ws.deserializeAttachment() as { session?: number; wake?: string } | null;
       if (a?.session !== undefined && a.wake === this.wakeId) bySession.set(a.session, ws);
     }
-    for (const o of engine.poll()) {
+    const outputs = engine.poll();
+    for (const o of outputs) {
       // Every output frame is wiped on every path: no socket, denied, sealed or sent.
       try {
         const ws = bySession.get(o.session);
@@ -427,12 +1111,18 @@ export class HostedCollection extends DurableObject<Env> {
         o.frame?.fill(0);
       }
     }
+    return outputs.length;
   }
 
   /** Distinguishes sockets accepted in this wake from older ones (RAM state gone). */
   private readonly wakeId = crypto.randomUUID();
 
   async alarm(): Promise<void> {
+    if (this.pitrClosed) {
+      this.closePitrResources();
+      await this.pitrWork!.trackClosed(() => this.ctx.storage.deleteAlarm());
+      return; // No stored collection lookup, custody, tick, refresh or reschedule.
+    }
     if (!await this.alarms.allowed()) {
       await this.alarms.inhibit();
       return;
@@ -441,7 +1131,11 @@ export class HostedCollection extends DurableObject<Env> {
       // Keep the old escrow key readable for existing enrolled DOs.
       const collection = await this.ctx.storage.get<string>("service-collection")
         ?? (this.escrow ? await this.ctx.storage.get<string>("escrow-collection") : undefined);
-      if (collection && UUID.test(collection)) await this.ready(collection);
+      if (collection && UUID.test(collection)) {
+        // A permanent verdict already retired the actor (no alarm left); return
+        // normally so the platform does not retry the alarm either.
+        try { await this.ready(collection); } catch (error) { if (error instanceof PinParked || isPermanentCustodyRefusal(error)) return; throw error; }
+      }
     }
     if (!await this.alarms.allowed() || !this.engine || !this.collection) return;
     const engine = this.engine;
@@ -450,10 +1144,37 @@ export class HostedCollection extends DurableObject<Env> {
       this.lastRefresh = Date.now();
       engine.refresh();
     }
-    await this.sync(engine);
+    try { await this.sync(engine); }
+    catch (error) {
+      // A warm engine learns of deletion through its next log token.
+      if (!isPermanentCustodyRefusal(error)) throw error;
+      await this.retireForVerdict();
+      return;
+    }
+    await this.migrationWake();
   }
 
   async fetch(request: Request): Promise<Response> {
+    if (this.pitrClosed) {
+      this.closePitrResources();
+      const url = new URL(request.url);
+      if (this.pitrRestriction && request.method === "POST" && url.pathname === "/v1/hosted/activate" && !request.signal.aborted) {
+        // Actual CLOSED activation callback, not a permit or a custody opening.
+        // Track through finally; close/abort never stands in for settlement.
+        let work: ReturnType<PitrWork["beginClosed"]> | undefined;
+        const generation = this.logGen;
+        try {
+          this.pitrCut!.assertRestrictionIdle();
+          work = this.pitrWork!.beginClosed();
+          work.check();
+          await this.pitrRestriction.assertSeedCurrent(url.searchParams.get("collection") ?? "", work.signal);
+          work.check();
+          if (request.signal.aborted || generation !== this.logGen) throw new Error("pitr_actor_closed");
+        } catch { /* Missing original-principal/current-CP admission stays CLOSED. */ }
+        finally { work?.finish(); }
+      }
+      return new Response("unavailable", { status: 503, headers: { "cache-control": "no-store" } });
+    }
     const url = new URL(request.url);
     const collection = url.searchParams.get("collection") ?? "";
     if (!UUID.test(collection)) return new Response("bad collection", { status: 400 });
@@ -476,16 +1197,133 @@ export class HostedCollection extends DurableObject<Env> {
           : migrationAdmissionUnavailable();
       } catch { return migrationAdmissionUnavailable(); }
     }
+    if (url.pathname === "/v1/hosted/migration/operator") {
+      if (this.escrow) return new Response("not found", { status: 404 });
+      const token = (this.env as unknown as { HOSTED_SERVICE_TOKEN?: string }).HOSTED_SERVICE_TOKEN;
+      const input = await migrationOperatorRequest(request, token);
+      if (input instanceof Response) return input;
+      if (input.collection !== collection) return Response.json({ error: "invalid_request" }, { status: 400 });
+      if (!this.migrationConfigured()) return Response.json({ error: "migration_unconfigured" }, { status: 503 });
+      // Serialize operator intent before the first await; an overlapping request
+      // must not release the same paused run or interrupt a live continuation.
+      if (this.#migrationOperatorRunning) return Response.json({ error: "migration_operator_busy" }, { status: 409 });
+      this.#migrationOperatorRunning = true;
+      try {
+        const before = await storageRunStore(this.ctx.storage).load();
+        if (!before || (before.state !== "stopped" && before.state !== "done")) {
+          return Response.json({ error: "migration_operator_busy" }, { status: 409 });
+        }
+        await this.ready(collection);
+        await this.operateMigration(input, AbortSignal.timeout(60_000));
+        return Response.json(migrationStatus(await storageRunStore(this.ctx.storage).load(), readNativeState(this.ctx.storage.sql)),
+          { headers: { "cache-control": "no-store" } });
+      } catch (error) {
+        // Do not leave a reactivated job runnable after its final context/commit
+        // check failed. Invalid requests leave the already-stopped job unchanged.
+        const store = storageRunStore(this.ctx.storage), current = await store.load();
+        if (current?.state === "running") {
+          current.state = "stopped"; current.reason = "operator_outcome_unknown"; current.updatedAt = Date.now();
+          await store.save(current);
+        }
+        // A failed physical confirmation may follow a landed write. Preserve
+        // exact UNKNOWN/settled evidence; never infer undone.
+        return Response.json({ error: error instanceof Error ? error.message : "migration_operator_unknown" },
+          { status: 409, headers: { "cache-control": "no-store" } });
+      } finally { this.#migrationOperatorRunning = false; }
+    }
+    if (url.pathname === "/v1/hosted/migration/sample") {
+      // Read-only digest sample for a post-routed verifier (migration-sample.ts).
+      if (this.escrow) return new Response("not found", { status: 404 });
+      const token = (this.env as unknown as { HOSTED_SERVICE_TOKEN?: string }).HOSTED_SERVICE_TOKEN;
+      const json = (status: number, body: unknown) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
+      const input = await migrationSampleRequest(request, token);
+      if (input instanceof Response) return input;
+      if (input.collection !== collection) return json(400, { error: "invalid_request" });
+      this.requirePhysicalCollection(collection);
+      let step: number | null;
+      try { step = readNativeState(this.ctx.storage.sql).checkpoint?.step ?? null; }
+      catch { return json(409, { error: "migration_state_unreadable" }); }
+      if (step === null || step < STEP.verified || step > STEP.routed) return json(409, { error: "migration_not_verified" });
+      try {
+        const engine = await this.ready(collection);
+        return json(200, migrationSampleBody(input, step, engine.migrationSample(nativeSampleRequest(input))));
+      } catch { return json(503, { error: "migration_sample_unavailable" }); }
+    }
+    if (url.pathname === "/v1/hosted/migration/run" || url.pathname === "/v1/hosted/migration/status") {
+      if (this.escrow) return new Response("not found", { status: 404 });
+      const token = (this.env as unknown as { HOSTED_SERVICE_TOKEN?: string }).HOSTED_SERVICE_TOKEN;
+      const json = (status: number, body: unknown) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
+      const store = storageRunStore(this.ctx.storage);
+      const status = async () => {
+        let native;
+        try { native = readNativeState(this.ctx.storage.sql); } catch { native = { error: "migration_state_unreadable" }; }
+        return migrationStatus(await store.load(), native);
+      };
+      if (url.pathname.endsWith("/status")) {
+        const input = await migrationStatusRequest(request, token);
+        if (input instanceof Response) return input;
+        if (input.collection !== collection) return json(400, { error: "invalid_request" });
+        this.requirePhysicalCollection(collection);
+        return json(200, await status());
+      }
+      const input = await migrationRunRequest(request, token);
+      if (input instanceof Response) return input;
+      if (input.collection !== collection) return json(400, { error: "invalid_request" });
+      if (!this.migrationConfigured()) return json(503, { error: "migration_unconfigured" });
+      let diagnostic: ReadyDiagnostic | undefined;
+      try {
+        await this.ready(collection, value => { diagnostic = value; });
+      } catch (error) {
+        // ready() may already have effects; 500/UNKNOWN is unchanged. No run save yet.
+        return json(500, { error: "migration_run_ready_failed", ...(diagnostic ?? readyDiagnostic("unknown", error)),
+          ...labRawError(this.env.LAB, error) });
+      }
+      try {
+        const run = await store.load();
+        if (run && run.backupHold !== input.backupHold) return json(409, { error: "migration_run_exists", ...(await status()) });
+        if (run && run.pauseBeforeCutover !== input.pauseBeforeCutover) return json(409, { error: "migration_pause_mode_conflict", ...(await status()) });
+        // A stopped run stays stopped: resuming it is an operator procedure.
+        if (!run) await store.save(newRun(collection, input.backupHold, Date.now(), input.pauseBeforeCutover));
+        if (!run || run.state === "running" || run.state === "waiting") {
+          await this.alarms.schedule(Date.now() + 100, () => this.alarms.current);
+        }
+        return json(run ? 200 : 202, await status());
+      } catch (error) {
+        // A run write/alarm may already have landed. Preserve UNKNOWN; never retry.
+        if (this.env.LAB !== "1") throw error;
+        return json(500, { error: "migration_run_failed", ...labRawError(this.env.LAB, error) });
+      }
+    }
     if (url.pathname === "/v1/hosted/activate") {
       const approved = await serviceCollection(request, (this.env as unknown as { HOSTED_SERVICE_TOKEN?: string }).HOSTED_SERVICE_TOKEN);
       if (approved instanceof Response) return approved;
       if (approved !== collection) return new Response("bad collection", { status: 400 });
       const tag = this.env.LAB === "1" ? await wakeCollectionTag(collection) : null;
       if (tag) wakeLog(tag, this.escrow ? "escrow" : "hosted", "wake_received");
-      const engine = await this.ready(collection);
+      // Every committed policy batch (enrolment, removal, rekey) activates: mint a
+      // fresh token against current eligibility, and poll at the base rate again.
+      if (this.collection === collection) this.dropLogToken();
+      this.noteActivity();
+      let engine: Engine;
+      try { engine = await this.ready(collection); }
+      catch (error) {
+        // A lasting verdict (deleted, left sync, not this deployment's) is an
+        // answer, not a failure: ready() already retired the actor. The CP keeps
+        // the batch pending and retries on its own backoff.
+        if (isPermanentCustodyRefusal(error)) return verdictAnswer(error);
+        throw error;
+      }
       const generation = this.logGen;
       engine.refresh();
-      await this.sync(engine);
+      try { await this.sync(engine); }
+      catch (error) {
+        // A warm engine learns of the verdict through its fresh log token (the
+        // activation dropped the held one): retire as the alarm path does, and
+        // give the CP the same definite answer as a cold open.
+        if (!isPermanentCustodyRefusal(error)) throw error;
+        await this.retireForVerdict();
+        return verdictAnswer(error);
+      }
       if (tag && this.engine === engine && this.logGen === generation) wakeLog(tag, this.escrow ? "escrow" : "hosted", "activation_complete");
       return Response.json({ activated: true }, { headers: { "cache-control": "no-store" } });
     }
@@ -493,6 +1331,13 @@ export class HostedCollection extends DurableObject<Env> {
       // App sessions: Noise authenticates; live admission decides each step.
       const engine = await this.ready(collection);
       if (!this.live) return new Response("not available", { status: 503 });
+      this.noteActivity();
+      // A backed-off actor may not have looked at the log for minutes: fetch the
+      // head now, ahead of the session's first sync, so the client sees it.
+      if (Date.now() - this.lastRefresh >= REFRESH_MS) {
+        this.lastRefresh = Date.now();
+        engine.refresh();
+      }
       // Bounded ingress: sockets (including pre-prologue ones) per DO.
       const apps = this.ctx.getWebSockets().filter((w) => (w.deserializeAttachment() as AppAttachment | null)?.app).length;
       if (apps >= MAX_APP_SOCKETS) return new Response("busy", { status: 503 });
@@ -621,6 +1466,7 @@ export class HostedCollection extends DurableObject<Env> {
   }
 
   async webSocketMessage(ws: WebSocket, message: ArrayBuffer | string): Promise<void> {
+    if (this.pitrClosed) { this.closePitrResources(); return; }
     const a = ws.deserializeAttachment() as AppAttachment | null;
     const engine = this.engine;
     if (!engine || !a || a.wake !== this.wakeId) {
@@ -628,6 +1474,7 @@ export class HostedCollection extends DurableObject<Env> {
       ws.close(1012, "rehandshake");
       return;
     }
+    this.noteActivity();
     if (a.app) {
       if (typeof message === "string" || message.byteLength > 65_535 || !this.live) return this.endApp(engine, ws, a, 1009, "frame");
       return this.appMessage(engine, ws, a, new Uint8Array(message));
@@ -652,7 +1499,13 @@ export class HostedCollection extends DurableObject<Env> {
     await this.sync(engine);
   }
 
+  async webSocketError(ws: WebSocket): Promise<void> {
+    if (this.pitrClosed) { this.closePitrResources(); return; }
+    await this.webSocketClose(ws);
+  }
+
   async webSocketClose(ws: WebSocket): Promise<void> {
+    if (this.pitrClosed) { this.closePitrResources(); return; }
     const a = ws.deserializeAttachment() as AppAttachment | null;
     if (this.engine && a?.wake === this.wakeId) {
       if (a.noise) {
@@ -695,42 +1548,98 @@ const fromHex = (s: string) => Uint8Array.from(s.match(/../g) ?? [], (h) => pars
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const health = labHealth(request, env.LAB === "1");
+    const health = labHealth(request, env.LAB === "1", env.CF_VERSION_METADATA?.id);
     if (health) return health;
+    // A misconfigured hint refuses loudly instead of creating actors elsewhere.
+    const hint = locationHint(env);
+    if (hint === null) return new Response("DO location hint configuration", { status: 503 });
     const url = new URL(request.url);
     const e = env as unknown as { HOSTED_SERVICE_TOKEN?: string; SERVICE_KIND?: string; LAB_CUSTODY_WRAP_KEY?: string };
     const kind = e.SERVICE_KIND === "escrow" ? "escrow" : "hosted";
+    // Optional isolated deployment settings; deployment generates the admitted profile.
+    const p = env as Env & PitrFactorySettings & { PITR_PHASE?: R2Bucket };
+    const isolated = pitrConfigured(env);
+    const escrowFactory = url.pathname === "/pitr-escrow/internal/v1/service-devices";
+    const factoryRequest = escrowFactory || url.pathname === "/internal/v1/service-devices";
+    if (url.pathname.startsWith("/pitr-escrow/") && (!isolated || !escrowFactory)) {
+      return new Response("not found", { status: 404 });
+    }
+    const pitr = isolated ? pitrFactory(p, p.PITR_PHASE) : null;
+    if (isolated && (!pitr || !distinctServiceTokens(e.HOSTED_SERVICE_TOKEN, p.PITR_ESCROW_SERVICE_TOKEN) || !factoryRequest)) {
+      // Keep every actor entry CLOSED until the all-path fence is installed.
+      return new Response("unavailable", { status: 503 });
+    }
     if (url.pathname === "/internal/v1/migration-admission") {
       if (kind !== "hosted") return new Response("not found", { status: 404 });
       const input = await migrationAdmissionRequest(request, e.HOSTED_SERVICE_TOKEN);
       if (input instanceof Response) return input;
-      const stub = env.COLLECTIONS.get(env.COLLECTIONS.idFromName(input.collection));
+      // A creating request may place a new actor in the collection's region.
+      const stub = namedStub(env.COLLECTIONS, input.collection, input.region ?? hint);
       const headers = new Headers(request.headers);
       headers.delete("content-length");
       return stub.fetch(new Request(`${url.origin}/v1/hosted/migration-admission?collection=${input.collection}`, {
+        method: "POST", headers, body: JSON.stringify({ collection: input.collection, challenge: input.challenge }),
+      }));
+    }
+    if (url.pathname === "/internal/v1/migration/operator") {
+      if (kind !== "hosted") return new Response("not found", { status: 404 });
+      const input = await migrationOperatorRequest(request, e.HOSTED_SERVICE_TOKEN);
+      if (input instanceof Response) return input;
+      const stub = namedStub(env.COLLECTIONS, input.collection, hint);
+      const headers = new Headers(request.headers); headers.delete("content-length");
+      return stub.fetch(new Request(`${url.origin}/v1/hosted/migration/operator?collection=${input.collection}`,
+        { method: "POST", headers, body: JSON.stringify(migrationOperatorBody(input)) }));
+    }
+    if (url.pathname === "/internal/v1/migration/run" || url.pathname === "/internal/v1/migration/status") {
+      if (kind !== "hosted") return new Response("not found", { status: 404 });
+      const run = url.pathname.endsWith("/run");
+      const input = run ? await migrationRunRequest(request, e.HOSTED_SERVICE_TOKEN) : await migrationStatusRequest(request, e.HOSTED_SERVICE_TOKEN);
+      if (input instanceof Response) return input;
+      const stub = namedStub(env.COLLECTIONS, input.collection, hint);
+      const headers = new Headers(request.headers);
+      headers.delete("content-length");
+      const body = "backupHold" in input && "pauseBeforeCutover" in input ? { collection: input.collection, backup_hold: input.backupHold, stop_before_flip: input.pauseBeforeCutover } : { collection: input.collection };
+      return stub.fetch(new Request(`${url.origin}/v1/hosted/migration/${run ? "run" : "status"}?collection=${input.collection}`, {
+        method: "POST", headers, body: JSON.stringify(body),
+      }));
+    }
+    if (url.pathname === "/internal/v1/migration/sample") {
+      if (kind !== "hosted") return new Response("not found", { status: 404 });
+      const input = await migrationSampleRequest(request, e.HOSTED_SERVICE_TOKEN);
+      if (input instanceof Response) return input;
+      const stub = namedStub(env.COLLECTIONS, input.collection, hint);
+      const headers = new Headers(request.headers);
+      headers.delete("content-length");
+      return stub.fetch(new Request(`${url.origin}/v1/hosted/migration/sample?collection=${input.collection}`, {
         method: "POST", headers, body: JSON.stringify(input),
       }));
     }
     if (url.pathname === "/internal/v1/collections/activate") {
-      const collection = await serviceCollection(request, e.HOSTED_SERVICE_TOKEN);
-      if (collection instanceof Response) return collection;
-      const stub = env.COLLECTIONS.get(env.COLLECTIONS.idFromName(collection));
+      const activation = await serviceActivation(request, e.HOSTED_SERVICE_TOKEN);
+      if (activation instanceof Response) return activation;
+      const { collection } = activation;
+      const stub = namedStub(env.COLLECTIONS, collection, activation.region ?? hint);
       return stub.fetch(new Request(`${url.origin}/v1/hosted/activate?collection=${collection}`, {
         method: "POST", headers: request.headers, body: JSON.stringify({ collection }),
       }));
     }
-    if (url.pathname === "/internal/v1/service-devices") {
-      // The control plane's cloud-copy bootstrap. Denied until KMS custody is
-      // installed; LAB may use the custody stub (LAB_CUSTODY_WRAP_KEY).
-      const wrapper = (kind === "hosted" ? productionWrapper(productionParts(env as unknown as FactoryEnv)) : null)
-        ?? (env.LAB === "1" ? labStubWrapper(kind, e.LAB_CUSTODY_WRAP_KEY) : null) ?? DENY_WRAPPER;
-      return generateServiceDevice(request, { serviceToken: e.HOSTED_SERVICE_TOKEN, generate: () => generateDeviceKeys(engineModule), wrapper, kind });
+    if (factoryRequest) {
+      // One canonical real generation/wrapping/wiping pipeline, no DO lookup.
+      const role = escrowFactory ? "escrow" : kind;
+      const wrapper = (role === "hosted" || localBuild() ? productionWrapper(productionParts(env as unknown as FactoryEnv)) : null)
+        ?? (env.LAB === "1" ? labStubWrapper(role, e.LAB_CUSTODY_WRAP_KEY) : null) ?? DENY_WRAPPER;
+      return generateServiceDevice(request, {
+        serviceToken: escrowFactory ? p.PITR_ESCROW_SERVICE_TOKEN : e.HOSTED_SERVICE_TOKEN,
+        generate: () => generateDeviceKeys(engineModule), wrapper, kind: role,
+        labRawErrors: env.LAB === "1",
+        ...(pitr ? { allowed: pitr.seedGuard() } : {}),
+      });
     }
     const collection = url.searchParams.get("collection") ?? "";
     if (!url.pathname.startsWith("/v1/hosted/") || !UUID.test(collection)) {
       return new Response("not found", { status: 404 });
     }
-    const stub = env.COLLECTIONS.get(env.COLLECTIONS.idFromName(collection));
+    const stub = namedStub(env.COLLECTIONS, collection, hint);
     return stub.fetch(request);
   },
 } satisfies ExportedHandler<Env>;

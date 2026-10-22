@@ -12,17 +12,26 @@ import { AppErrorBoundary } from "./AppErrorBoundary";
 import { DemoCollectionGateway } from "./demo-gateway";
 import { createEditorMdbase, SdkEditorRoot } from "./SdkEditorRoot";
 import { EnvironmentBadge } from "./EnvironmentBadge";
+import { connectServerUrl } from "./connect-endpoint";
 import { deliverAppGrantCallbackFrom, isAppGrantCallback } from "./private-collections";
 import "@mdbase-dev/ui/motion.css";
 import "./styles.css";
 import "./environment-badge.css";
+import { offlineShell } from "./offline-shell";
 
 const EditorApp = lazy(() => import("./App").then((module) => ({ default: module.App })));
-
-// The Connect console is retired: collections, access and accounts are managed
-// in mdbase itself. Old /connect links open the editor instead of a dead console.
-if (location.pathname === "/connect" || location.pathname.startsWith("/connect/")) history.replaceState(null, "", "/");
-const demoCount = (import.meta.env.DEV || import.meta.env.VITE_MDBASE_EDITOR_DEMO === "1")
+// The Connect console is retired from the Editor: accounts, access and collection
+// management live on the Connect portal. Keep old /connect bookmarks working by
+// forwarding them there, and never mount management (or an SDK owner) here.
+const managementTarget = location.pathname === "/connect" || location.pathname.startsWith("/connect/")
+  ? new URL(location.pathname.slice("/connect".length) || "/", connectServerUrl()) : null;
+if (managementTarget) {
+  managementTarget.search = location.search;
+  managementTarget.searchParams.delete("server");
+  managementTarget.hash = location.hash;
+  location.replace(managementTarget.href);
+}
+const demoCount = !managementTarget && (import.meta.env.DEV || import.meta.env.VITE_MDBASE_EDITOR_DEMO === "1")
   ? Number(new URL(location.href).searchParams.get("demo") ?? 0)
   : 0;
 const demoDelay = demoCount > 0
@@ -39,12 +48,12 @@ if (!demoGateway && ((environment === "staging" && location.origin !== "https://
 }
 // The Private collection consent popup returns here: hand its result to the
 // waiting editor tab and close, without starting a second SDK owner.
-const grantCallback = isAppGrantCallback(new URL(location.href));
+const grantCallback = !managementTarget && isAppGrantCallback(new URL(location.href));
 if (grantCallback) {
   void deliverAppGrantCallbackFrom(new URL(location.href)).catch(() => {});
 }
 // One SDK owner for the module lifetime; construction does no registration IO.
-const sdk = !demoGateway && !grantCallback ? createEditorMdbase({ origin: location.origin, environment }) : null;
+const sdk = !managementTarget && !demoGateway && !grantCallback ? createEditorMdbase({ origin: location.origin, environment }) : null;
 
 function EditorWorkspace() {
   const [context, setContext] = useState<{ surface: Surface; collectionName?: string }>({ surface: "notes" });
@@ -59,5 +68,7 @@ function EditorWorkspace() {
 }
 
 createRoot(document.getElementById("root")!).render(
-  <StrictMode><AppErrorBoundary product="mdbase editor"><EnvironmentBadge /><Suspense fallback={<div className="route-loading" aria-live="polite">Opening mdbase…</div>}><EditorWorkspace /></Suspense></AppErrorBoundary></StrictMode>
+  <StrictMode><AppErrorBoundary product="mdbase editor"><EnvironmentBadge /><Suspense fallback={<div className="route-loading" aria-live="polite">Opening mdbase…</div>}>{managementTarget ? <main aria-live="polite">Opening mdbase connect… <a href={managementTarget.href}>Continue</a></main> : <EditorWorkspace />}</Suspense></AppErrorBoundary></StrictMode>
 );
+// Collection screens register the offline shell once usable; others after a delay.
+if (!managementTarget) offlineShell.start();

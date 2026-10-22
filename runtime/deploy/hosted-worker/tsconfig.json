@@ -3,7 +3,7 @@
     "target": "es2022",
     "module": "es2022",
     "moduleResolution": "bundler",
-    "paths": { "#hosted-release-trust": ["./src/unconfigured-release-trust.ts"] },
+    "paths": { "#hosted-release-trust": ["./src/unconfigured-release-trust.ts"], "#hosted-kms-collections": ["./src/unconfigured-kms-collections.ts"] },
     "lib": [
       "es2022"
     ],

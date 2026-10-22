@@ -74,12 +74,12 @@ for (const status of ["approved", "denied"]) {
 for (const version of [undefined, 1]) {
   test(`v1 (${version ?? "absent"}) renders and selects only exact requested operations`, () => {
     const requirements = { contracts: [], ...(version ? { capabilities: { contract_version: version, required: ["records.update"] } } : {}) };
-    for (const [operation, label] of [["read", "Read records"], ["update", "Change records"], ["put_timer", "Create or update timers"]]) {
+    for (const [operation, label] of [["read", "Read records"], ["update", "Change records"], ["put_timer", "Create or update this app's scheduled activity"]]) {
       const groups = authorizationCapabilityGroups(requirements, [operation]);
       assert.deepEqual(groups.flatMap(g => g.operations), [operation]);
       const selected = selectedOperationsForCapabilityGroups(groups);
       const html = list({ groups, selected });
-      assert.match(html, new RegExp(label));
+      assert.match(html, new RegExp(label.replaceAll("'", "&#x27;")));
       assert.doesNotMatch(html, /Rename|Search and query|records.edit|Allow the/);
       assert.equal(checkboxes(html), 1);
       assert.equal(checked(html), 1);
@@ -178,7 +178,7 @@ test("the pre-choice summary names requested access without controls", () => {
 test("next record-only request has a visible reauthorization blocker and no approval control", () => {
   const html = render(ApprovalForm, { request: { account_backend: "next", requirements: { contracts: [], capabilities: { contract_version: 2, required: ["collection.read"] } }, requested_operations: ["read"] } });
   assert.match(html, /role="alert"/);
-  assert.match(html, /records and their matching file actions/);
+  assert.match(html, /This app needs an update before it can connect\. Try again after it updates\./);
   assert.doesNotMatch(html, /button|checkbox/);
 });
 
@@ -194,6 +194,6 @@ for (const requirements of [
   assert.deepEqual(authorizationCapabilityGroups(requirements, ["update"]), []);
   const html = render(ApprovalForm, { request: { requirements } });
   assert.match(html, /role="alert"/);
-  assert.match(html, /Access cannot be approved/);
+  assert.match(html, /This app needs an update before it can connect\. Try again after it updates\./);
   assert.doesNotMatch(html, /button|checkbox/);
 });

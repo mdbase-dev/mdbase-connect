@@ -101,7 +101,7 @@ impl<S: Store> Replica<S> {
     ) -> ApiResult<CapturedBasesExecutionInputs> {
         // Authorize before accepting any host metadata, then bind its immutable copy
         // to the same actual inventory/fence/clock used by source discovery.
-        let initial = self.collection_setup_capture_fence(None)?;
+        let initial = self.bases_read_capture_fence()?;
         let Some(hints) = property_types else {
             return Err(failure(EvaluationFailure::MetadataUnavailable(
                 "property_types_not_captured",
@@ -129,9 +129,9 @@ impl<S: Store> Replica<S> {
             return Err(failure(work.failure().expect("registry copy budget")));
         }
         let property_types = hints.clone();
-        self.recheck_collection_setup_capture(&initial)?;
+        self.recheck_bases_read_capture(&initial)?;
         let capture = self.capture_bases_discovery_metered(timezone, &mut work)?;
-        self.recheck_collection_setup_capture(&initial)?;
+        self.recheck_bases_read_capture(&initial)?;
         let selected = capture
             .views
             .iter()
@@ -146,10 +146,7 @@ impl<S: Store> Replica<S> {
         if view.revision != selection.revision {
             return Err(invalid());
         }
-        if !matches!(
-            view.view_type.as_str(),
-            "table" | "tasknotesTaskList" | "tasknotesKanban"
-        ) {
+        if !mdbn_core::views::bases::supports_host_renderer(&view.view_type) {
             return Err(failure(EvaluationFailure::UnsupportedConstruct(
                 "bases_view_renderer",
             )));
@@ -195,7 +192,7 @@ impl<S: Store> Replica<S> {
                 .map_err(failure)?,
             );
         }
-        self.recheck_collection_setup_capture(&capture.fence)?;
+        self.recheck_bases_read_capture(&capture.fence)?;
         Ok(CapturedBasesExecutionInputs {
             capture,
             selected,

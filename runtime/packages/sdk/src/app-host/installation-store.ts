@@ -1,7 +1,9 @@
 /** Internal pre-account sign-in ledger. Nonextractable origin AES handle + bounded
  * encrypted operation in ONE strict IDB commit. Not an account KEK, generic KV,
  * OS keychain, XSS boundary or physical durability/collection Saved guarantee. */
-import { acquireAppSignInLease, AppReplicaOwnerError, type AppLockPort, type AppReplicaLease } from "./owner.js";
+import { LOCAL_APPLICATION_BUILD, localApplicationHttpOrigin } from "../application/local-build.js";
+import { currentAppOrigin, isAppOrigin } from "./app-origin.js";
+import { acquireAppSignInLease, isAppInstallationId, isInstallationOwner, AppReplicaOwnerError, type AppLockPort, type AppReplicaLease } from "./owner.js";
 const STORE = "installation-sign-in", KEY = "original", MAX = 128 * 1024; // bounded original + additive consent receipts (<=1000 IDs each)
 export class AppInstallationStorageError extends Error {
   constructor(readonly reason: "busy" | "unavailable") { super(`app installation storage ${reason}; preserve storage and reopen`); }
@@ -23,8 +25,16 @@ export interface AppInstallationStoreOptions {
   readonly origin: string;
   /** Authenticated first-party build context, never supplied by a redirect. */
   readonly cpOrigin: string;
-  readonly appId: "tasknotes-web" | "tasknotes-mobile";
-  readonly mode: "fresh" | "existing";
+  readonly appId: string;
+  /** Stable local owner of this slot, from the ORIGINAL application declaration
+   * (its manifest family), never the CP-assigned appId. When set, the database
+   * name, AEAD associated data and the sign-in plaintext all carry it, so an
+   * appId that points at another app's slot opens an absent database instead.
+   * Unlabelled slots are never opened for an owner: that caller pairs afresh. */
+  readonly owner?: string;
+  /** open creates only an absent database in its atomic upgrade; an occupied,
+   * partial or corrupt database is restored or refused, never replaced. */
+  readonly mode: "fresh" | "existing" | "open";
   readonly signal: AbortSignal;
   readonly locks: AppLockPort | undefined;
   readonly allowLoopbackHttp?: boolean;
@@ -38,21 +48,25 @@ export class AppInstallationStore {
   private closeResult: Promise<void> | null = null;
   private readonly namespace: string;
   private constructor(private readonly options: Readonly<AppInstallationStoreOptions>, private readonly lease: AppReplicaLease) {
-    this.namespace = JSON.stringify(["mdbase.app-installation.v1", options.origin, options.cpOrigin, options.appId]);
+    this.namespace = JSON.stringify(options.owner === undefined
+      ? ["mdbase.app-installation.v1", options.origin, options.cpOrigin, options.appId]
+      : ["mdbase.app-installation.v2", options.origin, options.cpOrigin, options.owner, options.appId]);
   }
   static async open(options: AppInstallationStoreOptions, initial: () => Uint8Array): Promise<{store: AppInstallationStore; plaintext: Uint8Array}> {
     // Snapshot before any ownership/platform wait. No account ID is invented.
-    const p = Object.freeze({ origin: options.origin, cpOrigin: options.cpOrigin, appId: options.appId, mode: options.mode, signal: options.signal, locks: options.locks, allowLoopbackHttp: options.allowLoopbackHttp === true });
+    const p = Object.freeze({ origin: options.origin, cpOrigin: options.cpOrigin, appId: options.appId, ...(options.owner === undefined ? {} : {owner: options.owner}), mode: options.mode, signal: options.signal, locks: options.locks, allowLoopbackHttp: options.allowLoopbackHttp === true });
     let out: AppInstallationStore | null = null, plain: Uint8Array | null = null, fresh: Stored | null = null;
     try {
-      for (const origin of [p.origin, p.cpOrigin]) {
-        const u = new URL(origin), loopback = p.allowLoopbackHttp && u.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
+      if (!isAppOrigin(p.origin, p.allowLoopbackHttp === true)) throw fail();
+      {
+        const origin = p.cpOrigin, u = new URL(origin), loopback = p.allowLoopbackHttp && u.protocol === "http:" && (LOCAL_APPLICATION_BUILD ? localApplicationHttpOrigin(origin) : ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname));
         if (u.origin !== origin || u.username || u.password || (u.protocol !== "https:" && !loopback)) throw fail();
       }
-      if (!["fresh", "existing"].includes(p.mode) || !["tasknotes-web", "tasknotes-mobile"].includes(p.appId) || p.signal.aborted || globalThis.location?.origin !== p.origin || !globalThis.indexedDB || !globalThis.crypto?.subtle || typeof CryptoKey !== "function") throw fail();
+      if (p.owner !== undefined && !isInstallationOwner(p.owner)) throw fail();
+      if (!["fresh", "existing", "open"].includes(p.mode) || !isAppInstallationId(p.appId) || p.signal.aborted || currentAppOrigin() !== p.origin || !globalThis.indexedDB || !globalThis.crypto?.subtle || typeof CryptoKey !== "function") throw fail();
       const lease = await acquireAppSignInLease(p.locks, p, p.signal);
       out = new AppInstallationStore(p, lease); out.check();
-      if (p.mode === "fresh") {
+      if (p.mode !== "existing") {
         // Ownership precedes randomness/crypto; commit initial tuple, secret and
         // handle atomically in the upgrade transaction, never an empty fresh DB.
         plain = initial(); out.check(); out.bound(plain);
@@ -70,7 +84,7 @@ export class AppInstallationStore {
   }
   isCurrent(): boolean { try { this.check(); return true; } catch { return false; } }
   private check(): void {
-    if (this.closing || this.options.signal.aborted || globalThis.location?.origin !== this.options.origin) throw fail();
+    if (this.closing || this.options.signal.aborted || currentAppOrigin() !== this.options.origin) throw fail();
   }
   private bound(b: Uint8Array): void { if (!(b instanceof Uint8Array) || !b.length || b.length > MAX) throw fail(); }
   private aad(revision: number): Uint8Array<ArrayBuffer> { return new TextEncoder().encode(`${this.namespace}:${revision}`); }
@@ -92,14 +106,16 @@ export class AppInstallationStore {
   }
   private openDatabase(fresh: Stored | null): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
-      this.check(); const name = `mdbase.app.installation.v1.${encodeURIComponent(this.options.cpOrigin)}.${this.options.appId}`, req = indexedDB.open(name, 1);
+      this.check(); const o = this.options, name = o.owner === undefined
+        ? `mdbase.app.installation.v1.${encodeURIComponent(o.cpOrigin)}.${o.appId}`
+        : `mdbase.app.installation.v2.${encodeURIComponent(o.cpOrigin)}.${encodeURIComponent(o.owner)}.${o.appId}`, req = indexedDB.open(name, 1);
       let abandoned = false, created = false;
       const stop = () => { abandoned = true; try { req.transaction?.abort(); } catch { /* preserve any commit */ } reject(fail()); };
       const finish = () => this.options.signal.removeEventListener("abort", stop);
       this.options.signal.addEventListener("abort", stop, {once: true}); req.onblocked = stop;
       req.onupgradeneeded = () => { try { this.check(); if (abandoned || !fresh || req.result.objectStoreNames.length) throw fail(); req.result.createObjectStore(STORE).add(fresh, KEY); created = true; } catch { req.transaction?.abort(); } };
       req.onerror = () => { finish(); reject(fail()); };
-      req.onsuccess = () => { finish(); try { this.check(); if (abandoned || (fresh !== null && !created) || req.result.objectStoreNames.length !== 1 || !req.result.objectStoreNames.contains(STORE)) throw fail(); resolve(req.result); } catch { req.result.close(); reject(fail()); } };
+      req.onsuccess = () => { finish(); try { this.check(); if (abandoned || (this.options.mode === "fresh" && !created) || req.result.objectStoreNames.length !== 1 || !req.result.objectStoreNames.contains(STORE)) throw fail(); resolve(req.result); } catch { req.result.close(); reject(fail()); } };
     });
   }
   private readRecord(): Promise<Stored> {

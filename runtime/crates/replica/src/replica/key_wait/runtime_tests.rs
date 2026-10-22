@@ -119,3 +119,30 @@ fn cleared_key_stall_resumes_prefix_reads_without_waiting_for_the_old_deadline()
     assert_eq!(replica.take_log_calls().len(), 1);
     assert_eq!(replica.key_wait_read.deadline(4), None);
 }
+#[test]
+fn a_pushed_head_past_the_last_probe_reads_again_within_a_second() {
+    let (mut replica, clock) = waiting();
+    replica.pump();
+    clock.set(1_000);
+    replica.tick();
+    let calls = replica.take_log_calls();
+    assert_eq!(calls.len(), 1);
+    replica.on_log_reply(calls[0].id, Err(LogError::Offline));
+    assert_eq!(replica.next_wakeup(), Some(3_000));
+    clock.set(1_200);
+    replica.on_log_push(LogPush::Head {
+        collection: B16([1; 16]),
+        head: 100,
+        head_chain: B32([9; 32]),
+    });
+    assert!(
+        replica.take_log_calls().is_empty(),
+        "never sooner than a second"
+    );
+    assert_eq!(replica.next_wakeup(), Some(2_000));
+    clock.set(2_000);
+    replica.tick();
+    assert_eq!(replica.take_log_calls().len(), 1);
+    assert_eq!(replica.stalled, Some((IncidentKind::WaitingForKey, 4)));
+    assert!(!replica.caught_up);
+}

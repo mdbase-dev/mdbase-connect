@@ -169,3 +169,16 @@ test("legacy schema has an independent ID and frozen contract version", async ()
   assert.equal(legacy.$defs.capabilityRequirements.properties.contract_version.const, 1);
   assert.equal(current.$defs.capabilityRequirements.properties.contract_version.const, 2);
 });
+
+test("native redirect URIs are exact private-use schemes derived from the application ID, never wildcards", () => {
+  const input = manifest();
+  const valid = (redirects) => validateVersionedAppManifest({ ...input, redirect_uris: redirects }).valid;
+  assert.equal(valid(["https://example.test/callback", "dev.example.legacy://auth/mdbase/callback"]), true);
+  assert.equal(valid(["dev.example.legacy.ios://auth/mdbase/callback"]), true);
+  assert.equal(valid(["dev.example.other://auth/mdbase/callback"]), false);
+  assert.equal(valid(["com.attacker.app://auth/mdbase/callback"]), false);
+  assert.equal(valid(["http://example.test/callback"]), false);
+  assert.equal(valid(["dev.example.legacy://auth/*"]), false);
+  assert.equal(valid(["dev.example.legacy://*/callback"]), false);
+  assert.equal(valid(["https://example.test/*"]), false);
+});

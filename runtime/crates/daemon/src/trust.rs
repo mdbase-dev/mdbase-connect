@@ -3,7 +3,10 @@
 //!
 //! A build belongs to exactly one environment, fixed at compile time: the default
 //! build is **production**; the `lab` cargo feature makes a **LAB** build and
-//! requires both authenticated LAB release files at compile time. A public tree
+//! requires both authenticated LAB release files at compile time. The distinct
+//! `local-rehearsal` feature embeds signed PUBLIC per-stack local trust inputs,
+//! verified against an independently supplied stack root. It cannot be combined
+//! with LAB; neither managed profile compiles or reads those inputs. A public tree
 //! without those files can build and test the default production profile; it
 //! cannot build LAB or supply replacement trust at runtime. The environment decides
 //! the default control plane for `mdbase account sign-in`, the
@@ -21,8 +24,20 @@
 #[cfg(any(test, debug_assertions))]
 use std::sync::atomic::{AtomicBool, Ordering};
 
-#[cfg(feature = "lab")]
+#[cfg(all(feature = "lab", feature = "local-rehearsal"))]
+compile_error!("LAB and local-rehearsal are distinct artifacts; choose exactly one");
+
+#[cfg(any(feature = "lab", feature = "local-rehearsal"))]
 use mdbn_trust::{Context, REPOSITORY, Source};
+
+#[cfg(feature = "local-rehearsal")]
+mod local_input {
+    // Public build inputs generated only after signed per-stack verification.
+    // Missing inputs are a compile error, never a runtime fallback/root source.
+    include!("../trust/local-context.rs");
+}
+#[cfg(feature = "local-rehearsal")]
+const LOCAL_ASSET: &[u8] = include_bytes!("../trust/local.json");
 pub use mdbn_trust::{Invalid, Trust, origin};
 
 /// A Connect environment a build can belong to.
@@ -32,11 +47,17 @@ pub enum Environment {
     Production,
     /// The isolated LAB service (`lab` feature builds only).
     Lab,
+    /// Per-stack local service (explicit local-rehearsal artifact only).
+    #[cfg(feature = "local-rehearsal")]
+    Local,
 }
 
 impl Environment {
     /// The environment this binary was built for.
     pub const fn embedded() -> Environment {
+        #[cfg(feature = "local-rehearsal")]
+        return Environment::Local;
+        #[cfg(not(feature = "local-rehearsal"))]
         if cfg!(feature = "lab") {
             Environment::Lab
         } else {
@@ -49,6 +70,8 @@ impl Environment {
         match self {
             Environment::Production => "production",
             Environment::Lab => "lab",
+            #[cfg(feature = "local-rehearsal")]
+            Environment::Local => "local",
         }
     }
 
@@ -57,6 +80,8 @@ impl Environment {
         match self {
             Environment::Production => "https://connect.mdbase.dev",
             Environment::Lab => "https://connect-lab.mdbase.dev",
+            #[cfg(feature = "local-rehearsal")]
+            Environment::Local => local_input::CP_ORIGIN,
         }
     }
 
@@ -67,9 +92,30 @@ impl Environment {
     }
 
     fn trust_at(self, now_ms: u64) -> Result<Trust, Invalid> {
-        #[cfg(not(feature = "lab"))]
+        #[cfg(not(any(feature = "lab", feature = "local-rehearsal")))]
         let _ = now_ms;
         match self {
+            #[cfg(feature = "local-rehearsal")]
+            Environment::Local => {
+                let context = Context {
+                    sha256: mdbn_trust::hex_exact(local_input::SHA256, "asset digest")?,
+                    environment: "local".into(),
+                    control_plane_origin: local_input::CP_ORIGIN.into(),
+                    log_origin: local_input::LOG_ORIGIN.into(),
+                    source: Source {
+                        repository: REPOSITORY.into(),
+                        commit: local_input::SOURCE_COMMIT.into(),
+                        version: local_input::SOURCE_VERSION.into(),
+                    },
+                };
+                mdbn_trust::verify_local(
+                    LOCAL_ASSET,
+                    &context,
+                    now_ms,
+                    &mdbn_trust::hex_exact(local_input::STACK_ROOT, "independent stack root")?,
+                    &mdbn_trust::hex_exact(local_input::SIGNATURE, "local signature")?,
+                )
+            }
             #[cfg(feature = "lab")]
             Environment::Lab => mdbn_trust::verify(LAB_ASSET, &lab_context()?, now_ms),
             #[cfg(not(feature = "lab"))]
@@ -81,6 +127,14 @@ impl Environment {
             )),
         }
     }
+}
+
+/// Immutable per-stack keychain partition. Managed artifacts do not compile
+/// this selector and cannot read a local namespace through runtime options.
+#[cfg(feature = "local-rehearsal")]
+#[doc(hidden)]
+pub const fn local_asset_digest() -> &'static str {
+    local_input::SHA256
 }
 
 /// The verified trust pins of the environment this binary was built for.
@@ -152,6 +206,18 @@ pub fn sign_in_server(requested: Option<&str>) -> Result<String, String> {
 }
 
 fn sign_in_server_for(env: Environment, requested: Option<&str>) -> Result<String, String> {
+    #[cfg(feature = "local-rehearsal")]
+    if env == Environment::Local {
+        // Authenticate before even sign-in can send a bearer/browser to an origin.
+        // No test hook or canonicalisation broadens this per-stack exact binding.
+        let trust = env.trust().map_err(|error| error.0)?;
+        let server = requested.unwrap_or(env.control_plane());
+        return if server == trust.cp_origin && server == env.control_plane() {
+            Ok(trust.cp_origin)
+        } else {
+            Err("local artifacts sign in only to their exact verified stack origin".into())
+        };
+    }
     let Some(requested) = requested else {
         return Ok(env.control_plane().to_string());
     };

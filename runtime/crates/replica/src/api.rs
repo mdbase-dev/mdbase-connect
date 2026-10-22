@@ -25,6 +25,21 @@
 //! submitted mutations) produce [`Push`]es, which the host drains with
 //! [`ClientApi::take_pushes`] after every call into the replica.
 
+mod pending;
+pub use pending::{PendingMutation, PendingPage};
+
+mod contract_records;
+pub use contract_records::{
+    ContractRecordView, ContractSelection, ContractWritePlan, ContractWriteRequest,
+};
+
+mod type_packs;
+pub use type_packs::{TypePackPlan, TypePackRequest, TypePackWrite};
+mod contract_query;
+pub use contract_query::{
+    ContractProjection, ContractQuery, ContractQueryRecord, ContractQueryResult,
+};
+
 use std::fmt;
 
 use mdbn_wire::client::{
@@ -275,6 +290,8 @@ pub struct ContractImplementation {
     pub fields: mdbn_wire::common::DataMap<String>,
     /// Binding value; omitted when empty.
     pub binding: Option<Value>,
+    /// The implementation digest (spec 05A "Stable Digests").
+    pub digest: Option<Hash>,
 }
 
 /// One valid catalog type reported by `describe`.
@@ -286,6 +303,14 @@ pub struct TypeSummary {
     pub path: String,
     /// Valid resolved implementations in canonical catalog order.
     pub implements: Vec<ContractImplementation>,
+    /// The type's `version`, when it declares one.
+    pub version: Option<i64>,
+    /// Revision of the type file source in the local view (resource CAS).
+    pub revision: Option<Hash>,
+    /// The whole type-file frontmatter (with definitions only).
+    pub definition: Option<Value>,
+    /// The resolved schema the type validates with (with definitions only).
+    pub schema: Option<Value>,
 }
 
 /// One registered contract version reported by `describe`.
@@ -303,6 +328,18 @@ pub struct ContractSummary {
     pub contract_type: String,
     /// Types implementing this exact version, in canonical order.
     pub implemented_by: Vec<String>,
+    /// Resolved schemas by member (`record_schema`, `binding_schema`, ...), with
+    /// definitions only.
+    pub schemas: Option<mdbn_wire::common::DataMap<Value>>,
+}
+
+/// Where a new type file goes, derived by Core from its source.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewTypeFile {
+    /// The type name, as written.
+    pub name: String,
+    /// The type file's resource path: `<types_folder>/<name>.md`.
+    pub path: String,
 }
 
 /// One definition document in the authoritative local resource view.
@@ -406,6 +443,64 @@ pub struct Describe {
     pub contracts: Vec<ContractSummary>,
 }
 
+/// Diagnostics of one actual current record, not an unsaved draft or write permit.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecordValidation {
+    /// Original native record identity.
+    pub id: Uuid,
+    /// Current actual path.
+    pub path: String,
+    /// SHA-256 of the exact document validated.
+    pub revision: mdbn_wire::common::Hash,
+    /// Core's real validation diagnostics, including location/type/tier.
+    pub issues: Vec<mdbn_core::validate::Issue>,
+}
+
+impl RecordValidation {
+    /// The existing validation result map, with additive current-record witnesses.
+    pub(crate) fn to_cbor(&self) -> mdbn_wire::cbor::Cbor {
+        use mdbn_wire::cbor::Cbor;
+        use mdbn_wire::schema::Wire;
+        let issues = self
+            .issues
+            .iter()
+            .map(|i| {
+                let severity = match i.severity {
+                    mdbn_core::validate::Severity::Error => mdbn_wire::client::Severity::Error,
+                    mdbn_core::validate::Severity::Warning => mdbn_wire::client::Severity::Warning,
+                };
+                let mut fields = vec![
+                    (Cbor::Uint(0), i.code.to_cbor()),
+                    (Cbor::Uint(1), severity.to_cbor()),
+                    (Cbor::Uint(2), i.message.to_cbor()),
+                ];
+                if let Some(details) = &i.details {
+                    fields.push((Cbor::Uint(3), crate::convert::wvalue(details).to_cbor()));
+                }
+                if let Some(location) = &i.location {
+                    fields.push((Cbor::Uint(4), location.to_cbor()));
+                }
+                if let Some(name) = &i.type_name {
+                    fields.push((Cbor::Uint(5), name.to_cbor()));
+                }
+                let tier = match i.tier {
+                    mdbn_core::validate::Tier::Request => "request",
+                    mdbn_core::validate::Tier::SingleRecord => "single_record",
+                    mdbn_core::validate::Tier::CrossRecord => "cross_record",
+                };
+                fields.push((Cbor::Uint(6), tier.to_string().to_cbor()));
+                Cbor::Map(fields)
+            })
+            .collect();
+        Cbor::Map(vec![
+            (Cbor::Uint(0), self.id.to_cbor()),
+            (Cbor::Uint(1), Cbor::Array(issues)),
+            (Cbor::Uint(2), self.path.to_cbor()),
+            (Cbor::Uint(3), self.revision.to_cbor()),
+        ])
+    }
+}
+
 /// `changes` result (§4).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChangesResult {
@@ -458,6 +553,48 @@ pub struct PendingDevice {
     /// This is not approval or key delivery. An approver's expected SAS is never
     /// exposed by this DTO (legacy wire slot 3 is decode-only/deprecated).
     pub exchange_ready: bool,
+}
+
+/// One app grant waiting for a device approval (`policy.md` §5.1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingGrant {
+    /// Grant ID (the log grant).
+    pub grant: Uuid,
+    /// App ID from the grant op (informational).
+    pub app_id: String,
+    /// Capability groups the grant op offers.
+    pub capabilities: Vec<String>,
+    /// Folder scope from the grant op (cloud copy only).
+    pub folders: Option<Vec<String>>,
+    /// Fingerprint of the app's client key, as shown on its consent screen.
+    pub client_fingerprint: String,
+}
+
+/// What this replica knows about one grant's approval, for the hosting app.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GrantApprovalState {
+    /// The grant op is active (not revoked).
+    pub active: bool,
+    /// App ID from the grant op (informational).
+    pub app_id: String,
+    /// Capability groups the grant op offers.
+    pub capabilities: Vec<String>,
+    /// The app's Noise static key from the grant op.
+    pub client_pk: [u8; 32],
+    /// The approval must carry the folder scope.
+    pub folder_scoped: bool,
+    /// Approved capabilities of the first valid approval, once applied.
+    pub approved_capabilities: Option<Vec<String>>,
+    /// Folder scope of that approval.
+    pub approved_folders: Option<Vec<String>>,
+    /// Log position of that approval.
+    pub approved_seq: Option<u64>,
+    /// Device that signed that approval.
+    pub approved_by: Option<Uuid>,
+    /// An approval from this device is queued for its append turn.
+    pub queued: bool,
+    /// Why this device's queued approval was dropped at its turn, if it was.
+    pub failure: Option<String>,
 }
 
 /// `list_files` params (§10.1).
@@ -613,8 +750,59 @@ pub trait ClientApi {
 
     // ---- reads (§3, §4) ----
 
+    /// Declaration-bound setup on the original authenticated app session.
+    /// Missing producer support never falls back to ordinary resource writes.
+    fn app_collection_setup(&mut self, _session: SessionId, _request: &[u8]) -> ApiResult<Vec<u8>> {
+        Err(ErrorCode::UpgradeRequired.err_with_reason(
+            "declared_setup_unsupported",
+            "this producer does not mediate declared setup",
+        ))
+    }
+    /// Independent bounded native Bases execution on this authenticated session.
+    fn app_bases_execute(&mut self, _session: SessionId, _request: &[u8]) -> ApiResult<Vec<u8>> {
+        Err(ErrorCode::UpgradeRequired.err_with_reason(
+            "app_bases_unsupported",
+            "native Bases reads are unavailable",
+        ))
+    }
+    /// One native discovery page; supplied handles never silently restart.
+    fn app_bases_list_views(&mut self, _session: SessionId, _request: &[u8]) -> ApiResult<Vec<u8>> {
+        Err(ErrorCode::UpgradeRequired.err_with_reason(
+            "app_bases_unsupported",
+            "native Bases reads are unavailable",
+        ))
+    }
+    /// Exact native source SHA/original ordinal, never a path alias.
+    fn app_bases_read_view_source(
+        &mut self,
+        _session: SessionId,
+        _request: &[u8],
+    ) -> ApiResult<Vec<u8>> {
+        Err(ErrorCode::UpgradeRequired.err_with_reason(
+            "app_bases_unsupported",
+            "native Bases reads are unavailable",
+        ))
+    }
     /// Catalog summary.
     fn describe(&mut self, session: SessionId) -> ApiResult<Describe>;
+    /// The catalog summary with each type's definition and schema and each
+    /// contract's schemas, under a fixed response budget.
+    fn describe_definitions(&mut self, session: SessionId) -> ApiResult<Describe> {
+        let _ = session;
+        Err(ErrorCode::UpgradeRequired.err_with_reason(
+            "describe_definitions_unsupported",
+            "this replica does not describe definitions",
+        ))
+    }
+    /// Where a type file created from `source` goes in the local view, for a
+    /// `resource_put` with `must_not_exist` (Core `plan::new_type_file`).
+    fn new_type_file(&mut self, session: SessionId, source: String) -> ApiResult<NewTypeFile> {
+        let _ = (session, source);
+        Err(ErrorCode::UpgradeRequired.err_with_reason(
+            "new_type_file_unsupported",
+            "this replica does not derive type file paths",
+        ))
+    }
     /// One resource source from the local view, under the current READ gate.
     fn get_resource(&mut self, session: SessionId, path: String) -> ApiResult<ResourceView>;
     /// A bounded confirmed inventory, independent of catalog validity.
@@ -637,6 +825,52 @@ pub trait ClientApi {
         query: Value,
         include: Include,
     ) -> ApiResult<QueryResult>;
+    /// Version-one canonical contract inspection. Older adapters refuse rather
+    /// than exposing raw records as projected contract data.
+    fn query_contract(
+        &mut self,
+        _session: SessionId,
+        _query: ContractQuery,
+    ) -> ApiResult<ContractQueryResult> {
+        Err(ErrorCode::UpgradeRequired
+            .err_with_reason("query_contract_v1", "Contract inspection is unavailable."))
+    }
+    /// One record's valid contract view (Core `contract_records`).
+    fn get_contract(
+        &mut self,
+        _session: SessionId,
+        _target: Target,
+        _selection: ContractSelection,
+    ) -> ApiResult<ContractRecordView> {
+        Err(ErrorCode::UpgradeRequired.err_with_reason(
+            "contract_records_unsupported",
+            "this replica does not serve contract-scoped records",
+        ))
+    }
+    /// A type pack assessment, or with `expected` the guarded writes of its
+    /// apply (Core `packs`, spec 05A). Writes nothing.
+    fn plan_type_pack(
+        &mut self,
+        _session: SessionId,
+        _request: TypePackRequest,
+    ) -> ApiResult<TypePackPlan> {
+        Err(ErrorCode::UpgradeRequired.err_with_reason(
+            "type_packs_unsupported",
+            "this replica does not plan type packs",
+        ))
+    }
+    /// Contract field values as ordinary record changes, for a create or an
+    /// update of the target (Core `contract_records`).
+    fn map_contract_write(
+        &mut self,
+        _session: SessionId,
+        _request: ContractWriteRequest,
+    ) -> ApiResult<ContractWritePlan> {
+        Err(ErrorCode::UpgradeRequired.err_with_reason(
+            "contract_records_unsupported",
+            "this replica does not serve contract-scoped records",
+        ))
+    }
     /// A live query; pushes a `snapshot`, then `diff`s and `reset`s.
     fn subscribe(&mut self, session: SessionId, query: Value, include: Include) -> ApiResult<u64>;
     /// Stop a live query.
@@ -649,12 +883,12 @@ pub trait ClientApi {
         limit: Option<u32>,
         watch: bool,
     ) -> ApiResult<ChangesResult>;
-    /// Validate records (all when `None`).
+    /// Validate current records against the current catalog (all when `None`).
     fn validate(
         &mut self,
         session: SessionId,
         targets: Option<Vec<Target>>,
-    ) -> ApiResult<Vec<(Uuid, Vec<Issue>)>>;
+    ) -> ApiResult<Vec<RecordValidation>>;
 
     // ---- writes (§5, §6) ----
 
@@ -664,6 +898,18 @@ pub trait ClientApi {
     fn submit(&mut self, session: SessionId, params: SubmitParams) -> ApiResult<Vec<Receipt>>;
     /// The current receipt of a mutation.
     fn receipt(&mut self, session: SessionId, mutation: Uuid) -> ApiResult<Receipt>;
+    /// Bounded live inventory of original pending rows visible to this session.
+    /// Older adapters refuse rather than fabricate an empty journal.
+    fn list_pending(
+        &mut self,
+        _session: SessionId,
+        _cursor: Option<Uuid>,
+    ) -> ApiResult<PendingPage> {
+        Err(ErrorCode::Unavailable.err_with_reason(
+            "pending_inventory_unavailable",
+            "pending journal inventory is unavailable",
+        ))
+    }
 
     // ---- status (§7) ----
 
@@ -712,6 +958,17 @@ pub trait ClientApi {
     fn approve_device(&mut self, session: SessionId, device: Uuid, sas: String) -> ApiResult<()>;
     /// Stop offering a device here.
     fn reject_device(&mut self, session: SessionId, device: Uuid) -> ApiResult<()>;
+    /// App grants waiting for this device's approval (§5.1).
+    fn pending_grants(&mut self, session: SessionId) -> ApiResult<Vec<PendingGrant>>;
+    /// Approve a grant with the capabilities and folders the user kept;
+    /// appends the sealed `grant_approval` from this device.
+    fn approve_grant(
+        &mut self,
+        session: SessionId,
+        grant: Uuid,
+        capabilities: Vec<String>,
+        folders: Option<Vec<String>>,
+    ) -> ApiResult<()>;
 
     // ---- files (§10) ----
 
@@ -741,6 +998,8 @@ pub trait ClientApi {
     ) -> ApiResult<(StreamId, FileView)>;
     /// Flow control for a download stream.
     fn ack_chunks(&mut self, session: SessionId, stream: StreamId, offset: u64) -> ApiResult<()>;
+    /// Idempotently cancel only this session's matching file stream.
+    fn cancel_stream(&mut self, session: SessionId, stream: StreamId) -> ApiResult<()>;
     /// Materialize a remote file on this device.
     fn fetch_file(&mut self, session: SessionId, file: Uuid) -> ApiResult<()>;
     /// Drop the local copy of a confirmed, unheld file (hosting app only).

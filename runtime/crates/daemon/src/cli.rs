@@ -18,7 +18,9 @@ use clap::{Parser, Subcommand, ValueEnum};
 use serde_json::{Value, json};
 
 use crate::client::{self, ClientError, ControlClient};
-use crate::control::{Check, CollectionStatus, ControlError, DaemonStatus, Method, PendingDevice};
+use crate::control::{
+    Check, CollectionStatus, ControlError, DaemonStatus, HoldSummary, Method, PendingDevice,
+};
 use crate::paths::Profile;
 use crate::registry::SyncMode;
 use crate::server::{self, RunError};
@@ -40,6 +42,10 @@ struct Cli {
     /// Print machine-readable JSON.
     #[arg(long, global = true)]
     json: bool,
+    /// Skip this command's own terminal prompt (for apps that confirmed first). The
+    /// daemon's on-screen confirmation still applies.
+    #[arg(long, global = true)]
+    yes: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -54,6 +60,12 @@ enum Command {
     /// Register, list and remove collections.
     #[command(subcommand)]
     Collection(CollectionCmd),
+    /// What changed on this computer recently (collections, app access, account).
+    Activity {
+        /// How many entries, newest first.
+        #[arg(long, default_value_t = 20)]
+        limit: u64,
+    },
     /// Files held instead of overwritten, waiting for you to resolve them.
     Holds {
         /// Collection ID, ID prefix or name.
@@ -147,7 +159,7 @@ enum CollectionCmd {
         #[arg(long)]
         name: Option<String>,
     },
-    /// Join your account's cloud copy into an empty folder on this computer.
+    /// Join one of your account's collections into an empty folder on this computer.
     Join {
         /// The collection's ID (from another of your devices or the web).
         collection: String,
@@ -156,11 +168,26 @@ enum CollectionCmd {
         /// Display name (default: the folder name).
         #[arg(long)]
         name: Option<String>,
+        /// A private (end-to-end) collection: this computer shows a code to
+        /// approve from another of your devices (`mdbase device approve`).
+        #[arg(long)]
+        private: bool,
     },
     /// Unregister a collection. Its files are never touched.
     Remove {
         /// Collection ID, ID prefix or name.
         collection: String,
+    },
+    /// Rename a collection or change its description. Files are untouched.
+    Update {
+        /// Collection ID, ID prefix or name.
+        collection: String,
+        /// New display name.
+        #[arg(long)]
+        name: Option<String>,
+        /// New description (an empty string clears it).
+        #[arg(long)]
+        description: Option<String>,
     },
     /// Stop serving a collection until resumed.
     Pause {
@@ -176,11 +203,13 @@ enum CollectionCmd {
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum SyncKind {
-    /// Synced, with a copy web apps and agents can use while your devices are off.
-    Synced,
-    /// Synced end-to-end encrypted: mdbase cannot read it; web apps work only
-    /// while one of your devices is online.
-    E2e,
+    /// End-to-end encrypted: mdbase cannot read it; web apps work only while one
+    /// of your devices is online.
+    #[value(alias = "e2e")]
+    Private,
+    /// With a cloud copy web apps and agents can use while your devices are off.
+    #[value(alias = "synced")]
+    CloudCopy,
 }
 
 #[derive(Debug, Subcommand)]
@@ -189,9 +218,14 @@ enum SyncCmd {
     Enable {
         /// Collection ID, ID prefix or name.
         collection: String,
-        /// `synced` (default) or `e2e`.
-        #[arg(long, value_enum, default_value = "synced")]
-        mode: SyncKind,
+        /// `private` or `cloud-copy`. Default: `private` for a folder with files
+        /// or a taken-over collection, `cloud-copy` for an empty folder.
+        #[arg(long, value_enum)]
+        mode: Option<SyncKind>,
+        /// Turn sync on although files are still held from the takeover, keeping
+        /// this computer's version of each (review them first with `mdbase holds`).
+        #[arg(long)]
+        accept_takeover_holds: bool,
     },
     /// Move the log back to this device (local only).
     Disable {
@@ -204,7 +238,7 @@ enum SyncCmd {
 enum MigrateCmd {
     /// Takeover progress per collection (works with the daemon stopped).
     Status,
-    /// Explicitly run or resume takeover (automatic runs wait for the account's batch flip).
+    /// Explicitly run or resume takeover once Connect allows it for this account.
     Start {
         /// Proceed past old hosted mirror folders once their upload queues are
         /// empty; they stop syncing until they join the migrated collection.
@@ -225,6 +259,11 @@ enum AccountCmd {
     },
     /// Sign out: apps stop reaching your local collections through this computer.
     SignOut,
+    /// Rename this computer in your account.
+    Rename {
+        /// New name (1 to 100 characters).
+        name: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -353,12 +392,18 @@ pub fn main() -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    let out = Output { json: cli.json };
+    let out = Output {
+        json: cli.json,
+        yes: cli.yes,
+    };
     rt.block_on(dispatch(cli.command, &profile, &out))
 }
 
 fn run_companion(profile: Profile, json_output: bool) -> ExitCode {
-    let out = Output { json: json_output };
+    let out = Output {
+        json: json_output,
+        yes: false,
+    };
     if json_output {
         out.value(&json!({"error": ControlError::unavailable("companion_requires_ui", "companion is an interactive tray; omit --json")}));
         return ExitCode::from(2);
@@ -389,7 +434,17 @@ fn run_daemon(profile: Profile) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    match rt.block_on(server::run(profile, None)) {
+    let result = rt.block_on(server::run(profile, None));
+    // Dropping a runtime waits, without limit, for blocking work still running (a
+    // hung DNS lookup, a service-manager command). The sockets are gone by now: a
+    // process that lingers only blocks app updates and service reinstalls.
+    if finish_runtime(rt, EXIT_DEADLINE) {
+        tracing::warn!(
+            deadline_s = EXIT_DEADLINE.as_secs(),
+            "blocking work was still running at exit; exiting anyway"
+        );
+    }
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(RunError::AlreadyRunning) => {
             eprintln!("error: a daemon is already running for this profile");
@@ -401,6 +456,17 @@ fn run_daemon(profile: Profile) -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+/// How long a stopped daemon waits for leftover blocking work before exiting.
+const EXIT_DEADLINE: Duration = Duration::from_secs(5);
+
+/// Shut `rt` down, waiting at most `deadline` for blocking tasks. True when it
+/// had to stop waiting (work was abandoned, not finished).
+fn finish_runtime(rt: tokio::runtime::Runtime, deadline: Duration) -> bool {
+    let started = std::time::Instant::now();
+    rt.shutdown_timeout(deadline);
+    started.elapsed() >= deadline
 }
 
 const LOG_ROTATE_BYTES: u64 = 10 * 1024 * 1024;
@@ -437,6 +503,8 @@ fn init_logging(profile: &Profile) {
 
 struct Output {
     json: bool,
+    /// `--yes`: the caller already confirmed; skip terminal prompts.
+    yes: bool,
 }
 
 impl Output {
@@ -484,8 +552,19 @@ async fn call(profile: &Profile, method: &str, params: Value) -> Result<Value, C
         let store = crate::secrets::store_for(&profile.secret_namespace(), &profile.state_dir);
         c.authenticate(store.as_ref()).await?;
     }
-    c.call(method, params).await
+    let timeout = if method == Method::MIGRATE_START {
+        MIGRATE_START_TIMEOUT
+    } else {
+        crate::client::CALL_TIMEOUT
+    };
+    c.call_within(method, params, timeout).await
 }
+
+/// `migrate start` answers only after the takeover run: the journal drain alone may
+/// take [`crate::takeover::DRAIN`], so the ordinary call bound would report a
+/// still-running takeover as an unreachable daemon.
+const MIGRATE_START_TIMEOUT: Duration = Duration::from_secs(600);
+const _: () = assert!(MIGRATE_START_TIMEOUT.as_secs() > crate::takeover::DRAIN.as_secs() * 2);
 
 /// Resolve a collection argument: exact ID, unique ID prefix, or exact name.
 async fn resolve(profile: &Profile, arg: &str) -> Result<String, ClientError> {
@@ -601,12 +680,13 @@ async fn run_command(
             collection,
             path,
             name,
+            private,
         }) => {
             let path = std::path::absolute(&path).map_err(ClientError::Io)?;
             let v = call(
                 profile,
                 Method::COLLECTION_JOIN,
-                json!({ "collection": collection, "path": path, "name": name }),
+                json!({ "collection": collection, "path": path, "name": name, "private": private }),
             )
             .await?;
             if out.json {
@@ -637,6 +717,27 @@ async fn run_command(
             }
             Ok(ExitCode::SUCCESS)
         }
+        Command::Collection(CollectionCmd::Update {
+            collection,
+            name,
+            description,
+        }) => {
+            let mut extra = serde_json::Map::new();
+            if let Some(name) = name {
+                extra.insert("name".into(), Value::String(name));
+            }
+            if let Some(description) = description {
+                extra.insert("description".into(), Value::String(description));
+            }
+            simple(
+                profile,
+                out,
+                Method::COLLECTION_UPDATE,
+                &collection,
+                Value::Object(extra),
+            )
+            .await
+        }
         Command::Collection(CollectionCmd::Pause { collection }) => {
             simple(
                 profile,
@@ -656,6 +757,28 @@ async fn run_command(
                 json!({}),
             )
             .await
+        }
+        Command::Activity { limit } => {
+            let v = call(profile, Method::ACTIVITY_LIST, json!({ "limit": limit })).await?;
+            if out.json {
+                out.value(&v);
+            } else {
+                for e in v.as_array().into_iter().flatten() {
+                    let who = [e.get("app_name"), e.get("collection_name"), e.get("detail")]
+                        .into_iter()
+                        .flatten()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                        .join(" · ");
+                    println!(
+                        "{}  {}  {}",
+                        e["at_ms"].as_u64().unwrap_or(0),
+                        e["kind"].as_str().unwrap_or(""),
+                        who
+                    );
+                }
+            }
+            Ok(ExitCode::SUCCESS)
         }
         Command::Holds { collection } => {
             simple(
@@ -691,19 +814,46 @@ async fn run_command(
             )
             .await
         }
-        Command::Sync(SyncCmd::Enable { collection, mode }) => {
-            let mode = match mode {
-                SyncKind::Synced => SyncMode::Synced,
-                SyncKind::E2e => SyncMode::SyncedE2e,
-            };
-            simple(
-                profile,
-                out,
-                Method::SYNC_ENABLE,
-                &collection,
-                json!({ "mode": mode }),
-            )
-            .await
+        Command::Sync(SyncCmd::Enable {
+            collection,
+            mode,
+            accept_takeover_holds,
+        }) => {
+            if accept_takeover_holds {
+                // Say exactly what is being accepted without review.
+                let id = resolve(profile, &collection).await?;
+                let holds = call(
+                    profile,
+                    Method::COLLECTION_HOLDS,
+                    json!({ "collection": id }),
+                )
+                .await
+                .ok()
+                .and_then(|v| serde_json::from_value::<Vec<HoldSummary>>(v).ok())
+                .unwrap_or_default();
+                let taken: Vec<&HoldSummary> = holds
+                    .iter()
+                    .filter(|h| h.id.starts_with(crate::takeover::held::ID_PREFIX))
+                    .collect();
+                if !taken.is_empty() {
+                    eprintln!(
+                        "Accepting this computer's version of {} file(s) held at the takeover; \
+                         the old connector's versions stay in mdbase's state directory:",
+                        taken.len()
+                    );
+                    for h in taken {
+                        eprintln!("  {}", h.path);
+                    }
+                }
+            }
+            let mut params = json!({ "accept_takeover_holds": accept_takeover_holds });
+            if let Some(mode) = mode {
+                params["mode"] = json!(match mode {
+                    SyncKind::Private => SyncMode::SyncedE2e,
+                    SyncKind::CloudCopy => SyncMode::Synced,
+                });
+            }
+            simple(profile, out, Method::SYNC_ENABLE, &collection, params).await
         }
         Command::Sync(SyncCmd::Disable { collection }) => {
             simple(profile, out, Method::SYNC_DISABLE, &collection, json!({})).await
@@ -814,6 +964,14 @@ async fn run_command(
                 serde_json::from_value(v).map_err(|e| ClientError::Protocol(e.to_string()))?;
             if !checks.iter().any(|c| c.id == "daemon") {
                 checks.push(replica_endpoint_check(profile).await);
+            } else {
+                // Not running: whether it is registered to start at login is the next question.
+                let p = profile.clone();
+                if let Ok(c) =
+                    tokio::task::spawn_blocking(move || crate::service::doctor_check(&p)).await
+                {
+                    checks.push(c);
+                }
             }
             let v = serde_json::to_value(&checks).unwrap_or_default();
             if out.json {
@@ -884,12 +1042,29 @@ async fn run_command(
             }
             Ok(ExitCode::SUCCESS)
         }
+        Command::Account(AccountCmd::Rename { name }) => {
+            let v = call(profile, Method::ACCOUNT_RENAME, json!({ "name": name })).await?;
+            if out.json {
+                out.value(&v);
+            } else {
+                println!(
+                    "This computer is now called {}.",
+                    v["name"].as_str().unwrap_or("")
+                );
+            }
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Settings { require_approval } => {
             let v = match require_approval {
                 None => call(profile, Method::SETTINGS_GET, json!({})).await?,
                 Some(o) => {
                     let on = matches!(o, OnOff::On);
-                    if !on && !confirm("Let new apps use local collections without asking first?") {
+                    if !on
+                        && !confirm(
+                            out,
+                            "Let new apps use local collections without asking first?",
+                        )
+                    {
                         return Ok(ExitCode::from(1));
                     }
                     call(
@@ -1264,13 +1439,22 @@ fn print_collection(c: &CollectionStatus) {
             s.confirmed_through, s.pending, s.holds, s.unresolved, s.connection
         );
     }
+    if let Some(failure) = &c.last_sync_failure {
+        println!(
+            "      last sync failure: {:?}, {:?}, confirmed through {}, generation {:?}, persisted {:?}",
+            failure.kind, failure.stage, failure.seq, failure.generation, failure.persisted
+        );
+    }
     for n in &c.notices {
         println!("      ! {}", n.message);
     }
 }
 
 /// Ask on the terminal; `false` when stdin is not a terminal.
-fn confirm(question: &str) -> bool {
+fn confirm(out: &Output, question: &str) -> bool {
+    if out.yes {
+        return true;
+    }
     if !std::io::stdin().is_terminal() {
         eprintln!("{question} Refusing without a terminal to confirm on.");
         return false;
@@ -1323,8 +1507,10 @@ async fn access_command(
         }
         AccessCmd::Revoke { grant } => (Method::ACCESS_REVOKE, grant),
         AccessCmd::Approve { grant } => {
-            if !confirm("Approve this app? Check that its key matches the one the app showed you.")
-            {
+            if !confirm(
+                out,
+                "Approve this app? Check that its key matches the one the app showed you.",
+            ) {
                 return Ok(ExitCode::from(1));
             }
             (Method::ACCESS_APPROVE, grant)
@@ -1567,6 +1753,17 @@ fn print_private_collections(v: &Value) {
 }
 
 #[cfg(test)]
+mod takeover_cli_tests {
+    use super::*;
+
+    #[test]
+    fn migrate_start_has_no_rollout_override() {
+        assert!(Cli::try_parse_from(["mdbase", "migrate", "start"]).is_ok());
+        assert!(Cli::try_parse_from(["mdbase", "migrate", "start", "--ignore-rollout"]).is_err());
+    }
+}
+
+#[cfg(test)]
 mod companion_tests {
     use super::*;
     #[test]
@@ -1587,5 +1784,48 @@ mod companion_tests {
         )
         .unwrap();
         assert_eq!(run_companion(profile, true), ExitCode::from(2));
+    }
+}
+
+#[cfg(test)]
+mod exit_tests {
+    use super::*;
+
+    #[test]
+    fn stuck_blocking_work_cannot_keep_a_stopped_daemon_alive() {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .unwrap();
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        rt.spawn_blocking(move || {
+            // Stands in for a hung DNS lookup or service-manager command.
+            let _ = rx.recv_timeout(Duration::from_secs(60));
+        });
+        let started = std::time::Instant::now();
+        assert!(finish_runtime(rt, Duration::from_millis(200)));
+        assert!(started.elapsed() < Duration::from_secs(5));
+        drop(tx);
+    }
+}
+
+#[cfg(test)]
+mod yes_tests {
+    use super::*;
+
+    /// Apps run privileged commands without a terminal; `--yes` (after their own
+    /// confirmation) is the only way past the CLI prompt. The daemon still confirms.
+    #[test]
+    fn yes_skips_only_the_cli_prompt() {
+        let cli = Cli::try_parse_from(["mdbase", "--json", "--yes", "access", "approve", "g"])
+            .expect("--yes parses as a global flag");
+        let out = Output {
+            json: cli.json,
+            yes: cli.yes,
+        };
+        assert!(confirm(&out, "Approve?"));
+        let cli = Cli::try_parse_from(["mdbase", "--json", "access", "approve", "g"]).unwrap();
+        assert!(!cli.yes);
     }
 }

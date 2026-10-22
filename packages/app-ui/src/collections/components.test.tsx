@@ -41,7 +41,7 @@ function fakeMdbase(phase: MdbasePhase, extra: Partial<MdbaseSnapshot> = {}) {
     getSnapshot: () => value,
     subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener); },
     signIn: vi.fn(pending),
-    addCollection: vi.fn(pending),
+    addCollection: vi.fn((_options?: { readonly signal?: AbortSignal }) => pending()),
     addPrivateCollection: vi.fn(pending),
     approve: vi.fn(pending),
     select: vi.fn(pending),
@@ -77,6 +77,70 @@ const button = (name: string | RegExp) => {
   return found;
 };
 const key = (element: Element, value: string) => act(() => { element.dispatchEvent(new KeyboardEvent("keydown", { key: value, bubbles: true })); });
+
+describe("opening presentation", () => {
+  it.each(["page", "panel"] as const)("preserves programmatic focus on visible and hidden %s headings", (layout) => {
+    const { entry, set } = fakeMdbase({ kind: "starting" }, { status: "starting", signIn: null });
+    render(<CollectionGate mdbase={entry} app={app} layout={layout}>{() => null}</CollectionGate>);
+    act(() => set({ phase: { kind: "signed_out", notice: null } }));
+    const heading = container.querySelector(layout === "page" ? "h1" : "h2")!;
+    expect(heading.tabIndex).toBe(-1);
+    expect(heading.className).toBe("mdbase-collections-heading");
+    expect(document.activeElement).toBe(heading);
+    act(() => set({ phase: { kind: "opening", collectionId: A, displayName: "Alpha", slow: false } }));
+    expect(heading.className).toBe("mdbase-collections-visually-hidden");
+    expect(heading.tabIndex).toBe(-1);
+    expect(document.activeElement).toBe(heading);
+  });
+
+  it("uses the shared scanning opening screen for starting and keeps embedded landmarks valid", () => {
+    const { entry } = fakeMdbase({ kind: "starting" }, { status: "starting", signIn: null });
+    render(<main><CollectionGate mdbase={entry} app={app} layout="panel">{() => null}</CollectionGate></main>);
+    expect(container.querySelectorAll("main")).toHaveLength(1);
+    expect(container.querySelector('[data-loading-state="opening"] .mdbase-motion-scan')).not.toBeNull();
+    expect(container.querySelector(".mdbase-collections-spinner")).toBeNull();
+    expect(container.querySelector('[role="status"]')?.textContent).toContain("TaskNotes");
+  });
+
+  it("retains slow-opening copy, account actions and choose-another without a spinner", () => {
+    const { entry, set } = fakeMdbase({ kind: "opening", collectionId: A, displayName: "Alpha", slow: false });
+    render(<CollectionGate mdbase={entry} app={app}>{() => null}</CollectionGate>);
+    expect(container.querySelector("main")?.textContent).toContain("Opening Alpha");
+    act(() => set({ phase: { kind: "opening", collectionId: A, displayName: "Alpha", slow: true } }));
+    expect(container.querySelector('[role="status"]')?.textContent).toContain("This is taking longer than usual.");
+    expect(button("Choose a different collection")).toBeDefined();
+    expect(button("Sign out")).toBeDefined();
+    expect(container.querySelector(".mdbase-collections-spinner")).toBeNull();
+  });
+});
+
+describe("sign-out progress", () => {
+  it.each(["page", "panel"] as const)("explains a pending sign-out on the signed-out %s screen until the original action settles", async (layout) => {
+    const { mdbase, entry, set } = fakeMdbase({ kind: "choosing", lastApproval: null });
+    let finish!: (snapshot: MdbaseSnapshot) => void;
+    mdbase.signOut.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    render(<CollectionGate mdbase={entry} app={app} layout={layout}>{() => null}</CollectionGate>);
+    act(() => button("Sign out").click());
+    expect(mdbase.signOut).toHaveBeenCalledOnce();
+    expect(button("Signing out…").getAttribute("aria-disabled")).toBe("true");
+
+    // The SDK publishes signed_out after installation erasure, before its
+    // original terminal Worker close finishes. That snapshot is not permission
+    // for the UI to pretend its outstanding signOut promise has completed.
+    act(() => set({ status: "signed_out", phase: { kind: "signed_out", notice: null }, signIn: null, collections: [],
+      signOutResult: { server: "revoked", local: "erased", webPush: false } }));
+    expect(container.textContent).toContain("You've signed out of TaskNotes on this device.");
+    expect(container.textContent).toContain("Signing out…");
+    act(() => button("Signing out…").click());
+    expect(mdbase.signIn).not.toHaveBeenCalled();
+    expect(mdbase.signOut).toHaveBeenCalledOnce();
+
+    await act(async () => { finish(entry.getSnapshot()); });
+    expect(container.textContent).not.toContain("Signing out…");
+    expect(button("Sign in").getAttribute("aria-disabled")).toBeNull();
+    act(() => { button("Sign in").click(); expect(mdbase.signIn).toHaveBeenCalledOnce(); });
+  });
+});
 
 describe("popup calls run inside the click", () => {
   it("calls signIn before the click handler returns", () => {
@@ -116,12 +180,77 @@ describe("popup calls run inside the click", () => {
 });
 
 describe("SDK storage and Private states", () => {
-  it("adds Private in the gesture and renders the SDK computer-approval state", async () => {
+  it.each((["page", "panel", "switcher"] as const).flatMap((surface) =>
+    [undefined, true, false].map((allowPrivate) => ({ surface, allowPrivate }))))("offers one canonical Add on $surface with legacy allowPrivate=$allowPrivate", ({ surface, allowPrivate }) => {
+    const { mdbase, entry } = fakeMdbase({ kind: "choosing", lastApproval: null });
+    if (surface === "switcher") {
+      render(<CollectionSwitcher mdbase={entry} app={app} allowPrivate={allowPrivate} />);
+      act(() => button("Choose a collection").click());
+    } else render(<CollectionGate mdbase={entry} app={app} layout={surface} allowPrivate={allowPrivate}>{() => null}</CollectionGate>);
+    const adds = [...document.querySelectorAll<HTMLButtonElement>("button")].filter((element) => element.textContent?.trim() === "Add a collection…");
+    expect(adds).toHaveLength(1);
+    expect(() => button("Add a Private collection")).toThrow();
+    expect(mdbase.addCollection).not.toHaveBeenCalled();
+    act(() => {
+      adds[0]!.click();
+      expect(mdbase.addCollection).toHaveBeenCalledExactlyOnceWith({ signal: expect.any(AbortSignal) });
+    });
+    expect(mdbase.addPrivateCollection).not.toHaveBeenCalled();
+  });
+
+  it("still aborts a legacy tracked private add without claiming it settled early", async () => {
+    const { entry } = fakeMdbase({ kind: "choosing", lastApproval: null });
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve) => { finish = resolve; });
+    const abort = vi.spyOn(AbortController.prototype, "abort");
+    function Host() {
+      const ui = useCollectionUi({ mdbase: entry, app });
+      return <><button onClick={() => { void ui.actions.track("add_private", () => pending); }}>Tracked add</button>
+        <output>{ui.busy ?? "idle"}</output><button onClick={ui.actions.cancel}>Cancel add</button></>;
+    }
+    try {
+      render(<Host />);
+      act(() => button("Tracked add").click());
+      act(() => button("Cancel add").click());
+      expect(abort).toHaveBeenCalledOnce();
+      expect(abort.mock.contexts[0]!.signal.aborted).toBe(true);
+      expect(container.querySelector("output")?.textContent).toBe("add_private");
+      await act(async () => { finish(); });
+      expect(container.querySelector("output")?.textContent).toBe("idle");
+    } finally { abort.mockRestore(); }
+  });
+
+  it("keeps the deprecated UI action as normal Add, including leave and cancellation guards", () => {
+    const { mdbase, entry } = fakeMdbase({ kind: "ready", collectionId: A, collection: { collectionId: A, displayName: "Alpha", role: "owner" }, connection: {} as never, rechecking: false, problem: null, unavailableTypes: [] });
+    const before = vi.fn(() => false);
+    function Host() {
+      const ui = useCollectionUi({ mdbase: entry, app, onBeforeLeave: before });
+      expect(ui.actions.addPrivateCollection).toBe(ui.actions.addCollection);
+      return <><button onClick={ui.actions.addPrivateCollection}>Legacy add</button><button onClick={ui.actions.cancel}>Cancel add</button></>;
+    }
+    render(<Host />);
+    act(() => button("Legacy add").click());
+    expect(before).toHaveBeenCalledWith("add");
+    expect(mdbase.addCollection).not.toHaveBeenCalled();
+    before.mockReturnValue(true);
+    act(() => {
+      button("Legacy add").click();
+      expect(mdbase.addCollection).toHaveBeenCalledExactlyOnceWith({ signal: expect.any(AbortSignal) });
+    });
+    const signal = mdbase.addCollection.mock.calls[0]![0]!.signal!;
+    expect(signal.aborted).toBe(false);
+    act(() => button("Cancel add").click());
+    expect(signal.aborted).toBe(true);
+    expect(mdbase.addPrivateCollection).not.toHaveBeenCalled();
+  });
+
+  it("uses normal Add in the gesture and renders the SDK computer-approval state", async () => {
     const { mdbase, entry, set } = fakeMdbase({ kind: "choosing", lastApproval: null });
     render(<CollectionGate mdbase={entry} app={app}>{() => null}</CollectionGate>);
     act(() => {
-      button("Add a Private collection").click();
-      expect(mdbase.addPrivateCollection).toHaveBeenCalledWith(expect.objectContaining({ signal: expect.any(AbortSignal) }));
+      button("Add a collection…").click();
+      expect(mdbase.addCollection).toHaveBeenCalledExactlyOnceWith({ signal: expect.any(AbortSignal) });
+      expect(mdbase.addPrivateCollection).not.toHaveBeenCalled();
     });
     const problem = describeError("device_approval_required")!;
     act(() => set({ phase: { kind: "problem", collectionId: A, problem } }));
@@ -129,18 +258,20 @@ describe("SDK storage and Private states", () => {
     expect(container.textContent).toContain(problem.message);
   });
 
-  it("offers Private from the ready switcher and obeys the app leave guard", async () => {
+  it("offers normal Add from the ready switcher and obeys the app leave guard", async () => {
     const { mdbase, entry } = fakeMdbase({ kind: "ready", collectionId: A, collection: { collectionId: A, displayName: "Alpha", role: "owner" }, connection: {} as never, rechecking: false, problem: null, unavailableTypes: [] });
     const before = vi.fn(() => false);
     render(<CollectionSwitcher mdbase={entry} app={app} onBeforeLeave={before} />);
     act(() => button("Switch collection, current: Alpha").click());
-    act(() => button("Add a Private collection").click());
+    act(() => button("Add a collection…").click());
     expect(before).toHaveBeenCalledWith("add");
+    expect(mdbase.addCollection).not.toHaveBeenCalled();
     expect(mdbase.addPrivateCollection).not.toHaveBeenCalled();
     render(<CollectionSwitcher mdbase={entry} app={app} />);
     act(() => button("Switch collection, current: Alpha").click());
-    act(() => button("Add a Private collection").click());
-    expect(mdbase.addPrivateCollection).toHaveBeenCalledTimes(1);
+    act(() => button("Add a collection…").click());
+    expect(mdbase.addCollection).toHaveBeenCalledExactlyOnceWith({ signal: expect.any(AbortSignal) });
+    expect(mdbase.addPrivateCollection).not.toHaveBeenCalled();
   });
 
   it("shows only the SDK save warning and removes it on confirmation", () => {
@@ -451,6 +582,13 @@ describe("section item actions", () => {
 });
 
 describe("styles", () => {
+  it("suppresses only noninteractive heading outlines and retains control focus-visible rings", () => {
+    const css = readFileSync(join(import.meta.dirname, "../../css/collections.css"), "utf8");
+    expect(css).toMatch(/:is\(h1, h2\)\.mdbase-collections-heading\[tabindex="-1"\]:focus,\s*:is\(h1, h2\)\.mdbase-collections-visually-hidden\[tabindex="-1"\]:focus\s*\{\s*outline: none;/);
+    expect(css).not.toMatch(/\.mdbase-collections-heading:focus-visible/);
+    expect(css).toMatch(/\.mdbase-collections-button:focus-visible,[\s\S]*?\.mdbase-collections-field:focus-visible\s*\{\s*outline: 2px solid var\(--_accent\);/);
+  });
+
   it("defines every collections class the components use", () => {
     const css = readFileSync(join(import.meta.dirname, "../../css/collections.css"), "utf8");
     const used = new Set<string>();

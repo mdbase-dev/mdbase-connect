@@ -245,6 +245,137 @@ impl<S: Store> Replica<S> {
             .map(AttachmentFetchStatus::Failed)
     }
 
+    /// Request materialization through the same reconciliation and bounded
+    /// fetch driver used by apply/open. The caller must first authorize READ
+    /// and the file's folder. Acceptance is not a claim of disk durability.
+    pub(crate) fn request_attachment_materialization(
+        &mut self,
+        file: Uuid,
+    ) -> crate::api::ApiResult<()> {
+        use super::submit::store_err;
+        if !self.materializes_attachments() {
+            return Err(ErrorCode::Unavailable.err_with_reason(
+                "file_materialization_unsupported",
+                "this replica does not materialize attachment files",
+            ));
+        }
+        let row = self
+            .store
+            .file(&file)
+            .map_err(store_err)?
+            .ok_or_else(|| ErrorCode::NotFound.err("no such file"))?;
+        if !matches!(row.content, FileContent::AttachmentV1(_)) {
+            return Err(ErrorCode::UpgradeRequired.err_with_reason(
+                "attachment_required",
+                "this file is not supported by the attachment materializer",
+            ));
+        }
+        if self
+            .file_materialization_fenced(file, Some(&row.path))
+            .map_err(store_err)?
+        {
+            return Err(ErrorCode::Unavailable.err_with_reason(
+                "file_materialization_fenced",
+                "an external edit or hold prevents materialization",
+            ));
+        }
+        self.reconcile_attachment(file).map_err(store_err)?;
+        self.attachment_fetch_step();
+        if let Some(AttachmentFetchStatus::Failed(problem)) = self.attachment_fetch_status(&file) {
+            return Err(problem.into());
+        }
+        Ok(())
+    }
+
+    /// Drop only the device-local copy tracked by the existing materializer.
+    /// Caller must authorize the hosting app and confirmed file first.
+    pub(crate) fn evict_materialized_file(&mut self, file: Uuid) -> crate::api::ApiResult<()> {
+        use super::submit::store_err;
+        if !self.materializes_attachments() {
+            return Err(ErrorCode::Unavailable.err_with_reason(
+                "file_materialization_unsupported",
+                "this replica does not materialize attachment files",
+            ));
+        }
+        let row = self
+            .store
+            .file(&file)
+            .map_err(store_err)?
+            .ok_or_else(|| ErrorCode::NotFound.err("no such file"))?;
+        if self
+            .file_materialization_fenced(file, Some(&row.path))
+            .map_err(store_err)?
+        {
+            return Err(ErrorCode::Unavailable.err_with_reason(
+                "file_materialization_fenced",
+                "an external edit or hold prevents eviction",
+            ));
+        }
+        let shown = self.attachment_shown(&file).map_err(store_err)?;
+        if shown.is_none() && row.local == FileLocal::Materialized {
+            return Err(ErrorCode::Unavailable.err_with_reason(
+                "file_materialization_untracked",
+                "the materializer does not own this local copy",
+            ));
+        }
+        // A prior shown path can now belong to a different confirmed entity.
+        // Forget our old marker, but never unlink that entity's current bytes.
+        let remove = if let Some((path, _)) = &shown {
+            let pk = mdbn_core::paths::path_key(path);
+            self.store
+                .file_at(&pk)
+                .map_err(store_err)?
+                .is_none_or(|id| id == file)
+                && self.store.record_at(&pk).map_err(store_err)?.is_none()
+                && self.store.resource(path).map_err(store_err)?.is_none()
+        } else {
+            false
+        };
+        // Persist remote BEFORE unlink: a crash or aborted metadata write must
+        // never leave a Materialized row pointing at bytes we already removed.
+        let retained = shown
+            .as_ref()
+            .map(|(path, revision)| (path.as_str(), *revision));
+        if let Err(error) =
+            self.commit_shown(Self::with_local(&row, FileLocal::Remote), &file, retained)
+        {
+            if !matches!(error, StoreError::CommitAborted(_)) {
+                self.terminal_store_fault("file_eviction_outcome_unknown");
+            }
+            return Err(store_err(error));
+        }
+        self.cancel_fetch(&file);
+        if let Err(error) = self.cancel_native_blob(file) {
+            self.terminal_store_fault("file_eviction_outcome_unknown");
+            return Err(store_err(error));
+        }
+        if remove {
+            let (path, revision) = shown.expect("remove implies a shown copy");
+            match self.store.attachment_remove(file, &path, revision) {
+                Ok(None) => {}
+                Ok(Some(reason)) if reason == "missing" => {}
+                Ok(Some(_)) => {
+                    return Err(ErrorCode::Conflict.err_with_reason(
+                        "file_eviction_drift",
+                        "the local copy changed or is locked; it was not removed",
+                    ));
+                }
+                Err(error) => {
+                    self.terminal_store_fault("file_eviction_outcome_unknown");
+                    return Err(store_err(error));
+                }
+            }
+        }
+        // Keep the marker on drift; a later explicit eviction still owns the
+        // conditional unlink. After an unlink, an uncertain marker write fences
+        // the instance rather than reporting success or serving stale state.
+        if let Err(error) = self.commit_shown(None, &file, None) {
+            self.terminal_store_fault("file_eviction_outcome_unknown");
+            return Err(store_err(error));
+        }
+        Ok(())
+    }
+
     /// Chunk objects fetched since the replica opened.
     pub fn attachment_chunks_fetched(&self) -> u64 {
         self.attachment_fetches.chunks_fetched
@@ -400,12 +531,16 @@ impl<S: Store> Replica<S> {
                 // Same content: a rename is metadata only, nothing is fetched.
                 self.cancel_fetch(&id);
                 let row = row.expect("want implies a row");
-                let placed = path == wpath
-                    || self
-                        .store
+                let placed = if path == wpath {
+                    // A retained marker alone is not proof of a local copy:
+                    // eviction may have unlinked before its final marker commit.
+                    self.store.disk_revision(&wpath)? == Some(rev)
+                } else {
+                    self.store
                         .attachment_move(id, &path, &wpath, rev)?
                         .is_none()
-                    || self.store.disk_revision(&wpath)? == Some(rev);
+                        || self.store.disk_revision(&wpath)? == Some(rev)
+                };
                 if placed {
                     let r = Self::with_local(&row, FileLocal::Materialized);
                     self.commit_shown(r, &id, Some((&wpath, rev)))?;

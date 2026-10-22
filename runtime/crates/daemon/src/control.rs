@@ -204,6 +204,10 @@ impl Method {
     pub const COLLECTION_ADD: &'static str = "collection.add";
     /// `{collection}` → `{}`. Unregisters; never deletes files.
     pub const COLLECTION_REMOVE: &'static str = "collection.remove";
+    /// [`UpdateCollection`] → [`CollectionStatus`]: rename or describe a collection.
+    /// Files and other devices are untouched; a local collection's new name reaches
+    /// the account with the next inventory.
+    pub const COLLECTION_UPDATE: &'static str = "collection.update";
     /// `{collection}` → [`CollectionStatus`].
     pub const COLLECTION_PAUSE: &'static str = "collection.pause";
     /// `{collection}` → [`CollectionStatus`].
@@ -270,6 +274,12 @@ impl Method {
     /// → `{}`: sign out: stop the relay, forget the credential. Local grants
     /// stop being served (their leases are cleared).
     pub const ACCOUNT_SIGN_OUT: &'static str = "account.sign_out";
+    /// `{limit?}` → `[ActivityEntry]`, newest first: what changed on this computer
+    /// (collections, app access, the account). Local only, the last 200 entries.
+    pub const ACTIVITY_LIST: &'static str = "activity.list";
+    /// `{name}` → `{name}`: rename this computer in the account (1 to 100
+    /// characters). Needs sign-in and a reachable account.
+    pub const ACCOUNT_RENAME: &'static str = "account.rename";
     /// → `{nonce}`: start caller authentication on this connection.
     pub const AUTH_CHALLENGE: &'static str = "auth.challenge";
     /// `{proof}` → `{}`: `proof = hex(HMAC-SHA256(control key, "mdbase/v1/control-auth" ‖ nonce))`.
@@ -371,6 +381,9 @@ pub struct AccountInfo {
     /// The control plane this device is signed in to, once signed in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub server: Option<String>,
+    /// This computer's name in the account, as last set from here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub computer_name: Option<String>,
     /// This build's environment (`production` or `lab`).
     #[serde(default)]
     pub environment: String,
@@ -472,6 +485,9 @@ pub struct CollectionStatus {
     pub id: String,
     /// Display name.
     pub name: String,
+    /// The user's description, if any.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description: Option<String>,
     /// Folder.
     pub root: PathBuf,
     /// Local, synced, or synced end-to-end.
@@ -488,6 +504,10 @@ pub struct CollectionStatus {
     /// Counters, once the replica is open.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub sync: Option<SyncCounters>,
+    /// Last content-free terminal sync incident (historical diagnostic only).
+    /// Retained after stop/restart; never permission or retry authority.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub last_sync_failure: Option<crate::sync_failure::Failure>,
     /// End-to-end synced: how many of the user's *other* device replicas are online, if
     /// known. Thin clients (web apps) can load data only while at least one device
     /// replica is online.
@@ -565,6 +585,20 @@ pub struct AddCollection {
     pub name: Option<String>,
 }
 
+/// `collection.update` params. An omitted field is unchanged; an empty
+/// `description` clears it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdateCollection {
+    /// Collection ID.
+    pub collection: String,
+    /// New display name: 1 to 100 characters after trimming.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub name: Option<String>,
+    /// New description: at most 500 characters after trimming.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description: Option<String>,
+}
+
 /// `collection.join` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JoinCollection {
@@ -617,8 +651,14 @@ pub struct EnableSync {
     /// Collection ID.
     pub collection: String,
     /// `synced` (with the hosted replica) or `synced_e2e` (end-to-end encrypted,
-    /// no hosted replica).
-    pub mode: SyncMode,
+    /// no hosted replica). Absent: `synced_e2e` for a folder with files or a
+    /// taken-over collection (adopt), `synced` for an empty folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<SyncMode>,
+    /// Adopt even though files were held when the collection was taken over
+    /// (the user has reviewed both versions kept in the folder).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub accept_takeover_holds: bool,
 }
 
 /// A device waiting for approval (end-to-end synced collections; `replica-client-api.md` §8.3).

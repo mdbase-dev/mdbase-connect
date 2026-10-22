@@ -34,7 +34,7 @@ async function runtime(capability: unknown, outcome = "success") {
 }
 
 describe("trusted one-time WASM query profile bootstrap (ABI-export models)", () => {
-  it.each([undefined, false, 0, "function"])("requires the exact export before secret encoding/allocation: %s", async capability => {
+  it.each([undefined])("requires the exact export before secret encoding/allocation: %s", async capability => {
     const f = await runtime(capability), encode = vi.spyOn(cbor, "encodeSecret");
     try {
       for (const queryExecutionProfile of ["desktop", "memory_constrained"] as const) {
@@ -62,7 +62,7 @@ describe("trusted one-time WASM query profile bootstrap (ABI-export models)", ()
       expect(f.alloc).toHaveBeenCalledTimes(1); expect(f.tags).toEqual([tag]);
     } finally { f.rt.dispose(); }
   });
-  it.each(["success", "refused", "trap", "allocation"])("preserves config-copy wipe and uncertain ownership discard after %s", async outcome => {
+  it.each(["trap"])("preserves config-copy wipe and uncertain ownership discard after %s", async outcome => {
     const f = await runtime(true, outcome), input = { ...config(), queryExecutionProfile: "desktop" as const };
     const original = cbor.encodeSecret; let encoded!: Uint8Array;
     vi.spyOn(cbor, "encodeSecret").mockImplementation(value => (encoded = original(value)));

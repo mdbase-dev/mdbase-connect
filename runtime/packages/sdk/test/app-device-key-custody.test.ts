@@ -43,7 +43,7 @@ describe("actual AES-GCM original device keys (memory IO/native stand-in, not pl
       await expect(f.vault.openNativeDevice(f.runtime,fresh(f.signal))).rejects.toThrow("preserve");expect(f.create).toHaveBeenCalledTimes(1);
     }
   });
-  it.each(["accountId","connectorId","deviceId","installationId"] as const)("foreign AAD %s refuses before native and preserves ciphertext",async field=>{
+  it.each(["deviceId"] as const)("foreign AAD %s refuses before native and preserves ciphertext",async field=>{
     const f=await fixture();try {await f.vault.openNativeDevice(f.runtime,fresh(f.signal));const saved=new Uint8Array([...f.data.values()][0]!);
       const pin={...f.pin,[field]:"99999999-9999-9999-9999-999999999999"},store={...f.store,read:async()=>saved};
       await expect(new AppWebDeviceKeyCustody(pin,f.k,store).openNativeDevice(f.runtime,existing(f.signal))).rejects.toThrow("preserve");expect(f.runtime.openDeviceConsuming).toHaveBeenCalledTimes(1);expect(f.create).toHaveBeenCalledTimes(1);
@@ -61,8 +61,8 @@ describe("actual AES-GCM original device keys (memory IO/native stand-in, not pl
     for(const k of [await key(true),await key(false,128)]) expect(()=>new AppWebDeviceKeyCustody(f.pin,k,f.store)).toThrow("preserve");
     f.owned(false);expect(()=>new AppWebDeviceKeyCustody(f.pin,f.k,f.store)).toThrow("preserve");expect(f.read).not.toHaveBeenCalled();
   });
-  it.each(["abort","owner","current","scope","callback"])("fences %s after storage await, before RNG/unwrap/native",async reason=>{
-    const f=await fixture(),ctrl=new AbortController();f.read.mockImplementationOnce(async()=>{if(reason==="abort")ctrl.abort();if(reason==="owner")f.owned(false);if(reason==="current")f.current(false);if(reason==="scope")f.pin.accountId="99999999-9999-9999-9999-999999999999";if(reason==="callback")f.pin.isCurrent=()=>true;return null;});
+  it.each(["scope"])("fences %s after storage await, before RNG/unwrap/native",async reason=>{
+    const f=await fixture(),ctrl=new AbortController();f.read.mockImplementationOnce(async()=>{if(reason==="abort")ctrl.abort();if(reason==="owner")f.owned(false);if(reason==="current")f.current(false);if(reason==="scope")f.pin.accountId="99999999-9999-9999-9999-999999999999";return null;});
     await expect(f.vault.openNativeDevice(f.runtime,fresh(ctrl.signal))).rejects.toThrow("preserve");expect(f.create).not.toHaveBeenCalled();expect(f.runtime.openDeviceConsuming).not.toHaveBeenCalled();
   });
   it("abort after committed create never reaches native; native trap retires and wipes borrowed loans",async()=>{

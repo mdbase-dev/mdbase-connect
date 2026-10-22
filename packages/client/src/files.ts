@@ -31,6 +31,7 @@ import {
   requireTransferSession,
   requireTransferStatus,
   retryChunk,
+  validUploadAttempts,
   sourceBlob,
   throwIfAborted,
   uploadBodyBytes,
@@ -82,6 +83,10 @@ export interface MdbaseFileUploadOptions extends ConnectRequestOptions {
   concurrency?: number;
   /** Stable retry key. Reuse it after an ambiguous failure to resume or replay commit. */
   transferId?: string;
+  /** Attempts per upload part/commit, including the first; integer 1..10. Omitted preserves existing defaults (3 object/commit, 10 framed). */
+  maxAttempts?: number;
+  /** Leave an incomplete transfer for caller-owned recovery instead of automatically aborting it. Prefer an explicit transferId for tracking. */
+  noAutoAbort?: boolean;
   onProgress?: (progress: MdbaseFileProgress) => void;
 }
 
@@ -221,6 +226,7 @@ export class MdbaseFileClient {
     if (!SHA256_DIGEST.test(source.contentDigest)) {
       throw connectError("invalid_request", "Streamed files require a lowercase SHA-256 content digest.");
     }
+    validUploadAttempts(options.maxAttempts, options.noAutoAbort);
     const reader = new BinaryPartReader(source.stream, options.signal);
     const hash = new IncrementalSha256();
     return this.uploadKnownSource(
@@ -261,6 +267,7 @@ export class MdbaseFileClient {
     closeSource?: () => Promise<void>,
     prepareSource?: (partSize: number) => void
   ): Promise<CollectionFileDescriptor> {
+    const maxAttempts = validUploadAttempts(options.maxAttempts, options.noAutoAbort);
     const transferId = options.transferId ?? crypto.randomUUID();
     if (!UUID.test(transferId)) {
       throw connectError("invalid_request", "File transfer ID must be a UUID.");
@@ -324,7 +331,8 @@ export class MdbaseFileClient {
         const replay = await this.tryReplayUploadCommit(
           transferId,
           session.strategy.kind === "object_multipart" ? status.uploaded_parts : undefined,
-          options.signal
+          options.signal,
+          maxAttempts
         );
         if (replay) {
           committed = true;
@@ -355,7 +363,8 @@ export class MdbaseFileClient {
               await uploadBodyBytes(part),
               options.signal
             ),
-            options.signal
+            options.signal,
+            maxAttempts
           ).then(() => null)
           : await this.uploadPart(
             transferId,
@@ -365,7 +374,8 @@ export class MdbaseFileClient {
             length,
             session.strategy.kind === "object_multipart",
             options.signal,
-            bootstrap ? { session, part: bootstrap } : undefined
+            bootstrap ? { session, part: bootstrap } : undefined,
+            maxAttempts
           );
         transferredBytes += length;
         options.onProgress?.({
@@ -381,7 +391,8 @@ export class MdbaseFileClient {
         session.strategy.kind === "object_multipart"
           ? parts.filter((part): part is UploadedFilePart => part !== null)
           : undefined,
-        options.signal
+        options.signal,
+        maxAttempts
       );
       if (
         receipt.protocol_version !== 1
@@ -399,7 +410,7 @@ export class MdbaseFileClient {
       throw normalizeFileError(error);
     } finally {
       await closeSource?.().catch(() => undefined);
-      if (!committed && options.transferId === undefined) await this.abort(transferId);
+      if (!committed && options.transferId === undefined && !options.noAutoAbort) await this.abort(transferId);
     }
   }
 
@@ -771,9 +782,10 @@ export class MdbaseFileClient {
     contentLength: number,
     requireEtag: boolean,
     signal?: AbortSignal,
-    bootstrap?: { session: FileTransferSession; part: PreparedFilePart }
+    bootstrap?: { session: FileTransferSession; part: PreparedFilePart },
+    maxAttempts = MAX_OBJECT_ATTEMPTS
   ): Promise<UploadedFilePart> {
-    for (let attempt = 1; attempt <= MAX_OBJECT_ATTEMPTS; attempt += 1) {
+    for (let attempt = 1; ; attempt += 1) {
       throwIfAborted(signal);
       try {
         const reuseBootstrap = attempt === 1 && bootstrap
@@ -823,19 +835,19 @@ export class MdbaseFileClient {
         return { part_number: partIndex + 1, etag: etag ?? "" };
       } catch (error) {
         if (signal?.aborted) throw error;
-        if (attempt === MAX_OBJECT_ATTEMPTS) throw error;
+        if (attempt === maxAttempts) throw error;
       }
     }
-    throw new Error("Unreachable upload retry state.");
   }
 
   private async tryReplayUploadCommit(
     transferId: string,
     parts: UploadedFilePart[] | undefined,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    maxAttempts?: number
   ): Promise<CommitFileUploadReceipt | null> {
     try {
-      return await this.commitUpload(transferId, parts, signal);
+      return await this.commitUpload(transferId, parts, signal, maxAttempts);
     } catch (error) {
       if (error instanceof MdbaseConnectError && error.code === "file_upload_incomplete") {
         return null;
@@ -847,10 +859,11 @@ export class MdbaseFileClient {
   private async commitUpload(
     transferId: string,
     parts: UploadedFilePart[] | undefined,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    maxAttempts = MAX_OBJECT_ATTEMPTS
   ): Promise<CommitFileUploadReceipt> {
-    let lastError: unknown;
-    for (let attempt = 1; attempt <= MAX_OBJECT_ATTEMPTS; attempt += 1) {
+    // maxAttempts is validated before upload IO; the final failure always throws.
+    for (let attempt = 1; ; attempt += 1) {
       throwIfAborted(signal);
       try {
         return await this.request<CommitFileUploadReceipt>(
@@ -865,13 +878,11 @@ export class MdbaseFileClient {
           signal
         );
       } catch (error) {
-        lastError = error;
-        if (signal?.aborted || error instanceof MdbaseConnectError || attempt === MAX_OBJECT_ATTEMPTS) {
+        if (signal?.aborted || error instanceof MdbaseConnectError || attempt === maxAttempts) {
           throw error;
         }
       }
     }
-    throw lastError;
   }
 
   private requireAction(action: FileCapability["actions"][number]): void {

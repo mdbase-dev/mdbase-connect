@@ -311,7 +311,7 @@ export class InstanceAdminService {
               invitation.revoked_at, invitation.revoked_by,
               invitation.revocation_reason, invitation.send_count,
               invitation.last_sent_at, entitlement.profile_code AS entitlement_profile,
-              invitation.created_at
+              invitation.created_at, invitation.account_backend
        FROM invitations invitation
        LEFT JOIN invitation_entitlements entitlement
          ON entitlement.invitation_id = invitation.id
@@ -337,7 +337,7 @@ export class InstanceAdminService {
               invitation.revoked_at, invitation.revoked_by,
               invitation.revocation_reason, invitation.send_count,
               invitation.last_sent_at, entitlement.profile_code AS entitlement_profile,
-              invitation.created_at
+              invitation.created_at, invitation.account_backend
        FROM invitations invitation
        LEFT JOIN invitation_entitlements entitlement
          ON entitlement.invitation_id = invitation.id
@@ -412,7 +412,7 @@ export class InstanceAdminService {
       const invitation = await connection.query<InvitationRow>(
         `SELECT id, email, created_by, expires_at, accepted_at, revoked_at,
                 revoked_by, revocation_reason, send_count, last_sent_at,
-                NULL::text AS entitlement_profile, created_at
+                NULL::text AS entitlement_profile, created_at, account_backend
          FROM invitations WHERE id = $1 FOR UPDATE`,
         [invitationId]
       );

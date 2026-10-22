@@ -28,6 +28,7 @@ const SCHEMA: &[&str] = &[
 /// The SQL spill. See the module docs.
 pub struct SqlSpill<I: IndexStorage> {
     index: I,
+    completion: Option<(Vec<Stmt>, usize, bool)>,
 }
 
 impl<I: IndexStorage> std::fmt::Debug for SqlSpill<I> {
@@ -136,7 +137,10 @@ fn limit(n: usize) -> SqlValue {
 impl<I: IndexStorage> SqlSpill<I> {
     /// A spill over `index`, creating its tables if needed.
     pub fn open(index: I) -> SpillResult<Self> {
-        let mut s = Self { index };
+        let mut s = Self {
+            index,
+            completion: None,
+        };
         s.write(SCHEMA.iter().map(|q| Stmt::new(*q, vec![])).collect())?;
         // Schema upgrade: never discard a saved checkpoint or placement.
         // Pre-base driver recovery clears and re-reads S0, computing its buckets.
@@ -157,12 +161,72 @@ impl<I: IndexStorage> SqlSpill<I> {
         Ok(s)
     }
 
+    /// Borrow the SAME index for native host metadata beside the spill. This is
+    /// not a durability acknowledgment or a second migration driver.
+    pub fn index_mut(&mut self) -> &mut I {
+        &mut self.index
+    }
+
     /// The index back (for the host).
     pub fn into_inner(self) -> I {
         self.index
     }
 
+    /// Stage metadata writes for a SAME-index atomic completion. These are SQL
+    /// plans, not an acknowledgment. The consumer must discard on every error,
+    /// supply read-your-writes for claims, and commit with its journal/checkpoint.
+    pub fn begin_completion(&mut self) -> SpillResult<()> {
+        if self.completion.is_some() {
+            return Err("mig: completion already active".into());
+        }
+        self.completion = Some((Vec::new(), 0, false));
+        Ok(())
+    }
+
+    /// Take the bounded plans without executing them; ends the capture.
+    pub fn take_completion(&mut self) -> SpillResult<Vec<Stmt>> {
+        match self.completion.take() {
+            Some((stmts, _, false)) => Ok(stmts),
+            Some((_, _, true)) => Err("mig: completion failed".into()),
+            None => Err("mig: completion not active".into()),
+        }
+    }
+
+    /// Drop uncommitted plans, never roll back or acknowledge an external effect.
+    pub fn discard_completion(&mut self) {
+        self.completion = None;
+    }
+
     fn write(&mut self, stmts: Vec<Stmt>) -> SpillResult<()> {
+        if let Some((pending, bytes, failed)) = &mut self.completion {
+            if *failed {
+                return Err("mig: completion failed".into());
+            }
+            let added = stmts.iter().try_fold(0usize, |total, stmt| {
+                stmt.params
+                    .iter()
+                    .try_fold(total.checked_add(stmt.sql.len())?, |n, value| {
+                        n.checked_add(match value {
+                            SqlValue::Text(s) => s.len(),
+                            SqlValue::Blob(b) => b.len(),
+                            _ => 8,
+                        })
+                    })
+            });
+            let Some(added) = added else {
+                *failed = true;
+                return Err("mig: completion over budget".into());
+            };
+            if pending.len().saturating_add(stmts.len()) > crate::budget::MAX_COMPLETION_STATEMENTS
+                || bytes.saturating_add(added) > crate::budget::MAX_COMPLETION_BYTES
+            {
+                *failed = true;
+                return Err("mig: completion over budget".into());
+            }
+            *bytes += added;
+            pending.extend(stmts);
+            return Ok(());
+        }
         self.index
             .run(&Batch {
                 mode: BatchMode::Transaction,

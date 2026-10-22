@@ -12,7 +12,7 @@ import type { InProcessConnectOptions, InProcessRuntime } from "../transport/inp
 import type { FramePort } from "../transport/port.js";
 import { uuidToBytes } from "../codec.js";
 
-/** @internal Shared ABI shape for the optional trusted app host. */
+/** Shared ABI shape for the optional trusted app host (SDK-internal). */
 export interface Exports {
   memory: WebAssembly.Memory;
   alloc(len: number): number;
@@ -272,14 +272,26 @@ export class WasmRuntime implements InProcessRuntime {
   private flush(): void {
     const out = this.takeOut(this.x.rt_poll());
     if (!out.length) return;
-    for (const item of decode(out) as CborValue[]) {
+    const items = decode(out) as CborValue[];
+    const ending = new Set(items.filter(item => (item as CborValue[])[1] === null)
+      .map(item => BigInt((item as [number | bigint, null])[0])));
+    for (const item of items) {
       const [s, f] = item as [number | bigint, Uint8Array | null];
       const port = this.ports.get(BigInt(s));
       if (!port) continue;
       if (f === null) port.end();
       else {
         const frame = decode(f);
-        queueMicrotask(() => port.deliver(frame));
+        if (ending.has(BigInt(s))) {
+          // Native closes retain only their terminal problem. Deliver that
+          // diagnostic BEFORE the facade ends; a queued microtask would lose
+          // it behind the synchronous close and report only "fenced". Do not
+          // let closing a session flush any other queued plaintext.
+          if (frame instanceof Map) {
+            const fields = frame as Map<CborValue, CborValue>;
+            if (fields.get(0) === 2 && fields.get(1) === "closed") port.deliver(frame);
+          }
+        } else queueMicrotask(() => port.deliver(frame));
       }
     }
   }

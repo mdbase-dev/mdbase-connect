@@ -22,7 +22,7 @@ use crate::oracle::Kind;
 use crate::platform::Os;
 use crate::sut::node::Node;
 use crate::sut::real_log_net::RealServiceActor;
-use crate::sut::real_node::harness::provision;
+use crate::sut::real_node::harness::{provision, provision_with};
 use crate::world::{Chaos, HookCfg, World};
 
 /// What a run needs after setup.
@@ -33,14 +33,18 @@ struct Setup {
 }
 
 fn setup(w: &mut World, label: &str, chaos: bool) -> Setup {
-    let p = provision(label, 2, CState::CloudCopy);
+    setup_devices(w, label, chaos, 2)
+}
+
+fn setup_devices(w: &mut World, label: &str, chaos: bool, desktops: usize) -> Setup {
+    // Only the two live writers participate in initial rekey election. Extra
+    // offline desktops are enrolled after the acknowledged bootstrap.
+    let p = provision_with(label, desktops, 2, CState::CloudCopy);
     w.expect_log_service();
     p.register_secrets(w);
     {
         let mut tap = w.shared.tap.borrow_mut();
-        for m in ["title", "status", "tags", "Body ", "notes/"] {
-            tap.marker(&format!("field or text {m:?}"), m.as_bytes());
-        }
+        tap.content_fields(w.seed);
         for path in ["real:request", "real:response", "real:push", "state"] {
             tap.require(path);
         }
@@ -163,6 +167,133 @@ pub fn run(w: &mut World, chaos: bool) -> String {
     finish(w, &s)
 }
 
+/// Revoke an enrolled offline desktop during two surviving devices' writes.
+/// Both writers keep the ordinary receipt, convergence, file and leak oracles;
+/// the revocation must also produce a new epoch and surviving encrypted writes.
+pub fn run_revocation(w: &mut World) -> String {
+    use mdbn_replica::policy::PolicyState;
+    use mdbn_replica::store::{Store, meta_keys};
+    use mdbn_wire::envelope::{Item, ItemKind, RekeyPayload};
+    use mdbn_wire::policy::{DeviceRevoke, PolicyOp};
+    use mdbn_wire::schema::Wire;
+
+    let s = setup_devices(w, "slice-real-revocation", false, 3);
+    w.run_chaos(8_000);
+    let confirmed_before = w
+        .shared
+        .counters
+        .borrow()
+        .get("slice.confirmed")
+        .copied()
+        .unwrap_or(0);
+    let epoch_before = w
+        .actor::<Node>(s.nodes[0])
+        .and_then(Node::replica)
+        .map_or(0, |r| {
+            let bytes = r
+                .store()
+                .meta(meta_keys::POLICY)
+                .expect("read committed policy")
+                .expect("bootstrap committed policy");
+            PolicyState::from_bytes(&bytes)
+                .expect("decode committed policy")
+                .epoch
+        });
+    w.shared
+        .count("revocation.confirmed_before", confirmed_before);
+    if confirmed_before == 0 || epoch_before == 0 {
+        w.shared.violate(
+            Kind::Bug,
+            "revocation had no keyed acknowledged workload before removal".into(),
+        );
+    }
+    let removed = s.p.devs[2].device.id;
+    s.p.enrol_late(2)
+        .expect("ordinary offline-device enrolment");
+    s.p.escrow_grant(2)
+        .expect("ordinary current-epoch key grant");
+    w.shared.count("revocation.offline_device_granted", 1);
+    let at =
+        s.p.append_policy(vec![PolicyOp::DeviceRevoke(DeviceRevoke {
+            device: removed,
+        })])
+        .expect("ordinary signed device revocation");
+    w.shared.count("revocation.policy_seq", at);
+    w.run_chaos(8_000);
+    // Reopen a surviving writer; acknowledgement checks still include BOTH writers.
+    w.crash(s.nodes[1]);
+    let state = finish(w, &s);
+    let confirmed_after = w
+        .shared
+        .counters
+        .borrow()
+        .get("slice.confirmed")
+        .copied()
+        .unwrap_or(0);
+    w.shared.count(
+        "revocation.confirmed_after",
+        confirmed_after.saturating_sub(confirmed_before),
+    );
+    if confirmed_after <= confirmed_before {
+        w.shared.violate(
+            Kind::Bug,
+            "no acknowledged writes after device revocation".into(),
+        );
+    }
+    for n in &s.nodes {
+        let applied = w
+            .actor::<Node>(*n)
+            .and_then(Node::replica)
+            .is_some_and(|r| {
+                let bytes = r
+                    .store()
+                    .meta(meta_keys::POLICY)
+                    .expect("read surviving committed policy")
+                    .expect("surviving committed policy exists");
+                let policy = PolicyState::from_bytes(&bytes).expect("decode surviving policy");
+                policy.devices.get(&removed).is_some_and(|d| !d.active)
+                    && policy.epoch > epoch_before
+                    && r.head().seq >= at
+            });
+        w.shared
+            .count("revocation.survivors_applied", u64::from(applied));
+        if !applied {
+            w.shared.violate(
+                Kind::Bug,
+                "surviving device did not retain revocation and new epoch".into(),
+            );
+        }
+    }
+    let mut rekeys = 0;
+    let mut entries = 0;
+    for (seq, bytes) in s.p.service.stored_items(&s.p.collection) {
+        let item = Item::from_bytes(&bytes).expect("stored real-service item");
+        if seq > at && item.kind == ItemKind::Rekey {
+            let payload = RekeyPayload::from_bytes(&item.body.0).expect("stored rekey");
+            if payload.epoch > epoch_before {
+                rekeys += 1;
+                if payload.wraps.iter().any(|wrap| wrap.device == removed) {
+                    w.shared
+                        .violate(Kind::Bug, "new epoch still wraps the revoked device".into());
+                }
+            }
+        }
+        if seq > at && item.kind == ItemKind::Entry && item.epoch.is_some_and(|e| e > epoch_before)
+        {
+            entries += 1;
+        }
+    }
+    w.shared.count("revocation.rekeys", rekeys);
+    w.shared.count("revocation.new_epoch_entries", entries);
+    if rekeys == 0 || entries == 0 {
+        w.shared.violate(
+            Kind::Bug,
+            "revocation did not exercise rekey and new-epoch content".into(),
+        );
+    }
+    state
+}
+
 /// `slice-real-snapshots`: A works alone with a snapshot every 25 entries, so
 /// manifests and chunks go to the real service as objects (`put_object`,
 /// `put_snapshot`, self-endorsement); then B joins late and reads everything
@@ -176,9 +307,7 @@ pub fn run_snapshots(w: &mut World) -> String {
     p.register_secrets(w);
     {
         let mut tap = w.shared.tap.borrow_mut();
-        for m in ["title", "status", "tags", "Body ", "notes/"] {
-            tap.marker(&format!("field or text {m:?}"), m.as_bytes());
-        }
+        tap.content_fields(w.seed);
         for path in ["real:request", "real:response", "real:push", "state"] {
             tap.require(path);
         }
@@ -240,9 +369,7 @@ pub fn run_snapshot_install(w: &mut World) -> String {
     p.register_secrets(w);
     {
         let mut tap = w.shared.tap.borrow_mut();
-        for m in ["title", "status", "tags", "Body ", "notes/"] {
-            tap.marker(&format!("field or text {m:?}"), m.as_bytes());
-        }
+        tap.content_fields(w.seed);
         for path in ["real:request", "real:response", "real:push", "state"] {
             tap.require(path);
         }
@@ -326,9 +453,7 @@ pub fn run_join_ahead(w: &mut World, waiting: bool) -> String {
     p.register_secrets(w);
     {
         let mut tap = w.shared.tap.borrow_mut();
-        for m in ["title", "status", "tags", "Body ", "notes/"] {
-            tap.marker(&format!("field or text {m:?}"), m.as_bytes());
-        }
+        tap.content_fields(w.seed);
         for path in ["real:request", "real:response", "real:push", "state"] {
             tap.require(path);
         }

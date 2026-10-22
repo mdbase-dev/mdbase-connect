@@ -1,3 +1,7 @@
+@import "./brand.css";
+@import "./motion.css";
+@import "./screens.css";
+
 /*
  * Shared collection screens (@mdbase-dev/ui/collections). Every rule reads
  * private --_* properties defined below. Each one takes, in order: the public
@@ -77,6 +81,12 @@
   white-space: nowrap;
 }
 
+/* Keep a known opening stage and its slow warning on separate lines. */
+.mdbase-collections-lead,
+.mdbase-collections .mdbase-opening-message small {
+  white-space: pre-line;
+}
+
 /* Gate: one column, heading, lead, the screen's own content, then the footer. */
 .mdbase-collections-gate {
   display: grid;
@@ -131,14 +141,10 @@
   font-size: var(--_font-size-section);
 }
 
-.mdbase-collections-heading:focus {
+/* Phase headings receive focus for context, not as interactive controls. */
+:is(h1, h2).mdbase-collections-heading[tabindex="-1"]:focus,
+:is(h1, h2).mdbase-collections-visually-hidden[tabindex="-1"]:focus {
   outline: none;
-}
-
-.mdbase-collections-heading:focus-visible {
-  outline: 2px solid var(--_accent);
-  outline-offset: 4px;
-  border-radius: var(--_radius-sm);
 }
 
 .mdbase-collections-lead {
@@ -545,6 +551,27 @@
 
 .mdbase-collections-account-label {
   overflow-wrap: anywhere;
+}
+
+/* OpeningScreen owns the loading presentation; the gate retains its actions. */
+.mdbase-collections-gate .mdbase-opening {
+  min-height: 160px;
+  height: auto;
+  background: transparent;
+}
+
+.mdbase-collections-gate .mdbase-opening-message {
+  color: var(--_text-soft);
+  --mark-accent: var(--_accent);
+}
+
+.mdbase-collections-gate .mdbase-opening-message p {
+  font-size: var(--_font-size);
+}
+
+.mdbase-collections-gate .mdbase-opening-message small {
+  color: var(--_text-soft);
+  font-size: var(--_font-size-caption);
 }
 
 .mdbase-collections-spinner {

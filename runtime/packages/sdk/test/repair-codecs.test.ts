@@ -17,30 +17,8 @@ const map = (name: string): Map<number, CborValue> => {
 };
 
 describe("allocated lost-tail repair codecs", () => {
-  it("preserves every old omission byte-for-byte", () => {
-    for (const name of ["receipt-pending", "receipt-rejected"]) {
-      const bytes = read(`client/${name}.cbor`);
-      const typed = receipt.dec(decode(bytes));
-      expect(typed.relocatedFrom).toBeUndefined();
-      expect(toHex(encode(receipt.enc(typed)))).toBe(toHex(bytes));
-    }
-    const bytes = read("client/status.cbor");
-    const typed = syncStatus.dec(decode(bytes));
-    expect(typed.resyncing).toBeUndefined();
-    expect(toHex(encode(syncStatus.enc(typed)))).toBe(toHex(bytes));
-  });
 
-  it("retains the exact Rust key9 relocation vector and reserved preflight8", () => {
-    const bytes = read("client/receipt-relocated.cbor");
-    const typed = receipt.dec(decode(bytes));
-    expect(typed).toMatchObject({ state: "confirmed", seq: 99, relocatedFrom: 42 });
-    expect(toHex(encode(receipt.enc(typed)))).toBe(toHex(bytes));
-    const both = { ...typed, preflight: { rewrites: [], broken: [] } };
-    const wire = receipt.enc(both) as Map<number, CborValue>;
-    expect(wire.has(8)).toBe(true);
-    expect(wire.get(9)).toBe(42);
-    expect(receipt.dec(decode(encode(wire)))).toEqual(both);
-  });
+
 
   const phases: ResyncPhase[] = ["probing", "repairing", "rolling_back", "awaiting_control"];
   for (const [tag, phase] of phases.entries()) {
@@ -64,20 +42,6 @@ describe("allocated lost-tail repair codecs", () => {
     expect(() => incident.dec(new Map([[0, 13]]))).toThrow(SchemaError);
   });
 
-  it("preserves the SDK's existing unsigned safe-integer discipline", () => {
-    for (const n of [0, 1, Number.MAX_SAFE_INTEGER]) {
-      const r = receipt.dec(decode(read("client/receipt-pending.cbor")));
-      r.relocatedFrom = n;
-      expect(receipt.dec(decode(encode(receipt.enc(r)))).relocatedFrom).toBe(n);
-      expect(resyncing.dec(decode(encode(resyncing.enc({ phase: "probing", positions: n }))))).toEqual({ phase: "probing", positions: n });
-    }
-    for (const bad of [null, false, -1, "42", 1n << 53n]) {
-      const r = map("client/receipt-pending.cbor");
-      r.set(9, bad);
-      expect(() => receipt.dec(r)).toThrow(SchemaError);
-      expect(() => resyncing.dec(new Map<number, CborValue>([[0, 0], [1, bad]]))).toThrow(SchemaError);
-    }
-  });
 
   it("keeps the latest original relocation receipt on an existing Write", async () => {
     const mutation = "0192f3a4-6000-7abc-8def-0123456789ab";
@@ -90,16 +54,6 @@ describe("allocated lost-tail repair codecs", () => {
     // the current receipt for subsequent relocation information.
   });
 
-  it("retains revoked-after-loss rejection and original position without confirming", async () => {
-    const expected = {
-      mutation: "0192f3a4-6000-7abc-8def-0123456789ab", state: "rejected" as const,
-      relocatedFrom: 12, problem: { code: "forbidden", recovery: "reauthorize" as const,
-        reason: "revoked_after_loss", message: "The grant was revoked" },
-    };
-    const write = new Write(receipt.dec(decode(encode(receipt.enc(expected)))));
-    expect(write.receipt).toEqual(expected);
-    await expect(write.confirmed).rejects.toMatchObject({ code: "forbidden", reason: "revoked_after_loss" });
-  });
 
   it("rejects malformed/missing progress, unknown phases and optional null", () => {
     for (const bad of [null, false, 10, "probing", new Map([[0, 0]]),

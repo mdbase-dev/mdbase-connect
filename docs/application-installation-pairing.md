@@ -4,21 +4,78 @@ Installation-device START resolves `installation.app_id` against `applications.i
 The registry supplies the display name; caller display names never authorize an
 application or determine its family. The request must include an exact `Origin`.
 
-`applications.installation_origins` is operator-owned JSON configuration:
+Apps self-register their bundled declaration through `/v1/apps/register`; no
+operator allowlist is required. A web app may pair from the exact origins of its
+registered `homepage` and `redirect_uris`. Opaque redirect origins (`null`) never
+authorize pairing. The approval screen shows the registered name and the exact
+requested origin, so the user can check where the request came from.
+
+For additional native or loopback locations, an app may include this optional
+field in its manifest (both supported contract versions):
 
 ```json
 {
-  "lab": {"app-runtime": ["https://lab.notes.example"], "mobile": ["capacitor://notes.example"]},
-  "production": {"app-runtime": ["https://notes.example"]}
+  "installation_origins": {
+    "lab": {"app-runtime": ["http://127.0.0.1:48218"], "mobile": ["capacitor://notes.example"]},
+    "production": {"mobile": ["capacitor://notes.example"]}
+  }
 }
 ```
 
-Only the configured deployment environment and requested device kind are used.
-Missing application, environment, kind or Origin is refused. The default `{}`
-does not authorize installations. Ordinary manifest registrations/upserts do not
-change this field; registered names/declaration families retain their existing
-registry semantics. Applications still need explicit account/device and
-collection consent. This configuration is not an application grant.
+Additional origins use only the configured deployment environment and requested
+device kind. They must be exact canonical HTTPS origins, loopback HTTP origins,
+mobile `capacitor://` origins, or app-runtime Chrome extension origins
+(`chrome-extension://` followed by the 32-letter extension ID): no wildcards,
+paths, credentials, query or fragment. Other browser extension schemes are not
+accepted. Scheme, host and port must match exactly. The field is validated by
+the shared manifest validator and persisted in `application_declaration`.
+It participates in the canonical digest: changing an origin creates a different
+registered application identity rather than widening an existing registration.
+A lookalike site submitting the original declaration cannot START from its own
+undeclared origin, even if it uses the same display name or declaration ID.
+
+Missing application, deployment environment, device kind or Origin is refused.
+Account/device approval and collection consent remain explicit and unchanged.
+Declared origins are not a collection grant or publisher authentication.
+
+The existing `applications.installation_origins` column retains extra origins
+for older registrations, including TaskNotes migration0066. Manifest upserts
+without the optional field preserve that data. It is no longer a prerequisite
+for self-registration: the default `{}` permits the app's declared web origins.
+No applied migration or persisted pairing/credential identity is rewritten.
+
+For a `capacitor://` or Chrome extension origin, the approval screen also says
+whether a mobile app or a browser extension is asking.
+
+## Returning to the app after approval
+
+The portal page opened from `verification_uri` may carry `?return_url=<url>`
+(added by the client, URL-encoded). The portal forwards it to
+`GET /v1/pairing-requests/:id`, and the response's `pairing.return_url` is that
+URL only if it exactly equals one of the registered app's declared
+`redirect_uris`; otherwise it is `null`. After the user approves, the portal
+opens that URL once and shows a "Return to" link. The URL carries no credential:
+the app still completes sign-in by polling the pairing channel.
+
+## Requested collection hints
+
+Installation and reconsent `POST /v1/pairing-requests` accept an optional top-level
+`collection_hint`: a canonical, lowercase, non-nil collection UUID. START does
+not look up that collection. Its returned `verification_uri` carries the hint as
+`?collection_hint=<uuid>`; this is transient URL metadata, not persisted selection
+or consent. Clients should open the returned URI unchanged.
+
+The portal forwards only this hint to `GET /v1/pairing-requests/:id`. After explicit
+account confirmation, the response's `pairing.collection_hint` is the UUID only
+if it appears in that account's current approvable collection list; otherwise it
+is `null`. Foreign, private, left, device-revoked and nonexistent targets have the
+same response as no hint. No target-specific existence lookup or error is made.
+
+An eligible hint preselects the picker. The user can choose another collection;
+existing approved choices or in-progress/completed creation take precedence. An
+unavailable hint does not silently pick another or the only available collection.
+Explicit Approve and its authoritative `selected_collection_id`/collection scope
+remain required and revalidated. Changing a URL hint never grants access.
 
 Explicit Remove access resolves the request's registered application family and
 revokes that family's grants and installation device access for the selected

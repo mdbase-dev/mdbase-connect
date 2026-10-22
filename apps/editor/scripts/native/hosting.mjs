@@ -107,17 +107,43 @@ export async function verifyHosting({origin,inventory,deployment,fetchImpl=fetch
  const unverified=bytes.unverified.filter(a=>!controls.some(c=>c.path===a.path));
  return {...bytes,failures,unverified,controls,probes,ok:failures.length===0 && unverified.length===0 && bytes.verified.length+controls.length===inventory.length};
 }
+// The immutable deployment URL is verified once: any failure there is terminal.
+// Only after it has fully proven the exact bytes and source-owned policy is the
+// custom alias re-verified, read-only, inside a bounded settle window, because
+// the alias can keep serving the previous deployment while Pages propagates.
+// Every attempt is a complete verification; a failed attempt is never accepted,
+// and nothing is rebuilt, redeployed or rolled back here.
+const ALIAS_SETTLE_MS=300000,ALIAS_RETRY_DELAY_MS=15000,ALIAS_MIN_ATTEMPT_MS=30000;
+const attemptSummary=(report,startedMs)=>({startedMs:Math.round(startedMs),ok:report.ok===true,
+ failures:(report.failures??[]).slice(0,20),failureCount:report.failures?.length??0,unverifiedCount:report.unverified?.length??0});
+export async function verifyPublication({plan,inventory,deployment,verify=verifyHosting,now=()=>performance.now(),
+  sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms)),deploymentTimeoutMs=180000,aliasSettleMs=ALIAS_SETTLE_MS,
+  aliasRetryDelayMs=ALIAS_RETRY_DELAY_MS,aliasMinAttemptMs=ALIAS_MIN_ATTEMPT_MS}) {
+ if(deployment?.sourceSha!==plan?.sha || deployment?.pagesBranch!==plan?.pagesBranch)throw Error('Deployment/source/target mismatch');
+ const start=now(),reports=[],aliasAttempts=[];
+ const immutable={origin:deployment.url,...await verify({origin:deployment.url,inventory,deployment,totalTimeoutMs:deploymentTimeoutMs})};
+ reports.push(immutable);
+ if(plan.origin!==deployment.url) {
+  const deadline=now()+aliasSettleMs;
+  let alias;
+  for(;;) {
+   const startedMs=now()-start;
+   alias={origin:plan.origin,...await verify({origin:plan.origin,inventory,deployment,totalTimeoutMs:Math.min(180000,Math.max(1,deadline-now()))})};
+   aliasAttempts.push(attemptSummary(alias,startedMs));
+   // A failed immutable deployment is not waited out: record one alias report only.
+   if(alias.ok===true || immutable.ok!==true || deadline-now()<aliasRetryDelayMs+aliasMinAttemptMs)break;
+   await sleep(aliasRetryDelayMs);
+  }
+  reports.push(alias);
+ }
+ const alias=reports.find(r=>r.origin===plan.origin);
+ return {...alias,origins:reports,aliasAttempts,ok:reports.length===2 && reports.every(r=>r.ok===true)};
+}
 if(process.argv[1]===fileURLToPath(import.meta.url)) {
  try {
   const [planPath,inventoryPath,deploymentPath]=process.argv.slice(2);
   const json=async path=>JSON.parse(await readFile(path,'utf8'));
-  const plan=await json(planPath),deployment=await json(deploymentPath);
-  if(deployment.sourceSha!==plan.sha || deployment.pagesBranch!==plan.pagesBranch)throw Error('Deployment/source/target mismatch');
-  const deadline=performance.now()+180000,reports=[];
-  for(const origin of [...new Set([deployment.url,plan.origin])])
-   reports.push({origin,...await verifyHosting({origin,inventory:await json(inventoryPath),deployment,totalTimeoutMs:deadline-performance.now()})});
-  const alias=reports.find(r=>r.origin===plan.origin);
-  const result={...alias,origins:reports,ok:reports.length===2 && reports.every(r=>r.ok)};
+  const result=await verifyPublication({plan:await json(planPath),inventory:await json(inventoryPath),deployment:await json(deploymentPath)});
   console.log(JSON.stringify(result,null,2));if(!result.ok)process.exitCode=1;
  }catch(error){console.log(JSON.stringify({ok:false,error:error.message}));process.exitCode=1;}
 }

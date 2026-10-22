@@ -177,6 +177,18 @@ impl FakeLogService {
             .unwrap_or_default()
     }
 
+    /// Store an object as an accepted `put_object` would (address = SHA-256).
+    pub fn put_object(&self, collection: &Uuid, bytes: Vec<u8>) {
+        let address = sha256(&bytes);
+        self.state
+            .borrow_mut()
+            .logs
+            .entry(*collection)
+            .or_default()
+            .objects
+            .insert(address, bytes);
+    }
+
     /// Fault: an object disappears (collected, or lost by the store).
     pub fn forget_object(&self, collection: &Uuid, address: &B32) {
         if let Some(c) = self.state.borrow_mut().logs.get_mut(collection) {

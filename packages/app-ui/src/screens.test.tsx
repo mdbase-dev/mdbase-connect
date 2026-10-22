@@ -12,6 +12,15 @@ describe("screens", () => {
     expect(failed).toContain("Try again");
   });
 
+  it("renders the launch screen with a large mark that scans once it has landed", () => {
+    const markup = renderToStaticMarkup(<OpeningScreen app="editor" title="Opening collection" detail="Reading its notes" entrance="flock" />);
+    expect(markup).toContain("mdbase-opening-launch-mark");
+    expect(markup).toContain('data-entrance="landed"');
+    expect(markup).toContain("mdbase-motion-scan");
+    expect(markup).toContain("Reading its notes");
+    expect(markup).not.toContain("mdbase-opening-flock");
+  });
+
   it("says a status once when the error repeats it", () => {
     const markup = renderToStaticMarkup(<ConnectLayout app="reader" title="Open Reader" status="Not allowed" error="Not allowed" />);
     expect(markup.match(/Not allowed/g)).toHaveLength(1);

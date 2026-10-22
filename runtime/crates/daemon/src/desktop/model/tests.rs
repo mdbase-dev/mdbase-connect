@@ -13,6 +13,7 @@ fn entry(grant: &str, state: AccessState) -> AccessEntry {
             capabilities: vec!["records.read".to_owned()],
             folders: None,
             legacy_only: false,
+            declared_setup: None,
         },
         state,
         first_seen_ms: 0,

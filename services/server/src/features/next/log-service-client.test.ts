@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { LogServiceClient, LogServiceError } from "./log-service-client.js";
 import { ed25519PublicKeyObject, ed25519RawPublicKey } from "./policy-keys.js";
-import { decodeCbor, encodeCbor } from "./policy-wire.js";
+import { decodeCbor, encodeCbor, keyId } from "./policy-wire.js";
 
 // Independent reference to3809 Rust auth::http_digest + actual Worker call site:
 // method is the LS method, not HTTP POST; raw token/body/collection/nonce bound.
@@ -42,6 +42,26 @@ function fixture() {
 }
 
 describe("log HTTP PoP client interoperability", () => {
+  it("exposes detached PITR public CP identity without fetch/sign/token work; absent otherwise",()=>{
+    const ordinary=fixture();expect(ordinary.client.pitrControlIdentity()).toBeNull();expect(ordinary.client.pitrAdmissionIdentity()).toBeNull();
+    const issuer=generateKeyPairSync("ed25519").privateKey,transport=generateKeyPairSync("ed25519").privateKey;
+    const client=new LogServiceClient({url:"https://normal.example.test",tokenIssuerKeyPem:issuer.export({format:"pem",type:"pkcs8"}).toString(),
+      transportKeyPem:transport.export({format:"pem",type:"pkcs8"}).toString(),labPitr:{run:"gate4-pitr-lab-20261009-01",active:"aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+        deleted:"dddddddd-dddd-4ddd-addd-dddddddddddd",owner:"11111111-1111-4111-a111-111111111111",createdAfter:1,logUrl:"https://synthetic-log.example.test",hostedUrl:"https://synthetic-hosted.example.test"}},
+      async()=>{throw Error("unexpected_network");});
+    const mint=vi.spyOn(client,"mintToken").mockImplementation(()=>{throw Error("unexpected_token");});
+    const expected={transportPublicKey:Buffer.from(ed25519RawPublicKey(transport)).toString("hex"),issuerKeyId:Buffer.from(keyId(ed25519RawPublicKey(issuer))).toString("hex")};
+    const first=client.pitrControlIdentity()!;expect(first).toEqual(expected);
+    (first as {transportPublicKey:string}).transportPublicKey="00".repeat(32);
+    expect(client.pitrControlIdentity()).toEqual(expected);
+    const admission = { transportPublicKey: expected.transportPublicKey, issuerPublicKey: Buffer.from(ed25519RawPublicKey(issuer)).toString("hex") };
+    const observed = client.pitrAdmissionIdentity()!; expect(observed).toEqual(admission);
+    expect(observed.issuerPublicKey).not.toEqual(observed.transportPublicKey);
+    expect(Buffer.from(keyId(Buffer.from(observed.issuerPublicKey,"hex"))).toString("hex")).toBe(expected.issuerKeyId);
+    (observed as {issuerPublicKey:string}).issuerPublicKey="00".repeat(32);
+    expect(client.pitrAdmissionIdentity()).toEqual(admission);expect(client.pitrControlIdentity()).toEqual(expected);
+    expect(mint).not.toHaveBeenCalled();
+  });
   it("matches the independently generated public3809 Rust/Python conformance vector byte-for-byte", async () => {
     const vector = JSON.parse(readFileSync(new URL("./fixtures/log-http-public-vector.json", import.meta.url), "utf8"));
     const transport = createPrivateKey({ format: "der", type: "pkcs8", key: Buffer.concat([
@@ -109,5 +129,24 @@ describe("log HTTP PoP client interoperability", () => {
       : () => f.client.deleteLog(id);
     await expect(call()).rejects.toMatchObject({ code: "not_found" });
     expect(f.request().method).toBe(method);
+  });
+  it("encodes create_log placement as key 2 {4: timezone, 5: [owner timezones]}, omitted when there is none", async () => {
+    const f = fixture();
+    const id = "22222222-2222-4222-8222-222222222222";
+    const placement = async (value?: Parameters<LogServiceClient["createLog"]>[2]) => {
+      await expect(f.client.createLog(id, Buffer.of(1), value)).rejects.toMatchObject({ code: "not_found" });
+      return ((decodeCbor(f.request().body) as Map<number, unknown>).get(3) as Map<number, unknown>).get(2);
+    };
+    expect(await placement({ timezone: "Australia/Sydney", ownerTimezones: ["Europe/Berlin", "America/Denver"] }))
+      .toEqual(new Map<number, unknown>([[4, "Australia/Sydney"], [5, ["Europe/Berlin", "America/Denver"]]]));
+    expect(await placement({ timezone: "America/Argentina/Buenos_Aires" })).toEqual(new Map([[4, "America/Argentina/Buenos_Aires"]]));
+    // The server answers UTC/unknown with the owner timezones, then its default.
+    expect(await placement({ timezone: "UTC", ownerTimezones: [] })).toEqual(new Map([[4, "UTC"]]));
+    expect(await placement()).toBeUndefined();
+    expect(await placement({})).toBeUndefined();
+    // Names the log service would refuse (and so park the genesis on) are never sent.
+    expect(await placement({ timezone: "x".repeat(65), ownerTimezones: ["", "Etc/GMT+10", "+10:00"] })).toEqual(new Map([[5, ["Etc/GMT+10"]]]));
+    expect(await placement({ ownerTimezones: Array.from({ length: 1001 }, () => "Asia/Tokyo") }))
+      .toEqual(new Map([[5, Array.from({ length: 1000 }, () => "Asia/Tokyo")]]));
   });
 });

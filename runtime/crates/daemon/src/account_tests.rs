@@ -5,8 +5,23 @@ async fn real_pairing_exchange_is_cancelled_by_logout() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let dir = crate::testutil::TestDir::new("http-pairing-logout");
     let d = daemon(&dir);
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    // A local artifact deliberately ignores broad test-loopback hooks. Serve
+    // this real HTTP fixture at its exact authenticated compile-time origin on
+    // the isolated test VM instead of weakening the artifact's sign-in guard.
+    #[cfg(feature = "local-rehearsal")]
+    let address = crate::trust::Environment::embedded()
+        .control_plane()
+        .strip_prefix("http://")
+        .unwrap();
+    #[cfg(not(feature = "local-rehearsal"))]
+    let address = "127.0.0.1:0";
+    let listener = tokio::net::TcpListener::bind(address).await.unwrap();
     let server = format!("http://{}", listener.local_addr().unwrap());
+    #[cfg(feature = "local-rehearsal")]
+    assert_eq!(
+        server,
+        crate::trust::Environment::embedded().control_plane()
+    );
     let reached = Arc::new(tokio::sync::Notify::new());
     let release = Arc::new(tokio::sync::Notify::new());
     let r1 = reached.clone();

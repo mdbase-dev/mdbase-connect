@@ -25,7 +25,7 @@ export function assertBuiltManifest(manifest,plan) {
 export function assertCoverage(inventory,plan) {
  need(inventory.length>0,'empty inventory');
  const paths=new Map(inventory.map(a=>[a.path,a]));
- for(const p of ['index.html','404.html','.well-known/mdbase-app.json','mdbase-shell-sw.js','mdbase-shell-runtime.js','mdbase-shell-register.js','_headers','_redirects'])need(paths.has(p),`missing ${p}`);
+ for(const p of ['index.html','404.html','.well-known/mdbase-app.json','mdbase-shell-sw.js','mdbase-shell-runtime.js','_headers','_redirects'])need(paths.has(p),`missing ${p}`);
  for(const [name,pin] of Object.entries(plan.sdkTrust.nativeAssets))
   need(inventory.some(a=>a.sha256===pin.sha256 && a.bytes===pin.bytes),`exact native/SQLite bytes ${name}`);
  need(inventory.every(a=>a.bytes<=25*1024*1024),'Pages 25 MiB file limit');

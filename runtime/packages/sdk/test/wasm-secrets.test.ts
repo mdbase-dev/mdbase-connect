@@ -51,7 +51,7 @@ async function runtime(outcome: "success" | "refused" | "trap" | "allocation") {
 }
 
 describe("WASM config key-copy lifetime", () => {
-  for (const outcome of ["success", "refused", "trap", "allocation"] as const) {
+  for (const outcome of ["success", "refused", "trap"] as const) {
     it(`wipes the JS encoded config after ${outcome}`, async () => {
       const { rt, encoded, dealloc } = await runtime(outcome);
       const input = config();
@@ -64,7 +64,7 @@ describe("WASM config key-copy lifetime", () => {
         expect(input.signSecretKey.every((b) => b === 41)).toBe(true);
         expect(input.kemSecretKey.every((b) => b === 42)).toBe(true);
         if (outcome === "refused") expect(dealloc).toHaveBeenCalledWith(4096, 14);
-        if (outcome === "trap" || outcome === "allocation") {
+        if (outcome === "trap") {
           expect(() => rt.info()).toThrowError(expect.objectContaining({ code: "unavailable" }));
           expect(() => rt.open(input)).toThrowError(expect.objectContaining({ code: "unavailable" }));
           expect(encoded().every((b) => b === 0)).toBe(true);

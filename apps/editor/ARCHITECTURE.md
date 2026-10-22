@@ -1,11 +1,12 @@
 # Architecture
 
 mdbase editor is a client-side application deployed as one static site. The
-editing workspace uses an explicitly authorized `@mdbase-dev/connect` collection
-grant. The design keeps collection transport, lifecycle, editing state, and
-rendering separate. Account and collection administration live in mdbase itself;
-the editor has no account console. Old `/connect` links redirect to the editor
-(`src/main.tsx`).
+editing workspace uses an explicitly authorized collection grant. The design
+keeps collection transport, lifecycle, editing state, and rendering separate.
+Account administration lives on the separate Connect portal; the editor has no
+account console. The **Open Connect** command carries collection context there,
+and old `/connect` bookmarks forward to the portal without creating a gateway or
+SDK owner (`src/main.tsx`).
 
 ## Dependency direction
 
@@ -18,10 +19,15 @@ React composition (App, feature views)
         └── operation coordinator ────────┘
                                               │
                                   @mdbase-dev/connect or demo adapter
+
+Open Connect command ── collection-context link ── Connect portal (account APIs only)
 ```
 
-Collection context is carried in `?collection=<id>` and remembered locally for
-direct entry.
+The route entry point lazy-loads `App`. Connect links open the canonical server
+origin with `?collection=<id>`; the portal remembers valid collection context
+without selecting an arbitrary collection. **Open editor** returns to the
+Editor with collection context, where the SDK reuses an existing authorization
+or begins the standard approval transaction.
 
 Views may depend on model types and pure domain helpers. They do not own remote
 request generations, snapshot tokens, mutation queues, or authoritative note
@@ -154,6 +160,11 @@ source when the collection becomes ready; loaded/dirty drafts and failed reads
 are not automatically replaced or retried. Pending source is a loading state,
 not a YAML validation error. An application error boundary
 contains unexpected render failures and offers recovery.
+
+Portal `ConnectApp.tsx` owns account navigation and control-plane actions.
+Its management client sends browser credentials only to its own Connect
+origin. This account session is not accepted by collection operation routes
+as an application grant.
 
 ## Invariants
 

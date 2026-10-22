@@ -518,6 +518,7 @@ file-attach-v1 = {
   3: attachment-content-v1,
   ? 4: hash, ; if_revision
   ? 5: hash, ; external base
+  ? 6: int,  ; mtime: writing-device capture clock, milliseconds since Unix epoch
 }
 ```
 
@@ -534,6 +535,12 @@ The profile uses explicit authenticated dispatch with the kind18 Item framing in
 use fixed CBOR-text domain D, definite context tuple C and exact header-byte-string H:
 KDF `[D,C]`, AAD `[D,C,H]`. An adapter must not guess a profile from bytes or retry
 legacy decryption. Standalone crypto/helper/codec support is not emitter permission.
+
+Optional `mtime` is descriptive metadata and, when present, must equal the
+mutation's `clock.instant`. Native upload commit sets it from that same capture
+clock, never filesystem stat, sequence, open time or recovery time. Older/absent
+producers leave it absent. It is propagated in the canonical attachment effect;
+metadata-only moves retain the timestamp of unchanged complete content.
 
 `file_attach` has the same stable File ID, namespace/path/inclusion, create/replace,
 CAS, external-base and conflict rules as `file_put`. Its revision is the signed whole

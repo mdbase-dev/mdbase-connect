@@ -61,12 +61,25 @@ async function invoke(q, env, ctx, actorHandler, onPut) {
     headers: q.headers ?? {},
     ...(q.method === "GET" || q.method === "HEAD" ? {} : { body }),
   });
+  if (q.corsMetadataOnly) {
+    // Preflight must require only public CORS metadata, not authentication,
+    // native bindings/actor lookup or reading even the instrumented body.
+    const scoped = { LOGSVC_CORS_ORIGINS: q.corsOrigins ?? env.LOGSVC_CORS_ORIGINS };
+    for (const name of ["INSECURE_TEST_KEYS", "LOGSVC_ROOT_KEYS", "LOGSVC_TOKEN_ISSUERS", "LOGSVC_URL_SECRET", "LOG", "OBJECTS", "METRICS"]) {
+      Object.defineProperty(scoped, name, { get() { throw new Error("preflight side effect"); } });
+    }
+    const result = await new worker(ctx, scoped).fetch(incoming);
+    return { status: result.status, response: Array.from(new Uint8Array(await result.arrayBuffer())),
+      emitted, pulls, forwarded, r2writes, allowOrigin: result.headers.get("access-control-allow-origin") };
+  }
   // Direct-download seams are request-local. Inherit the actual native binding's
   // constructor (workers-rs validates its name), but call every method on its
   // ORIGINAL receiver. No global binding override or Proxy is used here.
   if (q.directGet) {
     if (!Number.isInteger(q.delayR2Get ?? 0) || (q.delayR2Get ?? 0) < 0 || (q.delayR2Get ?? 0) > 2000 || q.size > 64 * 1024) throw Error("bounded direct-download seam");
-    const bucket = env.OBJECTS;
+    const binding = q.binding ?? "OBJECTS";
+    if (!["OBJECTS", "OBJECTS_OC", "OBJECTS_WNAM"].includes(binding)) throw Error("test bucket");
+    const bucket = env[binding];
     if (q.seedR2) {
       if (prefix.length > 64 * 1024) throw Error("bounded R2 fixture");
       await bucket.put(q.seedR2.key, prefix, {
@@ -99,7 +112,7 @@ async function invoke(q, env, ctx, actorHandler, onPut) {
       return { version: obj.version, size: obj.size, etag: obj.etag, range: obj.range,
         body: stream, customMetadata: q.getMetadata };
     } });
-    const result = await new worker(ctx, { ...env, OBJECTS: scoped }).fetch(incoming);
+    const result = await new worker(ctx, { ...env, [binding]: scoped }).fetch(incoming);
     let response, lockedBeforeCancel;
     if (q.cancelResponse) {
       // Pause without a reader, then cancel the actual response body. This is
@@ -119,14 +132,18 @@ async function invoke(q, env, ctx, actorHandler, onPut) {
     };
   }
   // Keep the real native bindings (a Proxy cannot be cast by workers-rs).
-  const put = env.OBJECTS.put,
+  // Count writes to every object bucket: regional collections use their region's.
+  const buckets = ["OBJECTS", "OBJECTS_OC", "OBJECTS_WNAM"].filter((b) => env[b]);
+  const puts = buckets.map((b) => env[b].put),
     getByName = env.LOG.getByName;
-  env.OBJECTS.put = async function (...a) {
-    r2writes++;
-    onPut?.();
-    if (q.delayPut) await new Promise((r) => setTimeout(r, q.delayPut));
-    return put.apply(this, a);
-  };
+  buckets.forEach((b, i) => {
+    env[b].put = async function (...a) {
+      r2writes++;
+      onPut?.();
+      if (q.delayPut) await new Promise((r) => setTimeout(r, q.delayPut));
+      return puts[i].apply(this, a);
+    };
+  });
   env.LOG.getByName = function (...a) {
     forwarded++;
     return getByName.apply(this, a);
@@ -137,7 +154,7 @@ async function invoke(q, env, ctx, actorHandler, onPut) {
       ? await actorHandler(incoming)
       : await new worker(ctx, env).fetch(incoming);
   } finally {
-    env.OBJECTS.put = put;
+    buckets.forEach((b, i) => { env[b].put = puts[i]; });
     env.LOG.getByName = getByName;
   }
   const response = Array.from(new Uint8Array(await result.arrayBuffer()));
@@ -310,7 +327,10 @@ export class LogCollection extends RustCollection {
       // Fault only the backend-owned nil lookup inside the actual Rust actor.
       // Keep native namespace/stub receivers (workers-rs rejects fake bindings).
       const q = await req.json();
-      const namespace = this.testEnv.LOG, getByName = namespace.getByName;
+      const namespace = this.testEnv.LOG, getByName = namespace.getByName, get = namespace.get;
+      const nilName = "00000000-0000-0000-0000-000000000000";
+      const nilId = namespace.idFromName(nilName).toString();
+      const wrapped = new WeakSet();
       let pause;
       if (q.fault === "pause") {
         if (this.floorPause) throw Error("one bounded paused producer per actor");
@@ -321,9 +341,9 @@ export class LogCollection extends RustCollection {
         pause = this.floorPause = { reached: false, resume, gate, at };
       }
       let calls = 0;
-      namespace.getByName = function (name, ...args) {
-        const stub = getByName.call(this, name, ...args);
-        if (name !== "00000000-0000-0000-0000-000000000000") return stub;
+      const faultStub = stub => {
+        if (wrapped.has(stub)) return stub;
+        wrapped.add(stub);
         const fetch = stub.fetch;
         stub.fetch = async function (...args) {
           const url = new URL(typeof args[0] === "string" ? args[0] : args[0].url);
@@ -351,6 +371,16 @@ export class LogCollection extends RustCollection {
         };
         return stub;
       };
+      // Both SDK entrypoints return genuine namespace stubs. Rust ObjectId's
+      // get_stub uses namespace.get; getByName remains used by other producers.
+      namespace.getByName = function (name, ...args) {
+        const stub = getByName.call(this, name, ...args);
+        return name === nilName ? faultStub(stub) : stub;
+      };
+      namespace.get = function (id, ...args) {
+        const stub = get.call(this, id, ...args);
+        return id.toString() === nilId ? faultStub(stub) : stub;
+      };
       try {
         const response = await super.fetch(new Request(q.url, {
           method: "POST", headers: q.headers,
@@ -360,6 +390,7 @@ export class LogCollection extends RustCollection {
           response: Array.from(new Uint8Array(await response.arrayBuffer())) });
       } finally {
         namespace.getByName = getByName;
+        namespace.get = get;
         if (pause) { pause.resume(); this.floorPause = undefined; }
       }
     }

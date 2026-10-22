@@ -50,13 +50,6 @@ function backend(overrides = {}) {
     channel: "beta",
     platformKey: "darwin-arm64",
     packaged: true,
-    async takeoverState() {
-      return { state: "none", claimedFolders: [] };
-    },
-    async reconcileInstalledRuntime() {
-      events.push("reconcile");
-      return null;
-    },
     async findLatest() {
       events.push("find");
       return { manifest: signedManifest() };
@@ -66,22 +59,11 @@ function backend(overrides = {}) {
       progress(35);
       progress(90);
     },
-    async prepareDaemonHandoff() {
-      events.push("prepare");
-      return { serviceInstalled: true, previousRuntime: "/runtime/beta.8" };
-    },
-    async stopDaemon() {
-      events.push("stop");
-    },
     installAutomatic() {
       events.push("install");
     },
     async openExternal(url) {
       events.push(`open:${url}`);
-    },
-    async recover(transaction) {
-      events.push("recover");
-      return { healthy: true, rolledBack: transaction.target_version !== this.currentVersion, message: "Recovered." };
     },
     ...overrides
   };
@@ -95,8 +77,8 @@ async function fixture() {
   };
 }
 
-test("a verified automatic release moves through download to ready", async () => {
-  const { store } = await fixture();
+test("a verified automatic release downloads, becomes ready and installs the app only", async () => {
+  const { path, store } = await fixture();
   const runtime = backend();
   const coordinator = new UpdateCoordinator(store, runtime);
   await coordinator.initialize();
@@ -105,43 +87,15 @@ test("a verified automatic release moves through download to ready", async () =>
   const status = await coordinator.check();
   assert.equal(status.phase, "ready");
   assert.equal(status.target_version, "0.1.0-beta.9");
-  assert.equal(status.progress, 100);
   assert.equal(status.can_install, true);
-  assert.deepEqual(runtime.events, ["reconcile", "find", "prepare", "stage"]);
-  assert.ok(phases.includes("checking"));
-  assert.ok(phases.includes("downloading"));
-  assert.equal(phases.at(-1), "ready");
+  assert.deepEqual(phases.slice(0, 3), ["idle", "checking", "downloading"]);
   await coordinator.check();
-  assert.deepEqual(runtime.events, ["reconcile", "find", "prepare", "stage"]);
-});
-
-test("startup surfaces runtime reconciliation and fails closed when it cannot complete", async () => {
-  const first = await fixture();
-  const reconciled = new UpdateCoordinator(
-    first.store,
-    backend({
-      async reconcileInstalledRuntime() {
-        return "Stable runtime refreshed.";
-      }
-    })
-  );
-  assert.match((await reconciled.initialize()).message, /refreshed/);
-
-  const second = await fixture();
-  const failed = new UpdateCoordinator(
-    second.store,
-    backend({
-      async reconcileInstalledRuntime() {
-        throw new Error("service registration denied");
-      }
-    })
-  );
-  const status = await failed.initialize();
-  assert.equal(status.phase, "failed");
-  assert.equal(status.can_check, false);
-  assert.match(status.message, /service registration denied/);
-  await failed.check();
-  assert.deepEqual(failed.status(), status);
+  assert.deepEqual(runtime.events, ["find", "stage"]);
+  assert.equal((await coordinator.install()).phase, "installing");
+  assert.deepEqual(runtime.events, ["find", "stage", "install"]);
+  const saved = JSON.parse(await readFile(path, "utf8"));
+  assert.equal(saved.highest_trusted_version, "0.1.0-beta.9");
+  assert.equal(saved.transaction, undefined);
 });
 
 test("only one network check runs while a check is in flight", async () => {
@@ -168,74 +122,6 @@ test("only one network check runs while a check is in flight", async () => {
   assert.equal(calls, 1);
 });
 
-test("daemon handoff is persisted before stop and survives process exit", async () => {
-  const { path, store } = await fixture();
-  const runtime = backend();
-  const coordinator = new UpdateCoordinator(store, runtime);
-  await coordinator.initialize();
-  await coordinator.check();
-  await coordinator.install();
-  assert.deepEqual(runtime.events, ["reconcile", "find", "prepare", "stage", "stop", "install"]);
-  const persisted = JSON.parse(await readFile(path, "utf8"));
-  assert.equal(persisted.transaction.phase, "installing");
-  assert.equal(persisted.transaction.previous_runtime, "/runtime/beta.8");
-  assert.equal(persisted.transaction.target_version, "0.1.0-beta.9");
-});
-
-test("the next application version rebinds and health-checks the daemon transaction", async () => {
-  const { path, store } = await fixture();
-  const oldRuntime = backend();
-  const oldCoordinator = new UpdateCoordinator(store, oldRuntime);
-  await oldCoordinator.initialize();
-  await oldCoordinator.check();
-  await oldCoordinator.install();
-
-  let recoveredTransaction;
-  const newRuntime = backend({
-    currentVersion: "0.1.0-beta.9",
-    async recover(transaction) {
-      recoveredTransaction = transaction;
-      return { healthy: true, rolledBack: false, message: "Upgrade healthy." };
-    }
-  });
-  const newCoordinator = new UpdateCoordinator(new UpdateStateStore(path), newRuntime);
-  const status = await newCoordinator.initialize();
-  assert.equal(status.phase, "idle");
-  assert.equal(recoveredTransaction.previous_version, "0.1.0-beta.8");
-  const persisted = JSON.parse(await readFile(path, "utf8"));
-  assert.equal(persisted.transaction, undefined);
-  assert.equal(persisted.highest_trusted_version, "0.1.0-beta.9");
-  assert.equal(persisted.last_known_good_runtime.path, "/runtime/beta.8");
-});
-
-test("rolled-back recovery remains visible and allows another check", async () => {
-  const { path, store } = await fixture();
-  const initial = backend();
-  const coordinator = new UpdateCoordinator(store, initial);
-  await coordinator.initialize();
-  await coordinator.check();
-  await coordinator.install();
-
-  const recovering = new UpdateCoordinator(
-    new UpdateStateStore(path),
-    backend({
-      currentVersion: "0.1.0-beta.9",
-      async recover() {
-        return {
-          healthy: true,
-          rolledBack: true,
-          message: "The prior connector was restored."
-        };
-      }
-    })
-  );
-  const status = await recovering.initialize();
-  assert.equal(status.phase, "recovery");
-  assert.equal(status.can_check, true);
-  assert.match(status.message, /restored/);
-  assert.equal((await recovering.check()).phase, "idle");
-});
-
 test("Store and package-manager updates open the signed action target", async () => {
   const { store } = await fixture();
   const external = {
@@ -254,11 +140,10 @@ test("Store and package-manager updates open the signed action target", async ()
   assert.equal(status.phase, "external");
   await coordinator.install();
   assert.ok(runtime.events.includes("open:https://apps.microsoft.com/detail/example"));
-  assert.ok(!runtime.events.includes("stop"));
 });
 
 test("download and verification failures never enable installation", async () => {
-  const { path, store } = await fixture();
+  const { store } = await fixture();
   const runtime = backend({
     async stageAutomatic() {
       throw new Error("signature mismatch");
@@ -269,190 +154,18 @@ test("download and verification failures never enable installation", async () =>
   const status = await coordinator.check();
   assert.equal(status.phase, "failed");
   assert.equal(status.can_install, false);
+  assert.equal(status.can_check, true);
   assert.match(status.message, /signature mismatch/);
-  assert.equal(JSON.parse(await readFile(path, "utf8")).transaction, undefined);
-});
-
-for (const cut of ["stop", "install"]) {
-  for (const outcome of ["throws", "unhealthy"]) {
-    test(`${cut} failure retains exact transaction when recovery ${outcome}`, async () => {
-      const { path, store } = await fixture();
-      const runtime = backend({
-        async stopDaemon() {
-          if (cut === "stop") throw new Error("stop failed");
-        },
-        installAutomatic() {
-          throw new Error("install failed");
-        },
-        async recover() {
-          if (outcome === "throws") throw new Error("recovery unavailable");
-          return { healthy: false, rolledBack: false, message: "recovery unavailable" };
-        }
-      });
-      const coordinator = new UpdateCoordinator(store, runtime);
-      await coordinator.initialize();
-      await coordinator.check();
-      const original = JSON.parse(await readFile(path, "utf8")).transaction;
-      await assert.rejects(coordinator.install(), new RegExp(`${cut} failed`));
-      const retained = JSON.parse(await readFile(path, "utf8")).transaction;
-      assert.equal(retained?.id, original.id);
-      assert.equal(retained.phase, "recovering");
-      assert.equal(retained.previous_runtime, original.previous_runtime);
-      assert.equal(retained.target_version, original.target_version);
-      assert.match(retained.error, /recovery unavailable/);
-      assert.equal(coordinator.status().can_check, false);
-      const failed = coordinator.status();
-      await coordinator.check(true);
-      assert.deepEqual(coordinator.status(), failed);
-      await assert.rejects(coordinator.install(), /No update is ready/);
-
-      let resumed;
-      const restarted = new UpdateCoordinator(new UpdateStateStore(path), backend({
-        async recover(transaction) {
-          resumed = transaction;
-          return { healthy: true, rolledBack: true, message: "Prior runtime restored." };
-        }
-      }));
-      assert.equal((await restarted.initialize()).can_check, true);
-      assert.equal(resumed.id, original.id);
-      assert.equal(JSON.parse(await readFile(path, "utf8")).transaction, undefined);
-    });
-  }
-}
-
-test("startup retains the transaction when recovery returns unhealthy", async () => {
-  const { path, store } = await fixture();
-  const initial = new UpdateCoordinator(store, backend());
-  await initial.initialize();
-  await initial.check();
-  await initial.install();
-  const original = JSON.parse(await readFile(path, "utf8")).transaction;
-  const restarted = new UpdateCoordinator(new UpdateStateStore(path), backend({
-    async recover() {
-      return { healthy: false, rolledBack: true, message: "Rollback is not healthy." };
-    }
-  }));
-  const status = await restarted.initialize();
-  assert.equal(status.phase, "failed");
-  assert.equal(status.can_check, false);
-  const persisted = JSON.parse(await readFile(path, "utf8"));
-  assert.equal(persisted.transaction?.id, original.id);
-  assert.equal(persisted.transaction.phase, "recovering");
-  assert.match(persisted.transaction.error, /Rollback is not healthy/);
-  assert.equal(persisted.last_known_good_runtime, undefined);
-});
-
-for (const phase of ["started", "complete"]) {
-  test(`${phase} takeover never reconciles or recovers and keeps app updates working`, async () => {
-    const { path, store } = await fixture();
-    const previous = new UpdateCoordinator(store, backend());
-    await previous.initialize();
-    await previous.check();
-    await previous.install();
-    const runtime = backend({ takeoverState: async () => ({ state: phase, claimedFolders: [] }) });
-    const coordinator = new UpdateCoordinator(new UpdateStateStore(path), runtime);
-    assert.equal((await coordinator.initialize()).phase, "handed_off");
-    assert.deepEqual(runtime.events, []);
-    assert.equal(JSON.parse(await readFile(path, "utf8")).transaction, undefined);
-    assert.equal(await coordinator.mayStartOldDaemon(), false);
-    assert.ok(coordinator.daemonStartupBlock());
-    assert.equal((await coordinator.check()).phase, "ready");
-    await coordinator.install();
-    assert.deepEqual(runtime.events, ["find", "stage", "install"]);
-  });
-}
-
-test("postponed takeover leaves a stopped runtime stopped and defers recovery", async () => {
-  const { path, store } = await fixture();
-  let options;
-  const runtime = backend({
-    takeoverState: async () => ({ state: "postponed", claimedFolders: [] }),
-    async reconcileInstalledRuntime(_rollback, value) { options = value; }
-  });
-  const coordinator = new UpdateCoordinator(store, runtime);
-  await coordinator.initialize();
-  assert.deepEqual(options, { startStopped: false });
-  assert.equal(await coordinator.mayStartOldDaemon(), false);
-  assert.equal(coordinator.daemonStartupBlock(), null);
-  const previous = new UpdateCoordinator(store, backend());
-  await previous.initialize();
-  await previous.check();
-  const restarted = new UpdateCoordinator(new UpdateStateStore(path), runtime);
-  assert.equal((await restarted.initialize()).phase, "recovery");
-  assert.deepEqual(runtime.events, []);
-  assert.ok(JSON.parse(await readFile(path, "utf8")).transaction);
-});
-
-test("unreadable takeover state blocks startup and a failed re-read blocks checking", async () => {
-  const { store } = await fixture();
-  let fail = false;
-  const runtime = backend({ takeoverState: async () => {
-    if (fail) throw new Error("unreadable record");
-    return { state: "none", claimedFolders: [] };
-  } });
-  const coordinator = new UpdateCoordinator(store, runtime);
-  await coordinator.initialize();
-  fail = true;
-  const status = await coordinator.check();
-  assert.equal(status.phase, "failed");
-  assert.equal(status.can_check, false);
-  assert.equal(await coordinator.mayStartOldDaemon(), false);
-  assert.ok(coordinator.daemonStartupBlock());
-  assert.deepEqual(runtime.events, ["reconcile"]);
-  const boot = new UpdateCoordinator(store, runtime);
-  assert.equal((await boot.initialize()).phase, "failed");
-  assert.deepEqual(runtime.events, ["reconcile"]);
-});
-
-test("takeover phase never regresses and an uneventful update check preserves the notice", async () => {
-  const { store } = await fixture();
-  let phase = "started";
-  const runtime = backend({
-    takeoverState: async () => ({ state: phase, claimedFolders: [] }),
-    findLatest: async () => null
-  });
-  const coordinator = new UpdateCoordinator(store, runtime);
-  await coordinator.initialize();
-  for (const next of ["none", "postponed", "complete", "started", "none"]) {
-    phase = next;
-    assert.equal(await coordinator.mayStartOldDaemon(), false);
-    assert.equal((await coordinator.check()).phase, "handed_off");
-  }
-  assert.equal(coordinator.takeoverPhase(), "complete");
-});
-
-test("takeover beginning after staging prevents stopping and rollback on app install failure", async () => {
-  const { store } = await fixture();
-  let phase = "none";
-  const runtime = backend({
-    takeoverState: async () => ({ state: phase, claimedFolders: [] }),
-    installAutomatic() { this.events.push("install"); throw new Error("app install failed"); }
-  });
-  const coordinator = new UpdateCoordinator(store, runtime);
-  await coordinator.initialize();
-  await coordinator.check();
-  phase = "started";
-  await assert.rejects(coordinator.install(), /app install failed/);
-  assert.equal(coordinator.status().phase, "handed_off");
-  assert.deepEqual(runtime.events, ["reconcile", "find", "prepare", "stage", "install"]);
-});
-
-test("a stop failure invokes recovery and clears the transaction", async () => {
-  const { path, store } = await fixture();
-  const runtime = backend({
-    async stopDaemon() {
-      runtime.events.push("stop");
-      throw new Error("daemon refused shutdown");
-    }
-  });
-  const coordinator = new UpdateCoordinator(store, runtime);
-  await coordinator.initialize();
-  await coordinator.check();
-  await assert.rejects(coordinator.install(), /daemon refused shutdown/);
-  assert.ok(runtime.events.includes("recover"));
-  const persisted = JSON.parse(await readFile(path, "utf8"));
-  assert.equal(persisted.transaction, undefined);
-  assert.equal(coordinator.status().phase, "failed");
-  assert.equal(coordinator.status().can_install, false);
   await assert.rejects(coordinator.install(), /No update is ready/);
+});
+
+test("a rolled-back daemon notice stays with every update status until cleared", async () => {
+  const { store } = await fixture();
+  const coordinator = new UpdateCoordinator(store, backend());
+  await coordinator.initialize();
+  coordinator.setDaemonNotice("mdbase 0.3.0 did not start.");
+  assert.equal(coordinator.status().daemon_notice, "mdbase 0.3.0 did not start.");
+  assert.equal((await coordinator.check()).daemon_notice, "mdbase 0.3.0 did not start.");
+  coordinator.setDaemonNotice(null);
+  assert.equal(coordinator.status().daemon_notice, undefined);
 });

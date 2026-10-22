@@ -17,6 +17,8 @@
 //! holds that record: the file keeps the user's bytes, later saves are collected into
 //! the hold, and nothing propagates until a client resolves it.
 
+mod resources;
+
 use std::collections::BTreeMap;
 
 use mdbn_core::plan::{PlanOptions, Stage};
@@ -35,6 +37,18 @@ use crate::store::{
     Content, Drift, Expect, Observation, ObservationId, Observed, PendingRow, Provenance, Publish,
     Store, StoreError, Tx, meta_keys,
 };
+
+/// Native disk convenience only. Async hosts retain/poll the original future.
+pub(super) fn finish_native<F: std::future::Future>(future: F) -> Option<F::Output> {
+    let mut future = std::pin::pin!(future);
+    match std::future::Future::poll(
+        future.as_mut(),
+        &mut std::task::Context::from_waker(std::task::Waker::noop()),
+    ) {
+        std::task::Poll::Ready(result) => Some(result),
+        std::task::Poll::Pending => None,
+    }
+}
 
 /// What the local view showed for one key.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -466,9 +480,53 @@ impl<S: Store> Replica<S> {
     /// While apply is recovering/faulted, nothing is captured or acknowledged:
     /// evidence must remain in the store and be rescanned/reoffered after recovery.
     pub fn ingest(&mut self, observations: Vec<Observation>) {
+        if finish_native(self.ingest_async(observations)).is_none() {
+            self.incident(
+                mdbn_wire::client::IncidentKind::Integrity,
+                Some(mdbn_wire::common::Value::Text(
+                    "Store suspended: retain Replica::ingest_async for disk ingestion.".into(),
+                )),
+            );
+        }
+    }
+
+    /// Retain this future while disk resource-source/currentness IO suspends.
+    /// No partial catalog/capture is exposed; native ingest uses this SAME path.
+    /// Publication uses its existing independent outcome/progress machinery.
+    pub async fn ingest_async(&mut self, observations: Vec<Observation>) {
         if self.check_apply_store_health().is_err() {
             return;
         }
+        // Adopt: nothing is captured before the base. Observations handed in
+        // directly stay unacknowledged and eligible for redelivery.
+        if self.adopt_gates() {
+            let tokens: Vec<_> = observations.iter().map(|o| o.token).collect();
+            if let Err(e) = self.store.defer_disk_observations(&tokens) {
+                self.incident(
+                    mdbn_wire::client::IncidentKind::Integrity,
+                    Some(mdbn_wire::common::Value::Text(format!("store: {e}"))),
+                );
+            }
+            return;
+        }
+        let observations = match self.ingest_resource_set(observations).await {
+            Ok(Some(ready)) => ready,
+            Ok(None) => {
+                self.incident(mdbn_wire::client::IncidentKind::Integrity,
+                    Some(mdbn_wire::common::Value::Text("Resource ingestion deferred: incomplete, unstable, invalid, over-budget or previously refused registry; original observations retained.".into())));
+                self.flush_status();
+                return;
+            }
+            Err(e) => {
+                self.incident(
+                    mdbn_wire::client::IncidentKind::Integrity,
+                    Some(mdbn_wire::common::Value::Text(format!(
+                        "resource ingest: {e}"
+                    ))),
+                );
+                return;
+            }
+        };
         if self.local_only() {
             self.ingest_local(observations);
             return;
@@ -706,6 +764,20 @@ impl<S: Store> Replica<S> {
         }
     }
 
+    /// The hinted ID for a new record at `path`, consumed.
+    pub(crate) fn hinted_id(
+        &mut self,
+        path: &str,
+    ) -> Result<Option<mdbn_wire::common::Uuid>, StoreError> {
+        let Some(id) = self.id_hints.remove(&mdbn_core::paths::path_key(path)) else {
+            return Ok(None);
+        };
+        let taken = self.local_view_doc(&DiskKey::Record(id)).is_some()
+            || self.store.record(&id)?.is_some()
+            || self.store.tombstone(&id)?.is_some();
+        Ok((!taken).then_some(id))
+    }
+
     fn ingest_one(
         &mut self,
         o: Observation,
@@ -726,7 +798,7 @@ impl<S: Store> Replica<S> {
         }
         // Admit record source before cloning/parsing or touching shown state.
         // Resource documents are a different namespace with their own rules.
-        let catalog = self.catalog.clone();
+        let catalog = self.layer.catalog().unwrap_or_else(|| self.catalog.clone());
         if !catalog.is_resource_path(&o.path)
             && catalog.is_record_path(&o.path)
             && let Some(Observed::Text(source)) = &o.now
@@ -767,6 +839,16 @@ impl<S: Store> Replica<S> {
         }
         // What did this replica show at the path before the edit?
         let shown = id.and_then(|i| self.local_view_doc(&DiskKey::Record(i)));
+        // The file already holds exactly the local view (an install over bytes
+        // already in the folder: adopt, join): nothing to capture or hold,
+        // whatever the store last knew was there (`snapshot.md` §9).
+        if o.moved_from.is_none()
+            && let (Some((p, d)), Some(t)) = (&shown, &text)
+            && *p == o.path
+            && d == t
+        {
+            return self.ack(o.token);
+        }
         let base = match (&shown, o.base) {
             (Some((p, d)), Some(b)) if rev(d) == b => Some(DocVersion {
                 path: p.clone(),
@@ -802,7 +884,10 @@ impl<S: Store> Replica<S> {
         }
         let id = match id {
             Some(i) => i,
-            None => self.mint_v7(),
+            None => match self.hinted_id(&o.path)? {
+                Some(i) => i,
+                None => self.mint_v7(),
+            },
         };
         let new = text.as_ref().map(|t| DocVersion {
             path: o.path.clone(),
@@ -975,9 +1060,29 @@ impl<S: Store> Replica<S> {
         tokens: Vec<ObservationId>,
         session: Option<SessionId>,
     ) -> Result<Receipt, StoreError> {
+        self.queue_mutation_inner(m, tokens, session, false)
+    }
+
+    fn queue_resource_observations(
+        &mut self,
+        m: Mutation,
+        tokens: Vec<ObservationId>,
+    ) -> Result<Receipt, StoreError> {
+        self.queue_mutation_inner(m, tokens, None, true)
+    }
+
+    fn queue_mutation_inner(
+        &mut self,
+        m: Mutation,
+        tokens: Vec<ObservationId>,
+        session: Option<SessionId>,
+        retain_on_refusal: bool,
+    ) -> Result<Receipt, StoreError> {
         if let Err(e) = self.check_new_record_sources(&m.ops) {
             self.record_admission_incident(e);
-            self.before.clear();
+            if !retain_on_refusal {
+                self.before.clear();
+            }
             return Ok(rejected_receipt(
                 m.id,
                 super::record_admission::record_too_large(e)
@@ -986,7 +1091,9 @@ impl<S: Store> Replica<S> {
             ));
         }
         let Ok(cm) = convert::mutation(&m, &convert::inline_only) else {
-            self.ack_all(tokens)?;
+            if !retain_on_refusal {
+                self.ack_all(tokens)?;
+            }
             return Ok(rejected_receipt(
                 m.id,
                 ErrorCode::InvalidRequest.problem("unconvertible"),
@@ -1019,7 +1126,9 @@ impl<S: Store> Replica<S> {
                 // An external edit is never rejected by contract; a planner refusal
                 // here is a bug or a resource write that is invalid. Keep the user's
                 // bytes (nothing is published) and report.
-                self.ack_all(tokens)?;
+                if !retain_on_refusal {
+                    self.ack_all(tokens)?;
+                }
                 let problem = super::submit::rejection_problem(&rej);
                 self.incident(
                     mdbn_wire::client::IncidentKind::Integrity,
@@ -1028,13 +1137,17 @@ impl<S: Store> Replica<S> {
                         problem.message
                     ))),
                 );
-                self.before.clear();
+                if !retain_on_refusal {
+                    self.before.clear();
+                }
                 return Ok(rejected_receipt(m.id, problem));
             }
         };
         if let Err(e) = self.record_write_admission().check_planned(&planned) {
             self.record_admission_incident(e);
-            self.before.clear();
+            if !retain_on_refusal {
+                self.before.clear();
+            }
             return Ok(rejected_receipt(
                 m.id,
                 super::record_admission::record_too_large(e)
@@ -1059,7 +1172,9 @@ impl<S: Store> Replica<S> {
             Err(e) => {
                 // The legacy log cannot carry this result (an attachment effect).
                 // Like a planner refusal above: keep the user's bytes and report.
-                self.ack_all(tokens)?;
+                if !retain_on_refusal {
+                    self.ack_all(tokens)?;
+                }
                 let problem = super::unencodable_result(&e);
                 self.incident(
                     mdbn_wire::client::IncidentKind::Integrity,
@@ -1068,7 +1183,9 @@ impl<S: Store> Replica<S> {
                         problem.message
                     ))),
                 );
-                self.before.clear();
+                if !retain_on_refusal {
+                    self.before.clear();
+                }
                 return Ok(rejected_receipt(m.id, problem));
             }
         };

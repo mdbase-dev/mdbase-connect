@@ -158,6 +158,62 @@ describe("truthful local revocation", () => {
     } finally { await app.close(); await relay.close(); }
   });
 
+  it.each([
+    ["single", false], ["single", true], ["batch", false], ["batch", true]
+  ] as const)("%s explicit revoke dismisses reauthorization (already revoked: %s)", async (mode, alreadyRevoked) => {
+    const { db, id } = await fixture();
+    const unselected = await revocationFixture(db);
+    await db.query("UPDATE grants SET user_id=$1 WHERE id=$2", [id, unselected]);
+    await db.query(`UPDATE grants SET reauthorization_required_at=now(),
+      reauthorization_reason='collection_level_authorization' WHERE user_id=$1`, [id]);
+    if (alreadyRevoked) await db.query("UPDATE grants SET revoked_at=now() WHERE id=$1", [id]);
+    const relay = new RelayHub(db);
+    const app = Fastify();
+    registerGrantRevocationRoute(app, { db, relay, tailscaleAuth: true, drainProviderRevocations: async () => {} });
+    try {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const response = await app.inject({
+          method: mode === "single" ? "DELETE" : "POST",
+          url: mode === "single" ? `/v1/grants/${id}` : "/v1/grants/revoke-batch",
+          headers: { "tailscale-user-login": `${id}@example.test` },
+          ...(mode === "single" ? {} : { payload: { grant_ids: [id] } })
+        });
+        expect(response.statusCode).toBe(200);
+        const selected = (await db.query("SELECT revoked_at, reauthorization_required_at, reauthorization_reason FROM grants WHERE id=$1", [id])).rows[0];
+        expect(selected.revoked_at).not.toBeNull();
+        expect(selected).toMatchObject({ reauthorization_required_at: null, reauthorization_reason: null });
+        const untouched = (await db.query("SELECT revoked_at, reauthorization_required_at, reauthorization_reason FROM grants WHERE id=$1", [unselected])).rows[0];
+        expect(untouched.revoked_at).toBeNull();
+        expect(untouched.reauthorization_required_at).not.toBeNull();
+        expect(untouched.reauthorization_reason).toBe("collection_level_authorization");
+      }
+    } finally { await app.close(); await relay.close(); }
+  });
+
+  it.each(["single", "batch"])("%s cannot dismiss another account's reauthorization or partially revoke a mixed batch", async (mode) => {
+    const { db, id } = await fixture();
+    const foreign = await revocationFixture(db);
+    await db.query(`UPDATE grants SET reauthorization_required_at=now(),
+      reauthorization_reason='collection_level_authorization'`);
+    const relay = new RelayHub(db);
+    const app = Fastify();
+    registerGrantRevocationRoute(app, { db, relay, tailscaleAuth: true, drainProviderRevocations: async () => {} });
+    try {
+      const response = await app.inject({
+        method: mode === "single" ? "DELETE" : "POST",
+        url: mode === "single" ? `/v1/grants/${foreign}` : "/v1/grants/revoke-batch",
+        headers: { "tailscale-user-login": `${id}@example.test` },
+        ...(mode === "single" ? {} : { payload: { grant_ids: [id, foreign] } })
+      });
+      expect(response.statusCode).toBe(404);
+      for (const grant of (await db.query("SELECT revoked_at, reauthorization_required_at, reauthorization_reason FROM grants")).rows) {
+        expect(grant.revoked_at).toBeNull();
+        expect(grant.reauthorization_required_at).not.toBeNull();
+        expect(grant.reauthorization_reason).toBe("collection_level_authorization");
+      }
+    } finally { await app.close(); await relay.close(); }
+  });
+
   it("publisher never confirms mismatched or legacy acknowledgements", async () => {
     const { db, id } = await fixture();
     await queueLocalGrantRevocations(db, id, [id]);

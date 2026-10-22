@@ -18,7 +18,9 @@ use mdbn_wire::ref_index::{MAX_REF_INDICES, ref_index_addresses};
 use mdbn_wire::schema::Wire;
 
 use crate::auth::{Principal, hmac, verify_sig};
-use crate::backend::{Archive, Backend, BudgetBackend, Mode, ObjectStore, Txn, Verified, Write};
+use crate::backend::{
+    Archive, Backend, BudgetBackend, Mode, ObjectStore, Txn, Verified, VerifiedCopy, Write,
+};
 use crate::decode::Budget;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -29,6 +31,7 @@ use crate::model::{
     AclEntry, CollectionMeta, CollectionState, CommitNotice, ObjectMeta, Quotas, RetentionTier,
     SnapshotRow, Status, StoredItem, device_kind, object_key, parse_uuid, unhex,
 };
+use crate::placement::{Placement, Region, Regions};
 use crate::policy::{apply_policy_with_budget, apply_rekey_with_budget};
 use crate::restore::RestoreSettings;
 use crate::restore_plan::RestorePlan;
@@ -163,6 +166,9 @@ pub struct Service<B, O> {
     /// permanent, so `true` never expires; `false` is re-checked after
     /// [`CREDENTIAL_RECHECK_MS`].
     creds: Arc<Mutex<BTreeMap<Uuid, (bool, i64)>>>,
+    /// Default and served regions for new collections ([`crate::placement`]).
+    /// No default keeps the original bucket and placement.
+    regions: Regions,
 }
 
 /// How long a "not revoked" answer is trusted before the store is asked again.
@@ -241,6 +247,9 @@ pub struct DirectOp {
     /// For `put`: the uploading device. The bytes go to its staging key
     /// ([`staging_key`]), never to the object's final key.
     pub device: Option<Uuid>,
+    /// MAC-bound region of the collection: which bucket holds the bytes.
+    /// `None` is the host's original bucket.
+    pub region: Option<Region>,
 }
 
 /// Where a device's direct upload lands until `commit_object` verifies it and
@@ -256,6 +265,7 @@ pub fn staging_key(c: &Uuid, a: &B32, device: &Uuid) -> String {
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn direct_mac(
     secret: &[u8],
     op: &str,
@@ -265,13 +275,19 @@ fn direct_mac(
     size: u64,
     ck: &B32,
     exp: i64,
+    region: Option<Region>,
 ) -> [u8; 32] {
-    let m = format!(
+    let mut m = format!(
         "ls-direct|{op}|{}|{}|{dev}|{size}|{}|{exp}",
         c.to_hex(),
         a.to_hex(),
         ck.to_hex()
     );
+    // Regionless URLs keep the original message, so they stay valid unchanged.
+    if let Some(r) = region {
+        m.push_str("|r=");
+        m.push_str(r.as_str());
+    }
     hmac(secret, m.as_bytes())
 }
 
@@ -321,8 +337,12 @@ pub fn verify_direct(
         .and_then(|s| s.parse().ok())
         .ok_or_else(forbidden)?;
     let dev = q.get("dev").copied().unwrap_or("");
+    let region = match q.get("r") {
+        Some(r) => Some(Region::parse(r).ok_or_else(forbidden)?),
+        None => None,
+    };
     let sig = q.get("sig").and_then(|s| unhex(s)).ok_or_else(forbidden)?;
-    let want = direct_mac(secret, op, &c, &a, dev, size, &ck, exp);
+    let want = direct_mac(secret, op, &c, &a, dev, size, &ck, exp, region);
     if exp < now || !ct_eq(&want, &sig) {
         return Err(forbidden());
     }
@@ -342,6 +362,7 @@ pub fn verify_direct(
         expires_ms: exp,
         expect: (op == "put").then_some((size, ck)),
         device,
+        region,
     })
 }
 
@@ -489,6 +510,15 @@ fn live(m: &CollectionMeta) -> Result<()> {
     }
 }
 
+/// Refuse every read of a deleted (`gone`) collection (§4.1 step 2), while a
+/// restoring (`importing`) collection's object reads stay open for the import.
+fn not_gone(m: &CollectionMeta) -> Result<()> {
+    match m.status {
+        Status::Gone => Err(ServiceError::new(Code::Gone)),
+        Status::Live | Status::Importing => Ok(()),
+    }
+}
+
 /// Steps 7–8 for one log item at `seq`, judged by policy at `seq − 1` (`ws`), which
 /// it then advances. Returns the devices a policy item revoked.
 fn check_item(
@@ -625,7 +655,85 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
             config,
             buckets: Arc::new(Mutex::new(BTreeMap::new())),
             creds: Arc::new(Mutex::new(BTreeMap::new())),
+            regions: Regions::default(),
         }
+    }
+
+    /// Record `region` for new collections whose creator states no region and
+    /// no location (see [`crate::placement`]).
+    pub fn with_default_region(self, region: Option<Region>) -> Self {
+        self.with_regions(Regions::new(region, &Region::ALL))
+    }
+
+    /// The default region and the regions this host can store.
+    pub fn with_regions(mut self, regions: Regions) -> Self {
+        self.regions = regions;
+        self
+    }
+
+    /// Read ONLY the two declared original clear policy records in one readonly
+    /// transaction, reverify against configured trust and opaque initial caller.
+    /// No ACL/projection/cache/journal identity, writes, ciphertext or key lookup.
+    /// This is historical provenance, NOT current CP/phase/effect admission.
+    /// Raw backend replies are still untrusted; caps checked after each read (not
+    /// a transport cancellation/peak-allocation guarantee). Clock sampled after
+    /// awaits; caller must separately prove pins' admission and actual context.
+    pub async fn original_caller(
+        &self,
+        caller: &crate::auth::VerifiedCaller,
+        pins: &crate::policy::OriginalPins,
+        clock: impl Fn() -> i64,
+        budget: &Budget,
+    ) -> Result<crate::policy::OriginalCaller> {
+        let refuse = || ServiceError::invalid("original_identity");
+        if !self.config.roots.contains(&pins.root_pk)
+            || !self.config.token_issuers.contains(&pins.issuer_pk)
+            || caller.issuer_key() != pins.issuer_pk
+            || caller.transport_key() != pins.transport_pk
+            || pins.enrollment_sha256.is_some() != pins.enrollment_seq.is_some()
+            || pins.enrollment_seq == Some(0)
+        {
+            return Err(refuse());
+        }
+        let mut tx = self
+            .backend
+            .begin_with_budget(&pins.collection, Mode::Read, budget)
+            .await?;
+        let first = tx.items(0, 1, 128 * 1024, true).await?;
+        if first.len() != 1
+            || first[0].seq != 1
+            || first[0].kind != ItemKind::Policy.value()
+            || first[0].bytes.len() > 128 * 1024
+        {
+            return Err(refuse());
+        }
+        let enrollment = if let Some(seq) = pins.enrollment_seq {
+            if seq == 1 {
+                Some(first[0].bytes.clone())
+            } else {
+                let found = tx
+                    .items(seq - 1, 1, (128 * 1024 - first[0].bytes.len()) as u64, true)
+                    .await?;
+                if found.len() != 1
+                    || found[0].seq != seq
+                    || found[0].kind != ItemKind::Policy.value()
+                    || found[0].bytes.len() > 128 * 1024 - first[0].bytes.len()
+                {
+                    return Err(refuse());
+                }
+                Some(found[0].bytes.clone())
+            }
+        } else {
+            None
+        };
+        crate::policy::bind_original_caller(
+            caller,
+            pins,
+            &first[0].bytes,
+            enrollment.as_deref(),
+            clock(),
+            budget,
+        )
     }
 
     /// A request view sharing backend/store/cache handles, never their counters.
@@ -640,11 +748,14 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
             config: self.config.clone(),
             buckets: self.buckets.clone(),
             creds: self.creds.clone(),
+            regions: self.regions.clone(),
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn direct(
         &self,
+        region: Option<Region>,
         uploader: Option<&Uuid>,
         c: &Uuid,
         a: &B32,
@@ -656,9 +767,20 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
         let put = uploader.is_some();
         let op = if put { "put" } else { "get" };
         let dev = uploader.map(|d| d.to_hex()).unwrap_or_default();
-        let sig = direct_mac(&self.config.url_secret, op, c, a, &dev, size, ck, exp);
+        let sig = direct_mac(
+            &self.config.url_secret,
+            op,
+            c,
+            a,
+            &dev,
+            size,
+            ck,
+            exp,
+            region,
+        );
+        let r = region.map_or(String::new(), |r| format!("&r={}", r.as_str()));
         let url = format!(
-            "{}/v1/o/{}/{}?op={op}&dev={dev}&size={size}&ck={}&exp={exp}&sig={}",
+            "{}/v1/o/{}/{}?op={op}&dev={dev}&size={size}&ck={}&exp={exp}{r}&sig={}",
             self.config.public_base.trim_end_matches('/'),
             c.to_uuid_string(),
             a.to_hex(),
@@ -812,8 +934,14 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
             Some((false, at)) if !fresh && now - at < CREDENTIAL_RECHECK_MS => false,
             _ => {
                 let r = self.backend.credentials_revoked(id).await?;
-                self.creds.lock().unwrap().insert(*id, (r, now));
-                r
+                // Monotonic: a revocation recorded while this check was in
+                // flight is never overwritten by its older answer.
+                let mut creds = self.creds.lock().unwrap();
+                let e = creds.entry(*id).or_insert((r, now));
+                if !e.0 {
+                    *e = (r, now);
+                }
+                e.0
             }
         };
         if revoked {
@@ -1300,25 +1428,34 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
 
     // A dedup response is a publication decision too. Keep the current Gone
     // check and committed lookup under the same exclusive collection boundary.
+    // The independent floor is read ONCE, after that boundary is released: a
+    // floor is immutable once written, so "absent now" implies it was absent
+    // when the committed state was read, and the reply linearizes there. The
+    // registry round trip no longer holds the producer lock.
     async fn object_committed_current(&self, c: &Uuid, address: &B32) -> Result<bool> {
-        self.refuse_deleted_floor(c).await?;
-        let mut tx = self.backend.begin(c, Mode::Write).await?;
-        let state = Self::load(&mut tx).await?;
-        if state.meta.status == Status::Gone {
-            return Err(ServiceError::new(Code::Gone));
-        }
-        let committed = tx
-            .objects(&[*address])
-            .await?
-            .pop()
-            .flatten()
-            .is_some_and(|m| m.committed);
+        let committed = {
+            let mut tx = self.backend.begin(c, Mode::Write).await?;
+            let state = Self::load(&mut tx).await?;
+            if state.meta.status == Status::Gone {
+                return Err(ServiceError::new(Code::Gone));
+            }
+            tx.objects(&[*address])
+                .await?
+                .pop()
+                .flatten()
+                .is_some_and(|m| m.committed)
+        };
         self.refuse_deleted_floor(c).await?;
         Ok(committed)
     }
 
-    async fn record_object(&self, c: &Uuid, meta: ObjectMeta) -> Result<()> {
-        self.refuse_deleted_floor(c).await?;
+    /// Returns whether this call committed the row through a commit that itself
+    /// fenced the floor ([`Backend::fences_deletion_floor_at_commit`]). Only then
+    /// may a caller with no later external await reply without another floor read
+    /// (as `append` does). Otherwise callers reply only after a later
+    /// [`Self::object_committed_current`], which re-reads the floor; the dedup
+    /// return below is never a reply by itself.
+    async fn record_object(&self, c: &Uuid, meta: ObjectMeta) -> Result<bool> {
         let mut tx = self.backend.begin(c, Mode::Write).await?;
         let mut state = Self::load(&mut tx).await?;
         // Terminal deletion dominates dedup and quota. Importing remains valid
@@ -1327,9 +1464,8 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
             return Err(ServiceError::new(Code::Gone));
         }
         let existing = tx.objects(&[meta.address]).await?.pop().flatten();
-        self.refuse_deleted_floor(c).await?;
         if existing.as_ref().is_some_and(|e| e.committed) {
-            return Ok(()); // first committed object wins (I8)
+            return Ok(false); // first committed object wins (I8)
         }
         if meta.committed {
             // The early PUT check is advisory: uploads may race or the quota
@@ -1352,9 +1488,16 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
             state.meta.used_bytes = used_bytes;
             tx.write(Write::PutMeta(state.meta));
         }
+        let fenced = meta.committed && self.backend.fences_deletion_floor_at_commit();
         tx.write(Write::PutObject(meta));
-        self.refuse_deleted_floor(c).await?;
-        tx.commit().await
+        // The publication fence: one floor read after every local decision and
+        // immediately before the atomic commit. A backend whose commit performs
+        // exactly this refusal itself (under its producer lock) is not asked twice.
+        if !self.backend.fences_deletion_floor_at_commit() {
+            self.refuse_deleted_floor(c).await?;
+        }
+        tx.commit().await?;
+        Ok(fenced)
     }
 
     /// `put_object`.
@@ -1420,8 +1563,15 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
         match q.bytes {
             Some(b) => {
                 validate_object_bytes(&c, &q.address, kind, q.size, &q.checksum, &b.0, budget)?;
-                self.finalize(&c, &q.address, kind, b.0, now, budget)
-                    .await?;
+                // A publication through a commit-time fence is answered at that
+                // commit, with no external await after it: a further floor read
+                // is one more registry round trip and decides nothing.
+                if !self
+                    .finalize(&c, &q.address, kind, b.0, now, budget)
+                    .await?
+                {
+                    self.published_reply(&c, &q.address).await?;
+                }
                 Ok(PutObjectResult {
                     status: PutStatus::Stored,
                     direct: None,
@@ -1430,7 +1580,15 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
             // No metadata until commit: the upload goes to this device's staging key.
             None => Ok(PutObjectResult {
                 status: PutStatus::Upload,
-                direct: Some(self.direct(Some(&device), &c, &q.address, q.size, &q.checksum, now)),
+                direct: Some(self.direct(
+                    state.meta.region,
+                    Some(&device),
+                    &c,
+                    &q.address,
+                    q.size,
+                    &q.checksum,
+                    now,
+                )),
             }),
         }
     }
@@ -1438,6 +1596,7 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
     /// Write verified bytes to the final key **write-once** and record them. If the
     /// final key already holds bytes (an earlier commit, or a crash after the copy),
     /// those bytes win (I8) and are re-verified before they are recorded.
+    /// Returns [`Self::record_object`]'s fenced-publication result.
     async fn finalize(
         &self,
         c: &Uuid,
@@ -1446,8 +1605,10 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
         bytes: Vec<u8>,
         now: i64,
         budget: &Budget,
-    ) -> Result<()> {
-        self.refuse_deleted_floor(c).await?;
+    ) -> Result<bool> {
+        // Every caller has just read the floor in object_committed_current; the
+        // publication itself is fenced in record_object/commit and, unless that
+        // commit fenced it, re-read after.
         let key = object_key(c, a);
         let mut size = bytes.len() as u64;
         let mut checksum = sha256(&bytes);
@@ -1477,11 +1638,16 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
                 created_at: now,
             },
         )
-        .await?;
+        .await
+    }
+
+    /// The reply-time read after a publication: exactly one floor lookup,
+    /// after every external await of the request (copy, cleanup).
+    async fn published_reply(&self, c: &Uuid, a: &B32) -> Result<bool> {
         if !self.object_committed_current(c, a).await? {
             return Err(ServiceError::backend("object publication missing"));
         }
-        Ok(())
+        Ok(true)
     }
 
     /// `commit_object` after a direct upload.
@@ -1517,14 +1683,19 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
         let final_key = object_key(&c, &q.address);
         // Streamed path: the upload host verified the bytes as they arrived and
         // recorded it; the actor checks the record and copies without buffering.
-        if let Some(v) = self.objects.verified_meta(&staged).await? {
-            if let Err(e) = check_verified(&q.address, &v) {
-                self.objects.delete(&staged).await?;
-                return Err(e);
-            }
-            self.refuse_deleted_floor(&c).await?;
-            let v = if self.objects.copy_new(&staged, &final_key).await? {
-                v
+        // The copy to the write-once final key is not a publication; the
+        // metadata commit is, and record_object fences it.
+        let copied = self
+            .objects
+            .copy_verified_new(&staged, &final_key, |v| check_verified(&q.address, v))
+            .await?;
+        if let VerifiedCopy::Refused(e) = copied {
+            self.objects.delete(&staged).await?;
+            return Err(e);
+        }
+        if let VerifiedCopy::Copied { verified, wrote } = copied {
+            let v = if wrote {
+                verified
             } else {
                 // First committed object wins (I8): describe what is there.
                 self.objects
@@ -1569,7 +1740,7 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
         self.finalize(&c, &q.address, kind, bytes, now, budget)
             .await?;
         self.objects.delete(&staged).await?;
-        self.object_committed_current(&c, &q.address).await
+        self.published_reply(&c, &q.address).await
     }
 
     /// `get_object`.
@@ -1583,6 +1754,7 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
         let mut tx = self.backend.begin(&c, Mode::Read).await?;
         let state = Self::load(&mut tx).await?;
         Self::authorize(&state, p)?;
+        not_gone(&state.meta)?;
         let meta = tx
             .objects(&[q.address])
             .await?
@@ -1624,7 +1796,15 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
         }
         Ok(GetObjectResult {
             bytes: None,
-            direct: Some(self.direct(None, &c, &q.address, meta.size, &meta.checksum, now)),
+            direct: Some(self.direct(
+                state.meta.region,
+                None,
+                &c,
+                &q.address,
+                meta.size,
+                &meta.checksum,
+                now,
+            )),
             size: meta.size,
             checksum: meta.checksum,
         })
@@ -1642,6 +1822,7 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
         let mut tx = self.backend.begin(&q.collection, Mode::Read).await?;
         let state = Self::load(&mut tx).await?;
         Self::authorize(&state, p)?;
+        not_gone(&state.meta)?;
         let metas = tx.objects(&q.addresses).await?;
         Ok(HasObjectsResult {
             present: metas
@@ -1807,6 +1988,7 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
         let mut tx = self.backend.begin(c, Mode::Read).await?;
         let state = Self::load(&mut tx).await?;
         Self::authorize(&state, p)?;
+        not_gone(&state.meta)?;
         Ok(GetSnapshotResult {
             snapshots: tx.snapshots().await?.iter().map(Self::pointer).collect(),
         })
@@ -1991,7 +2173,10 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
 
     // ------------------------------------------------------------------ admin (§12)
 
-    /// `create_log {0: collection, 1: genesis item}`.
+    /// `create_log {0: collection, 1: genesis item, ? 2: placement}` returns
+    /// `{0: 1, 1: chain, ? 2: region}`. Key 2 is the region recorded for the
+    /// collection (absent when it has none), also on an idempotent retry, so the
+    /// caller can place the collection's other actors with it.
     async fn create_log(
         &self,
         p: &Principal,
@@ -2009,6 +2194,7 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
         let it = budget.wire::<Item>(&bytes)?;
         it.check_shape()
             .map_err(|e| ServiceError::invalid("shape").msg(e.to_string()))?;
+        let region = Placement::from_field(field(params, 2))?.resolve_in(&self.regions)?;
         if it.kind != ItemKind::Policy
             || it.collection != c
             || it.seq != Some(1)
@@ -2018,7 +2204,11 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
         }
         let mut tx = self.backend.begin(&c, Mode::Write).await?;
         let chain = chain_hash(&bytes);
-        let ok = map(vec![(0, Cbor::Uint(1)), (1, Cbor::Bytes(chain.0.to_vec()))]);
+        let ok = |region: Option<Region>| {
+            let mut m = vec![(0, Cbor::Uint(1)), (1, Cbor::Bytes(chain.0.to_vec()))];
+            m.extend(region.map(|r| (2, Cbor::Text(r.as_str().into()))));
+            map(m)
+        };
         if let Some(existing) = tx.load().await? {
             if existing.meta.status == Status::Gone {
                 return Err(ServiceError::new(Code::Gone));
@@ -2026,7 +2216,8 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
             let first = tx.items(0, 1, u64::MAX, false).await?;
             self.refuse_deleted_floor(&c).await?;
             if first.first().is_some_and(|i| i.bytes == bytes) {
-                return Ok(Outcome::plain(ok));
+                // The stored region, not this retry's placement.
+                return Ok(Outcome::plain(ok(existing.meta.region)));
             }
             return Err(ServiceError::invalid("exists"));
         }
@@ -2034,6 +2225,7 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
             meta: CollectionMeta::new(c, now),
             acl: BTreeMap::new(),
         };
+        st.meta.region = region;
         apply_policy_with_budget(&mut st, &it, 1, &self.config.roots, budget)?;
         st.meta.head = 1;
         st.meta.head_chain = chain;
@@ -2048,7 +2240,7 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
             refs: vec![],
         }));
         tx.commit().await?;
-        Ok(Outcome::plain(ok))
+        Ok(Outcome::plain(ok(region)))
     }
 
     /// `set_quota {0: collection, 1: [storage, items/s, bytes/s, burst]}`.
@@ -2347,17 +2539,26 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
             _ => return Err(bad_params("bytes")),
         };
         {
+            // The genesis `import` page creates the collection (and fixes its region,
+            // which picks the object bucket) before any object is imported.
             let mut tx = self.backend.begin(&c, Mode::Read).await?;
-            if let Some(st) = tx.load().await?
-                && st.meta.status != Status::Importing
-            {
-                return Err(ServiceError::invalid("state").msg("collection is not being imported"));
+            match tx.load().await? {
+                Some(st) if st.meta.status == Status::Importing => {}
+                Some(_) => {
+                    return Err(
+                        ServiceError::invalid("state").msg("collection is not being imported")
+                    );
+                }
+                None => {
+                    return Err(ServiceError::invalid("state")
+                        .msg("import the genesis page before objects"));
+                }
             }
         }
         let ck = sha256(&bytes);
         validate_object_bytes(&c, &a, kind, bytes.len() as u64, &ck, &bytes, budget)?;
         self.finalize(&c, &a, kind, bytes, now, budget).await?;
-        self.refuse_deleted_floor(&c).await?;
+        self.published_reply(&c, &a).await?;
         Ok(Outcome::plain(map(vec![(0, Cbor::Bool(true))])))
     }
 
@@ -2393,6 +2594,8 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
         };
         let settings = field(params, 3).map(RestoreSettings::parse).transpose()?;
         let plan = field(params, 4).map(RestorePlan::parse).transpose()?;
+        // Read on every page so a malformed one is refused; recorded only on creation.
+        let region = Placement::from_field(field(params, 5))?.resolve_in(&self.regions)?;
         if plan.is_some() && settings.is_none() {
             return Err(ServiceError::invalid("restore_settings")
                 .msg("strict restore requires source settings"));
@@ -2420,6 +2623,7 @@ impl<B: Backend, O: ObjectStore> Service<B, O> {
             None => {
                 let mut m = CollectionMeta::new(c, now);
                 m.status = Status::Importing;
+                m.region = region;
                 (
                     CollectionState {
                         meta: m,

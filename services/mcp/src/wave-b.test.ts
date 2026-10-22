@@ -2,12 +2,15 @@ import { describe, expect, it, vi } from "vitest";
 import { OPERATION_TRANSPORT_PROTOCOL_VERSION } from "@mdbase-dev/connect-protocol";
 import { ConnectGateway } from "./connect.js";
 import { SecretBox } from "./security.js";
+import { LEGACY } from "./next-gateway.js";
 
 const id = "01911111-1111-7111-8111-111111111111";
 function fixture() {
   const gateway = new ConnectGateway({} as any, new SecretBox(Buffer.alloc(32, 7)), {} as any, "https://connect.example", {} as any, "https://mcp.example/callback");
   const row = { collection_id: id, operations: ["describe", "query"] };
   const fresh = vi.spyOn(gateway as any, "freshConnection").mockResolvedValue(row);
+  vi.spyOn(gateway as any, "credentials").mockReturnValue({ accessToken: "access" });
+  vi.spyOn(gateway.next, "run").mockResolvedValue(LEGACY);
   return { gateway, row, fresh };
 }
 

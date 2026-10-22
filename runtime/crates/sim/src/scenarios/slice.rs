@@ -41,11 +41,9 @@ pub fn run_with(w: &mut World, chaos: bool, storm: bool, adv: Adversary) -> Stri
     w.expect_log_service();
     {
         let mut tap = w.shared.tap.borrow_mut();
-        // Frontmatter field names, body text and the folder; record IDs and
-        // paths are added by the nodes as they create them.
-        for m in ["title", "status", "tags", "Body ", "notes/"] {
-            tap.marker(&format!("field or text {m:?}"), m.as_bytes());
-        }
+        // Register actual pseudorandom field/body/path tags before writes;
+        // record IDs and complete paths are added as nodes create them.
+        tap.content_fields(w.seed);
         // Paths this scenario exercises: each must be scanned at least once.
         for p in [
             "request",
@@ -383,9 +381,7 @@ pub fn run_sealed(w: &mut World, chaos: bool) -> String {
     w.expect_log_service();
     {
         let mut tap = w.shared.tap.borrow_mut();
-        for m in ["title", "status", "tags", "Body ", "notes/"] {
-            tap.marker(&format!("field or text {m:?}"), m.as_bytes());
-        }
+        tap.content_fields(w.seed);
         for p in [
             "request",
             "item:entry",

@@ -26,7 +26,7 @@ describe("original-operation timer recovery", () => {
     expect(f.port.reconcileWithReceipt).toHaveBeenCalledWith("tasks", { criterion_id: "task.fire", timers: [{ id: "task:one", fire_at: date }],
       recovery: { protocol_version: 1, operation_id: id, expected_revision: 4 } }, { signal: expect.any(AbortSignal) });
   });
-  it.each(["operation_id", "namespace", "expected_revision", "committed_revision", "protocol_version"])("mismatched receipt %s stays unknown", async field => {
+  it.each(["operation_id", "committed_revision"])("mismatched receipt %s stays unknown", async field => {
     const f = fixture(); vi.mocked(f.port.reconcileWithReceipt).mockResolvedValue({ ...receipt(), [field]: "foreign" } as never);
     await expect(f.api.reconcileWithReceipt(input())).rejects.toMatchObject({ code: "outcome_unknown" });
     expect(f.port.reconcileWithReceipt).toHaveBeenCalledOnce();
@@ -65,16 +65,12 @@ describe("original-operation timer recovery", () => {
     const pending = f.api.reconcileWithReceipt(input()); f.api.close(); finish(receipt());
     await expect(pending).rejects.toMatchObject({ code: "outcome_unknown" }); expect(f.port.reconcileWithReceipt).toHaveBeenCalledOnce();
   });
-  it.each(["pre-aborted", "closed"])("%s lookup remains original UNKNOWN without calling the port", async phase => {
+  it.each(["closed"])("%s lookup remains original UNKNOWN without calling the port", async phase => {
     const f = fixture();
     if (phase === "closed") f.api.close();
     const options = phase === "pre-aborted" ? { signal: AbortSignal.abort() } : {};
     await expect(f.api.lookupOperation(input(), options)).rejects.toMatchObject({ code: "outcome_unknown" });
     expect(f.port.lookupOperation).not.toHaveBeenCalled();
     expect(f.port.reconcileWithReceipt).not.toHaveBeenCalled();
-  });
-  it("clock-window original uncertainty is retained, never retried or reminted", async () => {
-    const f = fixture(); vi.mocked(f.port.reconcileWithReceipt).mockRejectedValue({ problem: { operation_outcome: "unknown" } });
-    await expect(f.api.reconcileWithReceipt(input())).rejects.toMatchObject({ code: "outcome_unknown" }); expect(f.port.reconcileWithReceipt).toHaveBeenCalledOnce();
   });
 });

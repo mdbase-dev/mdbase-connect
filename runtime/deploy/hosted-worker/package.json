@@ -2,7 +2,7 @@
   "name": "mdbn-hosted-worker",
   "private": true,
   "type": "module",
-  "imports": { "#hosted-release-trust": "./src/unconfigured-release-trust.ts" },
+  "imports": { "#hosted-release-trust": "./src/unconfigured-release-trust.ts", "#hosted-kms-collections": "./src/unconfigured-kms-collections.ts", "#hosted-local-build": "./src/local-build.ts" },
   "scripts": {
     "build:wasm": "./build-wasm.sh",
     "types": "wrangler types",
@@ -13,6 +13,7 @@
   "devDependencies": {
     "@types/pg": "8.23.1",
     "pg": "8.23.1",
+    "workerd": "1.20261014.1",
     "typescript": "5.9.3",
     "wrangler": "4.147.0",
     "ws": "^8.21.0"

@@ -39,6 +39,7 @@ fn start(a: &mut Node, bytes: &[u8]) -> (B16, FileRow) {
         kind: FileKindV1::UnindexedOversizedMarkdown,
         media: MediaClass::Other,
         modified_seq: 1,
+        mtime: None,
         bucket: 0,
         local: FileLocal::Remote,
     };

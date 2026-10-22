@@ -1,5 +1,5 @@
 import type { ContractRequirement, FileAction, FileScope, JsonObject } from "@mdbase-dev/connect-protocol";
-import type { MdbaseApplicationManifest } from "./application-contract.js";
+import type { MdbaseApplicationManifest } from "@mdbase-dev/connect-protocol";
 import type { MdbaseConnectionInfo } from "./connection-types.js";
 /* The versioned protocol package is the sole capability-to-operation compiler. */
 import { effectiveCapabilities, type MdbaseEffectiveCapabilities, type MdbaseCapabilityEvidence } from "./capabilities.js";

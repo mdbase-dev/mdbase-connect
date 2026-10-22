@@ -25,6 +25,8 @@ mod sql_fields;
 mod sql_query;
 #[path = "native/sql_tail.rs"]
 mod sql_tail;
+#[path = "native/tentative_discovery.rs"]
+mod tentative_discovery;
 
 use std::cell::{Cell, RefCell};
 use std::fs;
@@ -1112,6 +1114,68 @@ mod tentative {
         Rc::new(RefCell::new(
             SqliteIndex::open(path, IndexDurability::Disposable).unwrap(),
         ))
+    }
+
+    #[test]
+    fn async_disk_hooks_forward_exact_native_unavailability_and_keep_read_fences() {
+        use mdbn_store_file::exec::{Timers, run_ready};
+        use mdbn_store_file::testing::replica::store::{
+            Observation, ObservationId, Observed, Provenance,
+        };
+        let dir = scratch("tentative-async-disk");
+        let timers = Timers::default();
+        let observation = Observation {
+            token: ObservationId(41),
+            path: "mdbase.yaml".into(),
+            base: None,
+            now: Some(Observed::Text("spec_version: \"0.3.0\"\n".into())),
+            moved_from: None,
+            provenance: Provenance::Normal,
+        };
+        for mode in 0..3 {
+            let mut s = TentativeStore::open(
+                disposable(&dir.join(format!("{mode}.db"))),
+                SqlStoreLimits::MOBILE,
+            )
+            .unwrap();
+            assert!(
+                run_ready(&timers, s.observe_async(None))
+                    .unwrap()
+                    .unwrap()
+                    .is_empty()
+            );
+            let error = match mode {
+                0 => run_ready(
+                    &timers,
+                    s.resource_observation_text_async(&observation, 1024),
+                )
+                .unwrap()
+                .unwrap_err(),
+                1 => run_ready(&timers, s.resource_observation_current_async(&observation))
+                    .unwrap()
+                    .unwrap_err(),
+                _ => run_ready(
+                    &timers,
+                    s.resource_observation_batch_complete_async(std::slice::from_ref(&observation)),
+                )
+                .unwrap()
+                .unwrap_err(),
+            };
+            let expected = match mode {
+                0 => "bounded observed resource source unavailable",
+                1 => "observed resource fence unavailable",
+                _ => "observed resource set fence unavailable",
+            };
+            assert_eq!(error, StoreError::Io(expected.into()));
+            assert_eq!(
+                s.fenced().as_deref(),
+                Some(format!("store i/o: {expected}").as_str())
+            );
+            assert!(run_ready(&timers, s.observe_async(None)).unwrap().is_err());
+            assert!(s.pending_count().is_err());
+            assert_eq!(observation.token, ObservationId(41));
+            assert_eq!(observation.base, None);
+        }
     }
 
     #[test]

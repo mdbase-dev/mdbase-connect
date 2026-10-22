@@ -50,6 +50,46 @@ test('main exact push source/run/attempt/actor identities are mandatory', () => 
   }
 });
 
+test('exact main dispatch and historical push pass for both required workflows', () => {
+  for (const [workflow, id, attempt] of [['logsvc-do.yml', 1, 2], ['ci.yml', 3, 4]]) {
+    const expected = { id, attempt, source };
+    for (const event of ['workflow_dispatch', 'push']) {
+      assert.doesNotThrow(() => verifyRun({ ...run(workflow, id, attempt), event }, expected, workflow));
+    }
+  }
+});
+
+test('dispatch cannot relax branch, source, attempt, actor or workflow identity', () => {
+  for (const [workflow, id, attempt] of [['logsvc-do.yml', 1, 2], ['ci.yml', 3, 4]]) {
+    const good = { ...run(workflow, id, attempt), event: 'workflow_dispatch' };
+    const expected = { id, attempt, source };
+    for (const patch of [{ head_branch: 'feature' }, { head_branch: null },
+      { head_sha: 'd'.repeat(40) }, { id: 9 }, { run_attempt: 9 },
+      { status: 'in_progress' }, { conclusion: 'failure' },
+      { actor: { login: 'other' } }, { triggering_actor: { login: 'other' } },
+      { repository: { full_name: REPOSITORY, private: false } },
+      { repository: { full_name: 'other/repository', private: true } },
+      { path: '.github/workflows/other.yml' }, { event: 'pull_request' },
+      { event: 'schedule' }, { event: null }]) {
+      assert.throws(() => verifyRun({ ...good, ...patch }, expected, workflow));
+    }
+  }
+});
+
+test('full gate admits exact main dispatches without relaxing jobs or artifacts', () => {
+  const api = (path) => path.includes('/compare/') ? { status: 'ahead', base_commit: { sha: source } }
+    : { ...(path.endsWith('/1') ? run('logsvc-do.yml', 1, 2) : run('ci.yml', 3, 4)), event: 'workflow_dispatch' };
+  const jobs = FULL_JOBS.map((name) => ({ name, status: 'completed', conclusion: 'success' }));
+  const list = (path) => path.includes('/artifacts') ? [artifact]
+    : path.includes('/1/attempts/2/jobs') ? [{ name: 'logsvc DO (wasm32, local conformance, restart replay)', status: 'completed', conclusion: 'success' }]
+      : jobs;
+  assert.equal(gate(input, api, list).id, 5);
+  assert.throws(() => gate(input, api, (path) => path.includes('/3/attempts/4/jobs')
+    ? [{ ...jobs[0], conclusion: 'skipped' }, ...jobs.slice(1)] : list(path)));
+  assert.throws(() => gate(input, api, (path) => path.includes('/artifacts')
+    ? [{ ...artifact, workflow_run: { id: 1, head_sha: 'd'.repeat(40) } }] : list(path)));
+});
+
 test('full checks refuse skips, missing, failures and duplicate names', () => {
   const jobs = FULL_JOBS.map((name) => ({ name, status: 'completed', conclusion: 'success' }));
   verifyJobs(jobs, FULL_JOBS);

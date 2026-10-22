@@ -37,6 +37,7 @@ fn typed_file_and_tombstone_descriptors_survive_replace_delete_and_reopen() {
         total_plain_bytes: 1 << 30,
     };
     let legacy = FileRow {
+        mtime: None,
         kind: mdbn_store_file::testing::FileKindV1::Ordinary,
         id: id(1),
         path: "legacy.bin".into(),
@@ -48,6 +49,7 @@ fn typed_file_and_tombstone_descriptors_survive_replace_delete_and_reopen() {
         local: FileLocal::Remote,
     };
     let attachment = FileRow {
+        mtime: Some(1_791_100_800_000),
         kind: mdbn_store_file::testing::FileKindV1::Ordinary,
         id: id(2),
         path: "large.bin".into(),
@@ -149,6 +151,7 @@ fn unindexed_kind_full_descriptor_and_tombstone_survive_real_sqlite_reopen() {
         part_size: 8_388_608,
     };
     let mut file = FileRow {
+        mtime: None,
         kind: FileKindV1::UnindexedOversizedMarkdown,
         id: id(11),
         path: "notes/large.md".into(),

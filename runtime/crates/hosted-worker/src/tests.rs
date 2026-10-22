@@ -3,6 +3,7 @@
 
 mod attachment_streams;
 mod attachments;
+mod original_app;
 mod signed_control_plain;
 use signed_control_plain::SignedControlPlain;
 
@@ -184,11 +185,20 @@ impl Hosted {
     /// Move log calls and pushes until quiet; `lose_appends` loses append requests
     /// on the way (the outcome is unknown to the replica).
     fn pump(&mut self, lose_appends: bool) {
+        self.pump_via(lose_appends, true);
+    }
+    /// Like the HTTP Worker host: pushes are dropped, only call replies move.
+    fn pump_pushless(&mut self) {
+        self.pump_via(false, false);
+    }
+    fn pump_via(&mut self, lose_appends: bool, pushes: bool) {
         for _ in 0..50 {
             let mut moved = false;
             for p in self.log.poll_pushes() {
-                moved = true;
-                let _ = self.e.on_log_push(p);
+                if pushes {
+                    moved = true;
+                    let _ = self.e.on_log_push(p);
+                }
             }
             for c in self.e.take_log_calls() {
                 moved = true;
@@ -521,6 +531,85 @@ fn engine_keys_a_service_created_cloud_copy_and_grants_a_joining_device() {
     );
     assert!(h.e.bind_log(COL), "re-bind re-subscribes");
     h.pump(false);
+    let grant = items(&svc)
+        .into_iter()
+        .find(|i| i.kind == ItemKind::KeyGrant)
+        .expect("key_grant to the joining desktop");
+    assert_eq!(grant.signer, Some(HOSTED_DEV));
+    let g = KeyGrantPayload::from_bytes(&grant.body.0).unwrap();
+    assert_eq!((g.recipient, g.epoch), (OWNER_DEV, 1));
+}
+
+/// A migration ticket is bound to the current log session, so the host learns
+/// entries appended by other writers (the control plane's cutover) with a head
+/// fetch on that session, never a re-bind.
+#[test]
+fn a_head_fetch_learns_another_writers_entry_without_a_rebind() {
+    use mdbn_replica::log::LogResponse;
+    use mdbn_wire::envelope::{Item, KeyGrantPayload};
+    use mdbn_wire::log_service::ReadParams;
+    let svc = FakeLogService::new();
+    let mut cp = TestControlPlane::signed(COL);
+    let service = |device, kind| TestDevice {
+        device,
+        account: mdbn_replica::policy::SERVICE_ACCOUNT,
+        kind,
+    };
+    cp.genesis(
+        &svc,
+        CState::CloudCopy,
+        &[
+            service(HOSTED_DEV, DeviceKind::Hosted),
+            service(ESCROW_DEV, DeviceKind::Escrow),
+        ],
+    );
+    let items = |svc: &FakeLogService| -> Vec<Item> {
+        let r = svc
+            .client(B16([0xee; 16]))
+            .call(LogRequest::Read(ReadParams {
+                collection: COL,
+                after: 0,
+                limit: 100,
+                kinds: None,
+                max_bytes: None,
+            }));
+        let Ok(LogResponse::Read(r)) = r else {
+            panic!("{r:?}")
+        };
+        r.items
+            .iter()
+            .map(|it| Item::from_bytes(&it.item.0).unwrap())
+            .collect()
+    };
+    let mut h = open(&svc);
+    h.pump(false);
+    let log = items(&svc);
+    let rekey = log
+        .iter()
+        .find(|i| i.kind == ItemKind::Rekey)
+        .expect("initial rekey");
+    assert_eq!(rekey.signer, Some(HOSTED_DEV));
+    let p = RekeyPayload::from_bytes(&rekey.body.0).unwrap();
+    let mut to: Vec<_> = p.wraps.iter().map(|w| w.device).collect();
+    to.sort();
+    assert_eq!(to, vec![HOSTED_DEV, ESCROW_DEV]);
+    assert!(h.e.serving(), "keyed and serving with no user device");
+    cp.enrol(
+        &svc,
+        TestDevice {
+            device: OWNER_DEV,
+            account: TEST_OWNER,
+            kind: DeviceKind::Desktop,
+        },
+    );
+    h.pump_pushless();
+    assert!(
+        !items(&svc).iter().any(|i| i.kind == ItemKind::KeyGrant),
+        "a push-less host does not learn the enrolment by itself"
+    );
+    assert!(h.e.request_log_head(), "head fetch on the current session");
+    assert!(!h.e.request_log_head(), "one head fetch at a time");
+    h.pump_pushless();
     let grant = items(&svc)
         .into_iter()
         .find(|i| i.kind == ItemKind::KeyGrant)

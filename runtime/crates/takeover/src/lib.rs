@@ -23,6 +23,7 @@
 //! **Allowed dependencies.** Internal: `mdbn-legacy`. External: `serde_json`.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types)]
 
+mod durable;
 pub mod mirror_join;
 pub mod rollback;
 pub mod takeover;

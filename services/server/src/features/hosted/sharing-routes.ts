@@ -17,12 +17,15 @@ import {
 import { COLLECTION_MEMBERSHIP_ROLES } from "../../collection-policy.js";
 import type { DatabasePool } from "../../db.js";
 import { requireUser } from "../../platform/request-authentication.js";
+import { apiError } from "../../platform/http-errors.js";
+import type { PolicyEmitter } from "../next/policy-outbox.js";
 
 interface HostedSharingRoutesOptions {
   db: DatabasePool;
   hostedCollections?: boolean;
   hostedSharing?: boolean;
   tailscaleAuth?: boolean;
+  nativePolicyEmitter?: Pick<PolicyEmitter, "publishCommitted">;
 }
 
 const collectionParams = z.object({ collectionId: z.uuid() });
@@ -128,21 +131,20 @@ export function registerHostedSharingRoutes(
         })
         .strict()
         .parse(request.body);
+      // Typed migration refusals and Retry-After belong to the shared handler.
+      reply.header("cache-control", "no-store");
       const accepted = await acceptHostedCollectionInvitation(options.db, {
         userId: user.id,
         token
       });
-      return reply
-        .header("cache-control", "no-store")
-        .code(201)
-        .send({
-          membership: {
-            id: accepted.membershipId,
-            collection_id: accepted.collectionId,
-            role: accepted.role,
-            state: "active"
-          }
-        });
+      return reply.code(201).send({
+        membership: {
+          id: accepted.membershipId,
+          collection_id: accepted.collectionId,
+          role: accepted.role,
+          state: "active"
+        }
+      });
     }
   );
 
@@ -152,9 +154,15 @@ export function registerHostedSharingRoutes(
     requireHostedSharing(options);
     const { collectionId } = collectionParams.parse(request.params);
     reply.header("cache-control", "no-store");
-    return {
-      members: await listHostedCollectionMembers(options.db, user.id, collectionId)
-    };
+    // Authorize first. A concurrent committed removal must not be reported as
+    // gone to its owner before the log has fenced subsequent content writes.
+    const members = await listHostedCollectionMembers(options.db, user.id, collectionId);
+    if (!await publishMembershipPolicy(options, collectionId)) {
+      return reply.header("retry-after", "2").code(503).send(
+        apiError("collection_sharing_unavailable", "Member changes are not yet confirmed. Retry the request.")
+      );
+    }
+    return { members };
   });
 
   app.patch(
@@ -200,6 +208,14 @@ export function registerHostedSharingRoutes(
           membershipId
         })
       );
+      // Database revocation alone does not fence the log's next content append.
+      // Repeat this barrier even for an idempotent already-revoked membership:
+      // a previous request may have committed but not confirmed publication.
+      if (!await publishMembershipPolicy(options, collectionId)) {
+        return reply.header("retry-after", "2").code(503).send(
+          apiError("collection_sharing_unavailable", "Member removal is not yet confirmed. Retry the request.")
+        );
+      }
       return reply.code(revoked.state === "revoking" ? 202 : 200).send({
         membership: {
           id: revoked.membershipId,
@@ -209,6 +225,31 @@ export function registerHostedSharingRoutes(
       });
     }
   );
+}
+
+async function publishMembershipPolicy(options: HostedSharingRoutesOptions, collectionId: string): Promise<boolean> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    const native = await options.db.query(
+      "SELECT collection_id FROM next_collections WHERE collection_id = $1", [collectionId]
+    );
+    if (!native.rows.length) return true;
+    if (!options.nativePolicyEmitter) return false;
+    // Bound the request, not the emitter-owned append. Uncertain publication
+    // keeps its original durable bytes and is retried by the same producer.
+    await Promise.race([
+      options.nativePolicyEmitter.publishCommitted(collectionId),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("policy publication deferred")), 8_000);
+        timer.unref();
+      })
+    ]);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function requireHostedSharing(options: HostedSharingRoutesOptions, admission = false): void {
