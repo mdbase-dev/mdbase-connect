@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "kind": "mdbase-release-trust-bundle",
+  "repository": "mdbase-dev/mdbase-connect",
+  "commit": "f45df4598a5bff891de68eec3431ec7744885067",
+  "version": "0.1.0-beta.134",
+  "imageBundle": {
+    "path": "image-release-bundle.json",
+    "length": 1596,
+    "sha256": "34cf935430d182866b09617d8d6d9de9d8c25de9e3a5b79fdb7c1d68765ecf24",
+    "publicationRunId": 39368946447,
+    "publicationRunAttempt": 1
+  },
+  "publication": {
+    "workflow": "publish-images.yml",
+    "runId": 39371667255,
+    "runAttempt": 1,
+    "publisherCommit": "3eebf5b7b07ed8ed86b1809a1b33551feb3f89d5"
+  },
+  "qualification": {
+    "workflow": "server-ci.yml",
+    "runId": 39371386700,
+    "runAttempt": 1
+  },
+  "trustAssets": [
+    {
+      "path": "next-trust/staging.json",
+      "length": 853,
+      "sha256": "67e117646c9c26927f0d5a44cbd26f057c318975032e9cd24f24b020150cdbc7",
+      "environment": "staging",
+      "controlPlaneOrigin": "https://connect-staging.mdbase.dev",
+      "logOrigin": "https://log-staging.mdbase.dev",
+      "source": {
+        "commit": "f45df4598a5bff891de68eec3431ec7744885067",
+        "repository": "mdbase-dev/mdbase-connect",
+        "version": "0.1.0-beta.134"
+      }
+    }
+  ]
+}

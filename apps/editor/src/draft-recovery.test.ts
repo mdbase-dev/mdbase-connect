@@ -34,3 +34,16 @@ it("does not hide storage failures or confuse deletions with unchanged propertie
   write.mockRestore();
   expect(frontmatterPatch({ title: "Old", tags: ["x"] }, { title: "New" })).toEqual({ title: "New", tags: null });
 });
+
+it("retires already-saved checkpoints but preserves unsaved properties and another tab's newer text", () => {
+  const store = new DraftRecovery(localStorage, "server");
+  const saved = { body: draft.body, frontmatter: { title: "New" } };
+  store.write("one", "note.md", draft);
+  expect(store.read("one", "note.md", saved)).toBeUndefined();
+  expect(store.read("one", "note.md")).toBeUndefined();
+  store.write("one", "note.md", draft);
+  expect(store.read("one", "note.md", { ...saved, frontmatter: { title: "Old" } })).toMatchObject(draft);
+  store.write("one", "note.md", { ...draft, body: "Other tab's unsaved writing" });
+  store.remove("one", "note.md", saved);
+  expect(store.read("one", "note.md")?.body).toBe("Other tab's unsaved writing");
+});

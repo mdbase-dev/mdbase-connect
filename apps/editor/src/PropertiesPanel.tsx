@@ -231,8 +231,8 @@ export function PropertiesPanel({
 
     <dl className="file-facts">
       <div><dt>Words</dt><dd>{wordCount.toLocaleString()}</dd></div>
-      <div><dt>Size</dt><dd>{formatBytes(note.file?.size)}</dd></div>
-      <div><dt>Modified</dt><dd>{formatDate(note.file?.mtime)}</dd></div>
+      {note.file?.size !== undefined && <div><dt>Size</dt><dd>{formatBytes(note.file.size)}</dd></div>}
+      {note.file?.mtime && !Number.isNaN(Date.parse(note.file.mtime)) && <div><dt>Modified</dt><dd>{formatDate(note.file.mtime)}</dd></div>}
     </dl>
 
     <div className="property-view-controls">
@@ -245,8 +245,8 @@ export function PropertiesPanel({
         setMode(next);
         document.getElementById(`properties-${next}-tab`)?.focus();
       }}>
-        <button id="properties-fields-tab" role="tab" aria-controls={mode === "fields" ? "properties-fields-panel" : undefined} aria-selected={mode === "fields"} tabIndex={mode !== "json" ? 0 : -1} onClick={() => setMode("fields")}>Fields</button>
-        <button id="properties-json-tab" role="tab" aria-controls={mode === "json" ? "properties-json-panel" : undefined} aria-selected={mode === "json"} tabIndex={mode === "json" ? 0 : -1} onClick={() => setMode("json")}>JSON</button>
+        <button id="properties-fields-tab" role="tab" aria-controls={mode === "fields" ? "properties-fields-panel" : undefined} aria-selected={mode === "fields"} tabIndex={mode !== "json" ? 0 : -1} onClick={() => setMode("fields")}>Properties</button>
+        <button id="properties-json-tab" role="tab" aria-controls={mode === "json" ? "properties-json-panel" : undefined} aria-selected={mode === "json"} tabIndex={mode === "json" ? 0 : -1} onClick={() => setMode("json")}>Advanced</button>
       </div>
       <ActionMenu label="Property options" items={[
         { label: mode === "source" ? "Back to fields" : "Edit as source", icon: <FileCode2 aria-hidden="true" />, onSelect: () => setMode(mode === "source" ? "fields" : "source") }
@@ -255,6 +255,7 @@ export function PropertiesPanel({
 
     {mode === "fields" ? <fieldset disabled={readOnly} id="properties-fields-panel" className="property-fields" role="tabpanel" aria-labelledby="properties-fields-tab">
       <StructuredPropertiesEditor readOnly={readOnly}
+        groupUndeclared={note.types.length > 0}
         value={draft}
         contract={contract}
         effectiveValues={note.effectiveFrontmatter}
@@ -264,7 +265,7 @@ export function PropertiesPanel({
         emptyMessage="Add a property to keep details like tags, dates, or a status with this note."
       />
     </fieldset> : mode === "json" ? <div id="properties-json-panel" className="raw-properties" role="tabpanel" aria-labelledby="properties-json-tab">
-      <p className="raw-properties-note">Frontmatter only, without the note body.</p>
+      <p className="raw-properties-note">Edit the underlying property values. Other apps use these values too.</p>
       <CodeEditor value={raw} onChange={updateRaw} label="Raw frontmatter JSON" language="json" lineWrapping={false} readOnly={readOnly} />
       {rawError && <p className="property-error" role="alert">{rawError}</p>}
     </div> : <div id="properties-source-panel" className="record-source" role="region" aria-label="Record source">
@@ -312,15 +313,12 @@ function mergedSchema(typeNames: string[], types: CollectionTypeDescriptor[]): {
   return { properties, required: [...required] };
 }
 
-function formatBytes(value?: number): string {
-  if (value === undefined) return "Unknown";
+function formatBytes(value: number): string {
   if (value < 1_000) return `${value} B`;
   if (value < 1_000_000) return `${(value / 1_000).toFixed(1)} KB`;
   return `${(value / 1_000_000).toFixed(1)} MB`;
 }
 
-function formatDate(value?: string): string {
-  if (!value) return "Unknown";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "Unknown" : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
+function formatDate(value: string): string {
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }

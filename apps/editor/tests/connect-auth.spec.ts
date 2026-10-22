@@ -3,7 +3,8 @@ import { expect, type Page } from "@playwright/test";
 import { authentication, googleFixture, installAuthRoutes, test } from "./auth-portal";
 import { chooseOption } from "./select";
 
-// /connect redirects unauthenticated accounts to the transactional portal.
+// The transactional auth portal, served locally. The editor no longer hosts a
+// /connect console that hands off to it, so these tests open the portal directly.
 let portalOrigin: string;
 
 async function expectAccessible(page: Page) {
@@ -23,7 +24,7 @@ test.beforeEach(async ({ page, authPortal }) => {
 });
 
 test("Connect opens one themed, accessible auth column at desktop and 390px", async ({ page }) => {
-  await page.goto(`connect?server=${encodeURIComponent(portalOrigin)}`);
+  await page.goto(`${portalOrigin}/login`);
   await expect(page).toHaveURL(`${portalOrigin}/login`);
   await expect(page.getByRole("button", { name: "Continue with Google" })).toBeEnabled();
   await expect(page.locator(".provider-divider")).toHaveCount(1);

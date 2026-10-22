@@ -180,9 +180,11 @@ Creating the tag does not publish clients. Complete guarded production promotion
 and independent exact-service verification before dispatching any client workflow.
 Follow the [post-production publication transition](release-contract.md#public-client-release-publication):
 select the existing tag as the workflow ref and supply the exact full
-`production_verified_commit` SHA. Publish npm first, then desktop, then Editor
-with target `production`. Production Editor dispatches from `main` are no longer
-accepted; staging remains on `main`. Reader is excluded from this rollout.
+`production_verified_commit` SHA. Publish npm first, then desktop. The Editor
+is not part of the tag-ref transition: it publishes only through its native
+dispatch path on `release/native-<target>` (see
+[Editor publication](release-contract.md#editor-publication)). Reader is
+excluded from this rollout.
 
 The explicit desktop dispatch starts the full desktop build. The four platform
 builders do not open deployment records; the single publish job enters the

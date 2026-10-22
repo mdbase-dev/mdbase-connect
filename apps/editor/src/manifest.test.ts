@@ -30,7 +30,7 @@ describe("Editor application declarations", () => {
     expect(applicationFileRequest(files!, { includeOptional: false })).toEqual({
       actions: ["list", "read"], scope: { kind: "collection" }
     });
-    expect(applicationFileRequest(files!).actions).toEqual(["list", "read", "add"]);
+    expect(applicationFileRequest(files!).actions).toEqual(["list", "read", "add", "replace", "move", "delete"]);
     expect(parsed.manifest.provisions).toEqual({ type_packs: [], configuration: [] });
     expect(operations).not.toContain("apply_collection_setup");
   });

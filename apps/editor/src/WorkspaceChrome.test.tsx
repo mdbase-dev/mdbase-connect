@@ -82,6 +82,11 @@ describe("quiet save status", () => {
     expect(view.container).toBeEmptyDOMElement();
   });
 
+  it("says when saved changes are waiting on this device to sync", () => {
+    render(<SaveIndicator state="saved" savedOnDevice />);
+    expect(screen.getByText("Saved on this device; waiting for sync")).toBeInTheDocument();
+  });
+
   it.each(["saving", "properties"] as const)("delays %s feedback and resets it on navigation", (activity) => {
     vi.useFakeTimers();
     const view = render(<SaveIndicator state="saving" activity={activity} identity="one" />);
@@ -106,7 +111,7 @@ describe("quiet save status", () => {
     expect(screen.queryByRole("button", { name: "Retry save" })).not.toBeInTheDocument();
     expect(screen.getByText("Needs attention")).toBeInTheDocument();
     view.rerender(<SaveIndicator state="recovery" />);
-    expect(screen.getByText("Recovery pending")).toBeInTheDocument();
+    expect(screen.getByText("Not confirmed yet")).toBeInTheDocument();
     view.rerender(<SaveIndicator state="saved" activity="renaming" detail="Updating linked notes" onCancel={cancel} />);
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(cancel).toHaveBeenCalledOnce();

@@ -17,7 +17,6 @@
 .note-scroll .note-row.selected,
 .type-row.selected,
 .type-pack-entry.selected,
-.collection-switcher-list > button.current,
 .quick-open-results > button.selected,
 .connect-nav > nav > .connect-nav-group > a.selected {
   background: var(--selected);
@@ -61,7 +60,6 @@
 .quick-open,
 .shortcut-help,
 .confirm-dialog,
-.collection-switcher,
 .action-menu,
 .context-menu,
 .note-preview,
@@ -193,8 +191,7 @@
 }
 
 @media (max-width: 560px) {
-  .confirm-dialog,
-  .collection-switcher {
+  .confirm-dialog {
     border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   }
 }

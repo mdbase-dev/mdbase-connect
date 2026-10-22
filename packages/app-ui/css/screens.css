@@ -84,13 +84,14 @@
   min-height: 100%;
   display: grid;
   place-items: center;
-  padding: 32px;
+  /* The extra bottom padding lifts short content slightly above centre; tall
+   * content just grows downward, so the top never clips (no negative margin). */
+  padding: 32px 32px calc(32px + 8vh);
   background: var(--color-canvas);
 }
 
 .mdbase-connect-screen section {
   width: min(100%, 520px);
-  margin-top: -4vh;
 }
 
 .mdbase-connect-screen h1 {

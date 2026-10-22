@@ -11,6 +11,14 @@ export interface RecoveryDraft {
   savedAt: number;
 }
 
+interface SavedDraftRecord { body?: string; frontmatter: JsonObject }
+
+/** A checkpoint is unnecessary only when its body AND every edited property are saved. */
+export function recoveryDraftMatchesRecord(draft: RecoveryDraft, record: SavedDraftRecord): boolean {
+  return draft.body === (record.body ?? "") && Object.entries(draft.patch)
+    .every(([key, value]) => JSON.stringify(record.frontmatter[key] ?? null) === JSON.stringify(value));
+}
+
 /** Device-local unsent edits, separate from the SDK's exact pending-write recovery. */
 export class DraftRecovery {
   constructor(private readonly storage: Storage, private readonly server: string) {
@@ -23,8 +31,13 @@ export class DraftRecovery {
     return PREFIX + JSON.stringify([this.server, collection, path]);
   }
 
-  read(collection: string, path: string): RecoveryDraft | undefined {
-    return this.readKey(this.key(collection, path));
+  read(collection: string, path: string, saved?: SavedDraftRecord): RecoveryDraft | undefined {
+    const draft = this.readKey(this.key(collection, path));
+    if (draft && saved && recoveryDraftMatchesRecord(draft, saved)) {
+      this.remove(collection, path, saved);
+      return;
+    }
+    return draft;
   }
 
   private readKey(key: string): RecoveryDraft | undefined {
@@ -46,8 +59,12 @@ export class DraftRecovery {
     this.storage.setItem(this.key(collection, path), JSON.stringify({ ...draft, savedAt: Date.now() }));
   }
 
-  remove(collection: string, path: string): void {
-    this.storage.removeItem(this.key(collection, path));
+  remove(collection: string, path: string, saved?: SavedDraftRecord): void {
+    const key = this.key(collection, path);
+    const draft = saved && this.readKey(key);
+    // An acknowledgement from this tab must not erase another tab's newer unsent edits.
+    if (draft && saved && !recoveryDraftMatchesRecord(draft, saved)) return;
+    this.storage.removeItem(key);
   }
 }
 

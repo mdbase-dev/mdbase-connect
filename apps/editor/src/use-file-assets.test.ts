@@ -1,7 +1,8 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { FileAssetStore } from "./file-asset-store";
-import type { CollectionFile } from "./model";
+import { fileAssetKey } from "./file-reference-resolution";
+import type { CollectionFile, FileReadRequest } from "./model";
 import { useEmbeddedFileAssets } from "./use-file-assets";
 
 const file: CollectionFile = {
@@ -12,6 +13,27 @@ const files = [file];
 const hidden = new Set<string>();
 
 describe("embedded file asset identity", () => {
+  it.each(["contentProfile", "confirmedSeq"] as const)("reacquires a stable-reference selection after its %s changes without a digest change", async field => {
+    const selected: CollectionFile = { ...file, contentProfile: "ordinary_blob", confirmedSeq: 7 };
+    const selectedFiles = [selected];
+    const signals: AbortSignal[] = [];
+    const readFile = vi.fn((_file: CollectionFile, options?: FileReadRequest) => {
+      signals.push(options!.signal!);
+      return new Promise<Blob>(() => {});
+    });
+    const store = new FileAssetStore({ readFile });
+    const hook = renderHook(() => useEmbeddedFileAssets(store, "![[image.png]]", selectedFiles));
+    await waitFor(() => expect(readFile).toHaveBeenCalledTimes(1));
+    if (field === "contentProfile") selected.contentProfile = "ordinary_attachment_v1";
+    else selected.confirmedSeq = 8;
+    hook.rerender();
+    await waitFor(() => expect(readFile).toHaveBeenCalledTimes(2));
+    expect(signals[0].aborted).toBe(true);
+    expect(signals[1].aborted).toBe(false);
+    hook.unmount();
+    expect(signals[1].aborted).toBe(true);
+    store.reset();
+  });
   it("publishes async acquired assets and invalidates on store replacement", async () => {
     const createURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:ready");
     const revokeURL = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
@@ -39,6 +61,18 @@ describe("embedded file asset identity", () => {
     replacement.reset();
     createURL.mockRestore();
     revokeURL.mockRestore();
+  });
+
+  it("acquires embeds the editor reports visible under their selection key", async () => {
+    const readFile = vi.fn((_file: CollectionFile, _options?: FileReadRequest) => new Promise<Blob>(() => {}));
+    const store = new FileAssetStore({ readFile });
+    // The CodeMirror viewport plugin reports fileAssetKey values; any other key shape never matches.
+    const visible = new Set([fileAssetKey(file)]);
+    const hook = renderHook(() => useEmbeddedFileAssets(store, "![[image.png]]", files, "source.md", visible));
+    await waitFor(() => expect(readFile).toHaveBeenCalledTimes(1));
+    expect(readFile.mock.calls[0][0]).toMatchObject({ fileId: "image" });
+    hook.unmount();
+    store.reset();
   });
 
   it("retains arrays on unchanged renders but publishes asset versions and store resets", async () => {

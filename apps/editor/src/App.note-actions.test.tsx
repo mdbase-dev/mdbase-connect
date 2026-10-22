@@ -56,6 +56,37 @@ describe("Note actions", () => {
     await screen.findByRole("button", { name: "Journal/garden-notes-2 copy copy.md" });
   });
 
+  it("retries a failed duplicate with the same record ID", async () => {
+    const gateway = new DemoCollectionGateway(3);
+    const restore = vi.spyOn(gateway, "restore").mockRejectedValueOnce(new Error("Reply lost"));
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+    await screen.findByRole("textbox", { name: "Note body" });
+    await user.click(within(await openRowMenu()).getByRole("menuitem", { name: "Duplicate" }));
+    await screen.findByText(/Couldn’t duplicate note/);
+    await user.click(within(await openRowMenu()).getByRole("menuitem", { name: "Duplicate" }));
+    await screen.findByRole("button", { name: "Journal/garden-notes-2 copy.md" });
+    const [first, retry] = restore.mock.calls.map((call) => (call as unknown[])[1]);
+    expect(retry).toEqual(expect.any(String));
+    expect(retry).toBe(first);
+  });
+
+  it("retries a failed Undo of a delete with the same record ID", async () => {
+    const gateway = new DemoCollectionGateway(4);
+    const restore = vi.spyOn(gateway, "restore").mockRejectedValueOnce(new Error("Reply lost"));
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+    await screen.findByRole("textbox", { name: "Note body" });
+    await user.click(within(await openRowMenu()).getByRole("menuitem", { name: "Delete" }));
+    await user.click(await screen.findByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(restore).toHaveBeenCalledOnce());
+    await user.click(await screen.findByRole("button", { name: "Undo" }));
+    await screen.findByRole("option", { name: /Garden notes 2/ });
+    const [first, retry] = restore.mock.calls.map((call) => (call as unknown[])[1]);
+    expect(retry).toEqual(expect.any(String));
+    expect(retry).toBe(first);
+  });
+
   it("deletes a background row without confirmation and Undo recreates its exact frontmatter and body", async () => {
     const gateway = new DemoCollectionGateway(4);
     const original = await gateway.read("Journal/garden-notes-2.md");

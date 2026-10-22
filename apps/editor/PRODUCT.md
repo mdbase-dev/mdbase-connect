@@ -97,7 +97,9 @@ currently established; future work must not fabricate them.
 5. Stay responsive with thousands of records and long Markdown documents.
 6. Delay creation until a complete path and type-aware initial record are ready.
    Use the type's declared `collection.display` fields for a record's name and
-   description; never infer semantics from familiar property names.
+   description; never infer semantics from familiar property names. An opaque
+   UUID filename with no declared name or heading may use the opening readable
+   body line as a display-only name, never as an automatic write.
 7. Keep type definitions inspectable and editable in a dedicated workspace,
    with compatibility risk visible before users save collection-wide changes.
 8. Present data contracts as application compatibility: keep field mappings,

@@ -3,19 +3,19 @@ import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import {
   editableNote,
   folderTree,
-  folders,
   noteExcerpt,
   noteHeadings,
   noteTags,
   noteTitle,
+  noteNeedsBodyTitle,
   noteWordCount,
   persistedBody,
-  propertyPatch,
   safeRenamePath,
   tags,
   types
 } from "./note";
 import { fieldReferencePatch } from "./field-reference";
+import { frontmatterPatch } from "./draft-recovery";
 import type { NoteDocument, NoteSummary } from "./model";
 
 describe("note editing", () => {
@@ -34,10 +34,31 @@ describe("note editing", () => {
     expect(persistedBody("Changed", editable.body, editable.source)).toBe("# Changed\n\nFirst paragraph.\n");
   });
 
-  it("falls back to the filename and promotes it to a heading on save", () => {
-    const editable = editableNote({ ...document({}, "Plain body"), path: "Notes/Fallback.md" });
-    expect(editable.title).toBe("Fallback");
-    expect(persistedBody(editable.title, editable.body, editable.source)).toBe("# Fallback\n\nPlain body");
+  it("shows the filename for a heading-less record without writing it unless retitled", () => {
+    const editable = editableNote({ ...document({ title: "Owned by another app" }, ""), path: "tasks/20261012150909.md" });
+    expect(editable.title).toBe("20261012150909");
+    expect(persistedBody(editable.title, "Editor wrote this body", editable.source)).toBe("Editor wrote this body");
+    expect(persistedBody("Named", "Editor wrote this body", editable.source)).toBe("# Named\n\nEditor wrote this body");
+  });
+
+  it("names opaque UUID files from readable prose without writing the stand-in back", () => {
+    const body = "> A recognisable passage.\n\nA separate comment.\n";
+    const note = { ...document({}, body), path: "annotations/ann_45007168-741e-4bf3-abfd-5b2a831c15af.md" };
+    const editable = editableNote(note);
+    expect(noteTitle(note)).toBe("A recognisable passage.");
+    expect(editable).toEqual({ title: "A recognisable passage.", body, source: { kind: "path", title: "A recognisable passage." } });
+    expect(persistedBody(editable.title, `${body}\nMore notes.`, editable.source)).toBe(`${body}\nMore notes.`);
+    expect(noteTitle({ ...note, body: "```\nNot prose\n```\n\n> Readable after code" })).toBe("Readable after code");
+    expect(noteTitle({ ...note, body: "![[diagram.png]]" })).toBe("ann_45007168-741e-4bf3-abfd-5b2a831c15af");
+    expect(noteTitle({ ...note, path: "Notes/Meaningful name.md" })).toBe("Meaningful name");
+    expect(noteTitle({ ...note, body: "# Explicit heading\n\nQuote" })).toBe("Explicit heading");
+    expect(noteTitle({ ...note, types: ["note"] }, [titleType])).toBe("ann_45007168-741e-4bf3-abfd-5b2a831c15af");
+    const named = { ...note, types: ["note"], effectiveFrontmatter: { title: "Declared name" } };
+    expect(noteTitle(named, [titleType])).toBe("Declared name");
+    expect(noteNeedsBodyTitle({ ...note, body: undefined }, [])).toBe(true);
+    expect(noteNeedsBodyTitle({ ...note, body: undefined, types: ["note"] }, [titleType])).toBe(false);
+    expect(noteNeedsBodyTitle({ ...note, body: undefined, path: "Notes/Meaningful name.md" }, [])).toBe(false);
+    expect(noteNeedsBodyTitle(note, [])).toBe(false);
   });
 
   it("reads and safely patches a nested declared display field", () => {
@@ -76,7 +97,7 @@ describe("collection helpers", () => {
       summary("Personal/c.md", {})
     ];
     expect(noteTitle(notes[0], [titleType])).toBe("A");
-    expect(folders(notes)).toEqual([
+    expect(folderTree(notes).map(({ name, count }) => ({ name, count }))).toEqual([
       { name: "Personal", count: 1 },
       { name: "Work", count: 2 }
     ]);
@@ -94,7 +115,7 @@ describe("collection helpers", () => {
   });
 
   it("creates null removals for persisted property patches", () => {
-    expect(propertyPatch({ keep: 1, remove: true }, { keep: 2, add: "yes" })).toEqual({
+    expect(frontmatterPatch({ keep: 1, remove: true }, { keep: 2, add: "yes" })).toEqual({
       keep: 2,
       remove: null,
       add: "yes"

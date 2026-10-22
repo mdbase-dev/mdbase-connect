@@ -1,0 +1,64 @@
+{
+  "schema": "mdbn-sdk/application-assets/1",
+  "environment": "staging",
+  "trust": {
+    "environment": "staging",
+    "cpOrigin": "https://connect-staging.mdbase.dev",
+    "logOrigin": "https://log-staging.mdbase.dev",
+    "sha256": "67e117646c9c26927f0d5a44cbd26f057c318975032e9cd24f24b020150cdbc7",
+    "sourceCommit": "f45df4598a5bff891de68eec3431ec7744885067",
+    "sourceVersion": "0.1.0-beta.134"
+  },
+  "handoff": {
+    "contextSha256": "15e0c28ca828287666dc13cd1ab8cd90caa8f3a4a0036c5fa0eb6f8fbf162d9e",
+    "receiptSha256": "d7ab9de1a1ed60b159a7c7a762ec2664c687e7c1130220f0d1a67ccd5e8412bf",
+    "asset_length": 853,
+    "asset_path": "next-trust/staging.json",
+    "image_publication": {
+      "run_attempt": 1,
+      "run_id": 39368946447
+    },
+    "proof_sha256": {
+      "image-release-bundle.json": "34cf935430d182866b09617d8d6d9de9d8c25de9e3a5b79fdb7c1d68765ecf24",
+      "image-release-bundle.sigstore.json": "000d4239afcbe1a029a4b79d9511517db78d45d5477a07e3d6444f631277b7c1",
+      "release-trust-bundle.json": "9f248aa6b8130265f8c6a21e13612258958366678ef5951141b2056126b0c496",
+      "release-trust-bundle.sigstore.json": "79e64aae850aa06ed2eaa858ecc8e487d250284208bf24e541890c9dd2f493f9"
+    },
+    "publisher_qualification": {
+      "run_attempt": 1,
+      "run_id": 39371386700
+    },
+    "trust_publication": {
+      "publisher_commit": "3eebf5b7b07ed8ed86b1809a1b33551feb3f89d5",
+      "run_attempt": 1,
+      "run_id": 39371667255
+    }
+  },
+  "verifier": {
+    "source": "0e44e1e100c2bba9608c5ac3145d6cdee30fa4e2",
+    "sha256": "4c72bcc8c2ee9c95663ad4e2edfcf7a52aa2743ed7308b5031570a35982af6e4",
+    "clockOverride": false
+  },
+  "runtime": {
+    "sha256": "6984f87d98e29d9f99c6b07f7728f716d1f7b2e3585a74bcc2046ba259a8afab",
+    "bytes": 3676583,
+    "maxBytes": 3676583,
+    "source": {
+      "repository": "mdbase-dev/mdbase-next",
+      "commit": "725d72b2e43b2b744062e055e43feaeb41838399"
+    },
+    "qualification": "integrity-pinned, not separately signed"
+  },
+  "sqlite": {
+    "sha256": "2ee8f3dab694532afc8840e07703127287662d08b74e6ff50491ce63f00d5752",
+    "bytes": 868907,
+    "maxBytes": 1100000,
+    "initializer": {
+      "sha256": "a6d3fe46aa3f924e7686329f97b0564549ef1f787e0c19924179aef7f72bcc01",
+      "bytes": 642742
+    },
+    "package": "@sqlite.org/sqlite-wasm",
+    "version": "3.53.4-build2",
+    "qualification": "integrity-pinned, not separately signed"
+  }
+}

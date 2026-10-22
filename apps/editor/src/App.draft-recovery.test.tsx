@@ -28,6 +28,7 @@ it("offers unsent edits after a reload without writing them until the user resto
   const restore = await screen.findByRole("button", { name: "Restore unsaved edits" });
   expect(update).not.toHaveBeenCalled();
   expect(screen.getByRole("textbox", { name: "Note body" })).toHaveAttribute("readonly");
+  expect(screen.getByText(/Editing is paused until you restore or discard these edits/)).toBeVisible();
   fireEvent.click(restore);
   await waitFor(() => expect(screen.getByRole("textbox", { name: "Note body" })).toHaveValue("Recovered unsent writing"));
   expect(screen.getByRole("textbox", { name: "Note body" })).not.toHaveAttribute("readonly");
@@ -44,4 +45,22 @@ it("discards a recovered copy without changing the authoritative record", async 
   expect(screen.getByRole("textbox", { name: "Note body" })).not.toHaveValue("Discard me");
   expect(Object.keys(localStorage).filter((key) => key.startsWith("mdbase-editor:draft:v1:"))).toEqual([]);
   expect(update).not.toHaveBeenCalled();
+});
+
+it("opens already-saved recovery text without a recovery banner or a read-only body", async () => {
+  const gateway = new DemoCollectionGateway(1);
+  const first = render(<App gateway={gateway} />);
+  fireEvent.change(await screen.findByRole("textbox", { name: "Note body" }), { target: { value: "Already saved writing" } });
+  const key = Object.keys(localStorage).find((key) => key.startsWith("mdbase-editor:draft:v1:"))!;
+  const checkpoint = localStorage.getItem(key)!;
+  await waitFor(() => expect(localStorage.getItem(key)).toBeNull());
+  first.unmount();
+  // An old crash checkpoint can outlive the exact native write that saved it.
+  localStorage.setItem(key, checkpoint);
+  render(<App gateway={gateway} />);
+  const body = await screen.findByRole("textbox", { name: "Note body" });
+  await waitFor(() => expect(body).toHaveValue("Already saved writing"));
+  expect(body).not.toHaveAttribute("readonly");
+  expect(screen.queryByRole("button", { name: "Restore unsaved edits" })).not.toBeInTheDocument();
+  expect(localStorage.getItem(key)).toBeNull();
 });

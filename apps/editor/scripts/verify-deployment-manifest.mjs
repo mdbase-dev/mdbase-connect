@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
@@ -5,7 +6,15 @@ const source = process.argv[2];
 const expectedHomepage = process.argv[3];
 const expectedConnectOrigin = process.argv[4];
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+// Match the same native filesystem identity on both sides, not URL/argv aliases.
+const moduleFile = realpathSync.native(fileURLToPath(import.meta.url));
+let entryFile;
+try {
+  if (process.argv[1]) entryFile = realpathSync.native(process.argv[1]);
+} catch {
+  // Importing from a non-file entry must not execute the CLI.
+}
+if (entryFile === moduleFile) {
   if (!source || !expectedHomepage) {
     throw new Error(
       "Usage: node scripts/verify-deployment-manifest.mjs <path-or-url> <expected-homepage> [expected-connect-origin]"

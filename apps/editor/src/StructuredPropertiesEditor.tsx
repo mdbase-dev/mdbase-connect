@@ -37,6 +37,7 @@ export function StructuredPropertiesEditor({
   allowAdd = true,
   allowCustom = true,
   emptyMessage = "No properties yet.",
+  groupUndeclared = false,
   readOnly = false,
   onChange,
   onValidityChange
@@ -50,6 +51,7 @@ export function StructuredPropertiesEditor({
   allowAdd?: boolean;
   allowCustom?: boolean;
   emptyMessage?: string;
+  groupUndeclared?: boolean;
   readOnly?: boolean;
   onChange: (value: JsonObject) => void;
   onValidityChange?: (valid: boolean) => void;
@@ -63,7 +65,11 @@ export function StructuredPropertiesEditor({
   const [customizing, setCustomizing] = useState(false);
   const [newName, setNewName] = useState("");
   const [newKind, setNewKind] = useState<PropertyKind>("text");
+  const [additionalOpen, setAdditionalOpen] = useState(false);
   const entries = Object.entries(value).filter(([name]) => visible(name));
+  const described = (name: string) => Object.hasOwn(contract.properties, name) || required.includes(name);
+  const primary = groupUndeclared ? entries.filter(([name]) => described(name)) : entries;
+  const additional = groupUndeclared ? entries.filter(([name]) => !described(name)) : [];
   const available = Object.keys(contract.properties)
     .filter(visible)
     .filter((name) => !(name in value))
@@ -109,7 +115,22 @@ export function StructuredPropertiesEditor({
     setNewName("");
     setCustomizing(false);
     setAdding(false);
+    setAdditionalOpen(true);
   }
+
+  const renderProperty = ([name, propertyValue]: [string, unknown]) => <PropertyRow
+    key={name}
+    name={name}
+    value={propertyValue}
+    schema={contract.properties[name]}
+    required={required.includes(name)}
+    error={fieldErrors[name]}
+    recordPaths={recordPaths}
+    onChange={(next) => updateField(name, next)}
+    onValidityChange={(valid) => setEditorValidity((current) => ({ ...current, [name]: valid }))}
+    onRemove={initializeRequired && required.includes(name) ? undefined : () => removeField(name)}
+    readOnly={readOnly}
+  />;
 
   return <div className="structured-properties-editor">
     {!initializeRequired && missingRequired.length > 0 && <section className="missing-properties" aria-label="Missing required properties">
@@ -121,19 +142,12 @@ export function StructuredPropertiesEditor({
       </button>)}
     </section>}
 
-    {entries.map(([name, propertyValue]) => <PropertyRow
-      key={name}
-      name={name}
-      value={propertyValue}
-      schema={contract.properties[name]}
-      required={required.includes(name)}
-      error={fieldErrors[name]}
-      recordPaths={recordPaths}
-      onChange={(next) => updateField(name, next)}
-      onValidityChange={(valid) => setEditorValidity((current) => ({ ...current, [name]: valid }))}
-      onRemove={initializeRequired && required.includes(name) ? undefined : () => removeField(name)}
-      readOnly={readOnly}
-    />)}
+    {primary.map(renderProperty)}
+    {additional.length > 0 && <details className="additional-properties" open={additionalOpen} onToggle={(event) => setAdditionalOpen(event.currentTarget.open)}>
+      <summary>Additional properties</summary>
+      <p>These properties are not described by this note's type. Other apps may use them.</p>
+      {additional.map(renderProperty)}
+    </details>}
 
     {!entries.length && !missingRequired.length && emptyMessage && <p className="quiet-empty">{emptyMessage}</p>}
 
@@ -156,16 +170,16 @@ export function StructuredPropertiesEditor({
         {allowCustom && <button type="button" className="custom-property-trigger" onClick={() => { setNewName(search); setCustomizing(true); }}>Add a custom property…</button>}
       </> : <div className="custom-property">
         <label><span>Name</span><input autoFocus value={newName} onChange={(event) => setNewName(event.target.value)} /></label>
-        <label><span>Kind</span><Select aria-label="Kind" value={newKind} options={propertyKinds} onChange={setNewKind} /></label>
+        <label><span>Field type</span><Select aria-label="Field type" value={newKind} options={propertyKinds} onChange={setNewKind} /></label>
         <div><button type="button" onClick={() => setCustomizing(false)}>Back</button><button type="button" className="small-button" disabled={!newName.trim() || newName.trim() in value} onClick={addCustomProperty}>Add</button></div>
       </div>}
       <button type="button" className="property-picker-close" onClick={() => { setAdding(false); setCustomizing(false); }}><X aria-hidden="true" /> Cancel</button>
     </div> : (available.length > 0 || allowCustom) && <button type="button" className="add-property" onClick={() => setAdding(true)}><Plus aria-hidden="true" /> Add property</button>)}
 
-    {effective.length > 0 && <section className="effective-properties" aria-label="Computed and defaulted properties">
-      <div><h3>Effective values</h3><p>Calculated at read time and not stored in this file.</p></div>
+    {effective.length > 0 && <section className="effective-properties" aria-label="Automatic properties">
+      <div><h3>Automatic</h3><p>Provided by the note's type, not stored in this file.</p></div>
       {effective.map(([name, effectiveValue]) => <div className="effective-property" key={name}>
-        <span><strong>{name}</strong><small>{Object.prototype.hasOwnProperty.call(contract.properties[name] ?? {}, "default") ? "Default" : "Computed"}</small></span>
+        <span><strong>{name}</strong><small>{Object.prototype.hasOwnProperty.call(contract.properties[name] ?? {}, "default") ? "Default" : "Calculated"}</small></span>
         <output>{formatValue(effectiveValue)}</output>
       </div>)}
     </section>}
@@ -190,8 +204,8 @@ function PropertyRow({ name, value, schema, required, error, recordPaths, onChan
     <div className="property-row-label">
       <span><strong>{name}</strong>{required && <small>Required</small>}</span>
       {defined
-        ? <span className="property-kind" title="Defined by the mdbase schema">{schemaKind(schema)}</span>
-        : <Select className="is-compact" aria-label={`${name} property kind`} value={kind === "null" ? "" : kind} placeholder="Null" options={propertyKinds} onChange={(next) => onChange(initialValue(next))} />}
+        ? <span className="property-kind" title="Defined by this note's type">{schemaKind(schema)}</span>
+        : <Select className="is-compact" aria-label={`${name} property type`} value={kind === "null" ? "" : kind} placeholder="Null" options={propertyKinds} onChange={(next) => onChange(initialValue(next))} />}
     </div>
     {description(schema) && <p className="property-description">{description(schema)}</p>}
     <PropertyValue name={name} value={value} schema={schema} recordPaths={recordPaths} onChange={onChange} onValidityChange={onValidityChange} readOnly={readOnly} />
