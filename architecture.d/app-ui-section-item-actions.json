@@ -1,0 +1,6 @@
+{
+  "reason": "App section items in @mdbase-dev/ui/collections get the row menu SDK collections already have, so an app that lists its own collections keeps per-collection actions such as delete. The new exports are two public types (the action, and the context that opens the existing DeleteCollectionDialog); the section-item menu shares the existing row-menu code; no new production file, transport, storage or SDK logic.",
+  "growth": {
+    "typeScriptExportDeclarations": 2
+  }
+}

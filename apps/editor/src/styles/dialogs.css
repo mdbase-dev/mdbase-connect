@@ -9,8 +9,7 @@
 
 .quick-open,
 .shortcut-help,
-.confirm-dialog,
-.collection-switcher {
+.confirm-dialog {
   width: min(580px, 100%);
   overflow: hidden;
   border: 1px solid var(--line-strong);
@@ -48,96 +47,6 @@
 .confirm-dialog > footer button {
   min-height: 36px;
   padding: 0 var(--space-3);
-}
-
-.collection-switcher { width: min(520px, 100%); }
-
-.collection-switcher > header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  padding: 15px 14px var(--space-3) 18px;
-  border-bottom: 1px solid var(--line);
-}
-
-.collection-switcher h2 {
-  min-width: 0;
-  flex: 1;
-  margin: 0;
-  color: var(--ink);
-  font-size: var(--font-size-prose);
-  letter-spacing: -0.015em;
-}
-
-.collection-switcher-list {
-  max-height: min(44vh, 360px);
-  overflow-y: auto;
-  padding: 7px;
-}
-
-.collection-switcher-list > button {
-  width: 100%;
-  min-height: 48px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: var(--space-2) 10px;
-  border-radius: var(--radius-sm);
-  color: var(--muted);
-  text-align: left;
-}
-
-.collection-switcher-list > button:hover { background: var(--hover); }
-
-.collection-switcher-list > button > span:first-child {
-  min-width: 0;
-  flex: 1;
-  display: grid;
-  gap: 3px;
-}
-
-.collection-switcher-list strong,
-.collection-switcher-list small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.collection-switcher-list strong {
-  color: var(--ink);
-  font-size: var(--font-size-ui);
-}
-
-.collection-switcher-list small {
-  color: var(--faint);
-  font-size: var(--font-size-caption);
-}
-
-.collection-switcher > footer {
-  padding: 7px;
-  border-top: 1px solid var(--line);
-}
-
-.collection-switcher > footer button {
-  min-height: 40px;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 6px 9px;
-  border-radius: var(--radius-sm);
-  color: var(--muted);
-  font-size: var(--font-size-ui);
-  text-align: left;
-}
-
-.collection-switcher > footer button:hover {
-  background: var(--hover);
-  color: var(--ink);
-}
-
-.collection-switcher > footer button svg {
-  width: 15px;
-  height: 15px;
 }
 
 .quick-open-search {

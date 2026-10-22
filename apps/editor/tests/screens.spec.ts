@@ -162,7 +162,7 @@ test.describe("responsive themed view readiness", () => {
         await expect(page.getByRole("complementary", { name: "Note properties" })).toBeVisible();
         await expect(page.getByRole("dialog", { name: "Note properties" })).toHaveCount(0);
       }
-      await expect(page.getByRole("tab", { name: "Fields", exact: true })).toBeVisible();
+      await expect(page.getByRole("tab", { name: "Properties", exact: true })).toBeVisible();
       await checkView("Properties");
 
       await openDemoForLayout(page);
@@ -189,7 +189,7 @@ test.describe("responsive themed view readiness", () => {
       await composer.getByRole("button", { name: "Cancel", exact: true }).click();
 
       await installAuthRoutes(page, authPortal);
-      await page.goto(`connect?server=${encodeURIComponent(authPortal)}`);
+      await page.goto(`${authPortal}/login`);
       await expect(page).toHaveURL(`${authPortal}/login`);
       await expect(page.getByRole("button", { name: "Continue with Google" })).toBeEnabled();
       await expect(page.locator(".provider-divider")).toHaveCount(1);

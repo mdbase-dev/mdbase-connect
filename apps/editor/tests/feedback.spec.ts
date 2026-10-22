@@ -1,6 +1,10 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { createFeedbackWorker } from "../../../services/feedback/src/index";
+
+// The workspace's feedback entry is the last item in the collection rail's fixed tools group.
+const feedbackEntry = (page: Page) => page.getByRole("complementary", { name: "Collection navigation" })
+  .getByRole("group", { name: "Collection tools" }).getByRole("button", { name: "Send feedback", exact: true });
 
 // Every feedback request is intercepted: no actual inbox, upload, or Connect account is used.
 test("form-first feedback is accessible in light/dark and mobile, and sends only consented data", async ({ page }) => {
@@ -10,8 +14,7 @@ test("form-first feedback is accessible in light/dark and mobile, and sends only
     return route.fulfill({ status: 202, contentType: "application/json", body: '{"ok":true}' });
   });
   await page.goto("?demo=4");
-  await page.getByRole("button", { name: /Switch collection/ }).click();
-  await page.getByRole("button", { name: "Send feedback", exact: true }).click();
+  await feedbackEntry(page).click();
   const dialog = page.getByRole("dialog", { name: "Send feedback", exact: true });
   await expect(dialog.getByRole("textbox", { name: /What happened/ })).toBeFocused();
   expect(sent).toEqual([]);
@@ -48,8 +51,7 @@ test("native dialog closes before capture permissions and preserves the draft on
     } });
   });
   await page.goto("?demo=4");
-  await page.getByRole("button", { name: /Switch collection/ }).click();
-  await page.getByRole("button", { name: "Send feedback", exact: true }).click();
+  await feedbackEntry(page).click();
   const dialog = page.getByRole("dialog", { name: "Send feedback" });
   await dialog.getByRole("textbox", { name: /What happened/ }).fill("Preserve my draft.");
   await dialog.getByRole("button", { name: "Attach screenshot" }).click();
@@ -75,8 +77,7 @@ test("screenshot redaction flattens opaque pixels and sends only the resulting i
     return route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: await response.text() });
   });
   await page.goto("?demo=4");
-  await page.getByRole("button", { name: /Switch collection/ }).click();
-  await page.getByRole("button", { name: "Send feedback", exact: true }).click();
+  await feedbackEntry(page).click();
   const dialog = page.getByRole("dialog", { name: "Send feedback" });
   const original = await page.evaluate(() => {
     const canvas = document.createElement("canvas"); canvas.width = 300; canvas.height = 180;
@@ -123,25 +124,21 @@ test("feedback keeps application shortcuts out and restores the draft/focus afte
   // The lazily mounted note editor takes focus once unless an editable control owns it (CodeEditor.focus.test.tsx).
   // Settle that initial autofocus first; otherwise it can land after Escape and move focus off the restored trigger.
   await expect(page.getByRole("textbox", { name: "Note body", exact: true })).toBeFocused();
-  const switcher = page.getByRole("button", { name: /Switch collection/ });
-  await switcher.click();
-  const entry = page.getByRole("button", { name: "Send feedback", exact: true });
+  const entry = feedbackEntry(page);
   await entry.click();
   const dialog = page.getByRole("dialog", { name: "Send feedback" });
   await dialog.getByRole("textbox", { name: /What happened/ }).fill("Keep the editor unchanged while I report this.");
   await dialog.getByRole("textbox", { name: /What happened/ }).press("Control+Shift+N");
   await expect(page.locator(".new-note-composer")).toHaveCount(0);
   await dialog.getByRole("textbox", { name: /What happened/ }).press("Escape");
-  await expect(dialog).not.toBeVisible(); await expect(switcher).toBeFocused();
-  await switcher.click();
+  await expect(dialog).not.toBeVisible(); await expect(entry).toBeFocused();
   await entry.click();
   await expect(dialog.getByRole("textbox", { name: /What happened/ })).toHaveValue("Keep the editor unchanged while I report this.");
 });
 
 test("bug animation is finite and respects reduced motion", async ({ page }) => {
   await page.goto("?demo=4");
-  await page.getByRole("button", { name: /Switch collection/ }).click();
-  const bug = page.locator(".mdbase-feedback-trigger .mdbase-feedback-bug");
+  const bug = feedbackEntry(page).locator(".mdbase-feedback-bug");
   await expect(bug).toBeVisible(); await bug.evaluate((element) => element.classList.add("is-wiggling"));
   await page.emulateMedia({ reducedMotion: "no-preference" });
   expect(await bug.evaluate((element) => getComputedStyle(element).animationIterationCount)).toBe("2");

@@ -1,5 +1,5 @@
-import { MdbaseConnectError, type CollectionChange, type MdbaseQueryObserver, type ObserveSnapshot, type QueryRecord } from "@mdbase-dev/connect";
-import type { CollectionGateway, NoteFrontmatter, NoteSummary } from "./model";
+import { MdbaseConnectError, type QueryRecord } from "@mdbase-dev/connect";
+import type { CollectionGateway, EditorCollectionChange, NoteFrontmatter, NoteObservation, NoteObservationSnapshot, NoteSummary, ObservationProblem } from "./model";
 
 export interface CollectionIndexState {
   notes: NoteSummary[];
@@ -18,10 +18,10 @@ const EMPTY_STATE: CollectionIndexState = { notes: [], listLoading: false, struc
 
 /** Editor presentation only. The SDK owns reads, watch, generations and overlays. */
 export class CollectionIndexController {
-  private observation?: MdbaseQueryObserver<NoteFrontmatter>;
+  private observation?: NoteObservation;
   private state = EMPTY_STATE;
   private listeners = new Set<() => void>();
-  private changeListeners = new Set<(change: CollectionChange) => void>();
+  private changeListeners = new Set<(change: EditorCollectionChange) => void>();
   private hydration?: Promise<void>;
   private summaries = new WeakMap<QueryRecord<NoteFrontmatter>, NoteSummary>();
 
@@ -32,7 +32,7 @@ export class CollectionIndexController {
     this.listeners.add(listener);
     return () => { this.listeners.delete(listener); };
   };
-  subscribeChanges = (listener: (change: CollectionChange) => void): (() => void) => {
+  subscribeChanges = (listener: (change: EditorCollectionChange) => void): (() => void) => {
     this.changeListeners.add(listener);
     return () => { this.changeListeners.delete(listener); };
   };
@@ -52,8 +52,8 @@ export class CollectionIndexController {
     const load = observation.getSnapshot().generation === 1 && observation.getSnapshot().state === "loading" ? observation.ready : observation.refresh();
     return load.then(outcome => {
       if (!outcome.ok) {
-        if (outcome.problem.code === "operation_cancelled") return { cancelled: true, notes: [] };
-        throw new MdbaseConnectError(outcome.problem);
+        if (isCancelled(outcome.problem)) return { cancelled: true, notes: [] };
+        throw observationError(outcome.problem);
       }
       return { cancelled: false, notes: this.state.notes };
     });
@@ -63,7 +63,7 @@ export class CollectionIndexController {
     if (!this.observation) return Promise.resolve();
     this.publish({ ...this.state, contentIndexing: true, contentError: undefined });
     const promise = this.observation.hydrate().then(outcome => {
-      if (!outcome.ok && outcome.problem.code !== "operation_cancelled") this.publish({ ...this.state, contentError: this.errorMessage(new MdbaseConnectError(outcome.problem)) });
+      if (!outcome.ok && !isCancelled(outcome.problem)) this.publish({ ...this.state, contentError: this.errorMessage(observationError(outcome.problem)) });
     }).finally(() => {
       if (this.hydration === promise) {
         this.hydration = undefined;
@@ -90,7 +90,7 @@ export class CollectionIndexController {
     this.hydration = undefined;
     this.publish(EMPTY_STATE);
   }
-  private accept(snapshot: ObserveSnapshot<NoteFrontmatter>): void {
+  private accept(snapshot: NoteObservationSnapshot): void {
     const notes = snapshot.records.map(record => {
       const existing = this.summaries.get(record);
       if (existing) return existing;
@@ -104,11 +104,20 @@ export class CollectionIndexController {
     const hydrating = this.state.contentIndexing;
     this.publish({ ...this.state, notes, total: snapshot.total ?? this.state.total,
       listLoading: !hydrating && snapshot.state === "loading", structureLoading: !hydrating && snapshot.state === "loading", structureComplete: hydrating ? this.state.structureComplete : complete,
-      structureError: snapshot.problem ? this.errorMessage(new MdbaseConnectError(snapshot.problem)) : undefined,
+      structureError: snapshot.problem ? this.errorMessage(observationError(snapshot.problem)) : undefined,
       contentComplete: complete && contentLoaded === notes.length, contentLoaded });
   }
   private publish(state: CollectionIndexState): void {
     this.state = state;
     for (const listener of this.listeners) listener();
   }
+}
+
+function isCancelled(problem: ObservationProblem): boolean {
+  return "source" in problem ? problem.code === "cancelled" : problem.code === "operation_cancelled";
+}
+
+/** Native failures keep their original SDK error; Connect problems keep their typed error. */
+function observationError(problem: ObservationProblem): unknown {
+  return "source" in problem ? problem.error : new MdbaseConnectError(problem);
 }

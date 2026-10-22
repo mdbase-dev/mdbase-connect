@@ -1,0 +1,9 @@
+{
+  "reason": "One native SDK record-operation adapter implements the editor's existing note-session data boundary during the proven-backend migration. It keeps native identity/revision, exact mutation receipt recovery and complete-source readback, without adding an app auth handler, record index, persistent journal or draft queue. The old Connect gateway remains the current consumer until shared SDK sign-in/setup and the new backend are qualified; remove the old gateway at cutover. Coordinator ACK: 2026-10-10 12:40Z.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 2,
+    "typeScriptExportDeclarations": 2,
+    "apps/editor": 1
+  }
+}

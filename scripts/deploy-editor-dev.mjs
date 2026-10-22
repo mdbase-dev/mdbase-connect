@@ -516,7 +516,8 @@ export async function verifyExactDeployment({
           const url = new URL(remotePath, `${origin}/`);
           url.searchParams.set("deployment-check", cacheKey(attempt, origin, file.path));
           const actual = await withRequestDeadline(fetchImplementation, url, timeoutMs, async (response) => {
-            if (!response.ok) throw new Error(`${file.path} at ${origin} returned HTTP ${response.status}.`);
+            const served = file.path === "404.html" ? response.status === 404 : response.ok;
+            if (!served) throw new Error(`${file.path} at ${origin} returned HTTP ${response.status}.`);
             const finalUrl = new URL(response.url || url);
             if (finalUrl.origin !== origin || finalUrl.pathname !== remotePath) {
               throw new Error(`${file.path} escaped the expected deployment origin or path.`);
@@ -558,8 +559,12 @@ export async function verifyExactDeployment({
   };
 }
 
+// Pages serves 404.html, with status 404, for any path without a file or rule.
+const notFoundProbePath = "/__mdbase-editor-not-found";
+
 function remoteDeploymentPath(localPath) {
   if (localPath === "index.html") return "/";
+  if (localPath === "404.html") return notFoundProbePath;
   if (localPath.endsWith(".html")) {
     throw new Error(`Unsupported implicit Pages HTML route ${localPath}.`);
   }
@@ -581,8 +586,10 @@ function validateControlFiles(controls) {
   const unsupported = controls.filter(({ path }) => !["_headers", "_redirects"].includes(path));
   if (unsupported.length > 0) throw new Error(`Unsupported Pages control file ${unsupported[0].path}.`);
   const redirects = controls.find(({ path }) => path === "_redirects");
-  if (redirects && redirects.content.toString("utf8").split("\n").some((line) => line.trim() && !line.trim().startsWith("#"))) {
-    throw new Error("LAB deployment does not allow Pages redirect rules.");
+  // Only same-origin rewrites of client routes to the app shell are allowed.
+  if (redirects && redirects.content.toString("utf8").split("\n").some((line) => line.trim() && !line.trim().startsWith("#")
+    && !/^\/[^\s*]*(?:\/\*)? \/ 200$/u.test(line.trim()))) {
+    throw new Error("LAB deployment allows only app-shell rewrite rules in _redirects.");
   }
   const headers = controls.find(({ path }) => path === "_headers");
   if (!headers) throw new Error("Local deployment is missing the required _headers policy.");

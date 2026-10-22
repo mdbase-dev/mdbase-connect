@@ -15,17 +15,18 @@ on:
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - ".github/workflows/editor-pages.yml"
-      - "scripts/verify-editor-publication.mjs"
       - "scripts/verify-client-publication.mjs"
       - "scripts/lib/*publication*.test.mjs"
+      - "config/native-publish/**"
+      - "tools/editor-native-publisher/**"
   workflow_dispatch:
     inputs:
-      production_verified_commit:
-        description: Tagged coordinated releases only - full SHA independently verified after backend production deployment. Leave blank for Editor-only production dispatches from main.
+      source_sha:
+        description: Exact full HEAD of the target release/native-* branch. Blank runs the Editor checks only and publishes nothing.
         required: false
         type: string
       target:
-        description: Staging by default. Production from main publishes Editor only; production from a version tag uses the coordinated release gate.
+        description: Native publication target; dispatch on release/native-<target>.
         required: true
         default: staging
         type: choice
@@ -38,11 +39,17 @@ permissions:
   contents: read
 
 concurrency:
-  group: editor-pages-${{ github.event_name == 'workflow_dispatch' && inputs.target == 'production' && 'production' || github.ref }}
-  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' || inputs.target != 'production' }}
+  group: editor-pages-${{ github.ref }}
+  # Native source dispatches never cancel an uploader; check-only runs supersede.
+  cancel-in-progress: ${{ inputs.source_sha == '' }}
 
+# Editor publication is native-only. main, pull requests and blank-source
+# dispatches run the Editor checks and publish nothing; editor-staging and
+# editor.mdbase.dev change only through an explicit native dispatch on
+# release/native-<target> with its exact source_sha (apps/editor/NATIVE_PUBLISHER.md).
 jobs:
   test:
+    if: inputs.source_sha == ''
     runs-on: ubuntu-latest
     timeout-minutes: 55
     steps:
@@ -61,6 +68,7 @@ jobs:
       - run: pnpm --filter @mdbase/feedback-worker typecheck
       - run: pnpm --filter @mdbase/feedback-worker test
       - run: pnpm --filter mdbase-editor test:deployment
+      - run: pnpm --filter mdbase-editor test:publisher
       - run: node --test scripts/lib/*publication*.test.mjs
       - name: Restore Playwright cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -90,130 +98,192 @@ jobs:
       - run: pnpm --filter mdbase-editor check:bundle
       - run: pnpm --filter mdbase-editor check:csp
 
-  deploy-cloudflare:
-    if: >-
-      github.event_name == 'workflow_dispatch' &&
-      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) &&
-      inputs.target == 'production' &&
-      vars.CLOUDFLARE_PAGES_ENABLED == '1'
-    needs: test
-    runs-on: ubuntu-latest
-    environment:
-      name: cloudflare-pages
-      url: https://editor.mdbase.dev/
+  native-dispatch:
+    # No checkout/environment/credentials before validating the exact manual ref.
+    if: github.event_name == 'workflow_dispatch' && inputs.source_sha != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-        with:
-          version: 11.15.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build:packages
-      - name: Build editor
-        run: pnpm --filter mdbase-editor build
-        env:
-          MDBASE_EDITOR_ORIGIN: https://editor.mdbase.dev
-          MDBASE_EDITOR_BASE_PATH: /
-          VITE_MDBASE_BUILD_REVISION: ${{ github.sha }}
-          VITE_MDBASE_ENV: production
-          VITE_MDBASE_FEEDBACK_URL: ${{ vars.MDBASE_FEEDBACK_URL }}
-          VITE_MDBASE_TURNSTILE_SITE_KEY: ${{ vars.MDBASE_FEEDBACK_TURNSTILE_SITE_KEY }}
-      - name: Verify editor manifest
-        run: node apps/editor/scripts/verify-deployment-manifest.mjs apps/editor/dist/.well-known/mdbase-app.json https://editor.mdbase.dev/
-      - name: Require exact full Server CI qualification
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: scripts/ci/verify-qualified-commit "$GITHUB_SHA"
-      - name: Verify exact production candidate before coordinated client publication
-        if: startsWith(github.ref, 'refs/tags/v')
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PRODUCTION_VERIFIED_COMMIT: ${{ inputs.production_verified_commit }}
-        run: node scripts/verify-client-publication.mjs
-      - name: Verify independent Editor compatibility with production
-        if: github.ref == 'refs/heads/main'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PRODUCTION_VERIFIED_COMMIT: ${{ inputs.production_verified_commit }}
-        run: node scripts/verify-editor-publication.mjs
-      - name: Deploy editor
-        run: npx --yes --package wrangler@4.114.0 wrangler pages deploy apps/editor/dist --project-name=mdbase-editor --branch=main
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      - name: Verify production custom domain
-        run: node apps/editor/scripts/verify-deployment-manifest.mjs https://editor.mdbase.dev/.well-known/mdbase-app.json https://editor.mdbase.dev/
-        env:
-          MDBASE_MANIFEST_VERIFY_ATTEMPTS: 12
-          MDBASE_MANIFEST_VERIFY_DELAY_MS: 5000
-      - name: Verify production assets
-        run: node apps/editor/scripts/verify-deployment-assets.mjs apps/editor/dist/assets https://editor.mdbase.dev/
-        env:
-          MDBASE_ASSET_VERIFY_ATTEMPTS: 61
-          MDBASE_ASSET_VERIFY_DELAY_MS: 5000
+      - env:
+          TARGET: ${{ inputs.target }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          case "$TARGET" in staging|production) ;; *) exit 1 ;; esac
+          [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$GITHUB_REF" == "refs/heads/release/native-$TARGET" ]]
+          [[ "$GITHUB_SHA" == "$SOURCE_SHA" ]]
 
-  # Explicit dispatch only. editor-staging serves the native Editor published from
-  # release/native-staging (apps/editor/NATIVE_PUBLISHER.md there); a main push
-  # must not overwrite it with this legacy-SDK build.
-  deploy-cloudflare-staging:
-    if: >-
-      github.event_name == 'workflow_dispatch' &&
-      github.ref == 'refs/heads/main' &&
-      vars.CLOUDFLARE_PAGES_ENABLED == '1' &&
-      inputs.target == 'staging'
-    needs: test
-    runs-on: ubuntu-latest
-    environment:
-      name: cloudflare-pages-staging
-      url: https://editor-staging.mdbase.dev/
+  native-inputs:
+    needs: native-dispatch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    environment: editor-${{ inputs.target }}
+    outputs:
+      sdk: ${{ steps.hashes.outputs.sdk }}
+      ui: ${{ steps.hashes.outputs.ui }}
+      protocol: ${{ steps.hashes.outputs.protocol }}
+      trust: ${{ steps.hashes.outputs.trust }}
+    steps:
+      - id: hashes
+        env:
+          NATIVE_SDK_SHA256: ${{ vars.NATIVE_SDK_SHA256 }}
+          NATIVE_UI_SHA256: ${{ vars.NATIVE_UI_SHA256 }}
+          NATIVE_PROTOCOL_SHA256: ${{ vars.NATIVE_PROTOCOL_SHA256 }}
+          NATIVE_TRUST_ASSET_SHA256: ${{ vars.NATIVE_TRUST_ASSET_SHA256 }}
+        run: |
+          set -euo pipefail
+          for name in NATIVE_SDK_SHA256 NATIVE_UI_SHA256 NATIVE_PROTOCOL_SHA256 NATIVE_TRUST_ASSET_SHA256; do
+            [[ "${!name}" =~ ^[0-9a-f]{64}$ ]]
+          done
+          printf 'sdk=%s\nui=%s\nprotocol=%s\ntrust=%s\n' "$NATIVE_SDK_SHA256" "$NATIVE_UI_SHA256" "$NATIVE_PROTOCOL_SHA256" "$NATIVE_TRUST_ASSET_SHA256" >> "$GITHUB_OUTPUT"
+
+  native-build:
+    name: Unprivileged frozen native Editor build
+    needs: native-inputs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    # No GitHub environment or Cloudflare secrets. Original intake before hooks.
+    env:
+      TARGET: ${{ inputs.target }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      NATIVE_SDK_SHA256: ${{ needs.native-inputs.outputs.sdk }}
+      NATIVE_UI_SHA256: ${{ needs.native-inputs.outputs.ui }}
+      NATIVE_PROTOCOL_SHA256: ${{ needs.native-inputs.outputs.protocol }}
+      NATIVE_TRUST_ASSET_SHA256: ${{ needs.native-inputs.outputs.trust }}
+    outputs:
+      artifact-id: ${{ steps.artifact.outputs.artifact-id }}
+      artifact-digest: ${{ steps.artifact.outputs.artifact-digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
           version: 11.15.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build:packages
-      - name: Build staging editor
-        run: pnpm --filter mdbase-editor build
+      - name: Data-only original intake before dependency execution
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/editor-build"
+          node apps/editor/scripts/native/publisher.mjs guard > "$RUNNER_TEMP/editor-build/plan.json"
+      - run: pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile
+      - name: ALL installed original members, then unprivileged build once
+        run: node apps/editor/scripts/native/build.mjs "$RUNNER_TEMP/editor-build"
+      - run: node apps/editor/scripts/native/envelope.mjs "$RUNNER_TEMP/editor-build"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        id: artifact
+        with:
+          name: editor-native-build-${{ inputs.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/editor-build/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90
+      - name: Retain failed build plan without manufacturing a successful artifact
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: editor-native-build-failure-${{ inputs.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/editor-build/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 90
+
+  native-deploy:
+    name: Protected immutable Editor upload
+    needs: [native-inputs, native-build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    concurrency:
+      group: editor-native-upload-${{ inputs.target }}
+      cancel-in-progress: false
+    # EXTERNAL: exact protected native refs, no admin bypass, Callum production
+    # reviewer and separate deployment GO. This workflow does not configure them.
+    environment:
+      name: editor-${{ inputs.target }}
+      url: ${{ inputs.target == 'production' && 'https://editor.mdbase.dev/' || 'https://editor-staging.mdbase.dev/' }}
+    env:
+      TARGET: ${{ inputs.target }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      NATIVE_SDK_SHA256: ${{ vars.NATIVE_SDK_SHA256 }}
+      NATIVE_UI_SHA256: ${{ vars.NATIVE_UI_SHA256 }}
+      NATIVE_PROTOCOL_SHA256: ${{ vars.NATIVE_PROTOCOL_SHA256 }}
+      NATIVE_TRUST_ASSET_SHA256: ${{ vars.NATIVE_TRUST_ASSET_SHA256 }}
+      ARTIFACT_ID: ${{ needs.native-build.outputs.artifact-id }}
+      ARTIFACT_DIGEST: ${{ needs.native-build.outputs.artifact-digest }}
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Reviewed-source guard; no app modules installed
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/editor-receipt" "$RUNNER_TEMP/editor-upload"
+          node apps/editor/scripts/native/publisher.mjs guard > "$RUNNER_TEMP/editor-receipt/plan.json"
+      - name: Isolated official tool lock only; no app hooks
+        run: node apps/editor/scripts/native/tool.mjs "$RUNNER_TEMP/editor-tool-path"
+      - name: Immutable artifact identity and full original inventory
         env:
-          MDBASE_EDITOR_ORIGIN: https://editor-staging.mdbase.dev
-          MDBASE_EDITOR_BASE_PATH: /
-          MDBASE_CONNECT_URL: https://connect-staging.mdbase.dev
-          VITE_MDBASE_CONNECT_URL: https://connect-staging.mdbase.dev
-          VITE_MDBASE_BUILD_REVISION: ${{ github.sha }}
-          VITE_MDBASE_ENV: staging
-          VITE_MDBASE_FEEDBACK_URL: ${{ vars.MDBASE_FEEDBACK_URL }}
-          VITE_MDBASE_TURNSTILE_SITE_KEY: ${{ vars.MDBASE_FEEDBACK_TURNSTILE_SITE_KEY }}
-      - name: Verify staging editor manifest
-        run: node apps/editor/scripts/verify-deployment-manifest.mjs apps/editor/dist/.well-known/mdbase-app.json https://editor-staging.mdbase.dev/ https://connect-staging.mdbase.dev
-      - name: Deploy staging editor
-        run: npx --yes --package wrangler@4.114.0 wrangler pages deploy apps/editor/dist --project-name=mdbase-editor --branch=staging
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node apps/editor/scripts/native/artifact.mjs "$RUNNER_TEMP/editor-upload/artifact"
+          cp "$RUNNER_TEMP/editor-upload/artifact/"{inventory.json,envelope.json} "$RUNNER_TEMP/editor-receipt/"
+          cp "$RUNNER_TEMP/editor-upload/artifact-metadata.json" "$RUNNER_TEMP/editor-receipt/"
+          cmp "$RUNNER_TEMP/editor-receipt/plan.json" "$RUNNER_TEMP/editor-upload/artifact/plan.json"
+          node apps/editor/scripts/native/publisher.mjs inventory "$RUNNER_TEMP/editor-upload/artifact/publish" "$RUNNER_TEMP/editor-receipt/plan.json" > "$RUNNER_TEMP/editor-receipt/revalidated-inventory.json"
+          cmp "$RUNNER_TEMP/editor-receipt/inventory.json" "$RUNNER_TEMP/editor-receipt/revalidated-inventory.json"
+          chmod -R a-w "$RUNNER_TEMP/editor-upload/artifact"
+      - name: Existing project identity (never provision)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      - name: Attach staging domain
-        run: node apps/editor/scripts/ensure-pages-domain.mjs
+        run: node apps/editor/scripts/native/publisher.mjs project > "$RUNNER_TEMP/editor-receipt/project.json"
+      - name: Exact CURRENT native HEAD and inventory immediately before sole upload
+        id: upload
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          branch=$(jq -er .pagesBranch "$RUNNER_TEMP/editor-receipt/plan.json")
+          node apps/editor/scripts/native/publisher.mjs assert-inventory "$RUNNER_TEMP/editor-upload/artifact/publish" "$RUNNER_TEMP/editor-receipt/inventory.json"
+          node apps/editor/scripts/native/refs.mjs
+          cli=$(cat "$RUNNER_TEMP/editor-tool-path")
+          cd "$RUNNER_TEMP/editor-upload"
+          node "$cli" pages deploy artifact/publish --no-bundle --project-name mdbase-editor --branch "$branch" --commit-hash "$SOURCE_SHA" --commit-dirty=false 2>&1 | tee "$RUNNER_TEMP/editor-receipt/wrangler-output.txt"
+      - name: Resolve actual full deployment UUID before served checks
+        id: deployment
+        if: always() && (steps.upload.outcome == 'success' || steps.upload.outcome == 'failure')
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_PAGES_PROJECT: mdbase-editor
-          CLOUDFLARE_PAGES_DOMAIN: editor-staging.mdbase.dev
-      - name: Verify staging custom domain
-        run: node apps/editor/scripts/verify-deployment-manifest.mjs https://editor-staging.mdbase.dev/.well-known/mdbase-app.json https://editor-staging.mdbase.dev/ https://connect-staging.mdbase.dev
-        env:
-          MDBASE_MANIFEST_VERIFY_ATTEMPTS: 12
-          MDBASE_MANIFEST_VERIFY_DELAY_MS: 5000
-      - name: Verify staging assets
-        run: node apps/editor/scripts/verify-deployment-assets.mjs apps/editor/dist/assets https://editor-staging.mdbase.dev/
-        env:
-          MDBASE_ASSET_VERIFY_ATTEMPTS: 61
-          MDBASE_ASSET_VERIFY_DELAY_MS: 5000
+        run: node apps/editor/scripts/native/publisher.mjs capture "$RUNNER_TEMP/editor-receipt/wrangler-output.txt" > "$RUNNER_TEMP/editor-receipt/deployment.json"
+      - name: All deployment URL AND alias bytes, source-owned headers and routes
+        if: always() && steps.upload.outcome == 'success' && steps.deployment.outcome == 'success'
+        run: node apps/editor/scripts/native/hosting.mjs "$RUNNER_TEMP/editor-receipt/plan.json" "$RUNNER_TEMP/editor-receipt/inventory.json" "$RUNNER_TEMP/editor-receipt/deployment.json" > "$RUNNER_TEMP/editor-receipt/verification.json"
+      - name: Preserve honest failure or complete static-publication receipt
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/editor-upload/artifact-metadata.json" ]; then cp "$RUNNER_TEMP/editor-upload/artifact-metadata.json" "$RUNNER_TEMP/editor-receipt/"; fi
+          node apps/editor/scripts/native/publisher.mjs receipt "$RUNNER_TEMP/editor-receipt" > "$RUNNER_TEMP/editor-receipt/receipt.json"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        if: always()
+        with:
+          name: editor-native-receipt-${{ inputs.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/editor-receipt/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 90

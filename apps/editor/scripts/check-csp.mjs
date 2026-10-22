@@ -33,6 +33,11 @@ for (const name of ["img-src", "media-src", "frame-src", "worker-src", "connect-
     throw new Error(`The Content-Security-Policy must allow blob: assets in ${name}.`);
   }
 }
+// Chrome does not let https:/http: cover wss:; a missing wss: blocks the log's
+// push socket and the editor never sees other apps' writes until reload.
+if (!directives.get("connect-src")?.includes("wss:")) {
+  throw new Error("The Content-Security-Policy must allow wss: in connect-src for live updates.");
+}
 for (const required of [
   "https://accounts.google.com/gsi/client",
   "frame-src https://accounts.google.com/gsi/",

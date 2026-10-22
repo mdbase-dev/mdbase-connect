@@ -48,6 +48,19 @@ describe("recursive type builder", () => {
     expect(view.container.querySelector(".type-inspector-bar .mdbase-save-notice")).toBeNull();
   });
 
+  it("keeps type paths and versions behind Details, with plain field labels", async () => {
+    const user = userEvent.setup();
+    const view = render(<InspectorHarness />);
+    const details = view.container.querySelector(".type-file-details")!;
+    expect(details).not.toHaveAttribute("open");
+    expect(view.container.querySelector(".type-heading-facts")).not.toHaveTextContent("Version");
+    expect(screen.getByRole("combobox", { name: "title field type" })).toBeVisible();
+    expect(screen.queryByRole("combobox", { name: /field kind/ })).not.toBeInTheDocument();
+    await user.click(within(details as HTMLElement).getByText("Details"));
+    expect(details).toHaveAttribute("open");
+    expect(details.querySelector(".path-label")).toHaveTextContent("_types/");
+  });
+
   it("moves field deletion into a keyboard-accessible row menu", async () => {
     const user = userEvent.setup();
     render(<InspectorHarness />);
@@ -64,14 +77,14 @@ describe("recursive type builder", () => {
     const user = userEvent.setup();
     render(<InspectorHarness source={collectionSource} contracts={[personContract]} />);
 
-    const membership = screen.getByRole("heading", { name: "Type membership" }).closest<HTMLDetailsElement>("details")!;
+    const membership = screen.getByRole("heading", { name: "Which notes use this type" }).closest<HTMLDetailsElement>("details")!;
     const behaviour = screen.getByRole("heading", { name: "Collection behaviour" }).closest<HTMLDetailsElement>("details")!;
     const contracts = screen.getByRole("heading", { name: "Works with applications" }).closest<HTMLDetailsElement>("details")!;
 
     expect(membership).not.toHaveAttribute("open");
     expect(behaviour).not.toHaveAttribute("open");
     expect(contracts).not.toHaveAttribute("open");
-    expect(within(membership).getByText("Explicit declarations only")).toBeInTheDocument();
+    expect(within(membership).getByText("No automatic matching rules")).toBeInTheDocument();
     expect(within(behaviour).getByText(/Display · 1 default · 1 link · 1 unique rule · Path policy/)).toBeInTheDocument();
     expect(within(contracts).getByText("No connections")).toBeInTheDocument();
     expect(membership).not.toContainElement(screen.getByRole("heading", { name: "Fields" }));
@@ -126,7 +139,7 @@ describe("recursive type builder", () => {
     const user = userEvent.setup();
     render(<InspectorHarness />);
 
-    await chooseOption(user, screen.getByRole("combobox", { name: "profile field kind" }), "string");
+    await chooseOption(user, screen.getByRole("combobox", { name: "profile field type" }), "string");
     const warning = screen.getByRole("alert");
     expect(within(warning).getByText(/removes nested fields/)).toBeInTheDocument();
     expect(screen.getByTestId("source")).toHaveTextContent("display_name:");
@@ -184,7 +197,7 @@ describe("recursive type builder", () => {
   it("explains explicit and inferred matching while routing complex rules to YAML", async () => {
     const user = userEvent.setup();
     render(<InspectorHarness source={advancedMatchSource} />);
-    expect(screen.getByText("Explicit assignment")).toBeInTheDocument();
+    expect(screen.getByText("Assigned by name")).toBeInTheDocument();
     expect(screen.getByText("Automatic matching")).toBeInTheDocument();
     expect(screen.getByText("Path matches any")).toBeInTheDocument();
     expect(screen.getByText("Frontmatter contains all")).toBeInTheDocument();
@@ -203,7 +216,7 @@ describe("recursive type builder", () => {
       noteSummary("People/other.md", { type: "organisation" }, ["organisation"])
     ]} />);
 
-    await user.click(screen.getByText("Type membership").closest("summary")!);
+    await user.click(screen.getByText("Which notes use this type").closest("summary")!);
     expect(screen.getByText("1 note with these rules")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Add path pattern" }));
     await user.type(screen.getByLabelText("Path pattern 1"), "People/**/*.md");

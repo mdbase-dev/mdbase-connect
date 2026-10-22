@@ -1,8 +1,84 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { copyFile, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { spawnSync } from "node:child_process";
 import { checkStyleTokens } from "./check-style-tokens.mjs";
 
 const check = (css) => checkStyleTokens(css, "fixture.css");
+
+test("checks the installed UI CSS, not a different workspace copy", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "editor-style-package-"));
+  const root = join(sandbox, "workspace");
+  const put = async (name, content) => {
+    const target = join(root, name);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, content);
+  };
+  try {
+    await Promise.all([
+      put("apps/editor/src/editor.css", ".editor { font-size: var(--font-size-ui); }"),
+      put("packages/app-ui/css/old.css", ".old { font-size: 9px; }"),
+      put("apps/editor/node_modules/@mdbase-dev/ui/package.json", JSON.stringify({
+        name: "@mdbase-dev/ui", exports: { "./tokens.css": "./css/tokens.css" }
+      })),
+      put("apps/editor/node_modules/@mdbase-dev/ui/css/tokens.css", ":root { --font-size-ui: 13px; }"),
+      put("apps/editor/node_modules/@mdbase-dev/ui/css/shared.css", ".shared { font-size: var(--font-size-ui); }"),
+      put("apps/editor/scripts/check-style-tokens.mjs", "")
+    ]);
+    const script = join(root, "apps/editor/scripts/check-style-tokens.mjs");
+    await copyFile(new URL("./check-style-tokens.mjs", import.meta.url), script);
+    const run = (entry = script, flags = []) => spawnSync(process.execPath, [...flags, entry], { encoding: "utf8" });
+    const valid = run();
+    assert.equal(valid.status, 0, valid.stderr);
+    assert.match(valid.stdout, /2 editor\/shared stylesheets checked/);
+
+    // macOS temp paths are aliases (/var -> /private/var). A directory junction
+    // also exercises the original argv/canonical-module mismatch on Windows.
+    const alias = join(root, "apps/editor-alias");
+    await symlink(join(root, "apps/editor"), alias, "junction");
+    const throughAlias = run(join(alias, "scripts/check-style-tokens.mjs"));
+    assert.equal(throughAlias.status, 0, throughAlias.stderr);
+    assert.match(throughAlias.stdout, /2 editor\/shared stylesheets checked/);
+
+    // Do not compare a canonical argv to a presentation-only module URL. This
+    // reproduces that asymmetric normalization even on a case-sensitive host.
+    const preservedAlias = run(join(alias, "scripts/check-style-tokens.mjs"), ["--preserve-symlinks-main"]);
+    assert.equal(preservedAlias.status, 0, preservedAlias.stderr);
+    assert.match(preservedAlias.stdout, /2 editor\/shared stylesheets checked/);
+
+    // An ancestor alias (like macOS /var -> /private/var) must not change the
+    // workspace-relative diagnostic when package resolution canonicalizes CSS.
+    const workspaceAlias = join(sandbox, "workspace-alias");
+    await symlink(root, workspaceAlias, "junction");
+    const ancestorEntry = join(workspaceAlias, "apps/editor/scripts/check-style-tokens.mjs");
+    const throughAncestor = run(ancestorEntry, ["--preserve-symlinks-main"]);
+    assert.equal(throughAncestor.status, 0, throughAncestor.stderr);
+    assert.match(throughAncestor.stdout, /2 editor\/shared stylesheets checked/);
+
+    const preserveAll = ["--preserve-symlinks-main", "--preserve-symlinks"];
+    const throughPreservedPackage = run(ancestorEntry, preserveAll);
+    assert.equal(throughPreservedPackage.status, 0, throughPreservedPackage.stderr);
+    assert.match(throughPreservedPackage.stdout, /2 editor\/shared stylesheets checked/);
+
+    await put("apps/editor/node_modules/@mdbase-dev/ui/css/shared.css", ".shared { font-size: 9px; }");
+    const expected = `${join("apps", "editor", "node_modules", "@mdbase-dev", "ui", "css", "shared.css")}:1: font-size must use shared tokens (9px).\n`;
+    for (const [entry, flags] of [
+      [script, []],
+      [join(alias, "scripts/check-style-tokens.mjs"), []],
+      [join(alias, "scripts/check-style-tokens.mjs"), ["--preserve-symlinks-main"]],
+      [ancestorEntry, ["--preserve-symlinks-main"]],
+      [ancestorEntry, preserveAll]
+    ]) {
+      const invalid = run(entry, flags);
+      assert.equal(invalid.status, 1);
+      assert.equal(invalid.stderr, expected);
+    }
+  } finally {
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
 
 test("rejects raw pixel typography including shorthands and variable fallbacks", () => {
   assert.equal(check(".a { font-size: 13px; font: 600 12px/1.5 sans-serif; --control-font-size: 11px; }").length, 3);

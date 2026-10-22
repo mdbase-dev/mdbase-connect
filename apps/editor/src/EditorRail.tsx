@@ -2,16 +2,16 @@ import type { ReactNode } from "react";
 import {
   ArrowLeftIcon as ArrowLeft,
   BracketsCurlyIcon as Braces,
-  CaretDownIcon as ChevronDown,
   GearSixIcon as Settings,
-  LinkIcon as Link,
   NotebookIcon as Notebook,
   SidebarSimpleIcon as PanelLeftClose
 } from "./icons";
 import { Wordmark } from "@mdbase-dev/ui/brand";
+import { FeedbackBug, useFeedback } from "@mdbase-dev/ui/feedback";
+import "@mdbase-dev/ui/feedback.css";
 import { RailDropTarget, type RailDropActions } from "./RailDropTarget";
 
-export type EditorRailSurface = "notes" | "types" | "settings" | "connect";
+export type EditorRailSurface = "notes" | "types" | "settings";
 
 interface RailDestination {
   href?: string;
@@ -26,10 +26,8 @@ export function EditorRail({
   notes,
   types,
   settings,
-  connectHref,
-  connectCount,
   mobileReturn,
-  onSwitch,
+  switcher,
   onCollapse,
   onMoveNotes,
   onMoveFolder,
@@ -44,17 +42,16 @@ export function EditorRail({
   notes: RailDestination;
   types: RailDestination;
   settings: RailDestination;
-  connectHref: string;
-  connectCount?: number;
   mobileReturn?: RailDestination & { label: string };
-  onSwitch: () => void;
+  /** The shared collection switcher; without one the header just names the collection. */
+  switcher?: ReactNode;
   onCollapse?: () => void;
   children?: ReactNode;
   footer: ReactNode;
   notesSelected?: boolean;
 } & RailDropActions) {
   return <aside className="collection-rail" aria-label="Collection navigation">
-    <div className="rail-header"><button className="rail-collection-switcher" aria-label={`Switch collection, current collection ${collectionName}`} aria-haspopup="dialog" onClick={onSwitch}><Wordmark app="editor" /><span className="rail-current-collection"><span>{collectionName}</span><ChevronDown aria-hidden="true" /></span></button>{onCollapse && <RailCollapseButton onClick={onCollapse} />}</div>
+    <div className="rail-header"><div className="rail-collection-heading"><Wordmark app="editor" />{switcher ?? <span className="rail-current-collection"><span>{collectionName}</span></span>}</div>{onCollapse && <RailCollapseButton onClick={onCollapse} />}</div>
     <nav>
       {mobileReturn && <a className="mobile-editor-return" href={mobileReturn.href} onClick={mobileReturn.onClick}><span><ArrowLeft aria-hidden="true" />{mobileReturn.label}</span></a>}
       <div className="rail-scroll">
@@ -64,9 +61,7 @@ export function EditorRail({
       <div className="rail-bottom-group" role="group" aria-label="Collection tools">
         <RailLink destination={types} selected={surface === "types"} label="Types" ariaLabel={typeCount === undefined ? "Types" : `Types (${typeCount})`} icon={<Braces aria-hidden="true" />} count={typeCount} />
         <RailLink destination={settings} selected={surface === "settings"} label="Settings" icon={<Settings aria-hidden="true" />} />
-        <a className={`editor-rail-link${surface === "connect" ? " selected" : ""}`} href={connectHref} aria-current={surface === "connect" ? "page" : undefined}>
-          <span><Link aria-hidden="true" /><span className="rail-row-label">Connect</span></span>{connectCount !== undefined && <small>{connectCount}</small>}
-        </a>
+        <RailFeedback />
       </div>
     </nav>
     <footer className="connection-footer">{footer}</footer>
@@ -86,6 +81,16 @@ function RailLink({ destination, selected, label, ariaLabel, icon, count }: {
     return <a className={`editor-rail-link${selected ? " selected" : ""}`} href={destination.href} aria-label={ariaLabel} aria-current={selected ? "page" : undefined}>{content}</a>;
   }
   return <button className={selected ? "selected" : ""} aria-label={ariaLabel} aria-current={selected ? "page" : undefined} onClick={destination.onClick}>{content}</button>;
+}
+
+/** The workspace's feedback entry, last in the fixed tools group so it stays reachable
+ * however long the folder tree grows. The feedback dialog returns focus here on close. */
+function RailFeedback() {
+  const feedback = useFeedback();
+  if (!feedback.enabled) return null;
+  return <button type="button" className="mdbase-feedback-trigger rail-feedback" onClick={() => feedback.open()}>
+    <span><FeedbackBug wiggle={feedback.wiggle} /><span className="rail-row-label">Send feedback</span></span>
+  </button>;
 }
 
 function RailCollapseButton({ onClick }: { onClick: () => void }) {

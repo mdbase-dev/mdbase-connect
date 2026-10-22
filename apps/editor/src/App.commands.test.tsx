@@ -173,7 +173,7 @@ describe("workspace commands", () => {
     await screen.findByRole("textbox", { name: "Note body" });
     fireEvent.keyDown(window, { key: "P", ctrlKey: true, shiftKey: true });
     const dialog = screen.getByRole("dialog", { name: "Quick open" });
-    for (const label of ["Rename", "Move to…", "Duplicate", "Copy link", "Copy path", "Delete", "Pin", "Note properties", "Document outline", "Switch theme", "Toggle Vim key bindings", "Open Types", "Open Settings", "Open Connect", "Switch collection"]) {
+    for (const label of ["Rename", "Move to…", "Duplicate", "Copy link", "Copy path", "Delete", "Pin", "Note properties", "Document outline", "Switch theme", "Toggle Vim key bindings", "Open Types", "Open Settings", "Open Connect"]) {
       expect(within(dialog).getByRole("option", { name: new RegExp(`^${label}`) })).toBeInTheDocument();
     }
     const input = within(dialog).getByRole("combobox");

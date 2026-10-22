@@ -21,7 +21,15 @@ import type {
 export type TypePackApplyResult = import("@mdbase-dev/connect").TypePackApplyResult;
 
 export type NoteFrontmatter = JsonObject;
-export type CollectionFile = CollectionFileDescriptor;
+
+/** `names_only`: the native SDK describe has type names, paths and contract
+ * bindings but no type schemas/versions or contract schemas/implementation
+ * digests. Those fields are then empty and must not drive upgrade decisions. */
+export type EditorCollectionDescription = CollectionDescription & { readonly typing?: "names_only" };
+/** Native inventory metadata stays exact. Legacy/demo descriptors omit it;
+ * absence (including an unknown future profile) never implies Markdown. */
+export type CollectionFile = CollectionFileDescriptor
+  & Partial<Pick<import("@mdbase-dev/sdk").FileView, "contentProfile" | "confirmedSeq">>;
 
 export interface NoteSummary extends QueryRecord<NoteFrontmatter> {
   frontmatter: NoteFrontmatter;
@@ -67,6 +75,10 @@ export type CollectionAuthorizationTarget =
   | { collectionId: string };
 
 export interface CreateNoteInput {
+  /** Client-generated record ID (a UUID) for this one creation. Reuse it whenever
+   * the creation is retried, even with edited input, until it is confirmed: it
+   * names the write's intent, so it lands once, and an edit applies as an update. */
+  id?: string;
   title: string;
   body: string;
   path: string;
@@ -93,7 +105,9 @@ export interface MutationOperationOptions {
 
 export type TitleSource =
   | { kind: "frontmatter"; field: string }
-  | { kind: "heading" };
+  | { kind: "heading" }
+  /** No declared title: a filename or readable body line stands in until retitled. */
+  | { kind: "path"; title: string };
 
 export interface EditableNote {
   title: string;
@@ -146,7 +160,8 @@ export interface FileUploadRequest extends FileReadRequest {
 
 export interface CollectionGateway {
   pendingNoteMutations(): readonly import("@mdbase-dev/connect").PendingMutationSummary[];
-  recoverNoteMutation(requestId: string): Promise<NoteDocument>;
+  /** Undefined only when the exact recovered operation was a confirmed delete. */
+  recoverNoteMutation(requestId: string): Promise<NoteDocument | undefined>;
   sessionSnapshot(): CollectionSessionSnapshot;
   startSession(): Promise<CollectionSessionSnapshot>;
   onSessionChange(listener: (snapshot: CollectionSessionSnapshot) => void): () => void;
@@ -157,7 +172,7 @@ export interface CollectionGateway {
     target: CollectionAuthorizationTarget,
     options?: CollectionAuthorizationOptions
   ): Promise<void>;
-  forgetConnection(collectionId: string): void;
+  forgetConnection(collectionId: string): void | Promise<void>;
   describe(options?: DescribeOptions): Promise<CollectionDescription>;
   /** Demo collections have no authenticated account. Members are never read here. */
   peopleDirectory?(options?: { signal?: AbortSignal }): Promise<import("@mdbase-dev/connect").PeopleDirectory>;
@@ -166,14 +181,19 @@ export interface CollectionGateway {
     contract: import("@mdbase-dev/connect").DataContractSelector,
     options?: { signal?: AbortSignal }
   ): Promise<Array<{ path: string; values: import("@mdbase-dev/connect").JsonObject }>>;
-  observe(options?: import("@mdbase-dev/connect").ObserveOptions): import("@mdbase-dev/connect").MdbaseQueryObserver<NoteFrontmatter>;
+  /** Absent where sync is not the gateway's to report (demo, Connect). */
+  syncState?(): import("./app-state-types").EditorSyncState;
+  onSyncState?(listener: () => void): () => void;
+  observe(): NoteObservation;
   mostRecentNote(): Promise<string | undefined>;
   read(path: string): Promise<NoteDocument>;
   listFiles(options?: FileListRequest): Promise<CollectionFile[]>;
   readFile(file: CollectionFile, options?: FileReadRequest): Promise<Blob>;
   uploadFile(path: string, source: MdbaseFileSource, options?: FileUploadRequest): Promise<CollectionFile>;
   create(input: CreateNoteInput): Promise<NoteDocument>;
-  restore(document: NoteDocument): Promise<NoteDocument>;
+  /** `id` names this one restore (the record ID and write intent): reuse it when
+   * the same restore is retried, so it lands once. */
+  restore(document: NoteDocument, id?: string): Promise<NoteDocument>;
   /** Revision-checked write of only the changed parts, against `base`. */
   update(base: NoteDocument, change: import("@mdbase-dev/connect/advanced").MdbaseRecordChange): Promise<NoteDocument>;
   updateProperties(path: string, patch: JsonObject, revision: string): Promise<NoteDocument>;
@@ -195,6 +215,48 @@ export interface CollectionGateway {
     assessment: TypePackAssessment,
     adoptResources?: Record<string, string>,
   ): Promise<TypePackApplyResult>;
+}
+
+/** Native observation failure: the original SDK error, never a synthesized Connect problem. */
+export interface NativeObservationProblem {
+  source: "native";
+  code: string;
+  message: string;
+  error: unknown;
+}
+export type ObservationProblem = import("@mdbase-dev/connect").ConnectProblem | NativeObservationProblem;
+export type ObservationOutcome = { ok: true } | { ok: false; problem: ObservationProblem };
+/** Presentation subset of watch state; the Connect observer's status satisfies it. */
+export type ObservationWatchStatus =
+  | { state: "connecting" | "connected" | "closed" }
+  | { state: "reconnecting" | "reset_required"; problem: { message: string } };
+export interface NoteObservationSnapshot {
+  readonly records: readonly QueryRecord<NoteFrontmatter>[];
+  readonly state: "loading" | "ready" | "error" | "closed";
+  readonly generation: number;
+  readonly total?: number;
+  readonly problem: ObservationProblem | null;
+  readonly watchStatus: ObservationWatchStatus | null;
+}
+/** Record membership changes reported by a native observation. Its reset
+ * carries no Connect event cursor or raw wire payload. */
+export type NativeCollectionChange =
+  | { source: "native"; kind: "record.created" | "record.updated" | "record.deleted"; path: string; revision?: string }
+  | { source: "native"; kind: "record.renamed"; from: string; to: string; revision?: string }
+  | { source: "native"; kind: "reset" };
+export type EditorCollectionChange = import("@mdbase-dev/connect").CollectionChange | NativeCollectionChange;
+/** The collection-owned index observation the editor consumes. Implemented by
+ * the Connect observer and by the native SDK observation; not a second index. */
+export interface NoteObservation {
+  readonly ready: Promise<ObservationOutcome>;
+  getSnapshot(): NoteObservationSnapshot;
+  subscribe(listener: (snapshot: NoteObservationSnapshot, delta: { readonly reason: "page" | "reload" | "changes" | "local" | "status" }) => void): () => void;
+  subscribeChanges(listener: (change: EditorCollectionChange) => void): () => void;
+  refresh(): Promise<ObservationOutcome>;
+  hydrate(): Promise<ObservationOutcome>;
+  /** Commit only after the write succeeds; a later reread retires a committed overlay. */
+  optimistic(upserts: readonly QueryRecord<NoteFrontmatter>[], removed?: readonly string[]): { commit(): void; rollback(): void };
+  close(): void;
 }
 
 export interface CollectionAuthorizationOptions {

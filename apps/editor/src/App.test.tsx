@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { MdbaseConnectError, normalizeCollectionChange, type CollectionChange, type DirectAccessStatus, type WatchStatus } from "@mdbase-dev/connect";
 import { connectProblem } from "@mdbase-dev/connect-testing";
 import { App } from "./App";
+import type { LeaveIntent } from "@mdbase-dev/ui/collections";
 import { DemoCollectionGateway } from "./demo-gateway";
 import type {
   CollectionGateway,
@@ -97,10 +98,6 @@ describe("mdbase editor", () => {
     await screen.findByRole("heading", { name: "All notes" });
     const collectionRail = screen.getByRole("complementary", { name: "Collection navigation" });
     expect(within(collectionRail).getByRole("status", { name: "Collection connected" })).toHaveTextContent("Connected");
-    await user.click(within(collectionRail).getByRole("button", { name: "Switch collection, current collection Writing" }));
-    expect(screen.getByRole("dialog", { name: "Choose a collection" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Forget/ })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Close collection switcher" }));
     await user.click(screen.getByRole("button", { name: "Hide collections sidebar" }));
     expect(screen.queryByRole("complementary", { name: "Collection navigation" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Show collections sidebar" }));
@@ -266,6 +263,27 @@ describe("mdbase editor", () => {
     const created = await gateway.read("Notes/A useful note.md");
     expect(created.frontmatter.title).toBe("A useful note");
     expect(created.body).toBe("The opening paragraph is already here.");
+  });
+
+  it("the shared switcher asks before an unfinished note is discarded, and drains before switching", async () => {
+    const gateway = new DemoCollectionGateway(2);
+    const user = userEvent.setup();
+    let beforeLeave: ((intent: LeaveIntent) => boolean | Promise<boolean>) | undefined;
+    render(<App gateway={gateway} collectionSwitcher={(onBeforeLeave) => { beforeLeave = onBeforeLeave; return <span>Shared switcher</span>; }} />);
+    await screen.findByRole("heading", { name: "All notes" });
+    expect(within(screen.getByRole("complementary", { name: "Collection navigation" })).getByText("Shared switcher")).toBeInTheDocument();
+    await expect(Promise.resolve(beforeLeave?.("switch"))).resolves.toBe(true);
+    await user.click(screen.getByRole("button", { name: "New note" }));
+    await user.type(await screen.findByRole("textbox", { name: "Title" }), "Half written");
+    let leaving!: Promise<boolean>;
+    act(() => { leaving = Promise.resolve(beforeLeave?.("switch") ?? true); });
+    const dialog = await screen.findByRole("alertdialog", { name: "Switch collections?" });
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await expect(leaving).resolves.toBe(false);
+    expect(screen.getByRole("textbox", { name: "Title" })).toHaveValue("Half written");
+    act(() => { leaving = Promise.resolve(beforeLeave?.("switch") ?? true); });
+    await user.click(within(await screen.findByRole("alertdialog", { name: "Switch collections?" })).getByRole("button", { name: "Switch collection" }));
+    await expect(leaving).resolves.toBe(true);
   });
 
   it("creates untyped notes at the collection root", async () => {
@@ -961,6 +979,26 @@ describe("mdbase editor", () => {
     expect(gateway.listCalls).toBe(listCalls);
   });
 
+  it("acknowledges a delete at once while it confirms, then offers a 30-second Undo that restores it", async () => {
+    const gateway = new SlowDeleteGateway();
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+
+    await screen.findByRole("textbox", { name: "Note title" });
+    await user.click(screen.getByLabelText("More note actions"));
+    await user.click(screen.getByRole("menuitem", { name: "Delete" }));
+    const deleting = await screen.findByText("Deleting “The shape of useful tools”…");
+    expect(deleting.closest('[role="status"]')).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
+
+    gateway.releaseDelete();
+    const undo = await screen.findByRole("button", { name: "Undo" });
+    expect(undo.closest('[role="status"]')).toHaveTextContent("Deleted “The shape of useful tools”.");
+    await user.click(undo);
+    expect(await screen.findByRole("option", { name: /The shape of useful tools/ })).toBeInTheDocument();
+    expect((await gateway.read("Notes/the-shape-of-useful-tools.md")).body).toContain("Good tools leave room");
+  });
+
   it("renders an explicit full-access explanation before authorization", async () => {
     const gateway = new DemoCollectionGateway(1);
     const disconnected = Object.create(gateway) as CollectionGateway;
@@ -968,7 +1006,7 @@ describe("mdbase editor", () => {
     render(<App gateway={disconnected} />);
     expect(await screen.findByRole("button", { name: "Choose a collection" })).toBeInTheDocument();
     expect(screen.getByText(/collection you want to write in/i)).toBeInTheDocument();
-    expect(await screen.findByText(/continue to mdbase connect/i)).toBeInTheDocument();
+    expect(await screen.findByText(/continue to mdbase\. sign in/i)).toBeInTheDocument();
     expect(screen.getByText(/return here automatically/i)).toBeInTheDocument();
     expect(screen.getByText(/your files stay where they are/i)).toBeInTheDocument();
     await userEvent.click(screen.getByText("Collection not listed?"));
@@ -1219,6 +1257,18 @@ describe("mdbase editor", () => {
 
     expect(await screen.findByRole("status", { name: "Collection connected" }, { timeout: 2_000 })).toBeInTheDocument();
     expect(gateway.watchCalls).toBeGreaterThanOrEqual(2);
+  });
+
+  it("shows the dropped connection in the mobile note bar too, with the same retry", async () => {
+    vi.stubGlobal("innerWidth", 390);
+    const gateway = new ReconnectingGateway();
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+    await screen.findByRole("textbox", { name: "Note title" });
+    const bar = await waitFor(() => { const element = document.querySelector<HTMLElement>(".editor-bar"); expect(element).not.toBeNull(); return element!; });
+    expect(await within(bar).findByRole("status", { name: "Collection reconnecting" })).toHaveTextContent("Reconnecting");
+    await user.click(within(bar).getByRole("button", { name: "Retry connection" }));
+    await waitFor(() => expect(within(bar).queryByRole("status", { name: /^Collection / })).toBeNull(), { timeout: 2_000 });
   });
 
   it("refreshes collection state before recovering from an expired change cursor", async () => {
@@ -1635,6 +1685,20 @@ class SaveCountingGateway extends DemoCollectionGateway {
     this.markWatching?.();
     await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
     this.listener = undefined;
+  }
+}
+
+class SlowDeleteGateway extends DemoCollectionGateway {
+  releaseDelete!: () => void;
+  private readonly blockedDelete = new Promise<void>((resolve) => { this.releaseDelete = resolve; });
+
+  constructor() {
+    super(3);
+  }
+
+  override async delete(...input: Parameters<DemoCollectionGateway["delete"]>): Promise<void> {
+    await this.blockedDelete;
+    return super.delete(...input);
   }
 }
 

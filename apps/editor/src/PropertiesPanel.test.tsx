@@ -15,6 +15,24 @@ vi.mock("./CodeEditor", () => ({
 afterEach(() => vi.useRealTimers());
 
 describe("typed note properties", () => {
+  it("omits unavailable filesystem facts without treating frontmatter as file metadata", () => {
+    const { container } = render(<PropertiesPanel note={{ ...eventNote, file: {},
+      frontmatter: { dateModified: "2026-10-13T16:00:00Z" } }} types={[]} onClose={vi.fn()} onSave={vi.fn()} />);
+    const facts = within(container.querySelector(".file-facts") as HTMLElement);
+    expect(facts.getByText("Words")).toBeVisible();
+    expect(facts.queryByText("Size")).toBeNull();
+    expect(facts.queryByText("Modified")).toBeNull();
+    expect(facts.queryByText("Unknown")).toBeNull();
+  });
+
+  it("shows available zero-byte size and valid modification time", () => {
+    const { container } = render(<PropertiesPanel note={{ ...eventNote,
+      file: { ...eventNote.file!, size: 0, mtime: "2026-10-13T16:00:00Z" } }} types={[]} onClose={vi.fn()} onSave={vi.fn()} />);
+    const facts = within(container.querySelector(".file-facts") as HTMLElement);
+    expect(facts.getByText("Size").nextElementSibling).toHaveTextContent("0 B");
+    expect(facts.getByText("Modified").nextElementSibling).not.toHaveTextContent("Unknown");
+  });
+
   it("keeps property saves silent until slow, preserves input focus, and retries failures", async () => {
     vi.useFakeTimers();
     let reject!: (error: Error) => void;
@@ -60,10 +78,10 @@ describe("typed note properties", () => {
     render(<PropertiesPanel note={{ ...eventNote, frontmatter: {}, types: [] }} types={[]} onClose={vi.fn()} onSave={vi.fn()} />);
     expect(screen.getByText(/Add a property to keep details/)).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Source" })).not.toBeInTheDocument();
-    const fields = screen.getByRole("tab", { name: "Fields" });
+    const fields = screen.getByRole("tab", { name: "Properties" });
     fields.focus();
     await user.keyboard("{ArrowRight}");
-    expect(screen.getByRole("tab", { name: "JSON" })).toHaveFocus();
+    expect(screen.getByRole("tab", { name: "Advanced" })).toHaveFocus();
     await user.keyboard("{ArrowRight}");
     expect(fields).toHaveFocus();
     await user.click(screen.getByRole("button", { name: "Property options" }));
@@ -81,7 +99,7 @@ describe("typed note properties", () => {
     render(<PropertiesPanel note={eventNote} types={[eventType]} readOnly onClose={() => undefined}
       onSave={onSave} onSaveDocument={onSaveDocument} />);
     expect(screen.getByLabelText("event_date value")).toBeDisabled();
-    await user.click(screen.getByRole("tab", { name: "JSON" }));
+    await user.click(screen.getByRole("tab", { name: "Advanced" }));
     expect(screen.getByLabelText("Raw frontmatter JSON")).toHaveAttribute("readonly");
     fireEvent.change(screen.getByLabelText("Raw frontmatter JSON"), { target: { value: "{}" } });
     await user.click(screen.getByRole("button", { name: "Property options" }));
@@ -103,8 +121,8 @@ describe("typed note properties", () => {
     expect(eventDate).toHaveValue("2026-07-21");
     expect(startsAt).toHaveAttribute("type", "datetime-local");
     expect((startsAt as HTMLInputElement).value).toContain(schemaDateInputValue("2026-07-21T05:15:30.000Z", "date-time"));
-    expect(screen.getAllByTitle("Defined by the mdbase schema")[0]).toHaveTextContent("Date");
-    expect(screen.queryByLabelText("event_date property kind")).not.toBeInTheDocument();
+    expect(screen.getAllByTitle("Defined by this note's type")[0]).toHaveTextContent("Date");
+    expect(screen.queryByLabelText("event_date property type")).not.toBeInTheDocument();
 
     fireEvent.change(eventDate, { target: { value: "2026-07-23" } });
     fireEvent.change(startsAt, { target: { value: "2026-07-23T09:45:00" } });
@@ -145,8 +163,8 @@ describe("typed note properties", () => {
     expect(within(required).getByText("A human-readable title.")).toBeInTheDocument();
     await user.click(within(required).getByRole("button", { name: /title/i }));
     expect(screen.getByLabelText("title value")).toHaveValue("");
-    expect(screen.queryByLabelText("title property kind")).not.toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Computed and defaulted properties" })).toHaveTextContent("Default");
+    expect(screen.queryByLabelText("title property type")).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Automatic properties" })).toHaveTextContent("Default");
 
     await user.type(screen.getByLabelText("title value"), "Ready");
     await waitFor(() => expect(onSave).toHaveBeenCalledWith("Notes/missing.md", { title: "Ready" }), { timeout: 1_500 });
@@ -224,7 +242,7 @@ describe("typed note properties", () => {
       onSaveDocument={onSaveDocument}
     />);
 
-    await user.click(screen.getByRole("tab", { name: "JSON" }));
+    await user.click(screen.getByRole("tab", { name: "Advanced" }));
     fireEvent.change(screen.getByLabelText("Raw frontmatter JSON"), {
       target: { value: JSON.stringify(noteWithFieldEdit.frontmatter, null, 2) }
     });
@@ -248,7 +266,7 @@ describe("typed note properties", () => {
     await new Promise((resolve) => window.setTimeout(resolve, 650));
     expect(onSave).toHaveBeenCalledTimes(fieldSaveCount);
 
-    await user.click(screen.getByRole("tab", { name: "JSON" }));
+    await user.click(screen.getByRole("tab", { name: "Advanced" }));
     expect(screen.getByLabelText("Raw frontmatter JSON")).toHaveValue(JSON.stringify({
       title: "Quoted",
       custom: "from-source"

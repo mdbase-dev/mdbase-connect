@@ -110,3 +110,10 @@
 
 
 
+
+/* Side-by-side screen actions must not touch. */
+.mdbase-connect-screen .mdbase-connect-action:not(:last-child) {
+  margin-right: var(--space-2);
+}
+
+

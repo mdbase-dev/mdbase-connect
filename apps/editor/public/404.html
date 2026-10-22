@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Page not found · mdbase editor</title>
+<link rel="icon" href="/mdbase-favicon.svg" type="image/svg+xml">
+<style>
+:root {
+  color-scheme: light dark;
+  --canvas: oklch(99.5% 0.002 255);
+  --ink: oklch(21% 0.018 255);
+  --muted: oklch(54% 0.01 255);
+  --line: oklch(92% 0.006 255);
+  --accent: oklch(47% 0.1 238);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: oklch(17.5% 0.012 255);
+    --ink: oklch(92% 0.008 255);
+    --muted: oklch(62% 0.011 255);
+    --line: oklch(29% 0.012 255);
+    --accent: oklch(73% 0.105 238);
+  }
+}
+html, body { height: 100%; margin: 0; }
+body {
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  box-sizing: border-box;
+  background: var(--canvas);
+  color: var(--ink);
+  font: 14px/1.5 "Atkinson Hyperlegible", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+main { max-width: 32rem; }
+.code { margin: 0 0 0.5rem; color: var(--muted); font: 12px/1.4 "Azeret Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: 0.04em; }
+h1 { margin: 0 0 0.5rem; font-size: 20px; line-height: 1.25; }
+p { margin: 0 0 1rem; color: var(--muted); }
+a { color: var(--accent); text-underline-offset: 2px; }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<main>
+<p class="code">404</p>
+<h1>Page not found</h1>
+<p>There is nothing at this address.</p>
+<a href="/">Open mdbase editor</a>
+</main>
+</body>
+</html>
