@@ -21,6 +21,10 @@ test("collections: sync is offered only for a ready local collection; waiting wo
   assert.equal(busy.canDisableSync, true);
   assert.match(presentCollection({ mode: "local", state: "failed", reason: "folder_missing" }).detail, /files are untouched/);
   assert.match(presentCollection({ mode: "local", state: "unavailable", reason: "old_connector_running" }).detail, /old mdbase Connect is running/);
+  const turningOn = presentCollection({ mode: "local", state: "paused", reason: "private_sync_pending" });
+  assert.deepEqual([turningOn.status, turningOn.dot], ["Turning on Private sync…", "connecting"]);
+  assert.match(turningOn.detail, /finishes this on its own; your files are untouched/);
+  assert.equal(presentCollection({ mode: "local", state: "paused" }).status, "Paused");
 });
 
 test("access: pending, served-by-app and refused are separated; badge counts decisions and new notices", () => {

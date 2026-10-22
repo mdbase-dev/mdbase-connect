@@ -49,6 +49,7 @@ import { registerCollectionLogTokenRoute } from "./features/next/collection-log-
 import { registerNextDeviceRoutes } from "./features/next/device-routes.js";
 import { registerLocalRollbackBindingRoutes } from "./features/next/local-rollback-bindings.js";
 import { registerLocalTakeoverRoutes } from "./features/next/local-takeover.js";
+import { carryOverLegacyGrants } from "./features/next/legacy-grant-carry-over.js";
 import { registerNextRolloutRoutes } from "./features/next/rollout-routes.js";
 import { registerNextRouteRoutes } from "./features/next/route-routes.js";
 import { registerClientKeyAttachRoute } from "./features/next/client-key-attach.js";
@@ -613,7 +614,7 @@ export async function buildApp(options: BuildOptions) {
     const nextLog = new LogServiceClient(options.nextControlPlane.logService);
     registerNextDeviceRoutes(app, { db: options.db, log: nextLog });
     registerLocalRollbackBindingRoutes(app, options.db);
-    registerLocalTakeoverRoutes(app, { db: options.db, relay });
+    registerLocalTakeoverRoutes(app, { db: options.db, relay, ...(nextPolicyEmitter ? { emitter: nextPolicyEmitter } : {}) });
     registerNextRolloutRoutes(app, options.db);
     registerCollectionLogTokenRoute(app, { db: options.db, log: nextLog });
     registerNoisePipeClientRoute(app, { db: options.db, broker: relayBroker });
@@ -645,7 +646,8 @@ export async function buildApp(options: BuildOptions) {
       db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, rateLimitSecret: options.authRateLimitSecret
     });
     registerPolicyRecoveryRoutes(app, options.db, nextPolicyEmitter!);
-    registerNextRouteRoutes(app, { db: options.db, publicUrl, broker: relayBroker, hostedClientUrl: options.nextControlPlane.hostedClientUrl, labPitr: options.nextControlPlane.logService.labPitr, migrationRouting: options.nextControlPlane.migrationRouting });
+    registerNextRouteRoutes(app, { db: options.db, publicUrl, broker: relayBroker, hostedClientUrl: options.nextControlPlane.hostedClientUrl, labPitr: options.nextControlPlane.logService.labPitr, migrationRouting: options.nextControlPlane.migrationRouting,
+      ...(options.nextControlPlane.privateBootstrap ? { carryOver: (collection: string) => carryOverLegacyGrants({ db: options.db, emitter: nextPolicyEmitter! }, collection, app.log) } : {}) });
     registerClientKeyAttachRoute(app, { db: options.db });
     if (options.nextControlPlane.labFixtures) registerLabFixtureRoutes(app, {
       db: options.db, config: options.nextControlPlane.labFixtures, next: options.nextControlPlane,

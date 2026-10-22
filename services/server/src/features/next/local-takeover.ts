@@ -1,6 +1,7 @@
 // Retire one exact legacy connector after a native local takeover. Retain its
 // collections and legacy grant/binding rows for fenced rollback; never activate
 // grants, rotate keys, flip an account backend or infer authority from absence.
+// Only a collection already on Private sync has its owner's grants carried over.
 import { isDeepStrictEqual } from "node:util";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -10,6 +11,8 @@ import { apiError } from "../../platform/http-errors.js";
 import { tokenHash } from "../../security.js";
 import type { RelayHub } from "../../relay.js";
 import { CreateError, inTransaction, refuse } from "./bootstrap-common.js";
+import { carryOverLegacyGrants } from "./legacy-grant-carry-over.js";
+import type { PolicyEmitter } from "./policy-outbox.js";
 
 const uuid = z.uuid().transform(v => v.toLowerCase()).refine(v => v !== "00000000-0000-0000-0000-000000000000");
 const inputSchema = z.object({
@@ -76,7 +79,7 @@ async function retire(client: DatabaseConnection, input: Input, actor: Actor): P
 }
 
 /** Ordinary CURRENT native desktop/CLI pairing only; never installation tokens. */
-export function registerLocalTakeoverRoutes(app: FastifyInstance, options: { db: DatabasePool; relay: Pick<RelayHub, "fenceConnector"> }): void {
+export function registerLocalTakeoverRoutes(app: FastifyInstance, options: { db: DatabasePool; relay: Pick<RelayHub, "fenceConnector">; emitter?: Pick<PolicyEmitter, "publishCommitted"> }): void {
   app.post("/v1/next/migration/local-takeover", {
     bodyLimit: 64 * 1024,
     config: { rateLimit: { max: 12, timeWindow: "1 minute" } },
@@ -94,6 +97,14 @@ export function registerLocalTakeoverRoutes(app: FastifyInstance, options: { db:
     // unreachable broker converges with the existing bounded relay lease; retry
     // the SAME request to retry closure without changing timestamp/generation.
     await options.relay.fenceConnector(input.legacy_connector_id, generation).catch(() => undefined);
+    // A collection that already turned on Private sync before this retirement
+    // was confirmed keeps its apps now (Private create covers the usual order).
+    const synced = await options.db.query<{ collection_id: string }>(
+      `SELECT collection_id::text FROM next_collections WHERE collection_id = ANY($1::uuid[]) AND owner_user_id = $2
+         AND runtime = 'next' AND sync = 'private' AND left_sync_at IS NULL`,
+      [input.legacy_collection_ids, actor.user_id],
+    ).catch(() => ({ rows: [] }));
+    for (const { collection_id } of synced.rows) await carryOverLegacyGrants(options, collection_id, request.log);
     return { retired: true, legacy_connector_id: input.legacy_connector_id };
   });
 }

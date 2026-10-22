@@ -109,6 +109,8 @@ pub struct Daemon {
     account_keys: private_key::AccountKeys,
     /// Local takeover runs one at a time; whether the old connector came back.
     takeover: crate::takeover::Gate,
+    /// Private sync turned on automatically for taken-over collections.
+    auto_private: crate::auto_private::State,
     /// This build's verified environment trust (`None`: synced collections report
     /// `trust_missing`). Embedded only; no file, flag or environment override.
     trust: Option<Arc<crate::trust::Trust>>,
@@ -186,6 +188,7 @@ pub async fn run_with(
         identity: std::sync::OnceLock::new(),
         account_keys: Default::default(),
         takeover: Default::default(),
+        auto_private: Default::default(),
         inner: Mutex::new(Inner {
             registry: Registry::default(),
             access: AccessList::default(),
@@ -532,9 +535,13 @@ impl Daemon {
         let taken = self.takeover_record();
         let mut collections = Vec::with_capacity(inner.hosts.len());
         for host in &inner.hosts {
-            collections.push(with_takeover_holds(
-                with_access_notices(host.observed_status().await, &inner.access),
-                taken.as_ref(),
+            collections.push(with_private_sync_pending(
+                with_takeover_holds(
+                    with_access_notices(host.observed_status().await, &inner.access),
+                    taken.as_ref(),
+                ),
+                &self.auto_private,
+                &self.profile.state_dir.join("collections"),
             ));
         }
         DaemonStatus {
@@ -1242,9 +1249,13 @@ impl Daemon {
                 let taken = self.takeover_record();
                 let mut collections = Vec::with_capacity(inner.hosts.len());
                 for host in &inner.hosts {
-                    collections.push(with_takeover_holds(
-                        with_access_notices(host.observed_status().await, &inner.access),
-                        taken.as_ref(),
+                    collections.push(with_private_sync_pending(
+                        with_takeover_holds(
+                            with_access_notices(host.observed_status().await, &inner.access),
+                            taken.as_ref(),
+                        ),
+                        &self.auto_private,
+                        &self.profile.state_dir.join("collections"),
                     ));
                 }
                 to_value(&collections)
@@ -1260,8 +1271,13 @@ impl Daemon {
             }
             Method::COLLECTION_PAUSE | Method::COLLECTION_RESUME => {
                 let p: CollectionRef = params(req)?;
-                self.set_paused(&p.collection, req.method == Method::COLLECTION_PAUSE)
-                    .await
+                let out = self
+                    .set_paused(&p.collection, req.method == Method::COLLECTION_PAUSE)
+                    .await;
+                if out.is_ok() && req.method == Method::COLLECTION_RESUME {
+                    self.spawn_auto_private();
+                }
+                out
             }
             Method::COLLECTION_HOLDS => {
                 let p: CollectionRef = params(req)?;
@@ -1329,7 +1345,11 @@ impl Daemon {
             Method::MIGRATE_STATUS => self.takeover_status().await,
             Method::MIGRATE_START => {
                 let p: crate::control::MigrateStart = params(req)?;
-                self.clone().takeover_run(p.stop_mirrors, false).await
+                let out = self.clone().takeover_run(p.stop_mirrors, false).await;
+                if out.is_ok() {
+                    tokio::spawn(self.clone().auto_private());
+                }
+                out
             }
             Method::ACCESS_LIST => {
                 let c: Option<String> = req
@@ -1825,7 +1845,12 @@ impl Daemon {
         use mdbn_wire::cbor::Cbor;
         use mdbn_wire::client::{Receipt, ReceiptState};
         if p.id.starts_with(crate::takeover::held::ID_PREFIX) {
-            return self.resolve_takeover_hold(&p).await;
+            let out = self.resolve_takeover_hold(&p).await;
+            if out.is_ok() {
+                // The last held file resolved lets Private sync turn on.
+                self.spawn_auto_private();
+            }
+            return out;
         }
         let id: [u8; 16] = secrets::hex_decode(&p.id.replace('-', ""))
             .ok()
@@ -2926,6 +2951,138 @@ impl Daemon {
             tracing::warn!(error = %e.message, "local takeover did not run");
         }
         self.import_mirrors().await;
+        self.auto_private().await;
+    }
+
+    /// Turn Private sync on for taken-over collections that are still local
+    /// (`auto_private`), so apps that reached them through mdbase Connect keep
+    /// working. Runs after every takeover attempt (daemon start, sign-in, an
+    /// explicit move) and after a held file is resolved. A pass that leaves
+    /// collections waiting arms one retry timer with backoff.
+    async fn auto_private(self: Arc<Self>) {
+        if self.auto_private_pass().await.pending() {
+            self.arm_auto_private_retry();
+        }
+    }
+
+    fn spawn_auto_private(&self) {
+        if let Some(d) = self.self_weak.get().and_then(std::sync::Weak::upgrade) {
+            tokio::spawn(d.auto_private());
+        }
+    }
+
+    fn arm_auto_private_retry(self: Arc<Self>) {
+        use std::sync::atomic::Ordering;
+        if self.auto_private.retrying.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        tokio::spawn(async move {
+            let mut shutdown = self.shutdown.subscribe();
+            let mut attempt = 0u32;
+            loop {
+                tokio::select! {
+                    _ = tokio::time::sleep(crate::auto_private::backoff(attempt)) => {}
+                    _ = shutdown.wait_for(|stop| *stop) => break,
+                }
+                if *self.shutdown.borrow() || !self.auto_private_pass().await.pending() {
+                    break;
+                }
+                attempt = attempt.saturating_add(1);
+            }
+            self.auto_private.retrying.store(false, Ordering::SeqCst);
+        });
+    }
+
+    /// One pass of [`Daemon::auto_private`]: each candidate goes through the
+    /// ordinary `sync.enable` (Private for a taken-over collection; an
+    /// interrupted adopt resumes from its journal). Held files are never accepted
+    /// here. The pass never touches the takeover or the folder's bytes itself.
+    async fn auto_private_pass(&self) -> crate::auto_private::Pass {
+        use crate::auto_private as auto;
+        let _pass = self.auto_private.pass.lock().await;
+        let candidates = {
+            let inner = self.inner.lock().await;
+            auto::candidates(
+                &inner.registry.collections,
+                &self.profile.state_dir.join("collections"),
+            )
+        };
+        if candidates.is_empty() || *self.shutdown.borrow() {
+            return auto::run(
+                &self.auto_private,
+                candidates,
+                |_| async { Ok(()) },
+                || true,
+            )
+            .await;
+        }
+        if self.sync_ctx().is_none() {
+            // Signing in runs another pass.
+            auto::defer(&self.auto_private, &candidates, "not_signed_in");
+            return auto::Pass::default();
+        }
+        // Only for an account already moved to the new sync engine (the same
+        // answer that permitted the takeover). It also checks the server is
+        // reachable before a step that stops serving the folder while it adopts.
+        match self.takeover_rollout().await {
+            crate::takeover::RolloutGate::Allowed => {}
+            crate::takeover::RolloutGate::Unknown => {
+                auto::defer(&self.auto_private, &candidates, "sync_unreachable");
+                return auto::Pass {
+                    enabled: Vec::new(),
+                    failed: candidates
+                        .into_iter()
+                        .map(|id| (id, "sync_unreachable".to_owned()))
+                        .collect(),
+                };
+            }
+            crate::takeover::RolloutGate::Legacy => {
+                auto::defer(&self.auto_private, &candidates, "account_not_ready");
+                return auto::Pass::default();
+            }
+        }
+        let pass = auto::run(
+            &self.auto_private,
+            candidates,
+            |id| async move {
+                let enabled = self
+                    .enable_sync(EnableSync {
+                        collection: id.clone(),
+                        // Private for a taken-over collection, or the mode an
+                        // interrupted adopt journal was started with.
+                        mode: None,
+                        accept_takeover_holds: false,
+                    })
+                    .await;
+                match enabled {
+                    Ok(status) => {
+                        self.account_keys.wake();
+                        let mut e = crate::activity::ActivityEntry::now("sync_enabled");
+                        e.collection = Some(id.clone());
+                        e.collection_name = status
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned);
+                        e.detail = status
+                            .get("mode")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned);
+                        self.activity.record(e);
+                        tracing::info!(collection = %id, "sync turned on for a taken-over collection");
+                        Ok(())
+                    }
+                    Err(e) => {
+                        let why = e.reason.unwrap_or(e.code);
+                        tracing::info!(collection = %id, reason = %why, "taken-over collection not synced yet; retried later");
+                        Err(why)
+                    }
+                }
+            },
+            || *self.shutdown.borrow(),
+        )
+        .await;
+        self.bump();
+        pass
     }
 
     /// Import old hosted mirrors' captured unsent edits into their collections
@@ -3409,7 +3566,27 @@ impl Daemon {
             "waiting_for_migration_batch": self.takeover.waiting_for_batch.load(std::sync::atomic::Ordering::Relaxed),
             "account_legacy": self.takeover.account_legacy.load(std::sync::atomic::Ordering::Relaxed),
             "retirement": self.takeover.retirement.lock().unwrap_or_else(|p| p.into_inner()).clone(),
+            "private_sync_pending": self.private_sync_pending().await,
         }))
+    }
+
+    /// Taken-over collections still waiting for Private sync, each with its last
+    /// attempt's refusal reason (`null` before the first attempt finishes).
+    async fn private_sync_pending(&self) -> Value {
+        let inner = self.inner.lock().await;
+        let ids = crate::auto_private::candidates(
+            &inner.registry.collections,
+            &self.profile.state_dir.join("collections"),
+        );
+        drop(inner);
+        Value::Object(
+            ids.into_iter()
+                .map(|id| {
+                    let reason = self.auto_private.failure(&id);
+                    (id, json!({ "reason": reason }))
+                })
+                .collect(),
+        )
     }
 
     fn takeover_check(&self) -> Option<Check> {
@@ -3622,7 +3799,11 @@ impl Daemon {
                 ),
                 action,
             });
-            if let Some(c) = adopt_check(&self.profile.state_dir.join("collections"), h.entry()) {
+            if let Some(c) = adopt_check(
+                &self.profile.state_dir.join("collections"),
+                h.entry(),
+                self.auto_private.failure(&s.id),
+            ) {
                 checks.push(c);
             }
             if let Some(diagnostic) = h.mirror_diagnostic() {
@@ -4137,11 +4318,17 @@ fn adopt_holds_refusal(
     Ok(())
 }
 
-/// A taken-over collection whose sync is off, or one whose adopt is unfinished:
-/// what to run.
-fn adopt_check(collections: &std::path::Path, e: &crate::registry::Entry) -> Option<Check> {
+/// A taken-over collection still waiting for Private sync (turned on by itself,
+/// see `auto_private`; `failure` is its last attempt's refusal), or one whose
+/// adopt is unfinished: what is happening and what to run.
+fn adopt_check(
+    collections: &std::path::Path,
+    e: &crate::registry::Entry,
+    failure: Option<String>,
+) -> Option<Check> {
     let journal = crate::adopt::Journal::path(collections, &e.id);
     let pending = journal.exists();
+    let migrated = e.origin == crate::registry::Origin::MigratedLocal;
     if e.mode != SyncMode::Local {
         return pending.then(|| Check {
             id: format!("adopt:{}", e.id),
@@ -4150,23 +4337,89 @@ fn adopt_check(collections: &std::path::Path, e: &crate::registry::Entry) -> Opt
             action: Some("Keep the daemon running; it continues after a restart.".into()),
         });
     }
+    let why = failure
+        .as_deref()
+        .map(|r| format!(" ({}: {r})", crate::auto_private::explain(r)))
+        .unwrap_or_default();
     if pending {
         return Some(Check {
             id: format!("adopt:{}", e.id),
             status: "warn".into(),
-            detail: format!("{}: turning sync on was interrupted", e.name),
-            action: Some(format!("Run `mdbase sync enable {}` to finish.", e.id)),
+            detail: format!("{}: turning sync on was interrupted{why}", e.name),
+            action: Some(if migrated {
+                format!(
+                    "mdbase finishes it on its own when it starts and after sign-in; \
+                     to finish now, run `mdbase sync enable {}`.",
+                    e.id
+                )
+            } else {
+                format!("Run `mdbase sync enable {}` to finish.", e.id)
+            }),
         });
     }
-    (e.origin == crate::registry::Origin::MigratedLocal).then(|| Check {
+    if !migrated {
+        return None;
+    }
+    if e.paused {
+        return Some(Check {
+            id: format!("adopt:{}", e.id),
+            status: "warn".into(),
+            detail: format!("{}: taken over from mdbase Connect and paused", e.name),
+            action: Some(
+                "Resume it; mdbase then turns on Private sync so apps can reach it.".into(),
+            ),
+        });
+    }
+    Some(Check {
         id: format!("adopt:{}", e.id),
         status: "warn".into(),
-        detail: format!("{}: taken over from mdbase Connect, sync is off", e.name),
+        detail: format!(
+            "{}: taken over from mdbase Connect; Private sync is not on yet{why}",
+            e.name
+        ),
         action: Some(format!(
-            "Run `mdbase sync enable {}` to sync it (private by default).",
+            "mdbase turns it on by itself so apps that used it keep working, and retries \
+             when it starts and after sign-in. To try now, run `mdbase sync enable {}`.",
             e.id
         )),
     })
+}
+
+/// A taken-over collection that is still local: say that Private sync turns on
+/// by itself (and why it has not yet), and present a folder paused by an
+/// interrupted attempt as that, not as a user pause.
+fn with_private_sync_pending(
+    mut s: CollectionStatus,
+    auto: &crate::auto_private::State,
+    collections: &std::path::Path,
+) -> CollectionStatus {
+    if s.origin != crate::registry::Origin::MigratedLocal || s.mode != SyncMode::Local {
+        return s;
+    }
+    let journal = crate::adopt::Journal::path(collections, &s.id).exists();
+    let paused = s.state == crate::control::CollectionState::Paused;
+    if paused && !journal {
+        return s; // paused by the user: resuming it turns sync on
+    }
+    if paused {
+        s.reason = Some("private_sync_pending".into());
+    }
+    let message = match auto.failure(&s.id) {
+        Some(why) => format!(
+            "mdbase turns on Private sync for this collection so apps that used it with \
+             mdbase Connect keep working. It has not finished yet: {}. mdbase tries again \
+             on its own.",
+            crate::auto_private::explain(&why)
+        ),
+        None => "mdbase is turning on Private sync for this collection so apps that used it \
+                 with mdbase Connect keep working."
+            .into(),
+    };
+    s.notices.push(Notice {
+        code: "private_sync_pending".into(),
+        message,
+    });
+    s
 }
 
 pub(crate) fn local_bootstrap_folder_is_empty(
@@ -4441,7 +4694,7 @@ fn with_takeover_holds(
             message: format!(
                 "{held} file(s) were held when mdbase took over from the old connector: \
                  the folder has this computer's version and mdbase kept the other. \
-                 Review them before turning sync on."
+                 Review them; Private sync turns on once they are resolved."
             ),
         });
     }

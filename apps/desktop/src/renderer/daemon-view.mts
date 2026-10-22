@@ -73,7 +73,8 @@ const REASONS: Record<string, string> = {
   joining_sync: "Joining this collection…",
   detached_sync: "This copy stopped following the collection. Join it again to keep it in sync.",
   adopt_failed: "Turning on sync did not finish. Choose Turn on sync again to continue.",
-  adopting: "Turning on sync: uploading the files in the folder…"
+  adopting: "Turning on sync: uploading the files in the folder…",
+  private_sync_pending: "Turning on Private sync so apps that used this collection keep working. mdbase finishes this on its own; your files are untouched."
 };
 
 function reasonText(reason: string | undefined): string | undefined {
@@ -92,6 +93,10 @@ export function presentCollection(collection: CollectionLike): CollectionPresent
   };
   switch (collection.state) {
     case "paused":
+      // Taken over from mdbase Connect: an interrupted turn-on of Private sync, retried automatically.
+      if (collection.reason === "private_sync_pending") {
+        return { ...base, status: "Turning on Private sync…", detail: reasonText(collection.reason), dot: "connecting" };
+      }
       return { ...base, status: "Paused", detail: "Apps cannot use it until you resume it.", dot: "paused" };
     case "opening":
       return { ...base, status: "Opening…", detail: reasonText(collection.reason), dot: "connecting" };

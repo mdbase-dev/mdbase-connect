@@ -1,4 +1,5 @@
-import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
+import { generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
+import { capabilityOperations } from "@mdbase-dev/connect-protocol";
 import { nativeReadApp } from "./test/native-grant.js";
 import { buildApp } from "../../app.js";
 import { provisionNewAccountBackend } from "./account-backend-flip.js";
@@ -277,6 +278,34 @@ describePg("private collections", () => {
       await db.query("UPDATE connectors SET revoked_at=now() WHERE id=$1",[who.connector.id]);
       expect(await computers()).toEqual([]);
     } finally {await portal.close();}
+  });
+
+  it("carries the owner's app grants over from a collection taken over from mdbase Connect", async () => {
+    const who = await identity(); const owner = who.connector.user_id; const collection = randomUUID();
+    await db.query("UPDATE users SET account_backend = 'next' WHERE id = $1", [owner]);
+    const legacyConnector = randomUUID(); const legacyRow = randomUUID(); const grant = randomUUID();
+    await db.query("INSERT INTO connectors(id,user_id,name,token_hash,relay_generation,revoked_at) VALUES($1,$2,'Old Connect',$3,2,now())", [legacyConnector, owner, randomUUID()]);
+    await db.query(`INSERT INTO collections(id,user_id,connector_id,local_id,display_name,spec_version,present,enabled,authority_state)
+      VALUES($1,$2,$3,$4,'Journal','0.3.0',true,false,'retired')`, [legacyRow, owner, legacyConnector, collection]);
+    await db.query(`INSERT INTO applications(id,canonical_identity,name,homepage,redirect_uris,application_declaration)
+      VALUES($1::uuid,$1::text,'Journal','https://journal.example','[]','{"id":"dev.mdbase.journal"}')`, [grant]);
+    await db.query(`INSERT INTO grants(id,user_id,application_id,collection_id,operations,scope,file_capability,application_installation_id,application_authorization,activated_at)
+      VALUES($1,$2,$1,$3,$5::jsonb,'{"access":"full_collection","contracts":[]}',
+      '{"kind":"files","protocol_version":1,"actions":["list","read"],"scope":{"kind":"collection"}}',$4,
+      '{"binding":{"protocol_version":5,"application_declaration_id":"dev.mdbase.journal","contracts":{"semantic_capabilities":2}}}',now())`,
+    [grant, owner, legacyRow, randomUUID(), JSON.stringify(capabilityOperations("collection.read"))]);
+    await db.query("INSERT INTO next_grant_client_keys(grant_id, client_pk) VALUES($1,$2)", [grant, randomBytes(32)]);
+    const response = await create(who, await createProof(who, collection));
+    expect(response.statusCode, response.body).toBe(200);
+    const moved = (await db.query("SELECT collection_id, next_collection_id FROM grants WHERE id = $1", [grant])).rows[0];
+    expect(moved).toEqual({ collection_id: null, next_collection_id: collection });
+    const binding = (await db.query("SELECT log_grant_id FROM next_grant_bindings WHERE grant_id = $1 AND active", [grant])).rows[0];
+    const ops = (await db.query<{ ops: { ops: Array<Record<string, unknown>> } }>("SELECT ops FROM next_policy_outbox WHERE collection_id = $1 ORDER BY id", [collection])).rows.flatMap(r => r.ops.ops);
+    expect(ops.filter(op => op.op === "grant")).toEqual([expect.objectContaining({ grant: binding.log_grant_id, account: owner })]);
+    // A create retry moves nothing more and answers the same genesis.
+    const retry = await create(who, await createProof(who, collection));
+    expect(retry.statusCode, retry.body).toBe(200);
+    expect(retry.json().genesis).toEqual(response.json().genesis);
   });
 
   it("creates an e2e genesis that enrols only the owner's device", async () => {
