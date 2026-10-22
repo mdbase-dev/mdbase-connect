@@ -68,17 +68,17 @@ No new release-signing key or arbitrary Cosign certificate is accepted.
 Observe the exact new run/attempt after publication; reconcile uncertain outcomes
 instead of blindly redispatching.
 
-## Prepared beta.136 staging asset
+## Prepared beta.137 staging asset
 
 `config/next-trust/staging.json` is prepared for image release
-`v0.1.0-beta.136`, source `6c3bf8eb391dae81028b07d8a7996e1272c34d87`.
-The selected original image publication is run `39700623297`, with source
-Server CI run `39700585485`.
+`v0.1.0-beta.137`, source `b69a1a6a6863901ff74d4da97041579cdffc8d4c`.
+The selected original image publication is run `39722953560`, with source
+Server CI run `39722922539`.
 Successful publication, its actual attempt, and all original signed evidence
 must still be independently verified before trust publication.
 Its fixed origins remain `https://connect-staging.mdbase.dev` and
 `https://log-staging.mdbase.dev`. The canonical asset is **853 bytes**, SHA-256
-`8cc3f87e9b220c827464a566b0ef2860c9010edf4b1346a9f52551dbf9a27971`.
+`a1dabf2d8e054523b3d34c58571b7968ac03e255b797d66a7ee5aef7184053f2`.
 Only issue time and image source/version changed. Existing independent staging
 roots and certified policy keys are preserved byte-for-byte, not LAB material.
 
