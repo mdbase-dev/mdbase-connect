@@ -82,8 +82,21 @@ function deviceAvailability(candidates: readonly Candidate[]): RouteAvailability
   return { state: "unavailable", reason: "device_offline" };
 }
 
-export function registerNextRouteRoutes(app: FastifyInstance, options: { db: DatabaseQueryable; publicUrl: string; broker: Pick<RelayBroker, "request">; hostedClientUrl?: string; labPitr?: LabPitrConfig; migrationRouting?: MigrationRouting }): void {
+export function registerNextRouteRoutes(app: FastifyInstance, options: { db: DatabaseQueryable; publicUrl: string; broker: Pick<RelayBroker, "request">; hostedClientUrl?: string; labPitr?: LabPitrConfig; migrationRouting?: MigrationRouting;
+  /** Moves a taken-over collection's eligible legacy grants to it; never throws. */
+  carryOver?: (collection: string) => Promise<number> }): void {
   const hostedOrigin = options.hostedClientUrl ? hostedClientOrigin(options.hostedClientUrl) : undefined;
+  // At most one carry-over attempt per collection a minute: a grant that cannot
+  // move stays superseded, and its app may keep asking.
+  const attempted = new Map<string, number>();
+  const carryOver = async (collection: string): Promise<number> => {
+    if (!options.carryOver) return 0;
+    const now = Date.now();
+    if ((attempted.get(collection) ?? 0) > now - 60_000) return 0;
+    if (attempted.size >= 10_000) attempted.clear();
+    attempted.set(collection, now);
+    return options.carryOver(collection);
+  };
   // Always `wss:`, except for a loopback development server (SDK request).
   const relayUrl = new URL("/v1/next/relay/client", options.publicUrl);
   const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(relayUrl.hostname);
@@ -124,14 +137,17 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
     );
     // A Private native collection: the grant targets the collection itself and is
     // served by the granting account's enrolled desktop/CLI devices.
-    const native = grant.rows[0] || hosted?.grant ? null : await nativeGrant(options.db, hash, id);
-    const row = grant.rows[0] ?? hosted?.grant ?? (native ? { ...native, policy_required: true } : undefined);
-    if (!row) {
-      // Taken over by a native collection: the app must be set up again for it.
+    let native = grant.rows[0] || hosted?.grant ? null : await nativeGrant(options.db, hash, id);
+    if (!grant.rows[0] && !hosted?.grant && !native) {
+      // Taken over by a native collection: an eligible grant moves to it (normally
+      // already done when Private sync was turned on); otherwise the app must be
+      // set up again for it.
       const superseded = await supersededLegacyGrant(options.db, hash, id);
-      if (superseded) return unavailableRoute(id, superseded, "sync_required");
-      return reply.code(401).send(apiError("invalid_token", "Access token is invalid or expired for this collection."));
+      if (superseded && await carryOver(id) > 0) native = await nativeGrant(options.db, hash, id);
+      if (!native && superseded) return unavailableRoute(id, superseded, "sync_required");
     }
+    const row = grant.rows[0] ?? hosted?.grant ?? (native ? { ...native, policy_required: true } : undefined);
+    if (!row) return reply.code(401).send(apiError("invalid_token", "Access token is invalid or expired for this collection."));
     // A valid scoped grant proves visibility, not next readiness. Explain the
     // exact legacy authority before suggesting another key/approval attempt.
     if (grant.rows[0] && await unmigratedLocalCollection(options.db, id, grant.rows[0].user_id)) {

@@ -63,6 +63,7 @@ pub(super) fn daemon(dir: &crate::testutil::TestDir) -> Arc<Daemon> {
         identity: std::sync::OnceLock::new(),
         account_keys: Default::default(),
         takeover: Default::default(),
+        auto_private: Default::default(),
         inner: Mutex::new(Inner {
             registry: Registry {
                 collections: vec![crate::registry::Entry {

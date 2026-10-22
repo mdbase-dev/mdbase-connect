@@ -42,6 +42,7 @@ pub mod adopt;
 pub mod approval_journal;
 pub mod attest;
 pub mod authority;
+pub mod auto_private;
 pub mod cli;
 pub mod client;
 pub mod cloud;

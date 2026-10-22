@@ -254,6 +254,41 @@ async fn automatic_takeover_waits_for_a_flipped_batch_and_fails_closed() {
     .await;
     assert_eq!(st["record"]["state"], "complete");
 
+    // With no user action, the daemon turns Private sync on for the taken-over
+    // collection (the ordinary sync enable). This hermetic control plane is not a
+    // trusted one, so the attempt is refused: it is recorded, the takeover stands,
+    // the collection keeps serving locally and no byte changes.
+    let st = until("an automatic Private sync attempt", || async {
+        let s = status(&profile).await;
+        s["private_sync_pending"][old_agent::CID]["reason"]
+            .is_string()
+            .then_some(s)
+    })
+    .await;
+    assert_eq!(st["record"]["state"], "complete");
+    let first_reason = st["private_sync_pending"][old_agent::CID]["reason"].clone();
+    let listed = until("the pending notice", || async {
+        let mut c = ControlClient::connect(&profile.control).await.unwrap();
+        let v = c.call(Method::COLLECTION_LIST, json!({})).await.unwrap();
+        let list: Vec<CollectionStatus> = serde_json::from_value(v).unwrap();
+        list.into_iter()
+            .find(|s| s.id == old_agent::CID)
+            .filter(|s| s.notices.iter().any(|n| n.code == "private_sync_pending"))
+            .map(|s| serde_json::to_value(s).unwrap())
+    })
+    .await;
+    let listed: CollectionStatus = serde_json::from_value(listed).unwrap();
+    assert_eq!(listed.mode, mdbn_daemon::registry::SyncMode::Local);
+    assert_eq!(listed.origin, mdbn_daemon::registry::Origin::MigratedLocal);
+    assert_ne!(
+        listed.state,
+        mdbn_daemon::control::CollectionState::Paused,
+        "a refused attempt never stops serving the folder"
+    );
+    assert_eq!(std::fs::read(notes.join("a.md")).unwrap(), b"A1");
+    assert_eq!(std::fs::read(notes.join("b.md")).unwrap(), b"B");
+    assert_eq!(std::fs::read(notes.join("c.md")).unwrap(), b"C user edit");
+
     // Doctor reports the held file.
     let mut c = ControlClient::connect(&profile.control).await.unwrap();
     let checks: Vec<Check> =
@@ -266,6 +301,18 @@ async fn automatic_takeover_waits_for_a_flipped_batch_and_fails_closed() {
         "{}",
         t.detail
     );
+    // ... and that Private sync turns on by itself, with the last refusal.
+    let adopt = checks
+        .iter()
+        .find(|c| c.id == format!("adopt:{}", old_agent::CID))
+        .unwrap();
+    assert!(
+        adopt.detail.contains("Private sync is not on yet")
+            && adopt.detail.contains(first_reason.as_str().unwrap()),
+        "{}",
+        adopt.detail
+    );
+    assert!(!adopt.detail.contains("sync is off"), "{}", adopt.detail);
 
     // The marker guard: removing the claim is an incident in doctor (live), never
     // rewritten; putting it back clears the live check (the run latch is separate).
@@ -360,6 +407,17 @@ async fn automatic_takeover_waits_for_a_flipped_batch_and_fails_closed() {
         evidence
     );
     assert_eq!(std::fs::read(notes.join("a.md")).unwrap(), b"A1");
+    // The restart retried turning Private sync on (failures are not persisted):
+    // Connect is unreachable now, so it waits for the next attempt, still local.
+    let st = until("a retry after the restart", || async {
+        let s = status(&profile).await;
+        (s["private_sync_pending"][old_agent::CID]["reason"] == "sync_unreachable").then_some(s)
+    })
+    .await;
+    assert_eq!(st["record"]["state"], "complete");
+    let s = collection(c.call(Method::COLLECTION_LIST, json!({})).await.unwrap());
+    assert_eq!(s.mode, mdbn_daemon::registry::SyncMode::Local);
+    assert_eq!(std::fs::read(notes.join("c.md")).unwrap(), b"C user edit");
     c.call(Method::SHUTDOWN, json!({})).await.unwrap();
     daemon.await.unwrap().unwrap();
 }

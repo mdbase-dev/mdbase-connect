@@ -31,6 +31,7 @@ import { domainHash, encodeCbor, uuidBytes } from "./policy-wire.js";
 import { collectionDisplayName, DEFAULT_COLLECTION_DISPLAY_NAME, validateInitialCollectionName } from "./collection-display-name.js";
 import { registerCollectionNameRoutes } from "./collection-name-routes.js";
 import { requireNextAccountNotMigrationFrozen } from "./migration-topology.js";
+import { carryOverLegacyGrants } from "./legacy-grant-carry-over.js";
 
 /** `H("mdbase/v1/private-create", cbor[challenge, connector, device, collection])`, signed by the owner's device. */
 export function privateCreateDigest(input: { challenge: Uint8Array; connector: string; device: string; collection: string }): Uint8Array {
@@ -178,7 +179,7 @@ export function registerPrivateCollectionRoutes(app: FastifyInstance, options: {
       const head = await options.log.head(collection);
       // 3. After every await: the identity, the collection and the enrolment are
       // current, and stay locked until the token is minted.
-      return await inTransaction(options.db, async (client) => {
+      const created = await inTransaction(options.db, async (client) => {
         await currentIdentity(client, connector, body.device_id, device);
         await currentPrivate(client, collection, connector.user_id);
         // Ownership and a historical genesis are not membership: the owner account
@@ -204,6 +205,11 @@ export function registerPrivateCollectionRoutes(app: FastifyInstance, options: {
           device: mint(body.device_id, device.sign_pk, collection)
         };
       });
+      // 4. A desktop collection taken over from mdbase Connect keeps its apps:
+      // their grants move to this collection. Best effort; a later route lookup
+      // by such an app retries, and the create outcome never depends on it.
+      await carryOverLegacyGrants(options, collection, request.log);
+      return created;
     } catch (error) {
       if (error instanceof CreateError && error.status !== 503) return refuse(reply, error, "The private collection is not current for this device.");
       return reply.code(503).send(apiError("not_ready", "The private collection outcome is not verified; retry with a fresh proof."));

@@ -1,0 +1,9 @@
+{
+  "reason": "legacy-grant-carry-over.ts owns moving a taken-over desktop collection's eligible app grants to its Private collection. It is called from three places (Private create, local takeover retirement and the route lookup), so it is one module rather than a copy in each route; it adds no route or credential use.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 11,
+    "typeScriptExportDeclarations": 2,
+    "services/server": 1
+  }
+}
