@@ -1,3 +1,10 @@
+// Reuse the integration fixtures inside private admission unit tests.
+#[cfg(test)]
+extern crate self as mdbase_connect_hosted_provider;
+#[cfg(test)]
+#[path = "../tests/support/test_postgres.rs"]
+mod test_postgres;
+
 mod backup_admin;
 mod blob_store;
 mod crypto;
@@ -28,7 +35,7 @@ pub use execution_budget::{
     HostedExecutionBudgets, HostedExecutionEntitlement,
 };
 pub use execution_measurement::HostedProcessMemory;
-pub use http::{app, AppState};
+pub use http::{app, AppState, ClientUpdatePolicy};
 pub use key_admin::{HostedKeyAdmin, KeyRewrapOptions, KeyRewrapReport, KeyWrapInventory};
 pub use key_wrapping::{
     AwsKmsKeyWrapper, KeyWrapContext, KeyWrapError, KeyWrapErrorKind, KeyWrapInspection,
@@ -41,14 +48,14 @@ pub use provider::{
     DiagnosticSection, DrainStateDiagnostic, HostedDiagnostics, HostedLifecycleWorkDiagnostic,
     HostedMutationJournalDiagnostics, HostedProjectionBatch, HostedProjectionGeneration,
     HostedProjectionIndexPlan, HostedProjectionIndexPlanEntry, HostedProjectionStatus,
-    HostedProjectionVerification, HostedProvider, HostedQueryActivity, LegacyRollbackReceipt,
-    LegacyRollbackRequest, LifecycleDiagnosticSection, MigrationLedgerDiagnostic,
-    MutationJournalLifecycleDiagnostic, NotificationRecoveryState, NotificationRecoveryStatus,
-    PrepareAuthorityImport, PrepareAuthorityTransfer, ProjectionProgressDiagnostic,
-    ProjectionReadinessDiagnostic, ProviderAccountLimits, ProviderAccountUsage,
-    ProviderAuthorityImport, ProviderAuthorityImportState, ProviderAuthorityTransfer,
-    ProviderAuthorityTransferState, ProviderLimits, RegisterReplica, ReplicaPurpose,
-    ResourceChangeDiagnostic, RuntimeOutboxLifecycleDiagnostic, StorageDiagnostic,
+    HostedProjectionVerification, HostedProvider, HostedQueryActivity, LegacyRollbackEnvelope,
+    LegacyRollbackReceipt, LegacyRollbackRequest, LifecycleDiagnosticSection,
+    MigrationLedgerDiagnostic, MutationJournalLifecycleDiagnostic, NotificationRecoveryState,
+    NotificationRecoveryStatus, PrepareAuthorityImport, PrepareAuthorityTransfer,
+    ProjectionProgressDiagnostic, ProjectionReadinessDiagnostic, ProviderAccountLimits,
+    ProviderAccountUsage, ProviderAuthorityImport, ProviderAuthorityImportState,
+    ProviderAuthorityTransfer, ProviderAuthorityTransferState, ProviderLimits, RegisterReplica,
+    ReplicaPurpose, ResourceChangeDiagnostic, RuntimeOutboxLifecycleDiagnostic, StorageDiagnostic,
     HOSTED_DIAGNOSTICS_SCHEMA_VERSION,
 };
 #[cfg(feature = "test-hooks")]

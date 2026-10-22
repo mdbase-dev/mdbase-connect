@@ -67,6 +67,193 @@ impl World {
     }
 }
 
+#[test]
+fn ordinary_unacknowledged_text_is_not_reoffered_as_a_resource() {
+    let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
+    let mut s = w.open_with(Config {
+        move_window_ms: 0,
+        quiescence_ms: 0,
+        ..Config::default()
+    });
+    w.p.fs
+        .write_replace("ordinary.md", b"ordinary text")
+        .unwrap();
+    let first = s.observe(None).unwrap();
+    assert_eq!(first.len(), 1);
+    let original = first[0].token;
+    assert!(
+        s.observe(Some(&["unrelated.md".into()]))
+            .unwrap()
+            .is_empty()
+    );
+    assert!(s.observe(None).unwrap().is_empty());
+    // Only explicit resource deferral arms redelivery; the original token remains.
+    s.defer_disk_observations(&[original]).unwrap();
+    let deferred = s.observe(None).unwrap();
+    assert_eq!(deferred.len(), 1);
+    assert_eq!(deferred[0].token, original);
+    assert_eq!(deferred[0].base, first[0].base);
+}
+
+#[test]
+fn deferred_resource_reoffers_original_token_and_refuses_changed_source() {
+    let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
+    let mut s = w.open_with(Config {
+        move_window_ms: 0,
+        quiescence_ms: 0,
+        ..Config::default()
+    });
+    w.p.fs
+        .write_replace("_contracts/test.md", b"original source")
+        .unwrap();
+    let first = s.observe(None).unwrap();
+    assert_eq!(first.len(), 1);
+    let original = &first[0];
+    assert_eq!(
+        s.resource_observation_text(original, 1024)
+            .unwrap()
+            .as_deref(),
+        Some("original source")
+    );
+    let offered = s.observe(None).unwrap();
+    assert_eq!(offered.len(), 1);
+    assert_eq!(offered[0].token, original.token);
+    assert_eq!(offered[0].base, original.base);
+    assert!(s.resource_observation_current(original).unwrap());
+    w.p.fs
+        .write_replace("_contracts/test.md", b"changed source")
+        .unwrap();
+    assert!(!s.resource_observation_current(original).unwrap());
+    assert!(
+        s.resource_observation_text(original, 1024)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn terminal_resource_refusal_blocks_unchanged_observation_attempts() {
+    // FileStore binding model only: not a synthesized native receipt.
+    let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
+    let mut s = w.open_with(Config {
+        move_window_ms: 0,
+        quiescence_ms: 0,
+        ..Config::default()
+    });
+    w.p.fs
+        .write_replace("mdbase.yaml", b"spec_version: '0.3.0'\n")
+        .unwrap();
+    let first = s.observe(None).unwrap();
+    let mutation = B16([7; 16]);
+    s.resource_observation_refused(&[first[0].token], mutation)
+        .unwrap();
+    assert!(!s.resource_observation_batch_complete(&first).unwrap());
+    let offered = s.observe(None).unwrap();
+    assert!(!s.resource_observation_batch_complete(&offered).unwrap());
+    w.p.fs
+        .write_replace(
+            "mdbase.yaml",
+            b"spec_version: '0.3.0'\n#actual source correction\n",
+        )
+        .unwrap();
+    s.request_rescan();
+    let changed = s.observe(None).unwrap();
+    assert_ne!(changed[0].token, first[0].token);
+    assert!(s.resource_observation_batch_complete(&changed).unwrap());
+    assert!(
+        !s.resource_observation_batch_complete(&first).unwrap(),
+        "original refused set stays blocked"
+    );
+}
+
+#[test]
+fn ordinary_attachment_delivery_survives_resource_deferral_without_a_new_token() {
+    let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
+    let mut s = w.open_with(Config {
+        move_window_ms: 0,
+        quiescence_ms: 0,
+        ..Config::default()
+    });
+    w.p.fs
+        .write_replace("image.bin", b"original attachment bytes")
+        .unwrap();
+    let original = s.observe(None).unwrap().remove(0);
+    assert!(s.observe(None).unwrap().is_empty());
+    s.defer_disk_observations(&[original.token]).unwrap();
+    let replay = s.observe(None).unwrap().remove(0);
+    assert_eq!(replay.token, original.token);
+    assert_eq!(replay.base, original.base);
+    match (replay.now, original.now) {
+        (
+            Some(Observed::Attachment {
+                digest: a,
+                size: b,
+                class: c,
+            }),
+            Some(Observed::Attachment {
+                digest: x,
+                size: y,
+                class: z,
+            }),
+        ) => {
+            assert_eq!((a, b, c), (x, y, z));
+        }
+        _ => panic!("original attachment metadata must be retained"),
+    }
+}
+
+#[test]
+fn only_requested_resource_dependency_reads_reoffer_attachment_text() {
+    let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
+    let mut s = w.open_with(Config {
+        move_window_ms: 0,
+        quiescence_ms: 0,
+        ..Config::default()
+    });
+    w.p.fs
+        .write_replace("schemas/a.json", b"{\"type\":\"object\"}")
+        .unwrap();
+    let original = s.observe(None).unwrap().remove(0);
+    assert!(matches!(original.now, Some(Observed::Attachment { .. })));
+    assert!(
+        s.observe(None).unwrap().is_empty(),
+        "ordinary JSON stays ordinary"
+    );
+    assert!(s.resource_observation_text(&original, 2).unwrap().is_none());
+    assert!(
+        s.observe(None).unwrap().is_empty(),
+        "over-bound read cannot arm resource redelivery"
+    );
+    assert_eq!(
+        s.resource_observation_text(&original, 1024)
+            .unwrap()
+            .as_deref(),
+        Some("{\"type\":\"object\"}")
+    );
+    assert_eq!(s.observe(None).unwrap()[0].token, original.token);
+}
+
+#[test]
+fn mirror_gate_blocks_resource_read_and_currentness_before_filesystem_io() {
+    closed_mirror_effect(|s| {
+        let observation = Observation {
+            token: mdbn_replica::store::ObservationId(1),
+            path: "local.md".into(),
+            base: None,
+            now: Some(Observed::Text("user bytes".into())),
+            moved_from: None,
+            provenance: Provenance::Normal,
+        };
+        s.resource_observation_text(&observation, 1024).is_err()
+            && s.resource_observation_current(&observation).is_err()
+            && s.resource_observation_batch_complete(std::slice::from_ref(&observation))
+                .is_err()
+            && s.defer_disk_observations(&[observation.token]).is_err()
+            && s.resource_observation_refused(&[observation.token], B16([1; 16]))
+                .is_err()
+    });
+}
+
 // Closed mirror gate: each native effect entry point is independently checked,
 // in BOTH phases. Injecting through shared MemStore simulates persisted startup
 // metadata; the production driver must persist it before the first FileStore open.
@@ -321,6 +508,129 @@ fn mirror_gate_file_store_open_skips_private_dirs_and_intent_recovery() {
         assert_eq!(w.p.fs.ops(), ops);
         assert_eq!(w.p.fs.get("local.md"), Some(b"user bytes".to_vec()));
     }
+}
+
+#[test]
+fn queued_open_closed_mirror_gate_issues_no_host_operations() {
+    use crate::host::QueuedPlatform;
+    use crate::platform::FilePlatform;
+    use mdbn_replica::mirror_admission::Fence;
+    for detached in [false, true] {
+        let w = World::new(ReplaceStrategy::GuardedInPlace, CaseSensitivity::Sensitive);
+        let mut inner = MemStore::shared(w.data.clone());
+        let fence = Fence::new([1; 16], 1).unwrap();
+        fence.persist(&mut inner).unwrap();
+        if detached {
+            fence.detached().persist(&mut inner).unwrap();
+        }
+        let (platform, queue) = QueuedPlatform::new(w.p.capabilities().clone());
+        let before = w.db.load().unwrap();
+        let mut opening = FileStore::start_open(
+            Rc::new(platform),
+            inner,
+            w.db.clone(),
+            Box::new(w.clock.clone()),
+            Config::default(),
+        );
+        assert!(matches!(opening.poll(0), std::task::Poll::Ready(Err(_))));
+        assert!(queue.take_requests().is_empty());
+        assert_eq!(queue.in_flight(), 0);
+        assert_eq!(w.db.load().unwrap(), before);
+    }
+}
+
+#[test]
+fn retained_observation_closed_mirror_gate_refuses_before_scan_io() {
+    use mdbn_replica::mirror_admission::Fence;
+    for detached in [false, true] {
+        let w = World::new(ReplaceStrategy::GuardedInPlace, CaseSensitivity::Sensitive);
+        let mut store = w.open();
+        let mut control = MemStore::shared(w.data.clone());
+        let fence = Fence::new([1; 16], 1).unwrap();
+        fence.persist(&mut control).unwrap();
+        if detached {
+            fence.detached().persist(&mut control).unwrap();
+        }
+        // First scan IO would enter read/list hooks; a mirror refusal must not.
+        w.p.fs
+            .write_replace("unadmitted.md", b"actual unopened source")
+            .unwrap();
+        let before = w.db.load().unwrap();
+        let mut scan = store.start_observe(None);
+        assert!(matches!(scan.poll(0), std::task::Poll::Ready(Err(_))));
+        assert!(scan.is_complete());
+        drop(scan);
+        assert_eq!(store.stats.files_read, 0);
+        assert_eq!(w.db.load().unwrap(), before);
+        assert!(store.disk_state("unadmitted.md").is_none());
+    }
+}
+
+#[test]
+fn retained_observation_mirror_closes_while_original_list_is_pending() {
+    use crate::exec::{Timers, run_ready};
+    use crate::host::{FileOp, FileOpOutput, QueuedPlatform};
+    use crate::platform::FilePlatform;
+    use mdbn_replica::mirror_admission::Fence;
+    use std::task::Poll;
+    // Queued mirror lifecycle unit model; not real files/Obsidian acceptance.
+    let w = World::new(ReplaceStrategy::GuardedInPlace, CaseSensitivity::Sensitive);
+    let (platform, queue) = QueuedPlatform::new(w.p.capabilities().clone());
+    let mut opening = FileStore::start_open(
+        Rc::new(platform),
+        MemStore::shared(w.data.clone()),
+        w.db.clone(),
+        Box::new(w.clock.clone()),
+        Config::default(),
+    );
+    let mut ready = None;
+    for _ in 0..32 {
+        match opening.poll(0) {
+            Poll::Ready(Ok(store)) => {
+                ready = Some(store);
+                break;
+            }
+            Poll::Ready(Err(e)) => panic!("unexpected unit opening refusal: {e:?}"),
+            Poll::Pending => {
+                let requests = queue.take_requests();
+                assert_eq!(requests.len(), 1);
+                let (id, FileOp::CreateDirAll { dir }) = &requests[0] else {
+                    panic!("expected original directory IO");
+                };
+                run_ready(&Timers::default(), w.p.create_dir_all(dir))
+                    .unwrap()
+                    .unwrap();
+                queue.complete(*id, Ok(FileOpOutput::Unit));
+            }
+        }
+    }
+    let mut store = ready.expect("bounded unit opening completes");
+    w.p.fs
+        .write_replace("unadmitted.md", b"actual unit source")
+        .unwrap();
+    let mut scan = store.start_observe(None);
+    assert!(scan.poll(0).is_pending());
+    let requests = queue.take_requests();
+    assert_eq!(requests.len(), 1);
+    let (id, FileOp::List { dir }) = &requests[0] else {
+        panic!("expected original list");
+    };
+    let entries = run_ready(&Timers::default(), w.p.list(dir))
+        .unwrap()
+        .unwrap();
+    let mut control = MemStore::shared(w.data.clone());
+    Fence::new([1; 16], 1)
+        .unwrap()
+        .persist(&mut control)
+        .unwrap();
+    queue.complete(*id, Ok(FileOpOutput::Entries(entries)));
+    assert!(matches!(scan.poll(1), Poll::Ready(Err(_))));
+    assert!(scan.is_complete());
+    assert!(
+        queue.take_requests().is_empty(),
+        "closed mirror cannot issue a new stat/read"
+    );
+    assert_eq!(queue.in_flight(), 0);
 }
 
 fn next_launch_config(cap_bytes: u64) -> Config {
@@ -773,6 +1083,130 @@ fn drift_reports_and_keeps_user_bytes() {
 }
 
 #[test]
+fn create_onto_identical_file_records_it_without_writing() {
+    for case in [CaseSensitivity::Sensitive, CaseSensitivity::Insensitive] {
+        for strategy in ALL {
+            let w = World::new(strategy, case);
+            let mut s = w.open();
+            w.p.fs.write_in_place("notes/a.md", b"same").unwrap();
+            w.p.fs.write_in_place("B.md", b"same").unwrap();
+            let ino = w.p.fs.ino("notes/a.md");
+            let before = w.p.fs.ops();
+            assert!(publish(&mut s, write("notes/a.md", RExpect::Absent, "same")).is_empty());
+            let log = w.p.fs.log().split_off(before as usize);
+            assert!(
+                log.iter()
+                    .all(|l| !l.contains("write") && !l.contains("rename") && !l.contains("flush")),
+                "{case:?} {strategy:?} {log:?}"
+            );
+            assert_eq!(w.p.fs.ino("notes/a.md"), ino);
+            // Known: not observed back, and the next publish expects it.
+            s.request_rescan();
+            w.clock.advance(5_000);
+            assert!(s.observe(None).unwrap().is_empty(), "{case:?} {strategy:?}");
+            assert!(publish(&mut s, write("notes/a.md", rev("same"), "v2")).is_empty());
+            assert_eq!(w.p.fs.get("notes/a.md").unwrap(), b"v2");
+            // Other bytes, or a name that differs only by case, stay a drift.
+            w.p.fs.write_in_place("c.md", b"user").unwrap();
+            assert_eq!(
+                publish(&mut s, write("c.md", RExpect::Absent, "same")).len(),
+                1
+            );
+            let d = publish(&mut s, write("b.md", RExpect::Absent, "same"));
+            if case == CaseSensitivity::Insensitive {
+                assert_eq!(d.len(), 1, "{strategy:?}");
+                assert!(w.p.fs.get("B.md").is_some());
+            }
+        }
+    }
+}
+
+/// An install's creates are published as one batch: one barrier and one full
+/// flush, never a sync per file; a crash at any point recovers to a folder
+/// where each file is absent or complete, and repeating the install finishes.
+#[test]
+fn create_batch_syncs_once_and_recovers_from_a_crash_anywhere() {
+    let creates = || -> Vec<Publish> {
+        (0..20)
+            .map(|i| {
+                write(
+                    &format!("d{}/n{i}.md", i % 3),
+                    RExpect::Absent,
+                    &format!("v{i}"),
+                )
+            })
+            .collect()
+    };
+    let want: Vec<String> = {
+        let mut v: Vec<String> = (0..20).map(|i| format!("d{}/n{i}.md", i % 3)).collect();
+        v.push("d1/n4.md".into());
+        v.sort();
+        v.dedup();
+        v
+    };
+    for strategy in [ReplaceStrategy::Exchange, ReplaceStrategy::LockedInPlace] {
+        let w = World::new(strategy, CaseSensitivity::Sensitive);
+        let mut s = w.open();
+        w.p.fs.write_in_place("d1/n4.md", b"user").unwrap();
+        let before = w.p.fs.ops();
+        let drifts = s
+            .commit(Tx {
+                publish: creates(),
+                ..Tx::default()
+            })
+            .unwrap()
+            .drifts;
+        assert_eq!(drifts.len(), 1, "{strategy:?}: the user's file stays");
+        let log = w.p.fs.log().split_off(before as usize);
+        let flushes: Vec<&String> = log.iter().filter(|l| l.contains("flush")).collect();
+        assert_eq!(flushes.len(), 2, "{strategy:?} {flushes:?}");
+        assert!(
+            flushes[0].contains("Barrier") && flushes[1].contains("Full"),
+            "{flushes:?}"
+        );
+        let total = w.p.fs.ops() - before;
+        assert_eq!(w.p.fs.get("d1/n4.md").unwrap(), b"user");
+        assert_eq!(w.p.fs.paths(), want, "{strategy:?}");
+
+        for k in 0..total {
+            let w = World::new(strategy, CaseSensitivity::Sensitive);
+            let mut s = w.open();
+            w.p.fs.crash_at(w.p.fs.ops() + k);
+            let _ = s.commit(Tx {
+                publish: creates(),
+                ..Tx::default()
+            });
+            drop(s);
+            w.p.fs.restart();
+            let mut s = w.open();
+            for i in 0..20 {
+                let path = format!("d{}/n{i}.md", i % 3);
+                if let Some(b) = w.p.fs.get(&path) {
+                    assert_eq!(b, format!("v{i}").into_bytes(), "{strategy:?} k={k} {path}");
+                }
+            }
+            w.clock.advance(5_000);
+            assert!(s.observe(None).unwrap().is_empty(), "{strategy:?} k={k}");
+            let drifts = s
+                .commit(Tx {
+                    publish: creates(),
+                    ..Tx::default()
+                })
+                .unwrap()
+                .drifts;
+            assert!(drifts.is_empty(), "{strategy:?} k={k}: {drifts:?}");
+            w.clock.advance(5_000);
+            assert!(s.observe(None).unwrap().is_empty(), "{strategy:?} k={k}");
+            let mut paths = w.p.fs.paths();
+            paths.push("d1/n4.md".into());
+            paths.sort();
+            paths.dedup();
+            assert_eq!(paths, want, "{strategy:?} k={k}");
+        }
+    }
+}
+
+#[test]
 fn delete_needs_recheck_and_window() {
     let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
     let mut s = w.open();
@@ -1052,6 +1486,113 @@ fn recovered_publish_is_flushed_before_it_is_recorded() {
         assert!(
             checked > 0,
             "{strategy:?}: no crash point recovered a publish"
+        );
+    }
+}
+
+/// Genuine suspension of the recovery future; the filesystem and journal here
+/// are unit-test memory implementations, NOT Obsidian/disk durability proof.
+#[test]
+fn queued_recovery_retains_original_intent_until_final_host_flush() {
+    use crate::exec::{Timers, run_ready};
+    use crate::host::{FileOp, FileOpOutput, QueuedPlatform};
+    use crate::platform::{FilePlatform, FlushScope};
+    use std::task::Poll;
+    for fail_full in [false, true] {
+        let mut checked = false;
+        for k in 0..12 {
+            let w = World::new(ReplaceStrategy::GuardedInPlace, CaseSensitivity::Sensitive);
+            let mut store = w.open();
+            publish(&mut store, write("a.md", RExpect::Absent, "old"));
+            crash_publish_at(&w, &mut store, "a.md", k);
+            drop(store);
+            let before = w.db.load().unwrap();
+            if w.p.fs.get("a.md").as_deref() != Some(b"new")
+                || !before.iter().any(|(kind, _, _)| *kind == Kind::Intent)
+            {
+                continue;
+            }
+            w.p.fs.set_fail_full_flushes(fail_full);
+            let (platform, queue) = QueuedPlatform::new(w.p.capabilities().clone());
+            let mut opening = FileStore::start_open(
+                Rc::new(platform),
+                MemStore::shared(w.data.clone()),
+                w.db.clone(),
+                Box::new(w.clock.clone()),
+                Config::default(),
+            );
+            let mut completed = Vec::new();
+            let mut full_seen = false;
+            let mut result = None;
+            for _ in 0..64 {
+                match opening.poll(w.clock.now_ms()) {
+                    Poll::Ready(value) => {
+                        result = Some(value);
+                        break;
+                    }
+                    Poll::Pending => {}
+                }
+                assert_eq!(
+                    w.db.load().unwrap(),
+                    before,
+                    "pending recovery must not acknowledge or retire its original journal"
+                );
+                let requests = queue.take_requests();
+                assert_eq!(requests.len(), 1);
+                let (id, op) = &requests[0];
+                assert!(!completed.contains(id));
+                assert!(opening.poll(w.clock.now_ms()).is_pending());
+                assert!(queue.take_requests().is_empty());
+                let timers = Timers::default();
+                let done = match op {
+                    FileOp::CreateDirAll { dir } => run_ready(&timers, w.p.create_dir_all(dir))
+                        .unwrap()
+                        .map(|()| FileOpOutput::Unit),
+                    FileOp::Read { path } => run_ready(&timers, w.p.read(path))
+                        .unwrap()
+                        .map(FileOpOutput::Read),
+                    FileOp::Stat { path } => run_ready(&timers, w.p.stat(path))
+                        .unwrap()
+                        .map(FileOpOutput::Meta),
+                    FileOp::Flush { scope } => {
+                        if *scope == FlushScope::Full {
+                            full_seen = true;
+                        }
+                        run_ready(&timers, w.p.flush(scope.clone()))
+                            .unwrap()
+                            .map(|()| FileOpOutput::Unit)
+                    }
+                    other => panic!("unexpected recovered-publish operation: {other:?}"),
+                };
+                queue.complete(*id, done);
+                completed.push(*id);
+            }
+            assert!(full_seen, "recovery must reach its original final flush");
+            let result = result.expect("bounded queued recovery must finish");
+            if fail_full {
+                assert!(result.is_err());
+                assert_eq!(w.db.load().unwrap(), before);
+            } else {
+                let recovered = result.unwrap();
+                assert_eq!(recovered.stats.recovered, 1);
+                assert_eq!(recovered.disk_revision("a.md"), Some(revision(b"new")));
+                assert!(
+                    !w.db
+                        .load()
+                        .unwrap()
+                        .iter()
+                        .any(|(kind, _, _)| *kind == Kind::Intent)
+                );
+            }
+            assert!(opening.is_complete());
+            assert_eq!(queue.in_flight(), 0);
+            assert!(queue.take_requests().is_empty());
+            checked = true;
+            break;
+        }
+        assert!(
+            checked,
+            "fixture must leave one actual original recovery intent"
         );
     }
 }

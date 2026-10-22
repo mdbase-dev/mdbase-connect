@@ -19,6 +19,10 @@ on:
       - "rust-toolchain.toml"
       - "deploy/docker/Cargo.lock.hosted-provider"
       - "deploy/docker/mdbase-rs-revision"
+      - "runtime/Cargo.toml"
+      - "runtime/Cargo.lock"
+      - "runtime/crates/*/Cargo.toml"
+      - "runtime/rust-toolchain.toml"
       - ".github/workflows/rust-caches.yml"
   schedule:
     - cron: "17 3 * * 1"
@@ -53,14 +57,15 @@ jobs:
             os: macos-15
           - cache: connect-debug
             os: windows-2025
-          # desktop-release.yml: headless-package-smoke, windows-package-smoke.
-          - cache: mdbase-cli-release
+          # desktop-release.yml: headless-package-smoke, windows-package-smoke
+          # (the daemon in runtime/, its own workspace and toolchain file).
+          - cache: mdbase-daemon-release
             os: ubuntu-24.04
-          - cache: mdbase-cli-release
+          - cache: mdbase-daemon-release
             os: macos-15
-          - cache: mdbase-cli-release
+          - cache: mdbase-daemon-release
             os: macos-15-intel
-          - cache: mdbase-cli-release
+          - cache: mdbase-daemon-release
             os: windows-2025
     defaults:
       run:
@@ -80,6 +85,7 @@ jobs:
           path: mdbase-rs
           persist-credentials: false
       - name: Install Rust
+        if: matrix.cache != 'mdbase-daemon-release'
         run: |
           if [[ ${{ matrix.cache }} == hosted-provider ]]; then
             rustup toolchain install 1.94.0 --profile minimal --component rustfmt --component clippy
@@ -88,11 +94,23 @@ jobs:
             rustup toolchain install 1.94.0 --profile minimal
           fi
           rustup override set 1.94.0
+      - name: Install the runtime/ toolchain
+        if: matrix.cache == 'mdbase-daemon-release'
+        working-directory: mdbase-connect/runtime
+        run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: matrix.cache != 'mdbase-daemon-release'
         with:
           workspaces: |
             mdbase-connect -> target
           shared-key: ${{ matrix.cache }}-${{ steps.mdbase_revision.outputs.revision }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: matrix.cache == 'mdbase-daemon-release'
+        with:
+          workspaces: |
+            mdbase-connect/runtime -> target
+          shared-key: mdbase-daemon-release-${{ hashFiles('mdbase-connect/runtime/Cargo.lock') }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build the consumers' dependency graph
         run: |
@@ -109,7 +127,8 @@ jobs:
               cargo test --locked --no-run -p mdbase-connect-core -p mdbase-connect-daemon
               cargo build --locked -p mdbase-cli
               ;;
-            mdbase-cli-release)
-              cargo build --locked --release -p mdbase-cli
+            mdbase-daemon-release)
+              cd runtime
+              cargo build --locked --release -p mdbn-daemon --bin mdbase
               ;;
           esac

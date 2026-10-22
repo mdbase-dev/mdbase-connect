@@ -1,0 +1,9 @@
+{
+  "reason": "The SDK offline-shell plugin now builds with register: false, so the Editor owns when its service worker registers. One small module (offline-shell.ts) holds that scheduling: register the same worker, scope and module type after the first usable render (or a fallback delay on screens that never open a collection), once the main thread is idle. It exports the testable scheduler and the browser instance, imported by main.tsx and App.tsx. No new route, network surface, credential use or SDK/protocol surface.",
+  "growth": {
+    "productionFiles": 1,
+    "relativeImports": 2,
+    "typeScriptExportDeclarations": 2,
+    "apps/editor": 1
+  }
+}

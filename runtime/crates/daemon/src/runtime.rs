@@ -39,7 +39,11 @@ use mdbn_store_file::index::IndexDurability;
 use mdbn_store_file::{Config as FsConfig, SqlStore, SqlStoreLimits};
 use mdbn_wire::client::SyncMode;
 use mdbn_wire::common::B16;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
+
+#[cfg(test)]
+#[path = "native_pending_fixture.rs"]
+pub(crate) mod native_pending_fixture;
 
 type Store = crate::keyring_store::KeychainKeyring<mdbn_local_host::NativeStore>;
 
@@ -74,6 +78,33 @@ pub struct RuntimeConfig {
     pub private_dir: PathBuf,
     /// The synced link, or `None` for a local-only collection.
     pub sync: Option<Synced>,
+    /// Synced only: adopt the folder as generation 0 (the adopt journal's plan)
+    /// before anything else is ingested.
+    pub adopt: Option<mdbn_replica::AdoptRecords>,
+    /// Record IDs a path's first ingest takes (the takeover's imported ID map).
+    pub id_hints: Vec<([u8; 16], String)>,
+}
+
+/// One readiness observation: status, caught up, and the adopt state (if adopting).
+pub type ReadinessView = (
+    mdbn_wire::client::SyncStatus,
+    bool,
+    Option<mdbn_replica::AdoptStatus>,
+);
+
+/// A local collection's inventory: confirmed `(record ID, path)` in ID order and
+/// resource paths.
+pub type Inventory = (Vec<([u8; 16], String)>, Vec<String>);
+
+/// A local collection's last state before adopt, taken by [`Runtime::freeze`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Frozen {
+    /// Records and resources.
+    pub inventory: Inventory,
+    /// Held files and unresolved conflicts at the same instant.
+    pub holds: u64,
+    /// Unresolved conflicts.
+    pub unresolved: u64,
 }
 
 /// A synced collection's log link and locally persisted trust anchors.
@@ -116,6 +147,11 @@ impl std::fmt::Debug for Synced {
 
 /// Commands to the runtime thread.
 enum Cmd {
+    #[cfg(test)]
+    CaptureFixture(
+        native_pending_fixture::Op,
+        oneshot::Sender<Result<native_pending_fixture::Reply, String>>,
+    ),
     Hello {
         auth: SessionAuth,
         frame: Vec<u8>,
@@ -131,7 +167,16 @@ enum Cmd {
     Log(crate::logwire::Event),
     /// The replica's sync status.
     Status(oneshot::Sender<mdbn_wire::client::SyncStatus>),
-    Readiness(oneshot::Sender<(mdbn_wire::client::SyncStatus, bool)>),
+    Readiness(oneshot::Sender<ReadinessView>),
+    /// Rescan, then list the confirmed records and resources.
+    Inventory(oneshot::Sender<Option<Inventory>>),
+    /// Stop admitting writes, settle, take the inventory and hold counts, stop.
+    Freeze(oneshot::Sender<Option<Frozen>>),
+    #[cfg(test)]
+    TestSeedHold(
+        Box<Option<mdbn_wire::client::Hold>>,
+        oneshot::Sender<Option<TestHoldWitness>>,
+    ),
     /// A content-free digest of the confirmed records.
     Digest(oneshot::Sender<Option<(u64, [u8; 32])>>),
     /// Counters and digests from ONE serialized actor observation.
@@ -152,6 +197,39 @@ enum Cmd {
         Option<AccountKeyGuard>,
         oneshot::Sender<Result<bool, mdbn_replica::replica::AccountKeyRefusal>>,
     ),
+    /// App grant approval on this collection (`policy.md` §5.1).
+    GrantApproval(GrantApprovalOp, oneshot::Sender<GrantApprovalReply>),
+}
+
+/// A grant-approval operation for the runtime thread.
+pub enum GrantApprovalOp {
+    /// Grants waiting for this device's approval.
+    Pending,
+    /// Queue this device's approval with the terms the user kept.
+    Approve {
+        /// Log grant ID.
+        grant: B16,
+        /// Capability groups kept.
+        capabilities: Vec<String>,
+        /// Folder scope kept.
+        folders: Option<Vec<String>>,
+    },
+    /// What the replica knows about one grant's approval.
+    State(B16),
+    /// Whether the grant currently authorizes sessions under log policy.
+    Effective(B16),
+}
+
+/// A grant-approval operation's answer.
+pub enum GrantApprovalReply {
+    /// Pending grants.
+    Pending(Vec<mdbn_replica::api::PendingGrant>),
+    /// Queued, or the refusal reason.
+    Approve(Result<(), String>),
+    /// Approval state.
+    State(Option<mdbn_replica::api::GrantApprovalState>),
+    /// Effective under log policy.
+    Effective(bool),
 }
 
 /// AK1 account-key operations (account-key bundle design).
@@ -214,6 +292,13 @@ impl mdbn_replica::policy::GrantSource for AuthoritySource {
         self.0.grant(grant)
     }
 
+    fn declared_setup(
+        &self,
+        grant: &B16,
+    ) -> Option<mdbn_replica::policy::DeclaredSetupAuthorization> {
+        self.0.declared_setup(grant)
+    }
+
     fn owner_identity(&self) -> Option<mdbn_replica::policy::LocalOwnerIdentity> {
         let o = self.0.owner_identity()?;
         Some(mdbn_replica::policy::LocalOwnerIdentity {
@@ -236,10 +321,18 @@ impl mdbn_replica::policy::GrantSource for AuthoritySource {
     }
 }
 
+struct GrantSignals {
+    grants: LocalGrants,
+    changes: watch::Sender<()>,
+}
+
 /// A handle to a running collection runtime.
 pub struct Runtime {
     tx: std_mpsc::Sender<Cmd>,
+    grant_changes: watch::Receiver<()>,
     thread: std::sync::Mutex<Option<std::thread::JoinHandle<()>>>,
+    #[cfg(test)]
+    capture_fixture_frozen: std::sync::Mutex<Option<Option<Frozen>>>,
 }
 
 /// Why a runtime did not open. Messages carry no file contents.
@@ -264,6 +357,7 @@ impl Runtime {
         }
         let (tx, rx) = std_mpsc::channel();
         let (ready_tx, ready_rx) = std_mpsc::channel();
+        let (grant_changes_tx, grant_changes) = watch::channel(());
         let name = format!("collection-{}", crate::secrets::hex(&cfg.collection[..4]));
         let events = tx.clone();
         let fs_wake = tx.clone();
@@ -305,7 +399,18 @@ impl Runtime {
                     .map_err(|e| tracing::warn!(error = %e, "folder watcher unavailable"))
                     .ok();
                     let _ = ready_tx.send(Ok(()));
-                    run(rep, rx, grants, link, watcher, B16(cfg.collection), lock);
+                    run(
+                        rep,
+                        rx,
+                        GrantSignals {
+                            grants,
+                            changes: grant_changes_tx,
+                        },
+                        link,
+                        watcher,
+                        B16(cfg.collection),
+                        lock,
+                    );
                 }
                 Err(e) => {
                     let _ = ready_tx.send(Err(e));
@@ -315,7 +420,10 @@ impl Runtime {
         match ready_rx.recv() {
             Ok(Ok(())) => Ok(Runtime {
                 tx,
+                grant_changes,
                 thread: std::sync::Mutex::new(Some(thread)),
+                #[cfg(test)]
+                capture_fixture_frozen: std::sync::Mutex::new(None),
             }),
             Ok(Err(e)) => {
                 let _ = thread.join();
@@ -323,6 +431,24 @@ impl Runtime {
             }
             Err(_) => Err(OpenFailed("runtime thread exited".into())),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn capture_fixture(
+        &self,
+        op: native_pending_fixture::Op,
+    ) -> Result<native_pending_fixture::Reply, String> {
+        let (tx, rx) = oneshot::channel();
+        self.tx
+            .send(Cmd::CaptureFixture(op, tx))
+            .map_err(|_| "original actor stopped")?;
+        rx.await
+            .map_err(|_| "original actor dropped fixture reply")?
+    }
+
+    #[cfg(test)]
+    pub(crate) fn capture_fixture_frozen(&self) -> Option<Option<Frozen>> {
+        self.capture_fixture_frozen.lock().unwrap().clone()
     }
 
     /// Open a session with an encoded `hello` frame. Returns the session (if
@@ -349,6 +475,12 @@ impl Runtime {
     /// Feed a frame from a session's client.
     pub fn frame(&self, session: SessionId, bytes: Vec<u8>) -> bool {
         self.tx.send(Cmd::Frame(session, bytes)).is_ok()
+    }
+
+    /// A wake hint from the serialized actor, never grant authority. Subscribe
+    /// before querying Effective; every wake still requires a fresh policy query.
+    pub(crate) fn grant_policy_changes(&self) -> watch::Receiver<()> {
+        self.grant_changes.clone()
     }
 
     /// The access list changed: re-check open sessions now.
@@ -382,10 +514,50 @@ impl Runtime {
 
     /// The status and whether the replica has read up to the head it heard in the
     /// current connection.
-    pub async fn readiness(&self) -> Option<(mdbn_wire::client::SyncStatus, bool)> {
+    pub async fn readiness(&self) -> Option<ReadinessView> {
         let (tx, rx) = oneshot::channel();
         self.tx.send(Cmd::Readiness(tx)).ok()?;
         rx.await.ok()
+    }
+
+    /// SEEDED-HOLD fixture only: None reads the original actor's real ledger;
+    /// Some commits one typed hold on that same actor, without a client mutation.
+    #[cfg(test)]
+    pub(crate) async fn test_seed_hold(
+        &self,
+        hold: Option<mdbn_wire::client::Hold>,
+    ) -> Option<TestHoldWitness> {
+        let (tx, rx) = oneshot::channel();
+        self.tx.send(Cmd::TestSeedHold(Box::new(hold), tx)).ok()?;
+        rx.await.ok().flatten()
+    }
+
+    /// After a full rescan, the confirmed records and resource paths (the adopt
+    /// inventory of a local collection), or `None` once stopped or unreadable.
+    pub async fn inventory(&self) -> Option<Inventory> {
+        let (tx, rx) = oneshot::channel();
+        self.tx.send(Cmd::Inventory(tx)).ok()?;
+        rx.await.ok().flatten()
+    }
+
+    /// Stop the runtime at a single point for adopt: sessions are closed first,
+    /// so no write is admitted after the snapshot; the folder is rescanned; the
+    /// inventory and hold counts are taken; then the runtime stops as
+    /// [`Runtime::stop`] does. `None` (and still stopped) when it was already
+    /// stopped or the store could not be read.
+    pub async fn freeze(&self) -> Option<Frozen> {
+        let (tx, rx) = oneshot::channel();
+        let sent = self.tx.send(Cmd::Freeze(tx)).is_ok();
+        let frozen = if sent { rx.await.ok().flatten() } else { None };
+        #[cfg(test)]
+        {
+            *self.capture_fixture_frozen.lock().unwrap() = Some(frozen.clone());
+        }
+        let thread = self.thread.lock().ok().and_then(|mut t| t.take());
+        if let Some(t) = thread {
+            let _ = tokio::task::spawn_blocking(move || t.join()).await;
+        }
+        frozen
     }
 
     /// The replica's sync status (confirmed through, pending, holds, conflicts,
@@ -455,6 +627,13 @@ impl Runtime {
             })
             .ok()?;
         rx.await.ok().flatten()
+    }
+
+    /// Run a grant-approval operation; `None` once stopped.
+    pub async fn grant_approval(&self, op: GrantApprovalOp) -> Option<GrantApprovalReply> {
+        let (tx, rx) = oneshot::channel();
+        self.tx.send(Cmd::GrantApproval(op, tx)).ok()?;
+        rx.await.ok()
     }
 
     /// The client's transport closed.
@@ -669,6 +848,7 @@ fn open_replica(
     )
     .map_err(|e| OpenFailed(format!("store: {e}")))?;
     let diagnostics = store.platform().diagnostics();
+    let platform = store.platform().clone();
     if diagnostics.backup_exclusion_failures != 0 {
         tracing::warn!(
             backup_exclusion_failures = diagnostics.backup_exclusion_failures,
@@ -747,6 +927,22 @@ fn open_replica(
     // The desktop composition point explicitly selects its query fallback policy;
     // portable/hosted/mobile defaults remain constrained.
     rep.set_query_execution_profile(mdbn_replica::QueryExecutionProfile::Desktop);
+    // Before the first scan: a path's first ingest takes its hinted ID, and an
+    // adopting replica ingests nothing until its base is applied.
+    if !cfg.id_hints.is_empty() {
+        rep.set_id_hints(
+            cfg.id_hints
+                .iter()
+                .map(|(id, p)| (B16(*id), p.clone()))
+                .collect(),
+        );
+    }
+    if let Some(plan) = &cfg.adopt {
+        rep.begin_adopt(Box::new(crate::adopt::FolderSource::new(
+            platform,
+            plan.clone(),
+        )));
+    }
     let replica_ms = t0.elapsed().as_millis() as u64 - store_ms;
     // First scan: ingest whatever changed while we were down.
     let t1 = std::time::Instant::now();
@@ -915,6 +1111,74 @@ fn on_log_event<S: mdbn_replica::store::Store>(
     retire_stale_log(rep, active);
 }
 
+/// Successful raw ownership/count reads, not the lossy display SyncStatus.
+pub(crate) fn capture_counts(store: &impl mdbn_replica::store::Store) -> Option<(u64, u64)> {
+    if store.pending_count().ok()? != 0 {
+        return None;
+    }
+    Some((
+        store.holds().ok()?.len() as u64,
+        store.conflict_count().ok()?,
+    ))
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct TestHoldWitness {
+    pub inventory: Inventory,
+    pub head: mdbn_replica::store::Head,
+    pub receipts: Vec<mdbn_replica::store::ReceiptRow>,
+    pub local_receipts: Vec<Option<mdbn_replica::store::LocalReceipt>>,
+    pub holds: Vec<mdbn_wire::client::Hold>,
+    pub pending: u64,
+    pub conflicts: u64,
+}
+
+#[cfg(test)]
+fn test_hold_witness(rep: &Replica<Store>) -> Option<TestHoldWitness> {
+    use mdbn_replica::store::Store as _;
+    let store = rep.store();
+    // A small fixture-only bound. Refuse rather than compare a truncated ledger.
+    let receipts = store.receipts(None, 65).ok()?;
+    if receipts.len() > 64 {
+        return None;
+    }
+    let local_receipts = receipts
+        .iter()
+        .map(|r| store.local_receipt(&r.mutation))
+        .collect::<mdbn_replica::store::StoreResult<Vec<_>>>()
+        .ok()?;
+    Some(TestHoldWitness {
+        inventory: inventory(rep)?,
+        head: store.head().ok()?,
+        receipts,
+        local_receipts,
+        holds: store.holds().ok()?,
+        pending: store.pending_count().ok()?,
+        conflicts: store.conflict_count().ok()?,
+    })
+}
+
+fn inventory(rep: &Replica<Store>) -> Option<Inventory> {
+    use mdbn_replica::store::{Page, Store as _};
+    let store = rep.store();
+    let mut records = Vec::new();
+    let mut after = None;
+    loop {
+        let rows = store.records(Page { after, limit: 1024 }).ok()?;
+        let Some(last) = rows.last() else { break };
+        after = Some(last.id);
+        records.extend(rows.into_iter().map(|r| (r.id.0, r.path)));
+    }
+    let resources = store
+        .resources()
+        .ok()?
+        .into_iter()
+        .map(|(p, _)| p)
+        .collect();
+    Some((records, resources))
+}
+
 fn confirmed_digest(rep: &Replica<Store>) -> Option<(u64, [u8; 32])> {
     confirmed_store_digest(rep.store())
 }
@@ -1039,12 +1303,13 @@ fn log_retention_reclaims(rep: &mut Replica<Store>) {
 fn run(
     mut rep: Replica<Store>,
     rx: std_mpsc::Receiver<Cmd>,
-    grants: LocalGrants,
+    signals: GrantSignals,
     link: Option<crate::logwire::Link>,
     watcher: Option<crate::watch::Watcher>,
     collection: B16,
     mut lock: mdbn_local_host::HostLock,
 ) {
+    let GrantSignals { grants, changes } = signals;
     let mut active_log = None;
     let mut last_heartbeat = std::time::Instant::now();
     let mut observe_due: Option<std::time::Instant> = None;
@@ -1060,6 +1325,7 @@ fn run(
     let mut last_observe = std::time::Instant::now();
     let mut acks: Vec<oneshot::Sender<()>> = Vec::new();
     let mut last_status = std::time::Instant::now();
+    let mut adopting = rep.adopt_status() == Some(mdbn_replica::AdoptStatus::Pending);
     loop {
         if last_heartbeat.elapsed() >= HOST_HEARTBEAT {
             last_heartbeat = std::time::Instant::now();
@@ -1087,8 +1353,20 @@ fn run(
             wake
         };
         let received = rx.recv_timeout(wake);
+        // Pure state queries must not wake their own waiters into a busy loop.
+        let notify_grants = !matches!(
+            &received,
+            Ok(Cmd::GrantApproval(
+                GrantApprovalOp::State(_) | GrantApprovalOp::Effective(_),
+                _
+            ))
+        );
         retire_stale_log(&mut rep, &mut active_log);
         match received {
+            #[cfg(test)]
+            Ok(Cmd::CaptureFixture(op, reply)) => {
+                let _ = reply.send(native_pending_fixture::handle(&mut rep, op));
+            }
             Ok(Cmd::Hello {
                 auth,
                 frame,
@@ -1116,7 +1394,42 @@ fn run(
                 let _ = reply.send(rep.sync_status());
             }
             Ok(Cmd::Readiness(reply)) => {
-                let _ = reply.send((rep.sync_status(), rep.caught_up()));
+                let _ = reply.send((rep.sync_status(), rep.caught_up(), rep.adopt_status()));
+            }
+            #[cfg(test)]
+            Ok(Cmd::TestSeedHold(hold, reply)) => {
+                use mdbn_replica::store::Store as _;
+                let result = (|| {
+                    // Per-original Runtime command, never a global hook. No
+                    // synced store or borrowed application grant is admissible.
+                    if rep.sync_status().mode != mdbn_wire::client::SyncMode::LocalOnly {
+                        return None;
+                    }
+                    if let Some(hold) = *hold {
+                        if rep.store().pending_count().ok()? != 0 {
+                            return None;
+                        }
+                        let record = rep.store().record(&hold.id).ok()??;
+                        if record.path != hold.path {
+                            return None;
+                        }
+                        rep.store_mut()
+                            .commit(mdbn_replica::store::Tx {
+                                holds_put: vec![hold],
+                                ..Default::default()
+                            })
+                            .ok()?;
+                    }
+                    test_hold_witness(&rep)
+                })();
+                let _ = reply.send(result);
+            }
+            Ok(Cmd::Inventory(reply)) => {
+                rep.store_mut().inner_mut().request_rescan();
+                if let Err(e) = rep.observe(None) {
+                    tracing::warn!(error = ?e, "observe failed");
+                }
+                let _ = reply.send(inventory(&rep));
             }
             Ok(Cmd::Digest(reply)) => {
                 let _ = reply.send(confirmed_digest(&rep));
@@ -1169,6 +1482,32 @@ fn run(
                     });
                 }
             }
+            Ok(Cmd::GrantApproval(op, reply)) => {
+                let _ = reply.send(match op {
+                    GrantApprovalOp::Pending => {
+                        GrantApprovalReply::Pending(rep.pending_grant_infos())
+                    }
+                    GrantApprovalOp::Approve {
+                        grant,
+                        capabilities,
+                        folders,
+                    } => GrantApprovalReply::Approve(
+                        rep.queue_grant_approval(grant, capabilities, folders)
+                            .map_err(|e| {
+                                e.problem()
+                                    .reason
+                                    .clone()
+                                    .unwrap_or_else(|| e.problem().code.clone())
+                            }),
+                    ),
+                    GrantApprovalOp::State(grant) => {
+                        GrantApprovalReply::State(rep.grant_approval_state(&grant))
+                    }
+                    GrantApprovalOp::Effective(grant) => {
+                        GrantApprovalReply::Effective(rep.grant_effective(&grant))
+                    }
+                });
+            }
             Ok(Cmd::FsWake) => {
                 if let Some(w) = &watcher {
                     let events = w.take();
@@ -1179,6 +1518,69 @@ fn run(
                         observe_due = Some(std::time::Instant::now() + WATCH_SETTLE);
                     }
                 }
+            }
+            Ok(Cmd::Freeze(reply)) => {
+                // Writers first: every frame queued before this command has been
+                // handled; closing the sessions admits nothing after it.
+                if let Some(session) = active_log.take() {
+                    rep.retire_authenticated_log(session.authenticated());
+                }
+                for s in outs.keys().copied().collect::<Vec<_>>() {
+                    frames.close(&mut rep, s);
+                }
+                drop(watcher);
+                rep.store_mut().inner_mut().request_rescan();
+                let frozen = match rep.observe(None) {
+                    Ok(_) => {
+                        // observe() can return Ok after ingest records a terminal
+                        // incident. An empty confirmed index is NOT a successful
+                        // source capture in that case. Nor is pending work a
+                        // quiescent cut: do not drop its ownership into a Base.
+                        let status = rep.sync_status();
+                        let terminal = status.incidents.iter().any(|i| {
+                            matches!(
+                                i.kind,
+                                mdbn_wire::client::IncidentKind::Integrity
+                                    | mdbn_wire::client::IncidentKind::VerificationMismatch
+                                    | mdbn_wire::client::IncidentKind::KeyInconsistent
+                                    | mdbn_wire::client::IncidentKind::AccessRevoked
+                                    | mdbn_wire::client::IncidentKind::Gone
+                                    | mdbn_wire::client::IncidentKind::UpgradeRequired
+                            )
+                        });
+                        // SyncStatus is a display projection: count read errors
+                        // there become zero and acknowledged resurrection rows
+                        // are subtracted. Capture must prove ALL ownership/count
+                        // reads successful directly, not treat masked zero as a
+                        // quiescence or holds/completeness fence.
+                        let counts = capture_counts(rep.store());
+                        match (terminal, counts) {
+                            (false, Some((holds, unresolved))) => {
+                                inventory(&rep).map(|inventory| Frozen {
+                                    inventory,
+                                    holds,
+                                    unresolved,
+                                })
+                            }
+                            _ => {
+                                tracing::warn!(
+                                    pending = status.pending,
+                                    terminal,
+                                    "freeze source capture incomplete"
+                                );
+                                None
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = ?e, "observe failed");
+                        None
+                    }
+                };
+                drop(link);
+                drop(rep);
+                let _ = reply.send(frozen);
+                return;
             }
             Ok(Cmd::Stop(done)) => {
                 // Classify original in-flight outcomes while the Store is still
@@ -1213,6 +1615,16 @@ fn run(
                     std::time::Instant::now() + Duration::from_millis(t.saturating_sub(now).max(5)),
                 );
             }
+        }
+        if adopting && rep.adopt_status() != Some(mdbn_replica::AdoptStatus::Pending) {
+            // The base is applied: ingest what changed meanwhile now, not at the
+            // next periodic rescan.
+            adopting = false;
+            rep.store_mut().inner_mut().request_rescan();
+            if let Err(e) = rep.observe(None) {
+                tracing::warn!(error = ?e, "observe failed");
+            }
+            last_observe = std::time::Instant::now();
         }
         if last_observe.elapsed() >= observe_every {
             // No watcher yet: `observe(None)` only walks the folder when a rescan is
@@ -1262,6 +1674,9 @@ fn run(
         // Sessions closed by a grant change have been told before it is answered.
         for a in acks.drain(..) {
             let _ = a.send(());
+        }
+        if notify_grants {
+            changes.send_modify(|_| {});
         }
     }
 }
@@ -1440,6 +1855,8 @@ mod tests {
             device_id: [3; 16],
             root: dir.path().to_path_buf(),
             private_dir: state.path().to_path_buf(),
+            adopt: None,
+            id_hints: vec![],
             sync: None,
         };
         let (rep, _lock) = super::open_replica(

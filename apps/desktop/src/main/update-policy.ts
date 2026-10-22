@@ -40,7 +40,8 @@ export type UpdateDecision =
   | { kind: "current" }
   | { kind: "blocked"; reason: string }
   | { kind: "deferred"; percentage: number }
-  | { kind: "available"; target: UpdateTarget };
+  /** `required`: this installation's version is blocked (below the minimum). */
+  | { kind: "available"; target: UpdateTarget; required: boolean };
 
 const VERSION_PATTERN =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
@@ -121,7 +122,7 @@ export function decideUpdate(input: {
   if (!manual && !currentVersionIsBlocked && rolloutBucket(installationId, manifest.rollout.seed) >= threshold) {
     return { kind: "deferred", percentage: manifest.rollout.percentage };
   }
-  return { kind: "available", target };
+  return { kind: "available", target, required: currentVersionIsBlocked };
 }
 
 export function parseUpdateManifest(value: unknown): UpdateManifest {

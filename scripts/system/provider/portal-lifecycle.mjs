@@ -23,7 +23,7 @@ export async function portalLifecycleE2E({
     await page.getByRole("button", { name: "Continue" }).click();
     await expect(page.getByRole("heading", { name: "Collections", exact: true })).toBeVisible();
 
-    await page.getByRole("button", { name: "New hosted collection" }).click();
+    await page.getByRole("button", { name: "Add collection" }).click();
     await page.getByLabel("Collection name").fill("Browser E2E collection");
     await page.getByRole("button", { name: "Create", exact: true }).click();
     await page.getByRole("link", { name: "All collections" }).click();
@@ -40,9 +40,16 @@ export async function portalLifecycleE2E({
     const collectionId = dashboard.hosted_collections.find(
       (collection) => collection.display_name === "Browser E2E collection"
     ).id;
-    const editorUrl = new URL("/", page.url());
-    editorUrl.searchParams.set("collection", collectionId);
+    const uiConfiguration = await page.evaluate(async (server) => {
+      const response = await fetch(`${server}/v1/ui-configuration`, { credentials: "include" });
+      if (!response.ok) throw new Error("Editor configuration unavailable");
+      return response.json();
+    }, controlUrl);
+    assert.ok(uiConfiguration.editor_url, "The fixture must configure a separate Editor");
+    const editorUrl = new URL("/", uiConfiguration.editor_url);
+    assert.notEqual(editorUrl.origin, new URL(controlUrl).origin, "Editor and management are distinct origins");
     editorUrl.searchParams.set("server", controlUrl);
+    editorUrl.searchParams.set("collection", collectionId);
     await expect(row.getByRole("link", { name: "Open", exact: true }))
       .toHaveAttribute("href", editorUrl.href);
     await expect(row.getByRole("link", { name: "Sync folder" }))
@@ -123,7 +130,7 @@ export async function portalLifecycleE2E({
       timeout: 20_000
     });
 
-    await page.getByRole("button", { name: "New hosted collection" }).click();
+    await page.getByRole("button", { name: "Add collection" }).click();
     await page.getByLabel("Collection name").fill("Account deletion collection");
     await page.getByRole("button", { name: "Create", exact: true }).click();
     const deletionCollection = page.locator(".connect-collection-row").filter({
@@ -162,7 +169,7 @@ export async function portalLifecycleE2E({
     )).toBeVisible();
     await page.getByLabel("Type DELETE to confirm").fill("DELETE");
     await page.getByRole("button", { name: "Delete account permanently" }).click();
-    await expect(page).toHaveURL(/\/connect\/account-deleted(?:\?.*)?$/);
+    await expect(page).toHaveURL(new URL("/account-deleted", controlUrl).href);
     await expect(page.getByRole("heading", { name: "Your account has been deleted." }))
       .toBeVisible();
     await expect(page.getByText(/Hosted data deletion continues automatically/))

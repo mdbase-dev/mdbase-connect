@@ -89,6 +89,34 @@ function compareBytes(a: Uint8Array, b: Uint8Array): number {
   for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a[i]! - b[i]!;
   return a.length - b.length;
 }
+function decodeSummaries(c: CborValue | undefined): ReadonlyMap<string, AppBasesCell> {
+  const summaries = new Map<string, AppBasesCell>();
+  let nodes = 0, bytes = 0;
+  const charge = (size: number) => {
+    if (++nodes > 4096 || (bytes += size) > 1024 * 1024) throw bad("summary metadata exceeds bound");
+  };
+  // Preflight borrowed CBOR before allocating the decoded value tree.
+  const preflight = (c: CborValue, depth: number) => {
+    if (depth > 32) throw bad("summary value depth exceeds bound");
+    charge(128);
+    const a = list(c, 5), tag = uint.dec(a[0]!);
+    if (tag === 3 || tag === 8) charge(utf8.encode(text(a[1])).length);
+    else if (tag === 4) charge(utf8.encode(text(a[2])).length + utf8.encode(text(a[3])).length);
+    else if (tag === 5) charge(utf8.encode(text(a[2])).length);
+    else if (tag === 6) for (const value of list(a[1], ITEMS_MAX)) preflight(value, depth + 1);
+    else if (tag === 7) {
+      if (!(a[1] instanceof Map) || a[1].size > ITEMS_MAX) throw bad("bounded summary data map required");
+      for (const [key, value] of a[1]) {charge(utf8.encode(text(key)).length + 64); preflight(value, depth + 1);}
+    } else if (tag !== 0 && tag !== 1 && tag !== 2) throw bad("summary must be a tagged value", true);
+  };
+  for (const wire of list(c, 64)) {
+    const entry = tuple(wire, 2), name = text(entry[0], 1024);
+    if (name.length === 0 || /[\u0000-\u001f\u007f-\u009f]/u.test(name) || summaries.has(name)) throw bad("unique nonempty summary name required");
+    charge(utf8.encode(name).length + 64); preflight(entry[1]!, 1);
+    summaries.set(name, decodeAppBasesCell(entry[1]!));
+  }
+  return summaries;
+}
 export interface AppBasesWindow {offset: number; limit: number}
 export interface AppBasesGroupPlacement {globalGroupOrdinal: number; totalGroupRows: number; rowOrdinals: readonly number[]}
 export interface AppBasesWindowInfo extends AppBasesWindow {totalMatchedRows: number; groupPlacements: readonly AppBasesGroupPlacement[]}
@@ -143,7 +171,8 @@ export type AppBasesResult =
   | {kind: "success"; view: AppBasesDescriptor;
       columns: readonly string[]; unavailableColumns: readonly {index: number; code: string; detail: string}[];
       rows: readonly AppBasesRow[]; groups: readonly {key: AppBasesScalar; rowIndices: readonly number[]}[];
-      clock: OpClock; collectionRevision: Hash; window?: AppBasesWindowInfo};
+      clock: OpClock; collectionRevision: Hash; window?: AppBasesWindowInfo;
+      summaries?: ReadonlyMap<string, AppBasesCell>};
 /** ONE complete success OR shared native Problem. Byte/frame admission precedes
  * generic canonical CBOR allocation; typed bounds precede typed result copies.
  * No partial publication, JS sorting/grouping/date math or readiness inference. */
@@ -155,7 +184,8 @@ export function decodeAppBasesResult(bytes: Uint8Array, expectedWindow?: AppBase
   if (value.get(0) !== 1) throw bad("unknown result version", true);
   if (value.has(7)) {const m = fields(value, [0, 7]); return {kind: "refusal", problem: problem.dec(m.get(7)!)};}
   const hasWindow = value.has(8);
-  const m = fields(value, hasWindow ? [0, 1, 2, 3, 4, 5, 6, 8] : [0, 1, 2, 3, 4, 5, 6]);
+  const hasSummaries = value.has(9);
+  const m = fields(value, [0, 1, 2, 3, 4, 5, 6, ...(hasWindow ? [8] : []), ...(hasSummaries ? [9] : [])]);
   if (expectedWindow !== undefined && hasWindow !== (expectedWindow !== null)) throw bad("window response differs from request");
   const view = decodeDescriptor(m.get(1));
   const columnsWire = fields(m.get(2), [0, 1]), columns = list(columnsWire.get(0), 64).map(v => text(v));
@@ -207,7 +237,8 @@ export function decodeAppBasesResult(bytes: Uint8Array, expectedWindow?: AppBase
   }
   const clock = opClock.dec(m.get(5)!);
   if (!Number.isSafeInteger(clock.instant)) throw bad("clock instant exceeds JS-safe range");
-  return {kind: "success", view, columns, unavailableColumns, rows, groups, clock, collectionRevision: hash.dec(m.get(6)!), ...(window === undefined ? {} : {window})};
+  const summaries = hasSummaries ? decodeSummaries(m.get(9)) : undefined;
+  return {kind: "success", view, columns, unavailableColumns, rows, groups, clock, collectionRevision: hash.dec(m.get(6)!), ...(window === undefined ? {} : {window}), ...(summaries === undefined ? {} : {summaries})};
 }
 
 /** Native discovery is a separate same-cut continuation, never a Query cursor. */

@@ -59,7 +59,7 @@ export function useEmbeddedFileAssets(
     return () => { active = false; };
   }, [files, source, sourcePath]);
   const acquired = references.filter(({ file }) => (
-    isInlinePreviewable(file) && (!visibleKeys || visibleKeys.has(`${file.fileId}:${file.revision}`))
+    isInlinePreviewable(file) && (!visibleKeys || visibleKeys.has(fileAssetKey(file)))
   ));
   const key = acquired.map(({ file }) => fileAssetKey(file)).join("\n");
   useEffect(() => {

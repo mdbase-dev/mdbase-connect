@@ -101,7 +101,8 @@ impl Actor for Writer {
             Ev::Timer(1) if self.variant != Variant::Silent && self.n < 20 => {
                 self.n += 1;
                 let tok = w.shared.tokens.borrow_mut().fresh("writer");
-                let plain = format!("---\ntitle: Note {}\n---\n- {tok}\n", self.n).into_bytes();
+                let title = crate::tap::content_tag(w.seed, "title");
+                let plain = format!("---\n{title}: Note {}\n---\n- {tok}\n", self.n).into_bytes();
                 // sealed-envelope §3 frame: alg 1 = DEFLATE.
                 let data = miniz_oxide::deflate::compress_to_vec(&plain, 6);
                 let mut frame = vec![1u8];
@@ -143,10 +144,10 @@ pub fn run(w: &mut World, v: Variant) -> String {
         *b = w.rng.below(256) as u8;
     }
     w.shared.tap.borrow_mut().secret("epoch key", &key);
-    w.shared
-        .tap
-        .borrow_mut()
-        .marker("frontmatter title", b"title:");
+    w.shared.tap.borrow_mut().marker(
+        "frontmatter title",
+        crate::tap::content_tag(w.seed, "title").as_bytes(),
+    );
     w.expect_log_service();
     let svc = w.spawn(Box::new(Service { stored: Vec::new() }));
     let me = w.actor_count() as u32;

@@ -1,5 +1,6 @@
-//! Bounded request-body ingestion. Never trust Content-Length or call
-//! Request::bytes/arrayBuffer: BYOB pulls at most 64 KiB, plus one boundary byte.
+//! Bounded request-body ingestion. Content-Length only sizes the first booking
+//! (never trusted as a bound); no Request::bytes/arrayBuffer: BYOB pulls at most
+//! 64 KiB, plus one boundary byte.
 use js_sys::{Function, Object, Promise, Reflect, Uint8Array};
 use std::cell::Cell;
 use wasm_bindgen::{JsCast, JsValue};
@@ -11,9 +12,20 @@ pub(crate) const RPC_CAP: usize = 10 * 1024 * 1024;
 const CHUNK: usize = 64 * 1024;
 // Account conservatively for body/JS/decode copies across async requests.
 const MEMORY_BUDGET: usize = 64 * 1024 * 1024;
-thread_local! {static RESERVED:Cell<usize>=const{Cell::new(0)};}
+thread_local! {
+    static RESERVED:Cell<usize>=const{Cell::new(0)};
+    static PEAK:Cell<usize>=const{Cell::new(0)};
+}
 pub(crate) fn reserved() -> usize {
     RESERVED.with(Cell::get)
+}
+/// Highest booking since the last call (debug hook); restarts from current.
+pub(crate) fn take_peak() -> usize {
+    PEAK.with(|p| p.replace(reserved()))
+}
+fn book(next: usize) {
+    RESERVED.with(|used| used.set(next));
+    PEAK.with(|p| p.set(p.get().max(next)));
 }
 #[derive(Debug)]
 pub(crate) struct Reject(pub(crate) u16);
@@ -26,8 +38,23 @@ impl Permit {
             if next > MEMORY_BUDGET {
                 return Err(Reject(503));
             }
-            used.set(next);
+            book(next);
             Ok(Self(cost))
+        })
+    }
+    /// Extend this request's credits to `cost`; nonwaiting like `reserve`.
+    fn grow(&mut self, cost: usize) -> Result<(), Reject> {
+        if cost <= self.0 {
+            return Ok(());
+        }
+        RESERVED.with(|used| {
+            let next = used.get().checked_add(cost - self.0).ok_or(Reject(503))?;
+            if next > MEMORY_BUDGET {
+                return Err(Reject(503));
+            }
+            book(next);
+            self.0 = cost;
+            Ok(())
         })
     }
     fn reduce(&mut self, cost: usize) {
@@ -104,10 +131,34 @@ pub(crate) async fn read(req: &Request, cap: usize) -> Result<Body, Reject> {
     }
     result
 }
+/// Credits for the bytes a body may still deliver. Content-Length only sizes
+/// the up-front reservation: without one, the whole cap is reserved before any
+/// read. Bytes beyond a declared length extend the credits per chunk, so a lie
+/// still cannot exceed the shared budget or the cap. A declared length over the
+/// cap (or not representable) is refused before any booking or read.
+fn cost(bytes: usize) -> usize {
+    bytes.max(CHUNK) * 4
+}
+fn declared(req: &Request, cap: usize) -> Result<usize, Reject> {
+    let Some(v) = req
+        .headers()
+        .get("content-length")
+        .ok()
+        .flatten()
+        .filter(|v| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()))
+    else {
+        return Ok(cap);
+    };
+    match v.parse::<usize>() {
+        Ok(n) if n <= cap => Ok(n),
+        _ => Err(Reject(413)),
+    }
+}
 async fn read_inner(req: &Request, cap: usize) -> Result<Body, Reject> {
-    let permit = Permit::reserve(cap)?;
+    let mut covered = declared(req, cap)?;
+    let mut permit = Permit::reserve(covered)?;
     let mut bytes = Vec::new();
-    bytes.try_reserve_exact(cap).map_err(|_| Reject(503))?;
+    bytes.try_reserve_exact(covered).map_err(|_| Reject(503))?;
     let Some(stream) = req.inner().body() else {
         return Ok(Body { bytes, permit });
     };
@@ -119,6 +170,15 @@ async fn read_inner(req: &Request, cap: usize) -> Result<Body, Reject> {
     let mut reader = Reader { raw, done: false };
     loop {
         let n = (cap - bytes.len() + 1).min(CHUNK);
+        // The boundary byte past cap is rejected before it is copied.
+        let need = (bytes.len() + n).min(cap);
+        if need > covered {
+            permit.grow(cost(need))?;
+            bytes
+                .try_reserve(need - bytes.len())
+                .map_err(|_| Reject(503))?;
+            covered = need;
+        }
         let view = Uint8Array::new_with_length(n as u32);
         let promise: Promise = method(&reader.raw, "read")?
             .call1(&reader.raw, &view)

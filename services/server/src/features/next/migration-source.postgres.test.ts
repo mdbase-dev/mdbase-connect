@@ -30,7 +30,7 @@ describePg("migration source issuance (isolated PostgreSQL, mocked authenticated
     schema=`migration_source_${randomUUID().replaceAll("-","")}`;admin=new pg.Pool({connectionString:url.toString(),max:2});await admin.query(`CREATE SCHEMA "${schema}"`);url.searchParams.set("options",`-csearch_path=${schema}`);db=await createDatabase(url.toString());
   },60000);
   afterAll(async()=>{await db?.end();if(admin&&schema)await admin.query(`DROP SCHEMA "${schema}" CASCADE`);await admin?.end();});
-  async function fixture(started=true){
+  async function fixture(started=true,region?:string){
     const account=randomUUID(),collection=randomUUID(),device=randomUUID(),cohort=`c-${randomUUID().slice(0,8)}`;
     await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Test')",[account,`${account}@example.test`]);
     await db.query("INSERT INTO hosted_collections(id,user_id,display_name,template) VALUES($1,$2,'Source','mdbase')",[collection,account]);
@@ -43,12 +43,14 @@ describePg("migration source issuance (isolated PostgreSQL, mocked authenticated
     const issuedAt=Date.now(),item=signPolicyItem(signer,{collection,seq:1,prev:Buffer.alloc(32),issuedAt,previousIssuedAt:0,ops});
     const batch=(await db.query<{id:string}>("INSERT INTO next_policy_batches(collection_id,seq,prev,item,issued_at,state,appended_at) VALUES($1,1,$2,$3,$4,'appended',now()) RETURNING id",[collection,Buffer.alloc(32),item,issuedAt])).rows[0]!.id;
     await db.query("UPDATE next_policy_outbox SET batch_id=$2 WHERE collection_id=$1",[collection,batch]);
+    // The region the log service answered on create_log, as the policy emitter records it.
+    if(region)await db.query("UPDATE next_policy_outbox SET ops=jsonb_set(ops,'{region}',to_jsonb($2::text)) WHERE collection_id=$1",[collection,region]);
     let source:LegacyMigrationDrain={collection_id:collection,state:"migrating",head:42,started_at:new Date().toISOString(),retain_until:null,in_flight:0,unresolved:3,applied_unreceipted:2,migration_id:randomUUID()};
     let calls=0,reads=0;let during:(()=>Promise<void>)|undefined;let alter:((value:Record<string,unknown>)=>void)|undefined;let unavailable=false;
     const app=Fastify();
     registerMigrationSourceWitnessRoutes(app,{db,next,signer,provider:{legacyMigrationDrain:async(id)=>{expect(id).toBe(collection);reads++;return {...source};}},fetchImpl:async(input,init)=>{
       calls++;expect(String(input)).toBe("https://native.test/internal/v1/migration-admission");expect(init?.redirect).toBe("manual");expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${outbound}`);
-      const body=JSON.parse(String(init?.body)) as {collection:string;challenge:string};expect(body.collection).toBe(collection);expect(Buffer.from(body.challenge,"base64").length).toBe(32);expect(Buffer.from(body.challenge,"base64").toString("base64")).toBe(body.challenge);expect(Object.keys(body).sort()).toEqual(["challenge","collection"]);
+      const body=JSON.parse(String(init?.body)) as {collection:string;challenge:string;region?:string};expect(body.collection).toBe(collection);expect(Buffer.from(body.challenge,"base64").length).toBe(32);expect(Buffer.from(body.challenge,"base64").toString("base64")).toBe(body.challenge);expect(Object.keys(body).sort()).toEqual(region?["challenge","collection","region"]:["challenge","collection"]);expect(body.region).toBe(region);
       await during?.();if(unavailable)return new Response("deny",{status:503});
       const value:Record<string,unknown>={schema:"mdbn-migration-admission/1",collection,device_id:device,epoch:"2",wake:"18446744073709551615",fault_generation:"9007199254740993",applied_head:{seq:"1",chain:Buffer.from(chainHash(item)).toString("hex")},authenticated_head:{seq:"1",chain:Buffer.from(chainHash(item)).toString("hex")},control_chain:Buffer.from(chainHash(item)).toString("hex"),challenge:body.challenge};alter?.(value);return new Response(JSON.stringify(value));
     }});
@@ -63,6 +65,9 @@ describePg("migration source issuance (isolated PostgreSQL, mocked authenticated
       expect(claims).toHaveLength(10);expect(claims[3]).toBe(2);expect(claims[5]).toBe(42);expect(claims[6]).toBe(Number(millis));expect(claims[7]).toBe((1n<<64n)-1n);expect(Number(claims[9])-Number(claims[8])).toBe(900000);
       expect((await db.query("SELECT 1 FROM audit_events WHERE event_type='next_migration.source_witness' AND subject_id=$1",[f.collection])).rows).toHaveLength(1);
     }finally{await f.app.close();}
+  });
+  it("forwards the log's recorded region on admission",async()=>{
+    const f=await fixture(true,"apac");try{expect((await f.request()).statusCode).toBe(200);expect(f.calls).toBe(1);}finally{await f.app.close();}
   });
   it("keeps a terminal-excluded hosted account suspended and refuses fresh witnesses without native/provider effects",async()=>{
     const f=await fixture();try{

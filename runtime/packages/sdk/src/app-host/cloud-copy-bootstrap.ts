@@ -1,6 +1,7 @@
 /** First-party original-device CLOUD COPY HTTP bootstrap. No hosted-first,
  * seed loan, generic signer, runtime roots/keys discovery or readiness inference. */
 import { uuidToBytes } from "../codec.js";
+import { LOCAL_APPLICATION_BUILD, localApplicationEnvironment, localApplicationOrigin } from "../application/local-build.js";
 import { collectionDisplayName } from "./collection-display-name.js";
 import type { AppDeviceKeyCustodyPin } from "./device-key-custody.js";
 import type {
@@ -10,6 +11,13 @@ import type {
     AppSqlLifetime,
     AppWasmRuntime,
 } from "./wasm-runtime.js";
+import {
+    appServerBody,
+    appServerOutcome,
+    appServerProblem,
+    type AppServerOutcome,
+    type AppServerProblem,
+} from "./cp-problem.js";
 /** Static public output of the ONE shared BUILD verifier, bundled by the release.
  * Authenticating this manifest/tool MUST precede constructing the trusted host. */
 export interface AppBundledReleaseTrust {
@@ -78,14 +86,21 @@ export class AppCloudCopyBootstrapError extends Error {
             | "fenced"
             | "unavailable"
             | "response"
-            | "outcome_unknown",
+            | "outcome_unknown"
+            | "refused"
+            | AppServerOutcome,
+        /** True only for exhausted, safely repeatable pre-enrollment HTTP.
+         * Not authority to replay uncertain writes or bypass failed shutdown. */
+        readonly retryable = false,
+        readonly server?: AppServerProblem,
     ) {
         super(`app cloud copy bootstrap: ${reason}`);
         this.name = "AppCloudCopyBootstrapError";
     }
 }
-const fail = (r: AppCloudCopyBootstrapError["reason"]) =>
-    new AppCloudCopyBootstrapError(r);
+const fail = (r: AppCloudCopyBootstrapError["reason"], retryable = false) =>
+    new AppCloudCopyBootstrapError(r, retryable);
+const transientHttp = new Set([408, 429, 500, 502, 503, 504]);
 const equal = (a: Uint8Array, b: Uint8Array) =>
     a.length === b.length && a.every((v, i) => v === b[i]);
 const hex = (v: Uint8Array) =>
@@ -145,6 +160,7 @@ export class AppCpCloudCopyBootstrap {
     private readonly request: typeof fetch;
     private readonly now: () => number;
     private readonly loopback: boolean;
+    private readonly local: boolean;
     constructor(
         private readonly runtime: AppWasmRuntime,
         private readonly session: AppCpCloudCopySession,
@@ -179,7 +195,9 @@ export class AppCpCloudCopyBootstrap {
                 owned: session.installationOwned,
                 bearer: session.connectorBearer,
             });
-            this.loopback = options.allowLoopbackHttp === true;
+            this.local = localApplicationEnvironment(trust.environment);
+            if (LOCAL_APPLICATION_BUILD && !this.local) throw fail("binding");
+            this.loopback = options.allowLoopbackHttp === true || this.local;
             for (const v of [
                 this.scope.accountId,
                 this.scope.connectorId,
@@ -196,7 +214,7 @@ export class AppCpCloudCopyBootstrap {
                     ["lab", "staging", "production"].includes(
                         trust.environment,
                     ) ||
-                    (this.loopback && trust.environment === "test")
+                    (this.loopback && trust.environment === "test") || this.local
                 ) ||
                 trust.cpOrigin !== this.scope.cpOrigin ||
                 trust.logOrigin !== this.scope.logOrigin ||
@@ -232,11 +250,15 @@ export class AppCpCloudCopyBootstrap {
             );
             this.pins = new Uint8Array(trust.policyPins);
             const requestedName = options.displayName;
-            const displayName = requestedName === undefined ? undefined : collectionDisplayName(requestedName);
-            if (displayName !== undefined && this.scope.purpose !== "create") throw fail("binding");
+            const displayName =
+                requestedName === undefined
+                    ? undefined
+                    : collectionDisplayName(requestedName);
+            if (displayName !== undefined && this.scope.purpose !== "create")
+                throw fail("binding");
             this.operation = Object.freeze({
                 ...runtime.registeredDeviceReceipt(),
-                ...(displayName === undefined ? {} : {displayName}),
+                ...(displayName === undefined ? {} : { displayName }),
                 accountId: this.scope.accountId,
                 collection: this.scope.collection,
                 purpose: this.scope.purpose,
@@ -253,6 +275,7 @@ export class AppCpCloudCopyBootstrap {
         }
     }
     private origin(raw: string): string {
+        if (this.local && !localApplicationOrigin(raw)) throw fail("binding");
         const u = new URL(raw);
         if (
             u.origin !== raw ||
@@ -406,11 +429,25 @@ export class AppCpCloudCopyBootstrap {
                 referrerPolicy: "no-referrer",
             });
             this.check(signal);
-            if (ctrl.signal.aborted || !response.ok) throw fail("unavailable");
+            if (ctrl.signal.aborted) throw fail("unavailable", true);
+            if (!response.ok) {
+                const server = await this.problem(response, signal);
+                const outcome = appServerOutcome(server);
+                const transient = !outcome && transientHttp.has(response.status);
+                throw new AppCloudCopyBootstrapError(
+                    outcome ?? (transient ? "unavailable" : "refused"),
+                    transient,
+                    server,
+                );
+            }
             // Fetch decodes content-encoding (which CORS may hide). The
             // decoded stream, not wire Content-Length, enforces the hard cap.
             const length = response.headers.get("content-length");
-            if (length !== null && /^(0|[1-9][0-9]*)$/.test(length) && Number(length) > buffer.length) {
+            if (
+                length !== null &&
+                /^(0|[1-9][0-9]*)$/.test(length) &&
+                Number(length) > buffer.length
+            ) {
                 ctrl.abort();
                 throw fail("response");
             }
@@ -420,7 +457,7 @@ export class AppCpCloudCopyBootstrap {
                 const { done, value } = await reader.read();
                 try {
                     this.check(signal);
-                    if (ctrl.signal.aborted) throw fail("unavailable");
+                    if (ctrl.signal.aborted) throw fail("unavailable", true);
                     if (done) break;
                     if (count + value.length > buffer.length) {
                         ctrl.abort();
@@ -432,17 +469,21 @@ export class AppCpCloudCopyBootstrap {
                     value?.fill(0);
                 }
             }
-            return object(
-                JSON.parse(
-                    new TextDecoder("utf-8", { fatal: true }).decode(
-                        buffer.subarray(0, count),
+            try {
+                return object(
+                    JSON.parse(
+                        new TextDecoder("utf-8", { fatal: true }).decode(
+                            buffer.subarray(0, count),
+                        ),
                     ),
-                ),
-            );
+                );
+            } catch {
+                throw fail("response");
+            }
         } catch (e) {
             this.check(signal);
             if (e instanceof AppCloudCopyBootstrapError) throw e;
-            throw fail("unavailable");
+            throw fail("unavailable", true);
         } finally {
             buffer.fill(0);
             void (reader?.cancel() ?? response?.body?.cancel())?.catch(
@@ -453,6 +494,100 @@ export class AppCpCloudCopyBootstrap {
             signal.removeEventListener("abort", abort);
             this.lifetime.signal.removeEventListener("abort", abort);
         }
+    }
+    /** Bounded (8 KiB), sanitized refusal body: code/reason/retry only. */
+    private async problem(
+        response: Response,
+        signal: AbortSignal,
+    ): Promise<AppServerProblem> {
+        const buffer = new Uint8Array(8 * 1024);
+        let count = 0;
+        const reader = response.body?.getReader();
+        try {
+            for (;;) {
+                if (!reader) break;
+                const { done, value } = await reader.read();
+                try {
+                    this.check(signal);
+                    if (done) break;
+                    if (count + value.length > buffer.length) {
+                        count = 0;
+                        break;
+                    }
+                    buffer.set(value, count);
+                    count += value.length;
+                } finally {
+                    value?.fill(0);
+                }
+            }
+        } catch {
+            this.check(signal);
+            count = 0;
+        } finally {
+            void reader?.cancel().catch(() => {});
+            reader?.releaseLock();
+        }
+        try {
+            return appServerProblem(
+                response.status,
+                count ? appServerBody(buffer.subarray(0, count)) : undefined,
+                response.headers,
+            );
+        } finally {
+            buffer.fill(0);
+        }
+    }
+    private async challenge(
+        bearer: string,
+        signal: AbortSignal,
+    ): Promise<Record<string, unknown>> {
+        // Challenge issuance does not enroll/create anything. No automatic
+        // retry wraps an enrollment POST, proof, persistence CAS or whole bootstrap.
+        for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+                return await this.json(
+                    "/v1/next/devices/challenge",
+                    bearer,
+                    undefined,
+                    signal,
+                );
+            } catch (error) {
+                if (
+                    !(error instanceof AppCloudCopyBootstrapError) ||
+                    error.reason !== "unavailable" ||
+                    !error.retryable ||
+                    attempt === 2
+                )
+                    throw error;
+                this.check(signal);
+                await new Promise<void>((resolve, reject) => {
+                    const finish = () => {
+                        clearTimeout(timer);
+                        signal.removeEventListener("abort", abort);
+                        this.lifetime.signal.removeEventListener(
+                            "abort",
+                            abort,
+                        );
+                        try {
+                            this.check(signal);
+                            resolve();
+                        } catch (error) {
+                            reject(error);
+                        }
+                    };
+                    const abort = () => finish(),
+                        timer = setTimeout(finish, attempt === 0 ? 250 : 1000);
+                    (timer as { unref?: () => void }).unref?.();
+                    signal.addEventListener("abort", abort, { once: true });
+                    this.lifetime.signal.addEventListener("abort", abort, {
+                        once: true,
+                    });
+                    if (signal.aborted || this.lifetime.signal.aborted)
+                        finish();
+                });
+            }
+        }
+        throw fail("unavailable", true);
     }
     /** One attempt; pending unknown never rePOSTs without explicit host recovery.
      * Completion restoration precedes bearer/challenge/proof/HTTP. No readiness. */
@@ -505,12 +640,7 @@ export class AppCpCloudCopyBootstrap {
                 /[^\x21-\x7e]/.test(bearer)
             )
                 throw fail("binding");
-            const challenge = await this.json(
-                "/v1/next/devices/challenge",
-                bearer,
-                undefined,
-                signal,
-            );
+            const challenge = await this.challenge(bearer, signal);
             nonce = bytes(challenge.challenge, 32);
             if (
                 nonce.length !== 32 ||
@@ -526,19 +656,42 @@ export class AppCpCloudCopyBootstrap {
                 : this.runtime.signCloudCopyJoin(nonce);
             this.check(signal);
             if (signature.length !== 64) throw fail("response");
-            const result = await this.json(
-                create
-                    ? "/v1/next/collections/cloud-copy"
-                    : `/v1/next/collections/${this.scope.collection}/devices`,
-                bearer,
-                JSON.stringify({
-                    device_id: this.scope.deviceId,
-                    challenge: challenge.challenge,
-                    sig: hex(signature),
-                    ...(create ? { collection_id: this.scope.collection, ...(this.operation.displayName === undefined ? {} : {display_name: this.operation.displayName}) } : {}),
-                }),
-                signal,
-            );
+            let result: Record<string, unknown>;
+            try {
+                result = await this.json(
+                    create
+                        ? "/v1/next/collections/cloud-copy"
+                        : `/v1/next/collections/${this.scope.collection}/devices`,
+                    bearer,
+                    JSON.stringify({
+                        device_id: this.scope.deviceId,
+                        challenge: challenge.challenge,
+                        sig: hex(signature),
+                        ...(create
+                            ? {
+                                  collection_id: this.scope.collection,
+                                  ...(this.operation.displayName === undefined
+                                      ? {}
+                                      : {
+                                            display_name:
+                                                this.operation.displayName,
+                                        }),
+                              }
+                            : {}),
+                    }),
+                    signal,
+                );
+            } catch (error) {
+                // After a mutating POST, HTTP/server/network loss does not prove
+                // non-commit. Preserve the original pending operation; explicit
+                // recovery only, never repeat a possibly consumed challenge.
+                if (
+                    error instanceof AppCloudCopyBootstrapError &&
+                    error.reason === "unavailable"
+                )
+                    throw fail("outcome_unknown");
+                throw error;
+            }
             if (
                 result.collection_id !== this.scope.collection ||
                 result.log_url !== this.scope.logOrigin

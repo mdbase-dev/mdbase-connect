@@ -25,6 +25,8 @@ mod duration;
 mod duration_value;
 mod eval;
 mod execution;
+mod host_renderer;
+pub use host_renderer::supports_host_renderer;
 mod streaming;
 pub use streaming::{
     IncrementalBasesBudget, MAX_INCREMENTAL_OUTPUT_BYTES, MAX_INCREMENTAL_ROWS,

@@ -1,6 +1,8 @@
 import type { DatabaseConnection, DatabaseQueryable } from "./database-types.js";
 import { requireCollectionNotDeleted } from "./features/next/collection-deletion.js";
-import { requireAccountNotMigrationFrozen } from "./features/next/migration-topology.js";
+import { requireAccountNotMigrationFrozen, requireNextAccountNotMigrationFrozen } from "./features/next/migration-topology.js";
+import { InvitationMigrationPending, requireCompletedMigrationInvitation } from "./features/next/migration-sharing.js";
+import { RequestValidationError } from "./platform/http-errors.js";
 
 export interface CollectionSharingAuthority {
   kind: "native" | "hosted";
@@ -26,9 +28,33 @@ export async function lockCollectionSharingAuthority(
 ): Promise<CollectionSharingAuthority | null> {
   const discovered = await resolveCollectionSharingAuthority(db, collectionId);
   if (!discovered) return null;
-  await requireAccountNotMigrationFrozen(db, discovered.user_id);
+  if (discovered.kind === "native") await requireNextAccountNotMigrationFrozen(db, discovered.user_id);
+  else await requireAccountNotMigrationFrozen(db, discovered.user_id);
   const held = await readAuthority(db, collectionId, " FOR UPDATE");
-  if (!held || held.user_id !== discovered.user_id) return null;
+  if (!held || held.user_id !== discovered.user_id || held.kind !== discovered.kind) return null;
+  return held;
+}
+
+/** Original emailed invitation acceptance only; other sharing/topology writes
+ * retain the original global freeze. A terminal label is never sufficient. */
+export async function lockCollectionInvitationAcceptance(
+  db: DatabaseConnection,
+  collectionId: string
+): Promise<CollectionSharingAuthority | null> {
+  const discovered = await resolveCollectionSharingAuthority(db, collectionId);
+  if (!discovered) return null;
+  let completedNext = false;
+  try {
+    if (discovered.kind === "native") completedNext = await requireNextAccountNotMigrationFrozen(db, discovered.user_id);
+    else await requireAccountNotMigrationFrozen(db, discovered.user_id);
+  }
+  catch (error) {
+    if (!(error instanceof RequestValidationError) || error.code !== "migration_frozen") throw error;
+    if (discovered.kind !== "native") throw new InvitationMigrationPending();
+  }
+  if (!completedNext) await requireCompletedMigrationInvitation(db, collectionId, discovered.user_id);
+  const held = await readAuthority(db, collectionId, " FOR UPDATE");
+  if (!held || held.user_id !== discovered.user_id || held.kind !== discovered.kind) return null;
   return held;
 }
 
@@ -48,7 +74,7 @@ async function readAuthority(
   if (native?.runtime === "next") {
     if (native.left_sync_at !== null || !["private", "cloud_copy"].includes(native.sync)) return null;
     // Collection runtime owns this decision; account backend flips separately.
-    // Migration topology is still frozen by lockCollectionSharingAuthority.
+    // The lock guard distinguishes in-flight migration from completed next authority.
     const owner = await db.query(
       `SELECT id FROM users WHERE id = $1 AND suspended_at IS NULL${lock}`,
       [native.owner_user_id]

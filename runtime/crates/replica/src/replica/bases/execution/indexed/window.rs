@@ -9,7 +9,7 @@ pub(super) struct Context<'a> {
     pub types: &'a CapturedPropertyTypes<'a>,
     pub clock: CapturedClock,
     pub snapshot: &'a QueryProjectionState,
-    pub fence: &'a SetupCaptureFence,
+    pub fence: &'a BasesReadFence,
 }
 pub(super) fn render<S: Store>(
     replica: &mut Replica<S>,
@@ -56,13 +56,65 @@ pub(super) fn render<S: Store>(
         .enumerate()
         .map(|(local, index)| (staged[*index].0.record, (local, *index)))
         .collect::<BTreeMap<_, _>>();
-    let ids = wanted.keys().copied().collect::<Vec<_>>();
+    let ids = wanted
+        .keys()
+        .copied()
+        .filter(|id| !replica.layer.touches(&crate::convert::uuid(id)))
+        .collect::<Vec<_>>();
     let mut rows = (0..chosen.len()).map(|_| None).collect::<Vec<_>>();
+    for (id, (local, index)) in &wanted {
+        if !replica.layer.touches(&crate::convert::uuid(id)) {
+            continue;
+        }
+        cancelled(check_cancelled)?;
+        replica.recheck_bases_read_capture(context.fence)?;
+        let row = replica
+            .bases_pending_projection(
+                *id,
+                &context.requirements.fields,
+                context.requirements.tags,
+                ledger,
+            )?
+            .ok_or_else(invalid)?;
+        let (identity, keys, source_bytes) = &mut staged[*index];
+        if row.source_sha != identity.revision
+            || row.path != identity.path
+            || row.source_bytes != *source_bytes
+        {
+            return Err(invalid());
+        }
+        let projected = ledger
+            .project_admitted(|work| {
+                let raw = ownership::fields(&context.requirements.fields, row.fields, work)?;
+                let file = CapturedFile::new(&row.path, Some(row.source_bytes), None, None, work)?;
+                let file = CapturedFileBindings::capture(&file, row.tags.as_deref(), work)?;
+                let bindings = context
+                    .types
+                    .projected_bindings(&raw, work)?
+                    .with_clock(context.clock)
+                    .with_file(file);
+                context.plan.project(bindings, work, check_cancelled)
+            })
+            .map_err(failure)?
+            .ok_or_else(invalid)?;
+        if projected.sort != keys.sort
+            || projected.group != keys.group
+            || projected.summary_inputs != keys.summary_inputs
+        {
+            return Err(invalid());
+        }
+        rows[*local] = Some(BasesExecutionRow {
+            record: identity.record,
+            path: std::mem::take(&mut identity.path),
+            revision: identity.revision,
+            cells: projected.cells,
+        });
+    }
     for chunk in ids.chunks(128) {
         let mut consumed = 0usize;
         while consumed < chunk.len() {
             cancelled(check_cancelled)?;
-            replica.recheck_collection_setup_capture(context.fence)?;
+            replica.recheck_bases_read_capture(context.fence)?;
             if replica.indexed_bases_state()? != *context.snapshot {
                 return Err(invalid());
             }
@@ -136,7 +188,10 @@ pub(super) fn render<S: Store>(
                     })
                     .map_err(failure)?
                     .ok_or_else(invalid)?;
-                if projected.sort != keys.sort || projected.group != keys.group {
+                if projected.sort != keys.sort
+                    || projected.group != keys.group
+                    || projected.summary_inputs != keys.summary_inputs
+                {
                     return Err(invalid());
                 }
                 rows[local] = Some(BasesExecutionRow {

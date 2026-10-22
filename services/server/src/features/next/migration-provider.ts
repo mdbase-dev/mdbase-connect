@@ -3,28 +3,57 @@
 // routes never grant serving authority, cut over, restore or unfreeze a source.
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
+import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import { HostedProviderResponseError, HostedProviderUnavailableError, type HostedProviderClient } from "../../hosted-provider.js";
 import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";
 import { bearerToken } from "../../platform/request-authentication.js";
 import { safeEqual } from "../../security.js";
-import { CreateError, inTransaction, lock } from "./bootstrap-common.js";
-import { RolloutRefused } from "./migration-rollout.js";
-import { createServiceCloudCopy, existingCloudCopy, type CloudCopyBootstrapOptions } from "./service-cloud-copy.js";
-import { loadServiceDevice } from "./service-devices.js";
+import { CreateError, inTransaction, lock, refuseRevoked } from "./bootstrap-common.js";
+import { configuredClaimAudience, consumeServiceClaimChallenge, issueServiceClaimChallenge, sameServiceClaim } from "./migration-claim-auth.js";
+import { migrationServiceRateLimit } from "./migration-rate-limit.js";
+import { requireCurrentCohortArchive, RolloutRefused } from "./migration-rollout.js";
+import { SCOPED_HOSTED_ARCHIVE_SCHEMA } from "./migration-archive-profile.js";
+import { requireOriginalArchiveSource } from "./migration-scoped-archive.js";
+import { createServiceCloudCopy, type CloudCopyBootstrapOptions } from "./service-cloud-copy.js";
+import { requireCollectionNotDeleted } from "./collection-deletion.js";
+import { migrationRoute, type MigrationRouting } from "./migration-routing.js";
 
 interface Claim { account: string; started_us: string; display_name: string }
 interface Options {
-  db: DatabasePool; token: string;
-  provider?: Pick<HostedProviderClient, "legacyMigrationDrain" | "legacyMigrationFence">;
+  db: DatabasePool; token: string; environment?: string;
+  /** Without `legacyMigrationPlacement`, a target gets the log service's default region. */
+  provider?: Pick<HostedProviderClient, "legacyMigrationDrain" | "legacyMigrationSource" | "legacyMigrationFence">
+    & Partial<Pick<HostedProviderClient, "legacyMigrationPlacement">>;
   bootstrap?: Omit<CloudCopyBootstrapOptions, "db">;
+  /** Existing hosted-role credential + OWN canonical configured CP origin. */
+  hostedRead?: { token: string; audience: string; migrationRouting?: MigrationRouting };
+}
+
+/** Called only AFTER the existing started-account claim has been locked. A
+ * historic scoped receipt is not allowed to fall back to a fresh physical
+ * fence when its current binding/acceptance is missing or stale. */
+async function originalArchiveFence(client: DatabaseQueryable, collection: string, account: string, startedUs: string, environment: string | undefined) {
+  const member = (await client.query<{ cohort: string; scoped: boolean }>(`SELECT m.cohort,
+    EXISTS(SELECT 1 FROM next_migration_archive_acceptances a WHERE a.cohort=m.cohort
+      AND a.verified_result->>'schema'=$2) AS scoped
+    FROM next_migration_cohort_members m WHERE m.account_id=$1 AND m.started_at IS NOT NULL`, [account, SCOPED_HOSTED_ARCHIVE_SCHEMA])).rows[0];
+  if (!member?.scoped) return null; // Existing v4/zero/fixture behavior is unchanged.
+  const current = await requireCurrentCohortArchive(client, member.cohort, environment);
+  const result = current.archive.verified_result;
+  if (result.schema !== SCOPED_HOSTED_ARCHIVE_SCHEMA) throw new RolloutRefused("migration_archive_source_changed", "The accepted original archive changed.");
+  // The ordinary start must follow actual acceptance; an earlier tiny fixture
+  // claim cannot be relabelled as this archive's started-account authority.
+  if (BigInt(startedUs) < BigInt(Date.parse(current.archive.accepted_at)) * 1000n) throw new RolloutRefused("migration_archive_source_changed", "The claim predates actual archive acceptance.");
+  const original = result.scoped_recovery.source_fences.find(value => value.collection_id === collection && value.account_id === account);
+  if (!original) throw new RolloutRefused("migration_archive_source_changed", "The accepted original archive changed.");
+  return { complete_sha256: result.complete_sha256, original };
 }
 
 /** Current migration claim, not target/key readiness. Internal migration may
  * preserve an existing suspension; nothing here enables ordinary user access.
  * The locked form is for the final publication/audit, never a network await. */
-async function claim(db: DatabaseQueryable, collection: string, locked = false): Promise<Claim> {
+export async function claim(db: DatabaseQueryable, collection: string, locked = false): Promise<Claim> {
   const row = (await db.query<Claim>(
     `SELECT h.user_id::text AS account, h.display_name, (extract(epoch FROM m.started_at)*1000000)::bigint::text AS started_us
      FROM hosted_collections h JOIN users u ON u.id=h.user_id
@@ -43,33 +72,54 @@ async function claim(db: DatabaseQueryable, collection: string, locked = false):
 /** Authenticated current CP facts for a native consumer's independent checks.
  * No provider/network/bootstrap effects, freshness lease or readiness boolean.
  * A missing target is ordinary pre-bootstrap DATA, not H1 permission. */
-async function currentClaim(collection: string, options: Options) {
-  return inTransaction(options.db, async client => {
-    const before = await claim(client, collection, true);
-    // Same owner-before-collection order and immutable tuple checks as bootstrap.
-    await lock(client, collection);
+async function openClaimRead(client: DatabaseConnection, collection: string, serviceRead = false) {
+  const observe = async (before: Claim) => {
+    // This route projects the SHADOW root from the same locked canonical parent,
+    // rather than re-reading it in another statement. Missing is pre-bootstrap
+    // DATA; a present foreign/left/non-cloud-copy/non-SHADOW parent still refuses.
+    try { await requireCollectionNotDeleted(client, collection); }
+    catch (error) {
+      if (error instanceof Error && error.message === "collection_deleted") throw new CreateError(409, "collection_deleted");
+      throw error;
+    }
+    const parent = (await client.query<{ owner_user_id: string; sync: string; left: boolean; shadow_root: Buffer | null }>(
+      `SELECT owner_user_id, sync, left_sync_at IS NOT NULL AS left,
+         CASE WHEN runtime='shadow' AND octet_length(root_key_id)=16 THEN root_key_id END AS shadow_root
+       FROM next_collections WHERE collection_id=$1 FOR UPDATE`, [collection]
+    )).rows[0];
     let observedTarget = null;
-    if (await existingCloudCopy(client, collection, before.account)) {
-      const row = (await client.query<{ root_key_id: Buffer }>(
-        "SELECT root_key_id FROM next_collections WHERE collection_id=$1 AND runtime='shadow' AND octet_length(root_key_id)=16", [collection]
+    if (parent) {
+      if (parent.owner_user_id !== before.account || parent.sync !== "cloud_copy" || parent.left || !parent.shadow_root) throw new CreateError(409, "collection_exists");
+      // Parent FOR UPDATE precedes the device share lock. Both key/context reads
+      // are now one statement; keep the exact current-parent join and hosted kind.
+      const device = (await client.query<{ device_id: string; sign_pk: Buffer; kem_pk: Buffer; noise_pk: Buffer }>(
+        `SELECT device.device_id::text AS device_id, device.sign_pk, device.kem_pk, device.noise_pk
+         FROM next_service_devices device JOIN next_collections parent ON parent.collection_id=device.collection_id
+         WHERE device.collection_id=$1 AND device.kind='hosted' AND parent.sync='cloud_copy' AND parent.left_sync_at IS NULL
+         FOR SHARE OF ${serviceRead ? "device, parent" : "parent"}`, [collection]
       )).rows[0];
-      if (!row) throw new CreateError(409, "collection_exists");
-      // The H1 subject is hosted; no new escrow or app-grant obligation.
-      const device = await loadServiceDevice(client, collection, { kind: "hosted" });
       if (!device || device.device_id === "00000000-0000-0000-0000-000000000000") throw new CreateError(503, "not_ready");
-      observedTarget = { runtime: "shadow", root_key_id: row.root_key_id.toString("hex"), hosted: {
+      if (serviceRead) await refuseRevoked(client, collection, device.device_id);
+      observedTarget = { runtime: "shadow", root_key_id: parent.shadow_root.toString("hex"), hosted: {
         device_id: device.device_id, sign_pk: device.sign_pk.toString("hex"),
         kem_pk: device.kem_pk.toString("hex"), noise_pk: device.noise_pk.toString("hex")
       } };
+    } else {
+      const other = await client.query("SELECT 1 FROM collections WHERE local_id=$1 AND user_id<>$2 AND removed_at IS NULL", [collection, before.account]);
+      if (other.rows.length) throw new CreateError(409, "collection_exists");
     }
-    // Includes independently inserted deletion/cutover facts after SQL awaits.
+    // Every observation retains its own fresh before/after canonical source read.
     const after = await claim(client, collection, true);
-    if (after.account !== before.account || after.started_us !== before.started_us) {
-      throw new RolloutRefused("migration_source_changed", "The migration claim changed.");
-    }
+    if (after.account !== before.account || after.started_us !== before.started_us) throw new RolloutRefused("migration_source_changed", "The migration claim changed.");
     return { schema: "mdbase-migration-claim/1", collection_id: collection,
       owner_account: before.account, started_us: before.started_us, target: observedTarget };
-  });
+  };
+  // Private transaction-scoped closure, not an alreadyLocked caller flag/cache.
+  // Own the original h/u/m locks before the advisory lock, then retain it through
+  // both observations and COMMIT. Rechecking never reacquires or skips facts.
+  const before = await claim(client, collection, true);
+  await lock(client, collection);
+  return { initial: await observe(before), reread: () => claim(client, collection, true).then(observe) };
 }
 
 async function target(collection: string, options: Options) {
@@ -81,10 +131,14 @@ async function target(collection: string, options: Options) {
       throw new RolloutRefused("migration_source_changed", "The migration claim changed.");
     }
   };
+  // The storage region comes from the legacy timezones, as the migration plan
+  // counted them; it only matters when this call registers the collection.
+  const legacy = await options.provider?.legacyMigrationPlacement?.(collection, { deadline: Date.now() + 25_000 });
   // Runtime and owner are composed here, never selected by caller input. The
   // shared creator rechecks current around awaits and preserves committed keys.
   const result = await createServiceCloudCopy({ ...options.bootstrap, db: options.db }, {
-    collection, owner: before.account, runtime: "shadow", displayName: before.display_name, current
+    collection, owner: before.account, runtime: "shadow", displayName: before.display_name, current,
+    placement: legacy && { timezone: legacy.timezone, ownerTimezones: legacy.ownerTimezones }
   });
   return inTransaction(options.db, async client => {
     await current(client);
@@ -96,12 +150,30 @@ async function target(collection: string, options: Options) {
 async function action(collection: string, fence: boolean, options: Options) {
   const before = await claim(options.db, collection);
   if (!options.provider) throw new RolloutRefused("migration_source_unavailable", "The legacy provider is unavailable.", 503);
+  const archiveCurrent = async (client: DatabaseQueryable) => {
+    const current = await claim(client, collection, true);
+    if (current.account !== before.account || current.started_us !== before.started_us) {
+      throw new RolloutRefused("migration_source_changed", "The migration claim changed.");
+    }
+    return originalArchiveFence(client, collection, current.account, current.started_us, options.environment);
+  };
+  const original = await inTransaction(options.db, archiveCurrent);
+  const sameOriginal = (current: typeof original) => {
+    if (JSON.stringify(current) !== JSON.stringify(original)) throw new RolloutRefused("migration_archive_source_changed", "The accepted original archive changed.");
+  };
   const deadline = Date.now() + 25_000;
-  const source = await options.provider.legacyMigrationDrain(collection, { deadline });
+  // The source read carries the provider's notification watermark from the same
+  // snapshot, passed through unchanged as DATA for the pre-flip re-read.
+  const observed = fence && !original
+    ? { drain: await options.provider.legacyMigrationDrain(collection, { deadline }), notificationWatermark: null }
+    : await options.provider.legacyMigrationSource(collection, { deadline });
+  const source = observed.drain;
+  if (original) requireOriginalArchiveSource(original, source, observed.notificationWatermark);
   // Never re-fence a retained/cut-over collection through this launch front.
   // A missing run identity for a fenced source is not an active migration.
   if (!["active", "migrating"].includes(source.state) || source.retain_until !== null
-      || (source.state === "migrating" && (!source.migration_id || !source.started_at))) {
+      || (source.state === "migrating" && (!source.migration_id || !source.started_at))
+      || (source.state === "active" && (source.migration_id != null || source.started_at !== null))) {
     throw new RolloutRefused("migration_source_not_current", "The legacy source is not pre-cutover.");
   }
   if (source.collection_id !== collection) throw new RolloutRefused("migration_source_unavailable", "The source identity does not match.", 503);
@@ -111,28 +183,108 @@ async function action(collection: string, fence: boolean, options: Options) {
   if (current.account !== before.account || current.started_us !== before.started_us) {
     throw new RolloutRefused("migration_source_changed", "The migration claim changed.");
   }
-  const result = fence ? await options.provider.legacyMigrationFence(collection, { deadline }) : source;
-  if (result.collection_id !== collection || (fence && result.retain_until !== null)) {
+  // The existing provider client owns strict reply decoding; do not add another
+  // codec here. This layer additionally binds its outcome to the observed run.
+  sameOriginal(await inTransaction(options.db, archiveCurrent));
+  // The unchanged native kind11 action consumes its accepted ORIGINAL H6 DATA.
+  // Never physically re-fence or adopt a currently observed provider run here.
+  const result = fence ? (original ? {
+    collection_id: collection, state: "migrating", migration_id: original.original.migration_id,
+    started_at: original.original.started_at, retain_until: null, restored: []
+  } : await options.provider.legacyMigrationFence(collection, { deadline })) : source;
+  if (result.collection_id !== collection || (fence && (result.retain_until !== null
+      || result.state !== "migrating" || !result.migration_id
+      || result.migration_id === "00000000-0000-0000-0000-000000000000" || !result.started_at))) {
     throw new RolloutRefused("migration_source_unavailable", "The provider outcome is not a current source.", 503);
+  }
+  // A retry may observe this run, never silently adopt a replacement after a
+  // provider rollback/restart during the await. The fence response is state DATA,
+  // not an original-effect receipt or all-writer/external-I/O settlement ACK.
+  if (fence && source.state === "migrating"
+      && (result.migration_id !== source.migration_id || result.started_at !== source.started_at)) {
+    throw new RolloutRefused("migration_source_changed", "The provider migration run changed.");
   }
   return inTransaction(options.db, async client => {
     const after = await claim(client, collection, true);
     if (after.account !== before.account || after.started_us !== before.started_us) {
       throw new RolloutRefused("migration_source_changed", "The migration claim changed.");
     }
+    sameOriginal(await originalArchiveFence(client, collection, after.account, after.started_us, options.environment));
     await audit(client, after.account, fence ? "next_migration.fence" : "next_migration.source", collection,
-      { migration_id: result.migration_id ?? null, state: result.state });
-    return result;
+      { migration_id: result.migration_id ?? null, state: result.state,
+        ...(original ? { original_archive_complete_sha256: original.complete_sha256 } : {}),
+        ...(observed.notificationWatermark ? { notification_watermark: observed.notificationWatermark } : {}) });
+    return { body: result, notificationWatermark: observed.notificationWatermark };
   });
 }
+
+// The hosted Worker's migration executor reads the claim before every action:
+// each prepare is one challenge and one read, so each route sees one request per
+// action. A collection's run is about 20 fixed actions plus one per page of at
+// most 64 source rows, and the executor runs them back to back (up to 64 per
+// wake, re-armed after 100 ms), so its rate is bounded by latency: with at least
+// two sequential control-plane transactions and an effect per action, no more
+// than about 300 actions a minute. Every collection's DO calls from shared
+// Cloudflare egress, so a per-IP 20 a minute caps all running collections at 20
+// actions a minute together, each refused prepare waits 30 s and five in a row
+// stop the run. Requests carrying the hosted role credential use one
+// service bucket per route: 4,800 a minute covers 16 collections at that ceiling
+// (the batch runner starts accounts one at a time; the rollout plan allows 8
+// workers). Anything else keeps the per-IP 20 a minute; the role check in
+// onRequest refuses it before the limiter counts it.
+const CLAIM_SERVICE_BUCKET = "service:hosted:migration-claim";
 
 export function registerMigrationProviderRoutes(app: FastifyInstance, options: Options): void {
   const params = z.object({ id: z.string().regex(/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}(?![\s\S])/u)
     .refine(id => id !== "00000000-0000-0000-0000-000000000000") }).strict();
   const empty = z.object({}).strict();
+  const hostedRead = options.hostedRead;
+  if (hostedRead) {
+    const audience = configuredClaimAudience(hostedRead.audience);
+    if (!hostedRead.token || safeEqual(hostedRead.token, options.token)) throw new Error("Hosted claim read requires its distinct existing role credential.");
+    const device = params.shape.id;
+    const challengeBody = z.object({ device_id: device }).strict();
+    const readBody = challengeBody.extend({ challenge: z.string().regex(/^[0-9a-f]{64}(?![\s\S])/u), sig: z.string().regex(/^[0-9a-f]{128}(?![\s\S])/u) }).strict();
+    for (const kind of ["challenge", "read"] as const) {
+      app.post(`/internal/v1/next/migration/collections/:id/claim/${kind}`, {
+        bodyLimit: 1024, config: { rateLimit: migrationServiceRateLimit(hostedRead.token, CLAIM_SERVICE_BUCKET, hostedRead.migrationRouting ? [hostedRead.migrationRouting.inboundToken] : []) },
+        onRequest: async (request, reply) => {
+          reply.header("cache-control", "no-store");
+          const token = bearerToken(request);
+          if (!token || !(safeEqual(token, hostedRead.token) || (hostedRead.migrationRouting && safeEqual(token, hostedRead.migrationRouting.inboundToken)))) return reply.code(401).send(apiError("invalid_internal_token", "The hosted role credential is required."));
+        }
+      }, async (request, reply) => {
+        const p = params.safeParse(request.params), body = (kind === "read" ? readBody : challengeBody).safeParse(request.body);
+        if (!p.success || !body.success || !empty.safeParse(request.query).success) return reply.code(400).send(apiError("invalid_request", "A canonical service proof is required."));
+        try {
+          return await inTransaction(options.db, async client => {
+            const observation = await openClaimRead(client, p.data.id, true);
+            const before = observation.initial;
+            const routing = hostedRead.migrationRouting;
+            const route = await migrationRoute(client, routing, p.data.id);
+            if (route === "retired") throw new CreateError(403, "wrong_service_scope");
+            const expected = route === "migration" ? routing!.inboundToken : hostedRead.token;
+            if (!safeEqual(bearerToken(request)!, expected)) throw new CreateError(403, "wrong_service_scope");
+            let nonce: { challenge: string } | undefined;
+            if (kind === "challenge") nonce = await issueServiceClaimChallenge(client, audience, before, body.data.device_id);
+            else await consumeServiceClaimChallenge(client, audience, before, readBody.parse(body.data));
+            // Same transaction: the consume cannot commit without the final
+            // canonical source/target/key/revocation read and exact comparison.
+            const after = await observation.reread();
+            if (!sameServiceClaim(before, after)) throw new CreateError(409, "migration_subject_not_current");
+            return kind === "challenge" ? nonce! : after;
+          });
+        } catch (error) {
+          if (error instanceof RolloutRefused || error instanceof CreateError) return reply.code(error.status).send(apiError(error.code, "No current authenticated migration claim."));
+          if (["55P03", "57014", "40P01", "40001"].includes(String((error as { code?: unknown })?.code))) return reply.code(503).send(apiError("busy", "No authenticated claim outcome."));
+          throw error; // Includes unknown COMMIT: never emit claim success.
+        }
+      });
+    }
+  }
   for (const kind of ["source", "fence", "target", "claim"] as const) {
     app.route({ method: kind === "source" || kind === "claim" ? "GET" : "POST", url: `/internal/v1/next/migration/collections/:id/${kind}`,
-      bodyLimit: 4096, config: { rateLimit: { max: 20, timeWindow: "1 minute" } },
+      bodyLimit: 4096, config: { rateLimit: migrationServiceRateLimit(options.token, `service:migration:${kind}`) },
       handler: async (request, reply) => {
         reply.header("cache-control", "no-store");
         const token = bearerToken(request);
@@ -144,8 +296,12 @@ export function registerMigrationProviderRoutes(app: FastifyInstance, options: O
           return reply.code(400).send(apiError("invalid_request", "A canonical collection UUID and no caller-selected source facts are required."));
         }
         try {
-          if (kind === "claim") return await currentClaim(p.data.id, options);
-          return kind === "target" ? await target(p.data.id, options) : await action(p.data.id, kind === "fence", options);
+          if (kind === "claim") return await inTransaction(options.db, async client => (await openClaimRead(client, p.data.id)).initial);
+          if (kind === "target") return await target(p.data.id, options);
+          const outcome = await action(p.data.id, kind === "fence", options);
+          // The body stays the exact provider shape; the watermark is a header.
+          if (outcome.notificationWatermark) reply.header("etag", outcome.notificationWatermark);
+          return outcome.body;
         }
         catch (error) {
           if (error instanceof RolloutRefused) return reply.code(error.status).send(apiError(error.code, error.message));

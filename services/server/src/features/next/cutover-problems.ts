@@ -1,0 +1,86 @@
+/** Plain-language update outcomes on either side of a collection cutover. */
+const DEFAULT_CLIENT_UPDATE_URL = "https://mdbase.dev/downloads";
+/** A fenced collection usually finishes its cutover within minutes. */
+const COLLECTION_MIGRATING_RETRY_SECONDS = 300;
+
+export interface ClientUpdatePolicy {
+  updateUrl: string;
+  /** Set by release at cutover; absent until then. */
+  minimumClientVersion: string | null;
+}
+
+export const DEFAULT_CLIENT_UPDATE_POLICY: ClientUpdatePolicy = {
+  updateUrl: DEFAULT_CLIENT_UPDATE_URL,
+  minimumClientVersion: null
+};
+
+/**
+ * A refusal an old client must be able to explain to its user. Apps show
+ * `message` verbatim, so it is plain language and never a raw code.
+ */
+export class CutoverProblemError extends Error {
+  constructor(
+    readonly kind: "moved" | "onboarding_moved" | "not_yet_migrated" | "migrating" | "suspended"
+  ) {
+    super(kind);
+  }
+}
+
+export function cutoverProblem(error: CutoverProblemError, policy: ClientUpdatePolicy): {
+  status: number;
+  code: string;
+  message: string;
+  details?: Record<string, unknown>;
+  retryAfterSeconds?: number;
+} {
+  const moved = {
+    reason: "moved_to_next_runtime",
+    update_url: policy.updateUrl,
+    ...(policy.minimumClientVersion
+      ? { minimum_client_version: policy.minimumClientVersion }
+      : {})
+  };
+  if (error.kind === "moved") {
+    return {
+      status: 409,
+      code: "collection_unavailable",
+      message: "mdbase has been updated. Copy any unsaved work somewhere safe, "
+        + "then reload this page to continue. If you use the desktop or mobile app, "
+        + `download the latest version from ${policy.updateUrl}.`,
+      details: moved
+    };
+  }
+  if (error.kind === "onboarding_moved") {
+    return {
+      status: 409,
+      code: "onboarding_moved",
+      message: "mdbase has been updated. Copy any unsaved work somewhere safe, "
+        + "then reload this page to continue. Open an updated app to finish setting "
+        + `up your starter collection. For desktop or mobile, update from ${policy.updateUrl}.`,
+      details: moved
+    };
+  }
+  if (error.kind === "not_yet_migrated") {
+    return {
+      status: 409,
+      code: "collection_not_yet_migrated",
+      message: "This collection will appear here once you update the mdbase desktop app on the computer that holds it."
+    };
+  }
+  if (error.kind === "migrating") {
+    return {
+      status: 409,
+      code: "collection_migrating",
+      message: "This collection is being upgraded, which usually takes a few minutes. "
+        + "Changes made while it's upgrading may not be saved. When it's finished, "
+        + "check your recent changes and make them again if they're missing.",
+      details: { retry_after_seconds: COLLECTION_MIGRATING_RETRY_SECONDS },
+      retryAfterSeconds: COLLECTION_MIGRATING_RETRY_SECONDS
+    };
+  }
+  return {
+    status: 403,
+    code: "account_suspended",
+    message: "This mdbase account is suspended. Contact mdbase support to restore access."
+  };
+}

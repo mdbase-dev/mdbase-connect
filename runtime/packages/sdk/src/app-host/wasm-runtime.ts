@@ -1,11 +1,31 @@
 /** Optional first-party app artifact binding. No auth/custody defaults or MemStore fallback. */
-import { decode, encodeSecret, type CborValue } from "../cbor.js";
+import { decode, encode, encodeSecret, type CborValue } from "../cbor.js";
 import { hashToBytes, uuidToBytes } from "../codec.js";
 import { mdbaseError } from "../errors.js";
 import { WasmRuntime, type Exports, type OpenConfig } from "../runtime/wasm.js";
 import { confirmedHead, syncStatus, type ConfirmedHead, type SyncStatus } from "../wire.js";
 import { AppLogPump, type AppLogCall, type AppLogRuntime, type AppLogTransport } from "./log-pump.js";
 import type { AppLogHttpProof } from "./http-log.js";
+import { resourceAssessment, resourceDecisions, type AppResourceAssessment, type AppResourceDecisions } from "./collection-control.js";
+import { modelResourcePlan } from "./collection-setup-journal.js";
+import type { ModelResourcePlan } from "./collection-setup-types.js";
+
+/** @internal Bounded resource DATA codec shared with the setup engine. */
+export function resourceJson(value: unknown, toCbor: boolean, depth = 0, count = { nodes: 0 }): unknown {
+  if (depth > 32 || ++count.nodes > 65536) throw mdbaseError("invalid_request", "resource DATA exceeds bound");
+  if (value === null || typeof value === "boolean" || typeof value === "string"
+    || (typeof value === "number" && Number.isFinite(value))) return value;
+  if (Array.isArray(value)) return value.map(child => resourceJson(child, toCbor, depth + 1, count));
+  const map = toCbor ? value !== null && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype
+    ? Object.entries(value) : null : value instanceof Map ? [...value] : null;
+  if (!map) throw mdbaseError("invalid_request", "invalid resource DATA");
+  const result = new Map<string, unknown>();
+  for (const [key, child] of map) {
+    if (typeof key !== "string" || result.has(key)) throw mdbaseError("invalid_request", "invalid resource DATA");
+    result.set(key, resourceJson(child, toCbor, depth + 1, count));
+  }
+  return toCbor ? result : Object.fromEntries(result);
+}
 
 export interface AppSqlMemory {
   memory: WebAssembly.Memory;
@@ -108,6 +128,8 @@ interface AppExports extends Exports {
   rt_app_private_create_sign(p: number, n: number): bigint;
   rt_app_private_device_enrol_sign(p: number, n: number): bigint;
   rt_app_verify_handover(session: bigint, dp: number, dn: number, wp: number, wn: number): bigint;
+  rt_app_resources?(session: bigint, p: number, n: number): bigint;
+  rt_app_receipt_rejected?(session: bigint, p: number, n: number): number;
   rt_app_bases_execute?(session: bigint, p: number, n: number): bigint;
   rt_app_bases_list_views?(session: bigint, p: number, n: number): bigint;
   rt_app_bases_read_view_source?(session: bigint, p: number, n: number): bigint;
@@ -117,6 +139,9 @@ interface AppExports extends Exports {
   rt_app_log_bind(endpoint: bigint, p: number, n: number): number;
   rt_app_log_generation(): bigint;
   rt_app_log_reconnect(endpoint:bigint,p:number,n:number):number;
+  /** Optional: older pinned runtimes lack it; the host then simply does not wake. */
+  rt_app_log_head?(): number;
+  rt_app_log_hello_sign?(generation: bigint, ptr: number, len: number): bigint;
   rt_app_log_http_sign(endpoint: bigint, generation: bigint, original: bigint, p: number, n: number): bigint;
   rt_app_log_calls(): bigint;
   rt_app_log_reply(id: bigint, p: number, n: number): number;
@@ -256,6 +281,50 @@ export class AppWasmRuntime extends WasmRuntime implements AppLogRuntime {
       if (!this.active || this.retired || this.sql.needsRecovery || this.sessionForPort(port) !== session) { out.fill(0); throw bad(); }
       return out;
     } finally { owned.fill(0); }
+  }
+  /** Private resource-only planner, bound to the already held facade session.
+   * Native owns inventory and authority checks; no caller IDs or state loans. */
+  setupResources(port: ReturnType<WasmRuntime["connect"]>, operation: "assess", manifest: unknown, expectedDigest?: undefined, decisions?: AppResourceDecisions): AppResourceAssessment;
+  setupResources(port: ReturnType<WasmRuntime["connect"]>, operation: "apply", manifest: unknown, expectedDigest: string, decisions?: AppResourceDecisions): ModelResourcePlan;
+  setupResources(port: ReturnType<WasmRuntime["connect"]>, operation: "assess" | "apply", manifest: unknown, expectedDigest?: string, decisions?: AppResourceDecisions): AppResourceAssessment | ModelResourcePlan {
+    const session = this.sessionForPort(port), native = this.app.rt_app_resources;
+    if (!this.active || this.retired || !this.sql || this.sql.needsRecovery || session === null || typeof native !== "function")
+      throw mdbaseError("unavailable", "resource setup unsupported", "resource_setup_unsupported");
+    if (operation !== "assess" && operation !== "apply") throw bad();
+    if (operation === "apply" && (typeof expectedDigest !== "string" || !/^sha256:[0-9a-f]{64}$/.test(expectedDigest))) throw bad();
+    // A fifth member carries reviewed decisions and asks assess for the review.
+    const reviewing = decisions !== undefined;
+    const request: CborValue[] = [1, operation === "apply" ? 1 : 0, resourceJson(manifest, true) as CborValue, expectedDigest ?? null];
+    if (reviewing) request.push(resourceJson(resourceDecisions(decisions), true) as CborValue);
+    const input = encode(request);
+    if (!input.length || input.length > 512 * 1024) { input.fill(0); throw mdbaseError("invalid_request", "resource DATA exceeds bound"); }
+    let output: Uint8Array | undefined;
+    try {
+      output = this.guard(() => {
+        const packed = uint64(native.call(this.app, session, ...this.put(input)));
+        const length = Number(packed & 0xffffffffn);
+        if (!length || length > 512 * 1024) throw bad();
+        return this.takeOut(packed);
+      });
+      if (!this.active || this.retired || this.sql.needsRecovery || this.sessionForPort(port) !== session) throw bad();
+      const response = this.guard(() => decode(output!));
+      if (!Array.isArray(response) || response.length !== 3 || response[0] !== 1 || typeof response[1] !== "boolean") throw bad();
+      if (response[1] === false) throw mdbaseError("unavailable", "resource setup unavailable", "resource_setup_unavailable");
+      const value = resourceJson(response[2], false);
+      return operation === "assess" ? resourceAssessment(value, reviewing) : modelResourcePlan(value);
+    } finally { input.fill(0); output?.fill(0); }
+  }
+  /** True only when native holds a FINAL rejected receipt for exactly this
+   * mutation on the port's own session. Anything else, including errors, is false. */
+  resourceRejected(port: ReturnType<WasmRuntime["connect"]>, mutationId: string): boolean {
+    let bytes: Uint8Array | null = null;
+    try {
+      const session = this.sessionForPort(port), native = this.app.rt_app_receipt_rejected;
+      if (!this.active || this.retired || session === null || typeof native !== "function" || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(mutationId)) return false;
+      bytes = uuidToBytes(mutationId);
+      const answer = this.guard(() => native.call(this.app, session, ...this.put(bytes!)));
+      return answer === 1 && this.active && !this.retired && this.sessionForPort(port) === session;
+    } catch { return false; } finally { bytes?.fill(0); }
   }
   /** Positive ONLY from native verified-policy signature + retained prefix and
    * live READ session. Ordinary unavailable stays hosted; no saved implication. */
@@ -480,6 +549,33 @@ export class AppWasmRuntime extends WasmRuntime implements AppLogRuntime {
     this.pump = new AppLogPump(this, transport, { endpoint: this.endpoint, collection: this.collection });
     this.transport = transport;
     return this.pump;
+  }
+  /** HOST ONLY quiet foreground wake: asks the native replica to fetch the log
+   * head over the CURRENT authenticated session so remote entries are learned.
+   * No token, reconnect, status or readiness change; false when unsupported,
+   * not bound, already in flight, or unhealthy. Never retires the log; a trap
+   * fails the runtime exactly like tick(). */
+  requestLogHead(): boolean {
+    if (!this.active || this.retired || this.pump === null || typeof this.app.rt_app_log_head !== "function") return false;
+    return this.guard(() => this.app.rt_app_log_head!()) === 1;
+  }
+  /** True when this runtime can sign the push socket's `hello`. */
+  get supportsLogPush(): boolean { return typeof this.app.rt_app_log_hello_sign === "function"; }
+  /** Fixed ls-hello proof for the push socket of the CURRENT log generation
+   * (`nonce32 ‖ token`). Null when unsupported or refused; never a generic signer. */
+  signLogHello(nonce: Uint8Array, token: string): Uint8Array | null {
+    let owned: Uint8Array | null = null;
+    try {
+      if (!this.supportsLogPush || !this.active || this.retired || !this.pump || !this.transport || this.logGeneration === 0n || !this.transport.isCurrent()) return null;
+      if (!(nonce instanceof Uint8Array) || nonce.length !== 32 || typeof token !== "string" || token.length === 0 || token.length > 16 * 1024 || /[^\x21-\x7e]/.test(token)) return null;
+      const t = new TextEncoder().encode(token);
+      owned = new Uint8Array(32 + t.length); owned.set(nonce, 0); owned.set(t, 32); t.fill(0);
+      const generation = this.logGeneration;
+      const signature = this.guard(() => this.takeOut(this.app.rt_app_log_hello_sign!(generation, ...this.put(owned!))));
+      if (signature.length !== 64) { signature.fill(0); return null; }
+      return signature;
+    } catch { return null; }
+    finally { owned?.fill(0); }
   }
   /** HOST ONLY wake AFTER fresh authenticated authority admission: drain/abort
    * original pump before SAME-owner native session/generation replacement. May

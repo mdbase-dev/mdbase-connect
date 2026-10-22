@@ -26,8 +26,9 @@
 //!
 //! Scheduling: the scan starts when apply first stalls at `N`. It is extended only
 //! when a bounded key-wait probe re-stalls at `N` and the known head has
-//! grown. A head hint alone never starts reads, and transport failures pause the
-//! scan until the next probe. A void grant, an item ahead that ordered apply could
+//! grown. A head hint never starts a read by itself: it only brings the next
+//! bounded probe forward (at most one a second, `key_wait.rs`). Transport
+//! failures pause the scan until the next probe. A void grant, an item ahead that ordered apply could
 //! not pass either, or the work bound leaves the replica in a typed
 //! `waiting_for_key` ([`KeyWaitReason`], also in the incident's details).
 
@@ -78,7 +79,7 @@ pub enum KeyWaitReason {
         seq: u64,
     },
     /// A control item ahead that ordered apply could not pass either (unknown
-    /// variant, malformed, a `base`, or an inconsistent read). Reading stops there.
+    /// variant, malformed, or an inconsistent read). Reading stops there.
     Blocked {
         /// The item's position.
         seq: u64,
@@ -353,8 +354,11 @@ impl<S: Store> Replica<S> {
             // Sealed; it changes only grants (never devices, members, epochs or
             // keys), so it cannot change a `key_grant`'s validity.
             ItemKind::GrantApproval => return Step::Next,
+            // Sealed; valid or void it changes only the control chain and whether
+            // content was seen (a later base's validity), never a `key_grant`'s.
+            // A device enrolled after a migration's base waits at or before it.
+            ItemKind::Base => return Step::Next,
             ItemKind::Policy | ItemKind::Rekey | ItemKind::KeyGrant => {}
-            // Ordered apply stops at a `base` in this build.
             _ => return blocked,
         }
         let chain = mdbn_wire::hash::chain_hash(raw);

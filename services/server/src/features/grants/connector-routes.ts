@@ -200,23 +200,30 @@ export function registerConnectorGrantRoutes(
     const connector = await requireConnector(request, reply, options.db);
     if (!connector) return;
     const { grantId } = z.object({ grantId: z.uuid() }).parse(request.params);
-    const active = await options.db.query(
-      `SELECT id FROM grants
-       WHERE id = $1 AND activated_at IS NOT NULL
-         AND collection_id IN
-         (SELECT id FROM collections WHERE connector_id = $2)`,
-      [grantId, connector.id]
+    // A next-device daemon names a native Private grant by its log UUID (the
+    // feed's id); resolve either reference to the stable grant. Native grants
+    // sit on no connector collection: the connector must be the granting
+    // account's.
+    const active = await options.db.query<{ id: string }>(
+      `SELECT g.id FROM grants g
+       LEFT JOIN next_grant_bindings binding ON binding.grant_id = g.id
+       WHERE (g.id = $1 OR binding.log_grant_id = $1) AND g.activated_at IS NOT NULL
+         AND (g.collection_id IN
+              (SELECT id FROM collections WHERE connector_id = $2)
+              OR (g.next_collection_id IS NOT NULL AND g.user_id = $3))`,
+      [grantId, connector.id, connector.user_id]
     );
-    if (!active.rows[0]) {
+    const resolved = active.rows[0]?.id;
+    if (!resolved) {
       return reply.code(404).send(apiError(
         "grant_not_found",
         "Active grant not found."
       ));
     }
-    await queueLocalGrantRevocations(options.db, connector.user_id, [grantId]);
+    await queueLocalGrantRevocations(options.db, connector.user_id, [resolved]);
     await options.relay.pushPolicy(connector.id);
-    const status = await localGrantRevocationStatus(options.db, connector.user_id, grantId);
-    await audit(options.db, connector.user_id, status === "revoked" ? "grant.revoked" : "grant.revocation_requested", grantId, {
+    const status = await localGrantRevocationStatus(options.db, connector.user_id, resolved);
+    await audit(options.db, connector.user_id, status === "revoked" ? "grant.revoked" : "grant.revocation_requested", resolved, {
       connector_id: connector.id, revocation_status: status
     });
     return { ok: true, revocation_status: status };

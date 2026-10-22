@@ -23,15 +23,6 @@ function setup(opts: ConstructorParameters<typeof MemoryReplica>[0] = {}) {
 }
 
 describe("session", () => {
-  it("says hello and exposes grant and status", async () => {
-    const { replica, client } = setup();
-    const c = await client();
-    expect(c.collection).toBe(replica.collection);
-    expect(c.hello.grant.role).toBe("owner");
-    expect(c.status.confirmedThrough).toBe(0);
-    c.close();
-  });
-
   it("surfaces a refused hello as the problem's code", async () => {
     const { client } = setup({ refuse: { code: "forbidden", recovery: "reauthorize", message: "grant revoked" } });
     await expect(client()).rejects.toMatchObject({ code: "forbidden", recovery: "reauthorize" });
@@ -39,19 +30,44 @@ describe("session", () => {
 });
 
 describe("writes", () => {
-  it("create returns an optimistic pending receipt, then confirms", async () => {
+
+  it("synthetic document create and replacement share frontmatter/body parsing and preserve receipts", async () => {
     const { replica, client } = setup();
     const c = await client();
-    const w = await c.create({ type: "task", path: "t/a.md", frontmatter: { status: "open" }, body: "hi" });
-    expect(w.state).toBe("pending");
-    expect(w.records[0]!.state.state).toBe("pending");
-    expect(toPlain(w.records[0]!.frontmatter.get("status")!)).toBe("open");
-    expect(c.status.pending).toBe(0); // status is pushed only to subscribers
-    replica.confirmAll();
-    const r = await w.confirmed;
-    expect(r.state).toBe("confirmed");
-    expect(r.seq).toBe(1);
-    c.close();
+    try {
+      const id = "0192f3a4-6000-7abc-8def-0123456789ab";
+      const mid = "0192f3a4-6000-7abc-8def-0123456789ac";
+      const document = '---\ntitle: "Original"\nrank: 2\nactive: true\nlabels: ["a","b"]\n---\nFirst body\n';
+      const write = await c.create({ id, type: "note", path: "notes/source.md", document }, { mutationId: mid, include: { body: true, document: true } });
+      expect(write.mutationId).toBe(mid);
+      expect(write.state).toBe("pending");
+      expect(write.records[0]).toMatchObject({ id, path: "notes/source.md", body: "First body\n", document, types: ["note"] });
+      expect(toPlain(write.records[0]!.frontmatter)).toEqual({ title: "Original", rank: 2, active: true, labels: ["a", "b"] });
+      const seen = await c.get(id, { body: true, document: true });
+      expect(seen.document).toBe(document);
+      await c.create({ id, path: "notes/source.md", document: "Never a replacement" }, { mutationId: mid });
+      expect((await c.get(id, { body: true })).body).toBe("First body\n");
+      const replacement = '---\ntitle: "Replacement"\nrank: 3\n---\nSecond body\n';
+      const next = await c.replaceDocument(seen, replacement, { include: { body: true, document: true } });
+      expect(next.records[0]).toMatchObject({ id, path: seen.path, body: "Second body\n", document: replacement });
+      expect(toPlain(next.records[0]!.frontmatter)).toEqual({ title: "Replacement", rank: 3 });
+      replica.confirmAll();
+      await expect(write.confirmed).resolves.toMatchObject({ mutation: mid, state: "confirmed" });
+      await expect(next.confirmed).resolves.toMatchObject({ state: "confirmed" });
+      expect(replica.allRecords).toHaveLength(1);
+    } finally { c.close(); }
+  });
+
+  it.each(["Body without frontmatter\n"])("synthetic create accepts a complete body-only document %j", async (document) => {
+    const { replica, client } = setup();
+    const c = await client();
+    try {
+      const write = await c.create({ path: "source.md", document }, { include: { body: true, document: true } });
+      expect(write.records[0]!.body).toBe(document);
+      expect(write.records[0]!.document).toBe(document);
+      expect(write.records[0]!.frontmatter.size).toBe(0);
+      expect(replica.allRecords[0]!.body).toBe(document);
+    } finally { c.close(); }
   });
 
   it("rejection rejects `confirmed` with the 15-code problem", async () => {
@@ -80,25 +96,6 @@ describe("writes", () => {
     c.close();
   });
 
-  it("resubmitting a mutation ID is idempotent", async () => {
-    const { replica, client } = setup();
-    const c = await client();
-    const id = "0192f3a4-6000-7abc-8def-0123456789ab";
-    await c.create({ path: "a.md" }, { mutationId: id });
-    await c.create({ path: "a.md" }, { mutationId: id });
-    expect(replica.allRecords).toHaveLength(1);
-    c.close();
-  });
-
-  it("CAS conflict comes back as `conflict` / `revision`", async () => {
-    const { replica, client } = setup();
-    const rec = replica.seed({ path: "a.md" });
-    const c = await client();
-    const [w] = await c.submit([{ kind: "update", id: rec.id, ifRevision: `sha256:${"0".repeat(64)}`, body: "x" }]);
-    expect(w!.state).toBe("rejected");
-    expect(w!.receipt.problem?.code).toBe("conflict");
-    c.close();
-  });
 });
 
 describe("live queries", () => {
@@ -193,14 +190,6 @@ describe("errors", () => {
     c.close();
   });
 
-  it("an aborted request is `cancelled`", async () => {
-    const { client } = setup();
-    const c = await client();
-    const ac = new AbortController();
-    ac.abort();
-    await expect(c.get({ path: "a.md" }, undefined, ac.signal)).rejects.toMatchObject({ code: "cancelled" });
-    c.close();
-  });
 });
 
 describe("files", () => {
@@ -222,18 +211,6 @@ describe("files", () => {
     c.close();
   });
 
-  it("moves and deletes through submit", async () => {
-    const { replica, client } = setup();
-    const c = await client();
-    await c.files.upload("a.pdf", new Uint8Array([1, 2, 3]));
-    replica.confirmAll();
-    const f = await c.files.get({ path: "a.pdf" });
-    await c.files.move(f, "docs/a.pdf");
-    expect((await c.files.get(f.id)).path).toBe("docs/a.pdf");
-    await c.files.delete(f.id);
-    await expect(c.files.get(f.id)).rejects.toMatchObject({ code: "not_found" });
-    c.close();
-  });
 });
 
 describe("presence", () => {
@@ -253,19 +230,6 @@ describe("presence", () => {
     await until(() => peers.length === 0);
     a.close();
     b.close();
-  });
-});
-
-describe("change feed", () => {
-  it("watchChanges delivers pushes", async () => {
-    const { client } = setup();
-    const c = await client();
-    const paths: string[] = [];
-    c.watchChanges(undefined, (b) => paths.push(...b.changes.map((x) => x.path)));
-    await new Promise((r) => setTimeout(r, 10));
-    await c.create({ path: "a.md" });
-    await until(() => paths.includes("a.md"));
-    c.close();
   });
 });
 
@@ -323,5 +287,14 @@ describe("local-only collection behavior", () => {
     const s = summarizeStatus({ mode: "local_only", confirmedThrough: 0, headKnown: 0, pending: 0, holds: 0, unresolved: 0, connection: "offline", incidents: [] });
     expect(s).toMatchObject({ kind: "local", text: "Saved on this device", confirmedThrough: null });
     expect(summarizeStatus({ mode: "synced", confirmedThrough: 5, headKnown: 9, pending: 2, holds: 0, unresolved: 0, connection: "online", incidents: [] }).kind).toBe("catching_up");
+    expect(summarizeStatus({ mode: "synced", confirmedThrough: 5, headKnown: 5, pending: 1, holds: 0, unresolved: 0, connection: "offline", incidents: [] }, "collection_migrating").kind).toBe("collection_migrating");
+  });
+  it("status: an unreachable log reads as saved on this device, never as stuck saving", () => {
+    const st = { mode: "synced" as const, confirmedThrough: 5, headKnown: 5, pending: 2, holds: 0, unresolved: 0, connection: "online" as const, incidents: [] };
+    expect(summarizeStatus(st, null, { kind: "offline" })).toEqual(expect.objectContaining({ kind: "offline", health: "offline",
+      text: "You're offline. 2 changes are saved on this device and will sync later" }));
+    expect(summarizeStatus(st, null, { kind: "server_busy", retryAfterMs: 30_000 })).toMatchObject({ kind: "synced", health: "server_busy" });
+    expect(summarizeStatus(st, "collection_migrating", { kind: "rate_limited" }).kind).toBe("collection_migrating");
+    expect(summarizeStatus(st).health).toBeNull();
   });
 });

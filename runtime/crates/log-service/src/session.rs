@@ -14,7 +14,7 @@ use mdbn_wire::log_service::{
 };
 use mdbn_wire::schema::Wire;
 
-use crate::auth::{Principal, verify_hello_with_budget};
+use crate::auth::{Principal, VerifiedCaller, verify_hello_caller_with_budget};
 use crate::backend::{Backend, ObjectStore};
 use crate::decode::Budget;
 use crate::error::{Code, Result, ServiceError};
@@ -48,6 +48,9 @@ pub struct Session {
     pub nonce: [u8; 32],
     /// Collections with hub state for this session.
     pub collections: BTreeSet<Uuid>,
+    // RAM-only actual hello proof. Never reconstructed from host attachments,
+    // restored SQL, a public Principal, or a current-authority point response.
+    verified_caller: Option<VerifiedCaller>,
 }
 
 impl Session {
@@ -58,7 +61,17 @@ impl Session {
             principal: None,
             nonce,
             collections: BTreeSet::new(),
+            verified_caller: None,
         }
+    }
+
+    /// Initial authenticated identity, NOT fresh authority/expiry admission.
+    /// Hosts restoring only a principal must require a real new hello before
+    /// relying on this observer; ordinary principal restoration is unchanged.
+    pub fn verified_caller(&self) -> Option<&VerifiedCaller> {
+        self.verified_caller
+            .as_ref()
+            .filter(|caller| Some(caller.principal()) == self.principal)
     }
 
     fn device(&self) -> Option<Uuid> {
@@ -170,11 +183,19 @@ async fn dispatch<B: Backend, O: ObjectStore, H: HubHost>(
     let bad =
         |e: mdbn_wire::SchemaError| ServiceError::invalid("shape").msg(format!("params: {e}"));
     if method == "hello" {
+        sess.verified_caller = None;
         let p = LsHelloParams::from_cbor(params).map_err(bad)?;
-        let principal =
-            verify_hello_with_budget(&p, &sess.nonce, &svc.config.token_issuers, now, budget)?;
+        let caller = verify_hello_caller_with_budget(
+            &p,
+            &sess.nonce,
+            &svc.config.token_issuers,
+            now,
+            budget,
+        )?;
+        let principal = caller.principal();
         svc.check_credentials(&principal, now, true).await?;
         sess.principal = Some(principal);
+        sess.verified_caller = Some(caller);
         sess.nonce = fresh_nonce;
         return Ok(LsHelloResult {
             version: Version { major: 1, minor: 0 },

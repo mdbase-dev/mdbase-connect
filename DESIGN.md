@@ -8,11 +8,12 @@ both ordinary daylight and a dim room. Light mode is paper-like; dark mode uses
 deep blue-black surfaces without turning the product into terminal cosplay.
 Editor, Connect workspace, portal, desktop, Reader and Writer share visual
 tokens through `@mdbase-dev/ui`; Editor, Connect workspace, portal, and desktop
-also share core controls. The editor keeps one persistent collection rail: All notes, Types,
-Settings, then Connect under a quiet Manage heading. Selecting Connect replaces
-the note list with contextual Connect navigation; it does not open a parallel
-product shell. Transactional portal pages
-and desktop views retain their compact product header. Content remains an
+also share core controls. The editor keeps its collection rail for All notes,
+Types, and Settings, with a quiet Connect link to the canonical portal. Account
+management lives on the Connect portal, not inside the Editor. Its sidebar
+separates collection controls from account controls; `/account` opens account
+and browser-session management. Transactional portal pages and desktop views
+retain their compact product header. Content remains an
 uninterrupted canvas. Hierarchy comes from typography, spacing, and alignment
 rather than tinted boxes or decoration.
 
@@ -82,8 +83,8 @@ and interaction guidance in
 
 ## Layout
 
-- The editor's collection rail switches between All notes, Types, Settings, and
-  Connect. The Connect sidebar separates current-collection controls (Overview,
+- The editor's collection rail switches between All notes, Types, and Settings,
+  and links to the Connect portal. The portal sidebar separates current-collection controls (Overview,
   Storage & sync, App access) from account controls (All collections,
   Applications, Computers, Account & sessions).
 - Direct Connect entry restores the last valid collection, opens the only
@@ -91,9 +92,9 @@ and interaction guidance in
   collection is never chosen silently from an ambiguous list.
 - Desktop primary navigation uses a single horizontal tab row. Counts appear
   only when they clarify local collection state or pending action.
-- Portal pages contain one consequential transaction only: authentication,
-  pairing, recovery, or authorization approval. They do not duplicate account
-  administration.
+- Portal authentication, pairing, recovery, and approval pages each contain one
+  consequential transaction. Account administration is hosted only on this
+  portal; entering management never grants an application collection contents.
 - Collection metadata editing expands inline beneath the collection row. Name
   and description remain visibly tied to `mdbase.yaml`; availability is a
   separate immediate control.

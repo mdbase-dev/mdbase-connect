@@ -61,6 +61,7 @@ pub(super) fn attach_content(
             seed: B32([tag; 32]),
             source: Source::Api,
             ops: vec![rt::Op::FileAttach(FileAttach {
+                mtime: None,
                 id: FILE,
                 path: PATH.into(),
                 content: content.clone(),
@@ -74,6 +75,7 @@ pub(super) fn attach_content(
         },
         status: mdbn_wire::entry::Status::Applied,
         effects: vec![rt::Effect::PutAttachmentFile(PutAttachmentFile {
+            mtime: None,
             id: FILE,
             path: PATH.into(),
             content: content.clone(),

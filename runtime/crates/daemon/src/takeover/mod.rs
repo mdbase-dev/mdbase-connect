@@ -19,9 +19,10 @@
 //!    v1 mirror marker, a foreign claim or an invalid marker are postponed.
 //! 4. Before the first T1 only:
 //!    - **old mirrors**: T1 stops the whole old daemon, which also runs hosted
-//!      mirrors. Until mirror join lands, a device with registered mirrors is
-//!      postponed, so the old daemon keeps uploading their queued edits; with
-//!      `stop_mirrors` it proceeds only once every mirror's queue is empty;
+//!      mirrors. A manual run without `stop_mirrors` is postponed while mirrors are
+//!      registered. With `stop_mirrors`, or once the account has moved (automatic
+//!      runs), each mirror's unsent edits are captured durably first
+//!      ([`mirror_import`]) and imported once the collection is joined here;
 //!    - **journal drain**: wait (bounded) for the old daemon to finish in-flight
 //!      requests (`claimed`/`prepared`/`applied` without a receipt), so fewer
 //!      outcomes are unknown. Whatever is still in flight is settled by T4 (engine
@@ -38,9 +39,12 @@
 //! directory is left in place for rollback (§6.1).
 
 pub mod adapter;
+pub mod held;
 pub mod mirror_driver;
 pub mod mirror_evidence;
 pub mod mirror_hold;
+pub mod mirror_import;
+pub mod mirror_join;
 pub mod record;
 pub mod retirement;
 
@@ -64,8 +68,12 @@ pub const NOTICE: &str = "This folder is now managed by the new mdbase app. \
 /// Options for one run.
 #[derive(Clone, Debug)]
 pub struct Options {
-    /// Proceed past registered old mirrors once their queues are empty.
+    /// The user allowed old hosted mirrors to stop: their unsent edits are
+    /// captured for import, then the takeover proceeds.
     pub stop_mirrors: bool,
+    /// The account has moved to mdbase (fresh rollout permission for this run):
+    /// old mirrors can no longer upload, so they stop as with `stop_mirrors`.
+    pub account_moved: bool,
     /// How long to wait for the old daemon's in-flight requests (before the first T1).
     pub drain: Duration,
     /// RFC 3339 time of this run (the record and the marker's `claimed_at`).
@@ -147,7 +155,17 @@ fn old_daemon_running(old_state_dir: &Path) -> io::Result<bool> {
 }
 
 /// Why old mirrors keep this device from taking over now, if they do.
-fn mirrors_block(old_state_dir: &Path, stop_mirrors: bool) -> io::Result<Option<&'static str>> {
+///
+/// Stopping the old daemon (T1) stops its hosted mirrors too. A mirror may stop
+/// once the user allowed it (`stop_mirrors`) or once the account has moved (an
+/// automatic run: its mirrors can no longer upload anyway). Before it stops, its
+/// unsent edits are captured durably for import (`mirror_import`); only a mirror
+/// whose queue cannot be read or captured still holds the takeover back.
+fn mirrors_block(
+    paths: &Paths,
+    old_state_dir: &Path,
+    opts: &Options,
+) -> io::Result<Option<&'static str>> {
     use mdbn_legacy::mirror;
     let mirrors: Vec<_> = mirror::read_registry(old_state_dir)
         .map_err(legacy)?
@@ -157,20 +175,27 @@ fn mirrors_block(old_state_dir: &Path, stop_mirrors: bool) -> io::Result<Option<
     if mirrors.is_empty() {
         return Ok(None);
     }
-    if !stop_mirrors {
+    if !opts.stop_mirrors && !opts.account_moved {
         return Ok(Some("mirrors_present"));
     }
     for m in &mirrors {
-        let Some(state) = mirror::read_rust_state(old_state_dir, &m.replica_id).map_err(legacy)?
-        else {
-            return Ok(Some("mirror_state_unreadable"));
-        };
-        if !state.unreceipted.is_empty()
-            || !mirror::queued_writes(&state, &m.path)
-                .map_err(legacy)?
-                .is_empty()
+        if mirror::read_rust_state(old_state_dir, &m.replica_id)
+            .map_err(legacy)?
+            .is_none()
         {
-            return Ok(Some("mirror_queue_not_empty"));
+            return Ok(Some("mirror_state_unreadable"));
+        }
+        match mirror_import::capture(&paths.legacy, old_state_dir, m, &opts.now) {
+            Ok(c) => tracing::info!(
+                collection = %m.collection_id,
+                edits = c.edits,
+                existing = c.existing,
+                "unsent hosted mirror edits captured for import"
+            ),
+            Err(e) => {
+                tracing::error!(collection = %m.collection_id, error = %e, "could not capture a hosted mirror's unsent edits");
+                return Ok(Some("mirror_capture_failed"));
+            }
         }
     }
     Ok(None)
@@ -218,11 +243,7 @@ pub fn run(
     }
     let started = prior.as_ref().is_some_and(|r| r.state.fences_old_service());
     if started {
-        // Fence a revived old service at every start.
-        if let Err(e) = old.stop_and_disable() {
-            tracing::warn!(error = %e, "could not stop the old connector again");
-        }
-        ran.revived = old_daemon_running(old_state_dir)?;
+        ran.revived = fence_again(old_state_dir, old)?;
     }
     if !old_state_dir.join("connector.sqlite").is_file() {
         ran.record = prior;
@@ -284,8 +305,18 @@ pub fn run(
         }
     }
 
+    // Capture old mirrors' unsent edits whenever they may stop, so a device with
+    // only hosted mirrors (or one taken over earlier) keeps them too.
+    let mirror_block = if started || candidates.is_empty() {
+        if let Some(why) = mirrors_block(paths, old_state_dir, opts)? {
+            tracing::info!(reason = why, "old hosted mirrors not captured");
+        }
+        None
+    } else {
+        mirrors_block(paths, old_state_dir, opts)?
+    };
     if !started && !candidates.is_empty() {
-        if let Some(why) = mirrors_block(old_state_dir, opts.stop_mirrors)? {
+        if let Some(why) = mirror_block {
             for c in &candidates {
                 let e = record.collections.get_mut(&c.id).expect("discovered");
                 e.state = CollectionState::Postponed;
@@ -372,7 +403,8 @@ pub fn run(
             Ok(LibOutcome::AlreadyTakenOver) => {
                 // A run that crashed after T6 left the counts in its import only.
                 if let Some(ev) = adapter::Evidence::load(&paths.legacy, &c.id)? {
-                    e.holds = ev.holds.len() as u64;
+                    // Holds the user has resolved since stay resolved.
+                    e.holds = held::open(&paths.legacy, &c.id)?.len() as u64;
                     e.rolled_forward = ev.rolled_forward.len() as u64;
                 }
                 e.state = if e.holds > 0 {
@@ -460,6 +492,33 @@ pub fn run(
     }
     ran.record = Some(record);
     Ok(ran)
+}
+
+/// Stop and disable the old service again, and report whether its daemon is
+/// running anyway (`old_connector_revived`).
+fn fence_again(old_state_dir: &Path, old: &mut dyn OldService) -> io::Result<bool> {
+    if let Err(e) = old.stop_and_disable() {
+        tracing::warn!(error = %e, "could not stop the old connector again");
+    }
+    old_daemon_running(old_state_dir)
+}
+
+/// Keep a started takeover's old service fenced when no run happens (an automatic
+/// start without fresh rollout permission: signed out, Connect unreachable or
+/// denied). Permission was needed to *start* the takeover; once its record fences
+/// the old service, a revived old connector is stopped and reported at every start
+/// regardless. `Some(revived)` when the record fences, else `None` (nothing done).
+pub fn refence(
+    paths: &Paths,
+    old_state_dir: &Path,
+    old: &mut dyn OldService,
+) -> io::Result<Option<bool>> {
+    match Record::load(&paths.record)? {
+        Some(r) if r.state.fences_old_service() && r.old_state_dir == old_state_dir => {
+            fence_again(old_state_dir, old).map(Some)
+        }
+        _ => Ok(None),
+    }
 }
 
 /// Whether `root` still carries this daemon's v2 claim for `collection`.
@@ -555,6 +614,44 @@ impl OldService for IsolatedOldService {
     }
 }
 
+/// The rollout endpoint's answer for starting a takeover.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RolloutGate {
+    /// Upgraded account with explicit permission.
+    Allowed,
+    /// The account is on legacy Connect: the server would refuse to retire the
+    /// old connector, so it must keep running.
+    Legacy,
+    /// No definite answer (offline, signed out, refused or malformed): wait.
+    Unknown,
+}
+
+impl RolloutGate {
+    /// Classify a strictly decoded rollout answer.
+    pub fn from_rollout(r: &crate::cloud::Rollout) -> RolloutGate {
+        if r.permits_takeover() {
+            RolloutGate::Allowed
+        } else if r.account_backend == Some(crate::cloud::AccountBackend::Legacy) {
+            RolloutGate::Legacy
+        } else {
+            RolloutGate::Unknown
+        }
+    }
+}
+
+/// An explicit move refused because the server has not allowed it. Nothing
+/// was changed: the old connector keeps serving its collections.
+pub fn not_allowed_error(account_legacy: bool) -> crate::control::ControlError {
+    crate::control::ControlError::unavailable(
+        "takeover_not_allowed",
+        if account_legacy {
+            "Your mdbase account hasn't been upgraded yet, so your collections stay on mdbase Connect for now. Nothing was changed."
+        } else {
+            "mdbase couldn't confirm that your account is ready to move. Nothing was changed. Check your connection and try again."
+        },
+    )
+}
+
 /// The server's takeover state: one run at a time, and what the last one found.
 #[derive(Debug, Default)]
 pub struct Gate {
@@ -564,11 +661,59 @@ pub struct Gate {
     pub revived: std::sync::atomic::AtomicBool,
     /// Automatic takeover is waiting for a flipped account's server permission.
     pub waiting_for_batch: std::sync::atomic::AtomicBool,
+    /// The last definite rollout answer said the account is on legacy Connect
+    /// (not upgraded yet, or its upgrade was rolled back).
+    pub account_legacy: std::sync::atomic::AtomicBool,
     /// Latest current retirement response or safe pending reason (not authorization).
     pub retirement: std::sync::Mutex<Option<serde_json::Value>>,
     /// The last run's error, for `doctor` (no content, no secrets).
     pub error: std::sync::Mutex<Option<String>>,
+    /// An old connector daemon is running now (shared with collection hosts).
+    pub old_running: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// How many of this daemon's own operations hold the old `daemon.lock` (the
+    /// takeover, retirement). While any does, a probe cannot tell an old daemon
+    /// from ourselves, so it is skipped.
+    own_old_lock: std::sync::Mutex<usize>,
+}
+
+/// One of this daemon's own holds on the old `daemon.lock`; see [`Gate::holding_old_lock`].
+pub struct OwnOldLock<'a>(&'a Gate);
+
+impl Drop for OwnOldLock<'_> {
+    fn drop(&mut self) {
+        *self
+            .0
+            .own_old_lock
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) -= 1;
+    }
+}
+
+impl Gate {
+    /// Announce, before taking it, that this daemon is about to hold the old
+    /// `daemon.lock`, so [`Gate::probe_old_connector`] does not mistake it for an old
+    /// daemon. Serialized with probes, so neither reads the other's lock.
+    pub fn holding_old_lock(&self) -> OwnOldLock<'_> {
+        *self.own_old_lock.lock().unwrap_or_else(|p| p.into_inner()) += 1;
+        OwnOldLock(self)
+    }
+
+    /// Whether an old connector daemon runs on `old_state_dir` now: `None` when
+    /// this daemon holds that lock itself or the lock cannot be read. Never creates
+    /// the lock file.
+    pub fn probe_old_connector(&self, old_state_dir: &Path) -> Option<bool> {
+        let own = self.own_old_lock.lock().unwrap_or_else(|p| p.into_inner());
+        if *own > 0 {
+            return None;
+        }
+        if !mdbn_legacy::lock::daemon_lock_path(old_state_dir).is_file() {
+            return Some(false);
+        }
+        let running = old_daemon_running(old_state_dir).ok();
+        drop(own);
+        running
+    }
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

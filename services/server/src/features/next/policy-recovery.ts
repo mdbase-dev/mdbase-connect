@@ -1,97 +1,177 @@
 // SEC-048: hints are advisory; only our acknowledged bytes establish policy loss.
-// Lock the same collection row as the emitter while marking and scheduling loss,
-// so concurrent workers never queue two reissues of the same source batch.
-import type { DatabasePool } from "../../database-types.js";
+import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import type { LogServiceClient } from "./log-service-client.js";
 
-// A transaction-scoped advisory lock spans the emitter's claim COMMIT and network
-// append. Stored bytes remain durable before sending, without a race with recovery.
-export async function withPolicyLock<T>(db: DatabasePool, collectionId: string, run: () => Promise<T>): Promise<T> {
-  const lock = await db.connect();
+/** One checked-out physical session owns serialization AND every durable write.
+ * Never reconnect this owner or borrow another connection inside the callback. */
+export interface PolicyLock extends DatabaseQueryable {
+  assertOwned(): Promise<void>;
+  commit(): Promise<void>;
+}
+
+// Per process, shared by every emitter/recovery caller, not per collection or
+// pool. Six owners use 30% of the 20-connection CP pool; queued work borrows no
+// connection and is not rejected. A handoff reserves the slot for the oldest
+// waiter, so a new arrival cannot overtake it or increase the admitted count.
+const MAX_POLICY_OWNERS = 6;
+let activePolicyOwners = 0;
+const policyWaiters: Array<() => void> = [];
+
+export async function withPolicyLock<T>(db: DatabasePool, collectionId: string, run: (lock: PolicyLock) => Promise<T>): Promise<T> {
+  if (activePolicyOwners < MAX_POLICY_OWNERS) activePolicyOwners += 1;
+  else await new Promise<void>(resolve => { policyWaiters.push(resolve); });
   try {
-    await lock.query("BEGIN");
-    await lock.query("SET LOCAL lock_timeout = '5s'");
-    await lock.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 20261004))", [collectionId]);
-    return await run();
+    return await withPolicySession(db, collectionId, run);
   } finally {
-    try { await lock.query("ROLLBACK"); } finally { lock.release(); }
+    const next = policyWaiters.shift();
+    if (next) next();
+    else activePolicyOwners -= 1;
+  }
+}
+
+async function withPolicySession<T>(db: DatabasePool, collectionId: string, run: (lock: PolicyLock) => Promise<T>): Promise<T> {
+  const client = await db.connect();
+  let acquired = false;
+  let failed = false;
+  const lock: PolicyLock = {
+    query: client.query.bind(client),
+    async assertOwned() {
+      // Read ownership; do not reacquire a lost lock or increment its reentrant
+      // count. PostgreSQL splits the bigint advisory key into two unsigned OIDs;
+      // objsubid=1 distinguishes it from the two-int advisory-lock namespace.
+      const result = await client.query<{ owned: boolean }>(
+        `SELECT EXISTS(SELECT 1 FROM pg_locks
+         WHERE locktype = 'advisory' AND pid = pg_backend_pid() AND granted
+         AND classid = ((hashtextextended($1, 20261004) >> 32) & 4294967295)::oid
+         AND objid = (hashtextextended($1, 20261004) & 4294967295)::oid
+         AND objsubid = 1) AS owned`, [collectionId]
+      );
+      if (!result.rows[0]?.owned) throw new Error("policy lock ownership lost; outcome unknown");
+    },
+    async commit() {
+      await lock.assertOwned();
+      await client.query("COMMIT");
+    }
+  };
+  try {
+    // Same key as the former transaction lock, including during rolling upgrades.
+    // Pool lock_timeout remains 5s. No transaction spans remote work.
+    await client.query("SELECT pg_advisory_lock(hashtextextended($1, 20261004))", [collectionId]);
+    acquired = true;
+    return await run(lock);
+  } catch (error) {
+    failed = true;
+    throw error;
+  } finally {
+    try {
+      if (acquired) {
+        const released = await client.query<{ unlocked: boolean }>(
+          "SELECT pg_advisory_unlock(hashtextextended($1, 20261004)) AS unlocked", [collectionId]
+        );
+        if (!released.rows[0]?.unlocked) throw new Error("policy lock ownership lost; outcome unknown");
+      }
+    } catch (error) {
+      // Preserve the callback failure. A failed query already marks this client
+      // for eviction in db.ts, even if a later cleanup query succeeds.
+      if (!failed) throw error;
+    } finally { client.release(); }
   }
 }
 
 export function recoverLostPolicy(db: DatabasePool, log: LogServiceClient, collectionId: string): Promise<number> {
-  return withPolicyLock(db, collectionId, () => recover(db, log, collectionId));
+  return withPolicyLock(db, collectionId, lock => recover(lock, log, collectionId));
 }
 
-async function recover(db: DatabasePool, log: LogServiceClient, collectionId: string): Promise<number> {
-  const client = await db.connect();
-  try {
-    await client.query("BEGIN");
-    const collection = await client.query("SELECT collection_id FROM next_collections WHERE collection_id = $1 FOR NO KEY UPDATE", [collectionId]);
-    if (!collection.rows.length) {
-      await client.query("COMMIT");
-      return 0;
+interface LostBatch { id: string; park?: "lost_genesis" | "invalid_retained_ops" }
+interface SendingBatch { id: string; acknowledged: boolean }
+
+async function retainedOps(client: DatabaseQueryable, batchId: string): Promise<{ version: 1; ops: unknown[] } | undefined> {
+  const rows = await client.query<{ ops: { version: number; ops: unknown[] } }>(
+    "SELECT ops FROM next_policy_outbox WHERE batch_id = $1 ORDER BY id", [batchId]
+  );
+  if (!rows.rows.length || rows.rows.some(row => !row.ops || typeof row.ops !== "object" || row.ops.version !== 1 || !Array.isArray(row.ops.ops))) return undefined;
+  return { version: 1, ops: rows.rows.flatMap(row => row.ops.ops) };
+}
+
+async function recover(lock: PolicyLock, log: LogServiceClient, collectionId: string): Promise<number> {
+  const collection = await lock.query("SELECT collection_id FROM next_collections WHERE collection_id = $1", [collectionId]);
+  if (!collection.rows.length) return 0;
+  await lock.assertOwned();
+  const head = await log.head(collectionId);
+  // Retain decisions only for lost/sending batches, not the healthy history.
+  // All remote verification completes BEFORE any scheduling transaction starts:
+  // a failed read must not commit even a prefix of the reissue plan.
+  const lost: LostBatch[] = [];
+  let after = "0", parked = false;
+  while (!parked) {
+    const batches = await lock.query<{ id: string; seq: string; item: Buffer }>(
+      `SELECT id, seq, item FROM next_policy_batches WHERE collection_id = $1
+       AND state = 'appended' AND lost_at IS NULL AND id > $2 ORDER BY id LIMIT 64`, [collectionId, after]
+    );
+    if (!batches.rows.length) break;
+    for (const batch of batches.rows) {
+      after = batch.id;
+      const seq = Number(batch.seq);
+      // Stop a dead owner before its next remote read, not only at page end.
+      await lock.assertOwned();
+      const stored = seq > head.seq ? null : await log.controlItemAt(collectionId, seq);
+      if (stored && batch.item.equals(Buffer.from(stored))) continue;
+      const park = seq === 1 ? "lost_genesis" : !await retainedOps(lock, batch.id) ? "invalid_retained_ops" : undefined;
+      lost.push({ id: batch.id, ...(park ? { park } : {}) });
+      if (park) { parked = true; break; }
     }
-    const head = await log.head(collectionId);
-    let after = "0";
+  }
+  const sending: SendingBatch[] = [];
+  if (lost.length && !parked) {
+    const fresh = await lock.query<{ id: string; seq: string; item: Buffer }>(
+      `SELECT b.id, b.seq, b.item FROM next_policy_batches b WHERE b.collection_id = $1
+       AND b.state = 'sending' AND NOT EXISTS
+       (SELECT 1 FROM next_policy_outbox o WHERE o.batch_id = b.id AND o.reissue_of IS NOT NULL)
+       ORDER BY b.id`, [collectionId]
+    );
+    for (const batch of fresh.rows) {
+      await lock.assertOwned();
+      const stored = await log.controlItemAt(collectionId, Number(batch.seq));
+      sending.push({ id: batch.id, acknowledged: Boolean(stored && batch.item.equals(Buffer.from(stored))) });
+    }
+  }
+  if (!lost.length) return 0;
+
+  await lock.query("BEGIN");
+  try {
+    await lock.assertOwned();
+    const current = await lock.query("SELECT collection_id FROM next_collections WHERE collection_id = $1 FOR NO KEY UPDATE", [collectionId]);
     let queued = 0;
-    for (;;) {
-      const batches = await client.query<{ id: string; seq: string; item: Buffer }>(
-        `SELECT id, seq, item FROM next_policy_batches WHERE collection_id = $1
-         AND state = 'appended' AND lost_at IS NULL AND id > $2 ORDER BY id LIMIT 64`, [collectionId, after]
-      );
-      if (!batches.rows.length) break;
-      for (const batch of batches.rows) {
-        after = batch.id;
-        const seq = Number(batch.seq);
-        const stored = seq > head.seq ? null : await log.controlItemAt(collectionId, seq);
-        if (stored && batch.item.equals(Buffer.from(stored))) continue;
-        // A lost genesis has no safe new-position equivalent. Park instead of
-        // changing the root or accepting a replacement history.
-        if (seq === 1) {
-          await client.query("UPDATE next_policy_batches SET state = 'parked', error = 'lost_genesis', lost_at = now() WHERE id = $1", [batch.id]);
-          await client.query("COMMIT");
-          return queued;
-        }
-        const rows = await client.query<{ ops: { version: number; ops: unknown[] } }>(
-          "SELECT ops FROM next_policy_outbox WHERE batch_id = $1 ORDER BY id", [batch.id]
+    if (current.rows.length) {
+      for (const batch of lost) {
+        const ops = batch.park ? undefined : await retainedOps(lock, batch.id);
+        const park = batch.park ?? (!ops ? "invalid_retained_ops" : undefined);
+        // Batch bytes/positions are immutable. Recheck mutable ledger state in
+        // this short fenced transaction before applying the observed decision.
+        const marked = await lock.query(
+          `UPDATE next_policy_batches SET lost_at = now(), state = CASE WHEN $2::text IS NULL THEN state ELSE 'parked' END,
+           error = CASE WHEN $2::text IS NULL THEN error ELSE $2 END
+           WHERE id = $1 AND state = 'appended' AND lost_at IS NULL RETURNING id`, [batch.id, park ?? null]
         );
-        if (!rows.rows.length || rows.rows.some((row) => !row.ops || typeof row.ops !== "object" || row.ops.version !== 1 || !Array.isArray(row.ops.ops))) {
-          await client.query("UPDATE next_policy_batches SET state = 'parked', error = 'invalid_retained_ops', lost_at = now() WHERE id = $1", [batch.id]);
-          await client.query("COMMIT");
-          return queued;
-        }
-        const ops = { version: 1, ops: rows.rows.flatMap((row) => row.ops.ops) };
-        await client.query("INSERT INTO next_policy_outbox(collection_id, ops, reissue_of) VALUES($1, $2, $3)", [collectionId, JSON.stringify(ops), batch.id]);
-        await client.query("UPDATE next_policy_batches SET lost_at = now() WHERE id = $1", [batch.id]);
+        if (marked.rows.length !== 1) throw new Error("policy recovery state changed; outcome unknown");
+        if (park) { await lock.commit(); return queued; }
+        await lock.query("INSERT INTO next_policy_outbox(collection_id, ops, reissue_of) VALUES($1, $2, $3)", [collectionId, JSON.stringify(ops), batch.id]);
         queued += 1;
       }
-    }
-    if (queued > 0) {
-      const fresh = await client.query<{ id: string; seq: string; item: Buffer }>(
-        `SELECT b.id, b.seq, b.item FROM next_policy_batches b WHERE b.collection_id = $1
-         AND b.state = 'sending' AND NOT EXISTS
-         (SELECT 1 FROM next_policy_outbox o WHERE o.batch_id = b.id AND o.reissue_of IS NOT NULL)
-         ORDER BY b.id`, [collectionId]
-      );
-      for (const batch of fresh.rows) {
-        // An unknown response might already have committed the exact bytes. Never
-        // discard that effect or blindly resend it against restored history.
-        const stored = await log.controlItemAt(collectionId, Number(batch.seq));
-        if (stored && batch.item.equals(Buffer.from(stored))) {
-          await client.query("UPDATE next_policy_batches SET state = 'appended', appended_at = now(), error = NULL WHERE id = $1", [batch.id]);
-        } else {
-          await client.query("UPDATE next_policy_outbox SET batch_id = NULL WHERE batch_id = $1", [batch.id]);
-          await client.query("DELETE FROM next_policy_batches WHERE id = $1", [batch.id]);
-        }
+      for (const batch of sending) {
+        // An unknown append may have committed the exact bytes. Only acknowledge
+        // verified bytes; otherwise preserve the original fresh-work requeue rule.
+        if (!batch.acknowledged) await lock.query("UPDATE next_policy_outbox SET batch_id = NULL WHERE batch_id = $1", [batch.id]);
+        const changed = batch.acknowledged
+          ? await lock.query("UPDATE next_policy_batches SET state = 'appended', appended_at = now(), error = NULL WHERE id = $1 AND state = 'sending' RETURNING id", [batch.id])
+          : await lock.query("DELETE FROM next_policy_batches WHERE id = $1 AND state = 'sending' RETURNING id", [batch.id]);
+        if (changed.rows.length !== 1) throw new Error("policy recovery state changed; outcome unknown");
       }
     }
-    await client.query("COMMIT");
+    await lock.commit();
     return queued;
   } catch (error) {
-    // A network failure rolls back all scheduling: it never establishes loss.
-    await client.query("ROLLBACK").catch(() => undefined);
+    await lock.query("ROLLBACK").catch(() => undefined);
     throw error;
-  } finally {
-    client.release();
   }
 }

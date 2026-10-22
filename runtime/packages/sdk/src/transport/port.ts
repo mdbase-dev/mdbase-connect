@@ -13,8 +13,8 @@ import { CborValue, decode, encode } from "../cbor.js";
 import { mdbaseError, MdbaseError } from "../errors.js";
 
 export interface FramePort {
-  /** Optional trusted app-host READ bridge on this exact held session. No RPC
-   * opcode, caller session ID, cursor or fallback to generic execute_view. */
+  /** Optional trusted app-host READ bridge on this exact held session.
+   * Byte transports use explicit native Bases READ frames, never a generic query. */
   readAppBases?(request: Uint8Array, signal?: AbortSignal): Promise<Uint8Array>;
   readAppBasesDiscovery?(operation: "list-views" | "read-view-source", request: Uint8Array, signal?: AbortSignal): Promise<Uint8Array>;
   send(frame: CborValue): void;
@@ -124,6 +124,11 @@ export interface ByteChannel {
   close(): void;
 }
 
+// Only actual byte-frame transports use the native replica READ operations.
+// Not a peer/hello authority claim or a caller-supplied session identity.
+const nativeBasesRpcPorts = new WeakSet<FramePort>();
+export function supportsNativeBasesRpc(port: FramePort): boolean { return nativeBasesRpcPorts.has(port); }
+
 /** Turn a byte channel of `u32be(length) ‖ frame` records into a frame port. */
 export function framedPort(ch: ByteChannel): FramePort {
   const reader = new RecordReader();
@@ -152,6 +157,7 @@ export function framedPort(ch: ByteChannel): FramePort {
       port.onclose?.();
     },
   };
+  nativeBasesRpcPorts.add(port);
   ch.ondata = (bytes) => {
     try {
       for (const f of reader.push(bytes)) {

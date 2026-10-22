@@ -1488,6 +1488,9 @@ test("adds schema properties and edits the complete Markdown record", async ({ p
 });
 
 test("keeps a ten-thousand-note collection responsive and virtualized", { tag: "@performance" }, async ({ page }) => {
+  // Budgets measure a real first visit, including the offline shell, which now
+  // installs only after first usable. Reduced motion skips the launch entrance.
+  await page.emulateMedia({ reducedMotion: "reduce" });
   const started = Date.now();
   await page.goto("?demo=10000");
   await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();

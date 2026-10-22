@@ -37,6 +37,7 @@ fn add_entity(index: &mut DigestIndex, kind: u8, id: B16, path: &str) -> Result<
             },
             media: MediaClass::Other,
             modified_seq: 1,
+            mtime: None,
             bucket: bucket16(&id),
             local: FileLocal::Remote,
         }),

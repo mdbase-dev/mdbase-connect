@@ -2,6 +2,7 @@
  * Stores only a nonextractable CryptoKey, never raw KEK/device secrets. Same
  * origin XSS can still invoke it; IDB/strict durability is not OS key isolation
  * or a physical durability/Saved guarantee. Explicit fresh/existing only. */
+import { currentAppOrigin, isAppOrigin } from "./app-origin.js";
 import { uuidToBytes } from "../codec.js";
 import type { AppDeviceKeyCustodyPin } from "./device-key-custody.js";
 const STORE="device-key-kek",KEY="original-device-kek";
@@ -42,8 +43,7 @@ export class AppIndexedDbDeviceKeyProvider {
       const {source,origin,mode,signal}=options;
       out=new AppIndexedDbDeviceKeyProvider(source,origin,signal);
       const ids=Object.values(out.scope).map(v=>{const bytes=uuidToBytes(v);if(bytes.every(b=>b===0))throw fail();return Array.from(bytes,b=>b.toString(16).padStart(2,"0")).join("");});
-      const u=new URL(origin),loopback=options.allowLoopbackHttp===true && u.protocol==="http:" && ["localhost","127.0.0.1","[::1]"].includes(u.hostname);
-      if((u.protocol!=="https:"&&!loopback)||u.origin!==origin||u.username||u.password||!["fresh","existing"].includes(mode)||!globalThis.indexedDB||!globalThis.crypto?.subtle||typeof globalThis.CryptoKey!=="function")throw fail();
+      if(!isAppOrigin(origin,options.allowLoopbackHttp===true)||!["fresh","existing"].includes(mode)||!globalThis.indexedDB||!globalThis.crypto?.subtle||typeof globalThis.CryptoKey!=="function")throw fail();
       out.check(signal);
       const generate=crypto.subtle.generateKey.bind(crypto.subtle);
       const name=`mdbase.app.device-key-kek.v1.${ids.join(".")}`;
@@ -62,7 +62,7 @@ export class AppIndexedDbDeviceKeyProvider {
   }
   private check(signal: AbortSignal): void {
     try {
-      if(this.closed||this.lifetime.aborted||signal.aborted||globalThis.location?.origin!==this.origin||this.source.isCurrent!==this.current||this.source.installationOwned!==this.owned||this.current.call(this.source)!==true||this.owned.call(this.source)!==true||Object.entries(this.scope).some(([k,v])=>this.source[k as keyof typeof this.scope]!==v))throw fail();
+      if(this.closed||this.lifetime.aborted||signal.aborted||currentAppOrigin()!==this.origin||this.source.isCurrent!==this.current||this.source.installationOwned!==this.owned||this.current.call(this.source)!==true||this.owned.call(this.source)!==true||Object.entries(this.scope).some(([k,v])=>this.source[k as keyof typeof this.scope]!==v))throw fail();
     }catch{throw fail();}
   }
   private openDatabase(name: string,mode: "fresh"|"existing"): Promise<IDBDatabase> {

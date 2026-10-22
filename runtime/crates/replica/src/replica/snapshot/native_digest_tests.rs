@@ -19,6 +19,7 @@ fn row() -> FileRow {
         kind: FileKindV1::Ordinary,
         media: MediaClass::Other,
         modified_seq: 9,
+        mtime: None,
         bucket: 0,
         local: FileLocal::Remote,
     }

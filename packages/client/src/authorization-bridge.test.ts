@@ -6,7 +6,26 @@ import { MemoryStorage } from "./runtime-utils.js";
 import { MemoryGrantKeyStore } from "./crypto.js";
 import { MemoryApplicationIdentityStore } from "./application-identity.js";
 import { effectiveCapabilities } from "./capabilities.js";
-import { authorizationFiles, authorizationOperations } from "./application-contract.js";
+import { authorizationFiles, authorizationOperations, MdbaseConnectError as ProtocolError } from "@mdbase-dev/connect-protocol";
+import { MdbaseConnectError as ClientError, connectError } from "./errors.js";
+
+it("shared compiler retains the exact client error constructor and original issue details", () => {
+  expect(ClientError).toBe(ProtocolError);
+  const existing = connectError("invalid_application_manifest", "Existing issue", { details: { issues: [] } });
+  expect(existing).toBeInstanceOf(ClientError);
+  expect(existing).toBeInstanceOf(ProtocolError);
+  try {
+    authorizationOperations({ requirements: { contracts: [], access: "full_collection" } }, { capabilities: ["records.create"] });
+    throw new Error("Expected original selection refusal");
+  } catch (error) {
+    expect(error).toBeInstanceOf(ClientError);
+    expect((error as ClientError).code).toBe("invalid_application_manifest");
+    expect((error as ClientError).problem.details).toEqual({ issues: [{
+      path: "/requirements/capabilities", keyword: "authorizationSelection",
+      message: "Authorization can only include capabilities declared by the application.", params: {}
+    }] });
+  }
+});
 
 const collectionId = "00000000-0000-0000-0000-000000000002";
 const applicationId = "00000000-0000-0000-0000-000000000001";

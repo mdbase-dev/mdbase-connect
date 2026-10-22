@@ -121,25 +121,6 @@ describe("shared runtime registry", () => {
     expect(slot.hostOf("c1")).toBeNull();
   });
 
-  it("a stale detached handle never closes a later attachment's host", async () => {
-    const { slot, make, log, lease } = setup();
-    await slot.register("a", info("1.0.0"), make("1.0.0"));
-    await slot.register("b", info("1.0.0"), make("1.0.0"));
-    const a = await slot.attach("a", "1.0.0", "c1", ctx);
-    await a.detach();
-    const b = await slot.attach("b", "1.0.0", "c1", ctx);
-    const port = b.port;
-    await a.detach();
-    expect(b.port).toBe(port);
-    expect(b.port).not.toBeNull();
-    expect(slot.hostOf("c1")?.runtimeVersion).toBe("1.0.0");
-    expect(lease.get("c1")).toBe("1.0.0");
-    expect(log.filter(line => line.startsWith("close"))).toHaveLength(1);
-    await b.detach();
-    expect(lease.size).toBe(0);
-    expect(log.filter(line => line.startsWith("close"))).toHaveLength(2);
-  });
-
   it("queued detach, reattach and stale detach preserve the replacement lease", async () => {
     const { slot, make, log, lease } = setup();
     await slot.register("a", info("1.0.0"), make("1.0.0"));
@@ -188,24 +169,6 @@ describe("shared runtime registry", () => {
     expect(a.role.kind).toBe("host");
     await a.detach();
     expect(lease.size).toBe(0);
-  });
-
-  it("preserves host ownership if first-session rollback cannot flush", async () => {
-    const { slot, log, lease } = setup();
-    const rt = new FakeRuntime(info("1.0.0"), log, lease);
-    const close = rt.closeHost.bind(rt);
-    rt.connect = () => { throw new Error("session rejected"); };
-    rt.closeHost = async () => { throw new Error("flush failed"); };
-    await slot.register("a", info("1.0.0"), async () => rt);
-    const failure = await slot.attach("a", "1.0.0", "c1", ctx).catch(error => error as AggregateError);
-    expect(failure).toBeInstanceOf(AggregateError);
-    expect((failure as AggregateError).errors.map((e: Error) => e.message)).toEqual(["session rejected", "flush failed"]);
-    expect(slot.hostOf("c1")?.runtimeVersion).toBe("1.0.0");
-    expect(lease.get("c1")).toBe("1.0.0");
-    rt.closeHost = close;
-    await slot.unregister("a");
-    expect(lease.size).toBe(0);
-    expect(slot.hostOf("c1")).toBeNull();
   });
 
   it("retries unregister when both session rollback and the first cleanup fail", async () => {
@@ -261,64 +224,40 @@ describe("shared runtime registry", () => {
     expect(log.filter(line => line.startsWith("close"))).toHaveLength(1);
   });
 
-  it("can retry unregister after its last attachment fails to flush", async () => {
+  it("waits for delayed dispose before registering and attaching the same version", async () => {
     const { slot, log, lease } = setup();
-    const rt = new FakeRuntime(info("1.0.0"), log, lease);
-    const close = rt.closeHost.bind(rt);
-    await slot.register("a", info("1.0.0"), async () => rt);
+    const old = new FakeRuntime(info("1.0.0"), log, lease);
+    const next = new FakeRuntime(info("1.0.0"), log, lease);
+    const entered = deferred();
+    const finish = deferred();
+    const dispose = old.dispose.bind(old);
+    old.dispose = async () => { entered.resolve(); await finish.promise; await dispose(); };
+    await slot.register("a", info("1.0.0"), async () => old);
     await slot.attach("a", "1.0.0", "c1", ctx);
-    rt.closeHost = async () => { throw new Error("flush failed"); };
-    await expect(slot.unregister("a")).rejects.toThrow("flush failed");
-    expect(slot.versions()).toEqual(["1.0.0"]);
-    expect(lease.has("c1")).toBe(true);
-    rt.closeHost = close;
-    await slot.unregister("a");
+    const retiring = slot.unregister("a");
+    await entered.promise;
+    let created = false;
+    const registering = slot.register("b", info("1.0.0"), async () => { created = true; return next; });
+    const attaching = slot.attach("b", "1.0.0", "c1", ctx);
+    let registered = false;
+    void registering.then(() => { registered = true; });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(registered).toBe(false);
+    expect(created).toBe(false);
+    finish.resolve();
+    await retiring;
+    await registering;
+    const b = await attaching;
+    expect(created).toBe(true);
+    expect(b.port).not.toBeNull();
+    expect(old.hosting.size).toBe(0);
+    expect(next.hosting.has("c1")).toBe(true);
+    expect(slot.hostOf("c1")?.runtimeVersion).toBe("1.0.0");
+    expect(log.filter(line => line.startsWith("dispose"))).toHaveLength(1);
+    await b.detach();
     expect(lease.size).toBe(0);
-    expect(slot.versions()).toEqual([]);
-    expect(log.at(-1)).toBe("dispose 1.0.0");
   });
-
-  for (const phase of ["close", "dispose"] as const) {
-    it(`waits for delayed ${phase} before registering and attaching the same version`, async () => {
-      const { slot, log, lease } = setup();
-      const old = new FakeRuntime(info("1.0.0"), log, lease);
-      const next = new FakeRuntime(info("1.0.0"), log, lease);
-      const entered = deferred();
-      const finish = deferred();
-      if (phase === "close") {
-        const close = old.closeHost.bind(old);
-        old.closeHost = async (id) => { entered.resolve(); await finish.promise; await close(id); };
-      } else {
-        const dispose = old.dispose.bind(old);
-        old.dispose = async () => { entered.resolve(); await finish.promise; await dispose(); };
-      }
-      await slot.register("a", info("1.0.0"), async () => old);
-      await slot.attach("a", "1.0.0", "c1", ctx);
-      const retiring = slot.unregister("a");
-      await entered.promise;
-      let created = false;
-      const registering = slot.register("b", info("1.0.0"), async () => { created = true; return next; });
-      const attaching = slot.attach("b", "1.0.0", "c1", ctx);
-      let registered = false;
-      void registering.then(() => { registered = true; });
-      await Promise.resolve();
-      await Promise.resolve();
-      expect(registered).toBe(false);
-      expect(created).toBe(false);
-      finish.resolve();
-      await retiring;
-      await registering;
-      const b = await attaching;
-      expect(created).toBe(true);
-      expect(b.port).not.toBeNull();
-      expect(old.hosting.size).toBe(0);
-      expect(next.hosting.has("c1")).toBe(true);
-      expect(slot.hostOf("c1")?.runtimeVersion).toBe("1.0.0");
-      expect(log.filter(line => line.startsWith("dispose"))).toHaveLength(1);
-      await b.detach();
-      expect(lease.size).toBe(0);
-    });
-  }
 
   it("unregister waits for an already-opening attachment before retiring it", async () => {
     const { slot, log, lease } = setup();

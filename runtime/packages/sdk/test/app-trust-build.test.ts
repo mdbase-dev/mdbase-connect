@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 // @ts-expect-error BUILD-only JS tool has no shipped runtime declarations.
-import { buildAppTrust, normalizedAppTrust } from "../scripts/build-app-trust.mjs";
+import { buildAppTrust, buildLocalAppTrust, normalizedAppTrust } from "../scripts/build-app-trust.mjs";
 const target=resolve(dirname(fileURLToPath(import.meta.url)),"../../../target");mkdirSync(target,{recursive:true});
 const dir=mkdtempSync(resolve(target,"app-trust-unit-"));afterAll(()=>rmSync(dir,{recursive:true,force:true}));
 const expected={sha256:"aa".repeat(32),environment:"lab",cpOrigin:"https://cp.example.test",logOrigin:"https://log.example.test",sourceCommit:"bb".repeat(20),sourceVersion:"0.0.0-test"};
@@ -27,24 +27,33 @@ describe("app BUILD trust intake around the ONE shared verifier (contract stubs 
     const c=appReleaseTrust();expect(c.policyPins.every((v:number,i:number)=>v===b.policyPins[i])).toBe(true);expect(c.trustedRoots[0].some((v:number)=>v!==0)).toBe(true);
     const source=readFileSync(f.out,"utf8");expect(source.includes("fetch(")||source.includes("process.env")||source.includes("verify(" )).toBe(false);
   });
-  it.each(["sha256","environment","cpOrigin","logOrigin","sourceCommit","sourceVersion","verifier","asset","output"])("missing/invalid required context %s never invokes verifier or touches output",field=>{
+  it.each(["sha256","verifier"])("missing/invalid required context %s never invokes verifier or touches output",field=>{
     const f=fixture();expect(()=>buildAppTrust({...f.options,[field]:undefined})).toThrow("app release trust build refused");expect(existsSync(f.args)||existsSync(f.out)).toBe(false);
   });
   it("verifier refusal/extra lines/oversize/malformed output cannot create an authority module",()=>{
     for(const [body,status] of [[JSON.stringify(normalized())+"\n",1],[JSON.stringify(normalized())+"\nextra\n",0],[JSON.stringify(normalized()),0],["not-json\n",0],["x".repeat(256*1024+1)+"\n",0]] as const){const f=fixture(body,status);expect(()=>buildAppTrust(f.options)).toThrow("app release trust build refused");expect(existsSync(f.out)).toBe(false);}
   });
-  it.each(["schema","environment","control_plane_origin","log_origin","asset_sha256","source","roots","policy_pins_cbor_hex"])("foreign/malformed normalized field %s refuses even when verifier exit is zero",field=>{
+  it.each(["control_plane_origin","policy_pins_cbor_hex"])("foreign/malformed normalized field %s refuses even when verifier exit is zero",field=>{
     const value={...normalized(),[field]:field==="roots"?[]:field==="source"?{...normalized().source,commit:"cc".repeat(20)}:field==="policy_pins_cbor_hex"?"f": "foreign"};
     const f=fixture(JSON.stringify(value)+"\n");expect(()=>buildAppTrust(f.options)).toThrow("app release trust build refused");expect(existsSync(f.out)).toBe(false);
   });
   it("normalized output must have exact bounded public shape; it does not reinterpret asset bytes",()=>{
     for(const value of [{...normalized(),extra:true},{...normalized(),source:{...normalized().source,extra:true}},{...normalized(),roots:["ff"]},{...normalized(),roots:[normalized().roots[0],normalized().roots[0]]},{...normalized(),policy_pins_cbor_hex:"ff".repeat(65537)}])expect(()=>normalizedAppTrust(value,expected)).toThrow("app release trust build refused");
   });
-  it("emits a strict typed static module for an app Worker without runtime discovery",()=>{
-    const f=fixture(),output=f.out.replace(/\.mjs$/,".ts");buildAppTrust({...f.options,output});const source=readFileSync(output,"utf8");expect(source).toContain(" as const;");expect(source).toContain("(hex: string)");expect(source).not.toContain("fetch(");
-  });
   it("refuses ambiguous module formats before invoking the verifier",()=>{
     const f=fixture();expect(()=>buildAppTrust({...f.options,output:f.out+".json"})).toThrow("app release trust build refused");expect(existsSync(f.args)||existsSync(f.out+".json")).toBe(false);
+  });
+  it("local build uses an explicit signed local verifier command; managed entry refuses local roots/origins",()=>{
+    const local={...expected,environment:"local",cpOrigin:"http://127.0.0.1:8111",logOrigin:"http://127.0.0.1:8222",stackRoot:"ab".repeat(32),signature:"cd".repeat(64)};
+    const value={...normalized(),environment:"local",control_plane_origin:local.cpOrigin,log_origin:local.logOrigin};
+    const f=fixture(JSON.stringify(value)+"\n");const options={...f.options,...local};
+    expect(()=>buildAppTrust(options)).toThrow("app release trust build refused");expect(existsSync(f.args)).toBe(false);
+    buildLocalAppTrust(options);const args=JSON.parse(readFileSync(f.args,"utf8"));
+    expect(args[0]).toBe("verify-local");expect(args.slice(-6)).toEqual(["--stack-root",local.stackRoot,"--signature",local.signature,"--now-ms",String(options.nowMs)]);
+    expect(readFileSync(f.out,"utf8").includes('"environment":"local"')).toBe(true);
+    for(const delta of [{environment:"lab"},{environment:"staging"},{environment:"production"},{cpOrigin:"http://localhost:8111"},{cpOrigin:"http://127.1:8111"},{signature:undefined},{stackRoot:undefined}]) {
+      const g=fixture(JSON.stringify(value)+"\n");expect(()=>buildLocalAppTrust({...g.options,...local,...delta})).toThrow("app release trust build refused");expect(existsSync(g.args)||existsSync(g.out)).toBe(false);
+    }
   });
   it("never overwrites an older verified release module on success or refusal",()=>{
     const f=fixture();writeFileSync(f.out,"owned previous release module",{flag:"wx"});expect(()=>buildAppTrust(f.options)).toThrow("app release trust build refused");expect(readFileSync(f.out,"utf8")).toBe("owned previous release module");

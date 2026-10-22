@@ -1,12 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 
 import { Collection, MdbaseError } from "../src/node/index.js";
 
-const base = join(tmpdir(), `mdbase-node-${process.pid}`);
-mkdirSync(base, { recursive: true });
+// Test-owned scratch directory inside the package, never the shared /tmp.
+const base = mkdtempSync(join(fileURLToPath(new URL("..", import.meta.url)), ".test-scratch-"));
 afterAll(() => rmSync(base, { recursive: true, force: true }));
 
 const TASK_TYPE = `---

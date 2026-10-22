@@ -9,6 +9,7 @@ use mdbn_wire::common::Uuid;
 use mdbn_wire::log_service::ReadParams;
 
 use super::Replica;
+use super::append::Inflight;
 use crate::log::{CallId, EndpointId, LogCall, LogError, LogPort, LogPush, LogReply, LogResponse};
 use crate::store::{Head, Store};
 
@@ -128,6 +129,25 @@ impl<S: Store> Replica<S> {
         Ok(session)
     }
 
+    /// Host wake: ask the log for its head so entries appended by other devices
+    /// are read. A push-less (HTTP) host has no other way to learn them. Unlike a
+    /// reconnect it leaves connection, `caught_up` and the append state alone, so
+    /// status and readiness do not move. One fetch at a time; false when there is
+    /// no live log session, the replica is faulted, or a fetch is already out.
+    pub fn request_head(&mut self) -> bool {
+        if self.apply_fault
+            || self.log_sessions.current.is_none()
+            || self
+                .inflight
+                .values()
+                .any(|kind| *kind == Inflight::Subscribe)
+        {
+            return false;
+        }
+        self.queue_head_fetch();
+        true
+    }
+
     /// Retire ONLY this exact current session. Classify its original calls as
     /// unknown internally BEFORE replacement; do not reject old NoResponse via
     /// the current-session reply API or drop/re-plan the unknown append bytes.
@@ -140,6 +160,7 @@ impl<S: Store> Replica<S> {
         {
             return;
         }
+        self.attachment_read_retire_transport();
         self.log_sessions.current = None;
         let calls = std::mem::take(&mut self.log_sessions.calls);
         self.dispatch_log_push(LogPush::Disconnected);
@@ -157,6 +178,7 @@ impl<S: Store> Replica<S> {
     ) -> Result<Vec<(LogCall, LogReplyScope)>, LogSessionError> {
         self.check_log_session(session)?;
         self.prune_hosted_uploads();
+        self.client_file_read_step();
         // Check all queued routes before draining anything.
         if self
             .calls
@@ -194,6 +216,8 @@ impl<S: Store> Replica<S> {
     ) -> Result<(), LogSessionError> {
         self.check_log_session(&scope.0.session)?;
         self.prune_hosted_uploads();
+        self.client_upload_resume_prune();
+        self.prune_client_file_call();
         if !self
             .log_sessions
             .calls

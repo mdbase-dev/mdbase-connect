@@ -47,6 +47,10 @@ pub struct CloudConfig {
     /// This connector's ID, pinned at pairing (or from the first snapshot).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connector_id: Option<String>,
+    /// This computer's name in the account, as last set from here (pairing or
+    /// `account.rename`). Shown locally; the account is authoritative.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub computer_name: Option<String>,
     /// Whether this device is registered to the connector.
     #[serde(default)]
     pub device_registered: bool,
@@ -373,6 +377,16 @@ impl Cloud {
         tls: &Arc<rustls::ClientConfig>,
         current: &(dyn Fn() -> Result<(), String> + Send + Sync),
     ) -> Result<bool, CloudError> {
+        Ok(self.rollout(tls, current).await?.permits_takeover())
+    }
+
+    /// The authenticated, uncached rollout answer: takeover permission and the
+    /// account's backend (`legacy` while it is not, or no longer, upgrading).
+    pub async fn rollout(
+        &self,
+        tls: &Arc<rustls::ClientConfig>,
+        current: &(dyn Fn() -> Result<(), String> + Send + Sync),
+    ) -> Result<Rollout, CloudError> {
         // Do not accept a permission from a redirected origin.
         let client = reqwest::Client::builder()
             .use_preconfigured_tls((**tls).clone())
@@ -387,7 +401,7 @@ impl Cloud {
         let v = self
             .send_current_status(request, current, Some(200))
             .await?;
-        parse_local_takeover(v)
+        parse_rollout(v)
     }
 
     /// Retire ONLY the exact full old connector (clients migration contract).
@@ -717,6 +731,7 @@ impl Cloud {
         &self,
         connector_id: &str,
         collection: &[u8; 16],
+        display_name: &str,
         identity: &DeviceIdentity,
         current: &(dyn Fn() -> Result<(), String> + Send + Sync),
     ) -> Result<Created, CloudError> {
@@ -725,6 +740,7 @@ impl Cloud {
             "collection_id".into(),
             json!(mdbn_wire::common::B16(*collection).to_uuid_string()),
         );
+        body.insert("display_name".into(), json!(display_name));
         let v = self
             .proven_post(
                 "/v1/next/collections/private",
@@ -1104,6 +1120,24 @@ impl Cloud {
             .ok_or_else(|| CloudError::Server(200, "malformed".into()))
     }
 
+    /// Rename this computer in the account (`PATCH /v1/connectors/self`); returns
+    /// the name the account stored.
+    pub async fn rename_self(&self, name: &str) -> Result<String, CloudError> {
+        let r = self
+            .http
+            .patch(format!("{}/v1/connectors/self", self.server))
+            .bearer_auth(self.token.as_str())
+            .json(&json!({ "name": name }))
+            .send()
+            .await
+            .map_err(|e| CloudError::Network(e.to_string()))?;
+        let (status, v) = json_response(r).await?;
+        v.pointer("/connector/name")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| CloudError::Server(status, "invalid_connector_rename".into()))
+    }
+
     /// Publish the collection inventory (`POST /v1/connectors/sync`).
     pub async fn inventory(
         &self,
@@ -1149,24 +1183,41 @@ fn parse_legacy_retirement(value: Value, expected: &str) -> Result<(), CloudErro
     Ok(())
 }
 
-/// A released cohort alone is not permission.
-/// Apps must already be routed to next before folders are claimed.
+/// The account's backend as the rollout endpoint reports it.
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountBackend {
+    /// Still (or again) on legacy mdbase Connect.
+    Legacy,
+    /// Upgraded.
+    Next,
+}
+
+/// `GET /v1/next/rollout`, strictly decoded.
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Rollout {
+    /// Explicit takeover permission.
+    pub local_takeover: bool,
+    /// The account's backend, when reported.
+    pub account_backend: Option<AccountBackend>,
+}
+
+impl Rollout {
+    /// A released cohort alone is not permission.
+    /// Apps must already be routed to next before folders are claimed.
+    pub fn permits_takeover(&self) -> bool {
+        self.local_takeover && self.account_backend == Some(AccountBackend::Next)
+    }
+}
+
+fn parse_rollout(v: Value) -> Result<Rollout, CloudError> {
+    serde_json::from_value(v).map_err(|_| CloudError::Server(200, "malformed".into()))
+}
+
+#[cfg(test)]
 fn parse_local_takeover(v: Value) -> Result<bool, CloudError> {
-    #[derive(Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct Rollout {
-        local_takeover: bool,
-        account_backend: Option<Backend>,
-    }
-    #[derive(Deserialize, PartialEq)]
-    #[serde(rename_all = "snake_case")]
-    enum Backend {
-        Legacy,
-        Next,
-    }
-    let r: Rollout =
-        serde_json::from_value(v).map_err(|_| CloudError::Server(200, "malformed".into()))?;
-    Ok(r.local_takeover && r.account_backend == Some(Backend::Next))
+    Ok(parse_rollout(v)?.permits_takeover())
 }
 
 /// Bound on the strict response's recovery-device set: larger is refused as
@@ -1768,9 +1819,16 @@ mod tests {
                                 .create_cloud_copy(CONNECTOR, c, id, &ok)
                                 .await
                                 .map(drop),
-                            K::PrivateCreate => {
-                                cloud.create_private(CONNECTOR, c, id, &ok).await.map(drop)
-                            }
+                            K::PrivateCreate => cloud
+                                .create_private(
+                                    CONNECTOR,
+                                    c,
+                                    "[test] migrated Legacy name / Δ",
+                                    id,
+                                    &ok,
+                                )
+                                .await
+                                .map(drop),
                             K::CloudCopyJoin => {
                                 cloud.join_cloud_copy(CONNECTOR, c, id, &ok).await.map(drop)
                             }
@@ -1789,6 +1847,9 @@ mod tests {
             )
             .await;
             assert!(line.starts_with(&path), "{kind:?}: {line}");
+            if kind == K::PrivateCreate {
+                assert_eq!(body["display_name"], "[test] migrated Legacy name / Δ");
+            }
             assert_eq!(body["challenge"], secrets::hex(&[7; 32]));
             assert_eq!(body["device_id"], id.public().device);
             assert_eq!(
@@ -1965,6 +2026,46 @@ mod tests {
         };
         assert_eq!(record.active_account(), None);
         assert!(!record.permits(&config));
+    }
+
+    /// Computer rename is the connector's own PATCH, and the stored name comes from
+    /// the account's reply, not from what was sent.
+    #[tokio::test]
+    async fn rename_self_patches_the_connector_and_returns_the_stored_name() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let mock = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 4096];
+            while !String::from_utf8_lossy(&request).contains("}") {
+                let n = socket.read(&mut buffer).await.unwrap();
+                request.extend_from_slice(&buffer[..n]);
+            }
+            let body = r#"{"connector":{"id":"c","name":"Studio iMac"}}"#;
+            let reply = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            socket.write_all(reply.as_bytes()).await.unwrap();
+            String::from_utf8_lossy(&request).to_string()
+        });
+        let cloud = Cloud {
+            http: reqwest::Client::new(),
+            server: format!("http://{address}"),
+            token: Zeroizing::new("synthetic-token".into()),
+        };
+        assert_eq!(
+            cloud.rename_self(" Studio iMac ").await.unwrap(),
+            "Studio iMac"
+        );
+        let request = mock.await.unwrap();
+        assert!(
+            request.starts_with("PATCH /v1/connectors/self "),
+            "{request}"
+        );
+        assert!(request.contains(r#"{"name":" Studio iMac "}"#), "{request}");
     }
 
     #[test]

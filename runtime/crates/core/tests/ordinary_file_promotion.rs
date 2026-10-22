@@ -55,6 +55,7 @@ fn state(doc: &str, attachment: bool, enabled: bool) -> MemState {
             blob,
         }),
         FileContent::AttachmentV1(content) => s.apply_effect(&Effect::PutAttachmentFile {
+            mtime: None,
             id: id(1),
             path: PATH.into(),
             content,

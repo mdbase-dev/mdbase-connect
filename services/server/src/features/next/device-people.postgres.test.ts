@@ -88,6 +88,17 @@ suite("current next-device people without legacy authority (isolated PostgreSQL)
     await db.query(`UPDATE next_devices SET ${field}=$2 WHERE id=$1`,[f.device,field==="kind"?"mobile":randomBytes(32)]);
     expect((await f.get("identity")).json().error.code).toBe("not_enrolled");
   });
+  it("does not tell an owner a member is gone before authoritative removal",async()=>{
+    const f=await fixture("cloud_copy",true);
+    await f.queue([{op:"member-remove",account:f.member}]);
+    const pending=await f.get("members");
+    expect(pending.statusCode,pending.body).toBe(200);
+    expect(pending.json().members.map((m:{account_id:string})=>m.account_id)).toContain(f.member);
+    await f.acknowledge();
+    const removed=await f.get("members");
+    expect(removed.statusCode,removed.body).toBe(200);
+    expect(removed.json().members.map((m:{account_id:string})=>m.account_id)).not.toContain(f.member);
+  });
   it("queued removal denies immediately; re-addition cannot restore historical device metadata",async()=>{
     const f=await fixture();await f.queue([{op:"member-remove",account:f.member}]);
     expect((await f.get("identity")).json().error.code).toBe("not_member");

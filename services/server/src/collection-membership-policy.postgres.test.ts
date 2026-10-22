@@ -12,6 +12,10 @@ import { registerHostedSharingRoutes } from "./features/hosted/sharing-routes.js
 import { refuseRevoked } from "./features/next/bootstrap-common.js";
 import { registerErrorHandler } from "./platform/error-handler.js";
 import { tokenHash } from "./security.js";
+import { acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, flipAccountBackend, flipEvidenceDigest, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "./features/next/migration-rollout.js";
+import { ZERO_HOSTED_ARCHIVE_SCHEMA } from "./features/next/migration-archive-profile.js";
+import { buildApp } from "./app.js";
+import type { HostedProviderClient } from "./hosted-provider.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -24,6 +28,9 @@ suite("transactional membership policy and native sharing (isolated PostgreSQL)"
   let admin: pg.Pool;
   let schema: string;
   const app = Fastify();
+  // This suite checks the SQL/HTTP boundary; canonical emission has its own
+  // real-log suite. Assert that HTTP removal waits for this explicit seam.
+  const publishCommitted = vi.fn(async (_collection: string) => {});
 
   beforeAll(async () => {
     const url = new URL(testUrl!);
@@ -35,7 +42,8 @@ suite("transactional membership policy and native sharing (isolated PostgreSQL)"
     db = await createDatabase(url.toString());
     await app.register(cookie);
     registerErrorHandler(app);
-    registerHostedSharingRoutes(app, { db, hostedCollections: true, hostedSharing: true });
+    registerHostedSharingRoutes(app, { db, hostedCollections: true, hostedSharing: true,
+      nativePolicyEmitter: { publishCommitted } });
   }, 60_000);
 
   afterAll(async () => {
@@ -104,6 +112,7 @@ suite("transactional membership policy and native sharing (isolated PostgreSQL)"
     expect(changed.statusCode, changed.body).toBe(200);
     const removed = await app.inject({ method: "DELETE", url: `${base}/members/${membership}`, headers: ownerHeaders });
     expect(removed.statusCode, removed.body).toBe(200);
+    expect(publishCommitted).toHaveBeenCalledWith(f.collection);
     expect(await memberOps(f)).toEqual([
       { op: "member-set", account: f.member.id, role: "editor" },
       { op: "member-set", account: f.member.id, role: "viewer" },
@@ -250,6 +259,44 @@ suite("transactional membership policy and native sharing (isolated PostgreSQL)"
     expect(await memberOps(f)).toEqual([{ op: "member-set", account: f.member.id, role: "viewer" }, { op: "member-set", account: f.member.id, role: "viewer" }]);
   });
 
+  it("discovers authenticated registry-only metadata and batches an 80-collection overview", async () => {
+    // This was a memory-database HTTP test. Native set-based policy SQL needs
+    // PostgreSQL; keep the real authentication/response assertions here rather
+    // than adding a second permission implementation to the memory adapter.
+    const query = vi.fn().mockImplementation(db.query.bind(db));
+    const provider = { url: "https://provider.example", ready: vi.fn() } as unknown as HostedProviderClient;
+    const { app: management } = await buildApp({ db: { ...db, query }, devAuth: true, hostedCollections: true,
+      hostedSharing: true, hostedProvider: provider, publicUrl: "http://connect.test" });
+    try {
+      const email = `${randomUUID()}@example.test`;
+      const signedIn = await management.inject({ method: "POST", url: "/v1/dev/session", payload: { name: "Native owner", email } });
+      expect(signedIn.statusCode, signedIn.body).toBe(200);
+      const raw = signedIn.headers["set-cookie"]!;
+      const cookie = (Array.isArray(raw) ? raw[0]! : raw).split(";")[0]!;
+      const owner = (await db.query<{ id: string }>("SELECT id FROM users WHERE email=$1", [email])).rows[0]!.id;
+      const collection = randomUUID();
+      await db.query("INSERT INTO next_collections(collection_id,owner_user_id,runtime,sync,root_key_id,display_name) VALUES($1,$2,'next','private',$3,'Native garden')", [collection,owner,Buffer.alloc(16)]);
+      expect((await management.inject({ url: "/v1/me" })).statusCode).toBe(401);
+      const response = await management.inject({ url: "/v1/me", headers: { cookie } });
+      expect(response.statusCode, response.body).toBe(200);
+      expect(response.json().native_collection_creation_available).toBe(false);
+      expect(response.json().native_collections).toEqual([{ id: collection, display_name: "Native garden", sync: "private", computer_ids: [], access: { relationship: "owner", role: "owner", can_manage_members: true } }]);
+      expect(response.json().collections).toEqual([]);
+      expect(response.json().hosted_collections).toEqual([]);
+      expect(response.json().grants).toEqual([]);
+      expect((await db.query("SELECT id FROM hosted_collections WHERE user_id=$1", [owner])).rows).toEqual([]);
+      expect((await db.query("SELECT id FROM next_policy_outbox WHERE collection_id=$1", [collection])).rows).toEqual([]);
+      await db.query(`INSERT INTO next_collections(collection_id,owner_user_id,runtime,sync,root_key_id)
+        SELECT gen_random_uuid(),$1,'next','private',uuid_send(gen_random_uuid()) FROM generate_series(1,79)`, [owner]);
+      query.mockClear();
+      const large = await management.inject({ url: "/v1/me", headers: { cookie } });
+      expect(large.statusCode, large.body).toBe(200);
+      expect(large.json().native_collections).toHaveLength(80);
+      expect(query.mock.calls.filter(([sql]) => sql.includes("FROM next_collections native"))).toHaveLength(1);
+      expect(query.mock.calls.filter(([sql]) => sql.includes("d.id AS device_id"))).toHaveLength(1);
+    } finally { await management.close(); }
+  });
+
   it.each(["private", "cloud_copy"] as const)("discovers %s native management without retaining legacy authority", async sync => {
     const f = await fixture(sync, true);
     await db.query("UPDATE users SET account_backend='legacy' WHERE id=$1", [f.owner.id]);
@@ -261,6 +308,17 @@ suite("transactional membership policy and native sharing (isolated PostgreSQL)"
     expect(await listHostedCollectionsVisibleToUser(db, f.owner.id)).toEqual([]);
     expect(await listLocalCollectionsVisibleToUser(db, f.owner.id)).toEqual([]);
     expect(await ops(f.collection)).toEqual([]);
+  });
+
+  it("bounds real SQL discovery at 80 owned native collections", async () => {
+    const f = await fixture();
+    await db.query(`INSERT INTO next_collections(collection_id,owner_user_id,runtime,sync,root_key_id)
+      SELECT gen_random_uuid(),$1,'next','cloud_copy',uuid_send(gen_random_uuid()) FROM generate_series(1,79)`, [f.owner.id]);
+    const query = vi.fn().mockImplementation(db.query.bind(db));
+    const visible = await listNativeCollectionsVisibleToUser({ query }, f.owner.id);
+    expect(visible).toHaveLength(80);
+    expect(visible.every(row => row.access.relationship === "owner" && row.access.can_manage_members)).toBe(true);
+    expect(query.mock.calls.length).toBeLessThanOrEqual(1);
   });
 
   it("native management discovery follows the exact current membership policy", async () => {
@@ -310,6 +368,32 @@ suite("transactional membership policy and native sharing (isolated PostgreSQL)"
     expect(await memberOps(f)).toEqual([{ op: "member-set", account: f.member.id, role: "editor" }]);
   });
 
+  it.each(["private","cloud_copy"] as const)("restores completed migrated %s sharing, invitation acceptance and management controls without thaw",async sync=>{
+    const f=await fixture(sync),cohort=`share-${randomUUID().slice(0,8)}`,actor="synthetic-local-pg";
+    await db.query("UPDATE users SET account_backend='legacy' WHERE id=$1",[f.owner.id]);
+    await createCohort(db,cohort,actor);await addToCohort(db,cohort,[f.owner.id],actor);await releaseCohort(db,cohort,actor);await setCohortFrozen(db,cohort,true,"synthetic archive",actor);
+    const binding=await cohortArchiveBinding(db,cohort),clock=new Date((await db.query("SELECT date_trunc('milliseconds',clock_timestamp()) AS now")).rows[0].now).toISOString();
+    await acceptCohortArchive(db,cohort,{schema:ZERO_HOSTED_ARCHIVE_SCHEMA,environment:"lab",bucket:"synthetic-archives",prefix:`legacy-archive/lab/2026/10/14/${cohort}`,backup_id:cohort,
+      complete_sha256:"a".repeat(64),manifest_sha256:"b".repeat(64),source_commit:"c".repeat(40),migration_batch:binding,archive_created_at:clock,archive_completed_at:clock,
+      retention:{mode:"GOVERNANCE",days:116,retain_until:new Date(Date.parse(clock)+116*86_400_000).toISOString(),inventory_digest:"d".repeat(64),count:"2"}},"lab");
+    await setPaused(db,false,"synthetic migration",actor);await startAccountMigration(db,f.owner.id,"lab");await flipAccountBackend(db,f.owner.id,[],flipEvidenceDigest([]),{enabled:true},"lab");
+    expect(await listNativeCollectionsVisibleToUser(db,f.owner.id)).toMatchObject([{id:f.collection,access:{can_manage_members:true}}]);
+    await db.query(`INSERT INTO next_collections(collection_id,owner_user_id,runtime,sync,root_key_id)
+      SELECT gen_random_uuid(),$1,'next',$2,uuid_send(gen_random_uuid()) FROM generate_series(1,79)`, [f.owner.id,sync]);
+    const query=vi.fn().mockImplementation(db.query.bind(db));
+    const visible=await listNativeCollectionsVisibleToUser({query},f.owner.id);
+    expect(visible).toHaveLength(80);
+    expect(visible.every(row=>row.access.can_manage_members)).toBe(true);
+    // Original terminal/whole-cohort/cutover/audit proof is retained, but only
+    // once for this owner, not rehashed and queried for every collection.
+    expect(query.mock.calls.length).toBeLessThanOrEqual(5);
+    const invitation=await invite(f),accepted=await acceptHostedCollectionInvitation(db,{userId:f.member.id,token:invitation.token});
+    expect(accepted).toMatchObject({collectionId:f.collection,role:"editor"});
+    const input={collectionId:f.collection,actorUserId:f.owner.id,membershipId:accepted.membershipId};
+    await expect(changeHostedCollectionMembershipRole(db,{...input,role:"viewer"})).resolves.toMatchObject({state:"active"});
+    await expect(revokeHostedCollectionMembership(db,input)).resolves.toMatchObject({state:"revoked"});
+    expect((await db.query("SELECT frozen_at FROM next_migration_cohorts WHERE name=$1",[cohort])).rows[0].frozen_at).not.toBeNull();
+  });
   it.each(["legacy", "next"] as const)("refuses frozen native sharing independently of account backend %s", async backend => {
     const f = await fixture("cloud_copy", true), cohort = randomUUID();
     await db.query("UPDATE users SET account_backend=$2 WHERE id=$1", [f.owner.id, backend]);

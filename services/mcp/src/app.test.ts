@@ -678,6 +678,10 @@ async function fakeUpstream(realFetch: typeof fetch) {
         result
       });
     }
+    // A control plane without mdbase-next routing: tools stay on the legacy path.
+    if (url.origin === "https://connect.example" && /^\/v1\/next\/collections\/[^/]+\/route$/u.test(url.pathname)) {
+      return Response.json({ error: { code: "not_found", message: "Not found" } }, { status: 404 });
+    }
     if (url.hostname === "127.0.0.1") return realFetch(input, init);
     return Response.json({ error: { code: "unexpected_fetch", message: url.href } }, { status: 500 });
   });

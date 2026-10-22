@@ -103,9 +103,8 @@ pub fn rollback_local(
         })?;
 
     let marker_path = root.join(".mdbase").join("connect-role.json");
-    let aside = root
-        .join(".mdbase")
-        .join(format!("connect-role.json.rolled-back-{tag}"));
+    let aside_name = format!("connect-role.json.rolled-back-{tag}");
+    let aside = root.join(".mdbase").join(&aside_name);
     let move_marker = match marker::read(root).map_err(|e| Error::Legacy(e.to_string()))? {
         Marker::Claimed {
             collection: c,
@@ -150,9 +149,9 @@ pub fn rollback_local(
     } else {
         None
     };
-    // Retry this sync even when resuming after the rename. Unsupported directory
+    // Retry this sync even when resuming after the rename. Unsupported entry
     // durability blocks startup; never silently treat a failed sync as success.
-    sync_dir(&root.join(".mdbase"))?;
+    crate::durable::sync_entry(&root.join(".mdbase"), &aside_name)?;
     old.enable_and_start()
         .map_err(|e| Error::Invalid(format!("start the old daemon: {e}")))?;
     Ok(LocalReport {
@@ -167,22 +166,4 @@ fn is_ours(aside: &Path, collection: &str, replica_id: &str) -> bool {
         matches!(marker::parse(&b), Marker::Claimed { collection: c, replica_id: r }
             if c == collection && r == replica_id)
     })
-}
-
-fn sync_dir(dir: &Path) -> Result<()> {
-    let d = std::fs::File::open(dir)
-        .map_err(|e| Error::Invalid(format!("open marker directory for durability: {e}")))?;
-    d.sync_all()
-        .map_err(|e| Error::Invalid(format!("sync marker directory: {e}")))
-}
-
-#[cfg(test)]
-mod durability_tests {
-    #[test]
-    fn directory_sync_errors_are_not_silently_accepted() {
-        let absent = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("Cargo.toml")
-            .join("not-a-directory");
-        assert!(super::sync_dir(&absent).is_err());
-    }
 }

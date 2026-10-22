@@ -164,9 +164,24 @@ fn wikilink_at(s: &str, at: usize) -> Option<(Link, usize)> {
     } else {
         return None;
     };
-    let close = rest[inner_start..].find("]]")? + inner_start;
+    let mut close = rest[inner_start..].find("]]")? + inner_start;
+    // Single brackets are literal filename/alias characters. When a bracketed
+    // name ends immediately before the delimiter, keep its closing bracket:
+    // [[Person [draft]]] targets "Person [draft]", not "Person [draft".
+    let open = rest[inner_start..close]
+        .bytes()
+        .fold(0usize, |depth, byte| match byte {
+            b'[' => depth + 1,
+            b']' => depth.saturating_sub(1),
+            _ => depth,
+        });
+    let closing_run = rest[close..]
+        .bytes()
+        .take_while(|byte| *byte == b']')
+        .count();
+    close += open.min(closing_run.saturating_sub(2));
     let inner = &rest[inner_start..close];
-    if inner.contains(['[', ']', '\n', '\r']) {
+    if inner.contains(['\n', '\r']) || inner.contains("[[") || inner.contains("]]") {
         return None;
     }
     let (target_part, alias) = match inner.find('|') {

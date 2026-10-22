@@ -129,7 +129,7 @@ with the same body is safe.
   both the event ID.
 - **Delivery** follows Connect's notification service: Web Push, FCM, APNs through FCM,
   or a signed webhook.
-- **Payload.** It is
+- **Payload.** It is the push envelope v1 (`push-envelope.md`):
   `{type: "mdbase.notification", version: 1, signal_id, criterion_id, cursor,
   presentation}`. The `presentation` is the criterion's static manifest text.
 - **What a push never carries:** timer IDs, `data`, record IDs or content.

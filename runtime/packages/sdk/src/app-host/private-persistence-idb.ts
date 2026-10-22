@@ -1,6 +1,7 @@
 /** Exact-scope bootstrap ciphertext IO. No generic KV, reset/delete or retry.
  * Host must hold Worker/installation/collection ownership BEFORE open/crypto.
  * Strict IDB durability is a request, never a Saved/power-loss claim. */
+import { currentAppOrigin, isAppOrigin } from "./app-origin.js";
 import { uuidToBytes } from "../codec.js";
 import type { AppCpPrivateSession } from "./private-bootstrap.js";
 import { APP_PRIVATE_BOOTSTRAP_CIPHER_MAX, type AppPrivateBootstrapProtectedStore } from "./private-persistence.js";
@@ -35,9 +36,8 @@ export class AppIndexedDbPrivateBootstrapStore implements AppPrivateBootstrapPro
     for (const id of ids) if (uuidToBytes(id).every(v => v === 0)) throw bad();
     if (!(source.rootPublicKey instanceof Uint8Array) || source.rootPublicKey.length !== 32 || source.rootPublicKey.every(v => v === 0)) throw bad();
     const root = new Uint8Array(source.rootPublicKey);
-    const origin = new URL(options.origin), loopback = options.allowLoopbackHttp === true && origin.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(origin.hostname);
-    if ((!loopback && origin.protocol !== "https:") || origin.origin !== options.origin || origin.username || origin.password ||
-      globalThis.location?.origin !== options.origin || !["fresh", "existing"].includes(options.mode) || !["create", "enrol"].includes(pins.purpose) || !globalThis.indexedDB) throw bad();
+    if (!isAppOrigin(options.origin, options.allowLoopbackHttp === true) ||
+      currentAppOrigin() !== options.origin || !["fresh", "existing"].includes(options.mode) || !["create", "enrol"].includes(pins.purpose) || !globalThis.indexedDB) throw bad();
     const current = () => { try { return !signal.aborted && source.isCurrent() === true && source.approvalMode === "password-ak1" &&
       source.rootPublicKey instanceof Uint8Array && same(source.rootPublicKey, root) && Object.entries(pins).every(([k, v]) => source[k as keyof AppCpPrivateSession] === v); } catch { return false; } };
     if (!current()) throw bad();
@@ -62,7 +62,7 @@ export class AppIndexedDbPrivateBootstrapStore implements AppPrivateBootstrapPro
     } catch { out.close(); throw bad(); }
   }
   private check(signal: AbortSignal): void {
-    try { if (this.closed || signal.aborted || globalThis.location?.origin !== this.origin || this.source.isCurrent() !== true || this.source.approvalMode !== "password-ak1" ||
+    try { if (this.closed || signal.aborted || currentAppOrigin() !== this.origin || this.source.isCurrent() !== true || this.source.approvalMode !== "password-ak1" ||
       !(this.source.rootPublicKey instanceof Uint8Array) || !same(this.source.rootPublicKey, this.root) || Object.entries(this.pins).some(([k, v]) => this.source[k as keyof AppCpPrivateSession] !== v)) throw bad(); }
     catch { throw bad(); }
   }

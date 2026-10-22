@@ -63,8 +63,8 @@ weekly so unchanged entries do not expire, and on dispatch. Each matrix entry
 reproduces one consumer's toolchain, lock file and builds under a shared key:
 `hosted-provider` (Rust workspace job and every system shard),
 `runtime-testbed`, `connect-debug` (macOS/Windows filesystem durability and the
-Windows CLI lifecycle contract), and `mdbase-cli-release` (Desktop Release
-smoke builds). Every CI job restores with `save-if: false`; a contract test
+Windows CLI lifecycle contract), and `mdbase-daemon-release` (Desktop Release
+smoke builds of the daemon in `runtime/`, keyed on `runtime/Cargo.lock`). Every CI job restores with `save-if: false`; a contract test
 fails if a job restores a key the workflow does not write. rust-cache keeps
 dependencies only, so workspace crates always compile from source.
 

@@ -46,7 +46,7 @@ describe("actual loopback HTTP object transfer", () => {
         let result: CborValue;
         const target = new Map<number, CborValue>([[0, `${objectOrigin}/sealed?signature=public-test-target`], [1, new Map<string, CborValue>([["x-amz-checksum-sha256", Buffer.from(checksum).toString("base64")]])], [2, Date.now() + 120_000]]);
         if (method === "put_object") result = new Map<number, CborValue>([[0, 1], [1, target]]);
-        else if (method === "commit_object") { expect(staged !== null && sha256(staged).every((b, i) => b === checksum[i])).toBe(true); committed = true; commitCount++; result = true; }
+        else if (method === "commit_object") { expect(staged !== null && sha256(staged).every((b, i) => b === checksum[i])).toBe(true); committed = true; commitCount++; result = new Map<number, CborValue>([[0, true]]); }
         else { expect(method).toBe("get_object"); result = new Map<number, CborValue>([[1, target], [2, sealed.length], [3, checksum]]); }
         const reply = encode(new Map<number, CborValue>([[0, 1], [1, m.get(1)!], [2, result]])); res.writeHead(200, { "content-length": String(reply.length) }); res.end(reply);
       } catch (e) { issues.push(e); res.writeHead(500); res.end(); }

@@ -43,11 +43,11 @@ export function inputs(env) {
 export function verifyRun(run, expected, workflow) {
   if (run.id !== expected.id || run.run_attempt !== expected.attempt
       || run.head_sha !== expected.source || run.head_branch !== 'main'
-      || run.event !== 'push' || run.status !== 'completed' || run.conclusion !== 'success'
+      || !['push', 'workflow_dispatch'].includes(run.event) || run.status !== 'completed' || run.conclusion !== 'success'
       || run.repository?.full_name !== REPOSITORY || run.repository?.private !== true
       || run.actor?.login !== 'callumalpass' || run.triggering_actor?.login !== 'callumalpass'
       || ![`.github/workflows/${workflow}`, `.github/workflows/${workflow}@refs/heads/main`].includes(run.path)) {
-    fail('exact successful main push workflow identity required');
+    fail('exact successful main push or dispatch workflow identity required');
   }
 }
 

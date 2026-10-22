@@ -139,6 +139,14 @@ pub trait Backend {
     ) -> impl Future<Output = Result<Option<crate::deletion::CollectionDeletionRecord>>> {
         self.collection_deletion_floor(collection)
     }
+    /// True only when this backend's [`Txn::commit`] itself refuses, before
+    /// applying, every publishing write set while the collection's deletion
+    /// floor (or a pending registry Closing) exists, failing closed when the
+    /// floor authority is unavailable. The service then skips its own
+    /// redundant pre-commit floor read. Default `false`: the service checks.
+    fn fences_deletion_floor_at_commit(&self) -> bool {
+        false
+    }
     /// Whether a device's credentials were revoked service-wide (§12). Global
     /// state, read outside any collection's actor; not on the append path.
     fn credentials_revoked(&self, device: &Uuid) -> impl Future<Output = Result<bool>>;
@@ -172,6 +180,9 @@ impl<B: Backend> Backend for BudgetBackend<B> {
         budget: &crate::decode::Budget,
     ) -> impl Future<Output = Result<Option<crate::deletion::CollectionDeletionRecord>>> {
         self.inner.collection_deletion_floor_with_budget(c, budget)
+    }
+    fn fences_deletion_floor_at_commit(&self) -> bool {
+        self.inner.fences_deletion_floor_at_commit()
     }
     fn credentials_revoked(&self, d: &Uuid) -> impl Future<Output = Result<bool>> {
         self.inner.credentials_revoked(d)
@@ -255,6 +266,44 @@ pub trait ObjectStore: Archive {
             )),
         }
     }
+
+    /// [`ObjectStore::verified_meta`] of `from`, then, only if `accept` passes
+    /// that record, [`ObjectStore::copy_new`] to `to`. Nothing is written unless
+    /// `accept` passed. Stores that read the record and the bytes together
+    /// override this to make one read of `from` instead of two.
+    async fn copy_verified_new(
+        &self,
+        from: &str,
+        to: &str,
+        accept: impl Fn(&Verified) -> Result<()>,
+    ) -> Result<VerifiedCopy> {
+        let Some(verified) = self.verified_meta(from).await? else {
+            return Ok(VerifiedCopy::Unverified);
+        };
+        if let Err(e) = accept(&verified) {
+            return Ok(VerifiedCopy::Refused(e));
+        }
+        Ok(VerifiedCopy::Copied {
+            verified,
+            wrote: self.copy_new(from, to).await?,
+        })
+    }
+}
+
+/// Outcome of [`ObjectStore::copy_verified_new`].
+#[derive(Debug)]
+pub enum VerifiedCopy {
+    /// `from` is absent or carries no verification record; nothing was written.
+    Unverified,
+    /// `accept` refused the record; nothing was written.
+    Refused(crate::error::ServiceError),
+    /// Copied write-once: `wrote` is false when `to` already existed.
+    Copied {
+        /// The record of `from`.
+        verified: Verified,
+        /// Whether this call wrote `to`.
+        wrote: bool,
+    },
 }
 
 /// What an upload-time verification established about an object's bytes.

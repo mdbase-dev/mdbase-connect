@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { CollectionAccessDeniedError, requireCollectionSharingManager } from "./collection-access.js";
-import { lockCollectionSharingAuthority, type CollectionSharingAuthority } from "./collection-sharing-authority.js";
+import { lockCollectionInvitationAcceptance, lockCollectionSharingAuthority, type CollectionSharingAuthority } from "./collection-sharing-authority.js";
 import {
   CollectionMembershipPolicyError,
   insertHostedCollectionMembershipPolicy,
@@ -202,7 +202,8 @@ export async function acceptHostedCollectionInvitation(
   const connection = await db.connect();
   try {
     await connection.query("BEGIN");
-    const collection = await lockActiveCollection(connection, collectionId);
+    const collection = await lockCollectionInvitationAcceptance(connection, collectionId);
+    if (!collection) throw sharingNotFound();
     const invitation = await connection.query<InvitationRow>(
       `SELECT * FROM collection_invitations
        WHERE token_hash = $1 AND collection_id = $2

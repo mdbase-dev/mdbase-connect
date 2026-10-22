@@ -468,6 +468,61 @@ mod abi {
         super::runtime::wipe(&mut bytes);
         give(result)
     }
+    /// Bounded resource-only Core planning on the actual resident READ session.
+    /// This produces DATA only, never a mutation or native file-absence witness.
+    ///
+    /// # Safety
+    /// Input is an initialized, same-instance allocation from alloc(len).
+    #[unsafe(no_mangle)]
+    #[cfg(feature = "app-runtime")]
+    pub unsafe extern "C" fn rt_app_resources(session: u64, ptr: *mut u8, len: usize) -> u64 {
+        let mut bytes = unsafe { take(ptr, len) };
+        let result = rt().and_then(Active::app).map_or_else(
+            || {
+                mdbn_wire::cbor::encode(&mdbn_wire::Cbor::Array(vec![
+                    mdbn_wire::Cbor::Uint(1),
+                    mdbn_wire::Cbor::Bool(false),
+                    mdbn_wire::Cbor::Null,
+                ]))
+                .expect("fixed refusal")
+            },
+            |r| r.resources_consuming(session, &mut bytes),
+        );
+        super::runtime::wipe(&mut bytes);
+        give(result)
+    }
+    /// Final-rejection witness for one mutation on the resident session's own
+    /// grant: 1 only for a native rejected receipt of exactly that mutation.
+    ///
+    /// # Safety
+    /// Input is an initialized, same-instance allocation from alloc(len).
+    #[unsafe(no_mangle)]
+    #[cfg(feature = "app-runtime")]
+    pub unsafe extern "C" fn rt_app_receipt_rejected(
+        session: u64,
+        ptr: *mut u8,
+        len: usize,
+    ) -> u32 {
+        let mut bytes = unsafe { take(ptr, len) };
+        let result = rt()
+            .and_then(Active::app)
+            .map_or(0, |r| r.receipt_rejected_consuming(session, &mut bytes));
+        super::runtime::wipe(&mut bytes);
+        result
+    }
+    /// Stateless resource-only Core planning over a caller-read confirmed
+    /// inventory. No runtime, session, write or native witness; DATA only.
+    ///
+    /// # Safety
+    /// Input is an initialized, same-instance allocation from alloc(len).
+    #[unsafe(no_mangle)]
+    #[cfg(feature = "app-runtime")]
+    pub unsafe extern "C" fn rt_app_setup_assess(ptr: *mut u8, len: usize) -> u64 {
+        let mut bytes = unsafe { take(ptr, len) };
+        let result = super::app::resources::setup_inventory_consuming(&mut bytes);
+        super::runtime::wipe(&mut bytes);
+        give(result)
+    }
     /// Authenticated host-only one-time connector pin, before log binding.
     ///
     /// # Safety
@@ -751,6 +806,25 @@ mod abi {
         super::runtime::wipe(&mut bytes);
         give(signature)
     }
+    /// Fixed ls-hello proof for the current generation's push socket. Input is
+    /// `nonce32 ‖ token`; only a 64-byte signature is returned.
+    ///
+    /// # Safety
+    /// Input must come from alloc(len), consumed/wiped even on refusal.
+    #[unsafe(no_mangle)]
+    #[cfg(feature = "app-runtime")]
+    pub unsafe extern "C" fn rt_app_log_hello_sign(
+        generation: u64,
+        ptr: *mut u8,
+        len: usize,
+    ) -> u64 {
+        let mut bytes = unsafe { take(ptr, len) };
+        let signature = rt()
+            .and_then(Active::app)
+            .map_or_else(Vec::new, |r| r.sign_hello_consuming(generation, &mut bytes));
+        super::runtime::wipe(&mut bytes);
+        give(signature)
+    }
     /// Original scoped, canonical host calls.
     #[unsafe(no_mangle)]
     #[cfg(feature = "app-runtime")]
@@ -781,6 +855,13 @@ mod abi {
         if let Some(r) = rt().and_then(Active::app) {
             r.no_response(mdbn_replica::log::CallId(id));
         }
+    }
+    /// HOST ONLY foreground head wake on the current log session (1 = queued).
+    #[unsafe(no_mangle)]
+    #[cfg(feature = "app-runtime")]
+    pub extern "C" fn rt_app_log_head() -> u32 {
+        rt().and_then(Active::app)
+            .is_some_and(|r| r.request_log_head()) as u32
     }
     /// HOST ONLY SAME authenticated foreground/CP-notification reconnect after
     /// draining/aborting old transport. No push-channel/readiness/identity claim.

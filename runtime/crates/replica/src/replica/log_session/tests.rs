@@ -762,3 +762,40 @@ mod prefix_observation {
         );
     }
 }
+
+fn answer_head(r: &mut Replica<MemStore>, s: &AuthenticatedLogSession, head: u64) -> usize {
+    let calls = r.take_authenticated_log_calls(s).unwrap();
+    let n = calls.len();
+    for (call, scope) in calls {
+        assert_eq!(call.request.method(), "subscribe");
+        r.on_authenticated_log_reply(scope, |_, _| {
+            Ok(LogResponse::Subscribed {
+                head,
+                head_chain: B32([0; 32]),
+            })
+        })
+        .unwrap();
+    }
+    n
+}
+
+#[test]
+fn host_head_wake_learns_remote_entries_without_moving_status() {
+    let mut r = open(MemStore::new());
+    assert!(!r.request_head(), "no live log session yet");
+    let s = r.bind_authenticated_log(ENDPOINT, COL).unwrap();
+    answer_head(&mut r, &s, 0); // the bind's own head fetch
+    assert_eq!(r.connection, mdbn_wire::client::Connection::Online);
+    assert!(r.caught_up);
+    assert!(r.request_head());
+    assert!(!r.request_head(), "one head fetch at a time");
+    let woke = r.calls.len();
+    assert_eq!(r.connection, mdbn_wire::client::Connection::Online);
+    assert!(r.caught_up, "a wake is not a reconnect");
+    // Another device appended: the wake's answer makes the replica read it.
+    assert_eq!(answer_head(&mut r, &s, 3), woke);
+    assert_eq!(woke, 1);
+    assert_eq!(r.head_known, 3);
+    assert_eq!(r.connection, mdbn_wire::client::Connection::Online);
+    assert!(r.request_head());
+}

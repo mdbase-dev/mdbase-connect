@@ -143,6 +143,11 @@ impl Profile {
         self.state_dir.join("daemon.lock")
     }
 
+    /// The local activity log ([`crate::activity`]).
+    pub fn activity_file(&self) -> PathBuf {
+        self.state_dir.join("activity.jsonl")
+    }
+
     /// The collection registry.
     pub fn registry_file(&self) -> PathBuf {
         self.state_dir.join("collections.json")

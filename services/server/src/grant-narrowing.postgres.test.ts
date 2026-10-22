@@ -39,7 +39,7 @@ suite("grant narrowing HTTP PostgreSQL serialization", () => {
       CREATE TABLE hosted_replicas(id uuid PRIMARY KEY, allowed_types jsonb, revoked_at timestamptz, token_hash text);
       CREATE TABLE provider_revocation_jobs(id uuid, replica_id uuid, grant_id uuid, collection_id uuid, reason text);
       CREATE TABLE grants(id uuid PRIMARY KEY, user_id uuid, application_id uuid, collection_id uuid,
-        hosted_replica_id uuid, hosted_collection_id uuid, operations jsonb, encryption jsonb, scope jsonb,
+        hosted_replica_id uuid, hosted_collection_id uuid, next_collection_id uuid, operations jsonb, encryption jsonb, scope jsonb,
         file_capability jsonb, application_origin text, proof_public_key text, application_authorization jsonb,
         activated_at timestamptz, revoked_at timestamptz, application_installation_id text, revocation_policy_sequence bigint,
         revocation_confirmed_at timestamptz, notification_criteria jsonb DEFAULT '[]', created_at timestamptz DEFAULT now());

@@ -222,7 +222,7 @@ pub fn take_over(
             replica_id: r,
         } if c == collection && r == store_id => {
             // Resume a crash after claiming but before durability or registration.
-            sync_marker_dir(&root.join(".mdbase"))?;
+            crate::durable::sync_entry(&root.join(".mdbase"), "connect-role.json")?;
             daemon
                 .register(&root, collection)
                 .map_err(ext("register"))?;
@@ -447,7 +447,7 @@ pub fn write_v2_marker(
         // including a symlink or a claim written since T0. Never replace evidence.
         std::fs::hard_link(&tmp, dir.join("connect-role.json"))
             .map_err(|e| Error::Invalid(format!("marker no-replace publish: {e}")))?;
-        sync_marker_dir(&dir)
+        crate::durable::sync_entry(&dir, "connect-role.json")
     })();
     drop(file);
     // Only this call's exclusively-created temp is ours to remove. A leftover temp
@@ -456,7 +456,7 @@ pub fn write_v2_marker(
         std::fs::remove_file(&tmp).map_err(|e| Error::Invalid(format!("marker temp cleanup: {e}")));
     publish?;
     cleanup?;
-    sync_marker_dir(&dir)
+    crate::durable::sync_entry(&dir, "connect-role.json")
 }
 
 fn create_marker_temp(dir: &Path) -> Result<(PathBuf, std::fs::File)> {
@@ -482,12 +482,6 @@ fn create_marker_temp(dir: &Path) -> Result<(PathBuf, std::fs::File)> {
         }
     }
     Err(Error::Invalid("marker temp names exhausted".into()))
-}
-
-fn sync_marker_dir(dir: &Path) -> Result<()> {
-    std::fs::File::open(dir)
-        .and_then(|d| d.sync_all())
-        .map_err(|e| Error::Invalid(format!("marker directory durability: {e}")))
 }
 
 fn copy_file(src: &Path, dst: &Path) -> Result<()> {

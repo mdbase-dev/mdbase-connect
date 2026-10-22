@@ -24,6 +24,10 @@ import {
 import { z } from "zod";
 import type { DatabasePool } from "./db.js";
 import { SecretBox } from "./security.js";
+import { GatewayOperationError } from "./errors.js";
+import { LEGACY, NextGateway } from "./next-gateway.js";
+import { clientNoiseKeyField, NoiseKeyStore } from "./next-keys.js";
+export { GatewayOperationError } from "./errors.js";
 
 const grantEncryptionSchema = z.object({
   protocol_version: z.literal(1),
@@ -100,6 +104,8 @@ interface ConnectionRow {
 
 export class ConnectGateway {
   private readonly applicationOrigin: string;
+  private readonly noise: NoiseKeyStore;
+  readonly next: NextGateway;
 
   constructor(
     private readonly db: DatabasePool,
@@ -110,6 +116,8 @@ export class ConnectGateway {
     readonly callbackUrl: string
   ) {
     this.applicationOrigin = new URL(callbackUrl).origin;
+    this.noise = new NoiseKeyStore(db, secrets);
+    this.next = new NextGateway({ keyStore, noise: this.noise, version: "0.1.0-beta.129" });
   }
 
   async registerApplication(): Promise<{ id: string; manifestDigest: string }> {
@@ -147,9 +155,12 @@ export class ConnectGateway {
       ? ("actions" in files ? files : applicationFileRequest(files))
       : undefined;
     const issuedAt = new Date();
+    const authorizationId = randomUUID();
+    // mdbase-next: register this connection's Noise key with the grant at consent.
+    const clientNoiseKey = await clientNoiseKeyField(input.grantKey, authorizationId, await this.noise.create(input.grantKey.handle));
     const proof = await signApplicationAuthorization({
       protocol_version: APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
-      authorization_id: randomUUID(),
+      authorization_id: authorizationId,
       application_id: application.id,
       application_declaration_id: this.manifest.id,
       application_manifest_digest: application.manifestDigest,
@@ -185,7 +196,8 @@ export class ConnectGateway {
         state: input.state,
         operations: input.operations.join(","),
         ...(input.collectionId ? { collection_id: input.collectionId } : {}),
-        application_authorization: JSON.stringify(proof)
+        application_authorization: JSON.stringify(proof),
+        client_noise_key: clientNoiseKey
       })
     });
     const body = await response.json().catch(() => null);
@@ -262,6 +274,11 @@ export class ConnectGateway {
         );
       }
       try {
+        const next = await this.next.run(
+          connection, this.credentials(connection).accessToken, operation,
+          (input ?? {}) as Record<string, unknown>, requestId, options.signal
+        );
+        if (next !== LEGACY) return next as Result;
         await this.requireQueryOutput(connection, operation, input, options.signal);
         const attempt = await this.sendOperation<Result>(connection, operation, input, requestId, options.signal);
         if (attempt.status === 401 && !force) continue;
@@ -622,7 +639,11 @@ export class ConnectGateway {
         new Date(Date.now() + token.refresh_expires_in * 1_000)
       ]
     );
-    if (previousKey && previousKey !== storedKey) await this.keyStore.delete(previousKey);
+    if (previousKey && previousKey !== storedKey) {
+      this.next.drop(result.rows[0].id);
+      await this.noise.delete(previousKey);
+      await this.keyStore.delete(previousKey);
+    }
     return result.rows[0];
   }
 
@@ -631,15 +652,6 @@ export class ConnectGateway {
   }
 }
 
-export class GatewayOperationError extends Error {
-  constructor(
-    public readonly code: string,
-    message: string,
-    public readonly details?: Record<string, unknown>
-  ) {
-    super(message);
-  }
-}
 
 function credentialsFromToken(token: ConnectTokenResponse): StoredCredentials {
   return {

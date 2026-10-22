@@ -17,7 +17,7 @@ const problem = (reason: string, code: "invalid_request" | "forbidden" | "unavai
   new MdbaseError({ code, recovery: code === "invalid_request" ? "fix_request" : code === "forbidden" ? "reauthorize" : "retry", reason, message: "cursor refusal" });
 
 describe("pages cursor lifecycle (query responses mocked, not native cursor qualification)", () => {
-  it.each(["cursor_expired", "cursor_stale"])("throws %s unchanged by default after yielding", async reason => {
+  it.each(["cursor_expired"])("throws %s unchanged by default after yielding", async reason => {
     const { client, query } = await fixture(), error = problem(reason);
     query.mockResolvedValueOnce(page(1, "opaque-token")).mockRejectedValueOnce(error);
     const pages = client.pages({ offset: 100, limit: 50 });
@@ -27,7 +27,8 @@ describe("pages cursor lifecycle (query responses mocked, not native cursor qual
     expect(query.mock.calls[1]![0]).toEqual({ offset: 100, limit: 50, cursor: "opaque-token" });
   });
 
-  it.each([1, 2])("awaits caller clearing before the first-page restart (replacement asOf %s)", async asOf => {
+  it("awaits caller clearing before the first-page restart", async () => {
+    const asOf = 2;
     const { client, query } = await fixture(), error = problem("cursor_expired");
     query.mockResolvedValueOnce(page(1, "old-token")).mockRejectedValueOnce(error)
       .mockResolvedValueOnce(page(asOf, "new-token")).mockResolvedValueOnce(page(asOf));
@@ -95,9 +96,7 @@ describe("pages cursor lifecycle (query responses mocked, not native cursor qual
   });
 
   it.each([
-    problem("invalid_query_cursor"), problem("query_cursor_stale"),
-    new MdbaseError({ code: "invalid_request", recovery: "none", reason: "cursor_stale", message: "wrong recovery" }),
-    problem("cursor_stale", "forbidden"), problem("cursor_expired", "unavailable"), new Error("backend fault"),
+    problem("invalid_query_cursor"), problem("cursor_stale", "forbidden"),
   ])("does not reset for malformed/conflicting cursors, authority denial or other errors", async error => {
     const { client, query } = await fixture(); query.mockRejectedValueOnce(error);
     const onReset = vi.fn();

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { usage } from "./auth-admin-usage.js";
 import { migrationExecutableSha256, repairAuthorityImportSources } from "./migrations.js";
 import type { DatabasePool } from "./db.js";
 import { compatibilityReport } from "./auth-admin-compatibility.js";
@@ -37,6 +38,7 @@ import {
 } from "./instance-admin.js";
 
 interface AuthAdminContext {
+  environment?: string;
   db: DatabasePool;
   defaultRegistrationMode: RegistrationMode;
   runtimeRevision?: string;
@@ -413,6 +415,7 @@ async function createInvitation(
     "reason",
     "expires-in",
     "entitlement-profile",
+    "account-backend",
     "send-email",
     "token-output"
   ]));
@@ -453,13 +456,20 @@ async function createAndDeliverInvitation(
   }
   const passwordAccounts = new PasswordAccountService(
     context.db,
-    policy
+    policy,
+    "legacy",
+    context.environment
   );
+  const requestedBackend = flags.get("account-backend");
+  if (requestedBackend !== undefined && requestedBackend !== "legacy") {
+    throw new AuthAdminUsageError("Only --account-backend legacy is supported for LAB/staging [test] fixtures.");
+  }
   const invitation = await passwordAccounts.createInvitation({
     email: requiredFlag(flags, "email"),
     actor: requiredFlag(flags, "actor"),
     reason: requiredFlag(flags, "reason"),
     entitlementProfile: profile === "none" ? null : profile,
+    ...(requestedBackend === "legacy" ? { accountBackend: "legacy" as const } : {}),
     ...(flags.has("expires-in")
       ? {
           expiresInSeconds: positiveInteger(
@@ -486,6 +496,7 @@ async function createAndDeliverInvitation(
     terms_version: invitation.termsVersion,
     privacy_version: invitation.privacyVersion,
     entitlement_profile: invitation.entitlementProfile,
+    ...(invitation.accountBackend ? { account_backend: invitation.accountBackend } : {}),
     ...(showToken
       ? {
           token: invitation.token,
@@ -632,6 +643,7 @@ async function resendInvitation(
       email: string;
       status: string;
       entitlement_profile: string | null;
+      account_backend?: "legacy";
     };
   };
   if (existing.invitation.status === "accepted") {
@@ -646,6 +658,7 @@ async function resendInvitation(
     ["send-email", "enabled"],
     ["token-output", "omitted"]
   ]);
+  if (existing.invitation.account_backend === "legacy") createFlags.set("account-backend", "legacy");
   if (flags.has("expires-in")) {
     createFlags.set("expires-in", requiredFlag(flags, "expires-in"));
   }
@@ -959,41 +972,4 @@ function publicOrigin(value: string): string {
 
 function requireNoArguments(argv: string[]): void {
   if (argv.length > 0) throw new AuthAdminUsageError(usage());
-}
-
-function usage(): string {
-  return [
-    "Usage:",
-    "  auth-admin archive drain-deletions --cohort <name> --expected-revision <sha> --operation-id <uuid> --actor <id> --reason <text>",
-    "  auth-admin repairs authority-import-sources --expected-revision <sha> --expected-executable-sha256 <sha256> --expected-migration-sha256 <sha256> --operation-id <uuid> --actor <id> --reason <text>",
-    "  auth-admin policy show",
-    "  auth-admin policy history [--limit <n>] [--before-revision <n>]",
-    "  auth-admin policy update --expected-revision <n> --actor <id> --reason <text> [changes]",
-    "  auth-admin invite create --email <address> --entitlement-profile <code|none> --actor <id> --reason <text> [--expires-in <seconds>] [--send-email enabled] [--token-output shown|omitted]",
-    "  auth-admin invite list [--status <status>] [--limit <n>] [--cursor <cursor>]",
-    "  auth-admin invite show --id <uuid>",
-    "  auth-admin invite revoke --id <uuid> --operation-id <uuid> --actor <id> --reason <text>",
-    "  auth-admin invite resend --id <uuid> --actor <id> --reason <text> [--entitlement-profile <code|none>] [--expires-in <seconds>] [--email-template standard|signup-recovery]",
-    "  auth-admin beta list [--status pending|invited] [--limit <n>] [--cursor <cursor>]",
-    "  auth-admin entitlements show --user <uuid|email>",
-    "  auth-admin entitlements grant --user <uuid|email> --profile <code> --operation-id <uuid> --actor <id> --reason <text>",
-    "  auth-admin entitlements backfill-free --operation-id <uuid> --actor <id> --reason <text> [--limit <n>]",
-    "  auth-admin entitlements reconcile (--user <uuid|email> | --all enabled | --active-hosted enabled) --operation-id <uuid> --actor <id> --reason <text>",
-    "  auth-admin users list [--status active|suspended] [--limit <n>] [--cursor <cursor>]",
-    "  auth-admin users show --user <uuid|email>",
-    "  auth-admin users suspend --user <uuid|email> --operation-id <uuid> --actor <id> --reason <text>",
-    "  auth-admin users restore --user <uuid|email> --operation-id <uuid> --actor <id> --reason <text>",
-    "  auth-admin users revoke-sessions --user <uuid|email> --operation-id <uuid> --actor <id> --reason <text>",
-    "  auth-admin audit list [--user-id <uuid>] [--event-type <type>] [--limit <n>] [--cursor <cursor>]",
-    "  auth-admin compatibility report [--days <1-365>]",
-    "  auth-admin usage report [--days <1-365>]",
-    "  auth-admin request <base64url-json-argv>",
-    "",
-    "Policy changes:",
-    "  --registration closed|invite|open",
-    "  --password-auth enabled|disabled",
-    "  --email-delivery enabled|disabled",
-    "  --terms-version <version|none>",
-    "  --privacy-version <version|none>"
-  ].join("\n");
 }

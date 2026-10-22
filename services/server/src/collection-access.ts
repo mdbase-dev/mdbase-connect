@@ -5,6 +5,7 @@ import {
   type GrantScope
 } from "@mdbase-dev/connect-protocol";
 import type { DatabaseQueryable } from "./db.js";
+import { CutoverProblemError } from "./features/next/cutover-problems.js";
 import { resolveCollectionSharingAuthority, type CollectionSharingAuthority } from "./collection-sharing-authority.js";
 import {
   resolveHostedCollection,
@@ -188,6 +189,9 @@ const UNAVAILABLE_MESSAGES: Record<LocalCollectionUnavailableReason, string> = {
  * token invalid; only a holder of a live grant for that collection learns the
  * reason. Removal and authority moves revoke grants in the same transaction,
  * so they remain invalid tokens.
+ *
+ * Old clients whose collection was taken over by mdbase-next, or whose account
+ * is suspended, get the cutover refusal they can explain to their user.
  */
 export async function localCollectionUnavailableError(
   db: DatabaseQueryable,
@@ -199,20 +203,27 @@ export async function localCollectionUnavailableError(
     present: boolean;
     authority_state: string;
     unavailable_reason: string | null;
+    suspended: boolean;
+    taken_over: boolean;
   }>(
-    `SELECT col.enabled, col.present, col.authority_state, col.unavailable_reason
+    `SELECT col.enabled, col.present, col.authority_state, col.unavailable_reason,
+            u.suspended_at IS NOT NULL AS suspended,
+            (col.authority_state = 'retired' AND u.account_backend = 'next'
+              AND nc.collection_id IS NOT NULL) AS taken_over
      FROM access_tokens tok
      JOIN grants g ON g.id = tok.grant_id
      JOIN users u ON u.id = g.user_id
      JOIN collections col ON col.id = g.collection_id
+     LEFT JOIN next_collections nc ON nc.collection_id = col.local_id AND nc.runtime = 'next'
      WHERE tok.token_hash = $1 AND tok.expires_at > now()
        AND tok.revoked_at IS NULL
        AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL
-       AND u.suspended_at IS NULL
        AND col.local_id = $2`,
     [tokenDigest, localId]
   );
   const collection = result.rows[0];
+  if (collection?.suspended) throw new CutoverProblemError("suspended");
+  if (collection?.taken_over) throw new CutoverProblemError("moved");
   if (
     !collection
     || collection.enabled

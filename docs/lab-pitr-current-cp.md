@@ -1,0 +1,112 @@
+# Fixed-run LAB CP adapter
+
+This optional profile supports `gate4-pitr-lab-20261009-01` only. It is not a
+production recovery interface or permission to operate a drill. Every G0–G7
+operation requires its exact run/target/cost GO.
+
+`MDBASE_NEXT_LAB_PITR` is exact JSON with `run`, `active`, `deleted`, `owner`,
+`createdAfter` (immutable admission time in milliseconds), `logUrl`, and
+`hostedUrl`. It requires the real Next CP/factories, LAB environment, exact LAB
+CP origin, distinct original nonnil UUIDs, and fixed Worker origins in the same
+workers.dev account. `MDBASE_NEXT_PITR_AUTHORITY_TOKEN` is a distinct credential,
+separate from inbound and outbound hosted/escrow/migration credentials.
+
+Startup rejects existing mapped rows older than admission or bearing another
+owner/label, before constructing the mapped clients/emitter. Real bootstrap
+requires owner and exact labels `[test] <run> ACTIVE` / `[test] <run> DELETED`.
+Namespace/object IDs, original signed genesis and device identities still must
+be independently bound in the guarded admission ledger before operations.
+
+Only A/D log requests and nil deletion writes naming A/D select the isolated
+origin. Ordinary global origins are unchanged. Both real stateless factories
+retain their original role tokens; isolated escrow activation is excluded before
+query LIMIT and produces no fabricated ACK or actor wake.
+
+The internal POST endpoints below authenticate the authority-read credential,
+limit bodies to 4096 bytes, return no-store metadata, and never unwrap keys:
+
+- `/internal/v1/next/lab-pitr/current`: exact `run`, `collection`,
+  `genesisSha256`, `device`, original `kind`, `signPublicKey`, `policyKeyId`.
+  Checks original genesis, current owner/member/root/cloud-copy state, deletion,
+  all queued/delivered device and security-key revocations, and appended exact
+  three-key enrolment. A positive result with `checkedAt` is a point observation,
+  not a cached lease. The actor must still verify the signed original identity
+  and repeat current checks before keys, custody, serving and final effects.
+- `/internal/v1/next/lab-pitr/current-app-grant`: exact `run`,
+  `principal: "app-grant"`, `collection`, original `grant` (LS UUID, NOT `grants.id`),
+  `clientPublicKey`, `genesisSha256`, and `policyKeyId`. Same original collection,
+  deletion and security floors; owner-only newly admitted fixture grants. Locks the
+  stable grant first then the collection, rereads the original binding/key under
+  locks, and uses the canonical publication projection to check current terms.
+  Requires appended/nonlost grant-tuple metadata under the canonical publisher/terms
+  producer invariant; JSONB containment does not prove whole-op/array equality or
+  verify the native signed transcript. Pending or delivered revocation closes. Never publishes/re-enrols or treats a device observation as app authority.
+  Positive reply is uncached point metadata only; signed-original/native caller and
+  fresh checks around every effect remain actor integration work.
+- `/internal/v1/next/lab-pitr/current-cp-genesis`: exact `run`,
+  `principal: "control-plane"`, `purpose: "pending-original-genesis"`, `collection`,
+  `genesisSha256`, `transportPublicKey`, `issuerKeyId`, `policyKeyId`. Distinct
+  authority bearer before SQL; public issuer/transport identity captured from the
+  real log client's already-loaded startup keys, never token mint/sign/PEM access
+  in the observer. Original newly admitted A/D row/owner/root/cloud-copy/deletion
+  and current policy-key floors still required. Original seq1 may be `sending` or
+  `appended`, never parked/lost/duplicate. The bounded seq1 lookup includes lost
+  history before uniqueness refusal; a lost original plus live reissue is ambiguous,
+  not a new original. A sole lost or missing-loss projection closes. Original
+  bytes/owner/root are checked.
+  Initial owner membership may be in that same sending batch; no appended member
+  ACK is fabricated. Any queued/delivered owner removal or downgrade closes.
+  Ordinary device/service/app observers stay appended-only and use current member
+  checks. Echo is ten-field point metadata, not native role/PoP verification,
+  publication, a reusable lease, nil-registry or serving authority. Runtime must
+  verify original CP-role token/issuer/transport proof and signed genesis first.
+- `/internal/v1/next/lab-pitr/current-cp-collection`: same exact CP public identity
+  fields as genesis but fixed `purpose: "collection"`; current owner membership,
+  nondeleted/current cloud copy and strictly appended original identity required.
+  Original owner/root/cert-root and explicit nonlost/all-history uniqueness also
+  checked. Sending-genesis purpose cannot enter this route or supply its authority.
+- `/internal/v1/next/lab-pitr/current-cp-nil-peek`: original CP public identity,
+  literal nil collection, fixed `deletion-peek`, exact A/D `subject` and that
+  subject's `genesisSha256`. Admitted live owner/root/date/label/cloud-copy and
+  original owner/root/cert-root/unique nonlost sending-or-appended identity only.
+  This narrow subject deletion-floor LOOKUP avoids bootstrap deadlock: native
+  create_log reads its deletion floor before storing genesis, and the other run
+  subject may not yet exist. It cannot authorize page enumeration or recording;
+  missing/lost/ambiguous/parked original and security floors still close.
+- `/internal/v1/next/lab-pitr/current-cp-nil-read`: `run`, `principal: "control-plane"`,
+  `purpose: "registry-read"`, literal nil `collection`, `transportPublicKey`,
+  `issuerKeyId`, `policyKeyId`, `activeGenesisSha256`, `deletedGenesisSha256`.
+  Same distinct bearer/startup public identity; sorted locks for BOTH original
+  admitted subjects with live owner/user/root/date/label/cloud-copy rows, appended
+  nonlost unique original bytes/owner/root and current policy security floors.
+  Subject deletion/member removal/leave does not disable DENIAL metadata reading;
+  this is deliberately not an ordinary current-member/serving check. Missing row,
+  suspended owner, changed root/hash/security key or unavailable CP closes.
+- `/internal/v1/next/lab-pitr/current-cp-nil-record`: same nil identity but fixed
+  `purpose: "deletion-record"`, plus exact `subject` (A/D), `deletionId` and nonzero
+  decimal-u64 `lifecycleEpoch`. After both subject checks, bounded LIMIT3 reads
+  all retained CP deletion facts for subject: at least one fact, every tuple exact,
+  at most two equal cp-intent/native-registry facts. Missing/conflicting/unknown
+  facts close; never select a winner, publish or manufacture a native Deleted ACK.
+  Reply is exact point echo only. No nil device/grant/enrolment/revocation/signing
+  capability is installed; actor must verify original CP role/issuer/transport
+  proof, enforce purpose-to-native-method and exact isolated nil binding/phase,
+  repeat before each effect/final output and validate complete deletion pages.
+  No predicate/range lock, whole-transaction deadline, lease or drain claim.
+- `/internal/v1/next/lab-pitr/registry`: exact `run`, nullable `after` and
+  nullable decimal-u64 `expected`. Generation-pinned isolated nil page only;
+  absent profile/foreign member/unavailability refuses, with no shared fallback.
+  An empty page is not CP liveness authority. Ordinary registry scans remain
+  shared. Issuer/transport keys stay in the CP; only metadata is returned.
+
+`POST /v1/next/lab-pitr/delete-revoke` requires exact LAB Origin and an actual
+current owner session. Exact body: `run`, `activeGenesisSha256`,
+`deletedGenesisSha256`, `device`. It locks both originals in sorted order,
+rechecks live session/identity/floors, keeps a separately current hosted survivor,
+and journals D deletion plus A caller-device revocation in one CP transaction.
+Its response is CP journal/outbox acknowledgement, NOT native `Deleted`, purge
+or erasure. A lost/failed response remains UNKNOWN; do not blindly retry.
+
+The runner still must establish G3 current-authorized mutation,
+`delete.confirmed`, and reclose/drain/requiesce all five before G4. None of these
+routes implement actor fencing, quiescence, bookmarks, restart or PITR.

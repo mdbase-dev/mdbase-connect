@@ -37,8 +37,11 @@
       }
     },
     "access_paused": { "category": "availability", "recovery": "resume_connector_access" },
+    "application_authorization_issuance_disabled": { "category": "authorization", "recovery": "reauthorize" },
     "application_declaration_mismatch": { "category": "authorization", "recovery": "reauthorize" },
     "application_identity_unavailable": { "category": "compatibility", "recovery": "upgrade_application" },
+    "application_reauthorization_required": { "category": "authorization", "recovery": "reauthorize" },
+    "application_semantic_version_mismatch": { "category": "authorization", "recovery": "reauthorize" },
     "approval_window_blocked": {
       "category": "authorization",
       "recovery": "reauthorize",
@@ -260,6 +263,7 @@
     "invalid_push_payload": { "category": "validation", "recovery": "fix_request" },
     "invalid_push_subscription": { "category": "validation", "recovery": "fix_request" },
     "invalid_read_cursor": { "category": "validation", "recovery": "fix_request" },
+    "invalid_replica": { "category": "authorization", "recovery": "reauthorize" },
     "invalid_request": { "category": "validation", "recovery": "fix_request" },
     "invalid_token_response": { "category": "integrity", "recovery": "contact_support" },
     "legacy_scope_reauthorization_required": { "category": "authorization", "recovery": "reauthorize" },
@@ -280,6 +284,7 @@
     "not_authorized": { "category": "authorization", "recovery": "reauthorize" },
     "not_remote_authority": { "category": "compatibility", "recovery": "choose_collection" },
     "notification_criterion_not_declared": { "category": "validation", "recovery": "fix_request" },
+    "notification_grant_reauthorization_required": { "category": "authorization", "recovery": "reauthorize" },
     "notification_reauthorization_required": { "category": "authorization", "recovery": "reauthorize" },
     "notification_registration_failed": { "category": "availability", "recovery": "retry" },
     "notification_unregistration_failed": { "category": "availability", "recovery": "retry" },
@@ -306,6 +311,7 @@
         "properties": { "request_id": { "type": "string" } }
       }
     },
+    "origin_denied": { "category": "authorization", "recovery": "reauthorize" },
     "path_occupied": { "category": "conflict", "recovery": "resolve_conflict" },
     "pending_mutation_unresolved": { "category": "conflict", "recovery": "resolve_outcome" },
     "query_snapshot_changed": { "category": "conflict", "recovery": "refresh" },
@@ -329,8 +335,11 @@
     "registry_schema_incompatible": { "category": "compatibility", "recovery": "upgrade_connector" },
     "relay_authorization_expired": { "category": "authorization", "recovery": "reauthorize" },
     "relay_unavailable": { "category": "availability", "recovery": "retry" },
+    "replica_scope_denied": { "category": "authorization", "recovery": "reauthorize" },
     "sandbox_unsupported": { "category": "compatibility", "recovery": "fix_request" },
+    "scope_changed": { "category": "authorization", "recovery": "reauthorize" },
     "scope_denied": { "category": "authorization", "recovery": "reauthorize" },
+    "scope_epoch_stale": { "category": "authorization", "recovery": "reauthorize" },
     "session_destroyed": { "category": "cancellation", "recovery": "none" },
     "session_not_started": { "category": "validation", "recovery": "fix_request" },
     "session_starting": { "category": "availability", "recovery": "retry" },
@@ -339,6 +348,7 @@
     "sync_failed": { "category": "availability", "recovery": "retry" },
     "temporarily_unavailable": { "category": "availability", "recovery": "retry" },
     "timeout": { "category": "availability", "recovery": "retry" },
+    "timer_grant_unavailable": { "category": "authorization", "recovery": "reauthorize" },
     "token_exchange_failed": { "category": "availability", "recovery": "retry" },
     "transport_protocol_incompatible": {
       "category": "compatibility",

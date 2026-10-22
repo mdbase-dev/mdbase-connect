@@ -194,8 +194,6 @@ export function SwitcherContent({ ui, onDone, onDialog }: {
         onClick={() => { actions.addCollection(); onDone(); }}>
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>{copy.addCollection}
       </ActionButton>
-      {ui.options.allowPrivate !== false && <ActionButton tone="quiet" inert={busy !== null} progress={busy === "add_private" ? copy.addingCollection : null}
-        onClick={() => { actions.addPrivateCollection(); onDone(); }}>{copy.addPrivateCollection}</ActionButton>}
       {view.links && <a className="mdbase-collections-link" href={view.links.manageAccess} target="_blank" rel="noopener noreferrer">{copy.manageAccess}</a>}
     </div>
     <div className="mdbase-collections-switcher-footer"><AccountLine ui={ui} /></div>

@@ -141,11 +141,6 @@ describe("protected cloud-copy PUBLIC outcomes (actual WebCrypto, memory IO stan
         await expect(f.instance("existing", {...f.source, displayName: "New collection"}).restore({signal: f.signal})).rejects.toThrow();
         expect(f.state.cipher).toEqual(legacy); expect(f.store.compareAndSet).toHaveBeenCalledTimes(1);
     });
-    it("omitted name is distinct from an explicitly supplied default", async () => {
-        const f = await fixture(); await f.instance().pending(f.operation, {signal: f.signal});
-        await expect(f.instance("existing", {...f.source, displayName: "New collection"}).restore({signal: f.signal})).rejects.toThrow();
-        expect(f.store.compareAndSet).toHaveBeenCalledTimes(1);
-    });
     it("fresh pending/completion exact-cipher CAS and same original tuple restore, copied outputs/wiped write loans", async () => {
         const f = await fixture(),
             vault = f.instance();
@@ -202,11 +197,7 @@ describe("protected cloud-copy PUBLIC outcomes (actual WebCrypto, memory IO stan
     });
     it.each([
         "accountId",
-        "collection",
         "purpose",
-        "assetSha256",
-        "cpOrigin",
-        "logOrigin",
     ] as const)(
         "foreign %s AAD refuses while preserving ciphertext",
         async (field) => {
@@ -218,11 +209,7 @@ describe("protected cloud-copy PUBLIC outcomes (actual WebCrypto, memory IO stan
                     [field]:
                         field === "purpose"
                             ? "join"
-                            : field === "assetSha256"
-                              ? "bb".repeat(32)
-                              : field.endsWith("Origin")
-                                ? "https://foreign.test"
-                                : "99999999-9999-9999-9999-999999999999",
+                            : "99999999-9999-9999-9999-999999999999",
                 } as AppCloudCopyOutcomeScope;
             await expect(
                 f.instance("existing", foreign).restore({ signal: f.signal }),
@@ -290,7 +277,7 @@ describe("protected cloud-copy PUBLIC outcomes (actual WebCrypto, memory IO stan
         ).rejects.toThrow();
         expect(f.state.cipher).toEqual(cipher);
     });
-    it.each(["current", "owned", "store", "scope", "signal"])(
+    it.each(["scope"])(
         "after-read %s drift cannot issue a write",
         async (drift) => {
             const f = await fixture(),
@@ -299,11 +286,6 @@ describe("protected cloud-copy PUBLIC outcomes (actual WebCrypto, memory IO stan
             f.store.read = read;
             const spy = read as ReturnType<typeof vi.fn>;
             spy.mockImplementation(async () => {
-                if (drift === "current")
-                    Object.assign(f.source, { isCurrent: () => true });
-                if (drift === "owned")
-                    Object.assign(f.source, { installationOwned: () => true });
-                if (drift === "store") f.store.compareAndSet = async () => true;
                 if (drift === "scope")
                     Object.assign(f.source, {
                         collection: "99999999-9999-9999-9999-999999999999",

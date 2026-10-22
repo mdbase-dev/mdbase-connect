@@ -558,6 +558,7 @@ fn resurrect_preserves_opposite_kind_tombs_and_retains_both_descriptor_profiles(
                 id: id(1),
                 path: PATH.into(),
                 content,
+                mtime: None,
             },
         });
         s.apply_effect(&Effect::RemoveFile {
@@ -650,6 +651,7 @@ fn restored_create_preserves_record_and_ordinary_holders_with_lost_descriptor_ro
                 id: id(1),
                 path: PATH.into(),
                 content,
+                mtime: None,
             },
         });
         let p = plan(

@@ -548,6 +548,36 @@ fn requester_challenge(r: &Replica<MemStore>, commit: B32) -> super::super::Appr
     .sign(&DeviceSigner::from_seed(&[10; 32]))
     .unwrap()
 }
+/// The host saves the enrolment commitment as bare NewDevice state before the
+/// device is enrolled (no policy context yet); the requester hook must answer
+/// a challenge for it and pin the selected approver.
+#[test]
+fn requester_hook_answers_for_the_bare_enrolment_commitment() {
+    let (mut r, s, _) = requester_fixture();
+    let n = NewDevice::new(COL, tuple(NEW, 20), &mut TestEntropy::new(93));
+    let mut journal = RequesterJournal {
+        blob: Some(n.state()),
+        ..RequesterJournal::default()
+    };
+    let commit = B32(n.commitment());
+    r.policy.devices.get_mut(&NEW).unwrap().sas_commit = Some(commit);
+    assert_eq!(
+        r.request_device_approval_commitment(s, &mut journal)
+            .unwrap(),
+        commit
+    );
+    let peer = requester_challenge(&r, commit);
+    let output = r
+        .receive_device_approval_challenge(s, &peer, &mut journal)
+        .unwrap();
+    assert_eq!(output.code.len(), 6);
+    assert_eq!(
+        r.restore_requester_approval_peer(s, &mut journal)
+            .unwrap()
+            .map(|d| d.device),
+        Some(ME)
+    );
+}
 #[test]
 fn requester_hook_saves_commit_then_whole_selected_peer_before_real_signed_reveal() {
     let (mut r, s, _) = requester_fixture();

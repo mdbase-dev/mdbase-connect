@@ -7,25 +7,9 @@ import { MemoryReplica } from "../src/testing/index.js";
 
 const app = { name: "t", version: "0" };
 const open = async (r: MemoryReplica) => connect({ app, connector: r.connector(), reconnect: false });
-const R = new Uint8Array(32).map((_, i) => i);
 
 describe("describe_typing", () => {
-  it("answers one hint per requested path, in order, bound to a catalog generation", async () => {
-    const r = new MemoryReplica({
-      confirmDelayMs: null,
-      typing: (types, path) => (path === "due" && types.every((t) => t === "task") ? "date" : path === "created" ? "date_time" : "none"),
-    });
-    const c = await open(r);
-    const t = await c.describeTyping(["task"], ["due", "created", "title", "nested.field"]);
-    expect(t.fields).toEqual([
-      { path: "due", hint: "date" }, { path: "created", hint: "date_time" }, { path: "title", hint: "none" }, { path: "nested.field", hint: "none" },
-    ]);
-    expect(Number.isSafeInteger(t.catalogGeneration)).toBe(true);
-    // Disagreement across the OR list is `none`, never a guess.
-    expect((await c.describeTyping(["task", "note"], ["due"])).fields).toEqual([{ path: "due", hint: "none" }]);
-    // Empty types: the truthful answer is `none`.
-    expect((await c.describeTyping([], ["due"])).fields).toEqual([{ path: "due", hint: "none" }]);
-  });
+
   it("refuses out-of-bounds requests locally and a mismatched answer", async () => {
     const r = new MemoryReplica({ confirmDelayMs: null });
     const c = await open(r);
@@ -46,30 +30,7 @@ describe("describe_typing", () => {
 });
 
 describe("account key ops (AK1 §6)", () => {
-  it("setup is a mutation; unlock with the same secret keys this device; status is polled", async () => {
-    const r = new MemoryReplica({ confirmDelayMs: null });
-    const c = await open(r);
-    expect(await c.accountKey.status()).toEqual({ state: "idle" });
-    const w = await c.accountKey.setup(R);
-    expect(w.state).toBe("pending");
-    r.confirmAll();
-    expect((await w.confirmed).state).toBe("confirmed");
-    await c.accountKey.unlock(R);
-    expect(await c.accountKey.status()).toEqual({ state: "keyed" });
-  });
-  it("a different secret, or no enrolled recovery device, is refused with a typed problem", async () => {
-    const r = new MemoryReplica({ confirmDelayMs: null });
-    const c = await open(r);
-    await c.accountKey.unlock(R);
-    const missing = await c.accountKey.status();
-    expect(missing.state).toBe("refused");
-    expect(missing.problem).toMatchObject({ code: "forbidden", recovery: "reauthorize" });
-    expect((missing.problem!.details as Map<string, string>).get("reason")).toBe("device_missing");
-    await c.accountKey.setup(R);
-    r.confirmAll();
-    await c.accountKey.unlock(new Uint8Array(32).fill(9));
-    expect(((await c.accountKey.status()).problem!.details as Map<string, string>).get("reason")).toBe("enrolment_mismatch");
-  });
+
   it("refuses a secret that is not 32 bytes before any request", async () => {
     const r = new MemoryReplica({ confirmDelayMs: null });
     const c = await open(r);

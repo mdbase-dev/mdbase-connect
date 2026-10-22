@@ -307,3 +307,28 @@ fn creates_never_overwrite_a_concurrent_create() {
     let r = mdbn_core::plan(&m, &head, &PlanOptions { stage: Stage::Head }).unwrap_err();
     assert_eq!(r.reason.as_deref(), Some("path_taken"));
 }
+
+#[test]
+fn folder_overrides_install_into_configured_definition_folders() {
+    let pack = load_pack(&manifest(), &|s| (s == "note.md").then(|| TYPE.to_owned())).unwrap();
+    let mut state = MemState::new();
+    state.insert_resource(
+        "mdbase.yaml",
+        "spec_version: '0.3.0'\nsettings:\n  types_folder: Types\n",
+    );
+    let overrides = mdbn_core::packs::folder_target_overrides(&state, &pack);
+    assert_eq!(
+        overrides.into_iter().collect::<Vec<_>>(),
+        vec![("_types/note.md".to_owned(), "Types/note.md".to_owned())]
+    );
+    let opts = AssessOptions {
+        target_overrides: mdbn_core::packs::folder_target_overrides(&state, &pack),
+        ..opts()
+    };
+    let a = assess_type_pack(&state, &pack, &opts).unwrap();
+    let (_, ops) = apply_type_pack(&state, &pack, &opts, &a.assessment_digest).unwrap();
+    apply(&mut state, ops);
+    assert_eq!(state.catalog().types()[0].source_path, "Types/note.md");
+    // Default folders need no overrides.
+    assert!(mdbn_core::packs::folder_target_overrides(&MemState::new(), &pack).is_empty());
+}

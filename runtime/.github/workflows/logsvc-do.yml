@@ -3,10 +3,7 @@
 name: Log service DO
 
 on:
-  pull_request:
-  merge_group:
-  push:
-    branches: [main]
+  # On demand only: run before a LAB refresh or release candidate.
   workflow_dispatch:
     inputs:
       runner:
@@ -139,5 +136,6 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: logsvc-do-runtime-diagnostics
+          include-hidden-files: true
           path: deploy/cloudflare-do/.wrangler/runtime-test-*/wrangler.log
           retention-days: 7

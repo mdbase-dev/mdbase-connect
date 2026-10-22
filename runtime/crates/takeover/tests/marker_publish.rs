@@ -90,3 +90,19 @@ fn symlink_metadata_directory_is_refused() {
     assert!(write(&root).is_err());
     assert_eq!(fs::read_dir(root.join("unrelated")).unwrap().count(), 0);
 }
+/// Windows cannot open a directory for fsync; publish must still succeed, durably.
+#[cfg(windows)]
+#[test]
+fn windows_publish_needs_no_directory_handle_and_still_refuses_replacement() {
+    let root = root("windows");
+    write(&root).unwrap();
+    let marker = root.join(".mdbase/connect-role.json");
+    let first = fs::read(&marker).unwrap();
+    assert!(matches!(
+        mdbn_legacy::marker::parse(&first),
+        mdbn_legacy::marker::Marker::Claimed { .. }
+    ));
+    assert!(write(&root).is_err());
+    assert_eq!(fs::read(&marker).unwrap(), first);
+    assert_eq!(fs::read_dir(root.join(".mdbase")).unwrap().count(), 1);
+}

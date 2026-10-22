@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
@@ -35,6 +35,13 @@ afterEach(async () => {
 });
 
 describe("database migrations", () => {
+  it("keeps nullable recovery intent schema in memory without emulating PostgreSQL authority", async () => {
+    const db=await createDatabase("memory");resources.push(()=>db.end());
+    const request=randomUUID();
+    await db.query("INSERT INTO pairing_requests(id,connector_name,secret_hash,expires_at) VALUES($1,'[test] memory recovery','synthetic',now())",[request]);
+    await db.query("INSERT INTO installation_device_pairings(pairing_id,installation_id,device_id,connector_id,app_id,app_origin,kind,challenge,recovery_collection_id) VALUES($1,$2,$3,$4,$5,'https://app.example.test','app-runtime',$6,NULL)",[request,randomUUID(),randomUUID(),randomUUID(),"5cdfa020-c201-4da8-845a-f2cc9969eade",Buffer.alloc(32)]);
+    expect((await db.query("SELECT recovery_collection_id FROM installation_device_pairings WHERE pairing_id=$1",[request])).rows).toEqual([{recovery_collection_id:null}]);
+  });
   it("round-trips every byte through pool and checked-out memory parameters", async () => {
     const db = await createDatabase("memory");
     const bytes = Buffer.from(Array.from({length:256},(_,i)=>i));
@@ -491,74 +498,9 @@ describe("database migrations", () => {
   it("upgrades a beta.8 schema without losing existing accounts or sessions", async () => {
     const db = await openDatabase("memory");
     resources.push(() => db.end());
-    await db.query(`
-      CREATE TABLE users (
-        id uuid PRIMARY KEY,
-        email text UNIQUE,
-        name text NOT NULL,
-        created_at timestamptz NOT NULL DEFAULT now()
-      );
-      CREATE TABLE external_identities (
-        provider text NOT NULL,
-        subject text NOT NULL,
-        user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        login text,
-        email text,
-        email_verified boolean NOT NULL DEFAULT false,
-        avatar_url text,
-        last_login_at timestamptz,
-        created_at timestamptz NOT NULL DEFAULT now(),
-        updated_at timestamptz NOT NULL DEFAULT now(),
-        PRIMARY KEY(provider, subject),
-        UNIQUE(provider, user_id)
-      );
-      CREATE TABLE sessions (
-        id uuid PRIMARY KEY,
-        user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        token_hash text NOT NULL UNIQUE,
-        provider text NOT NULL DEFAULT 'session',
-        expires_at timestamptz NOT NULL,
-        created_at timestamptz NOT NULL DEFAULT now()
-      );
-      CREATE TABLE connectors (
-        id uuid PRIMARY KEY,
-        user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        name text NOT NULL,
-        token_hash text NOT NULL UNIQUE,
-        created_at timestamptz NOT NULL DEFAULT now()
-      );
-      CREATE TABLE pairing_requests (
-        id uuid PRIMARY KEY,
-        user_id uuid REFERENCES users(id) ON DELETE CASCADE
-      );
-      CREATE TABLE mirror_pairing_requests (
-        id uuid PRIMARY KEY,
-        user_id uuid REFERENCES users(id) ON DELETE CASCADE,
-        replica_id uuid
-      );
-      CREATE TABLE hosted_collections (
-        id uuid PRIMARY KEY,
-        user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE
-      );
-      CREATE TABLE hosted_replicas (
-        id uuid PRIMARY KEY,
-        collection_id uuid NOT NULL REFERENCES hosted_collections(id) ON DELETE CASCADE,
-        revoked_at timestamptz
-      );
-      CREATE TABLE grants (
-        id uuid PRIMARY KEY,
-        user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        hosted_replica_id uuid
-      );
-      CREATE TABLE audit_events (
-        id uuid PRIMARY KEY,
-        user_id uuid REFERENCES users(id) ON DELETE SET NULL,
-        created_at timestamptz NOT NULL DEFAULT now()
-      );
-      CREATE TABLE authorization_requests (
-        id uuid PRIMARY KEY
-      );
-    `);
+    // Use the actual immutable predecessor, not a partial hand-written schema
+    // that omits registry/authorization tables needed by later migrations.
+    await db.query(await readFile(new URL("./test-fixtures/beta8-schema.sql", import.meta.url), "utf8"));
     const userId = randomUUID();
     const sessionId = randomUUID();
     await db.query(

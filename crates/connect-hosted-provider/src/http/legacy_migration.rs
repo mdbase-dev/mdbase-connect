@@ -4,7 +4,8 @@
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
-    routing::{post, put},
+    response::IntoResponse,
+    routing::{get, post, put},
     Json, Router,
 };
 use chrono::{DateTime, Utc};
@@ -12,7 +13,10 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use crate::{error::ApiResult, provider::LegacyRollbackRequest};
+use crate::{
+    error::ApiResult,
+    provider::{LegacyRollbackEnvelope, LegacyRollbackRequest},
+};
 
 use super::AppState;
 
@@ -44,8 +48,16 @@ pub(super) fn legacy_migration_routes() -> Router<AppState> {
             put(set_legacy_migration_state).get(legacy_migration_drain),
         )
         .route(
+            "/internal/v1/collections/{collection_id}/legacy-migration/placement",
+            get(legacy_migration_placement),
+        )
+        .route(
             "/internal/v1/collections/{collection_id}/legacy-migration/revoke-replicas",
             post(revoke_replicas),
+        )
+        .route(
+            "/internal/v1/collections/{collection_id}/legacy-migration/revoked-replicas",
+            get(migration_revoked_replicas),
         )
         .route(
             "/internal/v1/collections/{collection_id}/legacy-migration/restore-replicas",
@@ -58,6 +70,14 @@ pub(super) fn legacy_migration_routes() -> Router<AppState> {
         .route(
             "/internal/v1/collections/{collection_id}/legacy-migration/rollback-receipt",
             post(rollback_receipt),
+        )
+        .route(
+            "/internal/v1/collections/{collection_id}/legacy-migration/rollback-v2",
+            post(rollback_v2),
+        )
+        .route(
+            "/internal/v1/collections/{collection_id}/legacy-migration/rollback-receipt-v2",
+            post(rollback_receipt_v2),
         )
 }
 
@@ -85,10 +105,29 @@ async fn legacy_migration_drain(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(collection_id): Path<Uuid>,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<impl IntoResponse> {
     state.authorize_internal(&headers)?;
     let drain = state.provider.legacy_migration_drain(collection_id).await?;
-    Ok(Json(json!(drain)))
+    Ok((
+        [
+            ("etag", drain.notification_watermark.clone()),
+            ("cache-control", "no-store".to_string()),
+        ],
+        Json(json!(drain)),
+    ))
+}
+
+async fn legacy_migration_placement(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(collection_id): Path<Uuid>,
+) -> ApiResult<impl IntoResponse> {
+    state.authorize_internal(&headers)?;
+    let placement = state
+        .provider
+        .legacy_migration_placement(collection_id)
+        .await?;
+    Ok(([("cache-control", "no-store")], Json(json!(placement))))
 }
 
 async fn revoke_replicas(
@@ -103,6 +142,19 @@ async fn revoke_replicas(
         .revoke_migration_replicas(collection_id, &input.replica_ids)
         .await?;
     Ok(Json(json!({ "revoked": revoked })))
+}
+
+async fn migration_revoked_replicas(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(collection_id): Path<Uuid>,
+) -> ApiResult<impl IntoResponse> {
+    state.authorize_internal(&headers)?;
+    let revoked = state
+        .provider
+        .migration_revoked_replicas(collection_id)
+        .await?;
+    Ok(([("cache-control", "no-store")], Json(json!(revoked))))
 }
 
 async fn restore_replicas(
@@ -143,6 +195,34 @@ async fn rollback_receipt(
     let receipt = state
         .provider
         .legacy_migration_rollback_receipt(collection_id, &input)
+        .await?;
+    Ok(Json(json!(receipt)))
+}
+
+async fn rollback_v2(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(collection_id): Path<Uuid>,
+    Json(input): Json<LegacyRollbackEnvelope>,
+) -> ApiResult<Json<Value>> {
+    state.authorize_internal(&headers)?;
+    let receipt = state
+        .provider
+        .rollback_legacy_migration_v2(collection_id, &input)
+        .await?;
+    Ok(Json(json!(receipt)))
+}
+
+async fn rollback_receipt_v2(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(collection_id): Path<Uuid>,
+    Json(input): Json<LegacyRollbackEnvelope>,
+) -> ApiResult<Json<Value>> {
+    state.authorize_internal(&headers)?;
+    let receipt = state
+        .provider
+        .legacy_migration_rollback_receipt_v2(collection_id, &input)
         .await?;
     Ok(Json(json!(receipt)))
 }

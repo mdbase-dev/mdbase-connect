@@ -1016,6 +1016,68 @@ fn fput(p: &str, id: u8) -> Op {
 }
 
 #[test]
+fn ordinary_promotion_requires_current_keyed_user_editor_and_never_delegated_scope() {
+    use mdbn_wire::{
+        attachment::FileContent, attachment_runtime_v1 as rt,
+        ordinary_file_promotion::OrdinaryFileToRecord,
+    };
+    let (pk, fp) = ctx_none();
+    let ctx = OpContext {
+        path_key: &pk,
+        file_path: &fp,
+    };
+    let mut state = setup(CState::CloudCopy);
+    let Op::FilePut(file) = fput("views/source.base", 70) else {
+        unreachable!()
+    };
+    let mut p = rt::EntryPayload::from(payload(None, vec![], 1));
+    p.mutation
+        .ops
+        .push(rt::Op::OrdinaryFileToRecord(OrdinaryFileToRecord {
+            id: file.id,
+            path: file.path,
+            doc: Text::Inline("views: []\n".into()),
+            prior: FileContent::Blob(file.blob),
+        }));
+    for signer in [dev(10), dev(11)] {
+        assert!(state.check_runtime_entry_payload(&p, &signer, &ctx).is_ok());
+    }
+    for signer in [dev(12), dev(20), dev(21), dev(99)] {
+        assert!(
+            state
+                .check_runtime_entry_payload(&p, &signer, &ctx)
+                .is_err()
+        );
+    }
+    p.mutation.on_behalf = Some(B16([50; 16]));
+    assert!(
+        state
+            .check_runtime_entry_payload(&p, &dev(10), &ctx)
+            .is_err()
+    );
+    p.mutation.on_behalf = None;
+    p.mutation.source = Source::External;
+    assert!(
+        state
+            .check_runtime_entry_payload(&p, &dev(10), &ctx)
+            .is_err()
+    );
+    p.mutation.source = Source::Api;
+    state.frozen = true;
+    assert!(
+        state
+            .check_runtime_entry_payload(&p, &dev(10), &ctx)
+            .is_err()
+    );
+    state.frozen = false;
+    state.rekey_required = true;
+    assert!(
+        state
+            .check_runtime_entry_payload(&p, &dev(10), &ctx)
+            .is_err()
+    );
+}
+#[test]
 fn e2e_grants_need_a_device_approval() {
     let mut s = setup(CState::E2e);
     let g = B16([50; 16]);
@@ -3292,9 +3354,57 @@ fn policy_pins_validate_keys_and_ids() {
     }
 }
 
-/// The persisted policy state is format 2 (with the cert-root witness). Format 1
-/// still reads, as unproven, and is rewritten as format 2; a reader that predates
-/// format 2 refuses it as an unknown format; unknown shapes are refused.
+/// The persisted policy state retains the cert-root witness added in format 2.
+/// Format 1 still reads as unproven and rewrites to the current format; readers
+/// predating format 2 refuse the witness format; unknown shapes are refused.
+#[test]
+fn policy_state_format_4_preserves_approval_metadata_and_reads_old_grants() {
+    use mdbn_wire::cbor::{decode, encode};
+    let mut s = setup(CState::E2e);
+    let id = B16([0x55; 16]);
+    s.grants.insert(
+        id,
+        GrantState {
+            installation: B16([0x56; 16]),
+            app_id: "app".into(),
+            account: B16([1; 16]),
+            capabilities: BTreeSet::from(["collection.read".into()]),
+            client_pk: B32([0x57; 32]),
+            file_folders: None,
+            folder_scoped: true,
+            active: true,
+            approved: Some(BTreeSet::from(["collection.read".into()])),
+            approved_folders: Some(vec!["docs".into()]),
+            approved_seq: Some(9),
+            approved_by: Some(B16([101; 16])),
+        },
+    );
+    let bytes = s.to_bytes().unwrap();
+    assert_eq!(PolicyState::from_bytes(&bytes).unwrap(), s);
+    let Cbor::Array(mut old) = decode(&bytes).unwrap() else {
+        panic!("array")
+    };
+    old[0] = Cbor::Uint(3);
+    let Cbor::Array(rows) = &mut old[13] else {
+        panic!("grants")
+    };
+    for row in rows {
+        let Cbor::Array(fields) = row else {
+            panic!("grant")
+        };
+        fields.truncate(10);
+    }
+    let upgraded = PolicyState::from_bytes(&encode(&Cbor::Array(old)).unwrap()).unwrap();
+    let grant = s.grants.get_mut(&id).unwrap();
+    grant.folder_scoped = false;
+    grant.approved_seq = None;
+    grant.approved_by = None;
+    assert_eq!(
+        upgraded, s,
+        "old grants keep their approval but cannot invent report metadata"
+    );
+}
+
 #[test]
 fn policy_state_format_2_upgrades_format_1_and_old_readers_refuse() {
     use mdbn_wire::cbor::{decode, encode};
@@ -3305,7 +3415,7 @@ fn policy_state_format_2_upgrades_format_1_and_old_readers_refuse() {
         panic!("array")
     };
     assert_eq!((a3.len(), &a3[0]), (26, &Cbor::Uint(POLICY_STATE_FORMAT)));
-    assert_eq!(POLICY_STATE_FORMAT, 3);
+    assert_eq!(POLICY_STATE_FORMAT, 4);
     // Format 2 (25 elements, no handover roots): read with none recorded.
     let mut a2 = a3.clone();
     a2[0] = Cbor::Uint(2);

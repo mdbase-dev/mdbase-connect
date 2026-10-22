@@ -298,6 +298,15 @@ impl<S: Store> Replica<S> {
                 state_digest: payload.state_digest,
                 epoch: item.epoch.unwrap_or(0),
                 item: raw.to_vec(),
+                facts: Some(super::migration_log::InstalledBase {
+                    seq: p,
+                    item: mdbn_wire::hash::sha256(raw),
+                    signer,
+                    source: payload.source,
+                    legacy_collection: payload.legacy_collection,
+                    manifest: payload.manifest,
+                    state_digest: payload.state_digest,
+                }),
             },
             payload.manifest,
             signer,
@@ -346,10 +355,12 @@ impl<S: Store> Replica<S> {
             ),
         ]));
         let pending = self.store.pending_get(&payload.mutation.id)?;
-        let own = pending
-            .as_ref()
-            .is_some_and(|p| p.grant == payload.mutation.on_behalf)
-            && payload.mutation.origin == self.cfg.replica_id
+        let mediated_grant =
+            self.declared_setup_receipt_grant(pending.as_ref(), &payload.mutation, writer);
+        let own = pending.as_ref().is_some_and(|p| {
+            p.grant == payload.mutation.on_behalf
+                || (mediated_grant.is_some() && mediated_grant == p.grant)
+        }) && payload.mutation.origin == self.cfg.replica_id
             && writer == Some(self.cfg.device_id);
         self.policy.note_void(head.seq, None);
         let mut tx = Tx {
@@ -375,7 +386,7 @@ impl<S: Store> Replica<S> {
                 conflicts: Vec::new(),
                 problem: Some(problem.clone()),
                 resolved_at: self.now(),
-                grant: payload.mutation.on_behalf,
+                grant: mediated_grant.or(payload.mutation.on_behalf),
             });
         }
         if own {
@@ -503,7 +514,23 @@ impl<S: Store> Replica<S> {
             Ok(None) => Outcome::Applied,
             Ok(Some(rule)) => Outcome::Void(rule),
         };
+        // Only the actual accepted semantic verdict prepares a correlation.
+        // It is not installed in RAM until settled commit + read health below.
+        let next_history = matches!(outcome, Outcome::Applied).then(|| {
+            let (grants, devices) = super::original_history::control_subjects(item);
+            self.original_history.prepare(
+                self.store_generation,
+                head,
+                &grants,
+                &devices,
+                self.hosted_key_delivery
+                    .is_some_and(|delivery| delivery.is_at(p)),
+            )
+        });
         let mut meta = vec![self.policy_meta(), self.account_key_meta()];
+        if let Some(bytes) = next_history.as_ref().and_then(|h| h.hint_bytes()) {
+            meta.push((super::original_history::META.into(), Some(bytes)));
+        }
         meta.extend(self.keyring_meta());
         meta.extend(self.genesis_meta(head));
         let committed = self.commit_retained(
@@ -517,6 +544,12 @@ impl<S: Store> Replica<S> {
         if let Err(e) = committed {
             self.discard_staged_key_grants();
             return Err(e);
+        }
+        if !self.apply_fault
+            && !self.is_apply_recovering()
+            && let Some(history) = next_history
+        {
+            self.original_history = history;
         }
         // Durable: only now does an own approval grant count as applied.
         self.publish_staged_key_grants();
@@ -606,6 +639,9 @@ impl<S: Store> Replica<S> {
     /// A control item read during a snapshot install (`snapshot.md` §8 step 1):
     /// evaluated into policy and keys and persisted; the head is set by the install.
     pub(crate) fn evaluate_control_bytes(&mut self, p: u64, raw: &[u8]) -> Result<(), String> {
+        // Read-ahead has no settled applied prefix. Its persisted policy/hints
+        // cannot recreate an original observation, even after a typed abort.
+        self.original_history.invalidate();
         if self.apply_fault {
             return Err("apply state is faulted; reopen required".into());
         }
@@ -801,6 +837,7 @@ impl<S: Store> Replica<S> {
             chain: mdbn_wire::hash::chain_hash(&bytes.0),
         };
         if item.kind.is_control() && p <= self.policy.seq {
+            self.original_history.invalidate();
             // Applied while installing a snapshot: only the head advances here.
             self.commit_retained(
                 head,
@@ -1101,9 +1138,13 @@ impl<S: Store> Replica<S> {
                         },
                     ))
                 }
-                rt::Effect::ReindexOrdinaryFile(_) => {
-                    Err(convert::ConvertError::OrdinaryFilePromotionUnsupported)
-                }
+                rt::Effect::ReindexOrdinaryFile(r) => Ok(rt::Effect::ReindexOrdinaryFile(
+                    mdbn_wire::ordinary_file_promotion::ReindexOrdinaryFile {
+                        id: r.id,
+                        path: r.path.clone(),
+                        doc: Text::Inline(t(&r.doc)?),
+                    },
+                )),
             })
             .collect::<CResult<Vec<_>>>()
         {
@@ -1373,6 +1414,10 @@ impl<S: Store> Replica<S> {
                         path_key: pk,
                         kind: mdbn_wire::unindexed_markdown::FileKindV1::UnindexedOversizedMarkdown,
                         content: f.payload.content.clone(),
+                        mtime: old
+                            .as_ref()
+                            .filter(|o| o.content == f.payload.content)
+                            .and_then(|o| o.mtime),
                         media: media_class(&f.path),
                         modified_seq: p,
                         bucket: bucket16(&f.id),
@@ -1441,11 +1486,75 @@ impl<S: Store> Replica<S> {
                     });
                     continue;
                 }
-                rt::Effect::ReindexOrdinaryFile(_) => {
-                    return Ok(Outcome::Stall(
-                        IncidentKind::UpgradeRequired,
-                        "extended effect apply not yet supported".into(),
-                    ));
+                rt::Effect::ReindexOrdinaryFile(r) => {
+                    let old = tx
+                        .files_put
+                        .iter()
+                        .rev()
+                        .find(|o| o.id == r.id)
+                        .cloned()
+                        .or(self.store.file(&r.id)?);
+                    let Some(old) = old.filter(|o| {
+                        o.kind == mdbn_wire::unindexed_markdown::FileKindV1::Ordinary
+                            && o.path == r.path
+                    }) else {
+                        return self.commit_payload_void(
+                            head,
+                            &payload,
+                            "V7: promotion requires exact ordinary holder",
+                        );
+                    };
+                    let Text::Inline(doc) = &r.doc else {
+                        return self.commit_payload_void(
+                            head,
+                            &payload,
+                            "V7: unresolved ordinary source",
+                        );
+                    };
+                    if !valid_path(&r.path)
+                        || doc.len() as u64 > mdbn_wire::unindexed_markdown::RECORD_SOURCE_CAP_BYTES
+                        || old.content.size() != doc.len() as u64
+                        || old.content.plain_hash() != mdbn_wire::hash::sha256(doc.as_bytes())
+                    {
+                        return self.commit_payload_void(
+                            head,
+                            &payload,
+                            "V7: ordinary source identity or path",
+                        );
+                    }
+                    if self.store.has_files() {
+                        self.before
+                            .entry(super::disk::DiskKey::Record(r.id))
+                            .or_insert(Some(super::disk::Shown {
+                                path: old.path.clone(),
+                                rev: old.content.plain_hash(),
+                            }));
+                    }
+                    freed.insert(old.path_key);
+                    taken.retain(|_, id| *id != r.id);
+                    let pk = mdbn_core::paths::path_key(&r.path);
+                    if taken.insert(pk.clone(), r.id).is_some_and(|id| id != r.id) {
+                        return self.commit_payload_void(
+                            head,
+                            &payload,
+                            "V7: two entries share a path",
+                        );
+                    }
+                    tx.files_put.retain(|f| f.id != r.id);
+                    tx.files_del.push(r.id);
+                    tx.records_put.retain(|f| f.id != r.id);
+                    tx.records_del.retain(|id| *id != r.id);
+                    tx.records_put.push(RecordRow {
+                        id: r.id,
+                        path: r.path.clone(),
+                        path_key: pk,
+                        doc: doc.clone(),
+                        revision: mdbn_wire::hash::sha256(doc.as_bytes()),
+                        modified_seq: p,
+                        bucket: bucket16(&r.id),
+                        meta: Default::default(),
+                    });
+                    continue;
                 }
                 rt::Effect::PutAttachmentFile(f) => {
                     if !valid_path(&f.path) {
@@ -1498,6 +1607,11 @@ impl<S: Store> Replica<S> {
                         path: f.path.clone(),
                         path_key: pk,
                         kind: mdbn_wire::unindexed_markdown::FileKindV1::Ordinary,
+                        mtime: f.mtime.or_else(|| {
+                            old.as_ref()
+                                .filter(|o| o.content == content)
+                                .and_then(|o| o.mtime)
+                        }),
                         content,
                         media: media_class(&f.path),
                         modified_seq: p,
@@ -1623,6 +1737,7 @@ impl<S: Store> Replica<S> {
                         path_key: pk,
                         kind: mdbn_wire::unindexed_markdown::FileKindV1::Ordinary,
                         content: mdbn_wire::attachment::FileContent::Blob(f.blob.clone()),
+                        mtime: None,
                         media: media_class(&f.path),
                         modified_seq: p,
                         bucket: bucket16(&f.id),
@@ -1747,6 +1862,8 @@ impl<S: Store> Replica<S> {
         // Our own mutation: confirmed.
         let pending = self.store.pending_get(&payload.mutation.id)?;
         let own = pending.is_some();
+        let mediated_grant =
+            self.declared_setup_receipt_grant(pending.as_ref(), &payload.mutation, writer);
         // Hosted mode: the log names the owner. A pending row of another grant with
         // this mutation ID can never land (the log's token is taken): it is refused,
         // never confirmed with someone else's result. Every applied entry records
@@ -1783,7 +1900,7 @@ impl<S: Store> Replica<S> {
                 conflicts: receipt_conflicts.clone(),
                 problem: None,
                 resolved_at: self.now(),
-                grant: payload.mutation.on_behalf,
+                grant: mediated_grant.or(payload.mutation.on_behalf),
             });
         }
         // Rebase keys.
@@ -1804,6 +1921,7 @@ impl<S: Store> Replica<S> {
                 rt::Effect::PutAttachmentFile(f) => Some((f.id, &f.path)),
                 rt::Effect::PutUnindexedMarkdown(f) => Some((f.id, &f.path)),
                 rt::Effect::ReindexUnindexedMarkdown(r) => Some((r.id, &r.path)),
+                rt::Effect::ReindexOrdinaryFile(r) => Some((r.id, &r.path)),
                 _ => None,
             };
             if let Some((id, path)) = identity {

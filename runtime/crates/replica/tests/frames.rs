@@ -15,6 +15,110 @@ fn uuid(n: u8) -> Uuid {
 }
 
 #[test]
+fn file_commit_deadline_never_fabricates_receipt_and_terminal_error_wins() {
+    for terminal in [false, true] {
+        let (mut api, mut frames, session) = open();
+        api.file_pending = true;
+        frames.tick(&mut api, 0);
+        frames.on_frame(
+            &mut api,
+            session,
+            &request(1, "commit_upload", smap(vec![(0, uuid(8).to_cbor())])),
+        );
+        assert!(frames_out(&mut frames).is_empty());
+        if terminal {
+            api.file_error = Some(ErrorCode::QuotaExceeded);
+        }
+        frames.tick(&mut api, mdbn_replica::frames::MAX_HOLD_MS);
+        let out = frames_out(&mut frames);
+        assert_eq!(out.len(), 1);
+        let r = response(&out[0]);
+        assert_eq!(r.id, 1);
+        assert!(r.result.is_none());
+        let problem = r.problem.as_ref().unwrap();
+        if terminal {
+            assert_eq!(problem.code, "quota_exceeded");
+        } else {
+            assert_eq!(
+                problem.reason.as_deref(),
+                Some("file_upload_outcome_unknown")
+            );
+        }
+    }
+}
+
+#[test]
+fn file_fragment_holds_have_one_four_mib_budget_and_scoped_cancel() {
+    let (mut api, mut frames, session) = open();
+    api.file_pending = true;
+    for id in 1..=5 {
+        frames.on_frame(
+            &mut api,
+            session,
+            &request(
+                id,
+                "upload_chunk",
+                UploadChunkParams {
+                    transfer: uuid(8),
+                    index: id - 1,
+                    bytes: mdbn_wire::common::Bytes(vec![0x41; 1 << 20]),
+                }
+                .to_cbor(),
+            ),
+        );
+    }
+    let out = frames_out(&mut frames);
+    assert_eq!(out.len(), 1);
+    assert_eq!(response(&out[0]).id, 5);
+    assert_eq!(
+        response(&out[0])
+            .problem
+            .as_ref()
+            .unwrap()
+            .reason
+            .as_deref(),
+        Some("file_upload_backpressure")
+    );
+    frames.on_frame(
+        &mut api,
+        session,
+        &request(99, "cancel", smap(vec![(0, Cbor::Uint(2))])),
+    );
+    let out = frames_out(&mut frames);
+    assert!(out.iter().any(|f| {
+        response(f).id == 2
+            && response(f)
+                .problem
+                .as_ref()
+                .is_some_and(|p| p.code == "cancelled")
+    }));
+    api.file_pending = false;
+    frames.pump(&mut api);
+    let ids: Vec<_> = frames_out(&mut frames)
+        .iter()
+        .map(|f| response(f).id)
+        .collect();
+    assert_eq!(ids, vec![1, 3, 4]);
+}
+
+#[test]
+fn closing_file_rpc_drops_held_requests_without_late_answers() {
+    let (mut api, mut frames, session) = open();
+    api.file_pending = true;
+    frames.on_frame(
+        &mut api,
+        session,
+        &request(1, "commit_upload", smap(vec![(0, uuid(8).to_cbor())])),
+    );
+    assert!(frames_out(&mut frames).is_empty());
+    frames.close(&mut api, session);
+    api.file_error = Some(ErrorCode::QuotaExceeded);
+    frames.pump(&mut api);
+    assert!(frames_out(&mut frames).is_empty());
+    assert_eq!(api.closed, vec![session]);
+}
+
+#[test]
 fn bounded_file_chunk_encoder_preserves_existing_wire_bytes() {
     for count in [0, 1, 1 << 20] {
         let chunk = FileChunk {
@@ -142,6 +246,10 @@ struct Mock {
     describe_empty: bool,
     query_calls: Vec<(Value, Include)>,
     resource_calls: Vec<ListResources>,
+    file_pending: bool,
+    file_error: Option<ErrorCode>,
+    validation_rows: Option<Vec<RecordValidation>>,
+    validation_calls: Vec<Option<Vec<Target>>>,
 }
 
 fn nyi<T>() -> ApiResult<T> {
@@ -169,6 +277,7 @@ impl ClientApi for Mock {
                     grant,
                     capabilities: vec!["collection.read".into()],
                     role: Role::Owner,
+                    file_folders: None,
                 },
                 status: status(),
                 features: vec![],
@@ -178,6 +287,53 @@ impl ClientApi for Mock {
     }
     fn close(&mut self, s: SessionId) {
         self.closed.push(s);
+    }
+    fn new_type_file(&mut self, _: SessionId, source: String) -> ApiResult<NewTypeFile> {
+        Ok(NewTypeFile {
+            name: source.clone(),
+            path: format!("_types/{source}.md"),
+        })
+    }
+    fn map_contract_write(
+        &mut self,
+        _: SessionId,
+        r: ContractWriteRequest,
+    ) -> ApiResult<ContractWritePlan> {
+        let Value::Map(fields) = r.fields else {
+            unreachable!()
+        };
+        Ok(ContractWritePlan {
+            type_name: format!(
+                "{}@{}{}",
+                r.selection.contract,
+                r.selection.version,
+                if r.promote { "+promote" } else { "" }
+            ),
+            patch: DataMap(fields),
+            unset: r.unset,
+            base: vec![],
+            contract_digest: B32([1; 32]),
+            implementation_digest: B32([2; 32]),
+            record: match r.target {
+                Some(Target::Path(p)) => Some((B16([3; 16]), p, B32([4; 32]))),
+                _ => None,
+            },
+        })
+    }
+    fn describe_definitions(&mut self, s: SessionId) -> ApiResult<Describe> {
+        let mut d = self.describe(s)?;
+        for t in &mut d.types {
+            t.version = Some(2);
+            t.revision = Some(B32([0x11; 32]));
+            t.definition = Some(Value::Map(vec![(
+                "name".into(),
+                Value::Text(t.name.clone()),
+            )]));
+            t.schema = Some(Value::Map(vec![]));
+            t.implements[0].digest = Some(B32([0x22; 32]));
+        }
+        d.contracts[0].schemas = Some(DataMap(vec![("record_schema".into(), Value::Bool(true))]));
+        Ok(d)
     }
     fn describe(&mut self, _: SessionId) -> ApiResult<Describe> {
         Ok(Describe {
@@ -199,7 +355,12 @@ impl ClientApi for Mock {
                             "workspace".into(),
                             Value::Text("personal".into()),
                         )])),
+                        digest: None,
                     }],
+                    version: None,
+                    revision: None,
+                    definition: None,
+                    schema: None,
                 }]
             },
             settings: Value::Map(vec![]),
@@ -219,6 +380,7 @@ impl ClientApi for Mock {
                     digest: mdbn_wire::common::B32([0x55; 32]),
                     contract_type: "record".into(),
                     implemented_by: vec!["task".into()],
+                    schemas: None,
                 }]
             },
         })
@@ -288,9 +450,12 @@ impl ClientApi for Mock {
     fn validate(
         &mut self,
         _: SessionId,
-        _: Option<Vec<Target>>,
-    ) -> ApiResult<Vec<(Uuid, Vec<Issue>)>> {
-        nyi()
+        targets: Option<Vec<Target>>,
+    ) -> ApiResult<Vec<RecordValidation>> {
+        self.validation_calls.push(targets);
+        self.validation_rows
+            .take()
+            .ok_or_else(|| ErrorCode::Unavailable.err_with_reason("not_implemented", "mock"))
     }
     fn submit(&mut self, _: SessionId, p: SubmitParams) -> ApiResult<Vec<Receipt>> {
         let rs = self
@@ -338,6 +503,18 @@ impl ClientApi for Mock {
     fn reject_device(&mut self, _: SessionId, _: Uuid) -> ApiResult<()> {
         nyi()
     }
+    fn pending_grants(&mut self, _: SessionId) -> ApiResult<Vec<PendingGrant>> {
+        nyi()
+    }
+    fn approve_grant(
+        &mut self,
+        _: SessionId,
+        _: Uuid,
+        _: Vec<String>,
+        _: Option<Vec<String>>,
+    ) -> ApiResult<()> {
+        nyi()
+    }
     fn list_files(&mut self, _: SessionId, _: ListFiles) -> ApiResult<FileList> {
         nyi()
     }
@@ -348,10 +525,27 @@ impl ClientApi for Mock {
         nyi()
     }
     fn upload_chunk(&mut self, _: SessionId, _: UploadChunkParams) -> ApiResult<u64> {
-        nyi()
+        if let Some(code) = self.file_error {
+            return Err(code.err("native terminal file error"));
+        }
+        if self.file_pending {
+            return Err(ErrorCode::Unavailable
+                .err_with_reason("file_upload_pending", "native upload pending"));
+        }
+        Ok(31)
     }
     fn commit_upload(&mut self, _: SessionId, _: Uuid) -> ApiResult<Receipt> {
-        nyi()
+        if let Some(code) = self.file_error {
+            return Err(code.err("native terminal file error"));
+        }
+        if self.file_pending {
+            return Err(ErrorCode::Unavailable
+                .err_with_reason("file_upload_pending", "native upload pending"));
+        }
+        self.receipts
+            .first()
+            .cloned()
+            .ok_or_else(|| ErrorCode::NotFound.err("no actual native receipt"))
     }
     fn abort_upload(&mut self, _: SessionId, _: Uuid) -> ApiResult<()> {
         nyi()
@@ -366,6 +560,9 @@ impl ClientApi for Mock {
         nyi()
     }
     fn ack_chunks(&mut self, _: SessionId, _: StreamId, _: u64) -> ApiResult<()> {
+        nyi()
+    }
+    fn cancel_stream(&mut self, _: SessionId, _: StreamId) -> ApiResult<()> {
         nyi()
     }
     fn fetch_file(&mut self, _: SessionId, _: Uuid) -> ApiResult<()> {
@@ -471,6 +668,93 @@ fn response(fr: &ClientFrame) -> &ClientResponse {
     match fr {
         ClientFrame::Response(r) => r,
         other => panic!("expected a response, got {other:?}"),
+    }
+}
+
+#[test]
+fn validation_frame_preserves_actual_witness_and_core_diagnostic_fields() {
+    let (mut api, mut f, s) = open();
+    let mut issue = mdbn_core::validate::Issue::new(
+        "schema_type",
+        mdbn_core::validate::Severity::Warning,
+        mdbn_core::validate::Tier::SingleRecord,
+        "Expected boolean",
+    )
+    .at("/done")
+    .with_type("Task");
+    issue.details = Some(mdbn_core::value::Value::string("real core detail"));
+    let revision = mdbn_wire::hash::sha256(b"document");
+    api.validation_rows = Some(vec![RecordValidation {
+        id: uuid(2),
+        path: "tasks/a.md".into(),
+        revision,
+        issues: vec![issue],
+    }]);
+    f.on_frame(
+        &mut api,
+        s,
+        &request(
+            1,
+            "validate",
+            smap(vec![(
+                0,
+                Cbor::Array(vec![uuid(2).to_cbor(), Cbor::Text("tasks/a.md".into())]),
+            )]),
+        ),
+    );
+    let frames = frames_out(&mut f);
+    assert_eq!(
+        api.validation_calls,
+        vec![Some(vec![
+            Target::Id(uuid(2)),
+            Target::Path("tasks/a.md".into())
+        ])]
+    );
+    let expected = smap(vec![
+        (0, uuid(2).to_cbor()),
+        (
+            1,
+            Cbor::Array(vec![smap(vec![
+                (0, Cbor::Text("schema_type".into())),
+                (1, Severity::Warning.to_cbor()),
+                (2, Cbor::Text("Expected boolean".into())),
+                (3, Value::Text("real core detail".into()).to_cbor()),
+                (4, Cbor::Text("/done".into())),
+                (5, Cbor::Text("Task".into())),
+                (6, Cbor::Text("single_record".into())),
+            ])]),
+        ),
+        (2, Cbor::Text("tasks/a.md".into())),
+        (3, revision.to_cbor()),
+    ]);
+    assert_eq!(
+        response(&frames[0]).result,
+        Some(Cbor::Array(vec![expected]))
+    );
+}
+
+#[test]
+fn validation_frame_refuses_malformed_and_overbound_targets_before_api_dispatch() {
+    for params in [
+        smap(vec![(0, Cbor::Array(vec![uuid(2).to_cbor(); 1001]))]),
+        smap(vec![(0, Cbor::Bool(true))]),
+        smap(vec![(1, Cbor::Array(vec![]))]),
+    ] {
+        let (mut api, mut f, s) = open();
+        f.on_frame(&mut api, s, &request(1, "validate", params));
+        let frames = frames_out(&mut f);
+        assert!(response(&frames[0]).problem.is_some());
+        assert!(api.validation_calls.is_empty());
+    }
+    for params in [Cbor::Map(vec![]), smap(vec![(0, Cbor::Null)])] {
+        let (mut api, mut f, s) = open();
+        api.validation_rows = Some(vec![]);
+        f.on_frame(&mut api, s, &request(1, "validate", params));
+        assert_eq!(api.validation_calls, vec![None]);
+        assert_eq!(
+            response(&frames_out(&mut f)[0]).result,
+            Some(Cbor::Array(vec![]))
+        );
     }
 }
 
@@ -1417,6 +1701,7 @@ fn plain_submit_refuses_file_attach_as_upgrade_required() {
     use mdbn_wire::attachment_runtime_v1::Op as RuntimeOp;
     let (mut api, mut f, s) = open();
     let attach = RuntimeOp::FileAttach(FileAttach {
+        mtime: None,
         id: uuid(4),
         path: "assets/big.bin".into(),
         content: AttachmentContentV1 {
@@ -1441,4 +1726,133 @@ fn plain_submit_refuses_file_attach_as_upgrade_required() {
     let problem = response(&out[0]).problem.as_ref().expect("refused");
     assert_eq!(problem.code, "upgrade_required");
     assert!(api.receipts.is_empty(), "the replica never saw the submit");
+}
+
+#[test]
+fn describe_definitions_param_selects_the_rich_projection() {
+    let (mut api, mut f, s) = open();
+    f.on_frame(
+        &mut api,
+        s,
+        &request(1, "describe", smap(vec![(0, Cbor::Bool(true))])),
+    );
+    f.on_frame(
+        &mut api,
+        s,
+        &request(2, "describe", smap(vec![(1, Cbor::Bool(true))])),
+    );
+    let out = frames_out(&mut f);
+    let keys = |c: &Cbor| match c {
+        Cbor::Map(m) => m.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>(),
+        _ => panic!("not a map"),
+    };
+    let field = |c: &Cbor, k: u64| match c {
+        Cbor::Map(m) => m
+            .iter()
+            .find(|(key, _)| *key == Cbor::Uint(k))
+            .unwrap()
+            .1
+            .clone(),
+        _ => panic!("not a map"),
+    };
+    let result = response(&out[0]).result.clone().unwrap();
+    let Cbor::Array(types) = field(&result, 1) else {
+        panic!("types")
+    };
+    assert_eq!(keys(&types[0]), (0..=6).map(Cbor::Uint).collect::<Vec<_>>());
+    let Cbor::Array(implements) = field(&types[0], 2) else {
+        panic!("implements")
+    };
+    assert_eq!(field(&implements[0], 4), B32([0x22; 32]).to_cbor());
+    let Cbor::Array(contracts) = field(&result, 5) else {
+        panic!("contracts")
+    };
+    assert!(keys(&contracts[0]).contains(&Cbor::Uint(6)));
+    let p = response(&out[1]).problem.as_ref().unwrap();
+    assert_eq!(
+        (p.code.as_str(), p.reason.as_deref()),
+        ("invalid_request", Some("unknown_param"))
+    );
+}
+
+#[test]
+fn new_type_file_returns_name_and_path() {
+    let (mut api, mut f, s) = open();
+    f.on_frame(
+        &mut api,
+        s,
+        &request(
+            1,
+            "new_type_file",
+            smap(vec![(0, Cbor::Text("note".into()))]),
+        ),
+    );
+    f.on_frame(&mut api, s, &request(2, "new_type_file", Cbor::Null));
+    let out = frames_out(&mut f);
+    assert_eq!(
+        response(&out[0]).result,
+        Some(smap(vec![
+            (0, Cbor::Text("note".into())),
+            (1, Cbor::Text("_types/note.md".into()))
+        ]))
+    );
+    assert_eq!(
+        response(&out[1]).problem.as_ref().unwrap().code,
+        "invalid_request"
+    );
+}
+
+#[test]
+fn map_contract_write_decodes_the_selection_and_encodes_the_plan() {
+    let (mut api, mut f, s) = open();
+    let params = |extra: Vec<(u64, Cbor)>| {
+        let mut m = vec![
+            (0, Cbor::Uint(1)),
+            (1, Cbor::Text("acme.task".into())),
+            (2, Cbor::Text("1.0.0".into())),
+            (4, Cbor::Text("a.md".into())),
+            (5, smap(vec![])),
+            (6, Cbor::Array(vec![Cbor::Text("/done".into())])),
+        ];
+        m.extend(extra);
+        smap(m)
+    };
+    f.on_frame(
+        &mut api,
+        s,
+        &request(1, "map_contract_write_v1", params(vec![])),
+    );
+    f.on_frame(
+        &mut api,
+        s,
+        &request(2, "map_contract_write_v1", params(vec![(8, Cbor::Null)])),
+    );
+    f.on_frame(
+        &mut api,
+        s,
+        &request(
+            3,
+            "map_contract_write_v1",
+            params(vec![(7, Cbor::Bool(true))]),
+        ),
+    );
+    let out = frames_out(&mut f);
+    let result = response(&out[0]).result.clone().unwrap();
+    let Cbor::Map(m) = result else { panic!() };
+    let get = |k: u64| {
+        m.iter()
+            .find(|(key, _)| *key == Cbor::Uint(k))
+            .map(|(_, v)| v.clone())
+    };
+    assert_eq!(get(1), Some(Cbor::Text("acme.task@1.0.0".into())));
+    assert_eq!(get(3), Some(Cbor::Array(vec![Cbor::Text("/done".into())])));
+    assert_eq!(get(8), Some(Cbor::Text("a.md".into())));
+    assert_eq!(
+        response(&out[1]).problem.as_ref().unwrap().code,
+        "invalid_request"
+    );
+    let Some(Cbor::Map(promoted)) = response(&out[2]).result.clone() else {
+        panic!()
+    };
+    assert!(promoted.contains(&(Cbor::Uint(1), Cbor::Text("acme.task@1.0.0+promote".into()))));
 }

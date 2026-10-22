@@ -17,15 +17,15 @@ import {
   Pairing
 } from "./authority-workflows";
 import { Authorization, DeviceAuthorization } from "./authorization-view";
-import { editorRedirectTarget } from "./editor-redirect";
 import {
   capturePortalBootstrapSecrets,
-  editorConnectUrl,
   type PortalBootstrapSecrets
 } from "./portal-model";
 import { GettingStarted } from "./onboarding-view";
 import "./styles.css";
 import "./authorization.css";
+
+const ConnectApp = React.lazy(() => import("./ConnectApp").then(module => ({ default: module.ConnectApp })));
 
 function Portal({ bootstrapSecrets }: { bootstrapSecrets: PortalBootstrapSecrets }) {
   const pairingId = location.pathname.match(/^\/pair\/([0-9a-f-]+)$/i)?.[1];
@@ -48,17 +48,7 @@ function Portal({ bootstrapSecrets }: { bootstrapSecrets: PortalBootstrapSecrets
   if (authorityAdoptionId) return <AuthorityAdoption adoptionId={authorityAdoptionId} />;
   if (authorityTransferId) return <AuthorityTransfer transferId={authorityTransferId} />;
   if (authorizationId) return <Authorization requestId={authorizationId} />;
-  return <EditorRedirect />;
-}
-
-function EditorRedirect() {
-  React.useEffect(() => {
-    void fetch("/v1/ui-configuration")
-      .then(async (response) => response.ok ? await response.json() as { editor_url?: string | null } : {})
-      .then((configuration) => location.replace(editorRedirectTarget(configuration.editor_url ?? editorConnectUrl())))
-      .catch(() => location.replace(editorRedirectTarget(editorConnectUrl())));
-  }, []);
-  return <main className="portal-redirect" aria-live="polite">Opening mdbase Connect in the editor…</main>;
+  return <React.Suspense fallback={<main className="portal-redirect" aria-live="polite">Opening mdbase connect…</main>}><ConnectApp /></React.Suspense>;
 }
 
 const bootstrapSecrets = capturePortalBootstrapSecrets();

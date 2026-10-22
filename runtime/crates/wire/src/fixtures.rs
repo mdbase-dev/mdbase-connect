@@ -1205,6 +1205,7 @@ pub fn all() -> Vec<Fixture> {
                 grant: Some(b16(GRANT)),
                 capabilities: vec!["collection.read".into()],
                 role: Role::Editor,
+                file_folders: None,
             },
             status: SyncStatus {
                 resyncing: None,
@@ -1416,6 +1417,8 @@ pub fn all() -> Vec<Fixture> {
             state: FileState::Remote,
             confirmed_seq: 40,
             hold: None,
+            mtime: None,
+            media_type: None,
         },
     ));
     v.push(fx(
@@ -1530,6 +1533,7 @@ fn attachment_fixtures() -> Vec<Fixture> {
                 content: content.clone(),
                 if_revision: Some(b32(0xb3)),
                 base: None,
+                mtime: None,
             }),
         ),
         fx(
@@ -1539,6 +1543,7 @@ fn attachment_fixtures() -> Vec<Fixture> {
                 id,
                 path: path.clone(),
                 content: content.clone(),
+                mtime: None,
             }),
         ),
         fx(
@@ -1556,6 +1561,7 @@ fn attachment_fixtures() -> Vec<Fixture> {
                 path: path.clone(),
                 content: content.clone(),
                 media: MediaClass::Image,
+                mtime: None,
             },
         ),
         fx(

@@ -6,7 +6,7 @@ use crate::common::{B32, Hash, Uuid};
 use crate::intent::{BlobRef, MediaClass};
 use crate::schema::{Ann, SchemaError, Wire, array, type_err};
 use crate::snapshot::{ChunkRef, EntityKind};
-use crate::{wire_enum, wire_struct, wire_tuple, wire_union};
+use crate::{wire_enum, wire_struct, wire_union};
 
 /// Fixed v1 plaintext chunk size. Object/manifest/file/admission caps are separate.
 pub const CHUNK_BYTES_V1: u64 = 8_388_608;
@@ -197,6 +197,8 @@ wire_struct! {
         4 opt if_revision: Hash,
         /// External capture base.
         5 opt base: Hash,
+        /// Optional writing-device capture clock, in milliseconds.
+        6 opt mtime: i64,
     }
 }
 wire_struct! {
@@ -228,6 +230,8 @@ wire_struct! {
         2 req path: String,
         /// Signed expected content.
         3 req content: AttachmentContentV1,
+        /// Optional writing-device capture timestamp, in milliseconds.
+        4 opt mtime: i64,
     }
 }
 wire_union! {
@@ -289,17 +293,65 @@ wire_struct! {
         1 req chunks: Vec<ChunkRef>,
     }
 }
-wire_tuple! {
-    /// AttachmentFiles10 row. Index EntityKind/File count remains File1.
-    pub struct AttachmentFileRowV1 {
-        /// Stable File ID.
-        id: Uuid,
-        /// Exact path.
-        path: String,
-        /// Critical signed content.
-        content: AttachmentContentV1,
-        /// Extension-derived media class, not trusted MIME.
-        media: MediaClass,
+/// AttachmentFiles10 row. Old absent-mtime rows remain exactly four fields.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AttachmentFileRowV1 {
+    /// Stable File ID.
+    pub id: Uuid,
+    /// Exact path.
+    pub path: String,
+    /// Critical signed content.
+    pub content: AttachmentContentV1,
+    /// Extension-derived media class, not trusted MIME.
+    pub media: MediaClass,
+    /// Optional writing-device capture timestamp, in milliseconds.
+    pub mtime: Option<i64>,
+}
+impl Wire for AttachmentFileRowV1 {
+    fn to_cbor(&self) -> Cbor {
+        let mut fields = vec![
+            self.id.to_cbor(),
+            self.path.to_cbor(),
+            self.content.to_cbor(),
+            self.media.to_cbor(),
+        ];
+        if let Some(mtime) = self.mtime {
+            fields.push(mtime.to_cbor());
+        }
+        Cbor::Array(fields)
+    }
+    fn from_cbor(c: &Cbor) -> Result<Self, SchemaError> {
+        let ty = "AttachmentFileRowV1";
+        let fields = array(c, ty)?;
+        let (row, mtime) = match fields {
+            [_, _, _, _] => (fields, None),
+            [_, _, _, _, mtime] => (&fields[..4], Some(i64::from_cbor(mtime)?)),
+            _ => {
+                return Err(SchemaError::Invalid {
+                    ty,
+                    reason: "must have four or five elements",
+                });
+            }
+        };
+        Ok(Self {
+            id: Uuid::from_cbor(&row[0])?,
+            path: String::from_cbor(&row[1])?,
+            content: AttachmentContentV1::from_cbor(&row[2])?,
+            media: MediaClass::from_cbor(&row[3])?,
+            mtime,
+        })
+    }
+    fn annotate(&self) -> Ann {
+        let mut fields = vec![
+            ("id", self.id.annotate()),
+            ("path", self.path.annotate()),
+            ("content", self.content.annotate()),
+            ("media", self.media.annotate()),
+        ];
+        if let Some(mtime) = self.mtime {
+            fields.push(("mtime", mtime.annotate()));
+        }
+        Ann::Tuple("AttachmentFileRowV1", fields)
     }
 }
 /// AttachmentTombstones11 row; only File1, not a widened legacy tombstone tuple.

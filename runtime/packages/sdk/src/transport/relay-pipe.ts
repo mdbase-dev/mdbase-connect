@@ -16,7 +16,10 @@
  * `device_key_mismatch` → `unauthenticated` (the routed key isn't the device's; never
  * retried blindly); other 4000 reasons → `unavailable` with that reason.
  */
-import { mdbaseError, MdbaseError } from "../errors.js";
+import { LOCAL_APPLICATION_BUILD, localApplicationWebSocketUrl } from "../local-build.js";
+import { mdbaseError, MdbaseError, type ErrorCode } from "../errors.js";
+import type { Value } from "../wire.js";
+import { relayCloseDiagnostic } from "./relay-close.js";
 import { toHex } from "../cbor.js";
 import type { MessageCarrier, WebSocketFactory, WebSocketLike } from "./noise-session.js";
 
@@ -34,25 +37,30 @@ export interface PipeAuth {
 /** Max binary frame: u32be length + one Noise message. */
 const MAX_PIPE_FRAME = 4 + 65535;
 
+const CLOSE_REASONS = new Set("unauthenticated grant_inactive connector_offline connector_busy device_mismatch device_key_mismatch closed client_closed handshake_timeout idle lifetime frame_too_large invalid_frame not_served relay_closing authorization_unavailable grant_revoked".split(" "));
+
 export function pipeCloseError(code?: number, reason?: string): MdbaseError {
-  const r = reason || undefined;
-  switch (code) {
+  // Only fixed protocol reasons survive: arbitrary close text can contain secrets.
+  const r = typeof reason === "string" && CLOSE_REASONS.has(reason) ? reason : undefined;
+  const close = relayCloseDiagnostic(code);
+  const details = new Map<string, Value>([["relayCloseCode", close.closeCode], ["relayCloseClass", close.closeClass]]);
+  const error = (c: ErrorCode, message: string, why: string, retryAfterMs?: number) =>
+    mdbaseError(c, message, { reason: why, details, ...(retryAfterMs === undefined ? {} : { retryAfterMs }) });
+  switch (close.closeCode) {
     case 4401:
-      return mdbaseError("unauthenticated", r ?? "relay: unauthenticated", "relay_unauthenticated");
+      return error("unauthenticated", r ?? "relay: unauthenticated", "relay_unauthenticated");
     case 4403:
-      return mdbaseError("forbidden", r ?? "relay: grant inactive", r ?? "grant_inactive");
+      return error("forbidden", r ?? "relay: grant inactive", r ?? "grant_inactive");
     case 4404:
-      return mdbaseError("unavailable", "no device of this collection is online", {
-        reason: "no_device_online",
-        ...(r ? { details: new Map([["relay", r]]) } : {}),
-      });
+      if (r) details.set("relay", r);
+      return error("unavailable", "no device of this collection is online", "no_device_online");
     case 4429:
-      return mdbaseError("rate_limited", r ?? "relay: busy", { reason: r ?? "connector_busy", retryAfterMs: 5000 });
+      return error("rate_limited", r ?? "relay: busy", r ?? "connector_busy", 5000);
     case 4000:
-      if (r === "device_key_mismatch") return mdbaseError("unauthenticated", "relay: the routed key is not the device's", r);
-      return mdbaseError("unavailable", `relay closed the pipe: ${r ?? "unknown"}`, r ?? "pipe_closed");
+      if (r === "device_key_mismatch") return error("unauthenticated", "relay: the routed key is not the device's", r);
+      return error("unavailable", `relay closed the pipe: ${r ?? "unknown"}`, r ?? "pipe_closed");
     default:
-      return mdbaseError("unavailable", `relay connection closed${code ? ` (${code})` : ""}`, "relay_closed");
+      return error("unavailable", `relay connection closed${close.closeCode === null ? "" : ` (${close.closeCode})`}`, "relay_closed");
   }
 }
 
@@ -76,7 +84,7 @@ export function relayPipeCarrier(
   } catch {
     return Promise.reject(mdbaseError("invalid_request", `invalid relay URL ${url}`, "relay_url"));
   }
-  if (scheme !== "wss:") {
+  if (scheme !== "wss:" && !(LOCAL_APPLICATION_BUILD && localApplicationWebSocketUrl(url))) {
     return Promise.reject(mdbaseError("invalid_request", "relay pipes require wss:", "relay_insecure"));
   }
   if (!auth.grant) {

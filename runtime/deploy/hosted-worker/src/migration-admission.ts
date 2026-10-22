@@ -1,12 +1,13 @@
 /** Read-only public observations, never a native migration permit. */
 import { evidence } from "./app.ts";
+import { parseRegion } from "./do-location.ts";
 import { serviceAuthorization } from "./service-devices.ts";
 
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
 const NIL = "00000000-0000-0000-0000-000000000000";
 const MAX_REQUEST_BYTES = 1024;
 const U64 = (1n << 64n) - 1n;
-export interface MigrationAdmissionRequest { collection: string; challenge: string }
+export interface MigrationAdmissionRequest { collection: string; challenge: string; region?: DurableObjectLocationHint }
 const uuid = (v: unknown): v is string => typeof v === "string" && UUID.test(v) && v !== NIL;
 const u64 = (v: unknown): v is bigint => typeof v === "bigint" && v >= 0n && v <= U64;
 const hash = (v: unknown): v is Uint8Array => v instanceof Uint8Array && v.byteLength === 32 && v.some(x => x !== 0);
@@ -42,10 +43,14 @@ export async function migrationAdmissionRequest(request: Request, token?: string
       length += part.value.byteLength;
     }
     const body: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes.subarray(0, length)));
-    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length !== 2) return error(400, "invalid_request");
+    if (!body || typeof body !== "object" || Array.isArray(body)) return error(400, "invalid_request");
     const value = body as Record<string, unknown>;
-    if (!uuid(value.collection) || !challenge(value.challenge)) return error(400, "invalid_request");
-    return { collection: value.collection, challenge: value.challenge };
+    // Optional `region` places a not-yet-created actor (see do-location.ts).
+    const keys = Object.keys(value);
+    if (keys.length !== ("region" in value ? 3 : 2)) return error(400, "invalid_request");
+    const region = parseRegion(value.region);
+    if (!uuid(value.collection) || !challenge(value.challenge) || region === null) return error(400, "invalid_request");
+    return { collection: value.collection, challenge: value.challenge, ...(region ? { region } : {}) };
   } catch { return error(400, "invalid_request"); }
   finally { reader.releaseLock(); }
 }

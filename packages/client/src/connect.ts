@@ -16,7 +16,7 @@ import {
   semanticContractVersion,
   validateAuthorizationSelection,
   type MdbaseApplicationManifest as MdbaseAppManifest
-} from "./application-contract.js";
+} from "@mdbase-dev/connect-protocol";
 import { abortableDelay } from "./async.js";
 import { authorizationCallbackState } from "./authorization-url.js";
 import { randomBase64Url } from "./base64.js";

@@ -95,6 +95,7 @@ fn streamed_state_digest_equals_the_store_digest() {
                 content: content.clone(),
                 media: MediaClass::Other,
                 modified_seq: 0,
+                mtime: None,
                 bucket: bucket16(fid),
                 local: FileLocal::Remote,
             });
@@ -131,6 +132,22 @@ fn streamed_state_digest_equals_the_store_digest() {
             d.unindexed(*fid, path, content, MediaClass::Other).unwrap();
         }
         assert_eq!(d.finish().unwrap(), want, "seed {seed}");
+        if files.iter().all(|f| !f.3) {
+            // The native migration feeds revisions, never content: the same digest.
+            let mut d = StateDigestStream::new(counts, &settings);
+            for (p, t) in &resources {
+                d.resource_revision(p, mdbn_wire::hash::sha256(t.as_bytes()))
+                    .unwrap();
+            }
+            for (rid, path, doc) in &records {
+                d.record(*rid, path, mdbn_wire::hash::sha256(doc.as_bytes()))
+                    .unwrap();
+            }
+            for (fid, path, content, _) in &files {
+                d.file_revision(*fid, path, content.plain_hash()).unwrap();
+            }
+            assert_eq!(d.finish().unwrap(), want, "revisions, seed {seed}");
+        }
     }
 }
 
@@ -182,24 +199,30 @@ fn bucket_bits_follow_the_builder() {
 
 #[test]
 fn hosted_joint_budget_charges_sum_not_independent_limits() {
-    assert_eq!(shared_budget(512 << 10, 512 << 10), Ok(()));
     assert_eq!(
-        shared_budget(512 << 10, (512 << 10) + 1),
+        shared_budget(512 << 10, 512 << 10, HOSTED_SHARED_BYTES),
+        Ok(())
+    );
+    assert_eq!(
+        shared_budget(512 << 10, (512 << 10) + 1, HOSTED_SHARED_BYTES),
         Err(HostedGen0Error::Budget)
     );
-    assert_eq!(shared_budget(usize::MAX, 1), Err(HostedGen0Error::Budget));
+    assert_eq!(
+        shared_budget(usize::MAX, 1, HOSTED_SHARED_BYTES),
+        Err(HostedGen0Error::Budget)
+    );
     let mut writer = Gen0Writer::new(B16([0x75; 16]), 0, false, false);
     writer.refs = Vec::with_capacity(10_000);
     let retained = retained_budget(&writer).unwrap();
     assert!(retained < HOSTED_RETAINED_BYTES);
     const { assert!(800_000 < HOSTED_OUTPUT_BYTES) };
     assert_eq!(
-        shared_budget(retained, 800_000),
+        shared_budget(retained, 800_000, HOSTED_SHARED_BYTES),
         Err(HostedGen0Error::Budget)
     );
     // The pre-effect reservation also refuses that retained/output combination.
     assert_eq!(
-        output_preflight(&writer, 0, HOSTED_OUTPUT_OBJECTS, 0),
+        output_preflight(&writer, 0, HOSTED_OUTPUT_OBJECTS, 0, NORMAL_WINDOW),
         Err(HostedGen0Error::Budget)
     );
 }
@@ -214,15 +237,19 @@ fn hosted_output_metadata_capacity_and_actual_sum_are_checked() {
         bytes: Vec::with_capacity(800_000),
     };
     let output = vec![object];
-    let output_bytes = output_budget(&output, HOSTED_OUTPUT_OBJECTS).unwrap();
+    let output_bytes = output_budget(&output, HOSTED_OUTPUT_OBJECTS, HOSTED_OUTPUT_BYTES).unwrap();
     assert_eq!(
-        shared_budget(retained_budget(&writer).unwrap(), output_bytes),
+        shared_budget(
+            retained_budget(&writer).unwrap(),
+            output_bytes,
+            HOSTED_SHARED_BYTES
+        ),
         Err(HostedGen0Error::Budget)
     );
     let metadata: Vec<Gen0Object> =
         Vec::with_capacity(HOSTED_OUTPUT_BYTES / std::mem::size_of::<Gen0Object>() + 1);
     assert_eq!(
-        output_budget(&metadata, HOSTED_OUTPUT_OBJECTS),
+        output_budget(&metadata, HOSTED_OUTPUT_OBJECTS, HOSTED_OUTPUT_BYTES),
         Err(HostedGen0Error::Budget)
     );
 }

@@ -18,6 +18,7 @@ them, and the golden fixtures in `conformance/wire/` are checked against them.
 | `log-service-api.md` | The blind log service: append, read, push, objects, snapshots, ephemeral streams, auth, quotas, errors |
 | `replica-client-api.md` | What apps and plugins call on a replica: queries, subscriptions, submit, status, holds, conflicts, presence, errors, transports |
 | `timer-service-api.md` | The control plane's opaque timer service for app notifications (JSON over HTTPS; no wire types) |
+| `push-envelope.md` | The opaque, versioned push delivery envelope (Web Push, FCM, webhook) and its SDK helpers |
 | `open-questions.md` | Choices made provisionally, with the answer these documents assume |
 
 **Out of scope here.** The `Store`, `FilePlatform` and `IndexStorage` interfaces are

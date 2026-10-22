@@ -9,8 +9,9 @@ import { randomBytes, verify as edVerify } from "node:crypto";
 import type { WebSocket } from "ws";
 import {
   APPLICATION_CAPABILITY_DEFINITIONS,
-  type ApplicationCapabilityId
+  type ApplicationCapabilityId, type FileCapability
 } from "@mdbase-dev/connect-protocol";
+import { exactNextPermissionCapabilities } from "@mdbase-dev/connect-protocol/next-authorization";
 import type { DatabasePool } from "../../database-types.js";
 import type { RelayBrokerReply } from "../../relay-broker.js";
 import { ConnectorOperationError } from "../../relay-errors.js";
@@ -94,7 +95,7 @@ const verifies = (publicKey: Uint8Array, digest: Uint8Array, signature: Uint8Arr
 
 export async function issueDeviceChallenge(db: DatabasePool, connectorId: string, now = Date.now()): Promise<{ challenge: string; expires_at: number }> {
   const challenge = randomBytes(32);
-  await db.query("DELETE FROM next_device_challenges WHERE expires_at < now() - interval '1 hour'");
+  await db.query("DELETE FROM next_device_challenges WHERE connector_id IS NOT NULL AND service_device_id IS NULL AND service_purpose IS NULL AND service_audience IS NULL AND expires_at < now() - interval '1 hour'");
   await db.query(
     "INSERT INTO next_device_challenges (challenge, connector_id, expires_at) VALUES ($1, $2, $3)",
     [challenge, connectorId, new Date(now + CHALLENGE_TTL_MS)]
@@ -160,7 +161,8 @@ export async function registerDevice(
     }
     const used = await client.query(
       `UPDATE next_device_challenges SET used_at = now()
-       WHERE challenge = $1 AND connector_id = $2 AND used_at IS NULL AND expires_at > now()`,
+       WHERE challenge = $1 AND connector_id = $2 AND service_device_id IS NULL
+         AND service_purpose IS NULL AND service_audience IS NULL AND used_at IS NULL AND expires_at > now()`,
       [challenge, connector.id]
     );
     if (used.rowCount !== 1) throw new DeviceRegistrationError("challenge_invalid", "The challenge is unknown, used or expired.");
@@ -197,7 +199,7 @@ export function deviceBindDigest(connectorId: string, sessionId: string, nonce: 
  * did not offer `next_device_v1`.
  */
 export class NextRelayDevices {
-  private readonly sockets = new WeakMap<WebSocket, { nonce: Buffer; pipes: boolean; deviceId?: string }>();
+  private readonly sockets = new WeakMap<WebSocket, { nonce: Buffer; pipes: boolean; deviceId?: string; oldConnectorRunning: boolean }>();
 
   constructor(private readonly db: DatabasePool, private readonly pipes?: NoisePipes) {}
 
@@ -221,10 +223,11 @@ export class NextRelayDevices {
   }
 
   /** Extra `relay_welcome` fields: a fresh nonce when the connector offered the capability. */
-  welcome(socket: WebSocket, capabilities: readonly string[]): { device_nonce?: string } {
+  /** `oldConnectorRunning` is the daemon's `relay_hello` report, held in memory for this socket only. */
+  welcome(socket: WebSocket, capabilities: readonly string[], oldConnectorRunning = false): { device_nonce?: string } {
     if (!this.negotiated(capabilities)) return {};
     const nonce = randomBytes(32);
-    this.sockets.set(socket, { nonce, pipes: this.pipes !== undefined && capabilities.includes(NOISE_PIPE_CAPABILITY) });
+    this.sockets.set(socket, { nonce, pipes: this.pipes !== undefined && capabilities.includes(NOISE_PIPE_CAPABILITY), oldConnectorRunning });
     return { device_nonce: nonce.toString("hex") };
   }
 
@@ -259,7 +262,9 @@ export class NextRelayDevices {
         || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(body.device_id)) {
       return { version: 1, ok: false, error: { kind: "internal", code: "invalid_broker_command", message: "The relay command was invalid." } };
     }
-    return { version: 1, ok: true, value: this.pipes?.isBound(socket, generation, body.device_id) ?? false };
+    const bound = this.pipes?.isBound(socket, generation, body.device_id) ?? false;
+    // A bound daemon whose collections are still held by a legacy connector cannot serve them.
+    return { version: 1, ok: true, value: bound, ...(bound && this.sockets.get(socket)?.oldConnectorRunning ? { detail: { old_connector_running: true } } : {}) };
   }
 
   boundDevice(socket: WebSocket): string | undefined {
@@ -269,10 +274,12 @@ export class NextRelayDevices {
 
 /**
  * The v2 capability groups a grant's operations cover exactly, for the daemon's access
- * list. `offline.replica` is never offered for a local collection. Undefined for v1
- * bindings, which work only through the envelope compatibility layer.
+ * list. `offline.replica` is never offered for a local collection. V1 requires
+ * a published next binding and an exact record/file pair; unbound grants retain
+ * their envelope compatibility behavior.
  */
-export function grantCapabilityGroups(semanticCapabilities: number | undefined, operations: readonly string[]): string[] | undefined {
+export function grantCapabilityGroups(semanticCapabilities: number | undefined, operations: readonly string[], nextBound = false, files?: FileCapability | null): string[] | undefined {
+  if (semanticCapabilities === 1 && nextBound) return exactNextPermissionCapabilities(operations, files?.actions ?? []);
   if (semanticCapabilities !== 2) return undefined;
   const granted = new Set(operations);
   return (Object.keys(APPLICATION_CAPABILITY_DEFINITIONS) as ApplicationCapabilityId[]).filter((group) =>

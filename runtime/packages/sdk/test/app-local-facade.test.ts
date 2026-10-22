@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { appLocalConnector, attachAppLocalFacade, type AppLocalScope } from "../src/app-host/local-facade.js";
 import type { CborValue } from "../src/cbor.js";
 import type { FramePort } from "../src/transport/port.js";
+import type { AppWasmRuntime } from "../src/app-host/wasm-runtime.js";
 
 const scope = (): AppLocalScope => ({
   account: "11111111-1111-4111-8111-111111111111",
@@ -41,6 +42,23 @@ async function received(port: FramePort, send: () => void) {
 }
 
 describe("first-party owned local data facade", () => {
+  it("private resource closure holds the original native port and fences before/after planning", async () => {
+    const [host] = channels(), original = scope(); let current = true;
+    original.isCurrent = () => current;
+    const native: FramePort = {onframe: null, onclose: null, send() {}, close: vi.fn()};
+    const producer = vi.fn(() => ({status: "current" as const, assessmentDigest: `sha256:${"ab".repeat(32)}`}));
+    const attached = attachAppLocalFacade({connect: () => native, setupResources: producer as unknown as AppWasmRuntime["setupResources"]}, host, original);
+    cleanup.push(attached.close); const signal = new AbortController().signal, manifest = {id: "org.example.app"};
+    expect(await attached.resourceSetup.assess(manifest, signal)).toEqual({status: "current", assessmentDigest: `sha256:${"ab".repeat(32)}`});
+    expect(producer).toHaveBeenCalledWith(native, "assess", manifest);
+    expect(Object.keys(attached.resourceSetup).sort()).toEqual(["apply", "assess", "rejected"]);
+    // No native witness export: a rejection is never assumed.
+    expect(await attached.resourceSetup.rejected!(crypto.randomUUID(), signal)).toBe(false);
+    producer.mockImplementationOnce(() => {current = false; return {status: "current", assessmentDigest: `sha256:${"ab".repeat(32)}`};});
+    await expect(attached.resourceSetup.assess(manifest, signal)).rejects.toThrow();
+    await expect(attached.resourceSetup.assess(manifest, signal)).rejects.toThrow(); expect(producer).toHaveBeenCalledTimes(2);
+    expect(native.close).toHaveBeenCalledOnce();
+  });
   it("only opens the original native collection and preserves CBOR map/bigint/bytes", async () => {
     const f = fixture();
     const hello = new Map<number, CborValue>([[0, 0], [1, 2]]);

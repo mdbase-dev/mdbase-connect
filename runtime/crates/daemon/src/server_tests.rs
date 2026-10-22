@@ -1,4 +1,9 @@
 //! Security regression tests for consent and feed persistence boundaries.
+#[path = "server_capture_stop_tests.rs"]
+mod capture_stop_tests;
+#[cfg(unix)]
+#[path = "server_mirror_join_tests.rs"]
+mod mirror_join_tests;
 use super::*;
 use crate::access::{AccessState, FeedCursor};
 use crate::confirm::{Answer, Confirmer};
@@ -40,12 +45,15 @@ pub(super) fn daemon(dir: &crate::testutil::TestDir) -> Arc<Daemon> {
         readiness: watch::channel(readiness(true, None)).0,
         changes: watch::channel(0).0,
         access_events: tokio::sync::broadcast::channel(64).0,
+        activity: crate::activity::ActivityLog::open(dir.path().join("activity.jsonl")),
         control_key: std::sync::OnceLock::new(),
         account: std::sync::Mutex::new(Account::default()),
         account_gate: Mutex::new(()),
         link_prompt: Mutex::new(()),
         authority: crate::authority::Authority::default(),
         confirmer: std::sync::RwLock::new(Arc::new(crate::confirm::Fixed(Answer::Yes))),
+        grant_publications: Default::default(),
+        self_weak: std::sync::OnceLock::new(),
         online: std::sync::atomic::AtomicBool::new(false),
         link: std::sync::Mutex::new(None),
         // Synthetic, public environment pins; real asset verification is tested
@@ -64,6 +72,7 @@ pub(super) fn daemon(dir: &crate::testutil::TestDir) -> Arc<Daemon> {
                     replica_id: "r".into(),
                     mode: SyncMode::Local,
                     origin: crate::registry::Origin::Created,
+                    description: None,
                     added_at_ms: 0,
                     paused: false,
                     ever_e2e: false,
@@ -162,6 +171,7 @@ fn grant(pk: u8) -> CachedGrant {
         capabilities: vec!["collection.read".into()],
         folders: Some(vec!["Photos".into()]),
         legacy_only: false,
+        declared_setup: None,
     }
 }
 fn snapshot(seq: u64) -> crate::relay::Snapshot {
@@ -259,6 +269,178 @@ async fn displayed_consent_cannot_approve_replacement_or_aba() {
             AccessState::Active,
             "fresh consent works"
         );
+    }
+}
+
+#[tokio::test]
+async fn private_account_consent_skips_native_confirmation_and_local_opt_in() {
+    let dir = crate::testutil::TestDir::new("native-feed");
+    let d = paired_daemon(&dir).await;
+    d.inner.lock().await.access.require_grant_approval = true;
+    const P: &str = "22222222-2222-4222-8222-222222222222";
+    const GN: &str = "33333333-3333-4333-8333-333333333333";
+    d.inner
+        .lock()
+        .await
+        .registry
+        .collections
+        .push(crate::registry::Entry {
+            id: P.into(),
+            name: "Private notes".into(),
+            root: dir.path().join("private"),
+            replica_id: "r".into(),
+            mode: SyncMode::SyncedE2e,
+            origin: crate::registry::Origin::Created,
+            description: None,
+            added_at_ms: 0,
+            paused: false,
+            ever_e2e: true,
+            owner_account: None,
+            device: None,
+        });
+    let mut native = grant(7);
+    native.grant = GN.into();
+    native.collection = P.into();
+    native.folders = None;
+    let feed = BTreeMap::from([("c".into(), vec![grant(1)]), (P.into(), vec![native])]);
+    d.commit_control_plane_feed(&snapshot(1), &feed)
+        .await
+        .unwrap();
+    {
+        let inner = d.inner.lock().await;
+        assert_eq!(
+            inner
+                .access
+                .entries
+                .iter()
+                .find(|e| e.grant.grant == "g")
+                .unwrap()
+                .state,
+            AccessState::PendingApproval
+        );
+        assert_eq!(
+            inner
+                .access
+                .entries
+                .iter()
+                .find(|e| e.grant.grant == GN)
+                .unwrap()
+                .state,
+            AccessState::Active
+        );
+        assert!(
+            inner.access.require_grant_approval,
+            "the local setting is unchanged"
+        );
+    }
+    // A Linux host without dialog helpers must not block Private access.
+    d.set_confirmer(Arc::new(crate::confirm::Fixed(Answer::Unavailable)));
+    let result = d
+        .handle(
+            &Request {
+                v: PROTOCOL,
+                id: 1,
+                method: Method::ACCESS_APPROVE.into(),
+                params: json!({"grant":GN}),
+            },
+            &mut ConnAuth {
+                privileged: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(result["state"], "active");
+    // Local opt-in still requires the native confirmation.
+    let error = d
+        .handle(
+            &Request {
+                v: PROTOCOL,
+                id: 2,
+                method: Method::ACCESS_APPROVE.into(),
+                params: json!({"grant":"g"}),
+            },
+            &mut ConnAuth {
+                privileged: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.reason.as_deref(), Some("confirmation_unavailable"));
+    d.access_change(|list| list.revoke(GN).cloned())
+        .await
+        .unwrap();
+    d.commit_control_plane_feed(&snapshot(2), &feed)
+        .await
+        .unwrap();
+    assert_eq!(
+        d.inner
+            .lock()
+            .await
+            .access
+            .entries
+            .iter()
+            .find(|e| e.grant.grant == GN)
+            .unwrap()
+            .state,
+        AccessState::RevokedLocally
+    );
+}
+
+#[tokio::test]
+async fn automatic_private_publication_requires_a_live_bound_account() {
+    let dir = crate::testutil::TestDir::new("native-account-publication");
+    let d = paired_daemon(&dir).await;
+    let mut entry = AccessEntry {
+        grant: grant(1),
+        state: AccessState::Active,
+        first_seen_ms: 1,
+        generation: 1,
+        acknowledged: false,
+        delisted: false,
+    };
+    entry.grant.grant = "33333333-3333-4333-8333-333333333333".into();
+    // Missing account must never match a signed-out daemon's missing account.
+    entry.grant.account_id = None;
+    let error = d.publish_native_grant(&entry).await.unwrap_err();
+    assert_eq!(error.reason.as_deref(), Some("consent_changed"));
+    entry.grant.account_id = Some("99999999-9999-4999-8999-999999999999".into());
+    d.inner.lock().await.access.entries.push(entry.clone());
+    let error = d.publish_native_grant(&entry).await.unwrap_err();
+    assert_eq!(error.reason.as_deref(), Some("consent_changed"));
+}
+
+#[tokio::test]
+async fn native_activation_cannot_override_changed_terms_or_a_refusal() {
+    for deny in [false, true] {
+        let dir = crate::testutil::TestDir::new("native-activation");
+        let d = daemon(&dir);
+        d.inner.lock().await.access.require_grant_approval = true;
+        d.apply_control_plane_grants("c", &[grant(1)], fsutil::now_ms() as u64 + 55_000)
+            .await
+            .unwrap();
+        let expected = d.inner.lock().await.access.entries[0].clone();
+        if deny {
+            d.access_change(|list| list.deny("g").cloned())
+                .await
+                .unwrap();
+        } else {
+            d.apply_control_plane_grants("c", &[grant(2)], fsutil::now_ms() as u64 + 55_000)
+                .await
+                .unwrap();
+        }
+        let error = d.activate_native_entry(&expected).await.unwrap_err();
+        assert_eq!(error.reason.as_deref(), Some("consent_changed"));
+        let fresh = d.inner.lock().await.access.entries[0].clone();
+        assert_ne!(fresh.state, AccessState::Active);
+        if !deny {
+            d.activate_native_entry(&fresh).await.unwrap();
+            assert_eq!(
+                d.inner.lock().await.access.entries[0].state,
+                AccessState::Active
+            );
+        }
     }
 }
 
@@ -757,7 +939,8 @@ async fn join_and_enable_refuse_without_sign_in_or_the_pinned_control_plane() {
     let e = d
         .enable_sync(crate::control::EnableSync {
             collection: "44444444-4444-4444-8444-444444444444".into(),
-            mode: SyncMode::Synced,
+            mode: Some(SyncMode::Synced),
+            accept_takeover_holds: false,
         })
         .await
         .unwrap_err();
@@ -850,4 +1033,300 @@ async fn private_join_needs_the_keychain_journal_before_any_io() {
             .is_none()
     );
     assert_eq!(std::fs::read_dir(&folder).unwrap().count(), 0);
+}
+
+#[tokio::test]
+async fn loopback_port_busy_only_after_the_old_service_was_fenced() {
+    let held = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = held.local_addr().unwrap();
+    let busy = loopback_check(true, addr).await;
+    assert_eq!(busy.status, "warn");
+    assert!(busy.detail.starts_with("loopback_port_busy"));
+    assert_eq!(loopback_check(false, addr).await.status, "ok");
+    drop(held);
+    assert_eq!(loopback_check(true, addr).await.status, "ok");
+}
+
+/// `collection.update` renames and describes a collection, persists it, and
+/// refuses names that could mislead an approval screen.
+#[tokio::test]
+async fn update_renames_and_describes_and_persists() {
+    let dir = crate::testutil::TestDir::new("update-collection");
+    let folder = crate::testutil::TestDir::new("update-collection-folder");
+    let d = paired_daemon(&dir).await;
+    let added = d
+        .add(crate::control::AddCollection {
+            path: folder.path().to_path_buf(),
+            name: None,
+        })
+        .await
+        .unwrap();
+    let id = added["id"].as_str().unwrap().to_string();
+    let update = |name: Option<&str>, description: Option<&str>| crate::control::UpdateCollection {
+        collection: id.clone(),
+        name: name.map(Into::into),
+        description: description.map(Into::into),
+    };
+    let s = d
+        .update_collection(update(Some("  Workouts "), Some("Lifting log")))
+        .await
+        .unwrap();
+    assert_eq!(
+        (s["name"].as_str(), s["description"].as_str()),
+        (Some("Workouts"), Some("Lifting log"))
+    );
+    // Omitted fields are unchanged; an empty description clears it.
+    let s = d.update_collection(update(None, Some(""))).await.unwrap();
+    assert_eq!(s["name"], "Workouts");
+    assert!(s.get("description").is_none());
+    for bad in ["", "   ", "Notes\u{202e}gpj", "a\nb", &"x".repeat(101)] {
+        let e = d
+            .update_collection(update(Some(bad), None))
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, "invalid_request", "{bad:?}");
+    }
+    let saved = Registry::load(&d.profile.registry_file()).unwrap();
+    assert_eq!(saved.get(&id).unwrap().name, "Workouts");
+    let mut inner = d.inner.lock().await;
+    for host in inner.hosts.iter_mut() {
+        host.close().await;
+    }
+}
+
+/// Changes made through the control API land in `activity.list`, newest first,
+/// with the collection's name even after it is removed.
+#[tokio::test]
+async fn control_changes_are_logged_as_activity() {
+    let dir = crate::testutil::TestDir::new("activity-log");
+    let folder = crate::testutil::TestDir::new("activity-log-folder");
+    let d = paired_daemon(&dir).await;
+    let call = |method: &str, params: Value| {
+        let d = d.clone();
+        let req = Request {
+            v: PROTOCOL,
+            id: 1,
+            method: method.into(),
+            params,
+        };
+        async move { d.handle_and_note(&req, &mut ConnAuth::default()).await }
+    };
+    let added = call(
+        Method::COLLECTION_ADD,
+        json!({"path": folder.path(), "name": "Notes"}),
+    )
+    .await
+    .unwrap();
+    let id = added["id"].as_str().unwrap().to_string();
+    call(
+        Method::COLLECTION_UPDATE,
+        json!({"collection": id, "name": "Journal"}),
+    )
+    .await
+    .unwrap();
+    call(Method::COLLECTION_REMOVE, json!({"collection": id}))
+        .await
+        .unwrap();
+    assert!(
+        call(Method::COLLECTION_REMOVE, json!({"collection": id}))
+            .await
+            .is_err()
+    );
+    let log = call(Method::ACTIVITY_LIST, json!({})).await.unwrap();
+    let seen: Vec<(String, String)> = log
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| {
+            (
+                e["kind"].as_str().unwrap().into(),
+                e["collection_name"].as_str().unwrap().into(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        seen,
+        [
+            ("collection_removed".into(), "Journal".into()),
+            ("collection_updated".into(), "Journal".into()),
+            ("collection_added".into(), "Notes".into()),
+        ],
+        "a failed call adds nothing"
+    );
+}
+
+/// Adopt is refused while files the takeover held are unreviewed (only an
+/// explicit acceptance passes) and while the local replica has holds or
+/// conflicts, with the command to run.
+#[test]
+fn adopt_is_refused_while_takeover_or_replica_holds_are_open() {
+    use crate::takeover::record::{Collection, CollectionState, Record, SCHEMA_VERSION, State};
+    let dir = crate::testutil::TestDir::new("adopt-holds");
+    let state = dir.path();
+    assert!(adopt_holds_refusal(state, "c", false, Some((0, 0))).is_ok());
+    let mut held = Collection::new(CollectionState::Held);
+    held.holds = 2;
+    Record {
+        schema_version: SCHEMA_VERSION,
+        state: State::Complete,
+        updated_at: "2026-10-11T00:00:00Z".into(),
+        old_state_dir: state.join("old"),
+        collections: [("c".to_string(), held)].into(),
+    }
+    .save(&state.join("takeover.json"))
+    .unwrap();
+    let e = adopt_holds_refusal(state, "c", false, None).unwrap_err();
+    assert_eq!(e.reason.as_deref(), Some("takeover_holds"));
+    assert!(
+        e.message.contains("--accept-takeover-holds"),
+        "{}",
+        e.message
+    );
+    assert!(adopt_holds_refusal(state, "c", true, Some((0, 0))).is_ok());
+    assert!(adopt_holds_refusal(state, "other", false, None).is_ok());
+    for replica in [(1, 0), (0, 1)] {
+        let e = adopt_holds_refusal(state, "c", true, Some(replica)).unwrap_err();
+        assert_eq!(e.reason.as_deref(), Some("holds_pending"));
+    }
+}
+
+// A captured old hosted mirror is imported once its collection serves here.
+use crate::takeover::mirror_import::tests::hosted_mirror::{self, HOSTED};
+
+fn uuid(s: &str) -> [u8; 16] {
+    secrets::hex_decode(&s.replace('-', ""))
+        .unwrap()
+        .try_into()
+        .unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn captured_mirror_edits_are_imported_listed_and_resolvable() {
+    let dir = crate::testutil::TestDir::new("mi-daemon");
+    let d = paired_daemon(&dir).await;
+    // The hosted collection, registered here under its own ID (as a joined
+    // collection would be), served locally for the test.
+    let joined = crate::testutil::TestDir::new("mi-daemon-joined");
+    let folder = joined.path().join("Hosted");
+    std::fs::create_dir_all(folder.join(".mdbase")).unwrap();
+    let replica =
+        crate::registry::StoreIds::get_or_issue(&d.profile.store_ids_file(), HOSTED).unwrap();
+    std::fs::write(
+        folder.join(".mdbase/connect-role.json"),
+        serde_json::to_vec(
+            &json!({"version": 2, "role": "replica", "collection": HOSTED,
+            "replica_id": replica, "runtime": "mdbase-next",
+            "claimed_at": "2026-10-18T00:00:00Z", "notice": "test"}),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    d.add(crate::control::AddCollection {
+        path: folder.clone(),
+        name: Some("Hosted".into()),
+    })
+    .await
+    .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while d.runtime_of(HOSTED).await.is_err() {
+        assert!(std::time::Instant::now() < deadline, "never served");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    let rt = d.runtime_of(HOSTED).await.unwrap();
+    for (rid, path, doc) in hosted_mirror::server_records() {
+        let ops = vec![mdbn_wire::intent::Op::Create(mdbn_wire::intent::Create {
+            id: mdbn_wire::common::B16(uuid(rid)),
+            path: Some(path.into()),
+            type_name: None,
+            frontmatter: None,
+            body: None,
+            document: Some(mdbn_wire::common::Text::Inline(doc.into())),
+        })];
+        assert_eq!(
+            submit_as(&rt, ops, new_uuid_v7()).await.unwrap(),
+            crate::takeover::held::Outcome::Confirmed
+        );
+    }
+
+    // Captured at the takeover (before any join).
+    let elsewhere = crate::testutil::TestDir::new("mi-daemon-old");
+    let old = elsewhere.path().join("connect");
+    let entry = hosted_mirror::build(&old, &elsewhere.path().join("Hosted notes"));
+    let legacy = d.takeover_paths().legacy;
+    crate::takeover::mirror_import::capture(&legacy, &old, &entry, "2026-10-18T00:00:00Z").unwrap();
+
+    // Nothing happens before the takeover is complete (an old mirror could
+    // still be uploading).
+    d.import_mirrors().await;
+    assert_eq!(
+        d.takeover_status().await.unwrap()["mirror_imports"][HOSTED]["applied"],
+        0
+    );
+    complete_takeover_record(&d, &old);
+
+    d.import_mirrors().await;
+
+    let st = d.takeover_status().await.unwrap();
+    let mi = &st["mirror_imports"][HOSTED];
+    assert_eq!(mi["join"]["state"], "joined", "{st}");
+    assert_eq!(mi["join"]["folder"], json!(folder.canonicalize().unwrap()));
+    assert_eq!(mi["complete"], true, "{st}");
+    assert_eq!(mi["registered"], true);
+    assert_eq!(mi["name"], "Hosted");
+    assert_eq!(mi["applied"], 4);
+    assert_eq!(mi["held"], 1);
+    assert_eq!(mi["recovered"][0]["path"], "d.md");
+    assert_eq!(doc_at(&rt, "a.md").await.as_deref(), Some("A edited"));
+
+    // The conflict is listed with the replica's own holds and resolves there.
+    let holds = d.holds(HOSTED).await.unwrap();
+    let hold = holds
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|h| h["reason"] == crate::takeover::mirror_import::HOLD_REASON)
+        .unwrap_or_else(|| panic!("{holds}"))
+        .clone();
+    assert_eq!(hold["path"], "e.md");
+    d.resolve_hold(ResolveHold {
+        collection: HOSTED.into(),
+        id: hold["id"].as_str().unwrap().into(),
+        how: HoldAction::KeepBoth,
+    })
+    .await
+    .unwrap();
+    assert_eq!(doc_at(&rt, "e.md").await.as_deref(), Some("E theirs"));
+    assert_eq!(
+        doc_at(&rt, "e (old version).md").await.as_deref(),
+        Some("E mine")
+    );
+    let st = d.takeover_status().await.unwrap();
+    assert_eq!(st["mirror_imports"][HOSTED]["held"], 0, "{st}");
+
+    // Another pass changes nothing.
+    d.import_mirrors().await;
+    assert_eq!(doc_at(&rt, "n.md").await.as_deref(), Some("New"));
+    let mut inner = d.inner.lock().await;
+    for host in inner.hosts.iter_mut() {
+        host.close().await;
+    }
+}
+
+fn complete_takeover_record(d: &Daemon, old: &std::path::Path) {
+    use crate::takeover::record::{Record, SCHEMA_VERSION, State};
+    Record {
+        schema_version: SCHEMA_VERSION,
+        state: State::Complete,
+        updated_at: "2026-10-18T00:00:00Z".into(),
+        old_state_dir: old.to_path_buf(),
+        collections: Default::default(),
+    }
+    .save(&d.takeover_paths().record)
+    .unwrap();
+}
+
+async fn doc_at(rt: &Arc<crate::runtime::Runtime>, path: &str) -> Option<String> {
+    use crate::takeover::mirror_import::Target;
+    let mut t = HostTarget { rt: rt.clone() };
+    t.get(path).await.unwrap().map(|c| c.document)
 }

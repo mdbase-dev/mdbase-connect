@@ -206,6 +206,7 @@ file-attach-v1 = {
   3: attachment-content-v1,
   ? 4: hash, ; if_revision
   ? 5: hash, ; external base
+  ? 6: int,  ; mtime: writing-device capture clock, milliseconds since Unix epoch
 }
 
 ; from docs/contracts/intent.md
@@ -295,7 +296,8 @@ remove-file     = { 0: 4, 1: uuid, 2: path }
 put-resource    = { 0: 5, 1: path, 2: text }               ; path, doc
 remove-resource = { 0: 6, 1: path }
 put-settings    = { 0: 7, 1: file-inclusion }                ; the collection's file inclusion policy (intent.md §3.7)
-put-attachment-file-v1 = { 0: 8, 1: uuid, 2: path, 3: attachment-content-v1 }
+put-attachment-file-v1 = { 0: 8, 1: uuid, 2: path, 3: attachment-content-v1, ? 4: int }
+; optional field4: writing-device capture mtime in milliseconds; never sequence-derived
 put-unindexed-markdown-v1 = { 0: 9, 1: uuid, 2: path, 3: unindexed-markdown-payload-v1 }
 reindex-unindexed-markdown-v1 = { 0: 10, 1: uuid, 2: path, 3: text }
 reindex-ordinary-file-v1 = { 0: 11, 1: uuid, 2: path, 3: text }
@@ -476,7 +478,7 @@ chunk-payload = {
 
 snapshot-row = resource-row / index-row / record-row / file-row
              / tombstone-row / alias-row / conflict-row / receipt-row / settings-row
-             / attachment-file-row-v1 / attachment-tombstone-row-v1
+             / attachment-file-row-v1 / attachment-file-row-v2 / attachment-tombstone-row-v1
              / unindexed-markdown-file-row-v1 / unindexed-markdown-tombstone-row-v1
 
 snapshot-text = tstr / blob-ref
@@ -497,6 +499,8 @@ tombstone-row = [uuid, &( record: 0, file: 1 ), path, snapshot-text, seq, time-m
                                                               ; id, kind, last path, last document or file blob-ref,
                                                               ;   deleted at, deleted when; key: id
 attachment-file-row-v1 = [uuid, path, attachment-content-v1, media-class]
+attachment-file-row-v2 = [uuid, path, attachment-content-v1, media-class, int]
+; v2 trailing writing-device capture mtime (milliseconds); absent emits old v1 exactly
 attachment-tombstone-row-v1 = [uuid, 1, path, attachment-content-v1, seq, time-ms]
 unindexed-markdown-file-row-v1 = [uuid, path, unindexed-markdown-payload-v1, media-class]
 unindexed-markdown-tombstone-row-v1 = [uuid, 1, path, unindexed-markdown-payload-v1, seq, time-ms]
@@ -520,6 +524,7 @@ attachment-runtime-v1-chunk-payload =
   / { 0: 1, 1: 8, 2: uint, 3: [* receipt-row] }
   / { 0: 1, 1: 9, 2: uint, 3: [* settings-row] }
   / { 0: 1, 1: 10, 2: uint, 3: [* attachment-file-row-v1] }
+  / { 0: 2, 1: 10, 2: uint, 3: [* (attachment-file-row-v1 / attachment-file-row-v2)] }
   / { 0: 1, 1: 11, 2: uint, 3: [* attachment-tombstone-row-v1] }
   / { 0: 1, 1: 12, 2: uint, 3: [* unindexed-markdown-file-row-v1] }
   / { 0: 1, 1: 13, 2: uint, 3: [* unindexed-markdown-tombstone-row-v1] }
@@ -833,6 +838,7 @@ grant-info = {
   ? 0: uuid,             ; grant ID (absent for the hosting app itself)
   1: [+ capability],     ; capabilities (policy.md §5)
   2: role,               ; the granting member's role
+  ? 4: [+ path],         ; file_folders: the grant's file-namespace folder scope (API 1.2); key 3 reserved
 }
 
 ; from docs/contracts/replica-client-api.md
@@ -921,7 +927,13 @@ query-update = {
   7: uint,               ; as_of
   ? 8: query-metadata,   ; FULL metadata replacement at this as_of, never a delta
 }
-change = { 0: uuid, 1: path, 2: &( put: 0, remove: 1 ), 3: uint }   ; id, path, kind, view version
+change = {
+  0: uuid,                     ; id
+  1: path,
+  2: &( put: 0, remove: 1 ),   ; kind
+  3: uint,                     ; view version
+  ? 5: &( record: 0, file: 1 ), ; entity (API 1.2); key 4 reserved
+}
 
 ; from docs/contracts/replica-client-api.md
 ; ---- describe (replica-client-api.md §4.1) ----
@@ -937,12 +949,17 @@ type-summary = {
   0: tstr,                   ; type name
   1: path,                   ; type resource path
   2: [* implementation],     ; valid resolved implementations, in catalog order
+  ? 3: int,                  ; the type's declared `version`
+  ? 4: hash,                 ; revision of the type source in the local view
+  ? 5: value,                ; whole type frontmatter (definitions only)
+  ? 6: value,                ; resolved schema the type validates with (definitions only)
 }
 implementation = {
   0: tstr,                   ; contract ID
   1: tstr,                   ; exact resolved contract version
   2: { * tstr => tstr },     ; contract field reference -> record field reference
   ? 3: value,                ; binding, omitted when empty
+  ? 4: hash,                 ; implementation digest (spec 05A)
 }
 contract-summary = {
   0: tstr,                   ; contract ID
@@ -951,6 +968,23 @@ contract-summary = {
   3: hash,                   ; canonical contract digest
   4: tstr,                   ; contract_type
   5: [* tstr],               ; types implementing this exact version
+  ? 6: { * tstr => value },  ; resolved schemas by member (definitions only)
+}
+
+; from docs/contracts/replica-client-api.md
+contract-query-v1 = {
+  0: 1,
+  1: tstr,                 ; exact registered contract ID, max 1024 bytes
+  2: tstr,                 ; exact resolved version, max 128 bytes
+  ? 3: uint,               ; page size 1..128, default 128
+  ? 4: tstr,               ; session-bound ordinary query cursor
+  ? 5: tstr,               ; CEL filter over contract fields, 1..4096 bytes
+}
+contract-query-result-v1 = {
+  0: 1,
+  1: query-result,
+  2: [* {0: uuid, 1: [* {0: tstr, 1: data-map, 2: [* issue]}]}],
+  3: hash,                 ; registered contract digest
 }
 
 ; from docs/contracts/replica-client-api.md
@@ -1070,6 +1104,8 @@ file-view = {
   5: file-state,
   6: seq,                ; confirmed_seq: last log position that changed it
   ? 7: hold-ref,
+  ? 8: int,              ; mtime: writing-device commit/capture clock, milliseconds
+  ? 9: tstr,             ; IANA media type from the extension (Core paths::media_type); absent when unknown; never sniffed
 }
 file-state = &(
   materialized: 0,       ; the bytes are on this device
@@ -1093,6 +1129,7 @@ open-upload-result = {
   1: uint,               ; chunk_size: 1 MiB
   2: [* uint],           ; received: chunk indexes already held (resume)
   3: time-ms,            ; expires_at: 24 hours after the last activity
+  ? 4: uuid,             ; file_id: natively minted CREATE identity (API 1.1)
 }
 upload-chunk-params  = { 0: uuid, 1: uint, 2: bstr }      ; transfer, index, bytes (exactly chunk_size except the last)
 upload-chunk-result  = { 0: uint }                        ; chunks received

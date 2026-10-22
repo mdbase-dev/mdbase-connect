@@ -51,6 +51,11 @@ describe("collection links", () => {
     ]);
     sources[0].body = "The link was removed.";
     expect(backlinksFor(target.path, [target, sources[0]], types)).toEqual([]);
+    // Parsed bodies are cached per summary object; an edited body is reparsed.
+    sources[1].body = "[[Elsewhere]]";
+    expect(backlinksFor(target.path, [target, sources[1]], types)).toEqual([]);
+    sources[1].body = "Now [[Launch]] again";
+    expect(backlinksFor(target.path, [target, sources[1]], types).map(candidate => candidate.path)).toEqual(["Notes/alias.md"]);
   });
 
   it("prefers a simple-name target in the referring note's folder", () => {

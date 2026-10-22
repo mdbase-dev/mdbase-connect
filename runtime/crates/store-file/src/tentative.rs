@@ -32,8 +32,8 @@ use std::rc::Rc;
 
 use mdbn_replica::store::{
     AliasRow, Candidate, CommitReport, ConflictRow, FileRow, Head, KeyringPersistence,
-    LocalReceipt, Page, PendingRow, ReceiptRow, RecordRow, Store, StoreError, StoreResult,
-    TombstoneRow, TransferRow, Tx, meta_keys,
+    LocalReceipt, Observation, Page, PendingRow, ReceiptRow, RecordRow, Store, StoreError,
+    StoreFuture, StoreResult, TombstoneRow, TransferRow, Tx, meta_keys,
 };
 use mdbn_wire::client::Hold;
 use mdbn_wire::common::{Hash, Uuid};
@@ -172,6 +172,60 @@ impl<I: IndexStorage> Store for TentativeStore<I> {
     ) -> StoreResult<Option<mdbn_replica::store::BoundedResource>> {
         read!(self.resource_bounded(path, copy_limit))
     }
+    fn observe_async<'a>(
+        &'a mut self,
+        paths: Option<&'a [String]>,
+    ) -> StoreFuture<'a, Vec<Observation>> {
+        Box::pin(async move {
+            self.check()?;
+            let result = self.inner.observe_async(paths).await;
+            self.check()?;
+            self.guard(result)
+        })
+    }
+    fn resource_observation_text_async<'a>(
+        &'a mut self,
+        observation: &'a Observation,
+        limit: usize,
+    ) -> StoreFuture<'a, Option<String>> {
+        Box::pin(async move {
+            self.check()?;
+            let result = self
+                .inner
+                .resource_observation_text_async(observation, limit)
+                .await;
+            self.check()?;
+            self.guard(result)
+        })
+    }
+    fn resource_observation_current_async<'a>(
+        &'a mut self,
+        observation: &'a Observation,
+    ) -> StoreFuture<'a, bool> {
+        Box::pin(async move {
+            self.check()?;
+            let result = self
+                .inner
+                .resource_observation_current_async(observation)
+                .await;
+            self.check()?;
+            self.guard(result)
+        })
+    }
+    fn resource_observation_batch_complete_async<'a>(
+        &'a self,
+        observations: &'a [Observation],
+    ) -> StoreFuture<'a, bool> {
+        Box::pin(async move {
+            self.check()?;
+            let result = self
+                .inner
+                .resource_observation_batch_complete_async(observations)
+                .await;
+            self.check()?;
+            self.guard(result)
+        })
+    }
     fn settings(&self) -> StoreResult<Option<FileInclusion>> {
         read!(self.settings())
     }
@@ -210,6 +264,20 @@ impl<I: IndexStorage> Store for TentativeStore<I> {
     }
     fn candidates(&self, q: &Candidate, p: Page) -> StoreResult<Vec<RecordRow>> {
         read!(self.candidates(q, p))
+    }
+    fn query_index_supported(&self) -> bool {
+        self.inner.query_index_supported()
+    }
+    fn query_projection_state(
+        &self,
+    ) -> StoreResult<Option<mdbn_replica::store_query::QueryProjectionState>> {
+        read!(self.query_projection_state())
+    }
+    fn query_projection_page(
+        &self,
+        request: &mdbn_replica::store_query::QueryProjectionRequest,
+    ) -> StoreResult<mdbn_replica::store_query::QueryProjectionPage> {
+        read!(self.query_projection_page(request))
     }
     fn query_index_state(&self) -> StoreResult<Option<mdbn_replica::store_query::QueryIndexState>> {
         read!(self.query_index_state())

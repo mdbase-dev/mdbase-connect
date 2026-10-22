@@ -2,13 +2,21 @@
  * Device phase uses the actual persistent browser provider/stores and actual CP
  * registration. No fixture/memory custody or default roots. Collection SQL opens
  * only after ownership + protected completion; native reads gate the data facade. */
+import { idbLogTokenCache } from "./log-token-cache.js";
+import { currentAppOrigin } from "./app-origin.js";
 import { uuidToBytes } from "../codec.js";
 import { collectionDisplayName } from "./collection-display-name.js";
 import { MdbaseClient } from "../client.js";
 import { MdbaseError } from "../errors.js";
 import { inProcessConnector } from "../transport/inprocess.js";
 import { AppCpLogAuthority } from "./cp-authority.js";
-import type { AppLogPump } from "./log-pump.js";
+import { AppLogPushChannel, type AppLogPushEvents } from "./log-push.js";
+import { AppCpPeopleAuthority } from "./cp-people.js";
+import { attachAppTimerReceiver } from "./timer-port.js";
+import type { PeopleAuthority } from "../people.js";
+import type { AppLogHealth, AppLogPump } from "./log-pump.js";
+import type { AppServerProblem } from "./cp-problem.js";
+import { initialSyncWait, keyWaitDetail, type AppInitialSyncWait } from "./initial-sync.js";
 import { attachAppLocalFacade } from "./local-facade.js";
 import {
     AppCpCloudCopyBootstrap,
@@ -29,7 +37,7 @@ import { AppIndexedDbDeviceKeyProtectedStore } from "./device-key-idb.js";
 import { AppWebDeviceKeyCustody } from "./device-key-custody.js";
 import { AppIndexedDbNoiseProtectedStore } from "./noise-idb.js";
 import { AppWebNoiseCustody } from "./noise-custody.js";
-import type { AppProtectedInstallationSignIn, AppInstallationSignInView } from "./installation-sign-in.js";
+import type { AppProtectedInstallationSignIn, AppInstallationSignInView, AppInstallationTimerConsent } from "./installation-sign-in.js";
 import {
     AppCpDeviceRegistration,
     type AppCpDeviceSession,
@@ -49,6 +57,9 @@ export interface AppCloudCopyHostSession extends AppCpDeviceSession {
     readonly accountId: string;
     readonly logOrigin: string;
     readonly approvalMode: "password-ak1" | "strict";
+    /** Original protected CP receipt metadata; absent means no timer reference.
+     * Neither this snapshot nor its public IDs authorize a CP operation. */
+    timerConsent?(): AppInstallationTimerConsent | null;
 }
 /** SAME public bundled output of the shared BUILD verifier; never discover at
  * runtime. Release context/tool authentication precedes host construction. */
@@ -62,6 +73,10 @@ export class AppCloudCopyHostError extends Error {
         this.name = "AppCloudCopyHostError";
     }
 }
+/** Attached tabs per replica: the leader plus followers. */
+const MAX_FACADES = 32;
+/** Bounded back-to-back turns in one foreground drive. */
+const DRIVE_TURNS = 8;
 const fail = (r: AppCloudCopyHostError["reason"]) =>
     new AppCloudCopyHostError(r);
 const equal = (a: Uint8Array, b: Uint8Array) =>
@@ -82,6 +97,9 @@ export class AppWebCloudCopyHost {
     private signIn: AppProtectedInstallationSignIn | null = null;
     private originalCustody: AppNoiseCustodyResult | null = null;
     private collectionAttempted = false;
+    // Original collection cancellation remains bound to protected bootstrap
+    // storage/adoption. Each public call also observes its own caller signal.
+    private collectionSignal: AbortSignal | null = null;
     private collectionCurrent: (() => boolean) | null = null;
     private outcomeStore: AppIndexedDbCloudCopyOutcomeStore | null = null;
     private outcome: AppWebCloudCopyBootstrapPersistence | null = null;
@@ -97,12 +115,16 @@ export class AppWebCloudCopyHost {
     private logLoopback = false;
     private logWork: Promise<void> | null = null;
     private authority: AppCpLogAuthority | null = null;
+    private peopleMetadata: { authority: AppCpPeopleAuthority; view: PeopleAuthority } | null = null;
     private pump: AppLogPump | null = null;
+    private readonly timerPorts = new Set<{close():Promise<void>}>();
     private readWork: Promise<void> | null = null;
     private readAbort: AbortController | null = null;
     private readClient: MdbaseClient | null = null;
     private readVerified = false;
-    private facade: { close(): void } | null = null;
+    /** One data facade per attached tab (the first, then any follower tabs). */
+    private readonly facades = new Map<MessagePort, ReturnType<typeof attachAppLocalFacade>>();
+    private logWorkListener: (() => void) | null = null;
     private readonly selected: Readonly<{
         accountId: string;
         connectorId: string;
@@ -148,7 +170,7 @@ export class AppWebCloudCopyHost {
         ])
             if (uuidToBytes(v).every((b) => b === 0)) throw fail("binding");
         if (
-            source.kind !== "app-runtime" ||
+            (source.kind !== "app-runtime" && source.kind !== "mobile") ||
             originalRelease.schema !== "mdbn-app-trust/release/1" ||
             originalRelease.cpOrigin !== source.cpOrigin ||
             originalRelease.logOrigin !== source.logOrigin ||
@@ -200,7 +222,7 @@ export class AppWebCloudCopyHost {
             return (
                 !this.closing &&
                 !this.lifetime.aborted &&
-                globalThis.location?.origin === this.origin &&
+                currentAppOrigin() === this.origin &&
                 this.source.isCurrent === this.currentCallback &&
                 this.source.connectorBearer === this.bearerCallback &&
                 this.installation.isCurrent === this.ownershipCallback &&
@@ -230,8 +252,16 @@ export class AppWebCloudCopyHost {
         }
     }
     private check(signal: AbortSignal): void {
-        if (signal !== this.lifetime || signal.aborted || !this.current())
-            throw fail("fenced");
+        if (signal.aborted || !this.current()) throw fail("fenced");
+    }
+    private operationSignal(caller: AbortSignal): AbortSignal {
+        const signal = AbortSignal.any([
+            this.lifetime,
+            ...(this.collectionSignal ? [this.collectionSignal] : []),
+            caller,
+        ]);
+        this.check(signal);
+        return signal;
     }
     /** Must run INSIDE owned Worker initialization, after installation acquisition.
      * loadRuntime is the explicit authenticated immutable-artifact intake, not a
@@ -405,11 +435,12 @@ export class AppWebCloudCopyHost {
             collectionCurrent,
             purpose,
             outcomeMode,
-            signal,
+            signal: callerSignal,
             reconcile,
             fetch: request,
             allowLoopbackHttp,
         } = options;
+        const signal = this.operationSignal(callerSignal);
         const requestedName = options.displayName;
         const displayName = requestedName === undefined ? undefined : collectionDisplayName(requestedName);
         if (displayName !== undefined && purpose !== "create") throw fail("binding");
@@ -435,6 +466,7 @@ export class AppWebCloudCopyHost {
             try {
                 return (
                     this.current() &&
+                    !signal.aborted &&
                     options.scope === scope &&
                     options.collectionCurrent === collectionCurrent &&
                     Object.entries(original).every(
@@ -449,6 +481,7 @@ export class AppWebCloudCopyHost {
         };
         if (!current()) throw fail("fenced");
         this.collectionAttempted = true;
+        this.collectionSignal = signal;
         this.collectionCurrent = current;
         this.collectionScope = original;
         const source: AppCpCloudCopySession & AppCloudCopyOutcomeScope =
@@ -508,7 +541,8 @@ export class AppWebCloudCopyHost {
         options: AppCloudCopyAdoptionOptions,
         sql: AppSqlLifetime,
     ): void {
-        this.checkCollection(options.signal);
+        const signal = this.operationSignal(options.signal);
+        this.checkCollection(signal);
         if (
             !this.bootstrap ||
             !this.bootstrapConfirmed ||
@@ -516,8 +550,13 @@ export class AppWebCloudCopyHost {
         )
             throw fail("fenced");
         const endpoint = options.endpoint;
-        this.bootstrap.adoptCollection(options, sql);
-        this.checkCollection(options.signal);
+        // Preserve the exact original protected bootstrap signal internally;
+        // never require the app to retrieve or loan the host's private lifetime.
+        this.bootstrap.adoptCollection(
+            { ...options, signal: this.collectionSignal! },
+            sql,
+        );
+        this.checkCollection(signal);
         this.adoptedEndpoint = endpoint;
     }
     /** Trusted immutable storage intake callback: actual OPFS adapter in this
@@ -538,7 +577,8 @@ export class AppWebCloudCopyHost {
             close(): Promise<void>;
         }>;
     }): Promise<void> {
-        const { signal, replicaId, endpoint, openSql } = options;
+        const { replicaId, endpoint, openSql } = options;
+        const signal = this.operationSignal(options.signal);
         this.checkCollection(signal);
         if (
             !this.bootstrapConfirmed ||
@@ -591,7 +631,8 @@ export class AppWebCloudCopyHost {
         fetch?: typeof fetch;
         allowLoopbackHttp?: boolean;
     }): Promise<void> {
-        const { signal, fetch: request, allowLoopbackHttp } = options;
+        const { fetch: request, allowLoopbackHttp } = options;
+        const signal = this.operationSignal(options.signal);
         this.checkCollection(signal);
         if (
             !this.native ||
@@ -607,7 +648,11 @@ export class AppWebCloudCopyHost {
         )
             throw fail("fenced");
         if (this.pump) return;
-        if (this.logWork) return this.logWork;
+        if (this.logWork) {
+            await this.logWork;
+            this.checkCollection(signal);
+            return;
+        }
         if (!this.authority) {
             this.logRequest = captured;
             this.logLoopback = loopback;
@@ -618,7 +663,7 @@ export class AppWebCloudCopyHost {
                     endpoint: this.adoptedEndpoint,
                     directOrigins: Object.freeze([]),
                 }),
-                { fetch: captured, allowLoopbackHttp },
+                { fetch: captured, allowLoopbackHttp, tokenCache: idbLogTokenCache() },
             );
         }
         // An offline token mint is NOT identity loss: retain the SAME authority,
@@ -636,15 +681,179 @@ export class AppWebCloudCopyHost {
             if (this.logWork === work) this.logWork = null;
         }
     }
+    /** Read-only metadata for this adopted collection. Uses the already pinned
+     * CP transport; no session, credential, key or readiness authority escapes.
+     * Compose with MdbasePeopleClient INSIDE the trusted owned Worker and send
+     * only public projections across its caller channel. */
+    peopleAuthority(): PeopleAuthority {
+        this.checkCollection(this.lifetime);
+        if (!this.collectionSession || this.adoptedEndpoint === null || !this.logRequest)
+            throw fail("binding");
+        if (!this.peopleMetadata) {
+            const endpoint = this.adoptedEndpoint, session = this.collectionSession;
+            const authority = new AppCpPeopleAuthority(Object.freeze({
+                ...session,
+                endpoint,
+                directOrigins: Object.freeze([]),
+                isCurrent: () => this.collectionCurrent?.() === true && this.adoptedEndpoint === endpoint,
+                connectorBearer: async ({ signal }: { signal: AbortSignal }) => {
+                    signal.throwIfAborted();
+                    this.checkCollection(this.lifetime);
+                    // Custody admits ONLY the original owner lifetime; the
+                    // metadata request's child signal controls its HTTP work.
+                    const bearer = await session.connectorBearer({ signal: this.lifetime });
+                    this.checkCollection(this.lifetime);
+                    signal.throwIfAborted();
+                    return bearer;
+                },
+            }), { fetch: this.logRequest, allowLoopbackHttp: this.logLoopback });
+            const view = Object.freeze<PeopleAuthority>({
+                collection: authority.collection,
+                isCurrent: () => authority.isCurrent(),
+                request: (resource, options) => authority.request(resource, options),
+            });
+            this.peopleMetadata = { authority, view };
+        }
+        return this.peopleMetadata.view;
+    }
+    /** SAME Worker host/scope/child lifetime. Only the original chosen receipt
+     * selects a fixed native CP receiver; no session or bearer leaves Worker. */
+    openTimersPort(options:{scope:Readonly<AppReplicaScope>;generation:string;signal:AbortSignal}):{port:MessagePort;close():Promise<void>} | null {
+        this.checkCollection(this.lifetime);
+        if(!this.readVerified || !this.logRequest || !this.collectionScope || options.signal.aborted) throw fail("binding");
+        const {scope,generation,signal}=options,original=this.collectionScope;
+        if(scope.account!==original.account || scope.installation!==original.installation || scope.collection!==original.collection || uuidToBytes(generation).every(value=>value===0)) throw fail("binding");
+        const callback=this.source.timerConsent,consent=callback?.call(this.source);
+        if(!consent?.approved)return null;
+        const grant=consent.grants.find(reference=>reference.collectionId===scope.collection);
+        if(!grant)return null;
+        const WorkerScope=(globalThis as typeof globalThis & {WorkerGlobalScope?:new()=>object}).WorkerGlobalScope;
+        if(typeof WorkerScope!=="function" || !(globalThis instanceof WorkerScope)) throw fail("binding");
+        if(uuidToBytes(grant.grantId).every(value=>value===0)||!/^[0-9a-f]{64}$/.test(grant.declarationDigest))throw fail("binding");
+        const snapshot=JSON.stringify(consent),channel=new MessageChannel();
+        const isCurrent=()=>{
+            try{return !signal.aborted && options.signal===signal && options.scope===scope && options.generation===generation && this.collectionCurrent?.()===true && this.current()
+                && scope.account===original.account && scope.installation===original.installation && scope.collection===original.collection
+                && this.source.timerConsent===callback && JSON.stringify(callback?.call(this.source))===snapshot;}
+            catch{return false;}
+        };
+        const receiver=attachAppTimerReceiver(channel.port1,{scope:original,generation,grantId:grant.grantId,cpOrigin:new URL(this.selected.cpOrigin).origin,
+            signal,isCurrent,fetch:this.logRequest,...(this.signIn ? {journal:{
+                read:()=>this.signIn!.originalTimerChannel(grant.grantId),
+                write:(value:Parameters<AppProtectedInstallationSignIn["retainTimerChannel"]>[1])=>this.signIn!.retainTimerChannel(grant.grantId,value),
+            }} : {}),bearer:async()=>{
+                if(!isCurrent())throw fail("fenced");
+                // Custody callback accepts ONLY original host lifetime. Child
+                // cancellation fences HTTP, never borrows/unlocks the actor.
+                const value=await this.bearerCallback.call(this.source,{signal:this.lifetime});
+                if(!isCurrent())throw fail("fenced");return value;
+            }});
+        this.timerPorts.add(receiver);
+        return Object.freeze({port:channel.port2,close:async()=>{await receiver.close();channel.port2.close();this.timerPorts.delete(receiver);}});
+    }
+    /** The live log's latest specific server refusal, or null. Display only. */
+    serverProblem(): AppServerProblem | null {
+        return this.pump?.serverProblem ?? null;
+    }
+    /** Typed health of the path to the log from the latest failed call, or
+     * null once a reply was accepted. Display and retry pacing only. */
+    transportHealth(): AppLogHealth | null {
+        return this.pump?.transportHealth ?? null;
+    }
+    /** What the replica still waits for before it holds everything up to the
+     * known log head, or null once it does (native sync status). */
+    initialSync(): AppInitialSyncWait | null {
+        try {
+            if (!this.native) return "unavailable";
+            return initialSyncWait(this.native.observations().status);
+        } catch {
+            return "unavailable";
+        }
+    }
+    /** Diagnostics while waiting for a key (native sync status), else null. */
+    keyWaitDetail(): Record<string, string | number> | null {
+        try {
+            return this.native ? keyWaitDetail(this.native.observations().status) : null;
+        } catch {
+            return null;
+        }
+    }
+    /** Local writes not yet confirmed by the log (native sync status). */
+    pendingWrites(): number {
+        try {
+            return this.native?.observations().status.pending ?? 0;
+        } catch {
+            return 0;
+        }
+    }
+    /** Feed one push frame to the native replica (current log session only). */
+    pushLog(frame: Uint8Array): boolean {
+        try {
+            return this.native?.pushLog(frame) === true;
+        } catch {
+            return false;
+        }
+    }
+    /** The log's push socket for this collection, or null when the runtime cannot
+     * sign its `hello` (older native asset): then the caller wakes on events only.
+     * Requires the started log. The socket never carries requests. */
+    openLogPush(events: AppLogPushEvents): AppLogPushChannel | null {
+        this.checkCollection(this.lifetime);
+        const native = this.native, authority = this.authority, session = this.collectionSession, request = this.logRequest;
+        if (!native || !this.pump || !authority || !session || !request) throw fail("binding");
+        if (!native.supportsLogPush || typeof WebSocket !== "function") return null;
+        const loopback = this.logLoopback, origin = authority.origin;
+        const current = () => {
+            try { return this.collectionCurrent?.() === true && this.current() && this.authority === authority && authority.isCurrent(); } catch { return false; }
+        };
+        return new AppLogPushChannel({
+            origin, collection: authority.collection, deviceId: session.deviceId, isCurrent: current,
+            accessToken: options => authority.accessToken(options),
+            invalidateToken: token => authority.invalidateToken(token),
+            nonce: async ({ signal }) => {
+                const r = await request(`${origin}/v1/nonce`, { signal, cache: "no-store", credentials: "omit", redirect: "error", referrerPolicy: "no-referrer" });
+                const text = (await r.text()).trim();
+                if (!r.ok || !/^[0-9a-f]{64}$/.test(text)) throw fail("unavailable");
+                return Uint8Array.from(text.match(/../g)!.map(v => parseInt(v, 16)));
+            },
+            signHello: (nonce, token) => current() ? native.signLogHello(nonce, token) : null,
+        }, events, { allowLoopbackHttp: loopback });
+    }
     /** Ordinary foreground log drive. Quiet/head/ACK/status are NOT read/Saved. */
     async driveCollection(options: { signal: AbortSignal }): Promise<void> {
-        const { signal } = options;
+        const signal = this.operationSignal(options.signal);
+        this.checkCollection(signal);
+        if (!this.native || !this.pump || this.adoptedEndpoint === null)
+            throw fail("binding");
+        // A reply can leave work that only a tick advances (an answer to a
+        // pending app call, the next upload step). Keep turning while turns
+        // send log calls, so a chain of steps never waits for the next timer.
+        for (let turn = 0; turn < DRIVE_TURNS; turn++) {
+            const sent: number = this.pump.callsSent;
+            this.native.tick();
+            await this.pump.pump();
+            this.checkCollection(signal);
+            if (this.pump?.callsSent === sent) break;
+        }
+    }
+    /** Foreground head wake. The HTTP log has no push channel and the native core
+     * queues a head only on open, failure or reconnect, so without this a running
+     * session never learns another device's entries. Runs only after a quiet pump;
+     * the native side refuses while a head fetch is already in flight. */
+    async wakeCollectionLog(options: { signal: AbortSignal }): Promise<void> {
+        const signal = this.operationSignal(options.signal);
         this.checkCollection(signal);
         if (!this.native || !this.pump || this.adoptedEndpoint === null)
             throw fail("binding");
         this.native.tick();
+        if (!(await this.pump.pump()).quiet) return;
+        this.checkCollection(signal);
+        // Head-only fetch over the current authenticated session: no token
+        // mint, reconnect, status flicker or readiness re-assessment.
+        if (!this.native.requestLogHead()) return;
         await this.pump.pump();
         this.checkCollection(signal);
+        this.native.tick();
     }
     /** Bounded READ-only probe through the actual typed native Query gate.
      * No status inference, write retry, key override or private grant. A warm
@@ -653,7 +862,8 @@ export class AppWebCloudCopyHost {
         signal: AbortSignal;
         timeoutMs?: number;
     }): Promise<void> {
-        const { signal, timeoutMs = 15000 } = options;
+        const { timeoutMs = 15000 } = options;
+        const signal = this.operationSignal(options.signal);
         this.checkCollection(signal);
         if (
             !this.native ||
@@ -664,7 +874,10 @@ export class AppWebCloudCopyHost {
             timeoutMs > 15000
         )
             throw fail("binding");
-        if (this.readWork) return this.readWork;
+        if (this.readWork)
+            return this.readWork.then(() => {
+                this.checkCollection(signal);
+            });
         const work = this.verifyRead(signal, timeoutMs);
         this.readWork = work;
         void work
@@ -741,16 +954,22 @@ export class AppWebCloudCopyHost {
             this.readAbort = null;
         }
     }
-    /** ONE data-only Worker port, only after a genuine native typed read passed.
+    /** A data-only Worker port per attached tab, only after a genuine native typed read passed.
      * Every subsequent frame remains gated by native trust/applied/key/read.
      * Host controls, SQL/custody/log tokens and owner unlock are never RPCs. */
-    attachDataFacade(channel: MessagePort): void {
+    /** Called when an app call may have queued log work (a write or file
+     * transfer), so the collection drive runs now rather than on its timer. */
+    onLogWork(listener: (() => void) | null): void {
+        this.logWorkListener = listener;
+    }
+    attachDataFacade(channel: MessagePort): ReturnType<typeof attachAppLocalFacade>["resourceSetup"] {
         this.checkCollection(this.lifetime);
         if (
             !this.native ||
             !this.collectionScope ||
             !this.readVerified ||
-            this.facade
+            this.facades.size >= MAX_FACADES ||
+            this.facades.has(channel)
         )
             throw fail("fenced");
         const scope = Object.freeze({
@@ -764,7 +983,16 @@ export class AppWebCloudCopyHost {
                 }
             },
         });
-        this.facade = attachAppLocalFacade(this.native, channel, scope);
+        const facade = attachAppLocalFacade(this.native, channel, scope, () => this.logWorkListener?.());
+        this.facades.set(channel, facade);
+        return facade.resourceSetup;
+    }
+    /** Close one tab's data facade (that tab left); the replica stays open. */
+    detachDataFacade(channel: MessagePort): void {
+        const facade = this.facades.get(channel);
+        if (!facade) return;
+        this.facades.delete(channel);
+        facade.close();
     }
     /** Public tuple copy only; no key loans and no readiness claim. */
     registeredReceipt(): AppDeviceRegistrationReceipt {
@@ -786,7 +1014,8 @@ export class AppWebCloudCopyHost {
         let fenceFailed = false;
         for (const close of [
             () => this.readClient?.close(),
-            () => this.facade?.close(),
+            () => { for (const facade of this.facades.values()) facade.close(); this.facades.clear(); },
+            () => this.peopleMetadata?.authority.close(),
             () => this.bootstrap?.close(),
             () => this.outcome?.close(),
         ]) {
@@ -798,6 +1027,9 @@ export class AppWebCloudCopyHost {
         }
         return (this.closeResult ??= (async () => {
             try {
+                // Drain exact timer HTTP/IPC before native/SQL/lease shutdown.
+                await Promise.all([...this.timerPorts].map(async port=>{try{await port.close();}catch{fenceFailed=true;}}));
+                this.timerPorts.clear();
                 const clean = await this.native?.close();
                 if (this.collectionSql && clean !== true)
                     this.collectionSql.fence();

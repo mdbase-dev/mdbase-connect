@@ -4,3 +4,5 @@ dist/
 wasm/*.wasm
 # Built by `npm run build:native` (cargo build --release -p mdbase-node).
 native/*.node
+# Test-owned scratch directories (test/node.test.ts).
+.test-scratch-*/

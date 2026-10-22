@@ -751,6 +751,8 @@ impl Node {
             return;
         };
         let records = rep.confirmed_records().unwrap_or_default();
+        let seed = w.seed;
+        let tag = |label| crate::tap::content_tag(seed, label);
         let roll = w.rng.below(100);
         let (op, toks) = if records.is_empty() || roll < 25 {
             let tok = w.shared.tokens.borrow_mut().fresh(&self.name);
@@ -759,19 +761,19 @@ impl Node {
             let mut id = [0u8; 16];
             id[..8].copy_from_slice(&self.cfg.device.0[..8]);
             id[8..].copy_from_slice(&(n + (self.incarnation << 40)).to_be_bytes());
-            // A small shared namespace makes concurrent creates collide.
+            // The shared random namespace still makes concurrent creates collide.
             let path = if w.rng.chance(300_000) {
-                format!("notes/shared-{}.md", w.rng.below(4))
+                format!("{}/shared-{}.md", tag("notes"), w.rng.below(4))
             } else {
-                format!("notes/{}-{n}-{}.md", self.name, self.incarnation)
+                format!("{}/{}-{n}-{}.md", tag("notes"), self.name, self.incarnation)
             };
             let doc = SimDoc {
                 fields: vec![
-                    ("title".into(), format!("Note {n}")),
-                    ("status".into(), "open".into()),
-                    ("tags".into(), format!("[{tok}]")),
+                    (tag("title"), format!("Note {n}")),
+                    (tag("status"), "open".into()),
+                    (tag("tags"), format!("[{tok}]")),
                 ],
-                body: format!("Body {n}\n"),
+                body: format!("{} {n}\n", tag("Body")),
             }
             .render();
             register_markers(w, &B16(id), &path);
@@ -794,12 +796,9 @@ impl Node {
                 (
                     Op::Update(Update {
                         id: r.id,
-                        patch: Some(DataMap(vec![("status".into(), Value::Text(status.into()))])),
+                        patch: Some(DataMap(vec![(tag("status"), Value::Text(status.into()))])),
                         unset: None,
-                        add: Some(DataMap(vec![(
-                            "tags".into(),
-                            vec![Value::Text(tok.clone())],
-                        )])),
+                        add: Some(DataMap(vec![(tag("tags"), vec![Value::Text(tok.clone())])])),
                         remove: None,
                         body: None,
                         body_edits: None,
@@ -811,7 +810,12 @@ impl Node {
                     vec![tok],
                 )
             } else {
-                let to = format!("notes/moved-{}-{}.md", self.name, w.rng.below(1_000_000));
+                let to = format!(
+                    "{}/moved-{}-{}.md",
+                    tag("notes"),
+                    self.name,
+                    w.rng.below(1_000_000)
+                );
                 register_markers(w, &r.id, &to);
                 (
                     Op::Rename(Rename {

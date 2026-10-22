@@ -118,3 +118,35 @@ async fn rollout_does_not_follow_redirects() {
             .is_err()
     );
 }
+
+#[test]
+fn rollout_gate_tells_a_legacy_account_from_no_answer() {
+    use crate::takeover::RolloutGate;
+    let gate = |v: Value| RolloutGate::from_rollout(&parse_rollout(v).unwrap());
+    assert_eq!(
+        gate(json!({"local_takeover":true,"account_backend":"next"})),
+        RolloutGate::Allowed
+    );
+    for v in [
+        json!({"local_takeover":false,"account_backend":"legacy"}),
+        json!({"local_takeover":true,"account_backend":"legacy"}),
+    ] {
+        assert_eq!(gate(v), RolloutGate::Legacy);
+    }
+    for v in [
+        json!({"local_takeover":false,"account_backend":"next"}),
+        json!({"local_takeover":true,"account_backend":null}),
+        json!({"local_takeover":false}),
+    ] {
+        assert_eq!(gate(v), RolloutGate::Unknown);
+    }
+    let legacy = crate::takeover::not_allowed_error(true);
+    assert_eq!(legacy.reason.as_deref(), Some("takeover_not_allowed"));
+    assert!(legacy.message.contains("Nothing was changed"));
+    assert!(!legacy.message.to_lowercase().contains("legacy"));
+    assert!(
+        crate::takeover::not_allowed_error(false)
+            .message
+            .contains("try again")
+    );
+}

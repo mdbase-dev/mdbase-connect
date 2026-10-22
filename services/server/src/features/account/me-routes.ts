@@ -21,6 +21,7 @@ import { liveAuthorizationCollections } from "../authorizations/local-collection
 import { grantWithCompatibleApplicationOrigin } from "../grants/application-origin.js";
 import { requiresHostedCollection } from "../grants/policy.js";
 import { hostedMirrorReplicas } from "../hosted/service.js";
+import { nativeDevicesByCollection } from "../next/native-grant-target.js";
 
 interface AccountOverviewRouteOptions {
   db: DatabasePool;
@@ -29,6 +30,7 @@ interface AccountOverviewRouteOptions {
   authenticationPolicy: AuthenticationPolicyStore;
   tailscaleAuth?: boolean;
   hostedCollections?: boolean;
+  nativeCollectionCreation?: boolean;
   hostedSharing?: boolean;
   hostedProvider?: HostedProviderClient;
   hostedReference?: HostedAuthorityRegistry;
@@ -60,13 +62,29 @@ export function registerAccountOverviewRoute(
     );
     if (!authenticated) return;
     const { authentication_provider: authenticationProvider, ...user } = authenticated;
+    const accountBackend = (await options.db.query<{account_backend:string; flipped:boolean}>(`SELECT u.account_backend,
+      f.account_id IS NOT NULL AS flipped FROM users u LEFT JOIN next_migration_account_flips f ON f.account_id=u.id
+      WHERE u.id=$1 AND u.suspended_at IS NULL`, [user.id])).rows[0];
+    const nativeCollections = await listNativeCollectionsVisibleToUser(options.db, user.id);
+    const nativeComputers = await nativeDevicesByCollection(options.db, nativeCollections.map(collection => collection.id), user.id);
+    const nativeCreator = await options.db.query(
+      `SELECT 1 FROM next_devices d JOIN connectors c ON c.id = d.connector_id
+       WHERE d.user_id = $1 AND c.user_id = $1 AND c.revoked_at IS NULL
+         AND d.kind IN ('desktop', 'cli') LIMIT 1`,
+      [user.id]
+    );
     const connectors = await options.db.query<AccountConnectorRow>(
       `SELECT c.id, c.name, c.last_seen_at, c.created_at,
               c.connector_version, c.last_incompatible_at,
               c.incompatibility_code, c.minimum_connector_version,
               c.connector_update_url, c.latest_policy_ack_mode
        FROM connectors c
+       LEFT JOIN installation_device_credentials installation
+         ON installation.connector_id = c.id
+       LEFT JOIN applications installed_app ON installed_app.id::text = installation.app_id
+         AND installed_app.family_identity IS NOT NULL
        WHERE c.user_id = $1 AND c.revoked_at IS NULL
+         AND installed_app.id IS NULL
        ORDER BY c.created_at`,
       [user.id]
     );
@@ -171,6 +189,7 @@ export function registerAccountOverviewRoute(
               CASE
                 WHEN g.revoked_at IS NULL THEN 'active'
                 WHEN g.hosted_replica_id IS NULL AND g.hosted_collection_id IS NULL
+                  AND g.next_collection_id IS NULL
                   AND g.revocation_confirmed_at IS NULL THEN 'revoking'
                 WHEN g.id IN (
                   SELECT job.grant_id FROM provider_revocation_jobs job
@@ -180,20 +199,39 @@ export function registerAccountOverviewRoute(
               END AS revocation_status,
               CASE WHEN g.application_origin = '' THEN a.homepage
                    ELSE g.application_origin END AS application_origin,
-              COALESCE(col.local_id, g.hosted_collection_id) AS collection_id,
+              COALESCE(col.local_id, g.hosted_collection_id, g.next_collection_id) AS collection_id,
               a.id AS application_id,
               a.family_identity AS application_family_id,
               a.distribution, a.name AS application_name,
               a.homepage, a.project_url, a.icon, a.requirements,
-              COALESCE(col.display_name, hosted.display_name) AS collection_name,
-              CASE WHEN g.hosted_collection_id IS NULL THEN 'local' ELSE 'hosted' END AS collection_kind
+              COALESCE(col.display_name, hosted.display_name, native.display_name) AS collection_name,
+              CASE WHEN g.next_collection_id IS NOT NULL THEN 'private' WHEN g.hosted_collection_id IS NULL THEN 'local' ELSE 'hosted' END AS collection_kind
        FROM grants g
        JOIN applications a ON a.id = g.application_id
        LEFT JOIN collections col ON col.id = g.collection_id
        LEFT JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
+       LEFT JOIN next_collections native ON native.collection_id = g.next_collection_id
        WHERE g.user_id = $1
          AND (g.activated_at IS NOT NULL OR g.revoked_at IS NOT NULL)
        ORDER BY g.created_at DESC`,
+      [user.id]
+    );
+    // Installation devices are app authority, not synthetic OAuth grants or
+    // computers. Return only review metadata; never credential/key material.
+    const installationAccess = await options.db.query(
+      `SELECT a.id AS application_id, a.family_identity AS application_family_id,
+              a.name AS application_name, a.icon, k.app_origin AS application_origin,
+              k.connector_id, k.installation_id, k.kind AS device_kind, k.created_at, k.create_collections, scope.collection_id,
+              native.display_name AS collection_name, native.sync,
+              scope.file_actions AS approved_optional_file_actions
+       FROM installation_device_credentials k
+       JOIN connectors c ON c.id = k.connector_id
+       JOIN applications a ON a.id::text = k.app_id
+       LEFT JOIN installation_collection_scopes scope ON scope.connector_id = k.connector_id
+       LEFT JOIN next_collections native ON native.collection_id = scope.collection_id
+       WHERE c.user_id = $1 AND c.revoked_at IS NULL
+         AND a.family_identity IS NOT NULL
+       ORDER BY a.family_identity, scope.collection_id, k.created_at`,
       [user.id]
     );
     const pendingAuthorizations = await options.db.query(
@@ -265,6 +303,8 @@ export function registerAccountOverviewRoute(
         } : null
       } : null,
       hosted_collections_available: options.hostedCollections === true,
+      native_collection_creation_available: nativeCreator.rows.length > 0,
+      collection_creation_available: accountBackend?.account_backend === "next" ? accountBackend.flipped && options.nativeCollectionCreation === true : accountBackend?.account_backend === "legacy" && options.hostedCollections === true,
       collection_sharing_available: options.hostedCollections === true && options.hostedSharing === true,
       authentication: {
         provider: authenticationProvider ?? (options.tailscaleAuth ? "tailscale" : "session"),
@@ -328,8 +368,15 @@ export function registerAccountOverviewRoute(
             sync_status: hostedReplicaStatuses.get(replica.id) ?? null
           }))
       })),
-      native_collections: (await listNativeCollectionsVisibleToUser(options.db, user.id)).map((collection) => ({
+      installation_access: installationAccess.rows.map((scope) => {
+        const visible = nativeCollections.find((collection) => collection.id === scope.collection_id);
+        return { ...scope, collection_name: scope.collection_id ? visible?.display_name ?? "Unavailable collection" : null,
+          approved_optional_file_actions: scope.approved_optional_file_actions ?? [],
+          available: visible !== undefined, role: visible?.access.role ?? null };
+      }),
+      native_collections: nativeCollections.map(collection => ({
         ...collection,
+        computer_ids: [...new Set(nativeComputers.get(collection.id)!.map(device => device.connector_id))],
         access: { ...collection.access, can_manage_members: collection.access.can_manage_members && options.hostedCollections === true }
       })),
       grants: grants.rows.map(grantWithCompatibleApplicationOrigin),

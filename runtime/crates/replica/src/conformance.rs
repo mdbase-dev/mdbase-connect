@@ -738,6 +738,7 @@ fn files(s: &mut dyn Store) {
         content: mdbn_wire::attachment::FileContent::Blob(blob(1, 10)),
         media: MediaClass::Image,
         modified_seq: 1,
+        mtime: None,
         bucket: bucket16(&id(7)),
         local: FileLocal::Remote,
     };
@@ -1086,6 +1087,7 @@ fn staging(s: &mut dyn Store) {
         content: mdbn_wire::attachment::FileContent::Blob(blob(n as u8, 10)),
         media: MediaClass::Image,
         modified_seq: 1,
+        mtime: None,
         bucket: bucket16(&id(n)),
         local: FileLocal::Remote,
     };

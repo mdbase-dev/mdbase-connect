@@ -36,6 +36,9 @@ export interface Custody {
   openSealer(collection: string, signal: AbortSignal): Promise<OpenKeys>;
   /** The log bearer token for the service device (CP-issued, short-lived). */
   logToken(collection: string, signal: AbortSignal): Promise<string>;
+  /** Drop any held log token for `collection`: the next `logToken` mints anew.
+   * Called on engine resets, CP activations and log-service 401/403. */
+  invalidateLogToken?(collection: string): void;
 }
 
 /**

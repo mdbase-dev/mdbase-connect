@@ -124,49 +124,26 @@ MDBASE_CLOUD_OPS_CHECKOUT=/absolute/path/to/mdbase-cloud-ops \
   pnpm deploy:lab --rollback /absolute/path/to/state.json --confirm LAB
 ```
 
-## Independent Editor production publication
+## Editor publication
 
-Editor is a separate deployment artifact. UI-only changes do not require a new
-backend, npm package, or desktop release. Dispatch **Editor CI and release**
-(`editor-pages.yml`) from `main`, choose `target=production`, and leave
-`production_verified_commit` blank:
+Editor is a separate deployment artifact and main's Editor is the native-SDK
+Editor. It publishes only through the native path of **Editor CI and release**
+(`editor-pages.yml`): dispatch it on the literal `release/native-<target>` branch
+with `target` and that branch's exact full HEAD as `source_sha`:
 
 ```sh
 gh workflow run editor-pages.yml --repo mdbase-dev/mdbase-connect \
-  --ref main -f target=production
+  --ref release/native-staging -f target=staging -f source_sha=<full HEAD>
 ```
 
-The protected `cloudflare-pages` environment still approves production access.
-The workflow retains Editor unit/browser tests, manifest/CSP/bundle checks,
-exact full Server CI qualification, and post-deployment manifest/asset checks.
-Both production paths share one non-cancelling concurrency group, separate from
-staging, so a main push or tagged publication cannot cancel an active Editor
-production deployment.
-
-Immediately before publishing, `scripts/verify-editor-publication.mjs` requires:
-
-- an exact, clean `main` dispatch whose source is contained in fetched main;
-- ready canonical production Connect, hosted provider and MCP services, matching
-  backend revisions, protocol 1 and fresh-v2 capability evidence;
-- a remote annotated release tag binding that observed backend version/commit;
-- that backend commit as an ancestor of the Editor source; and
-- unchanged backend-facing build inputs relative to that release: client SDK,
-  protocol and management packages, dependency manifests/lockfile, build/type
-  configuration, environment files, Editor scripts and authorization manifest.
-
-Editor source/presentation and shared UI changes are independently eligible.
-This conservative source gate is not a proof of every application behavior;
-review and CI remain mandatory. Changed backend-facing inputs require the
-coordinated tagged path below, not an override or fabricated verified SHA.
-The independently deployed Editor revision need not equal the backend revision,
-and publishing it creates no backend release or backend promotion evidence.
-The workflow records the Editor revision in its assets and prints the observed
-backend release identity. Retain the dispatch and deployment evidence normally.
-
-For an Editor-only rollback, review and merge a revert, then dispatch the new
-main commit through the same checks. Do not publish an arbitrary old branch or
-replace an existing backend tag. If the backend-facing inputs changed meanwhile,
-stop for coordinated release review.
+Pushes to main, pull requests and dispatches without `source_sha` run the Editor
+checks and publish nothing; no main or version-tag dispatch publishes the Editor.
+The unprivileged frozen build, protected `editor-<target>` environment, pinned
+SDK/UI/protocol archive hashes and served-byte verification are described in
+`apps/editor/NATIVE_PUBLISHER.md`. Production additionally requires its own
+target intake on `release/native-production` and Callum's separate reviewer GO.
+UI-only Editor changes do not require a new backend, npm package, or desktop
+release.
 
 ## Public client release publication
 
@@ -189,21 +166,20 @@ Client publication follows server production promotion; it cannot be triggered
 by creating a tag. `mdbase-cloud-ops` does not trigger, receive, or hold
 credentials for client or website publication.
 
-For coordinated client releases (including Editor deployments from version
-tags), and for semantic-v2 enablement, use this order:
+For coordinated client releases, and for semantic-v2 enablement, use this order:
 
 1. Qualify the exact candidate with full Server CI and retain the build-once
    signed image bundle. Create the matching immutable annotated version tag;
-   ops preparation still requires that tag. Tag creation publishes no npm,
-   desktop release/feed, or production Editor.
+   ops preparation still requires that tag. Tag creation publishes no npm or
+   desktop release/feed.
 2. Prepare and promote those signed digests through the existing guarded ops
    staging and production process. The parent release owner independently
    verifies the exact enabled candidate on each actual canonical production
    service, including unique service/deployment identity, image digests, hosted
    provider fresh-v2 readiness, and fresh authorization behavior.
 3. Only after that verification, dispatch `publish-npm.yml`, then
-   `desktop-release.yml`, then `editor-pages.yml` (target `production`), selecting
-   the existing version tag as the workflow ref in each case. Supply the full
+   `desktop-release.yml`, selecting the existing version tag as the workflow ref
+   in each case. The Editor follows its native publication path above. Supply the full
    verified candidate SHA as `production_verified_commit`. Desktop builds begin
    on this dispatch; no pre-production desktop build is required. Consumers may
    update only after their dependencies are published. Reader remains excluded
@@ -233,8 +209,5 @@ verification is unavailable, do not dispatch. A rollback or service change betwe
 verification and publication requires re-verification; publication is not atomic
 with deployment and cannot retract already published packages. Retry a failed
 publication only while the same exact candidate is still verified in production.
-GitHub environment protection remains authoritative. In particular,
-`cloudflare-pages` must permit reviewed release-tag refs for production Editor;
-a branch-only environment policy will block this transition and must be reviewed
-by the release owner, not bypassed by the workflow. Earlier v1 release history is
-unchanged.
+GitHub environment protection remains authoritative. Earlier v1 release history
+is unchanged.

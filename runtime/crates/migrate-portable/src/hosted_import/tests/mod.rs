@@ -480,6 +480,161 @@ fn a_shadow_mismatch_rolls_back_and_a_late_mismatch_fails_closed() {
     assert!(stopped >= 5, "stopped {stopped}");
 }
 
+/// Target counts the verification projection must report for `world`'s legacy state.
+fn expected_counts(world: &World) -> (u64, u64, u64) {
+    world::expected(&world.legacy)
+        .values()
+        .fold((0, 0, 0), |(r, f, b), (_, size, class)| match class {
+            Class::Record | Class::UnindexedMarkdown => (r + 1, f, b),
+            Class::Attachment => (r, f + 1, b + size),
+            Class::Resource => (r, f, b),
+        })
+}
+
+#[test]
+fn verification_digests_match_on_a_clean_import_and_differ_on_divergence() {
+    let quiet = Faults {
+        writes: 30,
+        ..Faults::default()
+    };
+    for seed in [3, 8, 21] {
+        let mut world = World::new(seed, quiet);
+        let mut spill = MemSpill::default();
+        let mut driver = Driver::resume_mode(&mut spill, COLLECTION, true).unwrap();
+        let mut at_verified = None;
+        let mut routed_digest = None;
+        // The step can change in a poll (a resolved read) or a completion.
+        let mut observe = |cp: &Checkpoint| {
+            if cp.step < Step::Verified {
+                assert_eq!(cp.verification(), None, "seed {seed}: before Verified");
+            } else if at_verified.is_none() {
+                assert_eq!(cp.step, Step::Verified);
+                at_verified = Some((cp.verification(), cp.base_seq));
+            }
+        };
+        let step = loop {
+            world.tick();
+            let a = driver.poll(&mut spill).unwrap();
+            observe(driver.checkpoint());
+            match &a {
+                Action::Done(s) => break *s,
+                Action::Wait(_) | Action::Continue => continue,
+                Action::Route { final_digest, .. } => routed_digest = Some(*final_digest),
+                _ => {}
+            }
+            let Next::Outcome(o) = world.perform(&a, &mut spill) else {
+                unreachable!()
+            };
+            driver.complete(&mut spill, o).unwrap();
+            observe(driver.checkpoint());
+        };
+        assert_eq!(step, Step::Routed, "seed {seed}");
+        assert_routed(&world, &mut spill);
+        let (records, files, file_bytes) = expected_counts(&world);
+        assert!(records > 0, "seed {seed}: a non-trivial collection");
+
+        // Recorded at Verified: equal digests, the target's counts, a head at the base.
+        let (v, base_seq) = at_verified.unwrap();
+        let v = v.expect("projection at Verified");
+        assert_eq!(v.source_digest, v.target_digest, "seed {seed}");
+        assert_eq!(
+            (v.records, v.files, v.file_bytes),
+            (records, files, file_bytes)
+        );
+        assert!(v.log_head >= base_seq.unwrap(), "seed {seed}");
+
+        // Once routed: the final compare's facts, and the digest the route carried.
+        let cp = driver.checkpoint();
+        let r = cp.verification().expect("projection once routed");
+        assert_eq!(r.source_digest, r.target_digest);
+        assert_eq!(Some(r.source_digest), routed_digest);
+        assert_eq!(
+            r.source_digest, v.source_digest,
+            "fence-first: S0 is S_final"
+        );
+        assert_eq!(
+            (r.records, r.files, r.file_bytes),
+            (records, files, file_bytes)
+        );
+        assert!(r.log_head >= cp.barrier_f.unwrap());
+        // It survives a resume (it is checkpoint data, not RAM).
+        let resumed = Driver::resume_mode(&mut spill, COLLECTION, true).unwrap();
+        assert_eq!(resumed.checkpoint().verification(), Some(r));
+    }
+
+    // Divergence: one generation-0 placement silently dropped. The target digest
+    // recorded with the stop differs from the source's; no projection is offered.
+    let mut world = World::new(11, quiet);
+    let mut spill = MemSpill::default();
+    let mut driver = Driver::resume_mode(&mut spill, COLLECTION, true).unwrap();
+    let mut corrupted = false;
+    let step = loop {
+        world.tick();
+        let a = driver.poll(&mut spill).unwrap();
+        match a {
+            Action::Done(s) => break s,
+            Action::Wait(_) | Action::Continue => continue,
+            Action::ImportGen0 { .. } if !corrupted => {
+                let page = spill.placements_page(Generation::S0, None, 1).unwrap();
+                corrupted = true;
+                let last = page.last().map(|(k, _)| k.clone());
+                driver
+                    .complete(&mut spill, Outcome::Gen0Progress { last, done: false })
+                    .unwrap();
+            }
+            a => {
+                let Next::Outcome(o) = world.perform(&a, &mut spill) else {
+                    unreachable!()
+                };
+                driver.complete(&mut spill, o).unwrap();
+            }
+        }
+    };
+    assert_eq!(step, Step::RolledBack);
+    let cp = driver.checkpoint();
+    let source = crate::live_digest::LiveDigest::from_bytes(cp.s0_digest.as_deref().unwrap())
+        .unwrap()
+        .digest();
+    let target = cp.target.expect("the diverged target facts are kept");
+    assert_ne!(target.digest, source);
+    assert_eq!(cp.verification(), None);
+    let saved = Checkpoint::from_bytes(&spill.load().unwrap().unwrap()).unwrap();
+    assert_eq!(saved.target, Some(target), "saved with the stop");
+}
+
+/// The checkpoint the hosted Worker's status decodes (`deploy/hosted-worker`
+/// `migration-run.ts`, pinned by `test/migration-verification-workerd.test.mjs`).
+pub(crate) const VERIFIED_CHECKPOINT_HEX: &str = "af000101782431303030303030302d303030302d343030302d383030302d3030303030303030303030310208070409f50a110e00140015f5165820a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1175820a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a11818061819185b181a03181b1a0002bf3a";
+
+pub(crate) fn verified_checkpoint() -> Checkpoint {
+    let mut cp = Checkpoint::new("10000000-0000-4000-8000-000000000001");
+    cp.step = Step::Verified;
+    cp.fence_first = true;
+    cp.fenced = true;
+    cp.base_seq = Some(4);
+    cp.s_final = Some(17);
+    cp.source_digest = Some(mdbn_wire::common::B32([0xa1; 32]));
+    cp.target = Some(TargetFacts {
+        digest: mdbn_wire::common::B32([0xa1; 32]),
+        head: 6,
+        records: 91,
+        files: 3,
+        file_bytes: 180026,
+    });
+    cp
+}
+
+#[test]
+fn the_verified_checkpoint_bytes_are_pinned_for_the_worker_status() {
+    let hex: String = verified_checkpoint()
+        .to_bytes()
+        .unwrap()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    assert_eq!(hex, VERIFIED_CHECKPOINT_HEX);
+}
+
 #[test]
 fn checkpoint_round_trips() {
     let mut cp = Checkpoint::new(COLLECTION);
@@ -492,6 +647,26 @@ fn checkpoint_round_trips() {
     cp.intent_mutation = Some(mdbn_wire::common::B16([7; 16]));
     cp.fenced = true;
     assert_eq!(Checkpoint::from_bytes(&cp.to_bytes().unwrap()).unwrap(), cp);
+    cp.source_digest = Some(mdbn_wire::common::B32([5; 32]));
+    cp.target = Some(TargetFacts {
+        digest: mdbn_wire::common::B32([6; 32]),
+        head: 9,
+        records: 3,
+        files: 2,
+        file_bytes: 70,
+    });
+    assert_eq!(Checkpoint::from_bytes(&cp.to_bytes().unwrap()).unwrap(), cp);
+    assert_eq!(
+        cp.verification().map(|v| (v.log_head, v.files)),
+        Some((9, 2))
+    );
+    cp.step = Step::RolledBack;
+    assert_eq!(cp.verification(), None, "not after a rollback");
+    // Target facts are all or nothing.
+    use mdbn_wire::schema::Wire;
+    let mut e = super::checkpoint::Encoded::from_bytes(&cp.to_bytes().unwrap()).unwrap();
+    e.target_files = None;
+    assert!(Checkpoint::from_bytes(&e.to_bytes().unwrap()).is_err());
     assert!(Checkpoint::from_bytes(b"junk").is_err());
     assert!(Step::Revoked.can_roll_back());
     assert!(!Step::CutoverIntent.can_roll_back());

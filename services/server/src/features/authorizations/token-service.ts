@@ -21,6 +21,10 @@ import { randomToken, tokenHash } from "../../security.js";
 import { authorityUrl } from "../../platform/authority-url.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import { normalizedApplicationOrigin } from "./redirects.js";
+import { CutoverProblemError } from "../next/cutover-problems.js";
+import { resolveNativeCollectionAccess } from "./native-approval-service.js";
+import { requireCollectionNotDeleted } from "../next/collection-deletion.js";
+import { nativeTokenCompletion, type NativeTokenCompletion } from "./native-credential-reconciliation.js";
 
 export async function issueApplicationTokens(
   db: DatabaseQueryable,
@@ -40,6 +44,7 @@ export async function issueApplicationTokens(
   encryption: GrantEncryption | null;
   file_capability: FileCapability | null;
   application_origin: string;
+  native_completion?: NativeTokenCompletion;
   authority?: {
     operations_url: string;
     sync_url: string;
@@ -55,6 +60,7 @@ export async function issueApplicationTokens(
     local_authority_row_id: string | null;
     collection_name: string;
     hosted_collection_id: string | null;
+    next_collection_id: string | null;
     hosted_replica_id: string | null;
     provider_url: string | null;
     operations: string[];
@@ -70,13 +76,16 @@ export async function issueApplicationTokens(
     replica_membership_policy_id: string | null;
     replica_membership_policy_revision: number | null;
     allowed_types: string[] | null;
+    suspended: boolean;
+    hosted_cut_over: boolean;
+    local_taken_over: boolean;
   }>(
     `SELECT g.user_id,
-            COALESCE(col.local_id, g.hosted_collection_id) AS collection_id,
+            COALESCE(col.local_id, g.hosted_collection_id, g.next_collection_id) AS collection_id,
             g.collection_id AS local_authority_row_id,
             CASE WHEN nc.runtime='next' AND nc.sync IN ('cloud_copy','private') AND nc.left_sync_at IS NULL THEN COALESCE(nc.display_name,'New collection')
                  ELSE COALESCE(col.display_name, hosted.display_name) END AS collection_name,
-            g.hosted_collection_id, g.hosted_replica_id, hosted.provider_url,
+            g.hosted_collection_id, g.next_collection_id, g.hosted_replica_id, hosted.provider_url,
             g.operations, g.scope, g.encryption, g.file_capability,
             g.proof_public_key, g.membership_id, g.membership_policy_id,
             g.membership_policy_revision,
@@ -85,21 +94,35 @@ export async function issueApplicationTokens(
             replica.membership_policy_revision AS replica_membership_policy_revision,
             replica.allowed_types,
             CASE WHEN g.application_origin = '' THEN app.homepage
-                 ELSE g.application_origin END AS application_origin
+                 ELSE g.application_origin END AS application_origin,
+            u.suspended_at IS NOT NULL AS suspended,
+            moved.collection_id IS NOT NULL AS hosted_cut_over,
+            (col.authority_state = 'retired' AND u.account_backend = 'next'
+              AND nc.runtime = 'next') AS local_taken_over
      FROM grants g
      JOIN users u ON u.id = g.user_id
      JOIN applications app ON app.id = g.application_id
      LEFT JOIN collections col ON col.id = g.collection_id
      LEFT JOIN hosted_collections hosted ON hosted.id = g.hosted_collection_id
-     LEFT JOIN next_collections nc ON nc.collection_id = COALESCE(col.local_id, g.hosted_collection_id)
+     LEFT JOIN next_collections nc ON nc.collection_id = COALESCE(col.local_id, g.hosted_collection_id, g.next_collection_id)
      LEFT JOIN hosted_replicas replica ON replica.id = g.hosted_replica_id
+     LEFT JOIN next_migration_collections moved ON moved.collection_id = g.hosted_collection_id
      WHERE g.id = $1 AND g.revoked_at IS NULL
        AND g.activated_at IS NOT NULL
-       AND u.suspended_at IS NULL
        AND (g.hosted_replica_id IS NULL OR replica.revoked_at IS NULL)`,
     [grantId]
   );
   if (!grant.rows[0]) throw new RequestValidationError("The application grant is no longer active.");
+  if (grant.rows[0].suspended) throw new CutoverProblemError("suspended");
+  // The hosted provider no longer serves a collection that completed its move to
+  // mdbase-next (the account's backend follows once all its collections move).
+  if (grant.rows[0].hosted_collection_id && grant.rows[0].hosted_cut_over) {
+    throw new CutoverProblemError("moved");
+  }
+  // A desktop collection taken over by mdbase-next after its owner's account moved.
+  if (grant.rows[0].local_authority_row_id && grant.rows[0].local_taken_over) {
+    throw new CutoverProblemError("moved");
+  }
   if (
     !isCanonicalCollectionGrantScope(grant.rows[0].scope)
     || (grant.rows[0].hosted_replica_id
@@ -128,7 +151,29 @@ export async function issueApplicationTokens(
       ),
       "application.authorize"
     );
+  } else if (grant.rows[0].next_collection_id) {
+    // A Private native collection: the same authority check as consent (a current
+    // member with application.authorize on a synced Private collection).
+    try {
+      await requireCollectionNotDeleted(db, grant.rows[0].next_collection_id);
+    } catch (error) {
+      if (error instanceof Error && error.message === "collection_deleted") {
+        throw new RequestValidationError("The application grant no longer matches the current collection.");
+      }
+      throw error;
+    }
+    requireCollectionAction(
+      await resolveNativeCollectionAccess(db, grant.rows[0].user_id, grant.rows[0].next_collection_id),
+      "application.authorize"
+    );
   }
+  const nativeCompletion = grant.rows[0].next_collection_id
+    ? await nativeTokenCompletion(db, grantId, {
+      accountId: grant.rows[0].user_id,
+      collectionId: grant.rows[0].collection_id,
+      origin: normalizedApplicationOrigin(grant.rows[0].application_origin)
+    })
+    : undefined;
   const accessToken = randomToken("mdb");
   const refreshToken = randomToken("ref");
   let authority: {
@@ -192,6 +237,7 @@ export async function issueApplicationTokens(
     encryption: grant.rows[0].encryption,
     file_capability: grant.rows[0].file_capability,
     application_origin: normalizedApplicationOrigin(grant.rows[0].application_origin),
+    ...(nativeCompletion ? { native_completion: nativeCompletion } : {}),
     ...(authority ? { authority } : {})
   };
 }

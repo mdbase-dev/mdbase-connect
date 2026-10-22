@@ -5,6 +5,7 @@ export interface InvitationPageInput {
 }
 
 export interface InvitationRow {
+  account_backend: string | null;
   id: string;
   email: string;
   created_by: string;
@@ -33,7 +34,8 @@ export function invitationSummary(row: InvitationRow) {
     revocation_reason: row.revocation_reason,
     send_count: Number(row.send_count),
     last_sent_at: nullableIso(row.last_sent_at),
-    entitlement_profile: row.entitlement_profile
+    entitlement_profile: row.entitlement_profile,
+    ...(row.account_backend === "legacy" ? { account_backend: row.account_backend } : {})
   };
 }
 

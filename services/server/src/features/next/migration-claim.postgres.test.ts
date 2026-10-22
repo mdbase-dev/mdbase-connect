@@ -48,7 +48,7 @@ suite("read-only migration claim (isolated PostgreSQL)", () => {
     }
     const app = Fastify();
     const forbidden = async () => { throw new Error("claim attempted provider effect"); };
-    registerMigrationProviderRoutes(app, { db, token, provider: { legacyMigrationDrain: forbidden, legacyMigrationFence: forbidden } });
+    registerMigrationProviderRoutes(app, { db, token, provider: { legacyMigrationDrain: forbidden, legacyMigrationSource: forbidden, legacyMigrationFence: forbidden } });
     const request = (authorization = `Bearer ${token}`, suffix = "") => app.inject({
       method: "GET", url: `/internal/v1/next/migration/collections/${collection}/claim${suffix}`, headers: { authorization }
     });

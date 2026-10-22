@@ -8,7 +8,7 @@ import { bearerToken, requireConnector, requireInstallationDeviceConnector } fro
 import { tokenHash } from "../../security.js";
 import { isLockTimeout } from "./bootstrap-common.js";
 import { DeviceRegistrationError, issueDeviceChallenge, registerDevice } from "./devices.js";
-import { GrantApprovalReportError, reportGrantApproval } from "./grant-approval.js";
+import { GrantApprovalReportError, grantApprovalTerms, reportGrantApproval } from "./grant-approval.js";
 import type { LogServiceClient } from "./log-service-client.js";
 import { registerApprovalPeerRoutes } from "./approval-peer-routes.js";
 
@@ -31,6 +31,16 @@ export function registerNextDeviceRoutes(app: FastifyInstance, options: { db: Da
       const status = error.code === "identity_not_current" ? 403 : error.code === "device_keys_changed" || error.code === "device_already_bound" ? 409 : 400;
       return reply.code(status).send(apiError(error.code, error.message));
     }
+  });
+  // Terms a device shows before approving a pending grant on a Private collection.
+  app.get("/v1/next/grants/:grantId/terms", rateLimit, async (request, reply) => {
+    const connector = await requireConnector(request, reply, options.db);
+    if (!connector) return reply;
+    const { grantId } = request.params as { grantId: string };
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(grantId)) return reply.code(404).send(apiError("grant_not_found", "Grant not found."));
+    const terms = await grantApprovalTerms(options.db, connector, grantId);
+    if (!terms) return reply.code(404).send(apiError("grant_not_found", "Grant not found."));
+    return terms;
   });
   app.post("/v1/next/grants/:grantId/approval", rateLimit, async (request, reply) => {
     const connector = await requireConnector(request, reply, options.db);

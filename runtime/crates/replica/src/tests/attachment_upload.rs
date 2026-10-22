@@ -3,6 +3,11 @@
 //! sorted ciphertext object union, resume without re-sending stored objects,
 //! bounded reads and calls, and the size cap.
 
+mod client_create;
+mod client_region;
+mod client_resume_rpc;
+mod client_rpc;
+
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeSet;
 use std::rc::Rc;
@@ -83,6 +88,110 @@ impl Sealer for AttachSealer {
         chunked_blob::seal_chunk(&epoch_key(epoch), context, plain, entropy)
             .map_err(SealError::from)
     }
+    fn attachment_chunk_in_place_check(
+        &self,
+        context: &ChunkContextV1,
+        plain_bytes: usize,
+        region_bytes: usize,
+    ) -> Result<(), SealError> {
+        if context.attachment.collection != COL
+            || self.current_epoch() != Some(context.attachment.key_epoch)
+        {
+            return Err(SealError::Failed("not current".into()));
+        }
+        chunked_blob::chunk_in_place_len(context, plain_bytes, region_bytes)
+            .map(|_| ())
+            .map_err(SealError::from)
+    }
+    fn seal_attachment_chunk_in_place(
+        &self,
+        context: &ChunkContextV1,
+        region: &mut [u8],
+        plain_bytes: usize,
+        entropy: &mut dyn CsprngEntropy,
+    ) -> Result<chunked_blob::SealedChunkSpan, SealError> {
+        let result = (|| {
+            self.attachment_chunk_in_place_check(context, plain_bytes, region.len())?;
+            chunked_blob::seal_chunk_in_place(
+                &epoch_key(context.attachment.key_epoch),
+                context,
+                region,
+                plain_bytes,
+                entropy,
+            )
+            .map_err(SealError::from)
+        })();
+        if result.is_err() {
+            use zeroize::Zeroize;
+            region.zeroize();
+        }
+        result
+    }
+    fn seal_hosted_upload_resume(
+        &self,
+        metadata: &chunked_blob::upload_resume::UploadResumeMetadataV1,
+        entropy: &mut dyn CsprngEntropy,
+    ) -> Result<(SealedObject, chunked_blob::upload_resume::UploadResumeRefV1), SealError> {
+        if metadata.context.collection != COL
+            || self.current_epoch() != Some(metadata.context.key_epoch)
+        {
+            return Err(SealError::Failed("not current".into()));
+        }
+        chunked_blob::upload_resume::seal_resume_metadata(
+            &epoch_key(metadata.context.key_epoch),
+            metadata,
+            entropy,
+        )
+        .map_err(SealError::from)
+    }
+    fn open_hosted_upload_resume(
+        &self,
+        reference: &chunked_blob::upload_resume::UploadResumeRefV1,
+        owner: chunked_blob::upload_resume::UploadResumeOwner,
+        region: &mut [u8],
+    ) -> Result<chunked_blob::upload_resume::AuthenticatedUploadResumeV1, OpenError> {
+        use zeroize::Zeroize;
+        let result = if reference.context.collection == COL
+            && self.current_epoch() == Some(reference.context.key_epoch)
+        {
+            chunked_blob::upload_resume::open_resume_metadata(
+                &epoch_key(reference.context.key_epoch),
+                reference,
+                owner,
+                region,
+            )
+            .map_err(|_| OpenError::Aead)
+        } else {
+            Err(OpenError::Aead)
+        };
+        region.zeroize();
+        result
+    }
+    fn open_hosted_upload_committed_chunk_in_place(
+        &self,
+        resume: &chunked_blob::upload_resume::AuthenticatedUploadResumeV1,
+        index: u64,
+        region: &mut [u8],
+    ) -> Result<std::ops::Range<usize>, OpenError> {
+        use zeroize::Zeroize;
+        let context = resume.metadata().context;
+        let result = if context.collection == COL && self.current_epoch() == Some(context.key_epoch)
+        {
+            chunked_blob::upload_resume::open_committed_chunk_in_place(
+                &epoch_key(context.key_epoch),
+                resume,
+                index,
+                region,
+            )
+            .map_err(|_| OpenError::Aead)
+        } else {
+            Err(OpenError::Aead)
+        };
+        if result.is_err() {
+            region.zeroize();
+        }
+        result
+    }
     fn seal_attachment_manifest(
         &self,
         manifest: &ManifestV1,
@@ -115,6 +224,15 @@ impl Sealer for AttachSealer {
     ) -> Result<Zeroizing<Vec<u8>>, OpenError> {
         let key = epoch_key(manifest.descriptor().context.key_epoch);
         chunked_blob::open_chunk(&key, manifest, index, raw).map_err(|_| OpenError::Aead)
+    }
+    fn open_attachment_chunk_in_place(
+        &self,
+        manifest: &VerifiedManifestV1,
+        index: u64,
+        raw: &mut [u8],
+    ) -> Result<std::ops::Range<usize>, OpenError> {
+        let key = epoch_key(manifest.descriptor().context.key_epoch);
+        chunked_blob::open_chunk_in_place(&key, manifest, index, raw).map_err(|_| OpenError::Aead)
     }
     fn blob_part_addresses(&self, blob: &mdbn_wire::intent::BlobRef) -> Option<Vec<B32>> {
         self.inner.blob_part_addresses(blob)

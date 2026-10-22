@@ -64,7 +64,7 @@ fn source_cas_ordinal_and_known_empty_registry_are_not_guessed() {
     );
 }
 #[test]
-fn source_semantics_and_capture_recheck_refuse_unknown_renderer_and_same_head_drift() {
+fn renderer_neutral_capture_retains_same_head_source_cas() {
     let (_, mut a, _) = configured();
     let source = "views: [{type: vendorWidget, name: Unknown}]\n";
     a.create(1, "view.base", source);
@@ -75,7 +75,7 @@ fn source_semantics_and_capture_recheck_refuse_unknown_renderer_and_same_head_dr
             Some(&BTreeMap::new()),
             Some("UTC")
         )
-        .is_err()
+        .is_ok()
     );
     let (_, mut a, source) = configured();
     a.create(1, "view.base", &source);
@@ -105,17 +105,22 @@ fn source_semantics_and_capture_recheck_refuse_unknown_renderer_and_same_head_dr
     );
 }
 #[test]
-fn pending_and_property_hint_limits_refuse_before_any_execution_inputs_escape() {
+fn pending_source_executes_locally_but_property_hint_limits_still_refuse() {
     let (_, mut a, source) = configured();
     a.create(1, "view.base", &source);
-    assert!(
+    let inputs =
         a.r.capture_bases_execution_inputs(
             selection(1, &source, 0),
             Some(&BTreeMap::new()),
-            Some("UTC")
+            Some("UTC"),
         )
-        .is_err()
+        .unwrap();
+    assert_eq!(
+        inputs.view().revision,
+        mdbn_wire::hash::sha256(source.as_bytes())
     );
+    assert_eq!(inputs.record_count(), 1);
+    assert!(a.r.collection_setup_capture_fence(None).is_err());
     settle(&mut [&mut a]);
     let large = BTreeMap::from_iter((0..4097).map(|i| (format!("field{i}"), "date".into())));
     assert!(

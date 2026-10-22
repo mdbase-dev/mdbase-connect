@@ -105,7 +105,7 @@ fn inventory_digest(state: &dyn StateView) -> Result<Hash, Box<Issue>> {
 }
 // Earlier pack assessments still use their successive overlays. Only the
 // published atomic output is compacted: final bytes with the FIRST base guard.
-fn compact_pack_lock(operations: &mut Vec<Op>) {
+pub(super) fn compact_pack_lock(operations: &mut Vec<Op>) {
     let first = operations
         .iter()
         .position(|op| matches!(op, Op::ResourcePut(r) if r.path == LOCK_PATH));

@@ -1,4 +1,25 @@
-const HOSTED_QUERY_DATABASE_RETRIES: usize = 3;
+// Leave room for two waves of eight contending receipt admissions. The existing
+// operation/snapshot deadline still bounds execution, cleanup and retry waits.
+const HOSTED_QUERY_DATABASE_RETRIES: usize = 16;
+const HOSTED_QUERY_RETRY_BASE_MS: u64 = 10;
+const HOSTED_QUERY_RETRY_MAX_MS: u64 = 250;
+
+fn hosted_query_retryable_database_conflict(error: &ApiError) -> bool {
+    error.code == "provider_database_retryable"
+        // ApiError::from(sqlx::Error) maps only SQLSTATE 40001 and 40P01 to
+        // these classes. Never retry timeouts, unknown outcomes or other errors.
+        && matches!(
+            error.details.as_ref().and_then(|details| details["retry_class"].as_str()),
+            Some("serialization" | "deadlock")
+        )
+}
+
+fn hosted_query_database_retry_delay(attempt: usize, random: u32) -> Duration {
+    // attempt is bounded by HOSTED_QUERY_DATABASE_RETRIES in the retry guard.
+    let ceiling = (HOSTED_QUERY_RETRY_BASE_MS << attempt).min(HOSTED_QUERY_RETRY_MAX_MS);
+    let floor = ceiling / 2;
+    Duration::from_millis(floor + u64::from(random) % (ceiling - floor + 1))
+}
 
 async fn query_cleanup_observed(
     cleanup_observed: tokio::sync::oneshot::Receiver<bool>,
@@ -51,7 +72,7 @@ impl HostedProvider {
             .await
             {
                 Ok(Err(error))
-                    if error.code == "provider_database_retryable"
+                    if hosted_query_retryable_database_conflict(&error)
                         && attempt < HOSTED_QUERY_DATABASE_RETRIES =>
                 {
                     let cleanup_ms = budgets.cancellation_cleanup_ms;
@@ -72,6 +93,14 @@ impl HostedProvider {
                         attempt = attempt + 1,
                         "privacy-safe hosted provider metric"
                     );
+                    // Cleanup has completed before waiting: no transaction or
+                    // pooled connection is retained during backoff. Charge the
+                    // jittered wait to the same deadline as every retry attempt.
+                    let delay = hosted_query_database_retry_delay(
+                        attempt,
+                        rand_core::RngCore::next_u32(&mut rand_core::OsRng),
+                    );
+                    tokio::time::sleep(delay.min(deadline.saturating_sub(started.elapsed()))).await;
                 }
                 Ok(Err(error))
                     if error.code == "provider_database_timeout"

@@ -18,6 +18,7 @@ mod noise_custody_tests;
 mod private_proof;
 #[cfg(test)]
 mod private_proof_tests;
+pub mod resources;
 
 use crate::{
     app_index::{AppIndex, AppSqlHost},
@@ -437,6 +438,17 @@ impl AppRuntime {
             }
         }
     }
+    /// HOST ONLY foreground wake: queue one log head fetch on the CURRENT session
+    /// so entries from other devices are read. Not a reconnect: no session swap,
+    /// no unknown originals, status and readiness unchanged.
+    pub fn request_log_head(&mut self) -> bool {
+        if self.session.is_none() || !self.healthy() {
+            return false;
+        }
+        self.runtime
+            .as_mut()
+            .is_some_and(|runtime| runtime.replica_mut().request_head())
+    }
     /// Late replies cannot feed a successor. Classify original outcomes unknown,
     /// then drop both the HTTP signer and the replica's signing/KEM key owners.
     pub fn retire_log(&mut self) {
@@ -523,6 +535,20 @@ impl AppRuntime {
         let signature = if self.session.is_some() && self.healthy() {
             self.http
                 .sign(endpoint, generation, original, bytes)
+                .map(|s| s.to_vec())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        wipe(bytes);
+        signature
+    }
+    /// HOST ONLY. `nonce32 ‖ token` for the push socket's `hello`; returns only
+    /// a signature, or empty refusal; consumes/wipes the input.
+    pub fn sign_hello_consuming(&self, generation: u64, bytes: &mut [u8]) -> Vec<u8> {
+        let signature = if self.session.is_some() && self.healthy() {
+            self.http
+                .sign_hello(generation, bytes)
                 .map(|s| s.to_vec())
                 .unwrap_or_default()
         } else {

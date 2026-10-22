@@ -2,10 +2,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const extension = process.platform === "win32" ? ".exe" : "";
-const connector = path.resolve(
-  __dirname,
-  `../../target/release/mdbase${extension}`
-);
+// The mdbn-daemon build staged by scripts/stage-daemon.mjs; shipped as
+// Resources/mdbase-next/{mdbase,VERSION}.
+const bundledDaemon = path.resolve(__dirname, "out/daemon/mdbase-next");
 const macIcon = path.resolve(__dirname, "assets/app-icon.icns");
 const windowsIcon = path.resolve(__dirname, "assets/app-icon.ico");
 const linuxIcon = path.resolve(__dirname, "assets/app-icon.png");
@@ -26,7 +25,7 @@ const linuxMakerOptions = {
     "Connect applications to authorized local and hosted mdbase collections.",
   bin: "mdbase-connect",
   // Supported by the pinned electron-installer patches; both links are package-owned.
-  additionalBinaries: { mdbase: "resources/mdbase" },
+  additionalBinaries: { mdbase: "resources/mdbase-next/mdbase" },
   homepage: "https://mdbase.dev",
   icon: linuxIcon,
   categories: ["Utility"]
@@ -135,14 +134,16 @@ module.exports = {
       }
     },
     ...macSigning,
-    extraResource: fs.existsSync(connector)
-      ? [connector]
+    extraResource: fs.existsSync(bundledDaemon)
+      ? [bundledDaemon]
       : []
   },
   hooks: {
     packageAfterCopy: async () => {
-      if (!fs.existsSync(connector)) {
-        throw new Error(`Release connector runtime is missing: ${connector}`);
+      for (const file of [`mdbase${extension}`, "VERSION"]) {
+        if (!fs.existsSync(path.join(bundledDaemon, file))) {
+          throw new Error(`The bundled mdbase daemon is not staged (${file}); run pnpm stage:daemon.`);
+        }
       }
     }
   },

@@ -1,12 +1,15 @@
-//! Device-only, complete, bounded Bases discovery over confirmed raw records.
-//! Reuses the existing strict keyed-editor fence; no grants, writes or facade.
-use super::collection_setup::SetupCaptureFence;
+//! Device-only, complete, bounded Bases discovery over the actual local cut.
+//! Healthy keyed READ fence; setup admission remains separate and strict.
+mod read_fence;
+use read_fence::BasesReadFence;
+mod local_source;
 use super::{Replica, Store};
 use crate::{
     api::{ApiResult, ErrorCode},
     store::{Page, RecordRow},
     store_query::QueryBudget,
 };
+use local_source::LocalRecord;
 use mdbn_core::{
     doc::{Document, RecordFormat},
     intent::OpClock,
@@ -55,9 +58,9 @@ pub struct BasesViewDescriptor {
 /// Opaque complete inventory observation. Source/capture fields cannot be
 /// supplied by app/MCP callers. No debug/source/publication escape.
 pub struct CapturedBasesDiscovery {
-    fence: SetupCaptureFence,
+    fence: BasesReadFence,
     clock: OpClock,
-    records: Vec<RecordRow>,
+    records: Vec<LocalRecord>,
     views: Vec<BasesViewDescriptor>,
 }
 impl CapturedBasesDiscovery {
@@ -96,7 +99,7 @@ fn failure(e: EvaluationFailure) -> crate::api::ApiError {
 impl<S: Store> Replica<S> {
     /// Synchronous actor-held capture, initially healthy keyed editor devices only.
     /// An empty size page is the ONLY completion proof. Unsupported storage,
-    /// overlays, incomplete hydration or any source/catalogue failure suppresses
+    /// oversized overlays, incomplete hydration or source/catalogue failure suppresses
     /// the entire result. Source sizes are admitted BEFORE copying/decoding docs.
     pub fn capture_bases_discovery(
         &mut self,
@@ -110,10 +113,10 @@ impl<S: Store> Replica<S> {
         timezone: Option<&str>,
         work: &mut WorkBudget,
     ) -> ApiResult<CapturedBasesDiscovery> {
-        let fence = self.collection_setup_capture_fence(None)?;
-        if !self.catalog.is_valid()
+        let fence = self.bases_read_capture_fence()?;
+        if !self.bases_read_catalog().is_valid()
             || !self
-                .catalog
+                .bases_read_catalog()
                 .contracts()
                 .iter()
                 .any(|c| c.id == BASES_CONTRACT)
@@ -150,10 +153,13 @@ impl<S: Store> Replica<S> {
         let mut records = Vec::new();
         let mut views = Vec::new();
         loop {
-            self.recheck_collection_setup_capture(&fence)?;
+            self.recheck_bases_read_capture(&fence)?;
+            let (steps, bytes) = self.bases_local_metadata_cost(128)?;
+            if !work.charge(steps, bytes) {
+                return Err(failure(work.failure().expect("local metadata admission")));
+            }
             let page = self
-                .store
-                .query_record_sizes_at(Page { after, limit: 128 }, head)
+                .bases_local_sizes(Page { after, limit: 128 }, head)
                 .map_err(|_| unavailable())?;
             if page.len() > 128 {
                 return Err(invalid());
@@ -179,8 +185,7 @@ impl<S: Store> Replica<S> {
             }
             let ids: Vec<_> = page.iter().map(|r| r.id).collect();
             let rows = self
-                .store
-                .hydrate_query_at(&ids, head, &mut source)
+                .bases_local_hydrate(&ids, head, &mut source)
                 .map_err(|_| unavailable())?;
             if rows.len() != page.len() {
                 return Err(invalid());
@@ -192,16 +197,7 @@ impl<S: Store> Replica<S> {
                     || row.path.len() > 1024
                     || row.path_key != mdbn_core::paths::path_key(&row.path)
                     || B32(Sha256::digest(row.doc.as_bytes()).into()) != row.revision
-                    || self
-                        .store
-                        .record_at(&row.path_key)
-                        .map_err(|_| unavailable())?
-                        != Some(row.id)
-                    || self
-                        .store
-                        .file_at(&row.path_key)
-                        .map_err(|_| unavailable())?
-                        .is_some()
+                    || !self.bases_local_holder_matches(&row)?
                 {
                     return Err(invalid());
                 }
@@ -210,9 +206,14 @@ impl<S: Store> Replica<S> {
                     return Err(failure(work.failure().expect("source allocation failure")));
                 }
                 let document = Document::parse(row.doc.clone(), RecordFormat::for_path(&row.path));
-                if let Some(base) =
-                    discover_base_record(&self.catalog, &row.path, &document, &clock, work)
-                        .map_err(failure)?
+                if let Some(base) = discover_base_record(
+                    self.bases_read_catalog(),
+                    &row.path,
+                    &document,
+                    &clock,
+                    work,
+                )
+                .map_err(failure)?
                 {
                     if views.len() + base.views.len() > 256 {
                         return Err(failure(EvaluationFailure::BudgetExceeded(
@@ -257,7 +258,7 @@ impl<S: Store> Replica<S> {
             }
             after = previous;
         }
-        self.recheck_collection_setup_capture(&fence)?;
+        self.recheck_bases_read_capture(&fence)?;
         Ok(CapturedBasesDiscovery {
             fence,
             clock,
@@ -269,14 +270,20 @@ impl<S: Store> Replica<S> {
     /// No external await is part of the capture API; future workers must recheck
     /// around every await and before evaluating or returning any observation.
     pub fn recheck_bases_discovery(&self, capture: &CapturedBasesDiscovery) -> ApiResult<()> {
-        self.recheck_collection_setup_capture(&capture.fence)?;
+        self.recheck_bases_read_capture(&capture.fence)?;
         let mut source = QueryBudget::HOSTED;
+        let mut metadata_work = WorkBudget::new();
         let mut after = None;
         let mut offset = 0usize;
         loop {
+            let (steps, bytes) = self.bases_local_metadata_cost(128)?;
+            if !metadata_work.charge(steps, bytes) {
+                return Err(failure(
+                    metadata_work.failure().expect("local metadata recheck"),
+                ));
+            }
             let page = self
-                .store
-                .query_record_sizes_at(Page { after, limit: 128 }, self.head)
+                .bases_local_sizes(Page { after, limit: 128 }, self.head)
                 .map_err(|_| unavailable())?;
             if page.len() > 128 {
                 return Err(invalid());
@@ -311,21 +318,10 @@ impl<S: Store> Replica<S> {
             }
             let ids: Vec<_> = page.iter().map(|r| r.id).collect();
             let rows = self
-                .store
-                .hydrate_query_at(&ids, self.head, &mut source)
+                .bases_local_hydrate(&ids, self.head, &mut source)
                 .map_err(|_| unavailable())?;
             for row in &rows {
-                if self
-                    .store
-                    .record_at(&row.path_key)
-                    .map_err(|_| unavailable())?
-                    != Some(row.id)
-                    || self
-                        .store
-                        .file_at(&row.path_key)
-                        .map_err(|_| unavailable())?
-                        .is_some()
-                {
+                if !self.bases_local_holder_matches(row)? {
                     return Err(invalid());
                 }
             }
@@ -346,6 +342,6 @@ impl<S: Store> Replica<S> {
         if offset != capture.records.len() {
             return Err(invalid());
         }
-        self.recheck_collection_setup_capture(&capture.fence)
+        self.recheck_bases_read_capture(&capture.fence)
     }
 }

@@ -148,7 +148,48 @@ async fn automatic_takeover_waits_for_a_flipped_batch_and_fails_closed() {
         })
         .await;
         assert_untouched();
+        // An explicit move asks the same gate and changes nothing when refused:
+        // the old connector keeps serving a legacy account.
         let mut c = ControlClient::connect(&profile.control).await.unwrap();
+        c.authenticate(keys.as_ref()).await.unwrap();
+        match c.call(Method::MIGRATE_START, json!({})).await {
+            Err(ClientError::Remote(e)) => {
+                assert_eq!(e.reason.as_deref(), Some("takeover_not_allowed"), "{e:?}");
+                if denied == 3 {
+                    assert!(e.message.contains("hasn't been upgraded"), "{e:?}");
+                }
+            }
+            other => panic!("{other:?}"),
+        }
+        assert_untouched();
+        assert_eq!(status(&profile).await["account_legacy"], denied == 3);
+        if denied == 3 {
+            // A control client cannot reintroduce the removed CLI bypass.
+            match c
+                .call(Method::MIGRATE_START, json!({"ignore_rollout": true}))
+                .await
+            {
+                Err(ClientError::Remote(e)) => {
+                    assert_eq!(e.reason.as_deref(), Some("takeover_not_allowed"))
+                }
+                other => panic!("{other:?}"),
+            }
+            assert_untouched();
+            // Keep this daemon alive: status retains its last definite Legacy
+            // answer, but the current Unknown answer must use retryable copy.
+            mode.store(4, Ordering::SeqCst);
+            match c.call(Method::MIGRATE_START, json!({})).await {
+                Err(ClientError::Remote(e)) => {
+                    assert_eq!(e.reason.as_deref(), Some("takeover_not_allowed"));
+                    assert!(e.message.contains("couldn't confirm"), "{e:?}");
+                    assert!(e.message.contains("try again"), "{e:?}");
+                    assert!(!e.message.contains("hasn't been upgraded"), "{e:?}");
+                }
+                other => panic!("{other:?}"),
+            }
+            assert_eq!(status(&profile).await["account_legacy"], true);
+            assert_untouched();
+        }
         c.call(Method::SHUTDOWN, json!({})).await.unwrap();
         d.await.unwrap().unwrap();
     }
@@ -239,12 +280,13 @@ async fn automatic_takeover_waits_for_a_flipped_batch_and_fails_closed() {
     assert!(!claim.exists());
     std::fs::write(&claim, saved).unwrap();
 
-    // Explicit operator runs remain separate: no fresh rollout permission needed.
+    // An explicit run asks for fresh rollout permission too, then retires.
     mode.store(5, Ordering::SeqCst); // fixture retirement endpoint now available
     c.authenticate(keys.as_ref()).await.unwrap();
     let before_calls = calls.load(Ordering::SeqCst);
     let confirmed = c.call(Method::MIGRATE_START, json!({})).await.unwrap();
-    assert_eq!(calls.load(Ordering::SeqCst), before_calls);
+    assert_eq!(calls.load(Ordering::SeqCst), before_calls + 1);
+    assert_eq!(confirmed["account_legacy"], false);
     assert_eq!(
         confirmed["retirement"],
         json!({"retired":true,
@@ -252,22 +294,65 @@ async fn automatic_takeover_waits_for_a_flipped_batch_and_fails_closed() {
     );
 
     // A restart with Connect unreachable leaves evidence unchanged and still serves.
+    // The closed gate guards starting only: an old daemon revived meanwhile (it holds
+    // daemon.lock) is still reported.
     fixture.abort();
     let evidence = std::fs::read(profile.state_dir.join("takeover.json")).unwrap();
     c.call(Method::SHUTDOWN, json!({})).await.unwrap();
     daemon.await.unwrap().unwrap();
-    let p = profile.clone();
-    let daemon = tokio::spawn(async move { server::run(p, Some(Box::new(keys))).await });
+    let revived_old = std::fs::File::create(old.join("daemon.lock")).unwrap();
+    revived_old.try_lock().unwrap();
+    let (p, k) = (profile.clone(), keys.clone());
+    let daemon = tokio::spawn(async move { server::run(p, Some(Box::new(k))).await });
     wait_ready(&profile).await;
     let mut c = ControlClient::connect(&profile.control).await.unwrap();
-    let v = c.call(Method::COLLECTION_LIST, json!({})).await.unwrap();
-    assert!(v.to_string().contains(old_agent::CID));
+    // While the old daemon runs, the taken-over folder is not opened (an old daemon
+    // from before the marker check would write to it too), and adopt is refused.
+    let collection = |v: Value| -> CollectionStatus {
+        serde_json::from_value::<Vec<CollectionStatus>>(v)
+            .unwrap()
+            .into_iter()
+            .find(|s| s.id == old_agent::CID)
+            .unwrap()
+    };
+    let blocked = collection(c.call(Method::COLLECTION_LIST, json!({})).await.unwrap());
+    assert_eq!(
+        blocked.reason.as_deref(),
+        Some("old_connector_running"),
+        "{blocked:?}"
+    );
+    assert!(
+        blocked
+            .notices
+            .iter()
+            .any(|n| n.code == "old_connector_running")
+    );
+    c.authenticate(keys.as_ref()).await.unwrap();
+    match c
+        .call(Method::SYNC_ENABLE, json!({"collection": old_agent::CID}))
+        .await
+    {
+        Err(ClientError::Remote(e)) => {
+            assert_eq!(e.reason.as_deref(), Some("old_connector_running"))
+        }
+        other => panic!("{other:?}"),
+    }
     let st = status(&profile).await;
     assert_eq!(st["record"]["state"], "complete");
-    assert_eq!(st["revived"], false);
-    until("unreachable batch wait", || async {
+    let st = until("unreachable batch wait", || async {
         let s = status(&profile).await;
         (s["waiting_for_migration_batch"] == true).then_some(s)
+    })
+    .await;
+    assert_eq!(st["revived"], true, "{st}");
+    drop(revived_old);
+    // Once it stops, the collection reopens on its own.
+    until("reopen after the old daemon stopped", || async {
+        let mut c = ControlClient::connect(&profile.control).await.unwrap();
+        let v = c.call(Method::COLLECTION_LIST, json!({})).await.unwrap();
+        let s = collection(v);
+        (s.reason.is_none() && s.state == mdbn_daemon::control::CollectionState::Ready)
+            .then_some(json!(null))
     })
     .await;
     assert_eq!(

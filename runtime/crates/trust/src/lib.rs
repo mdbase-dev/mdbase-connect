@@ -195,6 +195,50 @@ fn https_origin(url: &str, what: &str) -> Result<String, Invalid> {
 /// IDs, ascending order, every policy certificate under its pinned root and a
 /// certificate valid at `issued_at <= now_ms`.
 pub fn verify(bytes: &[u8], expected: &Context, now_ms: u64) -> Result<Trust, Invalid> {
+    verify_inner(bytes, expected, now_ms, None)
+}
+
+/// Local-only signed asset verification. Not compiled into managed builds, and
+/// never selected by `verify` or a runtime environment variable. The launcher
+/// supplies its independently generated per-stack root, not an asset-selected key.
+#[cfg(feature = "local-rehearsal")]
+pub fn verify_local(
+    bytes: &[u8],
+    expected: &Context,
+    now_ms: u64,
+    stack_root: &[u8; 32],
+    signature: &[u8; 64],
+) -> Result<Trust, Invalid> {
+    if expected.environment != "local" || bytes.is_empty() || bytes.len() > MAX_BYTES {
+        return bad("local asset context");
+    }
+    let mut digest = sha2::Sha256::new();
+    digest.update(b"mdbase/local-release-trust/1\n");
+    digest.update(bytes);
+    let digest: [u8; 32] = digest.finalize().into();
+    if !mdbn_replica::crypto::sign::verify_digest(stack_root, &digest, signature) {
+        return bad("local asset signature");
+    }
+    verify_inner(bytes, expected, now_ms, Some(stack_root))
+}
+
+fn local_origin(value: &str) -> Result<String, Invalid> {
+    let Some(port) = value.strip_prefix("http://127.0.0.1:") else {
+        return bad("local origin must be exact http://127.0.0.1:port");
+    };
+    let parsed = port.parse::<u16>().ok().filter(|port| *port != 0);
+    if parsed.is_none_or(|p| p.to_string() != port) {
+        return bad("local origin port");
+    }
+    Ok(value.to_string())
+}
+
+fn verify_inner(
+    bytes: &[u8],
+    expected: &Context,
+    now_ms: u64,
+    local_root: Option<&[u8; 32]>,
+) -> Result<Trust, Invalid> {
     if bytes.is_empty() || bytes.len() > MAX_BYTES {
         return bad("payload size");
     }
@@ -213,11 +257,23 @@ pub fn verify(bytes: &[u8], expected: &Context, now_ms: u64) -> Result<Trust, In
     if p.schema_version != 1 {
         return bad("unsupported trust schema");
     }
-    if !matches!(p.environment.as_str(), "lab" | "staging" | "production") {
-        return bad("unknown environment");
-    }
-    let cp_origin = https_origin(&p.control_plane_origin, "control_plane_origin")?;
-    let log_origin = https_origin(&p.log_origin, "log_origin")?;
+    let (cp_origin, log_origin) = if local_root.is_some() {
+        if p.environment != "local" {
+            return bad("local asset environment");
+        }
+        (
+            local_origin(&p.control_plane_origin)?,
+            local_origin(&p.log_origin)?,
+        )
+    } else {
+        if !matches!(p.environment.as_str(), "lab" | "staging" | "production") {
+            return bad("unknown environment");
+        }
+        (
+            https_origin(&p.control_plane_origin, "control_plane_origin")?,
+            https_origin(&p.log_origin, "log_origin")?,
+        )
+    };
     let commit_ok = p.source.commit.len() == 40
         && p.source
             .commit
@@ -260,6 +316,11 @@ pub fn verify(bytes: &[u8], expected: &Context, now_ms: u64) -> Result<Trust, In
             root_id: B16(id),
             root_pk: B32(pk),
         });
+    }
+    if let Some(root) = local_root
+        && (roots.len() != 1 || roots[0] != *root)
+    {
+        return bad("local root differs from the stack root");
     }
     let mut key_pins: Vec<PolicyKeyPin> = Vec::new();
     let mut current = false;
@@ -501,6 +562,8 @@ pub fn normalized_json(trust: &Trust, context: &Context) -> Result<String, Inval
 
 #[cfg(test)]
 mod history_tests;
+#[cfg(all(test, feature = "local-rehearsal"))]
+mod local_tests;
 #[cfg(test)]
 mod public_tests;
 

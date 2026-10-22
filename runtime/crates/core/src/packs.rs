@@ -583,6 +583,31 @@ fn live_doc(state: &dyn StateView, path: &str) -> Option<String> {
     state.resource(path).map(|s| s.to_string())
 }
 
+/// Target overrides that place a pack's canonical `_types/` and `_contracts/`
+/// targets in the collection's configured `types_folder` and
+/// `contracts_folder`. A caller decision input (spec 05A `target_overrides`):
+/// assessment is unchanged unless the caller passes the result. Other kinds and
+/// targets outside those folders are left as published.
+pub fn folder_target_overrides(state: &dyn StateView, pack: &Pack) -> BTreeMap<String, String> {
+    let catalog = state.catalog();
+    let settings = catalog.settings();
+    let mut out = BTreeMap::new();
+    for r in &pack.resources {
+        let (canonical, folder) = match r.kind.as_str() {
+            "type" => ("_types/", settings.types_folder.as_str()),
+            "contract" => ("_contracts/", settings.contracts_folder.as_str()),
+            _ => continue,
+        };
+        if let Some(rest) = r.target.strip_prefix(canonical) {
+            let target = format!("{folder}/{rest}");
+            if target != r.target {
+                out.insert(r.target.clone(), target);
+            }
+        }
+    }
+    out
+}
+
 /// Assess `pack` against `state` (read-only).
 pub fn assess_type_pack(
     state: &dyn StateView,

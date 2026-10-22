@@ -82,6 +82,14 @@ export function registerGrantRevocationRoute(
         status: status === "revoking" ? "revoking" : status === "revoked" ? "revoked" : "conflict"
       });
     }
+    // Explicit removal dismisses old reauthorization notices, not grant history.
+    // Only durable tombstones qualify; an active conflict keeps its review state.
+    await options.db.query(
+      `UPDATE grants SET reauthorization_required_at = NULL, reauthorization_reason = NULL
+       WHERE id IN (${grantParameters}) AND user_id = $${grantIds.length + 1}
+         AND revoked_at IS NOT NULL`,
+      [...grantIds, user.id]
+    );
     await options.drainProviderRevocations();
     for (const result of results) {
       if (result.status !== "revoking" || localIds.includes(result.grant_id)) continue;
@@ -164,6 +172,11 @@ export function registerGrantRevocationRoute(
     }
     if (grant.connector_id) await options.relay.pushPolicy(grant.connector_id);
     if (!grant.hosted_replica_id) revocationStatus = await localGrantRevocationStatus(options.db, user.id, grantId);
+    await options.db.query(
+      `UPDATE grants SET reauthorization_required_at = NULL, reauthorization_reason = NULL
+       WHERE id = $1 AND user_id = $2 AND revoked_at IS NOT NULL`,
+      [grantId, user.id]
+    );
     await audit(
       options.db,
       user.id,

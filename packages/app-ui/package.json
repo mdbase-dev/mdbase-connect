@@ -1,6 +1,6 @@
 {
   "name": "@mdbase-dev/ui",
-  "version": "0.1.0-beta.129",
+  "version": "0.1.0-beta.139",
   "private": false,
   "type": "module",
   "license": "MIT",
@@ -25,6 +25,10 @@
     "./brand": {
       "types": "./dist/brand.d.ts",
       "import": "./dist/brand.js"
+    },
+    "./checkbox": {
+      "types": "./dist/Checkbox.d.ts",
+      "import": "./dist/Checkbox.js"
     },
     "./codemirror": {
       "types": "./dist/codemirror.d.ts",
@@ -118,7 +122,7 @@
   },
   "devDependencies": {
     "@codemirror/view": "^6.43.12",
-    "@mdbase-dev/sdk": "file:../../apps/editor/vendor/sdk-dev-eaa4e697-staging.tgz",
+    "@mdbase-dev/sdk": "file:vendor/sdk-0.0.0-bd131b16.tgz",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "jsdom": "^29.1.1",

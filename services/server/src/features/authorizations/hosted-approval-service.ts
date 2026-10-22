@@ -18,7 +18,7 @@ import {
   hostedReplicaCollectionOperations,
   retainedReplicaPolicy
 } from "../../hosted-replica-policy.js";
-import { planCollectionGrant } from "../../grant-planner.js";
+import { planFreshNextGrant } from "../next/fresh-authorization.js";
 import { randomToken } from "../../security.js";
 import { audit } from "../../platform/audit-events.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
@@ -219,7 +219,7 @@ export async function approveHostedAuthorization(
         "This hosted collection does not provide the contracts required by the application."
       );
     }
-    const plan = planCollectionGrant({
+    const { plan, legacy } = await planFreshNextGrant(connection, input.collectionId, {
       requestedOperations: input.operations,
       applicationOperationCeiling:
         pending.requested_operations as CollectionOperation[],
@@ -456,7 +456,7 @@ export async function approveHostedAuthorization(
     );
     // A retained grant reactivated here takes exactly this request's attested key.
     await copyClientNoiseKeyToGrant(connection, input.requestId, grantId);
-    await queueNextGrantPolicy(connection, grantId);
+    await queueNextGrantPolicy(connection, grantId, legacy);
     await audit(connection, input.userId, "authorization.approved", input.requestId, {
       hosted_collection_id: input.collectionId,
       operations,

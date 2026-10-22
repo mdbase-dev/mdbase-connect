@@ -65,6 +65,11 @@ describe("device helpers", () => {
       .toEqual(["collection.read", "records.create"]);
     expect(grantCapabilityGroups(2, ["update"])).toEqual([]);
     expect(grantCapabilityGroups(1, ["read"])).toBeUndefined();
+    const read = ["describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "read_type"];
+    const files = { kind: "files" as const, protocol_version: 1 as const, actions: ["list", "read"] as Array<"list" | "read">, scope: { kind: "collection" as const } };
+    expect(grantCapabilityGroups(1, read, false, files)).toBeUndefined();
+    expect(grantCapabilityGroups(1, read, true, files)).toEqual(["collection.read"]);
+    expect(grantCapabilityGroups(1, [...read, "create"], true, files)).toBeUndefined();
   });
 
   it("recognises weak device keys (SEC-039)", () => {

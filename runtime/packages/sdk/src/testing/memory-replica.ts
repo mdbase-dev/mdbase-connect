@@ -13,12 +13,18 @@
  */
 import { sha256 } from "@noble/hashes/sha2.js";
 import type { CborValue } from "../cbor.js";
-import { hashFromBytes, list, uuid as uuidCodec } from "../codec.js";
+import { decode, encode, Float64 } from "../cbor.js";
+import { hash as hashCodec, hashFromBytes, list, uuid as uuidCodec } from "../codec.js";
 import { ERROR_CODES, ErrorCode, isMdbaseError, mdbaseError, MdbaseError } from "../errors.js";
 import { Connector, FramePort, portPair } from "../transport/port.js";
-import { toPlain, uuidv7 } from "../values.js";
+import { revisionOf, toPlain, toValue, uuidv7, type PlainValue } from "../values.js";
 import * as w from "../wire.js";
 import { accountKeyStatus, type AccountKeyStatus } from "../private.js";
+import { contractRecordWire, contractWritePlan } from "../contract-records.js";
+import { contractQueryResult } from "../contract-query.js";
+import {
+  contractDigest, contractFields, implementationDigest, implementationFor, mapWrite, type MemoryContract,
+} from "./memory-contracts.js";
 
 type M = Map<number, CborValue>;
 
@@ -30,6 +36,18 @@ export interface MemoryRecord {
   body: string;
   confirmedSeq: number;
   pending: boolean;
+  hold?: w.HoldRef;
+  unresolved?: number;
+}
+
+/** A saved view served to app Bases reads: rows are the records of `types`,
+ * cells the named columns (`file.path`, `file.name` or a frontmatter field).
+ * No filters, sorting, grouping or formulas. */
+export interface MemoryBaseView {
+  path: string;
+  types: string[];
+  columns: string[];
+  name?: string;
 }
 
 export interface MemoryReplicaOptions {
@@ -41,11 +59,17 @@ export interface MemoryReplicaOptions {
   role?: w.Role;
   capabilities?: string[];
   grant?: w.Uuid;
+  /** The grant's file folder scope (absent: the whole file namespace). */
+  fileFolders?: string[];
   /** Answer hello with this problem instead (auth tests). */
   refuse?: w.Problem;
   runtimeVersion?: string;
   /** Core's temporal hint for a top-level field under a query's exact type list (default: `none`). */
   typing?: (types: string[], path: string) => w.TemporalHint;
+  /** Serve contract-scoped records through these declared implementations (a
+   * subset of Core's mapping; no schema validation). Absent: contract methods
+   * are unknown, as on an older replica. */
+  contracts?: MemoryContract[];
 }
 
 interface Sub {
@@ -89,6 +113,27 @@ function renderDocument(r: MemoryRecord): string {
   return lines.length ? `---\n${lines.join("\n")}\n---\n${r.body}` : r.body;
 }
 
+/** Synthetic frontmatter subset shared by document creates and replacements.
+ * Not Core's YAML/type/contract parser. */
+function parseDocument(doc: string): { frontmatter: w.FmMap; body: string } {
+  const mm = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(doc);
+  const frontmatter = new Map<string, CborValue>();
+  for (const line of (mm?.[1] ?? "").split("\n")) {
+    const i = line.indexOf(":");
+    if (i > 0) {
+      const raw = line.slice(i + 1).trim();
+      let v: CborValue = raw;
+      try {
+        v = JSON.parse(raw) as CborValue;
+      } catch {
+        // keep as text
+      }
+      frontmatter.set(line.slice(0, i).trim(), v);
+    }
+  }
+  return { frontmatter, body: mm ? mm[2]! : doc };
+}
+
 function revision(r: MemoryRecord): string {
   return hashFromBytes(sha256(new TextEncoder().encode(renderDocument(r))));
 }
@@ -100,6 +145,14 @@ function mediaOf(path: string): w.MediaClass {
   if (["mp4", "webm", "mov", "mkv"].includes(ext)) return "video";
   if (ext === "pdf") return "pdf";
   return "other";
+}
+
+/** A few of Core's `paths::media_type` entries, enough for SDK tests. */
+const MEDIA_TYPES: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", pdf: "application/pdf", txt: "text/plain" };
+function mediaTypeOf(path: string): string | undefined {
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  const dot = name.lastIndexOf(".");
+  return dot < 0 ? undefined : MEDIA_TYPES[name.slice(dot + 1).toLowerCase()];
 }
 
 function applyScalarEdits(base: string, edits: w.BodyEdit[]): string {
@@ -115,7 +168,7 @@ export class MemoryReplica {
   readonly collection: w.Uuid;
   private records = new Map<w.Uuid, MemoryRecord>();
   private files = new Map<w.Uuid, MemFile>();
-  private uploads = new Map<w.Uuid, { params: w.OpenUploadParams; chunks: Map<number, Uint8Array> }>();
+  private uploads = new Map<w.Uuid, { params: w.OpenUploadParams; fileId: w.Uuid; chunks: Map<number, Uint8Array> }>();
   private receipts = new Map<w.Uuid, w.Receipt>();
   private pendingQueue: w.Uuid[] = [];
   private pendingRecords = new Map<w.Uuid, w.Uuid[]>();
@@ -130,6 +183,12 @@ export class MemoryReplica {
   /** AK1 §6 stand-in: the secret `account_key_setup` enrolled, and this device's unlock state. */
   private accountKeySecret: Uint8Array | null = null;
   private accountKey: AccountKeyStatus = { state: "idle" };
+  private stalled = false;
+  private loseNext = false;
+  private failWrite: w.Problem | null = null;
+  private holdList = new Map<w.Uuid, { hold: w.Hold; record: w.Uuid }>();
+  private conflictList: w.ConflictEntry[] = [];
+  private baseViews = new Map<w.Uuid, MemoryBaseView[]>();
   /** Test hook: answer `describe_typing` with this instead (for mismatch tests). */
   typingAnswer?: (types: string[], paths: string[]) => w.DescribeTypingResult;
 
@@ -164,6 +223,10 @@ export class MemoryReplica {
           return { port: client, helloResponse };
         }
         this.conns.add(conn);
+        Object.assign(client, {
+          readAppBases: async (bytes: Uint8Array) => this.basesRead(bytes),
+          readAppBasesDiscovery: async (op: "list-views" | "read-view-source", bytes: Uint8Array) => this.basesDiscovery(op, bytes),
+        });
         server.onframe = (f) => void this.onFrame(conn, f);
         server.onclose = () => this.drop(conn);
         return { port: client, helloResponse };
@@ -204,6 +267,206 @@ export class MemoryReplica {
     while (this.pendingQueue.length) this.confirmNext();
   }
 
+  // ------------------------------------------------------------ faults (R6)
+
+  /** Another device edits a record; the change arrives confirmed. A `null`
+   * frontmatter value removes the field. */
+  editElsewhere(ref: string, change: { body?: string; frontmatter?: Record<string, CborValue | null> }): void {
+    const r = this.rec(ref);
+    if (change.body !== undefined) r.body = change.body;
+    for (const [k, v] of Object.entries(change.frontmatter ?? {})) {
+      if (v === null) r.frontmatter.delete(k);
+      else r.frontmatter.set(k, v);
+    }
+    r.confirmedSeq = ++this.seq;
+    this.touch(r.id, r.path, "put");
+    this.pushStatus();
+  }
+
+  /** Another device renames (moves) a record. */
+  renameElsewhere(ref: string, to: string): void {
+    const r = this.rec(ref), from = r.path;
+    r.path = to;
+    r.confirmedSeq = ++this.seq;
+    this.touch(r.id, from, "remove");
+    this.touch(r.id, to, "put");
+    this.pushStatus();
+  }
+
+  /** Another device deletes a record. */
+  deleteElsewhere(ref: string): void {
+    const r = this.rec(ref);
+    this.records.delete(r.id);
+    ++this.seq;
+    this.touch(r.id, r.path, "remove", "record", r.types);
+    this.pushStatus();
+  }
+
+  /** The next request runs but its response is lost and the session drops,
+   * as when a link breaks after a write was captured. Clients reconnect, and
+   * a resubmitted write (same mutation ID) gets its original receipt. */
+  loseNextResponse(): void {
+    this.loseNext = true;
+  }
+
+  /** The next submit fails with `p` and captures nothing. */
+  failNextWrite(p: w.Problem = problem("unavailable", "the replica could not take the write", "storage_busy")): void {
+    this.failWrite = p;
+  }
+
+  /** Stuck pending: while stalled, writes are not confirmed on their own even
+   * though the replica is online (`confirmAll` still confirms). */
+  stallConfirmations(stalled = true): void {
+    this.stalled = stalled;
+    if (!stalled) this.scheduleConfirm();
+  }
+
+  /** Put a hold on a record (as the replica does on a conflicting or suspect
+   * write). Resolve it with `client.resolveHold`. */
+  hold(ref: string, o: { reason?: w.HoldReason; mine?: string; theirs?: string } = {}): w.Uuid {
+    const r = this.rec(ref), id = uuidv7(), reason = o.reason ?? "conflict";
+    r.hold = { id, reason };
+    this.holdList.set(id, {
+      record: r.id,
+      hold: { id, path: r.path, reason, since: Date.now(), mine: o.mine ?? r.body, ...(o.theirs !== undefined ? { theirs: o.theirs } : {}), saves: 0 },
+    });
+    this.touch(r.id, r.path, "put");
+    this.pushHolds();
+    this.pushStatus();
+    return id;
+  }
+
+  /** Record a merged field conflict on a record (the kept value is applied). */
+  conflict(ref: string, o: { field: string; kept: PlainValue; lost: PlainValue }): w.ConflictEntry {
+    const r = this.rec(ref);
+    r.frontmatter.set(o.field, toValue(o.kept));
+    r.confirmedSeq = ++this.seq;
+    r.unresolved = (r.unresolved ?? 0) + 1;
+    const entry: w.ConflictEntry = {
+      mutation: uuidv7(),
+      seq: this.seq,
+      conflict: { kind: "field", id: r.id, field: o.field, kept: { form: "value", value: toValue(o.kept) }, lost: { form: "value", value: toValue(o.lost) } },
+    };
+    this.conflictList.push(entry);
+    this.touch(r.id, r.path, "put");
+    this.pushConflicts();
+    this.pushStatus();
+    return entry;
+  }
+
+  /** Declare a type, so `describe` lists it with this definition and schema. */
+  seedType(name: string, definition: Record<string, PlainValue> = {}): string {
+    const fm: Record<string, PlainValue> = { kind: "mdbase.type", name, ...definition };
+    const path = `_types/${name}.md`;
+    this.seedResource(path, `---\n${Object.entries(fm).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join("\n")}\n---\n`);
+    return path;
+  }
+
+  /** Add a saved view for app Bases reads (another view in the same file when
+   * the path exists). Returns its identity for `executeAppBases`. */
+  seedBaseView(view: MemoryBaseView): { record: w.Uuid; sourceRevision: string; ordinal: number } {
+    if (!view.types.length) throw new Error("MemoryReplica: a Bases view needs a type");
+    let r = [...this.records.values()].find((x) => x.path === view.path);
+    if (!r) r = this.seed({ path: view.path });
+    const views = [...(this.baseViews.get(r.id) ?? []), view];
+    this.baseViews.set(r.id, views);
+    r.body = views.map((v) => `- name: ${JSON.stringify(v.name ?? null)}\n  types: ${JSON.stringify(v.types)}\n  columns: ${JSON.stringify(v.columns)}`).join("\n") + "\n";
+    r.confirmedSeq = ++this.seq;
+    this.touch(r.id, r.path, "put");
+    return { record: r.id, sourceRevision: revisionOf(r.body), ordinal: views.length - 1 };
+  }
+
+  private rec(ref: string): MemoryRecord {
+    const r = this.records.get(ref) ?? [...this.records.values()].find((x) => x.path === ref);
+    if (!r) throw new Error(`MemoryReplica: no record ${ref}`);
+    return r;
+  }
+
+  private pushHolds(): void {
+    const payload = list(w.hold).enc([...this.holdList.values()].map((h) => h.hold));
+    for (const c of this.conns) if (c.holds) this.push(c, "holds", payload);
+  }
+
+  private pushConflicts(): void {
+    const payload = list(w.conflictEntry).enc(this.conflictList);
+    for (const c of this.conns) if (c.conflicts) this.push(c, "conflicts", payload);
+  }
+
+  // ------------------------------------------------------------ app Bases (subset)
+
+  private basesClock(): CborValue {
+    const now = new Date();
+    return w.opClock.enc({ instant: now.getTime(), tz: "UTC", localDate: now.toISOString().slice(0, 10) });
+  }
+
+  private basesRevision(): CborValue {
+    return hashCodec.enc(hashFromBytes(sha256(new TextEncoder().encode(`memory-${this.viewVersion}`))));
+  }
+
+  private basesDescriptor(r: MemoryRecord, ordinal: number): CborValue {
+    const v = this.baseViews.get(r.id)![ordinal]!;
+    const digest = (s: string) => hashCodec.enc(hashFromBytes(sha256(new TextEncoder().encode(s))));
+    return new Map<number, CborValue>([
+      [0, uuidCodec.enc(r.id)], [1, r.path], [2, hashCodec.enc(revisionOf(r.body))], [3, ordinal],
+      [4, v.name ?? null], [5, "table"],
+      [6, v.types.map((t) => new Map<number, CborValue>([[0, t], [1, "1"], [2, digest(`contract:${t}`)], [3, digest(`implementation:${t}`)]]))],
+    ]);
+  }
+
+  private basesRefusal(p: w.Problem): Uint8Array {
+    return encode(new Map<number, CborValue>([[0, 1], [7, w.problem.enc(p)]]));
+  }
+
+  private basesView(record: CborValue, revisionWire: CborValue, ordinal: CborValue): { r: MemoryRecord; ordinal: number } | w.Problem {
+    const id = uuidCodec.dec(record), r = this.records.get(id), views = this.baseViews.get(id);
+    if (!r || !views || typeof ordinal !== "number" || !views[ordinal]) return problem("not_found", "no such view", "view_not_found");
+    if (hashCodec.dec(revisionWire) !== revisionOf(r.body)) return problem("conflict", "the view changed", "view_source_changed");
+    return { r, ordinal };
+  }
+
+  private basesRead(bytes: Uint8Array): Uint8Array {
+    const m = decode(bytes) as Map<number, CborValue>;
+    const found = this.basesView(m.get(0)!, m.get(1)!, m.get(2)!);
+    if (!("r" in found)) return this.basesRefusal(found);
+    const view = this.baseViews.get(found.r.id)![found.ordinal]!;
+    const cell = (v: unknown): CborValue =>
+      v === null || v === undefined ? [0] : typeof v === "boolean" ? [1, v] : typeof v === "number" ? [2, new Float64(v)]
+        : typeof v === "string" ? [3, v] : Array.isArray(v) ? [6, v.map(cell)] : [3, JSON.stringify(v)];
+    const value = (r: MemoryRecord, column: string): unknown =>
+      column === "file.path" ? r.path : column === "file.name" ? r.path.slice(r.path.lastIndexOf("/") + 1)
+        : toPlain(r.frontmatter.get(column.replace(/^(note|fm)\./, "")) ?? null);
+    const all = this.evalQuery(new Map([["types", view.types]]))
+      .map((r) => [uuidCodec.enc(r.id), r.path, hashCodec.enc(revision(r)), view.columns.map((c) => cell(value(r, c)))] as CborValue);
+    const win = m.get(6) as Map<number, number> | undefined;
+    const offset = win?.get(0) ?? 0, rows = win ? all.slice(offset, offset + win.get(1)!) : all;
+    const out = new Map<number, CborValue>([
+      [0, 1], [1, this.basesDescriptor(found.r, found.ordinal)], [2, new Map<number, CborValue>([[0, view.columns], [1, []]])],
+      [3, rows], [4, []], [5, this.basesClock()], [6, this.basesRevision()],
+    ]);
+    if (win) out.set(8, new Map<number, CborValue>([[0, offset], [1, win.get(1)!], [2, all.length], [3, []]]));
+    return encode(out);
+  }
+
+  private basesDiscovery(op: "list-views" | "read-view-source", bytes: Uint8Array): Uint8Array {
+    const m = decode(bytes) as Map<number, CborValue>;
+    if (op === "read-view-source") {
+      const found = this.basesView(m.get(1)!, m.get(2)!, m.get(3)!);
+      if (!("r" in found)) return this.basesRefusal(found);
+      return encode(new Map<number, CborValue>([
+        [0, 1], [1, this.basesDescriptor(found.r, found.ordinal)], [2, found.r.body], [3, this.basesClock()], [4, this.basesRevision()],
+      ]));
+    }
+    const limit = m.get(2) as number, handle = m.get(3);
+    const start = handle instanceof Uint8Array ? new DataView(handle.buffer, handle.byteOffset).getUint32(0) : 0;
+    const all = [...this.baseViews.keys()].filter((id) => this.records.has(id)).sort()
+      .flatMap((id) => this.baseViews.get(id)!.map((_, i) => this.basesDescriptor(this.records.get(id)!, i)));
+    const next = start + limit < all.length ? new Uint8Array(32) : null;
+    if (next) new DataView(next.buffer).setUint32(0, start + limit);
+    return encode(new Map<number, CborValue>([
+      [0, 1], [1, all.slice(start, start + limit)], [2, this.basesClock()], [3, this.basesRevision()], [4, next],
+    ]));
+  }
+
   /** Reject a pending mutation (as a failed check at head would). */
   reject(mutation: w.Uuid, p: w.Problem = problem("conflict", "rejected at head", "revision")): void {
     const r = this.receipts.get(mutation);
@@ -236,7 +499,8 @@ export class MemoryReplica {
     if (f.kind !== "request" || f.method !== "hello") throw new Error("expected hello");
     if (this.opts.refuse) return w.clientFrame.enc({ kind: "response", id: f.id, problem: this.opts.refuse });
     const p = w.helloParams.dec(f.params);
-    if (!p.versions.some((v) => v.major === 1)) {
+    const minor = Math.max(-1, ...p.versions.filter((v) => v.major === 1 && v.minor <= 2).map((v) => v.minor));
+    if (minor < 0) {
       return w.clientFrame.enc({
         kind: "response",
         id: f.id,
@@ -249,14 +513,14 @@ export class MemoryReplica {
         "records.create",
         "records.edit",
         "records.delete",
-        "files.write",
         "definitions.manage",
       ],
       role: this.opts.role ?? "owner",
     };
     if (this.opts.grant) grant.grant = this.opts.grant;
+    if (this.opts.fileFolders) grant.fileFolders = [...this.opts.fileFolders];
     const result: w.HelloResult = {
-      version: { major: 1, minor: 0 },
+      version: { major: 1, minor },
       runtimeVersion: this.opts.runtimeVersion ?? "memory-0",
       sem: { major: 1, minor: 0 },
       collection: this.collection,
@@ -274,8 +538,8 @@ export class MemoryReplica {
       headKnown: this.seq,
       pending: this.pendingQueue.length,
       ...(this.pendingQueue.length ? { oldestPending: Date.now() } : {}),
-      holds: 0,
-      unresolved: 0,
+      holds: this.holdList.size,
+      unresolved: [...this.records.values()].reduce((n, r) => n + (r.unresolved ?? 0), 0),
       connection: this.online ? "online" : "offline",
       incidents: [],
     };
@@ -301,6 +565,12 @@ export class MemoryReplica {
   private async onFrame(c: Conn, raw: CborValue): Promise<void> {
     const f = w.clientFrame.dec(raw);
     if (f.kind !== "request") return;
+    if (this.loseNext) {
+      this.loseNext = false;
+      await this.dispatch(c, f.method, f.params).catch(() => {});
+      c.port.close();
+      return;
+    }
     try {
       const result = await this.dispatch(c, f.method, f.params);
       this.send(c, { kind: "response", id: f.id, result: result ?? null });
@@ -310,6 +580,61 @@ export class MemoryReplica {
         : problem("invalid_request", e instanceof Error ? e.message : String(e));
       this.send(c, { kind: "response", id: f.id, problem: p });
     }
+  }
+
+  private contractMethod(method: string, m: M, contracts: MemoryContract[]): CborValue {
+    if (method === "query_contract_v1") {
+      const sel = { id: m.get(1) as string, version: m.get(2) as string };
+      const impls = contracts.filter((c) => c.id === sel.id && c.version === sel.version);
+      if (!impls.length) throw mdbaseError("not_found", "no such contract", "data_contract_not_found");
+      const where = m.get(5) as string | undefined;
+      if (where && !this.opts.where) throw mdbaseError("invalid_request", "MemoryReplica: pass a `where` evaluator to use where");
+      const rows = [...this.records.values()]
+        .sort((a, b) => (a.path < b.path ? -1 : 1))
+        .map((r) => ({
+          r,
+          implementations: impls
+            .filter((c) => r.types.includes(c.type))
+            .map((c) => ({ typeName: c.type, fields: contractFields(c, r), issues: [] }))
+            .filter((x) => !where || this.opts.where!(where, { ...r, frontmatter: x.fields })),
+        }))
+        .filter((x) => x.implementations.length);
+      const start = Number(m.get(4) ?? 0);
+      const limit = (m.get(3) as number | undefined) ?? 128;
+      const slice = rows.slice(start, start + limit);
+      const page: w.QueryResult = { records: slice.map((x) => this.view(x.r)), complete: true, asOf: this.viewVersion };
+      if (start + limit < rows.length) page.cursor = String(start + limit);
+      return contractQueryResult.enc({
+        version: 1, page, contractDigest: contractDigest(impls[0]!),
+        records: slice.map((x) => ({ id: x.r.id, implementations: x.implementations })),
+      });
+    }
+    if (method === "get_contract_v1") {
+      const r = this.find(m.get(1)!);
+      const c = implementationFor(contracts, { id: m.get(2) as string, version: m.get(3) as string, type: m.get(4) as string | undefined }, r);
+      return contractRecordWire.enc({
+        version: 1, id: r.id, path: r.path, revision: revision(r), type: c.type, fields: contractFields(c, r),
+        contractDigest: contractDigest(c), implementationDigest: implementationDigest(c),
+      });
+    }
+    const target = m.get(4);
+    const r = target === undefined ? undefined : this.find(target);
+    const sel = { id: m.get(1) as string, version: m.get(2) as string, type: m.get(3) as string | undefined };
+    // Promotion: an untyped record takes the implementing type through `type`.
+    const promoting = m.get(7) === true && r !== undefined && r.types.length === 0;
+    if (m.get(7) === true && r?.types.length && !contracts.some((c) => c.id === sel.id && c.version === sel.version && r.types.includes(c.type))) {
+      throw mdbaseError("invalid_request", "only a record without types can be promoted", "data_contract_promote_typed");
+    }
+    const c = implementationFor(contracts, sel, promoting ? undefined : r);
+    const mapped = mapWrite(c, r, (m.get(5) ?? new Map()) as Map<string, CborValue>, (m.get(6) ?? []) as string[]);
+    if (promoting) {
+      mapped.patch.set("type", c.type);
+      mapped.base.push({ key: "type" });
+    }
+    return contractWritePlan.enc({
+      version: 1, type: c.type, ...mapped, contractDigest: contractDigest(c), implementationDigest: implementationDigest(c),
+      ...(r ? { id: r.id, path: r.path, revision: revision(r) } : {}),
+    });
   }
 
   private find(ref: CborValue): MemoryRecord {
@@ -328,7 +653,12 @@ export class MemoryReplica {
       revision: revision(r),
       frontmatter: new Map(r.frontmatter),
       types: r.types,
-      state: { state: r.pending ? "pending" : "confirmed", confirmedSeq: r.confirmedSeq },
+      state: {
+        state: r.pending ? "pending" : "confirmed",
+        confirmedSeq: r.confirmedSeq,
+        ...(r.hold ? { hold: { ...r.hold } } : {}),
+        ...(r.unresolved ? { unresolved: r.unresolved } : {}),
+      },
     };
     if (inc?.body) v.body = r.body;
     if (inc?.document) v.document = renderDocument(r);
@@ -391,12 +721,25 @@ export class MemoryReplica {
         }
         return w.describeResult.enc({
           specVersion: "0.3.0-rc.5",
-          types: [...types].sort().map((name) => ({ name, path: `_types/${name}.md`, implements: [] })),
+          types: [...types].sort().map((name) => this.typeSummary(name, m.get(0) === true)),
           settings: new Map(),
           inclusion: { include: ["image", "audio", "video", "pdf", "other"] },
           issues: [],
           contracts: [],
         });
+      }
+      case "new_type_file": {
+        // Synthetic subset of Core's derivation: frontmatter name, default folder.
+        const { frontmatter } = parseDocument(m.get(0) as string);
+        const name = frontmatter.get("name");
+        if (frontmatter.get("kind") !== "mdbase.type" || typeof name !== "string" || name === "" || name.includes("/")) {
+          throw mdbaseError("invalid_record", "the type needs a usable name", "invalid_type_definition");
+        }
+        const existing = [...this.resources.keys()].find((p) => p.toLowerCase() === `_types/${name.toLowerCase()}.md`);
+        if (existing !== undefined) {
+          throw mdbaseError("conflict", "the type exists", { reason: "type_conflict", details: existing });
+        }
+        return w.newTypeFile.enc({ name, path: `_types/${name}.md` });
       }
       case "get_resource": {
         const path = m.get(0) as string;
@@ -426,13 +769,12 @@ export class MemoryReplica {
       }
       case "list_pending": {
         const pending = this.pendingQueue
-          .filter((mu) => c.mutations.has(mu))
+          // Owner-scoped like the replica: one grant per MemoryReplica, so every
+          // session (a reload included) sees them.
           .map((mu) => ({ receipt: this.receipts.get(mu)!, captured: 0, ops: this.pendingOps.get(mu) ?? [] }))
           .filter((x) => x.ops.length);
         return w.listPendingResult.enc({ pending });
       }
-      case "list_views":
-        return w.listViewsResult.enc({ sources: [], diagnostics: [], complete: true });
       case "get_status":
         return w.syncStatus.enc(this.status());
       case "subscribe_status":
@@ -538,12 +880,33 @@ export class MemoryReplica {
       case "account_key_status":
         return accountKeyStatus.enc(this.accountKey);
       case "list_holds":
-        return [];
+        return list(w.hold).enc([...this.holdList.values()].map((h) => h.hold));
+      case "resolve_hold": {
+        const id = uuidCodec.dec(m.get(0)!), how = w.holdResolution.dec(m.get(1)!), use = m.get(2) as string | undefined;
+        const held = this.holdList.get(id);
+        if (!held) throw mdbaseError("not_found", "no such hold");
+        const r = this.records.get(held.record);
+        this.holdList.delete(id);
+        if (r) delete r.hold;
+        const theirs = typeof held.hold.theirs === "string" ? held.hold.theirs : undefined;
+        const ops: w.Op[] = !r ? []
+          : how === "delete" ? [{ kind: "delete", id: r.id }]
+          : how === "take_theirs" && theirs !== undefined ? [{ kind: "update", id: r.id, body: theirs }]
+          : how === "use" && use !== undefined ? [{ kind: "update", id: r.id, body: use }]
+          : how === "keep_both" ? [{ kind: "create", id: uuidv7(), path: r.path.replace(/(\.[^./]+)?$/, " (copy)$1"), body: theirs ?? r.body }]
+          : [{ kind: "update", id: r.id }];
+        const [receipt] = await this.submit(c, { ops, mutationId: uuidv7() });
+        this.pushHolds();
+        this.pushStatus();
+        return w.receipt.enc(receipt!);
+      }
       case "subscribe_holds":
         c.holds = true;
         return null;
-      case "list_conflicts":
-        return [];
+      case "list_conflicts": {
+        const record = m.get(0) === undefined ? undefined : uuidCodec.dec(m.get(0)!);
+        return list(w.conflictEntry).enc(this.conflictList.filter((e) => !record || e.conflict.id === record));
+      }
       case "subscribe_conflicts":
         c.conflicts = true;
         return null;
@@ -578,13 +941,14 @@ export class MemoryReplica {
         return w.fileView.enc(this.fileView(this.findFile(m.get(0)!)));
       case "open_upload": {
         const op = w.openUploadParams.dec(p);
-        const u = this.uploads.get(op.transfer) ?? { params: op, chunks: new Map() };
+        const u = this.uploads.get(op.transfer) ?? { params: op, fileId: op.fileId ?? uuidv7(), chunks: new Map() };
         this.uploads.set(op.transfer, u);
         return w.openUploadResult.enc({
           transfer: op.transfer,
           chunkSize: 1024 * 1024,
           received: [...u.chunks.keys()],
           expiresAt: Date.now() + 86_400_000,
+          fileId: u.fileId,
         });
       }
       case "upload_chunk": {
@@ -624,6 +988,11 @@ export class MemoryReplica {
         return null;
       case "fence_report":
         return null;
+      case "get_contract_v1":
+      case "map_contract_write_v1":
+      case "query_contract_v1":
+        if (this.opts.contracts) return this.contractMethod(method, m, this.opts.contracts);
+        throw mdbaseError("invalid_request", `MemoryReplica does not implement ${method}`, "unknown_method");
       default:
         throw mdbaseError("invalid_request", `MemoryReplica does not implement ${method}`, "unknown_method");
     }
@@ -663,6 +1032,7 @@ export class MemoryReplica {
       size: f.bytes.length,
       digest: hashFromBytes(sha256(f.bytes)),
       media: mediaOf(f.path),
+      ...(mediaTypeOf(f.path) ? { mediaType: mediaTypeOf(f.path)! } : {}),
       state: f.pending ? "pending_upload" : "materialized",
       confirmedSeq: f.confirmedSeq,
     };
@@ -686,13 +1056,13 @@ export class MemoryReplica {
     const mutation = u.params.mutationId ?? uuidv7();
     const existing = this.receipts.get(mutation);
     if (existing) return existing;
-    const id = u.params.fileId ?? uuidv7();
+    const id = u.fileId;
     const prev = this.files.get(id);
     if (u.params.ifRevision && prev && hashFromBytes(sha256(prev.bytes)) !== u.params.ifRevision) {
       throw mdbaseError("conflict", "file changed", "revision");
     }
     this.files.set(id, { id, path: u.params.path, bytes, confirmedSeq: prev?.confirmedSeq ?? 0, pending: true });
-    this.touch(id, u.params.path, "put");
+    this.touch(id, u.params.path, "put", "file");
     c.mutations.add(mutation);
     const r: w.Receipt = { mutation, state: "pending" };
     this.receipts.set(mutation, r);
@@ -711,6 +1081,26 @@ export class MemoryReplica {
   /** Seed a resource (a type file, mdbase.yaml). */
   seedResource(path: string, text: string): void {
     this.resources.set(path, { text, pending: false });
+  }
+
+  /** Synthetic type summary: the parsed subset of the type file, never Core's catalog. */
+  private typeSummary(name: string, definitions: boolean): w.TypeSummary {
+    const path = `_types/${name}.md`;
+    const summary: w.TypeSummary = { name, path, implements: [] };
+    const source = this.resources.get(path);
+    if (source === undefined) return definitions ? { ...summary, definition: new Map(), schema: null } : summary;
+    const { frontmatter } = parseDocument(source.text);
+    const version = frontmatter.get("version");
+    if (typeof version === "number" && Number.isInteger(version)) summary.version = version;
+    summary.revision = this.resourceView(path, source, false).revision;
+    if (definitions) {
+      // parseDocument leaves JSON objects plain; normalise them to data maps.
+      const definition = toValue(frontmatter as Map<string, PlainValue>) as Map<string, CborValue>;
+      const schema = definition.get("schema");
+      summary.definition = definition;
+      summary.schema = schema instanceof Map ? ((schema as Map<string, CborValue>).get("value") ?? null) : null;
+    }
+    return summary;
   }
 
   private resourceView(path: string, r: { text: string; pending: boolean }, text: boolean): w.ResourceView {
@@ -764,6 +1154,11 @@ export class MemoryReplica {
   private priors = new Map<w.Uuid, Map<w.Uuid, MemoryRecord | null>>();
 
   private async submit(c: Conn, p: w.SubmitParams): Promise<w.Receipt[]> {
+    if (this.failWrite && !p.dryRun) {
+      const failure = this.failWrite;
+      this.failWrite = null;
+      throw new MdbaseError(failure);
+    }
     const groups = p.allowPartial ? p.ops.map((op) => [op]) : [p.ops];
     const ids = p.allowPartial ? (p.mutationIds ?? []) : [p.mutationId ?? uuidv7()];
     const out: w.Receipt[] = [];
@@ -848,8 +1243,9 @@ export class MemoryReplica {
             id: op.id,
             path,
             types: op.type ? [op.type] : [],
-            frontmatter: new Map(op.frontmatter ?? []),
-            body: op.body ?? "",
+            ...(op.document === undefined
+              ? { frontmatter: new Map(op.frontmatter ?? []), body: op.body ?? "" }
+              : parseDocument(op.document)),
             confirmedSeq: 0,
             pending: true,
           });
@@ -867,6 +1263,9 @@ export class MemoryReplica {
           }
           const r = { ...r0, frontmatter: new Map(r0.frontmatter), pending: true };
           for (const [k, v] of op.patch ?? []) r.frontmatter.set(k, v);
+          // Explicit membership, as Core reads the `type` key.
+          const declared = r.frontmatter.get("type");
+          if (typeof declared === "string" && !r.types.includes(declared)) r.types = [declared];
           for (const k of op.unset ?? []) r.frontmatter.delete(k);
           for (const [k, items] of op.add ?? []) {
             const old = r.frontmatter.get(k);
@@ -896,28 +1295,11 @@ export class MemoryReplica {
             staged.set(op.id, null);
             break;
           }
-          const doc = op.new.doc;
-          const mm = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(doc);
-          const fm = new Map<string, CborValue>();
-          for (const line of (mm?.[1] ?? "").split("\n")) {
-            const i = line.indexOf(":");
-            if (i > 0) {
-              const raw = line.slice(i + 1).trim();
-              let v: CborValue = raw;
-              try {
-                v = JSON.parse(raw) as CborValue;
-              } catch {
-                // keep as text
-              }
-              fm.set(line.slice(0, i).trim(), v);
-            }
-          }
           staged.set(op.id, {
             id: op.id,
             path: op.new.path || r0?.path || `${op.id}.md`,
             types: r0?.types ?? [],
-            frontmatter: fm,
-            body: mm ? mm[2]! : doc,
+            ...parseDocument(op.new.doc),
             confirmedSeq: r0?.confirmedSeq ?? 0,
             pending: true,
           });
@@ -944,17 +1326,17 @@ export class MemoryReplica {
         case "file_move": {
           const f = this.files.get(op.id);
           if (!f) throw mdbaseError("not_found", "no such file");
-          this.touch(f.id, f.path, "remove");
+          this.touch(f.id, f.path, "remove", "file");
           f.path = op.to;
           f.pending = true;
-          this.touch(f.id, f.path, "put");
+          this.touch(f.id, f.path, "put", "file");
           break;
         }
         case "file_delete": {
           const f = this.files.get(op.id);
           if (!f) throw mdbaseError("not_found", "no such file");
           this.files.delete(op.id);
-          this.touch(f.id, f.path, "remove");
+          this.touch(f.id, f.path, "remove", "file");
           break;
         }
         case "resource_put": {
@@ -980,8 +1362,16 @@ export class MemoryReplica {
           this.resources.delete(op.path);
           break;
         }
-        case "conflict_dismiss":
+        case "conflict_dismiss": {
+          const before = this.conflictList.length;
+          this.conflictList = this.conflictList.filter((e) => !(e.mutation === op.mutation && e.conflict.id === op.record));
+          const r0 = this.records.get(op.record);
+          if (r0 && before !== this.conflictList.length) {
+            r0.unresolved = Math.max(0, (r0.unresolved ?? 0) - 1);
+            this.pushConflicts();
+          }
           break;
+        }
         default:
           throw mdbaseError("invalid_request", `MemoryReplica does not implement ${op.kind}`);
       }
@@ -1010,10 +1400,10 @@ export class MemoryReplica {
 
   private scheduleConfirm(): void {
     const d = this.opts.confirmDelayMs;
-    if (d === null || !this.online || this.confirmTimer) return;
+    if (d === null || !this.online || this.stalled || this.confirmTimer) return;
     this.confirmTimer = setTimeout(() => {
       this.confirmTimer = null;
-      if (this.online) this.confirmAll();
+      if (this.online && !this.stalled) this.confirmAll();
     }, d ?? 0);
   }
 
@@ -1075,9 +1465,10 @@ export class MemoryReplica {
   }
 
   /** Record a change and refresh live queries. */
-  private touch(id: w.Uuid, path: string, kind: "put" | "remove"): void {
+  private touch(id: w.Uuid, path: string, kind: "put" | "remove", entity: "record" | "file" = "record", types?: string[]): void {
     this.viewVersion++;
-    const ch: w.Change = { id, path, kind, version: this.viewVersion };
+    const t = entity === "record" ? (types ?? this.records.get(id)?.types) : undefined;
+    const ch: w.Change = { id, path, kind, version: this.viewVersion, entity, ...(t?.length ? { types: [...t] } : {}) };
     this.changeLog.push(ch);
     queueMicrotask(() => {
       for (const c of this.conns) {

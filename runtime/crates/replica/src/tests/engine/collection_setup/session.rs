@@ -2,7 +2,7 @@ use super::capture::{setup, upload};
 use super::*;
 use crate::{Store, file_source::SourceNeed, replica::CollectionSetupSession};
 use std::collections::BTreeMap;
-fn drive(a: &Node, session: &mut CollectionSetupSession, svc: &FakeLogService) -> usize {
+pub(super) fn drive(a: &Node, session: &mut CollectionSetupSession, svc: &FakeLogService) -> usize {
     let objects: BTreeMap<_, _> = svc.objects(&COL).into_iter().collect();
     let mut count = 0;
     while let Some(need) = a.r.collection_setup_session_need(session).unwrap() {

@@ -54,6 +54,8 @@ async fn local_only_write_is_confirmed_once_published() {
         device_id: [3; 16],
         root: folder.clone(),
         private_dir: root.join("state"),
+        adopt: None,
+        id_hints: vec![],
         sync: None,
     };
     let secrets = DeviceSecrets {
@@ -183,6 +185,8 @@ async fn local_only_external_edit_is_ingested() {
         device_id: [8; 16],
         root: folder.clone(),
         private_dir: root.join("state"),
+        adopt: None,
+        id_hints: vec![],
         sync: None,
     };
     let secrets = DeviceSecrets {
@@ -221,6 +225,8 @@ async fn a_watched_external_edit_is_ingested_promptly() {
         device_id: [11; 16],
         root: folder.clone(),
         private_dir: root.join("state"),
+        adopt: None,
+        id_hints: vec![],
         sync: None,
     };
     let secrets = DeviceSecrets {
@@ -246,4 +252,90 @@ async fn a_watched_external_edit_is_ingested_promptly() {
         t.elapsed()
     );
     rt.stop().await;
+}
+
+/// Adopt freezes the local runtime at one point: a write queued before the
+/// freeze is in its inventory, nothing is admitted after it, and the inventory
+/// is exactly what the stopped store holds.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn freeze_fences_writers_before_taking_the_inventory() {
+    let root = scratch("rt-freeze");
+    let folder = root.join("notes");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("outside.md"), "---\ntitle: O\n---\n").unwrap();
+    let cfg = RuntimeConfig {
+        collection: [1; 16],
+        replica_id: [2; 16],
+        device_id: [3; 16],
+        root: folder.clone(),
+        private_dir: root.join("state"),
+        adopt: None,
+        id_hints: vec![],
+        sync: None,
+    };
+    let secrets = DeviceSecrets {
+        sign_sk: [4; 32],
+        kem_sk: [5; 32],
+    };
+    let open = || {
+        Runtime::open(
+            cfg.clone(),
+            secrets.clone(),
+            Box::new(NoAuthority),
+            Default::default(),
+        )
+        .unwrap()
+    };
+    let hello = HelloParams {
+        versions: vec![Version { major: 1, minor: 0 }],
+        client_name: "test".into(),
+        client_version: "0".into(),
+        features: None,
+        timezone: None,
+    }
+    .to_cbor();
+    let submit = |id: u8, path: &str| {
+        SubmitParams {
+            ops: vec![Op::Create(Create {
+                id: B16([id; 16]),
+                path: Some(path.into()),
+                type_name: None,
+                frontmatter: None,
+                body: None,
+                document: Some(Text::Inline("---\ntitle: W\n---\n".into())),
+            })],
+            mutation_id: None,
+            conflict_mode: None,
+            timezone: None,
+            allow_partial: None,
+            mutation_ids: None,
+            dry_run: None,
+            include: None,
+            wait: None,
+        }
+        .to_cbor()
+    };
+    let rt = open();
+    let (session, _, _out) = rt
+        .hello(SessionAuth::Host, req(0, "hello", hello.clone()))
+        .await
+        .unwrap();
+    let session = session.unwrap();
+    // Queued, not awaited: the freeze must still include it.
+    assert!(rt.frame(session, req(1, "submit", submit(9, "queued.md"))));
+    let frozen = rt.freeze().await.expect("frozen");
+    // Nothing is admitted afterwards.
+    assert!(!rt.frame(session, req(2, "submit", submit(10, "late.md"))));
+    assert!(rt.status().await.is_none(), "stopped");
+    let ids: Vec<[u8; 16]> = frozen.inventory.0.iter().map(|(id, _)| *id).collect();
+    assert!(ids.contains(&[9; 16]), "{:?}", frozen.inventory);
+    assert!(!ids.contains(&[10; 16]));
+    assert!(frozen.inventory.0.iter().any(|(_, p)| p == "outside.md"));
+    assert_eq!((frozen.holds, frozen.unresolved), (0, 0));
+    // The snapshot is the stopped store's final state.
+    let rt = open();
+    let (records, resources) = rt.inventory().await.unwrap();
+    assert_eq!((records, resources), frozen.inventory);
+    rt.stop().await;
+    let _ = std::fs::remove_dir_all(&root);
 }

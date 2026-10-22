@@ -1,7 +1,7 @@
 # Explicit account backend
 
 `users.account_backend` is a non-null `legacy | next` marker, defaulting to
-`legacy` for existing and newly created accounts. A deployment's NEXT flag,
+`legacy` for existing accounts. A deployment's NEXT flag,
 collection encryption mode, transport failure or client preference never selects
 an account backend. The guarded migration/cutover owner sets `next` only after
 account takeover has met its admission/data-preservation requirements. There is
@@ -31,8 +31,16 @@ preservation or grant ordinary access.
    {barrier_f, final_digest}` records one hosted collection's completed cutover.
    It requires a started account and the control plane's cloud copy with the
    preserved ID, owned by that account. It sets that copy's runtime to `next`.
+   The legacy source must be fenced and drained (`migrating`, `in_flight` 0) or
+   already `migrated`, otherwise nothing is recorded. Only after the record
+   commits does the route move legacy to `migrated` on the same provider run,
+   which starts its retention of at least 90 days. If that step fails or the
+   process stops in between, legacy stays `migrating` (frozen and retained) and
+   the route answers `legacy_retention_pending`; retrying the same cutover
+   repeats only the idempotent provider step. Without a configured provider the
+   route refuses with 503 before recording.
 3. **Flip.** `POST …/accounts/{id}/flip {collections, evidence_digest}` is the
-   only setter of `next`. It requires a started account. The collections must be
+   only setter of `next` for an existing account. It requires a started account. The collections must be
    exactly its hosted collections (transferred ones excluded), none may be mid
    import or transfer, and every one must be cut over. The evidence digest must
    equal SHA-256 over the sorted lines `collection:barrier_f:final_digest\n`,
@@ -40,6 +48,15 @@ preservation or grant ordinary access.
    evidence returns the same flip. An account with no hosted collections flips
    with an empty list once started. There is no un-flip: rollback is only
    possible before cutover.
+
+   The account's starter reservation (`account_onboarding`) is carried, not
+   provisioned. The start records a content-free digest of the whole row (or
+   that there is none) in its `next_migration.start` audit event. The flip
+   re-reads and locks the row and refuses with `starter_reservation_changed`
+   when it differs from that digest, appeared, disappeared, or the start
+   recorded none, and with `starter_provisioning_in_flight` while a
+   provisioning claim is set. The flip leaves the row unchanged; native
+   onboarding consumes it afterwards.
 
 Operators run the `next:migration-rollout` CLI (`MDBASE_OPERATOR` names them) to
 release cohorts, pause and resume. A flipped account cannot create legacy hosted
@@ -54,6 +71,22 @@ completes (validated flips or accepted terminal exclusions), or an audited
 unfreeze before archive acceptance, including after restart. Acceptance is not
 completed erasure. Outside a freeze deletion remains immediate.
 See [the topology-freeze procedure](migration-topology-freeze.md).
+
+## New accounts
+
+`MDBASE_NEW_ACCOUNT_BACKEND` (`legacy` or `next`, default `legacy`) selects the
+backend of every account the control plane creates: OAuth sign-up, email
+sign-up and invitation acceptance. Any other value refuses to start. Keep it
+`legacy` until the all-user cutover, then set it to `next` so new sign-ups land
+on the backend the live apps use. It never changes an existing account.
+
+A `next` account is created flipped, in the creating transaction, by the same
+writes as the staged flip: the marker, a `next_migration_account_flips` row with
+no collections and the digest over the empty set, and a `next_migration.flip`
+audit event marked `new_account`. It has no cohort membership, so it is never
+migrated, and the installation sign-in page does not show it the "mdbase was
+upgraded" notice. The development and Tailscale session modes create `legacy`
+accounts.
 
 ## Retained application grant
 
@@ -92,3 +125,35 @@ A backend change is not authorization to retry an uncertain legacy write in
 NEXT. Preserve its original operation identity and receipt; migration admission
 and stale-writer fencing belong to the cutover owner. This endpoint is metadata,
 not current collection policy, approval/key delivery or Ready proof.
+
+## What old clients see during and after cutover
+
+Clients built on the old SDK keep calling `/oauth/token` and the hosted
+provider's `/v1/authorities/{collection_id}/...` routes. They show
+`error.message` to their user, so these refusals use plain language. Newer
+clients should read `error.code` and `details`, never the message.
+
+| When | Status | `error.code` | `details` |
+| --- | --- | --- | --- |
+| The collection is fenced for its move | 409, `Retry-After: 300` | `collection_migrating` | `retry_after_seconds` |
+| The collection completed its move (it has a `next_migration_collections` row, or the provider reports it `migrated`), or it is a desktop collection that mdbase-next took over (its legacy row is retired, the owner's account is on `next`, and a native collection exists at its id) | 409 | `collection_unavailable` | `reason: "moved_to_next_runtime"`, `update_url`, optional `minimum_client_version` |
+| The grant's account is suspended | 403 | `account_suspended` | none |
+
+- The control plane refuses token issuance for a moved collection before it
+  rotates any provider credential. It decides per collection, not by
+  `users.account_backend`, because a member's grant can point at another
+  owner's collection.
+- For a desktop collection, the relayed operation and file routes and token
+  issuance give the same refusal once mdbase-next took it over; these routes
+  also answer `account_suspended` instead of `invalid_token`.
+- The provider rewrites a 401, 403 or 404 on a `migrating` or `migrated`
+  collection only when the bearer was issued for one of that collection's
+  replicas, so unknown tokens learn nothing.
+- `MDBASE_CONNECT_CLIENT_UPDATE_URL` (https, default
+  `https://mdbase.dev/downloads`) and `MDBASE_CONNECT_MINIMUM_CLIENT_VERSION`
+  (unset by default; release sets it at cutover) configure both the control
+  plane and the provider.
+
+Returning users whose account has a `next_migration_account_flips` row see
+"mdbase was upgraded. Approve <app> once to continue." on the installation
+approval page, unless the request only renews an existing device's access.

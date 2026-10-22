@@ -12,6 +12,12 @@ test("LAB liveness returns only fixed metadata, never readiness or identifiers",
   assert.deepEqual(await response.json(), { status: "ok" });
 });
 
+test("LAB liveness names the serving version only when it is bound", async () => {
+  const id = "0b6f1c8e-3a52-4d0e-9f1a-2c7d8e9f0a1b";
+  assert.deepEqual(await labHealth(request(), true, id).json(), { status: "ok", version: id });
+  assert.deepEqual(await labHealth(request(), true, "").json(), { status: "ok" });
+});
+
 test("liveness is absent unless LAB is explicitly enabled and path is exact", () => {
   assert.equal(labHealth(request()), null);
   assert.equal(labHealth(request(), false), null);

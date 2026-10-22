@@ -1,18 +1,8 @@
 name: Log Worker attestation regressions
 on:
-  pull_request:
-    paths:
-      - scripts/attest-log-worker*
-      - scripts/extract-log-worker.py
-      - scripts/test-extract-log-worker.py
-      - .github/workflows/*log-worker*.yml
-  push:
-    branches: [main]
-    paths:
-      - scripts/attest-log-worker*
-      - scripts/extract-log-worker.py
-      - scripts/test-extract-log-worker.py
-      - .github/workflows/*log-worker*.yml
+  # On demand only: run before a LAB refresh or release candidate.
+  workflow_dispatch:
+
 permissions:
   contents: read
 jobs:

@@ -28,6 +28,7 @@
 //! External: as for `mdbn-core`.
 
 pub mod codec;
+pub mod committing;
 pub mod diskdb;
 pub mod exec;
 pub mod fence;
@@ -36,6 +37,8 @@ pub mod index;
 pub mod index_codec;
 pub mod journal;
 pub mod log_cache;
+pub mod observing;
+pub mod opening;
 pub mod platform;
 pub mod publish;
 pub mod recover;
@@ -56,10 +59,13 @@ mod publish_tests;
 #[cfg(test)]
 mod store_tests;
 
+pub use committing::Committing;
 pub use fence::{EditorFence, EditorState, FenceOutcome, NoFence};
 pub use index::{IndexStorage, SqlValue};
 pub use journal::{Journal, JournalEntry};
 pub use log_cache::LogCache;
+pub use observing::Observing;
+pub use opening::Opening;
 pub use platform::{Capabilities, FilePlatform, FsError, FsErrorKind, FsResult, RelPath};
 pub use retention::{MAX_RETENTION_AGE_MS, ReleasePolicy};
 pub use sql::{SqlStore, SqlStoreLimits};

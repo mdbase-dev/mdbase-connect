@@ -20,6 +20,145 @@ fn meta(class: Class, size: u64) -> Meta {
 }
 
 #[test]
+fn twenty_thousand_source_rows_use_bounded_pages_then_the_same_gen0_windows() {
+    let mut spill = super::both::Both::new();
+    let mut driver = Driver::resume_mode(&mut spill, COLLECTION, true).unwrap();
+    let mut table_at = [0usize; 3];
+    let mut selected = 0usize;
+    let mut pages = 0;
+    let mut windows = 0;
+    let mut continues = 0;
+    for _ in 0..2000 {
+        let action = driver.poll(&mut spill).unwrap();
+        let outcome = match action {
+            Action::EnsureBackup => Outcome::Backup { hold: "h".into() },
+            Action::CreateCollection => Outcome::Created { verified: true },
+            Action::MayFence => Outcome::MayFence(true),
+            Action::Fence => Outcome::Ok,
+            Action::DrainStatus => Outcome::Drain {
+                pending: 0,
+                head: 42,
+            },
+            Action::OpenSource { .. } => Outcome::Opened { head: 42 },
+            Action::ReadPage { table, .. } => {
+                let (i, total) = match table {
+                    Table::Resources => (0, 1),
+                    Table::Records => (1, 20_000),
+                    Table::Files => (2, 0),
+                };
+                let end = (table_at[i] + 64).min(total);
+                let rows = (table_at[i]..end)
+                    .map(|n| SourceRow {
+                        id: (table == Table::Records)
+                            .then(|| key(n as u64 + 1, EntityKind::Record).id),
+                        path: if table == Table::Resources {
+                            "mdbase.yaml".into()
+                        } else {
+                            format!("notes/{n:05}.md")
+                        },
+                        content: B32([1; 32]),
+                        size: 4,
+                    })
+                    .collect();
+                table_at[i] = end;
+                pages += 1;
+                Outcome::Page {
+                    rows,
+                    next: (end < total).then(|| end.to_string()),
+                }
+            }
+            Action::Continue => {
+                continues += 1;
+                continue;
+            }
+            Action::ImportGen0 {
+                bits,
+                bucket,
+                after,
+            } => {
+                let (rows, done) =
+                    super::super::gen0_window(&mut spill, bits, bucket, after.as_ref()).unwrap();
+                assert!(rows.len() <= 128);
+                selected += rows
+                    .iter()
+                    .filter(|(k, _)| k.kind == EntityKind::Record)
+                    .count();
+                windows += 1;
+                Outcome::Gen0Progress {
+                    last: rows.last().map(|(k, _)| k.clone()),
+                    done,
+                }
+            }
+            Action::FinishGen0 => {
+                assert_eq!(selected, 20_000);
+                assert_eq!(table_at, [1, 20_000, 0]);
+                assert_eq!(pages, 315);
+                assert!(windows < 300 && windows > 150);
+                assert!(
+                    continues >= windows,
+                    "paged preflight never scans the collection in one poll"
+                );
+                return;
+            }
+            other => panic!("unexpected action {other:?}"),
+        };
+        driver.complete(&mut spill, outcome).unwrap();
+    }
+    panic!("20k source must reach finish");
+}
+
+#[test]
+fn singleton_window_boundaries_and_ref_overflow_are_explicit() {
+    use super::super::window::Gen0Preflight;
+    for size in [(64 << 10) - 296, (64 << 10) - 295, 1 << 20, (1 << 20) + 1] {
+        let mut spill = MemSpill::default();
+        let k = key(1, EntityKind::Record);
+        let m = meta(Class::Record, size);
+        spill.put_placement(Generation::S0, &k, &m).unwrap();
+        let selected = super::super::gen0_window(&mut spill, 0, Some(0), None);
+        assert_eq!(selected.is_ok(), size <= 1 << 20);
+    }
+    // Resources still have the ordinary budget: a new record lane is not a
+    // blanket increase in configuration/type hydration or normal-window memory.
+    let mut spill = MemSpill::default();
+    spill
+        .put_placement(
+            Generation::S0,
+            &Key {
+                kind: EntityKind::Resource,
+                id: "mdbase.yaml".into(),
+            },
+            &meta(Class::Resource, 64 << 10),
+        )
+        .unwrap();
+    assert!(super::super::gen0_window(&mut spill, 0, None, None).is_err());
+    let mut spill = MemSpill::default();
+    let mut stats = ImportStats::default();
+    for n in 1..=600 {
+        let m = meta(Class::Record, 40 << 10);
+        stats.add(&m).unwrap();
+        spill
+            .put_placement(Generation::S0, &key(n, EntityKind::Record), &m)
+            .unwrap();
+    }
+    let mut plan = Gen0Preflight::new(stats).unwrap();
+    for _ in 0..1000 {
+        match plan.work(&mut spill) {
+            Ok(false) => {}
+            Ok(true) => panic!("two row chunks per singleton must exceed 1024 refs"),
+            Err(e) => {
+                assert!(
+                    e.to_string()
+                        .contains("hosted_ref_index_import_unqualified")
+                );
+                return;
+            }
+        }
+    }
+    panic!("paged plan must refuse before sealing");
+}
+
+#[test]
 fn buckets_hash_raw_uuid_bytes_and_pages_cover_every_placement_once() {
     let mut spill = super::both::Both::new();
     let mut expected = BTreeMap::new();
@@ -170,13 +309,15 @@ fn hosted_fmt1_preflight_counts_complete_generated_refs_and_refuses_uncertainty(
         .is_err(),
         "missing file refs inventory cannot admit an import"
     );
+    // Row count no longer implies one chunk per row. The paged pass counts
+    // their real windows separately; this early check counts inherent refs.
     let direct = ImportStats {
-        resources: 2038,
+        resources: 20_000,
         ..ImportStats::default()
     };
-    assert_eq!(direct.hosted_fmt1_preflight().unwrap(), 2048);
+    assert_eq!(direct.hosted_fmt1_preflight().unwrap(), 11);
     let over = ImportStats {
-        resources: 2039,
+        file_object_refs_upper_bound: 1014,
         ..direct
     };
     assert!(
@@ -195,7 +336,7 @@ fn hosted_fmt1_preflight_counts_complete_generated_refs_and_refuses_uncertainty(
     let mut empty_file = ImportStats::default();
     empty_file.add(&meta(Class::Attachment, 0)).unwrap();
     assert_eq!(empty_file.file_object_refs_upper_bound, 2);
-    assert_eq!(empty_file.hosted_fmt1_preflight().unwrap(), 15);
+    assert_eq!(empty_file.hosted_fmt1_preflight().unwrap(), 13);
     assert!(
         ImportStats {
             records: u64::MAX,
@@ -226,11 +367,11 @@ fn preflight_counts_declared_empty_file_sections_without_any_file_rows() {
     assert_eq!(stats.bucket_bits(), 9);
     // Counting only the three non-file sections would accept this plan. Native
     // with_attachments/with_unindexed=true also emits empty chunks in each bucket.
-    assert!(2 * stats.records + (1 << stats.bucket_bits()) * 3 + 6 <= 2048);
+    assert!((1 << stats.bucket_bits()) * 3 + 6 <= 2048);
     let err = stats.hosted_fmt1_preflight().unwrap_err().to_string();
     assert!(err.contains("hosted_ref_index_import_unqualified"));
     assert!(
-        err.contains("2824"),
+        err.contains("2566"),
         "all five sections must be reserved: {err}"
     );
 }

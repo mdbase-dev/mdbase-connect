@@ -8,9 +8,14 @@ const buildId = (process.env.MDBASE_EDITOR_BUILD_ID ?? process.env.GITHUB_SHA ??
   .slice(0, 12)
   .replace(/[^a-zA-Z0-9_-]/gu, "-");
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
+  // Explicit public fixture configuration; remote builds deliberately exclude .env files.
+  define: mode === "e2e" ? {
+    "import.meta.env.VITE_MDBASE_EDITOR_DEMO": JSON.stringify("1"),
+    "import.meta.env.VITE_MDBASE_FEEDBACK_URL": JSON.stringify("http://127.0.0.1:8790/v1/feedback")
+  } : {},
   base: basePath,
-  plugins: [react(), offlineShellPlugin()],
+  plugins: [react(), offlineShellPlugin({ register: false })],
   // hoistingLimits gives each workspace package its own copies; @mdbase-dev/ui must use the app's
   // React and CodeMirror (two @codemirror/state instances cannot share an editor).
   resolve: { dedupe: ["react", "react-dom", "@codemirror/state", "@codemirror/view"] },
@@ -32,4 +37,4 @@ export default defineConfig({
     testTimeout: 15_000,
     include: ["src/**/*.test.{ts,tsx}"]
   }
-});
+}));

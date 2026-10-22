@@ -51,12 +51,14 @@ pub mod model;
 #[cfg(not(target_arch = "wasm32"))]
 mod offline_decode;
 pub mod outbox;
+pub mod placement;
 pub mod policy;
 mod restore;
 pub mod restore_plan;
 pub mod service;
 pub mod session;
 pub mod testkit;
+pub mod timezone;
 
 pub use backend::{Archive, Backend, Mode, ObjectStore, Txn, Write};
 pub use error::{Code, Result, ServiceError};

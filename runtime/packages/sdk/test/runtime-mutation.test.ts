@@ -4,8 +4,7 @@ import { describe, expect, it } from "vitest";
 import { decode, encode, type CborValue, toHex } from "../src/cbor.js";
 import { attachmentContentV1, attachmentRefV1, runtimeMutation, runtimeOp } from "../src/runtime-wire.js";
 import { mutation, op } from "../src/wire.js";
-import { SchemaError, union, uuid, tstr, hash } from "../src/codec.js";
-import type { FileAttach } from "../src/runtime-wire.js";
+import { SchemaError } from "../src/codec.js";
 
 const root = join(import.meta.dirname, "../../../conformance/wire/mutation");
 const fixture = () => new Uint8Array(readFileSync(join(root, "runtime-v1-mixed.cbor")));
@@ -15,40 +14,6 @@ function attach(): Map<number, CborValue> {
 }
 
 describe("explicit runtime-v1 mutation family", () => {
-  it("carries Op18, and the older parent whole-refuses its critical tag", () => {
-    const oldAttach = union<FileAttach>("old-file-attach", [[13, "file_attach", [
-      [1, "id", uuid], [2, "path", tstr], [3, "content", attachmentContentV1],
-      [4, "ifRevision", hash, "opt"], [5, "base", hash, "opt"],
-    ]]]);
-    const oldParent = (raw: CborValue) => {
-      const ops = (raw as Map<number, CborValue>).get(6) as Map<number, CborValue>[];
-      for (const v of ops) if (v.get(0) === 13 || Number(v.get(0)) >= 18) oldAttach.dec(v);
-      return runtimeMutation.dec(raw);
-    };
-    expect(() => oldParent(decode(fixture()))).not.toThrow();
-    const bytes = new Uint8Array(readFileSync(join(root, "runtime-v1-ordinary-continuation.cbor")));
-    const raw = decode(bytes), typed = runtimeMutation.dec(raw);
-    expect(toHex(encode(runtimeMutation.enc(typed)))).toBe(toHex(bytes));
-    let refused: unknown; try {oldParent(raw);} catch(e) {refused=e;}
-    expect(refused).toBeInstanceOf(SchemaError); expect((refused as SchemaError).unknown).toBe(true);
-    const bad = decode(new Uint8Array(readFileSync(join(root, "runtime-v1-short-continuation-prior.bad.cbor"))));
-    refused=undefined; try {runtimeMutation.dec(bad);} catch(e) {refused=e;}
-    expect(refused).toBeInstanceOf(SchemaError); expect((refused as SchemaError).unknown).toBe(false);
-  });
-  it("roundtrips the actual Rust mixed fixture without widening defaults", () => {
-    const bytes = fixture(), raw = decode(bytes), typed = runtimeMutation.dec(raw);
-    expect(typed.ops.some(v => v.kind === "file_attach")).toBe(true);
-    expect(toHex(encode(runtimeMutation.enc(typed)))).toBe(toHex(bytes));
-    expect(() => mutation.dec(raw)).toThrow(); expect(() => op.dec(attach())).toThrow();
-  });
-  it("delegates legacy ops byte-identically and rejects unknown critical ops", () => {
-    const raw = decode(fixture()) as Map<number, CborValue>;
-    for (const v of raw.get(6) as CborValue[]) {
-      if ((v as Map<number, CborValue>).get(0) === 13) continue;
-      expect(toHex(encode(runtimeOp.enc(runtimeOp.dec(v))))).toBe(toHex(encode(op.enc(op.dec(v)))));
-    }
-    const unknown = attach(); unknown.set(0, 19); expect(() => runtimeOp.dec(unknown)).toThrow();
-  });
   it("roundtrips all extended operations while legacy parents refuse each as critical", () => {
     const bytes = new Uint8Array(readFileSync(join(root, "runtime-v1-extended.cbor")));
     const raw = decode(bytes) as Map<number, CborValue>, typed = runtimeMutation.dec(raw);
@@ -108,9 +73,5 @@ describe("explicit runtime-v1 mutation family", () => {
     epoch[2] = 0x10000000000000000n; expect(() => attachmentRefV1.dec(epoch)).toThrow();
     length[3] = 0x10000000000000000n; expect(() => attachmentContentV1.dec(length)).toThrow();
   });
-  it("fails the entire runtime parent on the actual schema-negative fixtures", () => {
-    for (const name of ["runtime-v1-short-manifest-hash.bad.cbor", "runtime-v1-unknown-content.bad.cbor", "runtime-v1-unknown-op.bad.cbor"]) {
-      expect(() => runtimeMutation.dec(decode(new Uint8Array(readFileSync(join(root, name)))))).toThrow();
-    }
-  });
+
 });

@@ -13,6 +13,34 @@ afterEach(async () => {
 });
 
 describe("password authentication HTTP boundary", () => {
+  it.each(["lab", "staging"])("honors only an admin-issued %s fixture override through normal public signup", async environment => {
+    const { app, db, policy, invitation: ordinary } = await fixture({ environment, newAccountBackend: "next" });
+    const accounts = new PasswordAccountService(db, policy, "next", environment);
+    const invite = await accounts.createInvitation({ email: `http-fixture@${environment}.invalid`, actor: "operator:test",
+      reason: "[test] HTTP migration fixture", entitlementProfile: null, accountBackend: "legacy" });
+    for (const [invitation, name, backend] of [[invite, "[test] HTTP fixture", "legacy"], [ordinary, "Normal user", "next"]] as const) {
+      const payload = { invitation_token: invitation.token, name, password: "a durable signup fixture password",
+        terms_version: invitation.termsVersion, privacy_version: invitation.privacyVersion };
+      const forged = await app.inject({ method: "POST", url: "/v1/auth/password/signup", headers: { origin },
+        payload: { ...payload, account_backend: "legacy" } });
+      expect(forged.statusCode).toBe(400);
+      const accepted = await app.inject({ method: "POST", url: "/v1/auth/password/signup", headers: { origin }, payload });
+      expect(accepted.statusCode).toBe(201);
+      expect((await db.query("SELECT account_backend FROM users WHERE id = $1", [accepted.json().user.id])).rows)
+        .toEqual([{ account_backend: backend }]);
+    }
+  });
+  it.each(["lab", "staging"])("refuses stored %s overrides on the production signup route without consuming the invitation", async environment => {
+    const { app, db, policy } = await fixture({ environment: "production", newAccountBackend: "next" });
+    const invite = await new PasswordAccountService(db, policy, "next", environment).createInvitation({
+      email: `http-fixture@${environment}.invalid`, actor: "operator:test", reason: "[test] HTTP fixture", entitlementProfile: null, accountBackend: "legacy" });
+    const rejected = await app.inject({ method: "POST", url: "/v1/auth/password/signup", headers: { origin }, payload: {
+      invitation_token: invite.token, name: "[test] Fixture", password: "a durable signup fixture password",
+      terms_version: invite.termsVersion, privacy_version: invite.privacyVersion } });
+    expect(rejected.statusCode).toBe(400); expect(rejected.json().error.code).toBe("invalid_invitation");
+    expect((await db.query("SELECT id FROM users")).rows).toEqual([]);
+    expect((await db.query("SELECT accepted_at FROM invitations WHERE id = $1", [invite.id])).rows).toEqual([{ accepted_at: null }]);
+  });
   it("requires same-origin invitation acceptance and creates a usable secure session", async () => {
     const { app, db, invitation } = await fixture();
     const config = await app.inject({ method: "GET", url: "/v1/auth/config" });
@@ -475,7 +503,7 @@ describe("password authentication HTTP boundary", () => {
   });
 });
 
-async function fixture() {
+async function fixture(options: { environment?: string; newAccountBackend?: "legacy" | "next" } = {}) {
   const db = await createDatabase("memory");
   resources.push(() => db.end());
   const policy = await configurePolicy(db);
@@ -488,6 +516,7 @@ async function fixture() {
   });
   const { app } = await buildApp({
     db,
+    ...options,
     publicUrl: origin,
     authRateLimitSecret: "test-auth-rate-limit-secret-value",
     authenticationLegalDocuments: {

@@ -13,7 +13,7 @@ export interface LiveQueryState {
   /** Local view version of this result. */
   readonly asOf: number;
   /** Current full metadata at asOf; absent while stale or when not supplied. */
-  readonly metadata?: QueryMetadata;
+  readonly metadata?: QueryMetadata | undefined;
   /**
    * True until the first snapshot, and between a `reset` (or a reconnect) and the
    * next snapshot. The previous records stay visible meanwhile.

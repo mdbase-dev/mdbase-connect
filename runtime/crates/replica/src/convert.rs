@@ -252,6 +252,7 @@ pub fn attachment_effect(p: &wa::PutAttachmentFile) -> cp::Effect {
         id: uuid(&p.id),
         path: p.path.clone(),
         content: attachment_content(&p.content),
+        mtime: p.mtime,
     }
 }
 
@@ -259,10 +260,16 @@ pub fn attachment_effect(p: &wa::PutAttachmentFile) -> cp::Effect {
 /// effect (those go through [`weffect`]).
 pub fn wattachment_effect(e: &cp::Effect) -> Option<wa::PutAttachmentFile> {
     match e {
-        cp::Effect::PutAttachmentFile { id, path, content } => Some(wa::PutAttachmentFile {
+        cp::Effect::PutAttachmentFile {
+            id,
+            path,
+            content,
+            mtime,
+        } => Some(wa::PutAttachmentFile {
             id: wuuid(id),
             path: path.clone(),
             content: wattachment_content(content),
+            mtime: *mtime,
         }),
         _ => None,
     }
@@ -594,6 +601,7 @@ pub fn runtime_op(o: &wr::Op, t: TextResolver<'_>) -> CResult<ci::Op> {
             content: attachment_content(&f.content),
             if_revision: f.if_revision.as_ref().map(hash),
             base: f.base.as_ref().map(hash),
+            mtime: f.mtime,
         })),
         wr::Op::UnindexedMarkdownPut(f) => {
             Ok(ci::Op::UnindexedMarkdownPut(ci::UnindexedMarkdownPut {
@@ -623,7 +631,14 @@ pub fn runtime_op(o: &wr::Op, t: TextResolver<'_>) -> CResult<ci::Op> {
                 prior: file_content(&f.prior.content)?,
             },
         )),
-        wr::Op::OrdinaryFileToRecord(_) => Err(ConvertError::OrdinaryFilePromotionUnsupported),
+        wr::Op::OrdinaryFileToRecord(f) => {
+            Ok(ci::Op::OrdinaryFileToRecord(ci::OrdinaryFileToRecord {
+                id: uuid(&f.id),
+                path: f.path.clone(),
+                doc: t(&f.doc)?,
+                prior: file_content(&f.prior)?,
+            }))
+        }
     }
 }
 
@@ -655,6 +670,15 @@ pub fn runtime_mutation(m: &wr::Mutation, t: TextResolver<'_>) -> CResult<ci::Mu
 /// Core effect to the runtime family: an attachment put as Effect8, everything
 /// else through [`weffect`] (which still refuses what neither family carries).
 pub fn wruntime_effect(e: &cp::Effect) -> CResult<wr::Effect> {
+    if let cp::Effect::ReindexOrdinaryFile { id, path, doc } = e {
+        return Ok(wr::Effect::ReindexOrdinaryFile(
+            mdbn_wire::ordinary_file_promotion::ReindexOrdinaryFile {
+                id: wuuid(id),
+                path: path.clone(),
+                doc: Text::Inline(doc.clone()),
+            },
+        ));
+    }
     if let Some(u) = wunindexed_markdown_effect(e) {
         return Ok(match u {
             wu::UnindexedMarkdownEffectV1::PutUnindexedMarkdown(p) => {

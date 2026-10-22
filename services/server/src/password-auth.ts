@@ -28,6 +28,7 @@ import {
 } from "./entitlements.js";
 import { scheduleBetaWelcomeEmail } from "./beta-welcome-email.js";
 import { scheduleStarterCollection } from "./account-onboarding.js";
+import { provisionNewAccountBackend, type AccountBackend } from "./features/next/account-backend-flip.js";
 
 const DEFAULT_INVITATION_LIFETIME_SECONDS = 7 * 24 * 60 * 60;
 const MIN_INVITATION_LIFETIME_SECONDS = 5 * 60;
@@ -42,6 +43,7 @@ export interface CreateInvitationInput {
   reason: string;
   expiresInSeconds?: number;
   entitlementProfile: string | null;
+  accountBackend?: "legacy";
 }
 
 export interface CreatedInvitation {
@@ -52,6 +54,7 @@ export interface CreatedInvitation {
   termsVersion: string;
   privacyVersion: string;
   entitlementProfile: string | null;
+  accountBackend?: "legacy";
 }
 
 export interface AcceptInvitationInput {
@@ -108,6 +111,7 @@ export interface InvitationDetails {
 }
 
 interface InvitationRow {
+  account_backend: string | null;
   id: string;
   email: string;
   normalized_email: string;
@@ -171,7 +175,9 @@ export class PasswordCredentialUnavailableError extends Error {
 export class PasswordAccountService {
   constructor(
     private readonly db: DatabasePool,
-    private readonly policy: AuthenticationPolicyStore
+    private readonly policy: AuthenticationPolicyStore,
+    private readonly newAccountBackend: AccountBackend = "legacy",
+    private readonly environment?: string
   ) {}
 
   async createInvitation(input: CreateInvitationInput): Promise<CreatedInvitation> {
@@ -182,6 +188,10 @@ export class PasswordAccountService {
     const reason = requiredText(input.reason, 500, "Invitation reason");
     const normalizedEmail = normalizeEmailAddress(input.email);
     const email = input.email.trim().normalize("NFC");
+    if (input.accountBackend !== undefined &&
+      (input.accountBackend !== "legacy" || !this.isMigrationFixture(normalizedEmail, reason))) {
+      throw new TypeError("Legacy invitation backend requires a LAB [test] fixture at lab.invalid or a staging [test] fixture at staging.invalid.");
+    }
     const lifetime = input.expiresInSeconds ?? DEFAULT_INVITATION_LIFETIME_SECONDS;
     if (
       !Number.isSafeInteger(lifetime)
@@ -214,8 +224,8 @@ export class PasswordAccountService {
       await connection.query(
         `INSERT INTO invitations
            (id, email, normalized_email, token_hash, created_by,
-            terms_version, privacy_version, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            terms_version, privacy_version, expires_at, account_backend)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
           id,
           email,
@@ -224,7 +234,8 @@ export class PasswordAccountService {
           actor,
           agreements.termsVersion,
           agreements.privacyVersion,
-          expiresAt
+          expiresAt,
+          input.accountBackend ?? null
         ]
       );
       if (input.entitlementProfile !== null) {
@@ -237,7 +248,8 @@ export class PasswordAccountService {
       await audit(connection, null, "invitation.created", id, {
         actor,
         reason,
-        entitlement_profile: input.entitlementProfile
+        entitlement_profile: input.entitlementProfile,
+        account_backend: input.accountBackend ?? null
       });
       await connection.query("COMMIT");
       return {
@@ -246,6 +258,7 @@ export class PasswordAccountService {
         token,
         expiresAt,
         entitlementProfile: input.entitlementProfile,
+        ...(input.accountBackend ? { accountBackend: input.accountBackend } : {}),
         ...agreements
       };
     } catch (error) {
@@ -263,7 +276,7 @@ export class PasswordAccountService {
     const invitationHash = tokenHash(input.invitationToken);
     const preliminary = await this.db.query<InvitationRow>(
       `SELECT invitation.id, invitation.email, invitation.normalized_email,
-              invitation.terms_version, invitation.privacy_version,
+              invitation.terms_version, invitation.privacy_version, invitation.account_backend,
               entitlement.profile_code AS entitlement_profile
        FROM invitations invitation
        LEFT JOIN invitation_entitlements entitlement
@@ -276,6 +289,7 @@ export class PasswordAccountService {
     );
     if (!preliminary.rows[0]) throw new InvalidInvitationError();
     agreementsMatch(preliminary.rows[0], input);
+    this.invitationBackend(preliminary.rows[0], name);
     const passwordHash = await hashPassword(input.password);
     const userId = randomUUID();
     const sessionId = randomUUID();
@@ -289,7 +303,7 @@ export class PasswordAccountService {
         Omit<InvitationRow, "entitlement_profile">
       >(
         `SELECT id, email, normalized_email, terms_version, privacy_version,
-                expires_at
+                expires_at, account_backend
          FROM invitations
          WHERE token_hash = $1
            AND accepted_at IS NULL
@@ -325,6 +339,7 @@ export class PasswordAccountService {
         "INSERT INTO users (id, email, name) VALUES ($1, NULL, $2)",
         [userId, name]
       );
+      await provisionNewAccountBackend(connection, userId, this.invitationBackend(row, name));
       if (!await reserveAccountCreationEmail(connection, {
         normalizedEmail: row.normalized_email,
         userId,
@@ -404,6 +419,19 @@ export class PasswordAccountService {
     } finally {
       connection.release();
     }
+  }
+
+  private isMigrationFixture(email: string, marking: string): boolean {
+    const domain = this.environment === "lab" ? "@lab.invalid" : this.environment === "staging" ? "@staging.invalid" : null;
+    return domain !== null && email.endsWith(domain) && /^\[test\](?:\s|$)/i.test(marking);
+  }
+
+  private invitationBackend(row: InvitationRow, name: string): AccountBackend {
+    if (row.account_backend === null) return this.newAccountBackend;
+    if (row.account_backend !== "legacy" || !this.isMigrationFixture(row.normalized_email, name)) {
+      throw new InvalidInvitationError();
+    }
+    return "legacy";
   }
 
   async invitationDetails(invitationToken: string): Promise<InvitationDetails> {

@@ -196,7 +196,7 @@ impl AdmittedBasesView {
                 "base_view_program_shape",
             ));
         };
-        let semantic = self.sort.len() + usize::from(self.group.is_some());
+        let semantic = self.sort.len() + usize::from(self.group.is_some()) + self.summaries.len();
         let count = if display { roots.len() } else { semantic + 1 };
         for (index, root) in roots.iter().take(count).enumerate() {
             if index > semantic && self.unavailable[index - semantic - 1].is_some() {

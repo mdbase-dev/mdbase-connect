@@ -31,11 +31,14 @@ export async function requireInstallationScope(client: DatabaseConnection, conne
 
 /** Scoped metadata, not an enrolment/readiness assertion. Used by the portal before
  * approval and the installation's list after approval. No arbitrary future scope. */
-export async function installationCollections(client: DatabaseConnection, account: string, connector?: string, device?: string) {
-  const rows = await client.query<{collection_id:string;display_name:string;role:"owner"|"editor"|"viewer"}>(
+/** With `fileActions` (an installation credential's own listing), each row also
+ * carries its approved optional file actions; other callers keep the old shape. */
+export async function installationCollections(client: DatabaseConnection, account: string, connector?: string, device?: string, fileActions = false) {
+  const rows = await client.query<{collection_id:string;display_name:string;role:"owner"|"editor"|"viewer";file_actions?:string[]}>(
     `SELECT n.collection_id,
        COALESCE(n.display_name,'New collection') AS display_name,
-       member.role
+       member.role${fileActions ? `,
+       COALESCE((SELECT s.file_actions FROM installation_collection_scopes s WHERE s.connector_id=$2 AND s.collection_id=n.collection_id),'{}') AS file_actions` : ""}
      FROM next_collections n JOIN users owner ON owner.id=n.owner_user_id
      CROSS JOIN LATERAL (
        SELECT e.value->>'op' AS op,e.value->>'role' AS role

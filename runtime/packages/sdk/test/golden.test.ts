@@ -1,7 +1,7 @@
 /**
  * Golden wire fixtures (`conformance/wire/`, 00-overview.md §8), run from TS.
  *
- * - Every positive `*.cbor` in every format passes the profile decoder, and
+ * - Every positive `*.cbor` in every untyped format passes the profile decoder, and
  *   decode → encode reproduces the bytes exactly (so data map order, int/float and
  *   bigint handling all survive).
  * - Every `cbor/*.bad.cbor` (profile rules) is rejected by the decoder.
@@ -26,8 +26,12 @@ function read(rel: string): Uint8Array {
 
 const formats = readdirSync(root).filter((f) => statSync(join(root, f)).isDirectory());
 
+// Formats with typed codecs (client, mutation, value) are round-tripped through
+// those codecs below, which also covers the untyped profile round trip.
+const TYPED_FORMATS = new Set(["client", "mutation", "value"]);
+
 describe("profile: every positive fixture round-trips", () => {
-  for (const fmt of formats) {
+  for (const fmt of formats.filter((f) => !TYPED_FORMATS.has(f))) {
     for (const file of readdirSync(join(root, fmt))) {
       if (!file.endsWith(".cbor") || file.endsWith(".bad.cbor")) continue;
       it(`${fmt}/${file}`, () => {
@@ -172,10 +176,4 @@ describe("typed: spot checks against the debug views", () => {
     expect(r.problem?.reason).toBe("revision");
   });
 
-  it("hold-file has blob refs for mine and theirs", () => {
-    const h = w.hold.dec(decode(read("client/hold-file.cbor")));
-    expect(h.reason).toBe("conflict");
-    expect(typeof h.mine).toBe("object");
-    expect(h.saves).toBe(0);
-  });
 });

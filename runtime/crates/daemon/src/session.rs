@@ -376,6 +376,34 @@ where
     C: Carrier + ?Sized,
     H: Handler + ?Sized,
 {
+    let mut trace = crate::session_diagnostics::SessionTrace::new(origin);
+    let result = serve_session_traced(
+        carrier,
+        prologue_bytes,
+        origin,
+        noise_secret,
+        device_id,
+        handler,
+        &mut trace,
+    )
+    .await;
+    trace.finish(result.as_ref().err());
+    result
+}
+
+async fn serve_session_traced<C, H>(
+    carrier: &mut C,
+    prologue_bytes: &[u8],
+    origin: Origin,
+    noise_secret: &[u8; 32],
+    device_id: [u8; 16],
+    handler: &H,
+    trace: &mut crate::session_diagnostics::SessionTrace,
+) -> Result<(), SessionError>
+where
+    C: Carrier + ?Sized,
+    H: Handler + ?Sized,
+{
     let prologue = Prologue::parse(prologue_bytes).ok_or(SessionError::Protocol("bad preamble"))?;
     if origin == Origin::RelayPipe && prologue.grant == [0u8; 16] {
         return Err(SessionError::Protocol("nil grant on a relay pipe"));
@@ -389,6 +417,7 @@ where
         .await
         .map_err(|_| SessionError::Protocol("handshake timed out"))??
         .ok_or(SessionError::Protocol("closed during handshake"))?;
+    trace.m1_received = true;
     let mut responder = Responder::new(noise_secret, prologue_bytes);
     let (payload, client_pk) = responder.read_message_1(&m1)?;
 
@@ -411,6 +440,7 @@ where
             )),
         }
     };
+    trace.phase = "admission";
     let opened = match hello {
         Err(resp) => Opened {
             response: resp,
@@ -448,10 +478,21 @@ where
         }
     };
 
+    trace.admitted = opened.session.is_some();
+    if !trace.admitted {
+        trace.class = "admission_refused";
+        trace.code = opened
+            .response
+            .problem
+            .as_ref()
+            .map(|p| crate::session_diagnostics::problem_code(&p.code))
+            .unwrap_or("other");
+    }
     let e = noise::ephemeral()?;
     let (m2, mut transport) =
         responder.write_message_2(&e, &encode(&ClientFrame::Response(opened.response))?)?;
     carrier.send(&m2).await?;
+    trace.m2_queued = true;
     let Some(SessionChannels {
         inbound,
         mut outbound,
@@ -461,6 +502,7 @@ where
         return Ok(());
     };
 
+    trace.phase = "transport";
     let mut reader = FrameReader::default();
     let lifetime = tokio::time::sleep(SESSION_LIFETIME);
     tokio::pin!(lifetime);
@@ -468,10 +510,11 @@ where
         tokio::select! {
             _ = &mut lifetime => {
                 // §12.3: the session ends after 24 hours; the client reconnects.
+                trace.class = "lifetime_expired";
                 break;
             }
             msg = carrier.recv() => {
-                let Some(msg) = msg? else { break };
+                let Some(msg) = msg? else { trace.class = "peer_eof"; break };
                 if msg.len() > MAX_MESSAGE {
                     return Err(SessionError::Protocol("message too large"));
                 }
@@ -479,12 +522,16 @@ where
                 for f in reader.push(&plain)? {
                     let frame = ClientFrame::from_bytes(&f).map_err(|_| SessionError::Protocol("bad frame"))?;
                     if inbound.send(frame).await.is_err() {
+                        // An accepted actor ended: notify the carrier even on
+                        // this successful early return, as on ordinary EOF.
+                        trace.class = "actor_inbound_closed";
+                        carrier.close().await;
                         return Ok(());
                     }
                 }
             }
             out = outbound.recv() => {
-                let Some(frame) = out else { break };
+                let Some(frame) = out else { trace.class = "actor_outbound_closed"; break };
                 for m in seal_frame(&mut transport, &encode(&frame)?)? {
                     carrier.send(&m).await?;
                 }

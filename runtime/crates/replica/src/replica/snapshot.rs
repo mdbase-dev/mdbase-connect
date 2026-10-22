@@ -623,6 +623,8 @@ pub(crate) struct BaseInstall {
     pub(crate) epoch: u64,
     /// The base item's exact bytes, retained with the head like any applied item.
     pub(crate) item: Vec<u8>,
+    /// What the opened payload names, recorded when the install commits.
+    pub(crate) facts: Option<super::migration_log::InstalledBase>,
 }
 
 /// Policy state recorded after each control item read during an install: the
@@ -816,6 +818,7 @@ impl<S: Store> Replica<S> {
                                 path: f.path.clone(),
                                 content: a.clone(),
                                 media: f.media,
+                                mtime: f.mtime,
                             }
                             .to_cbor(),
                         );
@@ -1810,6 +1813,11 @@ impl<S: Store> Replica<S> {
                 item: b.item.clone(),
                 applied_at: self.now(),
             });
+            if let Some(facts) = &b.facts {
+                staged
+                    .meta
+                    .push((meta_keys::BASE.into(), Some(facts.encode())));
+            }
         }
         if self.store.stages() {
             staged.stage = crate::store::Stage::Swap;
@@ -1848,6 +1856,10 @@ impl<S: Store> Replica<S> {
         self.install_refs = None;
         self.head = head;
         self.store_generation += 1;
+        if base.is_some() {
+            self.original_history
+                .carry_over_base(self.store_generation - 1, self.store_generation);
+        }
         self.log_time = log_time;
         // The accumulator must be recomputed from the control items read
         // from position 1 and compared with the manifest's; that check lands with
@@ -2074,6 +2086,7 @@ impl<S: Store> Replica<S> {
                         kind: mdbn_wire::unindexed_markdown::FileKindV1::Ordinary,
                         content: FileContent::Blob(f.blob),
                         path: f.path,
+                        mtime: None,
                     });
                 }
             }
@@ -2165,6 +2178,7 @@ impl<S: Store> Replica<S> {
                         kind: mdbn_wire::unindexed_markdown::FileKindV1::Ordinary,
                         content: FileContent::AttachmentV1(f.content),
                         path: f.path,
+                        mtime: f.mtime,
                     });
                 }
             }
@@ -2203,6 +2217,7 @@ impl<S: Store> Replica<S> {
                         local: FileLocal::Remote,
                         kind: mdbn_wire::unindexed_markdown::FileKindV1::UnindexedOversizedMarkdown,
                         content: f.payload.content,
+                        mtime: None,
                     });
                 }
             }

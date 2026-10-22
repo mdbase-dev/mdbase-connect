@@ -1,0 +1,117 @@
+# Hosted Worker suite (deploy/hosted-worker): the full `npm test` run (node and
+# real workerd tests) against a freshly built hosted.wasm and an isolated real
+# Postgres, then the native workerd migration qualification.
+# Runs on every pull request; docs-only changes are skipped.
+name: Hosted worker
+
+on:
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  workflow_dispatch:
+
+concurrency:
+  group: hosted-worker-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CARGO_NET_RETRY: "10"
+
+jobs:
+  hosted-worker:
+    name: Hosted worker
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: mdbn
+          POSTGRES_PASSWORD: mdbn
+          POSTGRES_DB: mdbn_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U mdbn" --health-interval 2s --health-timeout 5s --health-retries 30
+    defaults:
+      run:
+        working-directory: deploy/hosted-worker
+    steps:
+      - uses: actions/checkout@v5
+
+      # hosted.wasm and the public app fixture are pure functions of the Rust
+      # sources, so reuse them while those are unchanged and skip cargo entirely.
+      - name: Restore hosted.wasm and public fixture (keyed by Rust sources)
+        id: wasm-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            deploy/hosted-worker/hosted.wasm
+            deploy/hosted-worker/.ci/fixture.json
+          key: hosted-worker-wasm-v1-${{ hashFiles('crates/**', 'conformance/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.cargo/**', '.github/workflows/hosted-worker.yml') }}
+
+      - name: Install pinned toolchain (rust-toolchain.toml)
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        working-directory: .
+        run: rustup toolchain install && rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        with:
+          shared-key: hosted-worker
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # Same command as build-wasm.sh, with local cargo instead of the remote builder.
+      - name: Build hosted.wasm (wasm32, wasm-release)
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        run: |
+          cargo build --locked --target wasm32-unknown-unknown --profile wasm-release -p mdbn-hosted-worker
+          cp ../../target/wasm32-unknown-unknown/wasm-release/mdbn_hosted_worker.wasm hosted.wasm
+      - name: Generate the public fixed-value app fixture (lab_fixture 0e app)
+        if: steps.wasm-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p .ci
+          cargo run --quiet --locked -p mdbn-hosted-worker --example lab_fixture -- 0e app > .ci/fixture.json
+
+      - name: Fixture manifest and WASM digest
+        run: |
+          sha256sum hosted.wasm .ci/fixture.json
+          node -e '
+            const { readFileSync, writeFileSync } = require("node:fs");
+            const sha256 = require("node:crypto").createHash("sha256").update(readFileSync(".ci/fixture.json")).digest("hex");
+            writeFileSync(".ci/fixture.manifest.json", JSON.stringify({ publicFixedTestValuesOnly: true, managedCompositionQualified: false, sha256 }));
+          '
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: deploy/hosted-worker/package-lock.json
+      - name: install (pinned workerd, wrangler, esbuild)
+        run: npm ci --no-audit --no-fund
+
+      - name: tests (node + workerd, real Postgres; no skips allowed)
+        env:
+          MDBASE_HOSTED_LEGACY_TEST_PG: postgres://mdbn:mdbn@127.0.0.1:5432/mdbn_test
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee "$RUNNER_TEMP/hosted-worker-test.log"
+          # A missing hosted.wasm or Postgres turns tests into skips, not failures.
+          grep -Eq '^# skipped 0$' "$RUNNER_TEMP/hosted-worker-test.log" || { echo "::error::hosted worker tests were skipped"; exit 1; }
+
+      - name: native workerd migration qualification
+        run: |
+          HOSTED_WASM="$PWD/hosted.wasm" PITR_APP_FIXTURE="$PWD/.ci/fixture.json" \
+            timeout 600s node --experimental-transform-types test/migration-native-workerd.mjs
+
+      - name: upload failed-run evidence
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: hosted-worker-test-state
+          path: deploy/hosted-worker/.test-state/
+          if-no-files-found: ignore
+          retention-days: 7

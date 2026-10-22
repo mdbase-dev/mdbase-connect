@@ -43,6 +43,9 @@ export async function ingressCases({
       ).toString("hex"),
     };
   }
+  // Highest ingress booking since the previous call (debug hook).
+  const peak = async () =>
+    Number(await (await fetch(`${base}/debug/ingress_peak`)).text());
   async function run(q) {
     const r = await fetch(`${base}/__test/ingress`, {
       method: "POST",
@@ -128,10 +131,11 @@ export async function ingressCases({
         "0",
       );
     }
-    for (const length of [undefined, "1", String(cap * 3)]) {
+    for (const length of [undefined, "1"]) {
       const n = await nonce();
       const hd = headers(over.b, n);
       if (length !== undefined) hd["content-length"] = length;
+      await peak();
       const r = await run({
         ...where,
         size: cap + 1,
@@ -149,9 +153,11 @@ export async function ingressCases({
       );
       assert.equal(r.forwarded, 0);
       assert.equal(r.r2writes, 0);
+      // An understated length grows its booking per chunk, never past the cap.
+      assert.ok((await peak()) <= cap * 4, `over-cap body, length ${length}`);
       await retry(n);
     }
-    for (const length of [undefined, "1", String(cap * 3)]) {
+    for (const length of [undefined, "1"]) {
       const n = await nonce(),
         hd = headers(exact.b, n);
       if (length !== undefined) hd["content-length"] = length;
@@ -170,6 +176,48 @@ export async function ingressCases({
       assert.equal(r.emitted, cap);
       assert.ok(Buffer.from(r.response).includes(Buffer.from("not_found")));
       assert.ok(!r.cancelled);
+    }
+    // Adversarial lengths. (a) Understated: a 1 MiB body declared as 1 byte is
+    // accepted, its booking grows per chunk with the bytes actually delivered
+    // (never jumping to the cap) and is fully released. (b) Overstated beyond
+    // the cap, including values no usize holds: refused before any booking or
+    // read, and the nonce is not consumed.
+    {
+      const mid = padded(1024 * 1024),
+        len = mid.b.length,
+        chunkCost = (bytes) => Math.max(bytes, 65536) * 4;
+      const n = await nonce(),
+        hd = headers(mid.b, n);
+      hd["content-length"] = "1";
+      await peak();
+      const r = await run({ ...where, size: len, prefix: mid.prefix, chunk: 4093, headers: hd });
+      assert.equal(r.status, 200, JSON.stringify({ actor, ...r, response: undefined }));
+      assert.equal(r.emitted, len);
+      const high = await peak();
+      // Outer read, then (worker route) its forwarded hold plus the actor's
+      // honestly sized booking. Either way far below a cap booking.
+      const bound = actor ? chunkCost(len + 65536) : chunkCost(len + 65536) + chunkCost(len) / 2 + chunkCost(len);
+      assert.ok(high >= chunkCost(len), `booking covers delivered bytes: ${high}`);
+      assert.ok(high <= bound && high < cap * 4, `understated length booking ${high} > ${bound}`);
+      assert.equal(await (await fetch(`${base}/debug/ingress_budget`)).text(), "0");
+    }
+    for (const length of [
+      String(cap + 1),
+      String(cap * 3),
+      "18446744073709551615",
+      "99999999999999999999999999999",
+    ]) {
+      const n = await nonce(),
+        hd = headers(exact.b, n);
+      hd["content-length"] = length;
+      await peak();
+      const r = await run({ ...where, size: cap, prefix: exact.prefix, chunk: 4096, headers: hd });
+      assert.equal(r.status, 413, `declared ${length}`);
+      assert.equal(r.emitted, 0, `declared ${length} read nothing`);
+      assert.equal(r.forwarded, 0);
+      assert.equal(r.r2writes, 0);
+      assert.equal(await peak(), 0, `declared ${length} booked nothing`);
+      await retry(n);
     }
     const bigNonce = await nonce();
     const big = await run({
@@ -243,6 +291,22 @@ export async function ingressCases({
     assert.equal(rs[2].emitted, 0);
     for (const n of ns) await retry(n);
   }
+  // Small signed RPCs with a Content-Length are credited for their size, not
+  // the cap: concurrent ticks through the worker and its actor all succeed.
+  const small = await Promise.all(
+    Array.from({ length: 8 }, async () => {
+      const n = await nonce();
+      const r = await fetch(`${base}/v1/rpc`, {
+        method: "POST",
+        headers: headers(normal, n),
+        body: normal,
+      });
+      await r.arrayBuffer();
+      return r.status;
+    }),
+  );
+  assert.deepEqual(small, Array(8).fill(200));
+  assert.equal(await (await fetch(`${base}/debug/ingress_budget`)).text(), "0");
   // Actual network chunked transfer, rather than the instrumented native
   // streams above. No Content-Length is supplied; real Worker ingress is used.
   for (const whole of [normal, over.b]) {
@@ -312,7 +376,7 @@ export async function ingressCases({
   });
   assert.equal(exactPut.status, 200);
   assert.equal(exactPut.emitted, objectCap);
-  for (const length of [undefined, "1", String(objectCap + 100)]) {
+  for (const length of [undefined, "1"]) {
     const spec = objectUrl(object);
     if (length !== undefined) spec.headers["content-length"] = length;
     const r = await run({
@@ -327,6 +391,18 @@ export async function ingressCases({
     assert.ok(r.cancelled);
     assert.equal(r.r2writes, 0);
   }
+  const overstated = objectUrl(object);
+  overstated.headers["content-length"] = String(objectCap + 100);
+  const overstatedPut = await run({
+    ...overstated,
+    method: "PUT",
+    size: objectCap + 1,
+    prefix,
+    chunk: 7000,
+  });
+  assert.equal(overstatedPut.status, 413);
+  assert.equal(overstatedPut.emitted, 0);
+  assert.equal(overstatedPut.r2writes, 0);
   const declared = await run({
     ...objectUrl(object, objectCap + 1),
     method: "PUT",

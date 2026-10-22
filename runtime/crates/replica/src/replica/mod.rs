@@ -24,6 +24,7 @@
 //! | `hosted.rs` | hosted mode: log-ACK barrier, RAM-only pending, log-derived receipts |
 
 mod account_key;
+pub mod adopt;
 pub use account_key::{AccountKeyRefusal, StrictWitness};
 mod admission;
 pub(crate) mod append;
@@ -71,6 +72,7 @@ pub use collection_setup::{
     CollectionSetupSession, PreparedCollectionSetupPlan, PreparedCollectionSetupReview,
     SetupCaptureFence, SetupCapturedInventory, SetupSourceRead,
 };
+pub use hosted_attachment_upload::FileReplacement;
 pub use unindexed_capture::{PreparedUnindexedCapture, UnindexedCaptureTarget};
 pub use unindexed_source::{
     AuthenticatedUnindexedSource, UnindexedSourceError, UnindexedSourceNeed, UnindexedSourceReader,
@@ -85,12 +87,16 @@ mod approval_requester;
 mod approval_runtime;
 pub mod base;
 mod client;
+mod client_files;
+mod client_upload_resume;
+mod client_uploads;
 mod disk;
 pub mod gen0;
 mod handover;
 mod hosted;
 mod hosted_attachment_read;
-pub use hosted_attachment_read::HostedAttachmentRead;
+pub mod migration_log;
+pub use hosted_attachment_read::{AttachmentRead, HostedAttachmentRead};
 mod hosted_attachment_upload;
 mod join_ahead;
 mod key_rebuild;
@@ -108,8 +114,10 @@ mod query_driver;
 pub use query_driver::{Decline as QueryDecline, QueryStats};
 mod log_session;
 mod lost_tail;
+mod original_history;
 mod orphans;
 pub use lost_tail::{RepairPhase, RepairStats, RepairStatus};
+pub use original_history::ObservedOriginalRecord;
 /// `REPAIR_REFS_WAIT` (§4.1), for tests and sim.
 pub fn lost_tail_refs_wait_ms() -> i64 {
     lost_tail::REPAIR_REFS_WAIT_MS
@@ -394,6 +402,8 @@ pub(crate) struct Session {
     pub(crate) status_sub: bool,
     pub(crate) holds_sub: bool,
     pub(crate) conflicts_sub: bool,
+    pub(crate) pending_cursors: std::collections::VecDeque<client::pending::Position>,
+    pub(crate) pending_time_floor: i64,
 }
 
 impl Session {
@@ -423,6 +433,8 @@ pub struct Replica<S: Store> {
     pub(crate) tail_stats_dirty: bool,
     /// Exact bytes scoped to the current synchronous synced apply attempt.
     pub(crate) retaining: Option<crate::store::TailRow>,
+    /// Native accepted-prefix observations; persisted hints never recreate them.
+    original_history: original_history::OriginalHistory,
     /// The active lost-tail repair (step 2), if any.
     pub(crate) repair: Option<lost_tail::Repair>,
     pub(crate) repair_generation: u64,
@@ -491,6 +503,11 @@ pub struct Replica<S: Store> {
 
     // ---- clients
     approval: approval_runtime::ApprovalRuntime,
+    /// User-confirmed grant approvals waiting for a control append turn
+    /// (`policy.md` §5.1; RAM only: re-approve after a restart).
+    pub(crate) grant_approval_queue: std::collections::VecDeque<append::QueuedGrantApproval>,
+    /// Why a queued grant approval was dropped at its turn (RAM only).
+    pub(crate) grant_approval_failures: BTreeMap<Uuid, String>,
     pub(crate) sessions: BTreeMap<SessionId, Session>,
     pub(crate) next_session: u64,
     pub(crate) submitted_by: BTreeMap<Uuid, SessionId>,
@@ -507,6 +524,12 @@ pub struct Replica<S: Store> {
     pub(crate) install_base: Option<snapshot::BaseInstall>,
     /// One opaque hosted generation-0 writer, never shared across wakes.
     hosted_gen0: Option<gen0::HostedGen0State>,
+    /// The hosted migration base append in flight or last resolved (RAM only).
+    pub(crate) migration_append: Option<migration_log::AppendTrack>,
+    /// A folder adopt in progress (`adopt.rs`).
+    pub(crate) adopt: Option<adopt::Adopt>,
+    /// Record IDs for first ingest, by path key (`adopt.rs`).
+    pub(crate) id_hints: BTreeMap<String, Uuid>,
     /// A base whose generation 0 failed to install: apply stalls before it until
     /// reopen instead of refetching it on every read.
     pub(crate) base_install_failed: Option<u64>,
@@ -539,6 +562,10 @@ pub struct Replica<S: Store> {
     pub(crate) status_dirty: bool,
     /// Local-only grants and independently authenticated local serving identity.
     pub(crate) grant_source: Option<Box<dyn crate::policy::GrantSource>>,
+    /// Opaque original app setup reviews. Never persisted or reconstructed from
+    /// a pending row; only the admitted instance may publish an unsent setup.
+    pub(crate) declared_setup_pending: BTreeMap<Uuid, collection_setup::PendingSetup>,
+    pub(crate) declared_setup_rpc_job: Option<collection_setup::SetupRpcJob>,
     /// Hosted mode (`hosted.rs`), set only by [`Replica::open_hosted`]. `None` on
     /// devices, whose behaviour it never changes.
     pub(crate) hosted: Option<Box<hosted::HostedState>>,
@@ -548,6 +575,8 @@ pub struct Replica<S: Store> {
     pub(crate) reverse_text_sources: unindexed_reverse_text::Sources,
     pub(crate) unindexed_reverse_uploads: unindexed_reverse_upload::Uploads,
     pub(crate) attachment_fetches: attachment_fetch::Fetches,
+    /// One ephemeral file lane; allocated only when native file I/O is used.
+    pub(crate) client_files: Option<client_files::ClientFiles>,
     pub(crate) unindexed_sources: unindexed_apply::Sources,
     pub(crate) unindexed_blob_fetches: unindexed_blob_fetch::Fetches,
     pub(crate) attachment_ingest: attachment_ingest::Ingests,
@@ -726,8 +755,17 @@ impl<S: Store> Replica<S> {
         };
         let orphan_rows = orphans::decode(store.meta(meta_keys::ORPHANS)?.as_deref())
             .map_err(|e| OpenError::Corrupt(format!("orphans: {e}")))?;
+        let original_history = original_history::OriginalHistory::new(
+            cfg.collection,
+            0,
+            head,
+            policy.seq,
+            store.meta(original_history::META)?.as_deref(),
+        );
         let mut r = Replica {
             approval: approval_runtime::ApprovalRuntime::new(cfg.collection, cfg.device_id),
+            grant_approval_queue: Default::default(),
+            grant_approval_failures: BTreeMap::new(),
             endpoint: cfg.log_endpoint,
             cfg,
             store,
@@ -741,6 +779,7 @@ impl<S: Store> Replica<S> {
             tail_stats,
             tail_stats_dirty: false,
             retaining: None,
+            original_history,
             repair: None,
             repair_generation: 0,
             store_generation: 0,
@@ -803,6 +842,9 @@ impl<S: Store> Replica<S> {
             install: None,
             install_base: None,
             hosted_gen0: None,
+            migration_append: None,
+            adopt: None,
+            id_hints: BTreeMap::new(),
             base_install_failed: None,
             install_progress: (0, 0),
             install_mseq: BTreeMap::new(),
@@ -824,12 +866,15 @@ impl<S: Store> Replica<S> {
             snapshot_every: snapshot::SNAPSHOT_EVERY,
             status_dirty: false,
             grant_source: source,
+            declared_setup_pending: BTreeMap::new(),
+            declared_setup_rpc_job: None,
             hosted: None,
             attachment_uploads: attachment_upload::Uploads::default(),
             unindexed_uploads: unindexed_upload::Uploads::default(),
             reverse_text_sources: unindexed_reverse_text::Sources::default(),
             unindexed_reverse_uploads: unindexed_reverse_upload::Uploads::default(),
             attachment_fetches: attachment_fetch::Fetches::default(),
+            client_files: None,
             unindexed_sources: unindexed_apply::Sources::default(),
             unindexed_blob_fetches: unindexed_blob_fetch::Fetches::default(),
             attachment_ingest: attachment_ingest::Ingests::default(),
@@ -957,11 +1002,24 @@ impl<S: Store> Replica<S> {
 
     /// Ask the store what changed on disk and ingest it (file-backed stores).
     pub fn observe(&mut self, paths: Option<&[String]>) -> Result<(), StoreError> {
-        // Do not consume watcher evidence while authorization/key recovery is
-        // paused. The store keeps it unacknowledged for a fresh rescan/reoffer.
+        disk::finish_native(self.observe_async(paths)).ok_or_else(|| {
+            StoreError::Io("Store suspended: retain Replica::observe_async.".into())
+        })?
+    }
+
+    /// Retained disk scan and shared resource ingestion for suspending stores.
+    /// Keep this original future alive; pending exclusively borrows the engine.
+    pub async fn observe_async(&mut self, paths: Option<&[String]>) -> Result<(), StoreError> {
+        // Do not consume evidence while authorization/key recovery is paused.
         self.check_apply_store_health()?;
-        let obs = self.store.observe(paths)?;
-        self.ingest(obs);
+        // Adopt: the folder is not observed until the base is applied; the first
+        // observation afterwards sees everything that changed meanwhile.
+        if self.adopt_gates() {
+            return Ok(());
+        }
+        let obs = self.store.observe_async(paths).await?;
+        self.check_apply_store_health()?;
+        self.ingest_async(obs).await;
         Ok(())
     }
 

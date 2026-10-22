@@ -6,7 +6,7 @@ import { createRequire } from "node:module";
 import test from "node:test";
 
 const require = createRequire(import.meta.url);
-const { ensureNextDaemon, bundledNextDaemon, nextDaemonRunner, rolloutAllowsLocalTakeover } = require("../dist/main/next-daemon.js");
+const { ensureNextDaemon, bundledNextDaemon, nextDaemonRunner } = require("../dist/main/next-daemon.js");
 const version = "0.2.0-beta.1";
 const ready = (v = version) => ({ registration: "installed", binary_version: v, readiness: { ready: true, binary_version: v } });
 function runner(results) {
@@ -50,11 +50,45 @@ test("status, start, install and readiness failures remain failures", async () =
   }
 });
 
-test("rollout is closed unless the authenticated response explicitly allows it", () => {
-  for (const value of [null, undefined, true, [], {}, { local_takeover: "true" }, { local_takeover: false }]) {
-    assert.equal(rolloutAllowsLocalTakeover(value), false);
-  }
-  assert.equal(rolloutAllowsLocalTakeover({ local_takeover: true }), true);
+test("a swapped-in bundle that does not become ready is rolled back to mdbase.previous", async () => {
+  const previous = "0.1.9";
+  const { run, calls } = runner([
+    { exitCode: 0, value: ready(previous) },
+    { exitCode: 3, value: { registration: "installed", binary_version: version, readiness: null } },
+    { exitCode: 3, value: { registration: "installed", binary_version: version, readiness: null } }
+  ]);
+  const back = runner([{ exitCode: 0, value: ready(previous) }]);
+  const outcome = await ensureNextDaemon(run, version, { rollback: back.run });
+  assert.deepEqual(outcome, { outcome: "rolled_back", version: previous, failed: version,
+    reason: "The mdbase daemon was installed but did not become ready." });
+  assert.deepEqual(calls.at(-1), ["--json", "service", "status"]);
+  assert.deepEqual(back.calls, [["--json", "service", "install"]]);
+
+  // Held back: the next launch keeps the restored daemon instead of retrying.
+  const held = runner([{ exitCode: 0, value: ready(previous) }]);
+  assert.deepEqual(await ensureNextDaemon(held.run, version, { heldBack: version, rollback: back.run }),
+    { outcome: "already_installed", version: previous, started: false });
+
+  // No swap happened (the runtime is still the old copy): nothing to roll back.
+  const unswapped = runner([
+    { exitCode: 0, value: ready(previous) },
+    { exitCode: 1, value: null },
+    { exitCode: 0, value: ready(previous) }
+  ]);
+  const untouched = runner([]);
+  await assert.rejects(ensureNextDaemon(unswapped.run, version, { rollback: untouched.run }), /exit 1/);
+  assert.equal(untouched.calls.length, 0);
+
+  // A failed restore is reported with the original failure.
+  const broken = runner([
+    { exitCode: 0, value: ready(previous) },
+    { exitCode: 3, value: null },
+    { exitCode: 3, value: { registration: "installed", binary_version: version, readiness: null } }
+  ]);
+  await assert.rejects(
+    ensureNextDaemon(broken.run, version, { rollback: runner([{ exitCode: 3, value: null }]).run }),
+    /did not become ready\. Restoring the previous mdbase daemon also failed/
+  );
 });
 
 test("bundle lives beside the old runtime and requires a valid VERSION", async (t) => {

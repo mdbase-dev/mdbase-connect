@@ -29,6 +29,12 @@ pub(crate) struct HostedKeyDelivery {
     epoch: u64,
     seq: u64,
 }
+impl HostedKeyDelivery {
+    // Internal candidate correlation only; this is NOT a committed observation.
+    pub(super) fn is_at(&self, position: u64) -> bool {
+        self.seq == position
+    }
+}
 
 /// Live serving observation; it cannot be installed back into a replica.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,6 +171,26 @@ impl VerifiedHostedAdmission {
     /// Authenticated control position of that delivery.
     pub fn key_delivery_seq(&self) -> u64 {
         self.key_delivery_seq
+    }
+    /// Whether `self` is a later observation of `before` in the same wake: same
+    /// identity, Noise key, trust root, epoch and key delivery, and neither head
+    /// moved backwards or onto another chain. A head advance or a fault-generation
+    /// bump (reconnect) is a successor; anything else is a different context.
+    pub(crate) fn succeeds(&self, before: &Self) -> bool {
+        let (a, b) = (&self.context, &before.context);
+        let forward = |new: Head, old: Head| {
+            new.seq > old.seq || (new.seq == old.seq && new.chain == old.chain)
+        };
+        a.identity == b.identity
+            && a.noise_pk == b.noise_pk
+            && a.instance == b.instance
+            && a.root == b.root
+            && a.root_pk == b.root_pk
+            && self.epoch == before.epoch
+            && self.key_delivery_device == before.key_delivery_device
+            && self.key_delivery_seq == before.key_delivery_seq
+            && forward(a.applied, b.applied)
+            && forward(a.authenticated, b.authenticated)
     }
 }
 
@@ -413,6 +439,27 @@ impl<S: Store> Replica<S> {
             return B::Deny(HostedAdmissionDenial::KeyUnavailable);
         }
         B::Eligible(Box::new(context))
+    }
+
+    /// Read-only equality against the actual accepted member-role reducer at a
+    /// current FULL hosted point. Expectations are data, not grants or permits;
+    /// callers still owe original target/currentness and exact CP ceilings.
+    pub fn verify_hosted_member_roles(
+        &self,
+        expected: &std::collections::BTreeMap<Uuid, mdbn_wire::policy::Role>,
+    ) -> Result<(), HostedAdmissionDenial> {
+        if let HostedAdmission::Deny(denial) = self.verified_hosted_admission() {
+            return Err(denial);
+        }
+        if expected.is_empty()
+            || expected.len() > 1000
+            || self.policy.members.len() > 1000
+            || expected.keys().any(|account| account.0 == [0; 16])
+            || &self.policy.members != expected
+        {
+            return Err(HostedAdmissionDenial::MembershipInvalid);
+        }
+        Ok(())
     }
 
     /// Observe serving state. Metadata/caught-up/keyed bits cannot promote it.

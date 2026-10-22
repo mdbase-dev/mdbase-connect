@@ -14,6 +14,9 @@ import { parseServiceDevice, storeServiceDevice } from "./service-devices.js";
 import { queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
 import { certDigest, chainHash, keyId, signPolicyItem, type PolicyOp } from "./policy-wire.js";
 import { ed25519RawPublicKey } from "./policy-keys.js";
+import { migrationDeployments, migrationRoute, registerMigrationRouteRetireRoute, type MigrationRouting } from "./migration-routing.js";
+import { activatePendingServices } from "./service-activation.js";
+import { registerNextHostedRoutes } from "./hosted-routes.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -80,6 +83,160 @@ suite("hosted Noise discovery (real Postgres, not serving qualification)", () =>
     return { id, token, record, batch, daemon, logGrant, route };
   }
 
+  it("selects only released frozen nonterminal DB members and retains routing across start/flip/pause", async () => {
+    const own = await fixture({ hostedOnly: true }), outside = await fixture({ hostedOnly: true });
+    const cohort = `routing-${randomUUID().slice(0, 8)}`;
+    const routing: MigrationRouting = { environment: "lab", accounts: new Set(), hosted: { url: "https://mdbase-next-hosted-mig-lab.example.workers.dev", token: "m".repeat(40) }, inboundToken: "i".repeat(40) };
+    const scoped = Fastify(), normalToken = "H".repeat(40);
+    registerNextRouteRoutes(scoped, { db, publicUrl: "https://connect.example", broker, hostedClientUrl: "https://hosted.example", migrationRouting: routing });
+    registerNextHostedRoutes(scoped, { db, tokens: { hosted: normalToken }, migrationRouting: routing });
+    const route = () => scoped.inject({ method: "GET", url: `/v1/next/collections/${own.id}/route`, headers: { authorization: `Bearer ${own.token}` } });
+    const state = (ids: string[], token: string) => scoped.inject({ method: "POST", url: "/internal/v1/next/collections/states", headers: { authorization: `Bearer ${token}` }, payload: { ids } });
+    try {
+      expect(await migrationRoute(db, routing, own.id)).toBe("default");
+      await db.query("INSERT INTO next_migration_cohorts(name) VALUES($1)", [cohort]);
+      await db.query("INSERT INTO next_migration_cohort_members(account_id,cohort) VALUES($1,$2)", [own.id, cohort]);
+      expect(await migrationRoute(db, routing, own.id)).toBe("default");
+      await db.query("UPDATE next_migration_cohorts SET released_at=now() WHERE name=$1", [cohort]);
+      expect(await migrationRoute(db, routing, own.id)).toBe("default");
+      await db.query("UPDATE next_migration_cohorts SET frozen_at=now() WHERE name=$1", [cohort]);
+      expect(await migrationRoute(db, routing, own.id)).toBe("migration");
+      // A not-yet-registered collection a routed owner is creating is never migration routed.
+      expect(await migrationRoute(db, routing, randomUUID())).toBe("default");
+      expect((await route()).json().targets[0].url).toContain("mdbase-next-hosted-mig-lab");
+      expect((await state([own.id], routing.inboundToken)).statusCode).toBe(200);
+      expect((await state([own.id], normalToken)).statusCode).toBe(403);
+      for (const credential of [normalToken, routing.inboundToken]) expect((await state([own.id, outside.id], credential)).statusCode).toBe(403);
+      // Deployment choice is not an unpaused rollout/start or a Legacy marker.
+      await db.query("UPDATE next_migration_cohort_members SET started_at=now() WHERE account_id=$1", [own.id]);
+      await db.query("UPDATE users SET account_backend='next' WHERE id=$1", [own.id]);
+      await db.query("UPDATE next_migration_rollout SET paused=true WHERE singleton");
+      expect((await route()).json().targets[0].url).toContain("mdbase-next-hosted-mig-lab");
+      await db.query("UPDATE next_migration_cohort_members SET terminal_excluded_at=now() WHERE account_id=$1", [own.id]);
+      expect(await migrationRoute(db, routing, own.id)).toBe("default");
+      expect((await route()).json().targets[0].url).toContain("hosted.example");
+      expect((await state([own.id], routing.inboundToken)).statusCode).toBe(403);
+      expect((await state([own.id], normalToken)).statusCode).toBe(200);
+    } finally { await scoped.close(); }
+  });
+  async function releasedFrozenMember(account: string) {
+    const cohort = `routing-${randomUUID().slice(0, 8)}`;
+    await db.query("INSERT INTO next_migration_cohorts(name,released_at,frozen_at) VALUES($1,now(),now())", [cohort]);
+    await db.query("INSERT INTO next_migration_cohort_members(account_id,cohort) VALUES($1,$2)", [account, cohort]);
+  }
+  const normalDeployments = { hosted: { url: "https://hosted-cp.example", token: "n".repeat(40) }, escrow: { url: "https://escrow.example", token: "e".repeat(40) } };
+  async function wakes(routing: MigrationRouting, collection: string) {
+    const seen: string[] = [];
+    await db.query("UPDATE next_service_devices SET activation_batch_id=0, activation_attempt_batch_id=0, activation_next_at=now() WHERE collection_id=$1", [collection]);
+    await activatePendingServices(db, normalDeployments, async url => { seen.push(new URL(String(url)).origin); return Response.json({ activated: true }); }, collection, undefined, routing);
+    return seen;
+  }
+
+  it("staging: routes a migrated owner's app sessions, wakes and record reads to the staging migration Worker after the flip", async () => {
+    const own = await fixture({ hostedOnly: true });
+    const routing: MigrationRouting = { environment: "staging", accounts: new Set(), hosted: { url: "https://mdbase-next-hosted-mig-staging.example.workers.dev", token: "m".repeat(40) }, inboundToken: "i".repeat(40) };
+    const scoped = Fastify(), normalToken = "H".repeat(40);
+    registerNextRouteRoutes(scoped, { db, publicUrl: "https://connect-staging.mdbase.dev", broker, hostedClientUrl: "https://hosted.example", migrationRouting: routing });
+    registerNextHostedRoutes(scoped, { db, tokens: { hosted: normalToken }, migrationRouting: routing });
+    const route = () => scoped.inject({ method: "GET", url: `/v1/next/collections/${own.id}/route`, headers: { authorization: `Bearer ${own.token}` } });
+    const state = (token: string) => scoped.inject({ method: "GET", url: `/internal/v1/next/collections/${own.id}/state`, headers: { authorization: `Bearer ${token}` } });
+    try {
+      await releasedFrozenMember(own.id);
+      // Started, flipped to the next backend, and the global rollout paused: still served by the migration Worker.
+      await db.query("UPDATE next_migration_cohort_members SET started_at=now() WHERE account_id=$1", [own.id]);
+      await db.query("UPDATE users SET account_backend='next' WHERE id=$1", [own.id]);
+      await db.query("UPDATE next_migration_rollout SET paused=true WHERE singleton");
+      expect(await migrationRoute(db, routing, own.id)).toBe("migration");
+      expect((await route()).json().targets[0].url).toBe(`wss://mdbase-next-hosted-mig-staging.example.workers.dev/v1/hosted/app?collection=${own.id}`);
+      expect(await wakes(routing, own.id)).toEqual([routing.hosted.url]);
+      expect((await state(routing.inboundToken)).statusCode).toBe(200);
+      expect((await state(normalToken)).statusCode).toBe(403);
+    } finally {
+      await db.query("UPDATE next_migration_rollout SET paused=false WHERE singleton");
+      await scoped.close();
+    }
+  });
+
+  it("staging: a migrated owner's new or CP-native cloud copy stays on the CP deployments for creation, app sessions, wakes and record reads", async () => {
+    const legacy = await fixture({ hostedOnly: true });
+    const routing: MigrationRouting = { environment: "staging", accounts: new Set(), hosted: { url: "https://mdbase-next-hosted-mig-staging.example.workers.dev", token: "m".repeat(40) }, inboundToken: "i".repeat(40) };
+    const scoped = Fastify(), normalToken = "H".repeat(40);
+    registerNextRouteRoutes(scoped, { db, publicUrl: "https://connect-staging.mdbase.dev", broker, hostedClientUrl: "https://hosted.example", migrationRouting: routing });
+    registerNextHostedRoutes(scoped, { db, tokens: { hosted: normalToken }, migrationRouting: routing });
+    try {
+      await releasedFrozenMember(legacy.id);
+      await db.query("UPDATE next_migration_cohort_members SET started_at=now() WHERE account_id=$1", [legacy.id]);
+      await db.query("UPDATE users SET account_backend='next' WHERE id=$1", [legacy.id]);
+      // Creation: a not-yet-registered collection generates both service devices on the CP pair.
+      expect(await migrationDeployments(db, normalDeployments, routing, randomUUID())).toBe(normalDeployments);
+      // A registered CP-native cloud copy of a routed owner (no hosted_collections row).
+      const native = await fixture();
+      await releasedFrozenMember(native.id);
+      expect((await db.query("SELECT 1 FROM hosted_collections WHERE id=$1", [native.id])).rows).toHaveLength(0);
+      expect(await migrationRoute(db, routing, native.id)).toBe("default");
+      expect(await migrationDeployments(db, normalDeployments, routing, native.id)).toBe(normalDeployments);
+      const route = await scoped.inject({ method: "GET", url: `/v1/next/collections/${native.id}/route`, headers: { authorization: `Bearer ${native.token}` } });
+      expect(route.json().targets[0].url).toBe(`wss://hosted.example/v1/hosted/app?collection=${native.id}`);
+      expect(await wakes(routing, native.id)).toEqual([normalDeployments.hosted.url]);
+      const state = (id: string, token: string) => scoped.inject({ method: "GET", url: `/internal/v1/next/collections/${id}/state`, headers: { authorization: `Bearer ${token}` } });
+      expect((await state(native.id, normalToken)).statusCode).toBe(200);
+      expect((await state(native.id, routing.inboundToken)).statusCode).toBe(403);
+      // The owner's legacy hosted collection is still served by the migration Worker.
+      expect(await migrationRoute(db, routing, legacy.id)).toBe("migration");
+      expect((await state(legacy.id, routing.inboundToken)).statusCode).toBe(200);
+      expect((await state(legacy.id, normalToken)).statusCode).toBe(403);
+    } finally { await scoped.close(); }
+  });
+
+  it("LAB cleanup retires a disposed fixture's migration route: no app route, wake or record read remains", async () => {
+    const own = await fixture({ hostedOnly: true }), outside = await fixture({ hostedOnly: true });
+    const routing: MigrationRouting = { environment: "lab", accounts: new Set(), hosted: { url: "https://mdbase-next-hosted-mig-lab.example.workers.dev", token: "m".repeat(40) }, inboundToken: "i".repeat(40) };
+    const scoped = Fastify(), normalToken = "H".repeat(40), migrationToken = "M".repeat(40);
+    registerNextRouteRoutes(scoped, { db, publicUrl: "https://connect-lab.mdbase.dev", broker, hostedClientUrl: "https://hosted.example", migrationRouting: routing });
+    registerNextHostedRoutes(scoped, { db, tokens: { hosted: normalToken }, migrationRouting: routing });
+    registerMigrationRouteRetireRoute(scoped, { db, token: migrationToken, routing });
+    const route = () => scoped.inject({ method: "GET", url: `/v1/next/collections/${own.id}/route`, headers: { authorization: `Bearer ${own.token}` } });
+    const state = (token: string) => scoped.inject({ method: "GET", url: `/internal/v1/next/collections/${own.id}/state`, headers: { authorization: `Bearer ${token}` } });
+    const retire = (id: string, token = migrationToken) => scoped.inject({ method: "POST", url: `/internal/v1/next/migration/collections/${id}/routing/retire`,
+      headers: { authorization: `Bearer ${token}` }, payload: { actor: "lab-cleanup", reason: "fixture disposed" } });
+    try {
+      await releasedFrozenMember(own.id);
+      expect((await route()).json().targets[0].url).toContain("mdbase-next-hosted-mig-lab");
+      expect(await wakes(routing, own.id)).toEqual([routing.hosted.url]);
+      expect((await retire(own.id, normalToken)).statusCode).toBe(401);
+      expect((await retire(own.id, routing.inboundToken)).statusCode).toBe(401);
+      expect((await retire(outside.id)).json()).toMatchObject({ error: { code: "not_migration_routed" } });
+      expect((await retire(randomUUID())).statusCode).toBe(409);
+      const first = await retire(own.id);
+      expect(first.statusCode, first.body).toBe(200);
+      expect(first.json()).toMatchObject({ collection_id: own.id });
+      const again = await retire(own.id);
+      expect(again.json()).toEqual(first.json());
+      expect((await db.query("SELECT 1 FROM audit_events WHERE event_type='next_migration.routing_retired' AND subject_id=$1", [own.id])).rows).toHaveLength(1);
+      expect(await migrationRoute(db, routing, own.id)).toBe("retired");
+      // No fallback to the default hosted deployment, and no wake of either deployment.
+      expect((await route()).statusCode).toBe(401);
+      expect(await wakes(routing, own.id)).toEqual([]);
+      expect((await state(routing.inboundToken)).statusCode).toBe(403);
+      expect((await state(normalToken)).statusCode).toBe(403);
+      // Other routed and unrouted collections are untouched.
+      expect(await wakes(routing, outside.id)).toEqual([normalDeployments.hosted.url]);
+    } finally { await scoped.close(); }
+  });
+
+  it("the cleanup route is mounted in LAB only", async () => {
+    const own = await fixture({ hostedOnly: true });
+    await releasedFrozenMember(own.id);
+    const routing: MigrationRouting = { environment: "staging", accounts: new Set(), hosted: { url: "https://mdbase-next-hosted-mig-staging.example.workers.dev", token: "m".repeat(40) }, inboundToken: "i".repeat(40) };
+    const scoped = Fastify();
+    registerMigrationRouteRetireRoute(scoped, { db, token: "M".repeat(40), routing });
+    try {
+      expect((await scoped.inject({ method: "POST", url: `/internal/v1/next/migration/collections/${own.id}/routing/retire`,
+        headers: { authorization: `Bearer ${"M".repeat(40)}` }, payload: { actor: "a", reason: "r" } })).statusCode).toBe(404);
+      expect(await migrationRoute(db, routing, own.id)).toBe("migration");
+    } finally { await scoped.close(); }
+  });
+
   it("puts the exact fixed-path hosted target first and preserves daemon fallback; online remains false", async () => {
     const f = await fixture({ daemon: true });
     const response = await f.route(f.id.toUpperCase());
@@ -88,6 +245,60 @@ suite("hosted Noise discovery (real Postgres, not serving qualification)", () =>
     expect(response.json().targets[0]).toEqual({ kind: "hosted", device: f.record.device_id, noise_pk: f.record.noise_pk.toString("hex"), url: `wss://hosted.example/v1/hosted/app?collection=${f.id}`, online: false });
     await db.query("UPDATE next_service_devices SET activated_at=now(),activation_batch_id=$2 WHERE collection_id=$1", [f.id, f.batch]);
     expect((await f.route()).json().targets[0].online).toBe(false);
+  });
+
+  it("routes only the authoritative rehearsal owner; account spoof and foreign grants cannot redirect", async () => {
+    const own = await fixture({ hostedOnly: true });
+    const other = await fixture({ hostedOnly: true });
+    const routing: MigrationRouting = { environment: "lab", accounts: new Set([own.id]), hosted: { url: "https://mdbase-next-hosted-mig-lab.example.workers.dev", token: "m".repeat(40) }, inboundToken: "i".repeat(40) };
+    const scoped = Fastify();
+    registerNextRouteRoutes(scoped, { db, publicUrl: "https://connect.example", broker, hostedClientUrl: "https://hosted.example", migrationRouting: routing });
+    try {
+      const route = (id: string, token: string, query = "") => scoped.inject({ method: "GET", url: `/v1/next/collections/${id}/route${query}`, headers: { authorization: `Bearer ${token}` } });
+      expect((await route(own.id, own.token)).json().targets[0].url).toBe(`wss://mdbase-next-hosted-mig-lab.example.workers.dev/v1/hosted/app?collection=${own.id}`);
+      expect((await route(other.id, other.token, `?account=${own.id}`)).json().targets[0].url).toBe(`wss://hosted.example/v1/hosted/app?collection=${other.id}`);
+      expect((await route(other.id, own.token)).statusCode).toBe(401);
+      expect((await route(own.id, other.token)).statusCode).toBe(401);
+      expect(await migrationRoute(db, routing, own.id)).toBe("migration");
+      expect(await migrationRoute(db, routing, other.id)).toBe("default");
+    } finally { await scoped.close(); }
+  });
+
+  it("isolates real authoritative inbound state batches by deployment credential", async () => {
+    const own = await fixture({ hostedOnly: true });
+    const other = await fixture({ hostedOnly: true });
+    const routing: MigrationRouting = { environment: "lab", accounts: new Set([own.id]), hosted: { url: "https://mdbase-next-hosted-mig-lab.example.workers.dev", token: "m".repeat(40) }, inboundToken: "i".repeat(40) };
+    const scoped = Fastify();
+    const normalToken = "H".repeat(40);
+    registerNextHostedRoutes(scoped, { db, tokens: { hosted: normalToken }, migrationRouting: routing });
+    try {
+      const state = (ids: string[], token: string) => scoped.inject({ method: "POST", url: "/internal/v1/next/collections/states", headers: { authorization: `Bearer ${token}` }, payload: { ids } });
+      expect((await state([own.id], routing.inboundToken)).statusCode).toBe(200);
+      expect((await state([other.id], normalToken)).statusCode).toBe(200);
+      for (const token of [normalToken, routing.inboundToken]) expect((await state([own.id, other.id], token)).statusCode).toBe(403);
+      expect((await state([other.id], routing.inboundToken)).statusCode).toBe(403);
+      expect((await state([own.id], normalToken)).statusCode).toBe(403);
+    } finally { await scoped.close(); }
+  });
+
+  it("routes multiple allowlisted owners and refuses mixed deployment-scope state batches", async () => {
+    const a = await fixture({ hostedOnly: true }), b = await fixture({ hostedOnly: true }), outside = await fixture({ hostedOnly: true });
+    const routing: MigrationRouting = { environment: "lab", accounts: new Set([a.id, b.id]), hosted: { url: "https://mdbase-next-hosted-mig-lab.example.workers.dev", token: "m".repeat(40) }, inboundToken: "i".repeat(40) };
+    const app = Fastify(), normalToken = "H".repeat(40);
+    registerNextRouteRoutes(app, { db, publicUrl: "https://connect.example", broker, hostedClientUrl: undefined, migrationRouting: routing });
+    registerNextHostedRoutes(app, { db, tokens: { hosted: normalToken }, migrationRouting: routing });
+    try {
+      for (const f of [a, b]) {
+        const response = await app.inject({ method: "GET", url: `/v1/next/collections/${f.id}/route`, headers: { authorization: `Bearer ${f.token}` } });
+        expect(response.statusCode, response.body).toBe(200);
+        expect(response.json().targets[0].url).toBe(`wss://mdbase-next-hosted-mig-lab.example.workers.dev/v1/hosted/app?collection=${f.id}`);
+      }
+      expect((await app.inject({ method: "GET", url: `/v1/next/collections/${outside.id}/route`, headers: { authorization: `Bearer ${outside.token}` } })).statusCode).toBe(401);
+      const state = (ids: string[], credential: string) => app.inject({ method: "POST", url: "/internal/v1/next/collections/states", headers: { authorization: `Bearer ${credential}` }, payload: { ids } });
+      expect((await state([a.id, b.id], routing.inboundToken)).statusCode).toBe(200);
+      expect((await state([a.id, b.id], normalToken)).statusCode).toBe(403);
+      for (const credential of [routing.inboundToken, normalToken]) expect((await state([a.id, outside.id], credential)).statusCode).toBe(403);
+    } finally { await app.close(); }
   });
 
   it("supports hosted-only grants without a daemon authority row", async () => {

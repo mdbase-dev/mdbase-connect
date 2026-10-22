@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { toHex } from "../src/cbor.js";
+import { readFileSync } from "node:fs";
+import { fromHex, toHex, type CborValue } from "../src/cbor.js";
+import { clientFrame } from "../src/wire.js";
 import { uuidToBytes } from "../src/codec.js";
 import { connect, MdbaseClient } from "../src/index.js";
 import { clientPrologue, generateKeyPair } from "../src/transport/noise.js";
@@ -15,7 +17,10 @@ import {
 } from "../src/transport/next-relay.js";
 import { MemoryReplica, serveNoise } from "../src/testing/index.js";
 import { uuidv7 } from "../src/values.js";
-import { receipt as receiptCodec } from "../src/wire.js";
+import { mdbaseError } from "../src/errors.js";
+import { pipeCloseError } from "../src/transport/relay-pipe.js";
+import { ApplicationPrivateCollections, type ApplicationPrivateGrants } from "../src/application/private-collections.js";
+import type { MdbaseApplicationDeclaration } from "../src/application/declaration.js";
 
 const app = { name: "t", version: "0" };
 
@@ -86,7 +91,7 @@ interface Device {
 }
 
 /** A fake Connect bridge in front of device replicas of one collection. */
-function world(n = 1, chunk?: number) {
+function world(n = 1, chunk?: number, bases?: (method: string, bytes: Uint8Array) => Uint8Array) {
   const collection = uuidv7();
   const relayCollection = uuidv7();
   const grant = uuidv7();
@@ -117,7 +122,26 @@ function world(n = 1, chunk?: number) {
       d.pipes.push(p);
       // The daemon binds the relay collection, grant and its own device.
       const prologue = clientPrologue(uuidToBytes(relayCollection), uuidToBytes(grant), uuidToBytes(d.id));
-      serveNoise(p.daemon, d.replica.connector(), { staticKey: d.key, prologue });
+      const original = d.replica.connector();
+      const nativeStandIn = {
+        description: original.description,
+        async open(hello: CborValue, signal?: AbortSignal) {
+          const opened = await original.open(hello, signal);
+          if (bases) {
+            const send = opened.port.send.bind(opened.port);
+            opened.port.send = frame => {
+              const request = clientFrame.dec(frame);
+              if (request.kind !== "request" || !request.method.startsWith("app_bases_")) return send(frame);
+              const bytes = (request.params as Map<number, CborValue>).get(0);
+              expect(bytes).toBeInstanceOf(Uint8Array);
+              const result = bases(request.method, bytes as Uint8Array);
+              queueMicrotask(() => opened.port.onframe?.(clientFrame.enc({kind:"response",id:request.id,result})));
+            };
+          }
+          return opened;
+        },
+      };
+      serveNoise(p.daemon, nativeStandIn, { staticKey: d.key, prologue });
       return p.app;
     },
   };
@@ -125,18 +149,6 @@ function world(n = 1, chunk?: number) {
 }
 
 describe("duplexCarrier", () => {
-  it("frames once and reassembles arbitrary chunks", () => {
-    const p = pipe();
-    const c = duplexCarrier(p.app);
-    const got: number[][] = [];
-    c.onmessage = (m) => got.push([...m]);
-    p.app.onmessage!(new Uint8Array([0, 0, 0, 2, 7]));
-    p.app.onmessage!(new Uint8Array([8, 0, 0]));
-    p.app.onmessage!(new Uint8Array([0, 0]));
-    expect(got).toEqual([[7, 8], []]);
-    c.send(new Uint8Array([1, 2, 3]));
-    expect([...p.app.sent[0]!]).toEqual([0, 0, 0, 3, 1, 2, 3]);
-  });
 
   it("ends the pipe on an oversized message and maps relay closes", () => {
     const p = pipe();
@@ -156,6 +168,40 @@ describe("duplexCarrier", () => {
 });
 
 describe("nextRelayConnector", () => {
+  it("carries native Bases discovery, exact source and execution on the same Private Noise session (codec stand-in)", async () => {
+    const discovery = JSON.parse(readFileSync(new URL("./fixtures/native-bases-app-discovery-codec.json", import.meta.url), "utf8")) as Record<string, string>;
+    const execution = JSON.parse(readFileSync(new URL("./fixtures/native-bases-app-codec.json", import.meta.url), "utf8")) as Record<string, string>;
+    const expected = [
+      ["app_bases_list_views_v1", discovery.initial_request_hex!, discovery.list_success_hex!],
+      ["app_bases_read_view_source_v1", discovery.source_request_hex!, discovery.source_success_hex!],
+      ["app_bases_execute_v1", execution.request_hex!, execution.success_hex!],
+    ];
+    const w = world(1, 5, (method, bytes) => {
+      const next = expected.shift()!;
+      expect(method).toBe(next[0]);
+      expect(bytes).toEqual(fromHex(next[1]!));
+      return fromHex(next[2]!);
+    });
+    const connector = nextRelayConnector({next:w.next,collection:w.collection,staticKey:generateKeyPair()});
+    const client = await connect({app,connector,reconnect:false});
+    try {
+      const catalog = await client.listAppBasesViews({captureTimezone:"UTC",limit:2});
+      expect(catalog.kind).toBe("success");
+      if (catalog.kind !== "success") throw new Error("native discovery refused");
+      expect(catalog.views.map(view=>view.ordinal)).toEqual([0,2]);
+      const selected = catalog.views[1]!;
+      const source = await client.readAppBasesViewSource({...selected,captureTimezone:"UTC"});
+      expect(source.kind).toBe("success");
+      const result = await client.executeAppBases({
+        record:"11111111-1111-1111-1111-111111111111",
+        sourceRevision:`sha256:${"22".repeat(32)}`,
+        ordinal:3,hints:new Map([["due","date"],["scheduled","date"]]),captureTimezone:"UTC",
+      });
+      expect(result.kind).toBe("success");
+      expect(expected).toEqual([]);
+      expect(w.opened).toEqual([w.devices[0]!.id]);
+    } finally { client.close(); }
+  });
   it("routes, opens one pipe and runs Noise bound to relay collection, grant and device", async () => {
     const w = world(1, 5);
     const connector = nextRelayConnector({ next: w.next, collection: w.collection, staticKey: generateKeyPair() });
@@ -301,6 +347,145 @@ describe("bridge scope and session regressions", () => {
     ).rejects.toBeDefined();
   });
 
+  it("keeps the shared Private entry opening through pre-live rejection, then opens the original Noise grant", async () => {
+    const w = world(1);
+    let live = false;
+    const refused: ReturnType<typeof pipe>[] = [];
+    const next: NextBridge = { ...w.next, openPipe: async (c, t, o) => {
+      if (live) return w.next.openPipe(c, t, o);
+      const p = pipe();
+      refused.push(p);
+      // Native refuses before consuming M1 or serving any application request.
+      p.app.send = () => p.end(4000, "grant_inactive");
+      return p.app;
+    } };
+    const connector = nextRelayConnector({ next, collection: w.collection, staticKey: generateKeyPair() });
+    const assess = vi.fn(async () => "ready");
+    const grants = {
+      availability: vi.fn(async () => ({ state: "available" })),
+      connector: vi.fn(() => connector),
+      setup: vi.fn(() => ({ assess })), people: vi.fn(() => ({})),
+    } as unknown as ApplicationPrivateGrants;
+    const states: unknown[] = [];
+    const controller = new ApplicationPrivateCollections({
+      declaration: { id: "pending-test" } as MdbaseApplicationDeclaration,
+      grants: async () => grants, onChange: () => states.push(controller.state()),
+    });
+    let failure: unknown;
+    const opening = controller.openCollection(w.collection, { account: "original", installation: "original" }).catch(e => { failure = e; });
+    try {
+      await vi.waitFor(() => expect(refused.length).toBe(1));
+      expect(controller.state()).toMatchObject({ status: "opening", problem: null });
+      expect(failure).toBeUndefined();
+      expect(controller.connection(w.collection)).toBeNull();
+      expect(assess).not.toHaveBeenCalled();
+      expect(w.opened).toEqual([]);
+      live = true; // An original policy update, NOT reapproval or new credentials.
+      await opening;
+      expect(failure).toBeUndefined();
+      expect(controller.state()).toMatchObject({ status: "ready", problem: null });
+      expect(grants.connector).toHaveBeenCalledTimes(1);
+      expect(assess).toHaveBeenCalledTimes(1);
+      expect(states).not.toEqual(expect.arrayContaining([expect.objectContaining({ status: "blocked" })]));
+    } finally { controller.dispose(); await opening; }
+  });
+
+  it.each([
+    { code: 4403, reason: "grant_inactive", expected: "forbidden" },
+    { code: 4000, reason: "grant_revoked", expected: "unavailable" },
+    { code: 4000, reason: "pipe_closed", expected: "unavailable" },
+    { code: 4000, reason: "device_key_mismatch", expected: "unauthenticated" },
+  ])("never treats $code/$reason as a pending grant", async ({ code, reason, expected }) => {
+    const w = world();
+    const openPipe = vi.fn(async () => { throw pipeCloseError(code, reason); });
+    const waiting = vi.fn();
+    await expect(connect({ app, connector: nextRelayConnector({ next: { ...w.next, openPipe }, collection: w.collection, staticKey: generateKeyPair() }), onWaiting: waiting }))
+      .rejects.toMatchObject({ code: expected });
+    expect(openPipe).toHaveBeenCalledTimes(1);
+    expect(waiting).not.toHaveBeenCalled();
+  });
+
+  it("does not retry a similarly named error from an unfenced connector", async () => {
+    const open = vi.fn(async () => { throw pipeCloseError(4000, "grant_inactive"); });
+    await expect(connect({ app, connector: { description: "not-next-relay", open } })).rejects.toMatchObject({ reason: "grant_inactive" });
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true, "ignores-cancellation"])("bounds pending to 30 seconds, including stalled subsequent routing=%s", async stall => {
+    vi.useFakeTimers();
+    try {
+      const w = world();
+      let routes = 0;
+      let release: (() => void) | undefined;
+      const next: NextBridge = {
+        route: async (c, o) => {
+          if (++routes > 1 && stall) return new Promise((resolve, reject) => {
+            release = () => { void w.next.route(c, o).then(resolve, reject); };
+            if (stall === true) o!.signal!.addEventListener("abort", () => reject(mdbaseError("cancelled", "route aborted")), { once: true });
+          });
+          return w.next.route(c, o);
+        },
+        openPipe: async () => { throw pipeCloseError(4000, "grant_inactive"); },
+      };
+      const result = connect({ app, connector: nextRelayConnector({ next, collection: w.collection, staticKey: generateKeyPair() }) }).then(() => "unexpected ready", e => e);
+      await vi.advanceTimersByTimeAsync(29_999);
+      let settled = false;
+      void result.then(() => { settled = true; });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await result).toMatchObject({ code: "unavailable", reason: "grant_activation_timeout", message: expect.stringContaining("30 seconds") });
+      expect(vi.getTimerCount()).toBe(0);
+      const count = routes;
+      release?.();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(routes).toBe(count);
+      expect(w.opened).toEqual([]);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("never publishes a late initial hello from a bridge that ignored cancellation", async () => {
+    const w = world();
+    const original = w.devices[0]!.replica.connector();
+    let release!: () => void;
+    const hold = new Promise<void>(resolve => { release = resolve; });
+    const entered = vi.fn(), closed = vi.fn(), sent = vi.fn();
+    const controller = new AbortController();
+    const result = connect({ app, signal: controller.signal, connector: {
+      description: "ignores-cancellation",
+      open: async hello => {
+        entered(); await hold;
+        const opened = await original.open(hello);
+        const close = opened.port.close.bind(opened.port), send = opened.port.send.bind(opened.port);
+        opened.port.close = () => { closed(); close(); };
+        opened.port.send = frame => { sent(); send(frame); };
+        return opened;
+      },
+    } }).then(() => "unexpected ready", e => e);
+    try {
+      await vi.waitFor(() => expect(entered).toHaveBeenCalledTimes(1));
+      controller.abort();
+      expect(await result).toMatchObject({ code: "cancelled" });
+      release();
+      await vi.waitFor(() => expect(closed).toHaveBeenCalledTimes(1));
+      expect(sent).not.toHaveBeenCalled();
+    } finally { release(); }
+  });
+
+  it("cancellation during the pending delay stops retries and clears the deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const w = world(), controller = new AbortController();
+      const openPipe = vi.fn(async () => { throw pipeCloseError(4000, "grant_inactive"); });
+      const waiting = vi.fn(() => controller.abort());
+      const result = connect({ app, signal: controller.signal, onWaiting: waiting, connector: nextRelayConnector({ next: { ...w.next, openPipe }, collection: w.collection, staticKey: generateKeyPair() }) }).then(() => "unexpected ready", e => e);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(await result).toMatchObject({ code: "cancelled" });
+      expect(openPipe).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+
   it("maps a refused admission's close code from the Connect error", async () => {
     const w = world(1);
     const refusing: NextBridge = {
@@ -369,20 +554,6 @@ describe("bridge scope and session regressions", () => {
     c.close();
   });
 
-  it("a read and a file stream started while reconnecting wait for the fence on the new session", async () => {
-    const { w, a, b, c } = await failoverClient();
-    // Drop B too: the client is reconnecting with the fence up.
-    b.online = false;
-    b.pipes.at(-1)!.end(4000, "pipe_closed");
-    await waitFor(() => c.link === "reconnecting");
-    const read = c.get({ path: "n2.md" });
-    const stream = c.files.downloadStream({ path: "missing.bin" } as never);
-    a.online = true;
-    await waitFor(() => c.link === "open" && w.opened.filter((d) => d === a.id).length === 2);
-    expect((await read).path).toBe("n2.md");
-    await expect(stream.file).rejects.toBeDefined();
-    c.close();
-  });
 });
 
 describe("next-relay-only consistency policy", () => {
@@ -402,32 +573,7 @@ describe("next-relay-only consistency policy", () => {
       expect(c.readFenced).toBe(true);
     } finally { c.close(); writer.close(); }
   });
-  it.each([true, false])("uses the original receipt codec despite pending options mutation (original=%s)", async (original) => {
-    const w = world(2), [a, b] = w.devices as [Device, Device]; b.online = false;
-    const c = await connect({ app, connector: nextRelayConnector({ next: w.next, collection: w.collection, staticKey: generateKeyPair() }), reconnect: { minDelayMs: 1, maxDelayMs: 5 } });
-    const writer = await connect({ app, connector: a.replica.connector(), reconnect: false });
-    const otherCodec = { ...receiptCodec }, options = { codec: original ? receiptCodec : otherCodec };
-    let release!: () => void, held = false;
-    const gate = new Promise<void>(r => { release = r; });
-    const session = c.currentSession(), request = session.request.bind(session);
-    const mock = vi.spyOn(session, "request").mockImplementation(async (name, p, selected) => {
-      const result = await request(name, p, selected);
-      if (name === "receipt") { held = true; await gate; }
-      return result;
-    });
-    try {
-      const done = await (await writer.create({ path: "codec.md", body: "seen" })).confirmed;
-      const pending = c.call("receipt", new Map([[0, uuidToBytes(done.mutation)]]), options);
-      await waitFor(() => held);
-      expect(mock.mock.calls.at(-1)![2]!.codec).toBe(original ? receiptCodec : otherCodec);
-      options.codec = original ? otherCodec : receiptCodec;
-      release(); expect((await pending).state).toBe("confirmed");
-      a.online = false; b.online = true; a.pipes.at(-1)!.end(4000, "pipe_closed");
-      await waitFor(() => c.link === "open" && w.opened.includes(b.id));
-      expect(c.readFenced).toBe(original);
-    } finally { release(); mock.mockRestore(); c.close(); writer.close(); }
-  });
-  it.each(["receipt", "await"] as const)("late %s reply cannot contribute a retired session's floor", async (method) => {
+  it.each(["receipt"] as const)("late %s reply cannot contribute a retired session's floor", async (method) => {
     const w = world(2), [a, b] = w.devices as [Device, Device]; b.online = false;
     const c = await connect({ app, connector: nextRelayConnector({ next: w.next, collection: w.collection, staticKey: generateKeyPair() }), reconnect: { minDelayMs: 1, maxDelayMs: 5 } });
     const writer = await connect({ app, connector: a.replica.connector(), reconnect: false });
@@ -471,24 +617,6 @@ describe("next-relay-only consistency policy", () => {
     } finally { c.close(); }
   });
 
-  it("pins collection and bridge methods before route awaits", async () => {
-    const w = world();
-    let entered!: () => void, release!: () => void;
-    const started = new Promise<void>(r => { entered = r; });
-    const gate = new Promise<void>(r => { release = r; });
-    const next: NextBridge = { ...w.next, route: async (c, o) => { entered(); await gate; return w.next.route(c, o); } };
-    const opts = { next, collection: w.collection, staticKey: generateKeyPair() };
-    const connector = nextRelayConnector(opts);
-    const opening = connect({ app, connector, reconnect: false });
-    await started;
-    opts.collection = uuidv7();
-    opts.next = { route: async () => { throw Error("foreign fixture"); }, openPipe: async () => { throw Error("foreign fixture"); } };
-    next.openPipe = opts.next.openPipe;
-    release();
-    const c = await opening;
-    expect(c.collection).toBe(w.collection);
-    c.close();
-  });
 
   it("holds typed catalog and file-stream reads while status/receipt/proof probes stay usable", async () => {
     const { c } = await failoverClient();

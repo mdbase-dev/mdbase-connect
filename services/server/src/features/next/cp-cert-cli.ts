@@ -18,8 +18,9 @@
 //   next-cp-cert sign-revocation <root_private_key_pem_file> <policy_key_id> <revoked_from_ms>
 //       Describe, or sign with a root key file, a cp-key-revoke.
 //
-// Root key files are for LAB and tests; production roots stay offline. All keys,
-// digests and signatures are lowercase hex.
+// Root key files are for LAB and tests. Admin custody tooling passes an inherited
+// /dev/fd/N pipe instead: private root bytes never need a disk file. All public
+// keys, digests and signatures are lowercase hex.
 import { createPrivateKey, generateKeyPairSync, sign } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { certDigest, keyId, keyRevocationDigest } from "./policy-wire.js";
@@ -71,7 +72,8 @@ function revocation(policyKeyId: string | undefined, revokedFrom: string | undef
 
 function rootKey(file: string | undefined) {
   if (!file) throw new Error("a root private key PEM file is required");
-  const key = createPrivateKey(readFileSync(file, "utf8"));
+  const fd = /^\/dev\/fd\/([0-9]+)$/.exec(file);
+  const key = createPrivateKey(readFileSync(fd ? Number(fd[1]) : file, "utf8"));
   if (key.asymmetricKeyType !== "ed25519") throw new Error("the root key must be Ed25519");
   return { key, publicKey: ed25519RawPublicKey(key) };
 }

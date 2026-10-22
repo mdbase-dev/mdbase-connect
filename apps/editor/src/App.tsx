@@ -36,9 +36,11 @@ import { bulkFields, type BulkPropertyChange } from "./bulk-note-actions";
 import { useNoteActions } from "./use-note-actions";
 import { AttachmentTransfer, attachmentMenuItem, useAttachmentUpload } from "./AttachmentUpload";
 import { useCollectionBrowserEntries } from "./collection-browser";
-import { CollectionRail, ConnectionStatus, type ShownConnectionState } from "./CollectionRail";
+import { CollectionRail, ConnectionStatus, connectWorkspaceUrl, type ShownConnectionState } from "./CollectionRail";
 import { folderChangeMoves, type FolderChangePlan, type FolderChangeProgress, type FolderChangeResult } from "./folder-change";
 import { useFeedback } from "@mdbase-dev/ui/feedback";
+import { useLaunchEntrancePlaying } from "@mdbase-dev/ui/screens";
+import { offlineShell } from "./offline-shell";
 import { ConnectScreen } from "./ConnectionScreens";
 import type { LeaveIntent } from "@mdbase-dev/ui/collections";
 import type { EditorCollectionSwitcher } from "./editor-collections";
@@ -1633,12 +1635,16 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }, [canRenameNotes, creationDirty, creationMode, document, focusMode, mutationsFrozen, noteFilter, noteLoading, openNote, phase, quickOpen, selectedCollectionFile, selectedPath, shortcutsOpen, surface, visibleBrowserEntries]);
 
   const wordCount = useMemo(() => noteWordCount(draft?.body ?? ""), [draft?.body]);
+  const launching = useLaunchEntrancePlaying();
+  const usable = phase === "ready" && Boolean(description) && !launching;
+  // First usable render: only now may the offline shell install and precache.
+  useEffect(() => { if (usable) offlineShell.ready(); }, [usable]);
   const dismissToast = useCallback((id: string) => {
     if (id === "notice") setNoticeState(undefined);
     else if (id === "note-open") setNoteOpenFailure(undefined);
     else if (id === "recovery") setRecoveryAction(undefined);
   }, []);
-  if (phase === "starting") return <OpeningScreen />;
+  if (phase === "starting" || (launching && phase !== "disconnected")) return <OpeningScreen />;
   if (phase === "disconnected") return <>
     <ConnectScreen
       notice={sessionSnapshot.status === "start_failed"
@@ -1668,7 +1674,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       onClose={() => { confirmation.onDismiss?.(); setConfirmation(undefined); }}
     />}
   </>;
-  if (phase === "loading" || !description) return <OpeningScreen />;
+  // A quick open waits for the launch entrance to land rather than cutting it off mid-flight.
+  if (phase === "loading" || !description || launching) return <OpeningScreen />;
 
   const selectedType = description.types.find((type) => type.name === selectedTypeName);
   const hasListPane = surface !== "settings";
@@ -1714,7 +1721,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     theme: switchTheme,
     types: () => selectSurface("types"),
     settings: () => selectSurface("settings"),
-    connect: () => { location.href = `/connect?collection=${encodeURIComponent(description.collectionId)}`; },
+    connect: () => { location.href = connectWorkspaceUrl(description.collectionId); },
     "switch-collection": collectionSwitcher ? openCollectionSwitcher : undefined,
     ...(bulkCommandsAvailable ? {
       "move-selected": canRenameNotes ? () => setMovePaths(listSelection.paths) : undefined,

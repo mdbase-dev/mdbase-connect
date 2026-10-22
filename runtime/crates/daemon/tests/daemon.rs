@@ -38,7 +38,8 @@ async fn wait_ready(profile: &Profile) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn daemon_lifecycle() {
     let root = scratch("d");
-    let profile = Profile::isolated(&root.join("state")).unwrap();
+    // Keep isolated Unix endpoints short; readiness assertions remain unchanged.
+    let profile = Profile::isolated(&root.join("s")).unwrap();
 
     assert!(matches!(
         client::ping(&profile.control).await,
@@ -519,7 +520,8 @@ async fn widening_access_needs_an_on_screen_confirmation() {
         (Answer::Yes, None),
     ] {
         let root = scratch("c");
-        let profile = Profile::isolated(&root.join("state")).unwrap();
+        // Keep isolated Unix endpoints short; readiness assertions remain unchanged.
+        let profile = Profile::isolated(&root.join("s")).unwrap();
         let keys = std::sync::Arc::new(MemoryStore::default());
         let (p, k2) = (profile.clone(), keys.clone());
         let daemon = tokio::spawn(async move {
@@ -543,4 +545,205 @@ async fn widening_access_needs_an_on_screen_confirmation() {
         let _ = tokio::time::timeout(Duration::from_secs(15), daemon).await;
         let _ = std::fs::remove_dir_all(&root);
     }
+}
+
+/// Files held when the old connector was taken over are reviewed like any hold:
+/// listed by `collection.holds`, resolved by `collection.resolve_hold` (keep this
+/// computer's, take the other, keep both), and the count clears as they go.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn takeover_holds_resolve_through_the_hold_path() {
+    use mdbn_daemon::control::HoldSummary;
+    use mdbn_daemon::takeover::adapter::{Evidence, Hold};
+    use mdbn_daemon::takeover::record::{
+        Collection, CollectionState as Taken, Record, SCHEMA_VERSION, State,
+    };
+    let root = scratch("th");
+    let profile = Profile::isolated(&root.join("s")).unwrap();
+    let keys = std::sync::Arc::new(MemoryStore::default());
+    let (p, k2) = (profile.clone(), keys.clone());
+    let daemon = tokio::spawn(async move { server::run(p, Some(Box::new(k2))).await });
+    wait_ready(&profile).await;
+    pairing::pair(&profile, &keys).await;
+    let notes = root.join("notes");
+    std::fs::create_dir_all(&notes).unwrap();
+    for n in ["a", "b", "c"] {
+        std::fs::write(notes.join(format!("{n}.md")), format!("mine {n}\n")).unwrap();
+    }
+    let mut c = ControlClient::connect(&profile.control).await.unwrap();
+    let added: CollectionStatus = serde_json::from_value(
+        c.call(Method::COLLECTION_ADD, json!({ "path": notes }))
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let id = added.id.clone();
+    for _ in 0..500 {
+        let s = status_of(&mut c, &id).await;
+        if s.state == CollectionState::Ready && s.sync.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    // The takeover held all three: the folder has this computer's version, the
+    // old engine's is kept in the state directory.
+    let legacy = profile.state_dir.join("legacy").join(&id);
+    std::fs::create_dir_all(legacy.join("bytes")).unwrap();
+    let mut holds = Vec::new();
+    for n in ["a", "b", "c"] {
+        let theirs = format!("theirs {n}\n");
+        let hex = mdbn_legacy::revision_of(theirs.as_bytes())
+            .trim_start_matches("sha256:")
+            .to_string();
+        std::fs::write(legacy.join("bytes").join(&hex), &theirs).unwrap();
+        holds.push(Hold {
+            path: format!("{n}.md"),
+            reason: "old engine transaction was mid-commit".into(),
+            intended: Some(hex),
+        });
+    }
+    let ev = Evidence {
+        schema_version: 1,
+        collection: id.clone(),
+        root: notes.clone(),
+        record_ids: vec![],
+        grants: json!({}),
+        journal: vec![],
+        tombstones: vec![],
+        holds,
+        rolled_forward: vec![],
+    };
+    std::fs::write(legacy.join("import.json"), serde_json::to_vec(&ev).unwrap()).unwrap();
+    let mut held = Collection::new(Taken::Held);
+    held.holds = 3;
+    let record_path = profile.state_dir.join("takeover.json");
+    Record {
+        schema_version: SCHEMA_VERSION,
+        state: State::Complete,
+        updated_at: "2026-10-12T00:00:00Z".into(),
+        old_state_dir: root.join("old"),
+        collections: [(id.clone(), held)].into(),
+    }
+    .save(&record_path)
+    .unwrap();
+
+    let s = status_of(&mut c, &id).await;
+    assert_eq!(s.sync.as_ref().map(|t| t.holds), Some(3), "{s:?}");
+    let listed: Vec<HoldSummary> = serde_json::from_value(
+        c.call(Method::COLLECTION_HOLDS, json!({ "collection": id }))
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(listed.len(), 3, "{listed:?}");
+    let hold = |path: &str| listed.iter().find(|h| h.path == path).unwrap().id.clone();
+    for (path, how) in [
+        ("a.md", "keep_mine"),
+        ("b.md", "take_theirs"),
+        ("c.md", "keep_both"),
+    ] {
+        let r = c
+            .call(
+                Method::COLLECTION_RESOLVE_HOLD,
+                json!({ "collection": id, "id": hold(path), "how": how }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r["state"], "confirmed", "{how}: {r}");
+    }
+    let read = |p: &str| std::fs::read_to_string(notes.join(p)).unwrap();
+    assert_eq!(read("a.md"), "mine a\n");
+    assert_eq!(read("b.md"), "theirs b\n");
+    assert_eq!(read("c.md"), "mine c\n");
+    assert_eq!(read("c (old version).md"), "theirs c\n");
+    // Cleared: nothing listed, the count is zero and the takeover is complete.
+    let left = c
+        .call(Method::COLLECTION_HOLDS, json!({ "collection": id }))
+        .await
+        .unwrap();
+    assert_eq!(left, json!([]));
+    let record = Record::load(&record_path).unwrap().unwrap();
+    assert_eq!(record.collections[&id].holds, 0);
+    assert_eq!(record.collections[&id].state, Taken::Complete);
+    assert_eq!(status_of(&mut c, &id).await.sync.map(|t| t.holds), Some(0));
+
+    c.call(Method::SHUTDOWN, json!({})).await.unwrap();
+    let _ = tokio::time::timeout(Duration::from_secs(10), daemon).await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+async fn status_of(c: &mut ControlClient, id: &str) -> CollectionStatus {
+    let v = c.call(Method::COLLECTION_LIST, json!({})).await.unwrap();
+    serde_json::from_value::<Vec<CollectionStatus>>(v)
+        .unwrap()
+        .into_iter()
+        .find(|s| s.id == id)
+        .unwrap()
+}
+
+/// A takeover hold is looked up only for a registered collection: an ID that is
+/// not the exact canonical spelling of one is refused before any takeover
+/// state is read or written.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn takeover_holds_refuse_an_unregistered_collection() {
+    use mdbn_daemon::takeover::adapter::{Evidence, Hold};
+    let root = scratch("tr");
+    let profile = Profile::isolated(&root.join("s")).unwrap();
+    let keys = std::sync::Arc::new(MemoryStore::default());
+    let (p, k2) = (profile.clone(), keys.clone());
+    let daemon = tokio::spawn(async move { server::run(p, Some(Box::new(k2))).await });
+    wait_ready(&profile).await;
+    // Takeover-shaped state beside the legacy directory, not under it.
+    std::fs::create_dir_all(profile.state_dir.join("legacy")).unwrap();
+    let beside = profile.state_dir.join("beside");
+    std::fs::create_dir_all(&beside).unwrap();
+    let ev = Evidence {
+        schema_version: 1,
+        collection: "beside".into(),
+        root: root.join("notes"),
+        record_ids: vec![],
+        grants: json!({}),
+        journal: vec![],
+        tombstones: vec![],
+        holds: vec![Hold {
+            path: "a.md".into(),
+            reason: "held".into(),
+            intended: None,
+        }],
+        rolled_forward: vec![],
+    };
+    std::fs::write(beside.join("import.json"), serde_json::to_vec(&ev).unwrap()).unwrap();
+    let hold = mdbn_daemon::takeover::held::hold_id("a.md");
+    let mut c = ControlClient::connect(&profile.control).await.unwrap();
+    for collection in [
+        "../beside",
+        "beside",
+        "0B4C1A52-58F1-4A9E-9F43-6A7F8D2F3E10",
+        "0b4c1a52-58f1-4a9e-9f43-6a7f8d2f3e10",
+    ] {
+        let listed = c
+            .call(
+                Method::COLLECTION_HOLDS,
+                json!({ "collection": collection }),
+            )
+            .await;
+        assert!(
+            matches!(listed, Err(ClientError::Remote(_))),
+            "{collection}: {listed:?}"
+        );
+        let resolved = c
+            .call(
+                Method::COLLECTION_RESOLVE_HOLD,
+                json!({ "collection": collection, "id": hold, "how": "keep_mine" }),
+            )
+            .await;
+        assert!(
+            matches!(resolved, Err(ClientError::Remote(_))),
+            "{collection}: {resolved:?}"
+        );
+    }
+    assert!(!beside.join("resolved.json").exists());
+
+    c.call(Method::SHUTDOWN, json!({})).await.unwrap();
+    let _ = tokio::time::timeout(Duration::from_secs(10), daemon).await;
+    let _ = std::fs::remove_dir_all(&root);
 }

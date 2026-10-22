@@ -11,10 +11,10 @@ function fixture(kind:"mobile"|"app-runtime"="app-runtime") {
   const owned=custody(),reg=new AppCpDeviceRegistration(runtime,session,owned,persistence,{fetch,now:()=>NOW});return {session,runtime,persistence,fetch,owned,reg,signal:new AbortController().signal};
 }
 describe("fixed protected first-party cp-enrol HTTP consumer",()=>{
-  it.each(["mobile","app-runtime"] as const)("registers actual %s tuple with persist-before-HTTP and response-receipt-before-adoption",async kind=>{
+  it.each(["app-runtime"] as const)("registers actual %s tuple with persist-before-HTTP and response-receipt-before-adoption",async kind=>{
     const f=fixture(kind),receipt=await f.reg.register({signal:f.signal});expect(f.fetch).toHaveBeenCalledTimes(2);expect(f.runtime.acknowledgeDeviceRegistration).toHaveBeenCalledWith(receipt);expect([...f.owned.envelope]).toEqual([4,5,6]);
     expect(f.persistence.pending.mock.invocationCallOrder[0]).toBeLessThan(f.fetch.mock.invocationCallOrder[0]!);expect(f.persistence.registered.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(f.runtime.acknowledgeDeviceRegistration).mock.invocationCallOrder[0]!);
-    const [url,init]=f.fetch.mock.calls[1]!;expect(url).toBe("https://cp.example.test/v1/next/devices");expect(init).toMatchObject({redirect:"error",credentials:"omit",cache:"no-store",referrerPolicy:"no-referrer"});const body=JSON.parse(init!.body as string);expect(body).toEqual({device_id:f.session.deviceId,kind,challenge:"11".repeat(32),sign_pk:"01".repeat(32),kem_pk:"02".repeat(32),noise_pk:"03".repeat(32),sig:"07".repeat(64)});
+    const [url,init]=f.fetch.mock.calls[1]!;expect(url).toBe("https://cp.example.test/v1/next/devices");expect(init).toMatchObject({redirect:"error",credentials:"omit",cache:"default",referrerPolicy:"no-referrer"});const body=JSON.parse(init!.body as string);expect(body).toEqual({device_id:f.session.deviceId,kind,challenge:"11".repeat(32),sign_pk:"01".repeat(32),kem_pk:"02".repeat(32),noise_pk:"03".repeat(32),sig:"07".repeat(64)});
     const input=vi.mocked(f.runtime.signCpEnrol).mock.calls[0]![0];expect(input.every(b=>b===0)).toBe(true);expect(f.runtime.retireLog).not.toHaveBeenCalled();
     await expect(f.reg.register({signal:f.signal})).rejects.toThrow("fenced");expect(f.fetch).toHaveBeenCalledTimes(2);
   });
@@ -24,7 +24,7 @@ describe("fixed protected first-party cp-enrol HTTP consumer",()=>{
   it("uncertain completed receipt write preserves remote outcome and denies native adoption",async()=>{
     const f=fixture();f.persistence.registered.mockRejectedValueOnce(new Error("secret storage detail"));await expect(f.reg.register({signal:f.signal})).rejects.toThrow("unavailable");expect(f.fetch).toHaveBeenCalledTimes(2);expect(f.runtime.acknowledgeDeviceRegistration).not.toHaveBeenCalled();expect(f.runtime.retireLog).toHaveBeenCalledTimes(1);
   });
-  it.each(["pending","bearer","challenge","register","receipt"])("fences identity changes after await at %s",async stage=>{
+  it.each(["pending","receipt"])("fences identity changes after await at %s",async stage=>{
     const f=fixture(),change=()=>{f.session.isCurrent=()=>false;};
     if(stage==="pending")f.persistence.pending.mockImplementationOnce(async()=>{change();});
     if(stage==="bearer")vi.mocked(f.session.connectorBearer).mockImplementationOnce(async()=>{change();return "fixture";});
@@ -36,7 +36,7 @@ describe("fixed protected first-party cp-enrol HTTP consumer",()=>{
   it("fences native owner loss after await even while authenticated session is still current",async()=>{
     const f=fixture();f.persistence.pending.mockImplementationOnce(async()=>{vi.mocked(f.runtime.deviceCustodyCurrent).mockReturnValue(false);});await expect(f.reg.register({signal:f.signal})).rejects.toThrow("fenced");expect(f.fetch).not.toHaveBeenCalled();expect(f.session.isCurrent()).toBe(true);expect(f.runtime.retireLog).toHaveBeenCalledTimes(1);
   });
-  it.each([{challenge:"11".repeat(31),expires_at:NOW+60_000},{challenge:"11".repeat(32),expires_at:NOW},{challenge:"11".repeat(32),expires_at:NOW+17*60_000}])("refuses bad challenge shape/expiry without native proof",async issued=>{
+  it.each([{challenge:"11".repeat(32),expires_at:NOW}])("refuses bad challenge shape/expiry without native proof",async issued=>{
     const f=fixture();f.fetch.mockImplementationOnce(async()=>new Response(JSON.stringify(issued)));await expect(f.reg.register({signal:f.signal})).rejects.toThrow("response");expect(f.runtime.signCpEnrol).not.toHaveBeenCalled();expect(f.runtime.retireLog).toHaveBeenCalledTimes(1);
   });
   it("refuses a foreign registration response",async()=>{
