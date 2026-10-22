@@ -121,7 +121,7 @@ it('checks complete immutable directory contents and retains incomplete receipts
   assert.equal(createReceipt({plan,inventory,deployment}).status,'failed-or-incomplete');
  }finally{await rm(f.root,{recursive:true,force:true});}
 });
-it('preserves the existing main/tag path and isolates build from protected upload dependencies',async()=>{
+it('runs main pushes as checks only and isolates build from protected upload dependencies',async()=>{
  const workflow=parse(await readFile(join(repoRoot,'.github/workflows/editor-pages.yml'),'utf8'));
  assert.ok(workflow.on.push.branches.includes('main'));assert.ok(workflow.on.workflow_dispatch.inputs.source_sha);
  assert.equal(workflow.jobs['native-build'].environment,undefined);

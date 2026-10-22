@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { FileAssetStore } from "./file-asset-store";
+import { fileAssetKey } from "./file-reference-resolution";
 import type { CollectionFile, FileReadRequest } from "./model";
 import { useEmbeddedFileAssets } from "./use-file-assets";
 
@@ -60,6 +61,18 @@ describe("embedded file asset identity", () => {
     replacement.reset();
     createURL.mockRestore();
     revokeURL.mockRestore();
+  });
+
+  it("acquires embeds the editor reports visible under their selection key", async () => {
+    const readFile = vi.fn((_file: CollectionFile, _options?: FileReadRequest) => new Promise<Blob>(() => {}));
+    const store = new FileAssetStore({ readFile });
+    // The CodeMirror viewport plugin reports fileAssetKey values; any other key shape never matches.
+    const visible = new Set([fileAssetKey(file)]);
+    const hook = renderHook(() => useEmbeddedFileAssets(store, "![[image.png]]", files, "source.md", visible));
+    await waitFor(() => expect(readFile).toHaveBeenCalledTimes(1));
+    expect(readFile.mock.calls[0][0]).toMatchObject({ fileId: "image" });
+    hook.unmount();
+    store.reset();
   });
 
   it("retains arrays on unchanged renders but publishes asset versions and store resets", async () => {
