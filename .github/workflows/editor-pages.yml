@@ -198,7 +198,8 @@ jobs:
     name: Protected immutable Editor upload
     needs: [native-inputs, native-build]
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # Upload, then up to 3 min immutable verification plus a 5 min alias settle window.
+    timeout-minutes: 20
     concurrency:
       group: editor-native-upload-${{ inputs.target }}
       cancel-in-progress: false
