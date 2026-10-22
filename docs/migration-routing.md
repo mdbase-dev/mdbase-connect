@@ -22,14 +22,15 @@ request or flag:
 | --- | --- | --- | --- |
 | `lab` | `https://connect-lab.mdbase.dev` | `mdbase-next-hosted-mig-lab.<account>.workers.dev` | admitted |
 | `staging` | `https://connect-staging.mdbase.dev` | `mdbase-next-hosted-mig-staging.<account>.workers.dev` | admitted |
-| `production` | `https://connect.mdbase.dev` | `mdbase-next-hosted-mig-production.<account>.workers.dev` | refused: `migration_routing_production_disabled` |
+| `production` | `https://connect.mdbase.dev` | `mdbase-next-hosted-mig-production.<account>.workers.dev` | admitted |
 | `local`, other | | | refused: `migration_routing_environment_refused` |
 
-Production is enabled only by changing the single code switch
+Production routing is admitted by the code switch
 `PRODUCTION_MIGRATION_ROUTING_ENABLED` in
-`services/server/src/features/next/migration-routing.ts`, once the production
-migration Worker's custody key, backups, recovery replica and monitoring are in
-place. No setting enables it.
+`services/server/src/features/next/migration-routing.ts`, which is on. It takes
+effect only when the production deployment is configured with its own migration
+Worker origin and tokens; with the switch off, production is refused with
+`migration_routing_production_disabled`. No setting overrides the switch.
 
 ## Settings
 
