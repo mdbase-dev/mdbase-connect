@@ -101,7 +101,9 @@ suite("hosted own-collection migration proof (isolated PostgreSQL)", () => {
       console.log("MIGRATION_CLAIM_SQL " + JSON.stringify({ mode, response_delay_ms: delay, actual_injected_ms: injected, challenge_ms: challengeMs, read_ms: readMs,
         challenge: challengeCalls.length, read: readCalls.length,
         challenge_fingerprint: fingerprint(challengeCalls), read_fingerprint: fingerprint(readCalls) }));
-      const extra = mode === "standard" ? 0 : mode === "csv" ? 1 : 2;
+      // Routed modes add the single collection route check: the ownership/legacy
+      // lookup and the retirement lookup, plus the cohort lookup for cohort routing.
+      const extra = mode === "standard" ? 0 : mode === "csv" ? 2 : 3;
       expect(challengeCalls).toHaveLength(20 + extra);
       expect(readCalls).toHaveLength(18 + extra);
       expect(pair.filter(sql => sql === "BEGIN")).toHaveLength(2);

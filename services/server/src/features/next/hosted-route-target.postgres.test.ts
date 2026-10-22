@@ -14,7 +14,7 @@ import { parseServiceDevice, storeServiceDevice } from "./service-devices.js";
 import { queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
 import { certDigest, chainHash, keyId, signPolicyItem, type PolicyOp } from "./policy-wire.js";
 import { ed25519RawPublicKey } from "./policy-keys.js";
-import { migrationRoute, registerMigrationRouteRetireRoute, type MigrationRouting } from "./migration-routing.js";
+import { migrationDeployments, migrationRoute, registerMigrationRouteRetireRoute, type MigrationRouting } from "./migration-routing.js";
 import { activatePendingServices } from "./service-activation.js";
 import { registerNextHostedRoutes } from "./hosted-routes.js";
 
@@ -101,8 +101,8 @@ suite("hosted Noise discovery (real Postgres, not serving qualification)", () =>
       expect(await migrationRoute(db, routing, own.id)).toBe("default");
       await db.query("UPDATE next_migration_cohorts SET frozen_at=now() WHERE name=$1", [cohort]);
       expect(await migrationRoute(db, routing, own.id)).toBe("migration");
-      expect(await migrationRoute(db, routing, randomUUID(), own.id)).toBe("migration");
-      await expect(migrationRoute(db, routing, own.id, outside.id)).rejects.toThrow("foreign_collection_owner");
+      // A not-yet-registered collection a routed owner is creating is never migration routed.
+      expect(await migrationRoute(db, routing, randomUUID())).toBe("default");
       expect((await route()).json().targets[0].url).toContain("mdbase-next-hosted-mig-lab");
       expect((await state([own.id], routing.inboundToken)).statusCode).toBe(200);
       expect((await state([own.id], normalToken)).statusCode).toBe(403);
@@ -155,6 +155,37 @@ suite("hosted Noise discovery (real Postgres, not serving qualification)", () =>
       await db.query("UPDATE next_migration_rollout SET paused=false WHERE singleton");
       await scoped.close();
     }
+  });
+
+  it("staging: a migrated owner's new or CP-native cloud copy stays on the CP deployments for creation, app sessions, wakes and record reads", async () => {
+    const legacy = await fixture({ hostedOnly: true });
+    const routing: MigrationRouting = { environment: "staging", accounts: new Set(), hosted: { url: "https://mdbase-next-hosted-mig-staging.example.workers.dev", token: "m".repeat(40) }, inboundToken: "i".repeat(40) };
+    const scoped = Fastify(), normalToken = "H".repeat(40);
+    registerNextRouteRoutes(scoped, { db, publicUrl: "https://connect-staging.mdbase.dev", broker, hostedClientUrl: "https://hosted.example", migrationRouting: routing });
+    registerNextHostedRoutes(scoped, { db, tokens: { hosted: normalToken }, migrationRouting: routing });
+    try {
+      await releasedFrozenMember(legacy.id);
+      await db.query("UPDATE next_migration_cohort_members SET started_at=now() WHERE account_id=$1", [legacy.id]);
+      await db.query("UPDATE users SET account_backend='next' WHERE id=$1", [legacy.id]);
+      // Creation: a not-yet-registered collection generates both service devices on the CP pair.
+      expect(await migrationDeployments(db, normalDeployments, routing, randomUUID())).toBe(normalDeployments);
+      // A registered CP-native cloud copy of a routed owner (no hosted_collections row).
+      const native = await fixture();
+      await releasedFrozenMember(native.id);
+      expect((await db.query("SELECT 1 FROM hosted_collections WHERE id=$1", [native.id])).rows).toHaveLength(0);
+      expect(await migrationRoute(db, routing, native.id)).toBe("default");
+      expect(await migrationDeployments(db, normalDeployments, routing, native.id)).toBe(normalDeployments);
+      const route = await scoped.inject({ method: "GET", url: `/v1/next/collections/${native.id}/route`, headers: { authorization: `Bearer ${native.token}` } });
+      expect(route.json().targets[0].url).toBe(`wss://hosted.example/v1/hosted/app?collection=${native.id}`);
+      expect(await wakes(routing, native.id)).toEqual([normalDeployments.hosted.url]);
+      const state = (id: string, token: string) => scoped.inject({ method: "GET", url: `/internal/v1/next/collections/${id}/state`, headers: { authorization: `Bearer ${token}` } });
+      expect((await state(native.id, normalToken)).statusCode).toBe(200);
+      expect((await state(native.id, routing.inboundToken)).statusCode).toBe(403);
+      // The owner's legacy hosted collection is still served by the migration Worker.
+      expect(await migrationRoute(db, routing, legacy.id)).toBe("migration");
+      expect((await state(legacy.id, routing.inboundToken)).statusCode).toBe(200);
+      expect((await state(legacy.id, normalToken)).statusCode).toBe(403);
+    } finally { await scoped.close(); }
   });
 
   it("LAB cleanup retires a disposed fixture's migration route: no app route, wake or record read remains", async () => {
@@ -230,7 +261,6 @@ suite("hosted Noise discovery (real Postgres, not serving qualification)", () =>
       expect((await route(own.id, other.token)).statusCode).toBe(401);
       expect(await migrationRoute(db, routing, own.id)).toBe("migration");
       expect(await migrationRoute(db, routing, other.id)).toBe("default");
-      await expect(migrationRoute(db, routing, other.id, own.id)).rejects.toThrow("foreign_collection_owner");
     } finally { await scoped.close(); }
   });
 

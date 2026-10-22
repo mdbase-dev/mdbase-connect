@@ -54,10 +54,10 @@ export async function currentCloudCopy(client: DatabaseConnection, collection: s
 }
 
 /** Each deployment generates its own keys; no collection or principal lock spans the await. */
-export async function generateCloudCopyServices(options: CloudCopyBootstrapOptions, collection: string, authenticatedCreator?: string) {
+export async function generateCloudCopyServices(options: CloudCopyBootstrapOptions, collection: string) {
   const deployments = options.next.cloudCopyBootstrap;
   if (!deployments) throw new CreateError(503, "not_ready");
-  const selected = await migrationDeployments(options.db, pitrDeployments(deployments, options.next.logService.labPitr, collection), options.next.migrationRouting, collection, authenticatedCreator);
+  const selected = await migrationDeployments(options.db, pitrDeployments(deployments, options.next.logService.labPitr, collection), options.next.migrationRouting, collection);
   if (!selected) throw new CreateError(409, "migration_routing_retired");
   return Promise.all(KINDS.map(kind => generateServiceDevice(selected[kind], kind, collection, options.fetchImpl)));
 }
@@ -134,7 +134,7 @@ export async function createServiceCloudCopy(options: CloudCopyBootstrapOptions,
   };
   const exists = await inTransaction(options.db, check);
   if (!exists) {
-    const generated = await generateCloudCopyServices(options, collection, owner);
+    const generated = await generateCloudCopyServices(options, collection);
     await inTransaction(options.db, async client => {
       // A concurrent creator's committed keys win; retry reads them rather than
       // replacing them with the generated candidate tuple.

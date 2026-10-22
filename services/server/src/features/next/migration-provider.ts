@@ -17,7 +17,7 @@ import { SCOPED_HOSTED_ARCHIVE_SCHEMA } from "./migration-archive-profile.js";
 import { requireOriginalArchiveSource } from "./migration-scoped-archive.js";
 import { createServiceCloudCopy, type CloudCopyBootstrapOptions } from "./service-cloud-copy.js";
 import { requireCollectionNotDeleted } from "./collection-deletion.js";
-import { migrationAccount, migrationRouteRetired, type MigrationRouting } from "./migration-routing.js";
+import { migrationRoute, type MigrationRouting } from "./migration-routing.js";
 
 interface Claim { account: string; started_us: string; display_name: string }
 interface Options {
@@ -261,9 +261,9 @@ export function registerMigrationProviderRoutes(app: FastifyInstance, options: O
             const observation = await openClaimRead(client, p.data.id, true);
             const before = observation.initial;
             const routing = hostedRead.migrationRouting;
-            const routed = await migrationAccount(client, routing, before.owner_account);
-            if (routed && await migrationRouteRetired(client, routing, p.data.id)) throw new CreateError(403, "wrong_service_scope");
-            const expected = routed ? routing!.inboundToken : hostedRead.token;
+            const route = await migrationRoute(client, routing, p.data.id);
+            if (route === "retired") throw new CreateError(403, "wrong_service_scope");
+            const expected = route === "migration" ? routing!.inboundToken : hostedRead.token;
             if (!safeEqual(bearerToken(request)!, expected)) throw new CreateError(403, "wrong_service_scope");
             let nonce: { challenge: string } | undefined;
             if (kind === "challenge") nonce = await issueServiceClaimChallenge(client, audience, before, body.data.device_id);

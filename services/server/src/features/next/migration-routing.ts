@@ -85,7 +85,7 @@ export function parseMigrationRouting(env: NodeJS.ProcessEnv,
 /** This is deployment routing, not permission to fence/import/flip. Canonical
  * migration guards still validate the exact current batch, claim and device.
  * Keep routing after start/flip and while global rollout is paused. */
-export async function migrationAccount(db: DatabaseQueryable, routing: MigrationRouting | undefined, account: string): Promise<boolean> {
+async function migrationAccount(db: DatabaseQueryable, routing: MigrationRouting | undefined, account: string): Promise<boolean> {
   if (!routing) return false;
   if (routing.accounts.has(account)) return true;
   const row = (await db.query<{ eligible: boolean }>(
@@ -98,7 +98,7 @@ export async function migrationAccount(db: DatabaseQueryable, routing: Migration
 
 /** A routed collection whose migration route was retired (LAB fixture disposal):
  * it has no hosted deployment at all, neither the migration Worker nor the default. */
-export async function migrationRouteRetired(db: DatabaseQueryable, routing: MigrationRouting | undefined, collection: string): Promise<boolean> {
+async function migrationRouteRetired(db: DatabaseQueryable, routing: MigrationRouting | undefined, collection: string): Promise<boolean> {
   if (!routing) return false;
   const row = (await db.query<{ retired: boolean }>(
     "SELECT EXISTS (SELECT 1 FROM next_migration_routing_retirements WHERE collection_id=$1) AS retired", [collection])).rows[0];
@@ -107,27 +107,30 @@ export async function migrationRouteRetired(db: DatabaseQueryable, routing: Migr
 
 type MigrationRoute = "default" | "migration" | "retired";
 
-/** All retained authoritative ownership mappings must agree. Missing/ambiguous is
- * never a migration match. A pre-registration creator is an authenticated identity,
- * checked by the caller before/after the network call, not an HTTP account field. */
-export async function migrationRoute(db: DatabaseQueryable, routing: MigrationRouting | undefined, collection: string, authenticatedCreator?: string): Promise<MigrationRoute> {
+/** Only a legacy hosted collection (a `hosted_collections` id) of a routed owner
+ * migrates, so only it is served by the migration Worker. Every other collection,
+ * including one a routed owner creates after the flip and any CP-native cloud copy
+ * it already had, stays on the control plane's own deployments. All retained
+ * authoritative ownership mappings must agree; missing/ambiguous is never a
+ * migration match. */
+export async function migrationRoute(db: DatabaseQueryable, routing: MigrationRouting | undefined, collection: string): Promise<MigrationRoute> {
   if (!routing) return "default";
-  const result = await db.query<{ owner: string }>(
-    `SELECT owner_user_id::text AS owner FROM next_collections WHERE collection_id=$1
-     UNION SELECT user_id::text FROM hosted_collections WHERE id=$1
-     UNION SELECT user_id::text FROM collections WHERE local_id=$1
-     UNION SELECT owner_user_id::text FROM collection_identities WHERE id=$1`, [collection]);
+  const result = await db.query<{ owner: string; legacy: boolean }>(
+    `SELECT owners.owner, EXISTS (SELECT 1 FROM hosted_collections WHERE id=$1) AS legacy FROM (
+       SELECT owner_user_id::text AS owner FROM next_collections WHERE collection_id=$1
+       UNION SELECT user_id::text FROM hosted_collections WHERE id=$1
+       UNION SELECT user_id::text FROM collections WHERE local_id=$1
+       UNION SELECT owner_user_id::text FROM collection_identities WHERE id=$1) owners`, [collection]);
   if (result.rows.length > 1) throw new Error("ambiguous_collection_owner");
-  const owner = result.rows[0]?.owner ?? authenticatedCreator;
-  if (authenticatedCreator && owner && owner !== authenticatedCreator) throw new Error("foreign_collection_owner");
-  if (owner === undefined || !await migrationAccount(db, routing, owner)) return "default";
+  const row = result.rows[0];
+  if (row?.legacy !== true || !await migrationAccount(db, routing, row.owner)) return "default";
   return await migrationRouteRetired(db, routing, collection) ? "retired" : "migration";
 }
 
 type Deployments = { hosted: { url: string; token: string }; escrow: { url: string; token: string } };
 /** null: the collection's migration route was retired, so it has no service deployments. */
-export async function migrationDeployments(db: DatabaseQueryable, normal: Deployments, routing: MigrationRouting | undefined, collection: string, authenticatedCreator?: string): Promise<Deployments | null> {
-  const route = await migrationRoute(db, routing, collection, authenticatedCreator);
+export async function migrationDeployments(db: DatabaseQueryable, normal: Deployments, routing: MigrationRouting | undefined, collection: string): Promise<Deployments | null> {
+  const route = await migrationRoute(db, routing, collection);
   return route === "retired" ? null : route === "migration" ? { ...normal, hosted: routing!.hosted } : normal;
 }
 
