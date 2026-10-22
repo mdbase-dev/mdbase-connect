@@ -4,6 +4,16 @@
 
 <!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
 
+## 0.1.0-beta.136
+
+### Changed
+
+- Prepare canonical beta.135 staging trust metadata while preserving the existing staging roots and certified policy keys.
+
+### Fixed
+
+- Release entitlement reconciliation of active hosted accounts skips accounts whose migration topology is frozen and reports how many it skipped, instead of failing the whole batch and the release.
+
 ## 0.1.0-beta.135
 
 ### Changed
