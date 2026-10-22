@@ -4,6 +4,18 @@
 
 <!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
 
+## 0.1.0-beta.139
+
+### Changed
+
+- Prepare the source-bound beta.138 staging trust asset with the existing independent staging roots and certified policy keys; authenticated publication and deployment remain separate gates.
+
+### Fixed
+
+- Pushes to main no longer redeploy the legacy-SDK Editor to `editor-staging.mdbase.dev`. That build had replaced the native staging Editor, so mdbase-next accounts could never grant it a collection.
+
+- The migration job's completion readback accepts a suspended owner whose migration completed, so suspended accounts no longer stop at `verify_completion` with `lab_completion_missing`. Sharing, timers and every other post-migration guard still refuse suspended owners.
+
 ## 0.1.0-beta.138
 
 ### Changed
