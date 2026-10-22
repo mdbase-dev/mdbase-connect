@@ -4,6 +4,16 @@
 
 <!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
 
+## 0.1.0-beta.138
+
+### Changed
+
+- Prepare canonical beta.137 staging trust metadata while preserving the existing staging roots and certified policy keys.
+
+### Fixed
+
+- A zero-hosted migration cohort whose archive was accepted but which no member ever started can be unfrozen and rerun. Unfreeze advances the cohort's membership revision, so the old acceptance is kept but is no longer current; the rerun freezes, archives and is accepted again. Unfreeze is still refused once any member has started.
+
 ## 0.1.0-beta.137
 
 ### Changed
