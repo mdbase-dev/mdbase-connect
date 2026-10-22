@@ -21,7 +21,11 @@ unchanged; no credential is obtained from a binding GET.
 
 `POST …/cohorts/{name}/unfreeze` requires the same token, actor and reason. It is
 refused if an acceptance exists for the current revision; the check and change
-hold the cohort lock together. Freeze retries preserve the original stamp.
+hold the cohort lock together. One exception: a current zero-hosted acceptance
+whose members are all still legacy, never started, flipped or excluded is
+superseded. Unfreeze advances the membership revision, so the retained
+immutable acceptance is no longer current and a rerun needs a new freeze,
+archive and acceptance. Once any member has started it is refused. Freeze retries preserve the original stamp.
 A new freeze cannot start while ready terminal erasure from a previous window
 is pending. Archive capture before the current freeze is refused.
 

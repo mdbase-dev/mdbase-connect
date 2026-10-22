@@ -807,7 +807,11 @@ export async function addToCohort(db: DatabasePool, name: string, accounts: read
   });
 }
 
-/** Freeze once; unfreeze is audited and forbidden after acceptance or completion of the current revision. */
+/** Freeze once; unfreeze is audited and forbidden after completion of the
+ * current revision, or after its acceptance once any member started. An
+ * accepted zero-hosted revision that no member ever acted on is superseded:
+ * unfreeze advances the revision, so the retained immutable acceptance is no
+ * longer current and a rerun needs a new freeze, archive and acceptance. */
 export async function setCohortFrozen(db: DatabasePool, name: string, frozen: boolean, reason: string, actor: string): Promise<{ frozen_at: string | null }> {
   const by = actorOf(actor);
   if (!reason.trim() || reason.length > 500) throw new Error("A reason of 1-500 characters is required.");
@@ -819,20 +823,32 @@ export async function setCohortFrozen(db: DatabasePool, name: string, frozen: bo
     if (!batch) throw new RolloutRefused("cohort_not_found", "Migration cohort not found.", 404);
     // A completed revision (accepted archive or LAB completion) stays frozen.
     if (!frozen && batch.completed) throw new RolloutRefused("migration_frozen", "Migration topology is frozen.");
-    if (!frozen && (await client.query(
-      "SELECT 1 FROM next_migration_archive_acceptances WHERE cohort = $1 AND membership_revision = $2::bigint", [name, batch.revision]
-    )).rows.length) throw new RolloutRefused("migration_frozen", "Migration topology is frozen.");
+    const accepted = frozen ? undefined : (await client.query<{ schema: string }>(
+      "SELECT verified_result->>'schema' AS schema FROM next_migration_archive_acceptances WHERE cohort = $1 AND membership_revision = $2::bigint",
+      [name, batch.revision]
+    )).rows[0];
+    // Start locks member then cohort and re-reads currentness after this
+    // commit, so an unlocked read here cannot miss a start that then succeeds.
+    if (accepted && (accepted.schema !== ZERO_HOSTED_ARCHIVE_SCHEMA || (await client.query(
+      `SELECT 1 FROM next_migration_cohort_members m JOIN users u ON u.id = m.account_id
+       WHERE m.cohort = $1 AND (m.started_at IS NOT NULL OR m.terminal_excluded_at IS NOT NULL OR u.account_backend <> 'legacy'
+         OR EXISTS (SELECT 1 FROM next_migration_account_flips f WHERE f.account_id = u.id)) LIMIT 1`, [name]
+    )).rows.length)) throw new RolloutRefused("migration_frozen", "Migration topology is frozen.");
     if (frozen === (batch.frozen_at !== null)) return { frozen_at: batch.frozen_at === null ? null : new Date(batch.frozen_at).toISOString() };
     // Never capture a new window between committed readiness and automatic
     // erasure. The existing freeze's final-flip readiness is unaffected.
     if (frozen && (await client.query(
       "SELECT 1 FROM next_migration_deferred_account_deletions WHERE cohort=$1 AND ready_at IS NOT NULL LIMIT 1", [name]
     )).rows.length) throw new RolloutRefused("busy", "Busy; retry.");
-    const row = (await client.query<{ frozen_at: Date | null }>(
-      "UPDATE next_migration_cohorts SET frozen_at = CASE WHEN $2 THEN date_trunc('milliseconds', clock_timestamp()) ELSE NULL END,completed_at=NULL,completed_revision=NULL WHERE name = $1 RETURNING frozen_at", [name, frozen]
+    const row = (await client.query<{ frozen_at: Date | null; revision: string }>(
+      `UPDATE next_migration_cohorts SET frozen_at = CASE WHEN $2 THEN date_trunc('milliseconds', clock_timestamp()) ELSE NULL END,completed_at=NULL,completed_revision=NULL,
+         membership_revision = membership_revision + CASE WHEN $3 THEN 1 ELSE 0 END,
+         membership_changed_at = CASE WHEN $3 THEN date_trunc('milliseconds', clock_timestamp()) ELSE membership_changed_at END
+       WHERE name = $1 RETURNING frozen_at, membership_revision::text AS revision`, [name, frozen, accepted !== undefined]
     )).rows[0]!;
     await audit(client, null, frozen ? "next_migration.freeze" : "next_migration.unfreeze", null,
-      { cohort: name, membership_revision: batch.revision, actor: by, reason });
+      { cohort: name, membership_revision: batch.revision, actor: by, reason,
+        ...(accepted ? { superseded_acceptance: true, next_membership_revision: row.revision } : {}) });
     if (!frozen && batch.frozen_at !== null) await releaseDeferredDeletions(client, name, batch.revision, batch.frozen_at);
     return { frozen_at: row.frozen_at === null ? null : new Date(row.frozen_at).toISOString() };
   });
