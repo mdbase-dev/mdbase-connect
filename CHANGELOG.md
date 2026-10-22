@@ -4,6 +4,12 @@
 
 <!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
 
+## 0.1.0-beta.141
+
+### Changed
+
+- Re-cut beta.140 as beta.141 without product changes after GitHub dropped beta.140's main push event during an incident. The beta.140 changelog and code are carried forward unchanged.
+
 ## 0.1.0-beta.140
 
 ### Added
