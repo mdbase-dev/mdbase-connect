@@ -4,6 +4,16 @@
 
 <!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
 
+## 0.1.0-beta.137
+
+### Changed
+
+- Prepare canonical beta.136 staging trust metadata while preserving the existing staging roots and certified policy keys.
+
+### Fixed
+
+- A migrated account's new collections are created on the control plane's own hosted and escrow deployments. Only legacy hosted collections of a routed owner are served by the hosted migration Worker, so creating a collection after migration no longer fails with 503.
+
 ## 0.1.0-beta.136
 
 ### Changed

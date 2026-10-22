@@ -17,7 +17,7 @@ export function createMcpServer(
   gateway: ConnectGateway,
   oauth: OAuthService
 ): McpServer {
-  const server = new McpServer({ name: "mdbase", version: "0.1.0-beta.136" });
+  const server = new McpServer({ name: "mdbase", version: "0.1.0-beta.137" });
 
   server.registerTool("list_connections", {
     title: "List mdbase collections",
