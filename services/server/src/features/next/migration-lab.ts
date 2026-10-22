@@ -308,7 +308,8 @@ export function postgresLabConnect(options: {
     async completion(account, collection) {
       // A cohort completes on an accepted archive OR, without one, on the LAB
       // completion event; the strict readback requires exactly one of the two.
-      try { await requireCompletedAccountMigration(db, collection, account); } catch (error) {
+      // A suspended owner's migration completes too (suspension is unchanged).
+      try { await requireCompletedAccountMigration(db, collection, account, { suspendedOwner: true }); } catch (error) {
         if ((error as { code?: unknown })?.code === "collection_migrating") {
           throw new RolloutRefused("lab_completion_missing", "The completion readback refuses this account.");
         }
