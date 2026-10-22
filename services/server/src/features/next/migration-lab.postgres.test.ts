@@ -9,7 +9,7 @@ import { fakeLegacyProvider, recordEmptyTimerImport } from "./legacy-provider.te
 import { labRun, postgresLabConnect, STEP, type LabWorker, type WorkerStatus } from "./migration-lab.js";
 import { acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, cutOverCollection, releaseCohort, setCohortFrozen, setPaused,
   startAccountMigration } from "./migration-rollout.js";
-import { requireCompletedAccountMigration } from "./migration-sharing.js";
+import { requireCompletedAccountMigration, requireCompletedNextAccountMigration, requireMigrationJobCompletion } from "./migration-sharing.js";
 import { registerNextCollection } from "./policy-outbox.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
@@ -136,6 +136,28 @@ suite("lab-run against the control plane (synthetic PostgreSQL, scripted Worker)
     // The staging flip completes the cohort on its archive; no LAB completion event is ever written.
     expect((await db.query("SELECT 1 FROM next_migration_cohorts WHERE name=$1 AND completed_at IS NOT NULL", [f.cohort])).rows).toHaveLength(1);
     expect((await db.query("SELECT 1 FROM audit_events WHERE event_type='next_migration.lab_complete' AND subject_id=$1", [f.cohort])).rows).toHaveLength(0);
+  });
+
+  it("staging deployment: a suspended owner migrates and completes, while every product guard still refuses it", async () => {
+    const f = await fixture(false, "staging");
+    await db.query("UPDATE users SET suspended_at=now(), session_epoch=session_epoch+1 WHERE id=$1", [f.user]);
+    expect(await labRun(f.user, hold, deps(f, routed()))).toEqual({ done: { account_id: f.user, collection_id: f.collection, backend: "next", lab_complete: true } });
+    expect(await backend(f.user)).toBe("next");
+    await requireMigrationJobCompletion(db, f.collection, f.user);
+    // Sharing, timers and other post-migration guards keep refusing the suspended owner.
+    await expect(requireCompletedAccountMigration(db, f.collection, f.user)).rejects.toMatchObject({ code: "collection_migrating" });
+    await expect(requireCompletedNextAccountMigration(db, f.user)).rejects.toMatchObject({ code: "collection_migrating" });
+    // Suspension is the ONLY difference: restoring the owner satisfies the product readback unchanged.
+    await db.query("UPDATE users SET suspended_at=NULL WHERE id=$1", [f.user]);
+    await requireCompletedAccountMigration(db, f.collection, f.user);
+    await requireCompletedNextAccountMigration(db, f.user);
+    expect((await db.query("SELECT 1 FROM next_migration_cohorts WHERE name=$1 AND completed_at IS NOT NULL", [f.cohort])).rows).toHaveLength(1);
+  });
+
+  it("a suspended owner's incomplete migration still fails the migration job's completion readback", async () => {
+    const f = await fixture(false, "staging");
+    await db.query("UPDATE users SET suspended_at=now() WHERE id=$1", [f.user]);
+    await expect(requireMigrationJobCompletion(db, f.collection, f.user)).rejects.toMatchObject({ code: "collection_migrating" });
   });
 
   it("each rehearsal deployment refuses the other's start profile at preflight", async () => {

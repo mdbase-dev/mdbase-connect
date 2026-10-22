@@ -67,7 +67,18 @@ export async function requireCompletedNextAccountMigration(client:DatabaseQuerya
   await validateCompletedAccountMigration(client,null,owner);
 }
 
-async function validateCompletedAccountMigration(client:DatabaseQueryable,collection:string|null,owner:string):Promise<void> {
+/** The migration job's own completion readback (`migration-lab.ts`
+ * completion()) only: the SAME strict terminal proof, except that a suspended
+ * owner's migration still completes. Suspension is untouched by migration and
+ * this observation grants nothing. Every sharing, timer, operation or other
+ * user-facing caller uses requireCompletedAccountMigration, which refuses
+ * suspended owners. */
+export async function requireMigrationJobCompletion(client:DatabaseQueryable,collection:string,owner:string):Promise<void> {
+  await validateCompletedAccountMigration(client,collection,owner,{suspendedOwner:true});
+}
+
+async function validateCompletedAccountMigration(client:DatabaseQueryable,collection:string|null,owner:string,
+  {suspendedOwner=false}:{suspendedOwner?:boolean}={}):Promise<void> {
   const terminal=(await client.query<Terminal>(
     `SELECT m.started_at,c.completed_at,f.flipped_at,f.collections::text[] AS collections,f.evidence_digest,
        c.name AS cohort,c.membership_revision::text AS revision,c.completed_revision::text AS completed_revision,
@@ -89,7 +100,7 @@ async function validateCompletedAccountMigration(client:DatabaseQueryable,collec
            AND s.metadata->'inventory'->>'membership_digest'=e.metadata->>'membership_digest')
        ORDER BY e.created_at DESC LIMIT 1) l ON true
      ${collection===null?"":"JOIN next_collections n ON n.owner_user_id=u.id AND n.collection_id=$2"}
-     WHERE u.id=$1 AND u.account_backend='next' AND u.suspended_at IS NULL
+     WHERE u.id=$1 AND u.account_backend='next' ${suspendedOwner?"":"AND u.suspended_at IS NULL"}
        AND m.started_at IS NOT NULL AND m.terminal_excluded_at IS NULL
        AND c.released_at IS NOT NULL AND c.completed_at IS NOT NULL
        AND c.completed_revision${collection===null?"<=":"="}c.membership_revision
