@@ -17,6 +17,7 @@ import { deliverAppGrantCallbackFrom, isAppGrantCallback } from "./private-colle
 import "@mdbase-dev/ui/motion.css";
 import "./styles.css";
 import "./environment-badge.css";
+import { offlineShell } from "./offline-shell";
 
 const EditorApp = lazy(() => import("./App").then((module) => ({ default: module.App })));
 // The Connect console is retired from the Editor: accounts, access and collection
@@ -69,3 +70,5 @@ function EditorWorkspace() {
 createRoot(document.getElementById("root")!).render(
   <StrictMode><AppErrorBoundary product="mdbase editor"><EnvironmentBadge /><Suspense fallback={<div className="route-loading" aria-live="polite">Opening mdbase…</div>}>{managementTarget ? <main aria-live="polite">Opening mdbase connect… <a href={managementTarget.href}>Continue</a></main> : <EditorWorkspace />}</Suspense></AppErrorBoundary></StrictMode>
 );
+// Collection screens register the offline shell once usable; others after a delay.
+if (!managementTarget) offlineShell.start();

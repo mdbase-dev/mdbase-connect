@@ -40,6 +40,7 @@ import { CollectionRail, ConnectionStatus, connectWorkspaceUrl, type ShownConnec
 import { folderChangeMoves, type FolderChangePlan, type FolderChangeProgress, type FolderChangeResult } from "./folder-change";
 import { useFeedback } from "@mdbase-dev/ui/feedback";
 import { useLaunchEntrancePlaying } from "@mdbase-dev/ui/screens";
+import { offlineShell } from "./offline-shell";
 import { ConnectScreen } from "./ConnectionScreens";
 import type { LeaveIntent } from "@mdbase-dev/ui/collections";
 import type { EditorCollectionSwitcher } from "./editor-collections";
@@ -1635,6 +1636,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
 
   const wordCount = useMemo(() => noteWordCount(draft?.body ?? ""), [draft?.body]);
   const launching = useLaunchEntrancePlaying();
+  const usable = phase === "ready" && Boolean(description) && !launching;
+  // First usable render: only now may the offline shell install and precache.
+  useEffect(() => { if (usable) offlineShell.ready(); }, [usable]);
   const dismissToast = useCallback((id: string) => {
     if (id === "notice") setNoticeState(undefined);
     else if (id === "note-open") setNoteOpenFailure(undefined);

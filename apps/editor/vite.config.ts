@@ -15,7 +15,7 @@ export default defineConfig(({ mode }) => ({
     "import.meta.env.VITE_MDBASE_FEEDBACK_URL": JSON.stringify("http://127.0.0.1:8790/v1/feedback")
   } : {},
   base: basePath,
-  plugins: [react(), offlineShellPlugin()],
+  plugins: [react(), offlineShellPlugin({ register: false })],
   // hoistingLimits gives each workspace package its own copies; @mdbase-dev/ui must use the app's
   // React and CodeMirror (two @codemirror/state instances cannot share an editor).
   resolve: { dedupe: ["react", "react-dom", "@codemirror/state", "@codemirror/view"] },
