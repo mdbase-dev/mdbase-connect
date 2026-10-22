@@ -94,6 +94,20 @@ export function linkMatches(
     .map(({ suggestion, label, rank }) => ({ suggestion, label, rank }));
 }
 
+// Backlinks scan every hydrated body each time the open note changes. Parse a
+// body once per summary object, and skip the parser for bodies that cannot hold
+// a link or embed: every Link/Image node, wikilinks included, needs "[".
+const parsedBodies = new WeakMap<NoteSummary, { body: string; references: ReturnType<typeof markdownReferences> }>();
+function bodyReferences(note: NoteSummary): ReturnType<typeof markdownReferences> {
+  const body = note.body;
+  if (body === undefined || !body.includes("[")) return [];
+  const cached = parsedBodies.get(note);
+  if (cached?.body === body) return cached.references;
+  const references = markdownReferences(body);
+  parsedBodies.set(note, { body, references });
+  return references;
+}
+
 export function backlinksFor(
   targetPath: string,
   notes: NoteSummary[],
@@ -105,7 +119,7 @@ export function backlinksFor(
     .filter((note) => {
       // Native records expose hydrated bodies, not the connector's file link
       // projections. Use the same parser and resolution as forward navigation.
-      const bodyLinked = note.body !== undefined && markdownReferences(note.body).some(reference =>
+      const bodyLinked = bodyReferences(note).some(reference =>
         resolveLinkSuggestion(reference.target, suggestions, note.path, reference.format)?.path === targetPath);
       // Connector projections also include frontmatter references.
       return bodyLinked || referencesFor(note).some(reference => resolveReference(note.path, reference, index)?.path === targetPath);
