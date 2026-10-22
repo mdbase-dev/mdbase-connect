@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync, writeFileSync, rmSync, mkdirSync, copyFileSy
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { buildReleaseBundle } from './release-components.mjs';
 import { buildTrustBundle } from './release-trust-bundle.mjs';
 const canonical=value=>Array.isArray(value)?`[${value.map(canonical).join(',')}]`:value&&typeof value==='object'?`{${Object.keys(value).sort().map(k=>JSON.stringify(k)+':'+canonical(value[k])).join(',')}}`:JSON.stringify(value);
@@ -19,7 +20,14 @@ for(const [environment,rootId,policyId] of [
 ]) test(`committed ${environment} asset has independent pinned-release context and real certified pins (offline, NOT publication authentication)`,()=>{
  const assetPath=path.join(root,`config/next-trust/${environment}.json`);
  const prepared=JSON.parse(readFileSync(assetPath));
- const [commit,version]=environment==='staging'?['1d24c2c8b9c747a2efe30f0aa5992d251026b974','0.1.0-beta.139']:['f45df4598a5bff891de68eec3431ec7744885067','0.1.0-beta.134'];
+ const [commit,version]=environment==='staging'?['36abd4b065be9495a7f5ae0808865a1f2279af04','0.1.0-beta.141']:['f45df4598a5bff891de68eec3431ec7744885067','0.1.0-beta.134'];
+ if(environment==='staging'){
+  const bytes=readFileSync(assetPath);
+  assert.equal(bytes.length,853);
+  assert.equal(createHash('sha256').update(bytes).digest('hex'),'18ae86a26f9c8b2442235c537b8d58dcc059c05e4bb0f175607fd0aeacc3f0ad');
+  assert.equal(prepared.issued_at,1792695401615);
+  assert.equal(bytes.toString(),canonical(prepared));
+ }
  const suffix=environment==='staging'?'-staging':'',cp=`https://connect${suffix}.mdbase.dev`,log=`https://log${suffix}.mdbase.dev`;
  assert.equal(prepared.environment,environment);
  assert.equal(prepared.control_plane_origin,cp);
