@@ -19,7 +19,7 @@ for(const [environment,rootId,policyId] of [
 ]) test(`committed ${environment} asset has independent pinned-release context and real certified pins (offline, NOT publication authentication)`,()=>{
  const assetPath=path.join(root,`config/next-trust/${environment}.json`);
  const prepared=JSON.parse(readFileSync(assetPath));
- const [commit,version]=environment==='staging'?['471c357a98d591a7f0807665d92a072d4cc897d0','0.1.0-beta.135']:['f45df4598a5bff891de68eec3431ec7744885067','0.1.0-beta.134'];
+ const [commit,version]=environment==='staging'?['6c3bf8eb391dae81028b07d8a7996e1272c34d87','0.1.0-beta.136']:['f45df4598a5bff891de68eec3431ec7744885067','0.1.0-beta.134'];
  const suffix=environment==='staging'?'-staging':'',cp=`https://connect${suffix}.mdbase.dev`,log=`https://log${suffix}.mdbase.dev`;
  assert.equal(prepared.environment,environment);
  assert.equal(prepared.control_plane_origin,cp);
