@@ -18,6 +18,12 @@ import "@mdbase-dev/ui/motion.css";
 import "./styles.css";
 import "./environment-badge.css";
 import { offlineShell } from "./offline-shell";
+import { LocaleProvider } from "@mdbase-dev/i18n/react";
+import { editorLocaleRuntime } from "./i18n/runtime";
+
+function reportLocaleLoadError(error: unknown) {
+  console.warn("Editor language could not be loaded; keeping the current language.", error);
+}
 
 const EditorApp = lazy(() => import("./App").then((module) => ({ default: module.App })));
 // The Connect console is retired from the Editor: accounts, access and collection
@@ -68,7 +74,7 @@ function EditorWorkspace() {
 }
 
 createRoot(document.getElementById("root")!).render(
-  <StrictMode><AppErrorBoundary product="mdbase editor"><EnvironmentBadge /><Suspense fallback={<div className="route-loading" aria-live="polite">Opening mdbase…</div>}>{managementTarget ? <main aria-live="polite">Opening mdbase connect… <a href={managementTarget.href}>Continue</a></main> : <EditorWorkspace />}</Suspense></AppErrorBoundary></StrictMode>
+  <StrictMode><LocaleProvider runtime={editorLocaleRuntime} onError={reportLocaleLoadError}><AppErrorBoundary product="mdbase editor"><EnvironmentBadge /><Suspense fallback={<div className="route-loading" aria-live="polite">Opening mdbase…</div>}>{managementTarget ? <main aria-live="polite">Opening mdbase connect… <a href={managementTarget.href}>Continue</a></main> : <EditorWorkspace />}</Suspense></AppErrorBoundary></LocaleProvider></StrictMode>
 );
 // Collection screens register the offline shell once usable; others after a delay.
 if (!managementTarget) offlineShell.start();

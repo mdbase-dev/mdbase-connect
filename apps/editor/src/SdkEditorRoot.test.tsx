@@ -1,5 +1,5 @@
 // @vitest-environment-options {"url": "https://editor.mdbase.dev/"}
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "./test/locale";
 import { StrictMode, useEffect, type ReactNode } from "react";
 import { isMdbaseError, type Mdbase } from "@mdbase-dev/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";

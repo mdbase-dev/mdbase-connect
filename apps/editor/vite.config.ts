@@ -1,5 +1,6 @@
 import { offlineShellPlugin } from "@mdbase-dev/sdk/offline-shell/build";
 import react from "@vitejs/plugin-react";
+import { lingui } from "@lingui/vite-plugin";
 import { defineConfig } from "vitest/config";
 
 const basePath = `/${(process.env.MDBASE_EDITOR_BASE_PATH ?? "/").replace(/^\/+|\/+$/g, "")}/`
@@ -15,7 +16,7 @@ export default defineConfig(({ mode }) => ({
     "import.meta.env.VITE_MDBASE_FEEDBACK_URL": JSON.stringify("http://127.0.0.1:8790/v1/feedback")
   } : {},
   base: basePath,
-  plugins: [react(), offlineShellPlugin({ register: false })],
+  plugins: [react(), lingui({ macroTransform: true }), offlineShellPlugin({ register: false })],
   // hoistingLimits gives each workspace package its own copies; @mdbase-dev/ui must use the app's
   // React and CodeMirror (two @codemirror/state instances cannot share an editor).
   resolve: { dedupe: ["react", "react-dom", "@codemirror/state", "@codemirror/view"] },
