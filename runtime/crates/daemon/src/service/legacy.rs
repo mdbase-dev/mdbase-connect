@@ -8,9 +8,9 @@
 //! | macOS | LaunchAgent `dev.mdbase.connect` | `launchctl bootout gui/<uid>/dev.mdbase.connect`, then `launchctl disable` |
 //! | Windows | scheduled task `"mdbase connect"` | `schtasks /End`, then `schtasks /Change /DISABLE` |
 //!
-//! Then, if the connector's private runtime copy exists
-//! (`<connector state>/runtime/mdbase[.exe]`), `mdbase connect daemon stop` asks the
-//! old daemon itself to stop, which also covers a connector that was started by hand.
+//! Then the legacy protocol-5 `daemon.shutdown` request targets the old profile's
+//! private endpoint, including a daemon started by hand. No runtime copy or PID
+//! guessing is needed; takeover still waits for the legacy daemon's lock.
 //!
 //! **Safe when absent.** Nothing is run against a registration that isn't there: each
 //! manager is queried first, and a missing unit, agent, task or binary is success.
@@ -30,11 +30,12 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
+#[path = "legacy_shutdown.rs"]
+mod shutdown;
+pub(crate) use shutdown::ForegroundOldService;
+
 #[allow(unused_imports)] // Each platform uses one of the three.
 use super::{CONNECTOR_LAUNCHD_LABEL, CONNECTOR_SYSTEMD_UNIT, CONNECTOR_TASK_NAME};
-
-/// The connector's command for stopping its daemon (`connect-cli`).
-const CONNECTOR_STOP: [&str; 3] = ["connect", "daemon", "stop"];
 
 /// Runs service-manager and connector commands. Injected so each platform's plan can
 /// be tested without a service manager.
@@ -196,8 +197,11 @@ impl OldConnectorService {
     /// registered or running. Same signature as
     /// `mdbn_migrate::takeover::OldService::stop_and_disable`.
     pub fn stop_and_disable(&mut self) -> Result<(), String> {
-        let registered = self.disable_registration()?;
-        self.stop_by_connector(registered)
+        self.disable_registration()?;
+        if let Some(state) = self.env.connector_state_dir() {
+            shutdown::stop(&state)?;
+        }
+        Ok(())
     }
 
     /// A probe: whether the manager command succeeded. A service manager that isn't
@@ -298,29 +302,6 @@ impl OldConnectorService {
     #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     fn disable_registration(&mut self) -> Result<bool, String> {
         Ok(false)
-    }
-
-    /// Ask the connector's own binary to stop its daemon. Covers a daemon started by
-    /// hand, and is the only means when no registration was found. When the manager
-    /// already stopped it, a failure here (nothing left to stop) is not an error.
-    fn stop_by_connector(&mut self, registered: bool) -> Result<(), String> {
-        let Some(binary) = self.env.connector_binary() else {
-            return Ok(());
-        };
-        let out = self
-            .exec
-            .run(&binary, &CONNECTOR_STOP)
-            .map_err(|e| format!("could not run {}: {e}", binary.display()))?;
-        if out.status.success() || registered {
-            Ok(())
-        } else {
-            Err(format!(
-                "`{} connect daemon stop` failed ({}): {}",
-                binary.display(),
-                out.status,
-                String::from_utf8_lossy(&out.stderr).trim()
-            ))
-        }
     }
 }
 
@@ -474,15 +455,11 @@ mod tests {
         let (result, calls) = run_with(f.env.clone(), &[], &[MANAGER]);
         assert_eq!(result, Ok(()));
         assert!(calls.iter().all(|c| c.starts_with(MANAGER)), "{calls:?}");
-        // With a connector binary present, the stop still goes through it.
-        let binary = f.install_binary();
-        let stop = format!(
-            "{} connect daemon stop",
-            binary.file_name().unwrap().to_string_lossy()
-        );
-        let (result, calls) = run_with(f.env.clone(), &[&stop], &[MANAGER]);
+        // A stale runtime copy is not executed against an unspecified profile.
+        f.install_binary();
+        let (result, calls) = run_with(f.env.clone(), &[], &[MANAGER]);
         assert_eq!(result, Ok(()));
-        assert_eq!(calls.last().map(String::as_str), Some(stop.as_str()));
+        assert!(calls.iter().all(|c| c.starts_with(MANAGER)), "{calls:?}");
     }
 
     #[cfg(target_os = "linux")]
@@ -523,24 +500,20 @@ mod tests {
     }
 
     #[test]
-    fn unregistered_connector_with_a_binary_is_stopped_through_it() {
+    fn absent_endpoint_does_not_run_an_unscoped_legacy_cli() {
         let f = fixture("legacy-binary");
-        let binary = f.install_binary();
-        let stop = format!(
-            "{} connect daemon stop",
-            binary.file_name().unwrap().to_string_lossy()
-        );
-        let (result, calls) = run(f.env.clone(), &[&stop]);
+        f.install_binary();
+        let (result, calls) = run(f.env.clone(), &[]);
         assert_eq!(result, Ok(()));
-        assert_eq!(calls.last().map(String::as_str), Some(stop.as_str()));
-        // And its failure is reported when it was the only means.
-        let (result, _) = run(f.env.clone(), &[]);
-        assert!(result.is_err());
+        assert!(
+            !calls.iter().any(|c| c.contains("daemon stop")),
+            "{calls:?}"
+        );
     }
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn registered_unit_is_disabled_now_and_the_binary_stop_failure_is_tolerated() {
+    fn registered_unit_is_disabled_without_needing_a_runtime_copy() {
         let f = fixture("legacy-systemd");
         let unit = f.env.connector_unit().unwrap();
         std::fs::create_dir_all(unit.parent().unwrap()).unwrap();
@@ -550,12 +523,7 @@ mod tests {
         let (result, calls) = run(f.env.clone(), &[&disable]);
         assert_eq!(result, Ok(()));
         assert!(calls.contains(&disable), "{calls:?}");
-        assert!(
-            calls
-                .last()
-                .unwrap()
-                .ends_with("mdbase connect daemon stop")
-        );
+        assert_eq!(calls.last(), Some(&disable));
         // The manager refusing is an error.
         let (result, _) = run(f.env.clone(), &[]);
         assert!(result.unwrap_err().contains("disable"));

@@ -421,7 +421,7 @@ pub fn run(
                 tracing::warn!(collection = %c.id, reason = %why, "takeover postponed");
                 e.state = CollectionState::Postponed;
                 e.reason = Some(
-                    if why.contains("daemon.lock") {
+                    if why.contains("daemon.lock") || old_daemon_running(old_state_dir)? {
                         "old_daemon_running"
                     } else {
                         "folder_locked"
@@ -600,8 +600,8 @@ pub fn now_rfc3339() -> String {
 ///
 /// The installed profile uses the connector's own default (or
 /// `MDBASE_CONNECT_HOME`). An isolated profile (tests, LAB) only ever looks at an
-/// explicit `MDBASE_CONNECT_HOME`, and never touches service managers (see
-/// [`IsolatedOldService`]).
+/// explicit `MDBASE_CONNECT_HOME`, and never touches service managers. Its
+/// foreground legacy daemon is stopped through that profile's private endpoint.
 pub fn old_state_dir(profile: &crate::paths::Profile) -> Option<PathBuf> {
     let env = crate::service::legacy::Environment::from_process();
     match profile.target {

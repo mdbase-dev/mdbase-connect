@@ -187,6 +187,15 @@ impl Record {
         crate::fsutil::write_atomic(path, &bytes)
     }
 
+    /// Retry a move that could not acquire the still-running legacy daemon's lock.
+    pub fn waiting_for_old_daemon(&self) -> bool {
+        self.state != State::RolledBack
+            && self.collections.values().any(|c| {
+                c.state == CollectionState::Postponed
+                    && c.reason.as_deref() == Some("old_daemon_running")
+            })
+    }
+
     /// Every collection is complete or held (an empty old registry is settled).
     pub fn all_settled(&self) -> bool {
         self.collections.values().all(|c| c.state.settled())
@@ -233,6 +242,26 @@ mod tests {
         assert!(State::Started.fences_old_service());
         assert!(!State::Postponed.fences_old_service());
         assert!(!State::RolledBack.fences_old_service());
+    }
+    #[test]
+    fn retries_only_unsettled_old_daemon_postponements_not_rollback() {
+        let dir = crate::testutil::TestDir::new("takeover-old-retry");
+        let mut r = record(dir.path());
+        assert!(!r.waiting_for_old_daemon());
+        let c = r.collections.get_mut("legacy").unwrap();
+        c.state = CollectionState::Postponed;
+        c.reason = Some("folder_locked".into());
+        assert!(!r.waiting_for_old_daemon());
+        r.collections.get_mut("legacy").unwrap().reason = Some("old_daemon_running".into());
+        for state in [State::Started, State::Postponed] {
+            r.state = state;
+            assert!(r.waiting_for_old_daemon());
+        }
+        r.state = State::RolledBack;
+        assert!(!r.waiting_for_old_daemon());
+        r.state = State::Complete;
+        r.collections.get_mut("legacy").unwrap().state = CollectionState::Complete;
+        assert!(!r.waiting_for_old_daemon());
     }
     #[test]
     fn unknown_states_fence_but_missing_or_newer_schema_is_not_none() {

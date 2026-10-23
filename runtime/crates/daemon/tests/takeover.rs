@@ -228,12 +228,37 @@ async fn automatic_takeover_waits_for_a_flipped_batch_and_fails_closed() {
             assert_untouched();
         }
     }
+    // A legacy daemon that cannot be stopped yet must not end automatic retries
+    // just because rollout permission is now granted.
+    let running_old = std::fs::File::create(old.join("daemon.lock")).unwrap();
+    running_old.try_lock().unwrap();
     mode.store(1, Ordering::SeqCst);
     let mut poll = ControlClient::connect(&profile.control).await.unwrap();
     poll.call(Method::MIGRATE_STATUS, json!({"refresh_rollout": true}))
         .await
         .unwrap();
 
+    // Allow the existing 30-second legacy write drain to finish.
+    tokio::time::sleep(Duration::from_secs(31)).await;
+    let postponed = until("old daemon postponement", || async {
+        let s = status(&profile).await;
+        (s["record"]["collections"][old_agent::CID]["reason"] == "old_daemon_running").then_some(s)
+    })
+    .await;
+    assert_eq!(postponed["waiting_for_migration_batch"], false);
+    let before = calls.load(Ordering::SeqCst);
+    for _ in 0..20 {
+        status(&profile).await;
+    }
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        before,
+        "postponed retry backs off"
+    );
+    drop(running_old);
+    // No status polling, focus, restart or explicit migrate start: the same
+    // periodic watch retries once the legacy daemon is gone.
+    tokio::time::sleep(Duration::from_secs(35)).await;
     // The account flips while this daemon stays alive: settled, fenced and registered.
     let st = until("the takeover", || async {
         let s = status(&profile).await;
