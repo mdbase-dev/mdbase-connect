@@ -1872,7 +1872,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         searchContexts={searchContexts}
         sort={noteSort}
         scopeLabel={filterScopeLabel(noteFilter)}
-        collectionName={filterLabel(noteFilter, "All notes")}
+        collectionName={filterLabel(noteFilter, t`All notes`)}
         onSearch={setSearch}
         onSort={setNoteSort}
         onClearScope={() => setNoteFilter(undefined)}

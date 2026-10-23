@@ -1,9 +1,11 @@
-import { fireEvent, render, screen, waitFor, within } from "./test/locale";
+import { act, fireEvent, render, screen, waitFor, within } from "./test/locale";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { chooseOption } from "./test/select";
 import { DemoCollectionGateway } from "./demo-gateway";
+import { LocaleProvider } from "@mdbase-dev/i18n/react";
+import { editorLocaleRuntime } from "./i18n/runtime";
 import type { MutationOperationOptions, NoteDocument } from "./model";
 
 vi.mock("./CodeEditor", () => ({ CodeEditor: ({ value, onChange, label }: { value: string; onChange?: (value: string) => void; label: string }) => <textarea aria-label={label} value={value} onChange={(event) => onChange?.(event.target.value)} /> }));
@@ -21,6 +23,19 @@ async function renameFolder(user: ReturnType<typeof userEvent.setup>, folder: st
 }
 
 describe("collection-wide folder changes", () => {
+  it("uses the real Spanish catalogue for the unfiltered note-list heading", async () => {
+    await editorLocaleRuntime.selectLocale("es");
+    try {
+      render(<LocaleProvider runtime={editorLocaleRuntime} onError={(error) => { throw error; }}>
+        <App gateway={new DemoCollectionGateway(12)} />
+      </LocaleProvider>);
+      expect(await screen.findByRole("heading", { name: "Todas las notas" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "All notes" })).not.toBeInTheDocument();
+    } finally {
+      await act(() => editorLocaleRuntime.selectLocale("en"));
+    }
+  });
+
   it("F2 reviews note and reference counts once, renames with revisions and rewrites links", async () => {
     const user = userEvent.setup();
     const gateway = new DemoCollectionGateway(12);

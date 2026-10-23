@@ -35,10 +35,8 @@ pnpm --filter mdbase-editor build:e2e
 ```
 
 Use rpnpm for finite verification/builds on this machine. Extraction and catalogue
-edits stay local. The CLI is invoked by its workspace script path because pnpm 11
-symlinks its executable and the initial kit CLI's entrypoint identity test otherwise
-returns without running a command. Remove that workaround when the kit fixes its
-symlink-aware entrypoint.
+edits stay local. The workspace kit includes b4134d71's unconditional bin entrypoint,
+so scripts invoke `mdbase-i18n` through pnpm's normal executable symlink.
 
 The check validates extraction sync, raw target completeness before fallback,
 generated IDs, ICU/rich-text contracts, strict compilation and the full editor
@@ -60,6 +58,19 @@ without repinning the SDK or changing shared package configuration.
 
 The literal `{field}` in path-template examples is syntax, not UI prose; its exact
 source-guard exemption is recorded in `i18n-policy.json`.
+
+Reviewed identical translations are allowlisted by generated ID, not replaced with
+artificially different wording. The es/fr/ko lists cover file extensions, ICU-only
+layout, shortcut notation, YAML, font/product names and literal path/search patterns.
+Spanish also legitimately retains “Compatible”. French retains cognates (Actions,
+Collection, Compact, Compatible, Date, Description, Documentation, Incompatible,
+Maximum, Minimum, Notes, Notifications, Pack, Projections, Type(s), Validation,
+Version), pixels and extension/note plurals. These are deliberate translations,
+not English fallback. `progress.py` flags some of these heuristically.
+
+The merged es/fr/ko POs are not evidence of nine-locale release readiness. Target
+completeness/contract errors and unmerged locales still block `i18n:check` and both
+builds; a scoped authoring compile is never a replacement for those gates.
 
 React tests render through `src/test/locale.tsx`, exercising the real kit and
 Lingui provider rather than a translator mock. Target translation acceptance also

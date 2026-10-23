@@ -1,3 +1,3 @@
 ## Added
 
-- Add a browser-local interface language preference to the Editor and prepare the core Settings interface for translation. Notes, collection paths, and protocol identifiers are unchanged.
+- Add a browser-local interface language preference, generated-ID interface catalogues and strict translation validation to the Editor. Notes, collection paths, and protocol identifiers are unchanged.
