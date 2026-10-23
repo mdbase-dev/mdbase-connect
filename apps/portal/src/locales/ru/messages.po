@@ -1414,20 +1414,20 @@ msgstr "Отключить {0}?"
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Disconnecting…"
-msgstr ""
+msgstr "Отключение…"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Disconnecting…"
-msgstr ""
+msgstr "Отключение…"
 
 #: src/ConnectApp.tsx
 msgid "Dismiss"
-msgstr ""
+msgstr "Закрыть"
 
 #: src/authorization-review.tsx
 msgid "Do not share"
-msgstr ""
+msgstr "Не предоставлять доступ"
 
 #. placeholder {0}: formatBytes(subscription.limits.max_document_bytes)
 #. placeholder {1}: formatBytes(subscription.limits.max_single_file_bytes)
@@ -1435,434 +1435,434 @@ msgstr ""
 #. placeholder {3}: countLabel(subscription.limits.max_application_replicas_per_collection, "application-installation")
 #: src/AccountManagement.tsx
 msgid "Documents up to {0} · files up to {1} · {2} · {3} per collection"
-msgstr ""
+msgstr "Документы до {0} · файлы до {1} · {2} · {3} на коллекцию"
 
 #: src/authority-workflows.tsx
 msgid "Don't allow"
-msgstr ""
+msgstr "Не разрешать"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Downloads only"
-msgstr ""
+msgstr "Только загрузка"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Edit records"
-msgstr ""
+msgstr "Редактировать записи"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Edit records and files"
-msgstr ""
+msgstr "Редактировать записи и файлы"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Editor"
-msgstr ""
+msgstr "Редактор"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Edits sync both ways"
-msgstr ""
+msgstr "Изменения синхронизируются в обе стороны"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Email"
-msgstr ""
+msgstr "Электронная почта"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Email"
-msgstr ""
+msgstr "Электронная почта"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Email address"
-msgstr ""
+msgstr "Адрес электронной почты"
 
 #: src/AccountManagement.tsx
 msgid "Email and password"
-msgstr ""
+msgstr "Электронная почта и пароль"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Email and password"
-msgstr ""
+msgstr "Электронная почта и пароль"
 
 #. placeholder {0}: summary.setting
 #. placeholder {1}: summary.value
 #: src/authorization-view.tsx
 msgid "Ensure <0>{0}</0> includes <1>{1}</1>"
-msgstr ""
+msgstr "Убедиться, что <0>{0}</0> включает <1>{1}</1>"
 
 #: src/authorization-view.tsx
 msgid "Enter the code it shows. You will review the application, collection, and exact permissions before anything is allowed."
-msgstr ""
+msgstr "Введите код, который показывает приложение. До предоставления доступа вы сможете проверить приложение, коллекцию и конкретные разрешения."
 
 #: src/authorization-view.tsx
 msgid "Enter the eight-character code shown by the application."
-msgstr ""
+msgstr "Введите восьмизначный код, показанный приложением."
 
 #: src/ApplicationAccess.tsx
 msgid "Entire collection"
-msgstr ""
+msgstr "Вся коллекция"
 
 #. placeholder {0}: entry.role
 #: src/ApplicationAccess.tsx
 msgid "Entire collection · Access as your account ({0})"
-msgstr ""
+msgstr "Вся коллекция · Доступ от имени вашей учётной записи ({0})"
 
 #: src/AccountManagement.tsx
 msgid "Every browser session and sign-in method"
-msgstr ""
+msgstr "Все сеансы браузера и способы входа"
 
 #: src/authorization-review.tsx
 msgid "Every visible folder. Hidden folders are always excluded."
-msgstr ""
+msgstr "Все видимые папки. Скрытые папки всегда исключены."
 
 #: src/authority-workflows.tsx
 msgid "Existing access is revoked. Connect applications again to use the local collection."
-msgstr ""
+msgstr "Ранее выданный доступ отозван. Чтобы использовать локальную коллекцию, подключите приложения заново."
 
 #: src/authority-workflows.tsx
 msgid "Existing Markdown is checked before upload. Collection paths and device credentials stay off the control plane."
-msgstr ""
+msgstr "Существующие файлы Markdown проверяются перед загрузкой. Пути к коллекциям и учётные данные устройств не передаются в управляющий сервис."
 
 #: src/authorization-review.tsx
 msgid "Existing type"
-msgstr ""
+msgstr "Существующий тип"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Existing type"
-msgstr ""
+msgstr "Существующий тип"
 
 #: src/authorization-review.tsx
 msgid "Expert details"
-msgstr ""
+msgstr "Технические подробности"
 
 #: src/FeedbackPage.tsx
 msgid "Feedback goes privately to the mdbase team."
-msgstr ""
+msgstr "Отзыв будет отправлен команде mdbase в частном порядке."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Feedback is unavailable"
-msgstr ""
+msgstr "Обратная связь недоступна"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Feedback unavailable"
-msgstr ""
+msgstr "Обратная связь недоступна"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "File permissions"
-msgstr ""
+msgstr "Разрешения для файлов"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "File scope"
-msgstr ""
+msgstr "Область доступа к файлам"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Files"
-msgstr ""
+msgstr "Файлы"
 
 #. placeholder {0}: field?.label ?? missing
 #: src/authorization-review.tsx
 msgid "Fill in {0} in {label}."
-msgstr ""
+msgstr "Заполните поле {0} в {label}."
 
 #: src/ConnectApp.tsx
 msgid "Find a computer"
-msgstr ""
+msgstr "Найти компьютер"
 
 #: src/authorization-view.tsx
 msgid "Finishing collection setup…"
-msgstr ""
+msgstr "Завершение настройки коллекции…"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Finishing the move"
-msgstr ""
+msgstr "Завершение переноса"
 
 #: src/authority-workflows.tsx
 msgid "Folder"
-msgstr ""
+msgstr "Папка"
 
 #: src/authority-workflows.tsx
 msgid "Folder approved"
-msgstr ""
+msgstr "Папка одобрена"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Folder sync"
-msgstr ""
+msgstr "Синхронизация папки"
 
 #: src/auth-view.tsx
 msgid "Forgot your password?"
-msgstr ""
+msgstr "Забыли пароль?"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Generate a new code"
-msgstr ""
+msgstr "Создать новый код"
 
 #: src/AccountManagement.tsx
 msgid "Generate a private code, then send it to the collection owner."
-msgstr ""
+msgstr "Создайте личный код и отправьте его владельцу коллекции."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Generate code"
-msgstr ""
+msgstr "Создать код"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Generating…"
-msgstr ""
+msgstr "Создание…"
 
 #: src/portal-model.ts
 msgid "GitHub account @{login}"
-msgstr ""
+msgstr "Учётная запись GitHub @{login}"
 
 #: src/auth-view.tsx
 #: src/GoogleIdentityButton.tsx
 msgid "Google sign-in could not be loaded."
-msgstr ""
+msgstr "Не удалось загрузить вход через Google."
 
 #: src/auth-view.tsx
 #: src/GoogleIdentityButton.tsx
 msgid "Google sign-in did not load correctly."
-msgstr ""
+msgstr "Вход через Google загрузился неправильно."
 
 #. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
 #: src/authorization-review.tsx
 msgid "Help {applicationName} understand {0}"
-msgstr ""
+msgstr "Помочь {applicationName} понять {0}"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Hosted"
-msgstr ""
+msgstr "Размещено в mdbase"
 
 #: src/AccountManagement.tsx
 msgid "Hosted access was removed immediately. Hosted data deletion continues automatically in the background. Any local collection and mirror files remain on your computers."
-msgstr ""
+msgstr "Доступ к размещённым данным прекращён сразу. Удаление данных из хранилища продолжается автоматически в фоновом режиме. Все локальные коллекции и зеркальные файлы остаются на ваших компьютерах."
 
 #: src/authorization-view.tsx
 msgid "Hosted by mdbase"
-msgstr ""
+msgstr "Размещена в mdbase"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Hosted by mdbase"
-msgstr ""
+msgstr "Размещена в mdbase"
 
 #. placeholder {0}: countLabel(replicas.length, "folder")
 #: src/ConnectApp.tsx
 msgid "Hosted by mdbase · {0}"
-msgstr ""
+msgstr "Размещена в mdbase · {0}"
 
 #: src/authority-workflows.tsx
 msgid "Hosted collection"
-msgstr ""
+msgstr "Коллекция в mdbase"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Hosted collection"
-msgstr ""
+msgstr "Коллекция в mdbase"
 
 #: src/ConnectApp.tsx
 msgid "Hosted creation is unavailable on this server."
-msgstr ""
+msgstr "Создание коллекций в mdbase недоступно на этом сервере."
 
 #: src/authority-workflows.tsx
 msgid "Hosted service"
-msgstr ""
+msgstr "Сервис mdbase"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Hosted storage"
-msgstr ""
+msgstr "Хранилище mdbase"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Hosted writes are paused"
-msgstr ""
+msgstr "Запись в хранилище приостановлена"
 
 #: src/authorization-review.tsx
 msgid "How this type behaves in {applicationName}"
-msgstr ""
+msgstr "Как этот тип работает в {applicationName}"
 
 #: src/auth-view.tsx
 msgid "I agree to the <0>Terms of Service</0> and have read the <1>Privacy Policy</1>."
-msgstr ""
+msgstr "Я согласен с <0>Условиями использования</0> и ознакомился с <1>Политикой конфиденциальности</1>."
 
 #: src/AccountManagement.tsx
 msgid "Identity"
-msgstr ""
+msgstr "Личность"
 
 #: src/AccountManagement.tsx
 msgid "Identity and service configuration."
-msgstr ""
+msgstr "Настройки удостоверения личности и сервиса."
 
 #: src/AccountManagement.tsx
 msgid "Identity confirmed for this deletion."
-msgstr ""
+msgstr "Личность подтверждена для удаления."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Identity unavailable"
-msgstr ""
+msgstr "Не удалось подтвердить личность"
 
 #: src/auth-view.tsx
 msgid "If an mdbase connect account uses that address, its one-time reset link is on the way."
-msgstr ""
+msgstr "Если этот адрес привязан к учётной записи mdbase connect, на него придёт одноразовая ссылка для сброса пароля."
 
 #: src/auth-view.tsx
 msgid "If that address can be used, its one-time verification link is on the way."
-msgstr ""
+msgstr "Если этот адрес подходит, на него придёт одноразовая ссылка для подтверждения."
 
 #: src/ConnectApp.tsx
 msgid "If the desktop app does not open when you {action}, <0>install the latest release</0> and try again."
-msgstr ""
+msgstr "Если настольное приложение не открывается, когда вы {action}, <0>установите последнюю версию</0> и попробуйте снова."
 
 #. placeholder {0}: relativeTime(request.expires_at)
 #: src/authorization-view.tsx
 msgid "If the desktop app does not open, <0>install the current Connect release</0>, then return to this page. The request expires {0}."
-msgstr ""
+msgstr "Если настольное приложение не открывается, <0>установите текущую версию Connect</0> и вернитесь на эту страницу. Срок действия запроса: {0}."
 
 #: src/authorization-view.tsx
 msgid "If the value is already present, mdbase leaves the collection unchanged. Conflicting settings stop setup without overwriting policy."
-msgstr ""
+msgstr "Если значение уже есть, mdbase не изменит коллекцию. При конфликте настроек настройка остановится без перезаписи правил."
 
 #: src/authority-workflows.tsx
 msgid "If verification fails or this request expires, hosted writes resume."
-msgstr ""
+msgstr "Если проверка не пройдёт или срок запроса истечёт, запись в хранилище возобновится."
 
 #: src/authority-workflows.tsx
 msgid "In {collection}. Allow only if you just asked for this in {app}."
-msgstr ""
+msgstr "В коллекции {collection}. Разрешайте, только если вы только что запросили это в {app}."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Included storage"
-msgstr ""
+msgstr "Включённый объём хранилища"
 
 #. placeholder {0}: connector.minimum_connector_version ? t(i18n)`version ${connector.minimum_connector_version} or later` : t(i18n)({ message: "the latest release", context: "Connect interface" })
 #: src/ConnectApp.tsx
 msgid "Install {0}"
-msgstr ""
+msgstr "Установить {0}"
 
 #: src/authorization-view.tsx
 msgid "Install or update the application definitions declared by this version."
-msgstr ""
+msgstr "Установить или обновить определения приложения, указанные этой версией."
 
 #: src/ConnectApp.tsx
 msgid "Install the latest release"
-msgstr ""
+msgstr "Установить последнюю версию"
 
 #: src/ApplicationAccess.tsx
 msgid "Installation details"
-msgstr ""
+msgstr "Сведения об установке"
 
 #: src/ConnectApp.tsx
 msgid "Invitation ready"
-msgstr ""
+msgstr "Приглашение готово"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Invitation required"
-msgstr ""
+msgstr "Требуется приглашение"
 
 #: src/ConnectApp.tsx
 msgid "Invite using"
-msgstr ""
+msgstr "Пригласить с помощью"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Invite using"
-msgstr ""
+msgstr "Пригласить с помощью"
 
 #: src/auth-view.tsx
 msgid "Invited? Open the link in your invitation email. "
-msgstr ""
+msgstr "Получили приглашение? Откройте ссылку в письме с приглашением. "
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Invitee code"
-msgstr ""
+msgstr "Код приглашённого пользователя"
 
 #: src/auth-view.tsx
 msgid "Join the signup waitlist"
-msgstr ""
+msgstr "Записаться в очередь на регистрацию"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Just a moment…"
-msgstr ""
+msgstr "Подождите немного…"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "just now"
-msgstr ""
+msgstr "только что"
 
 #: src/authority-workflows.tsx
 msgid "Keep access"
-msgstr ""
+msgstr "Сохранить доступ"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Keep an offline replica"
-msgstr ""
+msgstr "Хранить автономную реплику"
 
 #: src/authority-workflows.tsx
 msgid "Keep it hosted"
-msgstr ""
+msgstr "Оставить в хранилище mdbase"
 
 #: src/authorization-review.tsx
 msgid "Keep your current records and explain which fields mean the same thing."
-msgstr ""
+msgstr "Сохраните текущие записи и укажите, какие поля означают одно и то же."
 
 #: src/LanguageSetting.tsx
 msgid "Language"
-msgstr ""
+msgstr "Язык"
 
 #. placeholder {0}: relativeTime(session.last_seen_at)
 #: src/AccountManagement.tsx
 msgid "Last used {0}"
-msgstr ""
+msgstr "Последнее использование: {0}"
 
 #: src/ApplicationAccess.tsx
 msgid "Legacy scoped access is revoked. Reauthorize this application for the entire collection."
-msgstr ""
+msgstr "Ранее выданный ограниченный доступ отозван. Разрешите этому приложению доступ ко всей коллекции заново."
 
 #: src/ConnectApp.tsx
 msgid "Link your account to an editable record in this collection. Collection access is approved separately."
-msgstr ""
+msgstr "Свяжите свою учётную запись с редактируемой записью в этой коллекции. Доступ к коллекции одобряется отдельно."
 
 #: src/authorization-review.tsx
 msgid "List file names and metadata"
-msgstr ""
+msgstr "Просматривать имена и метаданные файлов"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Loading account details…"
-msgstr ""
+msgstr "Загрузка данных учётной записи…"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Loading Google sign-in…"
-msgstr ""
+msgstr "Загрузка входа через Google…"
 
 #: src/GoogleIdentityButton.tsx
 msgctxt "Connect interface"
 msgid "Loading Google sign-in…"
-msgstr ""
+msgstr "Загрузка входа через Google…"
 
 #: src/ConnectApp.tsx
 msgid "Loading people…"
