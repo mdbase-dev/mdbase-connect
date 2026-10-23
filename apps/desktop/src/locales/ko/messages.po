@@ -507,52 +507,52 @@ msgstr "추가할 폴더 선택"
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Choose a location…"
-msgstr ""
+msgstr "위치 선택…"
 
 #: src/renderer/collections-view.tsx
 msgid "Choose a version for each of these files before turning on sync."
-msgstr ""
+msgstr "동기화를 켜기 전에 각 파일에서 유지할 버전을 선택하세요."
 
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Choose how to sync."
-msgstr ""
+msgstr "동기화 방법 선택"
 
 #: src/renderer/takeover-state.mts
 msgid "Choose Move to the new sync engine and allow hosted mirrors to stop. Edits they have not uploaded yet are kept and added when you join those collections on this computer."
-msgstr ""
+msgstr "'새 동기화 엔진으로 이동'을 선택하고 호스팅 미러 중지를 허용하세요. 아직 업로드하지 않은 편집은 보관되며 이 컴퓨터에서 해당 컬렉션에 연결하면 추가됩니다."
 
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Choose where to create the collection folder"
-msgstr ""
+msgstr "컬렉션 폴더를 만들 위치 선택"
 
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Choose where to create the folder."
-msgstr ""
+msgstr "폴더를 만들 위치를 선택하세요."
 
 #: src/renderer/takeover-state.mts
 msgid "Close apps that are editing this folder, then choose Move to the new sync engine."
-msgstr ""
+msgstr "이 폴더를 편집 중인 앱을 닫고 '새 동기화 엔진으로 이동'을 선택하세요."
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Close navigation"
-msgstr ""
+msgstr "탐색 메뉴 닫기"
 
 #: src/renderer/collections-view.tsx
 msgid "Cloud copy"
-msgstr ""
+msgstr "클라우드 사본"
 
 #: src/renderer/main.tsx
 msgid "Collection name"
-msgstr ""
+msgstr "컬렉션 이름"
 
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Collection name must be between 1 and 100 characters."
-msgstr ""
+msgstr "컬렉션 이름은 1~100자여야 합니다."
 
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
@@ -562,11 +562,11 @@ msgstr "컬렉션"
 
 #: src/renderer/main.tsx
 msgid "Collections stay on this computer. Synced collections send changes to mdbase; private sync encrypts them so mdbase cannot read them. Your account only receives collection names and app-access details."
-msgstr ""
+msgstr "컬렉션은 이 컴퓨터에 남습니다. 동기화된 컬렉션은 변경 사항을 mdbase로 보냅니다. 비공개 동기화에서는 암호화하므로 mdbase에서 읽을 수 없습니다. 계정에는 컬렉션 이름과 앱 액세스 정보만 전달됩니다."
 
 #: src/renderer/main.tsx
 msgid "Collections, app access and sync status in one place."
-msgstr ""
+msgstr "컬렉션, 앱 액세스, 동기화 상태를 한곳에서 관리하세요."
 
 #: src/renderer/main.tsx
 msgid "Color theme"
@@ -575,7 +575,7 @@ msgstr "색상 테마"
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Computer name"
-msgstr ""
+msgstr "컴퓨터 이름"
 
 #: src/renderer/main.tsx
 msgid "Connected"
@@ -590,17 +590,17 @@ msgstr "연결됨"
 #. placeholder {1}: entry.legacy_only ? t(i18n)({ message: " · older app version", context: "Connect interface" }) : ""
 #: src/renderer/access-view.tsx
 msgid "Connected {0}{1}"
-msgstr ""
+msgstr "연결됨 {0}{1}"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
 msgid "Connected apps"
-msgstr ""
+msgstr "연결된 앱"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Connected securely"
-msgstr ""
+msgstr "안전하게 연결됨"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -610,7 +610,7 @@ msgstr "연결 중"
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Connecting securely…"
-msgstr ""
+msgstr "안전하게 연결하는 중…"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -625,58 +625,58 @@ msgstr "연결"
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Could not check for updates"
-msgstr ""
+msgstr "업데이트를 확인하지 못했습니다"
 
 #. placeholder {0}: message(error)
 #: src/main/update-coordinator.ts
 msgid "Could not verify updates: {0}"
-msgstr ""
+msgstr "업데이트를 검증하지 못했습니다: {0}"
 
 #: src/renderer/collections-view.tsx
 msgid "Create"
-msgstr ""
+msgstr "만들기"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Create a collection"
-msgstr ""
+msgstr "컬렉션 만들기"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Create and edit"
-msgstr ""
+msgstr "만들기 및 편집"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "create and edit notes"
-msgstr ""
+msgstr "노트 만들기 및 편집"
 
 #: src/renderer/main.tsx
 msgid "Create collection"
-msgstr ""
+msgstr "컬렉션 만들기"
 
 #: src/renderer/main.tsx
 msgid "Create the folder in"
-msgstr ""
+msgstr "폴더를 만들 위치"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Decide what apps can do."
-msgstr ""
+msgstr "앱에서 할 수 있는 작업을 결정하세요."
 
 #: src/renderer/approval-prompt.tsx
 msgid "Decline"
-msgstr ""
+msgstr "거절"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
 msgid "Declined"
-msgstr ""
+msgstr "거절됨"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
 msgid "Declined or revoked here"
-msgstr ""
+msgstr "여기에서 거절 또는 철회됨"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -690,7 +690,7 @@ msgstr "노트 삭제"
 
 #: src/renderer/collections-view.tsx
 msgid "Deleted on another device"
-msgstr ""
+msgstr "다른 기기에서 삭제됨"
 
 #: src/renderer/collections-view.tsx
 msgid "Description"
@@ -702,7 +702,7 @@ msgstr "세부 정보"
 
 #: src/renderer/collections-view.tsx
 msgid "Differed when mdbase took over from the old app; this computer's version is in the folder"
-msgstr ""
+msgstr "mdbase가 이전 앱으로부터 제어권을 넘겨받을 때 내용이 달랐습니다. 이 컴퓨터의 버전은 다음 폴더에 있습니다"
 
 #: src/renderer/main.tsx
 msgid "Dismiss"
@@ -711,160 +711,160 @@ msgstr "닫기"
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "do nothing yet"
-msgstr ""
+msgstr "아직 아무 작업도 하지 않음"
 
 #. placeholder {0}: manifest.version
 #: src/main/update-coordinator.ts
 msgid "Downloading verified version {0}…"
-msgstr ""
+msgstr "검증된 버전 {0} 다운로드하는 중…"
 
 #: src/renderer/collections-view.tsx
 msgid "Each folder stays where it is. Sync is optional."
-msgstr ""
+msgstr "각 폴더는 현재 위치에 남습니다. 동기화는 선택 사항입니다."
 
 #: src/renderer/collections-view.tsx
 msgid "Edited here before the move but never uploaded, and changed elsewhere since; the current version is in the folder"
-msgstr ""
+msgstr "이동 전에 여기서 편집했지만 업로드되지 않았고 이후 다른 곳에서도 변경되었습니다. 현재 버전은 다음 폴더에 있습니다"
 
 #. placeholder {0}: imp.error
 #: src/renderer/takeover-state.mts
 msgid "Edits made in “{name}” before the move could not be read ({0}). They are kept in the old Connect data."
-msgstr ""
+msgstr "이동 전 “{name}”에서 편집한 내용을 읽을 수 없습니다({0}). 이전 Connect 데이터에 보관되어 있습니다."
 
 #: src/renderer/takeover-state.mts
 msgid "edits waiting to upload in hosted collections could not be saved for the move"
-msgstr ""
+msgstr "호스팅 컬렉션에서 업로드 대기 중인 편집 내용을 이동용으로 저장하지 못했습니다"
 
 #: src/renderer/takeover-state.mts
 msgid "Email support@mdbase.dev and include a diagnostics report. We'll finish your upgrade or move this computer back to mdbase Connect."
-msgstr ""
+msgstr "진단 보고서를 첨부해 support@mdbase.dev로 이메일을 보내세요. 업그레이드를 마무리하거나 이 컴퓨터를 mdbase Connect로 되돌리겠습니다."
 
 #: src/renderer/collections-view.tsx
 msgid "End-to-end encrypted: mdbase cannot read it. Web apps work only while one of your devices is online."
-msgstr ""
+msgstr "종단 간 암호화: mdbase에서 읽을 수 없습니다. 웹 앱은 기기 중 하나가 온라인일 때만 작동합니다."
 
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
-msgstr ""
+msgstr "이 컴퓨터의 이름을 입력하세요."
 
 #: src/renderer/device-requests.tsx
 msgid "Enter the six-digit code shown on the new {label}"
-msgstr ""
+msgstr "새 {label}에 표시된 6자리 코드를 입력하세요."
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Files"
-msgstr ""
+msgstr "파일"
 
 #: src/renderer/sign-in-panel.tsx
 msgctxt "Connect interface"
 msgid "Finish in your browser."
-msgstr ""
+msgstr "브라우저에서 마무리하세요."
 
 #: src/renderer/main.tsx
 msgid "Folder locations are never uploaded."
-msgstr ""
+msgstr "폴더 위치는 업로드되지 않습니다."
 
 #: src/renderer/main.tsx
 msgid "Folders on this computer that your apps can use, and how each one syncs."
-msgstr ""
+msgstr "앱에서 사용할 수 있는 이 컴퓨터의 폴더와 각 동기화 방법입니다."
 
 #. placeholder {0}: view.holds
 #: src/renderer/collections-view.tsx
 msgid "Hide {0, plural, one {# file} other {# files}}"
-msgstr ""
+msgstr "{0, plural, other {파일 #개 숨기기}}"
 
 #: src/renderer/takeover-state.mts
 msgid "hosted collections still have edits waiting to upload"
-msgstr ""
+msgstr "호스팅 컬렉션에 업로드 대기 중인 편집 내용이 남아 있습니다"
 
 #: src/renderer/main.tsx
 msgid "How new apps get access to your local collections."
-msgstr ""
+msgstr "새 앱의 로컬 컬렉션 액세스 방법"
 
 #: src/renderer/collections-view.tsx
 msgid "How should it sync?"
-msgstr ""
+msgstr "어떻게 동기화할까요?"
 
 #: src/renderer/main.tsx
 msgid "How this computer appears in your mdbase account"
-msgstr ""
+msgstr "mdbase 계정에 이 컴퓨터가 표시되는 방식"
 
 #. placeholder {0}: entry.app_name
 #. placeholder {1}: capabilityPhrase(entry.capabilities)
 #: src/renderer/access-view.tsx
 msgid "If you approve, {0} will be able to {1} in {where}, through this computer. You can revoke this at any time."
-msgstr ""
+msgstr "승인하면 {0}이(가) 이 컴퓨터를 통해 {where}에서 {1}을(를) 할 수 있습니다. 언제든 철회할 수 있습니다."
 
 #: src/renderer/device-requests.tsx
 msgid "If you approve, it can read and change everything in {name}, as this computer can."
-msgstr ""
+msgstr "승인하면 이 컴퓨터와 마찬가지로 {name}의 모든 내용을 읽고 변경할 수 있습니다."
 
 #. placeholder {0}: status.target_version
 #. placeholder {0}: update.target_version
 #: src/main/main.ts
 #: src/renderer/main.tsx
 msgid "Install {0}"
-msgstr ""
+msgstr "{0} 설치"
 
 #: src/main/update-coordinator.ts
 msgid "Installing version {target}. mdbase keeps syncing while the app restarts."
-msgstr ""
+msgstr "버전 {target} 설치 중. 앱이 다시 시작되는 동안에도 mdbase 동기화는 계속됩니다."
 
 #: src/renderer/daemon-view.mts
 msgid "It failed to open."
-msgstr ""
+msgstr "열지 못했습니다."
 
 #: src/renderer/takeover-state.mts
 msgctxt "Collection move recovery"
 msgid "it is not a text file"
-msgstr ""
+msgstr "텍스트 파일이 아님"
 
 #: src/renderer/takeover-state.mts
 msgid "It moves when you join that hosted collection on this computer."
-msgstr ""
+msgstr "이 컴퓨터에서 해당 호스팅 컬렉션에 연결하면 이동합니다."
 
 #: src/renderer/takeover-state.mts
 msgid "It retries when mdbase restarts. If it keeps failing, move again to see the error."
-msgstr ""
+msgstr "mdbase가 다시 시작되면 재시도합니다. 계속 실패한다면 이동을 다시 시도해 오류를 확인하세요."
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Joining this collection…"
-msgstr ""
+msgstr "이 컬렉션에 연결하는 중…"
 
 #: src/renderer/collections-view.tsx
 msgid "Keep both"
-msgstr ""
+msgstr "둘 다 유지"
 
 #: src/renderer/collections-view.tsx
 msgid "Keep current"
-msgstr ""
+msgstr "현재 버전 유지"
 
 #: src/renderer/main.tsx
 msgid "Keep mdbase connect in the tray without opening a window."
-msgstr ""
+msgstr "창을 열지 않고 mdbase connect를 트레이에 유지합니다."
 
 #: src/renderer/takeover-state.mts
 msgid "Keep mdbase open. This can take a few minutes."
-msgstr ""
+msgstr "mdbase를 열어 두세요. 몇 분 걸릴 수 있습니다."
 
 #: src/renderer/takeover-state.mts
 msgid "Keep mdbase open. Your files stay where they are."
-msgstr ""
+msgstr "mdbase를 열어 두세요. 파일은 현재 위치에 남습니다."
 
 #: src/renderer/collections-view.tsx
 msgid "Keep this computer's"
-msgstr ""
+msgstr "이 컴퓨터의 버전 유지"
 
 #: src/renderer/main.tsx
 msgid "Keeps apps on your other devices connected to this computer"
-msgstr ""
+msgstr "다른 기기의 앱이 이 컴퓨터에 계속 연결되도록 합니다"
 
 #: src/renderer/activity-view.tsx
 msgid "Kept on this computer only: the last 200 changes."
-msgstr ""
+msgstr "이 컴퓨터에만 보관됨: 최근 변경 사항 200개"
 
 #: src/renderer/language-setting.tsx
 msgid "Language"
@@ -873,15 +873,15 @@ msgstr "언어"
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Launch at login is off."
-msgstr ""
+msgstr "로그인 시 실행이 꺼져 있습니다."
 
 #: src/renderer/main.tsx
 msgid "Launch in the tray when you sign in"
-msgstr ""
+msgstr "로그인 시 트레이에서 실행"
 
 #: src/renderer/takeover-state.mts
 msgid "Leave mdbase Connect's data in place and contact support with a diagnostics report."
-msgstr ""
+msgstr "mdbase Connect 데이터를 그대로 두고 진단 보고서를 첨부해 지원팀에 문의하세요."
 
 #: src/renderer/collections-view.tsx
 msgid "Loading…"
@@ -889,112 +889,112 @@ msgstr "불러오는 중…"
 
 #: src/renderer/collections-view.tsx
 msgid "Looked like an accidental overwrite"
-msgstr ""
+msgstr "실수로 덮어쓴 것으로 보임"
 
 #: src/renderer/main.tsx
 msgid "Manage in mdbase"
-msgstr ""
+msgstr "mdbase에서 관리"
 
 #: src/renderer/access-view.tsx
 msgid "Mark as seen"
-msgstr ""
+msgstr "확인함으로 표시"
 
 #. placeholder {0}: bundled.version
 #. placeholder {1}: result.version
 #: src/main/main.ts
 msgid "mdbase {0} did not start on this computer, so mdbase {1} keeps running. The next app update tries again."
-msgstr ""
+msgstr "이 컴퓨터에서 mdbase {0}이(가) 시작되지 않아 mdbase {1}이(가) 계속 실행 중입니다. 다음 앱 업데이트에서 다시 시도합니다."
 
 #: src/renderer/access-view.tsx
 msgid "mdbase asks you to confirm on this computer's screen, with the app's key."
-msgstr ""
+msgstr "mdbase가 이 컴퓨터 화면에 앱 키와 함께 확인 요청을 표시합니다."
 
 #: src/renderer/daemon-view.mts
 msgid "mdbase cannot reach the sync service. It opens the collection when you are back online."
-msgstr ""
+msgstr "mdbase가 동기화 서비스에 연결할 수 없습니다. 다시 온라인이 되면 컬렉션을 엽니다."
 
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "mdbase connect could not initialize"
-msgstr ""
+msgstr "mdbase connect를 초기화하지 못했습니다"
 
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "mdbase connect could not install the update"
-msgstr ""
+msgstr "mdbase connect 업데이트를 설치하지 못했습니다"
 
 #: src/renderer/view-model.ts
 msgid "mdbase connect could not reach the service. Check your connection and try again."
-msgstr ""
+msgstr "mdbase connect가 서비스에 연결할 수 없습니다. 연결 상태를 확인하고 다시 시도하세요."
 
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "mdbase connect could not start"
-msgstr ""
+msgstr "mdbase connect를 시작하지 못했습니다"
 
 #: src/renderer/ui-components.tsx
 msgid "mdbase connect navigation"
-msgstr ""
+msgstr "mdbase connect 탐색"
 
 #: src/renderer/main.tsx
 msgid "mdbase connect will start at login."
-msgstr ""
+msgstr "로그인할 때 mdbase connect가 시작됩니다."
 
 #: src/renderer/access-view.tsx
 msgid "mdbase could not fetch what this app is asking for, or which folders. Approval is possible once it can."
-msgstr ""
+msgstr "mdbase가 이 앱의 요청 내용이나 대상 폴더를 가져오지 못했습니다. 가져올 수 있게 되면 승인할 수 있습니다."
 
 #: src/renderer/view-model.ts
 msgid "mdbase could not reach the sync service. Check your connection and try again. {unchanged}"
-msgstr ""
+msgstr "mdbase가 동기화 서비스에 연결할 수 없습니다. 연결 상태를 확인하고 다시 시도하세요. {unchanged}"
 
 #: src/renderer/activity-view.tsx
 msgid "mdbase could not read this computer's activity. It is retried automatically."
-msgstr ""
+msgstr "mdbase가 이 컴퓨터의 활동을 읽지 못했습니다. 자동으로 다시 시도합니다."
 
 #: src/renderer/view-model.ts
 msgid "mdbase could not verify the sync service for this computer. Update mdbase or contact support@mdbase.dev. {unchanged}"
-msgstr ""
+msgstr "mdbase가 이 컴퓨터의 동기화 서비스를 검증하지 못했습니다. mdbase를 업데이트하거나 support@mdbase.dev로 문의하세요. {unchanged}"
 
 #: src/renderer/main.tsx
 msgid "mdbase creates a new folder with this name and keeps it on this computer. You can turn on sync later."
-msgstr ""
+msgstr "mdbase는 이 이름으로 새 폴더를 만들고 이 컴퓨터에 보관합니다. 나중에 동기화를 켤 수 있습니다."
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "mdbase daemon"
-msgstr ""
+msgstr "mdbase 데몬"
 
 #: src/main/daemon-session.ts
 msgctxt "Desktop application"
 msgid "mdbase is not running"
-msgstr ""
+msgstr "mdbase가 실행 중이 아닙니다"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "mdbase is not running"
-msgstr ""
+msgstr "mdbase가 실행 중이 아닙니다"
 
 #: src/renderer/main.tsx
 msgid "mdbase is not running on this computer. It restarts automatically; if this stays, restart mdbase connect."
-msgstr ""
+msgstr "이 컴퓨터에서 mdbase가 실행 중이 아닙니다. 자동으로 다시 시작됩니다. 계속되면 mdbase connect를 재시작하세요."
 
 #: src/renderer/collections-view.tsx
 msgid "mdbase keeps a copy, so web apps and agents can use it while your devices are off."
-msgstr ""
+msgstr "mdbase에서 사본을 보관하므로 기기가 꺼져 있어도 웹 앱과 에이전트가 사용할 수 있습니다."
 
 #: src/renderer/collections-view.tsx
 msgid "mdbase kept these files instead of overwriting them. Choose which version to keep."
-msgstr ""
+msgstr "mdbase가 덮어쓰지 않고 이 파일들을 보관했습니다. 유지할 버전을 선택하세요."
 
 #: src/main/main.ts
 msgid "mdbase needs attention"
-msgstr ""
+msgstr "mdbase 확인 필요"
 
 #: src/main/daemon-session.ts
 msgctxt "Desktop application"
 msgid "mdbase needs attention"
-msgstr ""
+msgstr "mdbase 확인 필요"
 
 #: src/main/daemon-session.ts
 msgctxt "Desktop application"
