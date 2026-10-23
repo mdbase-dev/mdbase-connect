@@ -1710,7 +1710,6 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   ));
   const collectionTrack = Math.min(preferredCollectionTrack, collectionResizeMax);
   const listTrack = Math.min(preferredListTrack, listResizeMax);
-  const listName = surface === "types" ? "types" : "notes";
   const historyBackPath = noteHistoryState.paths[noteHistoryState.index - 1];
   const historyForwardPath = noteHistoryState.paths[noteHistoryState.index + 1];
   const activeRemoteDocument = noteSessions.current.active?.remoteDocument;
@@ -1781,8 +1780,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     action: { label: t`Retry note`, onAction: () => navigateToNote(noteOpenFailure.path, noteOpenFailure.options) }
   });
   const editorLeadingActions = layout.listCollapsed ? <>
-    {layout.collectionCollapsed && <PaneControl pane="collections" label={t`Show collections sidebar`} action={t`show`} onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
-    <PaneControl pane="list" label={t`Show ${listName} sidebar`} action={t`show`} onClick={() => setLayout((current) => ({ ...current, listCollapsed: false }))} />
+    {layout.collectionCollapsed && <PaneControl pane="collections" label={t`Show collections sidebar`} visibility="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
+    <PaneControl pane="list" label={surface === "types" ? t`Show types sidebar` : t`Show notes sidebar`} visibility="show" onClick={() => setLayout((current) => ({ ...current, listCollapsed: false }))} />
   </> : undefined;
   const notePathControl = document && (editingPath ? <form onSubmit={(event) => { event.preventDefault(); void requestRename(); }}>
     <label className="sr-only" htmlFor="note-path"><Trans>Markdown path</Trans></label>
@@ -1895,8 +1894,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         onDelete={(path) => { if (listSelection.paths.length > 1 && listSelection.paths.includes(path)) void deleteSelectedNotes(listSelection.paths); else void requestDelete(path); }}
         onCreate={canCreateNotes ? beginCreate : undefined}
         onCollections={() => returnToMobilePane("collections")}
-        leadingActions={layout.collectionCollapsed && <PaneControl pane="collections" label={t`Show collections sidebar`} action={t`show`} onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
-        trailingActions={<PaneControl pane="list" label={t`Hide notes sidebar`} action={t`hide`} onClick={() => setLayout((current) => ({ ...current, listCollapsed: true }))} />}
+        leadingActions={layout.collectionCollapsed && <PaneControl pane="collections" label={t`Show collections sidebar`} visibility="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
+        trailingActions={<PaneControl pane="list" label={t`Hide notes sidebar`} visibility="hide" onClick={() => setLayout((current) => ({ ...current, listCollapsed: true }))} />}
       />}
       {selectedCollectionFile && selectedFileAsset ? <Suspense fallback={<PaneSkeleton label={t`Loading file viewer`} leadingActions={editorLeadingActions} variant="canvas" />}><FileWorkspace
         file={selectedCollectionFile}
@@ -2043,7 +2042,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     </>}
 
     {surface === "types" && <Suspense fallback={<TypeWorkspaceLoading />}>{missingTypeCapabilities(connectionSummary).length > 0 ? <TypeAccessPrompt
-      leadingActions={layout.collectionCollapsed && <PaneControl pane="collections" label={t`Show collections sidebar`} action={t`show`} onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
+      leadingActions={layout.collectionCollapsed && <PaneControl pane="collections" label={t`Show collections sidebar`} visibility="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
       onAuthorize={() => void connectCollection()}
       onBack={() => returnToMobilePane("collections")}
     /> : <>
@@ -2051,8 +2050,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         types={description.types}
         selectedName={typeWorkspace === "definition" ? selectedTypeName : undefined}
         packsSelected={typeWorkspace === "packs"}
-        leadingActions={layout.collectionCollapsed && <PaneControl pane="collections" label={t`Show collections sidebar`} action={t`show`} onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
-        trailingActions={<PaneControl pane="list" label={t`Hide types sidebar`} action={t`hide`} onClick={() => setLayout((current) => ({ ...current, listCollapsed: true }))} />}
+        leadingActions={layout.collectionCollapsed && <PaneControl pane="collections" label={t`Show collections sidebar`} visibility="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
+        trailingActions={<PaneControl pane="list" label={t`Hide types sidebar`} visibility="hide" onClick={() => setLayout((current) => ({ ...current, listCollapsed: true }))} />}
         onSelect={selectType}
         onPacks={openTypePacks}
         onCreate={canManageTypes ? beginTypeCreate : undefined}
@@ -2103,7 +2102,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       noteCount={allNotes.length}
       preferences={preferences}
       directAccessBusy={directAccessBusy}
-      leadingActions={layout.collectionCollapsed && <PaneControl pane="collections" label={t`Show collections sidebar`} action={t`show`} onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
+      leadingActions={layout.collectionCollapsed && <PaneControl pane="collections" label={t`Show collections sidebar`} visibility="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
       onChange={setPreferences}
       onBack={() => returnToMobilePane("collections")}
       onForget={requestForgetCurrentCollection}
@@ -2123,7 +2122,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       />}
       {hasListPane && !layout.listCollapsed && <PaneResizeHandle
         className="list-resizer"
-        label={t`Resize ${listName} sidebar`}
+        label={surface === "types" ? t`Resize types sidebar` : t`Resize notes sidebar`}
         value={listTrack}
         min={LIST_WIDTH.min}
         max={listResizeMax}

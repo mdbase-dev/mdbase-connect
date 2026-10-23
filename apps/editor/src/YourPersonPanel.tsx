@@ -236,7 +236,7 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
         {setup && <section ref={setupPanel} className="settings-review" tabIndex={-1} aria-label={t`Review person setup`}>
           {setup.upgrade ? <>
             <h3><Trans>Update the Person type?</Trans></h3>
-            <p><Trans>Upgrade </Trans><code>{setup.upgrade.target}</code> <Trans>to the current Person starter. </Trans>{setup.upgrade.merged
+            <p><Trans>Upgrade <code>{setup.upgrade.target}</code> to the current Person starter. </Trans>{setup.upgrade.merged
               ? t`Your edits to this type are kept; only the starter's own changes are merged in.`
               : t`It has not been edited since it was added, so it is replaced with the new starter.`} <Trans>Existing notes, other definitions, and access permissions will not be changed.</Trans></p>
           </> : <>

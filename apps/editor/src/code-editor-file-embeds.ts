@@ -1,4 +1,5 @@
 import { t } from "@lingui/core/macro";
+import { i18n } from "@lingui/core";
 import { EditorSelection, EditorState, StateEffect, StateField, Transaction, type Extension, type Range, type Text } from "@codemirror/state";
 import { isolateHistory } from "@codemirror/commands";
 import { attachmentUploadFailure, type AttachmentUploader, type AttachmentUploadFailure } from "./AttachmentUpload";
@@ -9,6 +10,7 @@ import type { ResolvedFileReference } from "./use-file-assets";
 import { embedActions, focusEmbedOnPointer } from "./embed-actions";
 
 class FileEmbedWidget extends WidgetType {
+  readonly locale = i18n.locale;
   private unmountInlinePdf?: () => void;
   private textRequest?: AbortController;
 
@@ -20,7 +22,7 @@ class FileEmbedWidget extends WidgetType {
   eq(other: FileEmbedWidget) {
     const current = this.reference.asset;
     const next = other.reference.asset;
-    return Boolean(this.open) === Boolean(other.open)
+    return this.locale === other.locale && Boolean(this.open) === Boolean(other.open)
       && current.file.fileId === next.file.fileId
       && current.file.revision === next.file.revision
       && current.status === next.status
@@ -35,7 +37,7 @@ class FileEmbedWidget extends WidgetType {
     preview.className = `cm-file-embed cm-file-embed-${asset.file.mediaClass} ${asset.status}`;
     preview.tabIndex = 0;
     focusEmbedOnPointer(preview);
-    preview.setAttribute("aria-label", asset.status === "ready" ? t`Preview ${filename}` : t`Preview ${filename}`);
+    preview.setAttribute("aria-label", t`Preview ${filename}`);
 
     if (!isInlinePreviewable(asset.file)) {
       const unavailable = document.createElement("div");
@@ -169,9 +171,10 @@ const pendingAttachments = StateField.define<readonly PendingAttachment[]>({
 });
 
 class AttachmentWidget extends WidgetType {
+  readonly locale = i18n.locale;
   constructor(readonly job: PendingAttachment, readonly disabled: boolean) { super(); }
   eq(other: AttachmentWidget) {
-    return this.job.id === other.job.id && this.job.error?.message === other.job.error?.message
+    return this.locale === other.locale && this.job.id === other.job.id && this.job.error?.message === other.job.error?.message
       && this.job.error?.retryable === other.job.error?.retryable && this.disabled === other.disabled;
   }
   toDOM() {

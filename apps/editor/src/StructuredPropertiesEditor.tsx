@@ -286,7 +286,7 @@ function StringListEditor({ name, value, suggestions, onChange }: { name: string
         onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))}
       />
     </div>)}
-    <button type="button" onClick={() => onChange([...value, ""])}><Plus aria-hidden="true" /> <Trans>Add </Trans>{name === "tags" ? t`tag` : t`item`}</button>
+    <button type="button" onClick={() => onChange([...value, ""])}><Plus aria-hidden="true" /> {name === "tags" ? t`Add tag` : t`Add item`}</button>
   </div>;
 }
 

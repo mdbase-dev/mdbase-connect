@@ -124,7 +124,7 @@ export function OutlinePanel({ headings, onReveal, onClose }: { headings: NoteHe
 
 export function InspectorFrame({ overlay, label, width, onClose, children }: {
   overlay: boolean;
-  label: "Note properties" | "Backlinks";
+  label: string;
   width: number;
   onClose: () => void;
   children: ReactNode;
@@ -145,7 +145,7 @@ export function InspectorFrame({ overlay, label, width, onClose, children }: {
   </Dialog>;
 }
 
-export function InspectorPanelLoading({ label }: { label: "Note properties" | "Backlinks" }) {
+export function InspectorPanelLoading({ label }: { label: string }) {
   useLingui();
   return <aside className="properties-panel properties-panel-loading" aria-label={label} aria-busy="true"><strong>{label}</strong><p role="status"><Trans>Loading…</Trans></p></aside>;
 }
@@ -188,9 +188,9 @@ export function EmptyEditor({ leadingActions, notice, onCreate, onRetry }: {
 }
 
 // The collections rail and the list pane get different glyphs so their controls are never confused when they sit side by side.
-export function PaneControl({ pane, label, action, onClick }: { pane: "collections" | "list"; label: string; action: "show" | "hide"; onClick: () => void }) {
+export function PaneControl({ pane, label, visibility, onClick }: { pane: "collections" | "list"; label: string; visibility: "show" | "hide"; onClick: () => void }) {
   useLingui();
-  const icon = pane === "collections" ? <Sidebar aria-hidden="true" /> : <ArrowLineLeft aria-hidden="true" mirrored={action === "show"} />;
+  const icon = pane === "collections" ? <Sidebar aria-hidden="true" /> : <ArrowLineLeft aria-hidden="true" mirrored={visibility === "show"} />;
   return <button className="icon-button desktop-pane-control" aria-label={label} title={label} onClick={onClick}>{icon}</button>;
 }
 
