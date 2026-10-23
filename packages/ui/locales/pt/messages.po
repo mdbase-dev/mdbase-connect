@@ -11,7 +11,7 @@ msgstr ""
 #. placeholder {1}: contractField.label
 #: contract-setup.ts
 msgid "{0} can supply {1}."
-msgstr ""
+msgstr "{0} pode fornecer {1}."
 
 #. placeholder {0}: typeField.label
 #. placeholder {1}: kindLabel(typeField.kind)
@@ -19,289 +19,289 @@ msgstr ""
 #. placeholder {3}: kindLabel(contractField.kind)
 #: contract-setup.ts
 msgid "{0} is {1}, but {2} needs {3}."
-msgstr ""
+msgstr "{0} é {1}, mas {2} precisa de {3}."
 
 #: contract-setup.ts
 msgctxt "Collection field mapping"
 msgid "a complex value"
-msgstr ""
+msgstr "um valor complexo"
 
 #: contract-setup.ts
 msgctxt "Collection field mapping"
 msgid "a date"
-msgstr ""
+msgstr "uma data"
 
 #: contract-setup.ts
 msgctxt "Collection field mapping"
 msgid "a date and time"
-msgstr ""
+msgstr "uma data e hora"
 
 #: contract-setup.ts
 msgctxt "Collection field mapping"
 msgid "a group of values"
-msgstr ""
+msgstr "um grupo de valores"
 
 #: contract-setup.ts
 msgctxt "Collection field mapping"
 msgid "a list"
-msgstr ""
+msgstr "uma lista"
 
 #: contract-setup.ts
 msgctxt "Collection field mapping"
 msgid "a number"
-msgstr ""
+msgstr "um número"
 
 #: contract-setup.ts
 msgctxt "Collection field mapping"
 msgid "a whole number"
-msgstr ""
+msgstr "um número inteiro"
 
 #: contract-setup.ts
 msgctxt "Collection field mapping"
 msgid "a yes/no value"
-msgstr ""
+msgstr "um valor sim/não"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Add record types"
-msgstr ""
+msgstr "Adicionar tipos de registro"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Additional operations declared by this application."
-msgstr ""
+msgstr "Operações adicionais declaradas por este aplicativo."
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Cancel this app's scheduled activity"
-msgstr ""
+msgstr "Cancelar a atividade agendada deste aplicativo"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Change record types"
-msgstr ""
+msgstr "Alterar tipos de registro"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Change records"
-msgstr ""
+msgstr "Alterar registros"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Change saved views"
-msgstr ""
+msgstr "Alterar visualizações salvas"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Check available record types"
-msgstr ""
+msgstr "Verificar tipos de registro disponíveis"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Check collection validity"
-msgstr ""
+msgstr "Verificar a validade da coleção"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Check what this app needs to set up"
-msgstr ""
+msgstr "Verificar o que este aplicativo precisa configurar"
 
 #. placeholder {0}: contractField.label
 #: contract-setup.ts
 msgid "Choose which field supplies {0}."
-msgstr ""
+msgstr "Escolha qual campo fornece {0}."
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Create and edit records"
-msgstr ""
+msgstr "Criar e editar registros"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Create or change saved views and type definitions."
-msgstr ""
+msgstr "Criar ou alterar visualizações salvas e definições de tipos."
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Create or update this app's scheduled activity"
-msgstr ""
+msgstr "Criar ou atualizar a atividade agendada deste aplicativo"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Create records"
-msgstr ""
+msgstr "Criar registros"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Create saved views"
-msgstr ""
+msgstr "Criar visualizações salvas"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Create, edit, rename, or move records."
-msgstr ""
+msgstr "Criar, editar, renomear ou mover registros."
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Delete records"
-msgstr ""
+msgstr "Excluir registros"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Delete saved views"
-msgstr ""
+msgstr "Excluir visualizações salvas"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Describe the collection"
-msgstr ""
+msgstr "Descrever a coleção"
 
 #: contract-setup.ts
 msgctxt "Collection field mapping"
 msgid "Doesn’t match"
-msgstr ""
+msgstr "Não corresponde"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Inspect saved-view definitions"
-msgstr ""
+msgstr "Inspecionar definições de visualizações salvas"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Install or update record types"
-msgstr ""
+msgstr "Instalar ou atualizar tipos de registro"
 
 #. placeholder {0}: url.host
 #: access.ts
 msgid "Local development ({0})"
-msgstr ""
+msgstr "Desenvolvimento local ({0})"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Manage collection structure"
-msgstr ""
+msgstr "Gerenciar a estrutura da coleção"
 
 #: contract-setup.ts
 msgctxt "Collection field mapping"
 msgid "Matches"
-msgstr ""
+msgstr "Corresponde"
 
 #: contract-setup.ts
 msgctxt "Collection field mapping"
 msgid "Not shared"
-msgstr ""
+msgstr "Não compartilhado"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Other permissions"
-msgstr ""
+msgstr "Outras permissões"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Permanently remove records from this collection."
-msgstr ""
+msgstr "Remover registros permanentemente desta coleção."
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Read collection details, records, saved views, and type definitions."
-msgstr ""
+msgstr "Ler detalhes da coleção, registros, visualizações salvas e definições de tipos."
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Read records"
-msgstr ""
+msgstr "Ler registros"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Rename or move records"
-msgstr ""
+msgstr "Renomear ou mover registros"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Replace this app's scheduled activity"
-msgstr ""
+msgstr "Substituir a atividade agendada deste aplicativo"
 
 #: contract-setup.ts
 msgctxt "Collection field mapping"
 msgid "Required"
-msgstr ""
+msgstr "Obrigatório"
 
 #: contract-setup.ts
 msgctxt "Collection field mapping"
 msgid "Review"
-msgstr ""
+msgstr "Revisar"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Run saved views"
-msgstr ""
+msgstr "Executar visualizações salvas"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Schedule app activity"
-msgstr ""
+msgstr "Agendar atividade do aplicativo"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Search and query"
-msgstr ""
+msgstr "Pesquisar e consultar"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "See collection changes"
-msgstr ""
+msgstr "Ver alterações na coleção"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "See saved views"
-msgstr ""
+msgstr "Ver visualizações salvas"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "See this app's scheduled activity"
-msgstr ""
+msgstr "Ver a atividade agendada deste aplicativo"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "Set up this app in the collection"
-msgstr ""
+msgstr "Configurar este aplicativo na coleção"
 
 #: contract-setup.ts
 msgctxt "Collection field mapping"
 msgid "Some existing records may not have this required value."
-msgstr ""
+msgstr "Alguns registros existentes podem não ter este valor obrigatório."
 
 #: contract-setup.ts
 msgctxt "Collection field mapping"
 msgid "Some existing values are outside the application’s accepted set."
-msgstr ""
+msgstr "Alguns valores existentes estão fora do conjunto aceito pelo aplicativo."
 
 #: contract-setup.ts
 msgctxt "Collection field mapping"
 msgid "The existing field allows values the application may not understand."
-msgstr ""
+msgstr "O campo existente permite valores que o aplicativo talvez não entenda."
 
 #: contract-setup.ts
 msgctxt "Collection field mapping"
 msgid "The two fields allow different values."
-msgstr ""
+msgstr "Os dois campos permitem valores diferentes."
 
 #: contract-setup.ts
 msgctxt "Collection field mapping"
 msgid "This optional value will not be shared with the application."
-msgstr ""
+msgstr "Este valor opcional não será compartilhado com o aplicativo."
 
 #: access.ts
 msgctxt "Application permission"
 msgid "View and find records"
-msgstr ""
+msgstr "Visualizar e localizar registros"
 
 #: access.ts
 msgctxt "Application permission"
 msgid "View and manage timers owned by this application."
-msgstr ""
+msgstr "Visualizar e gerenciar temporizadores pertencentes a este aplicativo."
 
 #: access.ts
 msgctxt "Application permission"
 msgid "View record types"
-msgstr ""
+msgstr "Visualizar tipos de registro"
