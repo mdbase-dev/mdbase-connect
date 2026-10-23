@@ -161,7 +161,7 @@ msgstr "{0, plural, one {¿Cambiar el nombre de “{basename}” y mover # nota?
 #. placeholder {2}: node.path
 #: src/CollectionRail.tsx
 msgid "{0, plural, one {Show notes in {1}, # note} other {Show notes in {2}, # notes}}"
-msgstr ""
+msgstr "{0, plural, one {Mostrar notas en {1}, # nota} other {Mostrar notas en {2}, # notas}}"
 
 #. placeholder {0}: files.length
 #: src/AttachmentUpload.tsx
@@ -297,7 +297,7 @@ msgstr "{0} ahora · {1} obtienen este tipo · {2} lo pierden"
 #. placeholder {1}: suggestion.totalFields
 #: src/TypeBrowser.tsx
 msgid "{0} of {1} fields match"
-msgstr ""
+msgstr "Coinciden {0} de {1} campos"
 
 #. placeholder {0}: noteCount.toLocaleString(displayLocale())
 #. placeholder {1}: total?.toLocaleString(displayLocale()) ?? "…"
@@ -654,7 +654,7 @@ msgstr "{references, plural, one {También se actualizaron los enlaces de # nota
 #. placeholder {1}: fields.length
 #: src/TypeBrowser.tsx
 msgid "{requiredMapped}/{0} required · {mappedCount}/{1} total"
-msgstr ""
+msgstr "{requiredMapped}/{0} obligatorios · {mappedCount}/{1} en total"
 
 #: src/NewNoteComposer.tsx
 msgid "{selectedOptional} set"
@@ -1530,11 +1530,11 @@ msgstr "La colección cambió antes de que terminara el paquete de tipos."
 
 #: src/CollectionRail.tsx
 msgid "Collection changes saved on this device; waiting for sync"
-msgstr ""
+msgstr "Cambios de la colección guardados en este dispositivo; esperando la sincronización"
 
 #: src/CollectionRail.tsx
 msgid "Collection connected"
-msgstr ""
+msgstr "Colección conectada"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -1560,7 +1560,7 @@ msgstr "Notas y archivos de la colección"
 
 #: src/CollectionRail.tsx
 msgid "Collection offline"
-msgstr ""
+msgstr "Colección sin conexión"
 
 #: src/ConnectionScreens.tsx
 msgid "Collection options for {name}"
@@ -1568,7 +1568,7 @@ msgstr "Opciones de la colección {name}"
 
 #: src/CollectionRail.tsx
 msgid "Collection reconnecting"
-msgstr ""
+msgstr "Reconectando la colección"
 
 #: src/TypeBrowser.tsx
 msgid "Collection resources"
@@ -1581,7 +1581,7 @@ msgstr "Raíz de la colección"
 
 #: src/CollectionRail.tsx
 msgid "Collection stopped"
-msgstr ""
+msgstr "Sincronización de la colección detenida"
 
 #: src/EditorRail.tsx
 msgid "Collection tools"
@@ -3173,7 +3173,7 @@ msgstr "Mover «{basename}»"
 #. placeholder {1}: plan.referenceCount
 #: src/FolderChangeDialog.tsx
 msgid "Move {0, plural, one {# note} other {# notes}} and update {1, plural, one {# link} other {# links}}?"
-msgstr ""
+msgstr "¿Mover {0, plural, one {# nota} other {# notas}} y actualizar {1, plural, one {# enlace} other {# enlaces}}?"
 
 #. placeholder {0}: paths.length
 #: src/MoveNoteDialog.tsx
@@ -4202,7 +4202,7 @@ msgstr "Cambiar el nombre de «{basename}»"
 #. placeholder {1}: plan.referenceCount
 #: src/FolderChangeDialog.tsx
 msgid "Rename ‘{basename}’ and move {0, plural, one {# note} other {# notes}} and update {1, plural, one {# link} other {# links}}?"
-msgstr ""
+msgstr "¿Cambiar el nombre de ‘{basename}’, mover {0, plural, one {# nota} other {# notas}} y actualizar {1, plural, one {# enlace} other {# enlaces}}?"
 
 #: src/App.tsx
 msgid "Rename and update links"
@@ -4290,11 +4290,11 @@ msgstr "Cambiar el tamaño del inspector de la nota"
 
 #: src/App.tsx
 msgid "Resize notes sidebar"
-msgstr ""
+msgstr "Cambiar el tamaño de la barra lateral de notas"
 
 #: src/App.tsx
 msgid "Resize types sidebar"
-msgstr ""
+msgstr "Cambiar el tamaño de la barra lateral de tipos"
 
 #: src/next-editor-records.ts
 msgid "Resolve this note's protected edit before changing it."
@@ -4482,7 +4482,7 @@ msgstr "Guardar afecta a todas las notas coincidentes"
 #. placeholder {0}: type!.name
 #: src/TypeBrowser.tsx
 msgid "Saving affects every note of type <0>{0}</0>"
-msgstr ""
+msgstr "Al guardar, se verán afectadas todas las notas del tipo <0>{0}</0>"
 
 #: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
@@ -4635,11 +4635,11 @@ msgstr "Mostrar menos"
 #. placeholder {1}: node.count
 #: src/CollectionRail.tsx
 msgid "Show notes in {0}, {1} or more notes"
-msgstr ""
+msgstr "Mostrar notas de {0}: {1} o más"
 
 #: src/App.tsx
 msgid "Show notes sidebar"
-msgstr ""
+msgstr "Mostrar la barra lateral de notas"
 
 #: src/editor-commands.ts
 msgid "Show or hide the notes sidebar"
@@ -4647,7 +4647,7 @@ msgstr "Mostrar u ocultar la barra lateral de notas"
 
 #: src/App.tsx
 msgid "Show types sidebar"
-msgstr ""
+msgstr "Mostrar la barra lateral de tipos"
 
 #: src/App.tsx
 msgid "Sidebar layout controls"
@@ -4881,11 +4881,11 @@ msgstr "El tipo <0>{0}</0> es una versión anterior del tipo inicial Person. Rev
 
 #: src/TypeBrowser.tsx
 msgid "The after-save preview is unavailable because additional YAML rules must be evaluated by the collection."
-msgstr ""
+msgstr "La vista previa posterior al guardado no está disponible porque la colección debe evaluar reglas YAML adicionales."
 
 #: src/TypeBrowser.tsx
 msgid "The after-save preview is unavailable because some matching rules must be evaluated by the collection."
-msgstr ""
+msgstr "La vista previa posterior al guardado no está disponible porque la colección debe evaluar algunas reglas de coincidencia."
 
 #: src/contract-catalog.ts
 msgid "The catalog contains duplicate {label} {identity}."
@@ -5813,7 +5813,7 @@ msgstr "actualizar"
 #. placeholder {0}: setup.upgrade.target
 #: src/YourPersonPanel.tsx
 msgid "Upgrade <0>{0}</0> to the current Person starter. "
-msgstr ""
+msgstr "Actualizar <0>{0}</0> a la plantilla actual de Person. "
 
 #. placeholder {0}: files[0]!.name
 #: src/AttachmentUpload.tsx
