@@ -56,19 +56,15 @@ function noIO() {
 describe("LAB owner-readonly CLI override", () => {
   const source = "postgresql://synthetic_lab_owner:synthetic@dpg-dabpdaon74is7380br1g-a:5432/mdbase_lab_beta94_202609020323211110102?options=-cdefault_transaction_read_only%3Don";
   const overrides = { MDBASE_LEGACY_PROVIDER_DATABASE_URL: source, MDBASE_LEGACY_PROVIDER_LAB_OWNER_READONLY_ROLE: "synthetic_lab_owner" };
-  it.each(["lab-run", "status", "route-back"])("allows %s with the same readonly source", async command => {
-    const { error } = await invoke("lab", command, overrides);
+  it.each([
+    ["lab-run", []], ["lab-run", ["--stop-before-flip"]], ["resume", []], ["status", []], ["route-back", []],
+  ] as const)("allows %s %j with the same readonly source", async (command, extra) => {
+    const { error } = await invoke("lab", command, overrides, [...extra]);
     expect(error).not.toHaveBeenCalled();
     expect(effects.openDatabase).toHaveBeenCalledExactlyOnceWith(source, { rejectUnauthorized: false });
-    const selected = command === "lab-run" ? effects.run : command === "status" ? effects.status : effects.routeBack;
+    const selected = { "lab-run": effects.run, resume: effects.resume, status: effects.status, "route-back": effects.routeBack }[command];
     expect(selected).toHaveBeenCalledOnce();
     expect(effects.sourceEnd).toHaveBeenCalledOnce(); expect(effects.controlEnd).toHaveBeenCalledOnce();
-  });
-  it.each(["lab-run", "resume"])("still refuses %s pause/resume with the override", async command => {
-    const { error } = await invoke("lab", command, overrides, command === "lab-run" ? ["--stop-before-flip"] : []);
-    expect(error).toHaveBeenCalledExactlyOnceWith("migration_lab_owner_readonly_run_only");
-    expect(effects.createDatabase).not.toHaveBeenCalled(); expect(effects.openDatabase).not.toHaveBeenCalled();
-    for (const method of [effects.run, effects.resume, effects.routeBack, effects.status]) expect(method).not.toHaveBeenCalled();
   });
 });
 
