@@ -1,4 +1,4 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook } from "./test/locale";
 import { describe, expect, it, vi } from "vitest";
 import { attachmentUploadFailure, availableAttachmentPath, useAttachmentUpload } from "./AttachmentUpload";
 import { MdbaseConnectError } from "@mdbase-dev/connect";

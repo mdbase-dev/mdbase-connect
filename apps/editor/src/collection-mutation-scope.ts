@@ -1,14 +1,15 @@
+import { t } from "@lingui/core/macro";
 export interface CollectionScopeToken {
   readonly epoch: number;
   readonly collectionId?: string;
 }
 
 export class FrozenCollectionError extends Error {
-  constructor() { super("Collection mutations are temporarily disabled."); }
+  constructor() { super(t`Collection mutations are temporarily disabled.`); }
 }
 
 export class StaleCollectionOperationError extends Error {
-  constructor() { super("The collection changed before this operation completed."); }
+  constructor() { super(t`The collection changed before this operation completed.`); }
 }
 
 /** Owns the exact publication boundary for collection-scoped asynchronous work. */

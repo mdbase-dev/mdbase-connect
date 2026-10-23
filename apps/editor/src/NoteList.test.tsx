@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "./test/locale";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NoteList } from "./NoteList";
 import type { NoteSummary } from "./model";

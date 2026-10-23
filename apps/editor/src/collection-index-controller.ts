@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import { MdbaseConnectError, type QueryRecord } from "@mdbase-dev/connect";
 import type { CollectionGateway, EditorCollectionChange, NoteFrontmatter, NoteObservation, NoteObservationSnapshot, NoteSummary, ObservationProblem } from "./model";
 
@@ -94,7 +95,7 @@ export class CollectionIndexController {
     const notes = snapshot.records.map(record => {
       const existing = this.summaries.get(record);
       if (existing) return existing;
-      if (!record.frontmatter || !record.effectiveFrontmatter) throw new Error(`Missing frontmatter projections for ${record.path}`);
+      if (!record.frontmatter || !record.effectiveFrontmatter) throw new Error(t`Missing frontmatter projections for ${record.path}`);
       const note = { ...record, frontmatter: record.frontmatter, effectiveFrontmatter: record.effectiveFrontmatter };
       this.summaries.set(record, note);
       return note;

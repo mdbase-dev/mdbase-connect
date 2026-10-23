@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "./test/locale";
 import { describe, expect, it, vi } from "vitest";
 import type { Dispatch, SetStateAction } from "react";
 import { CollectionMutationScope } from "./collection-mutation-scope";

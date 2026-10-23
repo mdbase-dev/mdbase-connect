@@ -1,6 +1,6 @@
 {
   "source": {
-    "include": ["src/settings", "src/i18n"],
-    "exclude": ["**/*.test.*", "**/locales/**"]
+    "include": ["src"],
+    "exclude": ["**/*.test.*", "**/test/**", "**/locales/**", "**/*.generated.*", "**/demo-*.ts"]
   }
 }

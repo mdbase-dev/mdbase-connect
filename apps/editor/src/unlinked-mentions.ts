@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import { markdownLanguage } from "@codemirror/lang-markdown";
 import type { NoteSearchEntry, SearchTextRange } from "./note-search";
 import { markdownPlainText } from "./note";
@@ -75,7 +76,7 @@ export function unlinkedMentions(index: NoteSearchEntry[], targetPath: string, t
   });
 }
 export function linkMention(mention: UnlinkedMention, targetPath: string, body: string): { body: string; inserted: string } {
-  if (body !== mention.body) throw new Error("That note changed. Find its mentions again before linking.");
+  if (body !== mention.body) throw new Error(t`That note changed. Find its mentions again before linking.`);
   const target = targetPath.replace(/\.md$/i, "").replace(/[|\[\]#%]/g, (char) => encodeURIComponent(char));
   const label = body.slice(mention.from, mention.to);
   // A delimiter-bearing title is still linkable by its encoded durable target.

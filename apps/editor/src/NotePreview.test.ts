@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "./test/locale";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import { describe, expect, it } from "vitest";
 import type { CollectionGateway, NoteSummary } from "./model";

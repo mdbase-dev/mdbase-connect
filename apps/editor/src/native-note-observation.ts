@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import { isMdbaseError, MdbaseError, type ChangesWatch, type ChangesWatchState, type MdbaseClient, type wire } from "@mdbase-dev/sdk";
 import type { QueryRecord } from "@mdbase-dev/connect";
 import { plain } from "./next-editor-records";
@@ -96,7 +97,7 @@ export class NativeNoteObservation implements NoteObservation {
   private check(signal: AbortSignal): void {
     signal.throwIfAborted();
     if (this.closed || !this.isCurrent())
-      throw new MdbaseError({ code: "cancelled", recovery: "none", message: "This collection is no longer open in mdbase editor." });
+      throw new MdbaseError({ code: "cancelled", recovery: "none", message: t`This collection is no longer open in mdbase editor.` });
   }
 
   private load(includeBody: boolean): Promise<ObservationOutcome> {
@@ -124,11 +125,11 @@ export class NativeNoteObservation implements NoteObservation {
       let total: number | undefined;
       for await (const page of this.client.pages({ limit: PAGE_SIZE }, { effective: true, ...(includeBody ? { body: true } : {}) }, signal)) {
         this.check(signal);
-        if (asOf !== undefined && asOf !== page.asOf) throw nativeFailure("The collection changed while its notes were loading. Reload to try again.");
+        if (asOf !== undefined && asOf !== page.asOf) throw nativeFailure(t`The collection changed while its notes were loading. Reload to try again.`);
         asOf = page.asOf;
         total ??= page.totalCount;
         for (const record of page.records) {
-          if (next.has(record.id) || paths.has(record.path)) throw nativeFailure("The collection returned a note twice. Reload to try again.");
+          if (next.has(record.id) || paths.has(record.path)) throw nativeFailure(t`The collection returned a note twice. Reload to try again.`);
           next.set(record.id, noteRecord(record));
           paths.add(record.path);
         }
@@ -138,7 +139,7 @@ export class NativeNoteObservation implements NoteObservation {
           this.publish({ total }, "page");
         }
       }
-      if (!complete) throw nativeFailure("The collection did not return a complete list of notes.");
+      if (!complete) throw nativeFailure(t`The collection did not return a complete list of notes.`);
       this.check(signal);
       this.confirmed = next;
       this.includeBody ||= includeBody;
@@ -226,7 +227,7 @@ export class NativeNoteObservation implements NoteObservation {
     }
     const watchStatus = watchState(state);
     if (state === "failed") {
-      this.publish({ state: "error", watchStatus, problem: nativeProblem(error ?? nativeFailure("The collection watch stopped.")) }, "status");
+      this.publish({ state: "error", watchStatus, problem: nativeProblem(error ?? nativeFailure(t`The collection watch stopped.`)) }, "status");
       return;
     }
     this.publish({ watchStatus }, "status");
@@ -272,7 +273,7 @@ function noteRecord(record: wire.RecordView): Note {
 function watchState(state: ChangesWatchState): ObservationWatchStatus {
   if (state === "starting") return { state: "connecting" };
   if (state === "active") return { state: "connected" };
-  if (state === "stale") return { state: "reconnecting", problem: { message: "Reconnecting to the collection…" } };
+  if (state === "stale") return { state: "reconnecting", problem: { message: t`Reconnecting to the collection…` } };
   return { state: "closed" };
 }
 
@@ -284,12 +285,12 @@ function nativeProblem(error: unknown): ObservationProblem {
   return {
     source: "native",
     code: isMdbaseError(error) ? error.code : "internal",
-    message: error instanceof Error ? error.message : "The collection could not be read.",
+    message: error instanceof Error ? error.message : t`The collection could not be read.`,
     error
   };
 }
 
 function cancelled(): ObservationOutcome {
-  const error = new MdbaseError({ code: "cancelled", recovery: "none", message: "This collection is no longer open in mdbase editor." });
+  const error = new MdbaseError({ code: "cancelled", recovery: "none", message: t`This collection is no longer open in mdbase editor.` });
   return { ok: false, problem: { source: "native", code: "cancelled", message: error.message, error } };
 }

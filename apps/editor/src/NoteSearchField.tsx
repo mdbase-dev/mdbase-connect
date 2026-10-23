@@ -1,3 +1,6 @@
+import { Trans } from "@lingui/react/macro";
+import { t } from "@lingui/core/macro";
+import { useLingui } from "@lingui/react";
 import { useRef, useState } from "react";
 import { MagnifyingGlassIcon as Search, TagIcon as Filters, XIcon as X } from "./icons";
 import type { NoteFilter, SearchFacet } from "./note-list-view";
@@ -13,6 +16,7 @@ export function NoteSearchField({ search, filter, tags, types, onSearch, onFilte
   onFilter: (filter?: NoteFilter) => void;
   onQuickOpen: () => void;
 }) {
+  useLingui();
   const input = useRef<HTMLInputElement>(null);
   const [browse, setBrowse] = useState(false);
   const [dismissed, setDismissed] = useState(false);
@@ -37,20 +41,20 @@ export function NoteSearchField({ search, filter, tags, types, onSearch, onFilte
   }}>
     <div className="search-field">
       <Search aria-hidden="true" />
-      {filter && <button className="search-filter-chip" aria-label={`Remove ${filter.kind} filter ${filter.value}`} onClick={() => onFilter(undefined)}><span>{filter.kind === "tag" ? `#${filter.value}` : filter.kind === "type" ? `type:${filter.value}` : filter.value}</span><X aria-hidden="true" /></button>}
-      <label className="sr-only" htmlFor="note-search">Search notes and files</label>
-      <input ref={input} id="note-search" value={search} onChange={(event) => { onSearch(event.target.value); setDismissed(false); setActive(0); }} onFocus={() => setDismissed(false)} placeholder="Search" role="combobox" aria-autocomplete="list" aria-expanded={open} aria-controls={open ? "note-filter-suggestions" : undefined} aria-activedescendant={open && suggestions.length ? `note-filter-${Math.min(active, suggestions.length - 1)}` : undefined} onKeyDown={(event) => {
+      {filter && <button className="search-filter-chip" aria-label={t`Remove ${filter.kind} filter ${filter.value}`} onClick={() => onFilter(undefined)}><span>{filter.kind === "tag" ? `#${filter.value}` : filter.kind === "type" ? t`type:${filter.value}` : filter.value}</span><X aria-hidden="true" /></button>}
+      <label className="sr-only" htmlFor="note-search"><Trans>Search notes and files</Trans></label>
+      <input ref={input} id="note-search" value={search} onChange={(event) => { onSearch(event.target.value); setDismissed(false); setActive(0); }} onFocus={() => setDismissed(false)} placeholder={t`Search`} role="combobox" aria-autocomplete="list" aria-expanded={open} aria-controls={open ? "note-filter-suggestions" : undefined} aria-activedescendant={open && suggestions.length ? `note-filter-${Math.min(active, suggestions.length - 1)}` : undefined} onKeyDown={(event) => {
         if (event.key === "Escape" && open) { event.preventDefault(); event.stopPropagation(); setBrowse(false); setDismissed(true); }
         if (!open || !suggestions.length) return;
         if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setActive((value) => (value + (event.key === "ArrowDown" ? 1 : -1) + suggestions.length) % suggestions.length); }
         if (event.key === "Enter") { event.preventDefault(); choose(suggestions[Math.min(active, suggestions.length - 1)].filter); }
       }} />
-      {search ? <button aria-label="Clear search" onClick={() => onSearch("")}><X aria-hidden="true" /></button> : !filter && <button className="quick-open-trigger" aria-label="Quick open" title={`Quick open · ${shortcutModifier()} P anywhere`} onClick={onQuickOpen}><kbd>{shortcutModifier()} P</kbd></button>}
-      <button aria-label="Search filters" aria-expanded={open} aria-controls={open ? "note-filter-suggestions" : undefined} onClick={() => { setBrowse((value) => !value); setDismissed(false); setActive(0); }}><Filters aria-hidden="true" /></button>
+      {search ? <button aria-label={t`Clear search`} onClick={() => onSearch("")}><X aria-hidden="true" /></button> : !filter && <button className="quick-open-trigger" aria-label={t`Quick open`} title={t`Quick open · ${shortcutModifier()} P anywhere`} onClick={onQuickOpen}><kbd><Trans>{shortcutModifier()} P</Trans></kbd></button>}
+      <button aria-label={t`Search filters`} aria-expanded={open} aria-controls={open ? "note-filter-suggestions" : undefined} onClick={() => { setBrowse((value) => !value); setDismissed(false); setActive(0); }}><Filters aria-hidden="true" /></button>
     </div>
-    {open && <div id="note-filter-suggestions" className="search-filter-suggestions" role="listbox" aria-label="Search filters">
-      {suggestions.map(({ filter, count }, index) => <button key={`${filter.kind}:${filter.value}`} id={`note-filter-${index}`} role="option" aria-selected={index === active} onMouseDown={(event) => event.preventDefault()} onClick={() => choose(filter)}><span>{filter.kind === "tag" ? `#${filter.value}` : `type:${filter.value}`}</span><small>{count}</small></button>)}
-      {!suggestions.length && <p>No matching filters</p>}
+    {open && <div id="note-filter-suggestions" className="search-filter-suggestions" role="listbox" aria-label={t`Search filters`}>
+      {suggestions.map(({ filter, count }, index) => <button key={`${filter.kind}:${filter.value}`} id={`note-filter-${index}`} role="option" aria-selected={index === active} onMouseDown={(event) => event.preventDefault()} onClick={() => choose(filter)}><span>{filter.kind === "tag" ? `#${filter.value}` : t`type:${filter.value}`}</span><small>{count}</small></button>)}
+      {!suggestions.length && <p><Trans>No matching filters</Trans></p>}
     </div>}
   </div>;
 }

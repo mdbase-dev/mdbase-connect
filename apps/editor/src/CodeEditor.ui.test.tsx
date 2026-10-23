@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "./test/locale";
 import { describe, expect, it, vi } from "vitest";
 import { Compartment } from "@codemirror/state";
 import { CodeEditor } from "./CodeEditor";

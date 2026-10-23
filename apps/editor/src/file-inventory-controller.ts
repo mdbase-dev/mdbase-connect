@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import type {
   CollectionFile,
   CollectionGateway,
@@ -117,5 +118,5 @@ function stableFileOrder(files: readonly CollectionFile[]): CollectionFile[] {
 }
 
 function defaultErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "The collection files could not be read.";
+  return error instanceof Error ? error.message : t`The collection files could not be read.`;
 }
