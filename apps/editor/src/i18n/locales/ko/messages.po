@@ -103,7 +103,7 @@ msgstr "{0, plural, other {일치 항목 #개}}"
 #. placeholder {0}: renamePlan.affectedPaths.length
 #: src/App.tsx
 msgid "{0, plural, one {# note contains links that will change.} other {# notes contain links that will change.}}"
-msgstr "{0, plural, other {노트 {0}개에 변경될 링크가 있습니다.}}"
+msgstr "{0, plural, other {노트 #개에 변경될 링크가 있습니다.}}"
 
 #. placeholder {0}: item.count
 #. placeholder {1}: item.field
@@ -3893,7 +3893,7 @@ msgstr "{filename} 미리보기"
 #. placeholder {1}: formatBytes(entry.file.size)
 #: src/file-asset-store.ts
 msgid "Preview is limited to {0}. Download this {1} file to open it."
-msgstr "미리보기는 {0}(으)로 제한됩니다. 이 파일을 다운로드하여 여세요."
+msgstr "미리보기는 {0}(으)로 제한됩니다. 열려면 이 {1} 파일을 다운로드하세요."
 
 #. placeholder {0}: preview.title
 #: src/NotePreview.tsx
