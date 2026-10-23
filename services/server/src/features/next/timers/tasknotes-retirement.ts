@@ -5,8 +5,8 @@ import { TimerError, type DesiredTimer } from "./model.js";
 import { requireTimerMigrationEffects } from "./migration-effects.js";
 
 const TASKNOTES_FAMILY = "bundle:dev.tasknotes.app";
-// Self-declared family only activates TaskNotes membership semantics. Retirement
-// authority never crosses immutable registered application UUIDs.
+// This TaskNotes-only policy spans manifest-specific registered UUIDs within
+// one account and consented collection. Family is not publisher authentication.
 const TASK_REMINDERS = "task-reminders";
 const CRITERION = "task.reminder";
 
@@ -14,33 +14,33 @@ export async function taskReminderMembership(db: DatabaseQueryable, grant: Timer
   return namespace === TASK_REMINDERS && criterionId === CRITERION && Boolean(await scope(db,grant));
 }
 
-interface Scope { user_id: string; application_id: string; collection_id: string; principal_kind: "legacy" | "installation" }
+interface Scope { user_id: string; collection_id: string; principal_kind: "legacy" | "installation" }
 
 /** The same transaction lock orders legacy writes, firing and transport
  * admission against the first native reconcile. Never lock another grant's
  * namespace: device-wide namespace locks would invert this ordering. */
 async function scope(db: DatabaseQueryable, grant: TimerGrant): Promise<Scope | undefined> {
   const row = (await db.query<Scope>(
-    `SELECT b.user_id,b.application_id,b.collection_id,b.principal_kind
+    `SELECT b.user_id,b.collection_id,b.principal_kind
      FROM next_background_grants b JOIN applications a ON a.id=b.application_id
      WHERE b.id=$1 AND b.principal_kind='installation' AND a.family_identity=$2
      UNION ALL
-     SELECT g.user_id,g.application_id,COALESCE(c.local_id,g.hosted_collection_id,g.next_collection_id), 'legacy'
+     SELECT g.user_id,COALESCE(c.local_id,g.hosted_collection_id,g.next_collection_id), 'legacy'
      FROM grants g JOIN applications a ON a.id=g.application_id LEFT JOIN collections c ON c.id=g.collection_id
      WHERE g.id=$1 AND a.family_identity=$2`, [grant.grantId,TASKNOTES_FAMILY])).rows[0];
   if (!row?.collection_id) return;
-  const digest = createHash("sha256").update(`mdbase/tasknotes-retirement\0${row.user_id}\0${row.application_id}\0${row.collection_id}`).digest();
+  const digest = createHash("sha256").update(`mdbase/tasknotes-retirement\0${row.user_id}\0${TASKNOTES_FAMILY}\0${row.collection_id}`).digest();
   await db.query("SELECT pg_advisory_xact_lock($1,$2)", [digest.readInt32BE(0),digest.readInt32BE(4)]);
   return row;
 }
 
 async function retired(db: DatabaseQueryable, row: Scope): Promise<boolean> {
   return (await db.query(`SELECT 1 FROM next_tasknotes_legacy_reminder_retirements
-    WHERE user_id=$1 AND application_id=$2 AND collection_id=$3`,
-  [row.user_id,row.application_id,row.collection_id])).rows.length > 0;
+    WHERE user_id=$1 AND family_identity=$2 AND collection_id=$3`,
+  [row.user_id,TASKNOTES_FAMILY,row.collection_id])).rows.length > 0;
 }
 
-/** False for native grants and every unrelated app/namespace/criterion. */
+/** False for native grants and every unrelated family/namespace/criterion. */
 export async function legacyTaskReminderRetired(
   db: DatabaseQueryable, grant: TimerGrant, namespace: string, criterionId: string
 ): Promise<boolean> {
@@ -57,9 +57,9 @@ export async function requireTaskReminderWrite(db: DatabaseQueryable, grant: Tim
 
 /** Caller owns the reconcile transaction. Only its first successful native
  * reconcile transfers history and fences ALL old devices in this exact tuple.
- * Only identical registered application UUIDs share this authority. Different
- * manifest registrations are outside this rule, even with identical family,
- * homepage and consent origin; none of those self-declared fields prove ownership.
+ * The hard-coded TaskNotes family spans versioned registration UUIDs. Only
+ * legacy grants of this account, family and collection are retired; other
+ * families and native grants retain their independent authority.
  * No native-to-native ownership or predecessor selection is implied. */
 export async function retireLegacyTaskReminders(
   db: DatabaseQueryable, grant: TimerGrant, namespace: string, criterionId: string, desired: DesiredTimer[]
@@ -67,13 +67,13 @@ export async function retireLegacyTaskReminders(
   if (namespace !== TASK_REMINDERS || criterionId !== CRITERION) return;
   const row = await scope(db,grant);
   if (!row || row.principal_kind !== "installation") return;
-  const values = [row.user_id,row.application_id,row.collection_id];
-  const legacy = await db.query<{id:string}>(`SELECT g.id FROM grants g
+  const values = [row.user_id,TASKNOTES_FAMILY,row.collection_id];
+  const legacy = await db.query<{id:string}>(`SELECT g.id FROM grants g JOIN applications a ON a.id=g.application_id
     LEFT JOIN collections c ON c.id=g.collection_id
-    WHERE g.user_id=$1 AND g.application_id=$2
+    WHERE g.user_id=$1 AND a.family_identity=$2
       AND COALESCE(c.local_id,g.hosted_collection_id,g.next_collection_id)=$3 ORDER BY g.id`,values);
   for (const old of legacy.rows) await requireTimerMigrationEffects(db,old.id);
-  const inserted = await db.query(`INSERT INTO next_tasknotes_legacy_reminder_retirements(user_id,application_id,collection_id)
+  const inserted = await db.query(`INSERT INTO next_tasknotes_legacy_reminder_retirements(user_id,family_identity,collection_id)
     VALUES($1,$2,$3) ON CONFLICT DO NOTHING RETURNING user_id`,values);
   if (!inserted.rows.length) return;
   // Original imports retain their IDs and complete state on legacy grants.
@@ -82,9 +82,9 @@ export async function retireLegacyTaskReminders(
   await db.query(
     `WITH originals AS (
        SELECT DISTINCT ON (t.timer_id) t.*
-       FROM next_timers t JOIN grants g ON g.id=t.grant_id
+       FROM next_timers t JOIN grants g ON g.id=t.grant_id JOIN applications a ON a.id=g.application_id
        LEFT JOIN collections c ON c.id=g.collection_id
-       WHERE g.user_id=$1 AND g.application_id=$2
+       WHERE g.user_id=$1 AND a.family_identity=$2
          AND COALESCE(c.local_id,g.hosted_collection_id,g.next_collection_id)=$3
          AND t.namespace='task-reminders' AND t.criterion_id='task.reminder'
          AND t.status IN ('scheduled','firing','fired')
@@ -99,8 +99,8 @@ export async function retireLegacyTaskReminders(
        WHERE next_timers.fire_at=EXCLUDED.fire_at AND EXCLUDED.status='fired'`,
     [...values,grant.grantId,JSON.stringify(desired.map(timer=>({id:timer.id,fire_at:timer.fireAt.toISOString()})))]);
   await db.query(`UPDATE next_timers t SET status='cancelled',updated_at=now()
-    FROM grants g LEFT JOIN collections c ON c.id=g.collection_id
-    WHERE t.grant_id=g.id AND g.user_id=$1 AND g.application_id=$2
+    FROM grants g JOIN applications a ON a.id=g.application_id LEFT JOIN collections c ON c.id=g.collection_id
+    WHERE t.grant_id=g.id AND g.user_id=$1 AND a.family_identity=$2
       AND COALESCE(c.local_id,g.hosted_collection_id,g.next_collection_id)=$3
       AND t.namespace='task-reminders' AND t.criterion_id='task.reminder'
       AND t.status IN ('scheduled','firing')`,values);
@@ -111,8 +111,8 @@ export async function retireLegacyTaskReminders(
     await db.query(`UPDATE ${table} d SET status='discarded',lease_token=NULL,leased_until=NULL,
         last_error='legacy_reminders_retired'
       FROM notification_signals s JOIN grants g ON g.id=s.grant_id
-      LEFT JOIN collections c ON c.id=g.collection_id
-      WHERE d.signal_id=s.id AND g.user_id=$1 AND g.application_id=$2
+      JOIN applications a ON a.id=g.application_id LEFT JOIN collections c ON c.id=g.collection_id
+      WHERE d.signal_id=s.id AND g.user_id=$1 AND a.family_identity=$2
         AND COALESCE(c.local_id,g.hosted_collection_id,g.next_collection_id)=$3
         AND s.criterion_id='task.reminder'
         AND d.status IN ('pending','retry','sending')`,values);

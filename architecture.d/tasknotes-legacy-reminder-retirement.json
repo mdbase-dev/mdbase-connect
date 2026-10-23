@@ -1,5 +1,5 @@
 {
-  "reason": "One TaskNotes-specific transaction boundary coordinates exact registered-application-UUID retirement with timer writes, original import completion, firing and delivery admission. A permanent account/application/collection fence survives installation deletion and retention; no predecessor mapping or generic migration framework is introduced.",
+  "reason": "One TaskNotes-specific transaction boundary coordinates hard-coded TaskNotes-family retirement across versioned registration UUIDs with timer writes, original import completion, firing and delivery admission. A permanent account/fixed-family/collection fence survives installation deletion and retention; no predecessor mapping or generic migration framework is introduced.",
   "growth": {
     "productionFiles": 1,
     "relativeImports": 7,
