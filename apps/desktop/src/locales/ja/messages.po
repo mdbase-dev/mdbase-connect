@@ -217,7 +217,7 @@ msgstr "{synced} 件を同期済み"
 
 #: src/renderer/takeover-state.mts
 msgid "{waiting, plural, one {“{name}” syncs again{location}. # edit made in “{name}” before the move is added once it has caught up.{after}{oldFolder}} other {“{name}” syncs again{location}. # edits made in “{name}” before the move are added once it has caught up.{after}{oldFolder}}}"
-msgstr "{waiting, plural, one {「{name}」の同期を再開しました{location}。移動前の編集 # 件は、同期が追いつくと追加されます。{after}{oldFolder}} other {「{name}」の同期を再開しました{location}。移動前の編集 # 件は、同期が追いつくと追加されます。{after}{oldFolder}}}"
+msgstr "{waiting, plural, one {「{name}」の同期を再開しました{location}。「{name}」での移動前の編集 # 件は、同期が追いつくと追加されます。{after}{oldFolder}} other {「{name}」の同期を再開しました{location}。「{name}」での移動前の編集 # 件は、同期が追いつくと追加されます。{after}{oldFolder}}}"
 
 #: src/renderer/takeover-state.mts
 msgid "{waiting, plural, one {# edit made in “{name}” before the move was not uploaded yet and is kept. mdbase is adding “{name}” back to this computer{where}. {reason}.} other {# edits made in “{name}” before the move were not uploaded yet and are kept. mdbase is adding “{name}” back to this computer{where}. {reason}.}}"
@@ -225,7 +225,7 @@ msgstr "{waiting, plural, one {移動前に「{name}」で行った編集 # 件�
 
 #: src/renderer/takeover-state.mts
 msgid "{waiting, plural, one {You removed “{name}” from this computer, so # edit made in “{name}” before the move was not added to it. It is still in {oldPath}.} other {You removed “{name}” from this computer, so # edits made in “{name}” before the move were not added to it. They are still in {oldPath}.}}"
-msgstr "{waiting, plural, one {「{name}」をこのコンピューターから削除したため、移動前の編集 # 件は追加されていません。{oldPath} に残っています。} other {「{name}」をこのコンピューターから削除したため、移動前の編集 # 件は追加されていません。{oldPath} に残っています。}}"
+msgstr "{waiting, plural, one {「{name}」をこのコンピューターから削除したため、「{name}」での移動前の編集 # 件は追加されていません。{oldPath} に残っています。} other {「{name}」をこのコンピューターから削除したため、「{name}」での移動前の編集 # 件は追加されていません。{oldPath} に残っています。}}"
 
 #: src/renderer/takeover-panel.tsx
 msgid "<0/>Allow hosted mirrors to stop until I join them again"
