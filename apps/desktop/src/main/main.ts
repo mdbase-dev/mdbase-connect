@@ -593,6 +593,10 @@ function createWindow(): void {
       sandbox: true
     }
   });
+  // Also refresh when this app attaches to an already-running daemon.
+  mainWindow.on("focus", () => {
+    void requestReadyAgent("migrate.status", { refresh_rollout: true }).catch(() => {});
+  });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   mainWindow.webContents.on("will-navigate", (event, target) => {
     if (target !== mainWindow?.webContents.getURL()) event.preventDefault();
@@ -705,6 +709,7 @@ app.whenReady().then(async () => {
   handleDeepLink(process.argv.find((value) => value.startsWith("mdbase-connect://")));
   try {
     await bootGate.ready();
+    void requestReadyAgent("migrate.status", { refresh_rollout: true }).catch(() => {});
   } catch (error) {
     localHealthLabel = "mdbase needs attention";
     refreshTrayMenu();

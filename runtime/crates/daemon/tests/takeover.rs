@@ -1,7 +1,7 @@
 //! The local takeover end to end through the real daemon: an old agent's device
 //! (connector state from the old connector's exact DDL plus a folder with old engine
 //! transactions in flight) is untouched until Connect permits the flipped account,
-//! then taken over at daemon start and served across a restart.
+//! then taken over without a daemon restart and served across a restart.
 //!
 //! An isolated profile only looks at old connector state it is pointed at, and
 //! never touches a service manager.
@@ -120,13 +120,13 @@ async fn automatic_takeover_waits_for_a_flipped_batch_and_fails_closed() {
     let mut c = ControlClient::connect(&profile.control).await.unwrap();
     let checks: Vec<Check> =
         serde_json::from_value(c.call(Method::DOCTOR, json!({})).await.unwrap()).unwrap();
-    assert!(
-        checks
-            .iter()
-            .any(|c| c.id == "takeover"
-                && c.detail == "waiting for sign-in"
-                && c.action.as_deref().is_some_and(|a| a.contains("Sign in to finish moving")))
-    );
+    assert!(checks.iter().any(|c| {
+        c.id == "takeover"
+            && c.detail == "waiting for sign-in"
+            && c.action
+                .as_deref()
+                .is_some_and(|a| a.contains("Sign in to finish moving"))
+    }));
 
     use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
     let mode = Arc::new(AtomicU8::new(0));
@@ -137,18 +137,42 @@ async fn automatic_takeover_waits_for_a_flipped_batch_and_fails_closed() {
     })
     .await;
     assert_untouched();
+    until("signed-in batch wait", || async {
+        let s = status(&profile).await;
+        (s["waiting_reason"] == "account_not_upgraded").then_some(s)
+    })
+    .await;
+    let before = calls.load(Ordering::SeqCst);
+    for _ in 0..20 {
+        status(&profile).await;
+    }
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        before,
+        "status polling obeys backoff"
+    );
+
     // Both a non-200 success-looking body and a released-but-still-legacy
-    // account fail closed. Restart drives a fresh query, not cached permission.
-    c.call(Method::SHUTDOWN, json!({})).await.unwrap();
-    daemon.await.unwrap().unwrap();
+    // account leave the same running daemon waiting. Window focus requests a
+    // fresh check even before the polling deadline; no restart or explicit move.
     for denied in [2, 3, 4] {
         mode.store(denied, Ordering::SeqCst);
-        let (p, k) = (profile.clone(), keys.clone());
-        let d = tokio::spawn(async move { server::run(p, Some(Box::new(k))).await });
-        wait_ready(&profile).await;
+        let before = calls.load(Ordering::SeqCst);
+        let mut poll = ControlClient::connect(&profile.control).await.unwrap();
+        poll.call(Method::MIGRATE_STATUS, json!({"refresh_rollout": true}))
+            .await
+            .unwrap();
         until("denied batch", || async {
             let s = status(&profile).await;
-            (s["waiting_for_migration_batch"] == true).then_some(s)
+            (calls.load(Ordering::SeqCst) > before
+                && s["waiting_for_migration_batch"] == true
+                && s["waiting_reason"]
+                    == if denied == 3 {
+                        "account_not_upgraded"
+                    } else {
+                        "unreachable"
+                    })
+            .then_some(s)
         })
         .await;
         assert_untouched();
@@ -166,10 +190,15 @@ async fn automatic_takeover_waits_for_a_flipped_batch_and_fails_closed() {
             other => panic!("{other:?}"),
         }
         assert_untouched();
-        assert_eq!(status(&profile).await["account_legacy"], denied == 3);
+        // Unknown retains the last definite answer: this live account was Legacy.
+        assert_eq!(status(&profile).await["account_legacy"], true);
         assert_eq!(
             status(&profile).await["waiting_reason"],
-            if denied == 3 { "account_not_upgraded" } else { "unreachable" }
+            if denied == 3 {
+                "account_not_upgraded"
+            } else {
+                "unreachable"
+            }
         );
         if denied == 3 {
             // A control client cannot reintroduce the removed CLI bypass.
@@ -198,15 +227,14 @@ async fn automatic_takeover_waits_for_a_flipped_batch_and_fails_closed() {
             assert_eq!(status(&profile).await["account_legacy"], true);
             assert_untouched();
         }
-        c.call(Method::SHUTDOWN, json!({})).await.unwrap();
-        d.await.unwrap().unwrap();
     }
     mode.store(1, Ordering::SeqCst);
-    let (p, k) = (profile.clone(), keys.clone());
-    let daemon = tokio::spawn(async move { server::run(p, Some(Box::new(k))).await });
-    wait_ready(&profile).await;
+    let mut poll = ControlClient::connect(&profile.control).await.unwrap();
+    poll.call(Method::MIGRATE_STATUS, json!({"refresh_rollout": true}))
+        .await
+        .unwrap();
 
-    // A flipped next account is permitted: settled, fenced and registered.
+    // The account flips while this daemon stays alive: settled, fenced and registered.
     let st = until("the takeover", || async {
         let s = status(&profile).await;
         (s["record"]["state"] == "complete"
@@ -351,7 +379,7 @@ async fn automatic_takeover_waits_for_a_flipped_batch_and_fails_closed() {
     // A restart with Connect unreachable leaves evidence unchanged and still serves.
     // The closed gate guards starting only: an old daemon revived meanwhile (it holds
     // daemon.lock) is still reported.
-    fixture.abort();
+    mode.store(4, Ordering::SeqCst);
     let evidence = std::fs::read(profile.state_dir.join("takeover.json")).unwrap();
     c.call(Method::SHUTDOWN, json!({})).await.unwrap();
     daemon.await.unwrap().unwrap();
@@ -426,6 +454,15 @@ async fn automatic_takeover_waits_for_a_flipped_batch_and_fails_closed() {
     let s = collection(c.call(Method::COLLECTION_LIST, json!({})).await.unwrap());
     assert_eq!(s.mode, mdbn_daemon::registry::SyncMode::Local);
     assert_eq!(std::fs::read(notes.join("c.md")).unwrap(), b"C user edit");
+
+    // The periodic watch must also retry without any status poll or focus event.
+    // This daemon's first denial arms 30s; leave it alone for that plus a watch tick.
+    mode.store(5, Ordering::SeqCst);
+    tokio::time::sleep(Duration::from_secs(35)).await;
+    let st = status(&profile).await;
+    assert_eq!(st["waiting_for_migration_batch"], false, "{st}");
+    assert_eq!(st["retirement"]["retired"], true, "{st}");
     c.call(Method::SHUTDOWN, json!({})).await.unwrap();
     daemon.await.unwrap().unwrap();
+    fixture.abort();
 }

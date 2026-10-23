@@ -252,7 +252,9 @@ impl Method {
     pub const PRIVATE_STRICT: &'static str = "private.strict";
     /// `[Check]`.
     pub const DOCTOR: &'static str = "doctor";
-    /// `{}` → `{record, revived, holds}`: the local takeover of an old connector
+    /// `{refresh_rollout?: bool}` → `{record, revived, holds}`: local takeover.
+    /// Polling retries a waiting account with backoff; `refresh_rollout: true`
+    /// requests an immediate check (for app/window focus).
     /// (`<state>/takeover.json`; `record` is null when there is none).
     pub const MIGRATE_STATUS: &'static str = "migrate.status";
     /// [`MigrateStart`] → as `migrate.status`: run (or resume) the takeover now.
