@@ -88,9 +88,11 @@ After an unknown outcome a mutation is never sent again; a rerun reads state fir
 
 ## lab-run
 
-1. **preflight**: the account is in a released, frozen cohort, started with the LAB
-   profile, not excluded, and has exactly one settled hosted collection. An account
-   already on the next backend skips to step 7.
+1. **preflight**: the account is in a released, frozen cohort, started, and not
+   excluded. A fixture start needs exactly one settled hosted collection; an ordinary
+   start runs the managed job over its held set (see
+   [Managed accounts](#managed-accounts)). An account already on the next backend
+   skips to step 7.
 2. **prepare_target**, then **worker_run**: create/reuse the canonical SHADOW target
    through `POST /internal/v1/next/migration/collections/:id/target` before opening
    Worker custody. An already-recorded NEXT cutover retains its original target
@@ -109,8 +111,9 @@ After an unknown outcome a mutation is never sent again; a rerun reads state fir
    `migrated`. A recorded cutover whose legacy source is still `migrating` gets the same
    cutover retried, which starts retention.
 6. **flip**: the account flip with the timer gate, using the deployment's own environment.
-7. **verify_completion**: the cohort's `next_migration.lab_complete` event exists and the
-   completion readback (`requireCompletedAccountMigration`) accepts the account.
+7. **verify_completion**: the completion readback (`requireCompletedAccountMigration`)
+   accepts the account: a fixture start needs the cohort's `next_migration.lab_complete`
+   event, an ordinary start the cohort's accepted archive.
 
 | Observed | Decision |
 |---|---|
@@ -124,6 +127,26 @@ After an unknown outcome a mutation is never sent again; a rerun reads state fir
 | timer import `timer_source_changed` | retry (up to 5 times) |
 | flip `timers_source_changed` | re-import, then retry the flip (up to 5 times) |
 | any other refusal or error at any step | stop |
+
+## Managed accounts
+
+An ordinary start runs the steps above per member in two phases. Every member's
+Worker run is dispatched in pause mode (`stop_before_flip: true`), whatever the
+operator flag. Phase 1 takes every member to the verified pause below with its
+timers imported. Phase 2 then resumes, routes and cuts each over in turn, and
+flips once. Stops carry `phase` (`prepare` or `cutover`) and `collection_ids`;
+member stops add `collection_id`. In phase 2 every stop resumes with `resume`
+(or the same `lab-run`); route-back is no longer available.
+
+| Stop | Meaning |
+|---|---|
+| `managed_run_legacy_binding` | the account's run binding predates the two-phase driver; nothing is reinterpreted |
+| `managed_pause_incomplete` | `resume` before every member reached the pause; rerun `lab-run` |
+| `managed_phase_inconsistent` | phase 2 found a member neither at the pause nor past it, or phase 1 found one past it |
+| `migration_pause_mode_conflict` | a member's Worker run is not in pause mode |
+| `worker_run_outcome_unknown` | a durable dispatch intent with no visible run; nothing is resent |
+| `managed_nothing_dispatched` | route-back found no dispatched member; rerun `lab-run` |
+| `collections_unsettled`, `collections_mismatch` | admission refusal, with bounded `details` (member UUIDs) |
 
 ## Verified H1 pause and resume
 
@@ -149,7 +172,9 @@ alarm. SQL status is scheduling DATA, not effect or settlement authority; subseq
 native prepare still checks authority independently. Stale, duplicate or drifted
 resume refuses. Lost output stops without retry or adoption. After a confirmed
 resume the CLI continues using the original pause mode through cutover, flip and
-completion. At the pause, `route-back` remains the supported alternative.
+completion. At the pause, `route-back` remains the supported alternative. For a
+managed account, `--stop-before-flip` only decides whether `lab-run` returns at the
+shared barrier, and `resume` crosses it for the whole set.
 
 Deploy compatible hosted code before using the new option or resume command.
 No new native ABI, action kind, KMS bypass or provider recovery behavior is added.
@@ -165,7 +190,7 @@ expected_action_sequence}`), bound to the sequence the status reported.
 | run `stopped`/`done` before cutover intent, nothing outstanding | `rollback` with the current run sequence, then wait |
 | outstanding `Unrevoke` or `Unfence` (lost rollback reply) | `resolve` it; the Worker settles it from the provider's rollback receipt |
 | any other outstanding action | stop (`outstanding_unknown:<kind>`) |
-| checkpoint `rolled_back` | Timer cleanup (as the deployment's LAB, staging or production environment) for the rolled-back provider run, then `restart` with the current run sequence |
+| checkpoint `rolled_back` | Timer cleanup (as the deployment's LAB, staging or production environment) for the rolled-back provider run, then `restart` with the current run sequence (not for a managed account with a scoped archive: done after cleanup) |
 | `rolling_back` while stopped (for example `rollback_needs_operator`) | stop |
 | cutover intent or later, failed or gone | stop |
 | run `running`/`waiting` while rolling back | wait |
@@ -176,3 +201,11 @@ expected_action_sequence}`), bound to the sequence the status reported.
 | operator reply refused or lost, or the same operation needed twice | stop |
 
 When route-back is done it prints the `lab-run` command that continues the restarted run.
+
+A managed account is inspected whole first: a recorded cutover or a member at cutover
+intent refuses everything (`migration_post_cutover`), as does a dispatch intent with
+no visible run (`worker_run_outcome_unknown`). A never-dispatched member is left
+untouched and listed in `not_dispatched`. When the start's accepted archive is
+scoped, its original fence can never be taken again, so no member is restarted and
+the result carries `disposition: "fresh_attempt_required"` instead of a `lab-run`
+command; see [managed accounts](managed-account-migration.md#known-gaps).

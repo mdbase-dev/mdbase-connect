@@ -11,7 +11,9 @@ export const ZERO_HOSTED_ARCHIVE_PAYLOAD_COUNT = "2";
 export const SCOPED_HOSTED_ARCHIVE_SCHEMA = "mdbase-recovery-set/scoped-hosted-v1";
 
 export class RolloutRefused extends Error {
-  constructor(readonly code: string, message: string, readonly status = 409) { super(message); }
+  /** `details`: bounded, content-free facts (ids, finite predicates) for operator
+   * output only; HTTP routes reply with the code and message, never these. */
+  constructor(readonly code: string, message: string, readonly status = 409, readonly details?: Readonly<Record<string, unknown>>) { super(message); }
 }
 
 /** Private CP-owned inventory only; never return account/collection lists in the header. */
