@@ -31,27 +31,45 @@ const run={id:30,head_sha:source,run_attempt:1,event:expected.event,head_branch:
 const deployment={id:uuid,url:'https://12345678.mdbase-editor.pages.dev',sourceSha:source,pagesBranch:'staging'};
 const sha=b=>createHash('sha256').update(b).digest('hex');
 
-it('binds the historical Stage packet, lock and ALL extracted SDK/UI/protocol originals without importing them',async()=>{
- // Main now installs production. Recreate the historical staging pins and
- // extracted originals in a fixture, not in the application's current install.
- const root=await mkdtemp(join(tmpdir(),'editor-staging-originals-'));
- try {
+// These test vectors are the authenticated historical beta141 pins, not the
+// current workspace UI. Never relax loadOriginals to accept workspace builds.
+async function originalFixture(target) {
+ const root=await mkdtemp(join(tmpdir(),'editor-'+target+'-originals-'));
  const app=join(root,'apps/editor');await mkdir(app,{recursive:true});
  await cp(join(repoRoot,'config/native-publish'),join(root,'config/native-publish'),{recursive:true});
  await cp(join(repoRoot,'apps/editor/vendor'),join(app,'vendor'),{recursive:true});
  const pkg=JSON.parse(await readFile(join(repoRoot,'apps/editor/package.json'),'utf8'));
- const current=pkg.dependencies['@mdbase-dev/sdk'].slice('file:vendor/'.length);
- const staging='sdk-dev-eaa4e697-staging.tgz';
- pkg.dependencies['@mdbase-dev/sdk']='file:vendor/'+staging;
+ const facts=JSON.parse(await readFile(join(app,'vendor/mdbase-next-sdk.json'),'utf8'));
+ pkg.dependencies['@mdbase-dev/ui']='file:vendor/'+facts.ui.artifact;
+ let lock=await readFile(join(repoRoot,'pnpm-lock.yaml'),'utf8');
+ const importer=lock.split('\n  apps/editor:\n')[1].split(/\n  [^ ]/)[0];
+ const uiPin=pkg.dependencies['@mdbase-dev/ui'];
+ const updated=importer.replace(/('@mdbase-dev\/ui':\n        specifier: )[^\n]+\n        version: [^\n]+/,
+  '$1'+uiPin+'\n        version: file:apps/editor/vendor/'+facts.ui.artifact);
+ assert.notEqual(updated,importer,'fixture replaces workspace UI importer');
+ lock=lock.replace(importer,updated);
+ const uiPath='apps/editor/vendor/'+facts.ui.artifact;
+ const uiBytes=await readFile(join(root,uiPath));
+ const sri='sha512-'+createHash('sha512').update(uiBytes).digest('base64');
+ lock=lock.replace('\npackages:\n', "\npackages:\n\n  '@mdbase-dev/ui@file:"+uiPath+"':\n    resolution: {integrity: "+sri+", tarball: file:"+uiPath+"}\n");
+ if(target==='staging') {
+  const current=pkg.dependencies['@mdbase-dev/sdk'].slice('file:vendor/'.length);
+  const staging='sdk-dev-eaa4e697-staging.tgz';
+  pkg.dependencies['@mdbase-dev/sdk']='file:vendor/'+staging;
+  const stagingFacts=JSON.parse(await readFile(join(app,'vendor/sdk-dev-eaa4e697-staging.facts.json'),'utf8'));
+  lock=lock.replaceAll(current,staging).replaceAll(facts.integrity,stagingFacts.sri);
+ }
  await writeFile(join(app,'package.json'),JSON.stringify(pkg));
- const currentFacts=JSON.parse(await readFile(join(app,'vendor/mdbase-next-sdk.json'),'utf8'));
- const stagingFacts=JSON.parse(await readFile(join(app,'vendor/sdk-dev-eaa4e697-staging.facts.json'),'utf8'));
- const lock=(await readFile(join(repoRoot,'pnpm-lock.yaml'),'utf8')).replaceAll(current,staging).replaceAll(currentFacts.integrity,stagingFacts.sri);
  await writeFile(join(root,'pnpm-lock.yaml'),lock);
  for(const name of ['@mdbase-dev/sdk','@mdbase-dev/ui','@mdbase-dev/connect-protocol']) {
   const installed=join(app,'node_modules',name);await mkdir(installed,{recursive:true});
   execFileSync('tar',['-xzf',join(app,pkg.dependencies[name].slice(5)),'--strip-components=1','-C',installed]);
  }
+ return root;
+}
+it('binds the historical Stage packet, lock and ALL extracted SDK/UI/protocol originals without importing them',async()=>{
+ const root=await originalFixture('staging');
+ try {
  const result=await loadOriginals({target:'staging',repoRoot:root,hashes,installed:true});
  assert.equal(result.environment,'staging');assert.equal(result.release.cpOrigin,'https://connect-staging.mdbase.dev');
  assert.equal(result.archives.sdk.members,896);assert.equal(result.archives.sdk.sha256,hashes.NATIVE_SDK_SHA256);
@@ -63,15 +81,22 @@ it('binds the historical Stage packet, lock and ALL extracted SDK/UI/protocol or
  assert.throws(()=>protectedHashes({}),/four protected/);
  }finally{await rm(root,{recursive:true,force:true});}
 });
-it('binds the original production beta141 packet and ALL installed SDK/UI/protocol members',async()=>{
- const result=await loadOriginals({target:'production',repoRoot,hashes:productionHashes,installed:true});
+it('binds the original production beta141 packet and ALL extracted SDK/UI/protocol members',async()=>{
+ const root=await originalFixture('production');
+ try {
+ const result=await loadOriginals({target:'production',repoRoot:root,hashes:productionHashes,installed:true});
  assert.equal(result.environment,'production');assert.equal(result.archives.sdk.members,896);
  assert.equal(result.archives.sdk.sha256,productionHashes.NATIVE_SDK_SHA256);
  assert.equal(result.release.cpOrigin,'https://connect.mdbase.dev');
  assert.equal(result.release.source.version,'0.1.0-beta.141');
  assert.equal(result.release.assetSha256,productionHashes.NATIVE_TRUST_ASSET_SHA256);
- await assert.rejects(loadOriginals({target:'production',repoRoot,hashes}),/protected archive hash/);
- await assert.rejects(loadOriginals({target:'staging',repoRoot,hashes:productionHashes}),/producer complete SDK inventory|canonical artifact facts/);
+ await assert.rejects(loadOriginals({target:'production',repoRoot:root,hashes}),/protected archive hash/);
+ await assert.rejects(loadOriginals({target:'staging',repoRoot:root,hashes:productionHashes}),/producer complete SDK inventory|canonical artifact facts/);
+ }finally{await rm(root,{recursive:true,force:true});}
+});
+it('refuses to publish the current workspace UI as an authenticated original',async()=>{
+ await assert.rejects(loadOriginals({target:'production',repoRoot,hashes:productionHashes,installed:true}),
+  /@mdbase-dev\/ui must remain a file pin/);
 });
 it('requires exact manual release-ref HEAD, never a tag/main/short/moving source',async()=>{
  assert.equal(assertDispatch(env).sha,source);

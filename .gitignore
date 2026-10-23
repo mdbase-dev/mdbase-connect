@@ -3,6 +3,7 @@
 **/dist/
 **/.vite/
 # Lingui JSON is compiled from reviewed PO sources before builds.
+/apps/editor/src/i18n/locales/*/*.json
 /apps/portal/src/locales/*/*.json
 /apps/desktop/src/locales/*/*.json
 /packages/app-ui/src/locales/*/*.json
