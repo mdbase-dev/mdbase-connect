@@ -14,7 +14,7 @@
     "check:styles": "node scripts/check-style-tokens.mjs",
     "i18n:extract": "node ../../packages/i18n/scripts/cli.mjs extract",
     "i18n:shared": "node scripts/compile-shared-locales.mjs",
-    "i18n:compile": "node ../../packages/i18n/scripts/cli.mjs compile",
+    "i18n:compile": "node ../../packages/i18n/scripts/cli.mjs compile && pnpm i18n:shared",
     "i18n:check": "node ../../packages/i18n/scripts/cli.mjs check && pnpm i18n:shared",
     "i18n:source": "node ../../packages/i18n/scripts/cli.mjs source",
     "typecheck": "pnpm i18n:source && tsc -b --pretty false",
