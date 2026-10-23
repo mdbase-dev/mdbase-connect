@@ -25,6 +25,18 @@ test("desktop locale restores a saved target language ahead of OS preferences", 
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
+test("desktop composes every authored locale with both UI libraries", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mdbase-desktop-composition-"));
+  try {
+    const runtime = createNativeLocale(directory, ["en-US"]);
+    for (const locale of ["en", "fr", "de", "es", "ja", "ko", "pt", "ru", "zh"]) {
+      await runtime.selectLocale(locale);
+      assert.equal(runtime.i18n.locale, locale);
+      assert.equal(await readFile(join(directory, "language"), "utf8"), locale);
+    }
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("desktop locale saves an explicit choice and ignores unsupported saved languages", async () => {
   const directory = await mkdtemp(join(tmpdir(), "mdbase-desktop-language-"));
   try {

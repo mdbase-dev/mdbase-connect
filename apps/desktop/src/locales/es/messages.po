@@ -1321,6 +1321,7 @@ msgid "Reminders"
 msgstr "Recordatorios"
 
 #: src/renderer/collections-view.tsx
+msgctxt "Remove a local collection connection"
 msgid "Remove"
 msgstr "Quitar"
 

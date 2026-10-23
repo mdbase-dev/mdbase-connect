@@ -6,7 +6,7 @@
   "scripts": {
     "i18n:extract": "mdbase-i18n extract",
     "i18n:compile": "mdbase-i18n compile",
-    "i18n:check": "mdbase-i18n check",
+    "i18n:check": "mdbase-i18n check --compose '../../packages/app-ui/src/locales/{locale}/messages.json' '../../packages/ui/locales/{locale}/messages.json'",
     "build": "node ../../packages/app-ui/scripts/compile-catalogues.mjs && vite build",
     "dev": "vite",
     "test": "node --import ../../packages/app-ui/scripts/register-macros.mjs --test *.test.mjs && node ../../scripts/ci/vitest.mjs",
