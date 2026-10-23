@@ -3642,510 +3642,510 @@ msgstr "abrir e pesquisar notas"
 
 #: src/editor-commands.ts
 msgid "Open Connect"
-msgstr ""
+msgstr "Abrir Connect"
 
 #: src/code-editor-file-embeds.ts
 msgid "Open document"
-msgstr ""
+msgstr "Abrir documento"
 
 #: src/ConnectionScreens.tsx
 msgid "open files"
-msgstr ""
+msgstr "abrir arquivos"
 
 #: src/ConnectionScreens.tsx
 msgid "open notes"
-msgstr ""
+msgstr "abrir notas"
 
 #: src/FileViewer.tsx
 msgid "Open original"
-msgstr ""
+msgstr "Abrir original"
 
 #: src/editor-commands.ts
 msgid "Open Settings"
-msgstr ""
+msgstr "Abrir Configurações"
 
 #: src/WorkspaceChrome.tsx
 msgid "Open to find mentions."
-msgstr ""
+msgstr "Abra para encontrar menções."
 
 #: src/editor-commands.ts
 msgid "Open Types"
-msgstr ""
+msgstr "Abrir Tipos"
 
 #: src/TypeBrowser.tsx
 msgid "Open YAML"
-msgstr ""
+msgstr "Abrir YAML"
 
 #: src/NoteList.tsx
 msgid "Opening"
-msgstr ""
+msgstr "Abrindo"
 
 #: src/App.tsx
 msgid "Opening “{pendingNotePath}”…"
-msgstr ""
+msgstr "Abrindo “{pendingNotePath}”…"
 
 #. placeholder {0}: original.displayName
 #: src/SdkEditorRoot.tsx
 msgid "Opening {0}"
-msgstr ""
+msgstr "Abrindo {0}"
 
 #: src/code-editor-file-embeds.ts
 #: src/FileViewer.tsx
 msgid "Opening {filename}"
-msgstr ""
+msgstr "Abrindo {filename}"
 
 #: src/LoadingScreens.tsx
 msgid "Opening collection"
-msgstr ""
+msgstr "Abrindo coleção"
 
 #: src/main.tsx
 msgid "Opening mdbase connect… <0>Continue</0>"
-msgstr ""
+msgstr "Abrindo o mdbase connect… <0>Continuar</0>"
 
 #: src/main.tsx
 msgid "Opening mdbase…"
-msgstr ""
+msgstr "Abrindo o mdbase…"
 
 #: src/WorkspaceChrome.tsx
 msgid "Opening note…"
-msgstr ""
+msgstr "Abrindo nota…"
 
 #: src/code-editor-file-embeds.ts
 msgid "Opening text preview…"
-msgstr ""
+msgstr "Abrindo prévia de texto…"
 
 #: src/code-editor-note-embeds.ts
 msgid "Opening transcluded note…"
-msgstr ""
+msgstr "Abrindo nota transcluída…"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Operations"
-msgstr ""
+msgstr "Operações"
 
 #: src/TypeBrowser.tsx
 msgid "Optional"
-msgstr ""
+msgstr "Opcional"
 
 #: src/SchemaValueEditor.tsx
 msgid "Optional field"
-msgstr ""
+msgstr "Campo opcional"
 
 #: src/TypeBrowser.tsx
 msgid "optional in this type"
-msgstr ""
+msgstr "opcional neste tipo"
 
 #: src/TypeBrowser.tsx
 msgid "Optional regular expression"
-msgstr ""
+msgstr "Expressão regular opcional"
 
 #: src/type-schema.ts
 msgid "Other collection rules"
-msgstr ""
+msgstr "Outras regras da coleção"
 
 #: src/TypeBrowser.tsx
 msgid "Other fields are allowed"
-msgstr ""
+msgstr "Outros campos são permitidos"
 
 #: src/editor-commands.ts
 msgid "outside text inputs"
-msgstr ""
+msgstr "fora dos campos de texto"
 
 #: src/TypeBrowser.tsx
 msgid "Pack"
-msgstr ""
+msgstr "Pacote"
 
 #: src/contract-catalog.ts
 msgid "packs[{index}].resource_count must be a positive integer."
-msgstr ""
+msgstr "packs[{index}].resource_count deve ser um número inteiro positivo."
 
 #: src/TypeBrowser.tsx
 msgid "Partly installed"
-msgstr ""
+msgstr "Parcialmente instalado"
 
 #: src/NewNoteComposer.tsx
 #: src/TypeBrowser.tsx
 msgid "Path"
-msgstr ""
+msgstr "Caminho"
 
 #: src/note-list-view.ts
 msgid "Path A–Z"
-msgstr ""
+msgstr "Caminho de A a Z"
 
 #: src/embed-actions.ts
 msgid "Path copied."
-msgstr ""
+msgstr "Caminho copiado."
 
 #: src/TypeBrowser.tsx
 msgid "Path folder"
-msgstr ""
+msgstr "Pasta no caminho"
 
 #: src/TypeBrowser.tsx
 msgid "Path matches any"
-msgstr ""
+msgstr "Caminho corresponde a qualquer um"
 
 #: src/TypeBrowser.tsx
 msgid "Path pattern"
-msgstr ""
+msgstr "Padrão de caminho"
 
 #: src/TypeBrowser.tsx
 msgid "Path patterns with an unsupported value"
-msgstr ""
+msgstr "Padrões de caminho com valor não compatível"
 
 #: src/type-presentation.ts
 #: src/type-schema.ts
 #: src/TypeBrowser.tsx
 msgid "Path policy"
-msgstr ""
+msgstr "Política de caminhos"
 
 #: src/TypeBrowser.tsx
 msgid "Path template"
-msgstr ""
+msgstr "Modelo de caminho"
 
 #. placeholder {0}: collectionRuleLabel(key)
 #: src/TypeBrowser.tsx
 msgid "Path: {0}"
-msgstr ""
+msgstr "Caminho: {0}"
 
 #: src/TypeBrowser.tsx
 msgid "Pattern"
-msgstr ""
+msgstr "Padrão"
 
 #: src/code-editor-file-embeds.ts
 msgid "PDF embed, {filename}"
-msgstr ""
+msgstr "PDF incorporado, {filename}"
 
 #: src/EmbedPdfViewer.tsx
 msgid "PDF viewer, {filename}"
-msgstr ""
+msgstr "Visualizador de PDF, {filename}"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Persisted null"
-msgstr ""
+msgstr "Nulo persistido"
 
 #: src/YourPersonPanel.tsx
 msgid "Person definitions needed"
-msgstr ""
+msgstr "Definições de pessoas necessárias"
 
 #: src/TypeBrowser.tsx
 msgid "person or any"
-msgstr ""
+msgstr "pessoa ou qualquer um"
 
 #: src/YourPersonPanel.tsx
 msgid "Person type"
-msgstr ""
+msgstr "Tipo Pessoa"
 
 #: src/YourPersonPanel.tsx
 msgid "Person type kept as it is"
-msgstr ""
+msgstr "Tipo Pessoa mantido como está"
 
 #: src/YourPersonPanel.tsx
 msgid "Person type update available"
-msgstr ""
+msgstr "Atualização disponível para o tipo Pessoa"
 
 #: src/TypeBrowser.tsx
 msgid "Phosphor icons"
-msgstr ""
+msgstr "Ícones Phosphor"
 
 #: src/TypeBrowser.tsx
 msgid "Phosphor Regular"
-msgstr ""
+msgstr "Phosphor Regular"
 
 #: src/editor-commands.ts
 msgid "Pin"
-msgstr ""
+msgstr "Fixar"
 
 #: src/collection-browser.ts
 msgid "Pinned"
-msgstr ""
+msgstr "Fixado"
 
 #: src/TypeBrowser.tsx
 msgid "Portable <0>{field}</0> placeholders."
-msgstr ""
+msgstr "Marcadores de posição <0>{field}</0> portáteis."
 
 #: src/TypeBrowser.tsx
 msgid "Possible app compatibility"
-msgstr ""
+msgstr "Possível compatibilidade com aplicativos"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Preferences stay in this browser."
-msgstr ""
+msgstr "As preferências permanecem neste navegador."
 
 #. placeholder {0}: upload.name
 #: src/AttachmentUpload.tsx
 msgid "Preparing “{0}”…"
-msgstr ""
+msgstr "Preparando “{0}”…"
 
 #: src/MarkdownNoteEditor.tsx
 msgid "Preparing editor…"
-msgstr ""
+msgstr "Preparando editor…"
 
 #: src/LoadingScreens.tsx
 msgid "Preparing type list…"
-msgstr ""
+msgstr "Preparando lista de tipos…"
 
 #: src/LoadingScreens.tsx
 msgid "Preparing type workspace…"
-msgstr ""
+msgstr "Preparando área de trabalho de tipos…"
 
 #: src/code-editor-file-embeds.ts
 #: src/FileViewer.tsx
 msgid "Preview {filename}"
-msgstr ""
+msgstr "Prévia de {filename}"
 
 #. placeholder {0}: formatBytes(this.maxPreviewBytes)
 #. placeholder {1}: formatBytes(entry.file.size)
 #: src/file-asset-store.ts
 msgid "Preview is limited to {0}. Download this {1} file to open it."
-msgstr ""
+msgstr "A prévia está limitada a {0}. Baixe este arquivo {1} para abri-lo."
 
 #. placeholder {0}: preview.title
 #: src/NotePreview.tsx
 msgid "Preview of {0}"
-msgstr ""
+msgstr "Prévia de {0}"
 
 #: src/read-only-markdown.tsx
 msgid "Preview truncated for display. The whole verified original is available using Open original."
-msgstr ""
+msgstr "Prévia truncada para exibição. O original completo e verificado está disponível em Abrir original."
 
 #: src/NotePreview.tsx
 msgid "Preview unavailable."
-msgstr ""
+msgstr "Prévia indisponível."
 
 #: src/collection-browser.ts
 msgid "Previous 30 days"
-msgstr ""
+msgstr "Últimos 30 dias"
 
 #: src/collection-browser.ts
 msgid "Previous 7 days"
-msgstr ""
+msgstr "Últimos 7 dias"
 
 #: src/ConnectionScreens.tsx
 msgid "Previously opened in mdbase editor"
-msgstr ""
+msgstr "Aberto anteriormente no mdbase editor"
 
 #: src/SdkEditorRoot.tsx
 msgid "Private collections"
-msgstr ""
+msgstr "Coleções privadas"
 
 #: src/SdkEditorRoot.tsx
 msgid "Private collections couldn't be loaded."
-msgstr ""
+msgstr "Não foi possível carregar as coleções privadas."
 
 #: src/type-schema.ts
 msgid "Projections"
-msgstr ""
+msgstr "Projeções"
 
 #: src/TypeBrowser.tsx
 msgid "Projects/**/*.md"
-msgstr ""
+msgstr "Projects/**/*.md"
 
 #: src/NewNoteComposer.tsx
 #: src/PropertiesPanel.tsx
 msgid "Properties"
-msgstr ""
+msgstr "Propriedades"
 
 #: src/PropertiesPanel.tsx
 msgid "Properties could not be saved."
-msgstr ""
+msgstr "Não foi possível salvar as propriedades."
 
 #: src/PropertiesPanel.tsx
 msgid "Properties format"
-msgstr ""
+msgstr "Formato das propriedades"
 
 #: src/BulkNoteProperties.tsx
 msgid "Property"
-msgstr ""
+msgstr "Propriedade"
 
 #: src/PropertiesPanel.tsx
 msgid "Property options"
-msgstr ""
+msgstr "Opções da propriedade"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Provided by the note's type, not stored in this file."
-msgstr ""
+msgstr "Fornecido pelo tipo da nota; não é armazenado neste arquivo."
 
 #: src/editor-commands.ts
 #: src/NoteSearchField.tsx
 #: src/QuickOpen.tsx
 msgid "Quick open"
-msgstr ""
+msgstr "Abertura rápida"
 
 #. placeholder {0}: shortcutModifier()
 #: src/NoteSearchField.tsx
 msgid "Quick open · {0} P anywhere"
-msgstr ""
+msgstr "Abertura rápida · {0} P em qualquer lugar"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Quiet Markdown"
-msgstr ""
+msgstr "Markdown sem distrações"
 
 #: src/code-editor-completions.ts
 msgid "Quote"
-msgstr ""
+msgstr "Citação"
 
 #: src/PropertiesPanel.tsx
 msgid "Raw frontmatter JSON"
-msgstr ""
+msgstr "JSON bruto do frontmatter"
 
 #: src/type-schema.ts
 msgid "read default"
-msgstr ""
+msgstr "valor padrão de leitura"
 
 #: src/type-schema.ts
 #: src/TypeBrowser.tsx
 msgid "Read defaults"
-msgstr ""
+msgstr "Valores padrão de leitura"
 
 #: src/type-schema.ts
 msgid "read defaults with an unsupported value"
-msgstr ""
+msgstr "valores padrão de leitura com valor não compatível"
 
 #: src/App.tsx
 msgid "Read only"
-msgstr ""
+msgstr "Somente leitura"
 
 #: src/read-only-markdown.tsx
 msgid "Read-only Markdown preview"
-msgstr ""
+msgstr "Prévia de Markdown somente leitura"
 
 #: src/AttachmentUpload.tsx
 msgid "Reading"
-msgstr ""
+msgstr "Lendo"
 
 #: src/WorkspaceChrome.tsx
 msgid "Reading collection links…"
-msgstr ""
+msgstr "Lendo links da coleção…"
 
 #: src/WorkspaceChrome.tsx
 msgid "Reading collection text…"
-msgstr ""
+msgstr "Lendo texto da coleção…"
 
 #: src/FileViewer.tsx
 msgid "Reading file content…"
-msgstr ""
+msgstr "Lendo conteúdo do arquivo…"
 
 #: src/LoadingScreens.tsx
 msgid "Reading its notes and types"
-msgstr ""
+msgstr "Lendo notas e tipos da coleção"
 
 #: src/WorkspaceChrome.tsx
 msgid "Reading note content…"
-msgstr ""
+msgstr "Lendo conteúdo da nota…"
 
 #: src/NoteList.tsx
 msgid "Reading notes and files"
-msgstr ""
+msgstr "Lendo notas e arquivos"
 
 #: src/NoteList.tsx
 msgid "Reading notes and files…"
-msgstr ""
+msgstr "Lendo notas e arquivos…"
 
 #: src/TypeBrowser.tsx
 msgid "Reading type definition…"
-msgstr ""
+msgstr "Lendo definição do tipo…"
 
 #: src/TypeBrowser.tsx
 msgid "Ready-made types"
-msgstr ""
+msgstr "Tipos prontos"
 
 #: src/ConnectionScreens.tsx
 msgid "Recent collections"
-msgstr ""
+msgstr "Coleções recentes"
 
 #: src/QuickOpen.tsx
 msgid "Recent notes and actions"
-msgstr ""
+msgstr "Notas e ações recentes"
 
 #: src/CollectionRail.tsx
 msgid "Reconnecting"
-msgstr ""
+msgstr "Reconectando"
 
 #: src/native-note-observation.ts
 msgid "Reconnecting to the collection…"
-msgstr ""
+msgstr "Reconectando à coleção…"
 
 #: src/record-source.ts
 msgid "Record frontmatter must be a YAML mapping."
-msgstr ""
+msgstr "O frontmatter do registro deve ser um mapeamento YAML."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Record link"
-msgstr ""
+msgstr "Link para registro"
 
 #: src/PropertiesPanel.tsx
 msgid "Record source"
-msgstr ""
+msgstr "Código-fonte do registro"
 
 #: src/gateway.ts
 msgid "Recover the interrupted note operation before making another change. No new write was attempted."
-msgstr ""
+msgstr "Recupere a operação interrompida na nota antes de fazer outra alteração. Nenhuma nova gravação foi tentada."
 
 #. placeholder {0}: move.from
 #: src/App.tsx
 msgid "Recover the unsaved edits in “{0}” before moving this folder."
-msgstr ""
+msgstr "Recupere as edições não salvas em “{0}” antes de mover esta pasta."
 
 #: src/App.tsx
 msgid "Recover unsaved edits before moving this note."
-msgstr ""
+msgstr "Recupere as edições não salvas antes de mover esta nota."
 
 #: src/note-mutation-presentation.ts
 msgid "Recovering deletion"
-msgstr ""
+msgstr "Recuperando exclusão"
 
 #: src/note-mutation-presentation.ts
 msgid "Recovering rename"
-msgstr ""
+msgstr "Recuperando renomeação"
 
 #: src/WorkspaceChrome.tsx
 msgid "References could not finish loading."
-msgstr ""
+msgstr "Não foi possível concluir o carregamento das referências."
 
 #: src/App.tsx
 msgid "Refreshing collection state before reconnecting."
-msgstr ""
+msgstr "Atualizando o estado da coleção antes de reconectar."
 
 #: src/AppErrorBoundary.tsx
 msgid "Reload Connect"
-msgstr ""
+msgstr "Recarregar Connect"
 
 #: src/AppErrorBoundary.tsx
 msgid "Reload editor"
-msgstr ""
+msgstr "Recarregar editor"
 
 #: src/code-editor-file-embeds.ts
 #: src/TypeBrowser.tsx
 msgid "Remove"
-msgstr ""
+msgstr "Remover"
 
 #. placeholder {0}: entryName || `entry ${index + 1}`
 #: src/SchemaValueEditor.tsx
 msgid "Remove {0}"
-msgstr ""
+msgstr "Remover {0}"
 
 #. placeholder {0}: itemLabel.toLocaleLowerCase()
 #. placeholder {1}: index + 1
 #: src/TypeBrowser.tsx
 msgid "Remove {0} {1}"
-msgstr ""
+msgstr "Remover {0} {1}"
 
 #. placeholder {0}: implementation.contract
 #: src/TypeBrowser.tsx
 msgid "Remove {0} contract"
-msgstr ""
+msgstr "Remover contrato {0}"
 
 #. placeholder {0}: filter.kind
 #. placeholder {1}: filter.value
 #: src/NoteSearchField.tsx
 msgid "Remove {0} filter {1}"
-msgstr ""
+msgstr "Remover filtro {1} de {0}"
 
 #: src/SchemaValueEditor.tsx
 msgid "Remove {field}"
-msgstr ""
+msgstr "Remover {field}"
 
 #: src/TypeBrowser.tsx
 msgid "Remove {fieldLabel} field"
