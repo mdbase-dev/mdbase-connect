@@ -2778,473 +2778,473 @@ msgstr "アカウントに戻る"
 
 #: src/authority-workflows.tsx
 msgid "Return to your computer."
-msgstr ""
+msgstr "コンピューターに戻ってください。"
 
 #: src/authorization-view.tsx
 msgid "Returning to {applicationName}…"
-msgstr ""
+msgstr "{applicationName} に戻っています…"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Review"
-msgstr ""
+msgstr "確認"
 
 #. placeholder {0}: request.application_name
 #: src/ConnectApp.tsx
 msgid "Review {0}’s collection access request."
-msgstr ""
+msgstr "{0} のコレクションへのアクセス要求を確認してください。"
 
 #. placeholder {0}: request.application_name
 #: src/ConnectApp.tsx
 msgid "Review {0}’s request for {collectionName}."
-msgstr ""
+msgstr "{collectionName} に対する {0} の要求を確認してください。"
 
 #: src/authorization-view.tsx
 msgid "Review access"
-msgstr ""
+msgstr "アクセスを確認"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Review all"
-msgstr ""
+msgstr "すべて確認"
 
 #: src/ApplicationAccess.tsx
 msgid "Review applications connected to your account. Your browser sign-in is never shared with them."
-msgstr ""
+msgstr "アカウントに接続されたアプリケーションを確認します。ブラウザーのログイン情報はアプリケーションには共有されません。"
 
 #: src/authorization-view.tsx
 msgid "Review in this browser"
-msgstr ""
+msgstr "このブラウザーで確認"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Review next request"
-msgstr ""
+msgstr "次の要求を確認"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Review request"
-msgstr ""
+msgstr "要求を確認"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Review request"
-msgstr ""
+msgstr "要求を確認"
 
 #: src/ApplicationAccess.tsx
 msgid "Review the access each application has to {collectionName}."
-msgstr ""
+msgstr "各アプリケーションの {collectionName} へのアクセス権を確認します。"
 
 #. placeholder {0}: grant.collection_kind === "local" ? t(i18n)({ message: "the computer holding this collection" }) : t(i18n)({ message: "the hosted authority", context: "Connect interface" })
 #: src/ApplicationAccess.tsx
 msgid "Revocation is pending. Waiting for {0} to confirm enforcement."
-msgstr ""
+msgstr "アクセスの取り消しは保留中です。{0} による適用確認を待っています。"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoke"
-msgstr ""
+msgstr "取り消す"
 
 #. placeholder {0}: group.applicationName
 #. placeholder {1}: entries[0]!.collection_name
 #: src/ApplicationAccess.tsx
 msgid "Revoke {0} access to {1} across all its installations?"
-msgstr ""
+msgstr "すべてのインストールで {0} の {1} へのアクセスを取り消しますか？"
 
 #. placeholder {0}: group.applicationName
 #: src/ApplicationAccess.tsx
 msgid "Revoke {0} access to {collectionName}?"
-msgstr ""
+msgstr "{0} の {collectionName} へのアクセスを取り消しますか？"
 
 #. placeholder {0}: connector.name
 #: src/ConnectApp.tsx
 msgid "Revoke {0} and the application grants routed through it?"
-msgstr ""
+msgstr "{0} と、それを経由するアプリケーションの許可を取り消しますか？"
 
 #. placeholder {0}: replica.name
 #: src/ConnectApp.tsx
 msgid "Revoke {0}?"
-msgstr ""
+msgstr "{0} を取り消しますか？"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Revoke access"
-msgstr ""
+msgstr "アクセスを取り消す"
 
 #. placeholder {0}: grant.collection_name
 #: src/ApplicationAccess.tsx
 msgid "Revoke access to {0}?"
-msgstr ""
+msgstr "{0} へのアクセスを取り消しますか？"
 
 #. placeholder {0}: group.applicationName
 #: src/ApplicationAccess.tsx
 msgid "Revoke all {0} access and collection creation permission?"
-msgstr ""
+msgstr "{0} のすべてのアクセス権とコレクション作成権限を取り消しますか？"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Revoke application"
-msgstr ""
+msgstr "アプリケーションの許可を取り消す"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Revoke collection access"
-msgstr ""
+msgstr "コレクションへのアクセスを取り消す"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoke computer"
-msgstr ""
+msgstr "コンピューターの許可を取り消す"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoking…"
-msgstr ""
+msgstr "取り消し中…"
 
 #: src/ConnectApp.tsx
 msgid "Role"
-msgstr ""
+msgstr "役割"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Role"
-msgstr ""
+msgstr "役割"
 
 #. placeholder {0}: member.name
 #: src/ConnectApp.tsx
 msgid "Role for {0}"
-msgstr ""
+msgstr "{0} の役割"
 
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
 msgid "Save"
-msgstr ""
+msgstr "保存"
 
 #: src/ApplicationAccess.tsx
 msgid "Save narrower access"
-msgstr ""
+msgstr "アクセス範囲を狭めて保存"
 
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
 msgid "Saving…"
-msgstr ""
+msgstr "保存中…"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Schedule background work"
-msgstr ""
+msgstr "バックグラウンド作業を予定"
 
 #: src/ApplicationAccess.tsx
 msgid "Scope"
-msgstr ""
+msgstr "対象範囲"
 
 #: src/CollectionPicker.tsx
 msgid "Search collections by name"
-msgstr ""
+msgstr "名前でコレクションを検索"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "see collection members"
-msgstr ""
+msgstr "コレクションのメンバーを表示"
 
 #: src/authorization-review.tsx
 msgid "See collection members' account identities, names and roles"
-msgstr ""
+msgstr "コレクションのメンバーのアカウント識別子、名前、役割を表示"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "see the list of"
-msgstr ""
+msgstr "一覧を表示"
 
 #: src/authorization-review.tsx
 msgid "See your account identity and display name"
-msgstr ""
+msgstr "アカウントの識別子と表示名を表示"
 
 #. placeholder {0}: relativeTime(connector.last_seen_at)
 #. placeholder {0}: relativeTime(replica.sync_status.last_seen_at ?? collection.source.created_at)
 #: src/ConnectApp.tsx
 msgid "Seen {0}"
-msgstr ""
+msgstr "最終確認 {0}"
 
 #: src/authorization-view.tsx
 msgid "Select a collection to continue."
-msgstr ""
+msgstr "続行するにはコレクションを選んでください。"
 
 #. placeholder {0}: selected.name
 #: src/CollectionPicker.tsx
 msgid "Selected: <0>{0}</0>"
-msgstr ""
+msgstr "選択中: <0>{0}</0>"
 
 #: src/ConnectApp.tsx
 #: src/FeedbackPage.tsx
 msgctxt "Connect interface"
 msgid "Send feedback"
-msgstr ""
+msgstr "フィードバックを送信"
 
 #: src/auth-view.tsx
 msgid "Send me occasional product updates. You can change this at any time."
-msgstr ""
+msgstr "製品のお知らせをときどき受け取ります。いつでも変更できます。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Send reset link"
-msgstr ""
+msgstr "リセットリンクを送信"
 
 #: src/ConnectApp.tsx
 msgid "Send this private link to the invited person. Email invitations require an already registered, verified account. If they have just signed up, create a new invitation."
-msgstr ""
+msgstr "この非公開リンクを招待先のユーザーに送ってください。メールでの招待には、登録済みかつ確認済みのアカウントが必要です。相手が登録したばかりの場合は、新しい招待を作成してください。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Send verification link"
-msgstr ""
+msgstr "確認リンクを送信"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Sending link…"
-msgstr ""
+msgstr "リンクを送信中…"
 
 #. placeholder {0}: account.user.email
 #: src/AccountManagement.tsx
 msgid "Sent to {0}."
-msgstr ""
+msgstr "{0} に送信しました。"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Set up and allow access"
-msgstr ""
+msgstr "設定してアクセスを許可"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Setting up and allowing…"
-msgstr ""
+msgstr "設定して許可中…"
 
 #. placeholder {0}: setupLabel(contract)
 #: src/authorization-review.tsx
 msgid "Setup for {0}"
-msgstr ""
+msgstr "{0} の設定"
 
 #: src/authority-workflows.tsx
 msgid "Shared with you"
-msgstr ""
+msgstr "共有されたコレクション"
 
 #: src/ConnectApp.tsx
 msgid "Sharing code"
-msgstr ""
+msgstr "共有コード"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Sharing code"
-msgstr ""
+msgstr "共有コード"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Sharing code"
-msgstr ""
+msgstr "共有コード"
 
 #: src/authorization-view.tsx
 msgid "Short approval code"
-msgstr ""
+msgstr "短い承認コード"
 
 #. placeholder {0}: visible.length
 #. placeholder {1}: data.connectors.length
 #: src/ConnectApp.tsx
 msgid "Showing {0} of {1} registered computers."
-msgstr ""
+msgstr "登録済みコンピューター {1} 台中 {0} 台を表示しています。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Sign in"
-msgstr ""
+msgstr "ログイン"
 
 #: src/authority-workflows.tsx
 msgid "Sign in again"
-msgstr ""
+msgstr "再度ログイン"
 
 #: src/authority-workflows.tsx
 msgid "Sign in on a computer"
-msgstr ""
+msgstr "コンピューターでログイン"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Sign in to continue"
-msgstr ""
+msgstr "ログインして続行"
 
 #: src/auth-view.tsx
 msgid "Sign in with the method connected to your invited account."
-msgstr ""
+msgstr "招待されたアカウントに接続されている方法でログインしてください。"
 
 #: src/auth-view.tsx
 msgid "Sign in, review the request, and return to the application."
-msgstr ""
+msgstr "ログインして要求を確認し、アプリケーションに戻ってください。"
 
 #: src/AccountManagement.tsx
 msgid "Sign out"
-msgstr ""
+msgstr "ログアウト"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Sign out of this browser"
-msgstr ""
+msgstr "このブラウザーからログアウト"
 
 #: src/AccountManagement.tsx
 msgid "Sign out other sessions"
-msgstr ""
+msgstr "ほかのセッションをログアウト"
 
 #: src/authority-workflows.tsx
 msgid "Sign-in cancelled"
-msgstr ""
+msgstr "ログインをキャンセルしました"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Sign-in methods"
-msgstr ""
+msgstr "ログイン方法"
 
 #: src/AccountManagement.tsx
 msgid "Sign-in methods for this account are controlled by Tailscale."
-msgstr ""
+msgstr "このアカウントのログイン方法は Tailscale で管理されています。"
 
 #: src/auth-view.tsx
 msgid "Sign-in was cancelled. You can try again or choose another method."
-msgstr ""
+msgstr "ログインをキャンセルしました。再試行するか、別の方法を選んでください。"
 
 #. placeholder {0}: formatters(i18n.locale).date(new Date(session.created_at), { dateStyle: "medium", timeStyle: "short" })
 #. placeholder {1}: session.id.slice(-8)
 #: src/AccountManagement.tsx
 msgid "Signed in <0>{0}</0> · ID {1}"
-msgstr ""
+msgstr "ログイン中 <0>{0}</0> · ID {1}"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Signing in with Google…"
-msgstr ""
+msgstr "Google でログイン中…"
 
 #: src/GoogleIdentityButton.tsx
 msgctxt "Connect interface"
 msgid "Signing in with Google…"
-msgstr ""
+msgstr "Google でログイン中…"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Signing in…"
-msgstr ""
+msgstr "ログイン中…"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Signing out…"
-msgstr ""
+msgstr "ログアウト中…"
 
 #: src/auth-view.tsx
 msgid "Start signup again"
-msgstr ""
+msgstr "新規登録をやり直す"
 
 #: src/ConnectApp.tsx
 msgid "Status"
-msgstr ""
+msgstr "状態"
 
 #: src/auth-view.tsx
 msgid "Stop receiving the kind of email this link came in. Messages about your account are still sent."
-msgstr ""
+msgstr "このリンクが届いた種類のメールの受信を停止します。アカウントに関するメッセージは引き続き送信されます。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Storage"
-msgstr ""
+msgstr "ストレージ"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Storage & sync"
-msgstr ""
+msgstr "ストレージと同期"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Stored by mdbase"
-msgstr ""
+msgstr "mdbase に保存"
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx
 msgid "Stored on {0}"
-msgstr ""
+msgstr "{0} に保存"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Stored on your devices"
-msgstr ""
+msgstr "デバイス上に保存"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Sync"
-msgstr ""
+msgstr "同期"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "sync a folder"
-msgstr ""
+msgstr "フォルダーを同期"
 
 #: src/ConnectApp.tsx
 msgid "Sync folder"
-msgstr ""
+msgstr "フォルダーを同期"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Sync this collection"
-msgstr ""
+msgstr "このコレクションを同期"
 
 #: src/ConnectApp.tsx
 msgid "Synced folders"
-msgstr ""
+msgstr "同期フォルダー"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Synced folders"
-msgstr ""
+msgstr "同期フォルダー"
 
 #: src/authorization-capabilities.ts
 msgid "Synchronize an application-controlled local copy of this collection."
-msgstr ""
+msgstr "このコレクションのアプリケーション管理下のローカルコピーを同期します。"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Tailscale identity"
-msgstr ""
+msgstr "Tailscale の本人確認"
 
 #: src/auth-view.tsx
 msgid "Terms"
-msgstr ""
+msgstr "規約"
 
 #: src/authority-workflows.tsx
 msgid "The app is uploading and checking a final collection snapshot. The main copy will move only after that exact snapshot is complete."
-msgstr ""
+msgstr "アプリが最終的なコレクションのスナップショットをアップロードして確認しています。そのスナップショットが完全に揃うまで正本は移動しません。"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "the application"
-msgstr ""
+msgstr "アプリケーション"
 
 #: src/authorization-view.tsx
 msgid "The application will finish connecting with its one-time device code. You can close this window."
-msgstr ""
+msgstr "アプリケーションが一回限りのデバイスコードで接続を完了します。このウィンドウは閉じてもかまいません。"
 
 #: src/authorization-view.tsx
 msgid "The application will learn that access was not granted. You can close this window."
-msgstr ""
+msgstr "アクセスが許可されなかったことがアプリケーションに通知されます。このウィンドウは閉じてもかまいません。"
 
 #: src/authorization-view.tsx
 msgid "The application will show that access was not granted."
-msgstr ""
+msgstr "アクセスが許可されなかったことがアプリケーションに表示されます。"
 
 #. placeholder {0}: field.label.toLocaleLowerCase()
 #: src/authorization-review.tsx
 msgid "The application’s {0} value."
-msgstr ""
+msgstr "アプリケーションの {0} の値。"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "The collection"
-msgstr ""
+msgstr "コレクション"
 
 #: src/authorization-view.tsx
 msgid "The collection cannot allow all required record and file permissions together. Choose another collection."
