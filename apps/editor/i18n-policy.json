@@ -1,6 +1,7 @@
 {
   "source": {
     "include": ["src"],
+    "brands": ["{field}"],
     "exclude": ["**/*.test.*", "**/test/**", "**/locales/**", "**/*.generated.*", "**/demo-*.ts"]
   }
 }

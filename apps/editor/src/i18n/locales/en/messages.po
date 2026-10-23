@@ -156,6 +156,13 @@ msgstr "{0, plural, one {Moved # note.} other {Moved # notes.}}"
 msgid "{0, plural, one {Rename ‘{basename}’ and move # note?} other {Rename ‘{basename}’ and move # notes?}}"
 msgstr "{0, plural, one {Rename ‘{basename}’ and move # note?} other {Rename ‘{basename}’ and move # notes?}}"
 
+#. placeholder {0}: node.count
+#. placeholder {1}: node.path
+#. placeholder {2}: node.path
+#: src/CollectionRail.tsx
+msgid "{0, plural, one {Show notes in {1}, # note} other {Show notes in {2}, # notes}}"
+msgstr "{0, plural, one {Show notes in {1}, # note} other {Show notes in {2}, # notes}}"
+
 #. placeholder {0}: files.length
 #: src/AttachmentUpload.tsx
 msgid "{0, plural, one {The file was uploaded, but the note changed before its link could be inserted.} other {The files were uploaded, but the note changed before its link could be inserted.}}"
@@ -285,6 +292,12 @@ msgstr "{0} notes match this reference."
 #: src/TypeBrowser.tsx
 msgid "{0} now · {1} gain this type · {2} lose it"
 msgstr "{0} now · {1} gain this type · {2} lose it"
+
+#. placeholder {0}: suggestion.matchedFields
+#. placeholder {1}: suggestion.totalFields
+#: src/TypeBrowser.tsx
+msgid "{0} of {1} fields match"
+msgstr "{0} of {1} fields match"
 
 #. placeholder {0}: noteCount.toLocaleString(displayLocale())
 #. placeholder {1}: total?.toLocaleString(displayLocale()) ?? "…"
@@ -637,6 +650,12 @@ msgstr "{product} needs to restart"
 msgid "{references, plural, one {Also updated links in # note.} other {Also updated links in # notes.}}"
 msgstr "{references, plural, one {Also updated links in # note.} other {Also updated links in # notes.}}"
 
+#. placeholder {0}: requiredFields.length
+#. placeholder {1}: fields.length
+#: src/TypeBrowser.tsx
+msgid "{requiredMapped}/{0} required · {mappedCount}/{1} total"
+msgstr "{requiredMapped}/{0} required · {mappedCount}/{1} total"
+
 #: src/NewNoteComposer.tsx
 msgid "{selectedOptional} set"
 msgstr "{selectedOptional} set"
@@ -818,10 +837,6 @@ msgstr "Actions in quick open"
 msgid "Add"
 msgstr "Add"
 
-#: src/StructuredPropertiesEditor.tsx
-msgid "Add "
-msgstr "Add "
-
 #. placeholder {0}: pack.displayName
 #: src/TypeBrowser.tsx
 msgid "Add {0}"
@@ -890,6 +905,7 @@ msgid "add files"
 msgstr "add files"
 
 #: src/SchemaValueEditor.tsx
+#: src/StructuredPropertiesEditor.tsx
 msgid "Add item"
 msgstr "Add item"
 
@@ -919,6 +935,7 @@ msgstr "Add property"
 
 #: src/BulkNoteProperties.tsx
 #: src/editor-commands.ts
+#: src/StructuredPropertiesEditor.tsx
 msgid "Add tag"
 msgstr "Add tag"
 
@@ -968,10 +985,6 @@ msgstr "Additional properties"
 #: src/TypeBrowser.tsx
 msgid "Additional uniqueness settings remain in YAML: {0}."
 msgstr "Additional uniqueness settings remain in YAML: {0}."
-
-#: src/TypeBrowser.tsx
-msgid "additional YAML rules"
-msgstr "additional YAML rules"
 
 #. placeholder {0}: pack.installedTypes.length
 #. placeholder {1}: pack.resourceCount
@@ -1225,7 +1238,7 @@ msgstr "Binding settings do not satisfy {contractId}."
 msgid "Binding settings for {contractId} cannot be edited because its schema is invalid: {detail}"
 msgstr "Binding settings for {contractId} cannot be edited because its schema is invalid: {detail}"
 
-#. placeholder {0}: anchor.preview
+#. placeholder {0}: anchor.preview ?? ""
 #: src/code-editor-completions.ts
 msgid "Block · {0}"
 msgstr "Block · {0}"
@@ -1483,10 +1496,6 @@ msgstr "Close properties"
 #: src/QuickOpen.tsx
 msgid "Close quick open"
 msgstr "Close quick open"
-
-#: src/CodeEditor.tsx
-msgid "cm-task-checkbox mdbase-checkbox"
-msgstr "cm-task-checkbox mdbase-checkbox"
 
 #: src/code-editor-completions.ts
 msgid "Code block"
@@ -2319,10 +2328,6 @@ msgstr "Enter text."
 msgid "Entire collection"
 msgstr "Entire collection"
 
-#: src/SchemaValueEditor.tsx
-msgid "entry "
-msgstr "entry "
-
 #. placeholder {0}: index + 1
 #: src/SchemaValueEditor.tsx
 msgid "Entry {0} value"
@@ -2403,10 +2408,6 @@ msgstr "Fields added"
 #: src/TypeBrowser.tsx
 msgid "Fields changed"
 msgstr "Fields changed"
-
-#: src/TypeBrowser.tsx
-msgid "fields match"
-msgstr "fields match"
 
 #: src/TypeBrowser.tsx
 msgid "Fields removed"
@@ -2620,10 +2621,6 @@ msgstr "Heading 2"
 msgid "Heading 3"
 msgstr "Heading 3"
 
-#: src/App.tsx
-msgid "hide"
-msgstr "hide"
-
 #: src/EditorRail.tsx
 msgid "Hide collections sidebar"
 msgstr "Hide collections sidebar"
@@ -2739,10 +2736,6 @@ msgstr "Invalid JSON."
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
 msgstr "It has not been edited since it was added, so it is replaced with the new starter."
 
-#: src/StructuredPropertiesEditor.tsx
-msgid "item"
-msgstr "item"
-
 #: src/TypeBrowser.tsx
 msgid "Its current structural rules will be replaced."
 msgstr "Its current structural rules will be replaced."
@@ -2764,10 +2757,6 @@ msgstr "Keep my edits"
 msgctxt "settings view"
 msgid "Keep the caret line centred while writing in focus mode."
 msgstr "Keep the caret line centred while writing in focus mode."
-
-#: src/SchemaValueEditor.tsx
-msgid "key"
-msgstr "key"
 
 #: src/SchemaValueEditor.tsx
 msgid "Key"
@@ -3180,6 +3169,12 @@ msgstr "Move"
 msgid "Move ‘{basename}’"
 msgstr "Move ‘{basename}’"
 
+#. placeholder {0}: plan.moves.length
+#. placeholder {1}: plan.referenceCount
+#: src/FolderChangeDialog.tsx
+msgid "Move {0, plural, one {# note} other {# notes}} and update {1, plural, one {# link} other {# links}}?"
+msgstr "Move {0, plural, one {# note} other {# notes}} and update {1, plural, one {# link} other {# links}}?"
+
 #. placeholder {0}: paths.length
 #: src/MoveNoteDialog.tsx
 msgid "Move {0} notes"
@@ -3234,10 +3229,6 @@ msgstr "Moving notes is not available with this collection’s current access."
 #: src/MoveNoteDialog.tsx
 msgid "Moving…"
 msgstr "Moving…"
-
-#: src/TypeBrowser.tsx
-msgid "must be evaluated by the collection."
-msgstr "must be evaluated by the collection."
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
@@ -3612,10 +3603,6 @@ msgstr "Object"
 #: src/TypeBrowser.tsx
 msgid "Objects and lists can contain fields at any depth."
 msgstr "Objects and lists can contain fields at any depth."
-
-#: src/TypeBrowser.tsx
-msgid "of "
-msgstr "of "
 
 #: src/CollectionRail.tsx
 msgid "Offline"
@@ -4211,6 +4198,12 @@ msgstr "Rename"
 msgid "Rename ‘{basename}’"
 msgstr "Rename ‘{basename}’"
 
+#. placeholder {0}: plan.moves.length
+#. placeholder {1}: plan.referenceCount
+#: src/FolderChangeDialog.tsx
+msgid "Rename ‘{basename}’ and move {0, plural, one {# note} other {# notes}} and update {1, plural, one {# link} other {# links}}?"
+msgstr "Rename ‘{basename}’ and move {0, plural, one {# note} other {# notes}} and update {1, plural, one {# link} other {# links}}?"
+
 #: src/App.tsx
 msgid "Rename and update links"
 msgstr "Rename and update links"
@@ -4276,10 +4269,6 @@ msgid "Required"
 msgstr "Required"
 
 #: src/TypeBrowser.tsx
-msgid "required · "
-msgstr "required · "
-
-#: src/TypeBrowser.tsx
 msgid "Required fields covered"
 msgstr "Required fields covered"
 
@@ -4292,16 +4281,20 @@ msgid "Required properties"
 msgstr "Required properties"
 
 #: src/App.tsx
-msgid "Resize {listName} sidebar"
-msgstr "Resize {listName} sidebar"
-
-#: src/App.tsx
 msgid "Resize collections sidebar"
 msgstr "Resize collections sidebar"
 
 #: src/App.tsx
 msgid "Resize note inspector"
 msgstr "Resize note inspector"
+
+#: src/App.tsx
+msgid "Resize notes sidebar"
+msgstr "Resize notes sidebar"
+
+#: src/App.tsx
+msgid "Resize types sidebar"
+msgstr "Resize types sidebar"
 
 #: src/next-editor-records.ts
 msgid "Resolve this note's protected edit before changing it."
@@ -4486,9 +4479,10 @@ msgstr "Saving"
 msgid "Saving affects every matching note"
 msgstr "Saving affects every matching note"
 
+#. placeholder {0}: type!.name
 #: src/TypeBrowser.tsx
-msgid "Saving affects every note of type "
-msgstr "Saving affects every note of type "
+msgid "Saving affects every note of type <0>{0}</0>"
+msgstr "Saving affects every note of type <0>{0}</0>"
 
 #: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
@@ -4620,14 +4614,6 @@ msgstr "Several person records are linked to your account. Edit them so exactly 
 msgid "Shortcuts"
 msgstr "Shortcuts"
 
-#: src/App.tsx
-msgid "show"
-msgstr "show"
-
-#: src/App.tsx
-msgid "Show {listName} sidebar"
-msgstr "Show {listName} sidebar"
-
 #: src/TypeBrowser.tsx
 msgid "Show affected notes"
 msgstr "Show affected notes"
@@ -4645,9 +4631,23 @@ msgstr "Show collections sidebar"
 msgid "Show fewer"
 msgstr "Show fewer"
 
+#. placeholder {0}: node.path
+#. placeholder {1}: node.count
+#: src/CollectionRail.tsx
+msgid "Show notes in {0}, {1} or more notes"
+msgstr "Show notes in {0}, {1} or more notes"
+
+#: src/App.tsx
+msgid "Show notes sidebar"
+msgstr "Show notes sidebar"
+
 #: src/editor-commands.ts
 msgid "Show or hide the notes sidebar"
 msgstr "Show or hide the notes sidebar"
+
+#: src/App.tsx
+msgid "Show types sidebar"
+msgstr "Show types sidebar"
 
 #: src/App.tsx
 msgid "Sidebar layout controls"
@@ -4673,10 +4673,6 @@ msgstr "Small section heading"
 msgctxt "settings view"
 msgid "Soften punctuation away from the active line and make tasks checkable."
 msgstr "Soften punctuation away from the active line and make tasks checkable."
-
-#: src/TypeBrowser.tsx
-msgid "some matching rules"
-msgstr "some matching rules"
 
 #: src/NoteListViewOptions.tsx
 msgid "Sort"
@@ -4785,10 +4781,6 @@ msgstr "System → Light → Dark"
 msgid "Table"
 msgstr "Table"
 
-#: src/StructuredPropertiesEditor.tsx
-msgid "tag"
-msgstr "tag"
-
 #: src/BulkNoteProperties.tsx
 msgid "Tag"
 msgstr "Tag"
@@ -4888,8 +4880,12 @@ msgid "The <0>{0}</0> type is an earlier Person starter. Review the current star
 msgstr "The <0>{0}</0> type is an earlier Person starter. Review the current starter before creating your record. Nothing will change without your approval."
 
 #: src/TypeBrowser.tsx
-msgid "The after-save preview is unavailable because "
-msgstr "The after-save preview is unavailable because "
+msgid "The after-save preview is unavailable because additional YAML rules must be evaluated by the collection."
+msgstr "The after-save preview is unavailable because additional YAML rules must be evaluated by the collection."
+
+#: src/TypeBrowser.tsx
+msgid "The after-save preview is unavailable because some matching rules must be evaluated by the collection."
+msgstr "The after-save preview is unavailable because some matching rules must be evaluated by the collection."
 
 #: src/contract-catalog.ts
 msgid "The catalog contains duplicate {label} {identity}."
@@ -5566,10 +5562,6 @@ msgstr "Title differences"
 msgid "Title the first note to create the folder."
 msgstr "Title the first note to create the folder."
 
-#: src/YourPersonPanel.tsx
-msgid "to the current Person starter. "
-msgstr "to the current Person starter. "
-
 #: src/collection-browser.ts
 msgid "Today"
 msgstr "Today"
@@ -5577,10 +5569,6 @@ msgstr "Today"
 #: src/editor-commands.ts
 msgid "Toggle Vim key bindings"
 msgstr "Toggle Vim key bindings"
-
-#: src/TypeBrowser.tsx
-msgid "total"
-msgstr "total"
 
 #. placeholder {0}: file.path
 #: src/code-editor-completions.ts
@@ -5822,9 +5810,10 @@ msgstr "Updating properties"
 msgid "upgrade"
 msgstr "upgrade"
 
+#. placeholder {0}: setup.upgrade.target
 #: src/YourPersonPanel.tsx
-msgid "Upgrade "
-msgstr "Upgrade "
+msgid "Upgrade <0>{0}</0> to the current Person starter. "
+msgstr "Upgrade <0>{0}</0> to the current Person starter. "
 
 #. placeholder {0}: files[0]!.name
 #: src/AttachmentUpload.tsx
