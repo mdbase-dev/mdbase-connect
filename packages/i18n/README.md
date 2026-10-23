@@ -52,8 +52,16 @@ The check runs extraction sync, raw-PO completeness **before fallback**, generat
 ICU argument/type, select/exact numeric cases, offset, pound and numeric React-tag
 contracts, strict JSON compilation and the structural source guard. Plural categories
 follow the target locale's grammar (Japanese/Chinese need not have English `one`;
-Russian needs its own categories). Missing, fuzzy and English-placeholder translations
-fail. Nothing in CI authors translations.
+Russian needs its own categories). Every plural/ordinal must include all categories
+reported by `Intl.PluralRules` for that locale/type, plus `other`; unknown categories
+fail. `pt` uses `pt-BR`. Source exact numeric arms must remain; extra `=N` arms are
+allowed but do not replace required categories. Missing, fuzzy and whole-message
+English-placeholder translations fail. Plural/ordinal/select branches byte-identical
+to the corresponding English branch (or English `other` for added categories) warn
+when the branch contains literal letters. Warnings include locale, generated ID and
+selector path; the same reviewed `allowIdentical` IDs suppress them, but never waive
+ICU contracts. Numeric/punctuation-only branches and argument names do not warn.
+Nothing in CI authors translations.
 
 Reviewed identical terms/proper nouns require explicit per-locale generated-ID
 allowlisting. Optional `i18n-policy.json`:
