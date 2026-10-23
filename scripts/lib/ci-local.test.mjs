@@ -23,6 +23,13 @@ test("every CI-only entry still matches a Server CI step", () => {
   for (const step of ciOnlySteps) assert.ok(step.reason, `${step.prefix} needs a reason`);
 });
 
+test("strict root catalogue gate bootstraps the kit CLI in a clean checkout", async () => {
+  const { scripts } = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8"));
+  assert.match(scripts["i18n:check"], /^pnpm --filter @mdbase-dev\/i18n build && /);
+  assert.match(scripts.build, /^pnpm i18n:check && /);
+  assert.match(scripts.pretypecheck, /^pnpm i18n:check && /);
+});
+
 test("folded and literal run blocks yield their command", () => {
   assert.deepEqual(workflowRunCommands([
     "    defaults:",
