@@ -9,7 +9,7 @@ msgstr ""
 
 #: src/use-note-actions.ts
 msgid "Recover the unsaved edits in this note before changing it."
-msgstr "Recupera las ediciones sin guardar de esta nota antes de cambiarla."
+msgstr "Recupera las ediciones sin guardar de esta nota antes de modificarla."
 
 #. placeholder {0}: warnings.length
 #: src/TypeBrowser.tsx
@@ -20,21 +20,21 @@ msgstr " · {0} por revisar"
 #. placeholder {1}: result.failed.map(({ path, error }) => `${path} — ${gatewayError(error)}`).join("; ")
 #: src/use-note-actions.ts
 msgid " {0} couldn’t be changed: {1}"
-msgstr "No se pudo cambiar {0}: {1}"
+msgstr " Notas que no se pudieron cambiar ({0}): {1}"
 
 #: src/FolderChangeDialog.tsx
 msgid " Links were updated."
-msgstr "Se actualizaron los enlaces."
+msgstr " Se actualizaron los enlaces."
 
 #: src/App.tsx
 msgid " The move may still be applying; recover the pending operation before retrying."
-msgstr "Puede que el traslado siga en curso; recupera la operación pendiente antes de volver a intentarlo."
+msgstr " Es posible que el traslado aún se esté aplicando; recupera la operación pendiente antes de reintentar."
 
 #. placeholder {0}: suggestion.requiredMatched
 #. placeholder {1}: suggestion.requiredFields
 #: src/TypeBrowser.tsx
 msgid ", {0} of {1} required"
-msgstr ", se requieren {0} de {1}"
+msgstr ", {0} de {1} obligatorios"
 
 #: src/NewNoteComposer.tsx
 msgid ".md"
@@ -47,18 +47,18 @@ msgstr "‹título›"
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/App.tsx
 msgid "“{0}” changed elsewhere. Your edits are still here."
-msgstr "«{0}» cambió en otro lugar. Tus ediciones siguen aquí."
+msgstr "“{0}” cambió en otro lugar. Tus ediciones siguen aquí."
 
 #. placeholder {0}: note.title
 #. placeholder {1}: reference.anchor
 #: src/code-editor-reference-diagnostics.ts
 msgid "“{0}” has no “{1}” section or block."
-msgstr "«{0}» no tiene una sección ni un bloque «{1}»."
+msgstr "“{0}” no tiene ninguna sección ni bloque “{1}”."
 
 #. placeholder {0}: impact.overlapping
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one { · # also matches another type} other { · # also match another type}}"
-msgstr "{0, plural, one { · también coincide con otro tipo} other { · también coincide con otros tipos}}"
+msgstr "{0, plural, one { · # también coincide con otro tipo} other { · # también coinciden con otro tipo}}"
 
 #. placeholder {0}: renamePlan.warnings.length
 #: src/App.tsx
@@ -68,7 +68,7 @@ msgstr "{0, plural, one { # enlace requiere atención y no se cambiará automát
 #. placeholder {0}: result.failures.length
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one { # note could not be confirmed as moved. Check the details below before retrying. Successful moves were not rolled back. Use Move to… on the remaining notes to finish.} other { # notes could not be confirmed as moved. Check the details below before retrying. Successful moves were not rolled back. Use Move to… on the remaining notes to finish.}}"
-msgstr "{0, plural, one { No se pudo confirmar el traslado de # nota. Revisa los detalles siguientes antes de volver a intentarlo. Los traslados que sí se completaron no se revirtieron. Usa Mover a… en las notas restantes para terminar.} other { No se pudo confirmar el traslado de # notas. Revisa los detalles siguientes antes de volver a intentarlo. Los traslados que sí se completaron no se revirtieron. Usa Mover a… en las notas restantes para terminar.}}"
+msgstr "{0, plural, one { No se pudo confirmar el traslado de # nota. Revisa los detalles a continuación antes de reintentar. Los traslados completados no se revirtieron. Usa Mover a… en las notas restantes para terminar.} other { No se pudo confirmar el traslado de # notas. Revisa los detalles a continuación antes de reintentar. Los traslados completados no se revirtieron. Usa Mover a… en las notas restantes para terminar.}}"
 
 #. placeholder {0}: implementations.length
 #: src/TypeBrowser.tsx
@@ -110,12 +110,12 @@ msgstr "{0, plural, one {# nota contiene enlaces que cambiarán.} other {# notas
 #. placeholder {2}: item.field
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one {# note is missing required field {1}.} other {# notes are missing required field {2}.}}"
-msgstr "{0, plural, one {A # nota le falta el campo obligatorio {1}.} other {A # notas les falta el campo obligatorio {2}.}}"
+msgstr "{0, plural, one {# nota no tiene el campo obligatorio {1}.} other {# notas no tienen el campo obligatorio {2}.}}"
 
 #. placeholder {0}: result.moved
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one {# note moved.} other {# notes moved.}}"
-msgstr "{0, plural, one {Se trasladó # nota.} other {Se trasladaron # notas.}}"
+msgstr "{0, plural, one {Se movió # nota.} other {Se movieron # notas.}}"
 
 #. placeholder {0}: requiredFields.length - requiredMapped
 #: src/TypeBrowser.tsx
@@ -125,7 +125,7 @@ msgstr "{0, plural, one {# campo obligatorio sin asignar} other {# campos obliga
 #. placeholder {0}: recoveryAction.references
 #: src/App.tsx
 msgid "{0, plural, one {Also updated links in # note.} other {Also updated links in # notes.}}"
-msgstr "{0, plural, one {También se actualizaron los enlaces de # nota.} other {También se actualizaron los enlaces de # notas.}}"
+msgstr "{0, plural, one {También se actualizaron los enlaces en # nota.} other {También se actualizaron los enlaces en # notas.}}"
 
 #. placeholder {0}: error.params.limit
 #: src/type-contracts.ts
@@ -139,7 +139,7 @@ msgstr "{0, plural, one {El ajuste de vinculación{field} necesita al menos # el
 #. placeholder {4}: installed.resources.length
 #: src/catalog-pack-installation.tsx
 msgid "{0, plural, one {Installed “{1}” ({2} resources, # new type).} other {Installed “{3}” ({4} resources, # new types).}}"
-msgstr "{0, plural, one {Se instaló «{1}» ({2} recursos, # tipo nuevo).} other {Se instaló «{3}» ({4} recursos, # tipos nuevos).}}"
+msgstr "{0, plural, one {Se instaló “{1}” ({2} recursos, # tipo nuevo).} other {Se instaló “{3}” ({4} recursos, # tipos nuevos).}}"
 
 #. placeholder {0}: plan.moves.length
 #: src/FolderChangeDialog.tsx
@@ -154,17 +154,17 @@ msgstr "{0, plural, one {Se movió # nota.} other {Se movieron # notas.}}"
 #. placeholder {0}: plan.moves.length
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one {Rename ‘{basename}’ and move # note?} other {Rename ‘{basename}’ and move # notes?}}"
-msgstr "{0, plural, one {¿Cambiar el nombre de «{basename}» y mover # nota?} other {¿Cambiar el nombre de «{basename}» y mover # notas?}}"
+msgstr "{0, plural, one {¿Cambiar el nombre de “{basename}” y mover # nota?} other {¿Cambiar el nombre de “{basename}” y mover # notas?}}"
 
 #. placeholder {0}: files.length
 #: src/AttachmentUpload.tsx
 msgid "{0, plural, one {The file was uploaded, but the note changed before its link could be inserted.} other {The files were uploaded, but the note changed before its link could be inserted.}}"
-msgstr "{0, plural, one {Se subió el archivo, pero la nota cambió antes de que se pudiera insertar el enlace.} other {Se subieron los archivos, pero la nota cambió antes de que se pudiera insertar el enlace.}}"
+msgstr "{0, plural, one {El archivo se subió, pero la nota cambió antes de que se pudiera insertar su enlace.} other {Los archivos se subieron, pero la nota cambió antes de que se pudieran insertar sus enlaces.}}"
 
 #. placeholder {0}: files.length
 #: src/AttachmentUpload.tsx
 msgid "{0, plural, one {Uploaded # file. The collection file is committed; the note link is saving separately.} other {Uploaded # files. The collection file is committed; the note link is saving separately.}}"
-msgstr "{0, plural, one {Se subió # archivo. El archivo de la colección está confirmado; el enlace de la nota se está guardando por separado.} other {Se subieron # archivos. Los archivos de la colección están confirmados; el enlace de la nota se está guardando por separado.}}"
+msgstr "{0, plural, one {Se subió # archivo. El archivo ya está confirmado en la colección; el enlace de la nota se está guardando por separado.} other {Se subieron # archivos. Los archivos ya están confirmados en la colección; los enlaces de la nota se están guardando por separado.}}"
 
 #. placeholder {0}: contact.name
 #. placeholder {1}: contact.path
@@ -180,7 +180,7 @@ msgstr "{0} · Vista previa no disponible. Usa Abrir original para ver este arch
 #. placeholder {0}: field.name
 #: src/BulkNoteProperties.tsx
 msgid "{0} (not shared)"
-msgstr "{0} (no compartido)"
+msgstr "{0} (no compartida)"
 
 #. placeholder {0}: contract.id
 #. placeholder {1}: contract.version
@@ -192,87 +192,87 @@ msgstr "{0} {1} ya está implementado."
 #. placeholder {1}: field.reference
 #: src/TypeBrowser.tsx
 msgid "{0} {1} source field"
-msgstr "Campo de origen {0} {1}"
+msgstr "Campo de origen para {0} {1}"
 
 #. placeholder {0}: implementation.contract
 #. placeholder {1}: field.reference
 #: src/TypeBrowser.tsx
 msgid "{0} {1} type field"
-msgstr "Campo de tipo {0} {1}"
+msgstr "Campo del tipo para {0} {1}"
 
 #. placeholder {0}: pack.displayName
 #: src/TypeBrowser.tsx
 msgid "{0} added"
-msgstr "{0} añadido"
+msgstr "Se añadió {0}"
 
 #. placeholder {0}: optional.length
 #: src/NewNoteComposer.tsx
 msgid "{0} available"
-msgstr "{0} disponible"
+msgstr "Disponibles: {0}"
 
 #. placeholder {0}: progress.completedUnits
 #: src/App.tsx
 msgid "{0} changes applied"
-msgstr "{0} cambios aplicados"
+msgstr "Cambios aplicados: {0}"
 
 #. placeholder {0}: typeFieldPathLabel(field.path)
 #: src/TypeBrowser.tsx
 msgid "{0} choice"
-msgstr "opción {0}"
+msgstr "Opción de {0}"
 
 #. placeholder {0}: node.path
 #: src/CollectionRail.tsx
 msgid "{0} folder actions"
-msgstr "acciones de carpeta {0}"
+msgstr "Acciones de la carpeta {0}"
 
 #. placeholder {0}: resultCount.toLocaleString(displayLocale())
 #: src/NoteList.tsx
 msgid "{0} found · relevance"
-msgstr "{0} encontrados · relevancia"
+msgstr "Resultados: {0} · relevancia"
 
 #. placeholder {0}: resultCount.toLocaleString(displayLocale())
 #: src/NoteList.tsx
 msgid "{0} found so far"
-msgstr "{0} encontrados hasta ahora"
+msgstr "Resultados hasta ahora: {0}"
 
 #. placeholder {0}: resultCount.toLocaleString(displayLocale())
 #: src/NoteList.tsx
 msgid "{0} found so far · incomplete"
-msgstr "{0} encontrados hasta ahora · incompleto"
+msgstr "Resultados hasta ahora: {0} · incompleto"
 
 #. placeholder {0}: resultCount.toLocaleString(displayLocale())
 #. placeholder {1}: contentLoaded.toLocaleString(displayLocale())
 #. placeholder {2}: contentTotal?.toLocaleString(displayLocale()) ?? "…"
 #: src/NoteList.tsx
 msgid "{0} found so far · searching {1} of {2}"
-msgstr "{0} encontrados hasta ahora · buscando {1} de {2}"
+msgstr "Resultados hasta ahora: {0} · buscando en {1} de {2}"
 
 #. placeholder {0}: person.path
 #: src/person-records.ts
 msgid "{0} implements Person through multiple types. Resolve its mappings in Types before linking."
-msgstr "{0} implementa Person mediante varios tipos. Resuelve sus asignaciones en Tipos antes de vincularlo."
+msgstr "{0} implementa Persona mediante varios tipos. Resuelve sus asignaciones en Tipos antes de vincularlo."
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
 msgid "{0} link format"
-msgstr "formato de enlace {0}"
+msgstr "Formato de enlace de {0}"
 
 #. placeholder {0}: plan.warnings.length.toLocaleString(displayLocale())
 #. placeholder {1}: plan.warnings.join("; ")
 #: src/FolderChangeDialog.tsx
 msgid "{0} link warnings need attention and will not be fixed automatically: {1}"
-msgstr "Hay que revisar las advertencias de enlaces de {0} y no se corregirán automáticamente: {1}"
+msgstr "{0} advertencias de enlaces requieren atención y no se corregirán automáticamente: {1}"
 
 #. placeholder {0}: noteCount.toLocaleString(displayLocale())
 #: src/NoteList.tsx
 msgid "{0} notes loaded · incomplete"
-msgstr "{0} notas cargadas · incompleto"
+msgstr "Notas cargadas: {0} · incompleto"
 
 #. placeholder {0}: noteMatches.length
 #. placeholder {1}: reference.target
 #: src/code-editor-reference-diagnostics.ts
 msgid "{0} notes match “{1}”. Use a path to disambiguate it."
-msgstr "{0} notas coinciden con «{1}». Usa una ruta para desambiguarlo."
+msgstr "{0} notas coinciden con “{1}”. Usa una ruta para evitar la ambigüedad."
 
 #. placeholder {0}: matches.length
 #: src/note-embeds.ts
@@ -310,32 +310,32 @@ msgstr "{0} píxeles"
 #. placeholder {0}: propertyCount(type)
 #: src/TypeBrowser.tsx
 msgid "{0} schema properties"
-msgstr "{0} propiedades del esquema"
+msgstr "Propiedades del esquema: {0}"
 
 #. placeholder {0}: listSelection.paths.length
 #: src/App.tsx
 msgid "{0} selected"
-msgstr "{0} seleccionados"
+msgstr "{0} seleccionadas"
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
 msgid "{0} target type"
-msgstr "tipo de destino {0}"
+msgstr "Tipo de destino de {0}"
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
 msgid "{0} uniqueness path pattern"
-msgstr "patrón de ruta de unicidad {0}"
+msgstr "Patrón de ruta de unicidad de {0}"
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
 msgid "{0} uniqueness scope"
-msgstr "ámbito de unicidad {0}"
+msgstr "Ámbito de unicidad de {0}"
 
 #. placeholder {0}: kindName(field.kind)
 #: src/TypeBrowser.tsx
 msgid "{0} value"
-msgstr "valor {0}"
+msgstr "Valor de tipo {0}"
 
 #. placeholder {0}: setup.assessment.lock.action
 #. placeholder {1}: setup.assessment.lock.target
@@ -383,11 +383,11 @@ msgstr "{contractId} no define vinculaciones de implementación."
 
 #: src/type-contracts.ts
 msgid "{contractReference} is not declared by {contractId}."
-msgstr "{contractReference} no está declarado por {contractId}."
+msgstr "{contractId} no declara {contractReference}."
 
 #: src/TypeBrowser.tsx
 msgid "{count, plural, one {# default} other {# defaults}}"
-msgstr "{count, plural, one {# predeterminado} other {# predeterminados}}"
+msgstr "{count, plural, one {# valor predeterminado} other {# valores predeterminados}}"
 
 #: src/TypeBrowser.tsx
 msgid "{count, plural, one {# field selector} other {# field selectors}}"
@@ -411,7 +411,7 @@ msgstr "{count, plural, one {# nota con la etiqueta {name}} other {# notas con l
 
 #: src/CollectionRail.tsx
 msgid "{count, plural, one {# note with type {name}} other {# notes with type {name}}}"
-msgstr "{count, plural, one {# nota del tipo {name}} other {# notas del tipo {name}}}"
+msgstr "{count, plural, one {# nota de tipo {name}} other {# notas de tipo {name}}}"
 
 #: src/TypeBrowser.tsx
 msgid "{count, plural, one {# path pattern} other {# path patterns}}"
@@ -447,7 +447,7 @@ msgstr "{count, plural, one {Se actualizó # nota.} other {Se actualizaron # not
 
 #: src/note-mutation-presentation.ts
 msgid "{count, plural, one {Updating # linked note} other {Updating # linked notes}}"
-msgstr "{count, plural, one {Actualizando # nota vinculada} other {Actualizando # notas vinculadas}}"
+msgstr "{count, plural, one {Actualizando # nota enlazada} other {Actualizando # notas enlazadas}}"
 
 #: src/CollectionRail.tsx
 msgid "{count} or more notes in {name}"
@@ -459,15 +459,15 @@ msgstr "{count} o más notas con la etiqueta {name}"
 
 #: src/CollectionRail.tsx
 msgid "{count} or more notes with type {name}"
-msgstr "{count} o más notas del tipo {name}"
+msgstr "{count} o más notas de tipo {name}"
 
 #: src/SchemaValueEditor.tsx
 msgid "{entryName} value"
-msgstr "valor de {entryName}"
+msgstr "Valor de {entryName}"
 
 #: src/EnvironmentBadge.tsx
 msgid "{environment} environment"
-msgstr "entorno {environment}"
+msgstr "Entorno {environment}"
 
 #: src/TypeBrowser.tsx
 msgid "{extensions, plural, one {# extension} other {# extensions}}"
@@ -475,19 +475,19 @@ msgstr "{extensions, plural, one {# extensión} other {# extensiones}}"
 
 #: src/TypeBrowser.tsx
 msgid "{fieldLabel} description"
-msgstr "descripción de {fieldLabel}"
+msgstr "Descripción de {fieldLabel}"
 
 #: src/TypeBrowser.tsx
 msgid "{fieldLabel} field name"
-msgstr "nombre del campo {fieldLabel}"
+msgstr "Nombre del campo {fieldLabel}"
 
 #: src/TypeBrowser.tsx
 msgid "{fieldLabel} field options"
-msgstr "opciones del campo {fieldLabel}"
+msgstr "Opciones del campo {fieldLabel}"
 
 #: src/TypeBrowser.tsx
 msgid "{fieldLabel} field type"
-msgstr "tipo del campo {fieldLabel}"
+msgstr "Tipo del campo {fieldLabel}"
 
 #: src/NoteList.tsx
 msgid "{fileCount, plural, one {# file} other {# files}}"
@@ -495,15 +495,15 @@ msgstr "{fileCount, plural, one {# archivo} other {# archivos}}"
 
 #: src/TypeBrowser.tsx
 msgid "{itemLabel} field type"
-msgstr "tipo del campo {itemLabel}"
+msgstr "Tipo del campo {itemLabel}"
 
 #: src/TypeBrowser.tsx
 msgid "{itemLabel} suggestions"
-msgstr "sugerencias de {itemLabel}"
+msgstr "Sugerencias para {itemLabel}"
 
 #: src/contract-catalog.ts
 msgid "{label} is not supported."
-msgstr "{label} no es compatible."
+msgstr "{label} tiene un valor no admitido."
 
 #: src/contract-catalog.ts
 msgid "{label} must be a non-empty string."
@@ -519,7 +519,7 @@ msgstr "{label} debe ser una URL."
 
 #: src/contract-catalog.ts
 msgid "{label} must be an array."
-msgstr "{label} debe ser una matriz."
+msgstr "{label} debe ser un array."
 
 #: src/contract-catalog.ts
 msgid "{label} must be an object."
@@ -548,11 +548,11 @@ msgstr "{minimum, plural, one {Se requiere al menos # elemento.} other {Se requi
 #. placeholder {0}: index + 1
 #: src/SchemaValueEditor.tsx
 msgid "{name} entry {0} key"
-msgstr "clave {0} de la entrada {name}"
+msgstr "Clave de la entrada {0} de {name}"
 
 #: src/AttachmentUpload.tsx
 msgid "{name} is a file type that can’t be uploaded."
-msgstr "{name} es un tipo de archivo que no se puede subir."
+msgstr "{name} tiene un tipo de archivo que no se puede subir."
 
 #. placeholder {0}: limit.trim()
 #: src/AttachmentUpload.tsx
@@ -565,7 +565,7 @@ msgstr "{name} no es una propiedad permitida."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} is required."
-msgstr "{name} es obligatorio."
+msgstr "La propiedad {name} es obligatoria."
 
 #: src/AttachmentUpload.tsx
 msgid "{name} is too large to upload."
