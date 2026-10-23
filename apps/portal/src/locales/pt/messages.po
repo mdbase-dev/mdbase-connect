@@ -118,12 +118,12 @@ msgstr "{0} · Expira em {1}"
 #. placeholder {1}: uniqueIdSuffix( collection.id, group.map((candidate) => candidate.id) )
 #: src/authorization-review-state.ts
 msgid "{0} · ID …{1}"
-msgstr ""
+msgstr "{0} · ID …{1}"
 
 #. placeholder {0}: suggestion.type.name
 #: src/authorization-review.tsx
 msgid "{0} · suggested"
-msgstr ""
+msgstr "{0} · sugerido"
 
 #. placeholder {0}: verbs.slice(0, -1).join(", ")
 #. placeholder {0}: words[0]
@@ -132,458 +132,458 @@ msgstr ""
 #: src/authority-workflows.tsx
 #: src/ConnectApp.tsx
 msgid "{0} and {1}"
-msgstr ""
+msgstr "{0} e {1}"
 
 #. placeholder {0}: countLabel(account.deletion.hosted_collections, "hosted-collection")
 #: src/AccountManagement.tsx
 msgid "{0} and their stored data"
-msgstr ""
+msgstr "{0} e seus dados armazenados"
 
 #. placeholder {0}: collection.display_name
 #. placeholder {1}: incompatible.detail
 #: src/compatibility.ts
 msgid "{0} can no longer be used: {1} Choose another collection."
-msgstr ""
+msgstr "{0} não pode mais ser usada: {1} Escolha outra coleção."
 
 #. placeholder {0}: request.application_name
 #: src/authorization-view.tsx
 msgid "{0} can use {selectedName} until you revoke access in mdbase connect."
-msgstr ""
+msgstr "{0} pode usar {selectedName} até você revogar o acesso no mdbase connect."
 
 #. placeholder {0}: request.application_name
 #: src/authorization-view.tsx
 msgid "{0} can use {selectedName} while it remains connected. You can revoke access in mdbase connect."
-msgstr ""
+msgstr "{0} pode usar {selectedName} enquanto ela estiver conectada. Você pode revogar o acesso no mdbase connect."
 
 #. placeholder {0}: providerLabel(provider)
 #: src/AccountManagement.tsx
 msgid "{0} disconnected."
-msgstr ""
+msgstr "{0} desconectado."
 
 #. placeholder {0}: connector.connector_name
 #: src/authorization-view.tsx
 msgid "{0} has remote access paused."
-msgstr ""
+msgstr "O acesso remoto de {0} está pausado."
 
 #. placeholder {0}: collection.display_name
 #: src/compatibility.ts
 msgid "{0} is no longer available. Choose another collection."
-msgstr ""
+msgstr "{0} não está mais disponível. Escolha outra coleção."
 
 #. placeholder {0}: providerLabel(linked)
 #: src/AccountManagement.tsx
 msgid "{0} is now connected."
-msgstr ""
+msgstr "{0} agora está conectado."
 
 #. placeholder {0}: adoption.display_name
 #: src/authority-workflows.tsx
 msgid "{0} is now hosted."
-msgstr ""
+msgstr "{0} agora está hospedada."
 
 #. placeholder {0}: connector.connector_name
 #: src/authorization-view.tsx
 msgid "{0} is offline."
-msgstr ""
+msgstr "{0} está offline."
 
 #. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
 msgid "{0} is stored in mdbase replicas on your devices."
-msgstr ""
+msgstr "{0} está armazenada em réplicas do mdbase nos seus dispositivos."
 
 #. placeholder {0}: collection.display_name
 #. placeholder {1}: connector.connector_name
 #: src/compatibility.ts
 msgid "{0} is unavailable because {1} has remote access paused. Choose another collection."
-msgstr ""
+msgstr "{0} está indisponível porque o acesso remoto de {1} está pausado. Escolha outra coleção."
 
 #. placeholder {0}: collection.display_name
 #. placeholder {1}: connector.connector_name
 #: src/compatibility.ts
 msgid "{0} is unavailable because {1} is offline. Choose another collection."
-msgstr ""
+msgstr "{0} está indisponível porque {1} está offline. Escolha outra coleção."
 
 #. placeholder {0}: request.application_name
 #: src/ConnectApp.tsx
 msgid "{0} is waiting"
-msgstr ""
+msgstr "{0} está aguardando"
 
 #. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
 msgid "{0} keeps its main copy in a folder on a connected computer."
-msgstr ""
+msgstr "A cópia principal de {0} fica em uma pasta de um computador conectado."
 
 #. placeholder {0}: formatBytes(liveContentBytes)
 #. placeholder {1}: formatBytes(liveFileBytes)
 #: src/AccountManagement.tsx
 msgid "{0} Markdown · {1} files"
-msgstr ""
+msgstr "{0} Markdown · {1} arquivos"
 
 #. placeholder {0}: formatBytes(liveStorageBytes)
 #. placeholder {1}: formatBytes(limit)
 #: src/AccountManagement.tsx
 msgid "{0} of {1}"
-msgstr ""
+msgstr "{0} de {1}"
 
 #. placeholder {0}: formatBytes(subscription.usage.retained_file_bytes)
 #. placeholder {1}: formatBytes(subscription.limits.retained_file_bytes)
 #: src/AccountManagement.tsx
 msgid "{0} of {1} retained file storage"
-msgstr ""
+msgstr "{0} de {1} de armazenamento de arquivos retidos"
 
 #. placeholder {0}: formatBytes(liveStorageBytes)
 #. placeholder {1}: formatBytes(limit)
 #: src/AccountManagement.tsx
 msgid "{0} of {1} used"
-msgstr ""
+msgstr "{0} de {1} usados"
 
 #. placeholder {0}: joinWords(verbs)
 #: src/ConnectApp.tsx
 msgid "{0} records"
-msgstr ""
+msgstr "{0} registros"
 
 #. placeholder {0}: formatBytes(subscription.limits.retained_file_bytes)
 #: src/AccountManagement.tsx
 msgid "{0} retained file storage included"
-msgstr ""
+msgstr "{0} de armazenamento de arquivos retidos incluídos"
 
 #. placeholder {0}: unavailableConnectors.map((connector) => connector.reason === "paused" ? t(i18n)`${connector.connector_name} has remote access paused.` : t(i18n)`${connector.connector_name} is offline.`).join(" ")
 #: src/authorization-view.tsx
 msgid "{0} Those local collections cannot be selected until their computer is available."
-msgstr ""
+msgstr "{0} Essas coleções locais só podem ser selecionadas quando o computador delas estiver disponível."
 
 #. placeholder {0}: collection.display_name
 #. placeholder {1}: collection.spec_version
 #: src/compatibility.ts
 msgid "{0} uses mdbase {1}. Upgrade a copy to mdbase 0.3 and verify it before approving access; the original can stay untouched."
-msgstr ""
+msgstr "{0} usa mdbase {1}. Atualize uma cópia para mdbase 0.3 e verifique-a antes de aprovar o acesso; a original pode permanecer intacta."
 
 #. placeholder {0}: contract.id
 #. placeholder {1}: contract.version
 #: src/compatibility.ts
 msgid "{0} v{1}"
-msgstr ""
+msgstr "{0} v{1}"
 
 #. placeholder {0}: selected?.display_name ?? t(i18n)({ message: "The collection", context: "Collection connection" })
 #: src/authority-workflows.tsx
 msgid "{0} will begin syncing automatically. You can close this page."
-msgstr ""
+msgstr "{0} começará a sincronizar automaticamente. Você pode fechar esta página."
 
 #. placeholder {0}: pairing.connector_name
 #. placeholder {1}: pairing.collections?.find(collection=>collection.collection_id===removingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" })
 #: src/authority-workflows.tsx
 msgid "{0} will lose access to {1} on all its devices. Previously downloaded data cannot be erased."
-msgstr ""
+msgstr "{0} perderá o acesso a {1} em todos os seus dispositivos. Os dados baixados anteriormente não podem ser apagados."
 
 #. placeholder {0}: words.slice(0, -1).join(", ")
 #. placeholder {1}: words.at(-1)
 #: src/ConnectApp.tsx
 msgid "{0}, and {1}"
-msgstr ""
+msgstr "{0} e {1}"
 
 #. placeholder {0}: Math.floor(seconds / 86_400)
 #: src/AccountManagement.tsx
 msgid "{0}d ago"
-msgstr ""
+msgstr "há {0} dias"
 
 #. placeholder {0}: Math.floor(seconds / 3_600)
 #: src/AccountManagement.tsx
 msgid "{0}h ago"
-msgstr ""
+msgstr "há {0} horas"
 
 #. placeholder {0}: Math.floor(seconds / 60)
 #: src/AccountManagement.tsx
 msgid "{0}m ago"
-msgstr ""
+msgstr "há {0} minutos"
 
 #. placeholder {0}: fileAccessVerbs(request.approved_actions ?? request.actions)
 #: src/authority-workflows.tsx
 msgid "{app} can now {0} files in {collection}. Return to {app} to continue."
-msgstr ""
+msgstr "{app} agora pode {0} arquivos em {collection}. Volte para {app} para continuar."
 
 #. placeholder {0}: request.reason
 #: src/authority-workflows.tsx
 msgid "{app} says: {0}"
-msgstr ""
+msgstr "{app} informa: {0}"
 
 #. placeholder {0}: fileAccessVerbs(request.actions)
 #: src/authority-workflows.tsx
 msgid "{app} won't {0} files in {collection}. Return to {app}; everything else works as before."
-msgstr ""
+msgstr "{app} não poderá {0} arquivos em {collection}. Volte para {app}; todo o restante funciona como antes."
 
 #. placeholder {0}: import { t, plural } from "@lingui/core/macro"; import { Trans } from "@lingui/react/macro"; import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n"; import { assessMapping, contractFields, guidedBindingSupported, propertyFields, setupLabel, suggestTypes, typeFields, type SetupContract, type SetupType } from "@mdbase/connect-ui/contract-setup"; import { useMemo } from "react"; import { initialContractSetupChoice } from "./application-setup"; import type { ApplicationFileAction, PendingAuthorization } from "./api"; import { HIGHER_IMPACT_FILE_ACTIONS, HIGHER_IMPACT_PEOPLE_PERMISSIONS, type AuthorizationCapabilityGroup } from "./authorization-capabilities"; import { Select } from "@mdbase-dev/ui/select"; type FileRequirements = NonNullable<PendingAuthorization["requirements"]["files"]>; type PeopleRequirement = import("@mdbase-dev/connect-protocol").ApplicationPeopleRequirement; const PEOPLE_PERMISSION_LABELS: Record<string, string> = { get identity() { return t(i18n)({ message: "See your account identity and display name" }); }, get members() { return t(i18n)({ message: "See collection members' account identities, names and roles" }); } }; const FILE_ACTION_LABELS: Record<ApplicationFileAction, string> = { get list() { return t(i18n)({ message: "List file names and metadata" }); }, get read() { return t(i18n)({ message: "Read file contents", context: "Application access approval" }); }, get add() { return t(i18n)({ message: "Add new files", context: "Application access approval" }); }, get replace() { return t(i18n)({ message: "Replace existing files", context: "Application access approval" }); }, get move() { return t(i18n)({ message: "Move and rename files", context: "Application access approval" }); }, get delete() { return t(i18n)({ message: "Delete files", context: "Application access approval" }); } }; function fileScopeDescription(files: FileRequirements): string { return files.scope.kind === "collection" ? t(i18n)({ message: "Every visible folder. Hidden folders are always excluded." }) : t(i18n)`Only ${files.scope.folders.join(", ")}. Hidden folders are always excluded.`; } function groupSelected(group: AuthorizationCapabilityGroup, selected: ReadonlySet<string>) { return group.operations.every((operation) => selected.has(operation)); } // A compact, read-only statement of what the request asks for, shown before a // collection is chosen so the user can deny without choosing anything. export function RequestedAccessSummary({ groups, files, people }: { groups: AuthorizationCapabilityGroup[]; files?: FileRequirements; people?: PeopleRequirement; }) { useLocaleRevision(); const items = groups.map((group) => ({ id: group.id, label: group.label, higherImpact: group.higherImpact })); if (files && !groups.some(group => group.fileActions !== undefined)) { const actions = "actions" in files ? files.actions : [...files.required, ...(files.optional ?? [])]; const deletes = actions.some((action) => HIGHER_IMPACT_FILE_ACTIONS.has(action)); items.push({ id: "files", label: deletes ? t(i18n)({ message: "Manage and delete files", context: "Application access approval" }) : t(i18n)({ message: "Work with files", context: "Application access approval" }), higherImpact: deletes }); } for (const permission of [...(people?.required ?? []), ...(people?.optional ?? [])]) { items.push({ id: `people.${permission}`, label: PEOPLE_PERMISSION_LABELS[permission], higherImpact: HIGHER_IMPACT_PEOPLE_PERMISSIONS.has(permission) }); } return ( <ul className="requested-access" aria-label={t(i18n)({ message: "Requested access", context: "Application access approval" })}> {items.map((item) => <li className={item.higherImpact ? "higher-impact" : undefined} key={item.id}> {item.label} {item.higherImpact && <span className="sr-only"><Trans> (higher impact)</Trans></span>} </li>)} </ul> ); } // A locked row has no control: it is either required by the application or, // for exact v1 file actions, approved together with the rest of the request. function PermissionRow({ id, label, description, locked, required, checked, higherImpact, isNew, disabled, onToggle }: { id: string; label: string; description?: string; locked: boolean; required: boolean; checked: boolean; higherImpact: boolean; isNew: boolean; disabled: boolean; onToggle?(): void; }) { useLocaleRevision(); const content = <> {locked ? <span className="permission-fixed" aria-hidden="true">✓</span> : <input type="checkbox" checked={checked} disabled={disabled} onChange={onToggle} />} <span className="permission-copy"> <strong>{label}</strong> {description && <small>{description}</small>} </span> <span className="permission-tags"> {isNew && <span className="permission-tag new"><Trans>New</Trans></span>} {higherImpact && <span className="permission-tag impact"><Trans><i aria-hidden="true" />Higher impact</Trans></span>} {required && <span className="permission-tag"><Trans>Required</Trans></span>} </span> </>; return <li className={`permission-row${higherImpact ? " higher-impact" : ""}`} data-permission={id}> {locked ? <div>{content}</div> : <label>{content}</label>} </li>; } export function PermissionList({ groups, selected, existingOperations, files, selectedFiles, allowedFileActions, people, selectedPeople, disabled, onToggleGroup, onToggleFile, onTogglePeople }: { groups: AuthorizationCapabilityGroup[]; selected: ReadonlySet<string>; existingOperations?: ReadonlySet<string>; files?: FileRequirements; selectedFiles: ReadonlySet<string>; allowedFileActions?: readonly ApplicationFileAction[]; people?: PeopleRequirement; selectedPeople: ReadonlySet<string>; disabled: boolean; onToggleGroup(group: AuthorizationCapabilityGroup): void; onToggleFile(action: ApplicationFileAction): void; onTogglePeople(permission: string): void; }) { useLocaleRevision(); const reauthorizing = Boolean(existingOperations && existingOperations.size > 0); const jointPermissions = groups.some(group => group.fileActions !== undefined); const fileRows = files ? "actions" in files ? files.actions.map((action) => ({ action, locked: true, required: false })) : [ ...files.required.map((action) => ({ action, locked: true, required: true })), ...(files.optional ?? []) .filter((action) => !allowedFileActions || allowedFileActions.includes(action)) .map((action) => ({ action, locked: false, required: false })) ] : []; return <> {groups.length > 0 && <ul className="permission-list" aria-label={t(i18n)({ message: "Collection permissions", context: "Application access approval" })}> {groups.map((group) => <PermissionRow key={group.id} id={group.id} label={group.label} description={group.description} locked={group.required} required={group.required} checked={groupSelected(group, selected)} higherImpact={group.higherImpact} isNew={reauthorizing && !group.operations.every((operation) => existingOperations!.has(operation))} disabled={disabled} onToggle={() => onToggleGroup(group)} />)} </ul>} {files && <div className="permission-files"> <p className="permission-files-heading"> <strong>{jointPermissions ? t(i18n)({ message: "File scope", context: "Application access approval" }) : t(i18n)({ message: "Files", context: "Application access approval" })}</strong> <small>{fileScopeDescription(files)}{jointPermissions ? t(i18n)({ message: " File actions are included in the collection permissions above." }) : "actions" in files ? t(i18n)({ message: " These actions are approved together." }) : ""}</small> </p> {!jointPermissions && <ul className="permission-list" aria-label={t(i18n)({ message: "File permissions", context: "Application access approval" })}> {fileRows.map(({ action, locked, required }) => <PermissionRow key={action} id={`files.${action}`} label={FILE_ACTION_LABELS[action]} locked={locked} required={required} checked={selectedFiles.has(action)} higherImpact={HIGHER_IMPACT_FILE_ACTIONS.has(action)} isNew={false} disabled={disabled} onToggle={() => onToggleFile(action)} />)} </ul>} </div>} {people && <div className="permission-files"> <p className="permission-files-heading"> <strong><Trans>People</Trans></strong> <small><Trans>Account identifiers are the same in every collection, so this application can recognise the same person elsewhere. Email addresses and pending invitations are never shared, and this does not let it manage membership.</Trans></small> </p> <ul className="permission-list" aria-label={t(i18n)({ message: "People permissions", context: "Application access approval" })}> {[...(people.required ?? []).map((permission) => ({ permission, required: true })), ...(people.optional ?? []).map((permission) => ({ permission, required: false }))] .map(({ permission, required }) => <PermissionRow key={permission} id={`people.${permission}`} label={PEOPLE_PERMISSION_LABELS[permission]} locked={required} required={required} checked={selectedPeople.has(permission)} higherImpact={HIGHER_IMPACT_PEOPLE_PERMISSIONS.has(permission)} isNew={false} disabled={disabled} onToggle={() => onTogglePeople(permission)} />)} </ul> </div>} </>; } export function NotificationAccess({ applicationName, notifications }: { applicationName: string; notifications: PendingAuthorization["notifications"]; }) { useLocaleRevision(); if (notifications.criteria.length === 0) return null; return ( <details className="notification-access"> <summary> <span> <strong><Trans>Change notifications</Trans></strong> <small><Trans>{applicationName} can turn on {plural(notifications.criteria.length, { one: "this rule", other: "these # rules" })} after access is allowed. Notifications never contain record content.</Trans></small> </span> <b>{t(i18n)({ message: "Details", context: "Application access approval" })}</b> </summary> <ul>{notifications.criteria.map((criterion) => ( <li key={criterion.id}> <span>{criterion.presentation.title}</span> <code>{criterion.event.id} {t(i18n)({ message: "v", context: "Application access approval" })}{criterion.event.version}</code> </li> ))}</ul> <p><Trans>The rules run inside the collection. A notification tells {applicationName} that something changed, not what changed.</Trans></p> </details> ); } export type ContractSetupChoice = ReturnType<typeof initialContractSetupChoice>; export function ContractSetupEditor({ applicationName, contract, types, value, disabled, onChange }: { applicationName: string; contract: SetupContract; types: SetupType[]; value: ContractSetupChoice; disabled: boolean; onChange(value: ContractSetupChoice): void; }) { useLocaleRevision(); const suggestions = useMemo(() => suggestTypes(contract, types), [contract, types]); const canGuideExistingType = guidedBindingSupported(contract); const canChooseExistingType = suggestions.length > 0 && canGuideExistingType; const selectedType = types.find((type) => type.name === value.typeName); const availableFields = selectedType ? typeFields(selectedType) : []; const fields = contractFields(contract); const bindingFields = contract.binding_schema ? propertyFields(contract.binding_schema) : []; const requiredBinding = new Set( Array.isArray(contract.binding_schema?.required) ? contract.binding_schema.required.filter((field): field is string => typeof field === "string") : [] ); function selectType(typeName: string) { const suggestion = suggestions.find((candidate) => candidate.type.name === typeName); onChange({ ...value, typeName, fields: suggestion?.fields ?? {} }); } if (!canChooseExistingType) { return ( <div className="contract-setup-consequence"> <span className="setup-change-mark" aria-hidden="true">+</span> <div> <strong><Trans>{applicationName} needs a {setupLabel(contract).toLocaleLowerCase()} type</Trans></strong> <small><Trans>Allowing access adds a separate type supplied by {applicationName}. Existing records stay unchanged.</Trans></small> <details className="contract-expert-details"> <summary><Trans>Expert details</Trans></summary> <code>{contract.id} · {contract.version}</code> {contract.description && <p>{contract.description}</p>} {!canGuideExistingType && suggestions.length > 0 && <p><Trans>This application uses advanced behavior settings, so an existing type cannot be connected during approval.</Trans></p>} </details> </div> </div> ); } return ( <div className="contract-setup-editor"> <div className="contract-setup-heading"> <div> <strong><Trans>Help {applicationName} understand {setupLabel(contract).toLocaleLowerCase()}</Trans></strong> <small>{contract.description ?? t(i18n)`Choose whether to add a new ${setupLabel(contract).toLocaleLowerCase()} type or use one you already have.`}</small> </div> <details className="contract-expert-details"> <summary><Trans>Expert details</Trans></summary> <code>{contract.id} · {contract.version}</code> </details> </div> <div className="contract-setup-mode" role="radiogroup" aria-label={t(i18n)`Setup for ${setupLabel(contract)}`}> <label className={value.mode === "starter" ? "selected" : undefined}> <input type="radio" name={`setup-${contract.id}-${contract.version}`} checked={value.mode === "starter"} disabled={disabled} onChange={() => onChange({ ...value, mode: "starter" })} /> <span><strong><Trans>Add a new {setupLabel(contract).toLocaleLowerCase()} type</Trans></strong><small><Trans>Create a separate type supplied by {applicationName}.</Trans></small></span> </label> <label className={value.mode === "existing" ? "selected" : undefined}> <input type="radio" name={`setup-${contract.id}-${contract.version}`} checked={value.mode === "existing"} disabled={disabled} onChange={() => onChange({ ...value, mode: "existing" })} /> <span><strong><Trans>Use an existing type</Trans></strong><small><Trans>Keep your current records and explain which fields mean the same thing.</Trans></small></span> </label> </div> {value.mode === "existing" && canGuideExistingType && <div className="contract-mapping"> <label className="contract-type-choice"> <span><Trans>Existing type</Trans></span> <Select aria-label={t(i18n)({ message: "Existing type", context: "Application access approval" })} value={value.typeName} disabled={disabled} options={suggestions.map((suggestion, index) => ({ value: suggestion.type.name, label: index === 0 && suggestion.requiredMatched === suggestion.requiredTotal ? t(i18n)`${suggestion.type.name} · suggested` : suggestion.type.name }))} onChange={selectType} /> </label> <div className="contract-field-list">{fields.map((field) => { const mapped = value.fields[field.reference] ?? ""; const typeField = availableFields.find((candidate) => candidate.reference === mapped); const assessment = assessMapping(field, typeField); return <label key={field.reference}> <span><strong>{field.label}{field.required ? " *" : ""}</strong><small>{field.description ?? t(i18n)`The application’s ${field.label.toLocaleLowerCase()} value.`}</small></span> <Select aria-label={field.label} value={mapped} disabled={disabled} aria-invalid={assessment.level === "error"} options={[ { value: "", label: field.required ? t(i18n)`Choose a field` : t(i18n)`Do not share` }, ...availableFields.map((candidate) => ({ value: candidate.reference, label: candidate.label })) ]} onChange={(chosen) => { const next = { ...value.fields }; if (chosen) next[field.reference] = chosen; else delete next[field.reference]; onChange({ ...value, fields: next }); }} /> <small className={`mapping-assessment ${assessment.level}`}>{assessment.label} · {assessment.message}</small> </label>; })}</div> {bindingFields.length > 0 && <fieldset className="contract-binding"> <legend><Trans>How this type behaves in {applicationName}</Trans></legend> {bindingFields.map((field) => <SchemaInput key={field.name} field={field} required={requiredBinding.has(field.name)} value={value.binding[field.name]} disabled={disabled} onChange={(next) => onChange({ ...value, binding: { ...value.binding, [field.name]: next } })} />)} </fieldset>} <p className="field-note"><Trans>Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active.</Trans></p> </div>} </div> ); } function SchemaInput({ field, required, value, disabled, onChange }: { field: ReturnType<typeof propertyFields>[number]; required: boolean; value: unknown; disabled: boolean; onChange(value: unknown): void; }) { useLocaleRevision(); const options = Array.isArray(field.schema.enum) ? field.schema.enum : undefined; return <label> <span>{field.label}{required ? " *" : ""}</span> {options ? <Select aria-label={field.label} value={value === undefined ? "" : String(value)} disabled={disabled} placeholder={t(i18n)({ message: "Choose", context: "Application access approval" })} options={options.map((option) => ({ value: String(option), label: String(option) }))} onChange={(chosen) => onChange(options.find((option) => String(option) === chosen))} /> : field.kind === "boolean" ? <input type="checkbox" checked={value === true} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /> : <input type={field.kind === "number" || field.kind === "integer" ? "number" : "text"} value={typeof value === "string" || typeof value === "number" ? value : ""} disabled={disabled} onChange={(event) => onChange(field.kind === "number" || field.kind === "integer" ? event.target.value === "" ? undefined : Number(event.target.value) : event.target.value)} />} {field.description && <small>{field.description}</small>} </label>; } export function contractSetupProblem( contract: SetupContract, choice: ContractSetupChoice | undefined, types: SetupType[] ): string | undefined { const label = setupLabel(contract); if (!choice) return t(i18n)`Choose how to set up ${label}.`; if (choice.mode === "starter") return undefined; const type = types.find((candidate) => candidate.name === choice.typeName); if (!type?.revision) return t(i18n)`Choose an existing type for ${label}.`; const available = typeFields(type); const unmapped = contractFields(contract).find((field) => { const candidate = available.find((value) => value.reference === choice.fields[field.reference]); return assessMapping(field, candidate).level === "error"; }); if (unmapped) return t(i18n)`Choose a matching field for ${unmapped.label} in ${label}.`; const requiredBinding = Array.isArray(contract.binding_schema?.required) ? contract.binding_schema.required.filter((field): field is string => typeof field === "string") : []; const missing = requiredBinding.find((field) => { const value = choice.binding[field]; return value === undefined || value === null || value === ""; }); if (missing) { const field = contract.binding_schema ? propertyFields(contract.binding_schema).find((candidate) => candidate.name === missing) : undefined; return t(i18n)`Fill in ${field?.label ?? missing} in ${label}.`; } return undefined; } 
 #: src/authorization-review.tsx
 msgid "{applicationName} can turn on {0} after access is allowed. Notifications never contain record content."
-msgstr ""
+msgstr "{applicationName} pode ativar {0} após a concessão do acesso. As notificações nunca contêm o conteúdo dos registros."
 
 #. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
 #: src/authorization-review.tsx
 msgid "{applicationName} needs a {0} type"
-msgstr ""
+msgstr "{applicationName} precisa de um tipo {0}"
 
 #: src/authority-workflows.tsx
 msgid "{collectionName} now lives on your computer."
-msgstr ""
+msgstr "{collectionName} agora fica no seu computador."
 
 #: src/authority-workflows.tsx
 msgid "{collectionName} remains hosted. Its main copy did not move."
-msgstr ""
+msgstr "{collectionName} continua hospedada. Sua cópia principal não foi movida."
 
 #: src/authority-workflows.tsx
 msgid "{collectionName} will stop being hosted and become a computer-owned collection. This changes where every future edit is accepted."
-msgstr ""
+msgstr "{collectionName} deixará de ser hospedada e passará a pertencer a um computador. Isso muda onde todas as edições futuras serão aceitas."
 
 #: src/AccountManagement.tsx
 msgid "{collections} · {records} · {fileCount}"
-msgstr ""
+msgstr "{collections} · {records} · {fileCount}"
 
 #: src/AccountManagement.tsx
 msgid "{collections} · {records} · {fileCount} · partial usage"
-msgstr ""
+msgstr "{collections} · {records} · {fileCount} · uso parcial"
 
 #: src/AccountManagement.tsx
 msgid "{collections} · usage temporarily unavailable"
-msgstr ""
+msgstr "{collections} · uso temporariamente indisponível"
 
 #: src/ConnectApp.tsx
 msgid "{count} access requests are waiting"
-msgstr ""
+msgstr "{count} solicitações de acesso estão aguardando"
 
 #: src/AccountManagement.tsx
 msgid "{label} turned off."
-msgstr ""
+msgstr "{label} desativado."
 
 #: src/AccountManagement.tsx
 msgid "{label} turned on."
-msgstr ""
+msgstr "{label} ativado."
 
 #: src/AccountManagement.tsx
 msgid "{tier} hosted storage"
-msgstr ""
+msgstr "Armazenamento hospedado do plano {tier}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# application installation} other {# application installations}}"
-msgstr ""
+msgstr "{value, plural, one {# instalação do aplicativo} other {# instalações do aplicativo}}"
 
 #: src/AccountManagement.tsx
 msgid "{value, plural, one {# byte} other {# bytes}}"
-msgstr ""
+msgstr "{value, plural, one {# byte} other {# bytes}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# collection} other {# collections}}"
-msgstr ""
+msgstr "{value, plural, one {# coleção} other {# coleções}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# connected computer} other {# connected computers}}"
-msgstr ""
+msgstr "{value, plural, one {# computador conectado} other {# computadores conectados}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# file} other {# files}}"
-msgstr ""
+msgstr "{value, plural, one {# arquivo} other {# arquivos}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# hosted collection} other {# hosted collections}}"
-msgstr ""
+msgstr "{value, plural, one {# coleção hospedada} other {# coleções hospedadas}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# installation} other {# installations}}"
-msgstr ""
+msgstr "{value, plural, one {# instalação} other {# instalações}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# record} other {# records}}"
-msgstr ""
+msgstr "{value, plural, one {# registro} other {# registros}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# synced folder} other {# synced folders}}"
-msgstr ""
+msgstr "{value, plural, one {# pasta sincronizada} other {# pastas sincronizadas}}"
 
 #: src/ConnectApp.tsx
 msgid "<0/>Add collection"
-msgstr ""
+msgstr "<0/>Adicionar coleção"
 
 #: src/authorization-view.tsx
 msgid "<0/>Already connected"
-msgstr ""
+msgstr "<0/>Já conectado"
 
 #: src/authorization-review.tsx
 msgid "<0/>Higher impact"
-msgstr ""
+msgstr "<0/>Maior impacto"
 
 #. placeholder {0}: higherImpactLabels.join(", ")
 #: src/authorization-view.tsx
 msgid "<0/>Includes {0}."
-msgstr ""
+msgstr "<0/>Inclui {0}."
 
 #: src/ConnectApp.tsx
 msgid "<0/>Invite person"
-msgstr ""
+msgstr "<0/>Convidar pessoa"
 
 #: src/ConnectApp.tsx
 msgid "<0/>Sync a folder"
-msgstr ""
+msgstr "<0/>Sincronizar uma pasta"
 
 #. placeholder {1}: request.user_code ? <Trans> and it shows <code>{request.user_code}</code></Trans> : null
 #. placeholder {3}: request.project_url ? <Trans> {host(request.project_url)} does not verify its origin.</Trans> : null
 #: src/authorization-view.tsx
 msgid "<0>Application origin unverified.</0> Continue only if you started this connection intentionally{1}.{3}"
-msgstr ""
+msgstr "<0>Origem do aplicativo não verificada.</0> Continue apenas se você iniciou esta conexão intencionalmente{1}.{3}"
 
 #: src/ConnectApp.tsx
 msgid "A cloud copy helps your replicas sync. This page does not report their connection status."
-msgstr ""
+msgstr "Uma cópia na nuvem ajuda a sincronizar suas réplicas. Esta página não informa o status da conexão delas."
 
 #: src/ConnectApp.tsx
 msgid "A collection was shared with you"
-msgstr ""
+msgstr "Uma coleção foi compartilhada com você"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "a new collection"
-msgstr ""
+msgstr "uma nova coleção"
 
 #: src/authorization-view.tsx
 msgid "A new collection stored by mdbase, available from any computer."
-msgstr ""
+msgstr "Uma nova coleção armazenada pelo mdbase, disponível em qualquer computador."
 
 #: src/AccountManagement.tsx
 msgid "A new one-use sharing code is ready."
-msgstr ""
+msgstr "Um novo código de compartilhamento de uso único está pronto."
 
 #: src/auth-view.tsx
 msgid "A verified primary email is required. Verify your primary email with GitHub, or sign up using another method."
-msgstr ""
+msgstr "É necessário um e-mail principal verificado. Verifique seu e-mail principal pelo GitHub ou cadastre-se de outra forma."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Accept"
-msgstr ""
+msgstr "Aceitar"
 
 #: src/ConnectApp.tsx
 msgid "Accept to add it to your collections. The invitation is bound to this account. Your account name and stable identifier can be shared with other members’ apps when they approve People access."
-msgstr ""
+msgstr "Aceite para adicioná-la às suas coleções. O convite está vinculado a esta conta. Seu nome de conta e identificador permanente podem ser compartilhados com os aplicativos de outros membros quando eles aprovarem o acesso a Pessoas."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Accepting…"
-msgstr ""
+msgstr "Aceitando…"
 
 #: src/authority-workflows.tsx
 msgid "Access approved"
-msgstr ""
+msgstr "Acesso aprovado"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Access approved"
-msgstr ""
+msgstr "Acesso aprovado"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Access as your account"
-msgstr ""
+msgstr "Acesso como sua conta"
 
 #: src/ApplicationAccess.tsx
 msgid "Access changed elsewhere. Review the current permissions before saving. <0>Review current access</0>"
-msgstr ""
+msgstr "O acesso foi alterado em outro lugar. Revise as permissões atuais antes de salvar. <0>Revisar acesso atual</0>"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Access denied"
-msgstr ""
+msgstr "Acesso negado"
 
 #. placeholder {0}: createCollections && !privateChoice ? t(i18n)` ${pairing.connector_name} can also create new collections for you.` : ""
 #. placeholder {1}: pairing.scope_only ? t(i18n)({ message: " Previously approved collections stay available." }) : ""
 #: src/authority-workflows.tsx
 msgid "Access includes the notes and files in the collection you pick.{0}{1}"
-msgstr ""
+msgstr "O acesso inclui as notas e os arquivos da coleção que você escolher.{0}{1}"
 
 #: src/ConnectApp.tsx
 msgid "Access to this collection is paused on its computer."
-msgstr ""
+msgstr "O acesso a esta coleção está pausado no computador dela."
 
 #: src/ConnectApp.tsx
 #: src/portal-ui.tsx
 msgid "Account"
-msgstr ""
+msgstr "Conta"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Account"
-msgstr ""
+msgstr "Conta"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Account & sessions"
-msgstr ""
+msgstr "Conta e sessões"
 
 #: src/AccountManagement.tsx
 msgid "Account deletion is temporarily unavailable while we complete a service correction."
-msgstr ""
+msgstr "A exclusão da conta está temporariamente indisponível enquanto concluímos uma correção do serviço."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Account details"
-msgstr ""
+msgstr "Dados da conta"
 
 #: src/AccountManagement.tsx
 msgid "Account email"
-msgstr ""
+msgstr "E-mail da conta"
 
 #: src/authorization-review.tsx
 msgid "Account identifiers are the same in every collection, so this application can recognise the same person elsewhere. Email addresses and pending invitations are never shared, and this does not let it manage membership."
-msgstr ""
+msgstr "Os identificadores da conta são os mesmos em todas as coleções, então este aplicativo pode reconhecer a mesma pessoa em outros lugares. Endereços de e-mail e convites pendentes nunca são compartilhados, e isso não permite gerenciar membros."
 
 #: src/portal-model.ts
 msgid "Account upgrade in progress"
-msgstr ""
+msgstr "Atualização da conta em andamento"
 
 #: src/portal-model.ts
 msgctxt "Connect interface"
 msgid "Account upgrade needed"
-msgstr ""
+msgstr "Atualização da conta necessária"
 
 #: src/portal-model.ts
 msgctxt "Connect interface"
 msgid "Account upgrade paused"
-msgstr ""
+msgstr "Atualização da conta pausada"
 
 #: src/portal-model.ts
 msgid "Account upgrade scheduled"
-msgstr ""
+msgstr "Atualização da conta agendada"
 
 #. placeholder {0}: installationAccountLabel(pairing)
 #: src/authority-workflows.tsx
 msgid "Account: {0}"
-msgstr ""
+msgstr "Conta: {0}"
 
 #: src/ConnectApp.tsx
 msgid "Add a collection to get started."
-msgstr ""
+msgstr "Adicione uma coleção para começar."
 
 #. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
 #: src/authorization-review.tsx
 msgid "Add a new {0} type"
-msgstr ""
+msgstr "Adicionar um novo tipo {0}"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Add collection"
-msgstr ""
+msgstr "Adicionar coleção"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Add new files"
-msgstr ""
+msgstr "Adicionar novos arquivos"
 
 #: src/authorization-capabilities.ts
 msgid "Add new records and files to this collection."
-msgstr ""
+msgstr "Adicionar novos registros e arquivos a esta coleção."
 
 #: src/authorization-capabilities.ts
 msgid "Add new records to this collection."
-msgstr ""
+msgstr "Adicionar novos registros a esta coleção."
 
 #: src/authorization-view.tsx
 msgid "Add or connect another collection"
-msgstr ""
+msgstr "Adicionar ou conectar outra coleção"
 
 #: src/authority-workflows.tsx
 msgid "Additional collection access"
