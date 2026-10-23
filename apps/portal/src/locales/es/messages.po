@@ -497,343 +497,343 @@ msgstr "El acceso incluye las notas y los archivos de la colección que elijas.{
 
 #: src/ConnectApp.tsx
 msgid "Access to this collection is paused on its computer."
-msgstr ""
+msgstr "El acceso a esta colección está en pausa en su ordenador."
 
 #: src/ConnectApp.tsx
 #: src/portal-ui.tsx
 msgid "Account"
-msgstr ""
+msgstr "Cuenta"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Account"
-msgstr ""
+msgstr "Cuenta"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Account & sessions"
-msgstr ""
+msgstr "Cuenta y sesiones"
 
 #: src/AccountManagement.tsx
 msgid "Account deletion is temporarily unavailable while we complete a service correction."
-msgstr ""
+msgstr "La eliminación de cuentas no está disponible temporalmente mientras terminamos una corrección del servicio."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Account details"
-msgstr ""
+msgstr "Datos de la cuenta"
 
 #: src/AccountManagement.tsx
 msgid "Account email"
-msgstr ""
+msgstr "Correo de la cuenta"
 
 #: src/authorization-review.tsx
 msgid "Account identifiers are the same in every collection, so this application can recognise the same person elsewhere. Email addresses and pending invitations are never shared, and this does not let it manage membership."
-msgstr ""
+msgstr "Los identificadores de cuenta son los mismos en todas las colecciones, por lo que esta aplicación puede reconocer a la misma persona en otros lugares. Nunca se comparten las direcciones de correo ni las invitaciones pendientes, y esto no le permite administrar miembros."
 
 #: src/portal-model.ts
 msgid "Account upgrade in progress"
-msgstr ""
+msgstr "Actualización de la cuenta en curso"
 
 #: src/portal-model.ts
 msgctxt "Connect interface"
 msgid "Account upgrade needed"
-msgstr ""
+msgstr "Es necesario actualizar la cuenta"
 
 #: src/portal-model.ts
 msgctxt "Connect interface"
 msgid "Account upgrade paused"
-msgstr ""
+msgstr "Actualización de la cuenta en pausa"
 
 #: src/portal-model.ts
 msgid "Account upgrade scheduled"
-msgstr ""
+msgstr "Actualización de la cuenta programada"
 
 #. placeholder {0}: installationAccountLabel(pairing)
 #: src/authority-workflows.tsx
 msgid "Account: {0}"
-msgstr ""
+msgstr "Cuenta: {0}"
 
 #: src/ConnectApp.tsx
 msgid "Add a collection to get started."
-msgstr ""
+msgstr "Añade una colección para empezar."
 
 #. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
 #: src/authorization-review.tsx
 msgid "Add a new {0} type"
-msgstr ""
+msgstr "Añadir un tipo {0} nuevo"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Add collection"
-msgstr ""
+msgstr "Añadir colección"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Add new files"
-msgstr ""
+msgstr "Añadir archivos nuevos"
 
 #: src/authorization-capabilities.ts
 msgid "Add new records and files to this collection."
-msgstr ""
+msgstr "Añadir registros y archivos nuevos a esta colección."
 
 #: src/authorization-capabilities.ts
 msgid "Add new records to this collection."
-msgstr ""
+msgstr "Añadir registros nuevos a esta colección."
 
 #: src/authorization-view.tsx
 msgid "Add or connect another collection"
-msgstr ""
+msgstr "Añadir o conectar otra colección"
 
 #: src/authority-workflows.tsx
 msgid "Additional collection access"
-msgstr ""
+msgstr "Acceso adicional a colecciones"
 
 #. placeholder {0}: entry.approved_optional_file_actions.join(", ")
 #: src/ApplicationAccess.tsx
 msgid "Additional file actions approved: {0}"
-msgstr ""
+msgstr "Acciones adicionales sobre archivos aprobadas: {0}"
 
 #. placeholder {0}: provisionNames(request.provisions.type_packs)
 #: src/authorization-view.tsx
 msgid "Adds {0} to the collection"
-msgstr ""
+msgstr "Añade {0} a la colección"
 
 #: src/authority-workflows.tsx
 msgid "Advanced: allow more collections"
-msgstr ""
+msgstr "Avanzado: permitir más colecciones"
 
 #. placeholder {0}: adoption.mirror_name ?? adoption.source_name
 #: src/authority-workflows.tsx
 msgid "After the move, {0} stays as a synced folder. It will not be a second main copy."
-msgstr ""
+msgstr "Después del traslado, {0} seguirá siendo una carpeta sincronizada. No será una segunda copia principal."
 
 #: src/authority-workflows.tsx
 msgid "After the move, the original local files are no longer the main copy."
-msgstr ""
+msgstr "Después del traslado, los archivos locales originales ya no serán la copia principal."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "All collections"
-msgstr ""
+msgstr "Todas las colecciones"
 
 #: src/ConnectApp.tsx
 msgid "All statuses"
-msgstr ""
+msgstr "Todos los estados"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Allow"
-msgstr ""
+msgstr "Permitir"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Allow {0} to create new collections"
-msgstr ""
+msgstr "Permitir que {0} cree colecciones nuevas"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Allow {0} to send you reminders"
-msgstr ""
+msgstr "Permitir que {0} te envíe recordatorios"
 
 #. placeholder {0}: fileAccessVerbs(request.actions)
 #: src/authority-workflows.tsx
 msgid "Allow {app} to {0} files?"
-msgstr ""
+msgstr "¿Permitir que {app} {0} archivos?"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Allow access"
-msgstr ""
+msgstr "Permitir acceso"
 
 #: src/authorization-view.tsx
 msgid "Allow at least one permission to continue."
-msgstr ""
+msgstr "Permite al menos un permiso para continuar."
 
 #: src/authority-workflows.tsx
 msgid "Allow mdbase on this computer to use your account. This is needed after installing or updating the desktop app, even on a computer you used before. It will publish collection names and route application requests, but not local folder paths."
-msgstr ""
+msgstr "Permite que mdbase en este ordenador use tu cuenta. Es necesario después de instalar o actualizar la aplicación de escritorio, incluso en un ordenador que ya usaste. Publicará los nombres de las colecciones y encaminará las solicitudes de las aplicaciones, pero no las rutas de las carpetas locales."
 
 #: src/authority-workflows.tsx
 msgid "Allowed"
-msgstr ""
+msgstr "Permitido"
 
 #: src/authorization-review.tsx
 msgid "Allowing access adds a separate type supplied by {applicationName}. Existing records stay unchanged."
-msgstr ""
+msgstr "Al permitir el acceso, se añade un tipo independiente proporcionado por {applicationName}. Los registros existentes no cambian."
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Allowing…"
-msgstr ""
+msgstr "Permitiendo…"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Allowing…"
-msgstr ""
+msgstr "Permitiendo…"
 
 #: src/authority-workflows.tsx
 msgid "Already allowed collection (currently unavailable)"
-msgstr ""
+msgstr "Colección con acceso ya permitido (no disponible actualmente)"
 
 #: src/auth-view.tsx
 msgid "Already have an account? <0>Sign in</0>"
-msgstr ""
+msgstr "¿Ya tienes una cuenta? <0>Inicia sesión</0>"
 
 #: src/authority-workflows.tsx
 msgid "Already-allowed access stays in place. Remove access separately if you no longer want it."
-msgstr ""
+msgstr "El acceso permitido anteriormente permanece. Retira el acceso por separado si ya no lo deseas."
 
 #: src/AccountManagement.tsx
 msgid "Always on"
-msgstr ""
+msgstr "Siempre activado"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Announcements"
-msgstr ""
+msgstr "Anuncios"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "App access"
-msgstr ""
+msgstr "Acceso de aplicaciones"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "App installation"
-msgstr ""
+msgstr "Instalación de la aplicación"
 
 #. placeholder {0}: request.client_fingerprint
 #: src/authorization-view.tsx
 msgid "App key <0>{0}</0>. Your computer will show this key when you approve the app."
-msgstr ""
+msgstr "Clave de la aplicación <0>{0}</0>. Tu ordenador mostrará esta clave cuando apruebes la aplicación."
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Application access"
-msgstr ""
+msgstr "Acceso de aplicaciones"
 
 #. placeholder {0}: countLabel(account.deletion.computers, "computer")
 #: src/AccountManagement.tsx
 msgid "Application access and {0}"
-msgstr ""
+msgstr "Acceso de aplicaciones y {0}"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Application connection"
-msgstr ""
+msgstr "Conexión de aplicaciones"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Application request"
-msgstr ""
+msgstr "Solicitud de aplicación"
 
 #: src/authorization-view.tsx
 msgid "Application using a device code"
-msgstr ""
+msgstr "Aplicación que utiliza un código de dispositivo"
 
 #: src/authority-workflows.tsx
 msgid "Applications"
-msgstr ""
+msgstr "Aplicaciones"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Applications"
-msgstr ""
+msgstr "Aplicaciones"
 
 #: src/ConnectApp.tsx
 msgid "Applications appear after you approve access to this collection."
-msgstr ""
+msgstr "Las aplicaciones aparecerán después de que apruebes el acceso a esta colección."
 
 #: src/ApplicationAccess.tsx
 msgid "Applications appear here after you approve access."
-msgstr ""
+msgstr "Las aplicaciones aparecerán aquí después de que apruebes el acceso."
 
 #: src/authority-workflows.tsx
 msgid "Applies to the collection you chose to open and any new collections selected here. Other collections are not included."
-msgstr ""
+msgstr "Se aplica a la colección que elegiste abrir y a las nuevas colecciones que selecciones aquí. No se incluyen otras colecciones."
 
 #: src/authorization-view.tsx
 msgid "Approval code"
-msgstr ""
+msgstr "Código de aprobación"
 
 #: src/authorization-view.tsx
 msgid "Approval recorded"
-msgstr ""
+msgstr "Aprobación registrada"
 
 #: src/authority-workflows.tsx
 msgid "Approve computer"
-msgstr ""
+msgstr "Aprobar ordenador"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Approve will create this collection and open it in {0}."
-msgstr ""
+msgstr "Al aprobar, se creará esta colección y se abrirá en {0}."
 
 #. placeholder {0}: adoption.source_name
 #: src/authority-workflows.tsx
 msgid "Approving uploads the complete collection from {0}, validates it as one snapshot, and then makes the hosted version the main copy."
-msgstr ""
+msgstr "Al aprobar, se cargará la colección completa desde {0}, se validará como una sola instantánea y la versión alojada pasará a ser la copia principal."
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Approving…"
-msgstr ""
+msgstr "Aprobando…"
 
 #: src/AccountManagement.tsx
 msgid "Authentication"
-msgstr ""
+msgstr "Autenticación"
 
 #: src/FeedbackPage.tsx
 msgid "Back to Connect"
-msgstr ""
+msgstr "Volver a Connect"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Beta"
-msgstr ""
+msgstr "Beta"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "browser extension"
-msgstr ""
+msgstr "Extensión del navegador"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Browser session"
-msgstr ""
+msgstr "Sesión del navegador"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Browser session actions"
-msgstr ""
+msgstr "Acciones de la sesión del navegador"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Browser sessions"
-msgstr ""
+msgstr "Sesiones del navegador"
 
 #: src/ApplicationAccess.tsx
 msgid "Can create collections for your account"
-msgstr ""
+msgstr "Puede crear colecciones en tu cuenta"
 
 #: src/ConnectApp.tsx
 msgid "Can edit notes and manage types"
-msgstr ""
+msgstr "Puede editar notas y administrar tipos"
 
 #: src/ConnectApp.tsx
 msgid "Can edit notes, manage types, rename this collection, and connect apps."
-msgstr ""
+msgstr "Puede editar notas, administrar tipos, cambiar el nombre de esta colección y conectar aplicaciones."
 
 #: src/ConnectApp.tsx
 msgid "Can read this collection and connect read-only apps or folders."
-msgstr ""
+msgstr "Puede leer esta colección y conectar aplicaciones o carpetas de solo lectura."
 
 #: src/ConnectApp.tsx
 msgid "Can view and connect read-only apps"
-msgstr ""
+msgstr "Puede ver y conectar aplicaciones de solo lectura"
 
 #: src/AccountManagement.tsx
 #: src/authority-workflows.tsx
@@ -841,115 +841,115 @@ msgstr ""
 #: src/ConnectApp.tsx
 #: src/ConnectPrimitives.tsx
 msgid "Cancel"
-msgstr ""
+msgstr "Cancelar"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Cancel"
-msgstr ""
+msgstr "Cancelar"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Cancel"
-msgstr ""
+msgstr "Cancelar"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Cancel invitation"
-msgstr ""
+msgstr "Cancelar invitación"
 
 #: src/ConnectApp.tsx
 msgid "Cancel this collection invitation?"
-msgstr ""
+msgstr "¿Cancelar esta invitación a la colección?"
 
 #: src/authority-workflows.tsx
 msgid "Cancel transfer"
-msgstr ""
+msgstr "Cancelar transferencia"
 
 #: src/authorization-view.tsx
 msgid "Change"
-msgstr ""
+msgstr "Cambiar"
 
 #: src/authorization-review.tsx
 msgid "Change notifications"
-msgstr ""
+msgstr "Cambiar notificaciones"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Change password"
-msgstr ""
+msgstr "Cambiar contraseña"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Change password"
-msgstr ""
+msgstr "Cambiar contraseña"
 
 #: src/authorization-capabilities.ts
 msgid "Change, move, and rename existing records."
-msgstr ""
+msgstr "Modificar, mover y cambiar el nombre de los registros existentes."
 
 #: src/authorization-capabilities.ts
 msgid "Change, move, and rename records; replace, move, and rename existing files."
-msgstr ""
+msgstr "Modificar, mover y cambiar el nombre de los registros; sustituir, mover y cambiar el nombre de los archivos existentes."
 
 #: src/authorization-view.tsx
 msgid "Changes collection settings"
-msgstr ""
+msgstr "Cambia los ajustes de la colección"
 
 #: src/authorization-view.tsx
 msgid "changes to collection setup"
-msgstr ""
+msgstr "cambios en la configuración de la colección"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Changing password…"
-msgstr ""
+msgstr "Cambiando contraseña…"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Changing password…"
-msgstr ""
+msgstr "Cambiando contraseña…"
 
 #: src/authority-workflows.tsx
 msgid "Check again"
-msgstr ""
+msgstr "Comprobar de nuevo"
 
 #: src/authorization-view.tsx
 msgid "Check the application."
-msgstr ""
+msgstr "Comprueba la aplicación."
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Check your email"
-msgstr ""
+msgstr "Consulta tu correo"
 
 #: src/AccountManagement.tsx
 msgid "Checking active sessions…"
-msgstr ""
+msgstr "Comprobando sesiones activas…"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Checking…"
-msgstr ""
+msgstr "Comprobando…"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Choose"
-msgstr ""
+msgstr "Elegir"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Choose a collection"
-msgstr ""
+msgstr "Elige una colección"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Choose a collection to use in {0}."
-msgstr ""
+msgstr "Elige una colección para usar en {0}."
 
 #: src/authorization-review.tsx
 msgid "Choose a field"
-msgstr ""
+msgstr "Elige un campo"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
