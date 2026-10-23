@@ -23,12 +23,17 @@ format. Ordinary package-only development builds permit Lingui's fallback while
 authoring; they do **not** certify translation completeness. Release validation
 must run the root strict checks first. No translation service or CI authoring.
 
-Package commands use the kit\'s unconditional `mdbase-i18n` bin entry (fixed in
+Package commands use the kit's unconditional `mdbase-i18n` bin entry (fixed in
 kit b4134d71), including real npm/workspace symlinks; no adapter is needed.
 
 ## Runtime
 
 Each app composes its catalogue with both independent library CatalogueSources.
+When an identical English message ID also occurs in an app, the library owns
+that ID in every language. App loaders omit those shared IDs, preventing an
+unfinished app fallback (or separately worded app translation) from conflicting
+with the library. English sources are validated for collisions before filtering;
+conflicting library sources still fail closed. PO sources stay intact for extraction.
 English is imported synchronously. Literal dynamic JSON imports let the web
 bundler emit per-locale local-deployment chunks. A failed chunk or conflicting
 library/app message retains the active locale. Application records, identifiers,
