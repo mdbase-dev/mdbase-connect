@@ -560,6 +560,11 @@ msgstr "Correo electrónico para responder"
 msgid "Report a problem"
 msgstr "Informar de un problema"
 
+#: src/FeedbackMarkup.tsx
+msgctxt "Screenshot annotations"
+msgid "Reset"
+msgstr ""
+
 #: src/CommandPalette.tsx
 msgid "Results"
 msgstr "Resultados"

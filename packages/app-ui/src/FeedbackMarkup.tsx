@@ -73,7 +73,7 @@ export function FeedbackMarkup({ screenshot, onApply, onClose }: { screenshot: F
     <div className="mdbase-feedback-tools" role="group" aria-label={t({ message: "Screenshot tools" })}>
       {(["draw", "highlight", "blackout"] as const).map((value) => <button type="button" key={value} aria-pressed={tool === value} disabled={!ready || busy} onClick={() => { current.current = null; setTool(value); paint(); }}>{value === "draw" ? t({ message: "Draw" }) : value === "highlight" ? t({ message: "Highlight" }) : t({ message: "Blackout" })}</button>)}
       <button type="button" disabled={!count || busy} onClick={() => { current.current = null; marks.current.pop(); setCount(marks.current.length); paint(); }}>{t({ message: "Undo" })}</button>
-      <button type="button" disabled={!count || busy} onClick={() => { current.current = null; marks.current = []; setCount(0); paint(); }}>Reset</button>
+      <button type="button" disabled={!count || busy} onClick={() => { current.current = null; marks.current = []; setCount(0); paint(); }}>{t({ message: "Reset", context: "Screenshot annotations" })}</button>
     </div>
     <div className="mdbase-feedback-canvas"><canvas ref={canvas} tabIndex={0} aria-label={t({ message: "Screenshot annotation canvas" })} aria-describedby={instructions}
       onPointerDown={(event) => {

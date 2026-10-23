@@ -1,5 +1,5 @@
 import { t } from "@lingui/core/macro";
-import "@mdbase-dev/ui/i18n";
+import { i18n } from "@mdbase-dev/ui/i18n";
 import { parse } from "yaml";
 
 export interface ContractRequirementLike {
@@ -202,49 +202,49 @@ export function assessMapping(
     return contractField.required
       ? {
           level: "error",
-          label: t({ message: "Required", context: "Collection field mapping" }),
-          message: t`Choose which field supplies ${contractField.label}.`
+          label: t(i18n)({ message: "Required", context: "Collection field mapping" }),
+          message: t(i18n)`Choose which field supplies ${contractField.label}.`
         }
       : {
           level: "unmapped",
-          label: t({ message: "Not shared", context: "Collection field mapping" }),
-          message: t({ message: "This optional value will not be shared with the application.", context: "Collection field mapping" })
+          label: t(i18n)({ message: "Not shared", context: "Collection field mapping" }),
+          message: t(i18n)({ message: "This optional value will not be shared with the application.", context: "Collection field mapping" })
         };
   }
   if (!compatibleKinds(contractField.kind, typeField.kind)) {
     return {
       level: "error",
-      label: t({ message: "Doesn’t match", context: "Collection field mapping" }),
-      message: t`${typeField.label} is ${kindLabel(typeField.kind)}, but ${contractField.label} needs ${kindLabel(contractField.kind)}.`
+      label: t(i18n)({ message: "Doesn’t match", context: "Collection field mapping" }),
+      message: t(i18n)`${typeField.label} is ${kindLabel(typeField.kind)}, but ${contractField.label} needs ${kindLabel(contractField.kind)}.`
     };
   }
   const warnings: string[] = [];
   if (contractField.required && !typeField.required) {
-    warnings.push(t({ message: "Some existing records may not have this required value.", context: "Collection field mapping" }));
+    warnings.push(t(i18n)({ message: "Some existing records may not have this required value.", context: "Collection field mapping" }));
   }
   const contractValues = allowedValues(contractField.schema);
   const typeValues = allowedValues(typeField.schema);
   if (contractValues && !typeValues) {
-    warnings.push(t({ message: "The existing field allows values the application may not understand.", context: "Collection field mapping" }));
+    warnings.push(t(i18n)({ message: "The existing field allows values the application may not understand.", context: "Collection field mapping" }));
   } else if (contractValues && typeValues) {
     const overlap = [...typeValues].filter((value) => contractValues.has(value));
     if (!overlap.length) {
       return {
         level: "error",
-        label: t({ message: "Doesn’t match", context: "Collection field mapping" }),
-        message: t({ message: "The two fields allow different values.", context: "Collection field mapping" })
+        label: t(i18n)({ message: "Doesn’t match", context: "Collection field mapping" }),
+        message: t(i18n)({ message: "The two fields allow different values.", context: "Collection field mapping" })
       };
     }
     if (overlap.length < typeValues.size) {
-      warnings.push(t({ message: "Some existing values are outside the application’s accepted set.", context: "Collection field mapping" }));
+      warnings.push(t(i18n)({ message: "Some existing values are outside the application’s accepted set.", context: "Collection field mapping" }));
     }
   }
   return warnings.length
-    ? { level: "warning", label: t({ message: "Review", context: "Collection field mapping" }), message: warnings.join(" ") }
+    ? { level: "warning", label: t(i18n)({ message: "Review", context: "Collection field mapping" }), message: warnings.join(" ") }
     : {
         level: "valid",
-        label: t({ message: "Matches", context: "Collection field mapping" }),
-        message: t`${typeField.label} can supply ${contractField.label}.`
+        label: t(i18n)({ message: "Matches", context: "Collection field mapping" }),
+        message: t(i18n)`${typeField.label} can supply ${contractField.label}.`
       };
 }
 
@@ -431,14 +431,14 @@ function humanize(value: string): string {
 function kindLabel(kind: FieldKind): string {
   return ({
     string: "text",
-    number: t({ message: "a number", context: "Collection field mapping" }),
-    integer: t({ message: "a whole number", context: "Collection field mapping" }),
-    boolean: t({ message: "a yes/no value", context: "Collection field mapping" }),
-    array: t({ message: "a list", context: "Collection field mapping" }),
-    object: t({ message: "a group of values", context: "Collection field mapping" }),
-    date: t({ message: "a date", context: "Collection field mapping" }),
-    datetime: t({ message: "a date and time", context: "Collection field mapping" }),
-    advanced: t({ message: "a complex value", context: "Collection field mapping" })
+    number: t(i18n)({ message: "a number", context: "Collection field mapping" }),
+    integer: t(i18n)({ message: "a whole number", context: "Collection field mapping" }),
+    boolean: t(i18n)({ message: "a yes/no value", context: "Collection field mapping" }),
+    array: t(i18n)({ message: "a list", context: "Collection field mapping" }),
+    object: t(i18n)({ message: "a group of values", context: "Collection field mapping" }),
+    date: t(i18n)({ message: "a date", context: "Collection field mapping" }),
+    datetime: t(i18n)({ message: "a date and time", context: "Collection field mapping" }),
+    advanced: t(i18n)({ message: "a complex value", context: "Collection field mapping" })
   } satisfies Record<FieldKind, string>)[kind];
 }
 
