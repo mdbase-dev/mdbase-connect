@@ -1,5 +1,13 @@
 # Authenticated NEXT trust release extension
 
+**Status (October 2026):** [PR #946](https://github.com/mdbase-dev/mdbase-connect/pull/946)
+merged production trust embedding into the production runtime daemon. The
+"prepared" sections below retain immutable asset/publication provenance; they
+are not a claim that embedding is still pending or a fresh deployment receipt.
+The production daemon uses its embedded reviewed trust, not a user-supplied
+runtime trust file. Embedding alone does not release the desktop, deploy Workers
+or prove current control-plane membership.
+
 An image release stays immutable. `release-trust-bundle.json` is a supplemental
 signed inventory, not a replacement image manifest or a new signing anchor.
 It binds the original image inventory's exact bytes/length/SHA-256/publication
