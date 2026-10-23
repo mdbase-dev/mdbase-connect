@@ -105,13 +105,6 @@ msgstr "{0, plural, one {# Treffer} other {# Treffer}}"
 msgid "{0, plural, one {# note contains links that will change.} other {# notes contain links that will change.}}"
 msgstr "{0, plural, one {# Notiz enthält Links, die geändert werden.} other {# Notizen enthalten Links, die geändert werden.}}"
 
-#. placeholder {0}: item.count
-#. placeholder {1}: item.field
-#. placeholder {2}: item.field
-#: src/TypeBrowser.tsx
-msgid "{0, plural, one {# note is missing required field {1}.} other {# notes are missing required field {2}.}}"
-msgstr "{0, plural, one {Bei # Notiz fehlt das erforderliche Feld {1}.} other {Bei # Notizen fehlt das erforderliche Feld {2}.}}"
-
 #. placeholder {0}: result.moved
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one {# note moved.} other {# notes moved.}}"
@@ -132,15 +125,6 @@ msgstr "{0, plural, one {Links in # Notiz ebenfalls aktualisiert.} other {Links 
 msgid "{0, plural, one {Binding setting{field} needs at least # item for {contractId}.} other {Binding setting{field} needs at least # items for {contractId}.}}"
 msgstr "{0, plural, one {Für die Bindungseinstellung{field} ist mindestens # Eintrag für {contractId} erforderlich.} other {Für die Bindungseinstellung{field} sind mindestens # Einträge für {contractId} erforderlich.}}"
 
-#. placeholder {0}: addedTypes.length
-#. placeholder {1}: pack.displayName
-#. placeholder {2}: installed.resources.length
-#. placeholder {3}: pack.displayName
-#. placeholder {4}: installed.resources.length
-#: src/catalog-pack-installation.tsx
-msgid "{0, plural, one {Installed “{1}” ({2} resources, # new type).} other {Installed “{3}” ({4} resources, # new types).}}"
-msgstr "{0, plural, one {„{1}“ installiert ({2} Ressourcen, # neuer Typ).} other {„{3}“ installiert ({4} Ressourcen, # neue Typen).}}"
-
 #. placeholder {0}: plan.moves.length
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one {Move # note?} other {Move # notes?}}"
@@ -155,13 +139,6 @@ msgstr "{0, plural, one {# Notiz verschoben.} other {# Notizen verschoben.}}"
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one {Rename ‘{basename}’ and move # note?} other {Rename ‘{basename}’ and move # notes?}}"
 msgstr "{0, plural, one {„{basename}“ umbenennen und # Notiz verschieben?} other {„{basename}“ umbenennen und # Notizen verschieben?}}"
-
-#. placeholder {0}: node.count
-#. placeholder {1}: node.path
-#. placeholder {2}: node.path
-#: src/CollectionRail.tsx
-msgid "{0, plural, one {Show notes in {1}, # note} other {Show notes in {2}, # notes}}"
-msgstr "{0, plural, one {Notizen in {1} anzeigen, # Notiz} other {Notizen in {2} anzeigen, # Notizen}}"
 
 #. placeholder {0}: files.length
 #: src/AttachmentUpload.tsx
@@ -418,6 +395,10 @@ msgstr "{count, plural, one {# Link} other {# Links}}"
 msgid "{count, plural, one {# note in {name}} other {# notes in {name}}}"
 msgstr "{count, plural, one {# Notiz in {name}} other {# Notizen in {name}}}"
 
+#: src/TypeBrowser.tsx
+msgid "{count, plural, one {# note is missing required field {field}.} other {# notes are missing required field {field}.}}"
+msgstr "{count, plural, one {Bei # Notiz fehlt das erforderliche Feld {field}.} other {Bei # Notizen fehlt das erforderliche Feld {field}.}}"
+
 #: src/CollectionRail.tsx
 msgid "{count, plural, one {# note tagged {name}} other {# notes tagged {name}}}"
 msgstr "{count, plural, one {# Notiz mit Tag {name}} other {# Notizen mit Tag {name}}}"
@@ -453,6 +434,10 @@ msgstr "{count, plural, one {# Notiz verschoben.} other {# Notizen verschoben.}}
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Restored # note.} other {Restored # notes.}}"
 msgstr "{count, plural, one {# Notiz wiederhergestellt.} other {# Notizen wiederhergestellt.}}"
+
+#: src/CollectionRail.tsx
+msgid "{count, plural, one {Show notes in {path}, # note} other {Show notes in {path}, # notes}}"
+msgstr "{count, plural, one {Notizen in {path} anzeigen, # Notiz} other {Notizen in {path} anzeigen, # Notizen}}"
 
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Updated # note.} other {Updated # notes.}}"
@@ -617,6 +602,10 @@ msgstr "Wert von {name}"
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} value item {0}"
 msgstr "Werteintrag {0} für {name}"
+
+#: src/catalog-pack-installation.tsx
+msgid "{newTypeCount, plural, one {Installed “{packName}” ({resourceCount} resources, # new type).} other {Installed “{packName}” ({resourceCount} resources, # new types).}}"
+msgstr "{newTypeCount, plural, one {„{packName}“ installiert ({resourceCount} Ressourcen, # neuer Typ).} other {„{packName}“ installiert ({resourceCount} Ressourcen, # neue Typen).}}"
 
 #: src/TypeBrowser.tsx
 msgid "{next, plural, one {# note after update} other {# notes after update}}"
@@ -1027,6 +1016,7 @@ msgstr "Erweiterte YAML-Regeln"
 msgid "Advisory labels and colour used when records of this type are shown."
 msgstr "Hinweisende Beschriftungen und Farben für die Anzeige von Datensätzen dieses Typs."
 
+#: src/App.tsx
 #: src/EditorRail.tsx
 #: src/note-list-view.ts
 #: src/NoteListViewOptions.tsx
@@ -1575,6 +1565,7 @@ msgid "Collection resources"
 msgstr "Sammlungsressourcen"
 
 #: src/collection-browser.ts
+#: src/FolderChangeDialog.tsx
 #: src/NoteList.tsx
 msgid "Collection root"
 msgstr "Stammverzeichnis der Sammlung"

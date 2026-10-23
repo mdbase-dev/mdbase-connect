@@ -205,6 +205,7 @@ function FolderTreeRow({ node, expanded, activeFilter, loading, onFilter, onTogg
   onCopy: (path: string) => void;
 } & FolderActions) {
   useLingui();
+  const { path, count } = node;
   const hasChildren = node.children.length > 0;
   const isExpanded = expanded.has(node.path);
   const descendantPaths = expandableFolderPaths(node);
@@ -237,7 +238,7 @@ function FolderTreeRow({ node, expanded, activeFilter, loading, onFilter, onTogg
       <button
         className={`rail-row-action${activeFilter?.kind === "folder" && activeFilter.value === node.path ? " selected" : ""}`}
         aria-current={activeFilter?.kind === "folder" && activeFilter.value === node.path ? "page" : undefined}
-        aria-label={loading ? t`Show notes in ${node.path}, ${node.count} or more notes` : plural(node.count, { one: `Show notes in ${node.path}, # note`, other: `Show notes in ${node.path}, # notes` })}
+        aria-label={loading ? t`Show notes in ${node.path}, ${node.count} or more notes` : plural(count, { one: `Show notes in ${path}, # note`, other: `Show notes in ${path}, # notes` })}
         data-folder-path={node.path}
         draggable={Boolean(folderActions.onMoveFolder)}
         onDragStart={(event) => { event.dataTransfer.setData(FOLDER_PATH_MIME, node.path); event.dataTransfer.effectAllowed = "move"; }}
