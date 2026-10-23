@@ -168,6 +168,32 @@ test("packed npm .bin CLI runs extraction, catalogue checks, compile and source 
     const catalogue = JSON.parse(await readFile(resolve(root, "src/i18n/locales", locale, "messages.json"), "utf8"));
     assert.equal(Object.keys(catalogue.messages).length, 1, "newly obsolete Hello is excluded: " + locale);
   }
+  // Exercise the packed strict boundary, including warning-only output and the
+  // same reviewed-ID policy used for whole-message identical terms.
+  for (const locale of locales) {
+    const filename = resolve(root, "src/i18n/locales", locale, "messages.po");
+    const existing = await readFile(filename, "utf8");
+    const context = { locale, sourceLocale: "en", filename, existing };
+    const entries = await formatter({}).parse(existing, context);
+    const categories = new Intl.PluralRules(locale === "pt" ? "pt-BR" : locale).resolvedOptions().pluralCategories;
+    for (const entry of Object.values(entries).filter((entry) => !entry.obsolete))
+      entry.translation = locale === "en" ? entry.message : "訳 {count, plural, " + categories.map((key) => key + " {" + (locale === "ja" ? "# files" : "# 訳") + "}").join(" ") + "}";
+    await writeFile(filename, await formatter({ origins: true, lineNumbers: false }).serialize(entries, context));
+  }
+  const authored = run("extract");
+  assert.equal(authored.status, 0, authored.stdout + authored.stderr);
+  const branchWarning = run("check");
+  assert.equal(branchWarning.status, 0, branchWarning.stdout + branchWarning.stderr);
+  assert.match(branchWarning.stderr, /ja message .*English-identical ICU branch: count, plural, other/);
+  await writeFile(resolve(root, "i18n-policy.json"), JSON.stringify({ allowIdentical: { ja: Object.keys(nestedEnglish).filter((id) => !nestedEnglish[id].obsolete) } }));
+  const reviewed = run("check");
+  assert.equal(reviewed.status, 0, reviewed.stdout + reviewed.stderr);
+  assert.doesNotMatch(reviewed.stderr, /English-identical ICU branch/);
+  const russianPath = resolve(root, "src/i18n/locales/ru/messages.po");
+  await writeFile(russianPath, (await readFile(russianPath, "utf8")).replace("few {# 訳} ", "").replace("many {# 訳} ", ""));
+  const missingRussian = run("check");
+  assert.equal(missingRussian.status, 1, missingRussian.stdout + missingRussian.stderr);
+  assert.match(missingRussian.stderr, /ru message .*Missing plural categories.*few, many/);
   const nestedSource = run("source");
   assert.equal(nestedSource.status, 0, nestedSource.stdout + nestedSource.stderr);
 });
