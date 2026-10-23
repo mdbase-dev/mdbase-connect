@@ -15,6 +15,16 @@ afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); document.body.inner
 // Exercise the actual entry's choice and declaration, not a copied selector.
 // SDK registration/authentication and native admission are outside this double.
 describe("native Editor target entry", () => {
+  it("defaults the ordinary non-demo build to production", async () => {
+    vi.stubEnv("DEV", false);
+    vi.stubEnv("VITE_MDBASE_ENV", undefined);
+    vi.stubGlobal("location", new URL("https://editor.mdbase.dev"));
+    await import("./main");
+    expect(createEditorMdbase).toHaveBeenCalledExactlyOnceWith({
+      origin: "https://editor.mdbase.dev", environment: "production",
+    });
+    expect(renderRoot).toHaveBeenCalledOnce();
+  });
   it.each([
     ["staging", "https://editor-staging.mdbase.dev"],
     ["production", "https://editor.mdbase.dev"],

@@ -1,4 +1,4 @@
-// @vitest-environment-options {"url": "https://editor-staging.mdbase.dev/"}
+// @vitest-environment-options {"url": "https://editor.mdbase.dev/"}
 // Editor contract tests: real public grant crypto/storage, scripted CP, public
 // SDK account-view fixture. NOT actual Worker sign-out/wipe/native admission.
 // Muse's SDK cleanup and bound-inventory proofs remain separate release gates.

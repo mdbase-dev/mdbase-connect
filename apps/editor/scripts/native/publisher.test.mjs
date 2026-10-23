@@ -1,7 +1,8 @@
 // Command/data doubles only: no authentication, Cloudflare, Native or Stage IO.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFile, mkdtemp, writeFile, mkdir, rm } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { cp, readFile, mkdtemp, writeFile, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -27,16 +28,37 @@ const run={id:30,head_sha:source,run_attempt:1,event:expected.event,head_branch:
 const deployment={id:uuid,url:'https://12345678.mdbase-editor.pages.dev',sourceSha:source,pagesBranch:'staging'};
 const sha=b=>createHash('sha256').update(b).digest('hex');
 
-it('binds the real original Stage packet, frozen lock and ALL installed SDK/UI/protocol members without importing them',async()=>{
- const result=await loadOriginals({target:'staging',repoRoot,hashes,installed:true});
+it('binds the historical Stage packet, lock and ALL extracted SDK/UI/protocol originals without importing them',async()=>{
+ // Main now installs production. Recreate the historical staging pins and
+ // extracted originals in a fixture, not in the application's current install.
+ const root=await mkdtemp(join(tmpdir(),'editor-staging-originals-'));
+ try {
+ const app=join(root,'apps/editor');await mkdir(app,{recursive:true});
+ await cp(join(repoRoot,'config/native-publish'),join(root,'config/native-publish'),{recursive:true});
+ await cp(join(repoRoot,'apps/editor/vendor'),join(app,'vendor'),{recursive:true});
+ const pkg=JSON.parse(await readFile(join(repoRoot,'apps/editor/package.json'),'utf8'));
+ const current=pkg.dependencies['@mdbase-dev/sdk'].slice('file:vendor/'.length);
+ const staging='sdk-dev-eaa4e697-staging.tgz';
+ pkg.dependencies['@mdbase-dev/sdk']='file:vendor/'+staging;
+ await writeFile(join(app,'package.json'),JSON.stringify(pkg));
+ const currentFacts=JSON.parse(await readFile(join(app,'vendor/mdbase-next-sdk.json'),'utf8'));
+ const stagingFacts=JSON.parse(await readFile(join(app,'vendor/sdk-dev-eaa4e697-staging.facts.json'),'utf8'));
+ const lock=(await readFile(join(repoRoot,'pnpm-lock.yaml'),'utf8')).replaceAll(current,staging).replaceAll(currentFacts.integrity,stagingFacts.sri);
+ await writeFile(join(root,'pnpm-lock.yaml'),lock);
+ for(const name of ['@mdbase-dev/sdk','@mdbase-dev/ui','@mdbase-dev/connect-protocol']) {
+  const installed=join(app,'node_modules',name);await mkdir(installed,{recursive:true});
+  execFileSync('tar',['-xzf',join(app,pkg.dependencies[name].slice(5)),'--strip-components=1','-C',installed]);
+ }
+ const result=await loadOriginals({target:'staging',repoRoot:root,hashes,installed:true});
  assert.equal(result.environment,'staging');assert.equal(result.release.cpOrigin,'https://connect-staging.mdbase.dev');
  assert.equal(result.archives.sdk.members,896);assert.equal(result.archives.sdk.sha256,hashes.NATIVE_SDK_SHA256);
  assert.equal(result.release.assetSha256,hashes.NATIVE_TRUST_ASSET_SHA256);
- await assert.rejects(loadOriginals({target:'production',repoRoot,hashes}),/ENOENT|mismatch/);
- await assert.rejects(loadOriginals({target:'staging',repoRoot,hashes:{...hashes,NATIVE_TRUST_ASSET_SHA256:'15e0c28ca828287666dc13cd1ab8cd90caa8f3a4a0036c5fa0eb6f8fbf162d9e'}}),/RAW signed asset/);
- await assert.rejects(loadOriginals({target:'staging',repoRoot,hashes:{...hashes,NATIVE_SDK_SHA256:'0'.repeat(64)}}),/protected archive hash/);
- await assert.rejects(loadOriginals({target:'staging',repoRoot}),/four protected/);
+ await assert.rejects(loadOriginals({target:'production',repoRoot:root,hashes}),/ENOENT|mismatch/);
+ await assert.rejects(loadOriginals({target:'staging',repoRoot:root,hashes:{...hashes,NATIVE_TRUST_ASSET_SHA256:'15e0c28ca828287666dc13cd1ab8cd90caa8f3a4a0036c5fa0eb6f8fbf162d9e'}}),/RAW signed asset/);
+ await assert.rejects(loadOriginals({target:'staging',repoRoot:root,hashes:{...hashes,NATIVE_SDK_SHA256:'0'.repeat(64)}}),/protected archive hash/);
+ await assert.rejects(loadOriginals({target:'staging',repoRoot:root}),/four protected/);
  assert.throws(()=>protectedHashes({}),/four protected/);
+ }finally{await rm(root,{recursive:true,force:true});}
 });
 it('requires exact manual release-ref HEAD, never a tag/main/short/moving source',async()=>{
  assert.equal(assertDispatch(env).sha,source);

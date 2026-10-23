@@ -28,12 +28,12 @@ function canonicalJson(value: unknown): string {
 /** Real public grant client + WebCrypto + storage. Every CP request is scripted;
  * no LAB/network, trust override, Worker, or native admission is exercised. */
 export async function privateGrantScript() {
-  // Use the installed original STAGING SDK's real packaged release context.
+  // Use the installed original production SDK's real packaged release context.
   // The declaration changes target, not trust: there is no release override.
   const targetManifest = { ...manifest, homepage: `${location.origin}/`, redirect_uris: [`${location.origin}/`],
-    installation_origins: { staging: { "app-runtime": [location.origin] } } };
+    installation_origins: { production: { "app-runtime": [location.origin] } } };
   const declaration: MdbaseApplicationDeclaration = { id: manifest.id, name: manifest.name,
-    origin: location.origin, environment: "staging", manifest: targetManifest };
+    origin: location.origin, environment: "production", manifest: targetManifest };
   const canonical = parseVersionedAppManifest(targetManifest).manifest;
   const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalJson(canonical))))]
     .map((byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -69,7 +69,7 @@ export async function privateGrantScript() {
   };
   const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
     const url = new URL(String(input));
-    if (url.origin !== "https://connect-staging.mdbase.dev") throw new Error("Unexpected scripted CP target; no network fallback exists");
+    if (url.origin !== "https://connect.mdbase.dev") throw new Error("Unexpected scripted CP target; no network fallback exists");
     const path = url.pathname;
     requests.push(path);
     const body = new URLSearchParams(String(init?.body ?? ""));
