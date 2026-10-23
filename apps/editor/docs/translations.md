@@ -35,9 +35,9 @@ pnpm --filter mdbase-editor build:e2e
 ```
 
 Use rpnpm for finite verification/builds on this machine. Extraction and catalogue
-edits stay local. The workspace kit includes 8785bd19's source guard and catalogue
-composition checks (and the repaired normal executable symlink). No CLI adapter
-or direct-script launcher is needed.
+edits stay local. The workspace kit includes 5be277b8's field-selective React
+state guard, 8785bd19's catalogue composition checks and the repaired normal
+executable symlink. No CLI adapter or direct-script launcher is needed.
 
 The check validates extraction sync, raw target completeness before fallback,
 generated IDs, ICU/rich-text contracts, strict compilation and the full editor
@@ -66,7 +66,7 @@ The literal `{field}` in path-template examples is syntax, not UI prose; its exa
 source-guard exemption is recorded in `i18n-policy.json`.
 
 Reviewed identical translations are allowlisted by generated ID, not replaced with
-artificially different wording. The de/es/fr/ja/ko/pt/ru lists cover file extensions, ICU-only
+artificially different wording. The de/es/fr/ja/ko/pt/ru/zh lists cover file extensions, ICU-only
 layout, shortcut notation, YAML, font/product names and literal path/search patterns.
 Spanish also legitimately retains “Compatible”. French retains cognates (Actions,
 Collection, Compact, Compatible, Date, Description, Documentation, Incompatible,
@@ -81,9 +81,12 @@ and Remove align with the public library's Подробности and Удали
 ID collision; contextual settings Details remains separate. `progress.py` flags
 some legitimate identical translations heuristically.
 
-The merged de/es/fr/ja/ko/pt/ru POs are not evidence of nine-locale release
-readiness: zh is still pending. Unmerged locales must block `i18n:check` and both
-builds; a scoped authored audit or authoring compile never replaces those gates.
+All eight target POs are merged, including Simplified Chinese from `cd18d11`.
+The zh allowlist preserves `.md`, ICU-only layout, shortcuts, YAML, Phosphor
+Regular and literal schema/search/path tokens (`status`, `tasks`, `type:{0}`, path
+globs and templates). These are reviewed identical values, not English filler.
+Nine-locale release readiness still requires the full strict gates and browser
+acceptance; a scoped authored audit or authoring compile never replaces them.
 
 The approved mechanical-only plural delta replaces positional aliases for the
 required-field warning, installed-pack notice and folder accessible name with
@@ -93,7 +96,8 @@ identical Japanese `one` arms were mechanically dropped: Japanese never selects
 that category, and their `other` prose is byte-identical. The coordinator's
 `burst/inventory/editor-id-moves.json` records old IDs `bntbp-`, `tB4Bkm`, `OCHeER`
 and their replacements `G_yv_v`, `F2TEex`, `xNjFKW`, including the placeholder map
-for porting the pending zh translation.
+used to port the completed zh translation. Chinese, like Japanese and Korean,
+uses only `other` plural categories.
 
 React tests render through `src/test/locale.tsx`, exercising the real kit and
 Lingui provider rather than a translator mock. Target translation acceptance also
