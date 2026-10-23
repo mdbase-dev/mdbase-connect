@@ -20,6 +20,10 @@ export default defineConfig(({ mode }) => ({
   // hoistingLimits gives each workspace package its own copies; @mdbase-dev/ui must use the app's
   // React and CodeMirror (two @codemirror/state instances cannot share an editor).
   resolve: { dedupe: ["react", "react-dom", "@lingui/core", "@lingui/react", "@mdbase-dev/sdk", "@codemirror/state", "@codemirror/view"] },
+  // Linked libraries retain Node JSON import attributes. Prebundle their i18n
+  // entries in dev so Vite serves JS modules without native JSON MIME assertions.
+  // Production still emits separate lazy locale chunks.
+  optimizeDeps: { include: ["@mdbase-dev/ui/i18n", "@mdbase/connect-ui/i18n"] },
   build: {
     target: "es2022",
     sourcemap: true,

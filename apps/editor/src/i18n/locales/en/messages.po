@@ -1027,6 +1027,7 @@ msgstr "Advanced YAML rules"
 msgid "Advisory labels and colour used when records of this type are shown."
 msgstr "Advisory labels and colour used when records of this type are shown."
 
+#: src/App.tsx
 #: src/EditorRail.tsx
 #: src/note-list-view.ts
 #: src/NoteListViewOptions.tsx
@@ -1575,6 +1576,7 @@ msgid "Collection resources"
 msgstr "Collection resources"
 
 #: src/collection-browser.ts
+#: src/FolderChangeDialog.tsx
 #: src/NoteList.tsx
 msgid "Collection root"
 msgstr "Collection root"

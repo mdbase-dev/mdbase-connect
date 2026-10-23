@@ -107,7 +107,7 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
           if (target) { target.focus(); return; }
           path = path.split("/").slice(0, -1).join("/");
         }
-        document.querySelector<HTMLButtonElement>('.collection-rail button[aria-label^="All notes,"]')?.focus();
+        document.querySelector<HTMLButtonElement>(".collection-rail .rail-scroll > .rail-drop-target > button")?.focus();
       }));
     }}
   />}</>;

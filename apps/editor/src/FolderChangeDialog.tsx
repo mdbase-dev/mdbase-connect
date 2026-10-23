@@ -69,7 +69,7 @@ export function FolderChangeDialog({ from, parent, mode, folders, onPlanFolderCh
         <label htmlFor={`${id}-value`}>{mode === "rename" ? t`Folder name` : t`Destination folder`}</label>
         {mode === "rename" ? <input className="mdbase-field" id={`${id}-value`} value={value} onChange={(event) => setValue(event.target.value)} disabled={busy} data-autofocus />
           : <Select id={`${id}-value`} aria-label={t`Destination folder`} value={value} onChange={setValue} disabled={busy} data-autofocus options={[
-            { value: "", label: "All notes (collection root)" },
+            { value: "", label: t`Collection root` },
             ...folders.filter((path) => path !== from && !path.startsWith(`${from}/`)).map((path) => ({ value: path, label: path }))
           ]} />}
         <p><Trans>Notes in subfolders move too. Links to these notes will be updated.</Trans></p>
