@@ -39,7 +39,7 @@ PO is the only committed catalogue format across the monorepo, including Editor.
 Every consuming dev/test/typecheck/build entry compiles JSON before importing it;
 the shared compilation script orders public UI, private UI, then the app.
 Portal's Vite config also compiles for direct Vite invocations (the Editor
-Playwright portal fixture bypasses package scripts). No generated files from an
+Playwright tooling can bypass package scripts). The browser suite builds Portal once and starts per-worker production preview servers, avoiding catalogue-write HMR invalidating another worker's active page. No generated files from an
 earlier local build are required. Build workspace dependencies with
 `pnpm build:packages` before running apps; desktop standalone packaging selects
 the full dependency closure itself. Composition paths use double quotes so
