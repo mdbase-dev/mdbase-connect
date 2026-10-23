@@ -135,6 +135,88 @@ Do not mix separate translator instances.
 These are display-only; never use them for persisted timestamps or enum values.
 Portuguese Intl formatting uses `pt-BR`, Chinese `zh-CN`.
 
+## Library catalogues (shared UI packages)
+
+A library owns its source scope and nine PO catalogues; **do not extract its source
+again into every app catalogue**. It does not create an i18n instance or provider.
+React library components use `useLingui`/`Trans` from the parent app context.
+Source macro calls must be transformed by the library build before publication:
+plain `tsc` does not compile Lingui macros. Ship compiled JS and ICU JSON, never
+untransformed macros requiring the consumer to process node_modules.
+
+Export a `CatalogueSource` from a small `/i18n` entry point. For example
+`packages/app-ui/src/i18n.ts`:
+
+```ts
+import type { CatalogueSource } from "@mdbase-dev/i18n";
+import english from "./locales/en/messages.json" with { type: "json" };
+const loaders = {
+  fr: () => import("./locales/fr/messages.json", { with: { type: "json" } }),
+  de: () => import("./locales/de/messages.json", { with: { type: "json" } }),
+  es: () => import("./locales/es/messages.json", { with: { type: "json" } }),
+  ja: () => import("./locales/ja/messages.json", { with: { type: "json" } }),
+  ko: () => import("./locales/ko/messages.json", { with: { type: "json" } }),
+  pt: () => import("./locales/pt/messages.json", { with: { type: "json" } }),
+  ru: () => import("./locales/ru/messages.json", { with: { type: "json" } }),
+  zh: () => import("./locales/zh/messages.json", { with: { type: "json" } }),
+};
+export const uiCatalogues: CatalogueSource = {
+  english,
+  loadLocale: async (locale) => (await loaders[locale]()).default,
+};
+```
+
+The library's config includes only its own `src` and uses
+`path: "<rootDir>/src/locales/{locale}/messages"`. Run its own `mdbase-i18n check`
+for all nine locales. Copy **all nine JSON files** into `dist/locales/{locale}`
+and preserve the literal imports above during the library build, so the application
+bundler can split its own deployment's target-language chunks. Include these files
+in the packed tarball and smoke-test the packed `/i18n` entry. Add a package export:
+
+```json
+{
+  "exports": {
+    "./i18n": { "types": "./dist/i18n.d.ts", "import": "./dist/i18n.js" }
+  }
+}
+```
+
+Keep React, `@lingui/core@6.9.0`, `@lingui/react@6.9.0` and this kit as
+peer dependencies (workspace development dependencies in Connect) rather than
+bundling nested translator copies. The library's runtime imports are erased for
+the kit type above, but the public declaration references its type.
+
+At the application root:
+
+```ts
+import { uiCatalogues } from "@mdbase-dev/ui/i18n";
+const runtime = createI18nRuntime({
+  english: appEnglish,
+  loadLocale: loadAppLocale,
+  libraries: [uiCatalogues],
+  // i18n: globalI18n, storage: appStorage,
+});
+```
+
+English is merged synchronously. On a switch, the runtime loads the app and every
+library catalogue concurrently, validates/merges them, then performs **one**
+activation. A failed chunk or conflicting translation retains the current language
+and stored choice; no mixed-language intermediate state is activated. Previously
+activated locales are reused. `mergeCatalogues([...])` is also exported for
+standalone deterministic composition: output keys and nested object keys are sorted,
+identical generated-ID values become one entry, and different values for the same
+ID throw instead of silently overriding one another. If two concepts really need
+different wording, give them different semantic source contexts; otherwise align
+their translations. No library prefixes, app-side ID rewriting or duplicate messages.
+
+For this monorepo: public `packages/app-ui` (`@mdbase-dev/ui`) ships its own
+catalogues and `/i18n` export for Writer, Reader and TaskNotes. Private
+`packages/ui` (`@mdbase/connect-ui`) ships a separate `/i18n` export for
+Connect applications, which pass **both** sources when they use both packages.
+Do not make the private package public or fold either library's UI into Portal's
+application PO scope. A shared library's incomplete locale blocks that consuming
+app's release; English fallback must not hide missing authored library messages.
+
 ## CodeMirror
 
 `@mdbase-dev/i18n/codemirror` shares the fixed lookup keys from CodeMirror 6's

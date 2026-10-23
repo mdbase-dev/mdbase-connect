@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { compileMessageOrThrow } from "@lingui/message-utils/compileMessage";
 import { i18n as globalI18n } from "@lingui/core";
-import { createI18nRuntime, negotiateLocale, formatters, locales } from "./runtime.js";
+import { createI18nRuntime, negotiateLocale, formatters, locales, mergeCatalogues } from "./runtime.js";
 import { loadCodeMirrorPhrases, englishCodeMirrorPhrases } from "./codemirror.js";
 const catalogue = (text: string) => ({ messages: { greeting: compileMessageOrThrow(text) } });
 const deferred = <T,>() => {
@@ -91,6 +91,56 @@ describe("real Lingui runtime", () => {
     expect(formatters("pt").number(1234.5)).toBe(new Intl.NumberFormat("pt-BR").format(1234.5));
     expect(formatters("fr").relativeTime(-1, "day")).toContain("jour");
     expect(formatters("ja").date(new Date("2026-01-02T12:00:00Z"), { timeZone: "UTC", year: "numeric" })).toContain("2026");
+  });
+});
+describe("library catalogue composition", () => {
+  it("deduplicates identical messages and produces source-order-independent output", () => {
+    const app = { messages: { z: ["Close"], shared: [["n", "plural", { one: ["# item"], other: ["# items"] }]] } };
+    const library = { messages: { a: ["Open"], shared: [["n", "plural", { other: ["# items"], one: ["# item"] }]] } };
+    expect(JSON.stringify(mergeCatalogues([app, library]))).toBe(JSON.stringify(mergeCatalogues([library, app])));
+    expect(Object.keys(mergeCatalogues([app, library]).messages)).toHaveLength(3);
+    expect(() => mergeCatalogues([app, { messages: { z: ["Shut"] } }])).toThrow("Conflicting compiled translation");
+  });
+  it("renders app and library English immediately, then activates all target catalogues atomically", async () => {
+    const library = deferred<{ messages: object }>();
+    let libraryLoads = 0;
+    const runtime = createI18nRuntime({
+      english: { messages: { app: "Settings" } }, preferences: ["fr"],
+      loadLocale: async () => ({ messages: { app: "Paramètres" } }),
+      libraries: [{ english: { messages: { library: "Theme" } },
+        loadLocale: async () => { libraryLoads++; return library.promise; } }],
+    });
+    expect(runtime.i18n._("app")).toBe("Settings");
+    expect(runtime.i18n._("library")).toBe("Theme");
+    expect(libraryLoads).toBe(0);
+    const activation = runtime.initialize();
+    await Promise.resolve(); await Promise.resolve();
+    expect(runtime.i18n.locale).toBe("en");
+    library.resolve({ messages: { library: "Thème" } });
+    await activation;
+    expect(runtime.i18n._("app")).toBe("Paramètres");
+    expect(runtime.i18n._("library")).toBe("Thème");
+    expect(libraryLoads).toBe(1);
+    await runtime.selectLocale("en"); await runtime.selectLocale("fr");
+    expect(libraryLoads).toBe(1);
+  });
+  it("rejects library conflicts or failed chunks without activation or persistence", async () => {
+    let saved = "en";
+    const runtime = createI18nRuntime({
+      english: { messages: { same: "Close" } },
+      storage: { getLocale: () => saved, setLocale: (locale) => { saved = locale; } },
+      loadLocale: async () => ({ messages: { same: "Fermer" } }),
+      libraries: [{ english: { messages: { same: "Close" } },
+        loadLocale: async (locale) => {
+          if (locale === "de") throw new Error("library chunk failed");
+          return { messages: { same: "Clôturer" } };
+        } }],
+    });
+    await expect(runtime.selectLocale("fr")).rejects.toThrow("Conflicting compiled translation");
+    await expect(runtime.selectLocale("de")).rejects.toThrow("library chunk failed");
+    expect(runtime.i18n.locale).toBe("en");
+    expect(runtime.i18n._("same")).toBe("Close");
+    expect(saved).toBe("en");
   });
 });
 describe("CodeMirror phrases", () => {
