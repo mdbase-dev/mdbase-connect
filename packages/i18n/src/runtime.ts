@@ -35,12 +35,15 @@ export function mergeCatalogues(catalogues: readonly Catalogue[]): Catalogue {
     return value;
   };
   const messages = new Map<string, unknown>();
+  const conflicts = new Set<string>();
   for (const catalogue of catalogues) for (const [id, value] of Object.entries(catalogue.messages)) {
     const normalized = canonical(value);
-    if (messages.has(id) && JSON.stringify(messages.get(id)) !== JSON.stringify(normalized))
-      throw new Error("Conflicting compiled translation for message ID: " + id);
-    messages.set(id, normalized);
+    if (messages.has(id) && JSON.stringify(messages.get(id)) !== JSON.stringify(normalized)) {
+      conflicts.add("Conflicting compiled translation for message ID: " + id +
+        " — " + JSON.stringify(messages.get(id)) + " vs " + JSON.stringify(normalized));
+    } else messages.set(id, normalized);
   }
+  if (conflicts.size) throw new Error([...conflicts].join("\n"));
   return { messages: Object.fromEntries([...messages].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) };
 }
 export interface RuntimeOptions extends CatalogueSource {
