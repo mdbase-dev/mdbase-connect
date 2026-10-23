@@ -1046,21 +1046,21 @@ msgstr "컬렉션 ID"
 
 #: src/ConnectApp.tsx
 msgid "Collection invitation link"
-msgstr ""
+msgstr "컬렉션 초대 링크"
 
 #: src/ConnectApp.tsx
 msgid "Collection name"
-msgstr ""
+msgstr "컬렉션 이름"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Collection owner"
-msgstr ""
+msgstr "컬렉션 소유자"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Collection permissions"
-msgstr ""
+msgstr "컬렉션 권한"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -1069,32 +1069,32 @@ msgstr "컬렉션"
 
 #: src/authority-workflows.tsx
 msgid "Computer approved"
-msgstr ""
+msgstr "컴퓨터 승인됨"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Computer filter results"
-msgstr ""
+msgstr "컴퓨터 필터 결과"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Computer not connected"
-msgstr ""
+msgstr "컴퓨터 연결되지 않음"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Computer pairing"
-msgstr ""
+msgstr "컴퓨터 페어링"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Computer status"
-msgstr ""
+msgstr "컴퓨터 상태"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Computers"
-msgstr ""
+msgstr "컴퓨터"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -1103,42 +1103,42 @@ msgstr "구성됨"
 
 #: src/AccountManagement.tsx
 msgid "Confirm new password"
-msgstr ""
+msgstr "새 비밀번호 확인"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Confirm new password"
-msgstr ""
+msgstr "새 비밀번호 확인"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Confirm password"
-msgstr ""
+msgstr "비밀번호 확인"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Confirm removal"
-msgstr ""
+msgstr "제거 확인"
 
 #: src/AccountManagement.tsx
 msgid "Confirm your identity"
-msgstr ""
+msgstr "본인 확인"
 
 #: src/ConnectApp.tsx
 msgid "Connect a computer to add a collection."
-msgstr ""
+msgstr "컬렉션을 추가하려면 컴퓨터를 연결하세요."
 
 #: src/ConnectApp.tsx
 msgid "Connect management closed"
-msgstr ""
+msgstr "Connect 관리 종료됨"
 
 #: src/AccountManagement.tsx
 msgid "Connect more than one method so you always have a way back into your account."
-msgstr ""
+msgstr "계정에 다시 접근할 수 있도록 두 가지 이상의 로그인 방법을 연결하세요."
 
 #: src/auth-view.tsx
 msgid "Connect this device to your tailnet, then reload the page."
-msgstr ""
+msgstr "이 기기를 테일넷에 연결한 다음 페이지를 새로고침하세요."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -1153,7 +1153,7 @@ msgstr "연결됨"
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Connected applications"
-msgstr ""
+msgstr "연결된 애플리케이션"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -1162,7 +1162,7 @@ msgstr "연결"
 
 #: src/ConnectApp.tsx
 msgid "Contact the person who operates this mdbase connect deployment."
-msgstr ""
+msgstr "이 mdbase connect 배포의 운영자에게 문의하세요."
 
 #: src/auth-view.tsx
 msgid "Continue"
@@ -1171,17 +1171,17 @@ msgstr "계속"
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Continue with GitHub"
-msgstr ""
+msgstr "GitHub로 계속"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Continue with Google"
-msgstr ""
+msgstr "Google로 계속"
 
 #: src/GoogleIdentityButton.tsx
 msgctxt "Connect interface"
 msgid "Continue with Google"
-msgstr ""
+msgstr "Google로 계속"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -1196,92 +1196,92 @@ msgstr "링크 복사"
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Couldn’t connect"
-msgstr ""
+msgstr "연결할 수 없습니다"
 
 #. placeholder {0}: selected?.display_name ?? t(i18n)({ message: "this collection", context: "Application access approval" })
 #. placeholder {1}: existingOperations.size > 0 ? t(i18n)({ message: " Permissions this application does not already have are marked New." }) : ""
 #: src/authorization-view.tsx
 msgid "Covers every record in {0}.{1}"
-msgstr ""
+msgstr "{0}의 모든 레코드에 적용됩니다.{1}"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Create"
-msgstr ""
+msgstr "만들기"
 
 #: src/authorization-view.tsx
 msgid "Create a hosted collection"
-msgstr ""
+msgstr "호스팅 컬렉션 만들기"
 
 #: src/authority-workflows.tsx
 msgid "Create a hosted collection before approving this folder."
-msgstr ""
+msgstr "이 폴더를 승인하기 전에 호스팅 컬렉션을 만드세요."
 
 #: src/CollectionPicker.tsx
 msgid "Create a new collection…"
-msgstr ""
+msgstr "새 컬렉션 만들기…"
 
 #: src/authorization-review.tsx
 msgid "Create a separate type supplied by {applicationName}."
-msgstr ""
+msgstr "{applicationName}에서 제공하는 별도 유형을 만듭니다."
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Create account"
-msgstr ""
+msgstr "계정 만들기"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Create an account"
-msgstr ""
+msgstr "계정 만들기"
 
 #: src/authorization-capabilities.ts
 msgid "Create and maintain timers that run while the application is closed."
-msgstr ""
+msgstr "애플리케이션을 닫은 후에도 실행되는 타이머를 만들고 관리합니다."
 
 #: src/authorization-capabilities.ts
 msgid "Create and update record types and apply declared type packs."
-msgstr ""
+msgstr "레코드 유형을 만들고 업데이트하며 선언된 유형 팩을 적용합니다."
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Create collection"
-msgstr ""
+msgstr "컬렉션 만들기"
 
 #: src/authorization-view.tsx
 msgid "Create hosted collection"
-msgstr ""
+msgstr "호스팅 컬렉션 만들기"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Create invitation"
-msgstr ""
+msgstr "초대 만들기"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Create records"
-msgstr ""
+msgstr "레코드 만들기"
 
 #: src/authorization-capabilities.ts
 msgid "Create records and add files"
-msgstr ""
+msgstr "레코드 만들기 및 파일 추가"
 
 #: src/authorization-capabilities.ts
 msgid "Create, change, and delete saved view definitions."
-msgstr ""
+msgstr "저장된 뷰 정의를 만들고 변경하고 삭제합니다."
 
 #: src/ConnectApp.tsx
 msgid "Created, but this browser could not clear its request. Retrying will use the same collection."
-msgstr ""
+msgstr "생성되었지만 이 브라우저에서 요청을 지우지 못했습니다. 다시 시도하면 같은 컬렉션을 사용합니다."
 
 #: src/authorization-view.tsx
 msgid "Creates a plain mdbase collection hosted by mdbase. Application access is still approved separately."
-msgstr ""
+msgstr "mdbase에 호스팅되는 일반 mdbase 컬렉션을 만듭니다. 애플리케이션 액세스는 별도로 승인됩니다."
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Creating account…"
-msgstr ""
+msgstr "계정 만드는 중…"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
@@ -1295,7 +1295,7 @@ msgstr "만드는 중…"
 
 #: src/authority-workflows.tsx
 msgid "Creation hasn't finished. Approve continues the same named collection."
-msgstr ""
+msgstr "생성이 아직 끝나지 않았습니다. 승인하면 이름을 지정한 동일한 컬렉션에서 계속됩니다."
 
 #: src/AccountManagement.tsx
 msgid "Current"
@@ -1304,11 +1304,11 @@ msgstr "현재"
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Current allowance"
-msgstr ""
+msgstr "현재 허용량"
 
 #: src/AccountManagement.tsx
 msgid "Current password"
-msgstr ""
+msgstr "현재 비밀번호"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -1318,65 +1318,65 @@ msgstr "삭제"
 #. placeholder {0}: collection.display_name
 #: src/ConnectApp.tsx
 msgid "Delete {0} and all of its hosted data? This cannot be undone."
-msgstr ""
+msgstr "{0} 및 모든 호스팅 데이터를 삭제할까요? 실행 취소할 수 없습니다."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Delete account"
-msgstr ""
+msgstr "계정 삭제"
 
 #: src/AccountManagement.tsx
 msgid "Delete account permanently"
-msgstr ""
+msgstr "계정 영구 삭제"
 
 #: src/AccountManagement.tsx
 msgid "Delete account…"
-msgstr ""
+msgstr "계정 삭제…"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "delete files"
-msgstr ""
+msgstr "파일 삭제"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Delete files"
-msgstr ""
+msgstr "파일 삭제"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Delete permanently"
-msgstr ""
+msgstr "영구 삭제"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Delete records"
-msgstr ""
+msgstr "레코드 삭제"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Delete records and files"
-msgstr ""
+msgstr "레코드 및 파일 삭제"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Deleting account…"
-msgstr ""
+msgstr "계정 삭제하는 중…"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Deny"
-msgstr ""
+msgstr "거부"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Denying…"
-msgstr ""
+msgstr "거부하는 중…"
 
 #: src/portal-model.ts
 msgctxt "Connect interface"
 msgid "Desktop approval needed"
-msgstr ""
+msgstr "데스크톱 승인 필요"
 
 #: src/authority-workflows.tsx
 msgid "Details"
@@ -1389,37 +1389,37 @@ msgstr "세부 정보"
 
 #: src/auth-view.tsx
 msgid "Development authentication is enabled."
-msgstr ""
+msgstr "개발용 인증이 활성화되었습니다."
 
 #. placeholder {0}: pairing.fingerprint
 #: src/authority-workflows.tsx
 msgid "Device key: <0>{0}</0>"
-msgstr ""
+msgstr "기기 키: <0>{0}</0>"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Disconnect"
-msgstr ""
+msgstr "연결 해제"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Disconnect"
-msgstr ""
+msgstr "연결 해제"
 
 #. placeholder {0}: replica.name
 #: src/ConnectApp.tsx
 msgid "Disconnect {0}?"
-msgstr ""
+msgstr "{0}의 연결을 해제할까요?"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Disconnecting…"
-msgstr ""
+msgstr "연결 해제하는 중…"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Disconnecting…"
-msgstr ""
+msgstr "연결 해제하는 중…"
 
 #: src/ConnectApp.tsx
 msgid "Dismiss"
@@ -1427,7 +1427,7 @@ msgstr "닫기"
 
 #: src/authorization-review.tsx
 msgid "Do not share"
-msgstr ""
+msgstr "공유하지 않음"
 
 #. placeholder {0}: formatBytes(subscription.limits.max_document_bytes)
 #. placeholder {1}: formatBytes(subscription.limits.max_single_file_bytes)
@@ -1435,26 +1435,26 @@ msgstr ""
 #. placeholder {3}: countLabel(subscription.limits.max_application_replicas_per_collection, "application-installation")
 #: src/AccountManagement.tsx
 msgid "Documents up to {0} · files up to {1} · {2} · {3} per collection"
-msgstr ""
+msgstr "문서 최대 {0} · 파일 최대 {1} · {2} · 컬렉션당 {3}"
 
 #: src/authority-workflows.tsx
 msgid "Don't allow"
-msgstr ""
+msgstr "허용하지 않음"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Downloads only"
-msgstr ""
+msgstr "다운로드 전용"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Edit records"
-msgstr ""
+msgstr "레코드 편집"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Edit records and files"
-msgstr ""
+msgstr "레코드 및 파일 편집"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -1464,45 +1464,45 @@ msgstr "편집기"
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Edits sync both ways"
-msgstr ""
+msgstr "편집 내용 양방향 동기화"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Email"
-msgstr ""
+msgstr "이메일"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Email"
-msgstr ""
+msgstr "이메일"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Email address"
-msgstr ""
+msgstr "이메일 주소"
 
 #: src/AccountManagement.tsx
 msgid "Email and password"
-msgstr ""
+msgstr "이메일 및 비밀번호"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Email and password"
-msgstr ""
+msgstr "이메일 및 비밀번호"
 
 #. placeholder {0}: summary.setting
 #. placeholder {1}: summary.value
 #: src/authorization-view.tsx
 msgid "Ensure <0>{0}</0> includes <1>{1}</1>"
-msgstr ""
+msgstr "<0>{0}</0>에 <1>{1}</1>이(가) 포함되도록 설정"
 
 #: src/authorization-view.tsx
 msgid "Enter the code it shows. You will review the application, collection, and exact permissions before anything is allowed."
-msgstr ""
+msgstr "코드를 입력하세요. 허용하기 전에 애플리케이션, 컬렉션 및 정확한 권한을 검토할 수 있습니다."
 
 #: src/authorization-view.tsx
 msgid "Enter the eight-character code shown by the application."
-msgstr ""
+msgstr "애플리케이션에 표시된 8자리 코드를 입력하세요."
 
 #: src/ApplicationAccess.tsx
 msgid "Entire collection"
@@ -1511,45 +1511,45 @@ msgstr "전체 컬렉션"
 #. placeholder {0}: entry.role
 #: src/ApplicationAccess.tsx
 msgid "Entire collection · Access as your account ({0})"
-msgstr ""
+msgstr "전체 컬렉션 · 내 계정으로 액세스({0})"
 
 #: src/AccountManagement.tsx
 msgid "Every browser session and sign-in method"
-msgstr ""
+msgstr "모든 브라우저 세션 및 로그인 방법"
 
 #: src/authorization-review.tsx
 msgid "Every visible folder. Hidden folders are always excluded."
-msgstr ""
+msgstr "표시되는 모든 폴더. 숨겨진 폴더는 항상 제외됩니다."
 
 #: src/authority-workflows.tsx
 msgid "Existing access is revoked. Connect applications again to use the local collection."
-msgstr ""
+msgstr "기존 액세스 권한이 철회되었습니다. 로컬 컬렉션을 사용하려면 Connect 애플리케이션을 다시 연결하세요."
 
 #: src/authority-workflows.tsx
 msgid "Existing Markdown is checked before upload. Collection paths and device credentials stay off the control plane."
-msgstr ""
+msgstr "업로드 전에 기존 Markdown을 검사합니다. 컬렉션 경로와 기기 인증 정보는 제어 서버로 전송되지 않습니다."
 
 #: src/authorization-review.tsx
 msgid "Existing type"
-msgstr ""
+msgstr "기존 유형"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Existing type"
-msgstr ""
+msgstr "기존 유형"
 
 #: src/authorization-review.tsx
 msgid "Expert details"
-msgstr ""
+msgstr "고급 정보"
 
 #: src/FeedbackPage.tsx
 msgid "Feedback goes privately to the mdbase team."
-msgstr ""
+msgstr "피드백은 mdbase 팀에 비공개로 전달됩니다."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Feedback is unavailable"
-msgstr ""
+msgstr "피드백을 사용할 수 없음"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
