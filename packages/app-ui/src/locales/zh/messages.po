@@ -14,7 +14,7 @@ msgstr "（在新标签页中打开）"
 #. placeholder {0}: changes - shownChanges
 #: src/text-diff.ts
 msgid "{0, plural, one {# more changed line} other {# more changed lines}}"
-msgstr "{0, plural, one {还有 # 行更改} other {还有 # 行更改}}"
+msgstr "{0, plural, other {还有 # 行更改}}"
 
 #. placeholder {0}: changes - shownChanges
 #: src/text-diff.ts
@@ -56,9 +56,10 @@ msgctxt "Collection access interface"
 msgid "{app} stops showing it on this device. Nothing in the collection is deleted, and {app} keeps its access. To end access, use Manage access."
 msgstr "{app} 将不再在此设备上显示该集合。集合内容不会被删除，且 {app} 仍保有访问权限。如需撤销访问权限，请使用“管理访问权限”。"
 
+#: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
 msgid "{count, plural, one {# mark applied.} other {# marks applied.}}"
-msgstr "{count, plural, one {已应用 # 处标记。} other {已应用 # 处标记。}}"
+msgstr "{count, plural, other {已应用 # 处标记。}}"
 
 #: src/Feedback.tsx
 msgid "A problem occurred. You can use Send feedback to report it."
@@ -563,7 +564,7 @@ msgstr "报告问题"
 #: src/FeedbackMarkup.tsx
 msgctxt "Screenshot annotations"
 msgid "Reset"
-msgstr ""
+msgstr "重置"
 
 #: src/CommandPalette.tsx
 msgid "Results"

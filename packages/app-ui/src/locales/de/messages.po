@@ -56,6 +56,7 @@ msgctxt "Collection access interface"
 msgid "{app} stops showing it on this device. Nothing in the collection is deleted, and {app} keeps its access. To end access, use Manage access."
 msgstr "{app} zeigt die Sammlung auf diesem Gerät nicht mehr an. In der Sammlung wird nichts gelöscht, und {app} behält den Zugriff. Um den Zugriff zu beenden, verwenden Sie „Zugriff verwalten“."
 
+#: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
 msgid "{count, plural, one {# mark applied.} other {# marks applied.}}"
 msgstr "{count, plural, one {# Markierung gesetzt.} other {# Markierungen gesetzt.}}"
@@ -563,7 +564,7 @@ msgstr "Problem melden"
 #: src/FeedbackMarkup.tsx
 msgctxt "Screenshot annotations"
 msgid "Reset"
-msgstr ""
+msgstr "Zurücksetzen"
 
 #: src/CommandPalette.tsx
 msgid "Results"

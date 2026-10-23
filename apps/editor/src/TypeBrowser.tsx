@@ -1956,7 +1956,7 @@ function TypeChangeReview({ previousSource, source, impact, creating, saving, on
     </div>}
     {impact.missingRequired.length > 0 && <div className="type-impact-warning" role="alert">
       <CircleAlert aria-hidden="true" />
-      <div><strong><Trans>Existing notes need attention</Trans></strong>{impact.missingRequired.map((item) => <p key={item.field}>{plural(item.count, { one: `# note is missing required field ${item.field}.`, other: `# notes are missing required field ${item.field}.` })}</p>)}</div>
+      <div><strong><Trans>Existing notes need attention</Trans></strong>{impact.missingRequired.map(({ field, count }) => <p key={field}>{plural(count, { one: `# note is missing required field ${field}.`, other: `# notes are missing required field ${field}.` })}</p>)}</div>
     </div>}
     <p className="type-review-scope"><Trans>Impact is based on the currently indexed notes. The collection validates the complete definition when you confirm.</Trans></p>
     <details><summary><Trans>Review YAML diff</Trans></summary><div className="line-diff" role="table" aria-label={t`Type source differences`}>{diff.map((line, index) => <div className={`diff-line ${line.kind}`} role="row" key={`${line.kind}:${index}`}><span className="diff-marker" aria-hidden="true">{line.kind === "local" ? "−" : line.kind === "remote" ? "+" : line.kind === "omitted" ? "···" : " "}</span><span className="diff-line-number" aria-hidden="true">{line.localLine ?? line.remoteLine ?? ""}</span><code role="cell">{line.text || " "}</code></div>)}</div></details>

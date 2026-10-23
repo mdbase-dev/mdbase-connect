@@ -105,13 +105,6 @@ msgstr "{0, plural, one {# coincidencia} other {# coincidencias}}"
 msgid "{0, plural, one {# note contains links that will change.} other {# notes contain links that will change.}}"
 msgstr "{0, plural, one {# nota contiene enlaces que cambiarán.} other {# notas contienen enlaces que cambiarán.}}"
 
-#. placeholder {0}: item.count
-#. placeholder {1}: item.field
-#. placeholder {2}: item.field
-#: src/TypeBrowser.tsx
-msgid "{0, plural, one {# note is missing required field {1}.} other {# notes are missing required field {2}.}}"
-msgstr "{0, plural, one {# nota no tiene el campo obligatorio {1}.} other {# notas no tienen el campo obligatorio {2}.}}"
-
 #. placeholder {0}: result.moved
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one {# note moved.} other {# notes moved.}}"
@@ -132,15 +125,6 @@ msgstr "{0, plural, one {También se actualizaron los enlaces en # nota.} other 
 msgid "{0, plural, one {Binding setting{field} needs at least # item for {contractId}.} other {Binding setting{field} needs at least # items for {contractId}.}}"
 msgstr "{0, plural, one {El ajuste de vinculación{field} necesita al menos # elemento para {contractId}.} other {El ajuste de vinculación{field} necesita al menos # elementos para {contractId}.}}"
 
-#. placeholder {0}: addedTypes.length
-#. placeholder {1}: pack.displayName
-#. placeholder {2}: installed.resources.length
-#. placeholder {3}: pack.displayName
-#. placeholder {4}: installed.resources.length
-#: src/catalog-pack-installation.tsx
-msgid "{0, plural, one {Installed “{1}” ({2} resources, # new type).} other {Installed “{3}” ({4} resources, # new types).}}"
-msgstr "{0, plural, one {Se instaló “{1}” ({2} recursos, # tipo nuevo).} other {Se instaló “{3}” ({4} recursos, # tipos nuevos).}}"
-
 #. placeholder {0}: plan.moves.length
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one {Move # note?} other {Move # notes?}}"
@@ -155,13 +139,6 @@ msgstr "{0, plural, one {Se movió # nota.} other {Se movieron # notas.}}"
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one {Rename ‘{basename}’ and move # note?} other {Rename ‘{basename}’ and move # notes?}}"
 msgstr "{0, plural, one {¿Cambiar el nombre de “{basename}” y mover # nota?} other {¿Cambiar el nombre de “{basename}” y mover # notas?}}"
-
-#. placeholder {0}: node.count
-#. placeholder {1}: node.path
-#. placeholder {2}: node.path
-#: src/CollectionRail.tsx
-msgid "{0, plural, one {Show notes in {1}, # note} other {Show notes in {2}, # notes}}"
-msgstr "{0, plural, one {Mostrar notas en {1}, # nota} other {Mostrar notas en {2}, # notas}}"
 
 #. placeholder {0}: files.length
 #: src/AttachmentUpload.tsx
@@ -418,6 +395,10 @@ msgstr "{count, plural, one {# enlace} other {# enlaces}}"
 msgid "{count, plural, one {# note in {name}} other {# notes in {name}}}"
 msgstr "{count, plural, one {# nota en {name}} other {# notas en {name}}}"
 
+#: src/TypeBrowser.tsx
+msgid "{count, plural, one {# note is missing required field {field}.} other {# notes are missing required field {field}.}}"
+msgstr "{count, plural, one {# nota no tiene el campo obligatorio {field}.} other {# notas no tienen el campo obligatorio {field}.}}"
+
 #: src/CollectionRail.tsx
 msgid "{count, plural, one {# note tagged {name}} other {# notes tagged {name}}}"
 msgstr "{count, plural, one {# nota con la etiqueta {name}} other {# notas con la etiqueta {name}}}"
@@ -453,6 +434,10 @@ msgstr "{count, plural, one {Se movió # nota.} other {Se movieron # notas.}}"
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Restored # note.} other {Restored # notes.}}"
 msgstr "{count, plural, one {Se restauró # nota.} other {Se restauraron # notas.}}"
+
+#: src/CollectionRail.tsx
+msgid "{count, plural, one {Show notes in {path}, # note} other {Show notes in {path}, # notes}}"
+msgstr "{count, plural, one {Mostrar notas en {path}, # nota} other {Mostrar notas en {path}, # notas}}"
 
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Updated # note.} other {Updated # notes.}}"
@@ -617,6 +602,10 @@ msgstr "Valor de {name}"
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} value item {0}"
 msgstr "Elemento {0} del valor de {name}"
+
+#: src/catalog-pack-installation.tsx
+msgid "{newTypeCount, plural, one {Installed “{packName}” ({resourceCount} resources, # new type).} other {Installed “{packName}” ({resourceCount} resources, # new types).}}"
+msgstr "{newTypeCount, plural, one {Se instaló “{packName}” ({resourceCount} recursos, # tipo nuevo).} other {Se instaló “{packName}” ({resourceCount} recursos, # tipos nuevos).}}"
 
 #: src/TypeBrowser.tsx
 msgid "{next, plural, one {# note after update} other {# notes after update}}"

@@ -105,13 +105,6 @@ msgstr "{0, plural, other {일치 항목 #개}}"
 msgid "{0, plural, one {# note contains links that will change.} other {# notes contain links that will change.}}"
 msgstr "{0, plural, other {노트 #개에 변경될 링크가 있습니다.}}"
 
-#. placeholder {0}: item.count
-#. placeholder {1}: item.field
-#. placeholder {2}: item.field
-#: src/TypeBrowser.tsx
-msgid "{0, plural, one {# note is missing required field {1}.} other {# notes are missing required field {2}.}}"
-msgstr "{0, plural, one {노트 #개에 필수 필드 {1}이(가) 없습니다.} other {노트 #개에 필수 필드 {2}이(가) 없습니다.}}"
-
 #. placeholder {0}: result.moved
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one {# note moved.} other {# notes moved.}}"
@@ -132,15 +125,6 @@ msgstr "{0, plural, other {노트 #개의 링크도 업데이트했습니다.}}"
 msgid "{0, plural, one {Binding setting{field} needs at least # item for {contractId}.} other {Binding setting{field} needs at least # items for {contractId}.}}"
 msgstr "{0, plural, other {{contractId}의 바인딩 설정{field}에 항목이 최소 #개 필요합니다.}}"
 
-#. placeholder {0}: addedTypes.length
-#. placeholder {1}: pack.displayName
-#. placeholder {2}: installed.resources.length
-#. placeholder {3}: pack.displayName
-#. placeholder {4}: installed.resources.length
-#: src/catalog-pack-installation.tsx
-msgid "{0, plural, one {Installed “{1}” ({2} resources, # new type).} other {Installed “{3}” ({4} resources, # new types).}}"
-msgstr "{0, plural, one {“{1}” 설치됨 (리소스 {2}개, 새 유형 #개).} other {“{3}” 설치됨 (리소스 {4}개, 새 유형 #개).}}"
-
 #. placeholder {0}: plan.moves.length
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one {Move # note?} other {Move # notes?}}"
@@ -155,13 +139,6 @@ msgstr "{0, plural, other {노트 #개 이동됨}}"
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one {Rename ‘{basename}’ and move # note?} other {Rename ‘{basename}’ and move # notes?}}"
 msgstr "{0, plural, other {‘{basename}’ 이름을 바꾸고 노트 #개를 이동할까요?}}"
-
-#. placeholder {0}: node.count
-#. placeholder {1}: node.path
-#. placeholder {2}: node.path
-#: src/CollectionRail.tsx
-msgid "{0, plural, one {Show notes in {1}, # note} other {Show notes in {2}, # notes}}"
-msgstr "{0, plural, one {{1}에서 노트 #개 표시} other {{2}에서 노트 #개 표시}}"
 
 #. placeholder {0}: files.length
 #: src/AttachmentUpload.tsx
@@ -418,6 +395,10 @@ msgstr "{count, plural, other {링크 #개}}"
 msgid "{count, plural, one {# note in {name}} other {# notes in {name}}}"
 msgstr "{count, plural, other {{name}의 노트 #개}}"
 
+#: src/TypeBrowser.tsx
+msgid "{count, plural, one {# note is missing required field {field}.} other {# notes are missing required field {field}.}}"
+msgstr "{count, plural, other {노트 #개에 필수 필드 {field}이(가) 없습니다.}}"
+
 #: src/CollectionRail.tsx
 msgid "{count, plural, one {# note tagged {name}} other {# notes tagged {name}}}"
 msgstr "{count, plural, other {{name} 태그가 있는 노트 #개}}"
@@ -453,6 +434,10 @@ msgstr "{count, plural, other {노트 #개 이동됨.}}"
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Restored # note.} other {Restored # notes.}}"
 msgstr "{count, plural, other {노트 #개 복원됨.}}"
+
+#: src/CollectionRail.tsx
+msgid "{count, plural, one {Show notes in {path}, # note} other {Show notes in {path}, # notes}}"
+msgstr "{count, plural, other {{path}에서 노트 #개 표시}}"
 
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Updated # note.} other {Updated # notes.}}"
@@ -617,6 +602,10 @@ msgstr "{name} 값"
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} value item {0}"
 msgstr "{name} 값 항목 {0}"
+
+#: src/catalog-pack-installation.tsx
+msgid "{newTypeCount, plural, one {Installed “{packName}” ({resourceCount} resources, # new type).} other {Installed “{packName}” ({resourceCount} resources, # new types).}}"
+msgstr "{newTypeCount, plural, other {“{packName}” 설치됨 (리소스 {resourceCount}개, 새 유형 #개).}}"
 
 #: src/TypeBrowser.tsx
 msgid "{next, plural, one {# note after update} other {# notes after update}}"

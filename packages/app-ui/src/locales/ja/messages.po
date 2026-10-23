@@ -14,7 +14,7 @@ msgstr "（新しいタブで開きます）"
 #. placeholder {0}: changes - shownChanges
 #: src/text-diff.ts
 msgid "{0, plural, one {# more changed line} other {# more changed lines}}"
-msgstr "{0, plural, one {変更された行があと#行} other {変更された行があと#行}}"
+msgstr "{0, plural, other {変更された行があと#行}}"
 
 #. placeholder {0}: changes - shownChanges
 #: src/text-diff.ts
@@ -56,9 +56,10 @@ msgctxt "Collection access interface"
 msgid "{app} stops showing it on this device. Nothing in the collection is deleted, and {app} keeps its access. To end access, use Manage access."
 msgstr "このデバイスで{app}に表示されなくなります。コレクション内のデータは削除されず、{app}のアクセス権も維持されます。アクセスを終了するには「アクセスを管理」を使ってください。"
 
+#: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
 msgid "{count, plural, one {# mark applied.} other {# marks applied.}}"
-msgstr "{count, plural, one {#件のマークを適用しました。} other {#件のマークを適用しました。}}"
+msgstr "{count, plural, other {#件のマークを適用しました。}}"
 
 #: src/Feedback.tsx
 msgid "A problem occurred. You can use Send feedback to report it."
@@ -563,7 +564,7 @@ msgstr "問題を報告"
 #: src/FeedbackMarkup.tsx
 msgctxt "Screenshot annotations"
 msgid "Reset"
-msgstr ""
+msgstr "リセット"
 
 #: src/CommandPalette.tsx
 msgid "Results"

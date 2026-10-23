@@ -1,4 +1,4 @@
-import { t } from "@lingui/core/macro";
+import { plural, t } from "@lingui/core/macro";
 import { useLocaleRevision } from "./i18n.js";
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { FeedbackMarkup } from "./FeedbackMarkup.js";
@@ -222,6 +222,6 @@ export function FeedbackProvider({ endpoint: configuredEndpoint, application, tu
         <footer className="mdbase-feedback-actions"><button type="button" disabled={submitting} onClick={close}>{t({ message: "Cancel" })}</button><button type="submit" className="mdbase-feedback-primary" disabled={submitting || imageBusy || !message.trim() || Boolean(turnstileSiteKey && !turnstileToken)}>{submitting ? t({ message: "Sending…" }) : t({ message: "Send feedback" })}</button></footer>
       </form>}
     </dialog>}
-    {markup && screenshot && <FeedbackMarkup screenshot={screenshot} onClose={() => { setMarkup(false); setCaptureStatus(t({ message: "Markup discarded. Screenshot excluded." })); }} onApply={(next) => { setScreenshot(next); setIncludeScreenshot(true); setMarkup(false); setCaptureStatus("Markup applied."); }} />}
+    {markup && screenshot && <FeedbackMarkup screenshot={screenshot} onClose={() => { setMarkup(false); setCaptureStatus(t({ message: "Markup discarded. Screenshot excluded." })); }} onApply={(next, count) => { setScreenshot(next); setIncludeScreenshot(true); setMarkup(false); setCaptureStatus(plural(count, { one: "# mark applied.", other: "# marks applied." })); }} />}
   </FeedbackContext.Provider>;
 }
