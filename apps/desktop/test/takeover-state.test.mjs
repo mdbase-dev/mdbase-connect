@@ -10,16 +10,22 @@ test("no old engine and nothing waiting shows nothing; a closed rollout gate exp
     const waiting = presentTakeover({ ...base, waiting_for_migration_batch: true, account_legacy });
     assert.equal(waiting.visible, true);
     assert.equal(waiting.canStart, false);
-    assert.equal(waiting.title, "Your collections still use mdbase Connect");
-    assert.match(waiting.detail, /automatically once your mdbase account is upgraded/);
+    assert.equal(waiting.title, "Your collections are waiting to move");
+    assert.match(waiting.detail, /safe on disk/);
+    assert.match(waiting.detail, /automatically when your account is upgraded, shortly/);
+    assert.doesNotMatch(waiting.detail, /keeps syncing/);
   }
   const signIn = presentTakeover({ ...base, waiting_for_migration_batch: true, waiting_reason: "sign_in" });
   assert.equal(signIn.title, "Sign in to finish moving your collections");
-  assert.match(signIn.detail, /as soon as this computer is signed in/);
-  assert.doesNotMatch(signIn.detail, /upgraded/);
+  assert.match(signIn.detail, /Sign in on this computer/);
+  assert.match(signIn.detail, /safe on disk/);
+  assert.doesNotMatch(signIn.detail, /keeps syncing/);
   assert.equal(signIn.canStart, false);
-  assert.match(presentTakeover({ ...base, waiting_for_migration_batch: true, waiting_reason: "unreachable" }).detail, /can reach the mdbase server/);
-  assert.match(presentTakeover({ ...base, waiting_for_migration_batch: true, waiting_reason: "account_not_upgraded" }).detail, /once your mdbase account is upgraded/);
+  const unreachable = presentTakeover({ ...base, waiting_for_migration_batch: true, waiting_reason: "unreachable" });
+  assert.match(unreachable.detail, /safe on disk/);
+  assert.match(unreachable.detail, /can reach the server and confirm your account upgrade/);
+  assert.doesNotMatch(unreachable.detail, /keeps syncing/);
+  assert.match(presentTakeover({ ...base, waiting_for_migration_batch: true, waiting_reason: "account_not_upgraded" }).detail, /when your account is upgraded, shortly/);
   assert.equal(presentTakeover({ ...base, error: "boom" }).canStart, true);
   assert.equal(presentTakeover({ ...base, error: "boom", account_legacy: true }).canStart, false);
 });
@@ -54,7 +60,7 @@ test("captured mirror notices preserve the closed rollout gate", () => {
     mirror_imports: { h: { name: "Hosted", waiting: 1, registered: false } }
   });
   assert.equal(waiting.canStart, false);
-  assert.equal(waiting.title, "Your collections still use mdbase Connect");
+  assert.equal(waiting.title, "Your collections are waiting to move");
   assert.equal(waiting.notices.length, 1);
 });
 

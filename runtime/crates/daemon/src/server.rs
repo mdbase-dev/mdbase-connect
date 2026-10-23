@@ -1342,7 +1342,12 @@ impl Daemon {
             Method::PRIVATE_PASSWORD => self.private_password(params(req)?).await,
             Method::PRIVATE_STRICT => self.private_strict().await,
             Method::DOCTOR => to_value(&self.doctor().await),
-            Method::MIGRATE_STATUS => self.takeover_status().await,
+            Method::MIGRATE_STATUS => {
+                let refresh =
+                    req.params.get("refresh_rollout").and_then(Value::as_bool) == Some(true);
+                tokio::spawn(self.clone().retry_takeover(refresh));
+                self.takeover_status().await
+            }
             Method::MIGRATE_START => {
                 let p: crate::control::MigrateStart = params(req)?;
                 let out = self.clone().takeover_run(p.stop_mirrors, false).await;
@@ -1894,6 +1899,10 @@ impl Daemon {
     }
 
     async fn add(&self, p: AddCollection) -> Result<Value, ControlError> {
+        self.add_with_pause(p, false).await
+    }
+
+    async fn add_with_pause(&self, p: AddCollection, paused: bool) -> Result<Value, ControlError> {
         if !p.path.is_absolute() {
             return Err(ControlError::invalid(
                 "relative_path",
@@ -1966,7 +1975,7 @@ impl Daemon {
             origin,
             description: None,
             added_at_ms: fsutil::now_ms() as u64,
-            paused: false,
+            paused,
             ever_e2e: false,
             owner_account: Some(secrets::uuid_string(&owner.0)),
             device: Some(secrets::uuid_string(&device)),
@@ -2954,6 +2963,40 @@ impl Daemon {
         self.auto_private().await;
     }
 
+    /// Polling and the existing watch share one backoff. The run mutex also
+    /// prevents concurrent polls (or focus events) from queuing rollout queries.
+    async fn retry_takeover(self: Arc<Self>, refresh: bool) {
+        let Ok(run) = self.takeover.run.try_lock() else {
+            return;
+        };
+        if !self
+            .takeover
+            .waiting_for_batch
+            .load(std::sync::atomic::Ordering::Relaxed)
+            || !self
+                .takeover
+                .retry
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .due(std::time::Instant::now(), refresh)
+        {
+            return;
+        }
+        let result = self.clone().takeover_run_locked(false, true).await;
+        drop(run);
+        if let Err(e) = result {
+            tracing::warn!(error = %e.message, "local takeover retry did not run");
+        }
+        if !self
+            .takeover
+            .waiting_for_batch
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            self.import_mirrors().await;
+            self.auto_private().await;
+        }
+    }
+
     /// Turn Private sync on for taken-over collections that are still local
     /// (`auto_private`), so apps that reached them through mdbase Connect keep
     /// working. Runs after every takeover attempt (daemon start, sign-in, an
@@ -3280,10 +3323,21 @@ impl Daemon {
         stop_mirrors: bool,
         automatic: bool,
     ) -> Result<Value, ControlError> {
+        let _run = self.takeover.run.lock().await;
+        self.clone()
+            .takeover_run_locked(stop_mirrors, automatic)
+            .await
+    }
+
+    /// Caller holds `takeover.run`, including when retrying a waiting account.
+    async fn takeover_run_locked(
+        self: Arc<Self>,
+        stop_mirrors: bool,
+        automatic: bool,
+    ) -> Result<Value, ControlError> {
         let Some(old) = crate::takeover::old_state_dir(&self.profile) else {
             return self.takeover_status().await;
         };
-        let _run = self.takeover.run.lock().await;
         if !old.join("connector.sqlite").is_file() && !self.takeover_paths().record.is_file() {
             return self.takeover_status().await;
         }
@@ -3311,6 +3365,11 @@ impl Daemon {
             self.takeover
                 .waiting_for_batch
                 .store(true, std::sync::atomic::Ordering::Relaxed);
+            self.takeover
+                .retry
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .denied(std::time::Instant::now());
             if automatic {
                 return self.takeover_status().await;
             }
@@ -3333,6 +3392,11 @@ impl Daemon {
         self.takeover
             .waiting_for_batch
             .store(false, std::sync::atomic::Ordering::Relaxed);
+        self.takeover
+            .retry
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .reset();
         let paths = self.takeover_paths();
         let isolated = self.profile.target == crate::paths::Target::IsolatedProfile;
         let opts = crate::takeover::Options {
@@ -3395,10 +3459,13 @@ impl Daemon {
             let outcome = if known {
                 Ok(())
             } else {
-                self.add(AddCollection {
-                    path: t.root.clone(),
-                    name: Some(t.name.clone()),
-                })
+                self.add_with_pause(
+                    AddCollection {
+                        path: t.root.clone(),
+                        name: Some(t.name.clone()),
+                    },
+                    t.paused,
+                )
                 .await
                 .map(|_| ())
             };
@@ -5838,6 +5905,7 @@ impl Daemon {
         loop {
             tokio::time::sleep(OLD_CONNECTOR_POLL).await;
             self.check_old_connector().await;
+            self.clone().retry_takeover(false).await;
             self.import_mirrors().await;
         }
     }

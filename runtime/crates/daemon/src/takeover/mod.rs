@@ -47,6 +47,7 @@ pub mod mirror_import;
 pub mod mirror_join;
 pub mod record;
 pub mod retirement;
+mod retry;
 
 use std::collections::BTreeMap;
 use std::io;
@@ -92,6 +93,8 @@ pub struct ToRegister {
     pub root: PathBuf,
     /// The old display name.
     pub name: String,
+    /// Preserve disabled collection or paused legacy access before opening a host.
+    pub paused: bool,
 }
 
 /// What a run did.
@@ -463,6 +466,7 @@ pub fn run(
                     collection: id.clone(),
                     name: names.get(id).cloned().unwrap_or_else(|| id.clone()),
                     root,
+                    paused: registration_paused(&paths.legacy, id)?,
                 });
             }
         }
@@ -492,6 +496,22 @@ pub fn run(
     }
     ran.record = Some(record);
     Ok(ran)
+}
+
+/// Use the existing T3 snapshot, including on a registration retry after restart.
+fn registration_paused(legacy_dir: &Path, collection: &str) -> io::Result<bool> {
+    let snapshot = Adapter::collection_dir(legacy_dir, collection).join("evidence/state");
+    let state = ConnectorState::open(&snapshot).map_err(legacy)?;
+    let entry = state
+        .collections()
+        .map_err(legacy)?
+        .into_iter()
+        .find(|c| c.id == collection)
+        .ok_or_else(|| io::Error::other("collection missing from takeover snapshot"))?;
+    let access = state.grant_state(collection).map_err(legacy)?;
+    Ok(!entry.enabled
+        || access.overlay_enabled == Some(false)
+        || access.access_paused == Some(true))
 }
 
 /// Stop and disable the old service again, and report whether its daemon is
@@ -682,6 +702,8 @@ pub fn waiting_check_text(reason: Option<&str>) -> (&'static str, &'static str) 
 pub struct Gate {
     /// Held for a run.
     pub run: tokio::sync::Mutex<()>,
+    /// Shared rollout retry deadline/backoff for polling and window focus.
+    pub retry: std::sync::Mutex<retry::Retry>,
     /// The old connector came back after the takeover started.
     pub revived: std::sync::atomic::AtomicBool,
     /// Automatic takeover is waiting for a flipped account's server permission.

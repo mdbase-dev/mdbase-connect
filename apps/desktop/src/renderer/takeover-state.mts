@@ -254,14 +254,14 @@ export function presentTakeover(
     if (status.waiting_for_migration_batch) {
       // The server has not allowed a move: it would refuse to retire the old
       // connector, so there is nothing to start here.
-      const until = "Until then, mdbase Connect keeps syncing them. Your files stay where they are.";
+      const safe = "Your local collections are safe on disk.";
       if (status.waiting_reason === "sign_in") {
         return {
           ...hidden,
           visible: true,
           tone: "info",
           title: "Sign in to finish moving your collections",
-          detail: `Your collections move from mdbase Connect to this app as soon as this computer is signed in. ${until}`,
+          detail: `${safe} Sign in on this computer so they can move automatically when your account is upgraded.`,
           incidents,
           notices
         };
@@ -270,10 +270,10 @@ export function presentTakeover(
         ...hidden,
         visible: true,
         tone: "info",
-        title: "Your collections still use mdbase Connect",
+        title: "Your collections are waiting to move",
         detail: status.waiting_reason === "unreachable"
-          ? `They move to the new sync engine as soon as mdbase can reach the mdbase server. ${until}`
-          : `They move to the new sync engine automatically once your mdbase account is upgraded. ${until}`,
+          ? `${safe} They will move automatically when mdbase can reach the server and confirm your account upgrade.`
+          : `${safe} They will move automatically when your account is upgraded, shortly.`,
         incidents,
         notices
       };

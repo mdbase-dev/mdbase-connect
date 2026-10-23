@@ -69,11 +69,11 @@ impl State {
 /// A taken-over collection that is still local qualifies, except one the user
 /// paused: turning sync on would resume it. A paused one with an adopt journal
 /// was stopped by an interrupted sync enable (which pauses durably before any
-/// network step), as is a paused empty folder; both are resumed by finishing.
-pub fn wants(entry: &Entry, journal: bool, folder_empty: impl FnOnce() -> bool) -> bool {
+/// network step); finishing that journal resumes it.
+pub fn wants(entry: &Entry, journal: bool) -> bool {
     entry.origin == Origin::MigratedLocal
         && entry.mode == SyncMode::Local
-        && (!entry.paused || journal || folder_empty())
+        && (!entry.paused || journal)
 }
 
 /// The candidates among `entries`, with `collections` the daemon's collection
@@ -84,13 +84,7 @@ pub fn candidates<'a>(
 ) -> Vec<String> {
     entries
         .into_iter()
-        .filter(|e| {
-            wants(
-                e,
-                crate::adopt::Journal::path(collections, &e.id).exists(),
-                || crate::server::local_bootstrap_folder_is_empty(&e.root).unwrap_or(false),
-            )
-        })
+        .filter(|e| wants(e, crate::adopt::Journal::path(collections, &e.id).exists()))
         .map(|e| e.id.clone())
         .collect()
 }

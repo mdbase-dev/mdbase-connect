@@ -235,7 +235,8 @@ fn takes_over_an_old_agent_device_end_to_end() {
         vec![ToRegister {
             collection: CID.into(),
             root: d.root.clone(),
-            name: "Notes".into()
+            name: "Notes".into(),
+            paused: false,
         }]
     );
     let c = &ran.record.unwrap().collections[CID];
@@ -251,6 +252,60 @@ fn takes_over_an_old_agent_device_end_to_end() {
     let ran = run(&d.paths, &d.old, &mut old, &opts()).unwrap();
     assert!(ran.register.is_empty());
     assert_taken_over(&d, &before);
+}
+
+#[test]
+fn registration_preserves_legacy_pause_from_the_retained_snapshot() {
+    for (tag, enabled, overlay, profile_paused, expected) in [
+        ("disabled", false, true, false, true),
+        ("overlay", true, false, false, true),
+        ("profile", true, true, true, true),
+        ("active", true, true, false, false),
+    ] {
+        let d = device(&format!("tko-pause-{tag}"));
+        let connector = rusqlite::Connection::open(d.old.join("connector.sqlite")).unwrap();
+        connector
+            .execute("UPDATE collections SET enabled = ?1", [enabled])
+            .unwrap();
+        let authority = rusqlite::Connection::open(d.old.join("authority.sqlite")).unwrap();
+        authority
+            .execute(
+                "INSERT INTO collection_access_overlays VALUES (?1, ?2, 0)",
+                rusqlite::params![CID, overlay],
+            )
+            .unwrap();
+        authority
+            .execute(
+                "INSERT INTO authority_settings VALUES ('access_paused', ?1, 0)",
+                [if profile_paused { "true" } else { "false" }],
+            )
+            .unwrap();
+        let before = old_files(&d);
+        let ran = run(&d.paths, &d.old, &mut Old::default(), &opts()).unwrap();
+        assert_eq!(ran.register.len(), 1, "{tag}");
+        assert_eq!(ran.register[0].paused, expected, "{tag}");
+        assert_eq!(old_files(&d), before);
+
+        // Registration can wait for sign-in/restart. Read the captured intent,
+        // not a later change to the retired connector's databases.
+        connector
+            .execute("UPDATE collections SET enabled = 1 - enabled", [])
+            .unwrap();
+        authority
+            .execute(
+                "UPDATE collection_access_overlays SET enabled = 1 - enabled",
+                [],
+            )
+            .unwrap();
+        authority
+            .execute(
+                "UPDATE authority_settings SET value = CASE value WHEN 'true' THEN 'false' ELSE 'true' END",
+                [],
+            )
+            .unwrap();
+        let retried = run(&d.paths, &d.old, &mut Old::default(), &opts()).unwrap();
+        assert_eq!(retried.register, ran.register, "{tag}");
+    }
 }
 
 #[test]

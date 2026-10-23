@@ -20,47 +20,32 @@ fn entry(id: &str, origin: Origin, mode: SyncMode, paused: bool) -> Entry {
 
 #[test]
 fn only_taken_over_local_collections_qualify() {
-    let empty = || true;
-    let full = || false;
     // A taken-over local collection, serving.
     assert!(wants(
         &entry("a", Origin::MigratedLocal, SyncMode::Local, false),
-        false,
-        full
+        false
     ));
     // Already synced (Private or cloud copy): nothing to do.
     for mode in [SyncMode::SyncedE2e, SyncMode::Synced] {
         assert!(!wants(
             &entry("a", Origin::MigratedLocal, mode, false),
-            true,
-            empty
+            true
         ));
     }
     // Hosted collections are joined, never taken over; local collections
     // created or adopted here stay as the user made them.
     for origin in [Origin::Joined, Origin::Created, Origin::Adopted] {
-        assert!(!wants(
-            &entry("a", origin, SyncMode::Local, false),
-            false,
-            full
-        ));
+        assert!(!wants(&entry("a", origin, SyncMode::Local, false), false));
     }
     // Paused by the user: turning sync on would resume it, so it waits.
     assert!(!wants(
         &entry("a", Origin::MigratedLocal, SyncMode::Local, true),
-        false,
-        full
+        false
     ));
-    // Paused by an interrupted sync enable (journal, or an empty folder): finish it.
+    // An adopt journal identifies an interrupted sync enable: finish it.
     assert!(wants(
         &entry("a", Origin::MigratedLocal, SyncMode::Local, true),
-        true,
-        full
-    ));
-    assert!(wants(
-        &entry("a", Origin::MigratedLocal, SyncMode::Local, true),
-        false,
-        empty
+        true
     ));
 }
 
@@ -88,6 +73,26 @@ fn candidates_follow_the_adopt_journal() {
         candidates(&entries, &collections),
         vec![paused.id.clone(), serving.id.clone()]
     );
+}
+
+#[test]
+fn legacy_pauses_are_not_candidates_even_when_the_folder_is_empty() {
+    let dir = crate::testutil::TestDir::new("auto-private-legacy-pauses");
+    let collections = dir.path().join("collections");
+    std::fs::create_dir_all(&collections).unwrap();
+    let mut entries = Vec::new();
+    for (id, paused) in [
+        ("disabled", true),
+        ("overlay-paused", true),
+        ("profile-paused", true),
+        ("active", false),
+    ] {
+        let mut e = entry(id, Origin::MigratedLocal, SyncMode::Local, paused);
+        e.root = dir.path().join(id);
+        std::fs::create_dir_all(&e.root).unwrap();
+        entries.push(e);
+    }
+    assert_eq!(candidates(&entries, &collections), vec!["active"]);
 }
 
 #[tokio::test]
