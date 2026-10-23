@@ -1941,7 +1941,7 @@ msgstr "폴더 만드는 중"
 
 #: src/NewNoteComposer.tsx
 msgid "Ctrl "
-msgstr "Ctrl "
+msgstr "Ctrl 키 "
 
 #: src/editor-commands.ts
 msgid "Current note"
@@ -3072,7 +3072,7 @@ msgstr "이제 mdbase editor에서 이 컴퓨터의 mdbase를 사용할 수 있�
 
 #: src/SdkEditorRoot.tsx
 msgid "mdbase editor: {developerMessage}"
-msgstr "mdbase editor: {developerMessage}"
+msgstr "mdbase editor 오류: {developerMessage}"
 
 #: src/ConnectionScreens.tsx
 msgid "mdbase keeps the access you already approved and shows only what needs to be added."
@@ -3562,7 +3562,7 @@ msgstr "알림"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Null"
-msgstr "Null"
+msgstr "널(null)"
 
 #: src/type-presentation.ts
 msgid "number"
@@ -3844,7 +3844,7 @@ msgstr "Phosphor 아이콘"
 
 #: src/TypeBrowser.tsx
 msgid "Phosphor Regular"
-msgstr "Phosphor Regular"
+msgstr "Phosphor 일반"
 
 #: src/editor-commands.ts
 msgid "Pin"
