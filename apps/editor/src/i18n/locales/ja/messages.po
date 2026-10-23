@@ -1572,24 +1572,24 @@ msgstr "コレクションに再接続中"
 
 #: src/TypeBrowser.tsx
 msgid "Collection resources"
-msgstr ""
+msgstr "コレクションのリソース"
 
 #: src/collection-browser.ts
 #: src/NoteList.tsx
 msgid "Collection root"
-msgstr ""
+msgstr "コレクションのルート"
 
 #: src/CollectionRail.tsx
 msgid "Collection stopped"
-msgstr ""
+msgstr "コレクションは停止しました"
 
 #: src/EditorRail.tsx
 msgid "Collection tools"
-msgstr ""
+msgstr "コレクションのツール"
 
 #: src/TypeBrowser.tsx
 msgid "Collection types"
-msgstr ""
+msgstr "コレクションの型"
 
 #: src/NoteList.tsx
 #: src/TypeBrowser.tsx
@@ -1599,16 +1599,16 @@ msgstr "コレクション"
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Color theme"
-msgstr ""
+msgstr "カラーテーマ"
 
 #: src/TypeBrowser.tsx
 msgid "Colour field"
-msgstr ""
+msgstr "色のフィールド"
 
 #: src/settings/SettingsView.tsx
 msgctxt "editor text size"
 msgid "Comfortable"
-msgstr ""
+msgstr "標準"
 
 #: src/editor-commands.ts
 msgid "Commands"
@@ -1616,56 +1616,56 @@ msgstr "コマンド"
 
 #: src/TypeBrowser.tsx
 msgid "Common icons"
-msgstr ""
+msgstr "よく使うアイコン"
 
 #: src/settings/SettingsView.tsx
 msgctxt "editor text size"
 msgid "Compact"
-msgstr ""
+msgstr "コンパクト"
 
 #: src/ConflictResolver.tsx
 msgid "Compare your edits with the latest version before choosing which one to save."
-msgstr ""
+msgstr "どちらを保存するか選ぶ前に、自分の編集を最新版と比較してください。"
 
 #: src/type-contracts.ts
 msgid "Compatible"
-msgstr ""
+msgstr "互換性あり"
 
 #: src/TypeBrowser.tsx
 msgid "Compatible tools use this policy when creating and renaming records. Existing files are not moved by this update."
-msgstr ""
+msgstr "対応アプリはレコードの作成や名前変更時にこのポリシーを使用します。この更新によって既存のファイルは移動されません。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Complete exactly one of the allowed field combinations."
-msgstr ""
+msgstr "許可されたフィールドの組み合わせを、ちょうど1つ完成させてください。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Complete one of the allowed field combinations."
-msgstr ""
+msgstr "許可されたフィールドの組み合わせを1つ完成させてください。"
 
 #: src/PropertiesPanel.tsx
 msgid "Complete record source"
-msgstr ""
+msgstr "レコードの完全なソース"
 
 #: src/TypeBrowser.tsx
 msgid "Computed projections"
-msgstr ""
+msgstr "計算された投影"
 
 #: src/TypeBrowser.tsx
 msgid "Configure settings"
-msgstr ""
+msgstr "設定を構成"
 
 #: src/TypeBrowser.tsx
 msgid "Configured"
-msgstr ""
+msgstr "設定済み"
 
 #: src/TypeBrowser.tsx
 msgid "Confirm the collection-wide effect before saving."
-msgstr ""
+msgstr "保存前にコレクション全体への影響を確認してください。"
 
 #: src/TypeBrowser.tsx
 msgid "Confirm update"
-msgstr ""
+msgstr "更新を確認"
 
 #: src/ConnectionScreens.tsx
 msgid "Connect another collection"
@@ -1673,11 +1673,11 @@ msgstr "別のコレクションを接続"
 
 #: src/App.tsx
 msgid "Connect another collection?"
-msgstr ""
+msgstr "別のコレクションを接続しますか？"
 
 #: src/TypeBrowser.tsx
 msgid "Connect application contract"
-msgstr ""
+msgstr "アプリの契約を接続"
 
 #: src/CollectionRail.tsx
 msgid "Connected"
@@ -1686,20 +1686,20 @@ msgstr "接続済み"
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Connection"
-msgstr ""
+msgstr "接続"
 
 #: src/type-schema.ts
 msgid "constant value"
-msgstr ""
+msgstr "固定値"
 
 #. placeholder {0}: reference.title
 #: src/code-editor-note-embeds.ts
 msgid "Content of {0}"
-msgstr ""
+msgstr "{0}の内容"
 
 #: src/TypeBrowser.tsx
 msgid "Contents"
-msgstr ""
+msgstr "内容"
 
 #: src/App.tsx
 msgid "Continue"
@@ -1707,61 +1707,61 @@ msgstr "続行"
 
 #: src/TypeBrowser.tsx
 msgid "contract"
-msgstr ""
+msgstr "契約"
 
 #: src/TypeBrowser.tsx
 msgid "Contract"
-msgstr ""
+msgstr "契約"
 
 #: src/TypeBrowser.tsx
 msgid "Contract field"
-msgstr ""
+msgstr "契約フィールド"
 
 #: src/TypeBrowser.tsx
 msgid "Contract settings"
-msgstr ""
+msgstr "契約の設定"
 
 #: src/TypeBrowser.tsx
 msgid "contracts"
-msgstr ""
+msgstr "契約"
 
 #: src/contract-catalog.ts
 msgid "contracts[{index}].contract_type is not supported."
-msgstr ""
+msgstr "contracts[{index}].contract_typeには対応していません。"
 
 #: src/TypeBrowser.tsx
 msgid "Control how compatible apps interpret and act on this type. Values are checked against the contract’s schema."
-msgstr ""
+msgstr "対応アプリがこの型をどう解釈し、操作するかを設定します。値は契約のスキーマに照らして検証されます。"
 
 #: src/YourPersonPanel.tsx
 msgid "Convert and link this contact"
-msgstr ""
+msgstr "この連絡先を変換してリンク"
 
 #: src/TypeBrowser.tsx
 msgid "Convert field"
-msgstr ""
+msgstr "フィールドを変換"
 
 #: src/TypeBrowser.tsx
 msgid "Convert items"
-msgstr ""
+msgstr "項目を変換"
 
 #. placeholder {0}: kindLabel(pendingKind)
 #: src/TypeBrowser.tsx
 msgid "Convert list items to {0}?"
-msgstr ""
+msgstr "リストの項目を{0}に変換しますか？"
 
 #. placeholder {0}: kindLabel(pendingKind)
 #: src/TypeBrowser.tsx
 msgid "Convert this field to {0}?"
-msgstr ""
+msgstr "このフィールドを{0}に変換しますか？"
 
 #: src/App.tsx
 msgid "Copied {label}."
-msgstr ""
+msgstr "{label}をコピーしました。"
 
 #: src/editor-commands.ts
 msgid "Copy link"
-msgstr ""
+msgstr "リンクをコピー"
 
 #: src/CollectionRail.tsx
 #: src/editor-commands.ts
@@ -1771,202 +1771,202 @@ msgstr "パスをコピー"
 
 #: src/embed-actions.ts
 msgid "Copy path for {name}"
-msgstr ""
+msgstr "{name}のパスをコピー"
 
 #: src/YourPersonPanel.tsx
 msgid "Could not add person definitions. Review setup again."
-msgstr ""
+msgstr "人物の定義を追加できませんでした。設定を再確認してください。"
 
 #: src/YourPersonPanel.tsx
 msgid "Could not convert this contact. Its type may need additional fields or compatible mappings."
-msgstr ""
+msgstr "この連絡先を変換できませんでした。型に追加のフィールドまたは互換性のある対応付けが必要な可能性があります。"
 
 #: src/YourPersonPanel.tsx
 msgid "Could not link this person."
-msgstr ""
+msgstr "この人物をリンクできませんでした。"
 
 #: src/YourPersonPanel.tsx
 msgid "Could not load people."
-msgstr ""
+msgstr "人物データを読み込めませんでした。"
 
 #: src/YourPersonPanel.tsx
 msgid "Could not review person setup."
-msgstr ""
+msgstr "人物の設定を確認できませんでした。"
 
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/use-note-actions.ts
 msgid "Couldn’t check “{0}”. {message}"
-msgstr ""
+msgstr "「{0}」を確認できませんでした。{message}"
 
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/use-note-actions.ts
 msgid "Couldn’t check the rename for “{0}”. {message}"
-msgstr ""
+msgstr "「{0}」の名前変更を確認できませんでした。{message}"
 
 #: src/AttachmentUpload.tsx
 msgid "Couldn’t confirm whether {name} was uploaded. Check the collection’s files before uploading again."
-msgstr ""
+msgstr "{name}がアップロードされたか確認できませんでした。再度アップロードする前にコレクションのファイルを確認してください。"
 
 #: src/App.tsx
 msgid "Couldn’t copy {label}."
-msgstr ""
+msgstr "{label}をコピーできませんでした。"
 
 #: src/embed-actions.ts
 msgid "Couldn’t copy the path. Clipboard access is unavailable."
-msgstr ""
+msgstr "パスをコピーできませんでした。クリップボードを利用できません。"
 
 #. placeholder {0}: linked.path
 #. placeholder {1}: gatewayError(error)
 #: src/App.tsx
 msgid "Couldn’t create “{0}”. {1}"
-msgstr ""
+msgstr "「{0}」を作成できませんでした。{1}"
 
 #. placeholder {0}: session.draft.title || path
 #. placeholder {1}: session.error
 #: src/use-note-actions.ts
 msgid "Couldn’t delete “{0}”. {1}"
-msgstr ""
+msgstr "「{0}」を削除できませんでした。{1}"
 
 #. placeholder {0}: gatewayError(error)
 #: src/use-note-actions.ts
 msgid "Couldn’t delete “{path}”. {0}"
-msgstr ""
+msgstr "「{path}」を削除できませんでした。{0}"
 
 #. placeholder {0}: gatewayError(error)
 #: src/use-note-actions.ts
 msgid "Couldn’t duplicate note. {0}"
-msgstr ""
+msgstr "ノートを複製できませんでした。{0}"
 
 #. placeholder {0}: pack.displayName
 #: src/TypeBrowser.tsx
 msgid "Couldn’t install {0}"
-msgstr ""
+msgstr "{0}をインストールできませんでした"
 
 #. placeholder {0}: gatewayError(error)
 #: src/use-note-actions.ts
 msgid "Couldn’t link that mention. {0}"
-msgstr ""
+msgstr "そのメンションをリンクできませんでした。{0}"
 
 #. placeholder {0}: gatewayError(error)
 #: src/App.tsx
 msgid "Couldn’t open “{path}”. {0}"
-msgstr ""
+msgstr "「{path}」を開けませんでした。{0}"
 
 #: src/FileViewer.tsx
 msgid "Couldn’t preview {filename}"
-msgstr ""
+msgstr "{filename}をプレビューできませんでした"
 
 #. placeholder {0}: session.document.path
 #. placeholder {1}: gatewayError(error)
 #: src/App.tsx
 msgid "Couldn’t reload rewritten links in “{0}”. {1}"
-msgstr ""
+msgstr "「{0}」で書き換えられたリンクを再読み込みできませんでした。{1}"
 
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/use-note-actions.ts
 msgid "Couldn’t rename “{0}”. {message}"
-msgstr ""
+msgstr "「{0}」の名前を変更できませんでした。{message}"
 
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/App.tsx
 msgid "Couldn’t save “{0}”. {message}"
-msgstr ""
+msgstr "「{0}」を保存できませんでした。{message}"
 
 #. placeholder {0}: gatewayError(error)
 #: src/use-note-actions.ts
 msgid "Couldn’t undo that change. {0}"
-msgstr ""
+msgstr "その変更を元に戻せませんでした。{0}"
 
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/use-note-actions.ts
 msgid "Couldn’t update properties for “{0}”. {message}"
-msgstr ""
+msgstr "「{0}」のプロパティを更新できませんでした。{message}"
 
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/use-note-actions.ts
 msgid "Couldn’t update source for “{0}”. {message}"
-msgstr ""
+msgstr "「{0}」のソースを更新できませんでした。{message}"
 
 #: src/AttachmentUpload.tsx
 msgid "Couldn’t upload {name} right now. Try again shortly."
-msgstr ""
+msgstr "現在{name}をアップロードできません。少し待ってから再試行してください。"
 
 #: src/AttachmentUpload.tsx
 msgid "Couldn’t upload {name}."
-msgstr ""
+msgstr "{name}をアップロードできませんでした。"
 
 #: src/AttachmentUpload.tsx
 msgid "Couldn’t upload {name}. Check your connection and try again."
-msgstr ""
+msgstr "{name}をアップロードできませんでした。接続を確認して再試行してください。"
 
 #: src/YourPersonPanel.tsx
 msgid "Create a note for yourself, starting from your account name."
-msgstr ""
+msgstr "アカウント名を使って自分のノートを作成します。"
 
 #: src/TypeBrowser.tsx
 msgid "Create fields that already match an installed contract. You can rename and remap them later."
-msgstr ""
+msgstr "インストール済みの契約にすでに一致するフィールドを作成します。名前と対応付けは後で変更できます。"
 
 #: src/NewNoteComposer.tsx
 msgid "Create folder"
-msgstr ""
+msgstr "フォルダーを作成"
 
 #: src/NewNoteComposer.tsx
 msgid "Create it with a first note. Empty folders aren’t stored."
-msgstr ""
+msgstr "最初のノートとともに作成します。空のフォルダーは保存されません。"
 
 #: src/YourPersonPanel.tsx
 msgid "Create my person record"
-msgstr ""
+msgstr "自分の人物レコードを作成"
 
 #: src/NewNoteComposer.tsx
 msgid "Create note"
-msgstr ""
+msgstr "ノートを作成"
 
 #: src/NewNoteComposer.tsx
 msgid "Create note (Ctrl or Command + Enter)"
-msgstr ""
+msgstr "ノートを作成（Ctrl または Command + Enter）"
 
 #: src/ConnectionScreens.tsx
 msgid "create notes"
-msgstr ""
+msgstr "ノートを作成"
 
 #: src/NoteList.tsx
 msgid "Create the first note"
-msgstr ""
+msgstr "最初のノートを作成"
 
 #: src/TypeBrowser.tsx
 msgid "Create the first type"
-msgstr ""
+msgstr "最初の型を作成"
 
 #: src/TypeBrowser.tsx
 msgid "Create this type?"
-msgstr ""
+msgstr "この型を作成しますか？"
 
 #: src/TypeBrowser.tsx
 msgid "Create type"
-msgstr ""
+msgstr "型を作成"
 
 #. placeholder {0}: saved.name
 #: src/use-type-definition-lifecycle.ts
 msgid "Created type “{0}”."
-msgstr ""
+msgstr "型「{0}」を作成しました。"
 
 #: src/TypeBrowser.tsx
 msgid "Creates a ready-to-use {primaryTypeLabel} type with standard fields and an editable contract mapping. Existing files will not be overwritten; installation stops if any target conflicts."
-msgstr ""
+msgstr "標準フィールドと編集可能な契約の対応付けを備えた、すぐ使える{primaryTypeLabel}型を作成します。既存のファイルは上書きされません。対象のいずれかが競合する場合、インストールは中止されます。"
 
 #: src/NewNoteComposer.tsx
 msgid "Creating"
-msgstr ""
+msgstr "作成中"
 
 #: src/NewNoteComposer.tsx
 msgid "Creating folder"
-msgstr ""
+msgstr "フォルダーを作成中"
 
 #: src/NewNoteComposer.tsx
 msgid "Ctrl "
-msgstr ""
+msgstr "Ctrl "
 
 #: src/editor-commands.ts
 msgid "Current note"
@@ -1974,7 +1974,7 @@ msgstr "現在のノート"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Custom"
-msgstr ""
+msgstr "カスタム"
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
@@ -1984,53 +1984,53 @@ msgstr "日付"
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Date"
-msgstr ""
+msgstr "日付"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Date & time"
-msgstr ""
+msgstr "日時"
 
 #: src/TypeBrowser.tsx
 msgid "Date and time"
-msgstr ""
+msgstr "日時"
 
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Date and time"
-msgstr ""
+msgstr "日時"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Default"
-msgstr ""
+msgstr "既定"
 
 #. placeholder {0}: index + 1
 #: src/TypeBrowser.tsx
 msgid "Default field {0}"
-msgstr ""
+msgstr "既定のフィールド {0}"
 
 #: src/TypeBrowser.tsx
 msgid "Default value"
-msgstr ""
+msgstr "既定値"
 
 #: src/TypeBrowser.tsx
 msgid "Default value for {field}"
-msgstr ""
+msgstr "{field}の既定値"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Defined by this note's type"
-msgstr ""
+msgstr "このノートの型で定義"
 
 #: src/TypeBrowser.tsx
 msgid "Definition"
-msgstr ""
+msgstr "定義"
 
 #: src/TypeBrowser.tsx
 msgid "Definition changes"
-msgstr ""
+msgstr "定義の変更"
 
 #: src/YourPersonPanel.tsx
 msgid "Definitions were added, but their Person mappings need review in Types."
-msgstr ""
+msgstr "定義を追加しましたが、Person の対応付けは「型」で確認が必要です。"
 
 #: src/editor-commands.ts
 msgid "Delete"
@@ -2038,28 +2038,28 @@ msgstr "削除"
 
 #: src/ConnectionScreens.tsx
 msgid "delete notes"
-msgstr ""
+msgstr "ノートを削除"
 
 #: src/App.tsx
 msgid "Deleted “{title}”."
-msgstr ""
+msgstr "「{title}」を削除しました。"
 
 #: src/note-mutation-presentation.ts
 #: src/WorkspaceChrome.tsx
 msgid "Deleting"
-msgstr ""
+msgstr "削除中"
 
 #: src/App.tsx
 msgid "Deleting “{title}”…"
-msgstr ""
+msgstr "「{title}」を削除中…"
 
 #: src/note-mutation-presentation.ts
 msgid "Deleting note"
-msgstr ""
+msgstr "ノートを削除中"
 
 #: src/TypeBrowser.tsx
 msgid "Describe which properties point to other records and how targets are validated."
-msgstr ""
+msgstr "どのプロパティがほかのレコードを指し、対象をどう検証するかを記述します。"
 
 #: src/type-schema.ts
 #: src/TypeBrowser.tsx
@@ -2068,20 +2068,20 @@ msgstr "説明"
 
 #: src/TypeBrowser.tsx
 msgid "Description field"
-msgstr ""
+msgstr "説明フィールド"
 
 #: src/TypeBrowser.tsx
 msgid "Design"
-msgstr ""
+msgstr "デザイン"
 
 #: src/TypeBrowser.tsx
 msgid "Design the note shape or work with its complete YAML source."
-msgstr ""
+msgstr "ノートの構造を設計するか、完全な YAML ソースを操作します。"
 
 #: src/FolderChangeDialog.tsx
 #: src/MoveNoteDialog.tsx
 msgid "Destination folder"
-msgstr ""
+msgstr "移動先フォルダー"
 
 #: src/TypeBrowser.tsx
 msgid "Details"
@@ -2090,21 +2090,21 @@ msgstr "詳細"
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Details"
-msgstr ""
+msgstr "詳細"
 
 #: src/TypeBrowser.tsx
 msgid "Developer and infrastructure packs"
-msgstr ""
+msgstr "開発者・インフラ向けパック"
 
 #: src/settings/SettingsView.tsx
 msgctxt "collection runtime"
 msgid "Disabled"
-msgstr ""
+msgstr "無効"
 
 #: src/settings/SettingsView.tsx
 msgctxt "explicit type keys setting"
 msgid "Disabled"
-msgstr ""
+msgstr "無効"
 
 #: src/App.tsx
 msgid "Discard changes"
@@ -2112,31 +2112,31 @@ msgstr "変更を破棄"
 
 #: src/App.tsx
 msgid "Discard folder"
-msgstr ""
+msgstr "フォルダーを破棄"
 
 #: src/App.tsx
 msgid "Discard note"
-msgstr ""
+msgstr "ノートを破棄"
 
 #: src/App.tsx
 msgid "Discard recovered edits"
-msgstr ""
+msgstr "復元した編集を破棄"
 
 #: src/App.tsx
 msgid "Discard this folder?"
-msgstr ""
+msgstr "このフォルダーを破棄しますか？"
 
 #: src/App.tsx
 msgid "Discard this note?"
-msgstr ""
+msgstr "このノートを破棄しますか？"
 
 #: src/App.tsx
 msgid "Discard this type?"
-msgstr ""
+msgstr "この型を破棄しますか？"
 
 #: src/App.tsx
 msgid "Discard type"
-msgstr ""
+msgstr "型を破棄"
 
 #: src/App.tsx
 msgid "Discard type changes?"
