@@ -2315,466 +2315,466 @@ msgstr "エディターを開く"
 
 #: src/portal-ui.tsx
 msgid "Open editor <0>↗</0>"
-msgstr ""
+msgstr "エディターを開く <0>↗</0>"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Open in {0}"
-msgstr ""
+msgstr "{0} で開く"
 
 #: src/ConnectApp.tsx
 msgid "Open in editor"
-msgstr ""
+msgstr "エディターで開く"
 
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx
 msgid "Open mdbase connect"
-msgstr ""
+msgstr "mdbase connect を開く"
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx
 msgid "Open mdbase connect on {0} to make this collection available."
-msgstr ""
+msgstr "このコレクションを利用できるようにするには、{0} で mdbase connect を開いてください。"
 
 #: src/onboarding-view.tsx
 msgid "Open mdbase Connect without it"
-msgstr ""
+msgstr "これを使わずに mdbase Connect を開く"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Open menu"
-msgstr ""
+msgstr "メニューを開く"
 
 #: src/portal-ui.tsx
 msgctxt "Connect interface"
 msgid "Open navigation"
-msgstr ""
+msgstr "ナビゲーションを開く"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Open registration"
-msgstr ""
+msgstr "新規登録を開始"
 
 #: src/auth-view.tsx
 msgid "Open the complete password reset link from your email."
-msgstr ""
+msgstr "メールに記載された完全なパスワードリセットリンクを開いてください。"
 
 #: src/authorization-view.tsx
 msgid "Open the desktop app to connect this computer, add a folder, and continue this same request."
-msgstr ""
+msgstr "デスクトップアプリを開き、このコンピューターを接続してフォルダーを追加すると、同じ要求を続行できます。"
 
 #: src/auth-view.tsx
 msgid "Open the link from the email again, or change email preferences in your account settings."
-msgstr ""
+msgstr "メールのリンクをもう一度開くか、アカウント設定でメールの受信設定を変更してください。"
 
 #: src/ConnectApp.tsx
 msgid "Open the mdbase connect desktop app and choose Connect this computer."
-msgstr ""
+msgstr "mdbase connect デスクトップアプリを開き、「このコンピューターを接続」を選んでください。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "open this collection"
-msgstr ""
+msgstr "このコレクションを開く"
 
 #: src/auth-view.tsx
 msgid "Open this through Tailscale"
-msgstr ""
+msgstr "Tailscale 経由で開く"
 
 #: src/auth-view.tsx
 msgid "Open your account"
-msgstr ""
+msgstr "アカウントを開く"
 
 #: src/authority-workflows.tsx
 msgid "Open your collections"
-msgstr ""
+msgstr "コレクションを開く"
 
 #: src/authorization-capabilities.ts
 msgid "Open, search, validate, and follow changes to records and saved views."
-msgstr ""
+msgstr "レコードと保存済みビューを開き、検索・検証し、変更を追跡します。"
 
 #: src/authorization-capabilities.ts
 msgid "Open, search, validate, and follow records and saved views; list file names and read file contents."
-msgstr ""
+msgstr "レコードと保存済みビューを開き、検索・検証して変更を追跡し、ファイル名の一覧とファイルの内容を読み取ります。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Opening mdbase connect"
-msgstr ""
+msgstr "mdbase connect を開いています"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Opening mdbase connect"
-msgstr ""
+msgstr "mdbase connect を開いています"
 
 #: src/main.tsx
 #: src/portal-ui.tsx
 msgctxt "Connect interface"
 msgid "Opening mdbase connect…"
-msgstr ""
+msgstr "mdbase connect を開いています…"
 
 #: src/auth-view.tsx
 msgid "or"
-msgstr ""
+msgstr "または"
 
 #: src/ApplicationAccess.tsx
 msgid "Origin"
-msgstr ""
+msgstr "出所"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Overview"
-msgstr ""
+msgstr "概要"
 
 #: src/authority-workflows.tsx
 #: src/ConnectApp.tsx
 msgid "Owner"
-msgstr ""
+msgstr "所有者"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Password"
-msgstr ""
+msgstr "パスワード"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Password changed"
-msgstr ""
+msgstr "パスワードを変更しました"
 
 #: src/AccountManagement.tsx
 msgid "Password changed. Other browser sessions were signed out."
-msgstr ""
+msgstr "パスワードを変更しました。ほかのブラウザーセッションはログアウトしました。"
 
 #: src/auth-view.tsx
 msgid "Password recovery is temporarily unavailable. You can still return to sign in."
-msgstr ""
+msgstr "パスワードの復元は一時的に利用できません。ログイン画面には戻れます。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Passwords do not match."
-msgstr ""
+msgstr "パスワードが一致しません。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Paused"
-msgstr ""
+msgstr "一時停止中"
 
 #: src/ConnectApp.tsx
 msgid "Pending"
-msgstr ""
+msgstr "保留中"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Pending invitations"
-msgstr ""
+msgstr "保留中の招待"
 
 #: src/authorization-review.tsx
 msgid "People"
-msgstr ""
+msgstr "ユーザー"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "People & sharing"
-msgstr ""
+msgstr "ユーザーと共有"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "People permissions"
-msgstr ""
+msgstr "ユーザーの権限"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Permanent allowance"
-msgstr ""
+msgstr "無期限の許容量"
 
 #: src/AccountManagement.tsx
 msgid "Permanent for hosted data. Local files are never removed from your computers."
-msgstr ""
+msgstr "ホスト型データは完全に削除されます。コンピューター上のローカルファイルは削除されません。"
 
 #: src/authorization-capabilities.ts
 msgid "Permanently delete records and files from this collection."
-msgstr ""
+msgstr "このコレクションのレコードとファイルを完全に削除します。"
 
 #: src/authorization-capabilities.ts
 msgid "Permanently delete records from this collection."
-msgstr ""
+msgstr "このコレクションのレコードを完全に削除します。"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Permissions"
-msgstr ""
+msgstr "権限"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "person@example.com"
-msgstr ""
+msgstr "person@example.com"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Preparing {0}…"
-msgstr ""
+msgstr "{0} を準備中…"
 
 #: src/onboarding-view.tsx
 msgid "Preparing a place to start."
-msgstr ""
+msgstr "開始の準備をしています。"
 
 #: src/ApplicationAccess.tsx
 msgid "Previously approved · Collection no longer visible to your account"
-msgstr ""
+msgstr "承認済み · アカウントからコレクションを表示できなくなりました"
 
 #: src/auth-view.tsx
 msgid "Privacy"
-msgstr ""
+msgstr "プライバシー"
 
 #: src/CollectionPicker.tsx
 msgid "Private"
-msgstr ""
+msgstr "プライベート"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Private collection"
-msgstr ""
+msgstr "プライベートコレクション"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "product updates"
-msgstr ""
+msgstr "製品のお知らせ"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Product updates"
-msgstr ""
+msgstr "製品のお知らせ"
 
 #: src/auth-view.tsx
 msgid "Public account creation is temporarily unavailable."
-msgstr ""
+msgstr "一般向けのアカウント作成は一時的に利用できません。"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Read file contents"
-msgstr ""
+msgstr "ファイルの内容を読み取る"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Read records and files"
-msgstr ""
+msgstr "レコードとファイルを読み取る"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Read this collection"
-msgstr ""
+msgstr "このコレクションを読み取る"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Reauthorization required"
-msgstr ""
+msgstr "再承認が必要です"
 
 #: src/CollectionPicker.tsx
 msgid "Recently used"
-msgstr ""
+msgstr "最近使用"
 
 #: src/authority-workflows.tsx
 msgid "Recovery"
-msgstr ""
+msgstr "復元"
 
 #. placeholder {0}: new Date(connector.created_at).toLocaleString()
 #. placeholder {1}: connector.id.slice(-8)
 #: src/ConnectApp.tsx
 msgid "Registered {0} · ID {1}"
-msgstr ""
+msgstr "登録日 {0} · ID {1}"
 
 #. placeholder {0}: formatters(i18n.locale).date(new Date(entry.created_at), { dateStyle: "medium", timeStyle: "short" })
 #: src/ApplicationAccess.tsx
 msgid "Registered <0>{0}</0>"
-msgstr ""
+msgstr "登録済み <0>{0}</0>"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Registered computers"
-msgstr ""
+msgstr "登録済みコンピューター"
 
 #: src/ConnectApp.tsx
 msgid "Registered computers stay listed when offline. Revoking one also invalidates grants routed through it."
-msgstr ""
+msgstr "登録済みのコンピューターはオフラインでも一覧に残ります。取り消すと、そのコンピューターを経由する許可も無効になります。"
 
 #: src/AccountManagement.tsx
 msgid "Registration"
-msgstr ""
+msgstr "登録"
 
 #: src/ConnectApp.tsx
 msgid "Reload Connect"
-msgstr ""
+msgstr "Connect を再読み込み"
 
 #: src/authority-workflows.tsx
 msgid "Reminders are off. You can turn them on in the app by approving reminders again."
-msgstr ""
+msgstr "リマインダーはオフです。アプリ内で再びリマインダーを承認するとオンにできます。"
 
 #: src/authority-workflows.tsx
 msgid "Reminders will be off. You can finish setup and turn them on later in the app. Collection access stays unchanged."
-msgstr ""
+msgstr "リマインダーはオフになります。設定を完了し、後からアプリ内でオンにできます。コレクションへのアクセスは変わりません。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Remove"
-msgstr ""
+msgstr "削除"
 
 #. placeholder {0}: member.name
 #. placeholder {1}: collection.display_name
 #: src/ConnectApp.tsx
 msgid "Remove {0} from {1}? Their application and folder access will also be revoked."
-msgstr ""
+msgstr "{0} を {1} から削除しますか？ そのユーザーのアプリとフォルダーへのアクセスも取り消されます。"
 
 #. placeholder {0}: member.name
 #: src/ConnectApp.tsx
 msgid "Remove {0} from the unnamed collection? Their application and folder access will also be revoked."
-msgstr ""
+msgstr "{0} を名前のないコレクションから削除しますか？ そのユーザーのアプリとフォルダーへのアクセスも取り消されます。"
 
 #: src/authority-workflows.tsx
 msgid "Remove access"
-msgstr ""
+msgstr "アクセスを削除"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Remove access"
-msgstr ""
+msgstr "アクセスを削除"
 
 #. placeholder {0}: pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" })
 #: src/authority-workflows.tsx
 msgid "Removing access to {0}…"
-msgstr ""
+msgstr "{0} へのアクセスを削除中…"
 
 #: src/ConnectApp.tsx
 msgid "Removing application and folder access…"
-msgstr ""
+msgstr "アプリとフォルダーへのアクセスを削除中…"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Removing…"
-msgstr ""
+msgstr "削除中…"
 
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
 msgid "Rename"
-msgstr ""
+msgstr "名前を変更"
 
 #. placeholder {0}: collection.display_name
 #. placeholder {0}: connector.name
 #: src/ConnectApp.tsx
 msgid "Rename {0}"
-msgstr ""
+msgstr "{0} の名前を変更"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Replace existing files"
-msgstr ""
+msgstr "既存のファイルを置換"
 
 #: src/auth-view.tsx
 msgid "Replacing your password signs out every other browser session connected to the account."
-msgstr ""
+msgstr "パスワードを変更すると、このアカウントのほかのブラウザーセッションはすべてログアウトします。"
 
 #. placeholder {0}: relativeTime(request.expires_at)
 #: src/authorization-view.tsx
 msgid "Request expires {0}"
-msgstr ""
+msgstr "要求の有効期限 {0}"
 
 #. placeholder {0}: response.status
 #: src/api.ts
 msgid "Request failed with HTTP {0}."
-msgstr ""
+msgstr "要求が失敗しました（HTTP {0}）。"
 
 #: src/authorization-view.tsx
 msgid "Request unavailable"
-msgstr ""
+msgstr "要求を利用できません"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Requested access"
-msgstr ""
+msgstr "要求されたアクセス"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Requested by {0}. No requesting origin is available."
-msgstr ""
+msgstr "{0} からの要求です。要求元の出所は確認できません。"
 
 #. placeholder {0}: pairing.connector_name
 #. placeholder {1}: appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""
 #. placeholder {2}: pairing.app_origin?.trim() && <Trans> from <code>{pairing.app_origin}</code></Trans>
 #: src/authority-workflows.tsx
 msgid "Requested by {0}{1}{2}. Approve only if you started sign-in in this app."
-msgstr ""
+msgstr "{0}{1}{2} からの要求です。このアプリでログインを開始した場合のみ承認してください。"
 
 #. placeholder {0}: pairing.app_origin
 #: src/authority-workflows.tsx
 msgid "Requested from <0>{0}</0>. The origin shown here is not proof of who made the request."
-msgstr ""
+msgstr "<0>{0}</0> から要求されました。ここに表示される出所は要求者の身元の証明にはなりません。"
 
 #: src/authorization-view.tsx
 msgid "Requests"
-msgstr ""
+msgstr "要求"
 
 #: src/authorization-review.tsx
 msgid "Required"
-msgstr ""
+msgstr "必須"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Reset your password"
-msgstr ""
+msgstr "パスワードをリセット"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Retry creation"
-msgstr ""
+msgstr "作成を再試行"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Retry Google sign-in"
-msgstr ""
+msgstr "Google ログインを再試行"
 
 #: src/GoogleIdentityButton.tsx
 msgctxt "Connect interface"
 msgid "Retry Google sign-in"
-msgstr ""
+msgstr "Google ログインを再試行"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Return to {0}"
-msgstr ""
+msgstr "{0} に戻る"
 
 #. placeholder {0}: adoption.source_name
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Return to {0}."
-msgstr ""
+msgstr "{0} に戻ってください。"
 
 #: src/authorization-view.tsx
 msgid "Return to {applicationName}"
-msgstr ""
+msgstr "{applicationName} に戻る"
 
 #: src/authorization-view.tsx
 msgid "Return to {applicationName} and connect again to start a new request."
-msgstr ""
+msgstr "{applicationName} に戻り、再度接続して新しい要求を開始してください。"
 
 #: src/authorization-view.tsx
 msgid "Return to {applicationName}."
-msgstr ""
+msgstr "{applicationName} に戻ってください。"
 
 #: src/authority-workflows.tsx
 msgid "Return to {mirrorName}."
-msgstr ""
+msgstr "{mirrorName} に戻ってください。"
 
 #: src/authority-workflows.tsx
 msgid "Return to mdbase connect."
-msgstr ""
+msgstr "mdbase connect に戻ってください。"
 
 #: src/AccountManagement.tsx
 #: src/auth-view.tsx
 msgid "Return to sign in"
-msgstr ""
+msgstr "ログインに戻る"
 
 #: src/authority-workflows.tsx
 msgid "Return to your account"
-msgstr ""
+msgstr "アカウントに戻る"
 
 #: src/authority-workflows.tsx
 msgid "Return to your computer."
