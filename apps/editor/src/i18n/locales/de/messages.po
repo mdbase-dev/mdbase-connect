@@ -2627,28 +2627,28 @@ msgstr "Sammlungsseitenleiste ausblenden"
 
 #: src/App.tsx
 msgid "Hide notes sidebar"
-msgstr ""
+msgstr "Notizseitenleiste ausblenden"
 
 #: src/App.tsx
 msgid "Hide types sidebar"
-msgstr ""
+msgstr "Typseitenleiste ausblenden"
 
 #: src/settings/SettingsView.tsx
 msgctxt "connection route"
 msgid "Hosted"
-msgstr ""
+msgstr "Gehostet"
 
 #: src/TypeBrowser.tsx
 msgid "How notes are assigned to this type."
-msgstr ""
+msgstr "So werden Notizen diesem Typ zugewiesen."
 
 #: src/TypeBrowser.tsx
 msgid "How this type appears and behaves across compatible tools."
-msgstr ""
+msgstr "So erscheint und verhält sich dieser Typ in kompatiblen Werkzeugen."
 
 #: src/TypeBrowser.tsx
 msgid "Icon"
-msgstr ""
+msgstr "Symbol"
 
 #: src/TypeBrowser.tsx
 msgid "Identity"
@@ -2656,111 +2656,111 @@ msgstr "Identität"
 
 #: src/TypeBrowser.tsx
 msgid "Impact is based on the currently indexed notes. The collection validates the complete definition when you confirm."
-msgstr ""
+msgstr "Die Auswirkungen beruhen auf den derzeit indizierten Notizen. Die Sammlung validiert die vollständige Definition, wenn Sie bestätigen."
 
 #. placeholder {0}: contract.id
 #. placeholder {1}: contract.version
 #: src/type-contracts.ts
 msgid "Implements {0} {1}."
-msgstr ""
+msgstr "Implementiert {0} {1}."
 
 #: src/editor-commands.ts
 msgid "in the list"
-msgstr ""
+msgstr "in der Liste"
 
 #: src/type-contracts.ts
 msgid "Incompatible"
-msgstr ""
+msgstr "Inkompatibel"
 
 #: src/code-editor-completions.ts
 msgid "Insert a fenced code block"
-msgstr ""
+msgstr "Codeblock mit Begrenzungszeichen einfügen"
 
 #: src/code-editor-completions.ts
 msgid "Insert a Markdown table"
-msgstr ""
+msgstr "Markdown-Tabelle einfügen"
 
 #: src/code-editor-completions.ts
 msgid "Insert an internal link"
-msgstr ""
+msgstr "Internen Link einfügen"
 
 #: src/ConnectionScreens.tsx
 msgid "inspect the collection"
-msgstr ""
+msgstr "Sammlung einsehen"
 
 #: src/TypeBrowser.tsx
 msgid "Install runtime pack"
-msgstr ""
+msgstr "Laufzeitpaket installieren"
 
 #: src/TypeBrowser.tsx
 msgid "Installed"
-msgstr ""
+msgstr "Installiert"
 
 #: src/TypeBrowser.tsx
 msgid "Installed contract"
-msgstr ""
+msgstr "Installierter Vertrag"
 
 #: src/TypeBrowser.tsx
 msgid "Installing…"
-msgstr ""
+msgstr "Wird installiert…"
 
 #: src/type-presentation.ts
 msgid "integer"
-msgstr ""
+msgstr "Ganzzahl"
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "Integer"
-msgstr ""
+msgstr "Ganzzahl"
 
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Integer"
-msgstr ""
+msgstr "Ganzzahl"
 
 #: src/i18n/LanguageSetting.tsx
 msgctxt "editor language preference"
 msgid "Interface language"
-msgstr ""
+msgstr "Sprache der Oberfläche"
 
 #: src/type-contracts.ts
 msgid "invalid JSON Schema"
-msgstr ""
+msgstr "ungültiges JSON-Schema"
 
 #: src/PropertiesPanel.tsx
 #: src/SchemaValueEditor.tsx
 msgid "Invalid JSON."
-msgstr ""
+msgstr "Ungültiges JSON."
 
 #: src/YourPersonPanel.tsx
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
-msgstr ""
+msgstr "Er wurde seit dem Hinzufügen nicht bearbeitet und wird deshalb durch die neue Vorlage ersetzt."
 
 #: src/TypeBrowser.tsx
 msgid "Its current structural rules will be replaced."
-msgstr ""
+msgstr "Die aktuellen Strukturregeln werden ersetzt."
 
 #: src/TypeBrowser.tsx
 msgid "Journal/**/*.md"
-msgstr ""
+msgstr "Journal/**/*.md"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Keep Markdown visible within the writing measure."
-msgstr ""
+msgstr "Markdown innerhalb der Textbreite halten."
 
 #: src/ConflictResolver.tsx
 msgid "Keep my edits"
-msgstr ""
+msgstr "Meine Änderungen behalten"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Keep the caret line centred while writing in focus mode."
-msgstr ""
+msgstr "Schreibzeile im Fokusmodus mittig halten."
 
 #: src/SchemaValueEditor.tsx
 msgid "Key"
-msgstr ""
+msgstr "Schlüssel"
 
 #: src/editor-commands.ts
 msgid "Keyboard shortcuts"
@@ -2769,101 +2769,101 @@ msgstr "Tastenkombinationen"
 #: src/i18n/LanguageSetting.tsx
 msgctxt "editor language preference"
 msgid "Language"
-msgstr ""
+msgstr "Sprache"
 
 #: src/settings/SettingsView.tsx
 msgctxt "editor text size"
 msgid "Large"
-msgstr ""
+msgstr "Groß"
 
 #: src/code-editor-completions.ts
 msgid "Large section heading"
-msgstr ""
+msgstr "Große Abschnittsüberschrift"
 
 #: src/ConflictResolver.tsx
 msgid "Latest title"
-msgstr ""
+msgstr "Neuester Titel"
 
 #: src/ConflictResolver.tsx
 msgid "Latest version"
-msgstr ""
+msgstr "Neueste Version"
 
 #. placeholder {0}: pack.displayName
 #: src/catalog-pack-installation.tsx
 msgid "Let “{0}” manage these definitions?"
-msgstr ""
+msgstr "„{0}“ die Verwaltung dieser Definitionen erlauben?"
 
 #: src/type-schema.ts
 msgid "Lifecycle"
-msgstr ""
+msgstr "Lebenszyklus"
 
 #: src/WorkspaceChrome.tsx
 msgid "Link"
-msgstr ""
+msgstr "Link"
 
 #: src/YourPersonPanel.tsx
 msgid "Link a record that already represents you."
-msgstr ""
+msgstr "Verknüpfen Sie einen Datensatz, der Sie bereits repräsentiert."
 
 #: src/TypeBrowser.tsx
 msgid "Link and uniqueness rules can make matching records valid or invalid without changing their source files."
-msgstr ""
+msgstr "Link- und Eindeutigkeitsregeln können übereinstimmende Datensätze gültig oder ungültig machen, ohne ihre Quelldateien zu verändern."
 
 #: src/YourPersonPanel.tsx
 msgid "Link anyway"
-msgstr ""
+msgstr "Trotzdem verknüpfen"
 
 #. placeholder {0}: index + 1
 #: src/TypeBrowser.tsx
 msgid "Link field {0}"
-msgstr ""
+msgstr "Linkfeld {0}"
 
 #. placeholder {0}: noteTitle(mention.note, types)
 #: src/WorkspaceChrome.tsx
 msgid "Link mention in {0}"
-msgstr ""
+msgstr "Erwähnung in {0} verknüpfen"
 
 #: src/type-schema.ts
 msgid "link rule"
-msgstr ""
+msgstr "Linkregel"
 
 #: src/type-schema.ts
 msgid "Link rules"
-msgstr ""
+msgstr "Linkregeln"
 
 #: src/YourPersonPanel.tsx
 msgid "Link this record to me"
-msgstr ""
+msgstr "Diesen Datensatz mit mir verknüpfen"
 
 #: src/code-editor-completions.ts
 msgid "Link to note or file"
-msgstr ""
+msgstr "Mit Notiz oder Datei verknüpfen"
 
 #: src/editor-commands.ts
 #: src/WorkspaceChrome.tsx
 msgid "Linked from"
-msgstr ""
+msgstr "Verlinkt von"
 
 #: src/App.tsx
 msgid "Linked mention."
-msgstr ""
+msgstr "Erwähnung verknüpft."
 
 #: src/TypeBrowser.tsx
 msgid "Linked schema field"
-msgstr ""
+msgstr "Verknüpftes Schemafeld"
 
 #. placeholder {0}: linked.name
 #: src/YourPersonPanel.tsx
 msgid "Linked to {0}"
-msgstr ""
+msgstr "Verknüpft mit {0}"
 
 #: src/TypeBrowser.tsx
 msgid "Links"
-msgstr ""
+msgstr "Links"
 
 #: src/type-schema.ts
 msgid "links with unsupported values"
-msgstr ""
+msgstr "Links mit nicht unterstützten Werten"
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
@@ -2873,84 +2873,84 @@ msgstr "Listenansicht"
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "List"
-msgstr ""
+msgstr "Liste"
 
 #: src/ConnectionScreens.tsx
 msgid "list and search notes"
-msgstr ""
+msgstr "Notizen auflisten und durchsuchen"
 
 #: src/ConnectionScreens.tsx
 msgid "list files"
-msgstr ""
+msgstr "Dateien auflisten"
 
 #: src/type-schema.ts
 msgid "list item schema"
-msgstr ""
+msgstr "Schema für Listenelemente"
 
 #: src/TypeBrowser.tsx
 msgid "List items"
-msgstr ""
+msgstr "Listenelemente"
 
 #: src/App.tsx
 msgid "Loaded the latest version."
-msgstr ""
+msgstr "Neueste Version geladen."
 
 #: src/TypeBrowser.tsx
 msgid "Loading available compatibility packs…"
-msgstr ""
+msgstr "Verfügbare Kompatibilitätspakete werden geladen…"
 
 #: src/TypeBrowser.tsx
 msgid "Loading contract catalog"
-msgstr ""
+msgstr "Vertragskatalog wird geladen"
 
 #: src/App.tsx
 msgid "Loading file viewer"
-msgstr ""
+msgstr "Dateiansicht wird geladen"
 
 #: src/App.tsx
 msgid "Loading folder composer"
-msgstr ""
+msgstr "Ordnerentwurf wird geladen"
 
 #: src/CollectionRail.tsx
 msgid "Loading folders…"
-msgstr ""
+msgstr "Ordner werden geladen…"
 
 #: src/WorkspaceChrome.tsx
 msgid "Loading note"
-msgstr ""
+msgstr "Notiz wird geladen"
 
 #: src/App.tsx
 msgid "Loading note composer"
-msgstr ""
+msgstr "Notizentwurf wird geladen"
 
 #: src/MarkdownNoteEditor.tsx
 msgid "Loading note editor"
-msgstr ""
+msgstr "Notizeditor wird geladen"
 
 #: src/NotePreview.tsx
 msgid "Loading preview"
-msgstr ""
+msgstr "Vorschau wird geladen"
 
 #: src/NotePreview.tsx
 msgid "Loading preview…"
-msgstr ""
+msgstr "Vorschau wird geladen…"
 
 #: src/App.tsx
 msgid "Loading properties…"
-msgstr ""
+msgstr "Eigenschaften werden geladen…"
 
 #: src/LoadingScreens.tsx
 #: src/TypeBrowser.tsx
 msgid "Loading type definition"
-msgstr ""
+msgstr "Typdefinition wird geladen"
 
 #: src/LoadingScreens.tsx
 msgid "Loading types"
-msgstr ""
+msgstr "Typen werden geladen"
 
 #: src/YourPersonPanel.tsx
 msgid "Loading your identity and person records…"
-msgstr ""
+msgstr "Ihre Identität und Personendatensätze werden geladen…"
 
 #: src/WorkspaceChrome.tsx
 msgid "Loading…"
@@ -2959,53 +2959,53 @@ msgstr "Wird geladen…"
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Local network access is blocked in this browser. Allow it in the site settings, then check again."
-msgstr ""
+msgstr "Der lokale Netzwerkzugriff ist in diesem Browser gesperrt. Erlauben Sie ihn in den Website-Einstellungen und prüfen Sie erneut."
 
 #: src/App.tsx
 msgid "Local network access is blocked in this browser. Allow it in the site settings, then try again."
-msgstr ""
+msgstr "Der lokale Netzwerkzugriff ist in diesem Browser gesperrt. Erlauben Sie ihn in den Website-Einstellungen und versuchen Sie es erneut."
 
 #. placeholder {0}: Intl.DateTimeFormat().resolvedOptions().timeZone
 #: src/SchemaValueEditor.tsx
 msgid "Local time ({0})"
-msgstr ""
+msgstr "Ortszeit ({0})"
 
 #: src/TypeBrowser.tsx
 msgid "Loses"
-msgstr ""
+msgstr "Verloren"
 
 #: src/ConnectionScreens.tsx
 msgid "manage type definitions"
-msgstr ""
+msgstr "Typdefinitionen verwalten"
 
 #: src/contract-catalog.ts
 msgid "manifest.resources[{index}].kind is not supported."
-msgstr ""
+msgstr "manifest.resources[{index}].kind wird nicht unterstützt."
 
 #: src/contract-catalog.ts
 msgid "manifest.resources[{index}].mode is not supported."
-msgstr ""
+msgstr "manifest.resources[{index}].mode wird nicht unterstützt."
 
 #. placeholder {0}: field.reference
 #: src/type-contracts.ts
 msgid "Map required contract field {0}."
-msgstr ""
+msgstr "Ordnen Sie das erforderliche Vertragsfeld {0} zu."
 
 #: src/TypeBrowser.tsx
 msgid "Mapping ready"
-msgstr ""
+msgstr "Zuordnung bereit"
 
 #: src/CodeEditor.tsx
 msgid "Mark task complete"
-msgstr ""
+msgstr "Aufgabe abschließen"
 
 #: src/CodeEditor.tsx
 msgid "Mark task incomplete"
-msgstr ""
+msgstr "Aufgabe als unvollständig markieren"
 
 #: src/QuickOpen.tsx
 msgid "Markdown commands"
-msgstr ""
+msgstr "Markdown-Befehle"
 
 #: src/TypeBrowser.tsx
 msgid "Markdown link"
@@ -3013,121 +3013,121 @@ msgstr "Markdown-Link"
 
 #: src/App.tsx
 msgid "Markdown path"
-msgstr ""
+msgstr "Markdown-Pfad"
 
 #: src/FileViewer.tsx
 msgid "Markdown preview unavailable."
-msgstr ""
+msgstr "Markdown-Vorschau nicht verfügbar."
 
 #: src/QuickOpen.tsx
 msgid "Matching actions"
-msgstr ""
+msgstr "Passende Aktionen"
 
 #: src/TypeBrowser.tsx
 msgid "Matching notes"
-msgstr ""
+msgstr "Passende Notizen"
 
 #: src/QuickOpen.tsx
 msgid "Matching notes and actions"
-msgstr ""
+msgstr "Passende Notizen und Aktionen"
 
 #: src/type-schema.ts
 msgid "Matching rules"
-msgstr ""
+msgstr "Abgleichregeln"
 
 #: src/TypeBrowser.tsx
 msgid "Maximum"
-msgstr ""
+msgstr "Maximum"
 
 #: src/type-schema.ts
 msgid "maximum items"
-msgstr ""
+msgstr "Höchstzahl an Elementen"
 
 #: src/TypeBrowser.tsx
 msgid "Maximum items"
-msgstr ""
+msgstr "Höchstzahl an Elementen"
 
 #: src/type-schema.ts
 msgid "maximum length"
-msgstr ""
+msgstr "Maximale Länge"
 
 #: src/TypeBrowser.tsx
 msgid "Maximum length"
-msgstr ""
+msgstr "Maximale Länge"
 
 #: src/TypeBrowser.tsx
 msgid "mdbase catalog"
-msgstr ""
+msgstr "mdbase-Katalog"
 
 #: src/App.tsx
 msgid "mdbase could not be reached on this computer. Editing will continue through mdbase."
-msgstr ""
+msgstr "mdbase konnte auf diesem Computer nicht erreicht werden. Die Bearbeitung läuft weiterhin über mdbase."
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "mdbase could not be reached on this computer. You can keep editing through mdbase."
-msgstr ""
+msgstr "mdbase konnte auf diesem Computer nicht erreicht werden. Sie können weiter über mdbase bearbeiten."
 
 #: src/next-editor-records.ts
 msgid "Mdbase did not return the complete note source. No source was reconstructed."
-msgstr ""
+msgstr "Mdbase hat den vollständigen Notizquelltext nicht zurückgegeben. Es wurde kein Quelltext rekonstruiert."
 
 #: src/App.tsx
 msgid "mdbase editor can now use mdbase on this computer."
-msgstr ""
+msgstr "Der mdbase-Editor kann mdbase jetzt auf diesem Computer verwenden."
 
 #: src/SdkEditorRoot.tsx
 msgid "mdbase editor: {developerMessage}"
-msgstr ""
+msgstr "mdbase-Editor: {developerMessage}"
 
 #: src/ConnectionScreens.tsx
 msgid "mdbase keeps the access you already approved and shows only what needs to be added."
-msgstr ""
+msgstr "mdbase behält den bereits genehmigten Zugriff bei und zeigt nur an, was hinzugefügt werden muss."
 
 #: src/TypeBrowser.tsx
 msgid "Minimum"
-msgstr ""
+msgstr "Minimum"
 
 #: src/type-schema.ts
 msgid "minimum items"
-msgstr ""
+msgstr "Mindestzahl an Elementen"
 
 #: src/TypeBrowser.tsx
 msgid "Minimum items"
-msgstr ""
+msgstr "Mindestzahl an Elementen"
 
 #: src/type-schema.ts
 msgid "minimum length"
-msgstr ""
+msgstr "Mindestlänge"
 
 #: src/TypeBrowser.tsx
 msgid "Minimum length"
-msgstr ""
+msgstr "Mindestlänge"
 
 #: src/TypeBrowser.tsx
 msgid "Missing field: {mapped}"
-msgstr ""
+msgstr "Fehlendes Feld: {mapped}"
 
 #. placeholder {0}: record.path
 #: src/collection-index-controller.ts
 msgid "Missing frontmatter projections for {0}"
-msgstr ""
+msgstr "Fehlende Frontmatter-Projektionen für {0}"
 
 #: src/note-embeds.ts
 msgid "Missing note"
-msgstr ""
+msgstr "Fehlende Notiz"
 
 #: src/TypeBrowser.tsx
 msgid "Missing properties have no type-specific read defaults."
-msgstr ""
+msgstr "Für fehlende Eigenschaften gibt es keine typspezifischen Lesestandardwerte."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Missing required properties"
-msgstr ""
+msgstr "Fehlende erforderliche Eigenschaften"
 
 #: src/PropertiesPanel.tsx
 msgid "Modified"
-msgstr ""
+msgstr "Geändert"
 
 #: src/note-list-view.ts
 msgid "modified newest"
