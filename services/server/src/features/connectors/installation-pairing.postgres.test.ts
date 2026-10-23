@@ -1159,21 +1159,22 @@ describePg("installation device sign-in on daemon pairing", () => {
   }
   const timerPath = (f:Awaited<ReturnType<typeof currentTimerFixture>>) => `/v1/next/collections/${f.collection}/background-grants/${f.grantId}/timers/reminders`;
   async function tasknotesRetirementFixture(webhook=false) {
-    const register=async(suffix:string,origin=webOrigin,homepage=origin)=>{
+    const register=async(suffix:string,origin=webOrigin)=>{
       const declaration=applicationDeclaration({id:"dev.tasknotes.app",name:"TaskNotes",origin,environment:"lab",manifest:{
-        manifest_version:1,id:"dev.tasknotes.app",name:"TaskNotes",homepage,redirect_uris:[`${homepage}/auth/${suffix}`],
-        ...(homepage!==origin?{installation_origins:{lab:{"app-runtime":[origin]}}}:{}),
+        manifest_version:1,id:"dev.tasknotes.app",name:"TaskNotes",homepage:origin,redirect_uris:[`${origin}/auth/${suffix}`],
         requirements:{access:"full_collection",contracts:[],capabilities:{contract_version:2,required:["collection.read"],optional:["background.schedule"]}},
         notifications:{criteria:[{id:"task.reminder",event:MDBASE_TIMER_FIRED_CONTRACT,presentation:{title:"Task reminder"}},{id:"other",event:MDBASE_TIMER_FIRED_CONTRACT,presentation:{title:"Other"}}],
-          ...(webhook&&suffix==="original"?{native_delivery:{mode:"webhook",url:"https://hooks.example.test/tasknotes"}}:{})}}});
+          ...(webhook?{native_delivery:{mode:"webhook",url:"https://hooks.example.test/tasknotes"}}:{})}}});
       return resolveApplicationRegistration({declaration,signal:new AbortController().signal,isCurrent:()=>true,fetch:async(input,init)=>{
         const url=new URL(String(input));expect(url.origin).toBe("https://connect.test");
         const response=await app.inject({method:"POST",url:url.pathname,headers:{"content-type":"application/json"},payload:String(init!.body)});
         return new Response(response.body,{status:response.statusCode,headers:{"content-type":"application/json"}});
       }});
     };
-    const original=await register("original"),registered=await register("native");
-    expect(registered.id).not.toBe(tasknotesId);expect(registered.id).not.toBe(original.id);
+    // Ordinary SDK registration of the exact unchanged manifest resolves to
+    // one registered UUID for legacy and native grants, not the seeded ID.
+    const original=await register("original"),registered=await register("original");
+    expect(registered.id).not.toBe(tasknotesId);expect(registered.id).toBe(original.id);
     expect((await db.query("SELECT DISTINCT family_identity FROM applications WHERE id=ANY($1::uuid[])",[[tasknotesId,original.id,registered.id]])).rows).toEqual([{family_identity:"bundle:dev.tasknotes.app"}]);
     apps.set(registered.id,{name:"TaskNotes",web:webOrigin,mobile:"capacitor://app.tasknotes.dev"});
     const f=await currentTimerFixture(registered.id);
@@ -1187,14 +1188,14 @@ describePg("installation device sign-in on daemon pairing", () => {
       [id,user,application,authority,JSON.stringify([{id:"task.reminder",event:MDBASE_TIMER_FIRED_CONTRACT,presentation:{title:"Task reminder"}},{id:"other",event:MDBASE_TIMER_FIRED_CONTRACT,presentation:{title:"Other"}}]),randomUUID()]);
       return id;
     };
-    const first=await legacy(),second=await legacy(f.p.owner.user,tasknotesId);
+    const first=await legacy(),second=await legacy();
     const past=new Date(Date.now()-60_000).toISOString(),future=new Date(Date.now()+3_600_000).toISOString();
     const add=async(grant:string,id:string,fire= future,status="scheduled",namespace="task-reminders",criterion="task.reminder") => {
       await db.query(`INSERT INTO next_timers(grant_id,namespace,timer_id,criterion_id,fire_at,generation,status,fired_at,created_at,updated_at)
         VALUES($1,$2,$3,$4,$5,7,$6,CASE WHEN $6='fired' THEN $5::timestamptz ELSE NULL END,'2020-01-01','2020-01-02')`,[grant,namespace,id,criterion,fire,status]);
     };
     const reconcile=(timers:Array<{id:string;fire_at:string}>=[])=>app.inject({method:"POST",url:timerPath(f).replace("/reminders","/task-reminders/reconcile"),headers:{authorization:`Bearer ${f.token}`},payload:{criterion_id:"task.reminder",timers}});
-    return {...f,legacy,first,second,past,future,add,reconcile,register};
+    return {...f,applicationId:registered.id,legacy,first,second,past,future,add,reconcile,register};
   }
   it("retires all old TaskNotes devices in only the exact tuple, preserves state and sends overdue work once",async()=>{
     const f=await tasknotesRetirementFixture();
@@ -1205,7 +1206,7 @@ describePg("installation device sign-in on daemon pairing", () => {
     await f.add(f.first,"other-namespace",f.past,"scheduled","other");
     await f.add(f.first,"other-criterion",f.past,"scheduled","task-reminders","other");
     const foreign=await account(),otherApp=await timerApp(),otherCollection=await scopeCollection(f.p.owner.user);
-    const unrelated=[await f.legacy(foreign.user),await f.legacy(f.p.owner.user,otherApp),await f.legacy(f.p.owner.user,tasknotesId,otherCollection)];
+    const unrelated=[await f.legacy(foreign.user),await f.legacy(f.p.owner.user,otherApp),await f.legacy(f.p.owner.user,undefined,otherCollection),await f.legacy(f.p.owner.user,tasknotesId)];
     for(const old of unrelated) await f.add(old,"unrelated",f.future);
     // Queue an OLD timer event before retirement. Its pending transport must
     // not be admitted later, even if event retention subsequently removes it.
@@ -1260,24 +1261,40 @@ describePg("installation device sign-in on daemon pairing", () => {
     await db.query("UPDATE next_background_grants SET revoked_at=now() WHERE id=$1",[f.grantId]);
     expect((await db.query("SELECT 1 FROM next_tasknotes_legacy_reminder_retirements WHERE user_id=$1",[f.p.owner.user])).rows).toHaveLength(1);
   });
-  it.each(["registration-origin","consent-origin"] as const)("does not retire TaskNotes authority for another origin sharing its bundle ID (%s)",async mode=>{
-    const f=await tasknotesRetirementFixture(),origin="https://independent.example.test";
-    await f.add(f.first,"original",f.future);
-    const registered=await f.register(`independent-${mode}`,origin,mode==="consent-origin"?webOrigin:origin);
-    expect((await db.query("SELECT family_identity FROM applications WHERE id=$1",[registered.id])).rows[0].family_identity).toBe("bundle:dev.tasknotes.app");
+  it.each([webOrigin,"https://independent.example.test"])("isolates changed manifest registration UUIDs even with the same logical family (%s)",async origin=>{
+    const f=await tasknotesRetirementFixture();
+    await f.add(f.first,"original",f.future);await f.add(f.first,"history",f.future,"fired");
+    // A caller may copy family, homepage and consent origin. A changed manifest
+    // still registers a different UUID; those fields authorize no crossing.
+    const registered=await f.register("changed",origin);
+    expect(registered.id).not.toBe(f.applicationId);
+    expect((await db.query("SELECT family_identity,homepage FROM applications WHERE id=$1",[registered.id])).rows[0])
+      .toEqual({family_identity:"bundle:dev.tasknotes.app",homepage:origin});
     apps.set(registered.id,{name:"TaskNotes",web:origin,mobile:"capacitor://independent.example.test"});
     const independent=await currentTimerFixture(registered.id,f.p.owner,f.collection);
     const oldIndependent=await f.legacy(f.p.owner.user,registered.id);
     await db.query("UPDATE grants SET application_origin=$2 WHERE id=$1",[oldIndependent,origin]);
-    await f.add(oldIndependent,"independent",f.future);
-    const result=await app.inject({method:"POST",url:timerPath(independent).replace("/reminders","/task-reminders/reconcile"),headers:{authorization:`Bearer ${independent.token}`},payload:{criterion_id:"task.reminder",timers:[]}});
+    await f.add(oldIndependent,"independent",f.future);await f.add(oldIndependent,"own-overdue",f.past);await f.add(oldIndependent,"own-fired",f.future,"fired");
+    const result=await app.inject({method:"POST",url:timerPath(independent).replace("/reminders","/task-reminders/reconcile"),headers:{authorization:`Bearer ${independent.token}`},
+      payload:{criterion_id:"task.reminder",timers:[{id:"history",fire_at:f.future},{id:"own-overdue",fire_at:f.past},{id:"own-fired",fire_at:f.future}]}});
     expect(result.statusCode,result.body).toBe(200);
-    expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1",[f.first])).rows).toEqual([{status:"scheduled"}]);
-    expect((await db.query("SELECT 1 FROM next_tasknotes_legacy_reminder_retirements WHERE user_id=$1 AND collection_id=$2",[f.p.owner.user,f.collection])).rows).toHaveLength(0);
-    // Genuine retirement must likewise leave the other registration's timers.
-    expect((await f.reconcile([{id:"original",fire_at:f.future}])).statusCode).toBe(200);
-    expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1",[f.first])).rows).toEqual([{status:"cancelled"}]);
-    expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1",[oldIndependent])).rows).toEqual([{status:"scheduled"}]);
+    expect(result.json().timers.map((t:{id:string;status:string;generation:number})=>({id:t.id,status:t.status,generation:t.generation})))
+      .toEqual([{id:"history",status:"scheduled",generation:1},{id:"own-overdue",status:"scheduled",generation:7},{id:"own-fired",status:"fired",generation:7}]);
+    expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1 AND timer_id='independent'",[oldIndependent])).rows).toEqual([{status:"cancelled"}]);
+    expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1 AND timer_id='original'",[f.first])).rows).toEqual([{status:"scheduled"}]);
+    expect((await db.query("SELECT application_id FROM next_tasknotes_legacy_reminder_retirements WHERE user_id=$1 AND collection_id=$2",[f.p.owner.user,f.collection])).rows)
+      .toEqual([{application_id:registered.id}]);
+    // A different registered UUID's fence neither blocks this legacy writer
+    // nor prevents its own later retirement from creating a separate fence.
+    await timerTransaction(async connection=>{
+      await lockNamespace(connection,f.first,"task-reminders");
+      await putTimer(connection,(await f.resolver.resolve(connection,f.first))!,"task-reminders","task.reminder",desiredTimer({id:"original",fire_at:f.future}));
+    });
+    expect((await f.reconcile([{id:"original",fire_at:f.future},{id:"history",fire_at:f.future}])).statusCode).toBe(200);
+    expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1 AND timer_id='original'",[f.first])).rows).toEqual([{status:"cancelled"}]);
+    expect((await db.query("SELECT application_id FROM next_tasknotes_legacy_reminder_retirements WHERE user_id=$1 AND collection_id=$2",[f.p.owner.user,f.collection])).rows.map(r=>r.application_id).sort())
+      .toEqual([f.applicationId,registered.id].sort());
+    expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1 AND timer_id='history'",[independent.grantId])).rows).toEqual([{status:"scheduled"}]);
   });
   it.each(["before","after"] as const)("fences legacy push and webhook retries without retained NEXT events queued %s retirement",async when=>{
     const f=await tasknotesRetirementFixture(true);
@@ -1298,8 +1315,10 @@ describePg("installation device sign-in on daemon pairing", () => {
     const retired=[await queue(f.first,"task.reminder",true),await queue(f.first)];
     const foreign=await account(),otherCollection=await scopeCollection(f.p.owner.user),otherApp=await timerApp();
     await db.query("UPDATE applications SET notifications=(SELECT a.notifications FROM applications a JOIN grants g ON g.application_id=a.id WHERE g.id=$2) WHERE id=$1",[otherApp,f.first]);
-    const sameBundle=await f.register("original","https://independent.example.test"),sameBundleLegacy=await f.legacy(f.p.owner.user,sameBundle.id);
-    await db.query("UPDATE grants SET application_origin='https://independent.example.test' WHERE id=$1",[sameBundleLegacy]);
+    // Even identical family, homepage and consent origin do not share a fence
+    // with a different immutable manifest registration UUID.
+    const sameBundle=await f.register("changed"),sameBundleLegacy=await f.legacy(f.p.owner.user,sameBundle.id);
+    expect(sameBundle.id).not.toBe(f.applicationId);
     const preserved=[await queue(f.first,"other"),await queue(await f.legacy(foreign.user)),
       await queue(await f.legacy(f.p.owner.user,undefined,otherCollection)),await queue(await f.legacy(f.p.owner.user,otherApp)),await queue(sameBundleLegacy)];
     if(when==="before") expect((await f.reconcile()).statusCode).toBe(200);
