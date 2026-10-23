@@ -2111,509 +2111,509 @@ msgstr "¿Descartar este tipo?"
 
 #: src/App.tsx
 msgid "Discard type"
-msgstr ""
+msgstr "Descartar tipo"
 
 #: src/App.tsx
 msgid "Discard type changes?"
-msgstr ""
+msgstr "¿Descartar los cambios del tipo?"
 
 #: src/Toasts.tsx
 msgid "Dismiss notification"
-msgstr ""
+msgstr "Cerrar notificación"
 
 #: src/TypeBrowser.tsx
 msgid "Display"
-msgstr ""
+msgstr "Visualización"
 
 #: src/TypeBrowser.tsx
 msgid "Display icon"
-msgstr ""
+msgstr "Icono de visualización"
 
 #: src/type-schema.ts
 msgid "Display metadata"
-msgstr ""
+msgstr "Metadatos de visualización"
 
 #: src/type-schema.ts
 msgid "display with an unsupported value"
-msgstr ""
+msgstr "visualización con un valor no admitido"
 
 #: src/code-editor-completions.ts
 msgid "Divider"
-msgstr ""
+msgstr "Separador"
 
 #: src/editor-commands.ts
 #: src/WorkspaceChrome.tsx
 msgid "Document outline"
-msgstr ""
+msgstr "Esquema del documento"
 
 #: src/type-schema.ts
 msgid "Documentation"
-msgstr ""
+msgstr "Documentación"
 
 #: src/FolderChangeDialog.tsx
 msgid "Done"
-msgstr ""
+msgstr "Listo"
 
 #: src/WorkspaceChrome.tsx
 msgid "Drag to resize · Double-click to reset"
-msgstr ""
+msgstr "Arrastra para cambiar el tamaño · Haz doble clic para restablecer"
 
 #: src/editor-commands.ts
 msgid "Duplicate"
-msgstr ""
+msgstr "Duplicar"
 
 #: src/use-note-actions.ts
 msgid "Duplicated note."
-msgstr ""
+msgstr "Se duplicó la nota."
 
 #: src/NewNoteComposer.tsx
 msgid "e.g. Reading list"
-msgstr ""
+msgstr "p. ej., Lista de lectura"
 
 #: src/NewNoteComposer.tsx
 msgid "e.g. Research"
-msgstr ""
+msgstr "p. ej., Investigación"
 
 #: src/TypeBrowser.tsx
 msgid "Each choice includes its portable contract and an editable local mapping."
-msgstr ""
+msgstr "Cada opción incluye su contrato portátil y una asignación local editable."
 
 #: src/type-contracts.ts
 msgid "Each implementation needs an exact contract ID and version."
-msgstr ""
+msgstr "Cada implementación necesita un ID de contrato y una versión exactos."
 
 #: src/ConnectionScreens.tsx
 msgid "edit and move notes"
-msgstr ""
+msgstr "editar y mover notas"
 
 #: src/PropertiesPanel.tsx
 msgid "Edit as source"
-msgstr ""
+msgstr "Editar el código fuente"
 
 #: src/NewNoteComposer.tsx
 msgid "Edit file path"
-msgstr ""
+msgstr "Editar la ruta del archivo"
 
 #: src/ConnectionScreens.tsx
 msgid "edit notes"
-msgstr ""
+msgstr "editar notas"
 
 #: src/TypeBrowser.tsx
 msgid "Edit reference"
-msgstr ""
+msgstr "Editar referencia"
 
 #: src/PropertiesPanel.tsx
 msgid "Edit the underlying property values. Other apps use these values too."
-msgstr ""
+msgstr "Edita los valores subyacentes de las propiedades. Otras aplicaciones también usan estos valores."
 
 #: src/TypeBrowser.tsx
 msgid "Edit YAML"
-msgstr ""
+msgstr "Editar YAML"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Editing"
-msgstr ""
+msgstr "Edición"
 
 #: src/App.tsx
 msgid "Editing is paused until you restore or discard these edits. They stay in this browser for up to seven days, or until saved or discarded. Restoring does not overwrite a newer version without review."
-msgstr ""
+msgstr "La edición está en pausa hasta que restaures o descartes estas ediciones. Se conservan en este navegador durante un máximo de siete días, o hasta que se guarden o se descarten. Al restaurarlas, no se sobrescribe ninguna versión más reciente sin que la revises."
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Editor settings"
-msgstr ""
+msgstr "Ajustes del editor"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Editor text size"
-msgstr ""
+msgstr "Tamaño del texto del editor"
 
 #: src/TypeBrowser.tsx
 msgid "Effective values for missing properties. Source files stay unchanged."
-msgstr ""
+msgstr "Valores efectivos para las propiedades que faltan. Los archivos de origen no cambian."
 
 #: src/code-editor-completions.ts
 msgid "Embed collection content"
-msgstr ""
+msgstr "Incrustar contenido de la colección"
 
 #: src/code-editor-file-embeds.ts
 msgid "Embedded PDF, {filename}"
-msgstr ""
+msgstr "PDF incrustado, {filename}"
 
 #. placeholder {0}: stringValue(runtime.profile_version, "0.1.0")
 #: src/settings/SettingsView.tsx
 msgid "Enabled · {0}"
-msgstr ""
+msgstr "Activado · {0}"
 
 #. placeholder {0}: schema.maximum
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter {0} or less."
-msgstr ""
+msgstr "Introduce {0} o menos."
 
 #. placeholder {0}: schema.minimum
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter {0} or more."
-msgstr ""
+msgstr "Introduce {0} o más."
 
 #: src/FolderChangeDialog.tsx
 msgid "Enter a folder name without slashes."
-msgstr ""
+msgstr "Introduce un nombre de carpeta sin barras."
 
 #: src/SchemaValueEditor.tsx
 msgid "Enter a JSON {type}."
-msgstr ""
+msgstr "Introduce un valor JSON de tipo {type}."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter a list."
-msgstr ""
+msgstr "Introduce una lista."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter a number."
-msgstr ""
+msgstr "Introduce un número."
 
 #: src/TypeBrowser.tsx
 msgid "Enter a valid JSON value."
-msgstr ""
+msgstr "Introduce un valor JSON válido."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter a whole number."
-msgstr ""
+msgstr "Introduce un número entero."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter an object."
-msgstr ""
+msgstr "Introduce un objeto."
 
 #. placeholder {0}: schema.minLength
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter at least {0} characters."
-msgstr ""
+msgstr "Introduce al menos {0} caracteres."
 
 #. placeholder {0}: schema.maxLength
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter no more than {0} characters."
-msgstr ""
+msgstr "Introduce como máximo {0} caracteres."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter text."
-msgstr ""
+msgstr "Introduce texto."
 
 #: src/TypeBrowser.tsx
 msgid "Entire collection"
-msgstr ""
+msgstr "Toda la colección"
 
 #: src/SchemaValueEditor.tsx
 msgid "entry "
-msgstr ""
+msgstr "entrada "
 
 #. placeholder {0}: index + 1
 #: src/SchemaValueEditor.tsx
 msgid "Entry {0} value"
-msgstr ""
+msgstr "Valor de la entrada {0}"
 
 #: src/PropertiesPanel.tsx
 msgid "Exact Markdown source, including YAML frontmatter and body."
-msgstr ""
+msgstr "Código fuente Markdown exacto, incluidos el frontmatter YAML y el cuerpo."
 
 #: src/TypeBrowser.tsx
 msgid "Existing notes need attention"
-msgstr ""
+msgstr "Las notas existentes requieren atención"
 
 #: src/YourPersonPanel.tsx
 msgid "Existing notes, other definitions, and access permissions will not be changed."
-msgstr ""
+msgstr "No se modificarán las notas existentes, otras definiciones ni los permisos de acceso."
 
 #: src/YourPersonPanel.tsx
 msgid "Existing person or contact"
-msgstr ""
+msgstr "Persona o contacto existente"
 
 #: src/App.tsx
 #: src/QuickOpen.tsx
 msgid "Exit focus mode"
-msgstr ""
+msgstr "Salir del modo de enfoque"
 
 #. placeholder {0}: node.path
 #: src/CollectionRail.tsx
 msgid "Expand {0}"
-msgstr ""
+msgstr "Expandir {0}"
 
 #: src/TypeBrowser.tsx
 msgid "Expand {fieldLabel} field"
-msgstr ""
+msgstr "Expandir el campo {fieldLabel}"
 
 #: src/CollectionRail.tsx
 msgid "Expand descendants"
-msgstr ""
+msgstr "Expandir descendientes"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Explicit type keys"
-msgstr ""
+msgstr "Claves de tipo explícitas"
 
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "False"
-msgstr ""
+msgstr "Falso"
 
 #: src/TypeBrowser.tsx
 msgid "Field mappings"
-msgstr ""
+msgstr "Asignaciones de campos"
 
 #: src/type-contracts.ts
 msgid "Field mappings must be a YAML object."
-msgstr ""
+msgstr "Las asignaciones de campos deben ser un objeto YAML."
 
 #: src/TypeBrowser.tsx
 msgid "Field name"
-msgstr ""
+msgstr "Nombre del campo"
 
 #: src/TypeBrowser.tsx
 msgid "Field selectors with an unsupported value"
-msgstr ""
+msgstr "Selectores de campo con un valor no admitido"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Field type"
-msgstr ""
+msgstr "Tipo de campo"
 
 #: src/TypeBrowser.tsx
 msgid "Fields"
-msgstr ""
+msgstr "Campos"
 
 #: src/TypeBrowser.tsx
 msgid "Fields added"
-msgstr ""
+msgstr "Campos añadidos"
 
 #: src/TypeBrowser.tsx
 msgid "Fields changed"
-msgstr ""
+msgstr "Campos modificados"
 
 #: src/TypeBrowser.tsx
 msgid "fields match"
-msgstr ""
+msgstr "campos coinciden"
 
 #: src/TypeBrowser.tsx
 msgid "Fields removed"
-msgstr ""
+msgstr "Campos eliminados"
 
 #. placeholder {0}: file.path
 #: src/code-editor-completions.ts
 msgid "File · {0}"
-msgstr ""
+msgstr "Archivo · {0}"
 
 #: src/NewNoteComposer.tsx
 msgid "File path"
-msgstr ""
+msgstr "Ruta del archivo"
 
 #: src/FileViewer.tsx
 msgid "File viewer, {filename}"
-msgstr ""
+msgstr "Visor de archivos, {filename}"
 
 #: src/NewNoteComposer.tsx
 msgid "Fill in the required properties."
-msgstr ""
+msgstr "Completa las propiedades obligatorias."
 
 #: src/code-editor-completions.ts
 msgid "Filter links by type"
-msgstr ""
+msgstr "Filtrar enlaces por tipo"
 
 #: src/QuickOpen.tsx
 msgid "Find a note by title or path, or type > for actions"
-msgstr ""
+msgstr "Busca una nota por título o ruta, o escribe > para ver acciones"
 
 #: src/QuickOpen.tsx
 msgid "Find a note or action"
-msgstr ""
+msgstr "Buscar una nota o acción"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Find a property"
-msgstr ""
+msgstr "Buscar una propiedad"
 
 #: src/QuickOpen.tsx
 msgid "Find in note"
-msgstr ""
+msgstr "Buscar en la nota"
 
 #: src/WorkspaceChrome.tsx
 msgid "Find linked notes"
-msgstr ""
+msgstr "Buscar notas enlazadas"
 
 #: src/CollectionRail.tsx
 msgid "Finding folders…"
-msgstr ""
+msgstr "Buscando carpetas…"
 
 #. placeholder {0}: pack.displayName
 #: src/TypeBrowser.tsx
 msgid "Finish adding {0}"
-msgstr ""
+msgstr "Terminar de añadir {0}"
 
 #: src/NewNoteComposer.tsx
 msgid "First note"
-msgstr ""
+msgstr "Primera nota"
 
 #: src/PropertiesPanel.tsx
 msgid "Fix invalid fields to continue saving"
-msgstr ""
+msgstr "Corrige los campos no válidos para seguir guardando"
 
 #: src/TypeBrowser.tsx
 msgid "Fix mapping"
-msgstr ""
+msgstr "Corregir asignación"
 
 #: src/NewNoteComposer.tsx
 msgid "Fix the highlighted property values."
-msgstr ""
+msgstr "Corrige los valores de propiedad resaltados."
 
 #: src/PropertiesPanel.tsx
 msgid "Fix the JSON to continue saving"
-msgstr ""
+msgstr "Corrige el JSON para seguir guardando"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Fix the JSON value before saving."
-msgstr ""
+msgstr "Corrige el valor JSON antes de guardar."
 
 #: src/TypeBrowser.tsx
 msgid "Fix the YAML source before returning to the field editor."
-msgstr ""
+msgstr "Corrige el código YAML antes de volver al editor de campos."
 
 #: src/App.tsx
 #: src/editor-commands.ts
 msgid "Focus mode"
-msgstr ""
+msgstr "Modo de enfoque"
 
 #: src/TypeBrowser.tsx
 msgid "Folder"
-msgstr ""
+msgstr "Carpeta"
 
 #. placeholder {0}: filter.value
 #: src/note-list-view.ts
 msgid "Folder · {0}"
-msgstr ""
+msgstr "Carpeta · {0}"
 
 #: src/FolderChangeDialog.tsx
 msgid "Folder change complete"
-msgstr ""
+msgstr "Cambio de carpeta completado"
 
 #: src/FolderChangeDialog.tsx
 msgid "Folder change needs attention"
-msgstr ""
+msgstr "El cambio de carpeta requiere atención"
 
 #. placeholder {0}: gatewayError(error)
 #: src/App.tsx
 msgid "Folder changes were applied, but refreshing the index failed. {0}"
-msgstr ""
+msgstr "Se aplicaron los cambios de carpeta, pero no se pudo actualizar el índice. {0}"
 
 #: src/FolderChangeDialog.tsx
 #: src/NewNoteComposer.tsx
 msgid "Folder name"
-msgstr ""
+msgstr "Nombre de la carpeta"
 
 #: src/CollectionRail.tsx
 msgid "folder path"
-msgstr ""
+msgstr "la ruta de la carpeta"
 
 #: src/CollectionRail.tsx
 msgid "Folders"
-msgstr ""
+msgstr "Carpetas"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Follow the system appearance or keep a theme in this browser."
-msgstr ""
+msgstr "Sigue la apariencia del sistema o mantén un tema en este navegador."
 
 #: src/TypeBrowser.tsx
 msgid "For integrations and specialised setups"
-msgstr ""
+msgstr "Para integraciones y configuraciones especializadas"
 
 #: src/App.tsx
 msgid "Forget “{name}” from this browser?"
-msgstr ""
+msgstr "¿Olvidar «{name}» en este navegador?"
 
 #: src/App.tsx
 #: src/ConnectionScreens.tsx
 msgid "Forget from this browser"
-msgstr ""
+msgstr "Olvidar en este navegador"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Forget from this browser"
-msgstr ""
+msgstr "Olvidar en este navegador"
 
 #: src/TypeBrowser.tsx
 msgid "Format"
-msgstr ""
+msgstr "Formato"
 
 #: src/App.tsx
 msgid "Forward in note history"
-msgstr ""
+msgstr "Avanzar en el historial de notas"
 
 #: src/App.tsx
 msgid "Forward to {historyForwardPath} · Alt+Right"
-msgstr ""
+msgstr "Avanzar a {historyForwardPath} · Alt+Flecha derecha"
 
 #. placeholder {0}: catalog.publisher.name
 #: src/TypeBrowser.tsx
 msgid "From {0}"
-msgstr ""
+msgstr "De {0}"
 
 #. placeholder {0}: plan.from
 #. placeholder {1}: plan.to
 #: src/FolderChangeDialog.tsx
 msgid "From <0>{0}</0> to <1>{1}</1>. This changes paths across the collection, including subfolders."
-msgstr ""
+msgstr "De <0>{0}</0> a <1>{1}</1>. Esto cambia las rutas en toda la colección, incluidas las subcarpetas."
 
 #: src/TypeBrowser.tsx
 msgid "Frontmatter contains all"
-msgstr ""
+msgstr "El frontmatter contiene todos los campos"
 
 #: src/PropertiesPanel.tsx
 msgid "Frontmatter must be a JSON object."
-msgstr ""
+msgstr "El frontmatter debe ser un objeto JSON."
 
 #: src/TypeBrowser.tsx
 msgid "Future file paths may change"
-msgstr ""
+msgstr "Las rutas de archivo futuras pueden cambiar"
 
 #: src/TypeBrowser.tsx
 msgid "Gains"
-msgstr ""
+msgstr "Obtiene"
 
 #: src/TypeBrowser.tsx
 msgid "Generated path ownership"
-msgstr ""
+msgstr "Titularidad de las rutas generadas"
 
 #: src/SdkEditorRoot.tsx
 msgid "Getting this collection ready…"
-msgstr ""
+msgstr "Preparando esta colección…"
 
 #: src/TypeBrowser.tsx
 msgid "Give the type a name, then add the fields its notes need."
-msgstr ""
+msgstr "Ponle un nombre al tipo y luego añade los campos que necesitan sus notas."
 
 #: src/TypeBrowser.tsx
 msgid "Guide compatible tools when they create or rename records of this type."
-msgstr ""
+msgstr "Orienta a las herramientas compatibles cuando crean registros de este tipo o les cambian el nombre."
 
 #: src/code-editor-completions.ts
 msgid "Heading 1"
-msgstr ""
+msgstr "Encabezado 1"
 
 #: src/code-editor-completions.ts
 msgid "Heading 2"
-msgstr ""
+msgstr "Encabezado 2"
 
 #: src/code-editor-completions.ts
 msgid "Heading 3"
-msgstr ""
+msgstr "Encabezado 3"
 
 #: src/App.tsx
 msgid "hide"
-msgstr ""
+msgstr "ocultar"
 
 #: src/EditorRail.tsx
 msgid "Hide collections sidebar"
-msgstr ""
+msgstr "Ocultar la barra lateral de colecciones"
 
 #: src/App.tsx
 msgid "Hide notes sidebar"
-msgstr ""
+msgstr "Ocultar la barra lateral de notas"
 
 #: src/App.tsx
 msgid "Hide types sidebar"
