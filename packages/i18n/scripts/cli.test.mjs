@@ -32,9 +32,9 @@ test("packed npm .bin CLI runs extraction, catalogue checks, compile and source 
   await writeFile(resolve(root, "package.json"), '{"type":"module"}');
   await writeFile(resolve(root, "lingui.config.mjs"), 'import { i18nConfig } from "@mdbase-dev/i18n/config"; export default i18nConfig();');
   await writeFile(resolve(root, "src/App.tsx"), 'import { t } from "@lingui/core/macro"; export function App() { return <button aria-label={t\x60Hello\x60}>{t\x60Hello\x60}</button>; }');
-  const run = (command) => process.platform === "win32"
-    ? spawnSync(process.execPath, [bin, command], { cwd: root, encoding: "utf8" })
-    : spawnSync(bin, [command], { cwd: root, encoding: "utf8" });
+  const run = (command, ...args) => process.platform === "win32"
+    ? spawnSync(process.execPath, [bin, command, ...args], { cwd: root, encoding: "utf8" })
+    : spawnSync(bin, [command, ...args], { cwd: root, encoding: "utf8" });
   const invalid = run("not-a-command");
   assert.equal(invalid.status, 1, invalid.stdout + invalid.stderr);
   assert.match(invalid.stderr, /Usage: mdbase-i18n/);
@@ -54,6 +54,44 @@ test("packed npm .bin CLI runs extraction, catalogue checks, compile and source 
   assert.match(checked.stdout, /i18n: catalogue contracts and source guard passed \(1 modules\)/);
   const french = JSON.parse(await readFile(resolve(root, "src/i18n/locales/fr/messages.json"), "utf8"));
   assert.equal(Object.values(french.messages)[0][0], "Bonjour");
+  // Published library JSON paths, not a second extraction scope or JS loader.
+  const library = "vendor/ui/{locale}/messages.json";
+  const secondLibrary = "vendor/other-ui/{locale}/messages.json";
+  for (const locale of locales) {
+    const catalogue = await readFile(resolve(root, `src/i18n/locales/${locale}/messages.json`), "utf8");
+    for (const pattern of [library, secondLibrary]) {
+      const filename = resolve(root, pattern.replace("{locale}", locale));
+      await mkdir(resolve(filename, ".."), { recursive: true });
+      await writeFile(filename, catalogue);
+    }
+  }
+  const composed = run("check", "--compose", library, secondLibrary, "--config", "lingui.config.mjs");
+  assert.equal(composed.status, 0, composed.stdout + composed.stderr);
+  const id = Object.keys(french.messages)[0];
+  for (const locale of ["fr", "de"]) {
+    for (const [index, pattern] of [library, secondLibrary].entries()) {
+      const filename = resolve(root, pattern.replace("{locale}", locale));
+      const catalogue = JSON.parse(await readFile(filename, "utf8"));
+      catalogue.messages[id] = [locale === "fr" ? "Salut" : "Guten Tag"];
+      catalogue.messages["library-only"] = [index === 0 ? "Shared A" : "Shared B"];
+      await writeFile(filename, JSON.stringify(catalogue));
+    }
+  }
+  const collision = run("check", "--compose", library, "--compose", secondLibrary);
+  assert.equal(collision.status, 1, collision.stdout + collision.stderr);
+  for (const [locale, appValue, libraryValue] of [["fr", "Bonjour", "Salut"], ["de", "Hallo", "Guten Tag"]]) {
+    assert.ok(collision.stderr.includes(`${locale}: Conflicting compiled translation for message ID: ${id} — ["${appValue}"] vs ["${libraryValue}"]`), collision.stderr);
+    assert.ok(collision.stderr.includes(`${locale}: Conflicting compiled translation for message ID: library-only — ["Shared A"] vs ["Shared B"]`), collision.stderr);
+  }
+  const missingCompose = run("check", "--compose");
+  assert.equal(missingCompose.status, 1);
+  assert.match(missingCompose.stderr, /--compose requires/);
+  const missingLocale = run("check", "--compose", "vendor/ui/fr/messages.json");
+  assert.equal(missingLocale.status, 1);
+  assert.match(missingLocale.stderr, /containing \{locale\}/);
+  const missingLibrary = run("check", "--compose", "missing/{locale}/messages.json");
+  assert.equal(missingLibrary.status, 1);
+  assert.match(missingLibrary.stderr, /ENOENT/);
   const frenchPath = resolve(root, "src/i18n/locales/fr/messages.po");
   const validFrench = await readFile(frenchPath, "utf8");
   await writeFile(frenchPath, validFrench.replace('msgstr "Bonjour"', 'msgstr ""'));
@@ -70,7 +108,23 @@ test("packed npm .bin CLI runs extraction, catalogue checks, compile and source 
   const unsafe = run("check");
   assert.notEqual(unsafe.status, 0);
   assert.match(unsafe.stderr, /unmarked JSX/);
+  await writeFile(resolve(root, "src/Unsafe.tsx"), 'export function Unsafe() { const [notice, setNotice] = useState(null); setNotice(`Account unlocked. ${count} private collections still need key access.`); return <p>{notice}</p>; }');
+  const unsafeNotice = run("source");
+  assert.equal(unsafeNotice.status, 1, unsafeNotice.stdout + unsafeNotice.stderr);
+  assert.match(unsafeNotice.stderr, /unmarked visible interpolation.*Account unlocked/);
   await writeFile(resolve(root, "src/Unsafe.tsx"), 'import { t } from "@lingui/core/macro"; export const extra = () => t\x60New message\x60;');
   const stale = run("check");
   assert.notEqual(stale.status, 0, "source extraction drift must fail");
+  await rm(resolve(root, "src/Unsafe.tsx"));
+  await writeFile(resolve(root, "src/App.tsx"), 'import { t, plural } from "@lingui/core/macro"; import { i18n } from "@lingui/core"; export function App({count}) { return <button>{t(i18n)\x60Hide ${plural(count, {one: "# file", other: "# files"})}\x60}</button>; }');
+  const nestedExtracted = run("extract");
+  assert.equal(nestedExtracted.status, 0, nestedExtracted.stdout + nestedExtracted.stderr);
+  const nestedEnglish = await formatter({}).parse(await readFile(resolve(root, "src/i18n/locales/en/messages.po"), "utf8"), { locale: "en" });
+  const active = Object.values(nestedEnglish).filter((entry) => !entry.obsolete);
+  assert.equal(active.length, 1, "nested plural is one ICU descriptor, not nested translations");
+  assert.match(active[0].message, /^Hide \{count, plural, one \{# file\} other \{# files\}\}$/);
+  const nestedCompiled = run("compile");
+  assert.equal(nestedCompiled.status, 0, nestedCompiled.stdout + nestedCompiled.stderr);
+  const nestedSource = run("source");
+  assert.equal(nestedSource.status, 0, nestedSource.stdout + nestedSource.stderr);
 });
