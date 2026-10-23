@@ -110,7 +110,7 @@ function GrantEditor({ grant, client, busy, perform }: {
   const ordered = [...allOperations.filter((operation) => grant.operations.includes(operation)), ...grant.operations.filter((operation) => !allOperations.includes(operation))];
   const changed = ordered.some((operation) => operations.has(operation) !== grant.operations.includes(operation));
   return <details className="connect-grant">
-    <summary><span><strong>{grant.collection_name}</strong><small><Trans>{plural(grant.operations.length, { one: "# permission", other: "# permissions" })} · {applicationAccessOriginLabel(grant.application_origin)}</Trans></small></span><b>{t(i18n)({ message: "Permissions", context: "Connect interface" })}</b></summary>
+    <summary><span><strong>{grant.collection_name}</strong><small>{plural(grant.operations.length, { one: "# permission", other: "# permissions" })} · {applicationAccessOriginLabel(grant.application_origin)}</small></span><b>{t(i18n)({ message: "Permissions", context: "Connect interface" })}</b></summary>
     <div className="connect-grant-body">
       {needsReview && <p role="status"><Trans>Access changed elsewhere. Review the current permissions before saving. <button onClick={acknowledge}>Review current access</button></Trans></p>}
       <div className="connect-permissions">{ordered.map((operation) => <label key={operation}><input className="mdbase-checkbox" type="checkbox" checked={operations.has(operation)} onChange={() => setSelected((current) => current.includes(operation)

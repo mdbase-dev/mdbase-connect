@@ -1,9 +1,9 @@
 {
-  "reason": "Portal and desktop each own one lazy application catalogue source and persisted language controls; native desktop locale persistence is isolated behind the existing trusted IPC boundary. The two shared UI libraries export independent CatalogueSources instead of duplicating their messages into every app. Small build-time macro/catalogue transforms replace uncompiled macros in published JS. This adds no remote service, collection protocol, workspace package or authorization state.",
+  "reason": "Portal and desktop each own one lazy application catalogue source and persisted language controls; native desktop locale persistence is isolated behind the existing trusted IPC boundary. The two shared UI libraries export independent CatalogueSources instead of duplicating their messages into every app. Small build-time macro/catalogue transforms replace uncompiled macros in published JS. One permission-label helper is reused by both consent screens to avoid untranslatable verb fragments. This adds no remote service, collection protocol, workspace package or authorization state.",
   "growth": {
     "productionFiles": 17,
     "relativeImports": 25,
-    "typeScriptExportDeclarations": 17,
+    "typeScriptExportDeclarations": 18,
     "apps/desktop": 5,
     "apps/portal": 4,
     "packages/app-ui": 6,

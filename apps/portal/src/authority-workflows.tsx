@@ -7,11 +7,11 @@ import {
   ApiError,
   type AuthorityTransfer as AuthorityTransferData,
   type DevicePairing,
-  type FileAction,
 } from "./api";
 import { finishDeniedPairing, rememberCollection, installationAccountLabel, installationRefusal, message, NEW_COLLECTION, pairingInspectionPath } from "./portal-model";
 import { Loading, PageBrand } from "./portal-ui";
 import { CollectionPicker } from "./CollectionPicker";
+import { fileActionLabel } from "./authorization-review";
 import { watchPairingPreparation } from "./pairing-progress";
 import { Checkbox, CheckboxGroup } from "@mdbase-dev/ui/checkbox";
 import { Select } from "@mdbase-dev/ui/select";
@@ -24,12 +24,6 @@ function appOriginKind(origin: string | undefined): string | null {
   return null;
 }
 
-const FILE_ACTION_VERBS: Record<FileAction, string> = {get list() { return t(i18n)({ message: "see the list of", context: "Collection connection" }); }, read: "open", add: "add", replace: "replace", get move() { return t(i18n)({ message: "move or rename", context: "Collection connection" }); }, delete: "delete"};
-/** "add", "add and replace", "add, replace and delete". */
-function fileAccessVerbs(actions: readonly FileAction[]): string {
-  const verbs = actions.map(action => FILE_ACTION_VERBS[action]);
-  return verbs.length < 2 ? verbs.join("") : t(i18n)`${verbs.slice(0, -1).join(", ")} and ${verbs[verbs.length - 1]}`;
-}
 export function Pairing({ pairingId }: { pairingId: string }) {
   useLocaleRevision();
   const [pairing, setPairing] = useState<DevicePairing | null>(null);
@@ -287,6 +281,9 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   if (installation && pairing.file_access) {
     const request = pairing.file_access, app = pairing.connector_name;
     const collection = request.collection_name ?? t(i18n)({ message: "this collection", context: "Collection connection" });
+    const actions = pairing.approved_at ? request.approved_actions ?? request.actions : request.actions;
+    const permissions = <ul className="field-note">{actions.map(action =>
+      <li key={action}>{fileActionLabel(action)}</li>)}</ul>;
     return (
       <main className="mdbase-connect-screen installation-approval">
         <section>
@@ -294,17 +291,20 @@ export function Pairing({ pairingId }: { pairingId: string }) {
           {pairing.approved_at ? (
             <>
               <h1><Trans>Allowed</Trans></h1>
-              <p className="mdbase-connect-lead"><Trans>{app} can now {fileAccessVerbs(request.approved_actions ?? request.actions)} files in {collection}. Return to {app} to continue.</Trans></p>
+              <p className="mdbase-connect-lead"><Trans>{app} now has this file access in {collection}. Return to {app} to continue.</Trans></p>
+              {permissions}
             </>
           ) : declined ? (
             <>
               <h1><Trans>Not allowed</Trans></h1>
-              <p className="mdbase-connect-lead"><Trans>{app} won't {fileAccessVerbs(request.actions)} files in {collection}. Return to {app}; everything else works as before.</Trans></p>
+              <p className="mdbase-connect-lead"><Trans>{app} was not given this file access in {collection}. Return to {app}; everything else works as before.</Trans></p>
+              {permissions}
             </>
           ) : (
             <>
-              <h1><Trans>Allow {app} to {fileAccessVerbs(request.actions)} files?</Trans></h1>
+              <h1><Trans>Allow {app} this file access?</Trans></h1>
               <p className="mdbase-connect-lead"><Trans>In {collection}. Allow only if you just asked for this in {app}.</Trans></p>
+              {permissions}
               <blockquote className="installation-file-access-reason">
                 <p><Trans>{app} says: {request.reason}</Trans></p>
               </blockquote>

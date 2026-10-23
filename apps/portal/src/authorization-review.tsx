@@ -35,6 +35,11 @@ const FILE_ACTION_LABELS: Record<ApplicationFileAction, string> = {
   get delete() { return t(i18n)({ message: "Delete files", context: "Application access approval" }); }
 };
 
+/** Standalone permission labels also used by the exact-file consent screen. */
+export function fileActionLabel(action: ApplicationFileAction): string {
+  return FILE_ACTION_LABELS[action];
+}
+
 function fileScopeDescription(files: FileRequirements): string {
   return files.scope.kind === "collection"
     ? t(i18n)({ message: "Every visible folder. Hidden folders are always excluded." })
@@ -216,7 +221,10 @@ export function NotificationAccess({ applicationName, notifications }: {
       <summary>
         <span>
           <strong><Trans>Change notifications</Trans></strong>
-          <small><Trans>{applicationName} can turn on {plural(notifications.criteria.length, { one: "this rule", other: "these # rules" })} after access is allowed. Notifications never contain record content.</Trans></small>
+          <small>{plural(notifications.criteria.length, {
+            one: `${applicationName} can turn on this rule after access is allowed. Notifications never contain record content.`,
+            other: `${applicationName} can turn on these # rules after access is allowed. Notifications never contain record content.`,
+          })}</small>
         </span>
         <b>{t(i18n)({ message: "Details", context: "Application access approval" })}</b>
       </summary>
