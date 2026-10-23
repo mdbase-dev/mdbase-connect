@@ -1369,436 +1369,436 @@ msgstr "Ранее разрешённый доступ приложений на
 #: src/renderer/collections-view.tsx
 msgctxt "Local collection management"
 msgid "Saving…"
-msgstr ""
+msgstr "Сохранение…"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "set reminders"
-msgstr ""
+msgstr "настраивать напоминания"
 
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
 msgctxt "Connect interface"
 msgid "Settings"
-msgstr ""
+msgstr "Настройки"
 
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Show mdbase connect"
-msgstr ""
+msgstr "Показать mdbase connect"
 
 #: src/renderer/sign-in-panel.tsx
 msgctxt "Connect interface"
 msgid "Sign in"
-msgstr ""
+msgstr "Войти"
 
 #: src/renderer/sign-in-panel.tsx
 msgid "Sign in before adding collections, so your apps can reach them through this computer. Your folders stay on this computer and their locations stay private."
-msgstr ""
+msgstr "Войдите перед добавлением коллекций, чтобы приложения могли получать к ним доступ через этот компьютер. Папки останутся на нём, а их расположение не будет раскрыто."
 
 #: src/renderer/main.tsx
 msgid "Sign in first, then add your collection."
-msgstr ""
+msgstr "Сначала войдите, затем добавьте коллекцию."
 
 #: src/renderer/takeover-state.mts
 msgid "Sign in to finish moving your collections"
-msgstr ""
+msgstr "Войдите, чтобы завершить перенос коллекций"
 
 #: src/renderer/sign-in-panel.tsx
 msgid "Sign in to mdbase on this computer"
-msgstr ""
+msgstr "Войти в mdbase на этом компьютере"
 
 #: src/renderer/view-model.ts
 msgid "Sign in to mdbase on this computer before adding a collection."
-msgstr ""
+msgstr "Войдите в mdbase на этом компьютере перед добавлением коллекции."
 
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Sign in to mdbase on this computer first."
-msgstr ""
+msgstr "Сначала войдите в mdbase на этом компьютере."
 
 #: src/renderer/view-model.ts
 msgid "Sign in to mdbase on this computer, then try again. {unchanged}"
-msgstr ""
+msgstr "Войдите в mdbase на этом компьютере и попробуйте снова. {unchanged}"
 
 #: src/renderer/takeover-state.mts
 msgid "Sign in to mdbase to continue"
-msgstr ""
+msgstr "Войдите в mdbase, чтобы продолжить"
 
 #: src/renderer/daemon-view.mts
 msgid "Sign in to serve this collection."
-msgstr ""
+msgstr "Войдите, чтобы предоставить доступ к этой коллекции."
 
 #: src/renderer/daemon-view.mts
 msgid "Sign in to sync this collection."
-msgstr ""
+msgstr "Войдите, чтобы синхронизировать эту коллекцию."
 
 #: src/renderer/sign-in-panel.tsx
 msgid "Sign in with your browser"
-msgstr ""
+msgstr "Войти через браузер"
 
 #: src/renderer/main.tsx
 msgid "Sign out on this computer? Apps can no longer reach your local collections through this computer. Your files are unaffected."
-msgstr ""
+msgstr "Выйти из учётной записи на этом компьютере? Приложения больше не смогут получать доступ к вашим локальным коллекциям через него. Файлы не изменятся."
 
 #: src/renderer/main.tsx
 msgid "Sign out on this computer…"
-msgstr ""
+msgstr "Выйти из учётной записи на этом компьютере…"
 
 #: src/renderer/main.tsx
 msgid "Signed in"
-msgstr ""
+msgstr "Вход выполнен"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Signing in"
-msgstr ""
+msgstr "Вход"
 
 #: src/renderer/takeover-state.mts
 msgid "Some edits from before the move need your attention."
-msgstr ""
+msgstr "Некоторые правки, внесённые до переноса, требуют вашего внимания."
 
 #: src/renderer/takeover-state.mts
 msgid "Some files were being written during the move. mdbase kept the files in your folder as they are; the unfinished versions are kept in the old Connect data."
-msgstr ""
+msgstr "Во время переноса в некоторые файлы выполнялась запись. mdbase оставил файлы в папке без изменений; незавершённые версии сохранены в старых данных Connect."
 
 #: src/renderer/takeover-state.mts
 msgid "Some hosted collections have edits from before the move that are not uploaded yet."
-msgstr ""
+msgstr "В некоторых размещённых коллекциях остались правки, сделанные до переноса и ещё не отправленные."
 
 #: src/renderer/sign-in-panel.tsx
 msgid "Start again"
-msgstr ""
+msgstr "Начать заново"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Start at login"
-msgstr ""
+msgstr "Запускать при входе"
 
 #: src/renderer/takeover-state.mts
 msgid "Stay online until uploads finish, then try again."
-msgstr ""
+msgstr "Оставайтесь в сети до завершения отправки данных, затем попробуйте снова."
 
 #. placeholder {0}: entry.app_name
 #. placeholder {1}: scope(entry, names)
 #: src/renderer/access-view.tsx
 msgid "Stop {0} from using {1} through this computer?"
-msgstr ""
+msgstr "Запретить {0} использовать {1} через этот компьютер?"
 
 #. placeholder {0}: collection.name
 #: src/renderer/collections-view.tsx
 msgid "Stop syncing {0}? It stays on this computer; your other devices and web apps stop receiving its changes."
-msgstr ""
+msgstr "Остановить синхронизацию {0}? Коллекция останется на этом компьютере, но другие устройства и веб-приложения перестанут получать её изменения."
 
 #: src/renderer/daemon-view.mts
 msgid "Stopped"
-msgstr ""
+msgstr "Остановлено"
 
 #: src/renderer/collections-view.tsx
 msgid "Sync"
-msgstr ""
+msgstr "Синхронизация"
 
 #. placeholder {0}: /[.!?]$/.test(sentence) ? sentence : `${sentence}.`
 #: src/renderer/view-model.ts
 msgid "Sync could not be turned on: {0} {unchanged}"
-msgstr ""
+msgstr "Не удалось включить синхронизацию: {0} {unchanged}"
 
 #. placeholder {0}: sync.last_error.replaceAll("_", " ")
 #: src/renderer/daemon-view.mts
 msgid "sync problem: {0}"
-msgstr ""
+msgstr "ошибка синхронизации: {0}"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Synced"
-msgstr ""
+msgstr "Синхронизировано"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Syncing…"
-msgstr ""
+msgstr "Синхронизация…"
 
 #: src/renderer/main.tsx
 msgid "System follows your operating system appearance"
-msgstr ""
+msgstr "Системная тема соответствует настройкам операционной системы"
 
 #: src/renderer/collections-view.tsx
 msgid "Take the other version"
-msgstr ""
+msgstr "Взять другую версию"
 
 #: src/renderer/device-requests.tsx
 msgid "That code does not match. Check the code on the new {label}. If you did not start this, decline."
-msgstr ""
+msgstr "Код не совпадает. Проверьте код на новом устройстве {label}. Если вы не начинали это подключение, отклоните запрос."
 
 #: src/main/boot-gate.ts
 msgctxt "Desktop application"
 msgid "The application update is in progress."
-msgstr ""
+msgstr "Обновление приложения выполняется."
 
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "The code is six digits."
-msgstr ""
+msgstr "Код должен состоять из шести цифр."
 
 #: src/renderer/takeover-state.mts
 msgid "the collection did not accept it"
-msgstr ""
+msgstr "коллекция не приняла его"
 
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
 msgid "The external update is not ready to open."
-msgstr ""
+msgstr "Внешнее обновление ещё не готово к открытию."
 
 #: src/renderer/view-model.ts
 msgid "The folder and its files are unchanged."
-msgstr ""
+msgstr "Папка и файлы не изменены."
 
 #: src/renderer/takeover-state.mts
 msgid "the folder belongs to a different mdbase install"
-msgstr ""
+msgstr "папка принадлежит другой установке mdbase"
 
 #: src/renderer/takeover-state.mts
 msgid "the folder is a copy of a hosted collection"
-msgstr ""
+msgstr "папка — копия размещённой коллекции"
 
 #: src/renderer/takeover-state.mts
 msgctxt "Collection move recovery"
 msgid "the folder is missing"
-msgstr ""
+msgstr "папка отсутствует"
 
 #: src/renderer/daemon-view.mts
 msgid "The folder is missing. Reconnect the drive or restore the folder."
-msgstr ""
+msgstr "Папка отсутствует. Подключите диск снова или восстановите папку."
 
 #: src/renderer/collections-view.tsx
 msgid "The folder is not renamed. The description stays on this computer."
-msgstr ""
+msgstr "Папка не переименована. Описание сохранено на этом компьютере."
 
 #: src/main/main.ts
 msgid "The folder or file could not be opened. {error}"
-msgstr ""
+msgstr "Не удалось открыть папку или файл. {error}"
 
 #: src/renderer/takeover-state.mts
 msgid "the folder's mdbase marker is unreadable"
-msgstr ""
+msgstr "метка mdbase в папке не читается"
 
 #: src/renderer/language-setting.tsx
 msgid "The language could not be loaded or saved. Try choosing it again."
-msgstr ""
+msgstr "Не удалось загрузить или сохранить язык. Попробуйте выбрать его снова."
 
 #: src/main/main.ts
 #: src/renderer/main.tsx
 msgid "The language could not be loaded. Choose it again in Settings."
-msgstr ""
+msgstr "Не удалось загрузить язык. Выберите его снова в настройках."
 
 #. placeholder {0}: status.error
 #: src/renderer/takeover-state.mts
 msgid "The last move attempt failed: {0}"
-msgstr ""
+msgstr "Последняя попытка переноса не удалась: {0}"
 
 #: src/renderer/main.tsx
 msgid "The mdbase account this computer is signed in to."
-msgstr ""
+msgstr "Учётная запись mdbase, в которую выполнен вход на этом компьютере."
 
 #: src/renderer/takeover-state.mts
 msgid "The move could not finish."
-msgstr ""
+msgstr "Не удалось завершить перенос."
 
 #: src/renderer/takeover-state.mts
 msgid "the move failed and will be retried"
-msgstr ""
+msgstr "перенос не удался и будет повторён"
 
 #: src/renderer/takeover-state.mts
 msgid "The move finished, but needs your attention."
-msgstr ""
+msgstr "Перенос завершился, но требует вашего внимания."
 
 #: src/renderer/device-requests.tsx
 msgid "The new {label} can now open {name}."
-msgstr ""
+msgstr "Новое устройство {label} теперь может открыть {name}."
 
 #: src/renderer/device-requests.tsx
 msgid "The new {label} was not given access to {name}."
-msgstr ""
+msgstr "Новому устройству {label} не предоставлен доступ к {name}."
 
 #: src/renderer/takeover-state.mts
 msgid "the old engine's mirror state could not be read"
-msgstr ""
+msgstr "не удалось прочитать состояние зеркала старого механизма"
 
 #: src/renderer/takeover-state.mts
 msgid "the old folder"
-msgstr ""
+msgstr "старая папка"
 
 #: src/renderer/daemon-view.mts
 msgid "The old mdbase Connect is running on this computer. Quit it or update it; mdbase resumes on its own."
-msgstr ""
+msgstr "На этом компьютере работает старый mdbase connect. Закройте или обновите его; mdbase возобновит работу самостоятельно."
 
 #: src/renderer/takeover-state.mts
 msgid "the old mdbase Connect is still running"
-msgstr ""
+msgstr "старый mdbase connect всё ещё работает"
 
 #: src/renderer/view-model.ts
 msgid "The old mdbase Connect is still running on this computer. Quit it, then try again. {unchanged}"
-msgstr ""
+msgstr "На этом компьютере всё ещё работает старый mdbase connect. Закройте его и попробуйте снова. {unchanged}"
 
 #: src/renderer/takeover-state.mts
 msgid "The old mdbase Connect keeps serving these collections until the move finishes. Nothing was changed."
-msgstr ""
+msgstr "Старый mdbase connect продолжит предоставлять доступ к этим коллекциям до завершения переноса. Ничего не изменено."
 
 #: src/renderer/takeover-state.mts
 msgid "The old mdbase Connect started again after the move. Quit it and remove it from your login items; mdbase has taken over its collections."
-msgstr ""
+msgstr "После переноса старый mdbase connect снова запустился. Закройте его и удалите из автозагрузки; mdbase уже управляет его коллекциями."
 
 #: src/renderer/takeover-state.mts
 msgid "The server hasn't confirmed that the old mdbase Connect on this computer is retired. Keep using mdbase as normal. If this message stays, email support@mdbase.dev."
-msgstr ""
+msgstr "Сервер ещё не подтвердил, что старый mdbase connect на этом компьютере выведен из эксплуатации. Продолжайте использовать mdbase как обычно. Если сообщение не исчезнет, напишите на support@mdbase.dev."
 
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
 msgid "The update has not finished downloading."
-msgstr ""
+msgstr "Загрузка обновления ещё не завершена."
 
 #. placeholder {0}: message(error)
 #: src/main/update-coordinator.ts
 msgid "The update was not installed: {0}"
-msgstr ""
+msgstr "Обновление не установлено: {0}"
 
 #: src/renderer/main.tsx
 msgid "Theme"
-msgstr ""
+msgstr "Тема"
 
 #: src/renderer/access-view.tsx
 msgid "These stay refused on this computer, even if mdbase still lists them."
-msgstr ""
+msgstr "Доступ для них останется запрещённым на этом компьютере, даже если они ещё есть в списке mdbase."
 
 #: src/renderer/daemon-view.mts
 msgid "This build of mdbase cannot sync yet. Update mdbase."
-msgstr ""
+msgstr "Эта сборка mdbase пока не может синхронизировать данные. Обновите mdbase."
 
 #: src/renderer/daemon-view.mts
 msgid "This collection belongs to a different mdbase account."
-msgstr ""
+msgstr "Эта коллекция принадлежит другой учётной записи mdbase."
 
 #: src/renderer/daemon-view.mts
 msgid "This collection's sync settings could not be verified. Turn sync off and on again, or contact support."
-msgstr ""
+msgstr "Не удалось проверить настройки синхронизации этой коллекции. Выключите и снова включите синхронизацию или обратитесь в поддержку."
 
 #: src/renderer/main.tsx
 msgid "This computer"
-msgstr ""
+msgstr "Этот компьютер"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "This computer"
-msgstr ""
+msgstr "Этот компьютер"
 
 #. placeholder {0}: collections.length
 #: src/renderer/main.tsx
 msgid "This computer · {0, plural, one {# collection} other {# collections}}"
-msgstr ""
+msgstr "Этот компьютер · {0, plural, one {# коллекция} few {# коллекции} many {# коллекций} other {# коллекции}}"
 
 #: src/renderer/takeover-state.mts
 msgid "this computer also syncs hosted collections with the old engine"
-msgstr ""
+msgstr "этот компьютер также синхронизирует размещённые коллекции через старый механизм"
 
 #: src/renderer/daemon-view.mts
 msgid "This computer has not joined this collection yet."
-msgstr ""
+msgstr "Этот компьютер ещё не подключился к коллекции."
 
 #: src/renderer/daemon-view.mts
 msgid "This computer is not a member of this collection yet."
-msgstr ""
+msgstr "Этот компьютер пока не является участником коллекции."
 
 #. placeholder {0}: entry.detail ?? "something new"
 #: src/renderer/daemon-view.mts
 msgid "This computer is now called {0}"
-msgstr ""
+msgstr "Теперь имя этого компьютера — {0}"
 
 #. placeholder {0}: renamed.name
 #: src/renderer/main.tsx
 msgid "This computer is now called {0}."
-msgstr ""
+msgstr "Теперь имя этого компьютера — {0}."
 
 #: src/renderer/takeover-state.mts
 msgid "This computer moved your collections to the new sync engine, but your mdbase account hasn't been upgraded yet, or its upgrade was paused. Your files are safe in their folders, but changes made on this computer may not reach your other mdbase apps until your account is upgraded."
-msgstr ""
+msgstr "Этот компьютер перенёс ваши коллекции на новый механизм синхронизации, но учётная запись mdbase ещё не обновлена или обновление приостановлено. Файлы в папках в безопасности, однако изменения с этого компьютера могут не дойти до других ваших приложений mdbase до обновления учётной записи."
 
 #: src/renderer/daemon-view.mts
 msgid "This computer signed in"
-msgstr ""
+msgstr "На этом компьютере выполнен вход"
 
 #: src/renderer/daemon-view.mts
 msgid "This computer signed out"
-msgstr ""
+msgstr "На этом компьютере выполнен выход"
 
 #: src/renderer/main.tsx
 msgid "This computer's account, app approval and background behavior."
-msgstr ""
+msgstr "Учётная запись, одобрение приложений и фоновая работа этого компьютера."
 
 #: src/renderer/daemon-view.mts
 msgid "This copy stopped following the collection. Join it again to keep it in sync."
-msgstr ""
+msgstr "Эта копия перестала получать изменения коллекции. Подключите её снова для синхронизации."
 
 #: src/renderer/collections-view.tsx
 msgid "This file is not a note: restore the other version by hand if you need it."
-msgstr ""
+msgstr "Этот файл не является заметкой: при необходимости восстановите другую версию вручную."
 
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
 msgid "This is the newest release on the selected channel."
-msgstr ""
+msgstr "Это самая новая версия в выбранном канале выпуска."
 
 #: src/renderer/view-model.ts
 msgid "This version of mdbase can't turn on sync. Update mdbase, then try again. {unchanged}"
-msgstr ""
+msgstr "Эта версия mdbase не может включить синхронизацию. Обновите mdbase и попробуйте снова. {unchanged}"
 
 #: src/renderer/view-model.ts
 msgid "This version of mdbase connect needs to be updated before it can continue."
-msgstr ""
+msgstr "Прежде чем продолжить, обновите эту версию mdbase connect."
 
 #. placeholder {0}: manifest.version
 #: src/main/update-coordinator.ts
 msgid "This version of mdbase is no longer supported. Version {0} is available through the Microsoft Store."
-msgstr ""
+msgstr "Эта версия mdbase больше не поддерживается. Версия {0} доступна в Microsoft Store."
 
 #. placeholder {0}: manifest.version
 #: src/main/update-coordinator.ts
 msgid "This version of mdbase is no longer supported. Version {0} is available through the signed package channel."
-msgstr ""
+msgstr "Эта версия mdbase больше не поддерживается. Версия {0} доступна через канал подписанных пакетов."
 
 #. placeholder {0}: manifest.version
 #: src/main/update-coordinator.ts
 msgid "This version of mdbase is no longer supported. Version {0} is verified; install it now."
-msgstr ""
+msgstr "Эта версия mdbase больше не поддерживается. Версия {0} проверена; установите её сейчас."
 
 #: src/renderer/collections-view.tsx
 msgid "Turn off sync"
-msgstr ""
+msgstr "Выключить синхронизацию"
 
 #: src/renderer/collections-view.tsx
 msgid "Turn on sync"
-msgstr ""
+msgstr "Включить синхронизацию"
 
 #: src/renderer/collections-view.tsx
 msgctxt "Local collection management"
 msgid "Turn on sync"
-msgstr ""
+msgstr "Включить синхронизацию"
 
 #. placeholder {0}: collection.name
 #: src/renderer/collections-view.tsx
 msgid "Turn on sync for {0}"
-msgstr ""
+msgstr "Включить синхронизацию для {0}"
 
 #: src/renderer/daemon-view.mts
 msgid "Turning on Private sync so apps that used this collection keep working. mdbase finishes this on its own; your files are untouched."
-msgstr ""
+msgstr "Включается закрытая синхронизация, чтобы приложения, ранее использовавшие коллекцию, продолжили работу. mdbase завершит процесс самостоятельно; файлы не изменятся."
 
 #: src/renderer/daemon-view.mts
 msgid "Turning on Private sync…"
-msgstr ""
+msgstr "Включение закрытой синхронизации…"
 
 #: src/renderer/daemon-view.mts
 msgid "Turning on sync did not finish. Choose Turn on sync again to continue."
-msgstr ""
+msgstr "Не удалось завершить включение синхронизации. Ещё раз выберите «Включить синхронизацию», чтобы продолжить."
 
 #: src/renderer/daemon-view.mts
 msgid "Turning on sync: uploading the files in the folder…"
