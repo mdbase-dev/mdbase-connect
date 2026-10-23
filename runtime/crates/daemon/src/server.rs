@@ -2969,10 +2969,14 @@ impl Daemon {
         let Ok(run) = self.takeover.run.try_lock() else {
             return;
         };
-        if !self
+        let waiting = self
             .takeover
             .waiting_for_batch
             .load(std::sync::atomic::Ordering::Relaxed)
+            || self
+                .takeover_record()
+                .is_some_and(|r| r.waiting_for_old_daemon());
+        if !waiting
             || !self
                 .takeover
                 .retry
@@ -3389,14 +3393,17 @@ impl Daemon {
             .waiting_reason
             .lock()
             .unwrap_or_else(|p| p.into_inner()) = None;
-        self.takeover
+        if self
+            .takeover
             .waiting_for_batch
-            .store(false, std::sync::atomic::Ordering::Relaxed);
-        self.takeover
-            .retry
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .reset();
+            .swap(false, std::sync::atomic::Ordering::Relaxed)
+        {
+            self.takeover
+                .retry
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .reset();
+        }
         let paths = self.takeover_paths();
         let isolated = self.profile.target == crate::paths::Target::IsolatedProfile;
         let opts = crate::takeover::Options {
@@ -3411,7 +3418,7 @@ impl Daemon {
         let _own = self.takeover.holding_old_lock();
         let ran = tokio::task::spawn_blocking(move || {
             let mut old_service: Box<dyn mdbn_takeover::OldService> = if isolated {
-                Box::new(crate::takeover::IsolatedOldService)
+                Box::new(crate::service::legacy::ForegroundOldService(old.clone()))
             } else {
                 Box::new(crate::service::legacy::OldConnectorService::new())
             };
@@ -3437,6 +3444,22 @@ impl Daemon {
                 return Err(ControlError::unavailable("takeover_failed", e.to_string()));
             }
         };
+        {
+            let mut retry = self
+                .takeover
+                .retry
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            if ran
+                .record
+                .as_ref()
+                .is_some_and(|r| r.waiting_for_old_daemon())
+            {
+                retry.denied(std::time::Instant::now());
+            } else {
+                retry.reset();
+            }
+        }
         self.takeover
             .revived
             .store(ran.revived, std::sync::atomic::Ordering::Relaxed);
@@ -3504,7 +3527,7 @@ impl Daemon {
         let isolated = self.profile.target == crate::paths::Target::IsolatedProfile;
         let fenced = tokio::task::spawn_blocking(move || {
             let mut old_service: Box<dyn mdbn_takeover::OldService> = if isolated {
-                Box::new(crate::takeover::IsolatedOldService)
+                Box::new(crate::service::legacy::ForegroundOldService(old.clone()))
             } else {
                 Box::new(crate::service::legacy::OldConnectorService::new())
             };
