@@ -3549,258 +3549,258 @@ msgstr "현재 정책 보호를 위해 업데이트 권장"
 
 #: src/ConnectApp.tsx
 msgid "Update required"
-msgstr ""
+msgstr "업데이트 필요"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Update required"
-msgstr ""
+msgstr "업데이트 필요"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Updating access…"
-msgstr ""
+msgstr "액세스 업데이트하는 중…"
 
 #: src/authorization-view.tsx
 msgid "Upgrades starter types this application added earlier while keeping your customizations and notes. Types it cannot trace to one of those starters are left unchanged. Conflicts, or other types still using the old contract, stop the whole upgrade."
-msgstr ""
+msgstr "이 애플리케이션에서 이전에 추가한 시작 유형을 업그레이드하면서 사용자 지정 설정과 노트를 유지합니다. 그 시작 유형 중 하나로 추적할 수 없는 유형은 변경하지 않습니다. 충돌이 있거나 이전 계약을 사용하는 다른 유형이 남아 있으면 전체 업그레이드가 중단됩니다."
 
 #: src/AccountManagement.tsx
 msgid "Usage temporarily unavailable"
-msgstr ""
+msgstr "사용량을 일시적으로 확인할 수 없음"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Usage unavailable"
-msgstr ""
+msgstr "사용량 확인 불가"
 
 #: src/auth-view.tsx
 msgid "Use a connected account to get started."
-msgstr ""
+msgstr "시작하려면 연결된 계정을 사용하세요."
 
 #: src/auth-view.tsx
 msgid "Use a connected account, or verify your email to get started."
-msgstr ""
+msgstr "연결된 계정을 사용하거나 이메일을 확인해 시작하세요."
 
 #: src/authorization-view.tsx
 msgid "Use a folder on this computer"
-msgstr ""
+msgstr "이 컴퓨터의 폴더 사용"
 
 #: src/authorization-view.tsx
 msgid "Use a local folder"
-msgstr ""
+msgstr "로컬 폴더 사용"
 
 #: src/ConnectApp.tsx
 msgid "Use a single-line collection name."
-msgstr ""
+msgstr "컬렉션 이름을 한 줄로 입력하세요."
 
 #: src/ConnectApp.tsx
 msgid "Use an existing person or create a note"
-msgstr ""
+msgstr "기존 사용자 사용 또는 노트 만들기"
 
 #: src/authorization-review.tsx
 msgid "Use an existing type"
-msgstr ""
+msgstr "기존 유형 사용"
 
 #: src/AccountManagement.tsx
 #: src/auth-view.tsx
 msgid "Use at least 15 characters. Spaces are welcome."
-msgstr ""
+msgstr "15자 이상 입력하세요. 공백도 사용할 수 있습니다."
 
 #: src/ConnectApp.tsx
 msgid "Use the desktop app to keep an ordinary Markdown folder on a computer."
-msgstr ""
+msgstr "컴퓨터에 일반 Markdown 폴더를 보관하려면 데스크톱 앱을 사용하세요."
 
 #: src/authority-workflows.tsx
 msgid "Use the folder on {mirrorName} as the main copy?"
-msgstr ""
+msgstr "{mirrorName}의 폴더를 기본 사본으로 사용할까요?"
 
 #: src/AccountManagement.tsx
 msgid "Use this when someone cannot invite your verified email address."
-msgstr ""
+msgstr "상대방이 확인된 내 이메일 주소로 초대할 수 없을 때 사용하세요."
 
 #: src/AccountManagement.tsx
 msgid "Used by hosted collections"
-msgstr ""
+msgstr "호스팅 컬렉션에서 사용됨"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "v"
-msgstr ""
+msgstr "v"
 
 #: src/AccountManagement.tsx
 msgid "Verification and messages about your account. These are always sent."
-msgstr ""
+msgstr "계정 확인 및 관련 메시지. 항상 전송됩니다."
 
 #: src/ConnectApp.tsx
 msgid "Verified email"
-msgstr ""
+msgstr "확인된 이메일"
 
 #: src/AccountManagement.tsx
 msgid "Verify with GitHub"
-msgstr ""
+msgstr "GitHub로 확인"
 
 #: src/AccountManagement.tsx
 msgid "Verify with Google"
-msgstr ""
+msgstr "Google로 확인"
 
 #. placeholder {0}: connector.minimum_connector_version
 #: src/ConnectApp.tsx
 msgid "version {0} or later"
-msgstr ""
+msgstr "버전 {0} 이상"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Viewer"
-msgstr ""
+msgstr "열람자"
 
 #: src/authorization-view.tsx
 msgid "Waiting for mdbase connect"
-msgstr ""
+msgstr "mdbase connect 기다리는 중"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Waiting for the app"
-msgstr ""
+msgstr "앱 기다리는 중"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Waiting for the computer"
-msgstr ""
+msgstr "컴퓨터 기다리는 중"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Waiting to sync"
-msgstr ""
+msgstr "동기화 대기 중"
 
 #: src/authority-workflows.tsx
 msgid "We couldn't confirm collection creation finished. Please try again."
-msgstr ""
+msgstr "컬렉션 생성이 완료되었는지 확인하지 못했습니다. 다시 시도하세요."
 
 #: src/authority-workflows.tsx
 msgid "We couldn't identify your account. Sign in again to continue."
-msgstr ""
+msgstr "계정을 식별하지 못했습니다. 다시 로그인해 계속하세요."
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "We couldn't prepare {0}."
-msgstr ""
+msgstr "{0}을(를) 준비하지 못했습니다."
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "We couldn't prepare {0}. Keep the app open and try again."
-msgstr ""
+msgstr "{0}을(를) 준비하지 못했습니다. 앱을 열어 둔 채 다시 시도하세요."
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "We couldn't prepare {0}. Make sure the app is up to date."
-msgstr ""
+msgstr "{0}을(를) 준비하지 못했습니다. 앱이 최신 버전인지 확인하세요."
 
 #: src/auth-view.tsx
 msgid "We’ll email you a link to verify your address. Then you can choose a password."
-msgstr ""
+msgstr "주소 확인 링크를 이메일로 보내드립니다. 확인한 뒤 비밀번호를 선택할 수 있습니다."
 
 #: src/auth-view.tsx
 msgid "We’ll email you a reset link. It expires in one hour."
-msgstr ""
+msgstr "이메일로 재설정 링크를 보내드립니다. 1시간 후 만료됩니다."
 
 #: src/onboarding-view.tsx
 msgid "We’re creating a small private Markdown collection, then we’ll open it in the editor."
-msgstr ""
+msgstr "작은 비공개 Markdown 컬렉션을 만든 뒤 편집기에서 열겠습니다."
 
 #: src/authorization-view.tsx
 msgid "What it can do"
-msgstr ""
+msgstr "할 수 있는 작업"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Work with files"
-msgstr ""
+msgstr "파일 작업"
 
 #: src/authorization-view.tsx
 msgid "Workouts"
-msgstr ""
+msgstr "운동 기록"
 
 #: src/authority-workflows.tsx
 msgid "Writes pause during verification, then hosted access is retired."
-msgstr ""
+msgstr "확인하는 동안 쓰기가 일시 중지되고 이후 호스팅 액세스가 종료됩니다."
 
 #: src/authority-workflows.tsx
 msgid "You allowed reminders for the selected collections."
-msgstr ""
+msgstr "선택한 컬렉션의 리마인더를 허용했습니다."
 
 #: src/auth-view.tsx
 msgid "You won’t receive {topic} from mdbase Connect. Messages about your account, such as verification and security email, are still sent."
-msgstr ""
+msgstr "mdbase Connect에서 {topic} 소식을 더 이상 받지 않습니다. 확인 및 보안 이메일처럼 계정에 관한 메시지는 계속 전송됩니다."
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "You’re unsubscribed"
-msgstr ""
+msgstr "수신이 거부되었습니다"
 
 #: src/AccountManagement.tsx
 msgid "Your account has been deleted."
-msgstr ""
+msgstr "계정이 삭제되었습니다."
 
 #: src/authorization-view.tsx
 msgid "Your approved collection and permissions will follow you back."
-msgstr ""
+msgstr "승인한 컬렉션과 권한이 애플리케이션으로 돌아갈 때 함께 적용됩니다."
 
 #: src/AccountManagement.tsx
 msgid "Your change was saved, but account details could not refresh. Reload to check the latest details."
-msgstr ""
+msgstr "변경 사항이 저장되었지만 계정 세부 정보를 새로고침하지 못했습니다. 최신 정보를 확인하려면 다시 불러오세요."
 
 #: src/authorization-view.tsx
 msgid "Your choices are being checked with the collection’s main copy. The application does not have access yet."
-msgstr ""
+msgstr "선택한 설정을 컬렉션의 기본 사본에서 확인하고 있습니다. 애플리케이션에는 아직 액세스 권한이 없습니다."
 
 #: src/auth-view.tsx
 msgid "Your collections and account, in one place."
-msgstr ""
+msgstr "컬렉션과 계정을 한곳에서 관리하세요."
 
 #: src/ConnectApp.tsx
 msgid "Your collections were not deleted."
-msgstr ""
+msgstr "컬렉션은 삭제되지 않았습니다."
 
 #: src/auth-view.tsx
 msgid "Your email is verified. Choose a name and password to finish setting up your account."
-msgstr ""
+msgstr "이메일이 확인되었습니다. 계정 설정을 마치려면 이름과 비밀번호를 선택하세요."
 
 #: src/auth-view.tsx
 msgid "Your email is verified. Confirm your name to finish setting up your account. No password needed."
-msgstr ""
+msgstr "이메일이 확인되었습니다. 계정 설정을 마치려면 이름을 확인하세요. 비밀번호는 필요하지 않습니다."
 
 #: src/onboarding-view.tsx
 msgid "Your first collection"
-msgstr ""
+msgstr "첫 컬렉션"
 
 #: src/authority-workflows.tsx
 msgid "Your local collection was kept."
-msgstr ""
+msgstr "로컬 컬렉션은 그대로 유지되었습니다."
 
 #: src/portal-model.ts
 msgid "Your mdbase account hasn't been upgraded yet, so {app} can't use it. Email support@mdbase.dev and we'll upgrade it, or go back to {app} to sign in with a different account."
-msgstr ""
+msgstr "mdbase 계정이 아직 업그레이드되지 않아 {app}에서 사용할 수 없습니다. support@mdbase.dev로 이메일을 보내 업그레이드를 요청하거나 {app}(으)로 돌아가 다른 계정으로 로그인하세요."
 
 #: src/portal-model.ts
 msgid "Your mdbase account is being upgraded. This usually takes a few minutes. Try again shortly."
-msgstr ""
+msgstr "mdbase 계정을 업그레이드하는 중입니다. 보통 몇 분 정도 걸립니다. 잠시 후 다시 시도하세요."
 
 #: src/portal-model.ts
 msgid "Your mdbase account will be upgraded soon, so {app} can't use it yet. Sign in again from {app} once it is."
-msgstr ""
+msgstr "mdbase 계정이 곧 업그레이드되므로 {app}에서 아직 사용할 수 없습니다. 완료되면 {app}에서 다시 로그인하세요."
 
 #: src/portal-model.ts
 msgid "Your mdbase account's upgrade was paused, so {app} can't use it yet. Your account and collections still work with your current mdbase apps. Email support@mdbase.dev if you need help."
-msgstr ""
+msgstr "mdbase 계정 업그레이드가 일시 중지되어 {app}에서 아직 사용할 수 없습니다. 현재 사용하는 mdbase 앱에서 계정과 컬렉션은 계속 작동합니다. 도움이 필요하면 support@mdbase.dev로 이메일을 보내세요."
 
 #: src/ConnectApp.tsx
 msgid "Your original request is kept. Retry it to avoid creating another collection."
-msgstr ""
+msgstr "원래 요청이 보관되어 있습니다. 다른 컬렉션을 만들지 않도록 해당 요청을 다시 시도하세요."
 
 #: src/auth-view.tsx
 msgid "Your other browser sessions have been signed out. This browser is now signed in with the new password."
-msgstr ""
+msgstr "다른 브라우저 세션에서 로그아웃되었습니다. 이제 이 브라우저는 새 비밀번호로 로그인되어 있습니다."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
