@@ -9,128 +9,128 @@ msgstr ""
 
 #: src/use-note-actions.ts
 msgid "Recover the unsaved edits in this note before changing it."
-msgstr ""
+msgstr "Stellen Sie die nicht gespeicherten Änderungen an dieser Notiz wieder her, bevor Sie sie bearbeiten."
 
 #. placeholder {0}: warnings.length
 #: src/TypeBrowser.tsx
 msgid " · {0} to review"
-msgstr ""
+msgstr " · {0} zu prüfen"
 
 #. placeholder {0}: result.failed.length
 #. placeholder {1}: result.failed.map(({ path, error }) => `${path} — ${gatewayError(error)}`).join("; ")
 #: src/use-note-actions.ts
 msgid " {0} couldn’t be changed: {1}"
-msgstr ""
+msgstr " {0} konnte nicht geändert werden: {1}"
 
 #: src/FolderChangeDialog.tsx
 msgid " Links were updated."
-msgstr ""
+msgstr " Links wurden aktualisiert."
 
 #: src/App.tsx
 msgid " The move may still be applying; recover the pending operation before retrying."
-msgstr ""
+msgstr " Die Verschiebung wird möglicherweise noch ausgeführt. Stellen Sie den ausstehenden Vorgang wieder her, bevor Sie es erneut versuchen."
 
 #. placeholder {0}: suggestion.requiredMatched
 #. placeholder {1}: suggestion.requiredFields
 #: src/TypeBrowser.tsx
 msgid ", {0} of {1} required"
-msgstr ""
+msgstr ", {0} von {1} erforderlich"
 
 #: src/NewNoteComposer.tsx
 msgid ".md"
-msgstr ""
+msgstr ".md"
 
 #: src/NewNoteComposer.tsx
 msgid "‹title›"
-msgstr ""
+msgstr "‹Titel›"
 
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/App.tsx
 msgid "“{0}” changed elsewhere. Your edits are still here."
-msgstr ""
+msgstr "„{0}“ wurde an anderer Stelle geändert. Ihre Änderungen sind noch vorhanden."
 
 #. placeholder {0}: note.title
 #. placeholder {1}: reference.anchor
 #: src/code-editor-reference-diagnostics.ts
 msgid "“{0}” has no “{1}” section or block."
-msgstr ""
+msgstr "„{0}“ enthält keinen Abschnitt oder Block „{1}“."
 
 #. placeholder {0}: impact.overlapping
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one { · # also matches another type} other { · # also match another type}}"
-msgstr ""
+msgstr "{0, plural, one { · # entspricht auch einem anderen Typ} other { · # entsprechen auch einem anderen Typ}}"
 
 #. placeholder {0}: renamePlan.warnings.length
 #: src/App.tsx
 msgid "{0, plural, one { # link needs attention and won’t be changed automatically.} other { # links need attention and won’t be changed automatically.}}"
-msgstr ""
+msgstr "{0, plural, one { # Link muss geprüft werden und wird nicht automatisch geändert.} other { # Links müssen geprüft werden und werden nicht automatisch geändert.}}"
 
 #. placeholder {0}: result.failures.length
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one { # note could not be confirmed as moved. Check the details below before retrying. Successful moves were not rolled back. Use Move to… on the remaining notes to finish.} other { # notes could not be confirmed as moved. Check the details below before retrying. Successful moves were not rolled back. Use Move to… on the remaining notes to finish.}}"
-msgstr ""
+msgstr "{0, plural, one {Die Verschiebung von # Notiz konnte nicht bestätigt werden. Prüfen Sie die Details unten, bevor Sie es erneut versuchen. Erfolgreiche Verschiebungen wurden nicht rückgängig gemacht. Verwenden Sie „Verschieben nach…“ für die übrigen Notizen.} other {Die Verschiebung von # Notizen konnte nicht bestätigt werden. Prüfen Sie die Details unten, bevor Sie es erneut versuchen. Erfolgreiche Verschiebungen wurden nicht rückgängig gemacht. Verwenden Sie „Verschieben nach…“ für die übrigen Notizen.}}"
 
 #. placeholder {0}: implementations.length
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one {# connection configured} other {# connections configured}}"
-msgstr ""
+msgstr "{0, plural, one {# Verbindung konfiguriert} other {# Verbindungen konfiguriert}}"
 
 #. placeholder {0}: impact.current
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one {# currently indexed note matches} other {# currently indexed notes match}}"
-msgstr ""
+msgstr "{0, plural, one {# aktuell indizierte Notiz stimmt überein} other {# aktuell indizierte Notizen stimmen überein}}"
 
 #. placeholder {0}: types.length
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one {# definition} other {# definitions}}"
-msgstr ""
+msgstr "{0, plural, one {# Definition} other {# Definitionen}}"
 
 #. placeholder {0}: linkedSchemaFields.length
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one {# field is supplied by the installed schema.} other {# fields are supplied by the installed schema.}}"
-msgstr ""
+msgstr "{0, plural, one {# Feld wird vom installierten Schema bereitgestellt.} other {# Felder werden vom installierten Schema bereitgestellt.}}"
 
 #. placeholder {0}: propertyCount(type)
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one {# field} other {# fields}}"
-msgstr ""
+msgstr "{0, plural, one {# Feld} other {# Felder}}"
 
 #. placeholder {0}: options.length
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one {# match} other {# matches}}"
-msgstr ""
+msgstr "{0, plural, one {# Treffer} other {# Treffer}}"
 
 #. placeholder {0}: renamePlan.affectedPaths.length
 #: src/App.tsx
 msgid "{0, plural, one {# note contains links that will change.} other {# notes contain links that will change.}}"
-msgstr ""
+msgstr "{0, plural, one {# Notiz enthält Links, die geändert werden.} other {# Notizen enthalten Links, die geändert werden.}}"
 
 #. placeholder {0}: item.count
 #. placeholder {1}: item.field
 #. placeholder {2}: item.field
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one {# note is missing required field {1}.} other {# notes are missing required field {2}.}}"
-msgstr ""
+msgstr "{0, plural, one {Bei # Notiz fehlt das erforderliche Feld {1}.} other {Bei # Notizen fehlt das erforderliche Feld {2}.}}"
 
 #. placeholder {0}: result.moved
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one {# note moved.} other {# notes moved.}}"
-msgstr ""
+msgstr "{0, plural, one {# Notiz verschoben.} other {# Notizen verschoben.}}"
 
 #. placeholder {0}: requiredFields.length - requiredMapped
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one {# required field unmapped} other {# required fields unmapped}}"
-msgstr ""
+msgstr "{0, plural, one {# erforderliches Feld nicht zugeordnet} other {# erforderliche Felder nicht zugeordnet}}"
 
 #. placeholder {0}: recoveryAction.references
 #: src/App.tsx
 msgid "{0, plural, one {Also updated links in # note.} other {Also updated links in # notes.}}"
-msgstr ""
+msgstr "{0, plural, one {Links in # Notiz ebenfalls aktualisiert.} other {Links in # Notizen ebenfalls aktualisiert.}}"
 
 #. placeholder {0}: error.params.limit
 #: src/type-contracts.ts
 msgid "{0, plural, one {Binding setting{field} needs at least # item for {contractId}.} other {Binding setting{field} needs at least # items for {contractId}.}}"
-msgstr ""
+msgstr "{0, plural, one {Für die Bindungseinstellung{field} ist mindestens # Eintrag für {contractId} erforderlich.} other {Für die Bindungseinstellung{field} sind mindestens # Einträge für {contractId} erforderlich.}}"
 
 #. placeholder {0}: addedTypes.length
 #. placeholder {1}: pack.displayName
@@ -139,442 +139,442 @@ msgstr ""
 #. placeholder {4}: installed.resources.length
 #: src/catalog-pack-installation.tsx
 msgid "{0, plural, one {Installed “{1}” ({2} resources, # new type).} other {Installed “{3}” ({4} resources, # new types).}}"
-msgstr ""
+msgstr "{0, plural, one {„{1}“ installiert ({2} Ressourcen, # neuer Typ).} other {„{3}“ installiert ({4} Ressourcen, # neue Typen).}}"
 
 #. placeholder {0}: plan.moves.length
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one {Move # note?} other {Move # notes?}}"
-msgstr ""
+msgstr "{0, plural, one {# Notiz verschieben?} other {# Notizen verschieben?}}"
 
 #. placeholder {0}: recoveryAction.paths.length
 #: src/App.tsx
 msgid "{0, plural, one {Moved # note.} other {Moved # notes.}}"
-msgstr ""
+msgstr "{0, plural, one {# Notiz verschoben.} other {# Notizen verschoben.}}"
 
 #. placeholder {0}: plan.moves.length
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one {Rename ‘{basename}’ and move # note?} other {Rename ‘{basename}’ and move # notes?}}"
-msgstr ""
+msgstr "{0, plural, one {„{basename}“ umbenennen und # Notiz verschieben?} other {„{basename}“ umbenennen und # Notizen verschieben?}}"
 
 #. placeholder {0}: node.count
 #. placeholder {1}: node.path
 #. placeholder {2}: node.path
 #: src/CollectionRail.tsx
 msgid "{0, plural, one {Show notes in {1}, # note} other {Show notes in {2}, # notes}}"
-msgstr ""
+msgstr "{0, plural, one {Notizen in {1} anzeigen, # Notiz} other {Notizen in {2} anzeigen, # Notizen}}"
 
 #. placeholder {0}: files.length
 #: src/AttachmentUpload.tsx
 msgid "{0, plural, one {The file was uploaded, but the note changed before its link could be inserted.} other {The files were uploaded, but the note changed before its link could be inserted.}}"
-msgstr ""
+msgstr "{0, plural, one {Die Datei wurde hochgeladen, aber die Notiz wurde geändert, bevor ihr Link eingefügt werden konnte.} other {Die Dateien wurden hochgeladen, aber die Notiz wurde geändert, bevor ihre Links eingefügt werden konnten.}}"
 
 #. placeholder {0}: files.length
 #: src/AttachmentUpload.tsx
 msgid "{0, plural, one {Uploaded # file. The collection file is committed; the note link is saving separately.} other {Uploaded # files. The collection file is committed; the note link is saving separately.}}"
-msgstr ""
+msgstr "{0, plural, one {# Datei hochgeladen. Die Sammlungsdatei ist gespeichert; der Notizlink wird separat gespeichert.} other {# Dateien hochgeladen. Die Sammlungsdateien sind gespeichert; die Notizlinks werden separat gespeichert.}}"
 
 #. placeholder {0}: contact.name
 #. placeholder {1}: contact.path
 #: src/YourPersonPanel.tsx
 msgid "{0} · {1} (Contact-only)"
-msgstr ""
+msgstr "{0} · {1} (nur Kontakt)"
 
 #. placeholder {0}: formatFileSize(asset.file.size)
 #: src/FileViewer.tsx
 msgid "{0} · Preview unavailable. Use Open original to view this file."
-msgstr ""
+msgstr "{0} · Vorschau nicht verfügbar. Verwenden Sie „Original öffnen“, um diese Datei anzuzeigen."
 
 #. placeholder {0}: field.name
 #: src/BulkNoteProperties.tsx
 msgid "{0} (not shared)"
-msgstr ""
+msgstr "{0} (nicht geteilt)"
 
 #. placeholder {0}: contract.id
 #. placeholder {1}: contract.version
 #: src/type-contracts.ts
 msgid "{0} {1} is already implemented."
-msgstr ""
+msgstr "{0} {1} ist bereits implementiert."
 
 #. placeholder {0}: implementation.contract
 #. placeholder {1}: field.reference
 #: src/TypeBrowser.tsx
 msgid "{0} {1} source field"
-msgstr ""
+msgstr "{0} {1} Quellfeld"
 
 #. placeholder {0}: implementation.contract
 #. placeholder {1}: field.reference
 #: src/TypeBrowser.tsx
 msgid "{0} {1} type field"
-msgstr ""
+msgstr "{0} {1} Typfeld"
 
 #. placeholder {0}: pack.displayName
 #: src/TypeBrowser.tsx
 msgid "{0} added"
-msgstr ""
+msgstr "{0} hinzugefügt"
 
 #. placeholder {0}: optional.length
 #: src/NewNoteComposer.tsx
 msgid "{0} available"
-msgstr ""
+msgstr "{0} verfügbar"
 
 #. placeholder {0}: progress.completedUnits
 #: src/App.tsx
 msgid "{0} changes applied"
-msgstr ""
+msgstr "{0} Änderungen übernommen"
 
 #. placeholder {0}: typeFieldPathLabel(field.path)
 #: src/TypeBrowser.tsx
 msgid "{0} choice"
-msgstr ""
+msgstr "{0} Auswahl"
 
 #. placeholder {0}: node.path
 #: src/CollectionRail.tsx
 msgid "{0} folder actions"
-msgstr ""
+msgstr "{0} Ordneraktionen"
 
 #. placeholder {0}: resultCount.toLocaleString(displayLocale())
 #: src/NoteList.tsx
 msgid "{0} found · relevance"
-msgstr ""
+msgstr "{0} gefunden · Relevanz"
 
 #. placeholder {0}: resultCount.toLocaleString(displayLocale())
 #: src/NoteList.tsx
 msgid "{0} found so far"
-msgstr ""
+msgstr "{0} bisher gefunden"
 
 #. placeholder {0}: resultCount.toLocaleString(displayLocale())
 #: src/NoteList.tsx
 msgid "{0} found so far · incomplete"
-msgstr ""
+msgstr "{0} bisher gefunden · unvollständig"
 
 #. placeholder {0}: resultCount.toLocaleString(displayLocale())
 #. placeholder {1}: contentLoaded.toLocaleString(displayLocale())
 #. placeholder {2}: contentTotal?.toLocaleString(displayLocale()) ?? "…"
 #: src/NoteList.tsx
 msgid "{0} found so far · searching {1} of {2}"
-msgstr ""
+msgstr "{0} bisher gefunden · {1} von {2} durchsucht"
 
 #. placeholder {0}: person.path
 #: src/person-records.ts
 msgid "{0} implements Person through multiple types. Resolve its mappings in Types before linking."
-msgstr ""
+msgstr "{0} implementiert Person über mehrere Typen. Klären Sie die Zuordnungen unter „Typen“, bevor Sie den Link erstellen."
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
 msgid "{0} link format"
-msgstr ""
+msgstr "{0} Linkformat"
 
 #. placeholder {0}: plan.warnings.length.toLocaleString(displayLocale())
 #. placeholder {1}: plan.warnings.join("; ")
 #: src/FolderChangeDialog.tsx
 msgid "{0} link warnings need attention and will not be fixed automatically: {1}"
-msgstr ""
+msgstr "{0} Linkwarnungen müssen geprüft werden und werden nicht automatisch behoben: {1}"
 
 #. placeholder {0}: noteCount.toLocaleString(displayLocale())
 #: src/NoteList.tsx
 msgid "{0} notes loaded · incomplete"
-msgstr ""
+msgstr "{0} Notizen geladen · unvollständig"
 
 #. placeholder {0}: noteMatches.length
 #. placeholder {1}: reference.target
 #: src/code-editor-reference-diagnostics.ts
 msgid "{0} notes match “{1}”. Use a path to disambiguate it."
-msgstr ""
+msgstr "{0} Notizen stimmen mit „{1}“ überein. Verwenden Sie zur Unterscheidung einen Pfad."
 
 #. placeholder {0}: matches.length
 #: src/note-embeds.ts
 msgid "{0} notes match this reference."
-msgstr ""
+msgstr "{0} Notizen stimmen mit diesem Verweis überein."
 
 #. placeholder {0}: impact.current.toLocaleString(displayLocale())
 #. placeholder {1}: impact.addedPaths.length.toLocaleString(displayLocale())
 #. placeholder {2}: impact.removedPaths.length.toLocaleString(displayLocale())
 #: src/TypeBrowser.tsx
 msgid "{0} now · {1} gain this type · {2} lose it"
-msgstr ""
+msgstr "{0} jetzt · {1} erhalten diesen Typ · {2} verlieren ihn"
 
 #. placeholder {0}: suggestion.matchedFields
 #. placeholder {1}: suggestion.totalFields
 #: src/TypeBrowser.tsx
 msgid "{0} of {1} fields match"
-msgstr ""
+msgstr "{0} von {1} Feldern stimmen überein"
 
 #. placeholder {0}: noteCount.toLocaleString(displayLocale())
 #. placeholder {1}: total?.toLocaleString(displayLocale()) ?? "…"
 #: src/NoteList.tsx
 msgid "{0} of {1} notes"
-msgstr ""
+msgstr "{0} von {1} Notizen"
 
 #. placeholder {0}: shortcutModifier()
 #: src/NoteSearchField.tsx
 msgid "{0} P"
-msgstr ""
+msgstr "{0} P"
 
 #. placeholder {0}: directory.invalid.length
 #: src/YourPersonPanel.tsx
 msgid "{0} person records need attention"
-msgstr ""
+msgstr "{0} Personendatensätze müssen geprüft werden"
 
 #. placeholder {0}: Math.round(value)
 #: src/WorkspaceChrome.tsx
 msgid "{0} pixels"
-msgstr ""
+msgstr "{0} Pixel"
 
 #. placeholder {0}: propertyCount(type)
 #: src/TypeBrowser.tsx
 msgid "{0} schema properties"
-msgstr ""
+msgstr "{0} Schemaeigenschaften"
 
 #. placeholder {0}: listSelection.paths.length
 #: src/App.tsx
 msgid "{0} selected"
-msgstr ""
+msgstr "{0} ausgewählt"
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
 msgid "{0} target type"
-msgstr ""
+msgstr "{0} Zieltyp"
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
 msgid "{0} uniqueness path pattern"
-msgstr ""
+msgstr "{0} Pfadmuster für Eindeutigkeit"
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
 msgid "{0} uniqueness scope"
-msgstr ""
+msgstr "{0} Geltungsbereich für Eindeutigkeit"
 
 #. placeholder {0}: kindName(field.kind)
 #: src/TypeBrowser.tsx
 msgid "{0} value"
-msgstr ""
+msgstr "{0} Wert"
 
 #. placeholder {0}: setup.assessment.lock.action
 #. placeholder {1}: setup.assessment.lock.target
 #: src/YourPersonPanel.tsx
 msgid "{0}: <0>{1}</0> (setup receipt)"
-msgstr ""
+msgstr "{0}: <0>{1}</0> (Einrichtungsbeleg)"
 
 #. placeholder {0}: definition.advancedMatchKeys.map(matchRuleLabel).join(" · ")
 #: src/TypeBrowser.tsx
 msgid "{0}. These rules combine with the visual rules above."
-msgstr ""
+msgstr "{0}. Diese Regeln werden mit den obigen visuellen Regeln kombiniert."
 
 #. placeholder {0}: advancedKeys.join(" · ")
 #: src/TypeBrowser.tsx
 msgid "{0}. These settings remain intact."
-msgstr ""
+msgstr "{0}. Diese Einstellungen bleiben erhalten."
 
 #: src/TypeBrowser.tsx
 msgid "{appViews, plural, one {# app view} other {# app views}}"
-msgstr ""
+msgstr "{appViews, plural, one {# App-Ansicht} other {# App-Ansichten}}"
 
 #: src/TypeBrowser.tsx
 msgid "{changeCount, plural, one {# field-level change detected.} other {# field-level changes detected.}}"
-msgstr ""
+msgstr "{changeCount, plural, one {# Änderung auf Feldebene erkannt.} other {# Änderungen auf Feldebene erkannt.}}"
 
 #: src/TypeBrowser.tsx
 msgid "{contractErrors, plural, one {# issue need attention} other {# issues need attention}}"
-msgstr ""
+msgstr "{contractErrors, plural, one {# Problem muss geprüft werden} other {# Probleme müssen geprüft werden}}"
 
 #: src/type-contracts.ts
 msgid "{contractId} {version} is implemented more than once."
-msgstr ""
+msgstr "{contractId} {version} ist mehr als einmal implementiert."
 
 #: src/type-contracts.ts
 msgid "{contractId} {version} is not implemented by this type."
-msgstr ""
+msgstr "{contractId} {version} wird von diesem Typ nicht implementiert."
 
 #: src/type-contracts.ts
 msgid "{contractId} {version} is not installed in this collection."
-msgstr ""
+msgstr "{contractId} {version} ist in dieser Sammlung nicht installiert."
 
 #: src/type-contracts.ts
 msgid "{contractId} does not define implementation bindings."
-msgstr ""
+msgstr "{contractId} definiert keine Implementierungsbindungen."
 
 #: src/type-contracts.ts
 msgid "{contractReference} is not declared by {contractId}."
-msgstr ""
+msgstr "{contractReference} ist nicht von {contractId} deklariert."
 
 #: src/type-presentation.ts
 msgid "{count, plural, one {# default} other {# defaults}}"
-msgstr ""
+msgstr "{count, plural, one {# Standardwert} other {# Standardwerte}}"
 
 #: src/type-presentation.ts
 msgid "{count, plural, one {# field selector} other {# field selectors}}"
-msgstr ""
+msgstr "{count, plural, one {# Feldauswahl} other {# Feldauswahlen}}"
 
 #: src/type-presentation.ts
 msgid "{count, plural, one {# field} other {# fields}}"
-msgstr ""
+msgstr "{count, plural, one {# Feld} other {# Felder}}"
 
 #: src/type-presentation.ts
 msgid "{count, plural, one {# link} other {# links}}"
-msgstr ""
+msgstr "{count, plural, one {# Link} other {# Links}}"
 
 #: src/CollectionRail.tsx
 msgid "{count, plural, one {# note in {name}} other {# notes in {name}}}"
-msgstr ""
+msgstr "{count, plural, one {# Notiz in {name}} other {# Notizen in {name}}}"
 
 #: src/CollectionRail.tsx
 msgid "{count, plural, one {# note tagged {name}} other {# notes tagged {name}}}"
-msgstr ""
+msgstr "{count, plural, one {# Notiz mit Tag {name}} other {# Notizen mit Tag {name}}}"
 
 #: src/CollectionRail.tsx
 msgid "{count, plural, one {# note with type {name}} other {# notes with type {name}}}"
-msgstr ""
+msgstr "{count, plural, one {# Notiz vom Typ {name}} other {# Notizen vom Typ {name}}}"
 
 #: src/type-presentation.ts
 msgid "{count, plural, one {# path pattern} other {# path patterns}}"
-msgstr ""
+msgstr "{count, plural, one {# Pfadmuster} other {# Pfadmuster}}"
 
 #: src/type-presentation.ts
 msgid "{count, plural, one {# unique rule} other {# unique rules}}"
-msgstr ""
+msgstr "{count, plural, one {# Eindeutigkeitsregel} other {# Eindeutigkeitsregeln}}"
 
 #: src/type-presentation.ts
 msgid "{count, plural, one {# YAML rule} other {# YAML rules}}"
-msgstr ""
+msgstr "{count, plural, one {# YAML-Regel} other {# YAML-Regeln}}"
 
 #: src/type-presentation.ts
 msgid "{count, plural, one {# YAML setting} other {# YAML settings}}"
-msgstr ""
+msgstr "{count, plural, one {# YAML-Einstellung} other {# YAML-Einstellungen}}"
 
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Deleted # note.} other {Deleted # notes.}}"
-msgstr ""
+msgstr "{count, plural, one {# Notiz gelöscht.} other {# Notizen gelöscht.}}"
 
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Moved # note.} other {Moved # notes.}}"
-msgstr ""
+msgstr "{count, plural, one {# Notiz verschoben.} other {# Notizen verschoben.}}"
 
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Restored # note.} other {Restored # notes.}}"
-msgstr ""
+msgstr "{count, plural, one {# Notiz wiederhergestellt.} other {# Notizen wiederhergestellt.}}"
 
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Updated # note.} other {Updated # notes.}}"
-msgstr ""
+msgstr "{count, plural, one {# Notiz aktualisiert.} other {# Notizen aktualisiert.}}"
 
 #: src/note-mutation-presentation.ts
 msgid "{count, plural, one {Updating # linked note} other {Updating # linked notes}}"
-msgstr ""
+msgstr "{count, plural, one {# verlinkte Notiz wird aktualisiert} other {# verlinkte Notizen werden aktualisiert}}"
 
 #: src/CollectionRail.tsx
 msgid "{count} or more notes in {name}"
-msgstr ""
+msgstr "{count} oder mehr Notizen in {name}"
 
 #: src/CollectionRail.tsx
 msgid "{count} or more notes tagged {name}"
-msgstr ""
+msgstr "{count} oder mehr Notizen mit Tag {name}"
 
 #: src/CollectionRail.tsx
 msgid "{count} or more notes with type {name}"
-msgstr ""
+msgstr "{count} oder mehr Notizen vom Typ {name}"
 
 #: src/SchemaValueEditor.tsx
 msgid "{entryName} value"
-msgstr ""
+msgstr "Wert von {entryName}"
 
 #: src/EnvironmentBadge.tsx
 msgid "{environment} environment"
-msgstr ""
+msgstr "{environment}-Umgebung"
 
 #: src/TypeBrowser.tsx
 msgid "{extensions, plural, one {# extension} other {# extensions}}"
-msgstr ""
+msgstr "{extensions, plural, one {# Erweiterung} other {# Erweiterungen}}"
 
 #: src/TypeBrowser.tsx
 msgid "{fieldLabel} description"
-msgstr ""
+msgstr "Beschreibung für {fieldLabel}"
 
 #: src/TypeBrowser.tsx
 msgid "{fieldLabel} field name"
-msgstr ""
+msgstr "Feldname für {fieldLabel}"
 
 #: src/TypeBrowser.tsx
 msgid "{fieldLabel} field options"
-msgstr ""
+msgstr "Feldoptionen für {fieldLabel}"
 
 #: src/TypeBrowser.tsx
 msgid "{fieldLabel} field type"
-msgstr ""
+msgstr "Feldtyp für {fieldLabel}"
 
 #: src/NoteList.tsx
 msgid "{fileCount, plural, one {# file} other {# files}}"
-msgstr ""
+msgstr "{fileCount, plural, one {# Datei} other {# Dateien}}"
 
 #: src/TypeBrowser.tsx
 msgid "{itemLabel} field type"
-msgstr ""
+msgstr "Feldtyp für {itemLabel}"
 
 #: src/TypeBrowser.tsx
 msgid "{itemLabel} suggestions"
-msgstr ""
+msgstr "Vorschläge für {itemLabel}"
 
 #: src/contract-catalog.ts
 msgid "{label} is not supported."
-msgstr ""
+msgstr "{label} wird nicht unterstützt."
 
 #: src/contract-catalog.ts
 msgid "{label} must be a non-empty string."
-msgstr ""
+msgstr "{label} muss eine nicht leere Zeichenfolge sein."
 
 #: src/contract-catalog.ts
 msgid "{label} must be a SHA-256 digest."
-msgstr ""
+msgstr "{label} muss ein SHA-256-Hashwert sein."
 
 #: src/contract-catalog.ts
 msgid "{label} must be a URL."
-msgstr ""
+msgstr "{label} muss eine URL sein."
 
 #: src/contract-catalog.ts
 msgid "{label} must be an array."
-msgstr ""
+msgstr "{label} muss ein Array sein."
 
 #: src/contract-catalog.ts
 msgid "{label} must be an object."
-msgstr ""
+msgstr "{label} muss ein Objekt sein."
 
 #: src/contract-catalog.ts
 msgid "{label} must stay inside the collection."
-msgstr ""
+msgstr "{label} muss innerhalb der Sammlung bleiben."
 
 #: src/contract-catalog.ts
 msgid "{label} must use HTTP or HTTPS."
-msgstr ""
+msgstr "{label} muss HTTP oder HTTPS verwenden."
 
 #: src/contract-catalog.ts
 msgid "{label}.installation.primary_type must name an installed type."
-msgstr ""
+msgstr "{label}.installation.primary_type muss einen installierten Typ benennen."
 
 #: src/TypeBrowser.tsx
 msgid "{mappedCount, plural, one {# value exposed} other {# values exposed}}"
-msgstr ""
+msgstr "{mappedCount, plural, one {# Wert bereitgestellt} other {# Werte bereitgestellt}}"
 
 #: src/SchemaValueEditor.tsx
 msgid "{minimum, plural, one {At least # item is required.} other {At least # items are required.}}"
-msgstr ""
+msgstr "{minimum, plural, one {Mindestens # Eintrag ist erforderlich.} other {Mindestens # Einträge sind erforderlich.}}"
 
 #. placeholder {0}: index + 1
 #: src/SchemaValueEditor.tsx
 msgid "{name} entry {0} key"
-msgstr ""
+msgstr "Schlüssel für Eintrag {0} von {name}"
 
 #: src/AttachmentUpload.tsx
 msgid "{name} is a file type that can’t be uploaded."
-msgstr ""
+msgstr "{name} ist ein Dateityp, der nicht hochgeladen werden kann."
 
 #. placeholder {0}: limit.trim()
 #: src/AttachmentUpload.tsx
 msgid "{name} is larger than the {0} limit."
-msgstr ""
+msgstr "{name} überschreitet die Grenze von {0}."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} is not an allowed property."
-msgstr ""
+msgstr "{name} ist keine zulässige Eigenschaft."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} is required."
@@ -611,7 +611,7 @@ msgstr ""
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} value"
-msgstr ""
+msgstr "Wert von {name}"
 
 #. placeholder {0}: index + 1
 #: src/StructuredPropertiesEditor.tsx
@@ -826,7 +826,7 @@ msgstr ""
 
 #: src/QuickOpen.tsx
 msgid "Actions"
-msgstr ""
+msgstr "Aktionen"
 
 #: src/QuickOpen.tsx
 msgid "Actions in quick open"
@@ -835,12 +835,12 @@ msgstr ""
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add"
-msgstr ""
+msgstr "Hinzufügen"
 
 #. placeholder {0}: pack.displayName
 #: src/TypeBrowser.tsx
 msgid "Add {0}"
-msgstr ""
+msgstr "{0} hinzufügen"
 
 #. placeholder {0}: primaryLabel.toLocaleLowerCase()
 #: src/NewNoteComposer.tsx
@@ -857,7 +857,7 @@ msgstr ""
 
 #: src/SdkEditorRoot.tsx
 msgid "Add a Private collection"
-msgstr ""
+msgstr "Private Sammlung hinzufügen"
 
 #: src/PropertiesPanel.tsx
 msgid "Add a property to keep details like tags, dates, or a status with this note."
@@ -894,7 +894,7 @@ msgstr ""
 
 #: src/TypeBrowser.tsx
 msgid "Add field"
-msgstr ""
+msgstr "Feld hinzufügen"
 
 #: src/TypeBrowser.tsx
 msgid "Add field selector"
@@ -931,7 +931,7 @@ msgstr ""
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add property"
-msgstr ""
+msgstr "Eigenschaft hinzufügen"
 
 #: src/BulkNoteProperties.tsx
 #: src/editor-commands.ts
@@ -1008,7 +1008,7 @@ msgstr ""
 #: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
 msgid "Advanced"
-msgstr ""
+msgstr "Erweitert"
 
 #: src/type-presentation.ts
 msgctxt "property type"
@@ -1111,11 +1111,11 @@ msgstr ""
 
 #: src/BulkNoteProperties.tsx
 msgid "Apply"
-msgstr ""
+msgstr "Anwenden"
 
 #: src/BulkNoteProperties.tsx
 msgid "Applying…"
-msgstr ""
+msgstr "Wird übernommen…"
 
 #: src/TypeBrowser.tsx
 msgid "Apps read these contract field names while your notes keep their own field names."
@@ -1169,7 +1169,7 @@ msgstr ""
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Back"
-msgstr ""
+msgstr "Zurück"
 
 #: src/App.tsx
 msgid "Back in note history"
@@ -1278,7 +1278,7 @@ msgstr ""
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Cancel"
-msgstr ""
+msgstr "Abbrechen"
 
 #: src/YourPersonPanel.tsx
 msgid "Cancel conversion"
@@ -1311,11 +1311,11 @@ msgstr ""
 
 #: src/note-mutation-presentation.ts
 msgid "Changed elsewhere"
-msgstr ""
+msgstr "An anderer Stelle geändert"
 
 #: src/pending-note-mutation.ts
 msgid "Check again"
-msgstr ""
+msgstr "Erneut prüfen"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -1351,7 +1351,7 @@ msgstr ""
 #: src/note-mutation-presentation.ts
 #: src/WorkspaceChrome.tsx
 msgid "Checking"
-msgstr ""
+msgstr "Wird geprüft"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -1372,7 +1372,7 @@ msgstr ""
 
 #: src/CollectionRail.tsx
 msgid "Checking…"
-msgstr ""
+msgstr "Wird überprüft…"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -1393,11 +1393,11 @@ msgstr ""
 
 #: src/SchemaValueEditor.tsx
 msgid "Choose"
-msgstr ""
+msgstr "Auswählen"
 
 #: src/ConnectionScreens.tsx
 msgid "Choose a collection"
-msgstr ""
+msgstr "Sammlung auswählen"
 
 #: src/gateway.ts
 msgid "Choose a collection before editing notes."
@@ -1458,7 +1458,7 @@ msgstr ""
 
 #: src/App.tsx
 msgid "Clear"
-msgstr ""
+msgstr "Löschen"
 
 #: src/TypeBrowser.tsx
 msgid "Clear display icon"
@@ -1466,12 +1466,12 @@ msgstr ""
 
 #: src/NoteSearchField.tsx
 msgid "Clear search"
-msgstr ""
+msgstr "Suche leeren"
 
 #: src/App.tsx
 #: src/editor-commands.ts
 msgid "Clear selection"
-msgstr ""
+msgstr "Auswahl aufheben"
 
 #: src/TypeBrowser.tsx
 msgid "Clear type search"
@@ -1483,7 +1483,7 @@ msgstr ""
 
 #: src/QuickOpen.tsx
 msgid "Close keyboard shortcuts"
-msgstr ""
+msgstr "Tastenkürzel schließen"
 
 #: src/WorkspaceChrome.tsx
 msgid "Close outline"
@@ -1594,7 +1594,7 @@ msgstr ""
 #: src/NoteList.tsx
 #: src/TypeBrowser.tsx
 msgid "Collections"
-msgstr ""
+msgstr "Sammlungen"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -1612,7 +1612,7 @@ msgstr ""
 
 #: src/editor-commands.ts
 msgid "Commands"
-msgstr ""
+msgstr "Befehle"
 
 #: src/TypeBrowser.tsx
 msgid "Common icons"
@@ -1669,7 +1669,7 @@ msgstr ""
 
 #: src/ConnectionScreens.tsx
 msgid "Connect another collection"
-msgstr ""
+msgstr "Andere Sammlung verbinden"
 
 #: src/App.tsx
 msgid "Connect another collection?"
@@ -1681,7 +1681,7 @@ msgstr ""
 
 #: src/CollectionRail.tsx
 msgid "Connected"
-msgstr ""
+msgstr "Verbunden"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -1699,11 +1699,11 @@ msgstr ""
 
 #: src/TypeBrowser.tsx
 msgid "Contents"
-msgstr ""
+msgstr "Inhalt"
 
 #: src/App.tsx
 msgid "Continue"
-msgstr ""
+msgstr "Weiter"
 
 #: src/TypeBrowser.tsx
 msgid "contract"
@@ -1767,7 +1767,7 @@ msgstr ""
 #: src/editor-commands.ts
 #: src/embed-actions.ts
 msgid "Copy path"
-msgstr ""
+msgstr "Pfad kopieren"
 
 #: src/embed-actions.ts
 msgid "Copy path for {name}"
@@ -1970,7 +1970,7 @@ msgstr ""
 
 #: src/editor-commands.ts
 msgid "Current note"
-msgstr ""
+msgstr "Aktuelle Notiz"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Custom"
@@ -1979,7 +1979,7 @@ msgstr ""
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "Date"
-msgstr ""
+msgstr "Datum"
 
 #: src/type-presentation.ts
 msgctxt "property type"
@@ -2034,7 +2034,7 @@ msgstr ""
 
 #: src/editor-commands.ts
 msgid "Delete"
-msgstr ""
+msgstr "Löschen"
 
 #: src/ConnectionScreens.tsx
 msgid "delete notes"
@@ -2064,7 +2064,7 @@ msgstr ""
 #: src/type-schema.ts
 #: src/TypeBrowser.tsx
 msgid "Description"
-msgstr ""
+msgstr "Beschreibung"
 
 #: src/TypeBrowser.tsx
 msgid "Description field"
@@ -2085,7 +2085,7 @@ msgstr ""
 
 #: src/TypeBrowser.tsx
 msgid "Details"
-msgstr ""
+msgstr "Details"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -2108,7 +2108,7 @@ msgstr ""
 
 #: src/App.tsx
 msgid "Discard changes"
-msgstr ""
+msgstr "Änderungen verwerfen"
 
 #: src/App.tsx
 msgid "Discard folder"
@@ -2120,7 +2120,7 @@ msgstr ""
 
 #: src/App.tsx
 msgid "Discard recovered edits"
-msgstr ""
+msgstr "Wiederhergestellte Änderungen verwerfen"
 
 #: src/App.tsx
 msgid "Discard this folder?"
@@ -2149,7 +2149,7 @@ msgstr ""
 #: src/type-presentation.ts
 #: src/TypeBrowser.tsx
 msgid "Display"
-msgstr ""
+msgstr "Anzeige"
 
 #: src/TypeBrowser.tsx
 msgid "Display icon"
@@ -2178,15 +2178,15 @@ msgstr ""
 
 #: src/FolderChangeDialog.tsx
 msgid "Done"
-msgstr ""
+msgstr "Fertig"
 
 #: src/WorkspaceChrome.tsx
 msgid "Drag to resize · Double-click to reset"
-msgstr ""
+msgstr "Zum Ändern der Größe ziehen · Doppelklick setzt sie zurück"
 
 #: src/editor-commands.ts
 msgid "Duplicate"
-msgstr ""
+msgstr "Duplizieren"
 
 #: src/use-note-actions.ts
 msgid "Duplicated note."
@@ -2326,7 +2326,7 @@ msgstr ""
 
 #: src/TypeBrowser.tsx
 msgid "Entire collection"
-msgstr ""
+msgstr "Gesamte Sammlung"
 
 #. placeholder {0}: index + 1
 #: src/SchemaValueEditor.tsx
@@ -2399,7 +2399,7 @@ msgstr ""
 
 #: src/TypeBrowser.tsx
 msgid "Fields"
-msgstr ""
+msgstr "Felder"
 
 #: src/TypeBrowser.tsx
 msgid "Fields added"
@@ -2420,7 +2420,7 @@ msgstr ""
 
 #: src/NewNoteComposer.tsx
 msgid "File path"
-msgstr ""
+msgstr "Dateipfad"
 
 #: src/FileViewer.tsx
 msgid "File viewer, {filename}"
@@ -2498,7 +2498,7 @@ msgstr ""
 
 #: src/TypeBrowser.tsx
 msgid "Folder"
-msgstr ""
+msgstr "Ordner"
 
 #. placeholder {0}: filter.value
 #: src/note-list-view.ts
@@ -2652,7 +2652,7 @@ msgstr ""
 
 #: src/TypeBrowser.tsx
 msgid "Identity"
-msgstr ""
+msgstr "Identität"
 
 #: src/TypeBrowser.tsx
 msgid "Impact is based on the currently indexed notes. The collection validates the complete definition when you confirm."
@@ -2764,7 +2764,7 @@ msgstr ""
 
 #: src/editor-commands.ts
 msgid "Keyboard shortcuts"
-msgstr ""
+msgstr "Tastenkombinationen"
 
 #: src/i18n/LanguageSetting.tsx
 msgctxt "editor language preference"
@@ -2868,7 +2868,7 @@ msgstr ""
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "List"
-msgstr ""
+msgstr "Listenansicht"
 
 #: src/type-presentation.ts
 msgctxt "property type"
@@ -2954,7 +2954,7 @@ msgstr ""
 
 #: src/WorkspaceChrome.tsx
 msgid "Loading…"
-msgstr ""
+msgstr "Wird geladen…"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -3009,7 +3009,7 @@ msgstr ""
 
 #: src/TypeBrowser.tsx
 msgid "Markdown link"
-msgstr ""
+msgstr "Markdown-Link"
 
 #: src/App.tsx
 msgid "Markdown path"
@@ -3163,7 +3163,7 @@ msgstr ""
 
 #: src/MoveNoteDialog.tsx
 msgid "Move"
-msgstr ""
+msgstr "Verschieben"
 
 #: src/FolderChangeDialog.tsx
 msgid "Move ‘{basename}’"
@@ -3252,7 +3252,7 @@ msgstr ""
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Needs attention"
-msgstr ""
+msgstr "Aufmerksamkeit erforderlich"
 
 #: src/type-schema.ts
 msgid "nested fields"
@@ -3276,7 +3276,7 @@ msgstr ""
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
 msgid "New note"
-msgstr ""
+msgstr "Neue Notiz"
 
 #: src/CollectionRail.tsx
 msgid "New note here"
@@ -3468,7 +3468,7 @@ msgstr ""
 #: src/catalog-pack-installation.tsx
 #: src/YourPersonPanel.tsx
 msgid "Not now"
-msgstr ""
+msgstr "Jetzt nicht"
 
 #: src/QuickOpen.tsx
 msgid "Note actions, in the list"
@@ -3507,7 +3507,7 @@ msgstr ""
 
 #: src/MarkdownNoteEditor.tsx
 msgid "Note title"
-msgstr ""
+msgstr "Notiztitel"
 
 #: src/NotePreview.tsx
 msgid "Note types"
@@ -3519,7 +3519,7 @@ msgstr ""
 
 #: src/QuickOpen.tsx
 msgid "Notes"
-msgstr ""
+msgstr "Notizen"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -3622,7 +3622,7 @@ msgstr ""
 
 #: src/embed-actions.ts
 msgid "Open"
-msgstr ""
+msgstr "Öffnen"
 
 #: src/code-editor-file-embeds.ts
 msgid "Open {filename}"
@@ -3678,7 +3678,7 @@ msgstr ""
 
 #: src/NoteList.tsx
 msgid "Opening"
-msgstr ""
+msgstr "Wird geöffnet"
 
 #: src/App.tsx
 msgid "Opening “{pendingNotePath}”…"
@@ -3687,7 +3687,7 @@ msgstr ""
 #. placeholder {0}: original.displayName
 #: src/SdkEditorRoot.tsx
 msgid "Opening {0}"
-msgstr ""
+msgstr "{0} wird geöffnet"
 
 #: src/code-editor-file-embeds.ts
 #: src/FileViewer.tsx
@@ -3696,7 +3696,7 @@ msgstr ""
 
 #: src/LoadingScreens.tsx
 msgid "Opening collection"
-msgstr ""
+msgstr "Sammlung wird geöffnet"
 
 #: src/main.tsx
 msgid "Opening mdbase connect… <0>Continue</0>"
@@ -3704,7 +3704,7 @@ msgstr ""
 
 #: src/main.tsx
 msgid "Opening mdbase…"
-msgstr ""
+msgstr "mdbase wird geöffnet…"
 
 #: src/WorkspaceChrome.tsx
 msgid "Opening note…"
@@ -3725,7 +3725,7 @@ msgstr ""
 
 #: src/TypeBrowser.tsx
 msgid "Optional"
-msgstr ""
+msgstr "Optional"
 
 #: src/SchemaValueEditor.tsx
 msgid "Optional field"
@@ -3766,7 +3766,7 @@ msgstr ""
 #: src/NewNoteComposer.tsx
 #: src/TypeBrowser.tsx
 msgid "Path"
-msgstr ""
+msgstr "Pfad"
 
 #: src/note-list-view.ts
 msgid "Path A–Z"
@@ -3935,7 +3935,7 @@ msgstr ""
 
 #: src/type-schema.ts
 msgid "Projections"
-msgstr ""
+msgstr "Projektionen"
 
 #: src/TypeBrowser.tsx
 msgid "Projects/**/*.md"
@@ -3944,7 +3944,7 @@ msgstr ""
 #: src/NewNoteComposer.tsx
 #: src/PropertiesPanel.tsx
 msgid "Properties"
-msgstr ""
+msgstr "Eigenschaften"
 
 #: src/PropertiesPanel.tsx
 msgid "Properties could not be saved."
@@ -3956,7 +3956,7 @@ msgstr ""
 
 #: src/BulkNoteProperties.tsx
 msgid "Property"
-msgstr ""
+msgstr "Eigenschaft"
 
 #: src/PropertiesPanel.tsx
 msgid "Property options"
@@ -3984,7 +3984,7 @@ msgstr ""
 
 #: src/code-editor-completions.ts
 msgid "Quote"
-msgstr ""
+msgstr "Zitat"
 
 #: src/PropertiesPanel.tsx
 msgid "Raw frontmatter JSON"
@@ -4061,7 +4061,7 @@ msgstr ""
 
 #: src/CollectionRail.tsx
 msgid "Reconnecting"
-msgstr ""
+msgstr "Verbindung wird wiederhergestellt"
 
 #: src/native-note-observation.ts
 msgid "Reconnecting to the collection…"
@@ -4110,7 +4110,7 @@ msgstr ""
 
 #: src/AppErrorBoundary.tsx
 msgid "Reload Connect"
-msgstr ""
+msgstr "Connect neu laden"
 
 #: src/AppErrorBoundary.tsx
 msgid "Reload editor"
@@ -4119,12 +4119,12 @@ msgstr ""
 #: src/code-editor-file-embeds.ts
 #: src/TypeBrowser.tsx
 msgid "Remove"
-msgstr ""
+msgstr "Entfernen"
 
 #. placeholder {0}: entryName || `entry ${index + 1}`
 #: src/SchemaValueEditor.tsx
 msgid "Remove {0}"
-msgstr ""
+msgstr "{0} entfernen"
 
 #. placeholder {0}: itemLabel.toLocaleLowerCase()
 #. placeholder {1}: index + 1
@@ -4192,7 +4192,7 @@ msgstr ""
 
 #: src/editor-commands.ts
 msgid "Rename"
-msgstr ""
+msgstr "Umbenennen"
 
 #: src/FolderChangeDialog.tsx
 msgid "Rename ‘{basename}’"
@@ -4266,7 +4266,7 @@ msgstr ""
 #: src/type-contracts.ts
 #: src/TypeBrowser.tsx
 msgid "Required"
-msgstr ""
+msgstr "Erforderlich"
 
 #: src/TypeBrowser.tsx
 msgid "Required fields covered"
@@ -4310,7 +4310,7 @@ msgstr ""
 
 #: src/App.tsx
 msgid "Restore unsaved edits"
-msgstr ""
+msgstr "Nicht gespeicherte Änderungen wiederherstellen"
 
 #. placeholder {0}: noteTitle(restored, typeDescriptors)
 #: src/use-note-actions.ts
@@ -4337,7 +4337,7 @@ msgstr ""
 #: src/CollectionRail.tsx
 #: src/YourPersonPanel.tsx
 msgid "Retry"
-msgstr ""
+msgstr "Erneut versuchen"
 
 #: src/WorkspaceChrome.tsx
 msgid "Retry backlinks"
@@ -4345,7 +4345,7 @@ msgstr ""
 
 #: src/CollectionRail.tsx
 msgid "Retry connection"
-msgstr ""
+msgstr "Verbindung erneut versuchen"
 
 #: src/NoteList.tsx
 msgid "Retry files"
@@ -4366,11 +4366,11 @@ msgstr ""
 #: src/PropertiesPanel.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Retry save"
-msgstr ""
+msgstr "Speichern erneut versuchen"
 
 #: src/NoteList.tsx
 msgid "Retry search"
-msgstr ""
+msgstr "Suche erneut versuchen"
 
 #: src/TypeBrowser.tsx
 msgid "Revert"
@@ -4379,11 +4379,11 @@ msgstr ""
 #: src/type-contracts.ts
 #: src/TypeBrowser.tsx
 msgid "Review"
-msgstr ""
+msgstr "Prüfen"
 
 #: src/YourPersonPanel.tsx
 msgid "Review access"
-msgstr ""
+msgstr "Berechtigungen prüfen"
 
 #: src/FolderChangeDialog.tsx
 #: src/TypeBrowser.tsx
@@ -4464,7 +4464,7 @@ msgstr ""
 #: src/CollectionRail.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Saved on this device; waiting for sync"
-msgstr ""
+msgstr "Auf diesem Gerät gespeichert; wartet auf Synchronisierung"
 
 #. placeholder {0}: saved.name
 #: src/use-type-definition-lifecycle.ts
@@ -4473,7 +4473,7 @@ msgstr ""
 
 #: src/note-mutation-presentation.ts
 msgid "Saving"
-msgstr ""
+msgstr "Wird gespeichert"
 
 #: src/TypeBrowser.tsx
 msgid "Saving affects every matching note"
@@ -4488,7 +4488,7 @@ msgstr ""
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Saving…"
-msgstr ""
+msgstr "Wird gespeichert…"
 
 #: src/type-schema.ts
 msgid "Schema settings"
@@ -4501,11 +4501,11 @@ msgstr ""
 #: src/NoteListViewOptions.tsx
 #: src/TypeBrowser.tsx
 msgid "Scope"
-msgstr ""
+msgstr "Umfang"
 
 #: src/NoteSearchField.tsx
 msgid "Search"
-msgstr ""
+msgstr "Suche"
 
 #: src/NoteSearchField.tsx
 msgid "Search filters"
@@ -4558,7 +4558,7 @@ msgstr ""
 
 #: src/EditorRail.tsx
 msgid "Send feedback"
-msgstr ""
+msgstr "Feedback senden"
 
 #: src/code-editor-completions.ts
 msgid "Separate sections"
@@ -4595,7 +4595,7 @@ msgstr ""
 
 #: src/EditorRail.tsx
 msgid "Settings"
-msgstr ""
+msgstr "Einstellungen"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -4621,7 +4621,7 @@ msgstr ""
 #. placeholder {0}: mentions.length
 #: src/WorkspaceChrome.tsx
 msgid "Show all {0}"
-msgstr ""
+msgstr "Alle {0} anzeigen"
 
 #: src/App.tsx
 msgid "Show collections sidebar"
@@ -4629,7 +4629,7 @@ msgstr ""
 
 #: src/WorkspaceChrome.tsx
 msgid "Show fewer"
-msgstr ""
+msgstr "Weniger anzeigen"
 
 #. placeholder {0}: node.path
 #. placeholder {1}: node.count
@@ -4655,7 +4655,7 @@ msgstr ""
 
 #: src/App.tsx
 msgid "Sign out"
-msgstr ""
+msgstr "Abmelden"
 
 #: src/App.tsx
 msgid "Sign out?"
@@ -4676,7 +4676,7 @@ msgstr ""
 
 #: src/NoteListViewOptions.tsx
 msgid "Sort"
-msgstr ""
+msgstr "Sortieren"
 
 #: src/PropertiesPanel.tsx
 msgid "Source could not be saved. Your edits are still here."
@@ -4755,7 +4755,7 @@ msgstr ""
 #: src/App.tsx
 #: src/editor-commands.ts
 msgid "Switch collection"
-msgstr ""
+msgstr "Sammlung wechseln"
 
 #: src/App.tsx
 msgid "Switch collections?"
@@ -4779,7 +4779,7 @@ msgstr ""
 
 #: src/code-editor-completions.ts
 msgid "Table"
-msgstr ""
+msgstr "Tabelle"
 
 #: src/BulkNoteProperties.tsx
 msgid "Tag"
@@ -4796,11 +4796,11 @@ msgstr ""
 
 #: src/code-editor-completions.ts
 msgid "Task"
-msgstr ""
+msgstr "Aufgabe"
 
 #: src/TypeBrowser.tsx
 msgid "tasks"
-msgstr ""
+msgstr "Aufgaben"
 
 #: src/TypeBrowser.tsx
 msgid "tasks/{id}.md"
@@ -4808,7 +4808,7 @@ msgstr ""
 
 #: src/TypeBrowser.tsx
 msgid "Technical details"
-msgstr ""
+msgstr "Technische Details"
 
 #: src/TypeBrowser.tsx
 msgid "Tell compatible apps what this type’s fields mean."
@@ -5355,7 +5355,7 @@ msgstr ""
 
 #: src/App.tsx
 msgid "this collection"
-msgstr ""
+msgstr "diese Sammlung"
 
 #: src/TypeBrowser.tsx
 msgid "This collection has explicit type assignment disabled. Every note is classified by automatic rules."
@@ -5548,7 +5548,7 @@ msgstr ""
 
 #: src/NewNoteComposer.tsx
 msgid "Title"
-msgstr ""
+msgstr "Titel"
 
 #: src/note-list-view.ts
 msgid "Title A–Z"
@@ -5564,7 +5564,7 @@ msgstr ""
 
 #: src/collection-browser.ts
 msgid "Today"
-msgstr ""
+msgstr "Heute"
 
 #: src/editor-commands.ts
 msgid "Toggle Vim key bindings"
@@ -5603,11 +5603,11 @@ msgstr ""
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Try again"
-msgstr ""
+msgstr "Erneut versuchen"
 
 #: src/NewNoteComposer.tsx
 msgid "Type"
-msgstr ""
+msgstr "Typ"
 
 #. placeholder {0}: filter.value
 #: src/note-list-view.ts
@@ -5701,7 +5701,7 @@ msgstr ""
 
 #: src/Toasts.tsx
 msgid "Undo"
-msgstr ""
+msgstr "Rückgängig"
 
 #: src/Toasts.tsx
 msgid "Undoing"
@@ -5743,11 +5743,11 @@ msgstr ""
 
 #: src/App.tsx
 msgid "Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes."
-msgstr ""
+msgstr "Nicht gespeicherte Änderungen können in diesem Browser nicht gesichert werden. Lassen Sie diesen Tab geöffnet, bis das Speichern abgeschlossen ist."
 
 #: src/App.tsx
 msgid "Unsaved edits from an earlier session are available."
-msgstr ""
+msgstr "Nicht gespeicherte Änderungen aus einer früheren Sitzung sind verfügbar."
 
 #: src/App.tsx
 msgid "Unsaved type definition changes will be discarded. Saved note and property changes will finish first."
@@ -5901,7 +5901,7 @@ msgstr ""
 
 #: src/NoteListViewOptions.tsx
 msgid "View options"
-msgstr ""
+msgstr "Ansichtsoptionen"
 
 #: src/TypeBrowser.tsx
 msgid "View pack JSON"
@@ -5922,7 +5922,7 @@ msgstr ""
 
 #: src/YourPersonPanel.tsx
 msgid "Waiting for approval…"
-msgstr ""
+msgstr "Warten auf Freigabe…"
 
 #: src/SdkEditorRoot.tsx
 msgid "Waiting for your computer…"
@@ -5942,7 +5942,7 @@ msgstr ""
 
 #: src/Dialog.tsx
 msgid "Working…"
-msgstr ""
+msgstr "Wird ausgeführt…"
 
 #: src/TypeBrowser.tsx
 msgid "Works with applications"
@@ -5959,11 +5959,11 @@ msgstr ""
 
 #: src/collection-browser.ts
 msgid "Yesterday"
-msgstr ""
+msgstr "Gestern"
 
 #: src/main.tsx
 msgid "You can close this window."
-msgstr ""
+msgstr "Sie können dieses Fenster schließen."
 
 #: src/YourPersonPanel.tsx
 msgid "You can link an existing person directly, or review converting a single contact without changing the rest of your address book. Advanced Person mappings are available in Types; required fields there affect every record of that type."
