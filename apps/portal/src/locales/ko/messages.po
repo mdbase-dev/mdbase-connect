@@ -10,88 +10,88 @@ msgstr ""
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid " · current session"
-msgstr ""
+msgstr " · 현재 세션"
 
 #: src/authority-workflows.tsx
 msgid " (already allowed)"
-msgstr ""
+msgstr " (이미 허용됨)"
 
 #: src/authorization-review.tsx
 msgid " (higher impact)"
-msgstr ""
+msgstr " (영향이 큼)"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid " {0} can also create new collections for you."
-msgstr ""
+msgstr " {0}에서 새 컬렉션을 만들 수도 있습니다."
 
 #. placeholder {0}: host(request.project_url)
 #: src/authorization-view.tsx
 msgid " {0} does not verify its origin."
-msgstr ""
+msgstr " {0}만으로 출처를 확인할 수 없습니다."
 
 #. placeholder {0}: adoption.mirror_name ?? adoption.source_name
 #: src/authority-workflows.tsx
 msgid " {0} will continue as a synced folder, with edits syncing both ways."
-msgstr ""
+msgstr " {0}은(는) 양방향으로 편집 내용이 동기화되는 폴더로 계속 사용됩니다."
 
 #. placeholder {0}: request.user_code
 #: src/authorization-view.tsx
 msgid " and it shows <0>{0}</0>"
-msgstr ""
+msgstr " 표시된 코드가 <0>{0}</0>이며"
 
 #: src/authorization-review.tsx
 msgid " File actions are included in the collection permissions above."
-msgstr ""
+msgstr " 파일 작업은 위 컬렉션 권한에 포함됩니다."
 
 #. placeholder {0}: pairing.app_origin
 #: src/authority-workflows.tsx
 msgid " from <0>{0}</0>"
-msgstr ""
+msgstr " 출처: <0>{0}</0>"
 
 #: src/authorization-view.tsx
 msgid " Permissions this application does not already have are marked New."
-msgstr ""
+msgstr " 이 애플리케이션에 아직 없는 권한은 신규로 표시됩니다."
 
 #: src/authority-workflows.tsx
 msgid " Previously approved collections stay available."
-msgstr ""
+msgstr " 이전에 승인한 컬렉션은 계속 사용할 수 있습니다."
 
 #: src/authority-workflows.tsx
 msgid " The original local files are no longer the main copy."
-msgstr ""
+msgstr " 원래 로컬 파일은 더 이상 기본 사본이 아닙니다."
 
 #: src/authorization-review.tsx
 msgid " These actions are approved together."
-msgstr ""
+msgstr " 이 작업들은 함께 승인됩니다."
 
 #. placeholder {0}: unavailable.length
 #: src/authorization-view.tsx
 msgid "{0, plural, one {# collection is unavailable} other {# collections are unavailable}}"
-msgstr ""
+msgstr "{0, plural, other {사용할 수 없는 컬렉션 #개}}"
 
 #. placeholder {0}: grant.operations.length
 #. placeholder {0}: operations.size
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgid "{0, plural, one {# permission} other {# permissions}}"
-msgstr ""
+msgstr "{0, plural, other {권한 #개}}"
 
 #. placeholder {0}: notifications.criteria.length
 #: src/authorization-review.tsx
 msgid "{0, plural, one {this rule} other {these # rules}}"
-msgstr ""
+msgstr "{0, plural, other {이 규칙 #개}}"
 
 #. placeholder {0}: import { t, plural } from "@lingui/core/macro"; import { Trans } from "@lingui/react/macro"; import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n"; import { provisionedContract, type SetupType } from "@mdbase/connect-ui/contract-setup"; import React, { useEffect, useMemo, useRef, useState } from "react"; import { APPLICATION_SETUP_OPERATIONS } from "@mdbase-dev/connect-protocol"; import { api, ApiError, type ApplicationFileAction, type AvailableCollection, type ContractSetupChoice as ContractSetupRequestChoice, type HostedCollection, type PendingAuthorization, type UnavailableConnector } from "./api"; import { collectionCompatibility, lostCollectionNotice } from "./compatibility"; import { authorizationCapabilityGroups, authorizationRequirementsError, nextAuthorizationGroups, selectedNextAuthorizationOperations, toggleAuthorizationGroup, selectedFileActions, selectedPeoplePermissions, selectedOperationsForCapabilityGroups, type AuthorizationCapabilityGroup } from "./authorization-capabilities"; import { configurationSetupSummary, initialContractSetupChoice } from "./application-setup"; import { clearAuthorizationReview, disambiguatedCollectionLocations, initialAuthorizationSelection, saveAuthorizationReview, storedAuthorizationReview } from "./authorization-review-state"; import { ContractSetupEditor, contractSetupProblem, NotificationAccess, PermissionList, RequestedAccessSummary, type ContractSetupChoice } from "./authorization-review"; import { formatDeviceCode, host, initials, message, neededProvisions, provisionNames, relativeTime } from "./portal-model"; import { Loading, PageBrand } from "./portal-ui"; export function DeviceAuthorization() { useLocaleRevision(); const initialCode = formatDeviceCode(new URLSearchParams(location.search).get("user_code") ?? ""); const [code, setCode] = useState(initialCode); const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const automaticallyClaimed = useRef(false); async function openRequest(value: string) { const userCode = formatDeviceCode(value); if (userCode.replace("-", "").length !== 8) { setError(t(i18n)({ message: "Enter the eight-character code shown by the application." })); return; } setBusy(true); setError(""); try { const result = await api<{ request_id: string }>( "/v1/device-authorization-requests/lookup", { method: "POST", body: JSON.stringify({ user_code: userCode }) } ); location.replace(`/authorize/${result.request_id}`); } catch (reason) { if (reason instanceof ApiError && reason.status === 401) { location.href = `/login?return_to=${encodeURIComponent(location.href)}`; return; } setError(message(reason)); setBusy(false); } } useEffect(() => { if (!initialCode || automaticallyClaimed.current) return; automaticallyClaimed.current = true; void openRequest(initialCode); }, [initialCode]); return ( <main className="center-page"> <PageBrand label={t(i18n)({ message: "Application connection", context: "Application access approval" })} busy={busy} error={error} /> <form className="decision-panel device-panel" onSubmit={(event) => { event.preventDefault(); void openRequest(code); }}> <p className="eyebrow"><Trans>Short approval code</Trans></p> <h1><Trans>Check the application.</Trans></h1> <p><Trans>Enter the code it shows. You will review the application, collection, and exact permissions before anything is allowed.</Trans></p> <label className="device-code-field"> <span><Trans>Approval code</Trans></span> <input autoFocus={!initialCode} autoComplete="one-time-code" inputMode="text" maxLength={9} value={code} onChange={(event) => setCode(formatDeviceCode(event.target.value))} placeholder="ABCD-EFGH" /> </label> <p className="field-note"><Trans>Codes are not case-sensitive, expire after ten minutes, and can authorize only the key created by that application.</Trans></p> {error && <div className="message error" role="alert">{error}</div>} <button className="button primary" disabled={busy || code.replace("-", "").length !== 8}> {busy ? t(i18n)({ message: "Checking…", context: "Application access approval" }) : t(i18n)({ message: "Review request", context: "Application access approval" })} </button> </form> </main> ); } type RequestStatus = "pending" | "setting_up" | "approved" | "denied" | "expired"; export function Authorization({ requestId }: { requestId: string }) { useLocaleRevision(); const [request, setRequest] = useState<{ authorization: PendingAuthorization; collections: AvailableCollection[]; hosted_collections_available?: boolean; unavailable_connectors: UnavailableConnector[]; } | null>(null); const [status, setStatus] = useState<RequestStatus>("pending"); const [returnUrl, setReturnUrl] = useState(""); const [structuralSetupRequested, setStructuralSetupRequested] = useState(false); const [continuingInDesktop, setContinuingInDesktop] = useState( () => new URLSearchParams(location.search).get("continue_in_desktop") === "1" ); const [error, setError] = useState(""); const [decisionError, setDecisionError] = useState(""); const returning = useRef(false); const loaded = useRef(false); useEffect(() => { let active = true; async function refreshCollections() { try { const next = await api<{ authorization: PendingAuthorization; collections: AvailableCollection[]; hosted_collections_available?: boolean; unavailable_connectors: UnavailableConnector[]; }>(`/v1/authorization-requests/${requestId}`); if (active) { loaded.current = true; setRequest(next); setError(""); } } catch (reason) { if (!active) return; if (reason instanceof ApiError && reason.status === 401) { location.href = `/login?return_to=${encodeURIComponent(location.href)}`; } else if (reason instanceof ApiError && reason.status === 404) { // The request is no longer pending. Once loaded, the status poll owns // the outcome; before that, nothing on this page can be decided. if (!loaded.current) setStatus("expired"); } else { setError(message(reason)); } } } void refreshCollections(); const timer = window.setInterval(() => void refreshCollections(), 10_000); return () => { active = false; window.clearInterval(timer); }; }, [requestId]); useEffect(() => { async function checkStatus() { try { const value = await api<{ status: "pending" | "setting_up" | "approved" | "denied"; redirect_uri?: string; }>(`/v1/authorization-requests/${requestId}/status`); if (returning.current) return; if (decisionError && value.status === "setting_up") return; setStatus(value.status); if (value.redirect_uri) { returning.current = true; setReturnUrl(value.redirect_uri); location.replace(value.redirect_uri); } } catch (reason) { // The status route answers 404 only for an expired or unknown request. // Other polling failures are transient and keep the pending decision. if (reason instanceof ApiError && reason.status === 404 && !returning.current) setStatus("expired"); } } void checkStatus(); const timer = window.setInterval(() => void checkStatus(), 1_000); return () => window.clearInterval(timer); }, [decisionError, requestId]); if (!request) { if (status !== "expired") return <Loading error={error} />; return ( <main className="center-page approval-page"> <PageBrand label={t(i18n)({ message: "Application request", context: "Application access approval" })} /> <section className="decision-panel authorization-panel"> <RequestOutcome status="expired" applicationName={t(i18n)({ message: "the application", context: "Application access approval" })} standalone /> </section> </main> ); } const authorization = request.authorization; const preparingStructure = structuralSetupRequested || authorizationNeedsSetup( authorization, request.collections ); const setupMotionActive = status === "setting_up" || (status === "pending" && structuralSetupRequested); function continueInDesktop(value: boolean) { const url = new URL(location.href); if (value) url.searchParams.set("continue_in_desktop", "1"); else url.searchParams.delete("continue_in_desktop"); history.replaceState(history.state, "", url); setContinuingInDesktop(value); } return ( <main className="center-page approval-page"> <PageBrand label={t(i18n)({ message: "Application request", context: "Application access approval" })} markMotion={setupMotionActive ? (preparingStructure ? "sort" : "stream") : undefined} error={error} /> <section className="decision-panel authorization-panel"> <RequestIdentity request={authorization} showClientKey={!request.collections.some((collection) => collection.kind === "private")} /> {status === "pending" && continuingInDesktop ? ( <DesktopContinuation request={authorization} onReviewHere={() => continueInDesktop(false)} /> ) : status === "pending" ? <> {(decisionError || error) && <div className="message error" role="alert">{decisionError || error}</div>} <ApprovalForm request={authorization} canCreateHosted={request.hosted_collections_available !== false} collections={request.collections} unavailableConnectors={request.unavailable_connectors} onContinueInDesktop={() => continueInDesktop(true)} onDecision={(decision) => setStatus(decision)} onDecisionError={(detail) => { setDecisionError(detail); setStatus("pending"); }} onSetupActivityChange={setStructuralSetupRequested} onCollectionCreated={(collection) => setRequest((current) => current ? { ...current, collections: current.collections.some((existing) => existing.id === collection.id) ? current.collections : [...current.collections, collection] } : current)} /> </> : <RequestOutcome status={status} applicationName={authorization.application_name} portable={authorization.distribution === "portable"} returnUrl={returnUrl} />} </section> </main> ); } const RETURN_LINK_DELAY_MS = 4_000; const SLOW_SETUP_MS = 20_000; export function RequestOutcome({ status, applicationName, portable = false, returnUrl = "", standalone = false }: { status: Exclude<RequestStatus, "pending">; applicationName: string; portable?: boolean; returnUrl?: string; // Without a loaded request there is no application heading above the outcome. standalone?: boolean; }) { useLocaleRevision(); const Heading = standalone ? "h1" : "h2"; // Show a manual return link or a slow-setup note only if the automatic step // has not already taken the user away. const [late, setLate] = useState(false); useEffect(() => { setLate(false); const delay = status === "setting_up" ? SLOW_SETUP_MS : RETURN_LINK_DELAY_MS; const timer = window.setTimeout(() => setLate(true), delay); return () => window.clearTimeout(timer); }, [status]); const returnLink = late && returnUrl ? <a className="button secondary link-button outcome-return" href={returnUrl}><Trans>Return to {applicationName}</Trans></a> : null; if (status === "expired") return <div className="request-outcome" role="status"> <p className="eyebrow outcome-label"><Trans>Request unavailable</Trans></p> <Heading>{t(i18n)({ message: "This request has expired or was already answered." })}</Heading> <p><Trans>Return to {applicationName} and connect again to start a new request.</Trans></p> </div>; if (status === "setting_up") return <div className="request-outcome" role="status"> <p className="eyebrow outcome-label"><Trans>Approval recorded</Trans></p> <h2><Trans>Finishing collection setup…</Trans></h2> <p><Trans>Your choices are being checked with the collection’s main copy. The application does not have access yet.</Trans></p> {late && <p><Trans>This is taking longer than usual. Keep this page open; it continues automatically when setup finishes.</Trans></p>} </div>; const approved = status === "approved"; return <div className="request-outcome" role="status"> <p className="eyebrow outcome-label">{approved ? t(i18n)({ message: "Access approved", context: "Application access approval" }) : t(i18n)({ message: "Access denied", context: "Application access approval" })}</p> <h2>{portable ? t(i18n)`Return to ${applicationName}.` : t(i18n)`Returning to ${applicationName}…`}</h2> <p>{portable ? approved ? t(i18n)({ message: "The application will finish connecting with its one-time device code. You can close this window." }) : t(i18n)({ message: "The application will learn that access was not granted. You can close this window." }) : approved ? t(i18n)({ message: "Your approved collection and permissions will follow you back." }) : t(i18n)({ message: "The application will show that access was not granted." })}</p> {returnLink} </div>; } export function RequestIdentity({ request, showClientKey = true }: { request: PendingAuthorization; showClientKey?: boolean }) { useLocaleRevision(); const [failedIcon, setFailedIcon] = useState<string | null>(null); const portable = request.distribution === "portable"; return ( <header className="request-identity"> <span className="request-identity-mark" aria-hidden="true">{request.icon && request.icon !== failedIcon ? <img src={request.icon} alt="" referrerPolicy="no-referrer" onError={() => setFailedIcon(request.icon)} /> : initials(request.application_name)}</span> <div> <h1>{request.application_name}</h1> <p className="request-origin">{portable ? <>{t(i18n)({ message: "Application using a device code" })}{request.project_url && <> · <code>{host(request.project_url)}</code></>}</> : <code>{host(request.homepage)}</code>}</p> {portable ? <p className="request-guidance portable-authorization-warning" role="note"><Trans><strong>Application origin unverified.</strong> Continue only if you started this connection intentionally{request.user_code ? <Trans> and it shows <code>{request.user_code}</code></Trans> : null}.{request.project_url ? <Trans> {host(request.project_url)} does not verify its origin.</Trans> : null}</Trans></p> : <p className="request-guidance"><Trans>Only continue if you recognize this exact site.</Trans></p>} {showClientKey && request.client_fingerprint ? <p className="request-fingerprint"><Trans>App key <code>{request.client_fingerprint}</code>. Your computer will show this key when you approve the app.</Trans></p> : null} <p className="request-expiry"><Trans>Request expires {relativeTime(request.expires_at)}</Trans></p> </div> </header> ); } function DesktopContinuation({ request, onReviewHere }: { request: PendingAuthorization; onReviewHere(): void; }) { useLocaleRevision(); const desktopUrl = `mdbase-connect://authorize?request_id=${encodeURIComponent(request.id)}`; return ( <section className="desktop-continuation" aria-live="polite"> <h2><Trans>Choose the folder in mdbase connect.</Trans></h2> <p><Trans>This request remains open while you connect the computer or add a collection. Approve it in the desktop app, then return here to continue to {request.application_name}.</Trans></p> <div className="desktop-continuation-status"> <span className="status-dot connecting" aria-hidden="true" /> <div><strong><Trans>Waiting for mdbase connect</Trans></strong><small><Trans>The page will notice when the request is approved.</Trans></small></div> </div> <div className="approval-actions"> <button className="button secondary" type="button" onClick={onReviewHere}><Trans>Review in this browser</Trans></button> <a className="button primary link-button" href={desktopUrl}><Trans>Open mdbase connect</Trans></a> </div> <p className="field-note"><Trans>If the desktop app does not open, <a href="https://mdbase.dev/downloads/" target="_blank" rel="noreferrer">install the current Connect release</a>, then return to this page. The request expires {relativeTime(request.expires_at)}.</Trans></p> </section> ); } export function ApprovalForm(props: React.ComponentProps<typeof SupportedApprovalForm>) { useLocaleRevision(); const error = authorizationRequirementsError(props.request.requirements) ?? (props.request.account_backend === "next" ? nextAuthorizationGroups(props.request.requirements, props.request.requested_operations).error : undefined); if (error) return <div className="message error" role="alert">{error}</div>; return <SupportedApprovalForm {...props} />; } function SupportedApprovalForm({ request, collections, canCreateHosted, unavailableConnectors = [], onContinueInDesktop, onDecision, onDecisionError, onSetupActivityChange, onCollectionCreated }: { request: PendingAuthorization; collections: AvailableCollection[]; canCreateHosted: boolean; unavailableConnectors?: UnavailableConnector[]; onContinueInDesktop?(): void; onDecision(decision: "approved" | "denied"): void | Promise<void>; onDecisionError(detail: string): void; onSetupActivityChange?(active: boolean): void; onCollectionCreated(collection: AvailableCollection): void; }) { const localeRevision = useLocaleRevision(); const [createdCollections, setCreatedCollections] = useState<AvailableCollection[]>([]); const choices = useMemo(() => { const combined = new Map(collections.map((collection) => [collection.id, collection])); for (const collection of createdCollections) { if (!combined.has(collection.id)) combined.set(collection.id, collection); } return [...combined.values()].map((collection) => ({ collection, compatibility: collectionCompatibility(request, collection) })); }, [collections, createdCollections, request, localeRevision]); const visibleChoices = useMemo( () => request.collection_id ? choices.filter((choice) => choice.collection.id === request.collection_id) : choices, [choices, request.collection_id] ); const compatible = useMemo( () => visibleChoices.filter((choice) => choice.compatibility.compatible), [visibleChoices] ); const collectionLocations = useMemo( () => disambiguatedCollectionLocations( compatible.map((choice) => choice.collection) ), [compatible] ); const unavailable = useMemo( () => visibleChoices.filter((choice) => !choice.compatibility.compatible), [visibleChoices] ); const savedReview = useMemo(() => storedAuthorizationReview(request.id), [request.id]); const jointPermissions = request.account_backend === "next"; const requestedPermissionGroups = useMemo( () => jointPermissions ? nextAuthorizationGroups(request.requirements, request.requested_operations).groups : authorizationCapabilityGroups(request.requirements, request.requested_operations), [jointPermissions, request.requirements, request.requested_operations, localeRevision] ); const initialSelection = initialAuthorizationSelection( compatible.map((choice) => choice.collection.id), savedReview ); const [collectionId, setCollectionId] = useState(initialSelection.collectionId); const [collectionConfirmed, setCollectionConfirmed] = useState( Boolean(initialSelection.collectionId) ); const [reviewing, setReviewing] = useState(initialSelection.reviewing); const [chosenOperations, setOperations] = useState(() => { const selected = jointPermissions ? selectedNextAuthorizationOperations(requestedPermissionGroups, savedReview?.operations, savedReview?.fileActions) : selectedOperationsForCapabilityGroups(requestedPermissionGroups, savedReview?.operations); const grouped = new Set(requestedPermissionGroups.flatMap((group) => group.operations)); for (const operation of request.requested_operations) { if (!grouped.has(operation) && (!savedReview?.operations || request.requirements.capabilities?.contract_version === 2 || savedReview.operations.includes(operation))) selected.add(operation); } return selected; }); const people = "people" in request.requirements ? request.requirements.people : undefined; const [peoplePermissions, setPeoplePermissions] = useState(() => people ? selectedPeoplePermissions(people, savedReview?.peoplePermissions) : new Set<string>()); const [chosenFileActions, setFileActions] = useState(() => request.requirements.files ? selectedFileActions(request.requirements.files, savedReview?.fileActions) : new Set<string>() ); const [submitting, setSubmitting] = useState<"approved" | "denied" | "creating" | null>(null); const [creatingHosted, setCreatingHosted] = useState(false); const [showAlternateCollections, setShowAlternateCollections] = useState(false); const [collectionName, setCollectionName] = useState(""); const [error, setError] = useState(""); const [lostCollection, setLostCollection] = useState(""); const collectionChoicesRef = useRef<HTMLFieldSetElement>(null); const createHostedTriggerRef = useRef<HTMLButtonElement>(null); const focusCollectionOnReturn = useRef(false); const focusHostedTriggerOnCancel = useRef(false); const lastSelected = useRef<AvailableCollection | undefined>(undefined); const selected = compatible.find((choice) => choice.collection.id === collectionId)?.collection; const selectedName = selected?.display_name ?? t(i18n)`this collection`; const approval = selected?.authorization; const allowedOperations = approval?.available ? approval.operations : undefined; const allowedFiles = approval?.available ? approval.file_actions : undefined; const permissionGroups = useMemo(() => requestedPermissionGroups.filter((group) => (!allowedOperations || group.operations.every((operation) => allowedOperations.includes(operation))) && (!jointPermissions || !allowedFiles || (group.fileActions ?? []).every(action => allowedFiles.includes(action))) ), [allowedOperations, allowedFiles, jointPermissions, requestedPermissionGroups]); const operations = useMemo(() => { if (!jointPermissions) return new Set([...chosenOperations].filter(operation => !allowedOperations || allowedOperations.includes(operation))); const enabled = permissionGroups.filter(group => group.operations.every(operation => chosenOperations.has(operation))); const selected = new Set(enabled.flatMap(group => group.operations)); if (enabled.some(group => group.id === "definitions.manage")) { for (const operation of APPLICATION_SETUP_OPERATIONS) { if (request.requested_operations.includes(operation) && (!allowedOperations || allowedOperations.includes(operation))) selected.add(operation); } } return selected; }, [allowedOperations, chosenOperations, jointPermissions, permissionGroups, request.requested_operations]); const fileActions = useMemo(() => jointPermissions ? new Set(permissionGroups.filter(group => group.operations.every(operation => operations.has(operation))).flatMap(group => group.fileActions ?? [])) : new Set([...chosenFileActions].filter(action => !allowedFiles || allowedFiles.includes(action as ApplicationFileAction))), [allowedFiles, chosenFileActions, jointPermissions, operations, permissionGroups]); const existingOperations = useMemo(() => new Set(request.existing_access?.find((access) => access.collection_id === collectionId)?.operations ?? []), [collectionId, request.existing_access]); // A Private collection is end-to-end encrypted: the application sets up its // types itself once connected, and a device of the account approves access. const privateCollection = selected?.kind === "private"; const setup = selected && !privateCollection ? neededProvisions(request, selected) : []; const configurationSetup = privateCollection ? [] : request.provisions.configuration ?? []; const hasSetup = setup.length > 0 || configurationSetup.length > 0; const requestSetupSummary = [ ...(request.provisions.type_packs.length > 0 ? [t(i18n)`Adds ${provisionNames(request.provisions.type_packs)} to the collection`] : []), ...(configurationSetup.length > 0 ? [t(i18n)({ message: "Changes collection settings" })] : []) ]; const setupContracts = useMemo(() => selected ? request.requirements.contracts.flatMap((required) => { if (selected.contracts.some((contract) => contract.id === required.id && contract.version === required.version && contract.digest === required.digest)) return []; const contract = provisionedContract(required, request.provisions.type_packs); return contract ? [contract] : []; }) : [], [request.provisions.type_packs, request.requirements.contracts, selected]); const setupTypes = useMemo<SetupType[]>( () => selected?.types ?? [], [selected] ); const setupIdentity = [ collectionId, ...setupContracts.map((contract) => `${contract.id}@${contract.version}`), ...setupTypes.map((type) => `${type.name}@${type.revision ?? ""}`) ].join("|"); const [setupChoices, setSetupChoices] = useState<Record<string, ContractSetupChoice>>({}); const selectedPermissionGroups = permissionGroups.filter((group) => group.operations.every((operation) => operations.has(operation)) ); const selectedPermissionCount = selectedPermissionGroups.length + (!jointPermissions && fileActions.size > 0 ? 1 : 0); const higherImpactLabels = [ ...selectedPermissionGroups.flatMap((group) => group.higherImpact ? [group.label.toLocaleLowerCase()] : [] ), ...(!jointPermissions && fileActions.has("delete") ? [t(i18n)({ message: "delete files", context: "Application access approval" })] : []), ...(peoplePermissions.has("members") ? [t(i18n)({ message: "see collection members", context: "Application access approval" })] : []), ...(hasSetup ? [t(i18n)({ message: "changes to collection setup" })] : []) ]; const approvalBlocker = jointPermissions && requestedPermissionGroups.some(group => group.required && !permissionGroups.includes(group)) ? t(i18n)({ message: "The collection cannot allow all required record and file permissions together. Choose another collection." }) : selectedPermissionCount === 0 && (jointPermissions || !request.requirements.files) ? t(i18n)({ message: "Allow at least one permission to continue." }) : setupContracts.map((contract) => contractSetupProblem( contract, setupChoices[`${contract.id}@${contract.version}`], setupTypes )).find(Boolean); const blockerId = `approval-blocker-${request.id}`; useEffect(() => { if (selected) lastSelected.current = selected; }, [selected]); useEffect(() => { if (collectionId && !compatible.some((choice) => choice.collection.id === collectionId)) { if (lastSelected.current?.id === collectionId) { setLostCollection(lostCollectionNotice(lastSelected.current, unavailable, unavailableConnectors)); } setCollectionId(""); setCollectionConfirmed(false); setReviewing(false); } }, [collectionId, compatible, unavailable, unavailableConnectors]); useEffect(() => { saveAuthorizationReview(request.id, { collectionId, collectionConfirmed, operations: [...operations], fileActions: [...fileActions], peoplePermissions: [...peoplePermissions], reviewing }); }, [collectionConfirmed, collectionId, fileActions, operations, peoplePermissions, request.id, reviewing]); useEffect(() => { if (!reviewing && focusCollectionOnReturn.current) { focusCollectionOnReturn.current = false; collectionChoicesRef.current?.querySelector<HTMLInputElement>("input:checked")?.focus(); } }, [reviewing]); useEffect(() => { if (!creatingHosted && focusHostedTriggerOnCancel.current) { focusHostedTriggerOnCancel.current = false; createHostedTriggerRef.current?.focus(); } }, [creatingHosted]); useEffect(() => { setSetupChoices(Object.fromEntries(setupContracts.map((contract) => [ `${contract.id}@${contract.version}`, initialContractSetupChoice(contract, setupTypes) ]))); }, [setupIdentity]); const contractSetups = setupContracts.flatMap<ContractSetupRequestChoice>((contract) => { const choice = setupChoices[`${contract.id}@${contract.version}`]; if (!choice) return []; if (choice.mode === "starter") return [{ contract: { id: contract.id, version: contract.version, digest: contract.digest }, mode: "starter" as const }]; const type = setupTypes.find((candidate) => candidate.name === choice.typeName); if (!type?.revision) return []; return [{ contract: { id: contract.id, version: contract.version, digest: contract.digest }, mode: "existing" as const, type_name: type.name, type_revision: type.revision, fields: choice.fields, ...(Object.keys(choice.binding).length ? { binding: choice.binding } : {}) }]; }); function toggleCapability(group: AuthorizationCapabilityGroup) { if (group.required) return; setOperations((current) => toggleAuthorizationGroup(current, group)); } function togglePeoplePermission(permission: string) { if (!people?.optional?.some((candidate) => candidate === permission)) return; setPeoplePermissions((current) => { const next = new Set(current); if (!next.delete(permission)) next.add(permission); return next; }); } function toggleFileAction(action: ApplicationFileAction) { setFileActions((current) => { const next = new Set(current); if (next.has(action)) next.delete(action); else next.add(action); return next; }); } function chooseCollection(id: string) { setCollectionId(id); setCollectionConfirmed(true); setLostCollection(""); } async function decide(decision: "approved" | "denied") { const preparingSetup = decision === "approved" && hasSetup; if (preparingSetup) onSetupActivityChange?.(true); setSubmitting(decision); setError(""); onDecisionError(""); try { await api(`/v1/authorization-requests/${request.id}/${decision === "approved" ? "approve" : "deny"}`, { method: "POST", ...(decision === "approved" ? { body: JSON.stringify({ collection_id: collectionId, ...(selected?.offer_id ? { offer_id: selected.offer_id } : {}), operations: [...operations], ...(request.requirements.files ? { file_actions: [...fileActions] } : {}), ...(people ? { people_permissions: [...peoplePermissions] } : {}), contract_setups: privateCollection ? [] : contractSetups }) } : {}) }); clearAuthorizationReview(request.id); await onDecision(decision); } catch (decisionError) { if (preparingSetup) onSetupActivityChange?.(false); onDecisionError(message(decisionError)); setSubmitting(null); } } async function createHostedCollection(event: React.FormEvent) { event.preventDefault(); const displayName = collectionName.trim(); if (!displayName) return; setSubmitting("creating"); setError(""); try { const created = await api<{ collection: HostedCollection }>("/v1/hosted/collections", { method: "POST", body: JSON.stringify({ display_name: displayName, template: "mdbase", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }) }); const collection: AvailableCollection = { id: created.collection.id, display_name: created.collection.display_name, connector_name: t(i18n)`Hosted by mdbase`, spec_version: created.collection.spec_version ?? "0.3.0", contracts: [], types: [], kind: "hosted" }; setCreatedCollections((current) => [...current, collection]); onCollectionCreated(collection); chooseCollection(collection.id); setReviewing(true); setCollectionName(""); setCreatingHosted(false); } catch (creationError) { setError(message(creationError)); } finally { setSubmitting(null); } } const denyButton = <button className="button secondary deny-button" type="button" disabled={submitting !== null} onClick={() => void decide("denied")}>{submitting === "denied" ? t(i18n)({ message: "Denying…", context: "Application access approval" }) : t(i18n)({ message: "Deny", context: "Application access approval" })}</button>; return ( <div className="approval-form" aria-busy={submitting !== null}> {!reviewing && <section className="approval-section" aria-labelledby={`requested-${request.id}`}> <h2 className="approval-section-title" id={`requested-${request.id}`}><Trans>Requests</Trans></h2> <RequestedAccessSummary groups={requestedPermissionGroups} files={request.requirements.files} people={people} /> {requestSetupSummary.length > 0 && <p className="approval-section-note">{requestSetupSummary.join(". ")}.</p>} </section>} <section className="approval-section" aria-labelledby={`collection-${request.id}`}> <h2 className="approval-section-title" id={`collection-${request.id}`}>{reviewing ? t(i18n)({ message: "Collection", context: "Application access approval" }) : t(i18n)({ message: "Choose a collection", context: "Application access approval" })}</h2> {lostCollection && <p className="message error compact" role="alert">{lostCollection}</p>} {reviewing && selected ? <div className="selected-collection-summary"> <div> <strong>{selected.display_name}</strong> <small>{collectionLocations.get(selected.id)}</small> </div> {existingOperations.size > 0 && <span className="collection-status"><Trans><i aria-hidden="true" />Already connected</Trans></span>} {!request.collection_id && <button className="quiet-action" type="button" disabled={submitting !== null} onClick={() => { focusCollectionOnReturn.current = true; setReviewing(false); }}><Trans>Change</Trans></button>} </div> : <> {compatible.length > 0 && <fieldset className="collection-choice-field" ref={collectionChoicesRef}> <legend className="sr-only"><Trans>Collection</Trans></legend> <div className="collection-choice-list"> {compatible.map(({ collection }) => { const connected = request.existing_access?.some((access) => access.collection_id === collection.id); return <label className={collection.id === collectionId ? "selected" : undefined} key={collection.id}> <input type="radio" name={`collection-${request.id}`} value={collection.id} checked={collection.id === collectionId} disabled={submitting !== null} onChange={() => chooseCollection(collection.id)} /> <span className="collection-choice-copy"> <strong>{collection.display_name}</strong> <small>{collectionLocations.get(collection.id)}</small> </span> {connected && <span className="collection-status"><Trans><i aria-hidden="true" />Already connected</Trans></span>} </label>; })} </div> </fieldset>} {compatible.length === 0 && <p className="field-note">{request.collection_id ? t(i18n)({ message: "The collection requested by this application is not available." }) : request.requirements.collection_kind === "hosted" ? t(i18n)({ message: "This application needs a collection hosted by mdbase, and none is ready yet." }) : t(i18n)({ message: "No compatible collection is ready." })}</p>} {(unavailable.length > 0 || unavailableConnectors.length > 0 || (request.requirements.collection_kind !== "hosted" && !request.collection_id) || (canCreateHosted && !request.collection_id)) && <details className="alternate-collection-options" open={compatible.length === 0 || creatingHosted || showAlternateCollections} onToggle={(event) => { if (compatible.length > 0 && !creatingHosted) { setShowAlternateCollections(event.currentTarget.open); } }} > <summary>{compatible.length > 0 ? t(i18n)({ message: "Add or connect another collection" }) : t(i18n)({ message: "Choose another way", context: "Application access approval" })}</summary> <div> {unavailable.length > 0 && <div className="collection-compatibility"> <strong><Trans>{plural(unavailable.length, { one: "# collection is unavailable", other: "# collections are unavailable" })}</Trans></strong> <ul>{unavailable.map(({ collection, compatibility }) => <li key={collection.id}><span>{collection.display_name}</span><small>{compatibility.compatible ? "" : compatibility.detail}</small></li>)}</ul> </div>} {unavailableConnectors.length > 0 && <p className="field-note" role="status"><Trans> {unavailableConnectors.map((connector) => connector.reason === "paused" ? t(i18n)`${connector.connector_name} has remote access paused.` : t(i18n)`${connector.connector_name} is offline.`).join(" ")} Those local collections cannot be selected until their computer is available. </Trans></p>} {request.requirements.collection_kind !== "hosted" && !request.collection_id && <div className="alternate-collection-row"> <div> <strong><Trans>Use a folder on this computer</Trans></strong> <small><Trans>Open the desktop app to connect this computer, add a folder, and continue this same request.</Trans></small> </div> <a className="button secondary link-button" href={`mdbase-connect://authorize?request_id=${encodeURIComponent(request.id)}`} onClick={onContinueInDesktop} ><Trans>Use a local folder</Trans></a> </div>} {canCreateHosted && !request.collection_id && (creatingHosted ? ( <form className="authorization-collection-create" id={`create-hosted-${request.id}`} onSubmit={(event) => void createHostedCollection(event)} > <label> <span><Trans>New collection name</Trans></span> <input autoFocus maxLength={200} value={collectionName} disabled={submitting !== null} placeholder={t(i18n)`Workouts`} onChange={(event) => setCollectionName(event.target.value)} /> </label> <small><Trans>Creates a plain mdbase collection hosted by mdbase. Application access is still approved separately.</Trans></small> <div> <button className="quiet-action" type="button" disabled={submitting !== null} onClick={() => { focusHostedTriggerOnCancel.current = true; setCreatingHosted(false); setCollectionName(""); setError(""); }} ><Trans>Cancel</Trans></button> <button className="button secondary" disabled={submitting !== null || !collectionName.trim()}> {submitting === "creating" ? t(i18n)({ message: "Creating…", context: "Application access approval" }) : t(i18n)({ message: "Create collection", context: "Application access approval" })} </button> </div> </form> ) : ( <div className="alternate-collection-row"> <div> <strong><Trans>Create a hosted collection</Trans></strong> <small><Trans>A new collection stored by mdbase, available from any computer.</Trans></small> </div> <button className="button secondary" type="button" ref={createHostedTriggerRef} aria-controls={`create-hosted-${request.id}`} disabled={submitting !== null} onClick={() => { setCreatingHosted(true); setError(""); }} ><Trans>Create hosted collection</Trans></button> </div> ))} </div> </details>} {error && <div className="message error compact" role="alert">{error}</div>} <footer className="approval-footer"> <p className="approval-receipt" id={`collection-selection-help-${request.id}`}> {!collectionId && compatible.length > 0 ? t(i18n)({ message: "Select a collection to continue." }) : t(i18n)({ message: "Nothing is allowed until you review access." })} </p> <div className="approval-actions"> {denyButton} <button className="button primary" type="button" aria-describedby={`collection-selection-help-${request.id}`} disabled={submitting !== null || !collectionId || !collectionConfirmed} onClick={() => setReviewing(true)} ><Trans>Review access</Trans></button> </div> </footer> </>} </section> {reviewing && <section className="approval-section" aria-labelledby={`permissions-${request.id}`}> <h2 className="approval-section-title" id={`permissions-${request.id}`}><Trans>What it can do</Trans></h2> <p className="approval-section-note"><Trans> Covers every record in {selected?.display_name ?? t(i18n)({ message: "this collection", context: "Application access approval" })}. {existingOperations.size > 0 ? t(i18n)({ message: " Permissions this application does not already have are marked New." }) : ""} </Trans></p> <PermissionList groups={permissionGroups} selected={operations} existingOperations={existingOperations} files={request.requirements.files} selectedFiles={fileActions} allowedFileActions={allowedFiles} people={people} selectedPeople={peoplePermissions} disabled={submitting !== null} onToggleGroup={toggleCapability} onToggleFile={toggleFileAction} onTogglePeople={togglePeoplePermission} /> </section>} {reviewing && hasSetup && <section className="approval-section" aria-labelledby={`changes-${request.id}`}> <h2 className="approval-section-title" id={`changes-${request.id}`}><Trans>Collection changes</Trans></h2> <div className="contract-setup-list"> {setup.length > 0 && <ul className="configuration-setup-list"> {setup.map((provision) => ( <li className="configuration-setup-item" key={provision.manifest.id}> <span aria-hidden="true">+</span> <div> <strong>{provision.manifest.name ?? provision.manifest.id} <code>{provision.manifest.version}</code></strong> <small>{provision.manifest.description ?? t(i18n)({ message: "Install or update the application definitions declared by this version." })}</small> {provision.manifest.resources.some((resource) => resource.upgrade_from) && <small><Trans>Upgrades starter types this application added earlier while keeping your customizations and notes. Types it cannot trace to one of those starters are left unchanged. Conflicts, or other types still using the old contract, stop the whole upgrade.</Trans></small>} </div> </li> ))} </ul>} {setupContracts.map((contract) => { const key = `${contract.id}@${contract.version}`; const choice = setupChoices[key]; return choice && <ContractSetupEditor key={key} applicationName={request.application_name} contract={contract} types={setupTypes} value={choice} disabled={submitting !== null} onChange={(next) => setSetupChoices((current) => ({ ...current, [key]: next }))} />; })} {configurationSetup.length > 0 && <ul className="configuration-setup-list"> {configurationSetup.map((provision) => { const summary = configurationSetupSummary(provision); return <li className="configuration-setup-item" key={`${provision.requirement}:${provision.path}`}> <span aria-hidden="true">+</span> <div> <strong><Trans>Ensure <code>{summary.setting}</code> includes <code>{summary.value}</code></Trans></strong> <small><Trans>If the value is already present, mdbase leaves the collection unchanged. Conflicting settings stop setup without overwriting policy.</Trans></small> </div> </li>; })} </ul>} </div> </section>} {reviewing && <NotificationAccess applicationName={request.application_name} notifications={request.notifications} />} {reviewing && error && <div className="message error compact" role="alert">{error}</div>} {reviewing && <footer className="approval-footer"> <div className="approval-receipt"> <p>{request.distribution === "portable" ? t(i18n)`${request.application_name} can use ${selectedName} while it remains connected. You can revoke access in mdbase connect.` : t(i18n)`${request.application_name} can use ${selectedName} until you revoke access in mdbase connect.`}</p> {privateCollection && <p><Trans>This is a Private collection: it stays on your computer. {request.application_name} can use it while a computer that has it is running mdbase and is signed in to your account.</Trans></p>} {higherImpactLabels.length > 0 && <p className="receipt-impact"><Trans><i aria-hidden="true" />Includes {higherImpactLabels.join(", ")}.</Trans></p>} {approvalBlocker && <p className="receipt-blocker" id={blockerId}>{approvalBlocker}</p>} </div> <div className="approval-actions"> {denyButton} <button className="button primary" type="button" aria-describedby={approvalBlocker ? blockerId : undefined} disabled={submitting !== null || !collectionId || !collectionConfirmed || Boolean(approvalBlocker)} onClick={() => void decide("approved")} >{submitting === "approved" ? (hasSetup ? t(i18n)({ message: "Setting up and allowing…", context: "Application access approval" }) : t(i18n)({ message: "Allowing…", context: "Application access approval" })) : hasSetup ? t(i18n)({ message: "Set up and allow access", context: "Application access approval" }) : t(i18n)({ message: "Allow access", context: "Application access approval" })}</button> </div> </footer>} </div> ); } function authorizationNeedsSetup( request: PendingAuthorization, collections: AvailableCollection[] ): boolean { if (!request.collection_id) return false; const collection = collections.find((candidate) => candidate.id === request.collection_id); if (!collection) return false; return (request.provisions.configuration?.length ?? 0) > 0 || request.provisions.type_packs.length > 0 || request.requirements.contracts.some((required) => !collection.contracts.some((contract) => contract.id === required.id && contract.version === required.version && contract.digest === required.digest ) && Boolean(provisionedContract(required, request.provisions.type_packs)) ); } 
 #: src/authorization-view.tsx
 msgid "{0}"
-msgstr ""
+msgstr "{0}"
 
 #. placeholder {0}: import { formatters } from "@mdbase-dev/i18n"; import { countLabel } from "./count-label"; import { t, plural } from "@lingui/core/macro"; import { Trans } from "@lingui/react/macro"; import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n"; import { ConnectManagementClient, type ManagementOverview, type ManagementRequestOptions } from "@mdbase/connect-management"; import { groupApplicationAccess, authorizationOperationLabel, applicationAccessOriginLabel } from "@mdbase/connect-ui/access"; import { usePermissionSelection } from "@mdbase-dev/ui/permission-selection"; import { ConfirmAction, ConnectPage as Page, ConnectSectionTitle as SectionTitle, ConnectEmpty as Empty } from "./ConnectPrimitives"; type Grant = ManagementOverview["grants"][number]; type Installation = NonNullable<ManagementOverview["installation_access"]>[number]; type BusyOperations = ReadonlySet<string>; type PerformOperation = (id: string, action: (options: ManagementRequestOptions) => Promise<void>) => Promise<boolean>; const allOperations = [ "describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "create", "update", "delete", "rename", "create_view_source", "update_view_source", "delete_view_source", "read_type", "create_type", "update_type", "apply_type_pack", "list_timers", "put_timer", "cancel_timer", "reconcile_timers" ]; export function applicationGroups(grants: Grant[], installations: Installation[]) { const groups = new Map(groupApplicationAccess(grants).map(group => [group.applicationId, { ...group, installations: [] as Installation[] }])); for (const entry of installations) { let group = groups.get(entry.application_family_id); if (!group) { group = { applicationId: entry.application_family_id, applicationName: entry.application_name, collectionCount: 0, grants: [], installations: [] }; groups.set(group.applicationId, group); } group.installations.push(entry); } return [...groups.values()].map(group => ({ ...group, collectionCount: new Set([...group.grants.map(g => g.collection_id), ...group.installations.flatMap(i => i.collection_id ? [i.collection_id] : [])]).size })).sort((a, b) => a.applicationName.localeCompare(b.applicationName)); } function installationScopes(installations: Installation[]) { const scopes = new Map<string | null, Installation[]>(); for (const entry of installations) { const entries = scopes.get(entry.collection_id) ?? []; entries.push(entry); scopes.set(entry.collection_id, entries); } return [...scopes].map(([collectionId, entries]) => ({ collectionId, entries })); } export function AppAccess({ groups, client, busy, perform, collectionName }: { groups: ReturnType<typeof applicationGroups>; client: ConnectManagementClient; busy: BusyOperations; perform: PerformOperation; collectionName?: string; }) { useLocaleRevision(); return <Page title={collectionName ? t(i18n)({ message: "Application access", context: "Connect interface" }) : t(i18n)({ message: "Applications", context: "Connect interface" })} intro={collectionName ? t(i18n)`Review the access each application has to ${collectionName}.` : t(i18n)({ message: "Review applications connected to your account. Your browser sign-in is never shared with them." })}> <section><SectionTitle title={collectionName ? t(i18n)({ message: "Connected applications", context: "Connect interface" }) : t(i18n)({ message: "Application access", context: "Connect interface" })} count={groups.length} /> {groups.map(group => <details className="connect-application" key={group.applicationId}> <summary><span><strong>{group.applicationName}</strong><small>{countLabel(group.collectionCount, "collection")}</small></span><b>{t(i18n)({ message: "Review", context: "Connect interface" })}</b></summary> <div className="connect-application-body"> {installationScopes(group.installations).map(({ collectionId, entries }) => <div className="connect-grant connect-row" key={collectionId ?? "creation"}> <div><strong>{entries[0]!.collection_name ?? t(i18n)({ message: "No collection access", context: "Connect interface" })}</strong><small>{countLabel(entries.length, "installation")}</small> <details className="connect-installation-details"><summary><Trans>Installation details</Trans></summary> {entries.map(entry => <div key={entry.connector_id}> <small><Trans>{entry.application_origin} · {entry.device_kind === "mobile" ? t(i18n)({ message: "Mobile app", context: "Connect interface" }) : t(i18n)({ message: "App installation", context: "Connect interface" })} · ID {entry.installation_id.slice(-8)}</Trans></small> <small><Trans>Registered <time dateTime={entry.created_at}>{formatters(i18n.locale).date(new Date(entry.created_at), { dateStyle: "medium", timeStyle: "short" })}</time></Trans></small> <small>{entry.collection_id ? entry.available ? t(i18n)`Entire collection · Access as your account (${entry.role})` : t(i18n)({ message: "Previously approved · Collection no longer visible to your account" }) : t(i18n)({ message: "This installation has no approved collections." })}</small> {entry.create_collections && <small><Trans>Can create collections for your account</Trans></small>} {entry.approved_optional_file_actions.length > 0 && <small><Trans>Additional file actions approved: {entry.approved_optional_file_actions.join(", ")}</Trans></small>} </div>)} </details> </div> {collectionId && <ConfirmAction className="danger" label={t(i18n)({ message: "Revoke collection access", context: "Connect interface" })} question={t(i18n)`Revoke ${group.applicationName} access to ${entries[0]!.collection_name} across all its installations?`} confirmLabel={t(i18n)({ message: "Revoke collection access", context: "Connect interface" })} busy={busy.has(`scope-${group.applicationId}-${collectionId}`)} onConfirm={() => void perform(`scope-${group.applicationId}-${collectionId}`, async options => { for (const applicationId of new Set(entries.map(entry => entry.application_id))) await client.removeInstallationAccess(applicationId, collectionId, options); })} />} </div>)} {group.grants.map(grant => <GrantEditor key={grant.id} grant={grant} client={client} busy={busy} perform={perform} />)} <ConfirmAction className="danger connect-revoke-application" label={collectionName ? t(i18n)({ message: "Revoke access", context: "Connect interface" }) : t(i18n)({ message: "Revoke application", context: "Connect interface" })} question={collectionName ? t(i18n)`Revoke ${group.applicationName} access to ${collectionName}?` : t(i18n)`Revoke all ${group.applicationName} access and collection creation permission?`} confirmLabel={collectionName ? t(i18n)({ message: "Revoke access", context: "Connect interface" }) : t(i18n)({ message: "Revoke application", context: "Connect interface" })} busy={busy.has(`application-${group.applicationId}`)} onConfirm={() => void perform(`application-${group.applicationId}`, async options => { if (collectionName) { for (const { collectionId, entries } of installationScopes(group.installations)) { if (collectionId) for (const applicationId of new Set(entries.map(entry => entry.application_id))) await client.removeInstallationAccess(applicationId, collectionId, options); } } else { for (const connector of new Set(group.installations.map(i => i.connector_id))) await client.revokeInstallation(connector, options); } if (group.grants.length) await client.revokeApplication(group.grants.map(g => g.id), options); })} /> </div> </details>)} {groups.length === 0 && <Empty title={t(i18n)({ message: "No connected applications" })} body={t(i18n)({ message: "Applications appear here after you approve access." })} />} </section> </Page>; } function GrantEditor({ grant, client, busy, perform }: { client: ConnectManagementClient; grant: Grant; busy: BusyOperations; perform: PerformOperation; }) { useLocaleRevision(); const { selected, setSelected, needsReview, acknowledge } = usePermissionSelection(grant.id, grant.operations); const operations = new Set(selected); if (grant.revocation_status === "revoking") { return <div className="connect-grant connect-row"><span><strong>{grant.collection_name}</strong><small><Trans>Revocation is pending. Waiting for {grant.collection_kind === "local" ? t(i18n)({ message: "the computer holding this collection" }) : t(i18n)({ message: "the hosted authority", context: "Connect interface" })} to confirm enforcement.</Trans></small></span><b>{t(i18n)({ message: "Revoking…", context: "Connect interface" })}</b></div>; } if (grant.scope.access !== "full_collection" || grant.scope.contracts.length > 0) { return <div className="connect-grant connect-row"><span><strong>{grant.collection_name}</strong><small><Trans>Legacy scoped access is revoked. Reauthorize this application for the entire collection.</Trans></small></span><b>{t(i18n)({ message: "Reauthorization required", context: "Connect interface" })}</b></div>; } const ordered = [...allOperations.filter((operation) => grant.operations.includes(operation)), ...grant.operations.filter((operation) => !allOperations.includes(operation))]; const changed = ordered.some((operation) => operations.has(operation) !== grant.operations.includes(operation)); return <details className="connect-grant"> <summary><span><strong>{grant.collection_name}</strong><small><Trans>{plural(grant.operations.length, { one: "# permission", other: "# permissions" })} · {applicationAccessOriginLabel(grant.application_origin)}</Trans></small></span><b>{t(i18n)({ message: "Permissions", context: "Connect interface" })}</b></summary> <div className="connect-grant-body"> {needsReview && <p role="status"><Trans>Access changed elsewhere. Review the current permissions before saving. <button onClick={acknowledge}>Review current access</button></Trans></p>} <div className="connect-permissions">{ordered.map((operation) => <label key={operation}><input className="mdbase-checkbox" type="checkbox" checked={operations.has(operation)} onChange={() => setSelected((current) => current.includes(operation) ? current.filter((value) => value !== operation) : [...current, operation])} /><span>{authorizationOperationLabel(operation)}</span></label>)}</div> <div className="connect-grant-meta"><span><Trans>Collection ID</Trans></span><strong>{grant.collection_id}</strong><span><Trans>Scope</Trans></span><strong><Trans>Entire collection</Trans></strong><span><Trans>Origin</Trans></span><strong>{grant.application_origin}</strong></div> <div className="connect-row-actions"><button className="connect-primary-action mdbase-button is-primary" disabled={needsReview || !changed || operations.size === 0 || busy.has(`grant-${grant.id}`)} onClick={() => void perform(`grant-${grant.id}`, (options) => client.updateGrant(grant.id, ordered.filter((operation) => operations.has(operation)), options))}><Trans>Save narrower access</Trans></button><ConfirmAction className="danger" label={t(i18n)({ message: "Revoke", context: "Connect interface" })} question={t(i18n)`Revoke access to ${grant.collection_name}?`} confirmLabel={t(i18n)({ message: "Revoke", context: "Connect interface" })} busy={busy.has(`grant-${grant.id}`)} onConfirm={() => void perform(`grant-${grant.id}`, (options) => client.revokeGrant(grant.id, options))} /></div> </div> </details>; } 
 #. placeholder {1}: applicationAccessOriginLabel(grant.application_origin)
 #: src/ApplicationAccess.tsx
 msgid "{0} · {1}"
-msgstr ""
+msgstr "{0} · {1}"
 
 #. placeholder {0}: countLabel(usage.record_count, "record")
 #. placeholder {1}: countLabel(usage.file_count, "file")
@@ -99,31 +99,31 @@ msgstr ""
 #. placeholder {3}: formatBytes(usage.file_bytes)
 #: src/AccountManagement.tsx
 msgid "{0} · {1} · {2} Markdown · {3} files"
-msgstr ""
+msgstr "{0} · {1} · {2} Markdown · 파일 {3}개"
 
 #. placeholder {0}: entry.application_origin
 #. placeholder {1}: entry.device_kind === "mobile" ? t(i18n)({ message: "Mobile app", context: "Connect interface" }) : t(i18n)({ message: "App installation", context: "Connect interface" })
 #. placeholder {2}: entry.installation_id.slice(-8)
 #: src/ApplicationAccess.tsx
 msgid "{0} · {1} · ID {2}"
-msgstr ""
+msgstr "{0} · {1} · ID {2}"
 
 #. placeholder {0}: invitation.role === "editor" ? t(i18n)({ message: "Editor", context: "Connect interface" }) : t(i18n)({ message: "Viewer", context: "Connect interface" })
 #. placeholder {1}: relativeTime(invitation.expires_at)
 #: src/ConnectApp.tsx
 msgid "{0} · Expires {1}"
-msgstr ""
+msgstr "{0} · 만료: {1}"
 
 #. placeholder {0}: collection.connector_name
 #. placeholder {1}: uniqueIdSuffix( collection.id, group.map((candidate) => candidate.id) )
 #: src/authorization-review-state.ts
 msgid "{0} · ID …{1}"
-msgstr ""
+msgstr "{0} · ID …{1}"
 
 #. placeholder {0}: suggestion.type.name
 #: src/authorization-review.tsx
 msgid "{0} · suggested"
-msgstr ""
+msgstr "{0} · 추천"
 
 #. placeholder {0}: verbs.slice(0, -1).join(", ")
 #. placeholder {0}: words[0]
@@ -132,708 +132,708 @@ msgstr ""
 #: src/authority-workflows.tsx
 #: src/ConnectApp.tsx
 msgid "{0} and {1}"
-msgstr ""
+msgstr "{0} 및 {1}"
 
 #. placeholder {0}: countLabel(account.deletion.hosted_collections, "hosted-collection")
 #: src/AccountManagement.tsx
 msgid "{0} and their stored data"
-msgstr ""
+msgstr "{0} 및 저장된 데이터"
 
 #. placeholder {0}: collection.display_name
 #. placeholder {1}: incompatible.detail
 #: src/compatibility.ts
 msgid "{0} can no longer be used: {1} Choose another collection."
-msgstr ""
+msgstr "{0}을(를) 더 이상 사용할 수 없습니다: {1} 다른 컬렉션을 선택하세요."
 
 #. placeholder {0}: request.application_name
 #: src/authorization-view.tsx
 msgid "{0} can use {selectedName} until you revoke access in mdbase connect."
-msgstr ""
+msgstr "mdbase connect에서 액세스 권한을 철회할 때까지 {0}이(가) {selectedName}을(를) 사용할 수 있습니다."
 
 #. placeholder {0}: request.application_name
 #: src/authorization-view.tsx
 msgid "{0} can use {selectedName} while it remains connected. You can revoke access in mdbase connect."
-msgstr ""
+msgstr "연결이 유지되는 동안 {0}이(가) {selectedName}을(를) 사용할 수 있습니다. mdbase connect에서 액세스 권한을 철회할 수 있습니다."
 
 #. placeholder {0}: providerLabel(provider)
 #: src/AccountManagement.tsx
 msgid "{0} disconnected."
-msgstr ""
+msgstr "{0}의 연결이 끊겼습니다."
 
 #. placeholder {0}: connector.connector_name
 #: src/authorization-view.tsx
 msgid "{0} has remote access paused."
-msgstr ""
+msgstr "{0}의 원격 액세스가 일시 중지되었습니다."
 
 #. placeholder {0}: collection.display_name
 #: src/compatibility.ts
 msgid "{0} is no longer available. Choose another collection."
-msgstr ""
+msgstr "{0}을(를) 더 이상 사용할 수 없습니다. 다른 컬렉션을 선택하세요."
 
 #. placeholder {0}: providerLabel(linked)
 #: src/AccountManagement.tsx
 msgid "{0} is now connected."
-msgstr ""
+msgstr "{0}이(가) 연결되었습니다."
 
 #. placeholder {0}: adoption.display_name
 #: src/authority-workflows.tsx
 msgid "{0} is now hosted."
-msgstr ""
+msgstr "{0}이(가) 호스팅 컬렉션으로 전환되었습니다."
 
 #. placeholder {0}: connector.connector_name
 #: src/authorization-view.tsx
 msgid "{0} is offline."
-msgstr ""
+msgstr "{0}이(가) 오프라인 상태입니다."
 
 #. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
 msgid "{0} is stored in mdbase replicas on your devices."
-msgstr ""
+msgstr "{0}은(는) 기기의 mdbase 복제본에 저장됩니다."
 
 #. placeholder {0}: collection.display_name
 #. placeholder {1}: connector.connector_name
 #: src/compatibility.ts
 msgid "{0} is unavailable because {1} has remote access paused. Choose another collection."
-msgstr ""
+msgstr "{1}의 원격 액세스가 일시 중지되어 {0}을(를) 사용할 수 없습니다. 다른 컬렉션을 선택하세요."
 
 #. placeholder {0}: collection.display_name
 #. placeholder {1}: connector.connector_name
 #: src/compatibility.ts
 msgid "{0} is unavailable because {1} is offline. Choose another collection."
-msgstr ""
+msgstr "{1}이(가) 오프라인 상태여서 {0}을(를) 사용할 수 없습니다. 다른 컬렉션을 선택하세요."
 
 #. placeholder {0}: request.application_name
 #: src/ConnectApp.tsx
 msgid "{0} is waiting"
-msgstr ""
+msgstr "{0} 대기 중"
 
 #. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
 msgid "{0} keeps its main copy in a folder on a connected computer."
-msgstr ""
+msgstr "{0}의 기본 사본은 연결된 컴퓨터의 폴더에 보관됩니다."
 
 #. placeholder {0}: formatBytes(liveContentBytes)
 #. placeholder {1}: formatBytes(liveFileBytes)
 #: src/AccountManagement.tsx
 msgid "{0} Markdown · {1} files"
-msgstr ""
+msgstr "{0} Markdown · 파일 {1}개"
 
 #. placeholder {0}: formatBytes(liveStorageBytes)
 #. placeholder {1}: formatBytes(limit)
 #: src/AccountManagement.tsx
 msgid "{0} of {1}"
-msgstr ""
+msgstr "{1}개 중 {0}개"
 
 #. placeholder {0}: formatBytes(subscription.usage.retained_file_bytes)
 #. placeholder {1}: formatBytes(subscription.limits.retained_file_bytes)
 #: src/AccountManagement.tsx
 msgid "{0} of {1} retained file storage"
-msgstr ""
+msgstr "보관된 파일 저장 공간 {1} 중 {0}"
 
 #. placeholder {0}: formatBytes(liveStorageBytes)
 #. placeholder {1}: formatBytes(limit)
 #: src/AccountManagement.tsx
 msgid "{0} of {1} used"
-msgstr ""
+msgstr "{1} 중 {0} 사용"
 
 #. placeholder {0}: joinWords(verbs)
 #: src/ConnectApp.tsx
 msgid "{0} records"
-msgstr ""
+msgstr "레코드 {0}개"
 
 #. placeholder {0}: formatBytes(subscription.limits.retained_file_bytes)
 #: src/AccountManagement.tsx
 msgid "{0} retained file storage included"
-msgstr ""
+msgstr "포함된 보관 파일 저장 공간 {0}"
 
 #. placeholder {0}: unavailableConnectors.map((connector) => connector.reason === "paused" ? t(i18n)`${connector.connector_name} has remote access paused.` : t(i18n)`${connector.connector_name} is offline.`).join(" ")
 #: src/authorization-view.tsx
 msgid "{0} Those local collections cannot be selected until their computer is available."
-msgstr ""
+msgstr "{0} 해당 컴퓨터를 사용할 수 있을 때까지 로컬 컬렉션을 선택할 수 없습니다."
 
 #. placeholder {0}: collection.display_name
 #. placeholder {1}: collection.spec_version
 #: src/compatibility.ts
 msgid "{0} uses mdbase {1}. Upgrade a copy to mdbase 0.3 and verify it before approving access; the original can stay untouched."
-msgstr ""
+msgstr "{0}은(는) mdbase {1}을(를) 사용합니다. 사본을 mdbase 0.3으로 업그레이드하고 확인한 뒤 액세스를 승인하세요. 원본은 그대로 둘 수 있습니다."
 
 #. placeholder {0}: contract.id
 #. placeholder {1}: contract.version
 #: src/compatibility.ts
 msgid "{0} v{1}"
-msgstr ""
+msgstr "{0} v{1}"
 
 #. placeholder {0}: selected?.display_name ?? t(i18n)({ message: "The collection", context: "Collection connection" })
 #: src/authority-workflows.tsx
 msgid "{0} will begin syncing automatically. You can close this page."
-msgstr ""
+msgstr "{0}의 동기화가 자동으로 시작됩니다. 이 페이지를 닫아도 됩니다."
 
 #. placeholder {0}: pairing.connector_name
 #. placeholder {1}: pairing.collections?.find(collection=>collection.collection_id===removingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" })
 #: src/authority-workflows.tsx
 msgid "{0} will lose access to {1} on all its devices. Previously downloaded data cannot be erased."
-msgstr ""
+msgstr "{0}이(가) 모든 기기에서 {1}에 대한 액세스 권한을 잃습니다. 이미 다운로드한 데이터는 삭제할 수 없습니다."
 
 #. placeholder {0}: words.slice(0, -1).join(", ")
 #. placeholder {1}: words.at(-1)
 #: src/ConnectApp.tsx
 msgid "{0}, and {1}"
-msgstr ""
+msgstr "{0}, 그리고 {1}"
 
 #. placeholder {0}: Math.floor(seconds / 86_400)
 #: src/AccountManagement.tsx
 msgid "{0}d ago"
-msgstr ""
+msgstr "{0}일 전"
 
 #. placeholder {0}: Math.floor(seconds / 3_600)
 #: src/AccountManagement.tsx
 msgid "{0}h ago"
-msgstr ""
+msgstr "{0}시간 전"
 
 #. placeholder {0}: Math.floor(seconds / 60)
 #: src/AccountManagement.tsx
 msgid "{0}m ago"
-msgstr ""
+msgstr "{0}분 전"
 
 #. placeholder {0}: fileAccessVerbs(request.approved_actions ?? request.actions)
 #: src/authority-workflows.tsx
 msgid "{app} can now {0} files in {collection}. Return to {app} to continue."
-msgstr ""
+msgstr "{app}에서 {collection}의 파일을 {0}할 수 있습니다. 계속하려면 {app}(으)로 돌아가세요."
 
 #. placeholder {0}: request.reason
 #: src/authority-workflows.tsx
 msgid "{app} says: {0}"
-msgstr ""
+msgstr "{app}의 메시지: {0}"
 
 #. placeholder {0}: fileAccessVerbs(request.actions)
 #: src/authority-workflows.tsx
 msgid "{app} won't {0} files in {collection}. Return to {app}; everything else works as before."
-msgstr ""
+msgstr "{app}에서 {collection}의 파일을 {0}하지 않습니다. {app}(으)로 돌아가세요. 다른 기능은 이전과 같이 작동합니다."
 
 #. placeholder {0}: import { t, plural } from "@lingui/core/macro"; import { Trans } from "@lingui/react/macro"; import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n"; import { assessMapping, contractFields, guidedBindingSupported, propertyFields, setupLabel, suggestTypes, typeFields, type SetupContract, type SetupType } from "@mdbase/connect-ui/contract-setup"; import { useMemo } from "react"; import { initialContractSetupChoice } from "./application-setup"; import type { ApplicationFileAction, PendingAuthorization } from "./api"; import { HIGHER_IMPACT_FILE_ACTIONS, HIGHER_IMPACT_PEOPLE_PERMISSIONS, type AuthorizationCapabilityGroup } from "./authorization-capabilities"; import { Select } from "@mdbase-dev/ui/select"; type FileRequirements = NonNullable<PendingAuthorization["requirements"]["files"]>; type PeopleRequirement = import("@mdbase-dev/connect-protocol").ApplicationPeopleRequirement; const PEOPLE_PERMISSION_LABELS: Record<string, string> = { get identity() { return t(i18n)({ message: "See your account identity and display name" }); }, get members() { return t(i18n)({ message: "See collection members' account identities, names and roles" }); } }; const FILE_ACTION_LABELS: Record<ApplicationFileAction, string> = { get list() { return t(i18n)({ message: "List file names and metadata" }); }, get read() { return t(i18n)({ message: "Read file contents", context: "Application access approval" }); }, get add() { return t(i18n)({ message: "Add new files", context: "Application access approval" }); }, get replace() { return t(i18n)({ message: "Replace existing files", context: "Application access approval" }); }, get move() { return t(i18n)({ message: "Move and rename files", context: "Application access approval" }); }, get delete() { return t(i18n)({ message: "Delete files", context: "Application access approval" }); } }; function fileScopeDescription(files: FileRequirements): string { return files.scope.kind === "collection" ? t(i18n)({ message: "Every visible folder. Hidden folders are always excluded." }) : t(i18n)`Only ${files.scope.folders.join(", ")}. Hidden folders are always excluded.`; } function groupSelected(group: AuthorizationCapabilityGroup, selected: ReadonlySet<string>) { return group.operations.every((operation) => selected.has(operation)); } // A compact, read-only statement of what the request asks for, shown before a // collection is chosen so the user can deny without choosing anything. export function RequestedAccessSummary({ groups, files, people }: { groups: AuthorizationCapabilityGroup[]; files?: FileRequirements; people?: PeopleRequirement; }) { useLocaleRevision(); const items = groups.map((group) => ({ id: group.id, label: group.label, higherImpact: group.higherImpact })); if (files && !groups.some(group => group.fileActions !== undefined)) { const actions = "actions" in files ? files.actions : [...files.required, ...(files.optional ?? [])]; const deletes = actions.some((action) => HIGHER_IMPACT_FILE_ACTIONS.has(action)); items.push({ id: "files", label: deletes ? t(i18n)({ message: "Manage and delete files", context: "Application access approval" }) : t(i18n)({ message: "Work with files", context: "Application access approval" }), higherImpact: deletes }); } for (const permission of [...(people?.required ?? []), ...(people?.optional ?? [])]) { items.push({ id: `people.${permission}`, label: PEOPLE_PERMISSION_LABELS[permission], higherImpact: HIGHER_IMPACT_PEOPLE_PERMISSIONS.has(permission) }); } return ( <ul className="requested-access" aria-label={t(i18n)({ message: "Requested access", context: "Application access approval" })}> {items.map((item) => <li className={item.higherImpact ? "higher-impact" : undefined} key={item.id}> {item.label} {item.higherImpact && <span className="sr-only"><Trans> (higher impact)</Trans></span>} </li>)} </ul> ); } // A locked row has no control: it is either required by the application or, // for exact v1 file actions, approved together with the rest of the request. function PermissionRow({ id, label, description, locked, required, checked, higherImpact, isNew, disabled, onToggle }: { id: string; label: string; description?: string; locked: boolean; required: boolean; checked: boolean; higherImpact: boolean; isNew: boolean; disabled: boolean; onToggle?(): void; }) { useLocaleRevision(); const content = <> {locked ? <span className="permission-fixed" aria-hidden="true">✓</span> : <input type="checkbox" checked={checked} disabled={disabled} onChange={onToggle} />} <span className="permission-copy"> <strong>{label}</strong> {description && <small>{description}</small>} </span> <span className="permission-tags"> {isNew && <span className="permission-tag new"><Trans>New</Trans></span>} {higherImpact && <span className="permission-tag impact"><Trans><i aria-hidden="true" />Higher impact</Trans></span>} {required && <span className="permission-tag"><Trans>Required</Trans></span>} </span> </>; return <li className={`permission-row${higherImpact ? " higher-impact" : ""}`} data-permission={id}> {locked ? <div>{content}</div> : <label>{content}</label>} </li>; } export function PermissionList({ groups, selected, existingOperations, files, selectedFiles, allowedFileActions, people, selectedPeople, disabled, onToggleGroup, onToggleFile, onTogglePeople }: { groups: AuthorizationCapabilityGroup[]; selected: ReadonlySet<string>; existingOperations?: ReadonlySet<string>; files?: FileRequirements; selectedFiles: ReadonlySet<string>; allowedFileActions?: readonly ApplicationFileAction[]; people?: PeopleRequirement; selectedPeople: ReadonlySet<string>; disabled: boolean; onToggleGroup(group: AuthorizationCapabilityGroup): void; onToggleFile(action: ApplicationFileAction): void; onTogglePeople(permission: string): void; }) { useLocaleRevision(); const reauthorizing = Boolean(existingOperations && existingOperations.size > 0); const jointPermissions = groups.some(group => group.fileActions !== undefined); const fileRows = files ? "actions" in files ? files.actions.map((action) => ({ action, locked: true, required: false })) : [ ...files.required.map((action) => ({ action, locked: true, required: true })), ...(files.optional ?? []) .filter((action) => !allowedFileActions || allowedFileActions.includes(action)) .map((action) => ({ action, locked: false, required: false })) ] : []; return <> {groups.length > 0 && <ul className="permission-list" aria-label={t(i18n)({ message: "Collection permissions", context: "Application access approval" })}> {groups.map((group) => <PermissionRow key={group.id} id={group.id} label={group.label} description={group.description} locked={group.required} required={group.required} checked={groupSelected(group, selected)} higherImpact={group.higherImpact} isNew={reauthorizing && !group.operations.every((operation) => existingOperations!.has(operation))} disabled={disabled} onToggle={() => onToggleGroup(group)} />)} </ul>} {files && <div className="permission-files"> <p className="permission-files-heading"> <strong>{jointPermissions ? t(i18n)({ message: "File scope", context: "Application access approval" }) : t(i18n)({ message: "Files", context: "Application access approval" })}</strong> <small>{fileScopeDescription(files)}{jointPermissions ? t(i18n)({ message: " File actions are included in the collection permissions above." }) : "actions" in files ? t(i18n)({ message: " These actions are approved together." }) : ""}</small> </p> {!jointPermissions && <ul className="permission-list" aria-label={t(i18n)({ message: "File permissions", context: "Application access approval" })}> {fileRows.map(({ action, locked, required }) => <PermissionRow key={action} id={`files.${action}`} label={FILE_ACTION_LABELS[action]} locked={locked} required={required} checked={selectedFiles.has(action)} higherImpact={HIGHER_IMPACT_FILE_ACTIONS.has(action)} isNew={false} disabled={disabled} onToggle={() => onToggleFile(action)} />)} </ul>} </div>} {people && <div className="permission-files"> <p className="permission-files-heading"> <strong><Trans>People</Trans></strong> <small><Trans>Account identifiers are the same in every collection, so this application can recognise the same person elsewhere. Email addresses and pending invitations are never shared, and this does not let it manage membership.</Trans></small> </p> <ul className="permission-list" aria-label={t(i18n)({ message: "People permissions", context: "Application access approval" })}> {[...(people.required ?? []).map((permission) => ({ permission, required: true })), ...(people.optional ?? []).map((permission) => ({ permission, required: false }))] .map(({ permission, required }) => <PermissionRow key={permission} id={`people.${permission}`} label={PEOPLE_PERMISSION_LABELS[permission]} locked={required} required={required} checked={selectedPeople.has(permission)} higherImpact={HIGHER_IMPACT_PEOPLE_PERMISSIONS.has(permission)} isNew={false} disabled={disabled} onToggle={() => onTogglePeople(permission)} />)} </ul> </div>} </>; } export function NotificationAccess({ applicationName, notifications }: { applicationName: string; notifications: PendingAuthorization["notifications"]; }) { useLocaleRevision(); if (notifications.criteria.length === 0) return null; return ( <details className="notification-access"> <summary> <span> <strong><Trans>Change notifications</Trans></strong> <small><Trans>{applicationName} can turn on {plural(notifications.criteria.length, { one: "this rule", other: "these # rules" })} after access is allowed. Notifications never contain record content.</Trans></small> </span> <b>{t(i18n)({ message: "Details", context: "Application access approval" })}</b> </summary> <ul>{notifications.criteria.map((criterion) => ( <li key={criterion.id}> <span>{criterion.presentation.title}</span> <code>{criterion.event.id} {t(i18n)({ message: "v", context: "Application access approval" })}{criterion.event.version}</code> </li> ))}</ul> <p><Trans>The rules run inside the collection. A notification tells {applicationName} that something changed, not what changed.</Trans></p> </details> ); } export type ContractSetupChoice = ReturnType<typeof initialContractSetupChoice>; export function ContractSetupEditor({ applicationName, contract, types, value, disabled, onChange }: { applicationName: string; contract: SetupContract; types: SetupType[]; value: ContractSetupChoice; disabled: boolean; onChange(value: ContractSetupChoice): void; }) { useLocaleRevision(); const suggestions = useMemo(() => suggestTypes(contract, types), [contract, types]); const canGuideExistingType = guidedBindingSupported(contract); const canChooseExistingType = suggestions.length > 0 && canGuideExistingType; const selectedType = types.find((type) => type.name === value.typeName); const availableFields = selectedType ? typeFields(selectedType) : []; const fields = contractFields(contract); const bindingFields = contract.binding_schema ? propertyFields(contract.binding_schema) : []; const requiredBinding = new Set( Array.isArray(contract.binding_schema?.required) ? contract.binding_schema.required.filter((field): field is string => typeof field === "string") : [] ); function selectType(typeName: string) { const suggestion = suggestions.find((candidate) => candidate.type.name === typeName); onChange({ ...value, typeName, fields: suggestion?.fields ?? {} }); } if (!canChooseExistingType) { return ( <div className="contract-setup-consequence"> <span className="setup-change-mark" aria-hidden="true">+</span> <div> <strong><Trans>{applicationName} needs a {setupLabel(contract).toLocaleLowerCase()} type</Trans></strong> <small><Trans>Allowing access adds a separate type supplied by {applicationName}. Existing records stay unchanged.</Trans></small> <details className="contract-expert-details"> <summary><Trans>Expert details</Trans></summary> <code>{contract.id} · {contract.version}</code> {contract.description && <p>{contract.description}</p>} {!canGuideExistingType && suggestions.length > 0 && <p><Trans>This application uses advanced behavior settings, so an existing type cannot be connected during approval.</Trans></p>} </details> </div> </div> ); } return ( <div className="contract-setup-editor"> <div className="contract-setup-heading"> <div> <strong><Trans>Help {applicationName} understand {setupLabel(contract).toLocaleLowerCase()}</Trans></strong> <small>{contract.description ?? t(i18n)`Choose whether to add a new ${setupLabel(contract).toLocaleLowerCase()} type or use one you already have.`}</small> </div> <details className="contract-expert-details"> <summary><Trans>Expert details</Trans></summary> <code>{contract.id} · {contract.version}</code> </details> </div> <div className="contract-setup-mode" role="radiogroup" aria-label={t(i18n)`Setup for ${setupLabel(contract)}`}> <label className={value.mode === "starter" ? "selected" : undefined}> <input type="radio" name={`setup-${contract.id}-${contract.version}`} checked={value.mode === "starter"} disabled={disabled} onChange={() => onChange({ ...value, mode: "starter" })} /> <span><strong><Trans>Add a new {setupLabel(contract).toLocaleLowerCase()} type</Trans></strong><small><Trans>Create a separate type supplied by {applicationName}.</Trans></small></span> </label> <label className={value.mode === "existing" ? "selected" : undefined}> <input type="radio" name={`setup-${contract.id}-${contract.version}`} checked={value.mode === "existing"} disabled={disabled} onChange={() => onChange({ ...value, mode: "existing" })} /> <span><strong><Trans>Use an existing type</Trans></strong><small><Trans>Keep your current records and explain which fields mean the same thing.</Trans></small></span> </label> </div> {value.mode === "existing" && canGuideExistingType && <div className="contract-mapping"> <label className="contract-type-choice"> <span><Trans>Existing type</Trans></span> <Select aria-label={t(i18n)({ message: "Existing type", context: "Application access approval" })} value={value.typeName} disabled={disabled} options={suggestions.map((suggestion, index) => ({ value: suggestion.type.name, label: index === 0 && suggestion.requiredMatched === suggestion.requiredTotal ? t(i18n)`${suggestion.type.name} · suggested` : suggestion.type.name }))} onChange={selectType} /> </label> <div className="contract-field-list">{fields.map((field) => { const mapped = value.fields[field.reference] ?? ""; const typeField = availableFields.find((candidate) => candidate.reference === mapped); const assessment = assessMapping(field, typeField); return <label key={field.reference}> <span><strong>{field.label}{field.required ? " *" : ""}</strong><small>{field.description ?? t(i18n)`The application’s ${field.label.toLocaleLowerCase()} value.`}</small></span> <Select aria-label={field.label} value={mapped} disabled={disabled} aria-invalid={assessment.level === "error"} options={[ { value: "", label: field.required ? t(i18n)`Choose a field` : t(i18n)`Do not share` }, ...availableFields.map((candidate) => ({ value: candidate.reference, label: candidate.label })) ]} onChange={(chosen) => { const next = { ...value.fields }; if (chosen) next[field.reference] = chosen; else delete next[field.reference]; onChange({ ...value, fields: next }); }} /> <small className={`mapping-assessment ${assessment.level}`}>{assessment.label} · {assessment.message}</small> </label>; })}</div> {bindingFields.length > 0 && <fieldset className="contract-binding"> <legend><Trans>How this type behaves in {applicationName}</Trans></legend> {bindingFields.map((field) => <SchemaInput key={field.name} field={field} required={requiredBinding.has(field.name)} value={value.binding[field.name]} disabled={disabled} onChange={(next) => onChange({ ...value, binding: { ...value.binding, [field.name]: next } })} />)} </fieldset>} <p className="field-note"><Trans>Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active.</Trans></p> </div>} </div> ); } function SchemaInput({ field, required, value, disabled, onChange }: { field: ReturnType<typeof propertyFields>[number]; required: boolean; value: unknown; disabled: boolean; onChange(value: unknown): void; }) { useLocaleRevision(); const options = Array.isArray(field.schema.enum) ? field.schema.enum : undefined; return <label> <span>{field.label}{required ? " *" : ""}</span> {options ? <Select aria-label={field.label} value={value === undefined ? "" : String(value)} disabled={disabled} placeholder={t(i18n)({ message: "Choose", context: "Application access approval" })} options={options.map((option) => ({ value: String(option), label: String(option) }))} onChange={(chosen) => onChange(options.find((option) => String(option) === chosen))} /> : field.kind === "boolean" ? <input type="checkbox" checked={value === true} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /> : <input type={field.kind === "number" || field.kind === "integer" ? "number" : "text"} value={typeof value === "string" || typeof value === "number" ? value : ""} disabled={disabled} onChange={(event) => onChange(field.kind === "number" || field.kind === "integer" ? event.target.value === "" ? undefined : Number(event.target.value) : event.target.value)} />} {field.description && <small>{field.description}</small>} </label>; } export function contractSetupProblem( contract: SetupContract, choice: ContractSetupChoice | undefined, types: SetupType[] ): string | undefined { const label = setupLabel(contract); if (!choice) return t(i18n)`Choose how to set up ${label}.`; if (choice.mode === "starter") return undefined; const type = types.find((candidate) => candidate.name === choice.typeName); if (!type?.revision) return t(i18n)`Choose an existing type for ${label}.`; const available = typeFields(type); const unmapped = contractFields(contract).find((field) => { const candidate = available.find((value) => value.reference === choice.fields[field.reference]); return assessMapping(field, candidate).level === "error"; }); if (unmapped) return t(i18n)`Choose a matching field for ${unmapped.label} in ${label}.`; const requiredBinding = Array.isArray(contract.binding_schema?.required) ? contract.binding_schema.required.filter((field): field is string => typeof field === "string") : []; const missing = requiredBinding.find((field) => { const value = choice.binding[field]; return value === undefined || value === null || value === ""; }); if (missing) { const field = contract.binding_schema ? propertyFields(contract.binding_schema).find((candidate) => candidate.name === missing) : undefined; return t(i18n)`Fill in ${field?.label ?? missing} in ${label}.`; } return undefined; } 
 #: src/authorization-review.tsx
 msgid "{applicationName} can turn on {0} after access is allowed. Notifications never contain record content."
-msgstr ""
+msgstr "액세스를 허용한 후 {applicationName}이(가) {0}을(를) 켤 수 있습니다. 알림에는 레코드 내용이 포함되지 않습니다."
 
 #. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
 #: src/authorization-review.tsx
 msgid "{applicationName} needs a {0} type"
-msgstr ""
+msgstr "{applicationName}에는 {0} 유형이 필요합니다."
 
 #: src/authority-workflows.tsx
 msgid "{collectionName} now lives on your computer."
-msgstr ""
+msgstr "{collectionName}이(가) 이제 내 컴퓨터에 있습니다."
 
 #: src/authority-workflows.tsx
 msgid "{collectionName} remains hosted. Its main copy did not move."
-msgstr ""
+msgstr "{collectionName}은(는) 계속 호스팅됩니다. 기본 사본은 이동하지 않았습니다."
 
 #: src/authority-workflows.tsx
 msgid "{collectionName} will stop being hosted and become a computer-owned collection. This changes where every future edit is accepted."
-msgstr ""
+msgstr "{collectionName}의 호스팅이 중단되고 컴퓨터가 소유하는 컬렉션으로 전환됩니다. 이후의 모든 편집을 승인하는 위치가 바뀝니다."
 
 #: src/AccountManagement.tsx
 msgid "{collections} · {records} · {fileCount}"
-msgstr ""
+msgstr "{collections} · {records} · {fileCount}"
 
 #: src/AccountManagement.tsx
 msgid "{collections} · {records} · {fileCount} · partial usage"
-msgstr ""
+msgstr "{collections} · {records} · {fileCount} · 일부 사용량만 표시"
 
 #: src/AccountManagement.tsx
 msgid "{collections} · usage temporarily unavailable"
-msgstr ""
+msgstr "{collections} · 사용량을 일시적으로 확인할 수 없음"
 
 #: src/ConnectApp.tsx
 msgid "{count} access requests are waiting"
-msgstr ""
+msgstr "액세스 요청 {count}개 대기 중"
 
 #: src/AccountManagement.tsx
 msgid "{label} turned off."
-msgstr ""
+msgstr "{label} 꺼짐"
 
 #: src/AccountManagement.tsx
 msgid "{label} turned on."
-msgstr ""
+msgstr "{label} 켜짐"
 
 #: src/AccountManagement.tsx
 msgid "{tier} hosted storage"
-msgstr ""
+msgstr "{tier} 호스팅 저장 공간"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# application installation} other {# application installations}}"
-msgstr ""
+msgstr "{value, plural, other {애플리케이션 설치 #건}}"
 
 #: src/AccountManagement.tsx
 msgid "{value, plural, one {# byte} other {# bytes}}"
-msgstr ""
+msgstr "{value, plural, other {#바이트}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# collection} other {# collections}}"
-msgstr ""
+msgstr "{value, plural, other {컬렉션 #개}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# connected computer} other {# connected computers}}"
-msgstr ""
+msgstr "{value, plural, other {연결된 컴퓨터 #대}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# file} other {# files}}"
-msgstr ""
+msgstr "{value, plural, other {파일 #개}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# hosted collection} other {# hosted collections}}"
-msgstr ""
+msgstr "{value, plural, other {호스팅 컬렉션 #개}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# installation} other {# installations}}"
-msgstr ""
+msgstr "{value, plural, other {설치 #건}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# record} other {# records}}"
-msgstr ""
+msgstr "{value, plural, other {레코드 #개}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# synced folder} other {# synced folders}}"
-msgstr ""
+msgstr "{value, plural, other {동기화된 폴더 #개}}"
 
 #: src/ConnectApp.tsx
 msgid "<0/>Add collection"
-msgstr ""
+msgstr "<0/>컬렉션 추가"
 
 #: src/authorization-view.tsx
 msgid "<0/>Already connected"
-msgstr ""
+msgstr "<0/>이미 연결됨"
 
 #: src/authorization-review.tsx
 msgid "<0/>Higher impact"
-msgstr ""
+msgstr "<0/>영향이 큼"
 
 #. placeholder {0}: higherImpactLabels.join(", ")
 #: src/authorization-view.tsx
 msgid "<0/>Includes {0}."
-msgstr ""
+msgstr "<0/>{0} 포함"
 
 #: src/ConnectApp.tsx
 msgid "<0/>Invite person"
-msgstr ""
+msgstr "<0/>사용자 초대"
 
 #: src/ConnectApp.tsx
 msgid "<0/>Sync a folder"
-msgstr ""
+msgstr "<0/>폴더 동기화"
 
 #. placeholder {1}: request.user_code ? <Trans> and it shows <code>{request.user_code}</code></Trans> : null
 #. placeholder {3}: request.project_url ? <Trans> {host(request.project_url)} does not verify its origin.</Trans> : null
 #: src/authorization-view.tsx
 msgid "<0>Application origin unverified.</0> Continue only if you started this connection intentionally{1}.{3}"
-msgstr ""
+msgstr "<0>애플리케이션 출처를 확인할 수 없습니다.</0> 직접 시작한 연결인 경우에만 계속하세요{1}.{3}"
 
 #: src/ConnectApp.tsx
 msgid "A cloud copy helps your replicas sync. This page does not report their connection status."
-msgstr ""
+msgstr "클라우드 사본은 복제본 간 동기화를 돕습니다. 이 페이지에는 복제본의 연결 상태가 표시되지 않습니다."
 
 #: src/ConnectApp.tsx
 msgid "A collection was shared with you"
-msgstr ""
+msgstr "컬렉션이 공유되었습니다"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "a new collection"
-msgstr ""
+msgstr "새 컬렉션"
 
 #: src/authorization-view.tsx
 msgid "A new collection stored by mdbase, available from any computer."
-msgstr ""
+msgstr "mdbase에 저장되며 어느 컴퓨터에서나 사용할 수 있는 새 컬렉션입니다."
 
 #: src/AccountManagement.tsx
 msgid "A new one-use sharing code is ready."
-msgstr ""
+msgstr "일회용 공유 코드가 새로 준비되었습니다."
 
 #: src/auth-view.tsx
 msgid "A verified primary email is required. Verify your primary email with GitHub, or sign up using another method."
-msgstr ""
+msgstr "확인된 기본 이메일이 필요합니다. GitHub에서 기본 이메일을 확인하거나 다른 방법으로 가입하세요."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Accept"
-msgstr ""
+msgstr "수락"
 
 #: src/ConnectApp.tsx
 msgid "Accept to add it to your collections. The invitation is bound to this account. Your account name and stable identifier can be shared with other members’ apps when they approve People access."
-msgstr ""
+msgstr "컬렉션에 추가하려면 수락하세요. 초대는 이 계정에 연결됩니다. 다른 구성원의 앱에 사용자 액세스 권한을 승인하면 내 계정 이름과 고유 식별자가 공유될 수 있습니다."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Accepting…"
-msgstr ""
+msgstr "수락하는 중…"
 
 #: src/authority-workflows.tsx
 msgid "Access approved"
-msgstr ""
+msgstr "액세스 승인됨"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Access approved"
-msgstr ""
+msgstr "액세스 승인됨"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Access as your account"
-msgstr ""
+msgstr "내 계정으로 액세스"
 
 #: src/ApplicationAccess.tsx
 msgid "Access changed elsewhere. Review the current permissions before saving. <0>Review current access</0>"
-msgstr ""
+msgstr "다른 곳에서 액세스 권한이 변경되었습니다. 저장하기 전에 현재 권한을 확인하세요. <0>현재 액세스 검토</0>"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Access denied"
-msgstr ""
+msgstr "액세스 거부됨"
 
 #. placeholder {0}: createCollections && !privateChoice ? t(i18n)` ${pairing.connector_name} can also create new collections for you.` : ""
 #. placeholder {1}: pairing.scope_only ? t(i18n)({ message: " Previously approved collections stay available." }) : ""
 #: src/authority-workflows.tsx
 msgid "Access includes the notes and files in the collection you pick.{0}{1}"
-msgstr ""
+msgstr "선택한 컬렉션의 노트와 파일에 액세스할 수 있습니다.{0}{1}"
 
 #: src/ConnectApp.tsx
 msgid "Access to this collection is paused on its computer."
-msgstr ""
+msgstr "이 컬렉션에 대한 액세스가 해당 컴퓨터에서 일시 중지되었습니다."
 
 #: src/ConnectApp.tsx
 #: src/portal-ui.tsx
 msgid "Account"
-msgstr ""
+msgstr "계정"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Account"
-msgstr ""
+msgstr "계정"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Account & sessions"
-msgstr ""
+msgstr "계정 및 세션"
 
 #: src/AccountManagement.tsx
 msgid "Account deletion is temporarily unavailable while we complete a service correction."
-msgstr ""
+msgstr "서비스 문제를 수정하는 동안 계정 삭제를 일시적으로 사용할 수 없습니다."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Account details"
-msgstr ""
+msgstr "계정 세부 정보"
 
 #: src/AccountManagement.tsx
 msgid "Account email"
-msgstr ""
+msgstr "계정 이메일"
 
 #: src/authorization-review.tsx
 msgid "Account identifiers are the same in every collection, so this application can recognise the same person elsewhere. Email addresses and pending invitations are never shared, and this does not let it manage membership."
-msgstr ""
+msgstr "계정 식별자는 모든 컬렉션에서 동일하므로 이 애플리케이션이 다른 곳에서도 동일한 사용자를 식별할 수 있습니다. 이메일 주소와 대기 중인 초대는 공유되지 않으며, 이 권한으로 구성원을 관리할 수 없습니다."
 
 #: src/portal-model.ts
 msgid "Account upgrade in progress"
-msgstr ""
+msgstr "계정 업그레이드 진행 중"
 
 #: src/portal-model.ts
 msgctxt "Connect interface"
 msgid "Account upgrade needed"
-msgstr ""
+msgstr "계정 업그레이드 필요"
 
 #: src/portal-model.ts
 msgctxt "Connect interface"
 msgid "Account upgrade paused"
-msgstr ""
+msgstr "계정 업그레이드 일시 중지됨"
 
 #: src/portal-model.ts
 msgid "Account upgrade scheduled"
-msgstr ""
+msgstr "계정 업그레이드 예정"
 
 #. placeholder {0}: installationAccountLabel(pairing)
 #: src/authority-workflows.tsx
 msgid "Account: {0}"
-msgstr ""
+msgstr "계정: {0}"
 
 #: src/ConnectApp.tsx
 msgid "Add a collection to get started."
-msgstr ""
+msgstr "시작하려면 컬렉션을 추가하세요."
 
 #. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
 #: src/authorization-review.tsx
 msgid "Add a new {0} type"
-msgstr ""
+msgstr "새 {0} 유형 추가"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Add collection"
-msgstr ""
+msgstr "컬렉션 추가"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Add new files"
-msgstr ""
+msgstr "새 파일 추가"
 
 #: src/authorization-capabilities.ts
 msgid "Add new records and files to this collection."
-msgstr ""
+msgstr "이 컬렉션에 새 레코드와 파일을 추가합니다."
 
 #: src/authorization-capabilities.ts
 msgid "Add new records to this collection."
-msgstr ""
+msgstr "이 컬렉션에 새 레코드를 추가합니다."
 
 #: src/authorization-view.tsx
 msgid "Add or connect another collection"
-msgstr ""
+msgstr "다른 컬렉션 추가 또는 연결"
 
 #: src/authority-workflows.tsx
 msgid "Additional collection access"
-msgstr ""
+msgstr "추가 컬렉션 액세스"
 
 #. placeholder {0}: entry.approved_optional_file_actions.join(", ")
 #: src/ApplicationAccess.tsx
 msgid "Additional file actions approved: {0}"
-msgstr ""
+msgstr "승인된 추가 파일 작업: {0}"
 
 #. placeholder {0}: provisionNames(request.provisions.type_packs)
 #: src/authorization-view.tsx
 msgid "Adds {0} to the collection"
-msgstr ""
+msgstr "컬렉션에 {0} 추가"
 
 #: src/authority-workflows.tsx
 msgid "Advanced: allow more collections"
-msgstr ""
+msgstr "고급: 컬렉션 추가 허용"
 
 #. placeholder {0}: adoption.mirror_name ?? adoption.source_name
 #: src/authority-workflows.tsx
 msgid "After the move, {0} stays as a synced folder. It will not be a second main copy."
-msgstr ""
+msgstr "이동한 뒤에도 {0}은(는) 동기화된 폴더로 유지됩니다. 두 번째 기본 사본은 아닙니다."
 
 #: src/authority-workflows.tsx
 msgid "After the move, the original local files are no longer the main copy."
-msgstr ""
+msgstr "이동한 뒤에는 원래 로컬 파일이 기본 사본이 아닙니다."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "All collections"
-msgstr ""
+msgstr "모든 컬렉션"
 
 #: src/ConnectApp.tsx
 msgid "All statuses"
-msgstr ""
+msgstr "모든 상태"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Allow"
-msgstr ""
+msgstr "허용"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Allow {0} to create new collections"
-msgstr ""
+msgstr "{0}에서 새 컬렉션을 만들도록 허용"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Allow {0} to send you reminders"
-msgstr ""
+msgstr "{0}에서 리마인더를 보내도록 허용"
 
 #. placeholder {0}: fileAccessVerbs(request.actions)
 #: src/authority-workflows.tsx
 msgid "Allow {app} to {0} files?"
-msgstr ""
+msgstr "{app}에서 파일을 {0}하도록 허용할까요?"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Allow access"
-msgstr ""
+msgstr "액세스 허용"
 
 #: src/authorization-view.tsx
 msgid "Allow at least one permission to continue."
-msgstr ""
+msgstr "계속하려면 하나 이상의 권한을 허용하세요."
 
 #: src/authority-workflows.tsx
 msgid "Allow mdbase on this computer to use your account. This is needed after installing or updating the desktop app, even on a computer you used before. It will publish collection names and route application requests, but not local folder paths."
-msgstr ""
+msgstr "이 컴퓨터의 mdbase에서 내 계정을 사용하도록 허용합니다. 이전에 사용하던 컴퓨터라도 데스크톱 앱을 설치하거나 업데이트한 후에는 필요합니다. 컬렉션 이름을 게시하고 애플리케이션 요청을 전달하지만 로컬 폴더 경로는 게시하지 않습니다."
 
 #: src/authority-workflows.tsx
 msgid "Allowed"
-msgstr ""
+msgstr "허용됨"
 
 #: src/authorization-review.tsx
 msgid "Allowing access adds a separate type supplied by {applicationName}. Existing records stay unchanged."
-msgstr ""
+msgstr "액세스를 허용하면 {applicationName}에서 제공하는 별도 유형이 추가됩니다. 기존 레코드는 변경되지 않습니다."
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Allowing…"
-msgstr ""
+msgstr "허용하는 중…"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Allowing…"
-msgstr ""
+msgstr "허용하는 중…"
 
 #: src/authority-workflows.tsx
 msgid "Already allowed collection (currently unavailable)"
-msgstr ""
+msgstr "이미 허용된 컬렉션(현재 사용할 수 없음)"
 
 #: src/auth-view.tsx
 msgid "Already have an account? <0>Sign in</0>"
-msgstr ""
+msgstr "이미 계정이 있나요? <0>로그인</0>"
 
 #: src/authority-workflows.tsx
 msgid "Already-allowed access stays in place. Remove access separately if you no longer want it."
-msgstr ""
+msgstr "이미 허용된 액세스는 유지됩니다. 더 이상 원하지 않으면 별도로 액세스 권한을 제거하세요."
 
 #: src/AccountManagement.tsx
 msgid "Always on"
-msgstr ""
+msgstr "항상 켜짐"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Announcements"
-msgstr ""
+msgstr "공지사항"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "App access"
-msgstr ""
+msgstr "앱 액세스"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "App installation"
-msgstr ""
+msgstr "앱 설치"
 
 #. placeholder {0}: request.client_fingerprint
 #: src/authorization-view.tsx
 msgid "App key <0>{0}</0>. Your computer will show this key when you approve the app."
-msgstr ""
+msgstr "앱 키 <0>{0}</0>. 앱을 승인할 때 컴퓨터에 이 키가 표시됩니다."
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Application access"
-msgstr ""
+msgstr "애플리케이션 액세스"
 
 #. placeholder {0}: countLabel(account.deletion.computers, "computer")
 #: src/AccountManagement.tsx
 msgid "Application access and {0}"
-msgstr ""
+msgstr "애플리케이션 액세스 및 {0}"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Application connection"
-msgstr ""
+msgstr "애플리케이션 연결"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Application request"
-msgstr ""
+msgstr "애플리케이션 요청"
 
 #: src/authorization-view.tsx
 msgid "Application using a device code"
-msgstr ""
+msgstr "기기 코드를 사용하는 애플리케이션"
 
 #: src/authority-workflows.tsx
 msgid "Applications"
-msgstr ""
+msgstr "애플리케이션"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Applications"
-msgstr ""
+msgstr "애플리케이션"
 
 #: src/ConnectApp.tsx
 msgid "Applications appear after you approve access to this collection."
-msgstr ""
+msgstr "이 컬렉션에 대한 액세스를 승인하면 애플리케이션이 표시됩니다."
 
 #: src/ApplicationAccess.tsx
 msgid "Applications appear here after you approve access."
-msgstr ""
+msgstr "액세스를 승인하면 여기에 애플리케이션이 표시됩니다."
 
 #: src/authority-workflows.tsx
 msgid "Applies to the collection you chose to open and any new collections selected here. Other collections are not included."
-msgstr ""
+msgstr "열기로 선택한 컬렉션과 여기서 선택한 새 컬렉션에 적용됩니다. 다른 컬렉션은 포함되지 않습니다."
 
 #: src/authorization-view.tsx
 msgid "Approval code"
-msgstr ""
+msgstr "승인 코드"
 
 #: src/authorization-view.tsx
 msgid "Approval recorded"
-msgstr ""
+msgstr "승인 기록됨"
 
 #: src/authority-workflows.tsx
 msgid "Approve computer"
-msgstr ""
+msgstr "컴퓨터 승인"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Approve will create this collection and open it in {0}."
-msgstr ""
+msgstr "승인하면 이 컬렉션을 만들고 {0}에서 엽니다."
 
 #. placeholder {0}: adoption.source_name
 #: src/authority-workflows.tsx
 msgid "Approving uploads the complete collection from {0}, validates it as one snapshot, and then makes the hosted version the main copy."
-msgstr ""
+msgstr "승인하면 {0}에서 전체 컬렉션을 업로드해 단일 스냅샷으로 검증한 다음, 호스팅 버전을 기본 사본으로 만듭니다."
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Approving…"
-msgstr ""
+msgstr "승인하는 중…"
 
 #: src/AccountManagement.tsx
 msgid "Authentication"
-msgstr ""
+msgstr "인증"
 
 #: src/FeedbackPage.tsx
 msgid "Back to Connect"
-msgstr ""
+msgstr "Connect로 돌아가기"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Beta"
-msgstr ""
+msgstr "베타"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "browser extension"
-msgstr ""
+msgstr "브라우저 확장 프로그램"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Browser session"
-msgstr ""
+msgstr "브라우저 세션"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Browser session actions"
-msgstr ""
+msgstr "브라우저 세션 작업"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Browser sessions"
-msgstr ""
+msgstr "브라우저 세션"
 
 #: src/ApplicationAccess.tsx
 msgid "Can create collections for your account"
-msgstr ""
+msgstr "내 계정의 컬렉션 생성 가능"
 
 #: src/ConnectApp.tsx
 msgid "Can edit notes and manage types"
-msgstr ""
+msgstr "노트 편집 및 유형 관리 가능"
 
 #: src/ConnectApp.tsx
 msgid "Can edit notes, manage types, rename this collection, and connect apps."
-msgstr ""
+msgstr "노트 편집, 유형 관리, 이 컬렉션 이름 변경 및 앱 연결 가능"
 
 #: src/ConnectApp.tsx
 msgid "Can read this collection and connect read-only apps or folders."
-msgstr ""
+msgstr "이 컬렉션 읽기 및 읽기 전용 앱 또는 폴더 연결 가능"
 
 #: src/ConnectApp.tsx
 msgid "Can view and connect read-only apps"
-msgstr ""
+msgstr "읽기 전용 앱 확인 및 연결 가능"
 
 #: src/AccountManagement.tsx
 #: src/authority-workflows.tsx
@@ -841,593 +841,593 @@ msgstr ""
 #: src/ConnectApp.tsx
 #: src/ConnectPrimitives.tsx
 msgid "Cancel"
-msgstr ""
+msgstr "취소"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Cancel"
-msgstr ""
+msgstr "취소"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Cancel"
-msgstr ""
+msgstr "취소"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Cancel invitation"
-msgstr ""
+msgstr "초대 취소"
 
 #: src/ConnectApp.tsx
 msgid "Cancel this collection invitation?"
-msgstr ""
+msgstr "이 컬렉션 초대를 취소할까요?"
 
 #: src/authority-workflows.tsx
 msgid "Cancel transfer"
-msgstr ""
+msgstr "이전 취소"
 
 #: src/authorization-view.tsx
 msgid "Change"
-msgstr ""
+msgstr "변경"
 
 #: src/authorization-review.tsx
 msgid "Change notifications"
-msgstr ""
+msgstr "알림 변경"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Change password"
-msgstr ""
+msgstr "비밀번호 변경"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Change password"
-msgstr ""
+msgstr "비밀번호 변경"
 
 #: src/authorization-capabilities.ts
 msgid "Change, move, and rename existing records."
-msgstr ""
+msgstr "기존 레코드 변경, 이동 및 이름 변경"
 
 #: src/authorization-capabilities.ts
 msgid "Change, move, and rename records; replace, move, and rename existing files."
-msgstr ""
+msgstr "레코드 변경, 이동 및 이름 변경; 기존 파일 교체, 이동 및 이름 변경"
 
 #: src/authorization-view.tsx
 msgid "Changes collection settings"
-msgstr ""
+msgstr "컬렉션 설정 변경"
 
 #: src/authorization-view.tsx
 msgid "changes to collection setup"
-msgstr ""
+msgstr "컬렉션 설정 변경 사항"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Changing password…"
-msgstr ""
+msgstr "비밀번호 변경하는 중…"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Changing password…"
-msgstr ""
+msgstr "비밀번호 변경하는 중…"
 
 #: src/authority-workflows.tsx
 msgid "Check again"
-msgstr ""
+msgstr "다시 확인"
 
 #: src/authorization-view.tsx
 msgid "Check the application."
-msgstr ""
+msgstr "애플리케이션을 확인하세요."
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Check your email"
-msgstr ""
+msgstr "이메일을 확인하세요"
 
 #: src/AccountManagement.tsx
 msgid "Checking active sessions…"
-msgstr ""
+msgstr "활성 세션 확인하는 중…"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Checking…"
-msgstr ""
+msgstr "확인 중…"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Choose"
-msgstr ""
+msgstr "선택"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Choose a collection"
-msgstr ""
+msgstr "컬렉션 선택"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Choose a collection to use in {0}."
-msgstr ""
+msgstr "{0}에서 사용할 컬렉션을 선택하세요."
 
 #: src/authorization-review.tsx
 msgid "Choose a field"
-msgstr ""
+msgstr "필드 선택"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Choose a location"
-msgstr ""
+msgstr "위치 선택"
 
 #. placeholder {0}: unmapped.label
 #: src/authorization-review.tsx
 msgid "Choose a matching field for {0} in {label}."
-msgstr ""
+msgstr "{label}에서 {0}에 맞는 필드를 선택하세요."
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Choose a new password"
-msgstr ""
+msgstr "새 비밀번호 선택"
 
 #: src/authorization-review.tsx
 msgid "Choose an existing type for {label}."
-msgstr ""
+msgstr "{label}에 사용할 기존 유형을 선택하세요."
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Choose another way"
-msgstr ""
+msgstr "다른 방법 선택"
 
 #: src/authorization-review.tsx
 msgid "Choose how to set up {label}."
-msgstr ""
+msgstr "{label}의 설정 방법을 선택하세요."
 
 #: src/ConnectApp.tsx
 msgid "Choose or create a folder in the desktop app. Collection files stay on this computer."
-msgstr ""
+msgstr "데스크톱 앱에서 폴더를 선택하거나 만드세요. 컬렉션 파일은 이 컴퓨터에 남습니다."
 
 #: src/ConnectApp.tsx
 msgid "Choose or create my person record"
-msgstr ""
+msgstr "내 사용자 레코드 선택 또는 생성"
 
 #: src/authorization-view.tsx
 msgid "Choose the folder in mdbase connect."
-msgstr ""
+msgstr "mdbase connect에서 폴더를 선택하세요."
 
 #. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
 #: src/authorization-review.tsx
 msgid "Choose whether to add a new {0} type or use one you already have."
-msgstr ""
+msgstr "새 {0} 유형을 추가할지 기존 유형을 사용할지 선택하세요."
 
 #: src/ConnectApp.tsx
 msgid "Close"
-msgstr ""
+msgstr "닫기"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Close menu"
-msgstr ""
+msgstr "메뉴 닫기"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Closed registration"
-msgstr ""
+msgstr "가입 종료"
 
 #: src/compatibility.ts
 msgid "Cloud collection required"
-msgstr ""
+msgstr "클라우드 컬렉션 필요"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Cloud copy configured"
-msgstr ""
+msgstr "클라우드 사본 설정됨"
 
 #: src/authorization-view.tsx
 msgid "Codes are not case-sensitive, expire after ten minutes, and can authorize only the key created by that application."
-msgstr ""
+msgstr "코드는 대소문자를 구분하지 않고 10분 후 만료되며 해당 애플리케이션에서 생성한 키만 승인할 수 있습니다."
 
 #: src/authorization-view.tsx
 msgid "Collection"
-msgstr ""
+msgstr "컬렉션"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Collection"
-msgstr ""
+msgstr "컬렉션"
 
 #: src/authorization-view.tsx
 msgid "Collection changes"
-msgstr ""
+msgstr "컬렉션 변경 사항"
 
 #: src/ConnectApp.tsx
 msgid "Collection content remains in your replicas; no cloud copy is configured."
-msgstr ""
+msgstr "컬렉션 내용은 복제본에 남아 있습니다. 클라우드 사본이 설정되지 않았습니다."
 
 #: src/ApplicationAccess.tsx
 msgid "Collection ID"
-msgstr ""
+msgstr "컬렉션 ID"
 
 #: src/ConnectApp.tsx
 msgid "Collection invitation link"
-msgstr ""
+msgstr "컬렉션 초대 링크"
 
 #: src/ConnectApp.tsx
 msgid "Collection name"
-msgstr ""
+msgstr "컬렉션 이름"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Collection owner"
-msgstr ""
+msgstr "컬렉션 소유자"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Collection permissions"
-msgstr ""
+msgstr "컬렉션 권한"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Collections"
-msgstr ""
+msgstr "컬렉션"
 
 #: src/authority-workflows.tsx
 msgid "Computer approved"
-msgstr ""
+msgstr "컴퓨터 승인됨"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Computer filter results"
-msgstr ""
+msgstr "컴퓨터 필터 결과"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Computer not connected"
-msgstr ""
+msgstr "컴퓨터 연결되지 않음"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Computer pairing"
-msgstr ""
+msgstr "컴퓨터 페어링"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Computer status"
-msgstr ""
+msgstr "컴퓨터 상태"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Computers"
-msgstr ""
+msgstr "컴퓨터"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Configured"
-msgstr ""
+msgstr "구성됨"
 
 #: src/AccountManagement.tsx
 msgid "Confirm new password"
-msgstr ""
+msgstr "새 비밀번호 확인"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Confirm new password"
-msgstr ""
+msgstr "새 비밀번호 확인"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Confirm password"
-msgstr ""
+msgstr "비밀번호 확인"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Confirm removal"
-msgstr ""
+msgstr "제거 확인"
 
 #: src/AccountManagement.tsx
 msgid "Confirm your identity"
-msgstr ""
+msgstr "본인 확인"
 
 #: src/ConnectApp.tsx
 msgid "Connect a computer to add a collection."
-msgstr ""
+msgstr "컬렉션을 추가하려면 컴퓨터를 연결하세요."
 
 #: src/ConnectApp.tsx
 msgid "Connect management closed"
-msgstr ""
+msgstr "Connect 관리 종료됨"
 
 #: src/AccountManagement.tsx
 msgid "Connect more than one method so you always have a way back into your account."
-msgstr ""
+msgstr "계정에 다시 접근할 수 있도록 두 가지 이상의 로그인 방법을 연결하세요."
 
 #: src/auth-view.tsx
 msgid "Connect this device to your tailnet, then reload the page."
-msgstr ""
+msgstr "이 기기를 테일넷에 연결한 다음 페이지를 새로고침하세요."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Connected"
-msgstr ""
+msgstr "연결됨"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Connected"
-msgstr ""
+msgstr "연결됨"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Connected applications"
-msgstr ""
+msgstr "연결된 애플리케이션"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Connection"
-msgstr ""
+msgstr "연결"
 
 #: src/ConnectApp.tsx
 msgid "Contact the person who operates this mdbase connect deployment."
-msgstr ""
+msgstr "이 mdbase connect 배포의 운영자에게 문의하세요."
 
 #: src/auth-view.tsx
 msgid "Continue"
-msgstr ""
+msgstr "계속"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Continue with GitHub"
-msgstr ""
+msgstr "GitHub로 계속"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Continue with Google"
-msgstr ""
+msgstr "Google로 계속"
 
 #: src/GoogleIdentityButton.tsx
 msgctxt "Connect interface"
 msgid "Continue with Google"
-msgstr ""
+msgstr "Google로 계속"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Copied"
-msgstr ""
+msgstr "복사됨"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Copy link"
-msgstr ""
+msgstr "링크 복사"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Couldn’t connect"
-msgstr ""
+msgstr "연결할 수 없습니다"
 
 #. placeholder {0}: selected?.display_name ?? t(i18n)({ message: "this collection", context: "Application access approval" })
 #. placeholder {1}: existingOperations.size > 0 ? t(i18n)({ message: " Permissions this application does not already have are marked New." }) : ""
 #: src/authorization-view.tsx
 msgid "Covers every record in {0}.{1}"
-msgstr ""
+msgstr "{0}의 모든 레코드에 적용됩니다.{1}"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Create"
-msgstr ""
+msgstr "만들기"
 
 #: src/authorization-view.tsx
 msgid "Create a hosted collection"
-msgstr ""
+msgstr "호스팅 컬렉션 만들기"
 
 #: src/authority-workflows.tsx
 msgid "Create a hosted collection before approving this folder."
-msgstr ""
+msgstr "이 폴더를 승인하기 전에 호스팅 컬렉션을 만드세요."
 
 #: src/CollectionPicker.tsx
 msgid "Create a new collection…"
-msgstr ""
+msgstr "새 컬렉션 만들기…"
 
 #: src/authorization-review.tsx
 msgid "Create a separate type supplied by {applicationName}."
-msgstr ""
+msgstr "{applicationName}에서 제공하는 별도 유형을 만듭니다."
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Create account"
-msgstr ""
+msgstr "계정 만들기"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Create an account"
-msgstr ""
+msgstr "계정 만들기"
 
 #: src/authorization-capabilities.ts
 msgid "Create and maintain timers that run while the application is closed."
-msgstr ""
+msgstr "애플리케이션을 닫은 후에도 실행되는 타이머를 만들고 관리합니다."
 
 #: src/authorization-capabilities.ts
 msgid "Create and update record types and apply declared type packs."
-msgstr ""
+msgstr "레코드 유형을 만들고 업데이트하며 선언된 유형 팩을 적용합니다."
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Create collection"
-msgstr ""
+msgstr "컬렉션 만들기"
 
 #: src/authorization-view.tsx
 msgid "Create hosted collection"
-msgstr ""
+msgstr "호스팅 컬렉션 만들기"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Create invitation"
-msgstr ""
+msgstr "초대 만들기"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Create records"
-msgstr ""
+msgstr "레코드 만들기"
 
 #: src/authorization-capabilities.ts
 msgid "Create records and add files"
-msgstr ""
+msgstr "레코드 만들기 및 파일 추가"
 
 #: src/authorization-capabilities.ts
 msgid "Create, change, and delete saved view definitions."
-msgstr ""
+msgstr "저장된 뷰 정의를 만들고 변경하고 삭제합니다."
 
 #: src/ConnectApp.tsx
 msgid "Created, but this browser could not clear its request. Retrying will use the same collection."
-msgstr ""
+msgstr "생성되었지만 이 브라우저에서 요청을 지우지 못했습니다. 다시 시도하면 같은 컬렉션을 사용합니다."
 
 #: src/authorization-view.tsx
 msgid "Creates a plain mdbase collection hosted by mdbase. Application access is still approved separately."
-msgstr ""
+msgstr "mdbase에 호스팅되는 일반 mdbase 컬렉션을 만듭니다. 애플리케이션 액세스는 별도로 승인됩니다."
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Creating account…"
-msgstr ""
+msgstr "계정 만드는 중…"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Creating…"
-msgstr ""
+msgstr "만드는 중…"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Creating…"
-msgstr ""
+msgstr "만드는 중…"
 
 #: src/authority-workflows.tsx
 msgid "Creation hasn't finished. Approve continues the same named collection."
-msgstr ""
+msgstr "생성이 아직 끝나지 않았습니다. 승인하면 이름을 지정한 동일한 컬렉션에서 계속됩니다."
 
 #: src/AccountManagement.tsx
 msgid "Current"
-msgstr ""
+msgstr "현재"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Current allowance"
-msgstr ""
+msgstr "현재 허용량"
 
 #: src/AccountManagement.tsx
 msgid "Current password"
-msgstr ""
+msgstr "현재 비밀번호"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Delete"
-msgstr ""
+msgstr "삭제"
 
 #. placeholder {0}: collection.display_name
 #: src/ConnectApp.tsx
 msgid "Delete {0} and all of its hosted data? This cannot be undone."
-msgstr ""
+msgstr "{0} 및 모든 호스팅 데이터를 삭제할까요? 실행 취소할 수 없습니다."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Delete account"
-msgstr ""
+msgstr "계정 삭제"
 
 #: src/AccountManagement.tsx
 msgid "Delete account permanently"
-msgstr ""
+msgstr "계정 영구 삭제"
 
 #: src/AccountManagement.tsx
 msgid "Delete account…"
-msgstr ""
+msgstr "계정 삭제…"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "delete files"
-msgstr ""
+msgstr "파일 삭제"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Delete files"
-msgstr ""
+msgstr "파일 삭제"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Delete permanently"
-msgstr ""
+msgstr "영구 삭제"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Delete records"
-msgstr ""
+msgstr "레코드 삭제"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Delete records and files"
-msgstr ""
+msgstr "레코드 및 파일 삭제"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Deleting account…"
-msgstr ""
+msgstr "계정 삭제하는 중…"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Deny"
-msgstr ""
+msgstr "거부"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Denying…"
-msgstr ""
+msgstr "거부하는 중…"
 
 #: src/portal-model.ts
 msgctxt "Connect interface"
 msgid "Desktop approval needed"
-msgstr ""
+msgstr "데스크톱 승인 필요"
 
 #: src/authority-workflows.tsx
 msgid "Details"
-msgstr ""
+msgstr "세부 정보"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Details"
-msgstr ""
+msgstr "세부 정보"
 
 #: src/auth-view.tsx
 msgid "Development authentication is enabled."
-msgstr ""
+msgstr "개발용 인증이 활성화되었습니다."
 
 #. placeholder {0}: pairing.fingerprint
 #: src/authority-workflows.tsx
 msgid "Device key: <0>{0}</0>"
-msgstr ""
+msgstr "기기 키: <0>{0}</0>"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Disconnect"
-msgstr ""
+msgstr "연결 해제"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Disconnect"
-msgstr ""
+msgstr "연결 해제"
 
 #. placeholder {0}: replica.name
 #: src/ConnectApp.tsx
 msgid "Disconnect {0}?"
-msgstr ""
+msgstr "{0}의 연결을 해제할까요?"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Disconnecting…"
-msgstr ""
+msgstr "연결 해제하는 중…"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Disconnecting…"
-msgstr ""
+msgstr "연결 해제하는 중…"
 
 #: src/ConnectApp.tsx
 msgid "Dismiss"
-msgstr ""
+msgstr "닫기"
 
 #: src/authorization-review.tsx
 msgid "Do not share"
-msgstr ""
+msgstr "공유하지 않음"
 
 #. placeholder {0}: formatBytes(subscription.limits.max_document_bytes)
 #. placeholder {1}: formatBytes(subscription.limits.max_single_file_bytes)
@@ -1435,2063 +1435,2063 @@ msgstr ""
 #. placeholder {3}: countLabel(subscription.limits.max_application_replicas_per_collection, "application-installation")
 #: src/AccountManagement.tsx
 msgid "Documents up to {0} · files up to {1} · {2} · {3} per collection"
-msgstr ""
+msgstr "문서 최대 {0} · 파일 최대 {1} · {2} · 컬렉션당 {3}"
 
 #: src/authority-workflows.tsx
 msgid "Don't allow"
-msgstr ""
+msgstr "허용하지 않음"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Downloads only"
-msgstr ""
+msgstr "다운로드 전용"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Edit records"
-msgstr ""
+msgstr "레코드 편집"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Edit records and files"
-msgstr ""
+msgstr "레코드 및 파일 편집"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Editor"
-msgstr ""
+msgstr "편집기"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Edits sync both ways"
-msgstr ""
+msgstr "편집 내용 양방향 동기화"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Email"
-msgstr ""
+msgstr "이메일"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Email"
-msgstr ""
+msgstr "이메일"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Email address"
-msgstr ""
+msgstr "이메일 주소"
 
 #: src/AccountManagement.tsx
 msgid "Email and password"
-msgstr ""
+msgstr "이메일 및 비밀번호"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Email and password"
-msgstr ""
+msgstr "이메일 및 비밀번호"
 
 #. placeholder {0}: summary.setting
 #. placeholder {1}: summary.value
 #: src/authorization-view.tsx
 msgid "Ensure <0>{0}</0> includes <1>{1}</1>"
-msgstr ""
+msgstr "<0>{0}</0>에 <1>{1}</1>이(가) 포함되도록 설정"
 
 #: src/authorization-view.tsx
 msgid "Enter the code it shows. You will review the application, collection, and exact permissions before anything is allowed."
-msgstr ""
+msgstr "코드를 입력하세요. 허용하기 전에 애플리케이션, 컬렉션 및 정확한 권한을 검토할 수 있습니다."
 
 #: src/authorization-view.tsx
 msgid "Enter the eight-character code shown by the application."
-msgstr ""
+msgstr "애플리케이션에 표시된 8자리 코드를 입력하세요."
 
 #: src/ApplicationAccess.tsx
 msgid "Entire collection"
-msgstr ""
+msgstr "전체 컬렉션"
 
 #. placeholder {0}: entry.role
 #: src/ApplicationAccess.tsx
 msgid "Entire collection · Access as your account ({0})"
-msgstr ""
+msgstr "전체 컬렉션 · 내 계정으로 액세스({0})"
 
 #: src/AccountManagement.tsx
 msgid "Every browser session and sign-in method"
-msgstr ""
+msgstr "모든 브라우저 세션 및 로그인 방법"
 
 #: src/authorization-review.tsx
 msgid "Every visible folder. Hidden folders are always excluded."
-msgstr ""
+msgstr "표시되는 모든 폴더. 숨겨진 폴더는 항상 제외됩니다."
 
 #: src/authority-workflows.tsx
 msgid "Existing access is revoked. Connect applications again to use the local collection."
-msgstr ""
+msgstr "기존 액세스 권한이 철회되었습니다. 로컬 컬렉션을 사용하려면 Connect 애플리케이션을 다시 연결하세요."
 
 #: src/authority-workflows.tsx
 msgid "Existing Markdown is checked before upload. Collection paths and device credentials stay off the control plane."
-msgstr ""
+msgstr "업로드 전에 기존 Markdown을 검사합니다. 컬렉션 경로와 기기 인증 정보는 제어 서버로 전송되지 않습니다."
 
 #: src/authorization-review.tsx
 msgid "Existing type"
-msgstr ""
+msgstr "기존 유형"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Existing type"
-msgstr ""
+msgstr "기존 유형"
 
 #: src/authorization-review.tsx
 msgid "Expert details"
-msgstr ""
+msgstr "고급 정보"
 
 #: src/FeedbackPage.tsx
 msgid "Feedback goes privately to the mdbase team."
-msgstr ""
+msgstr "피드백은 mdbase 팀에 비공개로 전달됩니다."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Feedback is unavailable"
-msgstr ""
+msgstr "피드백을 사용할 수 없음"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Feedback unavailable"
-msgstr ""
+msgstr "피드백 이용 불가"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "File permissions"
-msgstr ""
+msgstr "파일 권한"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "File scope"
-msgstr ""
+msgstr "파일 범위"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Files"
-msgstr ""
+msgstr "파일"
 
 #. placeholder {0}: field?.label ?? missing
 #: src/authorization-review.tsx
 msgid "Fill in {0} in {label}."
-msgstr ""
+msgstr "{label}에서 {0}을(를) 입력하세요."
 
 #: src/ConnectApp.tsx
 msgid "Find a computer"
-msgstr ""
+msgstr "컴퓨터 찾기"
 
 #: src/authorization-view.tsx
 msgid "Finishing collection setup…"
-msgstr ""
+msgstr "컬렉션 설정 마무리하는 중…"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Finishing the move"
-msgstr ""
+msgstr "이동 마무리하는 중"
 
 #: src/authority-workflows.tsx
 msgid "Folder"
-msgstr ""
+msgstr "폴더"
 
 #: src/authority-workflows.tsx
 msgid "Folder approved"
-msgstr ""
+msgstr "폴더 승인됨"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Folder sync"
-msgstr ""
+msgstr "폴더 동기화"
 
 #: src/auth-view.tsx
 msgid "Forgot your password?"
-msgstr ""
+msgstr "비밀번호를 잊으셨나요?"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Generate a new code"
-msgstr ""
+msgstr "새 코드 생성"
 
 #: src/AccountManagement.tsx
 msgid "Generate a private code, then send it to the collection owner."
-msgstr ""
+msgstr "비공개 코드를 생성해 컬렉션 소유자에게 보내세요."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Generate code"
-msgstr ""
+msgstr "코드 생성"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Generating…"
-msgstr ""
+msgstr "생성하는 중…"
 
 #: src/portal-model.ts
 msgid "GitHub account @{login}"
-msgstr ""
+msgstr "GitHub 계정 @{login}"
 
 #: src/auth-view.tsx
 #: src/GoogleIdentityButton.tsx
 msgid "Google sign-in could not be loaded."
-msgstr ""
+msgstr "Google 로그인을 불러올 수 없습니다."
 
 #: src/auth-view.tsx
 #: src/GoogleIdentityButton.tsx
 msgid "Google sign-in did not load correctly."
-msgstr ""
+msgstr "Google 로그인이 올바르게 로드되지 않았습니다."
 
 #. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
 #: src/authorization-review.tsx
 msgid "Help {applicationName} understand {0}"
-msgstr ""
+msgstr "{applicationName}이(가) {0}을(를) 이해하도록 돕기"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Hosted"
-msgstr ""
+msgstr "호스팅됨"
 
 #: src/AccountManagement.tsx
 msgid "Hosted access was removed immediately. Hosted data deletion continues automatically in the background. Any local collection and mirror files remain on your computers."
-msgstr ""
+msgstr "호스팅 액세스 권한은 즉시 제거되었습니다. 호스팅 데이터 삭제는 백그라운드에서 자동으로 계속됩니다. 로컬 컬렉션과 미러 파일은 컴퓨터에 남습니다."
 
 #: src/authorization-view.tsx
 msgid "Hosted by mdbase"
-msgstr ""
+msgstr "mdbase에서 호스팅"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Hosted by mdbase"
-msgstr ""
+msgstr "mdbase에서 호스팅"
 
 #. placeholder {0}: countLabel(replicas.length, "folder")
 #: src/ConnectApp.tsx
 msgid "Hosted by mdbase · {0}"
-msgstr ""
+msgstr "mdbase에서 호스팅 · {0}"
 
 #: src/authority-workflows.tsx
 msgid "Hosted collection"
-msgstr ""
+msgstr "호스팅 컬렉션"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Hosted collection"
-msgstr ""
+msgstr "호스팅 컬렉션"
 
 #: src/ConnectApp.tsx
 msgid "Hosted creation is unavailable on this server."
-msgstr ""
+msgstr "이 서버에서는 호스팅 컬렉션을 만들 수 없습니다."
 
 #: src/authority-workflows.tsx
 msgid "Hosted service"
-msgstr ""
+msgstr "호스팅 서비스"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Hosted storage"
-msgstr ""
+msgstr "호스팅 저장 공간"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Hosted writes are paused"
-msgstr ""
+msgstr "호스팅 쓰기 일시 중지됨"
 
 #: src/authorization-review.tsx
 msgid "How this type behaves in {applicationName}"
-msgstr ""
+msgstr "{applicationName}에서 이 유형이 작동하는 방식"
 
 #: src/auth-view.tsx
 msgid "I agree to the <0>Terms of Service</0> and have read the <1>Privacy Policy</1>."
-msgstr ""
+msgstr "<0>서비스 약관</0>에 동의하며 <1>개인정보 처리방침</1>을 읽었습니다."
 
 #: src/AccountManagement.tsx
 msgid "Identity"
-msgstr ""
+msgstr "ID"
 
 #: src/AccountManagement.tsx
 msgid "Identity and service configuration."
-msgstr ""
+msgstr "계정 및 서비스 설정 정보"
 
 #: src/AccountManagement.tsx
 msgid "Identity confirmed for this deletion."
-msgstr ""
+msgstr "이 삭제 작업을 위한 본인 확인이 완료되었습니다."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Identity unavailable"
-msgstr ""
+msgstr "본인 확인 불가"
 
 #: src/auth-view.tsx
 msgid "If an mdbase connect account uses that address, its one-time reset link is on the way."
-msgstr ""
+msgstr "해당 주소를 사용하는 mdbase connect 계정이 있다면 일회용 재설정 링크가 전송됩니다."
 
 #: src/auth-view.tsx
 msgid "If that address can be used, its one-time verification link is on the way."
-msgstr ""
+msgstr "해당 주소를 사용할 수 있다면 일회용 확인 링크가 전송됩니다."
 
 #: src/ConnectApp.tsx
 msgid "If the desktop app does not open when you {action}, <0>install the latest release</0> and try again."
-msgstr ""
+msgstr "{action}할 때 데스크톱 앱이 열리지 않으면 <0>최신 버전을 설치</0>하고 다시 시도하세요."
 
 #. placeholder {0}: relativeTime(request.expires_at)
 #: src/authorization-view.tsx
 msgid "If the desktop app does not open, <0>install the current Connect release</0>, then return to this page. The request expires {0}."
-msgstr ""
+msgstr "데스크톱 앱이 열리지 않으면 <0>현재 Connect 버전을 설치</0>한 뒤 이 페이지로 돌아오세요. 요청은 {0}에 만료됩니다."
 
 #: src/authorization-view.tsx
 msgid "If the value is already present, mdbase leaves the collection unchanged. Conflicting settings stop setup without overwriting policy."
-msgstr ""
+msgstr "값이 이미 있으면 mdbase는 컬렉션을 변경하지 않습니다. 설정이 충돌하면 정책을 덮어쓰지 않고 설정을 중단합니다."
 
 #: src/authority-workflows.tsx
 msgid "If verification fails or this request expires, hosted writes resume."
-msgstr ""
+msgstr "확인에 실패하거나 이 요청이 만료되면 호스팅 쓰기가 재개됩니다."
 
 #: src/authority-workflows.tsx
 msgid "In {collection}. Allow only if you just asked for this in {app}."
-msgstr ""
+msgstr "{collection}에서 요청했습니다. 방금 {app}에서 요청한 경우에만 허용하세요."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Included storage"
-msgstr ""
+msgstr "포함된 저장 공간"
 
 #. placeholder {0}: connector.minimum_connector_version ? t(i18n)`version ${connector.minimum_connector_version} or later` : t(i18n)({ message: "the latest release", context: "Connect interface" })
 #: src/ConnectApp.tsx
 msgid "Install {0}"
-msgstr ""
+msgstr "{0} 설치"
 
 #: src/authorization-view.tsx
 msgid "Install or update the application definitions declared by this version."
-msgstr ""
+msgstr "이 버전에서 선언한 애플리케이션 정의를 설치하거나 업데이트합니다."
 
 #: src/ConnectApp.tsx
 msgid "Install the latest release"
-msgstr ""
+msgstr "최신 버전 설치"
 
 #: src/ApplicationAccess.tsx
 msgid "Installation details"
-msgstr ""
+msgstr "설치 세부 정보"
 
 #: src/ConnectApp.tsx
 msgid "Invitation ready"
-msgstr ""
+msgstr "초대 준비됨"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Invitation required"
-msgstr ""
+msgstr "초대 필요"
 
 #: src/ConnectApp.tsx
 msgid "Invite using"
-msgstr ""
+msgstr "초대 방법"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Invite using"
-msgstr ""
+msgstr "초대 방법"
 
 #: src/auth-view.tsx
 msgid "Invited? Open the link in your invitation email. "
-msgstr ""
+msgstr "초대를 받았나요? 초대 이메일의 링크를 여세요. "
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Invitee code"
-msgstr ""
+msgstr "초대받은 사람 코드"
 
 #: src/auth-view.tsx
 msgid "Join the signup waitlist"
-msgstr ""
+msgstr "가입 대기 명단에 등록"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Just a moment…"
-msgstr ""
+msgstr "잠시만 기다려 주세요…"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "just now"
-msgstr ""
+msgstr "방금 전"
 
 #: src/authority-workflows.tsx
 msgid "Keep access"
-msgstr ""
+msgstr "액세스 유지"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Keep an offline replica"
-msgstr ""
+msgstr "오프라인 복제본 유지"
 
 #: src/authority-workflows.tsx
 msgid "Keep it hosted"
-msgstr ""
+msgstr "호스팅 상태 유지"
 
 #: src/authorization-review.tsx
 msgid "Keep your current records and explain which fields mean the same thing."
-msgstr ""
+msgstr "현재 레코드를 유지하면서 같은 의미의 필드를 지정하세요."
 
 #: src/LanguageSetting.tsx
 msgid "Language"
-msgstr ""
+msgstr "언어"
 
 #. placeholder {0}: relativeTime(session.last_seen_at)
 #: src/AccountManagement.tsx
 msgid "Last used {0}"
-msgstr ""
+msgstr "마지막 사용: {0}"
 
 #: src/ApplicationAccess.tsx
 msgid "Legacy scoped access is revoked. Reauthorize this application for the entire collection."
-msgstr ""
+msgstr "기존 범위 제한 액세스가 철회되었습니다. 전체 컬렉션에 대해 이 애플리케이션을 다시 승인하세요."
 
 #: src/ConnectApp.tsx
 msgid "Link your account to an editable record in this collection. Collection access is approved separately."
-msgstr ""
+msgstr "이 컬렉션에서 내 계정을 편집 가능한 레코드에 연결합니다. 컬렉션 액세스는 별도로 승인됩니다."
 
 #: src/authorization-review.tsx
 msgid "List file names and metadata"
-msgstr ""
+msgstr "파일 이름 및 메타데이터 목록 보기"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Loading account details…"
-msgstr ""
+msgstr "계정 세부 정보 불러오는 중…"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Loading Google sign-in…"
-msgstr ""
+msgstr "Google 로그인 불러오는 중…"
 
 #: src/GoogleIdentityButton.tsx
 msgctxt "Connect interface"
 msgid "Loading Google sign-in…"
-msgstr ""
+msgstr "Google 로그인 불러오는 중…"
 
 #: src/ConnectApp.tsx
 msgid "Loading people…"
-msgstr ""
+msgstr "사람 불러오는 중…"
 
 #: src/ConnectApp.tsx
 msgid "Loading your account and collections…"
-msgstr ""
+msgstr "계정 및 컬렉션 불러오는 중…"
 
 #: src/AccountManagement.tsx
 msgid "Local collection and mirror files remain on your computers."
-msgstr ""
+msgstr "로컬 컬렉션 및 미러 파일은 컴퓨터에 남습니다."
 
 #: src/AccountManagement.tsx
 msgid "Local collection files stay on your computers and are not measured here."
-msgstr ""
+msgstr "로컬 컬렉션 파일은 컴퓨터에 남으며 여기의 사용량에 포함되지 않습니다."
 
 #: src/ConnectApp.tsx
 msgid "Location"
-msgstr ""
+msgstr "위치"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Location"
-msgstr ""
+msgstr "위치"
 
 #: src/ConnectApp.tsx
 msgid "Main copy"
-msgstr ""
+msgstr "기본 사본"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Main copy"
-msgstr ""
+msgstr "기본 사본"
 
 #: src/authority-workflows.tsx
 msgid "Main copy hosted by mdbase"
-msgstr ""
+msgstr "mdbase에서 호스팅하는 기본 사본"
 
 #: src/ConnectApp.tsx
 msgid "Main copy moved to a computer"
-msgstr ""
+msgstr "컴퓨터로 이동한 기본 사본"
 
 #: src/authority-workflows.tsx
 msgid "Main copy on {mirrorName}"
-msgstr ""
+msgstr "{mirrorName}에 있는 기본 사본"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Manage"
-msgstr ""
+msgstr "관리"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Manage and delete files"
-msgstr ""
+msgstr "파일 관리 및 삭제"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Manage definitions"
-msgstr ""
+msgstr "정의 관리"
 
 #: src/auth-view.tsx
 msgid "Manage email preferences"
-msgstr ""
+msgstr "이메일 수신 설정 관리"
 
 #: src/AccountManagement.tsx
 msgid "Manage hosted storage, sign-in methods, and browser sessions."
-msgstr ""
+msgstr "호스팅 저장 공간, 로그인 방법 및 브라우저 세션을 관리합니다."
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Manage saved views"
-msgstr ""
+msgstr "저장된 뷰 관리"
 
 #. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
 msgid "Manage the main copy of {0} and its synced Markdown folders."
-msgstr ""
+msgstr "{0}의 기본 사본과 동기화된 Markdown 폴더를 관리합니다."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "manage timers"
-msgstr ""
+msgstr "타이머 관리"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "manage types"
-msgstr ""
+msgstr "유형 관리"
 
 #: src/ConnectApp.tsx
 msgid "Manage where this collection lives and which applications can use it."
-msgstr ""
+msgstr "이 컬렉션의 저장 위치와 사용할 수 있는 애플리케이션을 관리합니다."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Managed by your tailnet"
-msgstr ""
+msgstr "내 테일넷에서 관리"
 
 #: src/ConnectApp.tsx
 msgid "Management access does not give applications access to collection content. Each application needs its own collection approval."
-msgstr ""
+msgstr "관리 액세스 권한만으로 애플리케이션이 컬렉션 내용을 볼 수는 없습니다. 각 애플리케이션에는 별도의 컬렉션 승인이 필요합니다."
 
 #: src/AccountManagement.tsx
 msgid "Markdown and file usage is temporarily unavailable."
-msgstr ""
+msgstr "Markdown 및 파일 사용량을 일시적으로 확인할 수 없습니다."
 
 #: src/authority-workflows.tsx
 msgid "Markdown edits will sync in both directions. Concurrent edits remain separate until you choose a version."
-msgstr ""
+msgstr "Markdown 편집 내용은 양방향으로 동기화됩니다. 동시에 수정한 내용은 버전을 선택할 때까지 별도로 유지됩니다."
 
 #: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgid "mdbase connect could not be reached. Check your connection and try again."
-msgstr ""
+msgstr "mdbase connect에 연결할 수 없습니다. 연결 상태를 확인하고 다시 시도하세요."
 
 #: src/portal-model.ts
 msgid "mdbase connect could not reach the service. Check your connection and try again."
-msgstr ""
+msgstr "mdbase connect가 서비스에 연결할 수 없습니다. 연결 상태를 확인하고 다시 시도하세요."
 
 #: src/authority-workflows.tsx
 msgid "mdbase connect is checking the latest hosted changes, registering the folder, and making it the main copy."
-msgstr ""
+msgstr "mdbase connect에서 최신 호스팅 변경 사항을 확인하고 폴더를 등록한 뒤 기본 사본으로 설정하고 있습니다."
 
 #: src/ConnectApp.tsx
 msgid "mdbase connect is unavailable"
-msgstr ""
+msgstr "mdbase connect를 사용할 수 없습니다."
 
 #: src/ConnectApp.tsx
 #: src/portal-ui.tsx
 msgid "mdbase connect navigation"
-msgstr ""
+msgstr "mdbase connect 탐색"
 
 #: src/ConnectApp.tsx
 msgid "mdbase connect needs to restart"
-msgstr ""
+msgstr "mdbase connect를 다시 시작해야 합니다"
 
 #. placeholder {0}: adoption.retain_mirror ? t(i18n)` ${adoption.mirror_name ?? adoption.source_name} will continue as a synced folder, with edits syncing both ways.` : t(i18n)({ message: " The original local files are no longer the main copy." })
 #: src/authority-workflows.tsx
 msgid "mdbase now keeps the main copy of this collection.{0}"
-msgstr ""
+msgstr "이제 mdbase가 이 컬렉션의 기본 사본을 보관합니다.{0}"
 
 #: src/authority-workflows.tsx
 msgid "mdbase remembers your choice and {app} follows it. {app} keeps its copy of this collection either way."
-msgstr ""
+msgstr "mdbase가 선택을 기억하고 {app}에서 따릅니다. 어느 쪽을 선택해도 {app}에는 이 컬렉션의 사본이 유지됩니다."
 
 #: src/compatibility.ts
 msgctxt "Connect interface"
 msgid "Missing required types"
-msgstr ""
+msgstr "필수 유형 누락"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "mobile app"
-msgstr ""
+msgstr "모바일 앱"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Mobile app"
-msgstr ""
+msgstr "모바일 앱"
 
 #: src/compatibility.ts
 msgctxt "Connect interface"
 msgid "More access required"
-msgstr ""
+msgstr "추가 액세스 필요"
 
 #: src/AccountManagement.tsx
 msgid "More regular updates about new features and improvements."
-msgstr ""
+msgstr "새 기능과 개선 사항에 관한 정기 소식을 더 자주 받습니다."
 
 #: src/authority-workflows.tsx
 msgid "Move a local collection to mdbase"
-msgstr ""
+msgstr "로컬 컬렉션을 mdbase로 이동"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Move and rename files"
-msgstr ""
+msgstr "파일 이동 및 이름 변경"
 
 #: src/authority-workflows.tsx
 msgid "Move approved"
-msgstr ""
+msgstr "이동 승인됨"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Move collection online"
-msgstr ""
+msgstr "컬렉션 온라인으로 이동"
 
 #: src/authority-workflows.tsx
 msgid "Move complete"
-msgstr ""
+msgstr "이동 완료"
 
 #: src/authority-workflows.tsx
 msgid "Move ended"
-msgstr ""
+msgstr "이동 종료됨"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Move main copy"
-msgstr ""
+msgstr "기본 사본 이동"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "move or rename"
-msgstr ""
+msgstr "이동 또는 이름 변경"
 
 #: src/authority-workflows.tsx
 msgid "Move the main copy"
-msgstr ""
+msgstr "기본 사본 이동"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Move this collection"
-msgstr ""
+msgstr "이 컬렉션 이동"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Moved"
-msgstr ""
+msgstr "이동됨"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Moved to newer runtime"
-msgstr ""
+msgstr "새 런타임으로 이동됨"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Moving to a computer"
-msgstr ""
+msgstr "컴퓨터로 이동하는 중"
 
 #: src/ConnectApp.tsx
 msgid "My collection"
-msgstr ""
+msgstr "내 컬렉션"
 
 #: src/AccountManagement.tsx
 msgid "Name"
-msgstr ""
+msgstr "이름"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Name"
-msgstr ""
+msgstr "이름"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Name or registration ID"
-msgstr ""
+msgstr "이름 또는 등록 ID"
 
 #: src/compatibility.ts
 msgctxt "Connect interface"
 msgid "Needs mdbase 0.3"
-msgstr ""
+msgstr "mdbase 0.3 필요"
 
 #: src/authorization-review.tsx
 msgid "New"
-msgstr ""
+msgstr "신규"
 
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 msgid "New collection name"
-msgstr ""
+msgstr "새 컬렉션 이름"
 
 #: src/AccountManagement.tsx
 msgid "New password"
-msgstr ""
+msgstr "새 비밀번호"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "New password"
-msgstr ""
+msgstr "새 비밀번호"
 
 #: src/AccountManagement.tsx
 msgid "New passwords do not match."
-msgstr ""
+msgstr "새 비밀번호가 일치하지 않습니다."
 
 #: src/authority-workflows.tsx
 msgid "New synced folder"
-msgstr ""
+msgstr "새 동기화 폴더"
 
 #: src/auth-view.tsx
 msgid "New to mdbase? <0>Create an account</0>"
-msgstr ""
+msgstr "mdbase가 처음인가요? <0>계정 만들기</0>"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "No active code shown"
-msgstr ""
+msgstr "표시할 활성 코드 없음"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "No collection access"
-msgstr ""
+msgstr "컬렉션 액세스 없음"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "No collections"
-msgstr ""
+msgstr "컬렉션 없음"
 
 #: src/CollectionPicker.tsx
 msgid "No collections are available."
-msgstr ""
+msgstr "사용 가능한 컬렉션이 없습니다."
 
 #: src/CollectionPicker.tsx
 msgid "No collections match. Try another name."
-msgstr ""
+msgstr "일치하는 컬렉션이 없습니다. 다른 이름으로 시도하세요."
 
 #: src/authorization-view.tsx
 msgid "No compatible collection is ready."
-msgstr ""
+msgstr "사용할 수 있는 호환 컬렉션이 없습니다."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "No computers connected"
-msgstr ""
+msgstr "연결된 컴퓨터 없음"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "No computers match"
-msgstr ""
+msgstr "일치하는 컴퓨터 없음"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgid "No connected applications"
-msgstr ""
+msgstr "연결된 애플리케이션 없음"
 
 #: src/AccountManagement.tsx
 msgid "No supported reauthentication method is connected."
-msgstr ""
+msgstr "연결된 재인증 방법이 없습니다."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "No synced folders"
-msgstr ""
+msgstr "동기화된 폴더 없음"
 
 #: src/authority-workflows.tsx
 msgid "Not allowed"
-msgstr ""
+msgstr "허용되지 않음"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Not configured"
-msgstr ""
+msgstr "설정되지 않음"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Not connected"
-msgstr ""
+msgstr "연결되지 않음"
 
 #: src/ConnectApp.tsx
 msgid "Not connected yet"
-msgstr ""
+msgstr "아직 연결되지 않음"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Not connected yet"
-msgstr ""
+msgstr "아직 연결되지 않음"
 
 #: src/ConnectApp.tsx
 msgid "Not now"
-msgstr ""
+msgstr "나중에"
 
 #: src/authorization-view.tsx
 msgid "Nothing is allowed until you review access."
-msgstr ""
+msgstr "액세스를 검토하기 전에는 아무것도 허용되지 않습니다."
 
 #: src/AccountManagement.tsx
 msgid "Occasional news about significant changes to mdbase Connect and new mdbase applications."
-msgstr ""
+msgstr "mdbase Connect의 중요한 변경 사항과 새 mdbase 애플리케이션에 관한 가끔 보내는 소식입니다."
 
 #: src/ConnectApp.tsx
 msgid "Offline"
-msgstr ""
+msgstr "오프라인"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Offline"
-msgstr ""
+msgstr "오프라인"
 
 #. placeholder {0}: computer.name
 #: src/ConnectApp.tsx
 msgid "On {0}"
-msgstr ""
+msgstr "{0}에서"
 
 #. placeholder {0}: computer.name
 #: src/ConnectApp.tsx
 msgid "On {0}: offline"
-msgstr ""
+msgstr "{0}에서: 오프라인"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "On this computer"
-msgstr ""
+msgstr "이 컴퓨터에서"
 
 #. placeholder {0}: relativeTime(sharingCode.expiresAt)
 #: src/AccountManagement.tsx
 msgid "One use · expires {0}"
-msgstr ""
+msgstr "1회 사용 · {0}에 만료"
 
 #: src/ConnectApp.tsx
 msgid "Online"
-msgstr ""
+msgstr "온라인"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Online"
-msgstr ""
+msgstr "온라인"
 
 #. placeholder {0}: files.scope.folders.join(", ")
 #: src/authorization-review.tsx
 msgid "Only {0}. Hidden folders are always excluded."
-msgstr ""
+msgstr "{0}만. 숨겨진 폴더는 항상 제외됩니다."
 
 #: src/authorization-view.tsx
 msgid "Only continue if you recognize this exact site."
-msgstr ""
+msgstr "정확히 이 사이트를 아는 경우에만 계속하세요."
 
 #: src/authorization-review.tsx
 msgid "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
-msgstr ""
+msgstr "이 유형 정의만 변경됩니다. 기존 레코드는 그대로 유지됩니다. 액세스가 활성화되기 전에 설정을 검증합니다."
 
 #: src/ConnectApp.tsx
 msgid "Open"
-msgstr ""
+msgstr "열기"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Open {0}"
-msgstr ""
+msgstr "{0} 열기"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Open {0} with {selectedName}"
-msgstr ""
+msgstr "{selectedName}을(를) {0}에서 열기"
 
 #: src/ConnectApp.tsx
 msgid "Open a collection in the editor or manage where its main copy lives."
-msgstr ""
+msgstr "편집기에서 컬렉션을 열거나 기본 사본의 저장 위치를 관리하세요."
 
 #: src/ConnectApp.tsx
 msgid "Open account and sessions"
-msgstr ""
+msgstr "계정 및 세션 열기"
 
 #: src/ConnectApp.tsx
 msgid "Open desktop app"
-msgstr ""
+msgstr "데스크톱 앱 열기"
 
 #: src/ConnectApp.tsx
 msgid "Open editor"
-msgstr ""
+msgstr "편집기 열기"
 
 #: src/portal-ui.tsx
 msgid "Open editor <0>↗</0>"
-msgstr ""
+msgstr "편집기 열기 <0>↗</0>"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Open in {0}"
-msgstr ""
+msgstr "{0}에서 열기"
 
 #: src/ConnectApp.tsx
 msgid "Open in editor"
-msgstr ""
+msgstr "편집기에서 열기"
 
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx
 msgid "Open mdbase connect"
-msgstr ""
+msgstr "mdbase connect 열기"
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx
 msgid "Open mdbase connect on {0} to make this collection available."
-msgstr ""
+msgstr "이 컬렉션을 사용하려면 {0}에서 mdbase connect를 여세요."
 
 #: src/onboarding-view.tsx
 msgid "Open mdbase Connect without it"
-msgstr ""
+msgstr "이 옵션 없이 mdbase Connect 열기"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Open menu"
-msgstr ""
+msgstr "메뉴 열기"
 
 #: src/portal-ui.tsx
 msgctxt "Connect interface"
 msgid "Open navigation"
-msgstr ""
+msgstr "탐색 메뉴 열기"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Open registration"
-msgstr ""
+msgstr "가입 허용"
 
 #: src/auth-view.tsx
 msgid "Open the complete password reset link from your email."
-msgstr ""
+msgstr "이메일에 있는 비밀번호 재설정 링크 전체를 여세요."
 
 #: src/authorization-view.tsx
 msgid "Open the desktop app to connect this computer, add a folder, and continue this same request."
-msgstr ""
+msgstr "데스크톱 앱을 열어 이 컴퓨터를 연결하고 폴더를 추가한 다음 동일한 요청을 계속하세요."
 
 #: src/auth-view.tsx
 msgid "Open the link from the email again, or change email preferences in your account settings."
-msgstr ""
+msgstr "이메일의 링크를 다시 열거나 계정 설정에서 이메일 수신 설정을 변경하세요."
 
 #: src/ConnectApp.tsx
 msgid "Open the mdbase connect desktop app and choose Connect this computer."
-msgstr ""
+msgstr "mdbase connect 데스크톱 앱을 열고 '이 컴퓨터 연결'을 선택하세요."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "open this collection"
-msgstr ""
+msgstr "이 컬렉션 열기"
 
 #: src/auth-view.tsx
 msgid "Open this through Tailscale"
-msgstr ""
+msgstr "Tailscale을 통해 열기"
 
 #: src/auth-view.tsx
 msgid "Open your account"
-msgstr ""
+msgstr "내 계정 열기"
 
 #: src/authority-workflows.tsx
 msgid "Open your collections"
-msgstr ""
+msgstr "내 컬렉션 열기"
 
 #: src/authorization-capabilities.ts
 msgid "Open, search, validate, and follow changes to records and saved views."
-msgstr ""
+msgstr "레코드와 저장된 뷰 열기, 검색, 검증 및 변경 사항 확인"
 
 #: src/authorization-capabilities.ts
 msgid "Open, search, validate, and follow records and saved views; list file names and read file contents."
-msgstr ""
+msgstr "레코드와 저장된 뷰 열기, 검색, 검증 및 변경 사항 확인; 파일 이름 목록 보기와 내용 읽기"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Opening mdbase connect"
-msgstr ""
+msgstr "mdbase connect 여는 중"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Opening mdbase connect"
-msgstr ""
+msgstr "mdbase connect 여는 중"
 
 #: src/main.tsx
 #: src/portal-ui.tsx
 msgctxt "Connect interface"
 msgid "Opening mdbase connect…"
-msgstr ""
+msgstr "mdbase connect 여는 중…"
 
 #: src/auth-view.tsx
 msgid "or"
-msgstr ""
+msgstr "또는"
 
 #: src/ApplicationAccess.tsx
 msgid "Origin"
-msgstr ""
+msgstr "출처"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Overview"
-msgstr ""
+msgstr "개요"
 
 #: src/authority-workflows.tsx
 #: src/ConnectApp.tsx
 msgid "Owner"
-msgstr ""
+msgstr "소유자"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Password"
-msgstr ""
+msgstr "비밀번호"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Password changed"
-msgstr ""
+msgstr "비밀번호 변경됨"
 
 #: src/AccountManagement.tsx
 msgid "Password changed. Other browser sessions were signed out."
-msgstr ""
+msgstr "비밀번호가 변경되었습니다. 다른 브라우저 세션에서 로그아웃되었습니다."
 
 #: src/auth-view.tsx
 msgid "Password recovery is temporarily unavailable. You can still return to sign in."
-msgstr ""
+msgstr "비밀번호 복구를 일시적으로 사용할 수 없습니다. 로그인 화면으로 돌아갈 수는 있습니다."
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Passwords do not match."
-msgstr ""
+msgstr "비밀번호가 일치하지 않습니다."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Paused"
-msgstr ""
+msgstr "일시 중지됨"
 
 #: src/ConnectApp.tsx
 msgid "Pending"
-msgstr ""
+msgstr "대기 중"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Pending invitations"
-msgstr ""
+msgstr "대기 중인 초대"
 
 #: src/authorization-review.tsx
 msgid "People"
-msgstr ""
+msgstr "사용자"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "People & sharing"
-msgstr ""
+msgstr "사용자 및 공유"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "People permissions"
-msgstr ""
+msgstr "사용자 권한"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Permanent allowance"
-msgstr ""
+msgstr "영구 허용량"
 
 #: src/AccountManagement.tsx
 msgid "Permanent for hosted data. Local files are never removed from your computers."
-msgstr ""
+msgstr "호스팅 데이터는 영구적으로 삭제됩니다. 컴퓨터의 로컬 파일은 삭제되지 않습니다."
 
 #: src/authorization-capabilities.ts
 msgid "Permanently delete records and files from this collection."
-msgstr ""
+msgstr "이 컬렉션의 레코드와 파일을 영구적으로 삭제합니다."
 
 #: src/authorization-capabilities.ts
 msgid "Permanently delete records from this collection."
-msgstr ""
+msgstr "이 컬렉션의 레코드를 영구적으로 삭제합니다."
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Permissions"
-msgstr ""
+msgstr "권한"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "person@example.com"
-msgstr ""
+msgstr "person@example.com"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Preparing {0}…"
-msgstr ""
+msgstr "{0} 준비하는 중…"
 
 #: src/onboarding-view.tsx
 msgid "Preparing a place to start."
-msgstr ""
+msgstr "시작할 공간을 준비하는 중입니다."
 
 #: src/ApplicationAccess.tsx
 msgid "Previously approved · Collection no longer visible to your account"
-msgstr ""
+msgstr "이전 승인됨 · 내 계정에서 컬렉션을 더 이상 볼 수 없음"
 
 #: src/auth-view.tsx
 msgid "Privacy"
-msgstr ""
+msgstr "개인정보 보호"
 
 #: src/CollectionPicker.tsx
 msgid "Private"
-msgstr ""
+msgstr "비공개"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Private collection"
-msgstr ""
+msgstr "비공개 컬렉션"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "product updates"
-msgstr ""
+msgstr "제품 소식"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Product updates"
-msgstr ""
+msgstr "제품 소식"
 
 #: src/auth-view.tsx
 msgid "Public account creation is temporarily unavailable."
-msgstr ""
+msgstr "공개 계정 생성을 일시적으로 사용할 수 없습니다."
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Read file contents"
-msgstr ""
+msgstr "파일 내용 읽기"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Read records and files"
-msgstr ""
+msgstr "레코드 및 파일 읽기"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Read this collection"
-msgstr ""
+msgstr "이 컬렉션 읽기"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Reauthorization required"
-msgstr ""
+msgstr "재승인 필요"
 
 #: src/CollectionPicker.tsx
 msgid "Recently used"
-msgstr ""
+msgstr "최근 사용"
 
 #: src/authority-workflows.tsx
 msgid "Recovery"
-msgstr ""
+msgstr "복구"
 
 #. placeholder {0}: new Date(connector.created_at).toLocaleString()
 #. placeholder {1}: connector.id.slice(-8)
 #: src/ConnectApp.tsx
 msgid "Registered {0} · ID {1}"
-msgstr ""
+msgstr "등록일 {0} · ID {1}"
 
 #. placeholder {0}: formatters(i18n.locale).date(new Date(entry.created_at), { dateStyle: "medium", timeStyle: "short" })
 #: src/ApplicationAccess.tsx
 msgid "Registered <0>{0}</0>"
-msgstr ""
+msgstr "등록됨 <0>{0}</0>"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Registered computers"
-msgstr ""
+msgstr "등록된 컴퓨터"
 
 #: src/ConnectApp.tsx
 msgid "Registered computers stay listed when offline. Revoking one also invalidates grants routed through it."
-msgstr ""
+msgstr "등록된 컴퓨터는 오프라인이어도 목록에 남습니다. 철회하면 이를 통해 전달된 권한도 무효화됩니다."
 
 #: src/AccountManagement.tsx
 msgid "Registration"
-msgstr ""
+msgstr "등록"
 
 #: src/ConnectApp.tsx
 msgid "Reload Connect"
-msgstr ""
+msgstr "Connect 새로고침"
 
 #: src/authority-workflows.tsx
 msgid "Reminders are off. You can turn them on in the app by approving reminders again."
-msgstr ""
+msgstr "리마인더가 꺼졌습니다. 앱에서 리마인더를 다시 승인해 켤 수 있습니다."
 
 #: src/authority-workflows.tsx
 msgid "Reminders will be off. You can finish setup and turn them on later in the app. Collection access stays unchanged."
-msgstr ""
+msgstr "리마인더가 꺼집니다. 설정을 마치고 나중에 앱에서 켤 수 있습니다. 컬렉션 액세스는 변경되지 않습니다."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Remove"
-msgstr ""
+msgstr "제거"
 
 #. placeholder {0}: member.name
 #. placeholder {1}: collection.display_name
 #: src/ConnectApp.tsx
 msgid "Remove {0} from {1}? Their application and folder access will also be revoked."
-msgstr ""
+msgstr "{1}에서 {0}을(를) 제거할까요? 해당 사용자의 애플리케이션 및 폴더 액세스도 철회됩니다."
 
 #. placeholder {0}: member.name
 #: src/ConnectApp.tsx
 msgid "Remove {0} from the unnamed collection? Their application and folder access will also be revoked."
-msgstr ""
+msgstr "이름 없는 컬렉션에서 {0}을(를) 제거할까요? 해당 사용자의 애플리케이션 및 폴더 액세스도 철회됩니다."
 
 #: src/authority-workflows.tsx
 msgid "Remove access"
-msgstr ""
+msgstr "액세스 제거"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Remove access"
-msgstr ""
+msgstr "액세스 제거"
 
 #. placeholder {0}: pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" })
 #: src/authority-workflows.tsx
 msgid "Removing access to {0}…"
-msgstr ""
+msgstr "{0}에 대한 액세스 제거하는 중…"
 
 #: src/ConnectApp.tsx
 msgid "Removing application and folder access…"
-msgstr ""
+msgstr "애플리케이션 및 폴더 액세스 제거하는 중…"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Removing…"
-msgstr ""
+msgstr "제거하는 중…"
 
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
 msgid "Rename"
-msgstr ""
+msgstr "이름 바꾸기"
 
 #. placeholder {0}: collection.display_name
 #. placeholder {0}: connector.name
 #: src/ConnectApp.tsx
 msgid "Rename {0}"
-msgstr ""
+msgstr "{0} 이름 변경"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Replace existing files"
-msgstr ""
+msgstr "기존 파일 교체"
 
 #: src/auth-view.tsx
 msgid "Replacing your password signs out every other browser session connected to the account."
-msgstr ""
+msgstr "비밀번호를 바꾸면 계정에 연결된 다른 모든 브라우저 세션에서 로그아웃됩니다."
 
 #. placeholder {0}: relativeTime(request.expires_at)
 #: src/authorization-view.tsx
 msgid "Request expires {0}"
-msgstr ""
+msgstr "요청 만료: {0}"
 
 #. placeholder {0}: response.status
 #: src/api.ts
 msgid "Request failed with HTTP {0}."
-msgstr ""
+msgstr "HTTP {0} 오류로 요청에 실패했습니다."
 
 #: src/authorization-view.tsx
 msgid "Request unavailable"
-msgstr ""
+msgstr "요청을 사용할 수 없음"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Requested access"
-msgstr ""
+msgstr "요청된 액세스"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Requested by {0}. No requesting origin is available."
-msgstr ""
+msgstr "{0}에서 요청했습니다. 요청 출처 정보가 없습니다."
 
 #. placeholder {0}: pairing.connector_name
 #. placeholder {1}: appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""
 #. placeholder {2}: pairing.app_origin?.trim() && <Trans> from <code>{pairing.app_origin}</code></Trans>
 #: src/authority-workflows.tsx
 msgid "Requested by {0}{1}{2}. Approve only if you started sign-in in this app."
-msgstr ""
+msgstr "{0}{1}{2}에서 요청했습니다. 이 앱에서 로그인을 시작한 경우에만 승인하세요."
 
 #. placeholder {0}: pairing.app_origin
 #: src/authority-workflows.tsx
 msgid "Requested from <0>{0}</0>. The origin shown here is not proof of who made the request."
-msgstr ""
+msgstr "<0>{0}</0>에서 요청했습니다. 여기 표시된 출처만으로 요청자를 확인할 수 없습니다."
 
 #: src/authorization-view.tsx
 msgid "Requests"
-msgstr ""
+msgstr "요청"
 
 #: src/authorization-review.tsx
 msgid "Required"
-msgstr ""
+msgstr "필수"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Reset your password"
-msgstr ""
+msgstr "비밀번호 재설정"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Retry creation"
-msgstr ""
+msgstr "생성 다시 시도"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Retry Google sign-in"
-msgstr ""
+msgstr "Google 로그인 다시 시도"
 
 #: src/GoogleIdentityButton.tsx
 msgctxt "Connect interface"
 msgid "Retry Google sign-in"
-msgstr ""
+msgstr "Google 로그인 다시 시도"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Return to {0}"
-msgstr ""
+msgstr "{0}(으)로 돌아가기"
 
 #. placeholder {0}: adoption.source_name
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Return to {0}."
-msgstr ""
+msgstr "{0}(으)로 돌아가세요."
 
 #: src/authorization-view.tsx
 msgid "Return to {applicationName}"
-msgstr ""
+msgstr "{applicationName}(으)로 돌아가기"
 
 #: src/authorization-view.tsx
 msgid "Return to {applicationName} and connect again to start a new request."
-msgstr ""
+msgstr "{applicationName}(으)로 돌아가 다시 연결하여 새 요청을 시작하세요."
 
 #: src/authorization-view.tsx
 msgid "Return to {applicationName}."
-msgstr ""
+msgstr "{applicationName}(으)로 돌아가세요."
 
 #: src/authority-workflows.tsx
 msgid "Return to {mirrorName}."
-msgstr ""
+msgstr "{mirrorName}(으)로 돌아가세요."
 
 #: src/authority-workflows.tsx
 msgid "Return to mdbase connect."
-msgstr ""
+msgstr "mdbase connect로 돌아가세요."
 
 #: src/AccountManagement.tsx
 #: src/auth-view.tsx
 msgid "Return to sign in"
-msgstr ""
+msgstr "로그인 화면으로 돌아가기"
 
 #: src/authority-workflows.tsx
 msgid "Return to your account"
-msgstr ""
+msgstr "내 계정으로 돌아가기"
 
 #: src/authority-workflows.tsx
 msgid "Return to your computer."
-msgstr ""
+msgstr "내 컴퓨터로 돌아가세요."
 
 #: src/authorization-view.tsx
 msgid "Returning to {applicationName}…"
-msgstr ""
+msgstr "{applicationName}(으)로 돌아가는 중…"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Review"
-msgstr ""
+msgstr "검토"
 
 #. placeholder {0}: request.application_name
 #: src/ConnectApp.tsx
 msgid "Review {0}’s collection access request."
-msgstr ""
+msgstr "{0}의 컬렉션 액세스 요청을 검토하세요."
 
 #. placeholder {0}: request.application_name
 #: src/ConnectApp.tsx
 msgid "Review {0}’s request for {collectionName}."
-msgstr ""
+msgstr "{collectionName}에 대한 {0}의 요청을 검토하세요."
 
 #: src/authorization-view.tsx
 msgid "Review access"
-msgstr ""
+msgstr "접근 권한 검토"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Review all"
-msgstr ""
+msgstr "모두 검토"
 
 #: src/ApplicationAccess.tsx
 msgid "Review applications connected to your account. Your browser sign-in is never shared with them."
-msgstr ""
+msgstr "계정에 연결된 애플리케이션을 검토하세요. 브라우저 로그인 정보는 애플리케이션과 공유되지 않습니다."
 
 #: src/authorization-view.tsx
 msgid "Review in this browser"
-msgstr ""
+msgstr "이 브라우저에서 검토"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Review next request"
-msgstr ""
+msgstr "다음 요청 검토"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Review request"
-msgstr ""
+msgstr "요청 검토"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Review request"
-msgstr ""
+msgstr "요청 검토"
 
 #: src/ApplicationAccess.tsx
 msgid "Review the access each application has to {collectionName}."
-msgstr ""
+msgstr "각 애플리케이션의 {collectionName} 액세스 권한을 검토하세요."
 
 #. placeholder {0}: grant.collection_kind === "local" ? t(i18n)({ message: "the computer holding this collection" }) : t(i18n)({ message: "the hosted authority", context: "Connect interface" })
 #: src/ApplicationAccess.tsx
 msgid "Revocation is pending. Waiting for {0} to confirm enforcement."
-msgstr ""
+msgstr "철회 대기 중입니다. {0}의 적용 확인을 기다리고 있습니다."
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoke"
-msgstr ""
+msgstr "철회"
 
 #. placeholder {0}: group.applicationName
 #. placeholder {1}: entries[0]!.collection_name
 #: src/ApplicationAccess.tsx
 msgid "Revoke {0} access to {1} across all its installations?"
-msgstr ""
+msgstr "모든 설치에서 {1}에 대한 {0}의 액세스를 철회할까요?"
 
 #. placeholder {0}: group.applicationName
 #: src/ApplicationAccess.tsx
 msgid "Revoke {0} access to {collectionName}?"
-msgstr ""
+msgstr "{collectionName}에 대한 {0}의 액세스를 철회할까요?"
 
 #. placeholder {0}: connector.name
 #: src/ConnectApp.tsx
 msgid "Revoke {0} and the application grants routed through it?"
-msgstr ""
+msgstr "{0} 및 이를 통해 전달되는 애플리케이션 권한을 철회할까요?"
 
 #. placeholder {0}: replica.name
 #: src/ConnectApp.tsx
 msgid "Revoke {0}?"
-msgstr ""
+msgstr "{0}을(를) 철회할까요?"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Revoke access"
-msgstr ""
+msgstr "액세스 철회"
 
 #. placeholder {0}: grant.collection_name
 #: src/ApplicationAccess.tsx
 msgid "Revoke access to {0}?"
-msgstr ""
+msgstr "{0}에 대한 액세스를 철회할까요?"
 
 #. placeholder {0}: group.applicationName
 #: src/ApplicationAccess.tsx
 msgid "Revoke all {0} access and collection creation permission?"
-msgstr ""
+msgstr "{0}의 모든 액세스 권한과 컬렉션 생성 권한을 철회할까요?"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Revoke application"
-msgstr ""
+msgstr "애플리케이션 철회"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Revoke collection access"
-msgstr ""
+msgstr "컬렉션 액세스 철회"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoke computer"
-msgstr ""
+msgstr "컴퓨터 철회"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoking…"
-msgstr ""
+msgstr "철회하는 중…"
 
 #: src/ConnectApp.tsx
 msgid "Role"
-msgstr ""
+msgstr "역할"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Role"
-msgstr ""
+msgstr "역할"
 
 #. placeholder {0}: member.name
 #: src/ConnectApp.tsx
 msgid "Role for {0}"
-msgstr ""
+msgstr "{0}의 역할"
 
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
 msgid "Save"
-msgstr ""
+msgstr "저장"
 
 #: src/ApplicationAccess.tsx
 msgid "Save narrower access"
-msgstr ""
+msgstr "축소된 액세스 저장"
 
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
 msgid "Saving…"
-msgstr ""
+msgstr "저장 중…"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Schedule background work"
-msgstr ""
+msgstr "백그라운드 작업 예약"
 
 #: src/ApplicationAccess.tsx
 msgid "Scope"
-msgstr ""
+msgstr "범위"
 
 #: src/CollectionPicker.tsx
 msgid "Search collections by name"
-msgstr ""
+msgstr "이름으로 컬렉션 검색"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "see collection members"
-msgstr ""
+msgstr "컬렉션 구성원 보기"
 
 #: src/authorization-review.tsx
 msgid "See collection members' account identities, names and roles"
-msgstr ""
+msgstr "컬렉션 구성원의 계정 식별 정보, 이름 및 역할 보기"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "see the list of"
-msgstr ""
+msgstr "목록 보기"
 
 #: src/authorization-review.tsx
 msgid "See your account identity and display name"
-msgstr ""
+msgstr "내 계정 식별 정보 및 표시 이름 보기"
 
 #. placeholder {0}: relativeTime(connector.last_seen_at)
 #. placeholder {0}: relativeTime(replica.sync_status.last_seen_at ?? collection.source.created_at)
 #: src/ConnectApp.tsx
 msgid "Seen {0}"
-msgstr ""
+msgstr "마지막 확인: {0}"
 
 #: src/authorization-view.tsx
 msgid "Select a collection to continue."
-msgstr ""
+msgstr "계속하려면 컬렉션을 선택하세요."
 
 #. placeholder {0}: selected.name
 #: src/CollectionPicker.tsx
 msgid "Selected: <0>{0}</0>"
-msgstr ""
+msgstr "선택됨: <0>{0}</0>"
 
 #: src/ConnectApp.tsx
 #: src/FeedbackPage.tsx
 msgctxt "Connect interface"
 msgid "Send feedback"
-msgstr ""
+msgstr "피드백 보내기"
 
 #: src/auth-view.tsx
 msgid "Send me occasional product updates. You can change this at any time."
-msgstr ""
+msgstr "가끔 제품 소식을 보내주세요. 언제든 설정을 변경할 수 있습니다."
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Send reset link"
-msgstr ""
+msgstr "재설정 링크 보내기"
 
 #: src/ConnectApp.tsx
 msgid "Send this private link to the invited person. Email invitations require an already registered, verified account. If they have just signed up, create a new invitation."
-msgstr ""
+msgstr "초대할 사용자에게 이 비공개 링크를 보내세요. 이메일 초대에는 이미 등록되고 확인된 계정이 필요합니다. 방금 가입했다면 새 초대를 만드세요."
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Send verification link"
-msgstr ""
+msgstr "확인 링크 보내기"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Sending link…"
-msgstr ""
+msgstr "링크 보내는 중…"
 
 #. placeholder {0}: account.user.email
 #: src/AccountManagement.tsx
 msgid "Sent to {0}."
-msgstr ""
+msgstr "{0}에 전송됨."
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Set up and allow access"
-msgstr ""
+msgstr "설정 및 액세스 허용"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Setting up and allowing…"
-msgstr ""
+msgstr "설정하고 허용하는 중…"
 
 #. placeholder {0}: setupLabel(contract)
 #: src/authorization-review.tsx
 msgid "Setup for {0}"
-msgstr ""
+msgstr "{0}의 설정"
 
 #: src/authority-workflows.tsx
 msgid "Shared with you"
-msgstr ""
+msgstr "나와 공유됨"
 
 #: src/ConnectApp.tsx
 msgid "Sharing code"
-msgstr ""
+msgstr "공유 코드"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Sharing code"
-msgstr ""
+msgstr "공유 코드"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Sharing code"
-msgstr ""
+msgstr "공유 코드"
 
 #: src/authorization-view.tsx
 msgid "Short approval code"
-msgstr ""
+msgstr "짧은 승인 코드"
 
 #. placeholder {0}: visible.length
 #. placeholder {1}: data.connectors.length
 #: src/ConnectApp.tsx
 msgid "Showing {0} of {1} registered computers."
-msgstr ""
+msgstr "등록된 컴퓨터 {1}대 중 {0}대 표시 중"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Sign in"
-msgstr ""
+msgstr "로그인"
 
 #: src/authority-workflows.tsx
 msgid "Sign in again"
-msgstr ""
+msgstr "다시 로그인"
 
 #: src/authority-workflows.tsx
 msgid "Sign in on a computer"
-msgstr ""
+msgstr "컴퓨터에서 로그인"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Sign in to continue"
-msgstr ""
+msgstr "계속하려면 로그인하세요"
 
 #: src/auth-view.tsx
 msgid "Sign in with the method connected to your invited account."
-msgstr ""
+msgstr "초대받은 계정에 연결된 방법으로 로그인하세요."
 
 #: src/auth-view.tsx
 msgid "Sign in, review the request, and return to the application."
-msgstr ""
+msgstr "로그인하고 요청을 검토한 뒤 애플리케이션으로 돌아가세요."
 
 #: src/AccountManagement.tsx
 msgid "Sign out"
-msgstr ""
+msgstr "로그아웃"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Sign out of this browser"
-msgstr ""
+msgstr "이 브라우저에서 로그아웃"
 
 #: src/AccountManagement.tsx
 msgid "Sign out other sessions"
-msgstr ""
+msgstr "다른 세션에서 로그아웃"
 
 #: src/authority-workflows.tsx
 msgid "Sign-in cancelled"
-msgstr ""
+msgstr "로그인 취소됨"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Sign-in methods"
-msgstr ""
+msgstr "로그인 방법"
 
 #: src/AccountManagement.tsx
 msgid "Sign-in methods for this account are controlled by Tailscale."
-msgstr ""
+msgstr "이 계정의 로그인 방법은 Tailscale에서 관리합니다."
 
 #: src/auth-view.tsx
 msgid "Sign-in was cancelled. You can try again or choose another method."
-msgstr ""
+msgstr "로그인이 취소되었습니다. 다시 시도하거나 다른 방법을 선택하세요."
 
 #. placeholder {0}: formatters(i18n.locale).date(new Date(session.created_at), { dateStyle: "medium", timeStyle: "short" })
 #. placeholder {1}: session.id.slice(-8)
 #: src/AccountManagement.tsx
 msgid "Signed in <0>{0}</0> · ID {1}"
-msgstr ""
+msgstr "로그인됨 <0>{0}</0> · ID {1}"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Signing in with Google…"
-msgstr ""
+msgstr "Google로 로그인하는 중…"
 
 #: src/GoogleIdentityButton.tsx
 msgctxt "Connect interface"
 msgid "Signing in with Google…"
-msgstr ""
+msgstr "Google로 로그인하는 중…"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Signing in…"
-msgstr ""
+msgstr "로그인하는 중…"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Signing out…"
-msgstr ""
+msgstr "로그아웃 중…"
 
 #: src/auth-view.tsx
 msgid "Start signup again"
-msgstr ""
+msgstr "가입 다시 시작"
 
 #: src/ConnectApp.tsx
 msgid "Status"
-msgstr ""
+msgstr "상태"
 
 #: src/auth-view.tsx
 msgid "Stop receiving the kind of email this link came in. Messages about your account are still sent."
-msgstr ""
+msgstr "이 링크가 포함된 종류의 이메일 수신을 중단합니다. 계정 관련 메시지는 계속 전송됩니다."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Storage"
-msgstr ""
+msgstr "저장 공간"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Storage & sync"
-msgstr ""
+msgstr "저장 공간 및 동기화"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Stored by mdbase"
-msgstr ""
+msgstr "mdbase에 저장됨"
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx
 msgid "Stored on {0}"
-msgstr ""
+msgstr "{0}에 저장됨"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Stored on your devices"
-msgstr ""
+msgstr "내 기기에 저장됨"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Sync"
-msgstr ""
+msgstr "동기화"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "sync a folder"
-msgstr ""
+msgstr "폴더 동기화"
 
 #: src/ConnectApp.tsx
 msgid "Sync folder"
-msgstr ""
+msgstr "폴더 동기화"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Sync this collection"
-msgstr ""
+msgstr "이 컬렉션 동기화"
 
 #: src/ConnectApp.tsx
 msgid "Synced folders"
-msgstr ""
+msgstr "동기화된 폴더"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Synced folders"
-msgstr ""
+msgstr "동기화된 폴더"
 
 #: src/authorization-capabilities.ts
 msgid "Synchronize an application-controlled local copy of this collection."
-msgstr ""
+msgstr "애플리케이션이 관리하는 이 컬렉션의 로컬 사본을 동기화합니다."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Tailscale identity"
-msgstr ""
+msgstr "Tailscale 식별 정보"
 
 #: src/auth-view.tsx
 msgid "Terms"
-msgstr ""
+msgstr "약관"
 
 #: src/authority-workflows.tsx
 msgid "The app is uploading and checking a final collection snapshot. The main copy will move only after that exact snapshot is complete."
-msgstr ""
+msgstr "앱에서 컬렉션의 최종 스냅샷을 업로드하고 확인하고 있습니다. 해당 스냅샷이 정확히 완성된 뒤에만 기본 사본이 이동합니다."
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "the application"
-msgstr ""
+msgstr "애플리케이션"
 
 #: src/authorization-view.tsx
 msgid "The application will finish connecting with its one-time device code. You can close this window."
-msgstr ""
+msgstr "애플리케이션에서 일회용 기기 코드로 연결을 완료합니다. 이 창을 닫아도 됩니다."
 
 #: src/authorization-view.tsx
 msgid "The application will learn that access was not granted. You can close this window."
-msgstr ""
+msgstr "애플리케이션에 액세스가 허용되지 않았다고 전달됩니다. 이 창을 닫아도 됩니다."
 
 #: src/authorization-view.tsx
 msgid "The application will show that access was not granted."
-msgstr ""
+msgstr "애플리케이션에 액세스가 허용되지 않았다고 표시됩니다."
 
 #. placeholder {0}: field.label.toLocaleLowerCase()
 #: src/authorization-review.tsx
 msgid "The application’s {0} value."
-msgstr ""
+msgstr "애플리케이션의 {0} 값"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "The collection"
-msgstr ""
+msgstr "컬렉션"
 
 #: src/authorization-view.tsx
 msgid "The collection cannot allow all required record and file permissions together. Choose another collection."
-msgstr ""
+msgstr "이 컬렉션에서는 필요한 레코드 및 파일 권한을 모두 함께 허용할 수 없습니다. 다른 컬렉션을 선택하세요."
 
 #: src/authorization-view.tsx
 msgid "The collection requested by this application is not available."
-msgstr ""
+msgstr "이 애플리케이션에서 요청한 컬렉션을 사용할 수 없습니다."
 
 #: src/ApplicationAccess.tsx
 msgid "the computer holding this collection"
-msgstr ""
+msgstr "이 컬렉션이 있는 컴퓨터"
 
 #: src/authority-workflows.tsx
 msgid "The desktop app will finish securely. No connector token was displayed or copied."
-msgstr ""
+msgstr "데스크톱 앱에서 안전하게 마무리합니다. 커넥터 토큰은 표시되거나 복사되지 않았습니다."
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx
 msgid "The editor can reach this collection through {0}."
-msgstr ""
+msgstr "편집기에서 {0}을(를) 통해 이 컬렉션에 접근할 수 있습니다."
 
 #: src/authority-workflows.tsx
 msgid "The folder on {mirrorName} is now the main copy. Hosted access has stopped and previous application connections were revoked."
-msgstr ""
+msgstr "{mirrorName}의 폴더가 이제 기본 사본입니다. 호스팅 액세스가 중단되고 이전 애플리케이션 연결이 철회되었습니다."
 
 #: src/ConnectApp.tsx
 msgid "The folder remains the authority for this collection."
-msgstr ""
+msgstr "폴더는 이 컬렉션의 권한 원본으로 유지됩니다."
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "the hosted authority"
-msgstr ""
+msgstr "호스팅 권한 원본"
 
 #: src/ConnectApp.tsx
 msgid "The hosted collection is available to the editor."
-msgstr ""
+msgstr "편집기에서 호스팅 컬렉션을 사용할 수 있습니다."
 
 #: src/LanguageSetting.tsx
 msgid "The language could not be loaded or saved. Try choosing it again."
-msgstr ""
+msgstr "언어를 불러오거나 저장하지 못했습니다. 다시 선택해 보세요."
 
 #: src/main.tsx
 msgid "The language could not be loaded. Choose it again using the language setting."
-msgstr ""
+msgstr "언어를 불러오지 못했습니다. 언어 설정에서 다시 선택하세요."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "the latest release"
-msgstr ""
+msgstr "최신 버전"
 
 #: src/auth-view.tsx
 msgid "The link is invalid, expired, already used, or account setup is temporarily unavailable."
-msgstr ""
+msgstr "링크가 유효하지 않거나 만료되었거나 이미 사용되었거나 계정 설정을 일시적으로 사용할 수 없습니다."
 
 #: src/auth-view.tsx
 msgid "The link is invalid, expired, already used, or password sign-in is temporarily unavailable."
-msgstr ""
+msgstr "링크가 유효하지 않거나 만료되었거나 이미 사용되었거나 비밀번호 로그인을 일시적으로 사용할 수 없습니다."
 
 #: src/ConnectApp.tsx
 msgid "The main copy has moved away from hosted storage."
-msgstr ""
+msgstr "기본 사본이 호스팅 저장 공간에서 이동했습니다."
 
 #: src/authority-workflows.tsx
 msgid "The main copy stayed hosted."
-msgstr ""
+msgstr "기본 사본이 호스팅 상태로 유지되었습니다."
 
 #: src/authority-workflows.tsx
 msgid "The main copy was not moved to mdbase."
-msgstr ""
+msgstr "기본 사본이 mdbase로 이동하지 않았습니다."
 
 #: src/portal-model.ts
 msgid "The mdbase connect app on this computer needs to be updated before you can continue."
-msgstr ""
+msgstr "계속하려면 이 컴퓨터의 mdbase connect 앱을 업데이트해야 합니다."
 
 #: src/authority-workflows.tsx
 msgid "The original app approval changed."
-msgstr ""
+msgstr "원래 앱 승인이 변경되었습니다."
 
 #: src/authority-workflows.tsx
 msgid "The original sign-in changed."
-msgstr ""
+msgstr "원래 로그인 정보가 변경되었습니다."
 
 #: src/authorization-view.tsx
 msgid "The page will notice when the request is approved."
-msgstr ""
+msgstr "요청이 승인되면 페이지에서 확인합니다."
 
 #: src/authorization-review.tsx
 msgid "The rules run inside the collection. A notification tells {applicationName} that something changed, not what changed."
-msgstr ""
+msgstr "규칙은 컬렉션 내부에서 실행됩니다. 알림은 {applicationName}에 변경이 있었다는 사실만 전달하며 내용은 전달하지 않습니다."
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "the selected computer"
-msgstr ""
+msgstr "선택한 컴퓨터"
 
 #: src/authority-workflows.tsx
 msgid "The signed-in account changed. Start sign-in again from the app."
-msgstr ""
+msgstr "로그인한 계정이 바뀌었습니다. 앱에서 로그인을 다시 시작하세요."
 
 #: src/authority-workflows.tsx
 msgid "The synced Markdown folder becomes the main copy."
-msgstr ""
+msgstr "동기화된 Markdown 폴더가 기본 사본이 됩니다."
 
 #: src/portal-model.ts
 msgid "This account approves new devices from the mdbase desktop app. Add this device from the desktop app, then sign in again in {app}."
-msgstr ""
+msgstr "이 계정은 mdbase 데스크톱 앱에서 새 기기를 승인합니다. 데스크톱 앱에서 이 기기를 추가한 뒤 {app}에서 다시 로그인하세요."
 
 #: src/AccountManagement.tsx
 msgid "This account is managed by your tailnet and cannot be deleted here."
-msgstr ""
+msgstr "이 계정은 테일넷에서 관리하므로 여기서 삭제할 수 없습니다."
 
 #: src/auth-view.tsx
 msgid "This account setup link can’t be opened"
-msgstr ""
+msgstr "이 계정 설정 링크를 열 수 없습니다"
 
 #: src/authorization-capabilities.ts
 msgid "This app needs an update before it can connect. Try again after it updates."
-msgstr ""
+msgstr "연결하려면 이 앱을 업데이트해야 합니다. 업데이트한 뒤 다시 시도하세요."
 
 #: src/authorization-view.tsx
 msgid "This application needs a collection hosted by mdbase, and none is ready yet."
-msgstr ""
+msgstr "이 애플리케이션에는 mdbase가 호스팅하는 컬렉션이 필요하지만 아직 준비된 컬렉션이 없습니다."
 
 #: src/compatibility.ts
 msgid "This application needs a collection hosted by mdbase."
-msgstr ""
+msgstr "이 애플리케이션에는 mdbase가 호스팅하는 컬렉션이 필요합니다."
 
 #: src/portal-model.ts
 msgid "This application request has expired. Return to the application and start again."
-msgstr ""
+msgstr "애플리케이션 요청이 만료되었습니다. 애플리케이션으로 돌아가 다시 시작하세요."
 
 #: src/authorization-review.tsx
 msgid "This application uses advanced behavior settings, so an existing type cannot be connected during approval."
-msgstr ""
+msgstr "이 애플리케이션은 고급 동작 설정을 사용하므로 승인 중에는 기존 유형을 연결할 수 없습니다."
 
 #: src/ConnectApp.tsx
 msgid "This browser could not keep your creation request. No request was sent."
-msgstr ""
+msgstr "브라우저에서 생성 요청을 보관하지 못했습니다. 요청이 전송되지 않았습니다."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "This browser, active now"
-msgstr ""
+msgstr "이 브라우저, 현재 활성"
 
 #: src/authorization-view.tsx
 msgid "this collection"
-msgstr ""
+msgstr "이 컬렉션"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "this collection"
-msgstr ""
+msgstr "이 컬렉션"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "this collection"
-msgstr ""
+msgstr "이 컬렉션"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "This collection"
-msgstr ""
+msgstr "이 컬렉션"
 
 #. placeholder {0}: new Intl.ListFormat(i18n.locale, { type: "conjunction" }).format(unavailable.map(contractLabel))
 #: src/compatibility.ts
 msgid "This collection does not provide {0}."
-msgstr ""
+msgstr "이 컬렉션은 {0}을(를) 제공하지 않습니다."
 
 #: src/authority-workflows.tsx
 msgid "This collection is no longer available. Choose a collection again."
-msgstr ""
+msgstr "이 컬렉션을 더 이상 사용할 수 없습니다. 컬렉션을 다시 선택하세요."
 
 #: src/authority-workflows.tsx
 msgid "This collection stays on your computer. It can connect when a computer signed in to this account is available."
-msgstr ""
+msgstr "이 컬렉션은 내 컴퓨터에 남습니다. 이 계정에 로그인한 컴퓨터를 사용할 수 있으면 연결할 수 있습니다."
 
 #: src/ConnectApp.tsx
 msgid "This deployment has not configured a feedback destination."
-msgstr ""
+msgstr "이 배포에는 피드백 받을 곳이 설정되지 않았습니다."
 
 #: src/authority-workflows.tsx
 msgid "This device can keep an offline copy of approved collections, including their files and current account/member information. Access applies only to the collections you allow."
-msgstr ""
+msgstr "이 기기는 승인된 컬렉션의 파일과 현재 계정/구성원 정보를 포함한 오프라인 사본을 보관할 수 있습니다. 허용한 컬렉션에만 액세스할 수 있습니다."
 
 #: src/authority-workflows.tsx
 msgid "This folder will receive Markdown from mdbase and will not upload local edits."
-msgstr ""
+msgstr "이 폴더는 mdbase에서 Markdown을 받아오며 로컬 편집 내용은 업로드하지 않습니다."
 
 #: src/ApplicationAccess.tsx
 msgid "This installation has no approved collections."
-msgstr ""
+msgstr "이 설치에는 승인된 컬렉션이 없습니다."
 
 #. placeholder {0}: request.application_name
 #: src/authorization-view.tsx
 msgid "This is a Private collection: it stays on your computer. {0} can use it while a computer that has it is running mdbase and is signed in to your account."
-msgstr ""
+msgstr "비공개 컬렉션이므로 내 컴퓨터에 남습니다. {0}은(는) 이 컬렉션이 있는 컴퓨터에서 mdbase가 실행되고 내 계정에 로그인되어 있는 동안 사용할 수 있습니다."
 
 #: src/authorization-view.tsx
 msgid "This is taking longer than usual. Keep this page open; it continues automatically when setup finishes."
-msgstr ""
+msgstr "평소보다 오래 걸립니다. 이 페이지를 열어 두세요. 설정이 끝나면 자동으로 계속됩니다."
 
 #: src/AccountManagement.tsx
 msgid "This is your only sign-in method."
-msgstr ""
+msgstr "이 방법이 유일한 로그인 방법입니다."
 
 #: src/AccountManagement.tsx
 msgid "This method is used by the current session."
-msgstr ""
+msgstr "현재 세션에서 이 방법을 사용합니다."
 
 #: src/AccountManagement.tsx
 msgid "This permanently deletes:"
-msgstr ""
+msgstr "다음 항목이 영구적으로 삭제됩니다:"
 
 #: src/authorization-view.tsx
 msgid "This request has expired or was already answered."
-msgstr ""
+msgstr "요청이 만료되었거나 이미 처리되었습니다."
 
 #. placeholder {0}: request.application_name
 #: src/authorization-view.tsx
 msgid "This request remains open while you connect the computer or add a collection. Approve it in the desktop app, then return here to continue to {0}."
-msgstr ""
+msgstr "컴퓨터를 연결하거나 컬렉션을 추가하는 동안 이 요청은 열린 상태로 유지됩니다. 데스크톱 앱에서 승인한 뒤 이 페이지로 돌아와 {0}에서 계속하세요."
 
 #: src/auth-view.tsx
 msgid "This reset link can’t be opened"
-msgstr ""
+msgstr "이 재설정 링크를 열 수 없습니다"
 
 #: src/auth-view.tsx
 msgid "This unsubscribe link can’t be opened"
-msgstr ""
+msgstr "이 수신 거부 링크를 열 수 없습니다"
 
 #: src/authority-workflows.tsx
 msgid "Transfer approved"
-msgstr ""
+msgstr "이전 승인됨"
 
 #: src/authority-workflows.tsx
 msgid "Transfer complete"
-msgstr ""
+msgstr "이전 완료"
 
 #: src/authority-workflows.tsx
 msgid "Transfer ended"
-msgstr ""
+msgstr "이전 종료됨"
 
 #: src/ConnectApp.tsx
 msgid "Try a different name, registration ID or status. Filtering does not revoke access."
-msgstr ""
+msgstr "다른 이름, 등록 ID 또는 상태로 시도하세요. 필터링해도 액세스 권한은 철회되지 않습니다."
 
 #: src/auth-view.tsx
 #: src/authority-workflows.tsx
@@ -3499,310 +3499,310 @@ msgstr ""
 #: src/onboarding-view.tsx
 #: src/portal-ui.tsx
 msgid "Try again"
-msgstr ""
+msgstr "다시 시도"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Two-way sync"
-msgstr ""
+msgstr "양방향 동기화"
 
 #: src/AccountManagement.tsx
 msgid "Type DELETE to confirm"
-msgstr ""
+msgstr "확인하려면 DELETE를 입력하세요"
 
 #: src/CollectionPicker.tsx
 msgid "Type to filter. Arrow keys highlight; Enter chooses. Typing does not change your choice."
-msgstr ""
+msgstr "필터링할 내용을 입력하세요. 화살표 키로 강조하고 Enter로 선택합니다. 입력만으로 선택은 바뀌지 않습니다."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Unavailable"
-msgstr ""
+msgstr "사용할 수 없음"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Unnamed collection"
-msgstr ""
+msgstr "이름 없는 컬렉션"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Unsubscribe"
-msgstr ""
+msgstr "수신 거부"
 
 #: src/auth-view.tsx
 msgid "Unsubscribe from mdbase email"
-msgstr ""
+msgstr "mdbase 이메일 수신 거부"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Unsubscribing…"
-msgstr ""
+msgstr "수신 거부하는 중…"
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx
 msgid "Update mdbase connect on {0} before using this collection."
-msgstr ""
+msgstr "이 컬렉션을 사용하기 전에 {0}의 mdbase connect를 업데이트하세요."
 
 #: src/ConnectApp.tsx
 msgid "Update recommended for current policy protection"
-msgstr ""
+msgstr "현재 정책 보호를 위해 업데이트 권장"
 
 #: src/ConnectApp.tsx
 msgid "Update required"
-msgstr ""
+msgstr "업데이트 필요"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Update required"
-msgstr ""
+msgstr "업데이트 필요"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Updating access…"
-msgstr ""
+msgstr "액세스 업데이트하는 중…"
 
 #: src/authorization-view.tsx
 msgid "Upgrades starter types this application added earlier while keeping your customizations and notes. Types it cannot trace to one of those starters are left unchanged. Conflicts, or other types still using the old contract, stop the whole upgrade."
-msgstr ""
+msgstr "이 애플리케이션에서 이전에 추가한 시작 유형을 업그레이드하면서 사용자 지정 설정과 노트를 유지합니다. 그 시작 유형 중 하나로 추적할 수 없는 유형은 변경하지 않습니다. 충돌이 있거나 이전 계약을 사용하는 다른 유형이 남아 있으면 전체 업그레이드가 중단됩니다."
 
 #: src/AccountManagement.tsx
 msgid "Usage temporarily unavailable"
-msgstr ""
+msgstr "사용량을 일시적으로 확인할 수 없음"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Usage unavailable"
-msgstr ""
+msgstr "사용량 확인 불가"
 
 #: src/auth-view.tsx
 msgid "Use a connected account to get started."
-msgstr ""
+msgstr "시작하려면 연결된 계정을 사용하세요."
 
 #: src/auth-view.tsx
 msgid "Use a connected account, or verify your email to get started."
-msgstr ""
+msgstr "연결된 계정을 사용하거나 이메일을 확인해 시작하세요."
 
 #: src/authorization-view.tsx
 msgid "Use a folder on this computer"
-msgstr ""
+msgstr "이 컴퓨터의 폴더 사용"
 
 #: src/authorization-view.tsx
 msgid "Use a local folder"
-msgstr ""
+msgstr "로컬 폴더 사용"
 
 #: src/ConnectApp.tsx
 msgid "Use a single-line collection name."
-msgstr ""
+msgstr "컬렉션 이름을 한 줄로 입력하세요."
 
 #: src/ConnectApp.tsx
 msgid "Use an existing person or create a note"
-msgstr ""
+msgstr "기존 사용자 사용 또는 노트 만들기"
 
 #: src/authorization-review.tsx
 msgid "Use an existing type"
-msgstr ""
+msgstr "기존 유형 사용"
 
 #: src/AccountManagement.tsx
 #: src/auth-view.tsx
 msgid "Use at least 15 characters. Spaces are welcome."
-msgstr ""
+msgstr "15자 이상 입력하세요. 공백도 사용할 수 있습니다."
 
 #: src/ConnectApp.tsx
 msgid "Use the desktop app to keep an ordinary Markdown folder on a computer."
-msgstr ""
+msgstr "컴퓨터에 일반 Markdown 폴더를 보관하려면 데스크톱 앱을 사용하세요."
 
 #: src/authority-workflows.tsx
 msgid "Use the folder on {mirrorName} as the main copy?"
-msgstr ""
+msgstr "{mirrorName}의 폴더를 기본 사본으로 사용할까요?"
 
 #: src/AccountManagement.tsx
 msgid "Use this when someone cannot invite your verified email address."
-msgstr ""
+msgstr "상대방이 확인된 내 이메일 주소로 초대할 수 없을 때 사용하세요."
 
 #: src/AccountManagement.tsx
 msgid "Used by hosted collections"
-msgstr ""
+msgstr "호스팅 컬렉션에서 사용됨"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "v"
-msgstr ""
+msgstr "v"
 
 #: src/AccountManagement.tsx
 msgid "Verification and messages about your account. These are always sent."
-msgstr ""
+msgstr "계정 확인 및 관련 메시지. 항상 전송됩니다."
 
 #: src/ConnectApp.tsx
 msgid "Verified email"
-msgstr ""
+msgstr "확인된 이메일"
 
 #: src/AccountManagement.tsx
 msgid "Verify with GitHub"
-msgstr ""
+msgstr "GitHub로 확인"
 
 #: src/AccountManagement.tsx
 msgid "Verify with Google"
-msgstr ""
+msgstr "Google로 확인"
 
 #. placeholder {0}: connector.minimum_connector_version
 #: src/ConnectApp.tsx
 msgid "version {0} or later"
-msgstr ""
+msgstr "버전 {0} 이상"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Viewer"
-msgstr ""
+msgstr "열람자"
 
 #: src/authorization-view.tsx
 msgid "Waiting for mdbase connect"
-msgstr ""
+msgstr "mdbase connect 기다리는 중"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Waiting for the app"
-msgstr ""
+msgstr "앱 기다리는 중"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Waiting for the computer"
-msgstr ""
+msgstr "컴퓨터 기다리는 중"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Waiting to sync"
-msgstr ""
+msgstr "동기화 대기 중"
 
 #: src/authority-workflows.tsx
 msgid "We couldn't confirm collection creation finished. Please try again."
-msgstr ""
+msgstr "컬렉션 생성이 완료되었는지 확인하지 못했습니다. 다시 시도하세요."
 
 #: src/authority-workflows.tsx
 msgid "We couldn't identify your account. Sign in again to continue."
-msgstr ""
+msgstr "계정을 식별하지 못했습니다. 다시 로그인해 계속하세요."
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "We couldn't prepare {0}."
-msgstr ""
+msgstr "{0}을(를) 준비하지 못했습니다."
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "We couldn't prepare {0}. Keep the app open and try again."
-msgstr ""
+msgstr "{0}을(를) 준비하지 못했습니다. 앱을 열어 둔 채 다시 시도하세요."
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "We couldn't prepare {0}. Make sure the app is up to date."
-msgstr ""
+msgstr "{0}을(를) 준비하지 못했습니다. 앱이 최신 버전인지 확인하세요."
 
 #: src/auth-view.tsx
 msgid "We’ll email you a link to verify your address. Then you can choose a password."
-msgstr ""
+msgstr "주소 확인 링크를 이메일로 보내드립니다. 확인한 뒤 비밀번호를 선택할 수 있습니다."
 
 #: src/auth-view.tsx
 msgid "We’ll email you a reset link. It expires in one hour."
-msgstr ""
+msgstr "이메일로 재설정 링크를 보내드립니다. 1시간 후 만료됩니다."
 
 #: src/onboarding-view.tsx
 msgid "We’re creating a small private Markdown collection, then we’ll open it in the editor."
-msgstr ""
+msgstr "작은 비공개 Markdown 컬렉션을 만든 뒤 편집기에서 열겠습니다."
 
 #: src/authorization-view.tsx
 msgid "What it can do"
-msgstr ""
+msgstr "할 수 있는 작업"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Work with files"
-msgstr ""
+msgstr "파일 작업"
 
 #: src/authorization-view.tsx
 msgid "Workouts"
-msgstr ""
+msgstr "운동 기록"
 
 #: src/authority-workflows.tsx
 msgid "Writes pause during verification, then hosted access is retired."
-msgstr ""
+msgstr "확인하는 동안 쓰기가 일시 중지되고 이후 호스팅 액세스가 종료됩니다."
 
 #: src/authority-workflows.tsx
 msgid "You allowed reminders for the selected collections."
-msgstr ""
+msgstr "선택한 컬렉션의 리마인더를 허용했습니다."
 
 #: src/auth-view.tsx
 msgid "You won’t receive {topic} from mdbase Connect. Messages about your account, such as verification and security email, are still sent."
-msgstr ""
+msgstr "mdbase Connect에서 {topic} 소식을 더 이상 받지 않습니다. 확인 및 보안 이메일처럼 계정에 관한 메시지는 계속 전송됩니다."
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "You’re unsubscribed"
-msgstr ""
+msgstr "수신이 거부되었습니다"
 
 #: src/AccountManagement.tsx
 msgid "Your account has been deleted."
-msgstr ""
+msgstr "계정이 삭제되었습니다."
 
 #: src/authorization-view.tsx
 msgid "Your approved collection and permissions will follow you back."
-msgstr ""
+msgstr "승인한 컬렉션과 권한이 애플리케이션으로 돌아갈 때 함께 적용됩니다."
 
 #: src/AccountManagement.tsx
 msgid "Your change was saved, but account details could not refresh. Reload to check the latest details."
-msgstr ""
+msgstr "변경 사항이 저장되었지만 계정 세부 정보를 새로고침하지 못했습니다. 최신 정보를 확인하려면 다시 불러오세요."
 
 #: src/authorization-view.tsx
 msgid "Your choices are being checked with the collection’s main copy. The application does not have access yet."
-msgstr ""
+msgstr "선택한 설정을 컬렉션의 기본 사본에서 확인하고 있습니다. 애플리케이션에는 아직 액세스 권한이 없습니다."
 
 #: src/auth-view.tsx
 msgid "Your collections and account, in one place."
-msgstr ""
+msgstr "컬렉션과 계정을 한곳에서 관리하세요."
 
 #: src/ConnectApp.tsx
 msgid "Your collections were not deleted."
-msgstr ""
+msgstr "컬렉션은 삭제되지 않았습니다."
 
 #: src/auth-view.tsx
 msgid "Your email is verified. Choose a name and password to finish setting up your account."
-msgstr ""
+msgstr "이메일이 확인되었습니다. 계정 설정을 마치려면 이름과 비밀번호를 선택하세요."
 
 #: src/auth-view.tsx
 msgid "Your email is verified. Confirm your name to finish setting up your account. No password needed."
-msgstr ""
+msgstr "이메일이 확인되었습니다. 계정 설정을 마치려면 이름을 확인하세요. 비밀번호는 필요하지 않습니다."
 
 #: src/onboarding-view.tsx
 msgid "Your first collection"
-msgstr ""
+msgstr "첫 컬렉션"
 
 #: src/authority-workflows.tsx
 msgid "Your local collection was kept."
-msgstr ""
+msgstr "로컬 컬렉션은 그대로 유지되었습니다."
 
 #: src/portal-model.ts
 msgid "Your mdbase account hasn't been upgraded yet, so {app} can't use it. Email support@mdbase.dev and we'll upgrade it, or go back to {app} to sign in with a different account."
-msgstr ""
+msgstr "mdbase 계정이 아직 업그레이드되지 않아 {app}에서 사용할 수 없습니다. support@mdbase.dev로 이메일을 보내 업그레이드를 요청하거나 {app}(으)로 돌아가 다른 계정으로 로그인하세요."
 
 #: src/portal-model.ts
 msgid "Your mdbase account is being upgraded. This usually takes a few minutes. Try again shortly."
-msgstr ""
+msgstr "mdbase 계정을 업그레이드하는 중입니다. 보통 몇 분 정도 걸립니다. 잠시 후 다시 시도하세요."
 
 #: src/portal-model.ts
 msgid "Your mdbase account will be upgraded soon, so {app} can't use it yet. Sign in again from {app} once it is."
-msgstr ""
+msgstr "mdbase 계정이 곧 업그레이드되므로 {app}에서 아직 사용할 수 없습니다. 완료되면 {app}에서 다시 로그인하세요."
 
 #: src/portal-model.ts
 msgid "Your mdbase account's upgrade was paused, so {app} can't use it yet. Your account and collections still work with your current mdbase apps. Email support@mdbase.dev if you need help."
-msgstr ""
+msgstr "mdbase 계정 업그레이드가 일시 중지되어 {app}에서 아직 사용할 수 없습니다. 현재 사용하는 mdbase 앱에서 계정과 컬렉션은 계속 작동합니다. 도움이 필요하면 support@mdbase.dev로 이메일을 보내세요."
 
 #: src/ConnectApp.tsx
 msgid "Your original request is kept. Retry it to avoid creating another collection."
-msgstr ""
+msgstr "원래 요청이 보관되어 있습니다. 다른 컬렉션을 만들지 않도록 해당 요청을 다시 시도하세요."
 
 #: src/auth-view.tsx
 msgid "Your other browser sessions have been signed out. This browser is now signed in with the new password."
-msgstr ""
+msgstr "다른 브라우저 세션에서 로그아웃되었습니다. 이제 이 브라우저는 새 비밀번호로 로그인되어 있습니다."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Your person record"
-msgstr ""
+msgstr "내 사람 레코드"
