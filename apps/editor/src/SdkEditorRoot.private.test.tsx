@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "./test/locale";
 import { StrictMode, useEffect } from "react";
 import { connect, type MdbaseClient } from "@mdbase-dev/sdk";
 import { describeError } from "@mdbase-dev/sdk/describe";

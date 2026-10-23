@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "./test/locale";
 import { describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "./test/locale";
 import { expect, it, vi } from "vitest";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
