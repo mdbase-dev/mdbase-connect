@@ -12,6 +12,7 @@
   "sideEffects": false,
   "files": [
     "dist",
+    "src/catalogues.mjs",
     "scripts/bin.mjs",
     "scripts/cli.mjs",
     "scripts/config.mjs",

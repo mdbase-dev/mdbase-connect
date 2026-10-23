@@ -32,6 +32,18 @@ must run the root strict checks first. No translation service or CI authoring.
 
 Package commands use the kit's unconditional `mdbase-i18n` bin entry (fixed in
 kit b4134d71), including real npm/workspace symlinks; no adapter is needed.
+The CLI shares its collision implementation with the runtime from executable
+source, so extract/compile/check/source work even when the kit has no dist.
+
+PO is the only committed catalogue format across the monorepo, including Editor.
+Every consuming dev/test/typecheck/build entry compiles JSON before importing it;
+the shared compilation script orders public UI, private UI, then the app.
+Portal's Vite config also compiles for direct Vite invocations (the Editor
+Playwright portal fixture bypasses package scripts). No generated files from an
+earlier local build are required. Build workspace dependencies with
+`pnpm build:packages` before running apps; desktop standalone packaging selects
+the full dependency closure itself. Composition paths use double quotes so
+Windows cmd and POSIX shells pass the same arguments.
 
 ## Runtime
 

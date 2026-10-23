@@ -6,6 +6,8 @@
     "jsx": "react-jsx",
     "strict": true,
     "declaration": true,
+    "allowJs": true,
+    "checkJs": true,
     "outDir": "dist",
     "rootDir": "src",
     "skipLibCheck": true,

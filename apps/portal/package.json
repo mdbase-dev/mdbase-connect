@@ -6,13 +6,12 @@
   "scripts": {
     "i18n:extract": "mdbase-i18n extract",
     "i18n:compile": "mdbase-i18n compile",
-    "i18n:check": "mdbase-i18n check --compose '../../packages/app-ui/src/locales/{locale}/messages.json' '../../packages/ui/locales/{locale}/messages.json'",
+    "i18n:check": "mdbase-i18n check --compose \"../../packages/app-ui/src/locales/{locale}/messages.json\" \"../../packages/ui/locales/{locale}/messages.json\"",
     "build": "node ../../packages/app-ui/scripts/compile-catalogues.mjs && vite build",
-    "dev": "vite",
-    "test": "node --import ../../packages/app-ui/scripts/register-macros.mjs --test *.test.mjs && node ../../scripts/ci/vitest.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "verify:i18n-integration": "pnpm --filter @mdbase-dev/i18n build && pnpm --filter @mdbase-dev/connect-protocol build && pnpm --filter @mdbase-dev/ui build && pnpm --filter @mdbase/connect-ui build && (result=0; pnpm build || result=1; pnpm typecheck || result=1; pnpm test || result=1; pnpm --filter @mdbase/connect-desktop build || result=1; pnpm --filter @mdbase/connect-desktop typecheck || result=1; pnpm --filter @mdbase/connect-desktop test || result=1; exit $result)",
-    "pretest": "node ../../packages/app-ui/scripts/compile-catalogues.mjs"
+    "dev": "node ../../packages/app-ui/scripts/compile-catalogues.mjs && vite",
+    "test": "node ../../packages/app-ui/scripts/compile-catalogues.mjs && node --import ../../packages/app-ui/scripts/register-macros.mjs --test *.test.mjs && node ../../scripts/ci/vitest.mjs",
+    "typecheck": "node ../../packages/app-ui/scripts/compile-catalogues.mjs && tsc -p tsconfig.json --noEmit",
+    "verify:i18n-integration": "pnpm --filter @mdbase-dev/i18n build && pnpm --filter @mdbase-dev/connect-protocol build && pnpm --filter @mdbase-dev/ui build && pnpm --filter @mdbase/connect-ui build && (result=0; pnpm build || result=1; pnpm typecheck || result=1; pnpm test || result=1; pnpm --filter @mdbase/connect-desktop build || result=1; pnpm --filter @mdbase/connect-desktop typecheck || result=1; pnpm --filter @mdbase/connect-desktop test || result=1; exit $result)"
   },
   "dependencies": {
     "@lingui/core": "6.9.0",

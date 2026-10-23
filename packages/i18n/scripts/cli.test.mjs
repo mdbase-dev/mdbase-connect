@@ -19,6 +19,9 @@ test("packed npm .bin CLI runs extraction, catalogue checks, compile and source 
   await mkdir(installed, { recursive: true });
   const unpacked = spawnSync("tar", ["-xzf", resolve(root, `mdbase-dev-i18n-${manifest.version}.tgz`), "--strip-components=1", "-C", installed], { encoding: "utf8" });
   assert.equal(unpacked.status, 0, unpacked.stdout + unpacked.stderr);
+  // A fresh workspace has no dist: all CLI commands must still work. The
+  // published runtime remains built, but the CLI must not depend on it.
+  await rm(resolve(installed, "dist"), { recursive: true, force: true });
   // Reuse installed dependencies offline, but load every kit file from the tarball.
   for (const name of Object.keys({ ...manifest.dependencies, ...manifest.peerDependencies })) {
     const destination = resolve(root, "node_modules", name);
