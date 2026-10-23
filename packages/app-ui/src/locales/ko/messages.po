@@ -730,175 +730,175 @@ msgstr "아이디어를 보내주셔서 감사합니다."
 
 #: src/feedback-data.ts
 msgid "Thanks for the kind words."
-msgstr ""
+msgstr "따뜻한 말씀 감사합니다."
 
 #: src/feedback-data.ts
 msgid "Thanks for the report."
-msgstr ""
+msgstr "신고해 주셔서 감사합니다."
 
 #: src/Feedback.tsx
 msgid "The screenshot could not be captured."
-msgstr ""
+msgstr "스크린샷을 캡처하지 못했습니다."
 
 #: src/feedback-data.ts
 msgid "The screenshot could not be captured. Try again."
-msgstr ""
+msgstr "스크린샷을 캡처하지 못했습니다. 다시 시도하세요."
 
 #: src/feedback-data.ts
 msgid "The screenshot could not be cleaned in this browser."
-msgstr ""
+msgstr "이 브라우저에서 스크린샷을 정리하지 못했습니다."
 
 #: src/feedback-data.ts
 msgid "The screenshot could not be created in this browser."
-msgstr ""
+msgstr "이 브라우저에서 스크린샷을 만들지 못했습니다."
 
 #: src/feedback-data.ts
 msgid "The screenshot could not be created."
-msgstr ""
+msgstr "스크린샷을 만들지 못했습니다."
 
 #: src/FeedbackMarkup.tsx
 msgid "The screenshot could not be opened for markup."
-msgstr ""
+msgstr "표시 작업을 위해 스크린샷을 열지 못했습니다."
 
 #: src/Feedback.tsx
 msgid "The screenshot could not be read."
-msgstr ""
+msgstr "스크린샷을 읽지 못했습니다."
 
 #: src/FeedbackMarkup.tsx
 msgid "The screenshot could not be saved."
-msgstr ""
+msgstr "스크린샷을 저장하지 못했습니다."
 
 #: src/feedback-data.ts
 msgid "The screenshot does not contain a valid PNG or JPEG image."
-msgstr ""
+msgstr "스크린샷에 올바른 PNG 또는 JPEG 이미지가 없습니다."
 
 #: src/feedback-data.ts
 msgid "The screenshot is larger than 3 MB. Choose a smaller image."
-msgstr ""
+msgstr "스크린샷이 3MB보다 큽니다. 더 작은 이미지를 선택하세요."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "this collection"
-msgstr ""
+msgstr "이 컬렉션"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "This device is still listed under your account until you remove it there."
-msgstr ""
+msgstr "이 기기를 계정에서 삭제할 때까지 계정에 계속 표시됩니다."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "This is taking longer than usual."
-msgstr ""
+msgstr "평소보다 시간이 더 걸리고 있습니다."
 
 #: src/CommandPalette.tsx
 msgid "to close"
-msgstr ""
+msgstr "닫기"
 
 #: src/CommandPalette.tsx
 msgid "to move"
-msgstr ""
+msgstr "이동"
 
 #: src/CommandPalette.tsx
 msgid "to open"
-msgstr ""
+msgstr "열기"
 
 #: src/screens.tsx
 msgid "Try again"
-msgstr ""
+msgstr "다시 시도"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Try again"
-msgstr ""
+msgstr "다시 시도"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Type {collection} to confirm"
-msgstr ""
+msgstr "확인하려면 {collection}을(를) 입력하세요."
 
 #: src/text-diff.ts
 msgid "Unchanged lines"
-msgstr ""
+msgstr "변경되지 않은 줄"
 
 #: src/FeedbackMarkup.tsx
 msgid "Undo"
-msgstr ""
+msgstr "실행 취소"
 
 #: src/SaveNotice.tsx
 msgid "Unsaved"
-msgstr ""
+msgstr "저장되지 않음"
 
 #: src/FeedbackMarkup.tsx
 msgid "Up to 100 marks can be applied. Undo or reset to make another mark."
-msgstr ""
+msgstr "표시는 최대 100개까지 적용할 수 있습니다. 실행 취소하거나 초기화하면 표시를 더 추가할 수 있습니다."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Use {app}'s version"
-msgstr ""
+msgstr "{app} 버전 사용"
 
 #: src/FeedbackVerification.tsx
 msgid "Verification could not be completed. Try again."
-msgstr ""
+msgstr "인증을 완료하지 못했습니다. 다시 시도하세요."
 
 #: src/FeedbackVerification.tsx
 msgid "Verification could not be loaded. Check your connection and try again."
-msgstr ""
+msgstr "인증을 불러오지 못했습니다. 연결을 확인하고 다시 시도하세요."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Waiting for the collection key…"
-msgstr ""
+msgstr "컬렉션 키를 기다리는 중…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "What changes"
-msgstr ""
+msgstr "변경 내용"
 
 #: src/Feedback.tsx
 msgid "What gets sent"
-msgstr ""
+msgstr "전송되는 내용"
 
 #: src/feedback-data.ts
 msgid "What happened?"
-msgstr ""
+msgstr "어떤 문제가 발생했나요?"
 
 #: src/feedback-data.ts
 msgid "What made a difference?"
-msgstr ""
+msgstr "어떤 점이 도움이 되었나요?"
 
 #: src/feedback-data.ts
 msgid "What were you trying to do?"
-msgstr ""
+msgstr "무엇을 하려고 하셨나요?"
 
 #: src/feedback-data.ts
 msgid "What would you like to improve?"
-msgstr ""
+msgstr "어떤 점을 개선하면 좋을까요?"
 
 #: src/feedback-data.ts
 msgid "What’s working well for you?"
-msgstr ""
+msgstr "어떤 점이 잘 작동하나요?"
 
 #: src/apps.ts
 msgid "Write manuscripts that cite your sources"
-msgstr ""
+msgstr "자료를 인용하는 원고 작성"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "You've signed out of {app} on this device."
-msgstr ""
+msgstr "이 기기에서 {app}에서 로그아웃했습니다."
 
 #. Example email address, not user data.
 #: src/Feedback.tsx
 msgid "you@example.com"
-msgstr ""
+msgstr "you@example.com"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Your collections"
-msgstr ""
+msgstr "내 컬렉션"
 
 #: src/Feedback.tsx
 msgid "Your message, any reply email and included screenshot, plus these app and build details."
-msgstr ""
+msgstr "메시지, 답변 이메일(있는 경우), 첨부한 스크린샷과 함께 다음 앱 및 빌드 정보가 전송됩니다."
