@@ -99,5 +99,8 @@ async function applyCatalogPack(
     callbacks.notify(t`Added “${pack.displayName}” and opened the new type.`);
     return;
   }
-  callbacks.notify(plural(addedTypes.length, { one: `Installed “${pack.displayName}” (${installed.resources.length} resources, # new type).`, other: `Installed “${pack.displayName}” (${installed.resources.length} resources, # new types).` }));
+  const packName = pack.displayName;
+  const resourceCount = installed.resources.length;
+  const newTypeCount = addedTypes.length;
+  callbacks.notify(plural(newTypeCount, { one: `Installed “${packName}” (${resourceCount} resources, # new type).`, other: `Installed “${packName}” (${resourceCount} resources, # new types).` }));
 }

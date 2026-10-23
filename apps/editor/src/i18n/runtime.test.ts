@@ -30,6 +30,24 @@ describe("editor catalogue composition", () => {
     expect(Object.keys(runtime.i18n.messages).length).toBeGreaterThan(0);
   });
 
+  it.each(["ja", "ko", "ru"] as const)("renders named plural arguments in %s at zero/one/few/many counts", async (locale) => {
+    const runtime = createEditorLocaleRuntime({ preferences: ["en"], storage: undefined });
+    await runtime.selectLocale(locale);
+    for (const count of [0, 1, 2, 5]) {
+      const field = runtime.i18n._("G_yv_v", { count, field: "field-SENTINEL" });
+      const folder = runtime.i18n._("xNjFKW", { count, path: "folder-SENTINEL" });
+      const pack = runtime.i18n._("F2TEex", { newTypeCount: count, packName: "pack-SENTINEL", resourceCount: 7 });
+      expect(field).toContain("field-SENTINEL");
+      expect(folder).toContain("folder-SENTINEL");
+      expect(pack).toContain("pack-SENTINEL");
+      expect(pack).toContain("7");
+      for (const text of [field, folder, pack]) {
+        expect(text).toContain(String(count));
+        expect(text).not.toMatch(/[{}]/);
+      }
+    }
+  });
+
   it("does not catalogue CSS classes or sidebar behavior identifiers", () => {
     const messages = Object.values(editorEnglish.messages);
     expect(messages).not.toContain("cm-task-checkbox mdbase-checkbox");
