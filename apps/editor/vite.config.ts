@@ -1,6 +1,13 @@
 import { offlineShellPlugin } from "@mdbase-dev/sdk/offline-shell/build";
 import react from "@vitejs/plugin-react";
 import { lingui } from "@lingui/vite-plugin";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+execFileSync(process.execPath, [
+  fileURLToPath(new URL("../../packages/app-ui/scripts/compile-catalogues.mjs", import.meta.url)),
+  fileURLToPath(new URL(".", import.meta.url)),
+], { stdio: "inherit" });
 import { defineConfig } from "vitest/config";
 
 const basePath = `/${(process.env.MDBASE_EDITOR_BASE_PATH ?? "/").replace(/^\/+|\/+$/g, "")}/`

@@ -40,6 +40,19 @@ pnpm build:packages
 pnpm --filter mdbase-editor dev
 ```
 
+Reviewed PO files are the catalogue source of truth; compiled JSON is ignored,
+as in Portal, Desktop and both UI packages. Dev, unit tests, e2e, typecheck and
+build commands compile before loading catalogues. Direct Vite also compiles via
+its config. Use `pnpm --filter mdbase-editor i18n:check` for authored
+completeness, source guard and composition against both built UI libraries.
+
+The native publisher still requires the authenticated, hash-bound UI file pin.
+This integration branch intentionally uses the workspace UI, so it is **not
+native-publication ready**. Publisher tests exercise historical staging and
+production packets in isolated original-byte fixtures and assert that attempting
+to publish the current workspace UI is rejected. Preparing new trusted release
+pins is separate work; do not weaken that boundary.
+
 Open `http://127.0.0.1:5173/?demo=5000` for a generated local
 collection that does not require authorization.
 
