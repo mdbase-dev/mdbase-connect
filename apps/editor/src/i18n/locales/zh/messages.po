@@ -4136,512 +4136,512 @@ msgstr "移除 {0} 契约"
 #. placeholder {1}: filter.value
 #: src/NoteSearchField.tsx
 msgid "Remove {0} filter {1}"
-msgstr ""
+msgstr "移除 {0} 筛选条件 {1}"
 
 #: src/SchemaValueEditor.tsx
 msgid "Remove {field}"
-msgstr ""
+msgstr "移除 {field}"
 
 #: src/TypeBrowser.tsx
 msgid "Remove {fieldLabel} field"
-msgstr ""
+msgstr "移除 {fieldLabel} 字段"
 
 #. placeholder {0}: index + 1
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Remove {name} item {0}"
-msgstr ""
+msgstr "移除 {name} 的第 {0} 项"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Remove {name} property"
-msgstr ""
+msgstr "移除 {name} 属性"
 
 #: src/SdkEditorRoot.tsx
 msgid "Remove from this browser"
-msgstr ""
+msgstr "从此浏览器移除"
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
 msgid "Remove link rule for {0}"
-msgstr ""
+msgstr "移除 {0} 的链接规则"
 
 #. placeholder {0}: entry.field
 #: src/TypeBrowser.tsx
 msgid "Remove read default for {0}"
-msgstr ""
+msgstr "移除 {0} 的读取默认值"
 
 #: src/BulkNoteProperties.tsx
 #: src/editor-commands.ts
 msgid "Remove tag"
-msgstr ""
+msgstr "移除标签"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Remove this collection from the editor without changing its files."
-msgstr ""
+msgstr "从编辑器中移除此集合，不更改其文件。"
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
 msgid "Remove uniqueness rule for {0}"
-msgstr ""
+msgstr "移除 {0} 的唯一性规则"
 
 #: src/editor-commands.ts
 msgid "Rename"
-msgstr ""
+msgstr "重命名"
 
 #: src/FolderChangeDialog.tsx
 msgid "Rename ‘{basename}’"
-msgstr ""
+msgstr "重命名“{basename}”"
 
 #: src/App.tsx
 msgid "Rename and update links"
-msgstr ""
+msgstr "重命名并更新链接"
 
 #: src/FolderChangeDialog.tsx
 msgid "Rename folder"
-msgstr ""
+msgstr "重命名文件夹"
 
 #: src/CollectionRail.tsx
 msgid "Rename folder…"
-msgstr ""
+msgstr "重命名文件夹…"
 
 #: src/App.tsx
 msgid "Rename Markdown path"
-msgstr ""
+msgstr "重命名 Markdown 路径"
 
 #: src/App.tsx
 msgid "Rename path"
-msgstr ""
+msgstr "重命名路径"
 
 #: src/App.tsx
 msgid "Rename this note?"
-msgstr ""
+msgstr "重命名此笔记？"
 
 #. placeholder {0}: recoveryAction.to
 #: src/App.tsx
 msgid "Renamed to “{0}”."
-msgstr ""
+msgstr "已重命名为“{0}”。"
 
 #: src/note-mutation-presentation.ts
 msgid "Renaming"
-msgstr ""
+msgstr "正在重命名"
 
 #: src/WorkspaceChrome.tsx
 msgid "Renaming links"
-msgstr ""
+msgstr "正在重命名链接"
 
 #: src/YourPersonPanel.tsx
 msgid "Represent yourself using an ordinary note in this collection. This does not change access or membership."
-msgstr ""
+msgstr "使用此集合中的普通笔记来代表你自己。这不会更改访问权限或成员资格。"
 
 #: src/AttachmentUpload.tsx
 msgid "Request attachment access"
-msgstr ""
+msgstr "请求附件访问权限"
 
 #: src/TypeBrowser.tsx
 msgid "Require a property value to be unique across a deliberate comparison set."
-msgstr ""
+msgstr "要求属性值在指定的比较范围内唯一。"
 
 #: src/TypeBrowser.tsx
 msgid "Require an existing target"
-msgstr ""
+msgstr "要求目标已存在"
 
 #: src/TypeBrowser.tsx
 msgid "Require unique items"
-msgstr ""
+msgstr "要求各项不重复"
 
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 #: src/type-contracts.ts
 #: src/TypeBrowser.tsx
 msgid "Required"
-msgstr ""
+msgstr "必填"
 
 #: src/TypeBrowser.tsx
 msgid "required · "
-msgstr ""
+msgstr "必填 · "
 
 #: src/TypeBrowser.tsx
 msgid "Required fields covered"
-msgstr ""
+msgstr "所有必填字段均已映射"
 
 #: src/TypeBrowser.tsx
 msgid "Required match field"
-msgstr ""
+msgstr "匹配时必需的字段"
 
 #: src/NewNoteComposer.tsx
 msgid "Required properties"
-msgstr ""
+msgstr "必填属性"
 
 #: src/App.tsx
 msgid "Resize {listName} sidebar"
-msgstr ""
+msgstr "调整 {listName} 侧边栏大小"
 
 #: src/App.tsx
 msgid "Resize collections sidebar"
-msgstr ""
+msgstr "调整集合侧边栏大小"
 
 #: src/App.tsx
 msgid "Resize note inspector"
-msgstr ""
+msgstr "调整笔记检查器大小"
 
 #: src/next-editor-records.ts
 msgid "Resolve this note's protected edit before changing it."
-msgstr ""
+msgstr "请先处理此笔记中受保护的编辑，再进行更改。"
 
 #: src/TypeBrowser.tsx
 msgid "resources"
-msgstr ""
+msgstr "资源"
 
 #: src/contract-catalog.ts
 msgid "resources[{index}].document is too large."
-msgstr ""
+msgstr "resources[{index}].document 过大。"
 
 #: src/App.tsx
 msgid "Restore unsaved edits"
-msgstr ""
+msgstr "恢复未保存的编辑"
 
 #. placeholder {0}: noteTitle(restored, typeDescriptors)
 #: src/use-note-actions.ts
 msgid "Restored “{0}”."
-msgstr ""
+msgstr "已恢复“{0}”。"
 
 #: src/use-note-actions.ts
 msgid "Restored note paths."
-msgstr ""
+msgstr "已恢复笔记路径。"
 
 #: src/use-note-actions.ts
 msgid "Restored selected notes."
-msgstr ""
+msgstr "已恢复所选笔记。"
 
 #: src/use-note-actions.ts
 msgid "Restored unlinked mention."
-msgstr ""
+msgstr "已恢复未链接的提及。"
 
 #: src/Toasts.tsx
 msgid "Resume rename"
-msgstr ""
+msgstr "继续重命名"
 
 #: src/code-editor-file-embeds.ts
 #: src/CollectionRail.tsx
 #: src/YourPersonPanel.tsx
 msgid "Retry"
-msgstr ""
+msgstr "重试"
 
 #: src/WorkspaceChrome.tsx
 msgid "Retry backlinks"
-msgstr ""
+msgstr "重试加载反向链接"
 
 #: src/CollectionRail.tsx
 msgid "Retry connection"
-msgstr ""
+msgstr "重试连接"
 
 #: src/NoteList.tsx
 msgid "Retry files"
-msgstr ""
+msgstr "重试加载文件"
 
 #: src/App.tsx
 msgid "Retry note"
-msgstr ""
+msgstr "重试加载笔记"
 
 #: src/NoteList.tsx
 msgid "Retry notes"
-msgstr ""
+msgstr "重试加载笔记"
 
 #: src/App.tsx
 msgid "Retry opening editor"
-msgstr ""
+msgstr "重试打开编辑器"
 
 #: src/PropertiesPanel.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Retry save"
-msgstr ""
+msgstr "重试保存"
 
 #: src/NoteList.tsx
 msgid "Retry search"
-msgstr ""
+msgstr "重试搜索"
 
 #: src/TypeBrowser.tsx
 msgid "Revert"
-msgstr ""
+msgstr "还原"
 
 #: src/type-contracts.ts
 #: src/TypeBrowser.tsx
 msgid "Review"
-msgstr ""
+msgstr "审阅"
 
 #: src/YourPersonPanel.tsx
 msgid "Review access"
-msgstr ""
+msgstr "审阅访问权限"
 
 #: src/FolderChangeDialog.tsx
 #: src/TypeBrowser.tsx
 msgid "Review changes"
-msgstr ""
+msgstr "审阅更改"
 
 #: src/YourPersonPanel.tsx
 msgid "Review contact conversion"
-msgstr ""
+msgstr "审阅联系人转换"
 
 #: src/YourPersonPanel.tsx
 msgid "Review definition files"
-msgstr ""
+msgstr "审阅定义文件"
 
 #: src/ConflictResolver.tsx
 msgid "Review differences"
-msgstr ""
+msgstr "审阅差异"
 
 #: src/YourPersonPanel.tsx
 msgid "Review fields to write"
-msgstr ""
+msgstr "审阅待写入的字段"
 
 #: src/YourPersonPanel.tsx
 msgid "Review its Person mappings in Types before creating a person record."
-msgstr ""
+msgstr "创建人员记录前，请在“类型”中审阅其 Person 映射。"
 
 #: src/TypeBrowser.tsx
 msgid "Review mapping"
-msgstr ""
+msgstr "审阅映射"
 
 #: src/YourPersonPanel.tsx
 msgid "Review person setup"
-msgstr ""
+msgstr "审阅人员设置"
 
 #: src/YourPersonPanel.tsx
 msgid "Review Person type update"
-msgstr ""
+msgstr "审阅 Person 类型更新"
 
 #: src/TypeBrowser.tsx
 msgid "Review recommended"
-msgstr ""
+msgstr "建议审阅"
 
 #: src/App.tsx
 msgid "Review recovered text"
-msgstr ""
+msgstr "审阅恢复的文本"
 
 #: src/TypeBrowser.tsx
 msgid "Review YAML diff"
-msgstr ""
+msgstr "审阅 YAML 差异"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Route"
-msgstr ""
+msgstr "路由"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Runtime"
-msgstr ""
+msgstr "运行时"
 
 #: src/TypeBrowser.tsx
 msgid "Runtime path handling"
-msgstr ""
+msgstr "运行时路径处理"
 
 #: src/note-mutation-presentation.ts
 msgid "Save failed"
-msgstr ""
+msgstr "保存失败"
 
 #: src/PropertiesPanel.tsx
 msgid "Save source"
-msgstr ""
+msgstr "保存源码"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Saved access"
-msgstr ""
+msgstr "已保存的访问权限"
 
 #: src/CollectionRail.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Saved on this device; waiting for sync"
-msgstr ""
+msgstr "已保存在此设备上，等待同步"
 
 #. placeholder {0}: saved.name
 #: src/use-type-definition-lifecycle.ts
 msgid "Saved type “{0}”."
-msgstr ""
+msgstr "已保存类型“{0}”。"
 
 #: src/note-mutation-presentation.ts
 msgid "Saving"
-msgstr ""
+msgstr "正在保存"
 
 #: src/TypeBrowser.tsx
 msgid "Saving affects every matching note"
-msgstr ""
+msgstr "保存会影响所有匹配的笔记"
 
 #: src/TypeBrowser.tsx
 msgid "Saving affects every note of type "
-msgstr ""
+msgstr "保存会影响此类型的所有笔记： "
 
 #: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Saving…"
-msgstr ""
+msgstr "正在保存…"
 
 #: src/type-schema.ts
 msgid "Schema settings"
-msgstr ""
+msgstr "架构设置"
 
 #: src/TypeBrowser.tsx
 msgid "Schema-managed fields"
-msgstr ""
+msgstr "由架构管理的字段"
 
 #: src/NoteListViewOptions.tsx
 #: src/TypeBrowser.tsx
 msgid "Scope"
-msgstr ""
+msgstr "范围"
 
 #: src/NoteSearchField.tsx
 msgid "Search"
-msgstr ""
+msgstr "搜索"
 
 #: src/NoteSearchField.tsx
 msgid "Search filters"
-msgstr ""
+msgstr "搜索筛选条件"
 
 #: src/NoteList.tsx
 msgid "Search is incomplete."
-msgstr ""
+msgstr "搜索结果不完整。"
 
 #: src/NoteSearchField.tsx
 msgid "Search notes and files"
-msgstr ""
+msgstr "搜索笔记和文件"
 
 #: src/TypeBrowser.tsx
 msgid "Search types"
-msgstr ""
+msgstr "搜索类型"
 
 #: src/NoteList.tsx
 msgid "Searching"
-msgstr ""
+msgstr "正在搜索"
 
 #: src/code-editor-completions.ts
 msgid "Section heading"
-msgstr ""
+msgstr "章节标题"
 
 #: src/code-editor-completions.ts
 msgid "Section in note"
-msgstr ""
+msgstr "笔记中的章节"
 
 #: src/WorkspaceChrome.tsx
 msgid "Select a note, or start a new one."
-msgstr ""
+msgstr "选择一篇笔记，或新建一篇。"
 
 #: src/YourPersonPanel.tsx
 msgid "Select a person record."
-msgstr ""
+msgstr "选择一条人员记录。"
 
 #: src/YourPersonPanel.tsx
 msgid "Select a Person-compatible type."
-msgstr ""
+msgstr "选择兼容 Person 的类型。"
 
 #: src/App.tsx
 #: src/editor-commands.ts
 msgid "Selected notes"
-msgstr ""
+msgstr "所选笔记"
 
 #: src/App.tsx
 msgid "Selection actions"
-msgstr ""
+msgstr "所选项操作"
 
 #: src/EditorRail.tsx
 msgid "Send feedback"
-msgstr ""
+msgstr "发送反馈"
 
 #: src/code-editor-completions.ts
 msgid "Separate sections"
-msgstr ""
+msgstr "分隔章节"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Set a value"
-msgstr ""
+msgstr "设置值"
 
 #: src/code-editor-completions.ts
 msgid "Set off quoted text"
-msgstr ""
+msgstr "将引用文字独立成块"
 
 #: src/BulkNoteProperties.tsx
 #: src/editor-commands.ts
 msgid "Set property"
-msgstr ""
+msgstr "设置属性"
 
 #: src/TypeBrowser.tsx
 msgid "Set the contract’s required behavior choices before saving this type."
-msgstr ""
+msgstr "保存此类型前，请设置契约要求的行为选项。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Set to null"
-msgstr ""
+msgstr "设为 null"
 
 #: src/YourPersonPanel.tsx
 msgid "Set up person records"
-msgstr ""
+msgstr "设置人员记录"
 
 #: src/YourPersonPanel.tsx
 msgid "Set up person records below before reviewing this contact."
-msgstr ""
+msgstr "审阅此联系人前，请先在下方设置人员记录。"
 
 #: src/EditorRail.tsx
 msgid "Settings"
-msgstr ""
+msgstr "设置"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Settings"
-msgstr ""
+msgstr "设置"
 
 #: src/TypeBrowser.tsx
 msgid "Setup required"
-msgstr ""
+msgstr "需要设置"
 
 #: src/YourPersonPanel.tsx
 msgid "Several person records are linked to your account. Edit them so exactly one record represents you:"
-msgstr ""
+msgstr "多条人员记录关联到了你的账户。请编辑这些记录，确保只有一条记录代表你："
 
 #: src/QuickOpen.tsx
 msgid "Shortcuts"
-msgstr ""
+msgstr "快捷键"
 
 #: src/App.tsx
 msgid "show"
-msgstr ""
+msgstr "显示"
 
 #: src/App.tsx
 msgid "Show {listName} sidebar"
-msgstr ""
+msgstr "显示 {listName} 侧边栏"
 
 #: src/TypeBrowser.tsx
 msgid "Show affected notes"
-msgstr ""
+msgstr "显示受影响的笔记"
 
 #. placeholder {0}: mentions.length
 #: src/WorkspaceChrome.tsx
 msgid "Show all {0}"
-msgstr ""
+msgstr "显示全部 {0} 条"
 
 #: src/App.tsx
 msgid "Show collections sidebar"
-msgstr ""
+msgstr "显示集合侧边栏"
 
 #: src/WorkspaceChrome.tsx
 msgid "Show fewer"
-msgstr ""
+msgstr "收起"
 
 #: src/editor-commands.ts
 msgid "Show or hide the notes sidebar"
-msgstr ""
+msgstr "显示或隐藏笔记侧边栏"
 
 #: src/App.tsx
 msgid "Sidebar layout controls"
-msgstr ""
+msgstr "侧边栏布局控件"
 
 #: src/App.tsx
 msgid "Sign out"
-msgstr ""
+msgstr "退出登录"
 
 #: src/App.tsx
 msgid "Sign out?"
-msgstr ""
+msgstr "退出登录？"
 
 #: src/PropertiesPanel.tsx
 msgid "Size"
