@@ -1,5 +1,12 @@
 # Architecture
 
+> **Scope (October 2026):** This document describes the legacy Connect architecture (including the
+> beta.126 daemon and root hosted provider), retained for supported legacy
+> consumers and recovery. The successor daemon is `mdbn-daemon` under
+> [`runtime/crates/daemon`](../runtime/crates/daemon); its independent graph is
+> described in [`runtime/README.md`](../runtime/README.md). Shared control-plane
+> roles may still apply; do not infer a deployed client cutover from source layout.
+
 ## Platform boundary
 
 mdbase defines the portable collection format and record operations. Connect
