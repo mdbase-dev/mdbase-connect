@@ -30,6 +30,7 @@ CodeMirror's standard phrases come from the kit and are compartment-reconfigured
 pnpm --filter mdbase-editor i18n:extract
 # Edit target PO files, preserving ICU arguments, plural/select cases and rich tags.
 pnpm --filter mdbase-editor i18n:check
+# Commit both authored POs and their regenerated JSON; CI rejects stale output.
 pnpm --filter mdbase-editor build
 pnpm --filter mdbase-editor build:e2e
 ```
@@ -37,7 +38,9 @@ pnpm --filter mdbase-editor build:e2e
 Use rpnpm for finite verification/builds on this machine. Extraction and catalogue
 edits stay local. The workspace kit includes 5be277b8's field-selective React
 state guard, 8785bd19's catalogue composition checks and the repaired normal
-executable symlink. No CLI adapter or direct-script launcher is needed.
+executable symlink. The stack is refreshed onto portal a36fa009, including the
+shared compile-boundary obsolete-message prune and current UI catalogues.
+No CLI adapter or direct-script launcher is needed.
 
 The check validates extraction sync, raw target completeness before fallback,
 generated IDs, ICU/rich-text contracts, strict compilation and the full editor
@@ -82,7 +85,11 @@ ID collision. Chinese generic Details likewise aligns with shared 详情;
 contextual settings Details remains separate. `progress.py` flags
 some legitimate identical translations heuristically.
 
-All eight target POs are merged, including Simplified Chinese from `cd18d11`.
+All eight target POs are merged, including Simplified Chinese from `cd18d11`
+and the note-terminology review from `df5c11b`. The latter changes 43 translations
+from 文档 to 笔记 for Markdown notes (counted with 篇), without changing any
+English/context keys or generated IDs. Actual documents/documentation retain 文档.
+The generic Details collision alignment to 详情 is retained over that import.
 The zh allowlist preserves `.md`, ICU-only layout, shortcuts, YAML, Phosphor
 Regular and literal schema/search/path tokens (`status`, `tasks`, `type:{0}`, path
 globs and templates). These are reviewed identical values, not English filler.
