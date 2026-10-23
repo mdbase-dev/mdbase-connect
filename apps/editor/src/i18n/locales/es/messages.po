@@ -1094,7 +1094,7 @@ msgstr "Compatibilidad con aplicaciones"
 
 #: src/TypeBrowser.tsx
 msgid "Application view"
-msgstr "Vista de la aplicación"
+msgstr "Vista de aplicación"
 
 #: src/BulkNoteProperties.tsx
 msgid "Apply"
@@ -1106,7 +1106,7 @@ msgstr "Aplicando…"
 
 #: src/TypeBrowser.tsx
 msgid "Apps read these contract field names while your notes keep their own field names."
-msgstr "Las aplicaciones leen estos nombres de campo del contrato; tus notas conservan sus propios nombres de campo."
+msgstr "Las aplicaciones leen estos nombres de campo del contrato mientras tus notas conservan sus propios nombres de campo."
 
 #: src/ConnectionScreens.tsx
 msgid "as files."
@@ -1114,11 +1114,11 @@ msgstr "como archivos."
 
 #: src/YourPersonPanel.tsx
 msgid "Ask a collection editor to link your person record."
-msgstr "Pide a quien edita la colección que vincule tu registro de persona."
+msgstr "Pide a un editor de la colección que vincule tu registro de persona."
 
 #: src/TypeBrowser.tsx
 msgid "Assigned by name"
-msgstr "Asignado por nombre"
+msgstr "Asignación por nombre"
 
 #: src/AttachmentUpload.tsx
 msgid "Attach file…"
@@ -1130,16 +1130,16 @@ msgstr "Adjuntando archivo…"
 
 #: src/native-gateway.ts
 msgid "Attaching files is not available for this collection in mdbase editor yet."
-msgstr "El editor de mdbase todavía no permite adjuntar archivos a esta colección."
+msgstr "Adjuntar archivos aún no está disponible para esta colección en el editor de mdbase."
 
 #. placeholder {0}: controller.upload.name
 #: src/AttachmentUpload.tsx
 msgid "Attachment progress for {0}"
-msgstr "Progreso de adjuntos para {0}"
+msgstr "Progreso del archivo adjunto {0}"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Automatic"
-msgstr "Automático"
+msgstr "Automáticas"
 
 #: src/TypeBrowser.tsx
 msgid "Automatic matching"
@@ -1156,11 +1156,11 @@ msgstr "Disponible"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Back"
-msgstr "Atrás"
+msgstr "Volver"
 
 #: src/App.tsx
 msgid "Back in note history"
-msgstr "Volver al historial de notas"
+msgstr "Atrás en el historial de notas"
 
 #: src/QuickOpen.tsx
 msgid "Back or forward"
@@ -1168,7 +1168,7 @@ msgstr "Atrás o adelante"
 
 #: src/App.tsx
 msgid "Back to {historyBackPath} · Alt+Left"
-msgstr "Volver a {historyBackPath} · Alt+Izquierda"
+msgstr "Volver a {historyBackPath} · Alt+Left"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -1193,7 +1193,7 @@ msgstr "Volver a las notas"
 
 #: src/FileViewer.tsx
 msgid "Back to notes and files"
-msgstr "Volver a las notas y los archivos"
+msgstr "Volver a notas y archivos"
 
 #: src/TypeBrowser.tsx
 msgid "Back to types"
@@ -1206,24 +1206,24 @@ msgstr "Mejores coincidencias"
 #. placeholder {0}: segments.join(".")
 #: src/type-contracts.ts
 msgid "Binding setting {0} is required by {contractId}."
-msgstr "{contractId} requiere el ajuste de vinculación {0}."
+msgstr "El ajuste de vinculación {0} es obligatorio para {contractId}."
 
 #. placeholder {0}: error.message ?? "is invalid"
 #: src/type-contracts.ts
 msgid "Binding setting{field} {0} for {contractId}."
-msgstr "Ajuste de vinculación{field} {0} para {contractId}."
+msgstr "El ajuste de vinculación{field} {0} para {contractId}."
 
 #: src/type-contracts.ts
 msgid "Binding setting{field} must not be empty for {contractId}."
-msgstr "El ajuste de vinculación{field} no puede estar vacío para {contractId}."
+msgstr "El ajuste de vinculación{field} no debe estar vacío para {contractId}."
 
 #: src/type-contracts.ts
 msgid "Binding settings do not satisfy {contractId}."
-msgstr "Los ajustes de vinculación no cumplen los requisitos de {contractId}."
+msgstr "Los ajustes de vinculación no cumplen {contractId}."
 
 #: src/type-contracts.ts
 msgid "Binding settings for {contractId} cannot be edited because its schema is invalid: {detail}"
-msgstr "No se pueden editar los ajustes de vinculación de {contractId} porque su esquema no es válido: {detail}"
+msgstr "Los ajustes de vinculación de {contractId} no se pueden editar porque su esquema no es válido: {detail}"
 
 #. placeholder {0}: anchor.preview
 #: src/code-editor-completions.ts
@@ -1269,15 +1269,15 @@ msgstr "Cancelar"
 
 #: src/YourPersonPanel.tsx
 msgid "Cancel conversion"
-msgstr "Cancelar conversión"
+msgstr "Cancelar la conversión"
 
 #: src/NewNoteComposer.tsx
 msgid "Cancel new folder"
-msgstr "Cancelar carpeta nueva"
+msgstr "Cancelar la carpeta nueva"
 
 #: src/NewNoteComposer.tsx
 msgid "Cancel new note"
-msgstr "Cancelar nota nueva"
+msgstr "Cancelar la nota nueva"
 
 #: src/TypeBrowser.tsx
 msgid "Catalog"
@@ -1285,7 +1285,7 @@ msgstr "Catálogo"
 
 #: src/TypeBrowser.tsx
 msgid "Catalog source"
-msgstr "Fuente del catálogo"
+msgstr "Origen del catálogo"
 
 #: src/TypeBrowser.tsx
 msgid "Catalog unavailable"
@@ -1294,7 +1294,7 @@ msgstr "Catálogo no disponible"
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Change note text without changing the surrounding interface."
-msgstr "Cambia el texto de la nota sin cambiar el resto de la interfaz."
+msgstr "Cambia el texto de la nota sin cambiar la interfaz que lo rodea."
 
 #: src/note-mutation-presentation.ts
 msgid "Changed elsewhere"
@@ -1302,24 +1302,24 @@ msgstr "Cambió en otro lugar"
 
 #: src/pending-note-mutation.ts
 msgid "Check again"
-msgstr "Comprobar de nuevo"
+msgstr "Volver a comprobar"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Check again"
-msgstr "Comprobar de nuevo"
+msgstr "Volver a comprobar"
 
 #: src/editor-commands.ts
 msgid "Check note"
-msgstr "Revisar nota"
+msgstr "Comprobar nota"
 
 #: src/ConnectionScreens.tsx
 msgid "check notes"
-msgstr "Revisar notas"
+msgstr "comprobar notas"
 
 #: src/next-editor-records.ts
 msgid "Check your unconfirmed change before making another one. Nothing new was saved."
-msgstr "Comprueba el cambio sin confirmar antes de hacer otro. No se ha guardado nada nuevo."
+msgstr "Comprueba tu cambio sin confirmar antes de hacer otro. No se guardó nada nuevo."
 
 #: src/type-presentation.ts
 msgid "checkbox"
@@ -1343,7 +1343,7 @@ msgstr "Comprobando"
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Checking for mdbase on this computer."
-msgstr "Buscando mdbase en este ordenador."
+msgstr "Comprobando mdbase en este ordenador."
 
 #: src/note-mutation-presentation.ts
 msgid "Checking impact"
@@ -1355,7 +1355,7 @@ msgstr "Comprobando notas y enlaces…"
 
 #: src/YourPersonPanel.tsx
 msgid "Checking person setup…"
-msgstr "Comprobando configuración de persona…"
+msgstr "Comprobando la configuración de persona…"
 
 #: src/CollectionRail.tsx
 msgid "Checking…"
@@ -1372,7 +1372,7 @@ msgstr "Opción"
 
 #: src/TypeBrowser.tsx
 msgid "Choice value"
-msgstr "Valor de opción"
+msgstr "Valor de la opción"
 
 #: src/TypeBrowser.tsx
 msgid "Choices"
@@ -1396,11 +1396,11 @@ msgstr "Elige una carpeta relativa a la colección."
 
 #: src/folder-change.ts
 msgid "Choose a different folder path."
-msgstr "Elige otra ruta de carpeta."
+msgstr "Elige una ruta de carpeta diferente."
 
 #: src/MoveNoteDialog.tsx
 msgid "Choose a folder. Incoming links will be updated too."
-msgstr "Elige una carpeta. También se actualizarán los enlaces entrantes."
+msgstr "Elige una carpeta. Los enlaces entrantes también se actualizarán."
 
 #: src/YourPersonPanel.tsx
 msgid "Choose a record…"
@@ -1408,7 +1408,7 @@ msgstr "Elegir un registro…"
 
 #: src/person-records.ts
 msgid "Choose a target type that implements both Person and Contact so existing contact semantics are retained."
-msgstr "Elige un tipo de destino que implemente Person y Contact para conservar la semántica de contacto existente."
+msgstr "Elige un tipo de destino que implemente tanto Person como Contact para conservar la semántica de contacto existente."
 
 #: src/TypeBrowser.tsx
 msgid "Choose an icon"
@@ -1445,11 +1445,11 @@ msgstr "La transclusión circular se detuvo aquí."
 
 #: src/App.tsx
 msgid "Clear"
-msgstr "Borrar"
+msgstr "Limpiar"
 
 #: src/TypeBrowser.tsx
 msgid "Clear display icon"
-msgstr "Borrar el icono de visualización"
+msgstr "Quitar el icono de visualización"
 
 #: src/NoteSearchField.tsx
 msgid "Clear search"
@@ -1458,7 +1458,7 @@ msgstr "Borrar la búsqueda"
 #: src/App.tsx
 #: src/editor-commands.ts
 msgid "Clear selection"
-msgstr "Borrar la selección"
+msgstr "Limpiar la selección"
 
 #: src/TypeBrowser.tsx
 msgid "Clear type search"
@@ -1486,7 +1486,7 @@ msgstr "Cerrar la apertura rápida"
 
 #: src/CodeEditor.tsx
 msgid "cm-task-checkbox mdbase-checkbox"
-msgstr "casilla de tarea cm mdbase"
+msgstr "cm-task-checkbox mdbase-checkbox"
 
 #: src/code-editor-completions.ts
 msgid "Code block"
@@ -1503,7 +1503,7 @@ msgstr "Contraer el campo {fieldLabel}"
 
 #: src/CollectionRail.tsx
 msgid "Collapse descendants"
-msgstr "Contraer descendientes"
+msgstr "Contraer los descendientes"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -1531,15 +1531,15 @@ msgstr "ID de la colección"
 #: src/App.tsx
 #: src/collection-mutation-scope.ts
 msgid "Collection mutations are temporarily disabled."
-msgstr "Las modificaciones de la colección están deshabilitadas temporalmente."
+msgstr "Las modificaciones de la colección están desactivadas temporalmente."
 
 #: src/EditorRail.tsx
 msgid "Collection navigation"
-msgstr "Navegación por la colección"
+msgstr "Navegación de la colección"
 
 #: src/ConnectionScreens.tsx
 msgid "Collection not listed?"
-msgstr "¿No aparece la colección?"
+msgstr "¿La colección no aparece en la lista?"
 
 #: src/NoteList.tsx
 msgid "Collection notes and files"
@@ -1547,7 +1547,7 @@ msgstr "Notas y archivos de la colección"
 
 #: src/ConnectionScreens.tsx
 msgid "Collection options for {name}"
-msgstr "Opciones de la colección para {name}"
+msgstr "Opciones de la colección {name}"
 
 #: src/TypeBrowser.tsx
 msgid "Collection resources"
