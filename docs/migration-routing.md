@@ -3,11 +3,11 @@
 Migrated collections are served by the environment's hosted migration Worker
 (`mdbase-next-hosted-mig-<environment>`), before and after the account's backend
 flip. Releases never shrink that serving. The control plane therefore routes the
-hosted role of every **legacy hosted collection** (a `hosted_collections` id) of a
-**released, frozen, nonterminal cohort member** to that Worker. Every other
-collection, including one a migrated owner creates after the flip and any
-CP-native cloud copy it already had, stays on the control plane's own hosted and
-escrow deployments. The route covers hosted service-device generation, durable policy wakes, migration
+hosted role of every **held legacy hosted collection** (a `hosted_collections` id
+that is not `transferred`) of a **released, frozen, nonterminal cohort member** to
+that Worker. Every other collection, including transferred history now under local
+authority, one a migrated owner creates after the flip and any CP-native cloud copy
+it already had, stays on the control plane's own hosted and escrow deployments. The route covers hosted service-device generation, durable policy wakes, migration
 admission, app (`/v1/hosted/app`) discovery and the hosted record, state,
 log-token and claim readers. No account label, HTTP account field, grant owner
 supplied by a caller, or new-account default selects a destination. It does not
@@ -64,10 +64,13 @@ credential remains `MDBASE_NEXT_MIGRATION_INTERNAL_TOKEN` on CP and
 
 ## Routing
 
-A collection is migration routed only when it is a legacy hosted collection
-(`hosted_collections` row) whose owner is routed. Its owner resolves through
-authoritative retained native, hosted, local and logical identity mappings;
-ambiguous ownership fails closed. A not-yet-registered collection has no mapping,
+A collection is migration routed only when it is a held legacy hosted collection
+(a `hosted_collections` row that is not `transferred`) whose owner is routed. A
+transferred row is history: an ordinary hosted→local promotion left the same id
+as the owner's local collection, which the migration never moves, so a later cloud
+copy of it takes the default deployments. Its owner resolves through
+authoritative retained native, hosted (including transferred), local and logical
+identity mappings; ambiguous ownership fails closed. A not-yet-registered collection has no mapping,
 so creating a collection always generates both service devices on the control
 plane's own deployments, whoever creates it. Migrated collections keep their
 legacy id, so this never moves a migrated collection.

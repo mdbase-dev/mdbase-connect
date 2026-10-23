@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  decidePoll, decideRouteBack, labRun, resumeLab, labWorkerClient, routeBack, PAUSE_REASON, STEP,
+  decidePoll, decideRouteBack, labRun, labStatus, resumeLab, labWorkerClient, routeBack, PAUSE_REASON, STEP,
   type LabConnect, type LabWorker, type RouteBackPhase, type WorkerReply, type WorkerStatus
 } from "./migration-lab.js";
 
@@ -160,7 +160,7 @@ describe("lab-run", () => {
   });
 
   it.each<[keyof LabConnect, string, string]>([
-    ["preflight", "lab_profile_missing", "preflight"],
+    ["preflight", "start_profile_invalid", "preflight"],
     ["importTimers", "timer_grant_unbound", "import_timers"],
     ["importTimers", "timer_import_mismatch", "import_timers"],
     ["cutover", "cutover_not_recorded", "cutover"],
@@ -523,5 +523,292 @@ describe("CLI", () => {
     const message = await cliUnder(environment);
     expect(message).not.toContain("MDBASE_CONNECT_ENVIRONMENT");
     expect(message).toContain("DATABASE_URL");
+  });
+});
+
+
+describe("managed two-phase orchestration", () => {
+  const second = "20000000-0000-4000-8000-000000000003";
+  const noRun = (): WorkerStatus => ({ run: null, native: { run_sequence: null, checkpoint: null, outstanding: null } });
+  /** Pause-mode Worker runs: the first read is drained, then the run stops at the
+   * verified pause until resumed; a resumed run is routed. Operator calls follow
+   * the Worker's preconditions; nothing heals by itself. */
+  function managed(ids = [collection, second], o: { scoped?: boolean; operatorStop?: boolean } = {}) {
+    const c = fakeConnect(), order: string[] = [];
+    const members = new Map<string, { reads: number; resumed: boolean; rolledBack: boolean; restarted: boolean; stopAt?: WorkerStatus }>();
+    const pre = { job: "managed" as const, collections: ids, cut_over_collections: [] as string[], backend: "legacy" as const,
+      intents: [] as string[], quiet_intents: [] as string[], archive_scoped: o.scoped ?? true, phase_latch: null as "cutover" | "route_back" | null,
+      run: { binding: "two-phase-v1", collections: ids, backup_hold: hold, operator_stop_before_flip: o.operatorStop ?? false, started_us: "1" } };
+    const pauseMode = (s: WorkerStatus, resumed: number | null = null) => { s.run!.stop_before_flip = true; s.run!.resumed_run_sequence = resumed; return s; };
+    const view = (id: string): WorkerStatus => {
+      const m = members.get(id);
+      if (!m) return noRun();
+      if (m.restarted) return pauseMode(st("running", STEP.drained, { seq: 2 }));
+      if (m.rolledBack) return pauseMode(st("done", STEP.rolledBack));
+      if (m.stopAt) return m.stopAt;
+      if (m.resumed) return pauseMode(st("done", STEP.routed), 1);
+      return m.reads++ === 0 ? pauseMode(st("running", STEP.drained)) : pauseMode(st("stopped", STEP.verified, { reason: PAUSE_REASON }));
+    };
+    const w = fakeWorker(happy);
+    Object.assign(w.worker, {
+      run: vi.fn(async (id: string, _hold: string, pause: boolean) => {
+        expect(pause).toBe(true); order.push(`run:${id}`);
+        members.set(id, { reads: 0, resumed: false, rolledBack: false, restarted: false }); return ok(view(id));
+      }),
+      status: vi.fn(async (id: string) => ok(view(id))),
+      resume: vi.fn(async (id: string, sequence: number) => {
+        const m = members.get(id)!;
+        if (m.resumed) return { kind: "refused", code: "migration_operator_conflict" };
+        m.resumed = true; order.push(`resume:${id}`); return ok(pauseMode(st("running", 9), sequence));
+      }),
+      rollback: vi.fn(async (id: string) => { members.get(id)!.rolledBack = true; order.push(`rollback:${id}`); return ok(pauseMode(st("running", STEP.rollingBack))); }),
+      restart: vi.fn(async (id: string) => { members.get(id)!.restarted = true; order.push(`restart:${id}`); return ok(pauseMode(st("running", 0, { seq: 2 }))); })
+    });
+    Object.assign(c.connect, {
+      preflight: vi.fn(async () => pre), bindRun: vi.fn(async () => undefined), claimWorkerRun: vi.fn(async () => true),
+      // The account's one-way latch: the other phase refuses, the same phase is idempotent.
+      latchPhase: vi.fn(async (_account: string, phase: "cutover" | "route_back") => {
+        if (pre.phase_latch && pre.phase_latch !== phase) throw refusal(`managed_${pre.phase_latch}_started`);
+        order.push(`latch:${phase}`); pre.phase_latch = phase;
+      }),
+      prepareTarget: vi.fn(async () => undefined), cleanupTimers: vi.fn(async () => ({ deleted: 0 })),
+      unfence: vi.fn(async (_account: string, id: string) => { order.push(`unfence:${id}`); }),
+      cutover: vi.fn(async (id: string) => { order.push(`cutover:${id}`); if (!pre.cut_over_collections.includes(id)) pre.cut_over_collections.push(id); }),
+      flip: vi.fn(async () => { order.push("flip"); }), completion: vi.fn(async () => undefined)
+    });
+    return { pre, members, order, ...deps(w.worker, c.connect) };
+  }
+  const stopAt = (d: ReturnType<typeof managed>, id: string, status: WorkerStatus) => {
+    const run = vi.mocked(d.worker.run), original = run.getMockImplementation()!;
+    run.mockImplementation(async (c, h, p) => {
+      const reply = await original(c, h, p);
+      if (c === id) { status.run!.stop_before_flip = true; status.run!.resumed_run_sequence = null; d.members.get(id)!.stopAt = status; }
+      return reply;
+    });
+  };
+
+  it("brings every member to the verified pause before the first cutover, then flips once", async () => {
+    const d = managed();
+    expect(await labRun(account, hold, d)).toEqual({ done: { account_id: account, collection_ids: d.pre.collections, backend: "next", migration_complete: true } });
+    expect(d.order).toEqual([`run:${collection}`, `run:${second}`, "latch:cutover", `resume:${collection}`, `cutover:${collection}`, `resume:${second}`, `cutover:${second}`, "flip"]);
+    expect(d.connect.bindRun).toHaveBeenCalledExactlyOnceWith(account, [collection, second], hold, false);
+    expect(d.connect.flip).toHaveBeenCalledExactlyOnceWith(account, [collection, second]);
+    expect(d.connect.completion).toHaveBeenCalledExactlyOnceWith(account, [collection, second]);
+  });
+  it.each([{ ids: [second, collection] }, { ids: [collection, collection] }, { ids: [] }])("rejects a noncanonical array before dispatch: $ids", async ({ ids }) => {
+    const d = managed(ids);
+    expect(await labRun(account, hold, d)).toHaveProperty("stopped.reason", "managed_inventory_invalid");
+    expect(d.connect.bindRun).not.toHaveBeenCalled(); expect(d.worker.run).not.toHaveBeenCalled();
+  });
+  it("an intent with no visible run is UNKNOWN: it stops before target creation, reservation or dispatch", async () => {
+    const d = managed(); d.pre.intents.push(collection);
+    expect(await labRun(account, hold, d)).toMatchObject({ stopped: { step: "worker_run", reason: "worker_run_outcome_unknown",
+      collection_id: collection, phase: "prepare" } });
+    expect(d.connect.prepareTarget).not.toHaveBeenCalled(); expect(d.connect.claimWorkerRun).not.toHaveBeenCalled();
+    expect(d.worker.run).not.toHaveBeenCalled(); expect(d.connect.flip).not.toHaveBeenCalled();
+  });
+  it("a reservation that finds an existing intent stops without dispatch", async () => {
+    const d = managed(); d.connect.claimWorkerRun = vi.fn(async () => false);
+    expect(await labRun(account, hold, d)).toMatchObject({ stopped: { step: "worker_run", reason: "worker_run_outcome_unknown", collection_id: collection } });
+    expect(d.worker.run).not.toHaveBeenCalled(); expect(d.connect.flip).not.toHaveBeenCalled();
+  });
+  it("retries a changing second-member import and refreshes the entire set on a changing flip source", async () => {
+    const d = managed(), imports: string[] = []; let changedImport = false, changedFlip = false;
+    d.connect.importTimers = async id => {
+      imports.push(id);
+      if (id === second && !changedImport) { changedImport = true; throw refusal("timer_source_changed"); }
+    };
+    d.connect.flip = vi.fn(async () => { if (!changedFlip) { changedFlip = true; throw refusal("timers_source_changed"); } });
+    expect(await labRun(account, hold, d)).toHaveProperty("done.migration_complete", true);
+    // Phase 1 (both at the pause), phase 2 (before each cutover), then the whole set for the flip retry.
+    expect(imports).toEqual([collection, second, second, collection, second, collection, second]); expect(d.connect.flip).toHaveBeenCalledTimes(2);
+  });
+  it.each([["settlement_unknown", "lab-run"], ["rollback_needs_operator", "route-back"]])(
+    "a second member stopping before the barrier (%s) leaves the first paused and never cut over", async (reason, next) => {
+      const d = managed(); stopAt(d, second, st("stopped", STEP.drained, { reason }));
+      expect(await labRun(account, hold, d)).toMatchObject({ stopped: { step: "worker_status", reason, collection_id: second, phase: "prepare",
+        resume: next === "lab-run" ? `${CLI} lab-run ${account} ${hold}` : `${CLI} route-back ${account}` } });
+      expect(d.order).toEqual([`run:${collection}`, `run:${second}`]);
+      expect(d.connect.cutover).not.toHaveBeenCalled(); expect(d.connect.flip).not.toHaveBeenCalled();
+    });
+  it("stop-before-flip returns at the shared barrier; resume crosses it once for the whole set", async () => {
+    const d = managed(undefined, { operatorStop: true });
+    expect(await labRun(account, hold, d, true)).toMatchObject({ stopped: { step: "worker_status", reason: PAUSE_REASON, phase: "prepare",
+      collection_ids: [collection, second], resume: `${CLI} resume ${account}` } });
+    expect(d.order).toEqual([`run:${collection}`, `run:${second}`]);
+    // A rerun of the pause pass is idempotent: no dispatch, still at the barrier.
+    expect(await labRun(account, hold, d, true)).toHaveProperty("stopped.reason", PAUSE_REASON);
+    expect(await resumeLab(account, d)).toHaveProperty("done.migration_complete", true);
+    expect(d.order.slice(2)).toEqual(["latch:cutover", `resume:${collection}`, `cutover:${collection}`, `resume:${second}`, `cutover:${second}`, "flip"]);
+    expect(d.worker.run).toHaveBeenCalledTimes(2);
+  });
+  it("resume refuses an incomplete pause pass without dispatching or resuming anything", async () => {
+    const d = managed(undefined, { operatorStop: true });
+    d.connect.prepareTarget = vi.fn(async (id: string) => { if (id === second && d.order.length < 2) throw refusal("migration_target_unavailable"); });
+    expect(await labRun(account, hold, d, true)).toMatchObject({ stopped: { step: "prepare_target", collection_id: second } });
+    expect(await resumeLab(account, d)).toMatchObject({ stopped: { step: "resume", reason: "managed_pause_incomplete", collection_id: second,
+      resume: `${CLI} lab-run ${account} ${hold} --stop-before-flip` } });
+    expect(d.order).toEqual([`run:${collection}`]);
+    d.order.push("retry");
+    expect(await labRun(account, hold, d, true)).toHaveProperty("stopped.reason", PAUSE_REASON);
+    expect(await resumeLab(account, d)).toHaveProperty("done.migration_complete", true);
+    expect(d.worker.run).toHaveBeenCalledTimes(2); expect(d.worker.resume).toHaveBeenCalledTimes(2);
+  });
+  it("after the first cutover every rerun is forward only: route-back refuses and lab-run completes without a new dispatch", async () => {
+    const d = managed(), cutover = vi.mocked(d.connect.cutover), original = cutover.getMockImplementation()!; let lost = true;
+    cutover.mockImplementation(async (id: string) => {
+      if (id === second && lost) { lost = false; throw refusal("migration_source_unavailable"); }
+      return original(id);
+    });
+    expect(await labRun(account, hold, d)).toMatchObject({ stopped: { step: "cutover", reason: "migration_source_unavailable",
+      collection_id: second, phase: "cutover", resume: `${CLI} resume ${account}` } });
+    expect(await routeBack(account, d)).toMatchObject({ stopped: { step: "preflight", reason: "managed_cutover_started", resume: `${CLI} resume ${account}` } });
+    expect(d.worker.rollback).not.toHaveBeenCalled();
+    expect(await labRun(account, hold, d)).toHaveProperty("done.migration_complete", true);
+    expect(d.worker.run).toHaveBeenCalledTimes(2); expect(d.worker.resume).toHaveBeenCalledTimes(2); expect(d.connect.flip).toHaveBeenCalledTimes(1);
+  });
+  it("a lost resume reply stops; the rerun re-reads the still-current pause before the one sequence-bound resume", async () => {
+    const d = managed(), resume = vi.mocked(d.worker.resume), original = resume.getMockImplementation()!; let lost = true;
+    resume.mockImplementation(async (id: string, sequence: number) => {
+      if (id === second && lost) { lost = false; return { kind: "unknown", reason: "worker_unreachable" }; }
+      return original(id, sequence);
+    });
+    expect(await labRun(account, hold, d)).toMatchObject({ stopped: { step: "resume", reason: "operator_outcome_unknown:worker_unreachable",
+      collection_id: second, phase: "cutover" } });
+    expect(await resumeLab(account, d)).toHaveProperty("done.migration_complete", true);
+    expect(d.worker.run).toHaveBeenCalledTimes(2); expect(d.connect.flip).toHaveBeenCalledTimes(1);
+  });
+  it("status inspects every member, including an unavailable second member and its intent", async () => {
+    const d = managed(); d.pre.intents.push(second);
+    d.worker.status = vi.fn(async (id: string): Promise<WorkerReply> => id === second ? { kind: "unknown", reason: "worker_unreachable" } : ok(st("done", STEP.routed)));
+    const result = await labStatus(account, d);
+    expect(result.collections).toEqual([
+      expect.objectContaining({ collection_id: collection, intent: false, worker: st("done", STEP.routed) }),
+      expect.objectContaining({ collection_id: second, intent: true, worker: { kind: "unknown", reason: "worker_unreachable" } })
+    ]);
+    expect(d.connect.preflight).toHaveBeenCalledWith(account, { inspect: true });
+  });
+  it("scoped route-back rolls every dispatched member back to verified legacy and never restarts", async () => {
+    const d = managed(undefined, { operatorStop: true });
+    expect(await labRun(account, hold, d, true)).toHaveProperty("stopped.reason", PAUSE_REASON);
+    expect(await routeBack(account, d)).toEqual({ done: { account_id: account, collection_ids: [collection, second], not_dispatched: [],
+      disposition: "legacy_post_bulk_follow_up", collections: [collection, second].map(collection_id => ({
+        account_id: account, collection_id, rolled_back: true, legacy_verified: true, run_sequence: 1 })) } });
+    expect(d.worker.restart).not.toHaveBeenCalled(); expect(d.connect.cleanupTimers).toHaveBeenCalledTimes(2);
+    // Idempotent: a rerun only re-confirms the settled rollback.
+    expect(await routeBack(account, d)).toHaveProperty("done.disposition", "legacy_post_bulk_follow_up");
+    expect(d.worker.rollback).toHaveBeenCalledTimes(2); expect(d.connect.flip).not.toHaveBeenCalled();
+  });
+  it("an unscoped managed route-back is terminal too: no restart re-fences a source no lab-run could continue", async () => {
+    const d = managed(undefined, { scoped: false, operatorStop: true });
+    await labRun(account, hold, d, true);
+    expect(await routeBack(account, d)).toMatchObject({ done: { disposition: "legacy_post_bulk_follow_up",
+      collections: [expect.objectContaining({ collection_id: collection, rolled_back: true }), expect.objectContaining({ collection_id: second, rolled_back: true })] } });
+    expect(d.worker.restart).not.toHaveBeenCalled();
+    expect(await labRun(account, hold, d, true)).toMatchObject({ stopped: { reason: "managed_route_back_started", resume: `${CLI} route-back ${account}` } });
+  });
+  it("route-back unfences a never-dispatched member after the latch and the fresh re-inspection", async () => {
+    const d = managed(); stopAt(d, collection, st("stopped", STEP.drained, { reason: "settlement_unknown" }));
+    expect(await labRun(account, hold, d)).toMatchObject({ stopped: { collection_id: collection } });
+    expect(await routeBack(account, d)).toMatchObject({ done: { not_dispatched: [second], disposition: "legacy_post_bulk_follow_up",
+      collections: [expect.objectContaining({ collection_id: collection, rolled_back: true }), { collection_id: second, not_dispatched: true, legacy_verified: true }] } });
+    expect(d.order).toEqual([`run:${collection}`, "latch:route_back", `rollback:${collection}`, `unfence:${second}`]);
+  });
+  it("a runless intent past the quiet period counts as never dispatched; a failed unfence names route-back", async () => {
+    const d = managed(); stopAt(d, collection, st("stopped", STEP.drained, { reason: "settlement_unknown" }));
+    await labRun(account, hold, d); d.pre.intents.push(second); d.pre.quiet_intents.push(second);
+    vi.mocked(d.connect.unfence!).mockRejectedValueOnce(refusal("migration_run_not_current"));
+    expect(await routeBack(account, d)).toMatchObject({ stopped: { step: "unfence", reason: "migration_run_not_current", collection_id: second,
+      resume: `${CLI} route-back ${account}` } });
+    expect(await routeBack(account, d)).toMatchObject({ done: { not_dispatched: [second],
+      collections: [expect.objectContaining({ collection_id: collection, rolled_back: true }), { collection_id: second, not_dispatched: true, legacy_verified: true }] } });
+    expect(d.order.filter(e => e.startsWith("latch:"))).toEqual(["latch:route_back"]);
+  });
+  it("route-back refuses the whole set before any mutation while a member's dispatch is UNKNOWN", async () => {
+    const d = managed(); stopAt(d, collection, st("stopped", STEP.drained, { reason: "settlement_unknown" }));
+    await labRun(account, hold, d); d.pre.intents.push(second);
+    expect(await routeBack(account, d)).toMatchObject({ stopped: { reason: "worker_run_outcome_unknown", collection_id: second } });
+    expect(d.worker.rollback).not.toHaveBeenCalled(); expect(d.connect.cleanupTimers).not.toHaveBeenCalled();
+  });
+  it("an unscoped route-back with nothing dispatched mutates nothing and names the rerun", async () => {
+    const d = managed(undefined, { scoped: false });
+    expect(await routeBack(account, d)).toEqual({ stopped: { step: "worker_status", reason: "managed_nothing_dispatched",
+      inspect: `${CLI} status ${account}`, resume: `${CLI} lab-run ${account} ${hold}`, collection_ids: [collection, second] } });
+    expect(d.connect.latchPhase).not.toHaveBeenCalled(); expect(d.connect.unfence).not.toHaveBeenCalled();
+  });
+  it("a scoped route-back with nothing dispatched still unfences every prearchive-fenced member", async () => {
+    const d = managed();
+    expect(await routeBack(account, d)).toMatchObject({ done: { not_dispatched: [collection, second], disposition: "legacy_post_bulk_follow_up" } });
+    expect(d.order).toEqual(["latch:route_back", `unfence:${collection}`, `unfence:${second}`]);
+  });
+  it("resume imports EVERY member's timers before the cutover latch or any resume", async () => {
+    const d = managed(undefined, { operatorStop: true }); let failing = true;
+    d.connect.importTimers = vi.fn(async (id: string) => { d.order.push(`import:${id}`); if (id === second && failing) throw refusal("timer_import_mismatch"); return {}; });
+    // Both Workers still reach their pause; only the CP import of the last member failed.
+    expect(await labRun(account, hold, d, true)).toMatchObject({ stopped: { step: "import_timers", reason: "timer_import_mismatch", collection_id: second } });
+    expect(await resumeLab(account, d)).toMatchObject({ stopped: { step: "import_timers", reason: "timer_import_mismatch", collection_id: second, phase: "prepare" } });
+    expect(d.connect.latchPhase).not.toHaveBeenCalled(); expect(d.worker.resume).not.toHaveBeenCalled(); expect(d.connect.cutover).not.toHaveBeenCalled();
+    failing = false; d.order.length = 0;
+    expect(await resumeLab(account, d)).toHaveProperty("done.migration_complete", true);
+    expect(d.order.slice(0, 3)).toEqual([`import:${collection}`, `import:${second}`, "latch:cutover"]);
+    expect(d.worker.run).toHaveBeenCalledTimes(2); expect(d.connect.flip).toHaveBeenCalledTimes(1);
+  });
+  it("route-back inspects the second member before mutating an eligible first member", async () => {
+    const d = managed(), paused = st("stopped", STEP.verified, { reason: PAUSE_REASON });
+    paused.run!.stop_before_flip = true; paused.run!.resumed_run_sequence = null;
+    d.worker.status = vi.fn(async id => id === second ? ok(st("done", STEP.routed)) : ok(paused));
+    expect(await routeBack(account, d)).toMatchObject({ stopped: { reason: "migration_post_cutover", collection_id: second } });
+    expect(d.worker.status).toHaveBeenCalledTimes(2); expect(d.connect.cleanupTimers).not.toHaveBeenCalled();
+    expect(d.worker.rollback).not.toHaveBeenCalled();
+  });
+  it("a first resume whose arrival is unknown makes the account forward only: route-back reads and mutates nothing", async () => {
+    const d = managed(), resume = vi.mocked(d.worker.resume), original = resume.getMockImplementation()!; let delayed = true;
+    resume.mockImplementation(async (id: string, sequence: number) => {
+      if (delayed) { delayed = false; return { kind: "unknown", reason: "worker_unreachable" }; } // Not (yet) arrived.
+      return original(id, sequence);
+    });
+    expect(await labRun(account, hold, d)).toMatchObject({ stopped: { step: "resume", collection_id: collection, phase: "cutover",
+      resume: `${CLI} resume ${account}` } });
+    const reads = vi.mocked(d.worker.status).mock.calls.length;
+    expect(await routeBack(account, d)).toEqual({ stopped: { step: "preflight", reason: "managed_cutover_started", inspect: `${CLI} status ${account}`,
+      resume: `${CLI} resume ${account}`, collection_ids: [collection, second] } });
+    expect(d.worker.status).toHaveBeenCalledTimes(reads); expect(d.worker.rollback).not.toHaveBeenCalled();
+    expect(await resumeLab(account, d)).toHaveProperty("done.migration_complete", true);
+    expect(d.order.filter(e => e.startsWith("latch:"))).toEqual(["latch:cutover"]);
+  });
+  it("a member resumed out of band (no latch) still makes route-back refuse before the latch or any rollback", async () => {
+    const d = managed(), resumed = st("running", STEP.verified), paused = st("stopped", STEP.verified, { reason: PAUSE_REASON });
+    Object.assign(resumed.run!, { stop_before_flip: true, resumed_run_sequence: 1 }); Object.assign(paused.run!, { stop_before_flip: true, resumed_run_sequence: null });
+    d.worker.status = vi.fn(async id => ok(id === second ? resumed : paused));
+    expect(await routeBack(account, d)).toMatchObject({ stopped: { reason: "managed_cutover_started", collection_id: second } });
+    expect(d.connect.latchPhase).not.toHaveBeenCalled(); expect(d.worker.rollback).not.toHaveBeenCalled();
+  });
+  it("route-back that loses the latch to phase 2 after its inspection refuses before any rollback", async () => {
+    const d = managed(undefined, { operatorStop: true }), latch = vi.mocked(d.connect.latchPhase!);
+    expect(await labRun(account, hold, d, true)).toHaveProperty("stopped.reason", PAUSE_REASON);
+    latch.mockImplementationOnce(async () => { d.pre.phase_latch = "cutover"; throw refusal("managed_cutover_started"); });
+    expect(await routeBack(account, d)).toMatchObject({ stopped: { step: "preflight", reason: "managed_cutover_started", resume: `${CLI} resume ${account}` } });
+    expect(d.worker.rollback).not.toHaveBeenCalled(); expect(d.connect.cleanupTimers).not.toHaveBeenCalled();
+  });
+  it("phase 2 that loses the latch to route-back sends no resume; lab-run and resume then name route-back", async () => {
+    const d = managed(undefined, { operatorStop: true }), latch = vi.mocked(d.connect.latchPhase!);
+    expect(await labRun(account, hold, d, true)).toHaveProperty("stopped.reason", PAUSE_REASON);
+    latch.mockImplementationOnce(async () => { d.pre.phase_latch = "route_back"; throw refusal("managed_route_back_started"); });
+    expect(await resumeLab(account, d)).toMatchObject({ stopped: { step: "cutover_latch", reason: "managed_route_back_started", phase: "prepare",
+      resume: `${CLI} route-back ${account}` } });
+    for (const again of [() => labRun(account, hold, d), () => resumeLab(account, d)])
+      expect(await again()).toMatchObject({ stopped: { step: "preflight", reason: "managed_route_back_started", resume: `${CLI} route-back ${account}` } });
+    expect(d.worker.resume).not.toHaveBeenCalled(); expect(d.connect.bindRun).toHaveBeenCalledTimes(2);
+    expect(await routeBack(account, d)).toHaveProperty("done.disposition", "legacy_post_bulk_follow_up");
+  });
+  it("route-back re-inspects under its latch: a member dispatched meanwhile is rolled back too", async () => {
+    const d = managed(); stopAt(d, collection, st("stopped", STEP.drained, { reason: "settlement_unknown" }));
+    expect(await labRun(account, hold, d)).toMatchObject({ stopped: { collection_id: collection } });
+    const latch = vi.mocked(d.connect.latchPhase!), original = latch.getMockImplementation()!;
+    latch.mockImplementationOnce(async (a, phase) => { // A concurrent phase 1 dispatched the second member first.
+      await d.worker.run(second, hold, true); await d.worker.status(second); return original(a, phase);
+    });
+    expect(await routeBack(account, d)).toMatchObject({ done: { not_dispatched: [], collections: [
+      expect.objectContaining({ collection_id: collection, rolled_back: true }), expect.objectContaining({ collection_id: second, rolled_back: true })] } });
   });
 });

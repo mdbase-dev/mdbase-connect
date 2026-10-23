@@ -6,7 +6,7 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { fakeLegacyProvider, recordEmptyTimerImport } from "./legacy-provider.test-helper.js";
-import { labRun, postgresLabConnect, STEP, type LabWorker, type WorkerStatus } from "./migration-lab.js";
+import { labRun, postgresLabConnect, PAUSE_REASON, STEP, type LabWorker, type WorkerStatus } from "./migration-lab.js";
 import { acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, cutOverCollection, releaseCohort, setCohortFrozen, setPaused,
   startAccountMigration } from "./migration-rollout.js";
 import { requireCompletedAccountMigration, requireCompletedNextAccountMigration } from "./migration-sharing.js";
@@ -81,19 +81,47 @@ suite("lab-run against the control plane (synthetic PostgreSQL, scripted Worker)
   /** Answers status from a script; reaching `routed` first records the cutover as the Worker's Route does. */
   function worker(f: Fixture, script: WorkerStatus[]): LabWorker {
     const unused = async () => { throw new Error("not used by lab-run"); };
+    let started = false;
     return {
-      run: async () => ({ kind: "ok", status: status("running", 0) }),
+      run: async () => { started = true; return { kind: "ok", status: status("running", 0) }; },
       async status() {
+        if (!started) return { kind: "ok", status: { run: null, native: { checkpoint: null, outstanding: null, run_sequence: null } } };
         const next = script.length > 1 ? script.shift()! : script[0]!;
         if (next.native && "checkpoint" in next.native && next.native.checkpoint?.step === STEP.routed) {
           await cutOverCollection(db, f.provider, f.collection, { s_final: 7, cutover_seq: 11, barrier_f: 13, final_digest: "e".repeat(64) });
         }
         return { kind: "ok", status: next };
       },
+      rollback: unused, restart: unused, resolve: unused, resume: unused
+    };
+  }
+  /** An ordinary (managed) start's pause-mode run: the verified pause until the
+   * one sequence-bound resume, then the same route. */
+  function pausingWorker(f: Fixture): LabWorker {
+    const unused = async () => { throw new Error("not used by lab-run"); };
+    const before = [status("running", 2), status("running", STEP.drained), status("stopped", STEP.verified, PAUSE_REASON)];
+    const after = [status("running", 9), status("done", STEP.routed)];
+    let started = false, resumed = false;
+    const mode = (s: WorkerStatus): WorkerStatus => ({ ...s, run: { ...s.run!, stop_before_flip: true, resumed_run_sequence: resumed ? 1 : null } });
+    return {
+      run: async (_collection, _hold, pause) => {
+        if (pause !== true) throw new Error("managed runs are always in pause mode");
+        started = true; return { kind: "ok", status: mode(status("running", 0)) };
+      },
+      async status() {
+        if (!started) return { kind: "ok", status: { run: null, native: { checkpoint: null, outstanding: null, run_sequence: null } } };
+        const script = resumed ? after : before, next = script.length > 1 ? script.shift()! : script[0]!;
+        if (next.native && "checkpoint" in next.native && next.native.checkpoint?.step === STEP.routed) {
+          await cutOverCollection(db, f.provider, f.collection, { s_final: 7, cutover_seq: 11, barrier_f: 13, final_digest: "e".repeat(64) });
+        }
+        return { kind: "ok", status: mode(next) };
+      },
+      resume: async () => { resumed = true; return { kind: "ok", status: mode(status("running", STEP.verified)) }; },
       rollback: unused, restart: unused, resolve: unused
     };
   }
   const deps = (f: Fixture, script: WorkerStatus[]) => ({ worker: worker(f, script), connect: f.connect, sleep: async () => undefined });
+  const managedDeps = (f: Fixture) => ({ worker: pausingWorker(f), connect: f.connect, sleep: async () => undefined });
   const backend = async (user: string) => (await db.query("SELECT account_backend FROM users WHERE id=$1", [user])).rows[0].account_backend;
   const routed = () => [status("running", 2), status("running", STEP.drained), status("running", 9), status("done", STEP.routed)];
 
@@ -129,7 +157,7 @@ suite("lab-run against the control plane (synthetic PostgreSQL, scripted Worker)
 
   it("staging deployment: an ordinary archived start runs, flips as staging and completes on the accepted archive", async () => {
     const f = await fixture(false, "staging");
-    expect(await labRun(f.user, hold, deps(f, routed()))).toEqual({ done: { account_id: f.user, collection_id: f.collection, backend: "next", lab_complete: true } });
+    expect(await labRun(f.user, hold, managedDeps(f))).toEqual({ done: { account_id: f.user, collection_ids: [f.collection], backend: "next", migration_complete: true } });
     expect(await backend(f.user)).toBe("next");
     expect(f.provider.source.state).toBe("migrated");
     await requireCompletedAccountMigration(db, f.collection, f.user);
@@ -141,7 +169,7 @@ suite("lab-run against the control plane (synthetic PostgreSQL, scripted Worker)
   it("staging deployment: a suspended owner migrates and completes, while every product guard still refuses it", async () => {
     const f = await fixture(false, "staging");
     await db.query("UPDATE users SET suspended_at=now(), session_epoch=session_epoch+1 WHERE id=$1", [f.user]);
-    expect(await labRun(f.user, hold, deps(f, routed()))).toEqual({ done: { account_id: f.user, collection_id: f.collection, backend: "next", lab_complete: true } });
+    expect(await labRun(f.user, hold, managedDeps(f))).toEqual({ done: { account_id: f.user, collection_ids: [f.collection], backend: "next", migration_complete: true } });
     expect(await backend(f.user)).toBe("next");
     await requireCompletedAccountMigration(db, f.collection, f.user, { suspendedOwner: true });
     // Sharing, timers and other post-migration guards keep refusing the suspended owner.
@@ -160,12 +188,10 @@ suite("lab-run against the control plane (synthetic PostgreSQL, scripted Worker)
     await expect(requireCompletedAccountMigration(db, f.collection, f.user, { suspendedOwner: true })).rejects.toMatchObject({ code: "collection_migrating" });
   });
 
-  it("each rehearsal deployment refuses the other's start profile at preflight", async () => {
+  it("a managed deployment still refuses the LAB fixture start profile", async () => {
     const labStart = await fixture(false, "staging", "lab");
     expect(await labRun(labStart.user, hold, deps(labStart, routed()))).toMatchObject({ stopped: { step: "preflight", reason: "start_profile_invalid" } });
-    const stagingStart = await fixture(false, "lab", "staging");
-    expect(await labRun(stagingStart.user, hold, deps(stagingStart, routed()))).toMatchObject({ stopped: { step: "preflight", reason: "lab_profile_missing" } });
-    expect(await backend(labStart.user)).toBe("legacy"); expect(await backend(stagingStart.user)).toBe("legacy");
+    expect(await backend(labStart.user)).toBe("legacy");
   });
 
   it("stops at the flip when the start's starter reservation drifted", async () => {

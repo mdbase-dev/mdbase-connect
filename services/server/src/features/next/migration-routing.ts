@@ -106,16 +106,17 @@ async function migrationRouteRetired(db: DatabaseQueryable, routing: MigrationRo
 
 type MigrationRoute = "default" | "migration" | "retired";
 
-/** Only a legacy hosted collection (a `hosted_collections` id) of a routed owner
- * migrates, so only it is served by the migration Worker. Every other collection,
- * including one a routed owner creates after the flip and any CP-native cloud copy
- * it already had, stays on the control plane's own deployments. All retained
- * authoritative ownership mappings must agree; missing/ambiguous is never a
- * migration match. */
+/** Only a held legacy hosted collection (a non-transferred `hosted_collections`
+ * id) of a routed owner migrates, so only it is served by the migration Worker.
+ * Every other collection, including transferred history now under local authority,
+ * one a routed owner creates after the flip and any CP-native cloud copy it
+ * already had, stays on the control plane's own deployments. All retained
+ * authoritative ownership mappings, transferred history included, must agree;
+ * missing/ambiguous is never a migration match. */
 export async function migrationRoute(db: DatabaseQueryable, routing: MigrationRouting | undefined, collection: string): Promise<MigrationRoute> {
   if (!routing) return "default";
   const result = await db.query<{ owner: string; legacy: boolean }>(
-    `SELECT owners.owner, EXISTS (SELECT 1 FROM hosted_collections WHERE id=$1) AS legacy FROM (
+    `SELECT owners.owner, EXISTS (SELECT 1 FROM hosted_collections WHERE id=$1 AND authority_state<>'transferred') AS legacy FROM (
        SELECT owner_user_id::text AS owner FROM next_collections WHERE collection_id=$1
        UNION SELECT user_id::text FROM hosted_collections WHERE id=$1
        UNION SELECT user_id::text FROM collections WHERE local_id=$1
