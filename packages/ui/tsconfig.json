@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2022", "module": "NodeNext", "moduleResolution": "NodeNext",
-    "strict": true, "declaration": true, "outDir": "dist", "skipLibCheck": true
+    "strict": true, "declaration": true, "resolveJsonModule": true, "outDir": "dist", "skipLibCheck": true
   },
-  "include": ["access.ts", "contract-setup.ts", "provider-button.ts"]
+  "include": ["access.ts", "contract-setup.ts", "provider-button.ts", "i18n.ts"]
 }

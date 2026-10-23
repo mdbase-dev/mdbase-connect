@@ -1,6 +1,5 @@
-import { t } from "@lingui/core/macro";
-import { Trans } from "@lingui/react/macro";
-import "./i18n.js";
+import { t, plural } from "@lingui/core/macro";
+import { useLocaleRevision } from "./i18n.js";
 import { useEffect, useId, useRef, useState } from "react";
 import { Dialog } from "./Dialog.js";
 import { screenshotFromCanvas, screenshotUrl, type FeedbackScreenshot } from "./feedback-data.js";
@@ -31,6 +30,7 @@ export function paintFeedbackMarks(context: CanvasRenderingContext2D, image: Can
   }
 }
 export function FeedbackMarkup({ screenshot, onApply, onClose }: { screenshot: FeedbackScreenshot; onApply(screenshot: FeedbackScreenshot): void; onClose(): void }) {
+  useLocaleRevision();
   const canvas = useRef<HTMLCanvasElement>(null);
   const image = useRef<HTMLImageElement | null>(null);
   const marks = useRef<FeedbackMark[]>([]);
@@ -72,7 +72,7 @@ export function FeedbackMarkup({ screenshot, onApply, onClose }: { screenshot: F
   return <Dialog open onClose={onClose} closeDisabled={busy} title={t({ message: "Mark up screenshot" })} className="mdbase-feedback-markup">
     <div className="mdbase-feedback-tools" role="group" aria-label={t({ message: "Screenshot tools" })}>
       {(["draw", "highlight", "blackout"] as const).map((value) => <button type="button" key={value} aria-pressed={tool === value} disabled={!ready || busy} onClick={() => { current.current = null; setTool(value); paint(); }}>{value === "draw" ? t({ message: "Draw" }) : value === "highlight" ? t({ message: "Highlight" }) : t({ message: "Blackout" })}</button>)}
-      <button type="button" disabled={!count || busy} onClick={() => { current.current = null; marks.current.pop(); setCount(marks.current.length); paint(); }}><Trans>Undo</Trans></button>
+      <button type="button" disabled={!count || busy} onClick={() => { current.current = null; marks.current.pop(); setCount(marks.current.length); paint(); }}>{t({ message: "Undo" })}</button>
       <button type="button" disabled={!count || busy} onClick={() => { current.current = null; marks.current = []; setCount(0); paint(); }}>Reset</button>
     </div>
     <div className="mdbase-feedback-canvas"><canvas ref={canvas} tabIndex={0} aria-label={t({ message: "Screenshot annotation canvas" })} aria-describedby={instructions}
@@ -101,10 +101,10 @@ export function FeedbackMarkup({ screenshot, onApply, onClose }: { screenshot: F
         }
         paint();
       }} /></div>
-    <p id={instructions} className="mdbase-feedback-help"><Trans>Drag to mark. Keyboard: arrows move; Space starts or finishes. Blackout removes pixels.</Trans></p>
-    <span className="mdbase-feedback-sr-only" role="status">{count}  <Trans>marks applied.</Trans></span>
+    <p id={instructions} className="mdbase-feedback-help">{t({ message: "Drag to mark. Keyboard: arrows move; Space starts or finishes. Blackout removes pixels." })}</p>
+    <span className="mdbase-feedback-sr-only" role="status">{plural(count, { one: "# mark applied.", other: "# marks applied." })}</span>
     {error && <p role="alert">{error}</p>}
-    <div className="mdbase-feedback-actions"><button type="button" disabled={busy} onClick={onClose}><Trans>Cancel</Trans></button><button type="button" className="mdbase-feedback-primary" disabled={!ready || busy} onClick={() => {
+    <div className="mdbase-feedback-actions"><button type="button" disabled={busy} onClick={onClose}>{t({ message: "Cancel" })}</button><button type="button" className="mdbase-feedback-primary" disabled={!ready || busy} onClick={() => {
       if (!canvas.current) return;
       finish(); paint(false); setBusy(true); setError("");
       void screenshotFromCanvas(canvas.current).then(onApply).catch((reason: unknown) => { setBusy(false); setError(reason instanceof Error ? reason.message : t({ message: "The screenshot could not be saved." })); });

@@ -1,5 +1,4 @@
 import { t } from "@lingui/core/macro";
-import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision } from "./i18n.js";
 import { useId, useRef, useState, type JSX, type RefObject } from "react";
 
@@ -90,7 +89,7 @@ function AppMenu({ id, apps, current, triggerRef, onClose }: {
     <div className="mdbase-menu-list">
       {apps.map((app) => <AppItem key={app.id} app={app} current={app.id === current} onOpen={() => onClose(false)} />)}
     </div>
-    <p className="mdbase-menu-note"><Trans>Opens in a new tab</Trans></p>
+    <p className="mdbase-menu-note">{t({ message: "Opens in a new tab" })}</p>
   </div>;
 }
 
@@ -110,7 +109,7 @@ function AppItem({ app, current, onOpen }: {
   if (current) {
     return <div className="mdbase-menu-item is-current" role="menuitem" aria-current="page" aria-disabled="true" tabIndex={-1}>
       {copy}
-      <span className="mdbase-app-menu-current"><Trans>Current</Trans></span>
+      <span className="mdbase-app-menu-current">{t({ message: "Current" })}</span>
     </div>;
   }
   return <a
@@ -125,6 +124,6 @@ function AppItem({ app, current, onOpen }: {
     <svg className="mdbase-app-menu-external" viewBox="0 0 24 24" aria-hidden="true">
       <path d="M10 5.5H5.5v13h13V14M13.5 5.5h5v5M18.5 5.5 11 13" />
     </svg>
-    <span className="mdbase-visually-hidden">  <Trans>(opens in a new tab)</Trans></span>
+    <span className="mdbase-visually-hidden">  {t({ message: "(opens in a new tab)" })}</span>
   </a>;
 }

@@ -1,3 +1,6 @@
-// Catalogues belong to each consuming application; this config only enables
-// source-macro transformation in this package's component tests.
-export default { sourceLocale: "en", locales: ["en"], catalogs: [] };
+import { i18nConfig } from "@mdbase-dev/i18n/config";
+export default i18nConfig({
+  include: ["<rootDir>/src"],
+  exclude: ["**/*.test.*", "**/testing.ts", "**/dist/**", "**/node_modules/**", "**/scripts/**"],
+  path: "<rootDir>/src/locales/{locale}/messages",
+});

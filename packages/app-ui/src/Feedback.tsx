@@ -1,6 +1,5 @@
 import { t } from "@lingui/core/macro";
-import { Trans } from "@lingui/react/macro";
-import "./i18n.js";
+import { useLocaleRevision } from "./i18n.js";
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { FeedbackMarkup } from "./FeedbackMarkup.js";
 import { FeedbackVerification } from "./FeedbackVerification.js";
@@ -24,12 +23,14 @@ const disabledFeedback: FeedbackControls = { enabled: false, open() {}, reportEr
 export function useFeedback(): FeedbackControls { return useContext(FeedbackContext) ?? disabledFeedback; }
 
 export function FeedbackBug({ wiggle = 0 }: { wiggle?: number }) {
+  useLocaleRevision();
   return <svg key={wiggle} className={`mdbase-feedback-bug${wiggle ? " is-wiggling" : ""}`} viewBox="0 0 48 48" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <path d="M16 23 8 19l-3 2m10 8H6l-2 3m12 3-7 4v3m23-19 8-4 3 2m-10 8h9l2 3m-12 3 7 4v3M20 13l-4-6-4 1m16 5 4-6 4 1" />
     <ellipse cx="24" cy="29" rx="10" ry="12" /><ellipse cx="24" cy="16" rx="7" ry="6" /><path d="M24 22v17" /><circle cx="21" cy="15" r="1.5" fill="currentColor" stroke="none" /><circle cx="27" cy="15" r="1.5" fill="currentColor" stroke="none" />
   </svg>;
 }
 export function FeedbackButton({ className, topic }: { className?: string; topic?: FeedbackTopic }) {
+  useLocaleRevision();
   const feedback = useFeedback();
   if (!feedback.enabled) return null;
   return <button type="button" className={["mdbase-feedback-trigger", className].filter(Boolean).join(" ")} onClick={() => feedback.open(topic)}><FeedbackBug wiggle={feedback.wiggle} /><span>{topic === "problem" ? t({ message: "Report a problem" }) : t({ message: "Send feedback" })}</span></button>;
@@ -43,6 +44,7 @@ export function FeedbackProvider({ endpoint: configuredEndpoint, application, tu
   collectionName?: string;
   children: ReactNode;
 }) {
+  useLocaleRevision();
   const endpoint = resolveFeedbackEndpoint(configuredEndpoint ?? undefined);
   const dialog = useRef<HTMLDialogElement>(null);
   const content = useRef<HTMLDivElement>(null);
@@ -193,31 +195,31 @@ export function FeedbackProvider({ endpoint: configuredEndpoint, application, tu
     <div className="mdbase-feedback-app" ref={content}>{children}</div>
     <span className="mdbase-feedback-sr-only" role="status">{wiggle ? t({ message: "A problem occurred. You can use Send feedback to report it." }) : ""}</span>
     {endpoint && <dialog ref={dialog} className="mdbase-feedback-dialog" aria-labelledby={`${id}-title`} onKeyDown={(event) => event.stopPropagation()} onCancel={(event) => { event.preventDefault(); close(); }}>
-      <header className="mdbase-feedback-header"><h2 id={`${id}-title`}><Trans>Send feedback</Trans></h2><button type="button" disabled={submitting} onClick={close} aria-label={t({ message: "Close feedback" })}>×</button></header>
-      {submitted ? <section className="mdbase-feedback-success"><h3 ref={successHeading} tabIndex={-1}>{feedbackTopics[submitted].thanks}</h3><p><Trans>Sent privately to the mdbase team.</Trans></p><button type="button" className="mdbase-feedback-primary" onClick={close}><Trans>Back to your work</Trans></button></section> : <form onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+      <header className="mdbase-feedback-header"><h2 id={`${id}-title`}>{t({ message: "Send feedback" })}</h2><button type="button" disabled={submitting} onClick={close} aria-label={t({ message: "Close feedback" })}>×</button></header>
+      {submitted ? <section className="mdbase-feedback-success"><h3 ref={successHeading} tabIndex={-1}>{feedbackTopics[submitted].thanks}</h3><p>{t({ message: "Sent privately to the mdbase team." })}</p><button type="button" className="mdbase-feedback-primary" onClick={close}>{t({ message: "Back to your work" })}</button></section> : <form onSubmit={(event) => { event.preventDefault(); void submit(); }}>
         <div className="mdbase-feedback-body" ref={body}>
-          <fieldset className="mdbase-feedback-topics" disabled={submitting}><legend className="mdbase-feedback-sr-only"><Trans>Feedback type</Trans></legend>{(Object.keys(feedbackTopics) as FeedbackTopic[]).map((value) => <label key={value}><input type="radio" name={`${id}-topic`} checked={topic === value} onChange={() => setTopic(value)} />{feedbackTopics[value].label}</label>)}</fieldset>
+          <fieldset className="mdbase-feedback-topics" disabled={submitting}><legend className="mdbase-feedback-sr-only">{t({ message: "Feedback type" })}</legend>{(Object.keys(feedbackTopics) as FeedbackTopic[]).map((value) => <label key={value}><input type="radio" name={`${id}-topic`} checked={topic === value} onChange={() => setTopic(value)} />{feedbackTopics[value].label}</label>)}</fieldset>
           <label className="mdbase-feedback-field"><span>{config.prompt}</span><textarea ref={messageField} required maxLength={FEEDBACK_MAX_MESSAGE_LENGTH} rows={5} placeholder={config.placeholder} value={message} disabled={submitting} onChange={(event) => setMessage(event.target.value)} /></label>
-          <label className="mdbase-feedback-field"><span><Trans>Reply email</Trans> <small><Trans>Optional</Trans></small></span><input type="email" maxLength={320} autoComplete="email" placeholder="you@example.com" value={replyEmail} disabled={submitting} onChange={(event) => setReplyEmail(event.target.value)} /></label>
+          <label className="mdbase-feedback-field"><span>{t({ message: "Reply email" })} <small>{t({ message: "Optional" })}</small></span><input type="email" maxLength={320} autoComplete="email" placeholder={t({ message: "you@example.com", comment: "Example email address, not user data." })} value={replyEmail} disabled={submitting} onChange={(event) => setReplyEmail(event.target.value)} /></label>
           <div className="mdbase-feedback-screenshot" role="group" aria-label={t({ message: "Screenshot" })}>
-            {screenshot && <><button className="mdbase-feedback-preview" type="button" disabled={imageBusy || submitting} onClick={() => { setIncludeScreenshot(false); setMarkup(true); }} aria-label={t({ message: "Mark up screenshot" })}><img src={screenshotUrl(screenshot)} alt={t({ message: "Screenshot attached to your feedback" })} /><span><Trans>Mark up screenshot</Trans></span></button><div className="mdbase-feedback-screenshot-actions"><label><input className="mdbase-checkbox" type="checkbox" checked={includeScreenshot} disabled={submitting} onChange={(event) => setIncludeScreenshot(event.target.checked)} /><Trans>Include screenshot</Trans></label><button type="button" disabled={imageBusy || submitting} onClick={() => { setScreenshot(null); setScreenshotError(""); setCaptureStatus(""); }}><Trans>Remove</Trans></button></div></>}
-            <div className="mdbase-feedback-screenshot-actions"><button type="button" disabled={imageBusy || submitting} onClick={() => void capture()}>{capturing ? t({ message: "Taking screenshot…" }) : screenshot ? t({ message: "Retake screenshot" }) : t({ message: "Attach screenshot" })}</button><label className="mdbase-feedback-upload"><span><Trans>Choose an image</Trans></span><input type="file" accept="image/png,image/jpeg" disabled={imageBusy || submitting} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void upload(file); }} /></label></div>
-            {screenshot && <p className="mdbase-feedback-help"><Trans>Review for private information before sending.</Trans></p>}
+            {screenshot && <><button className="mdbase-feedback-preview" type="button" disabled={imageBusy || submitting} onClick={() => { setIncludeScreenshot(false); setMarkup(true); }} aria-label={t({ message: "Mark up screenshot" })}><img src={screenshotUrl(screenshot)} alt={t({ message: "Screenshot attached to your feedback" })} /><span>{t({ message: "Mark up screenshot" })}</span></button><div className="mdbase-feedback-screenshot-actions"><label><input className="mdbase-checkbox" type="checkbox" checked={includeScreenshot} disabled={submitting} onChange={(event) => setIncludeScreenshot(event.target.checked)} />{t({ message: "Include screenshot" })}</label><button type="button" disabled={imageBusy || submitting} onClick={() => { setScreenshot(null); setScreenshotError(""); setCaptureStatus(""); }}>{t({ message: "Remove" })}</button></div></>}
+            <div className="mdbase-feedback-screenshot-actions"><button type="button" disabled={imageBusy || submitting} onClick={() => void capture()}>{capturing ? t({ message: "Taking screenshot…" }) : screenshot ? t({ message: "Retake screenshot" }) : t({ message: "Attach screenshot" })}</button><label className="mdbase-feedback-upload"><span>{t({ message: "Choose an image" })}</span><input type="file" accept="image/png,image/jpeg" disabled={imageBusy || submitting} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void upload(file); }} /></label></div>
+            {screenshot && <p className="mdbase-feedback-help">{t({ message: "Review for private information before sending." })}</p>}
             {captureStatus && <p className="mdbase-feedback-help" role="status">{captureStatus}</p>}{screenshotError && <p className="mdbase-feedback-error" role="alert">{screenshotError}</p>}
           </div>
-          <details className="mdbase-feedback-details"><summary><Trans>What gets sent</Trans></summary>
-            <p className="mdbase-feedback-help"><Trans>Your message, any reply email and included screenshot, plus these app and build details.</Trans></p>
+          <details className="mdbase-feedback-details"><summary>{t({ message: "What gets sent" })}</summary>
+            <p className="mdbase-feedback-help">{t({ message: "Your message, any reply email and included screenshot, plus these app and build details." })}</p>
             <pre>{JSON.stringify(application, null, 2)}</pre>
-            {collectionName && <label className="mdbase-feedback-check"><input className="mdbase-checkbox" type="checkbox" checked={includeCollection} disabled={submitting} onChange={(event) => setIncludeCollection(event.target.checked)} /><Trans>Include collection name:</Trans> {collectionName}</label>}
-            {topic === "problem" && <><label className="mdbase-feedback-check"><input className="mdbase-checkbox" type="checkbox" checked={includeDiagnostics} disabled={submitting} onChange={(event) => setIncludeDiagnostics(event.target.checked)} /><Trans>Include technical diagnostics</Trans></label><p className="mdbase-feedback-help"><Trans>Browser, OS, viewport and recent error codes. No note contents, paths or credentials.</Trans></p>{includeDiagnostics && <pre>{JSON.stringify(diagnostics, null, 2)}</pre>}</>}
-            <p className="mdbase-feedback-help"><Trans>Images: PNG or JPEG, up to 3 MB. Blackout replaces pixels; only the final image is attached.</Trans></p>
-            <p className="mdbase-feedback-help"><Trans>Replies aren’t guaranteed. Not for security reports or urgent support.</Trans></p>
+            {collectionName && <label className="mdbase-feedback-check"><input className="mdbase-checkbox" type="checkbox" checked={includeCollection} disabled={submitting} onChange={(event) => setIncludeCollection(event.target.checked)} />{t({ message: "Include collection name:" })} {collectionName}</label>}
+            {topic === "problem" && <><label className="mdbase-feedback-check"><input className="mdbase-checkbox" type="checkbox" checked={includeDiagnostics} disabled={submitting} onChange={(event) => setIncludeDiagnostics(event.target.checked)} />{t({ message: "Include technical diagnostics" })}</label><p className="mdbase-feedback-help">{t({ message: "Browser, OS, viewport and recent error codes. No note contents, paths or credentials." })}</p>{includeDiagnostics && <pre>{JSON.stringify(diagnostics, null, 2)}</pre>}</>}
+            <p className="mdbase-feedback-help">{t({ message: "Images: PNG or JPEG, up to 3 MB. Blackout replaces pixels; only the final image is attached." })}</p>
+            <p className="mdbase-feedback-help">{t({ message: "Replies aren’t guaranteed. Not for security reports or urgent support." })}</p>
           </details>
           {turnstileSiteKey && open && !capturing && <FeedbackVerification key={verificationAttempt} siteKey={turnstileSiteKey} onToken={setTurnstileToken} />}
           {submitError && <p className="mdbase-feedback-error" role="alert">{submitError}</p>}
-          <p className="mdbase-feedback-help"><Trans>Private feedback to the mdbase team.</Trans></p>
+          <p className="mdbase-feedback-help">{t({ message: "Private feedback to the mdbase team." })}</p>
         </div>
-        <footer className="mdbase-feedback-actions"><button type="button" disabled={submitting} onClick={close}><Trans>Cancel</Trans></button><button type="submit" className="mdbase-feedback-primary" disabled={submitting || imageBusy || !message.trim() || Boolean(turnstileSiteKey && !turnstileToken)}>{submitting ? t({ message: "Sending…" }) : t({ message: "Send feedback" })}</button></footer>
+        <footer className="mdbase-feedback-actions"><button type="button" disabled={submitting} onClick={close}>{t({ message: "Cancel" })}</button><button type="submit" className="mdbase-feedback-primary" disabled={submitting || imageBusy || !message.trim() || Boolean(turnstileSiteKey && !turnstileToken)}>{submitting ? t({ message: "Sending…" }) : t({ message: "Send feedback" })}</button></footer>
       </form>}
     </dialog>}
     {markup && screenshot && <FeedbackMarkup screenshot={screenshot} onClose={() => { setMarkup(false); setCaptureStatus(t({ message: "Markup discarded. Screenshot excluded." })); }} onApply={(next) => { setScreenshot(next); setIncludeScreenshot(true); setMarkup(false); setCaptureStatus("Markup applied."); }} />}
