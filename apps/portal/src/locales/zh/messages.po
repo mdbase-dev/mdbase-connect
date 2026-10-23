@@ -2315,466 +2315,466 @@ msgstr "打开编辑器"
 
 #: src/portal-ui.tsx
 msgid "Open editor <0>↗</0>"
-msgstr ""
+msgstr "打开编辑器 <0>↗</0>"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Open in {0}"
-msgstr ""
+msgstr "在 {0} 中打开"
 
 #: src/ConnectApp.tsx
 msgid "Open in editor"
-msgstr ""
+msgstr "在编辑器中打开"
 
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx
 msgid "Open mdbase connect"
-msgstr ""
+msgstr "打开 mdbase connect"
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx
 msgid "Open mdbase connect on {0} to make this collection available."
-msgstr ""
+msgstr "在 {0} 上打开 mdbase connect，使此集合可用。"
 
 #: src/onboarding-view.tsx
 msgid "Open mdbase Connect without it"
-msgstr ""
+msgstr "不使用它，直接打开 mdbase Connect"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Open menu"
-msgstr ""
+msgstr "打开菜单"
 
 #: src/portal-ui.tsx
 msgctxt "Connect interface"
 msgid "Open navigation"
-msgstr ""
+msgstr "打开导航"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Open registration"
-msgstr ""
+msgstr "开放注册"
 
 #: src/auth-view.tsx
 msgid "Open the complete password reset link from your email."
-msgstr ""
+msgstr "打开电子邮件中完整的密码重置链接。"
 
 #: src/authorization-view.tsx
 msgid "Open the desktop app to connect this computer, add a folder, and continue this same request."
-msgstr ""
+msgstr "打开桌面应用以连接此电脑、添加文件夹并继续处理同一个请求。"
 
 #: src/auth-view.tsx
 msgid "Open the link from the email again, or change email preferences in your account settings."
-msgstr ""
+msgstr "重新打开邮件中的链接，或在账户设置中更改电子邮件偏好。"
 
 #: src/ConnectApp.tsx
 msgid "Open the mdbase connect desktop app and choose Connect this computer."
-msgstr ""
+msgstr "打开 mdbase connect 桌面应用并选择“连接此电脑”。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "open this collection"
-msgstr ""
+msgstr "打开此集合"
 
 #: src/auth-view.tsx
 msgid "Open this through Tailscale"
-msgstr ""
+msgstr "通过 Tailscale 打开"
 
 #: src/auth-view.tsx
 msgid "Open your account"
-msgstr ""
+msgstr "打开你的账户"
 
 #: src/authority-workflows.tsx
 msgid "Open your collections"
-msgstr ""
+msgstr "打开你的集合"
 
 #: src/authorization-capabilities.ts
 msgid "Open, search, validate, and follow changes to records and saved views."
-msgstr ""
+msgstr "打开、搜索和验证记录及已保存视图，并关注它们的更改。"
 
 #: src/authorization-capabilities.ts
 msgid "Open, search, validate, and follow records and saved views; list file names and read file contents."
-msgstr ""
+msgstr "打开、搜索和验证记录及已保存视图，并关注它们的更改；列出文件名并读取文件内容。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Opening mdbase connect"
-msgstr ""
+msgstr "正在打开 mdbase connect"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Opening mdbase connect"
-msgstr ""
+msgstr "正在打开 mdbase connect"
 
 #: src/main.tsx
 #: src/portal-ui.tsx
 msgctxt "Connect interface"
 msgid "Opening mdbase connect…"
-msgstr ""
+msgstr "正在打开 mdbase connect…"
 
 #: src/auth-view.tsx
 msgid "or"
-msgstr ""
+msgstr "或"
 
 #: src/ApplicationAccess.tsx
 msgid "Origin"
-msgstr ""
+msgstr "来源"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Overview"
-msgstr ""
+msgstr "概览"
 
 #: src/authority-workflows.tsx
 #: src/ConnectApp.tsx
 msgid "Owner"
-msgstr ""
+msgstr "所有者"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Password"
-msgstr ""
+msgstr "密码"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Password changed"
-msgstr ""
+msgstr "密码已更改"
 
 #: src/AccountManagement.tsx
 msgid "Password changed. Other browser sessions were signed out."
-msgstr ""
+msgstr "密码已更改。其他浏览器会话已退出登录。"
 
 #: src/auth-view.tsx
 msgid "Password recovery is temporarily unavailable. You can still return to sign in."
-msgstr ""
+msgstr "密码恢复功能暂不可用。你仍可返回登录页面。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Passwords do not match."
-msgstr ""
+msgstr "两次输入的密码不一致。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Paused"
-msgstr ""
+msgstr "已暂停"
 
 #: src/ConnectApp.tsx
 msgid "Pending"
-msgstr ""
+msgstr "待处理"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Pending invitations"
-msgstr ""
+msgstr "待处理邀请"
 
 #: src/authorization-review.tsx
 msgid "People"
-msgstr ""
+msgstr "人员"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "People & sharing"
-msgstr ""
+msgstr "人员与共享"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "People permissions"
-msgstr ""
+msgstr "人员权限"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Permanent allowance"
-msgstr ""
+msgstr "永久额度"
 
 #: src/AccountManagement.tsx
 msgid "Permanent for hosted data. Local files are never removed from your computers."
-msgstr ""
+msgstr "托管数据将永久删除。本地文件绝不会从你的电脑上移除。"
 
 #: src/authorization-capabilities.ts
 msgid "Permanently delete records and files from this collection."
-msgstr ""
+msgstr "永久删除此集合中的记录和文件。"
 
 #: src/authorization-capabilities.ts
 msgid "Permanently delete records from this collection."
-msgstr ""
+msgstr "永久删除此集合中的记录。"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Permissions"
-msgstr ""
+msgstr "权限"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "person@example.com"
-msgstr ""
+msgstr "person@example.com"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Preparing {0}…"
-msgstr ""
+msgstr "正在准备 {0}…"
 
 #: src/onboarding-view.tsx
 msgid "Preparing a place to start."
-msgstr ""
+msgstr "正在准备开始所需的内容。"
 
 #: src/ApplicationAccess.tsx
 msgid "Previously approved · Collection no longer visible to your account"
-msgstr ""
+msgstr "之前已批准 · 此集合对你的账户不再可见"
 
 #: src/auth-view.tsx
 msgid "Privacy"
-msgstr ""
+msgstr "隐私"
 
 #: src/CollectionPicker.tsx
 msgid "Private"
-msgstr ""
+msgstr "私有"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Private collection"
-msgstr ""
+msgstr "私有集合"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "product updates"
-msgstr ""
+msgstr "产品动态"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Product updates"
-msgstr ""
+msgstr "产品动态"
 
 #: src/auth-view.tsx
 msgid "Public account creation is temporarily unavailable."
-msgstr ""
+msgstr "暂时无法公开创建账户。"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Read file contents"
-msgstr ""
+msgstr "读取文件内容"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Read records and files"
-msgstr ""
+msgstr "读取记录和文件"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Read this collection"
-msgstr ""
+msgstr "读取此集合"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Reauthorization required"
-msgstr ""
+msgstr "需要重新授权"
 
 #: src/CollectionPicker.tsx
 msgid "Recently used"
-msgstr ""
+msgstr "最近使用"
 
 #: src/authority-workflows.tsx
 msgid "Recovery"
-msgstr ""
+msgstr "恢复"
 
 #. placeholder {0}: new Date(connector.created_at).toLocaleString()
 #. placeholder {1}: connector.id.slice(-8)
 #: src/ConnectApp.tsx
 msgid "Registered {0} · ID {1}"
-msgstr ""
+msgstr "注册于 {0} · ID {1}"
 
 #. placeholder {0}: formatters(i18n.locale).date(new Date(entry.created_at), { dateStyle: "medium", timeStyle: "short" })
 #: src/ApplicationAccess.tsx
 msgid "Registered <0>{0}</0>"
-msgstr ""
+msgstr "已注册 <0>{0}</0>"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Registered computers"
-msgstr ""
+msgstr "已注册的电脑"
 
 #: src/ConnectApp.tsx
 msgid "Registered computers stay listed when offline. Revoking one also invalidates grants routed through it."
-msgstr ""
+msgstr "已注册的电脑即使离线也会保留在列表中。撤销某台电脑的权限也会使经由它转发的授权失效。"
 
 #: src/AccountManagement.tsx
 msgid "Registration"
-msgstr ""
+msgstr "注册"
 
 #: src/ConnectApp.tsx
 msgid "Reload Connect"
-msgstr ""
+msgstr "重新加载 Connect"
 
 #: src/authority-workflows.tsx
 msgid "Reminders are off. You can turn them on in the app by approving reminders again."
-msgstr ""
+msgstr "提醒已关闭。你可以在应用中重新批准提醒以将其开启。"
 
 #: src/authority-workflows.tsx
 msgid "Reminders will be off. You can finish setup and turn them on later in the app. Collection access stays unchanged."
-msgstr ""
+msgstr "提醒将保持关闭。你可以完成设置，稍后再在应用中开启。集合访问权限不变。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Remove"
-msgstr ""
+msgstr "移除"
 
 #. placeholder {0}: member.name
 #. placeholder {1}: collection.display_name
 #: src/ConnectApp.tsx
 msgid "Remove {0} from {1}? Their application and folder access will also be revoked."
-msgstr ""
+msgstr "从 {1} 中移除 {0}？他们对应用和文件夹的访问权限也将被撤销。"
 
 #. placeholder {0}: member.name
 #: src/ConnectApp.tsx
 msgid "Remove {0} from the unnamed collection? Their application and folder access will also be revoked."
-msgstr ""
+msgstr "从未命名的集合中移除 {0}？他们对应用和文件夹的访问权限也将被撤销。"
 
 #: src/authority-workflows.tsx
 msgid "Remove access"
-msgstr ""
+msgstr "移除访问权限"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Remove access"
-msgstr ""
+msgstr "移除访问权限"
 
 #. placeholder {0}: pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" })
 #: src/authority-workflows.tsx
 msgid "Removing access to {0}…"
-msgstr ""
+msgstr "正在移除对 {0} 的访问权限…"
 
 #: src/ConnectApp.tsx
 msgid "Removing application and folder access…"
-msgstr ""
+msgstr "正在移除应用和文件夹的访问权限…"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Removing…"
-msgstr ""
+msgstr "正在移除…"
 
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
 msgid "Rename"
-msgstr ""
+msgstr "重命名"
 
 #. placeholder {0}: collection.display_name
 #. placeholder {0}: connector.name
 #: src/ConnectApp.tsx
 msgid "Rename {0}"
-msgstr ""
+msgstr "重命名 {0}"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Replace existing files"
-msgstr ""
+msgstr "替换现有文件"
 
 #: src/auth-view.tsx
 msgid "Replacing your password signs out every other browser session connected to the account."
-msgstr ""
+msgstr "更换密码会让连接此账户的所有其他浏览器会话退出登录。"
 
 #. placeholder {0}: relativeTime(request.expires_at)
 #: src/authorization-view.tsx
 msgid "Request expires {0}"
-msgstr ""
+msgstr "请求于 {0} 过期"
 
 #. placeholder {0}: response.status
 #: src/api.ts
 msgid "Request failed with HTTP {0}."
-msgstr ""
+msgstr "请求失败，HTTP 状态码：{0}。"
 
 #: src/authorization-view.tsx
 msgid "Request unavailable"
-msgstr ""
+msgstr "请求不可用"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Requested access"
-msgstr ""
+msgstr "请求的访问权限"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Requested by {0}. No requesting origin is available."
-msgstr ""
+msgstr "由 {0} 请求。无法获取请求来源。"
 
 #. placeholder {0}: pairing.connector_name
 #. placeholder {1}: appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""
 #. placeholder {2}: pairing.app_origin?.trim() && <Trans> from <code>{pairing.app_origin}</code></Trans>
 #: src/authority-workflows.tsx
 msgid "Requested by {0}{1}{2}. Approve only if you started sign-in in this app."
-msgstr ""
+msgstr "由 {0}{1}{2} 请求。只有在你主动通过此应用登录时才批准。"
 
 #. placeholder {0}: pairing.app_origin
 #: src/authority-workflows.tsx
 msgid "Requested from <0>{0}</0>. The origin shown here is not proof of who made the request."
-msgstr ""
+msgstr "请求来自 <0>{0}</0>。此处显示的来源不能证明请求者的身份。"
 
 #: src/authorization-view.tsx
 msgid "Requests"
-msgstr ""
+msgstr "请求"
 
 #: src/authorization-review.tsx
 msgid "Required"
-msgstr ""
+msgstr "必需"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Reset your password"
-msgstr ""
+msgstr "重置密码"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Retry creation"
-msgstr ""
+msgstr "重试创建"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Retry Google sign-in"
-msgstr ""
+msgstr "重试 Google 登录"
 
 #: src/GoogleIdentityButton.tsx
 msgctxt "Connect interface"
 msgid "Retry Google sign-in"
-msgstr ""
+msgstr "重试 Google 登录"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Return to {0}"
-msgstr ""
+msgstr "返回 {0}"
 
 #. placeholder {0}: adoption.source_name
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Return to {0}."
-msgstr ""
+msgstr "返回 {0}。"
 
 #: src/authorization-view.tsx
 msgid "Return to {applicationName}"
-msgstr ""
+msgstr "返回 {applicationName}"
 
 #: src/authorization-view.tsx
 msgid "Return to {applicationName} and connect again to start a new request."
-msgstr ""
+msgstr "返回 {applicationName} 并重新连接，以发起新请求。"
 
 #: src/authorization-view.tsx
 msgid "Return to {applicationName}."
-msgstr ""
+msgstr "返回 {applicationName}。"
 
 #: src/authority-workflows.tsx
 msgid "Return to {mirrorName}."
-msgstr ""
+msgstr "返回 {mirrorName}。"
 
 #: src/authority-workflows.tsx
 msgid "Return to mdbase connect."
-msgstr ""
+msgstr "返回 mdbase connect。"
 
 #: src/AccountManagement.tsx
 #: src/auth-view.tsx
 msgid "Return to sign in"
-msgstr ""
+msgstr "返回登录页面"
 
 #: src/authority-workflows.tsx
 msgid "Return to your account"
-msgstr ""
+msgstr "返回你的账户"
 
 #: src/authority-workflows.tsx
 msgid "Return to your computer."
