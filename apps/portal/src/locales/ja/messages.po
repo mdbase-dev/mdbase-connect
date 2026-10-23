@@ -2507,7 +2507,7 @@ msgstr "権限"
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "person@example.com"
-msgstr "person@example.com"
+msgstr "taro@example.com"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
@@ -3719,7 +3719,7 @@ msgstr "ファイルを操作"
 
 #: src/authorization-view.tsx
 msgid "Workouts"
-msgstr "Workouts"
+msgstr "ワークアウト"
 
 #: src/authority-workflows.tsx
 msgid "Writes pause during verification, then hosted access is retired."
