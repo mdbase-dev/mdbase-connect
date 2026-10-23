@@ -1,4 +1,4 @@
-import { t } from "@lingui/core/macro";
+import { select, t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import { observeProviderWidth } from "@mdbase/connect-ui/provider-button";
@@ -327,14 +327,16 @@ export function Unsubscribe({ unsubscribeToken }: { unsubscribeToken: string }) 
     }
   }
 
-  const topic = unsubscribed === "product_updates" ? t(i18n)({ message: "product updates", context: "Account sign-in" }) : "announcements";
   return (
     <MinimalAuthPage>
       <section className="auth-panel">
         <h1>{unsubscribed ? t(i18n)({ message: "You’re unsubscribed", context: "Account sign-in" }) : unsubscribeToken ? t(i18n)({ message: "Unsubscribe from mdbase email" }) : t(i18n)({ message: "This unsubscribe link can’t be opened" })}</h1>
         <p role={unsubscribed ? "status" : undefined} aria-live={unsubscribed ? "polite" : undefined}>
           {unsubscribed
-            ? t(i18n)`You won’t receive ${topic} from mdbase Connect. Messages about your account, such as verification and security email, are still sent.`
+            ? select(unsubscribed, {
+              product_updates: "You won’t receive product updates from mdbase Connect. Messages about your account, such as verification and security email, are still sent.",
+              other: "You won’t receive announcements from mdbase Connect. Messages about your account, such as verification and security email, are still sent.",
+            })
             : unsubscribeToken
               ? t(i18n)({ message: "Stop receiving the kind of email this link came in. Messages about your account are still sent." })
               : t(i18n)({ message: "Open the link from the email again, or change email preferences in your account settings." })}

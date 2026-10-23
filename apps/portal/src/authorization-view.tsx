@@ -792,7 +792,7 @@ function SupportedApprovalForm({
             <summary>{compatible.length > 0 ? t(i18n)({ message: "Add or connect another collection" }) : t(i18n)({ message: "Choose another way", context: "Application access approval" })}</summary>
             <div>
               {unavailable.length > 0 && <div className="collection-compatibility">
-                <strong><Trans>{plural(unavailable.length, { one: "# collection is unavailable", other: "# collections are unavailable" })}</Trans></strong>
+                <strong>{plural(unavailable.length, { one: "# collection is unavailable", other: "# collections are unavailable" })}</strong>
                 <ul>{unavailable.map(({ collection, compatibility }) => <li key={collection.id}><span>{collection.display_name}</span><small>{compatibility.compatible ? "" : compatibility.detail}</small></li>)}</ul>
               </div>}
               {unavailableConnectors.length > 0 && <p className="field-note" role="status"><Trans>
