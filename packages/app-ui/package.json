@@ -111,7 +111,7 @@
     "README.md"
   ],
   "scripts": {
-    "verify:shared": "pnpm build && pnpm test && pnpm --filter @mdbase/connect-ui build && pnpm --filter @mdbase/connect-ui test && pnpm --filter @mdbase/connect-ui typecheck",
+    "verify:shared": "pnpm --filter @mdbase-dev/i18n build && pnpm i18n:check && pnpm --filter @mdbase/connect-ui i18n:check && pnpm build && pnpm test && pnpm --filter @mdbase/connect-ui build && pnpm --filter @mdbase/connect-ui test && pnpm --filter @mdbase/connect-ui typecheck",
     "i18n:extract": "mdbase-i18n extract",
     "i18n:compile": "mdbase-i18n compile",
     "i18n:check": "mdbase-i18n check",

@@ -5,5 +5,104 @@
       "connect",
       "ABCD-EFGH"
     ]
+  },
+  "allowIdentical": {
+    "fr": [
+      "2UOALe",
+      "6OKbKV",
+      "84QGRz",
+      "8cq4o5",
+      "9wl9v9",
+      "C7DB9P",
+      "GMjCPM",
+      "J_hVSQ",
+      "PQ5zRM",
+      "TQVSVS",
+      "XdavYY",
+      "bTQKqm",
+      "fL7WXr",
+      "q-hNag",
+      "qoCfDr"
+    ],
+    "de": [
+      "1H82UP",
+      "2UOALe",
+      "6Aih4U",
+      "6OKbKV",
+      "6YtxFj",
+      "8cq4o5",
+      "9wl9v9",
+      "J_hVSQ",
+      "KEtwqs",
+      "KfToo8",
+      "PQ5zRM",
+      "URmyfc",
+      "XdavYY",
+      "bTQKqm",
+      "dfNK0-",
+      "e_qO2v",
+      "kcrD_3",
+      "oXOSPE",
+      "obkpF7",
+      "uAQUqI",
+      "vEOpiq"
+    ],
+    "es": [
+      "2UOALe",
+      "6OKbKV",
+      "8cq4o5",
+      "9wl9v9",
+      "J_hVSQ",
+      "KfToo8",
+      "PQ5zRM",
+      "bTQKqm",
+      "kcrD_3",
+      "make-G"
+    ],
+    "ja": [
+      "2UOALe",
+      "6OKbKV",
+      "8cq4o5",
+      "9wl9v9",
+      "J_hVSQ",
+      "PQ5zRM",
+      "bTQKqm"
+    ],
+    "ko": [
+      "2UOALe",
+      "6OKbKV",
+      "8cq4o5",
+      "9wl9v9",
+      "BzK8gP",
+      "J_hVSQ",
+      "PQ5zRM",
+      "bTQKqm"
+    ],
+    "pt": [
+      "2UOALe",
+      "6OKbKV",
+      "8cq4o5",
+      "9wl9v9",
+      "J_hVSQ",
+      "PQ5zRM",
+      "bTQKqm"
+    ],
+    "ru": [
+      "2UOALe",
+      "6OKbKV",
+      "9wl9v9",
+      "J_hVSQ",
+      "PQ5zRM",
+      "bTQKqm"
+    ],
+    "zh": [
+      "2UOALe",
+      "6OKbKV",
+      "8cq4o5",
+      "9wl9v9",
+      "J_hVSQ",
+      "PQ5zRM",
+      "bTQKqm"
+    ]
   }
 }
