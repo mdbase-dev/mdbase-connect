@@ -56,6 +56,8 @@ export interface TakeoverStatus {
   holds?: Record<string, TakeoverHold[]>;
   held_interrupted_writes?: number;
   waiting_for_migration_batch?: boolean;
+  /** Why the move waits: `sign_in`, `account_not_upgraded` or `unreachable`. */
+  waiting_reason?: string | null;
   /** The server's last answer: the account is on mdbase Connect (not upgraded
    * yet, or its upgrade was rolled back). Absent from older daemons. */
   account_legacy?: boolean;
@@ -252,12 +254,26 @@ export function presentTakeover(
     if (status.waiting_for_migration_batch) {
       // The server has not allowed a move: it would refuse to retire the old
       // connector, so there is nothing to start here.
+      const until = "Until then, mdbase Connect keeps syncing them. Your files stay where they are.";
+      if (status.waiting_reason === "sign_in") {
+        return {
+          ...hidden,
+          visible: true,
+          tone: "info",
+          title: "Sign in to finish moving your collections",
+          detail: `Your collections move from mdbase Connect to this app as soon as this computer is signed in. ${until}`,
+          incidents,
+          notices
+        };
+      }
       return {
         ...hidden,
         visible: true,
         tone: "info",
         title: "Your collections still use mdbase Connect",
-        detail: "They move to the new sync engine automatically once your mdbase account is upgraded. Until then, mdbase Connect keeps syncing them. Your files stay where they are.",
+        detail: status.waiting_reason === "unreachable"
+          ? `They move to the new sync engine as soon as mdbase can reach the mdbase server. ${until}`
+          : `They move to the new sync engine automatically once your mdbase account is upgraded. ${until}`,
         incidents,
         notices
       };

@@ -652,6 +652,31 @@ pub fn not_allowed_error(account_legacy: bool) -> crate::control::ControlError {
     )
 }
 
+/// Takeover waits for this computer to be signed in to mdbase.
+pub const WAIT_SIGN_IN: &str = "sign_in";
+/// Takeover waits for the account's upgrade (the server says legacy Connect).
+pub const WAIT_ACCOUNT_LEGACY: &str = "account_not_upgraded";
+/// Signed in, but the server's permission could not be read (offline).
+pub const WAIT_UNREACHABLE: &str = "unreachable";
+
+/// The doctor wording for a waiting takeover: (detail, action).
+pub fn waiting_check_text(reason: Option<&str>) -> (&'static str, &'static str) {
+    match reason {
+        Some(WAIT_SIGN_IN) => (
+            "waiting for sign-in",
+            "Sign in to finish moving your collections (`mdbase account sign-in`). Until then mdbase Connect keeps serving them; nothing is changed.",
+        ),
+        Some(WAIT_UNREACHABLE) => (
+            "waiting for the mdbase server",
+            "mdbase could not reach the server to confirm the move; it retries on its own. Legacy state is untouched.",
+        ),
+        _ => (
+            "waiting for migration batch",
+            "Automatic takeover waits for Connect to release this account's migration batch; legacy state is untouched.",
+        ),
+    }
+}
+
 /// The server's takeover state: one run at a time, and what the last one found.
 #[derive(Debug, Default)]
 pub struct Gate {
@@ -661,6 +686,9 @@ pub struct Gate {
     pub revived: std::sync::atomic::AtomicBool,
     /// Automatic takeover is waiting for a flipped account's server permission.
     pub waiting_for_batch: std::sync::atomic::AtomicBool,
+    /// Why it is waiting, while it is: [`WAIT_SIGN_IN`], [`WAIT_ACCOUNT_LEGACY`]
+    /// or [`WAIT_UNREACHABLE`].
+    pub waiting_reason: std::sync::Mutex<Option<&'static str>>,
     /// The last definite rollout answer said the account is on legacy Connect
     /// (not upgraded yet, or its upgrade was rolled back).
     pub account_legacy: std::sync::atomic::AtomicBool,

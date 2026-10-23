@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Dialog } from "@mdbase-dev/ui/dialog";
 import { presentCollection } from "./daemon-view.mjs";
 import { Empty, SectionHeading, StatusDot } from "./ui-components";
-import { message, plural, relativeTime } from "./view-model";
+import { message, plural, relativeTime, syncEnableMessage } from "./view-model";
 import type { TakeoverHold } from "./takeover-state.mjs";
 
 type Act = (action: () => Promise<unknown>) => Promise<void>;
@@ -16,6 +16,8 @@ export function CollectionsView({ collections, busy, onAdd, onCreate, onAct, onN
   onNotice(value: string): void;
 }) {
   const [syncTarget, setSyncTarget] = useState<DaemonCollection | null>(null);
+  const [syncFailure, setSyncFailure] = useState<string | null>(null);
+  const openSync = (collection: DaemonCollection | null) => { setSyncFailure(null); setSyncTarget(collection); };
   const sorted = [...collections].sort((a, b) => a.name.localeCompare(b.name));
   return (
     <div className="workspace-stack">
@@ -27,12 +29,19 @@ export function CollectionsView({ collections, busy, onAdd, onCreate, onAct, onN
         {sorted.length === 0
           ? <Empty title="No collections yet" text="Add a folder of Markdown notes or create a new collection." />
           : <div className="collection-list">{sorted.map((collection) => (
-            <CollectionCard key={collection.id} collection={collection} busy={busy} onAct={onAct} onNotice={onNotice} onTurnOnSync={() => setSyncTarget(collection)} />
+            <CollectionCard key={collection.id} collection={collection} busy={busy} onAct={onAct} onNotice={onNotice} onTurnOnSync={() => openSync(collection)} />
           ))}</div>}
       </section>
-      {syncTarget && <TurnOnSyncDialog collection={syncTarget} busy={busy} onAct={onAct} onClose={() => setSyncTarget(null)} onConfirm={(mode, acceptTakeoverHolds) => onAct(async () => {
-        await window.mdbaseConnect.enableSync(syncTarget.id, mode, acceptTakeoverHolds);
-        setSyncTarget(null);
+      {syncTarget && <TurnOnSyncDialog collection={syncTarget} busy={busy} error={syncFailure} onAct={onAct} onClose={() => openSync(null)} onConfirm={(mode, acceptTakeoverHolds) => onAct(async () => {
+        setSyncFailure(null);
+        try {
+          await window.mdbaseConnect.enableSync(syncTarget.id, mode, acceptTakeoverHolds);
+        } catch (error) {
+          // Shown in the dialog the user is looking at, not behind it.
+          setSyncFailure(syncEnableMessage(error));
+          return;
+        }
+        openSync(null);
         onNotice(mode === "private" ? `${syncTarget.name} now syncs privately.` : `${syncTarget.name} now syncs.`);
       })} />}
     </div>
@@ -184,9 +193,11 @@ function Holds({ collection, busy, onAct, onLoaded }: {
  * older build) still reports them through the takeover status: they are then listed
  * here and must be checked before sync is turned on with them as they are.
  */
-function TurnOnSyncDialog({ collection, busy, onAct, onClose, onConfirm }: {
+function TurnOnSyncDialog({ collection, busy, error, onAct, onClose, onConfirm }: {
   collection: DaemonCollection;
   busy: boolean;
+  /** Why the last attempt to turn on sync failed, in plain words. */
+  error: string | null;
   onAct: Act;
   onClose(): void;
   onConfirm(mode: "private" | "cloud-copy", acceptTakeoverHolds: boolean): Promise<void>;
@@ -215,6 +226,7 @@ function TurnOnSyncDialog({ collection, busy, onAct, onClose, onConfirm }: {
       <p className="eyebrow">Sync</p>
       <p>Your other devices get a copy and stay up to date. The folder stays where it is{takeover?.takenOver ? ", and the files already in it become the first synced version" : ""}.</p>
       {failure && <p className="message error-message" role="alert">{failure}</p>}
+      {error && <p className="message error-message" role="alert">{error}</p>}
       {holds !== null && holds.length > 0 && <p>Choose a version for each of these files before turning on sync.</p>}
       <div hidden={holds !== null && holds.length === 0}>
         <Holds collection={collection} busy={busy} onAct={onAct} onLoaded={holdsLoaded} />

@@ -15,6 +15,29 @@ export function message(error: unknown): string {
   }
   return detail;
 }
+/** Why turning on sync failed, in plain words (the daemon's text is technical). */
+export function syncEnableMessage(error: unknown): string {
+  const detail = message(error);
+  const unchanged = "The folder and its files are unchanged.";
+  if (/no authenticated trust|trust_missing|cannot sync yet/i.test(detail)) {
+    return `This version of mdbase can't turn on sync. Update mdbase, then try again. ${unchanged}`;
+  }
+  if (/sign this computer in|not_signed_in|sign in to mdbase/i.test(detail)) {
+    return `Sign in to mdbase on this computer, then try again. ${unchanged}`;
+  }
+  if (/old mdbase connect|old_connector_running/i.test(detail)) {
+    return `The old mdbase Connect is still running on this computer. Quit it, then try again. ${unchanged}`;
+  }
+  if (/could not reach|unreachable|timed out|network/i.test(detail)) {
+    return `mdbase could not reach the sync service. Check your connection and try again. ${unchanged}`;
+  }
+  if (/sync settings could not be verified|sync_config_invalid/i.test(detail)) {
+    return `mdbase could not verify the sync service for this computer. Update mdbase or contact support@mdbase.dev. ${unchanged}`;
+  }
+  const sentence = detail.charAt(0).toUpperCase() + detail.slice(1);
+  return `Sync could not be turned on: ${/[.!?]$/.test(sentence) ? sentence : `${sentence}.`} ${unchanged}`;
+}
+
 export function plural(count: number, singular: string, pluralValue: string) { return count === 1 ? singular : pluralValue; }
 export function relativeTime(value: string) {
   const date = new Date(value.includes("T") ? value : `${value.replace(" ", "T")}Z`);

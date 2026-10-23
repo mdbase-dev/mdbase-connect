@@ -225,6 +225,7 @@ export function describeActivity(entry: ActivityLike): string {
     case "collection_paused": return `${collection} was paused`;
     case "collection_resumed": return `${collection} was resumed`;
     case "collection_joined": return `${collection} was joined from your account`;
+    case "collection_taken_over": return `${collection} moved here from mdbase Connect (its files were not touched)`;
     case "sync_enabled": return `${collection} now syncs${entry.detail === "synced_e2e" ? " privately" : ""}`;
     case "sync_disabled": return `${collection} stopped syncing`;
     case "app_connected": return `${app} can now use ${collection}`;

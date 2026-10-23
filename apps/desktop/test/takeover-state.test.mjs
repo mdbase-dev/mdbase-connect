@@ -13,6 +13,13 @@ test("no old engine and nothing waiting shows nothing; a closed rollout gate exp
     assert.equal(waiting.title, "Your collections still use mdbase Connect");
     assert.match(waiting.detail, /automatically once your mdbase account is upgraded/);
   }
+  const signIn = presentTakeover({ ...base, waiting_for_migration_batch: true, waiting_reason: "sign_in" });
+  assert.equal(signIn.title, "Sign in to finish moving your collections");
+  assert.match(signIn.detail, /as soon as this computer is signed in/);
+  assert.doesNotMatch(signIn.detail, /upgraded/);
+  assert.equal(signIn.canStart, false);
+  assert.match(presentTakeover({ ...base, waiting_for_migration_batch: true, waiting_reason: "unreachable" }).detail, /can reach the mdbase server/);
+  assert.match(presentTakeover({ ...base, waiting_for_migration_batch: true, waiting_reason: "account_not_upgraded" }).detail, /once your mdbase account is upgraded/);
   assert.equal(presentTakeover({ ...base, error: "boom" }).canStart, true);
   assert.equal(presentTakeover({ ...base, error: "boom", account_legacy: true }).canStart, false);
 });

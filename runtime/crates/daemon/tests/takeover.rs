@@ -102,11 +102,13 @@ async fn automatic_takeover_waits_for_a_flipped_batch_and_fails_closed() {
         assert!(!profile.store_ids_file().exists());
         assert!(!old.join("daemon.lock").exists());
     };
-    until("batch wait", || async {
+    let waiting = until("batch wait", || async {
         let s = status(&profile).await;
         (s["waiting_for_migration_batch"] == true).then_some(s)
     })
     .await;
+    // Not signed in yet: that, not the account's upgrade, is what it waits for.
+    assert_eq!(waiting["waiting_reason"], "sign_in");
     assert_untouched();
     let mut anon = ControlClient::connect(&profile.control).await.unwrap();
     match anon.call(Method::MIGRATE_START, json!({})).await {
@@ -121,7 +123,9 @@ async fn automatic_takeover_waits_for_a_flipped_batch_and_fails_closed() {
     assert!(
         checks
             .iter()
-            .any(|c| c.id == "takeover" && c.detail == "waiting for migration batch")
+            .any(|c| c.id == "takeover"
+                && c.detail == "waiting for sign-in"
+                && c.action.as_deref().is_some_and(|a| a.contains("Sign in to finish moving")))
     );
 
     use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
@@ -163,6 +167,10 @@ async fn automatic_takeover_waits_for_a_flipped_batch_and_fails_closed() {
         }
         assert_untouched();
         assert_eq!(status(&profile).await["account_legacy"], denied == 3);
+        assert_eq!(
+            status(&profile).await["waiting_reason"],
+            if denied == 3 { "account_not_upgraded" } else { "unreachable" }
+        );
         if denied == 3 {
             // A control client cannot reintroduce the removed CLI bypass.
             match c

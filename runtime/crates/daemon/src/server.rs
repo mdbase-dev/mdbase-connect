@@ -3291,16 +3291,45 @@ impl Daemon {
         let gate = self.takeover_rollout().await;
         if gate != crate::takeover::RolloutGate::Allowed {
             self.refence_old_service(old).await;
+            let signed_in = self.authority.incarnation().is_some()
+                && matches!(
+                    crate::cloud::CloudConfig::load(&self.profile.cloud_file()),
+                    Ok(Some(_))
+                );
+            let reason = if gate == crate::takeover::RolloutGate::Legacy {
+                crate::takeover::WAIT_ACCOUNT_LEGACY
+            } else if !signed_in {
+                crate::takeover::WAIT_SIGN_IN
+            } else {
+                crate::takeover::WAIT_UNREACHABLE
+            };
+            *self
+                .takeover
+                .waiting_reason
+                .lock()
+                .unwrap_or_else(|p| p.into_inner()) = Some(reason);
             self.takeover
                 .waiting_for_batch
                 .store(true, std::sync::atomic::Ordering::Relaxed);
             if automatic {
                 return self.takeover_status().await;
             }
+            if reason == crate::takeover::WAIT_SIGN_IN {
+                return Err(ControlError::new(
+                    "unauthenticated",
+                    "not_signed_in",
+                    "Sign in to finish moving your collections (`mdbase account sign-in`). Nothing was changed.",
+                ));
+            }
             return Err(crate::takeover::not_allowed_error(
                 gate == crate::takeover::RolloutGate::Legacy,
             ));
         }
+        *self
+            .takeover
+            .waiting_reason
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = None;
         self.takeover
             .waiting_for_batch
             .store(false, std::sync::atomic::Ordering::Relaxed);
@@ -3373,6 +3402,12 @@ impl Daemon {
                 .await
                 .map(|_| ())
             };
+            if outcome.is_ok() && !known {
+                let mut e = crate::activity::ActivityEntry::now("collection_taken_over");
+                e.collection = Some(t.collection.clone());
+                e.collection_name = Some(t.name.clone());
+                self.activity.record(e);
+            }
             let saved = match outcome {
                 Ok(()) => crate::takeover::mark_registered(&paths, &t.collection, &now),
                 Err(e) => {
@@ -3564,6 +3599,7 @@ impl Daemon {
             "holds": holds,
             "held_interrupted_writes": record.as_ref().map(|r| r.held_interrupted_writes()).unwrap_or(0),
             "waiting_for_migration_batch": self.takeover.waiting_for_batch.load(std::sync::atomic::Ordering::Relaxed),
+            "waiting_reason": *self.takeover.waiting_reason.lock().unwrap_or_else(|p| p.into_inner()),
             "account_legacy": self.takeover.account_legacy.load(std::sync::atomic::Ordering::Relaxed),
             "retirement": self.takeover.retirement.lock().unwrap_or_else(|p| p.into_inner()).clone(),
             "private_sync_pending": self.private_sync_pending().await,
@@ -3594,12 +3630,23 @@ impl Daemon {
         let record = match Record::load(&self.takeover_paths().record) {
             Ok(Some(r)) => r,
             Ok(None) => {
-                return self.takeover.waiting_for_batch.load(std::sync::atomic::Ordering::Relaxed).then(|| Check {
-                    id: "takeover".into(),
-                    status: "warn".into(),
-                    detail: "waiting for migration batch".into(),
-                    action: Some("Automatic takeover waits for Connect to release this account's migration batch; legacy state is untouched.".into()),
-                });
+                let (detail, action) = crate::takeover::waiting_check_text(
+                    *self
+                        .takeover
+                        .waiting_reason
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner()),
+                );
+                return self
+                    .takeover
+                    .waiting_for_batch
+                    .load(std::sync::atomic::Ordering::Relaxed)
+                    .then(|| Check {
+                        id: "takeover".into(),
+                        status: "warn".into(),
+                        detail: detail.into(),
+                        action: Some(action.into()),
+                    });
             }
             Err(e) => {
                 return Some(Check {
@@ -3661,7 +3708,15 @@ impl Daemon {
             .waiting_for_batch
             .load(std::sync::atomic::Ordering::Relaxed)
         {
-            detail.push_str("; waiting for migration batch");
+            let (waiting, _) = crate::takeover::waiting_check_text(
+                *self
+                    .takeover
+                    .waiting_reason
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner()),
+            );
+            detail.push_str("; ");
+            detail.push_str(waiting);
         }
         if revived {
             detail.push_str("; old_connector_revived");
@@ -3758,6 +3813,24 @@ impl Daemon {
             action: (self.secrets.backend() != "keychain")
                 .then(|| "Test-only backend; never use it for real collections.".into()),
         });
+        checks.push(match &self.trust {
+            Some(t) => Check {
+                id: "trust".into(),
+                status: "ok".into(),
+                detail: format!("synced collections trust the {} service", t.environment),
+                action: None,
+            },
+            None => Check {
+                id: "trust".into(),
+                status: "fail".into(),
+                detail: "this build has no authenticated trust for synced collections".into(),
+                action: Some(
+                    "Update mdbase. Until then collections stay on this computer only and \
+                     turning on sync refuses; your files are not affected."
+                        .into(),
+                ),
+            },
+        });
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -3803,6 +3876,7 @@ impl Daemon {
                 &self.profile.state_dir.join("collections"),
                 h.entry(),
                 self.auto_private.failure(&s.id),
+                self.trust.is_some(),
             ) {
                 checks.push(c);
             }
@@ -4325,6 +4399,7 @@ fn adopt_check(
     collections: &std::path::Path,
     e: &crate::registry::Entry,
     failure: Option<String>,
+    trusted: bool,
 ) -> Option<Check> {
     let journal = crate::adopt::Journal::path(collections, &e.id);
     let pending = journal.exists();
@@ -4341,6 +4416,29 @@ fn adopt_check(
         .as_deref()
         .map(|r| format!(" ({}: {r})", crate::auto_private::explain(r)))
         .unwrap_or_default();
+    // Without trust, `mdbase sync enable` refuses too: do not recommend it.
+    if !trusted && (pending || (migrated && !e.paused)) {
+        return Some(Check {
+            id: format!("adopt:{}", e.id),
+            status: "warn".into(),
+            detail: if pending {
+                format!(
+                    "{}: turning sync on was interrupted; this build cannot sync{why}",
+                    e.name
+                )
+            } else {
+                format!(
+                    "{}: taken over from mdbase Connect; Private sync is not on yet because this build cannot sync{why}",
+                    e.name
+                )
+            },
+            action: Some(
+                "Update mdbase; it then turns on Private sync by itself. The folder stays on this \
+                 computer and your files are not affected."
+                    .into(),
+            ),
+        });
+    }
     if pending {
         return Some(Check {
             id: format!("adopt:{}", e.id),

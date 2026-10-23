@@ -443,12 +443,13 @@ export function Pairing({ pairingId }: { pairingId: string }) {
           </>
         ) : (
           <>
-            <p className="eyebrow">New computer</p>
+            <p className="eyebrow">Sign in on a computer</p>
             <h1>{pairing.connector_name}</h1>
             <p>
-              Allow this computer to connect to your account. It will publish
-              collection names and route application requests, but not local
-              folder paths.
+              Allow mdbase on this computer to use your account. This is needed
+              after installing or updating the desktop app, even on a computer
+              you used before. It will publish collection names and route
+              application requests, but not local folder paths.
             </p>
             <div className="decision-actions">
               <a className="button secondary link-button" href="/">
