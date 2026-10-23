@@ -50,7 +50,7 @@ export function inspectUiSource(source, file = "component.tsx", options = {}) {
     source,
     ts.ScriptTarget.Latest,
     true,
-    file.endsWith("tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+    /\.[jt]sx$/.test(file) ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
   const issues = [];
   const add = (node, kind, text) =>
