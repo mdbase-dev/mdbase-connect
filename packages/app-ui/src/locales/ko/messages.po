@@ -16,11 +16,6 @@ msgstr "(새 탭에서 열림)"
 msgid "{0, plural, one {# more changed line} other {# more changed lines}}"
 msgstr "{0, plural, other {변경된 줄 #개 더}}"
 
-#. placeholder {0}: changes - shownChanges
-#: src/text-diff.ts
-#~ msgid "{0} more changed lines"
-#~ msgstr ""
-
 #. placeholder {0}: signIn.accountLogin
 #: src/collections/model.ts
 msgid "{0} on GitHub"
@@ -202,11 +197,6 @@ msgstr "닫기"
 msgctxt "Collection access interface"
 msgid "Close"
 msgstr "닫기"
-
-#. placeholder {0}: label.toLowerCase()
-#: src/CommandPalette.tsx
-#~ msgid "Close {0}"
-#~ msgstr ""
 
 #: src/CommandPalette.tsx
 msgid "Close {label}"
@@ -391,10 +381,6 @@ msgstr "접근 관리"
 #: src/FeedbackMarkup.tsx
 msgid "Mark up screenshot"
 msgstr "스크린샷에 표시"
-
-#: src/FeedbackMarkup.tsx
-#~ msgid "marks applied."
-#~ msgstr ""
 
 #: src/Feedback.tsx
 msgid "Markup discarded. Screenshot excluded."

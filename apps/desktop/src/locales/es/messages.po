@@ -37,11 +37,6 @@ msgstr "{0, plural, one {# cambio por cargar} other {# cambios por cargar}}"
 msgid "{0, plural, one {# collection} other {# collections}}"
 msgstr "{0, plural, one {# colección} other {# colecciones}}"
 
-#. placeholder {0}: unlisted.length
-#: src/renderer/collections-view.tsx
-#~ msgid "{0, plural, one {# file} other {# files}}"
-#~ msgstr "{0, plural, one {# archivo} other {# archivos}}"
-
 #. placeholder {0}: sync.unresolved
 #: src/renderer/daemon-view.mts
 msgid "{0, plural, one {# unresolved conflict} other {# unresolved conflicts}}"

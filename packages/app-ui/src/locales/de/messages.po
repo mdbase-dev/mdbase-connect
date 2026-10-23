@@ -16,11 +16,6 @@ msgstr "(öffnet sich in einem neuen Tab)"
 msgid "{0, plural, one {# more changed line} other {# more changed lines}}"
 msgstr "{0, plural, one {# weitere geänderte Zeile} other {# weitere geänderte Zeilen}}"
 
-#. placeholder {0}: changes - shownChanges
-#: src/text-diff.ts
-#~ msgid "{0} more changed lines"
-#~ msgstr ""
-
 #. placeholder {0}: signIn.accountLogin
 #: src/collections/model.ts
 msgid "{0} on GitHub"
@@ -202,11 +197,6 @@ msgstr "Schließen"
 msgctxt "Collection access interface"
 msgid "Close"
 msgstr "Schließen"
-
-#. placeholder {0}: label.toLowerCase()
-#: src/CommandPalette.tsx
-#~ msgid "Close {0}"
-#~ msgstr ""
 
 #: src/CommandPalette.tsx
 msgid "Close {label}"
@@ -391,10 +381,6 @@ msgstr "Zugriff verwalten"
 #: src/FeedbackMarkup.tsx
 msgid "Mark up screenshot"
 msgstr "Screenshot markieren"
-
-#: src/FeedbackMarkup.tsx
-#~ msgid "marks applied."
-#~ msgstr ""
 
 #: src/Feedback.tsx
 msgid "Markup discarded. Screenshot excluded."

@@ -37,11 +37,6 @@ msgstr "{0, plural, one {# изменение для отправки} few {# и
 msgid "{0, plural, one {# collection} other {# collections}}"
 msgstr "{0, plural, one {# коллекция} few {# коллекции} many {# коллекций} other {# коллекции}}"
 
-#. placeholder {0}: unlisted.length
-#: src/renderer/collections-view.tsx
-#~ msgid "{0, plural, one {# file} other {# files}}"
-#~ msgstr "{0, plural, one {# файл} few {# файла} many {# файлов} other {# файла}}"
-
 #. placeholder {0}: sync.unresolved
 #: src/renderer/daemon-view.mts
 msgid "{0, plural, one {# unresolved conflict} other {# unresolved conflicts}}"

@@ -43,6 +43,11 @@ Don't translate eagerly at module scope, nest `t` inside another `t` interpolati
 or use translations in comparisons, lookups or CSS identifiers.
 
 Run extract, author all eight target PO files, then check. PO is the authoring source.
+The kit's `compile` and `check` commands prune obsolete entries from configured PO
+files before Lingui compilation or fallback resolution. Compiled JSON contains only
+active messages; still-active translations are preserved. Package builds must use
+`mdbase-i18n compile`, not direct `lingui compile`, which includes obsolete entries
+in Lingui 6.9. The Connect apps/shared UI use this same kit compile boundary.
 The check runs extraction sync, raw-PO completeness **before fallback**, generated IDs,
 ICU argument/type, select/exact numeric cases, offset, pound and numeric React-tag
 contracts, strict JSON compilation and the structural source guard. Plural categories

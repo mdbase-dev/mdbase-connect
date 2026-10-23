@@ -37,11 +37,6 @@ msgstr "{0, plural, other {업로드할 변경 사항 #개}}"
 msgid "{0, plural, one {# collection} other {# collections}}"
 msgstr "{0, plural, other {컬렉션 #개}}"
 
-#. placeholder {0}: unlisted.length
-#: src/renderer/collections-view.tsx
-#~ msgid "{0, plural, one {# file} other {# files}}"
-#~ msgstr "{0, plural, other {파일 #개}}"
-
 #. placeholder {0}: sync.unresolved
 #: src/renderer/daemon-view.mts
 msgid "{0, plural, one {# unresolved conflict} other {# unresolved conflicts}}"

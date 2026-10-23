@@ -16,11 +16,6 @@ msgstr "(открывается в новой вкладке)"
 msgid "{0, plural, one {# more changed line} other {# more changed lines}}"
 msgstr "{0, plural, one {Ещё # изменённая строка} few {Ещё # изменённые строки} many {Ещё # изменённых строк} other {Ещё # изменённой строки}}"
 
-#. placeholder {0}: changes - shownChanges
-#: src/text-diff.ts
-#~ msgid "{0} more changed lines"
-#~ msgstr ""
-
 #. placeholder {0}: signIn.accountLogin
 #: src/collections/model.ts
 msgid "{0} on GitHub"
@@ -202,11 +197,6 @@ msgstr "Закрыть"
 msgctxt "Collection access interface"
 msgid "Close"
 msgstr "Закрыть"
-
-#. placeholder {0}: label.toLowerCase()
-#: src/CommandPalette.tsx
-#~ msgid "Close {0}"
-#~ msgstr ""
 
 #: src/CommandPalette.tsx
 msgid "Close {label}"
@@ -391,10 +381,6 @@ msgstr "Управление доступом"
 #: src/FeedbackMarkup.tsx
 msgid "Mark up screenshot"
 msgstr "Разметить снимок экрана"
-
-#: src/FeedbackMarkup.tsx
-#~ msgid "marks applied."
-#~ msgstr ""
 
 #: src/Feedback.tsx
 msgid "Markup discarded. Screenshot excluded."

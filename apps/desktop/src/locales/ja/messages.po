@@ -37,11 +37,6 @@ msgstr "{0, plural, other {アップロードする変更 # 件}}"
 msgid "{0, plural, one {# collection} other {# collections}}"
 msgstr "{0, plural, other {# 件のコレクション}}"
 
-#. placeholder {0}: unlisted.length
-#: src/renderer/collections-view.tsx
-#~ msgid "{0, plural, one {# file} other {# files}}"
-#~ msgstr "{0, plural, other {# 件のファイル}}"
-
 #. placeholder {0}: sync.unresolved
 #: src/renderer/daemon-view.mts
 msgid "{0, plural, one {# unresolved conflict} other {# unresolved conflicts}}"

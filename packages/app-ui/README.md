@@ -52,10 +52,23 @@ Core-macro presentation helpers use the shared Lingui singleton; do not compose
 into an unrelated isolated instance. Keep React and Lingui deduplicated in app
 bundlers. No form is remounted on a locale switch. Build output includes all
 nine catalogues and transformed macros; consumers do not compile library source.
-PO files are the only authoring format. Run strict `i18n:check` before release:
-a fallback-capable development build does not prove a language is complete.
+PO files are the only authoring format. Builds use the kit CLI to prune obsolete PO
+entries before compilation, including English fallback; `prepack` runs strict catalogue
+checks and rebuilds so stale compiled messages cannot enter a fresh tarball.
+Run strict `i18n:check` before release: a fallback-capable development build does
+not prove a language is complete.
 Reviewed identical terms are Esc/ID, the literal example email, and French
 Collection/Collections (allowlisted per generated ID).
+
+## Command palette
+
+`CommandPalette` from `@mdbase-dev/ui/command-palette` accepts an optional
+`groupLabel(groupId: string): string` callback for localized group headings.
+For example, pass `groupLabel={readerCommandGroupLabel}`. Without it, the heading
+remains the command's `group` string. This is presentation only: keep `Command.group`
+and `showAll` values as stable IDs. Group order, browsing limits and search matching
+still use those IDs; translated headings do not change matching or merge groups.
+Re-render with the current locale's callback to update the presentation.
 
 ## Collections
 

@@ -47,11 +47,32 @@ test("packed npm .bin CLI runs extraction, catalogue checks, compile and source 
     const context = { locale, sourceLocale: "en", filename, existing };
     const entries = await formatter({}).parse(existing, context);
     for (const entry of Object.values(entries)) entry.translation = translations[locale];
-    await writeFile(filename, await formatter({ origins: true, lineNumbers: false }).serialize(entries, context));
+    // Retired English must not leak into any target through fallback. A retired
+    // target-only message must not survive either.
+    const obsolete = '\n#~ msgid "Close {0}"\n#~ msgstr "Close {0}"\n' +
+      (locale === "fr" ? '\n#~ msgid "Retired target"\n#~ msgstr "Cible retirée"\n' : "");
+    const po = await formatter({ origins: true, lineNumbers: false }).serialize(entries, context) + obsolete;
+    await writeFile(filename, po);
   }
+  const assertActiveOnly = async () => {
+    for (const locale of locales) {
+      const path = resolve(root, "src/i18n/locales", locale, "messages");
+      const compiled = JSON.parse(await readFile(path + ".json", "utf8"));
+      assert.deepEqual(Object.values(compiled.messages), [[translations[locale]]], locale);
+      assert.ok(!Object.hasOwn(compiled.messages, "nzHlj8"), "obsolete Close {0}: " + locale);
+      const po = await formatter({}).parse(await readFile(path + ".po", "utf8"), { locale });
+      assert.equal(Object.keys(po).length, 1, "only active PO entries remain: " + locale);
+    }
+  };
+  // Normalize PO ordering/origins as a real extraction does; obsolete history
+  // remains valid extraction state and must be removed by check/compile itself.
+  const normalized = run("extract");
+  assert.equal(normalized.status, 0, normalized.stdout + normalized.stderr);
+  assert.match(await readFile(resolve(root, "src/i18n/locales/en/messages.po"), "utf8"), /#~ msgid "Close \{0\}"/);
   const checked = run("check");
   assert.equal(checked.status, 0, checked.stdout + checked.stderr);
   assert.match(checked.stdout, /i18n: catalogue contracts and source guard passed \(1 modules\)/);
+  await assertActiveOnly();
   const french = JSON.parse(await readFile(resolve(root, "src/i18n/locales/fr/messages.json"), "utf8"));
   assert.equal(Object.values(french.messages)[0][0], "Bonjour");
   // Published library JSON paths, not a second extraction scope or JS loader.
@@ -99,8 +120,14 @@ test("packed npm .bin CLI runs extraction, catalogue checks, compile and source 
   assert.equal(broken.status, 1, broken.stdout + broken.stderr);
   assert.match(broken.stderr, /fr missing authored translation before fallback/);
   await writeFile(frenchPath, validFrench);
-  const compiled = run("compile");
+  // Standalone compile must also prune (without requiring a preceding check).
+  for (const locale of locales) {
+    const path = resolve(root, "src/i18n/locales", locale, "messages.po");
+    await writeFile(path, await readFile(path, "utf8") + '\n#~ msgid "Close {0}"\n#~ msgstr "Close {0}"\n');
+  }
+  const compiled = run("compile", "--config", "lingui.config.mjs");
   assert.equal(compiled.status, 0, compiled.stdout + compiled.stderr);
+  await assertActiveOnly();
   const source = run("source");
   assert.equal(source.status, 0, source.stdout + source.stderr);
   assert.match(source.stdout, /source guard passed \(1 modules\)/);
@@ -134,6 +161,10 @@ test("packed npm .bin CLI runs extraction, catalogue checks, compile and source 
   assert.match(active[0].message, /^Hide \{count, plural, one \{# file\} other \{# files\}\}$/);
   const nestedCompiled = run("compile");
   assert.equal(nestedCompiled.status, 0, nestedCompiled.stdout + nestedCompiled.stderr);
+  for (const locale of locales) {
+    const catalogue = JSON.parse(await readFile(resolve(root, "src/i18n/locales", locale, "messages.json"), "utf8"));
+    assert.equal(Object.keys(catalogue.messages).length, 1, "newly obsolete Hello is excluded: " + locale);
+  }
   const nestedSource = run("source");
   assert.equal(nestedSource.status, 0, nestedSource.stdout + nestedSource.stderr);
 });

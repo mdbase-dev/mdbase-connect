@@ -1,11 +1,9 @@
-// Ordinary development builds retain Lingui's English fallback while translators
-// author PO files. Release/CI MUST run the kit's strict i18n:check first; compiling
-// fallback JSON is never evidence that a target catalogue is complete.
-import { createRequire } from "node:module";
-import { dirname, resolve } from "node:path";
+// Strict compilation retains English fallback for development, but only the
+// kit's i18n:check proves authored completeness. Always use the kit CLI so every
+// package/app build prunes obsolete PO entries before compiling fallback JSON.
 import { spawnSync } from "node:child_process";
-const require = createRequire(new URL("../package.json", import.meta.url));
-const cli = resolve(dirname(require.resolve("@lingui/cli")), "lingui.js");
-const result = spawnSync(process.execPath, [cli, "compile", "--workers", "1"], { stdio: "inherit" });
+const result = spawnSync("pnpm", ["exec", "mdbase-i18n", "compile"], {
+  stdio: "inherit", shell: process.platform === "win32",
+});
 if (result.error) throw result.error;
 process.exitCode = result.status ?? 1;

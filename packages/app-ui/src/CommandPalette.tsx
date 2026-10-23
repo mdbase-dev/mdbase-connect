@@ -6,7 +6,7 @@ export interface Command {
   readonly id: string;
   readonly label: string;
   readonly detail?: string | undefined;
-  /** Commands show under their group's heading, in the order the groups first appear. */
+  /** Stable group ID; headings follow first appearance and may be presented by groupLabel. */
   readonly group: string;
   readonly keywords?: string | undefined;
   /** For example "mod+shift+f"; see shortcutLabel. */
@@ -69,24 +69,27 @@ export function matchingCommands(
  * Find or run anything: every mdbase app opens it with Mod+K. Typing filters commands; the
  * arrows move, Enter runs, Shift+Enter runs a command's alternate, Escape closes.
  */
-export function CommandPalette({ open, commands, onClose, label = t({ message: "Commands" }), placeholder = t({ message: "Search commands" }), showAll }: {
+export function CommandPalette({ open, commands, onClose, label = t({ message: "Commands" }), placeholder = t({ message: "Search commands" }), showAll, groupLabel }: {
   readonly open: boolean;
   readonly commands: readonly Command[];
   readonly onClose: () => void;
   readonly label?: string | undefined;
   readonly placeholder?: string | undefined;
   readonly showAll?: readonly string[] | undefined;
+  /** Presentation only: translate headings without changing group or showAll IDs. */
+  readonly groupLabel?: ((group: string) => string) | undefined;
 }): JSX.Element | null {
   useLocaleRevision();
-  return open ? <OpenCommandPalette commands={commands} onClose={onClose} label={label} placeholder={placeholder} showAll={showAll} /> : null;
+  return open ? <OpenCommandPalette commands={commands} onClose={onClose} label={label} placeholder={placeholder} showAll={showAll} groupLabel={groupLabel} /> : null;
 }
 
-function OpenCommandPalette({ commands, onClose, label, placeholder, showAll }: {
+function OpenCommandPalette({ commands, onClose, label, placeholder, showAll, groupLabel }: {
   readonly commands: readonly Command[];
   readonly onClose: () => void;
   readonly label: string;
   readonly placeholder: string;
   readonly showAll?: readonly string[] | undefined;
+  readonly groupLabel?: ((group: string) => string) | undefined;
 }): JSX.Element {
   useLocaleRevision();
   const [query, setQuery] = useState("");
@@ -142,7 +145,7 @@ function OpenCommandPalette({ commands, onClose, label, placeholder, showAll }: 
         {matches.length > 0
           ? matches.map((command, index) => <Fragment key={command.id}>
             {command.group !== matches[index - 1]?.group
-              ? <div className="mdbase-command-group" role="presentation">{command.group}</div>
+              ? <div className="mdbase-command-group" role="presentation">{groupLabel ? groupLabel(command.group) : command.group}</div>
               : null}
             <CommandRow command={command} active={index === active} onRun={run} />
           </Fragment>)
