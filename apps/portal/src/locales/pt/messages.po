@@ -2876,458 +2876,458 @@ msgstr "Revogar acesso"
 #. placeholder {0}: grant.collection_name
 #: src/ApplicationAccess.tsx
 msgid "Revoke access to {0}?"
-msgstr ""
+msgstr "Revogar o acesso a {0}?"
 
 #. placeholder {0}: group.applicationName
 #: src/ApplicationAccess.tsx
 msgid "Revoke all {0} access and collection creation permission?"
-msgstr ""
+msgstr "Revogar todo o acesso de {0} e a permissão para criar coleções?"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Revoke application"
-msgstr ""
+msgstr "Revogar aplicativo"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Revoke collection access"
-msgstr ""
+msgstr "Revogar acesso à coleção"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoke computer"
-msgstr ""
+msgstr "Revogar computador"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoking…"
-msgstr ""
+msgstr "Revogando…"
 
 #: src/ConnectApp.tsx
 msgid "Role"
-msgstr ""
+msgstr "Função"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Role"
-msgstr ""
+msgstr "Função"
 
 #. placeholder {0}: member.name
 #: src/ConnectApp.tsx
 msgid "Role for {0}"
-msgstr ""
+msgstr "Função de {0}"
 
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
 msgid "Save"
-msgstr ""
+msgstr "Salvar"
 
 #: src/ApplicationAccess.tsx
 msgid "Save narrower access"
-msgstr ""
+msgstr "Salvar acesso mais restrito"
 
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
 msgid "Saving…"
-msgstr ""
+msgstr "Salvando…"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Schedule background work"
-msgstr ""
+msgstr "Agendar trabalho em segundo plano"
 
 #: src/ApplicationAccess.tsx
 msgid "Scope"
-msgstr ""
+msgstr "Escopo"
 
 #: src/CollectionPicker.tsx
 msgid "Search collections by name"
-msgstr ""
+msgstr "Pesquisar coleções pelo nome"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "see collection members"
-msgstr ""
+msgstr "ver membros da coleção"
 
 #: src/authorization-review.tsx
 msgid "See collection members' account identities, names and roles"
-msgstr ""
+msgstr "Ver identidades de conta, nomes e funções dos membros da coleção"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "see the list of"
-msgstr ""
+msgstr "ver a lista de"
 
 #: src/authorization-review.tsx
 msgid "See your account identity and display name"
-msgstr ""
+msgstr "Ver sua identidade de conta e seu nome de exibição"
 
 #. placeholder {0}: relativeTime(connector.last_seen_at)
 #. placeholder {0}: relativeTime(replica.sync_status.last_seen_at ?? collection.source.created_at)
 #: src/ConnectApp.tsx
 msgid "Seen {0}"
-msgstr ""
+msgstr "Visto em {0}"
 
 #: src/authorization-view.tsx
 msgid "Select a collection to continue."
-msgstr ""
+msgstr "Selecione uma coleção para continuar."
 
 #. placeholder {0}: selected.name
 #: src/CollectionPicker.tsx
 msgid "Selected: <0>{0}</0>"
-msgstr ""
+msgstr "Selecionada: <0>{0}</0>"
 
 #: src/ConnectApp.tsx
 #: src/FeedbackPage.tsx
 msgctxt "Connect interface"
 msgid "Send feedback"
-msgstr ""
+msgstr "Enviar feedback"
 
 #: src/auth-view.tsx
 msgid "Send me occasional product updates. You can change this at any time."
-msgstr ""
+msgstr "Envie-me novidades ocasionais do produto. Você pode alterar isso a qualquer momento."
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Send reset link"
-msgstr ""
+msgstr "Enviar link de redefinição"
 
 #: src/ConnectApp.tsx
 msgid "Send this private link to the invited person. Email invitations require an already registered, verified account. If they have just signed up, create a new invitation."
-msgstr ""
+msgstr "Envie este link privado à pessoa convidada. Convites por e-mail exigem uma conta já cadastrada e verificada. Se ela acabou de se cadastrar, crie um novo convite."
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Send verification link"
-msgstr ""
+msgstr "Enviar link de verificação"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Sending link…"
-msgstr ""
+msgstr "Enviando link…"
 
 #. placeholder {0}: account.user.email
 #: src/AccountManagement.tsx
 msgid "Sent to {0}."
-msgstr ""
+msgstr "Enviado para {0}."
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Set up and allow access"
-msgstr ""
+msgstr "Configurar e permitir acesso"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Setting up and allowing…"
-msgstr ""
+msgstr "Configurando e permitindo…"
 
 #. placeholder {0}: setupLabel(contract)
 #: src/authorization-review.tsx
 msgid "Setup for {0}"
-msgstr ""
+msgstr "Configuração de {0}"
 
 #: src/authority-workflows.tsx
 msgid "Shared with you"
-msgstr ""
+msgstr "Compartilhada com você"
 
 #: src/ConnectApp.tsx
 msgid "Sharing code"
-msgstr ""
+msgstr "Código de compartilhamento"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Sharing code"
-msgstr ""
+msgstr "Código de compartilhamento"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Sharing code"
-msgstr ""
+msgstr "Código de compartilhamento"
 
 #: src/authorization-view.tsx
 msgid "Short approval code"
-msgstr ""
+msgstr "Código curto de aprovação"
 
 #. placeholder {0}: visible.length
 #. placeholder {1}: data.connectors.length
 #: src/ConnectApp.tsx
 msgid "Showing {0} of {1} registered computers."
-msgstr ""
+msgstr "Exibindo {0} de {1} computadores registrados."
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Sign in"
-msgstr ""
+msgstr "Entrar"
 
 #: src/authority-workflows.tsx
 msgid "Sign in again"
-msgstr ""
+msgstr "Entrar novamente"
 
 #: src/authority-workflows.tsx
 msgid "Sign in on a computer"
-msgstr ""
+msgstr "Entrar em um computador"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Sign in to continue"
-msgstr ""
+msgstr "Entre para continuar"
 
 #: src/auth-view.tsx
 msgid "Sign in with the method connected to your invited account."
-msgstr ""
+msgstr "Entre com o método conectado à sua conta convidada."
 
 #: src/auth-view.tsx
 msgid "Sign in, review the request, and return to the application."
-msgstr ""
+msgstr "Entre, revise a solicitação e volte ao aplicativo."
 
 #: src/AccountManagement.tsx
 msgid "Sign out"
-msgstr ""
+msgstr "Sair"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Sign out of this browser"
-msgstr ""
+msgstr "Sair deste navegador"
 
 #: src/AccountManagement.tsx
 msgid "Sign out other sessions"
-msgstr ""
+msgstr "Encerrar outras sessões"
 
 #: src/authority-workflows.tsx
 msgid "Sign-in cancelled"
-msgstr ""
+msgstr "Entrada cancelada"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Sign-in methods"
-msgstr ""
+msgstr "Métodos de entrada"
 
 #: src/AccountManagement.tsx
 msgid "Sign-in methods for this account are controlled by Tailscale."
-msgstr ""
+msgstr "Os métodos de entrada desta conta são controlados pelo Tailscale."
 
 #: src/auth-view.tsx
 msgid "Sign-in was cancelled. You can try again or choose another method."
-msgstr ""
+msgstr "A entrada foi cancelada. Você pode tentar novamente ou escolher outro método."
 
 #. placeholder {0}: formatters(i18n.locale).date(new Date(session.created_at), { dateStyle: "medium", timeStyle: "short" })
 #. placeholder {1}: session.id.slice(-8)
 #: src/AccountManagement.tsx
 msgid "Signed in <0>{0}</0> · ID {1}"
-msgstr ""
+msgstr "Conectado como <0>{0}</0> · ID {1}"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Signing in with Google…"
-msgstr ""
+msgstr "Entrando com Google…"
 
 #: src/GoogleIdentityButton.tsx
 msgctxt "Connect interface"
 msgid "Signing in with Google…"
-msgstr ""
+msgstr "Entrando com Google…"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Signing in…"
-msgstr ""
+msgstr "Entrando…"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Signing out…"
-msgstr ""
+msgstr "Saindo…"
 
 #: src/auth-view.tsx
 msgid "Start signup again"
-msgstr ""
+msgstr "Reiniciar cadastro"
 
 #: src/ConnectApp.tsx
 msgid "Status"
-msgstr ""
+msgstr "Status"
 
 #: src/auth-view.tsx
 msgid "Stop receiving the kind of email this link came in. Messages about your account are still sent."
-msgstr ""
+msgstr "Pare de receber o tipo de e-mail deste link. As mensagens sobre sua conta continuarão sendo enviadas."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Storage"
-msgstr ""
+msgstr "Armazenamento"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Storage & sync"
-msgstr ""
+msgstr "Armazenamento e sincronização"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Stored by mdbase"
-msgstr ""
+msgstr "Armazenada pelo mdbase"
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx
 msgid "Stored on {0}"
-msgstr ""
+msgstr "Armazenada em {0}"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Stored on your devices"
-msgstr ""
+msgstr "Armazenada nos seus dispositivos"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Sync"
-msgstr ""
+msgstr "Sincronização"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "sync a folder"
-msgstr ""
+msgstr "sincronizar uma pasta"
 
 #: src/ConnectApp.tsx
 msgid "Sync folder"
-msgstr ""
+msgstr "Sincronizar pasta"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Sync this collection"
-msgstr ""
+msgstr "Sincronizar esta coleção"
 
 #: src/ConnectApp.tsx
 msgid "Synced folders"
-msgstr ""
+msgstr "Pastas sincronizadas"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Synced folders"
-msgstr ""
+msgstr "Pastas sincronizadas"
 
 #: src/authorization-capabilities.ts
 msgid "Synchronize an application-controlled local copy of this collection."
-msgstr ""
+msgstr "Sincronizar uma cópia local desta coleção controlada pelo aplicativo."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Tailscale identity"
-msgstr ""
+msgstr "Identidade do Tailscale"
 
 #: src/auth-view.tsx
 msgid "Terms"
-msgstr ""
+msgstr "Termos"
 
 #: src/authority-workflows.tsx
 msgid "The app is uploading and checking a final collection snapshot. The main copy will move only after that exact snapshot is complete."
-msgstr ""
+msgstr "O aplicativo está enviando e verificando uma cópia final da coleção. A cópia principal só será transferida quando essa cópia exata estiver completa."
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "the application"
-msgstr ""
+msgstr "o aplicativo"
 
 #: src/authorization-view.tsx
 msgid "The application will finish connecting with its one-time device code. You can close this window."
-msgstr ""
+msgstr "O aplicativo concluirá a conexão com seu código de dispositivo de uso único. Você pode fechar esta janela."
 
 #: src/authorization-view.tsx
 msgid "The application will learn that access was not granted. You can close this window."
-msgstr ""
+msgstr "O aplicativo saberá que o acesso não foi concedido. Você pode fechar esta janela."
 
 #: src/authorization-view.tsx
 msgid "The application will show that access was not granted."
-msgstr ""
+msgstr "O aplicativo mostrará que o acesso não foi concedido."
 
 #. placeholder {0}: field.label.toLocaleLowerCase()
 #: src/authorization-review.tsx
 msgid "The application’s {0} value."
-msgstr ""
+msgstr "O valor de {0} do aplicativo."
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "The collection"
-msgstr ""
+msgstr "A coleção"
 
 #: src/authorization-view.tsx
 msgid "The collection cannot allow all required record and file permissions together. Choose another collection."
-msgstr ""
+msgstr "A coleção não pode permitir todas as permissões de registros e arquivos necessárias em conjunto. Escolha outra coleção."
 
 #: src/authorization-view.tsx
 msgid "The collection requested by this application is not available."
-msgstr ""
+msgstr "A coleção solicitada por este aplicativo não está disponível."
 
 #: src/ApplicationAccess.tsx
 msgid "the computer holding this collection"
-msgstr ""
+msgstr "o computador que guarda esta coleção"
 
 #: src/authority-workflows.tsx
 msgid "The desktop app will finish securely. No connector token was displayed or copied."
-msgstr ""
+msgstr "O aplicativo para desktop concluirá o processo com segurança. Nenhum token do conector foi exibido ou copiado."
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx
 msgid "The editor can reach this collection through {0}."
-msgstr ""
+msgstr "O editor pode acessar esta coleção por meio de {0}."
 
 #: src/authority-workflows.tsx
 msgid "The folder on {mirrorName} is now the main copy. Hosted access has stopped and previous application connections were revoked."
-msgstr ""
+msgstr "A pasta em {mirrorName} agora é a cópia principal. O acesso hospedado foi interrompido e as conexões anteriores dos aplicativos foram revogadas."
 
 #: src/ConnectApp.tsx
 msgid "The folder remains the authority for this collection."
-msgstr ""
+msgstr "A pasta continua sendo a autoridade desta coleção."
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "the hosted authority"
-msgstr ""
+msgstr "a autoridade hospedada"
 
 #: src/ConnectApp.tsx
 msgid "The hosted collection is available to the editor."
-msgstr ""
+msgstr "A coleção hospedada está disponível para o editor."
 
 #: src/LanguageSetting.tsx
 msgid "The language could not be loaded or saved. Try choosing it again."
-msgstr ""
+msgstr "Não foi possível carregar ou salvar o idioma. Tente escolhê-lo novamente."
 
 #: src/main.tsx
 msgid "The language could not be loaded. Choose it again using the language setting."
-msgstr ""
+msgstr "Não foi possível carregar o idioma. Escolha-o novamente na configuração de idioma."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "the latest release"
-msgstr ""
+msgstr "a versão mais recente"
 
 #: src/auth-view.tsx
 msgid "The link is invalid, expired, already used, or account setup is temporarily unavailable."
-msgstr ""
+msgstr "O link é inválido, expirou, já foi usado ou a configuração da conta está temporariamente indisponível."
 
 #: src/auth-view.tsx
 msgid "The link is invalid, expired, already used, or password sign-in is temporarily unavailable."
-msgstr ""
+msgstr "O link é inválido, expirou, já foi usado ou a entrada com senha está temporariamente indisponível."
 
 #: src/ConnectApp.tsx
 msgid "The main copy has moved away from hosted storage."
-msgstr ""
+msgstr "A cópia principal saiu do armazenamento hospedado."
 
 #: src/authority-workflows.tsx
 msgid "The main copy stayed hosted."
-msgstr ""
+msgstr "A cópia principal continuou hospedada."
 
 #: src/authority-workflows.tsx
 msgid "The main copy was not moved to mdbase."
-msgstr ""
+msgstr "A cópia principal não foi transferida para o mdbase."
 
 #: src/portal-model.ts
 msgid "The mdbase connect app on this computer needs to be updated before you can continue."
-msgstr ""
+msgstr "O aplicativo mdbase connect neste computador precisa ser atualizado antes de você continuar."
 
 #: src/authority-workflows.tsx
 msgid "The original app approval changed."
-msgstr ""
+msgstr "A aprovação original do aplicativo mudou."
 
 #: src/authority-workflows.tsx
 msgid "The original sign-in changed."
-msgstr ""
+msgstr "A entrada original mudou."
 
 #: src/authorization-view.tsx
 msgid "The page will notice when the request is approved."
