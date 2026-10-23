@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import { isMap, isScalar, isSeq, parseDocument, type Document } from "yaml";
 import type { NoteSummary } from "./model";
 
@@ -184,14 +185,14 @@ export function updateTypeCollectionDisplay(
 export function addTypeReadDefault(source: string, field: string, value: unknown): string {
   return mutate(source, (document) => {
     if (document.getIn(["collection", "read_defaults", field]) !== undefined) {
-      throw new Error(`A read default for “${field}” already exists.`);
+      throw new Error(t`A read default for “${field}” already exists.`);
     }
     document.setIn(["collection", "read_defaults", field], value);
   });
 }
 
 export function renameTypeReadDefault(source: string, from: string, to: string): string {
-  return renameCollectionMapEntry(source, ["collection", "read_defaults"], from, to, "read default");
+  return renameCollectionMapEntry(source, ["collection", "read_defaults"], from, to, t`read default`);
 }
 
 export function setTypeReadDefault(source: string, field: string, value: unknown): string {
@@ -205,14 +206,14 @@ export function removeTypeReadDefault(source: string, field: string): string {
 export function addTypeLinkRule(source: string, field: string): string {
   return mutate(source, (document) => {
     if (document.getIn(["collection", "links", field]) !== undefined) {
-      throw new Error(`A link rule for “${field}” already exists.`);
+      throw new Error(t`A link rule for “${field}” already exists.`);
     }
     document.setIn(["collection", "links", field], {});
   });
 }
 
 export function renameTypeLinkRule(source: string, from: string, to: string): string {
-  return renameCollectionMapEntry(source, ["collection", "links"], from, to, "link rule");
+  return renameCollectionMapEntry(source, ["collection", "links"], from, to, t`link rule`);
 }
 
 export function setTypeLinkRule(
@@ -308,7 +309,7 @@ export function renameTypeField(source: string, pathOrName: TypeSchemaPath | str
   const visual = readVisualType(source);
   const parentPath = objectParentPath(path);
   const siblings = parentPath.length ? findSchemaNode(visual.fields, parentPath)?.fields ?? [] : visual.fields;
-  if (siblings.some((field) => field.name === name)) throw new Error(`A field named “${name}” already exists.`);
+  if (siblings.some((field) => field.name === name)) throw new Error(t`A field named “${name}” already exists.`);
   return mutate(source, (document) => {
     const definition = document.getIn([...SCHEMA_ROOT, ...path]);
     const nextPath = [...path.slice(0, -1), name];
@@ -513,13 +514,13 @@ function readTypeCollection(value: unknown): TypeCollectionDefinition {
   for (const key of Object.keys(display)) {
     if (!displayKeys.has(key) || typeof display[key] !== "string") advancedKeys.push(`display.${key}`);
   }
-  if ("display" in collection && !isRecord(collection.display)) advancedKeys.push("display with an unsupported value");
-  if ("read_defaults" in collection && !isRecord(collection.read_defaults)) advancedKeys.push("read defaults with an unsupported value");
+  if ("display" in collection && !isRecord(collection.display)) advancedKeys.push(t`display with an unsupported value`);
+  if ("read_defaults" in collection && !isRecord(collection.read_defaults)) advancedKeys.push(t`read defaults with an unsupported value`);
   if ("links" in collection && (!isRecord(collection.links) || Object.keys(linksValue).length !== links.length)) {
-    advancedKeys.push("links with unsupported values");
+    advancedKeys.push(t`links with unsupported values`);
   }
   if ("unique" in collection && (!Array.isArray(collection.unique) || uniqueValue.length !== unique.length)) {
-    advancedKeys.push("unique rules with unsupported values");
+    advancedKeys.push(t`unique rules with unsupported values`);
   }
 
   return {
@@ -615,12 +616,12 @@ function fieldConstraints(schema: Record<string, unknown>): TypeFieldConstraints
 
 function parseTypeSource(source: string): ParsedTypeSource {
   const match = source.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---([\s\S]*)$/);
-  if (!match) throw new Error("Type definitions need YAML frontmatter between --- markers.");
+  if (!match) throw new Error(t`Type definitions need YAML frontmatter between --- markers.`);
   const document = parseDocument(match[1]);
   if (document.errors.length) throw new Error(document.errors[0].message);
   const value = document.toJS();
-  if (!isRecord(value)) throw new Error("The type definition must be a YAML object.");
-  if (value.kind !== "mdbase.type") throw new Error("Type definitions must declare kind: mdbase.type.");
+  if (!isRecord(value)) throw new Error(t`The type definition must be a YAML object.`);
+  if (value.kind !== "mdbase.type") throw new Error(t`Type definitions must declare kind: mdbase.type.`);
   return { document, tail: match[2], value };
 }
 
@@ -673,7 +674,7 @@ function fieldPath(pathOrName: TypeSchemaPath | string): TypeSchemaPath {
 }
 
 function objectParentPath(fieldSchemaPath: TypeSchemaPath): TypeSchemaPath {
-  if (fieldSchemaPath.at(-2) !== "properties") throw new Error("The schema path does not identify an object field.");
+  if (fieldSchemaPath.at(-2) !== "properties") throw new Error(t`The schema path does not identify an object field.`);
   return fieldSchemaPath.slice(0, -2);
 }
 
@@ -763,18 +764,18 @@ function fieldSignature(field: TypeFieldDefinition): string {
 }
 
 function definitionChanges(previousSource: string | undefined, nextSource: string): string[] {
-  if (!previousSource) return ["New type definition"];
+  if (!previousSource) return [t`New type definition`];
   const previous = parseTypeSource(previousSource);
   const next = parseTypeSource(nextSource);
   const changes: string[] = [];
-  if (previous.value.name !== next.value.name) changes.push("Type name");
-  if (previous.value.description !== next.value.description) changes.push("Description");
-  if (JSON.stringify(previous.value.match) !== JSON.stringify(next.value.match)) changes.push("Matching rules");
-  if (JSON.stringify(previous.value.implements) !== JSON.stringify(next.value.implements)) changes.push("Application compatibility");
-  if (JSON.stringify(previous.value.collection) !== JSON.stringify(next.value.collection)) changes.push("Collection behaviour");
-  if (JSON.stringify(previous.value.lifecycle) !== JSON.stringify(next.value.lifecycle)) changes.push("Lifecycle");
-  if (JSON.stringify(schemaEnvelope(previous.value)) !== JSON.stringify(schemaEnvelope(next.value))) changes.push("Schema settings");
-  if (previous.tail !== next.tail) changes.push("Documentation");
+  if (previous.value.name !== next.value.name) changes.push(t`Type name`);
+  if (previous.value.description !== next.value.description) changes.push(t`Description`);
+  if (JSON.stringify(previous.value.match) !== JSON.stringify(next.value.match)) changes.push(t`Matching rules`);
+  if (JSON.stringify(previous.value.implements) !== JSON.stringify(next.value.implements)) changes.push(t`Application compatibility`);
+  if (JSON.stringify(previous.value.collection) !== JSON.stringify(next.value.collection)) changes.push(t`Collection behaviour`);
+  if (JSON.stringify(previous.value.lifecycle) !== JSON.stringify(next.value.lifecycle)) changes.push(t`Lifecycle`);
+  if (JSON.stringify(schemaEnvelope(previous.value)) !== JSON.stringify(schemaEnvelope(next.value))) changes.push(t`Schema settings`);
+  if (previous.tail !== next.tail) changes.push(t`Documentation`);
   return changes;
 }
 
@@ -782,12 +783,12 @@ function typeCollectionChanges(previousSource: string | undefined, nextSource: s
   const previous = previousSource ? record(parseTypeSource(previousSource).value.collection) : {};
   const next = record(parseTypeSource(nextSource).value.collection);
   const sections: Array<[string, string]> = [
-    ["display", "Display metadata"],
-    ["read_defaults", "Read defaults"],
-    ["links", "Link rules"],
-    ["unique", "Uniqueness rules"],
-    ["path", "Path policy"],
-    ["projections", "Projections"]
+    ["display", t`Display metadata`],
+    ["read_defaults", t`Read defaults`],
+    ["links", t`Link rules`],
+    ["unique", t`Uniqueness rules`],
+    ["path", t`Path policy`],
+    ["projections", t`Projections`]
   ];
   const changes = sections
     .filter(([key]) => JSON.stringify(previous[key]) !== JSON.stringify(next[key]))
@@ -795,7 +796,7 @@ function typeCollectionChanges(previousSource: string | undefined, nextSource: s
   const known = new Set(sections.map(([key]) => key));
   const previousOther = Object.fromEntries(Object.entries(previous).filter(([key]) => !known.has(key)));
   const nextOther = Object.fromEntries(Object.entries(next).filter(([key]) => !known.has(key)));
-  if (JSON.stringify(previousOther) !== JSON.stringify(nextOther)) changes.push("Other collection rules");
+  if (JSON.stringify(previousOther) !== JSON.stringify(nextOther)) changes.push(t`Other collection rules`);
   return changes;
 }
 
@@ -929,21 +930,21 @@ function fieldReferenceValue(source: Record<string, unknown>, reference: string)
 
 function constraintLabel(key: string): string {
   const labels: Record<string, string> = {
-    const: "constant value",
+    const: t`constant value`,
     enum: "choices",
     format: "format",
-    items: "list item schema",
-    properties: "nested fields",
-    required: "nested required fields",
-    additionalProperties: "additional field policy",
-    minLength: "minimum length",
-    maxLength: "maximum length",
+    items: t`list item schema`,
+    properties: t`nested fields`,
+    required: t`nested required fields`,
+    additionalProperties: t`additional field policy`,
+    minLength: t`minimum length`,
+    maxLength: t`maximum length`,
     pattern: "pattern",
     minimum: "minimum",
     maximum: "maximum",
-    minItems: "minimum items",
-    maxItems: "maximum items",
-    uniqueItems: "unique items",
+    minItems: t`minimum items`,
+    maxItems: t`maximum items`,
+    uniqueItems: t`unique items`,
     default: "default",
     examples: "examples"
   };
@@ -967,7 +968,7 @@ function renameCollectionMapEntry(source: string, parentPath: string[], from: st
   if (!name || name === from) return source;
   return mutate(source, (document) => {
     if (document.getIn([...parentPath, name]) !== undefined) {
-      throw new Error(`A ${label} for “${name}” already exists.`);
+      throw new Error(t`A ${label} for “${name}” already exists.`);
     }
     const value = document.getIn([...parentPath, from]);
     document.setIn([...parentPath, name], value);

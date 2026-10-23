@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import { MdbaseConnectError, MdbaseRecordSession, type CollectionTypeDescriptor, type ConnectOutcome } from "@mdbase-dev/connect";
 import { connectFailure, connectProblem, connectSuccess, type MdbaseRecordSessionAdapter } from "@mdbase-dev/connect/advanced";
 import type { CollectionGateway, NoteDocument, TitleSource } from "./model";
@@ -109,7 +110,7 @@ export function noteRecordAdapter(
  * produce a document; a delete identity here is an invariant failure. */
 export async function recoveredNote(gateway: Pick<CollectionGateway, "recoverNoteMutation">, requestId: string): Promise<NoteDocument> {
   const recovered = await gateway.recoverNoteMutation(requestId);
-  if (!recovered) throw new Error("The interrupted operation removed this note. No new write was attempted.");
+  if (!recovered) throw new Error(t`The interrupted operation removed this note. No new write was attempted.`);
   return recovered;
 }
 

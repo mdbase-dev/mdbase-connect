@@ -1,5 +1,5 @@
 import userEvent from "@testing-library/user-event";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "./test/locale";
 import { afterEach, expect, it, vi } from "vitest";
 import { MdbaseConnectError, type CollectionDescription } from "@mdbase-dev/connect";
 import type { CollectionGateway, NoteSummary } from "./model";

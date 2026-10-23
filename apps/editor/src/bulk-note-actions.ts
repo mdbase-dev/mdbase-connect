@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
 import type { NoteDocument, NoteSummary } from "./model";
 import { pendingNoteRequestId } from "./pending-note-mutation";
@@ -41,7 +42,7 @@ export function bulkFields(notes: readonly Pick<NoteSummary, "types">[], types: 
 export function bulkFrontmatter(document: NoteDocument, change: BulkPropertyChange): JsonObject {
   if (change.kind === "property") return { ...document.frontmatter, [change.field]: change.value };
   const current = document.frontmatter.tags;
-  if (current !== undefined && current !== null && typeof current !== "string" && !(Array.isArray(current) && current.every((tag) => typeof tag === "string"))) throw new Error("Tags must be text or a list of text before they can be changed together.");
+  if (current !== undefined && current !== null && typeof current !== "string" && !(Array.isArray(current) && current.every((tag) => typeof tag === "string"))) throw new Error(t`Tags must be text or a list of text before they can be changed together.`);
   const tags: string[] = Array.isArray(current) ? current as string[] : typeof current === "string" ? [current] : [];
   const normalize = (tag: string) => tag.replace(/^#/, "").trim();
   const tag = normalize(change.tag);
@@ -68,7 +69,7 @@ export async function runNoteBatch<Value>(paths: readonly string[], operation: (
     } catch (error) {
       result.failed.push({ path, error });
       if (pendingNoteRequestId(error)) {
-        result.failed.push(...uniquePaths.slice(index + 1).map((path) => ({ path, error: new Error("Not changed because an earlier note's change isn't confirmed yet.") })));
+        result.failed.push(...uniquePaths.slice(index + 1).map((path) => ({ path, error: new Error(t`Not changed because an earlier note's change isn't confirmed yet.`) })));
         break;
       }
     }

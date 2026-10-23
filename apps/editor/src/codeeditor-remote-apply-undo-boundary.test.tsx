@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react";
+import { render } from "./test/locale";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { redo, undo } from "@codemirror/commands";
 import { EditorView } from "@codemirror/view";

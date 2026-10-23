@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "./test/locale";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { FilesApi, FileView } from "@mdbase-dev/sdk";
 import { FileViewer, FileWorkspace } from "./FileViewer";

@@ -1,3 +1,7 @@
+import { displayLocale } from "./i18n/format";
+import { Trans } from "@lingui/react/macro";
+import { t, plural } from "@lingui/core/macro";
+import { useLingui } from "@lingui/react";
 import {
   ArrowCounterClockwiseIcon as RotateCcw,
   ArrowLeftIcon as ArrowLeft,
@@ -113,35 +117,36 @@ export function TypeList({ types, selectedName, packsSelected = false, leadingAc
   onCreate?: () => void;
   onCollections: () => void;
 }) {
+  useLingui();
   const [search, setSearch] = useState("");
   const visible = types.filter((type) => `${type.name} ${type.description ?? ""}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
-  return <section className="type-list-pane" aria-label="Types">
+  return <section className="type-list-pane" aria-label={t`Types`}>
     <header className="list-header">
-      <button className="mobile-collections icon-button" aria-label="Collections" onClick={onCollections}><PanelLeft aria-hidden="true" /></button>
+      <button className="mobile-collections icon-button" aria-label={t`Collections`} onClick={onCollections}><PanelLeft aria-hidden="true" /></button>
       {leadingActions}
-      <div><h1>Types</h1><p>{types.length} {types.length === 1 ? "definition" : "definitions"}</p></div>
+      <div><h1><Trans>Types</Trans></h1><p>{plural(types.length, { one: "# definition", other: "# definitions" })}</p></div>
       {trailingActions}
     </header>
     <label className="search-field">
-      <Search aria-hidden="true" /><span className="sr-only">Search types</span>
-      <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search types" />
-      {search && <button aria-label="Clear type search" onClick={() => setSearch("")}><X aria-hidden="true" /></button>}
+      <Search aria-hidden="true" /><span className="sr-only"><Trans>Search types</Trans></span>
+      <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t`Search types`} />
+      {search && <button aria-label={t`Clear type search`} onClick={() => setSearch("")}><X aria-hidden="true" /></button>}
     </label>
-    <nav className="type-resource-nav" aria-label="Type resources">
+    <nav className="type-resource-nav" aria-label={t`Type resources`}>
       <button className={`type-pack-entry${packsSelected ? " selected" : ""}`} aria-current={packsSelected ? "page" : undefined} onClick={onPacks}>
         <span className="type-row-icon"><Package aria-hidden="true" /></span>
-        <span className="type-row-copy"><strong>Add a type</strong><small>{onCreate ? "Start blank or from a ready-made type" : "Browse ready-made types"}</small></span>
+        <span className="type-row-copy"><strong><Trans>Add a type</Trans></strong><small>{onCreate ? t`Start blank or from a ready-made type` : t`Browse ready-made types`}</small></span>
         <ChevronRight aria-hidden="true" />
       </button>
     </nav>
-    <div className={`type-list${!visible.length ? " empty" : ""}`} role="listbox" aria-label="Collection types">
+    <div className={`type-list${!visible.length ? " empty" : ""}`} role="listbox" aria-label={t`Collection types`}>
       {visible.map((type) => <button key={type.name} role="option" aria-selected={selectedName === type.name} className={`type-row${selectedName === type.name ? " selected" : ""}`} onClick={() => onSelect(type.name)}>
         <span className="type-row-icon">{isPhosphorIconName(collectionTypeIcon(type))
           ? <PhosphorIcon name={collectionTypeIcon(type)} aria-hidden="true" />
           : <FileCode2 aria-hidden="true" />}</span>
-        <span className="type-row-copy"><strong>{type.name}</strong><small>{type.description || `${propertyCount(type)} schema properties`}</small></span>
+        <span className="type-row-copy"><strong>{type.name}</strong><small>{type.description || t`${propertyCount(type)} schema properties`}</small></span>
       </button>)}
-      {!visible.length && <p className="quiet-empty">{types.length ? "No types found." : "This collection has no type definitions yet."}</p>}
+      {!visible.length && <p className="quiet-empty">{types.length ? t`No types found.` : t`This collection has no type definitions yet.`}</p>}
     </div>
   </section>;
 }
@@ -161,26 +166,27 @@ export function TypePackBrowser({ types, contracts, catalog, loading = false, er
   onReload?: () => void;
   onBack: () => void;
 }) {
-  return <main className="type-inspector type-pack-browser" aria-label="Add a type">
+  useLingui();
+  return <main className="type-inspector type-pack-browser" aria-label={t`Add a type`}>
     <header className="type-inspector-bar">
-      <button className="mobile-back icon-button" aria-label="Back to types" onClick={onBack}><ArrowLeft aria-hidden="true" /></button>
+      <button className="mobile-back icon-button" aria-label={t`Back to types`} onClick={onBack}><ArrowLeft aria-hidden="true" /></button>
       {leadingActions}
-      <span>Collection resources</span>
-      <small>Catalog</small>
+      <span><Trans>Collection resources</Trans></span>
+      <small><Trans>Catalog</Trans></small>
     </header>
     <section className="type-heading">
-      <p className="eyebrow">Collection resources</p>
+      <p className="eyebrow"><Trans>Collection resources</Trans></p>
       <div className="type-heading-title">
         <Package aria-hidden="true" />
-        <h1>Add a type</h1>
+        <h1><Trans>Add a type</Trans></h1>
       </div>
-      <p>Start from an empty definition, or choose a ready-made type and adapt its fields and contract mapping to fit your collection.</p>
+      <p><Trans>Start from an empty definition, or choose a ready-made type and adapt its fields and contract mapping to fit your collection.</Trans></p>
     </section>
     <section className="type-pack-document">
-      {onCreate && <button className="type-blank-button" aria-label="New type" aria-describedby="type-blank-description" onClick={onCreate}><FilePlus2 aria-hidden="true" /><span><strong>New type</strong><small id="type-blank-description">Start from an empty definition and add your own fields.</small></span><ChevronRight aria-hidden="true" /></button>}
+      {onCreate && <button className="type-blank-button" aria-label={t`New type`} aria-describedby="type-blank-description" onClick={onCreate}><FilePlus2 aria-hidden="true" /><span><strong><Trans>New type</Trans></strong><small id="type-blank-description"><Trans>Start from an empty definition and add your own fields.</Trans></small></span><ChevronRight aria-hidden="true" /></button>}
       <div className="type-pack-intro">
-        <h2>Ready-made types</h2>
-        <p>Adding one creates a new editable type. Existing files are never overwritten.</p>
+        <h2><Trans>Ready-made types</Trans></h2>
+        <p><Trans>Adding one creates a new editable type. Existing files are never overwritten.</Trans></p>
       </div>
       <ContractCatalogBrowser
         catalog={catalog}
@@ -221,6 +227,7 @@ export function TypeInspector({ readOnly = false, type, availableTypes = [], con
   onOpenSettings?: () => void;
   onBack: () => void;
 }) {
+  useLingui();
   const slowSave = useDelayedBusy(saving, document?.path);
   const [view, setView] = useState<"visual" | "yaml">("visual");
   const [reviewing, setReviewing] = useState(false);
@@ -254,50 +261,50 @@ export function TypeInspector({ readOnly = false, type, availableTypes = [], con
       setVisualError(undefined);
       setReviewing(false);
     } catch (changeError) {
-      setVisualError(changeError instanceof Error ? changeError.message : "That field could not be changed.");
+      setVisualError(changeError instanceof Error ? changeError.message : t`That field could not be changed.`);
     }
   }
 
-  if (!creating && !type) return <main className="type-inspector empty-type">{leadingActions && <div className="empty-pane-actions">{leadingActions}</div>}<div><p>This collection has no type definitions.</p>{onCreate && <button className="empty-type-create mdbase-button is-primary" onClick={onCreate}>Create the first type</button>}</div></main>;
-  const name = creating ? "New type" : type!.name;
-  const path = creating ? "A path will be created from the type name" : document?.path ?? type!.path ?? `_types/${type!.name}.md`;
-  return <main className="type-inspector" aria-label={`${name} type definition`}>
+  if (!creating && !type) return <main className="type-inspector empty-type">{leadingActions && <div className="empty-pane-actions">{leadingActions}</div>}<div><p><Trans>This collection has no type definitions.</Trans></p>{onCreate && <button className="empty-type-create mdbase-button is-primary" onClick={onCreate}><Trans>Create the first type</Trans></button>}</div></main>;
+  const name = creating ? t`New type` : type!.name;
+  const path = creating ? t`A path will be created from the type name` : document?.path ?? type!.path ?? `_types/${type!.name}.md`;
+  return <main className="type-inspector" aria-label={t`${name} type definition`}>
     <header className="type-inspector-bar mdbase-settle-host">
-      <button className="mobile-back icon-button" aria-label="Back to types" onClick={onBack}><ArrowLeft aria-hidden="true" /></button>
+      <button className="mobile-back icon-button" aria-label={t`Back to types`} onClick={onBack}><ArrowLeft aria-hidden="true" /></button>
       {leadingActions}
       <details className="type-file-details">
-        <summary>Details</summary>
+        <summary><Trans>Details</Trans></summary>
         <PathLabel path={path} />
         {!creating && <p>{typeHeadingFacts(type!, contractState.implementations.length)}</p>}
       </details>
-      {(error || slowSave) && <SaveNotice tone={error ? "attention" : "saving"} label={error ? "Needs attention" : "Saving…"} />}
+      {(error || slowSave) && <SaveNotice tone={error ? "attention" : "saving"} label={error ? t`Needs attention` : t`Saving…`} />}
     </header>
     <section className="type-heading">
       <div className="type-heading-title">
         {!creating && isPhosphorIconName(collectionTypeIcon(type)) && <PhosphorIcon name={collectionTypeIcon(type)} aria-hidden="true" />}
         <h1>{name}</h1>
       </div>
-      {creating ? <p>Give the type a name, then add the fields its notes need.</p> : type!.description && <p>{type!.description}</p>}
+      {creating ? <p><Trans>Give the type a name, then add the fields its notes need.</Trans></p> : type!.description && <p>{type!.description}</p>}
       {!creating && <p className="type-heading-facts">{countSummary(propertyCount(type!), "field")}</p>}
     </section>
     <section className="type-source">
       {reviewing ? <div className="type-source-context reviewing">
-        <div className="type-source-intro"><h2>Review changes</h2><p>Confirm the collection-wide effect before saving.</p></div>
+        <div className="type-source-intro"><h2><Trans>Review changes</Trans></h2><p><Trans>Confirm the collection-wide effect before saving.</Trans></p></div>
       </div> : <div className="type-source-context">
-          <div className="type-source-intro"><h2>Definition</h2><p>Design the note shape or work with its complete YAML source.</p></div>
-          {!readOnly && <><div className="type-view-switch" role="group" aria-label="Type editor view">
-            <button className={view === "visual" ? "selected" : ""} aria-pressed={view === "visual"} onClick={() => { setView("visual"); setReviewing(false); }}>Design</button>
-            <button className={view === "yaml" ? "selected" : ""} aria-pressed={view === "yaml"} onClick={() => { setView("yaml"); setReviewing(false); }}>YAML</button>
+          <div className="type-source-intro"><h2><Trans>Definition</Trans></h2><p><Trans>Design the note shape or work with its complete YAML source.</Trans></p></div>
+          {!readOnly && <><div className="type-view-switch" role="group" aria-label={t`Type editor view`}>
+            <button className={view === "visual" ? "selected" : ""} aria-pressed={view === "visual"} onClick={() => { setView("visual"); setReviewing(false); }}><Trans>Design</Trans></button>
+            <button className={view === "yaml" ? "selected" : ""} aria-pressed={view === "yaml"} onClick={() => { setView("yaml"); setReviewing(false); }}><Trans>YAML</Trans></button>
           </div>
           <div className="type-editor-actions">
-            {dirty && <span className="type-change-scope" id="type-change-scope"><CircleAlert aria-hidden="true" />{creating ? "Saving affects every matching note" : <>Saving affects every note of type <code>{type!.name}</code></>}</span>}
-            <button className="type-secondary-action mdbase-button is-tertiary" onClick={creating ? onCancel : onRevert} disabled={readOnly || saving || (!creating && !dirty)}><RotateCcw aria-hidden="true" />{creating ? "Cancel" : "Revert"}</button>
-            <button className="save-type-button mdbase-button is-primary" aria-describedby={dirty ? "type-change-scope" : undefined} onClick={() => setReviewing(true)} disabled={readOnly || loading || saving || !dirty || !parsed.value || contractErrors.length > 0}>{saving ? "Saving…" : "Review changes"}</button>
+            {dirty && <span className="type-change-scope" id="type-change-scope"><CircleAlert aria-hidden="true" />{creating ? t`Saving affects every matching note` : <><Trans>Saving affects every note of type </Trans><code>{type!.name}</code></>}</span>}
+            <button className="type-secondary-action mdbase-button is-tertiary" onClick={creating ? onCancel : onRevert} disabled={readOnly || saving || (!creating && !dirty)}><RotateCcw aria-hidden="true" />{creating ? t`Cancel` : t`Revert`}</button>
+            <button className="save-type-button mdbase-button is-primary" aria-describedby={dirty ? "type-change-scope" : undefined} onClick={() => setReviewing(true)} disabled={readOnly || loading || saving || !dirty || !parsed.value || contractErrors.length > 0}>{saving ? t`Saving…` : t`Review changes`}</button>
           </div></>}
         </div>
       }
       {(error || visualError || (!loading && parsed.error)) && <p className="type-editor-error" role="alert">{error || visualError || parsed.error}</p>}
-      {loading ? <div className="type-source-loading" role="status" aria-label="Loading type definition">Reading type definition…</div>
+      {loading ? <div className="type-source-loading" role="status" aria-label={t`Loading type definition`}><Trans>Reading type definition…</Trans></div>
         : !readOnly && reviewing && impact ? <TypeChangeReview
           previousSource={document?.document}
           source={source}
@@ -323,12 +330,12 @@ export function TypeInspector({ readOnly = false, type, availableTypes = [], con
             onBrowsePacks={onBrowsePacks}
             onOpenSettings={onOpenSettings}
           />
-            : !readOnly && view === "visual" ? <div className="visual-type-unavailable"><CircleAlert aria-hidden="true" /><p>Fix the YAML source before returning to the field editor.</p><button onClick={() => setView("yaml")}>Open YAML</button></div>
+            : !readOnly && view === "visual" ? <div className="visual-type-unavailable"><CircleAlert aria-hidden="true" /><p><Trans>Fix the YAML source before returning to the field editor.</Trans></p><button onClick={() => setView("yaml")}><Trans>Open YAML</Trans></button></div>
               : <CodeEditor
                 key={`${document?.path ?? "new-type"}:yaml`}
                 value={source}
                 onChange={(next) => { onSourceChange(next); setVisualError(undefined); setReviewing(false); }}
-                label={`${name} type YAML`}
+                label={t`${name} type YAML`}
                 readOnly={readOnly}
                 language="yaml-frontmatter"
                 lineWrapping={false}
@@ -354,6 +361,7 @@ function VisualTypeEditor({ definition, source, impact, typeNames, contracts, ty
   onBrowsePacks?: () => void;
   onOpenSettings?: () => void;
 }) {
+  useLingui();
   const [activeField, setActiveField] = useState<string>();
   const linkedSchema = typeSchemaReference(source);
   const linkedSchemaFields = linkedSchema
@@ -368,93 +376,93 @@ function VisualTypeEditor({ definition, source, impact, typeNames, contracts, ty
 
   return <div className="visual-type-editor">
     <section className="visual-type-section visual-type-basics">
-      <div className="visual-section-heading"><div><h3>Identity</h3><p>The stable name used by records and connected apps.</p></div></div>
+      <div className="visual-section-heading"><div><h3><Trans>Identity</Trans></h3><p><Trans>The stable name used by records and connected apps.</Trans></p></div></div>
       <div className="visual-type-basics-fields">
-        <label><span>Name</span><input value={definition.name} onChange={(event) => onChange((source) => updateTypeIdentity(source, "name", event.target.value))} spellCheck="false" /></label>
-        <label><span>Description</span><input value={definition.description} onChange={(event) => onChange((source) => updateTypeIdentity(source, "description", event.target.value))} /></label>
+        <label><span><Trans>Name</Trans></span><input value={definition.name} onChange={(event) => onChange((source) => updateTypeIdentity(source, "name", event.target.value))} spellCheck="false" /></label>
+        <label><span><Trans>Description</Trans></span><input value={definition.description} onChange={(event) => onChange((source) => updateTypeIdentity(source, "description", event.target.value))} /></label>
       </div>
     </section>
     <TypeEditorDisclosure
       className="type-match-section"
-      title="Which notes use this type"
-      description="How notes are assigned to this type."
+      title={t`Which notes use this type`}
+      description={t`How notes are assigned to this type.`}
       summary={typeMembershipSummary(definition)}
     >
       <div className="type-membership-method type-explicit-membership">
         <div>
-          <strong>Assigned by name</strong>
+          <strong><Trans>Assigned by name</Trans></strong>
           {explicitTypeKeys.length
-            ? <p>Notes can name <code>{definition.name}</code> through {explicitTypeKeys.map((key, index) => <span key={key}>{index ? ", " : ""}<code>{key}</code></span>)}. When any configured key is present, automatic rules are skipped.</p>
-            : <p>This collection has explicit type assignment disabled. Every note is classified by automatic rules.</p>}
+            ? <p><Trans>Notes can name <code>{definition.name}</code> through {explicitTypeKeys.map((key, index) => <span key={key}>{index ? ", " : ""}<code>{key}</code></span>)}. When any configured key is present, automatic rules are skipped.</Trans></p>
+            : <p><Trans>This collection has explicit type assignment disabled. Every note is classified by automatic rules.</Trans></p>}
         </div>
-        {onOpenSettings && <button onClick={onOpenSettings}>View settings</button>}
+        {onOpenSettings && <button onClick={onOpenSettings}><Trans>View settings</Trans></button>}
       </div>
       <div className="type-membership-method type-automatic-membership">
         <div>
-          <strong>Automatic matching</strong>
+          <strong><Trans>Automatic matching</Trans></strong>
           <p>{explicitTypeKeys.length
-            ? "Notes without an explicit assignment belong to this type when every configured condition group below matches."
-            : "Notes belong to this type when every configured condition group below matches."}</p>
+            ? t`Notes without an explicit assignment belong to this type when every configured condition group below matches.`
+            : t`Notes belong to this type when every configured condition group below matches.`}</p>
         </div>
       </div>
       <div className={`type-match-rules${definition.pathGlobs.length && definition.fieldsPresent.length ? " combined" : ""}`}>
         <StringListEditor
-          label="Path matches any"
+          label={t`Path matches any`}
           values={definition.pathGlobs}
-          itemLabel="Path pattern"
-          addLabel="Add path pattern"
-          placeholder="Journal/**/*.md"
+          itemLabel={t`Path pattern`}
+          addLabel={t`Add path pattern`}
+          placeholder={t`Journal/**/*.md`}
           helper="Optional. One pattern must match the collection-relative path."
           suggestions={pathSuggestions}
           onChange={(values) => onChange((source) => updateTypePathGlobs(source, values))}
         />
-        {definition.pathGlobs.length > 0 && definition.fieldsPresent.length > 0 && <span className="type-match-operator">and</span>}
+        {definition.pathGlobs.length > 0 && definition.fieldsPresent.length > 0 && <span className="type-match-operator"><Trans>and</Trans></span>}
         <StringListEditor
-          label="Frontmatter contains all"
+          label={t`Frontmatter contains all`}
           values={definition.fieldsPresent}
-          itemLabel="Required match field"
-          addLabel="Add field selector"
-          placeholder="status"
+          itemLabel={t`Required match field`}
+          addLabel={t`Add field selector`}
+          placeholder={t`status`}
           helper="Optional. Every selector must have a persisted, non-null value."
           suggestions={fieldSuggestions}
           onChange={(values) => onChange((source) => updateTypeFieldsPresent(source, values))}
         />
       </div>
       {!definition.pathGlobs.length && !definition.fieldsPresent.length && !definition.advancedMatchKeys.length
-        && <p className="type-explicit-only">No inferred rules. Records must declare this type explicitly.</p>}
+        && <p className="type-explicit-only"><Trans>No inferred rules. Records must declare this type explicitly.</Trans></p>}
       {definition.advancedMatch && <div className="advanced-match-note">
         <Info aria-hidden="true" />
-        <div><strong>More inferred rules in YAML</strong><p>{definition.advancedMatchKeys.map(matchRuleLabel).join(" · ")}. These rules combine with the visual rules above.</p></div>
-        <button onClick={onOpenYaml}>Open YAML</button>
+        <div><strong><Trans>More inferred rules in YAML</Trans></strong><p><Trans>{definition.advancedMatchKeys.map(matchRuleLabel).join(" · ")}. These rules combine with the visual rules above.</Trans></p></div>
+        <button onClick={onOpenYaml}><Trans>Open YAML</Trans></button>
       </div>}
       {impact && <TypeMembershipPreview impact={impact.membership} advanced={definition.advancedMatch} />}
     </TypeEditorDisclosure>
     <section className="visual-type-section visual-type-fields-intro">
       <div className="visual-type-fields-heading">
         <div>
-          <h3>Fields</h3>
+          <h3><Trans>Fields</Trans></h3>
           <p>{linkedSchema
-            ? `${linkedSchemaFields.length} ${linkedSchemaFields.length === 1 ? "field is" : "fields are"} supplied by the installed schema.`
-            : "Objects and lists can contain fields at any depth."}</p>
+            ? plural(linkedSchemaFields.length, { one: `# field is supplied by the installed schema.`, other: `# fields are supplied by the installed schema.` })
+            : t`Objects and lists can contain fields at any depth.`}</p>
         </div>
         {linkedSchema
-          ? <button className="mdbase-button is-tertiary" onClick={onOpenYaml}><FileCode2 aria-hidden="true" />Edit reference</button>
-          : <button className="mdbase-button" onClick={() => onChange((current) => addTypeField(current))}><Plus aria-hidden="true" />Add field</button>}
+          ? <button className="mdbase-button is-tertiary" onClick={onOpenYaml}><FileCode2 aria-hidden="true" /><Trans>Edit reference</Trans></button>
+          : <button className="mdbase-button" onClick={() => onChange((current) => addTypeField(current))}><Plus aria-hidden="true" /><Trans>Add field</Trans></button>}
       </div>
     </section>
     <div className="visual-type-fields">
       {linkedSchema ? <>
         <div className="linked-schema-notice">
           <Link2 aria-hidden="true" />
-          <div><strong>Schema-managed fields</strong><p><code>{linkedSchema}</code> is installed with this type. Field structure is edited at the schema source.</p></div>
+          <div><strong><Trans>Schema-managed fields</Trans></strong><p><Trans><code>{linkedSchema}</code> is installed with this type. Field structure is edited at the schema source.</Trans></p></div>
         </div>
         {linkedSchemaFields.map((field) => <div className="linked-schema-field" key={field.reference}>
           <div><span>{field.label}</span>{field.description && <small>{field.description}</small>}</div>
           <span>{kindName(field.kind)}</span>
-          <span className={field.required ? "required" : ""}>{field.required ? "Required" : "Optional"}</span>
-          <Link2 aria-label="Linked schema field" />
+          <span className={field.required ? "required" : ""}>{field.required ? t`Required` : t`Optional`}</span>
+          <Link2 aria-label={t`Linked schema field`} />
         </div>)}
-        {!linkedSchemaFields.length && <p className="quiet-empty">The linked schema does not expose object fields.</p>}
+        {!linkedSchemaFields.length && <p className="quiet-empty"><Trans>The linked schema does not expose object fields.</Trans></p>}
       </> : <>
         {definition.fields.map((field) => <VisualFieldRow
           key={typeFieldPathLabel(field.path)}
@@ -466,7 +474,7 @@ function VisualTypeEditor({ definition, source, impact, typeNames, contracts, ty
           onActivate={setActiveField}
           onChange={onChange}
         />)}
-        {!definition.fields.length && <p className="quiet-empty">No fields are declared yet.</p>}
+        {!definition.fields.length && <p className="quiet-empty"><Trans>No fields are declared yet.</Trans></p>}
       </>}
     </div>
     <CollectionBehaviourEditor
@@ -486,7 +494,7 @@ function VisualTypeEditor({ definition, source, impact, typeNames, contracts, ty
       onOpenYaml={onOpenYaml}
       onBrowsePacks={onBrowsePacks}
     />
-    <p className="visual-type-footnote">Advanced JSON Schema rules remain intact and are identified in place. Review any structural conversion before applying it.</p>
+    <p className="visual-type-footnote"><Trans>Advanced JSON Schema rules remain intact and are identified in place. Review any structural conversion before applying it.</Trans></p>
   </div>;
 }
 
@@ -498,6 +506,7 @@ function TypeEditorDisclosure({ className = "", title, description, summary, att
   attention?: boolean;
   children: ReactNode;
 }) {
+  useLingui();
   const titleId = useId();
   return <details className={`visual-type-section type-editor-disclosure ${className}${attention ? " needs-attention" : ""}`}>
     <summary aria-labelledby={titleId}>
@@ -523,6 +532,7 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
   onOpenYaml: () => void;
   onBrowsePacks?: () => void;
 }) {
+  useLingui();
   const implementations = useMemo(() => readTypeContractImplementations(source), [source]);
   const implementedKeys = new Set(implementations.map((implementation) => `${implementation.contract}@${implementation.version}`));
   const available = contracts.filter((contract) => !implementedKeys.has(contractKey(contract)));
@@ -555,36 +565,36 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
   }
 
   const contractSummary = contractErrors
-    ? `${contractErrors} ${contractErrors === 1 ? "issue" : "issues"} need attention`
+    ? plural(contractErrors, { one: `# issue need attention`, other: `# issues need attention` })
     : implementations.length
-      ? `${implementations.length} ${implementations.length === 1 ? "connection" : "connections"} configured`
+      ? plural(implementations.length, { one: "# connection configured", other: "# connections configured" })
       : contracts.length
-        ? "No connections"
-        : "No app contracts installed";
+        ? t`No connections`
+        : t`No app contracts installed`;
 
   return <TypeEditorDisclosure
     className="type-contracts-section"
-    title="Works with applications"
-    description="Tell compatible apps what this type’s fields mean."
+    title={t`Works with applications`}
+    description={t`Tell compatible apps what this type’s fields mean.`}
     summary={contractSummary}
     attention={contractErrors > 0}
   >
 
     {!contracts.length && <div className="contract-empty">
       <Link2 aria-hidden="true" />
-      <div><strong>No application contracts are installed</strong><p>Add a ready-made type to get app compatibility, or install a contract before connecting this type yourself.</p></div>
-      {onBrowsePacks && <button onClick={onBrowsePacks}>Browse ready-made types</button>}
+      <div><strong><Trans>No application contracts are installed</Trans></strong><p><Trans>Add a ready-made type to get app compatibility, or install a contract before connecting this type yourself.</Trans></p></div>
+      {onBrowsePacks && <button onClick={onBrowsePacks}><Trans>Browse ready-made types</Trans></button>}
     </div>}
 
     {contracts.length > 0 && creating && implementations.length === 0 && <div className="contract-starter">
-      <div><strong>Start with app compatibility</strong><p>Create fields that already match an installed contract. You can rename and remap them later.</p></div>
-      <label><span>Contract</span><Select
-        aria-label="Starting contract"
+      <div><strong><Trans>Start with app compatibility</Trans></strong><p><Trans>Create fields that already match an installed contract. You can rename and remap them later.</Trans></p></div>
+      <label><span><Trans>Contract</Trans></span><Select
+        aria-label={t`Starting contract`}
         value={selected ? contractKey(selected) : ""}
         options={available.map((contract) => ({ value: contractKey(contract), label: `${contract.id} · ${contract.version}` }))}
         onChange={setSelectedKey}
       /></label>
-      <button disabled={!selected} onClick={() => selected && onChange((current) => createTypeSourceFromContract(current, selected, typeNames))}>Use contract</button>
+      <button disabled={!selected} onClick={() => selected && onChange((current) => createTypeSourceFromContract(current, selected, typeNames))}><Trans>Use contract</Trans></button>
     </div>}
 
     {implementations.length > 0 && <div className="contract-implementation-list">
@@ -606,7 +616,7 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
           <header>
             <div className={`contract-status${errors.length ? " invalid" : warnings.length ? " review" : ""}`}>
               {errors.length || warnings.length ? <CircleAlert aria-hidden="true" /> : <Check aria-hidden="true" />}
-              <span>{errors.length ? "Needs attention" : warnings.length ? "Review recommended" : "Mapping ready"}</span>
+              <span>{errors.length ? t`Needs attention` : warnings.length ? t`Review recommended` : t`Mapping ready`}</span>
             </div>
             <div className="contract-identity">
               <strong>{implementation.contract}</strong>
@@ -614,13 +624,13 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
             </div>
             <button
               className="contract-remove"
-              aria-label={`Remove ${implementation.contract} contract`}
+              aria-label={t`Remove ${implementation.contract} contract`}
               onClick={() => onChange((current) => removeTypeContractImplementation(current, implementation.contract, implementation.version))}
-            ><Trash2 aria-hidden="true" />Remove</button>
+            ><Trash2 aria-hidden="true" /><Trans>Remove</Trans></button>
           </header>
           {!contract ? <div className="contract-unavailable">
-            <p>This exact contract is not available in the collection. Restore it or remove the implementation before saving.</p>
-            <button onClick={onOpenYaml}>Open YAML</button>
+            <p><Trans>This exact contract is not available in the collection. Restore it or remove the implementation before saving.</Trans></p>
+            <button onClick={onOpenYaml}><Trans>Open YAML</Trans></button>
           </div> : <>
             <details
               open={errors.length > 0 || openMappings.has(implementationKey)}
@@ -636,19 +646,19 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
               }}
             >
               <summary>
-                <span>Field mappings</span>
-                <small>{requiredMapped}/{requiredFields.length} required · {mappedCount}/{fields.length} total{warnings.length ? ` · ${warnings.length} to review` : ""}</small>
+                <span><Trans>Field mappings</Trans></span>
+                <small>{requiredMapped}/{requiredFields.length} <Trans>required · </Trans>{mappedCount}/{fields.length} <Trans>total</Trans>{warnings.length ? t` · ${warnings.length} to review` : ""}</small>
                 <ChevronRight aria-hidden="true" />
               </summary>
               {fields.length ? <div className="contract-mapping-list">
                 <div className="contract-mapping-overview">
-                  <div><strong>{requiredMapped === requiredFields.length ? "Required fields covered" : `${requiredFields.length - requiredMapped} required ${requiredFields.length - requiredMapped === 1 ? "field" : "fields"} unmapped`}</strong><span>A mapping copies the source value directly. It does not coerce or transform data.</span></div>
+                  <div><strong>{requiredMapped === requiredFields.length ? t`Required fields covered` : plural(requiredFields.length - requiredMapped, { one: `# required field unmapped`, other: `# required fields unmapped` })}</strong><span><Trans>A mapping copies the source value directly. It does not coerce or transform data.</Trans></span></div>
                   <dl>
-                    <div><dt>Required</dt><dd>{requiredMapped}/{requiredFields.length}</dd></div>
-                    <div><dt>Optional</dt><dd>{mappedCount - requiredMapped}/{fields.length - requiredFields.length}</dd></div>
+                    <div><dt><Trans>Required</Trans></dt><dd>{requiredMapped}/{requiredFields.length}</dd></div>
+                    <div><dt><Trans>Optional</Trans></dt><dd>{mappedCount - requiredMapped}/{fields.length - requiredFields.length}</dd></div>
                   </dl>
                 </div>
-                <div className="contract-mapping-columns" aria-hidden="true"><span>Contract field</span><span>Source field</span><span>Validation</span></div>
+                <div className="contract-mapping-columns" aria-hidden="true"><span><Trans>Contract field</Trans></span><span><Trans>Source field</Trans></span><span><Trans>Validation</Trans></span></div>
                 {fields.map((field) => {
                   const mapped = mappingForContractField(implementation, field);
                   const fieldIssue = implementationIssues.find((issue) => issue.field === field.reference);
@@ -657,7 +667,7 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
                   const displayed = fieldIssue
                     ? {
                         level: fieldIssue.level,
-                        label: fieldIssue.level === "error" ? "Fix mapping" : "Review",
+                        label: fieldIssue.level === "error" ? t`Fix mapping` : t`Review`,
                         message: fieldIssue.message
                       }
                     : assessment;
@@ -671,18 +681,18 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
                   const mappedMissing = Boolean(mapped) && !mappedField;
                   return <div className={`contract-mapping-row ${displayed.level}`} key={field.reference}>
                     <div className="contract-field-definition">
-                      <div><code>{field.reference}</code><span className={field.required ? "required" : ""}>{field.required ? "Required" : "Optional"}</span></div>
-                      <small>{field.description || `${kindName(field.kind)} value`}</small>
+                      <div><code>{field.reference}</code><span className={field.required ? "required" : ""}>{field.required ? t`Required` : t`Optional`}</span></div>
+                      <small>{field.description || t`${kindName(field.kind)} value`}</small>
                     </div>
                     <label className="contract-field-source">
-                      <span className="sr-only">{implementation.contract} {field.reference} source field</span>
+                      <span className="sr-only"><Trans>{implementation.contract} {field.reference} source field</Trans></span>
                       <Select
-                        aria-label={`${implementation.contract} ${field.reference} type field`}
+                        aria-label={t`${implementation.contract} ${field.reference} type field`}
                         aria-invalid={displayed.level === "error" || undefined}
                         value={mapped}
                         options={[
                           { value: "", label: field.required ? "Choose a source field" : "Not exposed" },
-                          ...(mappedMissing ? [{ value: mapped, label: `Missing field: ${mapped}` }] : []),
+                          ...(mappedMissing ? [{ value: mapped, label: t`Missing field: ${mapped}` }] : []),
                           ...mappingOptionGroup("Compatible fields", compatible),
                           ...mappingOptionGroup("Needs review", review),
                           ...mappingOptionGroup("Incompatible fields", incompatible, true)
@@ -695,7 +705,7 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
                           next || undefined
                         ))}
                       />
-                      {mappedField && <small>{kindName(mappedField.kind)} · {mappedField.required ? "always present" : "optional in this type"}</small>}
+                      {mappedField && <small>{kindName(mappedField.kind)} · {mappedField.required ? t`always present` : t`optional in this type`}</small>}
                     </label>
                     <div className={`contract-mapping-validation ${displayed.level}`} role={displayed.level === "error" ? "alert" : undefined}>
                       {displayed.level === "valid"
@@ -708,8 +718,8 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
                   </div>;
                 })}
               </div> : <div className="contract-composed-schema">
-                <p>This contract does not expose simple top-level properties. Configure its field references in YAML.</p>
-                <button onClick={onOpenYaml}>Open YAML</button>
+                <p><Trans>This contract does not expose simple top-level properties. Configure its field references in YAML.</Trans></p>
+                <button onClick={onOpenYaml}><Trans>Open YAML</Trans></button>
               </div>}
             </details>
             {contract.bindingSchema && <details
@@ -727,17 +737,17 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
               }}
             >
               <summary>
-                <span>Contract settings</span>
-                <small>{implementation.binding ? "Configured" : bindingIssues.length ? "Setup required" : "Optional"}</small>
+                <span><Trans>Contract settings</Trans></span>
+                <small>{implementation.binding ? t`Configured` : bindingIssues.length ? t`Setup required` : t`Optional`}</small>
                 <ChevronRight aria-hidden="true" />
               </summary>
               <div className="contract-settings-body">
                 <div className="contract-settings-intro">
                   <div>
-                    <strong>Application behavior</strong>
-                    <p>Control how compatible apps interpret and act on this type. Values are checked against the contract’s schema.</p>
+                    <strong><Trans>Application behavior</Trans></strong>
+                    <p><Trans>Control how compatible apps interpret and act on this type. Values are checked against the contract’s schema.</Trans></p>
                   </div>
-                  <button type="button" onClick={onOpenYaml}>Edit YAML</button>
+                  <button type="button" onClick={onOpenYaml}><Trans>Edit YAML</Trans></button>
                 </div>
                 {implementation.binding || openSettings.has(implementationKey)
                   ? <SchemaValueEditor
@@ -758,7 +768,7 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
                       }}
                     />
                   : <div className="contract-settings-empty">
-                      <p>Set the contract’s required behavior choices before saving this type.</p>
+                      <p><Trans>Set the contract’s required behavior choices before saving this type.</Trans></p>
                       <button type="button" onClick={() => {
                         const initial = schemaInitialValue(contract.bindingSchema, contract.bindingSchema);
                         if (!isJsonObject(initial)) return;
@@ -769,18 +779,18 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
                           implementation.version,
                           initial
                         ));
-                      }}>Configure settings</button>
+                      }}><Trans>Configure settings</Trans></button>
                     </div>}
               </div>
             </details>}
             <details className="contract-view-preview">
               <summary>
-                <span>Application view</span>
-                <small>{mappedCount} {mappedCount === 1 ? "value" : "values"} exposed</small>
+                <span><Trans>Application view</Trans></span>
+                <small>{plural(mappedCount, { one: "# value exposed", other: "# values exposed" })}</small>
                 <ChevronRight aria-hidden="true" />
               </summary>
               <div className="contract-preview-body">
-                <p>Apps read these contract field names while your notes keep their own field names.</p>
+                <p><Trans>Apps read these contract field names while your notes keep their own field names.</Trans></p>
                 <pre>{JSON.stringify(contractViewPreview(implementation), null, 2)}</pre>
               </div>
             </details>
@@ -792,28 +802,28 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
     </div>}
 
     {available.length > 0 && (!creating || implementations.length > 0) && <div className="contract-add">
-      <label><span>Installed contract</span><Select
-        aria-label="Installed contract"
+      <label><span><Trans>Installed contract</Trans></span><Select
+        aria-label={t`Installed contract`}
         value={selected ? contractKey(selected) : ""}
         options={available.map((contract) => ({ value: contractKey(contract), label: `${contract.id} · ${contract.version}` }))}
         onChange={setSelectedKey}
       /></label>
-      <button disabled={!selected} onClick={() => selected && addContract(selected)}><Plus aria-hidden="true" />Connect application contract</button>
+      <button disabled={!selected} onClick={() => selected && addContract(selected)}><Plus aria-hidden="true" /><Trans>Connect application contract</Trans></button>
     </div>}
 
     {suggestions.length > 0 && <div className="contract-suggestions">
-      <div className="contract-suggestion-heading"><div><strong>Possible app compatibility</strong><p>Suggested from field names and shapes only. Confirm that the meanings agree.</p></div></div>
+      <div className="contract-suggestion-heading"><div><strong><Trans>Possible app compatibility</Trans></strong><p><Trans>Suggested from field names and shapes only. Confirm that the meanings agree.</Trans></p></div></div>
       {suggestions.map((suggestion) => <div className="contract-suggestion" key={contractKey(suggestion.contract)}>
         <div><strong>{suggestion.contract.id}</strong><span>{suggestion.contract.version}</span></div>
-        <p>{suggestion.matchedFields} of {suggestion.totalFields} fields match{suggestion.requiredFields ? `, ${suggestion.requiredMatched} of ${suggestion.requiredFields} required` : ""}.</p>
-        <button onClick={() => addContract(suggestion.contract)}>Review mapping</button>
+        <p>{suggestion.matchedFields} <Trans>of </Trans>{suggestion.totalFields} <Trans>fields match</Trans>{suggestion.requiredFields ? t`, ${suggestion.requiredMatched} of ${suggestion.requiredFields} required` : ""}.</p>
+        <button onClick={() => addContract(suggestion.contract)}><Trans>Review mapping</Trans></button>
       </div>)}
     </div>}
 
     {globalIssues.length > 0 && <div className="contract-global-issues">
       {globalIssues.map((issue, index) =>
         <p role={issue.level === "error" ? "alert" : undefined} key={`${issue.message}:${index}`}>{issue.message}</p>)}
-      <button onClick={onOpenYaml}>Open YAML</button>
+      <button onClick={onOpenYaml}><Trans>Open YAML</Trans></button>
     </div>}
   </TypeEditorDisclosure>;
 }
@@ -861,6 +871,7 @@ function ContractCatalogBrowser({ catalog, contracts, types, loading, error, can
   onRequestAccess?: () => void;
   onReload?: () => void;
 }) {
+  useLingui();
   const [confirmingKey, setConfirmingKey] = useState<string>();
   const [installingKey, setInstallingKey] = useState<string>();
   const [installError, setInstallError] = useState<{ key: string; message: string }>();
@@ -877,7 +888,7 @@ function ContractCatalogBrowser({ catalog, contracts, types, loading, error, can
     } catch (error) {
       setInstallError({
         key,
-        message: error instanceof Error ? error.message : "The type pack could not be installed."
+        message: error instanceof Error ? error.message : t`The type pack could not be installed.`
       });
     } finally {
       setInstallingKey(undefined);
@@ -892,27 +903,27 @@ function ContractCatalogBrowser({ catalog, contracts, types, loading, error, can
     const key = `${pack.id}@${pack.version}`;
     const status = contractCatalogPackStatus(pack, contracts, types);
     const statusLabel = status === "installed"
-      ? pack.primaryType ? `${pack.displayName} added` : "Installed"
+      ? pack.primaryType ? t`${pack.displayName} added` : t`Installed`
       : status === "partial"
-        ? "Partly installed"
+        ? t`Partly installed`
         : pack.installedTypes.length === 1
-          ? "Adds 1 type"
-          : `Adds ${pack.installedTypes.length} types`;
+          ? t`Adds 1 type`
+          : t`Adds ${pack.installedTypes.length} types`;
     const confirming = confirmingKey === key;
     const installing = installingKey === key;
     const addLabel = status === "partial"
-      ? `Finish adding ${pack.displayName}`
+      ? t`Finish adding ${pack.displayName}`
       : pack.primaryType
-        ? `Add ${pack.displayName}`
-        : "Install runtime pack";
+        ? t`Add ${pack.displayName}`
+        : t`Install runtime pack`;
     const icon = isPhosphorIconName(pack.icon)
       ? <PhosphorIcon name={pack.icon} aria-hidden="true" />
       : <Package aria-hidden="true" />;
     const primaryTypeLabel = pack.installedTypes
       .find(({ name }) => name === pack.primaryType)?.label ?? pack.displayName;
     const confirmationCopy = pack.primaryType
-      ? `Creates a ready-to-use ${primaryTypeLabel} type with standard fields and an editable contract mapping. Existing files will not be overwritten; installation stops if any target conflicts.`
-      : `Adds ${pack.installedTypes.length} internal types and ${pack.resourceCount} declared resources in one validated transaction. Existing files will not be overwritten; installation stops if any target conflicts.`;
+      ? t`Creates a ready-to-use ${primaryTypeLabel} type with standard fields and an editable contract mapping. Existing files will not be overwritten; installation stops if any target conflicts.`
+      : t`Adds ${pack.installedTypes.length} internal types and ${pack.resourceCount} declared resources in one validated transaction. Existing files will not be overwritten; installation stops if any target conflicts.`;
 
     return <div className={`contract-catalog-pack ${pack.visibility}`} key={key}>
       <div className="contract-catalog-pack-summary">
@@ -930,7 +941,7 @@ function ContractCatalogBrowser({ catalog, contracts, types, loading, error, can
         </div>
         <div className="contract-catalog-pack-actions">
           {status === "installed" && pack.primaryType && onOpenType
-            ? <button onClick={() => onOpenType(pack.primaryType!)}>Open {primaryTypeLabel}</button>
+            ? <button onClick={() => onOpenType(pack.primaryType!)}><Trans>Open {primaryTypeLabel}</Trans></button>
             : status !== "installed" && onInstall && (canInstall
               ? <button
                   disabled={installing}
@@ -939,7 +950,7 @@ function ContractCatalogBrowser({ catalog, contracts, types, loading, error, can
                     setConfirmingKey(key);
                   }}
                 >{addLabel}</button>
-              : onRequestAccess && <button onClick={onRequestAccess}>Allow installs</button>)}
+              : onRequestAccess && <button onClick={onRequestAccess}><Trans>Allow installs</Trans></button>)}
         </div>
       </div>
       {pack.caution && <div className="contract-catalog-pack-caution">
@@ -947,11 +958,11 @@ function ContractCatalogBrowser({ catalog, contracts, types, loading, error, can
         <p>{pack.caution}</p>
       </div>}
       <details className="contract-catalog-pack-details">
-        <summary>Technical details</summary>
+        <summary><Trans>Technical details</Trans></summary>
         <div>
-          <p><span>Pack</span><code>{pack.id}@{pack.version}</code></p>
-          <p><span>Contents</span>{pack.provides.length} {pack.provides.length === 1 ? "contract" : "contracts"} · {pack.resourceCount} resources</p>
-          <a href={pack.provisionUrl} target="_blank" rel="noreferrer">View pack JSON</a>
+          <p><span><Trans>Pack</Trans></span><code>{pack.id}@{pack.version}</code></p>
+          <p><span><Trans>Contents</Trans></span>{pack.provides.length} {pack.provides.length === 1 ? t`contract` : t`contracts`} · {pack.resourceCount} <Trans>resources</Trans></p>
+          <a href={pack.provisionUrl} target="_blank" rel="noreferrer"><Trans>View pack JSON</Trans></a>
         </div>
       </details>
       {confirming && <div className="contract-catalog-install-confirm" role="alert">
@@ -959,14 +970,14 @@ function ContractCatalogBrowser({ catalog, contracts, types, loading, error, can
           <strong>{addLabel}?</strong>
           <p>{confirmationCopy}</p>
         </div>
-        <button disabled={installing} onClick={() => setConfirmingKey(undefined)}>Cancel</button>
+        <button disabled={installing} onClick={() => setConfirmingKey(undefined)}><Trans>Cancel</Trans></button>
         <button className="confirm-pack-install" disabled={installing} onClick={() => void install(pack)}>
-          {installing ? "Installing…" : addLabel}
+          {installing ? t`Installing…` : addLabel}
         </button>
       </div>}
       {installError?.key === key && <div className="contract-catalog-install-error" role="alert">
-        <div><strong>Couldn’t install {pack.displayName}</strong><p>{installError.message}</p></div>
-        <button onClick={() => setConfirmingKey(key)}>Try again</button>
+        <div><strong><Trans>Couldn’t install {pack.displayName}</Trans></strong><p>{installError.message}</p></div>
+        <button onClick={() => setConfirmingKey(key)}><Trans>Try again</Trans></button>
       </div>}
     </div>;
   }
@@ -974,20 +985,20 @@ function ContractCatalogBrowser({ catalog, contracts, types, loading, error, can
   return <div className="contract-catalog">
     <div className="contract-catalog-heading">
       <div>
-        <strong>{catalog ? `From ${catalog.publisher.name}` : "mdbase catalog"}</strong>
-        <p>Each choice includes its portable contract and an editable local mapping.</p>
+        <strong>{catalog ? t`From ${catalog.publisher.name}` : t`mdbase catalog`}</strong>
+        <p><Trans>Each choice includes its portable contract and an editable local mapping.</Trans></p>
       </div>
-      {catalog && <a href={catalog.sourceUrl} target="_blank" rel="noreferrer">Catalog source</a>}
+      {catalog && <a href={catalog.sourceUrl} target="_blank" rel="noreferrer"><Trans>Catalog source</Trans></a>}
     </div>
-    {loading && <div className="contract-catalog-loading" role="status" aria-label="Loading contract catalog">Loading available compatibility packs…</div>}
+    {loading && <div className="contract-catalog-loading" role="status" aria-label={t`Loading contract catalog`}><Trans>Loading available compatibility packs…</Trans></div>}
     {error && !loading && <div className="contract-catalog-error" role="alert">
-      <div><strong>Catalog unavailable</strong><p>{error}</p></div>
-      {onReload && <button onClick={onReload}>Try again</button>}
+      <div><strong><Trans>Catalog unavailable</Trans></strong><p>{error}</p></div>
+      {onReload && <button onClick={onReload}><Trans>Try again</Trans></button>}
     </div>}
     {catalog && !loading && <div className="contract-catalog-packs">
       {standardPacks.map(renderPack)}
       {!standardPacks.length && !advancedPacks.length
-        && <p className="quiet-empty">The catalog has no published types.</p>}
+        && <p className="quiet-empty"><Trans>The catalog has no published types.</Trans></p>}
       {advancedPacks.length > 0 && <section className="contract-catalog-advanced">
         <button
           className="contract-catalog-advanced-toggle"
@@ -995,8 +1006,8 @@ function ContractCatalogBrowser({ catalog, contracts, types, loading, error, can
           onClick={() => setShowAdvanced((current) => !current)}
         >
           <span>
-            <strong>Developer and infrastructure packs</strong>
-            <small>For integrations and specialised setups</small>
+            <strong><Trans>Developer and infrastructure packs</Trans></strong>
+            <small><Trans>For integrations and specialised setups</Trans></small>
           </span>
           <span>{advancedPacks.length}</span>
           <ChevronDown aria-hidden="true" />
@@ -1021,6 +1032,7 @@ function CollectionBehaviourEditor({ definition, typeNames, onChange, onOpenYaml
   onChange: (change: (source: string) => string) => void;
   onOpenYaml: () => void;
 }) {
+  useLingui();
   const collection = definition.collection;
   const fields = typeFieldOptions(definition.fields);
   const topLevelFields = definition.fields.map((field) => ({
@@ -1036,29 +1048,29 @@ function CollectionBehaviourEditor({ definition, typeNames, onChange, onOpenYaml
   const firstUnique = fields[0];
   const advancedKeys = [
     ...collection.advancedKeys.map(collectionRuleLabel),
-    ...collection.path.advancedKeys.map((key) => `Path: ${collectionRuleLabel(key)}`)
+    ...collection.path.advancedKeys.map((key) => t`Path: ${collectionRuleLabel(key)}`)
   ];
 
   return <TypeEditorDisclosure
     className="collection-behaviour-section"
-    title="Collection behaviour"
-    description="How this type appears and behaves across compatible tools."
+    title={t`Collection behaviour`}
+    description={t`How this type appears and behaves across compatible tools.`}
     summary={collectionBehaviourSummary(definition)}
   >
 
     <div className="collection-behaviour-group">
       <div className="collection-group-heading">
-        <div><h4>Display</h4><p>Advisory labels and colour used when records of this type are shown.</p></div>
+        <div><h4><Trans>Display</Trans></h4><p><Trans>Advisory labels and colour used when records of this type are shown.</Trans></p></div>
       </div>
       <div className="collection-display-grid">
         <CollectionFieldSelect
-          label="Name field"
+          label={t`Name field`}
           value={collection.display.nameField ?? ""}
           fields={fields.filter(textLikeField)}
           onChange={(value) => onChange((source) => updateTypeCollectionDisplay(source, "name_field", value))}
         />
         <CollectionFieldSelect
-          label="Description field"
+          label={t`Description field`}
           value={collection.display.descriptionField ?? ""}
           fields={fields.filter(textLikeField)}
           onChange={(value) => onChange((source) => updateTypeCollectionDisplay(source, "description_field", value))}
@@ -1068,7 +1080,7 @@ function CollectionBehaviourEditor({ definition, typeNames, onChange, onOpenYaml
           onChange={(value) => onChange((source) => updateTypeCollectionDisplay(source, "icon", value))}
         />
         <CollectionFieldSelect
-          label="Colour field"
+          label={t`Colour field`}
           value={collection.display.colorField ?? ""}
           fields={fields}
           onChange={(value) => onChange((source) => updateTypeCollectionDisplay(source, "color_field", value))}
@@ -1078,18 +1090,18 @@ function CollectionBehaviourEditor({ definition, typeNames, onChange, onOpenYaml
 
     <div className="collection-behaviour-group">
       <div className="collection-group-heading">
-        <div><h4>Read defaults</h4><p>Effective values for missing properties. Source files stay unchanged.</p></div>
+        <div><h4><Trans>Read defaults</Trans></h4><p><Trans>Effective values for missing properties. Source files stay unchanged.</Trans></p></div>
         <button
           disabled={!nextDefault}
           onClick={() => nextDefault && onChange((source) => addTypeReadDefault(source, nextDefault.value, defaultValueForField(nextDefault.node)))}
-        ><Plus aria-hidden="true" />Add default</button>
+        ><Plus aria-hidden="true" /><Trans>Add default</Trans></button>
       </div>
       <div className="collection-rule-list">
         {collection.readDefaults.map((entry, index) => {
           const option = topLevelFields.find((candidate) => candidate.value === entry.field);
           return <div className="collection-default-row" key={entry.field}>
             <CollectionFieldSelect
-              label={`Default field ${index + 1}`}
+              label={t`Default field ${index + 1}`}
               visibleLabel="Field"
               value={entry.field}
               fields={topLevelFields.filter((candidate) => candidate.value === entry.field || !usedDefaults.has(candidate.value))}
@@ -1102,34 +1114,34 @@ function CollectionBehaviourEditor({ definition, typeNames, onChange, onOpenYaml
               value={entry.value}
               onChange={(value) => onChange((source) => setTypeReadDefault(source, entry.field, value))}
             />
-            <InlineRemoveButton className="collection-rule-remove" label={`Remove read default for ${entry.field}`} onClick={() => onChange((source) => removeTypeReadDefault(source, entry.field))} />
+            <InlineRemoveButton className="collection-rule-remove" label={t`Remove read default for ${entry.field}`} onClick={() => onChange((source) => removeTypeReadDefault(source, entry.field))} />
           </div>;
         })}
-        {!collection.readDefaults.length && <p className="collection-empty-rule">Missing properties have no type-specific read defaults.</p>}
+        {!collection.readDefaults.length && <p className="collection-empty-rule"><Trans>Missing properties have no type-specific read defaults.</Trans></p>}
       </div>
     </div>
 
     <div className="collection-behaviour-group">
       <div className="collection-group-heading">
-        <div><h4>Links</h4><p>Describe which properties point to other records and how targets are validated.</p></div>
+        <div><h4><Trans>Links</Trans></h4><p><Trans>Describe which properties point to other records and how targets are validated.</Trans></p></div>
         <button
           disabled={!nextLink}
           onClick={() => nextLink && onChange((source) => addTypeLinkRule(source, nextLink.value))}
-        ><Plus aria-hidden="true" />Add link rule</button>
+        ><Plus aria-hidden="true" /><Trans>Add link rule</Trans></button>
       </div>
       <div className="collection-rule-list">
         {collection.links.map((rule, index) => <div className="collection-link-rule" key={rule.field}>
           <div className="collection-link-primary">
             <CollectionFieldSelect
-              label={`Link field ${index + 1}`}
+              label={t`Link field ${index + 1}`}
               visibleLabel="Field"
               value={rule.field}
               fields={linkFields.filter((candidate) => candidate.value === rule.field || !usedLinks.has(candidate.value))}
               allowEmpty={false}
               onChange={(value) => onChange((source) => renameTypeLinkRule(source, rule.field, value))}
             />
-            <label><span>Format</span><Select
-              aria-label={`${rule.field} link format`}
+            <label><span><Trans>Format</Trans></span><Select
+              aria-label={t`${rule.field} link format`}
               value={rule.format ?? ""}
               options={linkFormatOptions}
               onChange={(next) => onChange((source) => setTypeLinkRule(source, rule.field, "format", (next || undefined) as TypeLinkFormat | undefined))}
@@ -1139,84 +1151,84 @@ function CollectionBehaviourEditor({ definition, typeNames, onChange, onOpenYaml
               type="checkbox"
               checked={rule.validateExists}
               onChange={(event) => onChange((source) => setTypeLinkRule(source, rule.field, "validate_exists", event.target.checked || undefined))}
-            /><span>Require an existing target</span></label>
-            <InlineRemoveButton className="collection-rule-remove" label={`Remove link rule for ${rule.field}`} onClick={() => onChange((source) => removeTypeLinkRule(source, rule.field))} />
+            /><span><Trans>Require an existing target</Trans></span></label>
+            <InlineRemoveButton className="collection-rule-remove" label={t`Remove link rule for ${rule.field}`} onClick={() => onChange((source) => removeTypeLinkRule(source, rule.field))} />
           </div>
           <StringListEditor
-            label="Allowed target types"
+            label={t`Allowed target types`}
             values={rule.targetTypes}
-            itemLabel={`${rule.field} target type`}
-            addLabel="Add target type"
-            placeholder="person or any"
+            itemLabel={t`${rule.field} target type`}
+            addLabel={t`Add target type`}
+            placeholder={t`person or any`}
             helper="Leave empty to allow records of any type."
             suggestions={["any", ...typeNames]}
             onChange={(values) => onChange((source) => setTypeLinkTargets(source, rule.field, values))}
           />
-          {rule.advancedKeys.length > 0 && <p className="collection-advanced-inline">Additional link settings remain in YAML: {rule.advancedKeys.join(", ")}.</p>}
+          {rule.advancedKeys.length > 0 && <p className="collection-advanced-inline"><Trans>Additional link settings remain in YAML: {rule.advancedKeys.join(", ")}.</Trans></p>}
         </div>)}
-        {!collection.links.length && <p className="collection-empty-rule">No properties are marked as links.</p>}
+        {!collection.links.length && <p className="collection-empty-rule"><Trans>No properties are marked as links.</Trans></p>}
       </div>
     </div>
 
     <div className="collection-behaviour-group">
       <div className="collection-group-heading">
-        <div><h4>Uniqueness</h4><p>Require a property value to be unique across a deliberate comparison set.</p></div>
+        <div><h4><Trans>Uniqueness</Trans></h4><p><Trans>Require a property value to be unique across a deliberate comparison set.</Trans></p></div>
         <button
           disabled={!firstUnique}
           onClick={() => firstUnique && onChange((source) => addTypeUniqueRule(source, firstUnique.value))}
-        ><Plus aria-hidden="true" />Add unique rule</button>
+        ><Plus aria-hidden="true" /><Trans>Add unique rule</Trans></button>
       </div>
       <div className="collection-rule-list">
         {collection.unique.map((rule, index) => <div className={`collection-unique-rule${rule.scope === "path_glob" ? " has-path" : ""}`} key={`${rule.sourceIndex}:${rule.field}`}>
           <CollectionFieldSelect
-            label={`Unique field ${index + 1}`}
+            label={t`Unique field ${index + 1}`}
             visibleLabel="Field"
             value={rule.field}
             fields={fields}
             allowEmpty={false}
             onChange={(value) => onChange((source) => setTypeUniqueRule(source, rule.sourceIndex, "field", value))}
           />
-          <label><span>Scope</span><Select
-            aria-label={`${rule.field} uniqueness scope`}
+          <label><span><Trans>Scope</Trans></span><Select
+            aria-label={t`${rule.field} uniqueness scope`}
             value={rule.scope ?? ""}
-            placeholder="Choose scope"
+            placeholder={t`Choose scope`}
             options={uniqueScopeOptions}
             onChange={(next) => onChange((source) => setTypeUniqueRule(source, rule.sourceIndex, "scope", next as TypeUniqueScope))}
           /></label>
-          {rule.scope === "path_glob" && <label className="collection-unique-path"><span>Path pattern</span><input
-            aria-label={`${rule.field} uniqueness path pattern`}
+          {rule.scope === "path_glob" && <label className="collection-unique-path"><span><Trans>Path pattern</Trans></span><input
+            aria-label={t`${rule.field} uniqueness path pattern`}
             value={rule.pathGlob ?? ""}
-            placeholder="Projects/**/*.md"
+            placeholder={t`Projects/**/*.md`}
             onChange={(event) => onChange((source) => setTypeUniqueRule(source, rule.sourceIndex, "path_glob", event.target.value || undefined))}
           /></label>}
-          <InlineRemoveButton className="collection-rule-remove" label={`Remove uniqueness rule for ${rule.field}`} onClick={() => onChange((source) => removeTypeUniqueRule(source, rule.sourceIndex))} />
-          {rule.advancedKeys.length > 0 && <p className="collection-advanced-inline">Additional uniqueness settings remain in YAML: {rule.advancedKeys.join(", ")}.</p>}
+          <InlineRemoveButton className="collection-rule-remove" label={t`Remove uniqueness rule for ${rule.field}`} onClick={() => onChange((source) => removeTypeUniqueRule(source, rule.sourceIndex))} />
+          {rule.advancedKeys.length > 0 && <p className="collection-advanced-inline"><Trans>Additional uniqueness settings remain in YAML: {rule.advancedKeys.join(", ")}.</Trans></p>}
         </div>)}
-        {!collection.unique.length && <p className="collection-empty-rule">No cross-record uniqueness rules.</p>}
+        {!collection.unique.length && <p className="collection-empty-rule"><Trans>No cross-record uniqueness rules.</Trans></p>}
       </div>
     </div>
 
     <div className="collection-behaviour-group">
       <div className="collection-group-heading">
-        <div><h4>Path policy</h4><p>Guide compatible tools when they create or rename records of this type.</p></div>
+        <div><h4><Trans>Path policy</Trans></h4><p><Trans>Guide compatible tools when they create or rename records of this type.</Trans></p></div>
       </div>
       <div className="collection-path-grid">
-        <label><span>Pattern</span><input
-          aria-label="Path pattern"
+        <label><span><Trans>Pattern</Trans></span><input
+          aria-label={t`Path pattern`}
           value={collection.path.pattern ?? ""}
-          placeholder="tasks/{id}.md"
+          placeholder={t`tasks/{id}.md`}
           onChange={(event) => onChange((source) => updateTypePathPolicy(source, "pattern", event.target.value))}
-        /><small>Portable <code>{"{field}"}</code> placeholders.</small></label>
-        <label><span>Folder</span><input
-          aria-label="Path folder"
+        /><small><Trans>Portable <code>{"{field}"}</code> placeholders.</Trans></small></label>
+        <label><span><Trans>Folder</Trans></span><input
+          aria-label={t`Path folder`}
           value={collection.path.folder ?? ""}
-          placeholder="tasks"
+          placeholder={t`tasks`}
           onChange={(event) => onChange((source) => updateTypePathPolicy(source, "folder", event.target.value))}
         /></label>
-        <label><span>Template</span><input
-          aria-label="Path template"
+        <label><span><Trans>Template</Trans></span><input
+          aria-label={t`Path template`}
           value={collection.path.template ?? ""}
-          placeholder="{title}.md"
+          placeholder={t`{title}.md`}
           onChange={(event) => onChange((source) => updateTypePathPolicy(source, "template", event.target.value))}
         /></label>
       </div>
@@ -1224,8 +1236,8 @@ function CollectionBehaviourEditor({ definition, typeNames, onChange, onOpenYaml
 
     {advancedKeys.length > 0 && <div className="advanced-match-note collection-advanced-note">
       <Info aria-hidden="true" />
-      <div><strong>More collection behaviour in YAML</strong><p>{advancedKeys.join(" · ")}. These settings remain intact.</p></div>
-      <button onClick={onOpenYaml}>Open YAML</button>
+      <div><strong><Trans>More collection behaviour in YAML</Trans></strong><p><Trans>{advancedKeys.join(" · ")}. These settings remain intact.</Trans></p></div>
+      <button onClick={onOpenYaml}><Trans>Open YAML</Trans></button>
     </div>}
   </TypeEditorDisclosure>;
 }
@@ -1236,7 +1248,7 @@ function typeMembershipSummary(definition: VisualTypeDefinition): string {
     countSummary(definition.fieldsPresent.length, "field selector"),
     countSummary(definition.advancedMatchKeys.length, "YAML rule")
   ].filter((value): value is string => Boolean(value));
-  return rules.length ? rules.join(" · ") : "No automatic matching rules";
+  return rules.length ? rules.join(" · ") : t`No automatic matching rules`;
 }
 
 function membershipFieldSuggestions(
@@ -1275,25 +1287,26 @@ function TypeMembershipPreview({ impact, advanced = false, afterUpdate = false }
   advanced?: boolean;
   afterUpdate?: boolean;
 }) {
+  useLingui();
   if (!impact.complete) return <div className="type-membership-preview incomplete">
     <div>
-      <strong>{impact.current.toLocaleString()} currently indexed {impact.current === 1 ? "note matches" : "notes match"}</strong>
-      <p>The after-save preview is unavailable because {advanced ? "additional YAML rules" : "some matching rules"} must be evaluated by the collection.</p>
+      <strong>{plural(impact.current, { one: "# currently indexed note matches", other: "# currently indexed notes match" })}</strong>
+      <p><Trans>The after-save preview is unavailable because </Trans>{advanced ? t`additional YAML rules` : t`some matching rules`} <Trans>must be evaluated by the collection.</Trans></p>
     </div>
   </div>;
   const next = impact.next ?? 0;
   const changed = impact.addedPaths.length + impact.removedPaths.length;
   return <div className="type-membership-preview">
     <div>
-      <strong>{next.toLocaleString()} {next === 1 ? "note" : "notes"} {afterUpdate ? "after update" : "with these rules"}</strong>
-      <p>{impact.current.toLocaleString()} now · {impact.addedPaths.length.toLocaleString()} gain this type · {impact.removedPaths.length.toLocaleString()} lose it{impact.overlapping ? ` · ${impact.overlapping.toLocaleString()} also ${impact.overlapping === 1 ? "matches" : "match"} another type` : ""}</p>
+      <strong>{afterUpdate ? plural(next, { one: "# note after update", other: "# notes after update" }) : plural(next, { one: "# note with these rules", other: "# notes with these rules" })}</strong>
+      <p><Trans>{impact.current.toLocaleString(displayLocale())} now · {impact.addedPaths.length.toLocaleString(displayLocale())} gain this type · {impact.removedPaths.length.toLocaleString(displayLocale())} lose it</Trans>{impact.overlapping ? plural(impact.overlapping, { one: ` · # also matches another type`, other: ` · # also match another type` }) : ""}</p>
     </div>
     {changed > 0 && <details>
-      <summary>Show affected notes</summary>
+      <summary><Trans>Show affected notes</Trans></summary>
       <div className="type-membership-paths">
-        {impact.addedPaths.slice(0, 10).map((path) => <p key={`added:${path}`}><span>Gains</span><code>{path}</code></p>)}
-        {impact.removedPaths.slice(0, 10).map((path) => <p key={`removed:${path}`}><span>Loses</span><code>{path}</code></p>)}
-        {changed > 20 && <p><span>More</span>{(changed - 20).toLocaleString()} additional notes</p>}
+        {impact.addedPaths.slice(0, 10).map((path) => <p key={`added:${path}`}><span><Trans>Gains</Trans></span><code>{path}</code></p>)}
+        {impact.removedPaths.slice(0, 10).map((path) => <p key={`removed:${path}`}><span><Trans>Loses</Trans></span><code>{path}</code></p>)}
+        {changed > 20 && <p><Trans><span>More</span>{(changed - 20).toLocaleString(displayLocale())} additional notes</Trans></p>}
       </div>
     </details>}
   </div>;
@@ -1304,19 +1317,28 @@ function collectionBehaviourSummary(definition: VisualTypeDefinition): string {
   const displayConfigured = Object.values(collection.display).some(Boolean);
   const pathConfigured = Boolean(collection.path.pattern || collection.path.folder || collection.path.template);
   const settings = [
-    displayConfigured ? "Display" : undefined,
+    displayConfigured ? t`Display` : undefined,
     countSummary(collection.readDefaults.length, "default"),
     countSummary(collection.links.length, "link"),
     countSummary(collection.unique.length, "unique rule"),
-    pathConfigured ? "Path policy" : undefined,
+    pathConfigured ? t`Path policy` : undefined,
     countSummary(collection.advancedKeys.length + collection.path.advancedKeys.length, "YAML setting")
   ].filter((value): value is string => Boolean(value));
-  return settings.length ? settings.join(" · ") : "No custom behaviour";
+  return settings.length ? settings.join(" · ") : t`No custom behaviour`;
 }
 
-function countSummary(count: number, singular: string): string | undefined {
+function countSummary(count: number, kind: "default" | "link" | "unique rule" | "YAML setting" | "field" | "path pattern" | "field selector" | "YAML rule"): string | undefined {
   if (!count) return undefined;
-  return `${count} ${singular}${count === 1 ? "" : "s"}`;
+  switch (kind) {
+    case "field": return plural(count, { one: "# field", other: "# fields" });
+    case "path pattern": return plural(count, { one: "# path pattern", other: "# path patterns" });
+    case "field selector": return plural(count, { one: "# field selector", other: "# field selectors" });
+    case "YAML rule": return plural(count, { one: "# YAML rule", other: "# YAML rules" });
+    case "default": return plural(count, { one: "# default", other: "# defaults" });
+    case "link": return plural(count, { one: "# link", other: "# links" });
+    case "unique rule": return plural(count, { one: "# unique rule", other: "# unique rules" });
+    case "YAML setting": return plural(count, { one: "# YAML setting", other: "# YAML settings" });
+  }
 }
 
 const FEATURED_PHOSPHOR_ICONS = [
@@ -1389,6 +1411,7 @@ function IconPicker({ value, onChange }: {
   value: string;
   onChange: (value: string) => void;
 }) {
+  useLingui();
   const listId = useId();
   const root = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -1438,20 +1461,20 @@ function IconPicker({ value, onChange }: {
       setQuery(value);
     }}
   >
-    <span>Icon</span>
+    <span><Trans>Icon</Trans></span>
     <div className={`icon-picker-control${open ? " open" : ""}${open ? query && !queryValid ? " invalid" : "" : value && !valid ? " invalid" : ""}`}>
       <span className="icon-picker-current" aria-hidden="true">
         {valid ? <PhosphorIcon name={normalized} /> : <FileCode2 />}
       </span>
       <input
         role="combobox"
-        aria-label="Display icon"
+        aria-label={t`Display icon`}
         aria-autocomplete="list"
         aria-expanded={open}
         aria-controls={listId}
         aria-activedescendant={open && options.length ? `${listId}-${activeIndex}` : undefined}
         value={open ? query : value}
-        placeholder="Choose an icon"
+        placeholder={t`Choose an icon`}
         spellCheck="false"
         autoComplete="off"
         onFocus={openPicker}
@@ -1481,7 +1504,7 @@ function IconPicker({ value, onChange }: {
       {(value || open && query) && <button
         type="button"
         className="icon-picker-clear"
-        aria-label="Clear display icon"
+        aria-label={t`Clear display icon`}
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => {
           onChange("");
@@ -1489,7 +1512,7 @@ function IconPicker({ value, onChange }: {
         }}
       ><X aria-hidden="true" /></button>}
     </div>
-    {open && <div className={`icon-picker-popover${dropUp ? " drop-up" : ""}`} id={listId} role="listbox" aria-label="Phosphor icons">
+    {open && <div className={`icon-picker-popover${dropUp ? " drop-up" : ""}`} id={listId} role="listbox" aria-label={t`Phosphor icons`}>
       {options.length ? <div className="icon-picker-grid">
         {options.map((name, index) => <button
           id={`${listId}-${index}`}
@@ -1503,12 +1526,12 @@ function IconPicker({ value, onChange }: {
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => choose(name)}
         ><PhosphorIcon name={name} aria-hidden="true" /><span className="sr-only">{name}</span></button>)}
-      </div> : <p>No matching icons.</p>}
-      <footer>{query.trim() ? `${options.length} ${options.length === 1 ? "match" : "matches"}` : "Common icons"}<span>Phosphor Regular</span></footer>
+      </div> : <p><Trans>No matching icons.</Trans></p>}
+      <footer>{query.trim() ? plural(options.length, { one: "# match", other: "# matches" }) : t`Common icons`}<span><Trans>Phosphor Regular</Trans></span></footer>
     </div>}
     {open
-      ? query && !queryValid && <small className="icon-picker-error">Choose an icon from the Phosphor library.</small>
-      : value && !valid && <small className="icon-picker-error">Choose an icon from the Phosphor library.</small>}
+      ? query && !queryValid && <small className="icon-picker-error"><Trans>Choose an icon from the Phosphor library.</Trans></small>
+      : value && !valid && <small className="icon-picker-error"><Trans>Choose an icon from the Phosphor library.</Trans></small>}
   </div>;
 }
 
@@ -1520,6 +1543,7 @@ function CollectionFieldSelect({ label, visibleLabel, value, fields, allowEmpty 
   allowEmpty?: boolean;
   onChange: (value: string) => void;
 }) {
+  useLingui();
   const options = fields.some((field) => field.value === value) || !value
     ? fields
     : [{ value, label: value, node: advancedFieldNode(value) }, ...fields];
@@ -1537,21 +1561,23 @@ function DefaultValueEditor({ field, node, value, onChange }: {
   value: unknown;
   onChange: (value: unknown) => void;
 }) {
+  useLingui();
   if (node?.kind === "boolean" && typeof value === "boolean") {
-    return <label><span>Default value</span><Select
-      aria-label={`Default value for ${field}`}
+    return <label><span><Trans>Default value</Trans></span><Select
+      aria-label={t`Default value for ${field}`}
       value={String(value)}
       options={[{ value: "true", label: "True" }, { value: "false", label: "False" }]}
       onChange={(next) => onChange(next === "true")}
     /></label>;
   }
   if ((node?.kind === "string" || node?.kind === "date" || node?.kind === "datetime") && typeof value === "string") {
-    return <label><span>Default value</span><input aria-label={`Default value for ${field}`} value={value} onChange={(event) => onChange(event.target.value)} /></label>;
+    return <label><span><Trans>Default value</Trans></span><input aria-label={t`Default value for ${field}`} value={value} onChange={(event) => onChange(event.target.value)} /></label>;
   }
   return <JsonValueInput field={field} value={value} onChange={onChange} />;
 }
 
 function JsonValueInput({ field, value, onChange }: { field: string; value: unknown; onChange: (value: unknown) => void }) {
+  useLingui();
   const valueKey = JSON.stringify(value) ?? "null";
   const [draft, setDraft] = useState(valueKey);
   const [error, setError] = useState<string>();
@@ -1567,12 +1593,12 @@ function JsonValueInput({ field, value, onChange }: { field: string; value: unkn
       setError(undefined);
       setDirty(false);
     } catch {
-      setError("Enter a valid JSON value.");
+      setError(t`Enter a valid JSON value.`);
     }
   }
 
-  return <label className="collection-json-value"><span>Default value</span><input
-    aria-label={`Default value for ${field}`}
+  return <label className="collection-json-value"><span><Trans>Default value</Trans></span><input
+    aria-label={t`Default value for ${field}`}
     aria-invalid={error ? "true" : undefined}
     value={draft}
     onChange={(event) => { setDraft(event.target.value); setDirty(true); setError(undefined); }}
@@ -1599,9 +1625,12 @@ function textLikeField(option: TypeFieldOption): boolean {
 }
 
 function typeHeadingFacts(type: CollectionTypeDescriptor, appViews: number): string {
-  const count = (value: number, noun: string) => `${value} ${noun}${value === 1 ? "" : "s"}`;
   const extensions = Object.keys(type.extensions).length;
-  return [type.version === undefined ? "Unversioned" : `Version ${type.version}`, count(propertyCount(type), "field"), appViews ? count(appViews, "app view") : "", extensions ? count(extensions, "extension") : ""].filter(Boolean).join(" · ");
+  return [type.version === undefined ? t`Unversioned` : t`Version ${type.version}`,
+    plural(propertyCount(type), { one: "# field", other: "# fields" }),
+    appViews ? plural(appViews, { one: "# app view", other: "# app views" }) : "",
+    extensions ? plural(extensions, { one: "# extension", other: "# extensions" }) : ""
+  ].filter(Boolean).join(" · ");
 }
 
 function defaultValueForField(field: TypeSchemaNode): unknown {
@@ -1617,9 +1646,9 @@ function advancedFieldNode(value: string): TypeSchemaNode {
 }
 
 function collectionRuleLabel(key: string): string {
-  if (key === "projections") return "Computed projections";
-  if (key === "runtime") return "Runtime path handling";
-  if (key === "generated_by") return "Generated path ownership";
+  if (key === "projections") return t`Computed projections`;
+  if (key === "runtime") return t`Runtime path handling`;
+  if (key === "generated_by") return t`Generated path ownership`;
   if (key.startsWith("x-")) return key;
   return key.replaceAll("_", " ");
 }
@@ -1633,6 +1662,7 @@ function VisualFieldRow({ field, source, depth, typeKey = false, activeField, on
   onActivate: (field?: string) => void;
   onChange: (change: (source: string) => string) => void;
 }) {
+  useLingui();
   const [pendingKind, setPendingKind] = useState<Exclude<TypeFieldKind, "advanced">>();
   const conversionImpact = pendingKind ? typeFieldConversionImpact(source, field.path, pendingKind) : [];
   const fieldLabel = typeFieldPathLabel(field.path);
@@ -1650,28 +1680,28 @@ function VisualFieldRow({ field, source, depth, typeKey = false, activeField, on
   }
   return <div className="visual-field-branch" style={{ "--field-depth": depth } as CSSProperties}>
     <div className="visual-field-row">
-      <button className="field-disclosure" aria-label={`${expanded ? "Collapse" : "Expand"} ${fieldLabel} field`} aria-expanded={expanded} onClick={() => onActivate(expanded ? undefined : fieldLabel)}>
+      <button className="field-disclosure" aria-label={expanded ? t`Collapse ${fieldLabel} field` : t`Expand ${fieldLabel} field`} aria-expanded={expanded} onClick={() => onActivate(expanded ? undefined : fieldLabel)}>
         {expanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
       </button>
-      <label className={`visual-field-name${typeKey ? " type-key" : ""}`}><span className="sr-only">Field name</span><input aria-label={`${fieldLabel} field name`} type="text" defaultValue={field.name} readOnly={typeKey} aria-describedby={typeKey ? `type-key-note-${fieldLabel}` : undefined} onBlur={(event) => { if (!typeKey) onChange((current) => renameTypeField(current, field.path, event.target.value)); }} spellCheck="false" />{typeKey && <small id={`type-key-note-${fieldLabel}`} title="Notes use this field to declare their type. Edit it in YAML if you need to change it.">Type key</small>}</label>
-      <label className="visual-field-kind"><span className="sr-only">{fieldLabel} field type</span><Select aria-label={`${fieldLabel} field type`} value={field.kind} disabled={typeKey} options={kindOptions(field.kind)} onChange={chooseKind} /></label>
-      <label className="visual-field-required"><input className="mdbase-checkbox" type="checkbox" checked={field.required} onChange={(event) => onChange((current) => setTypeFieldRequired(current, field.path, event.target.checked))} /><span>Required</span></label>
-      <div className="type-field-actions">{!typeKey && <ActionMenu label={`${fieldLabel} field options`} items={[
-        { label: `Remove ${fieldLabel} field`, icon: <Trash2 aria-hidden="true" />, tone: "danger", onSelect: () => onChange((current) => removeTypeField(current, field.path)) }
+      <label className={`visual-field-name${typeKey ? " type-key" : ""}`}><span className="sr-only"><Trans>Field name</Trans></span><input aria-label={t`${fieldLabel} field name`} type="text" defaultValue={field.name} readOnly={typeKey} aria-describedby={typeKey ? `type-key-note-${fieldLabel}` : undefined} onBlur={(event) => { if (!typeKey) onChange((current) => renameTypeField(current, field.path, event.target.value)); }} spellCheck="false" />{typeKey && <small id={`type-key-note-${fieldLabel}`} title={t`Notes use this field to declare their type. Edit it in YAML if you need to change it.`}><Trans>Type key</Trans></small>}</label>
+      <label className="visual-field-kind"><span className="sr-only"><Trans>{fieldLabel} field type</Trans></span><Select aria-label={t`${fieldLabel} field type`} value={field.kind} disabled={typeKey} options={kindOptions(field.kind)} onChange={chooseKind} /></label>
+      <label className="visual-field-required"><input className="mdbase-checkbox" type="checkbox" checked={field.required} onChange={(event) => onChange((current) => setTypeFieldRequired(current, field.path, event.target.checked))} /><span><Trans>Required</Trans></span></label>
+      <div className="type-field-actions">{!typeKey && <ActionMenu label={t`${fieldLabel} field options`} items={[
+        { label: t`Remove ${fieldLabel} field`, icon: <Trash2 aria-hidden="true" />, tone: "danger", onSelect: () => onChange((current) => removeTypeField(current, field.path)) }
       ]} />}</div>
     </div>
     {expanded && <div className="visual-field-details">
-      <div className="field-path"><span>{fieldLabel}</span>{field.advancedKeys.length > 0 && <strong>Advanced YAML rules</strong>}</div>
+      <div className="field-path"><span>{fieldLabel}</span>{field.advancedKeys.length > 0 && <strong><Trans>Advanced YAML rules</Trans></strong>}</div>
       {pendingKind && <div className="field-conversion-warning" role="alert">
         <CircleAlert aria-hidden="true" />
-        <div><strong>Convert this field to {kindLabel(pendingKind)}?</strong><p>{conversionImpact.length ? `This removes ${formatList(conversionImpact)}.` : "Its current structural rules will be replaced."}</p></div>
-        <button onClick={() => setPendingKind(undefined)}>Cancel</button>
+        <div><strong><Trans>Convert this field to {kindLabel(pendingKind)}?</Trans></strong><p>{conversionImpact.length ? t`This removes ${formatList(conversionImpact)}.` : t`Its current structural rules will be replaced.`}</p></div>
+        <button onClick={() => setPendingKind(undefined)}><Trans>Cancel</Trans></button>
         <button className="confirm-field-conversion" onClick={() => {
           onChange((current) => setTypeFieldKind(current, field.path, pendingKind));
           setPendingKind(undefined);
-        }}>Convert field</button>
+        }}><Trans>Convert field</Trans></button>
       </div>}
-      <label className="field-description"><span>Description</span><input aria-label={`${fieldLabel} description`} value={field.description ?? ""} placeholder="What belongs in this field?" onChange={(event) => onChange((current) => setTypeFieldDescription(current, field.path, event.target.value))} /></label>
+      <label className="field-description"><span><Trans>Description</Trans></span><input aria-label={t`${fieldLabel} description`} value={field.description ?? ""} placeholder={t`What belongs in this field?`} onChange={(event) => onChange((current) => setTypeFieldDescription(current, field.path, event.target.value))} /></label>
       <FieldConstraints field={field} onChange={onChange} />
       {field.kind === "object" && <ObjectFields node={field} source={source} depth={depth + 1} activeField={activeField} onActivate={onActivate} onChange={onChange} />}
       {field.kind === "array" && field.item && <ListItemEditor item={field.item} source={source} depth={depth + 1} activeField={activeField} onActivate={onActivate} onChange={onChange} />}
@@ -1687,8 +1717,9 @@ function ObjectFields({ node, source, depth, activeField, onActivate, onChange }
   onActivate: (field?: string) => void;
   onChange: (change: (source: string) => string) => void;
 }) {
+  useLingui();
   return <div className="nested-field-group">
-    <div className="nested-field-heading"><div><strong>Nested fields</strong><span>{node.constraints.additionalProperties === false ? "Only declared fields are allowed" : "Other fields are allowed"}</span></div><button onClick={() => onChange((current) => addTypeField(current, node.path))}><Plus aria-hidden="true" />Add nested field</button></div>
+    <div className="nested-field-heading"><div><strong><Trans>Nested fields</Trans></strong><span>{node.constraints.additionalProperties === false ? t`Only declared fields are allowed` : t`Other fields are allowed`}</span></div><button onClick={() => onChange((current) => addTypeField(current, node.path))}><Plus aria-hidden="true" /><Trans>Add nested field</Trans></button></div>
     {node.fields.map((field) => <VisualFieldRow
       key={typeFieldPathLabel(field.path)}
       field={field}
@@ -1698,7 +1729,7 @@ function ObjectFields({ node, source, depth, activeField, onActivate, onChange }
       onActivate={onActivate}
       onChange={onChange}
     />)}
-    {!node.fields.length && <p className="nested-field-empty">No nested fields yet.</p>}
+    {!node.fields.length && <p className="nested-field-empty"><Trans>No nested fields yet.</Trans></p>}
   </div>;
 }
 
@@ -1710,13 +1741,14 @@ function ListItemEditor({ item, source, depth, activeField, onActivate, onChange
   onActivate: (field?: string) => void;
   onChange: (change: (source: string) => string) => void;
 }) {
+  useLingui();
   const [pendingKind, setPendingKind] = useState<Exclude<TypeFieldKind, "advanced">>();
   const itemLabel = typeFieldPathLabel(item.path);
   const impact = pendingKind ? typeFieldConversionImpact(source, item.path, pendingKind) : [];
   return <div className="list-item-editor">
     <div className="list-item-heading">
-      <div><strong>List items</strong><span>{itemLabel}</span></div>
-      <label><span className="sr-only">{itemLabel} field type</span><Select aria-label={`${itemLabel} field type`} value={item.kind} options={kindOptions(item.kind)} onChange={(kind) => {
+      <div><strong><Trans>List items</Trans></strong><span>{itemLabel}</span></div>
+      <label><span className="sr-only"><Trans>{itemLabel} field type</Trans></span><Select aria-label={t`${itemLabel} field type`} value={item.kind} options={kindOptions(item.kind)} onChange={(kind) => {
         if (kind === "advanced" || kind === item.kind) return;
         const nextKind = kind as Exclude<TypeFieldKind, "advanced">;
         if (typeFieldConversionImpact(source, item.path, nextKind).length) setPendingKind(nextKind);
@@ -1725,16 +1757,16 @@ function ListItemEditor({ item, source, depth, activeField, onActivate, onChange
     </div>
     {pendingKind && <div className="field-conversion-warning" role="alert">
       <CircleAlert aria-hidden="true" />
-      <div><strong>Convert list items to {kindLabel(pendingKind)}?</strong><p>{impact.length ? `This removes ${formatList(impact)}.` : "Their current structural rules will be replaced."}</p></div>
-      <button onClick={() => setPendingKind(undefined)}>Cancel</button>
+      <div><strong><Trans>Convert list items to {kindLabel(pendingKind)}?</Trans></strong><p>{impact.length ? t`This removes ${formatList(impact)}.` : t`Their current structural rules will be replaced.`}</p></div>
+      <button onClick={() => setPendingKind(undefined)}><Trans>Cancel</Trans></button>
       <button className="confirm-field-conversion" onClick={() => {
         onChange((current) => setTypeListItemKind(current, item.path.slice(0, -1), pendingKind));
         setPendingKind(undefined);
-      }}>Convert items</button>
+      }}><Trans>Convert items</Trans></button>
     </div>}
     {item.kind === "object" && <ObjectFields node={item} source={source} depth={depth} activeField={activeField} onActivate={onActivate} onChange={onChange} />}
     {item.kind === "array" && item.item && <ListItemEditor item={item.item} source={source} depth={depth + 1} activeField={activeField} onActivate={onActivate} onChange={onChange} />}
-    {item.advancedKeys.length > 0 && <p className="advanced-item-note">Additional item rules remain in YAML.</p>}
+    {item.advancedKeys.length > 0 && <p className="advanced-item-note"><Trans>Additional item rules remain in YAML.</Trans></p>}
   </div>;
 }
 
@@ -1744,14 +1776,14 @@ function fieldBranchIsActive(activeField: string | undefined, field: string): bo
     || Boolean(activeField?.startsWith(`${field}[]`));
 }
 
-const fieldKindOptions: SelectOption<TypeFieldKind>[] = [{ value: "string", label: "Text" }, { value: "number", label: "Number" }, { value: "integer", label: "Integer" }, { value: "boolean", label: "Checkbox" }, { value: "array", label: "List" }, { value: "date", label: "Date" }, { value: "datetime", label: "Date and time" }, { value: "object", label: "Object" }];
+const fieldKindOptions: SelectOption<TypeFieldKind>[] = [{ value: "string", get label() { return t`Text`; } }, { value: "number", get label() { return t`Number`; } }, { value: "integer", get label() { return t`Integer`; } }, { value: "boolean", get label() { return t`Checkbox`; } }, { value: "array", get label() { return t`List`; } }, { value: "date", get label() { return t`Date`; } }, { value: "datetime", get label() { return t`Date and time`; } }, { value: "object", get label() { return t`Object`; } }];
 
 function kindOptions(current: TypeFieldKind): SelectOption<TypeFieldKind>[] {
-  return current === "advanced" ? [{ value: "advanced", label: "Advanced" }, ...fieldKindOptions] : fieldKindOptions;
+  return current === "advanced" ? [{ value: "advanced", label: t`Advanced` }, ...fieldKindOptions] : fieldKindOptions;
 }
 
-const linkFormatOptions = [{ value: "", label: "Any supported format" }, { value: "wikilink", label: "Wikilink" }, { value: "markdown", label: "Markdown link" }, { value: "path", label: "Path" }, { value: "any", label: "Any" }];
-const uniqueScopeOptions = [{ value: "type", label: "This type" }, { value: "collection", label: "Entire collection" }, { value: "path_glob", label: "Path pattern" }];
+const linkFormatOptions = [{ value: "", get label() { return t`Any supported format`; } }, { value: "wikilink", label: "Wikilink" }, { value: "markdown", get label() { return t`Markdown link`; } }, { value: "path", get label() { return t`Path`; } }, { value: "any", get label() { return t`Any`; } }];
+const uniqueScopeOptions = [{ value: "type", get label() { return t`This type`; } }, { value: "collection", get label() { return t`Entire collection`; } }, { value: "path_glob", get label() { return t`Path pattern`; } }];
 
 function StringListEditor({ label, values, itemLabel, addLabel, placeholder, helper, suggestions, onChange }: {
   label: string;
@@ -1763,6 +1795,7 @@ function StringListEditor({ label, values, itemLabel, addLabel, placeholder, hel
   suggestions?: string[];
   onChange: (values: string[]) => void;
 }) {
+  useLingui();
   const valuesKey = JSON.stringify(values);
   const [drafts, setDrafts] = useState(values);
   const [dirty, setDirty] = useState(false);
@@ -1815,7 +1848,7 @@ function StringListEditor({ label, values, itemLabel, addLabel, placeholder, hel
         <div className="string-list-input">
           <ComboboxInput
             label={`${itemLabel} ${index + 1}`}
-            listLabel={`${itemLabel} suggestions`}
+            listLabel={t`${itemLabel} suggestions`}
             value={value}
             options={suggestedValues}
             placeholder={placeholder}
@@ -1849,9 +1882,9 @@ function StringListEditor({ label, values, itemLabel, addLabel, placeholder, hel
             }}
           />
         </div>
-        <InlineRemoveButton className="string-list-remove" label={`Remove ${itemLabel.toLocaleLowerCase()} ${index + 1}`} onMouseDown={(event) => event.preventDefault()} onClick={() => commit(drafts.filter((_, itemIndex) => itemIndex !== index))} />
+        <InlineRemoveButton className="string-list-remove" label={t`Remove ${itemLabel.toLocaleLowerCase()} ${index + 1}`} onMouseDown={(event) => event.preventDefault()} onClick={() => commit(drafts.filter((_, itemIndex) => itemIndex !== index))} />
       </div>)}
-      {!drafts.length && <p>No entries.</p>}
+      {!drafts.length && <p><Trans>No entries.</Trans></p>}
     </div>
   </div>;
 }
@@ -1860,6 +1893,7 @@ function FieldConstraints({ field, onChange }: {
   field: TypeFieldDefinition;
   onChange: (change: (source: string) => string) => void;
 }) {
+  useLingui();
   const controls: ReactNode[] = [];
   const constraint = (key: string, label: string, value?: number) => controls.push(<label key={key}><span>{label}</span><input
     key={`${key}:${value ?? ""}`}
@@ -1869,30 +1903,30 @@ function FieldConstraints({ field, onChange }: {
     onBlur={(event) => onChange((current) => setTypeFieldConstraint(current, field.path, key, event.target.value === "" ? undefined : Number(event.target.value)))}
   /></label>);
   if (field.kind === "string") {
-    constraint("minLength", "Minimum length", field.constraints.minLength);
-    constraint("maxLength", "Maximum length", field.constraints.maxLength);
-    controls.push(<label key="pattern"><span>Pattern</span><input value={field.constraints.pattern ?? ""} placeholder="Optional regular expression" onChange={(event) => onChange((current) => setTypeFieldConstraint(current, field.path, "pattern", event.target.value || undefined))} /></label>);
+    constraint("minLength", t`Minimum length`, field.constraints.minLength);
+    constraint("maxLength", t`Maximum length`, field.constraints.maxLength);
+    controls.push(<label key="pattern"><span><Trans>Pattern</Trans></span><input value={field.constraints.pattern ?? ""} placeholder={t`Optional regular expression`} onChange={(event) => onChange((current) => setTypeFieldConstraint(current, field.path, "pattern", event.target.value || undefined))} /></label>);
     controls.push(<div className="field-choices" key="choices"><StringListEditor
-      label="Choices"
+      label={t`Choices`}
       values={field.constraints.choices ?? []}
-      itemLabel={`${typeFieldPathLabel(field.path)} choice`}
-      addLabel="Add choice"
-      placeholder="Choice value"
+      itemLabel={t`${typeFieldPathLabel(field.path)} choice`}
+      addLabel={t`Add choice`}
+      placeholder={t`Choice value`}
       helper="Saved values must equal one of these strings."
       onChange={(values) => onChange((current) => setTypeFieldChoices(current, field.path, values))}
     /></div>);
   }
   if (field.kind === "number" || field.kind === "integer") {
-    controls.push(<label key="minimum"><span>Minimum</span><input key={`minimum:${field.constraints.minimum ?? ""}`} type="number" defaultValue={field.constraints.minimum} onBlur={(event) => onChange((current) => setTypeFieldConstraint(current, field.path, "minimum", event.target.value === "" ? undefined : Number(event.target.value)))} /></label>);
-    controls.push(<label key="maximum"><span>Maximum</span><input key={`maximum:${field.constraints.maximum ?? ""}`} type="number" defaultValue={field.constraints.maximum} onBlur={(event) => onChange((current) => setTypeFieldConstraint(current, field.path, "maximum", event.target.value === "" ? undefined : Number(event.target.value)))} /></label>);
+    controls.push(<label key="minimum"><span><Trans>Minimum</Trans></span><input key={`minimum:${field.constraints.minimum ?? ""}`} type="number" defaultValue={field.constraints.minimum} onBlur={(event) => onChange((current) => setTypeFieldConstraint(current, field.path, "minimum", event.target.value === "" ? undefined : Number(event.target.value)))} /></label>);
+    controls.push(<label key="maximum"><span><Trans>Maximum</Trans></span><input key={`maximum:${field.constraints.maximum ?? ""}`} type="number" defaultValue={field.constraints.maximum} onBlur={(event) => onChange((current) => setTypeFieldConstraint(current, field.path, "maximum", event.target.value === "" ? undefined : Number(event.target.value)))} /></label>);
   }
   if (field.kind === "array") {
-    constraint("minItems", "Minimum items", field.constraints.minItems);
-    constraint("maxItems", "Maximum items", field.constraints.maxItems);
-    controls.push(<label className="field-toggle" key="uniqueItems"><input className="mdbase-checkbox" type="checkbox" checked={field.constraints.uniqueItems === true} onChange={(event) => onChange((current) => setTypeFieldConstraint(current, field.path, "uniqueItems", event.target.checked || undefined))} /><span>Require unique items</span></label>);
+    constraint("minItems", t`Minimum items`, field.constraints.minItems);
+    constraint("maxItems", t`Maximum items`, field.constraints.maxItems);
+    controls.push(<label className="field-toggle" key="uniqueItems"><input className="mdbase-checkbox" type="checkbox" checked={field.constraints.uniqueItems === true} onChange={(event) => onChange((current) => setTypeFieldConstraint(current, field.path, "uniqueItems", event.target.checked || undefined))} /><span><Trans>Require unique items</Trans></span></label>);
   }
   if (field.kind === "object") {
-    controls.push(<label className="field-toggle" key="additionalProperties"><input className="mdbase-checkbox" type="checkbox" checked={field.constraints.additionalProperties !== false} onChange={(event) => onChange((current) => setTypeFieldConstraint(current, field.path, "additionalProperties", event.target.checked))} /><span>Allow undeclared fields</span></label>);
+    controls.push(<label className="field-toggle" key="additionalProperties"><input className="mdbase-checkbox" type="checkbox" checked={field.constraints.additionalProperties !== false} onChange={(event) => onChange((current) => setTypeFieldConstraint(current, field.path, "additionalProperties", event.target.checked))} /><span><Trans>Allow undeclared fields</Trans></span></label>);
   }
   if (!controls.length) return null;
   return <div className="field-constraint-grid">{controls}</div>;
@@ -1903,10 +1937,10 @@ function normalizedListStrings(values: string[]): string[] {
 }
 
 function matchRuleLabel(key: string): string {
-  if (key === "where") return "Structured frontmatter conditions";
+  if (key === "where") return t`Structured frontmatter conditions`;
   if (key === "expr") return "CEL expression";
-  if (key === "path_glob") return "Path patterns with an unsupported value";
-  if (key === "fields_present") return "Field selectors with an unsupported value";
+  if (key === "path_glob") return t`Path patterns with an unsupported value`;
+  if (key === "fields_present") return t`Field selectors with an unsupported value`;
   return key;
 }
 
@@ -1919,53 +1953,53 @@ function TypeChangeReview({ previousSource, source, impact, creating, saving, on
   onBack: () => void;
   onConfirm: () => void;
 }) {
+  useLingui();
   const diff = compareLines(previousSource ?? "", source);
   const changeCount = impact.addedFields.length + impact.removedFields.length + impact.changedFields.length + impact.newlyRequired.length;
   return <div className="type-change-review">
-    <p className="eyebrow">Review changes</p>
-    <h2>{creating ? "Create this type?" : "Update this type?"}</h2>
-    <p>{changeCount ? `${changeCount} field-level ${changeCount === 1 ? "change" : "changes"} detected.` : "The source changed without altering declared fields."}</p>
+    <p className="eyebrow"><Trans>Review changes</Trans></p>
+    <h2>{creating ? t`Create this type?` : t`Update this type?`}</h2>
+    <p>{changeCount ? plural(changeCount, { one: `# field-level change detected.`, other: `# field-level changes detected.` }) : t`The source changed without altering declared fields.`}</p>
     <dl>
-      <div><dt>Matching notes</dt><dd>{impact.affectedNotes.toLocaleString()}</dd></div>
-      <div><dt>Fields added</dt><dd>{impact.addedFields.length}</dd></div>
-      <div><dt>Fields removed</dt><dd>{impact.removedFields.length}</dd></div>
-      <div><dt>Fields changed</dt><dd>{impact.changedFields.length}</dd></div>
+      <div><dt><Trans>Matching notes</Trans></dt><dd>{impact.affectedNotes.toLocaleString(displayLocale())}</dd></div>
+      <div><dt><Trans>Fields added</Trans></dt><dd>{impact.addedFields.length}</dd></div>
+      <div><dt><Trans>Fields removed</Trans></dt><dd>{impact.removedFields.length}</dd></div>
+      <div><dt><Trans>Fields changed</Trans></dt><dd>{impact.changedFields.length}</dd></div>
     </dl>
     <TypeMembershipPreview impact={impact.membership} afterUpdate />
-    {impact.definitionChanges.length > 0 && <div className="type-definition-changes"><strong>Definition changes</strong><p>{impact.definitionChanges.join(" · ")}</p></div>}
+    {impact.definitionChanges.length > 0 && <div className="type-definition-changes"><strong><Trans>Definition changes</Trans></strong><p>{impact.definitionChanges.join(" · ")}</p></div>}
     {impact.collectionChanges.length > 0 && <div className="type-collection-changes">
-      <strong>Collection behaviour</strong>
+      <strong><Trans>Collection behaviour</Trans></strong>
       <p>{impact.collectionChanges.join(" · ")}</p>
     </div>}
     {impact.collectionChanges.some((change) => change === "Link rules" || change === "Uniqueness rules") && <div className="type-impact-warning" role="alert">
       <CircleAlert aria-hidden="true" />
-      <div><strong>Validation may change</strong><p>Link and uniqueness rules can make matching records valid or invalid without changing their source files.</p></div>
+      <div><strong><Trans>Validation may change</Trans></strong><p><Trans>Link and uniqueness rules can make matching records valid or invalid without changing their source files.</Trans></p></div>
     </div>}
     {impact.collectionChanges.includes("Path policy") && <div className="type-impact-warning" role="alert">
       <CircleAlert aria-hidden="true" />
-      <div><strong>Future file paths may change</strong><p>Compatible tools use this policy when creating and renaming records. Existing files are not moved by this update.</p></div>
+      <div><strong><Trans>Future file paths may change</Trans></strong><p><Trans>Compatible tools use this policy when creating and renaming records. Existing files are not moved by this update.</Trans></p></div>
     </div>}
     {impact.missingRequired.length > 0 && <div className="type-impact-warning" role="alert">
       <CircleAlert aria-hidden="true" />
-      <div><strong>Existing notes need attention</strong>{impact.missingRequired.map((item) => <p key={item.field}>{item.count.toLocaleString()} {item.count === 1 ? "note is" : "notes are"} missing required field <code>{item.field}</code>.</p>)}</div>
+      <div><strong><Trans>Existing notes need attention</Trans></strong>{impact.missingRequired.map((item) => <p key={item.field}>{plural(item.count, { one: `# note is missing required field ${item.field}.`, other: `# notes are missing required field ${item.field}.` })}</p>)}</div>
     </div>}
-    <p className="type-review-scope">Impact is based on the currently indexed notes. The collection validates the complete definition when you confirm.</p>
-    <details><summary>Review YAML diff</summary><div className="line-diff" role="table" aria-label="Type source differences">{diff.map((line, index) => <div className={`diff-line ${line.kind}`} role="row" key={`${line.kind}:${index}`}><span className="diff-marker" aria-hidden="true">{line.kind === "local" ? "−" : line.kind === "remote" ? "+" : line.kind === "omitted" ? "···" : " "}</span><span className="diff-line-number" aria-hidden="true">{line.localLine ?? line.remoteLine ?? ""}</span><code role="cell">{line.text || " "}</code></div>)}</div></details>
-    <div className="type-review-actions"><button className="mdbase-button is-tertiary" onClick={onBack}>Back to editing</button><button className="confirm-type-button mdbase-button is-primary" disabled={saving} onClick={onConfirm}>{saving ? "Saving…" : creating ? "Create type" : "Confirm update"}</button></div>
+    <p className="type-review-scope"><Trans>Impact is based on the currently indexed notes. The collection validates the complete definition when you confirm.</Trans></p>
+    <details><summary><Trans>Review YAML diff</Trans></summary><div className="line-diff" role="table" aria-label={t`Type source differences`}>{diff.map((line, index) => <div className={`diff-line ${line.kind}`} role="row" key={`${line.kind}:${index}`}><span className="diff-marker" aria-hidden="true">{line.kind === "local" ? "−" : line.kind === "remote" ? "+" : line.kind === "omitted" ? "···" : " "}</span><span className="diff-line-number" aria-hidden="true">{line.localLine ?? line.remoteLine ?? ""}</span><code role="cell">{line.text || " "}</code></div>)}</div></details>
+    <div className="type-review-actions"><button className="mdbase-button is-tertiary" onClick={onBack}><Trans>Back to editing</Trans></button><button className="confirm-type-button mdbase-button is-primary" disabled={saving} onClick={onConfirm}>{saving ? t`Saving…` : creating ? t`Create type` : t`Confirm update`}</button></div>
   </div>;
 }
 
 function formatList(values: string[]): string {
-  if (values.length <= 1) return values[0] ?? "the current rules";
-  if (values.length === 2) return `${values[0]} and ${values[1]}`;
-  return `${values.slice(0, -1).join(", ")}, and ${values.at(-1)}`;
+  if (values.length <= 1) return values[0] ?? t`the current rules`;
+  return new Intl.ListFormat(displayLocale(), { style: "long", type: "conjunction" }).format(values);
 }
 
 function parseVisualType(source: string): { value?: VisualTypeDefinition; error?: string } {
   try {
     return { value: readVisualType(source) };
   } catch (error) {
-    return { error: error instanceof Error ? error.message : "The YAML source could not be read." };
+    return { error: error instanceof Error ? error.message : t`The YAML source could not be read.` };
   }
 }
 

@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "./test/locale";
 import { createElement, startTransition, Suspense, useState, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { markdownFragment } from "./markdown-fragments";

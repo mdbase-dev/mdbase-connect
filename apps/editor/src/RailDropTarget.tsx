@@ -1,3 +1,4 @@
+import { Trans } from "@lingui/react/macro";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { FOLDER_PATH_MIME, readNoteDragPaths, validFolderPath } from "./folder-change";
 import { NOTE_PATHS_MIME } from "./note-list-view";
@@ -36,5 +37,5 @@ export function RailDropTarget({ folder, onMoveNotes, onMoveFolder, onExpand, on
       if (paths.length) onMoveNotes?.(paths, folder);
     }}
     onDragEnd={clear}
-  >{children}{hover && <span className="rail-drop-hint" aria-hidden="true">Move here</span>}</div>;
+  >{children}{hover && <span className="rail-drop-hint" aria-hidden="true"><Trans>Move here</Trans></span>}</div>;
 }

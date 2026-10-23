@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import {
   effectiveCapabilities,
   isMdbaseError,
@@ -96,7 +97,7 @@ export class NativeEditorGateway implements CollectionGateway {
     private readonly declaration?: MdbaseApplicationDeclaration
   ) {
     this.client = connection.records;
-    if (connection.id !== this.client.collection) throw new Error("The editor requires its original SDK collection client.");
+    if (connection.id !== this.client.collection) throw new Error(t`The editor requires its original SDK collection client.`);
     this.records = new NextEditorRecords(this.client, () => this.current());
     const people = connection.people;
     if (people) this.peopleDirectory = async (options: { signal?: AbortSignal } = {}) => {
@@ -135,7 +136,7 @@ export class NativeEditorGateway implements CollectionGateway {
   }
 
   selectConnection(collectionId: string): ConnectionSummary {
-    if (collectionId !== this.connection.id || !this.current()) throw new Error("The selected collection is not ready.");
+    if (collectionId !== this.connection.id || !this.current()) throw new Error(t`The selected collection is not ready.`);
     return this.summary();
   }
 
@@ -239,9 +240,9 @@ export class NativeEditorGateway implements CollectionGateway {
       }
       cursor = result.page.cursor;
       if (cursor) {
-        if (cursors.has(cursor)) throw new Error("The collection repeated a query page.");
+        if (cursors.has(cursor)) throw new Error(t`The collection repeated a query page.`);
         cursors.add(cursor);
-      } else if (!result.page.complete) throw new Error("The collection did not return every record for this contract.");
+      } else if (!result.page.complete) throw new Error(t`The collection did not return every record for this contract.`);
     } while (cursor);
     return records;
   }
@@ -269,16 +270,16 @@ export class NativeEditorGateway implements CollectionGateway {
       const page = await this.connection.files.listPage({ limit: 500, signal: current, ...(cursor ? { cursor } : {}) });
       this.check();
       for (const file of page.files) {
-        if (ids.has(file.id)) throw new Error("The collection listed a file twice.");
+        if (ids.has(file.id)) throw new Error(t`The collection listed a file twice.`);
         ids.add(file.id);
         files.push(collectionFile(file));
       }
       cursor = page.cursor;
       if (cursor) {
-        if (cursors.has(cursor)) throw new Error("The collection repeated a file page.");
+        if (cursors.has(cursor)) throw new Error(t`The collection repeated a file page.`);
         cursors.add(cursor);
         onProgress?.({ files: [...files], complete: false });
-      } else if (!page.complete) throw new Error("The collection did not return every file.");
+      } else if (!page.complete) throw new Error(t`The collection did not return every file.`);
     } while (cursor);
     onProgress?.({ files: [...files], complete: true });
     return files;
@@ -287,7 +288,7 @@ export class NativeEditorGateway implements CollectionGateway {
   async readFile(file: CollectionFile, { signal, onProgress }: FileReadRequest = {}): Promise<Blob> {
     const current = AbortSignal.any([this.signal(signal), this.fileReads.signal]);
     if (file.confirmedSeq === undefined)
-      throw new Error("This file has no native confirmation metadata. Reload its preview.");
+      throw new Error(t`This file has no native confirmation metadata. Reload its preview.`);
     const key = fileAssetKey(file);
     const selected: NativeFileSelection = {
       id: file.fileId, path: file.path, digest: file.revision, size: file.size,
@@ -297,7 +298,7 @@ export class NativeEditorGateway implements CollectionGateway {
     // mutation and every settlement against this original borrowed scope.
     const isCurrent = () => this.current() && !current.aborted && fileAssetKey(file) === key;
     const check = () => {
-      if (!isCurrent()) throw new MdbaseError({ code: "cancelled", recovery: "none", message: "This file selection is no longer current." });
+      if (!isCurrent()) throw new MdbaseError({ code: "cancelled", recovery: "none", message: t`This file selection is no longer current.` });
     };
     check();
     try {
@@ -322,7 +323,7 @@ export class NativeEditorGateway implements CollectionGateway {
     // Unknown/older grants stay closed. The native replica checks folder scope
     // and every actual operation; this UI gate never grants authority.
     if (!this.connection.files.grant?.actions.includes("add"))
-      throw unsupported("Attaching files is not available for this collection in mdbase editor yet.");
+      throw unsupported(t`Attaching files is not available for this collection in mdbase editor yet.`);
     const bytes = ArrayBuffer.isView(source)
       ? new Uint8Array(source.buffer, source.byteOffset, source.byteLength) : source;
     const write = await this.connection.files.upload(path, bytes, {
@@ -336,17 +337,17 @@ export class NativeEditorGateway implements CollectionGateway {
       this.check();
       if (receipt.mutation !== write.mutationId || receipt.state !== "confirmed" || receipt.status !== "applied"
         || (receipt.conflicts?.length ?? 0) !== 0 || receipt.published === "publishing" || receipt.published === "not_published")
-        throw new MdbaseError({ code: "outcome_unknown", recovery: "resolve_outcome", message: "This file upload is not confirmed. Resolve its original operation before trying again." });
+        throw new MdbaseError({ code: "outcome_unknown", recovery: "resolve_outcome", message: t`This file upload is not confirmed. Resolve its original operation before trying again.` });
       const file = await this.connection.files.get(write.fileId, current);
       this.check();
       if (file.id !== write.fileId || file.confirmedSeq !== receipt.seq || file.hold || file.state === "pending_upload")
-        throw new MdbaseError({ code: "outcome_unknown", recovery: "resolve_outcome", message: "The current file does not confirm this upload. Resolve its original operation before trying again." });
+        throw new MdbaseError({ code: "outcome_unknown", recovery: "resolve_outcome", message: t`The current file does not confirm this upload. Resolve its original operation before trying again.` });
       return collectionFile(file);
     } catch (error) {
       // Receipt/readback/currentness failures retain the same SDK mutation ID.
       // Upload submission errors already carry it and are passed through above.
       throw new MdbaseError(error instanceof MdbaseError ? error.toProblem()
-        : { code: "outcome_unknown", recovery: "resolve_outcome", message: "The file upload outcome is unknown." },
+        : { code: "outcome_unknown", recovery: "resolve_outcome", message: t`The file upload outcome is unknown.` },
       { mutationId: write.mutationId, cause: error });
     }
   }
@@ -363,7 +364,7 @@ export class NativeEditorGateway implements CollectionGateway {
     const brokenPaths = uniquePaths(result.broken);
     return {
       affectedPaths,
-      warnings: brokenPaths.map((path) => `A link in ${path} will stay broken.`),
+      warnings: brokenPaths.map((path) => t`A link in ${path} will stay broken.`),
       operation: { from, to, dryRun: true, wouldRename: true, referencesAffected: result.rewrites.map((rewrite) => ({ path: rewrite.path, ...(rewrite.field ? { field: rewrite.field } : {}) })) }
     };
   }
@@ -412,10 +413,10 @@ export class NativeEditorGateway implements CollectionGateway {
     const signal = this.signal();
     const type = (await this.client.describe(signal)).types.find((candidate) => candidate.name === name);
     this.check();
-    if (!type) throw new MdbaseError({ code: "not_found", recovery: "refresh", message: `The type ${name} is not defined in this collection.` });
+    if (!type) throw new MdbaseError({ code: "not_found", recovery: "refresh", message: t`The type ${name} is not defined in this collection.` });
     const resource = await this.client.resources.get(type.path, signal);
     this.check();
-    if (resource.text === undefined) throw unsupported("The collection did not return this type definition's source.");
+    if (resource.text === undefined) throw unsupported(t`The collection did not return this type definition's source.`);
     return { name: type.name, path: resource.path, revision: resource.revision, document: resource.text };
   }
 
@@ -456,14 +457,14 @@ export class NativeEditorGateway implements CollectionGateway {
       plan = await this.client.typePacks.plan(provision, { installedBy: INSTALLED_BY, adopt: adoptResources, signal: this.signal() });
       this.check();
       if (plan.digest !== assessment.assessmentDigest) {
-        throw new MdbaseError({ code: "conflict", recovery: "refresh", reason: "concurrent_modification", message: "The collection changed since this setup was reviewed. Review it again." });
+        throw new MdbaseError({ code: "conflict", recovery: "refresh", reason: "concurrent_modification", message: t`The collection changed since this setup was reviewed. Review it again.` });
       }
     }
     const signal = this.signal();
     const result = await this.client.typePacks.apply(plan, { signal });
     this.check();
     this.plans.delete(plan.digest);
-    if (result.write) await this.confirmed(result.write.mutationId, signal, "type pack install");
+    if (result.write) await this.confirmed(result.write.mutationId, signal, t`type pack install`);
     return { ...assessmentOf(plan), receipt: result.receipt, cleanupDeferred: false };
   }
 
@@ -472,10 +473,10 @@ export class NativeEditorGateway implements CollectionGateway {
   private async confirmed(mutationId: string, signal: AbortSignal, subject: string): Promise<void> {
     const receipt = await this.client.awaitReceipt(mutationId, RECEIPT_TIMEOUT_MS, signal);
     this.check();
-    if (receipt.state === "rejected") throw receipt.problem ? new MdbaseError(receipt.problem) : new Error(`The ${subject} was rejected.`);
-    if (receipt.status === "conflicted") throw new MdbaseError({ code: "conflict", recovery: "resolve_conflict", message: `The ${subject} has a conflict. Resolve it before continuing.` });
+    if (receipt.state === "rejected") throw receipt.problem ? new MdbaseError(receipt.problem) : new Error(t`The ${subject} was rejected.`);
+    if (receipt.status === "conflicted") throw new MdbaseError({ code: "conflict", recovery: "resolve_conflict", message: t`The ${subject} has a conflict. Resolve it before continuing.` });
     if (receipt.state !== "confirmed") {
-      throw new MdbaseError({ code: "outcome_unknown", recovery: "resolve_outcome", message: `The ${subject} is not confirmed yet. Check the collection before trying again.` });
+      throw new MdbaseError({ code: "outcome_unknown", recovery: "resolve_outcome", message: t`The ${subject} is not confirmed yet. Check the collection before trying again.` });
     }
   }
 
@@ -484,11 +485,11 @@ export class NativeEditorGateway implements CollectionGateway {
     const resource = await this.client.resources.get(path, signal);
     this.check();
     if (resource.text !== written) {
-      throw new MdbaseError({ code: "conflict", recovery: "refresh", reason: "concurrent_modification", message: "This type changed after it was saved. Reload it before editing again." });
+      throw new MdbaseError({ code: "conflict", recovery: "refresh", reason: "concurrent_modification", message: t`This type changed after it was saved. Reload it before editing again.` });
     }
     const type = (await this.client.describe(signal)).types.find((candidate) => candidate.path === path);
     this.check();
-    if (!type) throw new MdbaseError({ code: "invalid_request", recovery: "fix_request", reason: "invalid_type_definition", message: "The collection does not read this file as a type definition. Check its name and kind." });
+    if (!type) throw new MdbaseError({ code: "invalid_request", recovery: "fix_request", reason: "invalid_type_definition", message: t`The collection does not read this file as a type definition. Check its name and kind.` });
     return { name: type.name, path, revision: resource.revision, document: resource.text };
   }
 
@@ -517,7 +518,7 @@ export class NativeEditorGateway implements CollectionGateway {
   private current(): boolean { return !this.disposed && this.connection.isCurrent(); }
 
   private check(): void {
-    if (!this.current()) throw new MdbaseError({ code: "cancelled", recovery: "none", message: "This collection is no longer open in mdbase editor." });
+    if (!this.current()) throw new MdbaseError({ code: "cancelled", recovery: "none", message: t`This collection is no longer open in mdbase editor.` });
   }
 
   private signal(extra?: AbortSignal): AbortSignal {
@@ -528,7 +529,7 @@ export class NativeEditorGateway implements CollectionGateway {
 }
 
 function collectionFile(file: wire.FileView): CollectionFile {
-  if (!file.digest.startsWith("sha256:")) throw new Error("The collection returned a file without its content digest.");
+  if (!file.digest.startsWith("sha256:")) throw new Error(t`The collection returned a file without its content digest.`);
   return {
     fileId: file.id,
     path: file.path,

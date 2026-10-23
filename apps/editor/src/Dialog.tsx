@@ -1,3 +1,5 @@
+import { t } from "@lingui/core/macro";
+import { useLingui } from "@lingui/react";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
@@ -19,6 +21,7 @@ export function Dialog({ titleId, className, scrimClassName, role = "dialog", on
   onClose: () => void;
   children: ReactNode;
 }) {
+  useLingui();
   const closeCallback = useRef(onClose);
   useEffect(() => { closeCallback.current = onClose; }, [onClose]);
   useEffect(() => {
@@ -110,7 +113,7 @@ export function Dialog({ titleId, className, scrimClassName, role = "dialog", on
   );
 }
 
-export function ConfirmDialog({ title, body, confirmLabel, cancelLabel = "Cancel", tone = "default", initialFocus, onConfirm, onClose }: {
+export function ConfirmDialog({ title, body, confirmLabel, cancelLabel = t`Cancel`, tone = "default", initialFocus, onConfirm, onClose }: {
   title: string;
   body: ReactNode;
   confirmLabel: string;
@@ -120,6 +123,7 @@ export function ConfirmDialog({ title, body, confirmLabel, cancelLabel = "Cancel
   onConfirm: () => void | Promise<void>;
   onClose: () => void;
 }) {
+  useLingui();
   const titleId = useId();
   const [busy, setBusy] = useState(false);
 
@@ -150,7 +154,7 @@ export function ConfirmDialog({ title, body, confirmLabel, cancelLabel = "Cancel
         data-autofocus={(initialFocus ?? (tone === "danger" ? "cancel" : "confirm")) === "confirm" ? "true" : undefined}
         disabled={busy}
         onClick={() => void confirm()}
-      >{busy ? "Working…" : confirmLabel}</button>
+      >{busy ? t`Working…` : confirmLabel}</button>
     </footer>
   </Dialog>;
 }
