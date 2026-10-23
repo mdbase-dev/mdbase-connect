@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import type { Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type ViewUpdate } from "@codemirror/view";
 import type { ResolvedNoteEmbed } from "./note-embeds";
@@ -27,7 +28,7 @@ class NoteEmbedWidget extends WidgetType {
     region.tabIndex = 0;
     focusEmbedOnPointer(region);
     region.setAttribute("role", "region");
-    region.setAttribute("aria-label", `Transclusion of ${reference.title}`);
+    region.setAttribute("aria-label", t`Transclusion of ${reference.title}`);
 
     const header = document.createElement("header");
     const title = document.createElement("strong");
@@ -42,7 +43,7 @@ class NoteEmbedWidget extends WidgetType {
       const content = document.createElement("div");
       content.className = "cm-note-embed-content";
       content.tabIndex = 0;
-      content.setAttribute("aria-label", `Content of ${reference.title}`);
+      content.setAttribute("aria-label", t`Content of ${reference.title}`);
       renderMarkdownFragment(content, reference.body ?? "");
       // The caption already names the source; don't repeat its document title.
       const heading = content.firstElementChild;
@@ -53,16 +54,16 @@ class NoteEmbedWidget extends WidgetType {
       status.className = "cm-note-embed-status";
       status.setAttribute("role", "status");
       status.textContent = reference.status === "loading"
-        ? "Opening transcluded note…"
+        ? t`Opening transcluded note…`
           : reference.status === "cycle"
-            ? "Circular transclusion stopped here."
+            ? t`Circular transclusion stopped here.`
             : reference.status === "ambiguous"
-              ? reference.error ?? "More than one note matches this transclusion."
+              ? reference.error ?? t`More than one note matches this transclusion.`
             : reference.status === "missing_fragment"
-            ? "That heading or block does not exist in this note."
+            ? t`That heading or block does not exist in this note.`
             : reference.status === "missing"
-              ? "This transcluded note could not be resolved."
-              : reference.error ?? "The transcluded note could not be opened.";
+              ? t`This transcluded note could not be resolved.`
+              : reference.error ?? t`The transcluded note could not be opened.`;
       region.append(status);
     }
     return region;
@@ -213,7 +214,7 @@ function startsBlock(line: string, afterParagraph: boolean): boolean {
 
 function cleanInlineMarkdown(value: string): string {
   return value
-    .replace(/!\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]/g, (_match, target: string, label?: string) => label?.trim() || `Transclusion: ${target.trim()}`)
+    .replace(/!\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]/g, (_match, target: string, label?: string) => label?.trim() || t`Transclusion: ${target.trim()}`)
     .replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]/g, (_match, target: string, label?: string) => label?.trim() || target.trim())
     .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")

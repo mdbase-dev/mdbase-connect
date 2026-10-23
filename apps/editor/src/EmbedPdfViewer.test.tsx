@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react";
+import { render } from "./test/locale";
 import { describe, expect, it, vi } from "vitest";
 import { EmbedPdfViewer } from "./EmbedPdfViewer";
 

@@ -1,3 +1,6 @@
+import { Trans } from "@lingui/react/macro";
+import { t } from "@lingui/core/macro";
+import { useLingui } from "@lingui/react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { MdbaseConnectError, type CollectionDescription, type JsonObject, type PeopleDirectory, type PersonResolution, type TypePackAssessment, type TypePackProvision } from "@mdbase-dev/connect";
 import type { CollectionGateway, CreateNoteInput } from "./model";
@@ -16,6 +19,7 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
   canInstall?: boolean;
   onRefreshDescription?: () => Promise<CollectionDescription | undefined>;
 }) {
+  useLingui();
   const panel = useRef<HTMLElement>(null);
   useEffect(() => {
     if (location.hash === "#your-person") panel.current?.focus();
@@ -61,7 +65,7 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
     setDirectory(undefined); setContacts([]); setConversion(undefined); setSetup(undefined); setStarterKept(false); setError(""); setIdentityDenied(false); setConfirmClaimed(false);
     void (async () => {
       try {
-        if (!gateway.peopleDirectory) throw new Error("This collection has no Connect account identity.");
+        if (!gateway.peopleDirectory) throw new Error(t`This collection has no Connect account identity.`);
         const next = await gateway.peopleDirectory({ signal: controller.signal });
         const candidates = next.me.status === "unlinked" ? await contactCandidates(gateway, description, next, controller.signal) : [];
         if (controller.signal.aborted) return;
@@ -69,7 +73,7 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
       } catch (reason) {
         if (controller.signal.aborted) return;
         if (reason instanceof MdbaseConnectError && reason.code === "access_denied") setIdentityDenied(true);
-        else setError(reason instanceof Error ? reason.message : "Could not load people.");
+        else setError(reason instanceof Error ? reason.message : t`Could not load people.`);
       }
     })();
     return () => controller.abort();
@@ -81,7 +85,7 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
       await gateway.authorize("selected", { presentation: "popup" });
       setRevision((value) => value + 1);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The Editor was not approved.");
+      setError(reason instanceof Error ? reason.message : t`The Editor was not approved.`);
     } finally {
       setBusy(false);
     }
@@ -90,7 +94,7 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
   function assertCurrent() {
     const snapshot = gateway.sessionSnapshot();
     if (lifecycle.current?.signal.aborted || snapshot.status !== "ready" || snapshot.connection.collectionId !== description.collectionId) {
-      throw new Error("The selected collection changed. Open its person settings again.");
+      throw new Error(t`The selected collection changed. Open its person settings again.`);
     }
   }
 
@@ -110,7 +114,7 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
       if (kept) setStarterKept(true);
       else setSetup({ provision, assessment, upgrade, controller });
     } catch (reason) {
-      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Could not review person setup.");
+      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : t`Could not review person setup.`);
     } finally { setBusy(false); }
   }
 
@@ -119,7 +123,7 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
     setBusy(true); setError("");
     try {
       assertCurrent();
-      if (setup.controller.signal.aborted) throw new Error("The collection changed. Review person setup again.");
+      if (setup.controller.signal.aborted) throw new Error(t`The collection changed. Review person setup again.`);
       // The gateway passes the exact reviewed assessment digest to the atomic apply.
       await gateway.applyTypePack(setup.provision, setup.assessment);
       // A definition watch may already have refreshed the description after our
@@ -129,19 +133,19 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
       const next = await onRefreshDescription();
       if (!next || next.collectionId !== description.collectionId) return;
       if (!personImplementations(next).some((candidate) => ["name", "identities"].every((field) => candidate.fields[field] || candidate.fields[`/${field}`]))) {
-        throw new Error("Definitions were added, but their Person mappings need review in Types.");
+        throw new Error(t`Definitions were added, but their Person mappings need review in Types.`);
       }
       setSetup(undefined); setCreating(canCreate && !path);
     } catch (reason) {
       setSetup(undefined);
-      if (!lifecycle.current?.signal.aborted) setError(reason instanceof Error ? reason.message : "Could not add person definitions. Review setup again.");
+      if (!lifecycle.current?.signal.aborted) setError(reason instanceof Error ? reason.message : t`Could not add person definitions. Review setup again.`);
     } finally { setBusy(false); }
   }
 
   /** Requery before every write: never infer uniqueness from the loaded picker. */
   async function freshUnlinkedDirectory() {
     const fresh = await gateway.peopleDirectory!({ signal: lifecycle.current?.signal });
-    if (fresh.me.status !== "unlinked") throw new Error("A person record now matches your account. Reload these settings.");
+    if (fresh.me.status !== "unlinked") throw new Error(t`A person record now matches your account. Reload these settings.`);
     return fresh;
   }
 
@@ -153,17 +157,17 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
       const fresh = await freshUnlinkedDirectory();
       const contact = contacts.find((record) => record.path === path);
       if (contact) {
-        if (!implementation) throw new Error("Set up person records below before reviewing this contact.");
+        if (!implementation) throw new Error(t`Set up person records below before reviewing this contact.`);
         assertCurrent();
         const record = await gateway.read(path);
         assertCurrent();
-        if (fresh.people.some((person) => person.path === path)) throw new Error("This record is already a person record. Reload these settings.");
+        if (fresh.people.some((person) => person.path === path)) throw new Error(t`This record is already a person record. Reload these settings.`);
         const patch = contactPersonPatch(description, record.frontmatter, contact.source, implementation, identity);
         setConversion({ patch, path, revision: record.revision, typeName: implementation.typeName });
         return;
       }
       const selected = fresh.people.find((record) => record.path === path);
-      if (!selected) throw new Error("Select a person record.");
+      if (!selected) throw new Error(t`Select a person record.`);
       if (claimedByAnotherAccount(selected, identity) && !confirmClaimed) {
         setConfirmClaimed(true);
         return;
@@ -175,7 +179,7 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
       await gateway.updateProperties(path, identityPatch(record.frontmatter, target, identity), record.revision);
       if (!lifecycle.current?.signal.aborted) setRevision((value) => value + 1);
     } catch (reason) {
-      if (!lifecycle.current?.signal.aborted) setError(reason instanceof Error ? reason.message : "Could not link this person.");
+      if (!lifecycle.current?.signal.aborted) setError(reason instanceof Error ? reason.message : t`Could not link this person.`);
     } finally { setBusy(false); }
   }
 
@@ -189,68 +193,69 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
       await gateway.updateProperties(conversion.path, conversion.patch, conversion.revision);
       if (!lifecycle.current?.signal.aborted) setRevision((value) => value + 1);
     } catch (reason) {
-      if (!lifecycle.current?.signal.aborted) setError(reason instanceof Error ? reason.message : "Could not convert this contact. Its type may need additional fields or compatible mappings.");
+      if (!lifecycle.current?.signal.aborted) setError(reason instanceof Error ? reason.message : t`Could not convert this contact. Its type may need additional fields or compatible mappings.`);
     } finally { setBusy(false); }
   }
 
   async function create(input: CreateNoteInput) {
     assertCurrent();
-    if (!identity || !implementation || !canCreate || input.type !== implementation.typeName) throw new Error("Select a Person-compatible type.");
+    if (!identity || !implementation || !canCreate || input.type !== implementation.typeName) throw new Error(t`Select a Person-compatible type.`);
     await freshUnlinkedDirectory();
     assertCurrent();
     await gateway.create(input);
     if (!lifecycle.current?.signal.aborted) { setCreating(false); setRevision((value) => value + 1); }
   }
 
-  return <section ref={panel} id="your-person" tabIndex={-1} aria-label="Your person record">
-    <div className="settings-intro"><h2>Your person record</h2><p>Represent yourself using an ordinary note in this collection. This does not change access or membership.</p></div>
-    {error && <div className="setting-row"><strong className="settings-alert" role="alert">{error}</strong><button className="settings-secondary-action mdbase-button" type="button" onClick={() => setRevision((value) => value + 1)}>Retry</button></div>}
-    {identityDenied && <div className="setting-row"><div><h3>Allow the Editor to see your account identity</h3><p>The Editor can link a person record only to an identity you let it read. Approve the Editor again for this collection and allow “See your account identity and display name”.</p></div><button className="settings-secondary-action mdbase-button" type="button" disabled={busy} onClick={() => void allowIdentity()}>{busy ? "Waiting for approval…" : "Review access"}</button></div>}
-    {!records && !error && !identityDenied && <p className="settings-note" role="status">Loading your identity and person records…</p>}
-    {linked && <div className="setting-row"><div><h3>Linked to {linked.name}</h3><p><code>{linked.path}</code> · Edit this note to change its collection display name or identity associations.</p></div></div>}
+  return <section ref={panel} id="your-person" tabIndex={-1} aria-label={t`Your person record`}>
+    <div className="settings-intro"><h2><Trans>Your person record</Trans></h2><p><Trans>Represent yourself using an ordinary note in this collection. This does not change access or membership.</Trans></p></div>
+    {error && <div className="setting-row"><strong className="settings-alert" role="alert">{error}</strong><button className="settings-secondary-action mdbase-button" type="button" onClick={() => setRevision((value) => value + 1)}><Trans>Retry</Trans></button></div>}
+    {identityDenied && <div className="setting-row"><div><h3><Trans>Allow the Editor to see your account identity</Trans></h3><p><Trans>The Editor can link a person record only to an identity you let it read. Approve the Editor again for this collection and allow “See your account identity and display name”.</Trans></p></div><button className="settings-secondary-action mdbase-button" type="button" disabled={busy} onClick={() => void allowIdentity()}>{busy ? t`Waiting for approval…` : t`Review access`}</button></div>}
+    {!records && !error && !identityDenied && <p className="settings-note" role="status"><Trans>Loading your identity and person records…</Trans></p>}
+    {linked && <div className="setting-row"><div><h3><Trans>Linked to {linked.name}</Trans></h3><p><Trans><code>{linked.path}</code> · Edit this note to change its collection display name or identity associations.</Trans></p></div></div>}
     {directory && <ResolutionProblem resolution={directory.me} />}
-    {directory && directory.invalid.length > 0 && <details className="settings-details"><summary><span>{directory.invalid.length === 1 ? "1 person record needs attention" : `${directory.invalid.length} person records need attention`}</span><ChevronRight aria-hidden="true" /></summary><ul className="settings-list">{directory.invalid.map((record) => <li key={record.path}><code>{record.path}</code>: {record.reason}</li>)}</ul></details>}
+    {directory && directory.invalid.length > 0 && <details className="settings-details"><summary><span>{directory.invalid.length === 1 ? t`1 person record needs attention` : t`${directory.invalid.length} person records need attention`}</span><ChevronRight aria-hidden="true" /></summary><ul className="settings-list">{directory.invalid.map((record) => <li key={record.path}><code>{record.path}</code>: {record.reason}</li>)}</ul></details>}
     {records && directory?.me.status === "unlinked" && <>
-      <div className="fact-row"><span>Your account</span><strong>{identity?.name}</strong></div>
-      <p className="settings-note">The record's display name belongs to this collection and is not synchronised with your account.</p>
-      {(records.length > 0 || contacts.length > 0) && <div className="setting-row person-choice"><div><h3>Existing person or contact</h3><p>Link a record that already represents you.</p></div><div className="setting-controls"><Select aria-label="Existing person or contact" value={path} disabled={busy} placeholder="Choose a record…" options={[
+      <div className="fact-row"><span><Trans>Your account</Trans></span><strong>{identity?.name}</strong></div>
+      <p className="settings-note"><Trans>The record's display name belongs to this collection and is not synchronised with your account.</Trans></p>
+      {(records.length > 0 || contacts.length > 0) && <div className="setting-row person-choice"><div><h3><Trans>Existing person or contact</Trans></h3><p><Trans>Link a record that already represents you.</Trans></p></div><div className="setting-controls"><Select aria-label={t`Existing person or contact`} value={path} disabled={busy} placeholder={t`Choose a record…`} options={[
         ...records.map((record) => ({ value: record.path, label: `${record.name} · ${record.path}` })),
-        ...contacts.map((contact) => ({ value: contact.path, label: `${contact.name} · ${contact.path} (Contact-only)` }))
-      ]} onChange={(next) => { setPath(next); setConversion(undefined); setConfirmClaimed(false); }} /><button className="settings-secondary-action mdbase-button" type="button" disabled={!path || busy || !canEdit} onClick={() => void link()}>{contacts.some((contact) => contact.path === path) ? "Review contact conversion" : confirmClaimed ? "Link anyway" : "Link this record to me"}</button></div></div>}
-      {selectedIsClaimed && <p className="settings-note settings-warning" role={confirmClaimed ? "alert" : undefined}>This record is already linked to another account. Linking it to yours means you will both see its assignments as your own. Only continue if this record really represents you.</p>}
-      {conversion && <div className="settings-review" role="region" aria-label="Review contact conversion"><p>This changes only <code>{conversion.path}</code> to the <strong>{conversion.typeName}</strong> type, which implements both Person and Contact. Its contact information and Markdown body are retained. No other contacts or type definitions are changed.</p><details className="settings-details"><summary><span>Review fields to write</span><ChevronRight aria-hidden="true" /></summary><pre>{JSON.stringify(conversion.patch, null, 2)}</pre></details><div className="settings-review-actions"><button className="settings-secondary-action mdbase-button" type="button" disabled={busy || !canEdit} onClick={() => void convertContact()}>Convert and link this contact</button><button className="settings-quiet-action mdbase-button is-tertiary" type="button" disabled={busy} onClick={() => setConversion(undefined)}>Cancel conversion</button></div></div>}
-      {!canEdit && <p className="settings-note">Ask a collection editor to link your person record.</p>}
+        ...contacts.map((contact) => ({ value: contact.path, label: t`${contact.name} · ${contact.path} (Contact-only)` }))
+      ]} onChange={(next) => { setPath(next); setConversion(undefined); setConfirmClaimed(false); }} /><button className="settings-secondary-action mdbase-button" type="button" disabled={!path || busy || !canEdit} onClick={() => void link()}>{contacts.some((contact) => contact.path === path) ? t`Review contact conversion` : confirmClaimed ? t`Link anyway` : t`Link this record to me`}</button></div></div>}
+      {selectedIsClaimed && <p className="settings-note settings-warning" role={confirmClaimed ? "alert" : undefined}><Trans>This record is already linked to another account. Linking it to yours means you will both see its assignments as your own. Only continue if this record really represents you.</Trans></p>}
+      {conversion && <div className="settings-review" role="region" aria-label={t`Review contact conversion`}><p><Trans>This changes only <code>{conversion.path}</code> to the <strong>{conversion.typeName}</strong> type, which implements both Person and Contact. Its contact information and Markdown body are retained. No other contacts or type definitions are changed.</Trans></p><details className="settings-details"><summary><span><Trans>Review fields to write</Trans></span><ChevronRight aria-hidden="true" /></summary><pre>{JSON.stringify(conversion.patch, null, 2)}</pre></details><div className="settings-review-actions"><button className="settings-secondary-action mdbase-button" type="button" disabled={busy || !canEdit} onClick={() => void convertContact()}><Trans>Convert and link this contact</Trans></button><button className="settings-quiet-action mdbase-button is-tertiary" type="button" disabled={busy} onClick={() => setConversion(undefined)}><Trans>Cancel conversion</Trans></button></div></div>}
+      {!canEdit && <p className="settings-note"><Trans>Ask a collection editor to link your person record.</Trans></p>}
       {(implementations.length === 0 || outdatedStarter) && <>
         <div className="setting-row">{starterKept
-          ? <div role="status"><h3>Person type kept as it is</h3><p>This collection's Person type was not added from a Person starter that can be upgraded automatically, so it has not been changed. {implementations.length === 0 ? "Review its Person mappings in Types before creating a person record." : "You can still use it, or compare it with the current starter in Types."}</p></div>
+          ? <div role="status"><h3><Trans>Person type kept as it is</Trans></h3><p><Trans>This collection's Person type was not added from a Person starter that can be upgraded automatically, so it has not been changed. </Trans>{implementations.length === 0 ? t`Review its Person mappings in Types before creating a person record.` : t`You can still use it, or compare it with the current starter in Types.`}</p></div>
           : !outdatedStarter
-          ? <div><h3>Person definitions needed</h3><p>This collection needs person definitions before you can create or link a person record. Nothing will be added without your approval.</p></div>
-          : <div><h3>Person type update available</h3><p>The <strong>{outdatedStarter!.typeName}</strong> type is an earlier Person starter. Review the current starter before creating your record. Nothing will change without your approval.</p></div>}
-          {!setup && !starterKept && <button ref={setupButton} className="settings-secondary-action mdbase-button" type="button" disabled={busy || !canInstall || !onRefreshDescription} onClick={() => void reviewSetup()}>{busy ? "Checking person setup…" : outdatedStarter ? "Review Person type update" : "Set up person records"}</button>}</div>
-        {!canInstall && <p className="settings-note">Adding definitions requires permission to manage this collection's types.</p>}
-        {setup && <section ref={setupPanel} className="settings-review" tabIndex={-1} aria-label="Review person setup">
+          ? <div><h3><Trans>Person definitions needed</Trans></h3><p><Trans>This collection needs person definitions before you can create or link a person record. Nothing will be added without your approval.</Trans></p></div>
+          : <div><h3><Trans>Person type update available</Trans></h3><p><Trans>The <strong>{outdatedStarter!.typeName}</strong> type is an earlier Person starter. Review the current starter before creating your record. Nothing will change without your approval.</Trans></p></div>}
+          {!setup && !starterKept && <button ref={setupButton} className="settings-secondary-action mdbase-button" type="button" disabled={busy || !canInstall || !onRefreshDescription} onClick={() => void reviewSetup()}>{busy ? t`Checking person setup…` : outdatedStarter ? t`Review Person type update` : t`Set up person records`}</button>}</div>
+        {!canInstall && <p className="settings-note"><Trans>Adding definitions requires permission to manage this collection's types.</Trans></p>}
+        {setup && <section ref={setupPanel} className="settings-review" tabIndex={-1} aria-label={t`Review person setup`}>
           {setup.upgrade ? <>
-            <h3>Update the Person type?</h3>
-            <p>Upgrade <code>{setup.upgrade.target}</code> to the current Person starter. {setup.upgrade.merged
-              ? "Your edits to this type are kept; only the starter's own changes are merged in."
-              : "It has not been edited since it was added, so it is replaced with the new starter."} Existing notes, other definitions, and access permissions will not be changed.</p>
+            <h3><Trans>Update the Person type?</Trans></h3>
+            <p><Trans>Upgrade </Trans><code>{setup.upgrade.target}</code> <Trans>to the current Person starter. </Trans>{setup.upgrade.merged
+              ? t`Your edits to this type are kept; only the starter's own changes are merged in.`
+              : t`It has not been edited since it was added, so it is replaced with the new starter.`} <Trans>Existing notes, other definitions, and access permissions will not be changed.</Trans></p>
           </> : <>
-            <h3>Allow person records in this collection?</h3>
-            <p>Add one Person type, with optional contact details, and its supporting definitions. Existing notes, customized definitions, and access permissions will not be changed.</p>
+            <h3><Trans>Allow person records in this collection?</Trans></h3>
+            <p><Trans>Add one Person type, with optional contact details, and its supporting definitions. Existing notes, customized definitions, and access permissions will not be changed.</Trans></p>
           </>}
-          <details className="settings-details"><summary><span>Review definition files</span><ChevronRight aria-hidden="true" /></summary><ul className="settings-list">{setup.assessment.resources.map((resource) => <li key={resource.target}>{resource.target === setup.upgrade?.target ? "upgrade" : resource.action}: <code>{resource.target}</code></li>)}<li>{setup.assessment.lock.action}: <code>{setup.assessment.lock.target}</code> (setup receipt)</li></ul></details>
-          <div className="settings-review-actions"><button className="settings-secondary-action mdbase-button" type="button" disabled={busy || !canInstall} onClick={() => void approveSetup()}>{busy ? (setup.upgrade ? "Updating definitions…" : "Adding definitions…") : setup.upgrade ? "Update definitions and continue" : "Add definitions and continue"}</button><button className="settings-quiet-action mdbase-button is-tertiary" type="button" disabled={busy} onClick={() => setSetup(undefined)}>Not now</button></div>
+          <details className="settings-details"><summary><span><Trans>Review definition files</Trans></span><ChevronRight aria-hidden="true" /></summary><ul className="settings-list">{setup.assessment.resources.map((resource) => <li key={resource.target}>{resource.target === setup.upgrade?.target ? t`upgrade` : resource.action}: <code>{resource.target}</code></li>)}<li><Trans>{setup.assessment.lock.action}: <code>{setup.assessment.lock.target}</code> (setup receipt)</Trans></li></ul></details>
+          <div className="settings-review-actions"><button className="settings-secondary-action mdbase-button" type="button" disabled={busy || !canInstall} onClick={() => void approveSetup()}>{busy ? (setup.upgrade ? t`Updating definitions…` : t`Adding definitions…`) : setup.upgrade ? t`Update definitions and continue` : t`Add definitions and continue`}</button><button className="settings-quiet-action mdbase-button is-tertiary" type="button" disabled={busy} onClick={() => setSetup(undefined)}><Trans>Not now</Trans></button></div>
         </section>}
       </>}
-      {implementations.length > 0 && !creating && (canCreate || (canEdit && implementations.length > 1)) && <div className="setting-row person-choice"><div><h3>{canCreate ? "New person record" : "Person type"}</h3><p>{canCreate ? "Create a note for yourself, starting from your account name." : "The type used when linking a record to you."}</p></div><div className="setting-controls">{implementations.length > 1 && <Select aria-label="Person type" value={implementation?.typeName ?? ""} options={implementations.map((item) => ({ value: item.typeName, label: item.typeName }))} onChange={(next) => { setTypeName(next); setConversion(undefined); }} />}{canCreate && <button className="settings-secondary-action mdbase-button" type="button" onClick={() => setCreating(true)}>Create my person record</button>}</div></div>}
+      {implementations.length > 0 && !creating && (canCreate || (canEdit && implementations.length > 1)) && <div className="setting-row person-choice"><div><h3>{canCreate ? t`New person record` : t`Person type`}</h3><p>{canCreate ? t`Create a note for yourself, starting from your account name.` : t`The type used when linking a record to you.`}</p></div><div className="setting-controls">{implementations.length > 1 && <Select aria-label={t`Person type`} value={implementation?.typeName ?? ""} options={implementations.map((item) => ({ value: item.typeName, label: item.typeName }))} onChange={(next) => { setTypeName(next); setConversion(undefined); }} />}{canCreate && <button className="settings-secondary-action mdbase-button" type="button" onClick={() => setCreating(true)}><Trans>Create my person record</Trans></button>}</div></div>}
       {creating && implementation && identity && <NewNoteComposer key={implementation.typeName} types={description.types.filter((type) => type.name === implementation.typeName)} defaultType={implementation.typeName} initialTitle={identity.name} initialProperties={properties} recordPaths={records.map((record) => record.path)} onCreate={create} onCancel={() => setCreating(false)} />}
-      <details className="settings-details"><summary><span>About existing contacts</span><ChevronRight aria-hidden="true" /></summary><p className="settings-note">You can link an existing person directly, or review converting a single contact without changing the rest of your address book. Advanced Person mappings are available in Types; required fields there affect every record of that type.</p></details>
+      <details className="settings-details"><summary><span><Trans>About existing contacts</Trans></span><ChevronRight aria-hidden="true" /></summary><p className="settings-note"><Trans>You can link an existing person directly, or review converting a single contact without changing the rest of your address book. Advanced Person mappings are available in Types; required fields there affect every record of that type.</Trans></p></details>
     </>}
   </section>;
 }
 
 function ResolutionProblem({ resolution }: { resolution: PersonResolution }) {
-  if (resolution.status === "ambiguous") return <div className="settings-note settings-alert" role="alert"><p>Several person records are linked to your account. Edit them so exactly one record represents you:</p><ul className="settings-list">{resolution.paths.map((path) => <li key={path}><code>{path}</code></li>)}</ul></div>;
-  if (resolution.status === "invalid") return <div className="settings-note settings-alert" role="alert"><p>A person record linked to your account has invalid fields. Fix it before relying on it:</p><ul className="settings-list">{resolution.paths.map((path) => <li key={path}><code>{path}</code></li>)}</ul></div>;
+  useLingui();
+  if (resolution.status === "ambiguous") return <div className="settings-note settings-alert" role="alert"><p><Trans>Several person records are linked to your account. Edit them so exactly one record represents you:</Trans></p><ul className="settings-list">{resolution.paths.map((path) => <li key={path}><code>{path}</code></li>)}</ul></div>;
+  if (resolution.status === "invalid") return <div className="settings-note settings-alert" role="alert"><p><Trans>A person record linked to your account has invalid fields. Fix it before relying on it:</Trans></p><ul className="settings-list">{resolution.paths.map((path) => <li key={path}><code>{path}</code></li>)}</ul></div>;
   return null;
 }

@@ -1,3 +1,5 @@
+import { displayLocale } from "./i18n/format";
+import { t } from "@lingui/core/macro";
 import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
 import type { EditableNote, NoteDocument, NoteSummary, TitleSource } from "./model";
 import {
@@ -47,14 +49,14 @@ export function persistedBody(title: string, body: string, source: TitleSource):
   if (source.kind === "frontmatter") return body;
   // A display stand-in is never written into another app's record unless the person retitles it.
   if (source.kind === "path" && title.trim() === source.title) return body;
-  const cleanTitle = title.trim() || "Untitled";
+  const cleanTitle = title.trim() || t`Untitled`;
   const cleanBody = body.replace(/^\s*\n/, "");
   return cleanBody ? `# ${cleanTitle}\n\n${cleanBody}` : `# ${cleanTitle}\n`;
 }
 
 export function titlePatch(title: string, source: TitleSource, frontmatter: JsonObject = {}): JsonObject {
   return source.kind === "frontmatter"
-    ? fieldReferencePatch(frontmatter, source.field, title.trim() || "Untitled")
+    ? fieldReferencePatch(frontmatter, source.field, title.trim() || t`Untitled`)
     : {};
 }
 
@@ -126,12 +128,12 @@ export function noteTimestamp(note: NoteSummary): string {
   if (Number.isNaN(date.getTime())) return "";
   const now = new Date();
   if (date.toDateString() === now.toDateString()) {
-    return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(date);
+    return new Intl.DateTimeFormat(displayLocale(), { hour: "numeric", minute: "2-digit" }).format(date);
   }
   if (date.getFullYear() === now.getFullYear()) {
-    return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
+    return new Intl.DateTimeFormat(displayLocale(), { month: "short", day: "numeric" }).format(date);
   }
-  return new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric" }).format(date);
+  return new Intl.DateTimeFormat(displayLocale(), { year: "numeric", month: "short", day: "numeric" }).format(date);
 }
 
 export function folder(path: string): string {
@@ -140,7 +142,7 @@ export function folder(path: string): string {
 }
 
 export function basename(path: string): string {
-  return path.split("/").at(-1)?.replace(/\.[^.]+$/, "") || "Untitled";
+  return path.split("/").at(-1)?.replace(/\.[^.]+$/, "") || t`Untitled`;
 }
 
 /** Generated UUID filenames aren't useful names. A readable body line is only

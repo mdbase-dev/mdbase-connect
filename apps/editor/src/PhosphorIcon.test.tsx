@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react";
+import { render } from "./test/locale";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import { describe, expect, it } from "vitest";
 import {

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen } from "./test/locale";
 import { describe, expect, it } from "vitest";
 import { ReadOnlyMarkdown } from "./read-only-markdown";
 

@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import { fileAssetKey } from "./file-reference-resolution";
 import type { CollectionFile, CollectionGateway } from "./model";
 
@@ -155,7 +156,7 @@ export class FileAssetStore {
     if (entry.promise) return entry.promise;
     if (entry.file.size > this.maxPreviewBytes) {
       entry.status = "too_large";
-      entry.error = `Preview is limited to ${formatBytes(this.maxPreviewBytes)}. Download this ${formatBytes(entry.file.size)} file to open it.`;
+      entry.error = t`Preview is limited to ${formatBytes(this.maxPreviewBytes)}. Download this ${formatBytes(entry.file.size)} file to open it.`;
       this.evict();
       this.changed();
       return;
@@ -189,7 +190,7 @@ export class FileAssetStore {
       .catch((error: unknown) => {
         if (!this.ownsRequest(entry, controller)) return;
         entry.status = "error";
-        entry.error = error instanceof Error ? error.message : "The file could not be opened.";
+        entry.error = error instanceof Error ? error.message : t`The file could not be opened.`;
       })
       .finally(() => {
         if (!this.ownsRequest(entry, controller)) return;

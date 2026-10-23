@@ -1,3 +1,6 @@
+import { Trans } from "@lingui/react/macro";
+import { t } from "@lingui/core/macro";
+import { useLingui } from "@lingui/react";
 import {
   MagnifyingGlassIcon as Search,
   PlusIcon as Plus,
@@ -14,11 +17,11 @@ import { Select } from "@mdbase-dev/ui/select";
 type PropertyKind = "text" | "number" | "boolean" | "list" | "object";
 
 const propertyKinds: ReadonlyArray<{ value: PropertyKind; label: string }> = [
-  { value: "text", label: "Text" },
-  { value: "number", label: "Number" },
-  { value: "boolean", label: "Boolean" },
-  { value: "list", label: "List" },
-  { value: "object", label: "Object" }
+  { value: "text", get label() { return t`Text`; } },
+  { value: "number", get label() { return t`Number`; } },
+  { value: "boolean", get label() { return t`Boolean`; } },
+  { value: "list", get label() { return t`List`; } },
+  { value: "object", get label() { return t`Object`; } }
 ];
 type PropertyValue = unknown;
 
@@ -36,7 +39,7 @@ export function StructuredPropertiesEditor({
   initializeRequired = false,
   allowAdd = true,
   allowCustom = true,
-  emptyMessage = "No properties yet.",
+  emptyMessage = t`No properties yet.`,
   groupUndeclared = false,
   readOnly = false,
   onChange,
@@ -56,6 +59,7 @@ export function StructuredPropertiesEditor({
   onChange: (value: JsonObject) => void;
   onValidityChange?: (valid: boolean) => void;
 }) {
+  useLingui();
   const included = useMemo(() => propertyNames ? new Set(propertyNames) : undefined, [propertyNames]);
   const visible = (name: string) => !included || included.has(name);
   const required = contract.required.filter(visible);
@@ -133,9 +137,9 @@ export function StructuredPropertiesEditor({
   />;
 
   return <div className="structured-properties-editor">
-    {!initializeRequired && missingRequired.length > 0 && <section className="missing-properties" aria-label="Missing required properties">
-      <h3>Required</h3>
-      <p>These properties must be persisted before this record is valid.</p>
+    {!initializeRequired && missingRequired.length > 0 && <section className="missing-properties" aria-label={t`Missing required properties`}>
+      <h3><Trans>Required</Trans></h3>
+      <p><Trans>These properties must be persisted before this record is valid.</Trans></p>
       {missingRequired.map((name) => <button type="button" key={name} onClick={() => addSchemaProperty(name)}>
         <span><strong>{name}</strong>{description(contract.properties[name]) && <small>{description(contract.properties[name])}</small>}</span>
         <Plus aria-hidden="true" />
@@ -144,42 +148,42 @@ export function StructuredPropertiesEditor({
 
     {primary.map(renderProperty)}
     {additional.length > 0 && <details className="additional-properties" open={additionalOpen} onToggle={(event) => setAdditionalOpen(event.currentTarget.open)}>
-      <summary>Additional properties</summary>
-      <p>These properties are not described by this note's type. Other apps may use them.</p>
+      <summary><Trans>Additional properties</Trans></summary>
+      <p><Trans>These properties are not described by this note's type. Other apps may use them.</Trans></p>
       {additional.map(renderProperty)}
     </details>}
 
     {!entries.length && !missingRequired.length && emptyMessage && <p className="quiet-empty">{emptyMessage}</p>}
 
     {allowAdd && (adding ? <div className="property-picker">
-      <label className="property-search"><Search aria-hidden="true" /><span className="sr-only">Find a property</span><input
+      <label className="property-search"><Search aria-hidden="true" /><span className="sr-only"><Trans>Find a property</Trans></span><input
         autoFocus
         type="search"
         value={search}
-        placeholder="Find a property"
+        placeholder={t`Find a property`}
         onChange={(event) => setSearch(event.target.value)}
       /></label>
       {!customizing ? <>
         <div className="property-options">
           {available.map((name) => <button type="button" key={name} onClick={() => addSchemaProperty(name)}>
             <span><strong>{name}</strong><small>{description(contract.properties[name]) || schemaKind(contract.properties[name])}</small></span>
-            {required.includes(name) && <em>Required</em>}
+            {required.includes(name) && <em><Trans>Required</Trans></em>}
           </button>)}
-          {!available.length && <p>No matching schema properties.</p>}
+          {!available.length && <p><Trans>No matching schema properties.</Trans></p>}
         </div>
-        {allowCustom && <button type="button" className="custom-property-trigger" onClick={() => { setNewName(search); setCustomizing(true); }}>Add a custom property…</button>}
+        {allowCustom && <button type="button" className="custom-property-trigger" onClick={() => { setNewName(search); setCustomizing(true); }}><Trans>Add a custom property…</Trans></button>}
       </> : <div className="custom-property">
-        <label><span>Name</span><input autoFocus value={newName} onChange={(event) => setNewName(event.target.value)} /></label>
-        <label><span>Field type</span><Select aria-label="Field type" value={newKind} options={propertyKinds} onChange={setNewKind} /></label>
-        <div><button type="button" onClick={() => setCustomizing(false)}>Back</button><button type="button" className="small-button" disabled={!newName.trim() || newName.trim() in value} onClick={addCustomProperty}>Add</button></div>
+        <label><span><Trans>Name</Trans></span><input autoFocus value={newName} onChange={(event) => setNewName(event.target.value)} /></label>
+        <label><span><Trans>Field type</Trans></span><Select aria-label={t`Field type`} value={newKind} options={propertyKinds} onChange={setNewKind} /></label>
+        <div><button type="button" onClick={() => setCustomizing(false)}><Trans>Back</Trans></button><button type="button" className="small-button" disabled={!newName.trim() || newName.trim() in value} onClick={addCustomProperty}><Trans>Add</Trans></button></div>
       </div>}
-      <button type="button" className="property-picker-close" onClick={() => { setAdding(false); setCustomizing(false); }}><X aria-hidden="true" /> Cancel</button>
-    </div> : (available.length > 0 || allowCustom) && <button type="button" className="add-property" onClick={() => setAdding(true)}><Plus aria-hidden="true" /> Add property</button>)}
+      <button type="button" className="property-picker-close" onClick={() => { setAdding(false); setCustomizing(false); }}><X aria-hidden="true" /> <Trans>Cancel</Trans></button>
+    </div> : (available.length > 0 || allowCustom) && <button type="button" className="add-property" onClick={() => setAdding(true)}><Plus aria-hidden="true" /> <Trans>Add property</Trans></button>)}
 
-    {effective.length > 0 && <section className="effective-properties" aria-label="Automatic properties">
-      <div><h3>Automatic</h3><p>Provided by the note's type, not stored in this file.</p></div>
+    {effective.length > 0 && <section className="effective-properties" aria-label={t`Automatic properties`}>
+      <div><h3><Trans>Automatic</Trans></h3><p><Trans>Provided by the note's type, not stored in this file.</Trans></p></div>
       {effective.map(([name, effectiveValue]) => <div className="effective-property" key={name}>
-        <span><strong>{name}</strong><small>{Object.prototype.hasOwnProperty.call(contract.properties[name] ?? {}, "default") ? "Default" : "Calculated"}</small></span>
+        <span><strong>{name}</strong><small>{Object.prototype.hasOwnProperty.call(contract.properties[name] ?? {}, "default") ? t`Default` : t`Calculated`}</small></span>
         <output>{formatValue(effectiveValue)}</output>
       </div>)}
     </section>}
@@ -198,20 +202,21 @@ function PropertyRow({ name, value, schema, required, error, recordPaths, onChan
   onRemove?: () => void;
   readOnly: boolean;
 }) {
+  useLingui();
   const defined = Boolean(schema);
   const kind = propertyKind(value);
   return <div className={`property-row${error ? " invalid" : ""}`}>
     <div className="property-row-label">
-      <span><strong>{name}</strong>{required && <small>Required</small>}</span>
+      <span><strong>{name}</strong>{required && <small><Trans>Required</Trans></small>}</span>
       {defined
-        ? <span className="property-kind" title="Defined by this note's type">{schemaKind(schema)}</span>
-        : <Select className="is-compact" aria-label={`${name} property type`} value={kind === "null" ? "" : kind} placeholder="Null" options={propertyKinds} onChange={(next) => onChange(initialValue(next))} />}
+        ? <span className="property-kind" title={t`Defined by this note's type`}>{schemaKind(schema)}</span>
+        : <Select className="is-compact" aria-label={t`${name} property type`} value={kind === "null" ? "" : kind} placeholder={t`Null`} options={propertyKinds} onChange={(next) => onChange(initialValue(next))} />}
     </div>
     {description(schema) && <p className="property-description">{description(schema)}</p>}
     <PropertyValue name={name} value={value} schema={schema} recordPaths={recordPaths} onChange={onChange} onValidityChange={onValidityChange} readOnly={readOnly} />
-    {schemaAllowsNull(schema) && value !== null && <button type="button" className="set-null-property" onClick={() => onChange(null)}>Set to null</button>}
+    {schemaAllowsNull(schema) && value !== null && <button type="button" className="set-null-property" onClick={() => onChange(null)}><Trans>Set to null</Trans></button>}
     {error && <p className="field-error" role="alert">{error}</p>}
-    {onRemove && <InlineRemoveButton className="remove-property" label={`Remove ${name} property`} onClick={onRemove} />}
+    {onRemove && <InlineRemoveButton className="remove-property" label={t`Remove ${name} property`} onClick={onRemove} />}
   </div>;
 }
 
@@ -224,7 +229,8 @@ function PropertyValue({ name, value, schema, recordPaths, onChange, onValidityC
   onValidityChange: (valid: boolean) => void;
   readOnly: boolean;
 }) {
-  if (value === null) return <div className="null-property"><span>Persisted null</span><button type="button" onClick={() => onChange(schemaInitialValue(schema))}>Set a value</button></div>;
+  useLingui();
+  if (value === null) return <div className="null-property"><span><Trans>Persisted null</Trans></span><button type="button" onClick={() => onChange(schemaInitialValue(schema))}><Trans>Set a value</Trans></button></div>;
   if (isStringList(name, schema, value)) {
     const itemSchema = isObject(schema?.items) ? schema.items : undefined;
     return <StringListEditor
@@ -236,11 +242,11 @@ function PropertyValue({ name, value, schema, recordPaths, onChange, onValidityC
   }
   if (isLinkSchema(schema) && typeof value === "string") {
     return <ComboboxInput
-      label={`${name} value`}
-      listLabel={`${name} note suggestions`}
+      label={t`${name} value`}
+      listLabel={t`${name} note suggestions`}
       value={value}
       options={recordPaths}
-      emptyMessage="No matching notes."
+      emptyMessage={t`No matching notes.`}
       spellCheck={false}
       onValueChange={onChange}
     />;
@@ -249,36 +255,37 @@ function PropertyValue({ name, value, schema, recordPaths, onChange, onValidityC
     return <SchemaValueEditor name={`${name} value`} schema={schema} value={value} hideLabel onChange={onChange} onValidityChange={onValidityChange} />;
   }
   if (typeof value === "boolean") {
-    return <label className="boolean-property"><input className="mdbase-checkbox" type="checkbox" checked={value} onChange={(event) => onChange(event.target.checked)} /><span>{value ? "True" : "False"}</span></label>;
+    return <label className="boolean-property"><input className="mdbase-checkbox" type="checkbox" checked={value} onChange={(event) => onChange(event.target.checked)} /><span>{value ? t`True` : t`False`}</span></label>;
   }
   if (typeof value === "number") {
-    return <input aria-label={`${name} value`} type="number" value={value} onChange={(event) => onChange(Number(event.target.value))} />;
+    return <input aria-label={t`${name} value`} type="number" value={value} onChange={(event) => onChange(Number(event.target.value))} />;
   }
   if (typeof value === "string") {
-    return <input aria-label={`${name} value`} value={value} onChange={(event) => onChange(event.target.value)} />;
+    return <input aria-label={t`${name} value`} value={value} onChange={(event) => onChange(event.target.value)} />;
   }
   return <JsonValueEditor name={name} value={value} onChange={onChange} onValidityChange={onValidityChange} readOnly={readOnly} />;
 }
 
 function StringListEditor({ name, value, suggestions, onChange }: { name: string; value: string[]; suggestions: string[]; onChange: (value: unknown) => void }) {
+  useLingui();
   return <div className="property-string-list" role="group" aria-label={name}>
     {value.map((item, index) => <div key={index}>
       <ComboboxInput
-        label={`${name} value item ${index + 1}`}
-        listLabel={`${name} item suggestions`}
+        label={t`${name} value item ${index + 1}`}
+        listLabel={t`${name} item suggestions`}
         value={item}
         options={suggestions}
-        emptyMessage="No matching notes."
+        emptyMessage={t`No matching notes.`}
         spellCheck={false}
         onValueChange={(next) => onChange(value.map((current, itemIndex) => itemIndex === index ? next : current))}
       />
       <InlineRemoveButton
         className="property-list-remove"
-        label={`Remove ${name} item ${index + 1}`}
+        label={t`Remove ${name} item ${index + 1}`}
         onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))}
       />
     </div>)}
-    <button type="button" onClick={() => onChange([...value, ""])}><Plus aria-hidden="true" /> Add {name === "tags" ? "tag" : "item"}</button>
+    <button type="button" onClick={() => onChange([...value, ""])}><Plus aria-hidden="true" /> <Trans>Add </Trans>{name === "tags" ? t`tag` : t`item`}</button>
   </div>;
 }
 
@@ -289,10 +296,11 @@ function JsonValueEditor({ name, value, onChange, onValidityChange, readOnly }: 
   onValidityChange: (valid: boolean) => void;
   readOnly: boolean;
 }) {
+  useLingui();
   const [text, setText] = useState(() => JSON.stringify(value, null, 2));
   const [invalid, setInvalid] = useState(false);
   return <div className={`nested-property${invalid ? " invalid" : ""}`}>
-    <CodeEditor value={text} label={`${name} JSON value`} language="json" lineWrapping={false} readOnly={readOnly} onChange={(next) => {
+    <CodeEditor value={text} label={t`${name} JSON value`} language="json" lineWrapping={false} readOnly={readOnly} onChange={(next) => {
       if (readOnly) return;
       setText(next);
       try {
@@ -320,10 +328,10 @@ export function propertyValidationErrors(
     if (message) errors[name] = message;
   }
   for (const name of contract.required) {
-    if (include(name) && !(name in value)) errors[name] = "This required property is missing.";
+    if (include(name) && !(name in value)) errors[name] = t`This required property is missing.`;
   }
   for (const [name, valid] of Object.entries(editorValidity)) {
-    if (include(name) && !valid) errors[name] = "Fix the JSON value before saving.";
+    if (include(name) && !valid) errors[name] = t`Fix the JSON value before saving.`;
   }
   return errors;
 }
@@ -332,37 +340,37 @@ function validateValue(schema: JsonObject | undefined, value: unknown, path: str
   if (!schema) return undefined;
   if (value === null) {
     const nullable = schema.type === "null" || (Array.isArray(schema.type) && schema.type.includes("null")) || (Array.isArray(schema.enum) && schema.enum.includes(null));
-    return nullable ? undefined : `${path} cannot be null.`;
+    return nullable ? undefined : t`${path} cannot be null.`;
   }
   if ("const" in schema && JSON.stringify(schema.const) !== JSON.stringify(value)) {
-    return `Use the required value ${formatValue(schema.const)}.`;
+    return t`Use the required value ${formatValue(schema.const)}.`;
   }
   if (Array.isArray(schema.enum) && !schema.enum.some((choice) => JSON.stringify(choice) === JSON.stringify(value))) {
-    return "Choose one of the allowed values.";
+    return t`Choose one of the allowed values.`;
   }
   const declaredType = Array.isArray(schema.type) ? schema.type.find((item) => item !== "null") : schema.type;
   const type = declaredType
     ?? (isObject(schema.properties) || Array.isArray(schema.required) || "additionalProperties" in schema ? "object" : undefined)
     ?? (isObject(schema.items) ? "array" : undefined);
   if (type === "string") {
-    if (typeof value !== "string") return "Enter text.";
-    if (typeof schema.minLength === "number" && value.length < schema.minLength) return `Enter at least ${schema.minLength} characters.`;
-    if (typeof schema.maxLength === "number" && value.length > schema.maxLength) return `Enter no more than ${schema.maxLength} characters.`;
+    if (typeof value !== "string") return t`Enter text.`;
+    if (typeof schema.minLength === "number" && value.length < schema.minLength) return t`Enter at least ${schema.minLength} characters.`;
+    if (typeof schema.maxLength === "number" && value.length > schema.maxLength) return t`Enter no more than ${schema.maxLength} characters.`;
     if (typeof schema.pattern === "string") {
-      try { if (!new RegExp(schema.pattern).test(value)) return "This value does not match the required format."; } catch { /* schema validation reports invalid patterns */ }
+      try { if (!new RegExp(schema.pattern).test(value)) return t`This value does not match the required format.`; } catch { /* schema validation reports invalid patterns */ }
     }
   }
   if (type === "number" || type === "integer") {
-    if (typeof value !== "number" || !Number.isFinite(value)) return "Enter a number.";
-    if (type === "integer" && !Number.isInteger(value)) return "Enter a whole number.";
-    if (typeof schema.minimum === "number" && value < schema.minimum) return `Enter ${schema.minimum} or more.`;
-    if (typeof schema.maximum === "number" && value > schema.maximum) return `Enter ${schema.maximum} or less.`;
+    if (typeof value !== "number" || !Number.isFinite(value)) return t`Enter a number.`;
+    if (type === "integer" && !Number.isInteger(value)) return t`Enter a whole number.`;
+    if (typeof schema.minimum === "number" && value < schema.minimum) return t`Enter ${schema.minimum} or more.`;
+    if (typeof schema.maximum === "number" && value > schema.maximum) return t`Enter ${schema.maximum} or less.`;
   }
-  if (type === "boolean" && typeof value !== "boolean") return "Choose true or false.";
+  if (type === "boolean" && typeof value !== "boolean") return t`Choose true or false.`;
   if (type === "array") {
-    if (!Array.isArray(value)) return "Enter a list.";
-    if (typeof schema.minItems === "number" && value.length < schema.minItems) return `Add at least ${schema.minItems} items.`;
-    if (typeof schema.maxItems === "number" && value.length > schema.maxItems) return `Use no more than ${schema.maxItems} items.`;
+    if (!Array.isArray(value)) return t`Enter a list.`;
+    if (typeof schema.minItems === "number" && value.length < schema.minItems) return t`Add at least ${schema.minItems} items.`;
+    if (typeof schema.maxItems === "number" && value.length > schema.maxItems) return t`Use no more than ${schema.maxItems} items.`;
     const itemSchema = isObject(schema.items) ? schema.items : undefined;
     for (let index = 0; index < value.length; index += 1) {
       const error = validateValue(itemSchema, value[index], `${path} item ${index + 1}`);
@@ -370,11 +378,11 @@ function validateValue(schema: JsonObject | undefined, value: unknown, path: str
     }
   }
   if (type === "object") {
-    if (!isObject(value)) return "Enter an object.";
+    if (!isObject(value)) return t`Enter an object.`;
     const properties = isObject(schema.properties) ? schema.properties : {};
     const required = Array.isArray(schema.required) ? schema.required.filter((item): item is string => typeof item === "string") : [];
     for (const name of required) {
-      if (!(name in value)) return `${name} is required.`;
+      if (!(name in value)) return t`${name} is required.`;
     }
     const propertyNameSchema = isObject(schema.propertyNames) ? schema.propertyNames : undefined;
     const additionalSchema = isObject(schema.additionalProperties) ? schema.additionalProperties : undefined;
@@ -382,17 +390,17 @@ function validateValue(schema: JsonObject | undefined, value: unknown, path: str
       const nameError = validateValue(propertyNameSchema, name, `${path} key`);
       if (nameError) return nameError;
       const declaredSchema = isObject(properties[name]) ? properties[name] : undefined;
-      if (!declaredSchema && schema.additionalProperties === false) return `${name} is not an allowed property.`;
+      if (!declaredSchema && schema.additionalProperties === false) return t`${name} is not an allowed property.`;
       const error = validateValue(declaredSchema ?? additionalSchema, childValue, `${path}.${name}`);
       if (error) return error;
     }
     const alternatives = Array.isArray(schema.anyOf) ? schema.anyOf.filter(isObject) : [];
     if (alternatives.length && !alternatives.some((alternative) => !validateValue(alternative, value, path))) {
-      return "Complete one of the allowed field combinations.";
+      return t`Complete one of the allowed field combinations.`;
     }
     const exclusiveAlternatives = Array.isArray(schema.oneOf) ? schema.oneOf.filter(isObject) : [];
     if (exclusiveAlternatives.length && exclusiveAlternatives.filter((alternative) => !validateValue(alternative, value, path)).length !== 1) {
-      return "Complete exactly one of the allowed field combinations.";
+      return t`Complete exactly one of the allowed field combinations.`;
     }
   }
   return undefined;
@@ -416,18 +424,18 @@ function initialValue(kind: PropertyKind): PropertyValue {
 }
 
 function schemaKind(schema?: JsonObject): string {
-  if (!schema) return "Custom";
-  if (Array.isArray(schema.enum)) return "Choice";
-  if (schema.format === "date") return "Date";
-  if (schema.format === "date-time") return "Date & time";
-  if (isLinkSchema(schema)) return "Record link";
+  if (!schema) return t`Custom`;
+  if (Array.isArray(schema.enum)) return t`Choice`;
+  if (schema.format === "date") return t`Date`;
+  if (schema.format === "date-time") return t`Date & time`;
+  if (isLinkSchema(schema)) return t`Record link`;
   const type = Array.isArray(schema.type) ? schema.type.filter((item) => item !== "null").join(" or ") : schema.type;
-  if (type === "array") return "List";
-  if (type === "boolean") return "Boolean";
-  if (type === "integer") return "Integer";
-  if (type === "number") return "Number";
-  if (type === "object") return "Object";
-  return "Text";
+  if (type === "array") return t`List`;
+  if (type === "boolean") return t`Boolean`;
+  if (type === "integer") return t`Integer`;
+  if (type === "number") return t`Number`;
+  if (type === "object") return t`Object`;
+  return t`Text`;
 }
 
 function description(schema?: JsonObject): string {

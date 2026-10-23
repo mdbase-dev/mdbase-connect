@@ -1,4 +1,4 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook } from "./test/locale";
 import { describe, expect, it, vi } from "vitest";
 import type { CollectionDescription } from "@mdbase-dev/connect";
 import type { CollectionGateway, TypeDocument } from "./model";

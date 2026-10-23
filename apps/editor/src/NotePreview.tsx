@@ -1,3 +1,6 @@
+import { Trans } from "@lingui/react/macro";
+import { t } from "@lingui/core/macro";
+import { useLingui } from "@lingui/react";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
@@ -143,6 +146,7 @@ export function useNotePreview(
 }
 
 export function NotePreviewCard({ preview }: { preview?: NotePreviewState }) {
+  useLingui();
   if (!preview) return null;
   const excerpt = notePreviewExcerpt(preview.body ?? "", preview.title);
   const properties = previewProperties(preview.frontmatter);
@@ -153,7 +157,7 @@ export function NotePreviewCard({ preview }: { preview?: NotePreviewState }) {
       id={previewId}
       className={`note-preview note-preview-${preview.source}`}
       role="tooltip"
-      aria-label={`Preview of ${preview.title}`}
+      aria-label={t`Preview of ${preview.title}`}
       style={style}
     >
       <header>
@@ -161,14 +165,14 @@ export function NotePreviewCard({ preview }: { preview?: NotePreviewState }) {
         <span>{preview.path}</span>
       </header>
       {preview.loading
-        ? <div className="note-preview-loading" aria-label="Loading preview" aria-busy="true">Loading preview…</div>
+        ? <div className="note-preview-loading" aria-label={t`Loading preview`} aria-busy="true"><Trans>Loading preview…</Trans></div>
         : preview.unavailable
-          ? <p className="note-preview-empty">Preview unavailable.</p>
+          ? <p className="note-preview-empty"><Trans>Preview unavailable.</Trans></p>
           : excerpt
             ? <p className="note-preview-excerpt">{excerpt}</p>
-            : <p className="note-preview-empty">No text preview.</p>}
+            : <p className="note-preview-empty"><Trans>No text preview.</Trans></p>}
       {(preview.types.length > 0 || properties.length > 0) && <footer>
-        {preview.types.length > 0 && <div className="note-preview-types" aria-label="Note types">
+        {preview.types.length > 0 && <div className="note-preview-types" aria-label={t`Note types`}>
           {preview.types.slice(0, 3).map((type) => <span key={type}>{type}</span>)}
           {preview.types.length > 3 && <span>+{preview.types.length - 3}</span>}
         </div>}

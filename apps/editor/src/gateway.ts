@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import {
   MdbaseBrowserSelection,
   MdbaseConnect,
@@ -132,7 +133,7 @@ export class ConnectCollectionGateway implements CollectionGateway {
     requireOutcome(this.session.select(collectionId, { history: "replace" }));
     const snapshot = this.sessionSnapshot();
     if (snapshot.status !== "ready") {
-      throw new Error("The selected collection is not ready.");
+      throw new Error(t`The selected collection is not ready.`);
     }
     return snapshot.connection;
   }
@@ -209,8 +210,8 @@ export class ConnectCollectionGateway implements CollectionGateway {
   async readFile(file: CollectionFileDescriptor, options: FileReadRequest = {}): Promise<Blob> {
     const connection = this.requireConnection();
     const current = requireOutcome(await connection.files.stat({ fileId: file.fileId }, options));
-    if (!current) throw new Error("This file no longer exists.");
-    if (current.revision !== file.revision) throw new Error("This file changed. Reload its preview.");
+    if (!current) throw new Error(t`This file no longer exists.`);
+    if (current.revision !== file.revision) throw new Error(t`This file changed. Reload its preview.`);
     return connection.files.download(current, options);
   }
 
@@ -247,14 +248,14 @@ export class ConnectCollectionGateway implements CollectionGateway {
   async recoverNoteMutation(requestId: string): Promise<NoteDocument> {
     const pending = this.requireConnection().pendingMutation<NoteDocument>(requestId);
     if (!pending || (pending.operation !== "update" && pending.operation !== "rename")) {
-      throw new Error("The exact interrupted note operation is unavailable. No new write was attempted.");
+      throw new Error(t`The exact interrupted note operation is unavailable. No new write was attempted.`);
     }
     return requireOutcome(await pending.recover());
   }
 
   private assertNoPendingNoteMutation(connection: MdbaseConnection<NoteFrontmatter>): void {
     if (connection.pendingMutations().some((pending) => pending.operation === "update" || pending.operation === "rename")) {
-      throw new Error("Recover the interrupted note operation before making another change. No new write was attempted.");
+      throw new Error(t`Recover the interrupted note operation before making another change. No new write was attempted.`);
     }
   }
 
@@ -413,7 +414,7 @@ export class ConnectCollectionGateway implements CollectionGateway {
 
   private requireConnection(): MdbaseConnection<NoteFrontmatter> {
     const connection = this.activeConnection();
-    if (!connection) throw new Error("Choose a collection before editing notes.");
+    if (!connection) throw new Error(t`Choose a collection before editing notes.`);
     return connection;
   }
 }
@@ -471,16 +472,16 @@ function mutationKey(from: string, to: string, revision: string): string {
 
 export function gatewayError(error: unknown): string {
   if (error instanceof MdbaseConnectError) {
-    if (error.problem.code === "connector_offline") return "The computer holding this collection is offline.";
+    if (error.problem.code === "connector_offline") return t`The computer holding this collection is offline.`;
     if (error.problem.recovery === "reauthorize") {
-      return "This collection needs authorization again. Choose the collection to continue.";
+      return t`This collection needs authorization again. Choose the collection to continue.`;
     }
   }
   if (isMdbaseError(error) && error.recovery === "reauthorize") {
-    return "This collection needs authorization again. Choose the collection to continue.";
+    return t`This collection needs authorization again. Choose the collection to continue.`;
   }
   if (error instanceof Error) return error.message;
-  return "The collection could not be reached.";
+  return t`The collection could not be reached.`;
 }
 
 function operationOutcomeUnknown(error: unknown): boolean {

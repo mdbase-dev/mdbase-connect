@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CollectionDescription } from "@mdbase-dev/connect";
 import { gatewayError } from "./gateway";
@@ -91,7 +92,7 @@ export function useTypeDefinitionLifecycle({ gateway, publishDescription, select
       if (current !== operation.current) return;
       publishDescription(description);
       selectName(saved.name);
-      notify(wasCreating ? `Created type “${saved.name}”.` : `Saved type “${saved.name}”.`);
+      notify(wasCreating ? t`Created type “${saved.name}”.` : t`Saved type “${saved.name}”.`);
     } catch (cause) {
       if (current === operation.current) setError(gatewayError(cause));
     } finally {

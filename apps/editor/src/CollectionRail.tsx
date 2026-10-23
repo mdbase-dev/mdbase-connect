@@ -1,3 +1,6 @@
+import { Trans } from "@lingui/react/macro";
+import { t, plural } from "@lingui/core/macro";
+import { useLingui } from "@lingui/react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import {
@@ -47,6 +50,7 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
   switcher?: ReactNode;
   onCollapse: () => void;
 } & FolderChangeActions) {
+  useLingui();
   const [folderChange, setFolderChange] = useState<{ from: string; parent?: string; mode: "rename" | "move" }>();
   const moveFolder = onPlanFolderChange && onChangeFolder ? (from: string, parent: string) => setFolderChange({ from, parent, mode: "move" }) : undefined;
   const collectionFolders = useMemo(() => folderTree(notes, files.map((file) => file.path)), [files, notes]);
@@ -65,7 +69,7 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
     notesSelected={surface === "notes" && !activeFilter}
     footer={<>
       {directAccess === "permission_required" && connectionState === "connected"
-        ? <button className="local-access-action" disabled={directAccessBusy} onClick={onRequestDirectAccess}>{directAccessBusy ? "Checking…" : "Use this computer"}</button>
+        ? <button className="local-access-action" disabled={directAccessBusy} onClick={onRequestDirectAccess}>{directAccessBusy ? t`Checking…` : t`Use this computer`}</button>
         : <ConnectionStatus state={connectionState} issue={connectionIssue} onReconnect={onReconnect} />}
     </>}
   >
@@ -78,7 +82,7 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
         onCreate={onCreateFolder}
         onCreateNote={onCreateNoteInFolder}
         onCreateSubfolder={onCreateSubfolder}
-        onCopy={(path) => onCopyFacet(path, "folder path")}
+        onCopy={(path) => onCopyFacet(path, t`folder path`)}
         onRename={onPlanFolderChange && onChangeFolder ? (from) => setFolderChange({ from, mode: "rename" }) : undefined}
         onMove={moveFolder ? (from) => setFolderChange({ from, mode: "move" }) : undefined}
         onMoveFolder={moveFolder}
@@ -119,6 +123,7 @@ function FolderFilterSection({ collectionId, items, activeFilter, loading, onFil
   onCreateSubfolder?: (parent: string) => void;
   onCopy: (path: string) => void;
 } & FolderActions) {
+  useLingui();
   const [expanded, setExpanded] = useState<Set<string>>(() => loadExpandedFolders(collectionId));
 
   useEffect(() => {
@@ -154,8 +159,8 @@ function FolderFilterSection({ collectionId, items, activeFilter, loading, onFil
     return next;
   });
 
-  return <div className="rail-filter-section" role="group" aria-label="Folders" aria-busy={loading}>
-    {loading && <span className="folder-loading" role="status">Loading folders…</span>}
+  return <div className="rail-filter-section" role="group" aria-label={t`Folders`} aria-busy={loading}>
+    {loading && <span className="folder-loading" role="status"><Trans>Loading folders…</Trans></span>}
     <div className="rail-filter-items folder-tree">
       {items.length > 0 && <ul>
         {items.map((node) => <FolderTreeRow
@@ -173,9 +178,9 @@ function FolderFilterSection({ collectionId, items, activeFilter, loading, onFil
           {...folderActions}
         />)}
       </ul>}
-      {!items.length && <p className="folder-placeholder">{loading ? "Finding folders…" : "No folders"}</p>}
+      {!items.length && <p className="folder-placeholder">{loading ? t`Finding folders…` : t`No folders`}</p>}
     </div>
-    {onCreate && <button className="rail-new-folder" onClick={onCreate}><span><FolderPlus aria-hidden="true" />New folder</span></button>}
+    {onCreate && <button className="rail-new-folder" onClick={onCreate}><span><FolderPlus aria-hidden="true" /><Trans>New folder</Trans></span></button>}
   </div>;
 }
 
@@ -198,6 +203,7 @@ function FolderTreeRow({ node, expanded, activeFilter, loading, onFilter, onTogg
   onCreateSubfolder?: (parent: string) => void;
   onCopy: (path: string) => void;
 } & FolderActions) {
+  useLingui();
   const hasChildren = node.children.length > 0;
   const isExpanded = expanded.has(node.path);
   const descendantPaths = expandableFolderPaths(node);
@@ -205,15 +211,15 @@ function FolderTreeRow({ node, expanded, activeFilter, loading, onFilter, onTogg
   return <li>
     <RailDropTarget folder={node.path} onMoveNotes={folderActions.onMoveNotes} onMoveFolder={folderActions.onMoveFolder} onRename={folderActions.onRename ? () => folderActions.onRename?.(node.path) : undefined} onExpand={hasChildren && !isExpanded ? () => onToggle(node.path) : undefined}><ContextMenu
       className="rail-tree-row"
-      label={`${node.path} folder actions`}
+      label={t`${node.path} folder actions`}
       items={[
-        { label: "New note here", disabled: !onCreateNote, icon: <FilePlus2 aria-hidden="true" />, onSelect: () => onCreateNote?.(node.path) },
-        { label: "New subfolder", disabled: !onCreateSubfolder, icon: <FolderPlus aria-hidden="true" />, onSelect: () => onCreateSubfolder?.(node.path) },
-        { label: "Rename folder…", disabled: !folderActions.onRename, icon: <Folder aria-hidden="true" />, onSelect: () => folderActions.onRename?.(node.path) },
-        { label: "Move to…", disabled: !folderActions.onMove, icon: <Folder aria-hidden="true" />, onSelect: () => folderActions.onMove?.(node.path) },
-        { label: "Copy path", icon: <Copy aria-hidden="true" />, onSelect: () => onCopy(node.path) },
+        { label: t`New note here`, disabled: !onCreateNote, icon: <FilePlus2 aria-hidden="true" />, onSelect: () => onCreateNote?.(node.path) },
+        { label: t`New subfolder`, disabled: !onCreateSubfolder, icon: <FolderPlus aria-hidden="true" />, onSelect: () => onCreateSubfolder?.(node.path) },
+        { label: t`Rename folder…`, disabled: !folderActions.onRename, icon: <Folder aria-hidden="true" />, onSelect: () => folderActions.onRename?.(node.path) },
+        { label: t`Move to…`, disabled: !folderActions.onMove, icon: <Folder aria-hidden="true" />, onSelect: () => folderActions.onMove?.(node.path) },
+        { label: t`Copy path`, icon: <Copy aria-hidden="true" />, onSelect: () => onCopy(node.path) },
         ...(hasChildren ? [{
-          label: descendantsExpanded ? "Collapse descendants" : "Expand descendants",
+          label: descendantsExpanded ? t`Collapse descendants` : t`Expand descendants`,
           icon: descendantsExpanded ? <ChevronRight aria-hidden="true" /> : <ChevronDown aria-hidden="true" />,
           onSelect: () => onSetDescendants(node, !descendantsExpanded)
         }] : [])
@@ -222,7 +228,7 @@ function FolderTreeRow({ node, expanded, activeFilter, loading, onFilter, onTogg
       {hasChildren
         ? <button
           className="folder-disclosure"
-          aria-label={`${isExpanded ? "Collapse" : "Expand"} ${node.path}`}
+          aria-label={isExpanded ? t`Collapse ${node.path}` : t`Expand ${node.path}`}
           aria-expanded={isExpanded}
           onClick={() => onToggle(node.path)}
         >{isExpanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}</button>
@@ -230,7 +236,7 @@ function FolderTreeRow({ node, expanded, activeFilter, loading, onFilter, onTogg
       <button
         className={`rail-row-action${activeFilter?.kind === "folder" && activeFilter.value === node.path ? " selected" : ""}`}
         aria-current={activeFilter?.kind === "folder" && activeFilter.value === node.path ? "page" : undefined}
-        aria-label={`Show notes in ${node.path}, ${node.count}${loading ? " or more" : ""} ${node.count === 1 && !loading ? "note" : "notes"}`}
+        aria-label={facetCountLabel("folder", { name: node.path, count: node.count }, loading)}
         data-folder-path={node.path}
         draggable={Boolean(folderActions.onMoveFolder)}
         onDragStart={(event) => { event.dataTransfer.setData(FOLDER_PATH_MIME, node.path); event.dataTransfer.effectAllowed = "move"; }}
@@ -288,8 +294,16 @@ function setsEqual(left: Set<string>, right: Set<string>): boolean {
 }
 
 function facetCountLabel(kind: NoteFilter["kind"], item: { name: string; count: number }, loading: boolean): string {
-  const subject = kind === "folder" ? `in ${item.name}` : kind === "tag" ? `tagged ${item.name}` : `with type ${item.name}`;
-  return `${item.count}${loading ? " or more" : ""} ${item.count === 1 && !loading ? "note" : "notes"} ${subject}`;
+  const count = item.count;
+  const name = item.name;
+  if (loading) {
+    if (kind === "folder") return t`${count} or more notes in ${name}`;
+    if (kind === "tag") return t`${count} or more notes tagged ${name}`;
+    return t`${count} or more notes with type ${name}`;
+  }
+  if (kind === "folder") return plural(count, { one: `# note in ${name}`, other: `# notes in ${name}` });
+  if (kind === "tag") return plural(count, { one: `# note tagged ${name}`, other: `# notes tagged ${name}` });
+  return plural(count, { one: `# note with type ${name}`, other: `# notes with type ${name}` });
 }
 
 
@@ -301,19 +315,20 @@ export function connectWorkspaceUrl(collectionId: string): string {
 
 /** The collection link state and its retry; the rail shows it always, the mobile note bar only when not connected. */
 export function ConnectionStatus({ state, issue, onReconnect }: { state: ShownConnectionState; issue?: string | undefined; onReconnect: () => void }) {
+  useLingui();
   const label = connectionLabels[state];
   return <>
-    <p role="status" aria-label={`Collection ${state === "saved_on_device" ? "changes saved on this device; waiting for sync" : state}`} title={issue ?? label}><span className={`status-dot ${state === "connected" ? state : state === "stopped" ? "stopped" : "reconnecting"}`} aria-hidden="true" /><span>{label}</span></p>
-    {(state === "reconnecting" || state === "stopped") && <button className="reconnect-action" aria-label="Retry connection" onClick={onReconnect}>Retry</button>}
+    <p role="status" aria-label={t`Collection ${label}`} title={issue ?? label}><span className={`status-dot ${state === "connected" ? state : state === "stopped" ? "stopped" : "reconnecting"}`} aria-hidden="true" /><span>{label}</span></p>
+    {(state === "reconnecting" || state === "stopped") && <button className="reconnect-action" aria-label={t`Retry connection`} onClick={onReconnect}><Trans>Retry</Trans></button>}
   </>;
 }
 
 /** The link state, or what the SDK says about syncing while the link is up. */
 export type ShownConnectionState = ConnectionState | Exclude<EditorSyncState, "synced">;
 const connectionLabels: Record<ShownConnectionState, string> = {
-  connected: "Connected",
-  reconnecting: "Reconnecting",
-  stopped: "Sync stopped",
-  offline: "Offline",
-  saved_on_device: "Saved on this device; waiting for sync"
+  get connected() { return t`Connected`; },
+  get reconnecting() { return t`Reconnecting`; },
+  get stopped() { return t`Sync stopped`; },
+  get offline() { return t`Offline`; },
+  get saved_on_device() { return t`Saved on this device; waiting for sync`; }
 };

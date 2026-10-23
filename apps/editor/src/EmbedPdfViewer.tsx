@@ -1,11 +1,14 @@
+import { t } from "@lingui/core/macro";
+import { useLingui } from "@lingui/react";
 import { PDFViewer } from "@embedpdf/react-pdf-viewer";
 import pdfiumWasmAssetPath from "@embedpdf/pdfium/pdfium.wasm?url";
 
 const pdfiumWasmUrl = new URL(pdfiumWasmAssetPath, globalThis.location.href).href;
 
 export function EmbedPdfViewer({ src, filename }: { src: string; filename: string }) {
+  useLingui();
   return (
-    <div className="embedpdf-viewer" aria-label={`PDF viewer, ${filename}`}>
+    <div className="embedpdf-viewer" aria-label={t`PDF viewer, ${filename}`}>
       <PDFViewer
         config={{
           src,

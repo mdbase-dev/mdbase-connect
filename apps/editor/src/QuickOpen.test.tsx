@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "./test/locale";
 import { describe, expect, it, vi } from "vitest";
 import { QuickOpen, ShortcutHelp } from "./QuickOpen";
 

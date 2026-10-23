@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { resolveFileReference } from "./file-reference-resolution";
 import { resolveLinkSuggestionMatches, type LinkSuggestion } from "./links";
@@ -84,13 +85,13 @@ export function useEmbeddedNoteReferences(
         key,
         status: "ambiguous",
         title: reference.label ?? reference.target,
-        error: `${matches.length} notes match this reference.`
+        error: t`${matches.length} notes match this reference.`
       }];
     }
     const suggestion = matches[0];
     if (!suggestion) {
       if (reference.target && resolveFileReference(reference.target, reference.format, files, sourcePath)) return [];
-      return [{ ...reference, key, status: "missing", title: (reference.label ?? reference.target) || "Missing note" }];
+      return [{ ...reference, key, status: "missing", title: (reference.label ?? reference.target) || t`Missing note` }];
     }
     const path = suggestion.path;
     if (path === sourcePath) {
@@ -144,7 +145,7 @@ export function useEmbeddedNoteReferences(
         if (activeStore.current !== activation) return;
         store.errors.set(
           path,
-          error instanceof Error ? error.message : "The transcluded note could not be opened."
+          error instanceof Error ? error.message : t`The transcluded note could not be opened.`
         );
         rerender((current) => current + 1);
       }).finally(() => {

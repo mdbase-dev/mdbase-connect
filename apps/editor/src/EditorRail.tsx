@@ -1,3 +1,7 @@
+import { displayLocale } from "./i18n/format";
+import { Trans } from "@lingui/react/macro";
+import { t } from "@lingui/core/macro";
+import { useLingui } from "@lingui/react";
 import type { ReactNode } from "react";
 import {
   ArrowLeftIcon as ArrowLeft,
@@ -50,17 +54,18 @@ export function EditorRail({
   footer: ReactNode;
   notesSelected?: boolean;
 } & RailDropActions) {
-  return <aside className="collection-rail" aria-label="Collection navigation">
+  useLingui();
+  return <aside className="collection-rail" aria-label={t`Collection navigation`}>
     <div className="rail-header"><div className="rail-collection-heading"><Wordmark app="editor" />{switcher ?? <span className="rail-current-collection"><span>{collectionName}</span></span>}</div>{onCollapse && <RailCollapseButton onClick={onCollapse} />}</div>
     <nav>
       {mobileReturn && <a className="mobile-editor-return" href={mobileReturn.href} onClick={mobileReturn.onClick}><span><ArrowLeft aria-hidden="true" />{mobileReturn.label}</span></a>}
       <div className="rail-scroll">
-        <RailDropTarget folder="" onMoveNotes={onMoveNotes} onMoveFolder={onMoveFolder}><RailLink destination={notes} selected={notesSelected ?? surface === "notes"} label="All notes" ariaLabel={noteCount === undefined ? "All notes" : `All notes, ${noteCount.toLocaleString()} total`} icon={<Notebook aria-hidden="true" />} count={noteCount} /></RailDropTarget>
+        <RailDropTarget folder="" onMoveNotes={onMoveNotes} onMoveFolder={onMoveFolder}><RailLink destination={notes} selected={notesSelected ?? surface === "notes"} label={t`All notes`} ariaLabel={noteCount === undefined ? t`All notes` : t`All notes, ${noteCount.toLocaleString(displayLocale())} total`} icon={<Notebook aria-hidden="true" />} count={noteCount} /></RailDropTarget>
         {children}
       </div>
-      <div className="rail-bottom-group" role="group" aria-label="Collection tools">
-        <RailLink destination={types} selected={surface === "types"} label="Types" ariaLabel={typeCount === undefined ? "Types" : `Types (${typeCount})`} icon={<Braces aria-hidden="true" />} count={typeCount} />
-        <RailLink destination={settings} selected={surface === "settings"} label="Settings" icon={<Settings aria-hidden="true" />} />
+      <div className="rail-bottom-group" role="group" aria-label={t`Collection tools`}>
+        <RailLink destination={types} selected={surface === "types"} label={t`Types`} ariaLabel={typeCount === undefined ? t`Types` : t`Types (${typeCount})`} icon={<Braces aria-hidden="true" />} count={typeCount} />
+        <RailLink destination={settings} selected={surface === "settings"} label={t`Settings`} icon={<Settings aria-hidden="true" />} />
         <RailFeedback />
       </div>
     </nav>
@@ -76,7 +81,8 @@ function RailLink({ destination, selected, label, ariaLabel, icon, count }: {
   icon: ReactNode;
   count?: number;
 }) {
-  const content = <><span>{icon}<span className="rail-row-label">{label}</span></span>{count !== undefined && <small>{count.toLocaleString()}</small>}</>;
+  useLingui();
+  const content = <><span>{icon}<span className="rail-row-label">{label}</span></span>{count !== undefined && <small>{count.toLocaleString(displayLocale())}</small>}</>;
   if (destination.href) {
     return <a className={`editor-rail-link${selected ? " selected" : ""}`} href={destination.href} aria-label={ariaLabel} aria-current={selected ? "page" : undefined}>{content}</a>;
   }
@@ -86,13 +92,15 @@ function RailLink({ destination, selected, label, ariaLabel, icon, count }: {
 /** The workspace's feedback entry, last in the fixed tools group so it stays reachable
  * however long the folder tree grows. The feedback dialog returns focus here on close. */
 function RailFeedback() {
+  useLingui();
   const feedback = useFeedback();
   if (!feedback.enabled) return null;
   return <button type="button" className="mdbase-feedback-trigger rail-feedback" onClick={() => feedback.open()}>
-    <span><FeedbackBug wiggle={feedback.wiggle} /><span className="rail-row-label">Send feedback</span></span>
+    <span><FeedbackBug wiggle={feedback.wiggle} /><span className="rail-row-label"><Trans>Send feedback</Trans></span></span>
   </button>;
 }
 
 function RailCollapseButton({ onClick }: { onClick: () => void }) {
-  return <button className="icon-button desktop-pane-control" aria-label="Hide collections sidebar" title="Hide collections sidebar" onClick={onClick}><PanelLeftClose aria-hidden="true" /></button>;
+  useLingui();
+  return <button className="icon-button desktop-pane-control" aria-label={t`Hide collections sidebar`} title={t`Hide collections sidebar`} onClick={onClick}><PanelLeftClose aria-hidden="true" /></button>;
 }
