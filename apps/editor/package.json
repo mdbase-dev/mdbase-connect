@@ -18,7 +18,7 @@
     "test:entry": "node ../../scripts/ci/vitest.mjs src/main.environment.test.ts",
     "test:deployment": "node --test scripts/verify-deployment-manifest.test.mjs",
     "test:publisher": "node --test scripts/sdk-pin.test.mjs scripts/native/publisher.test.mjs",
-    "test:e2e": "playwright test",
+    "test:e2e": "pnpm --filter @mdbase/connect-portal build && playwright test",
     "preview": "vite preview --host 127.0.0.1",
     "icons": "node scripts/write-phosphor-icon-names.mjs",
     "manifest": "node scripts/write-manifest.mjs",
