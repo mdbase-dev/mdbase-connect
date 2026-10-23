@@ -391,7 +391,7 @@ msgstr "Genehmigte Apps greifen über diesen Computer auf Ihre Sammlungen zu"
 
 #: src/renderer/access-view.tsx
 msgid "Apps you used with mdbase Connect appear here once Private sync is on for the {movedWaiting, plural, one {collection} other {collections}} that moved to this computer. mdbase turns it on by itself; you don't need to approve those apps again."
-msgstr "Apps, die Sie mit mdbase Connect verwendet haben, erscheinen hier, sobald die private Synchronisierung für die auf diesen Computer verschobenen {movedWaiting, plural, one {Sammlung} other {Sammlungen}} aktiviert ist. mdbase aktiviert sie selbst; Sie müssen diese Apps nicht erneut genehmigen."
+msgstr "Apps, die Sie mit mdbase Connect verwendet haben, erscheinen hier, sobald die private Synchronisierung für {movedWaiting, plural, one {die auf diesen Computer verschobene {collection}} other {die auf diesen Computer verschobenen {collections}}} aktiviert ist. mdbase aktiviert sie selbst; Sie müssen diese Apps nicht erneut genehmigen."
 
 #: src/renderer/main.tsx
 msgid "Ask before new apps connect"
