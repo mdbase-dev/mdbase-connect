@@ -4149,517 +4149,517 @@ msgstr "Remover {field}"
 
 #: src/TypeBrowser.tsx
 msgid "Remove {fieldLabel} field"
-msgstr ""
+msgstr "Remover campo {fieldLabel}"
 
 #. placeholder {0}: index + 1
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Remove {name} item {0}"
-msgstr ""
+msgstr "Remover item {0} de {name}"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Remove {name} property"
-msgstr ""
+msgstr "Remover propriedade {name}"
 
 #: src/SdkEditorRoot.tsx
 msgid "Remove from this browser"
-msgstr ""
+msgstr "Remover deste navegador"
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
 msgid "Remove link rule for {0}"
-msgstr ""
+msgstr "Remover regra de link de {0}"
 
 #. placeholder {0}: entry.field
 #: src/TypeBrowser.tsx
 msgid "Remove read default for {0}"
-msgstr ""
+msgstr "Remover valor padrão de leitura de {0}"
 
 #: src/BulkNoteProperties.tsx
 #: src/editor-commands.ts
 msgid "Remove tag"
-msgstr ""
+msgstr "Remover etiqueta"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Remove this collection from the editor without changing its files."
-msgstr ""
+msgstr "Remova esta coleção do editor sem alterar seus arquivos."
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
 msgid "Remove uniqueness rule for {0}"
-msgstr ""
+msgstr "Remover regra de unicidade de {0}"
 
 #: src/editor-commands.ts
 msgid "Rename"
-msgstr ""
+msgstr "Renomear"
 
 #: src/FolderChangeDialog.tsx
 msgid "Rename ‘{basename}’"
-msgstr ""
+msgstr "Renomear ‘{basename}’"
 
 #. placeholder {0}: plan.moves.length
 #. placeholder {1}: plan.referenceCount
 #: src/FolderChangeDialog.tsx
 msgid "Rename ‘{basename}’ and move {0, plural, one {# note} other {# notes}} and update {1, plural, one {# link} other {# links}}?"
-msgstr ""
+msgstr "Renomear ‘{basename}’, mover {0, plural, one {# nota} other {# notas}} e atualizar {1, plural, one {# link} other {# links}}?"
 
 #: src/App.tsx
 msgid "Rename and update links"
-msgstr ""
+msgstr "Renomear e atualizar links"
 
 #: src/FolderChangeDialog.tsx
 msgid "Rename folder"
-msgstr ""
+msgstr "Renomear pasta"
 
 #: src/CollectionRail.tsx
 msgid "Rename folder…"
-msgstr ""
+msgstr "Renomear pasta…"
 
 #: src/App.tsx
 msgid "Rename Markdown path"
-msgstr ""
+msgstr "Renomear caminho Markdown"
 
 #: src/App.tsx
 msgid "Rename path"
-msgstr ""
+msgstr "Renomear caminho"
 
 #: src/App.tsx
 msgid "Rename this note?"
-msgstr ""
+msgstr "Renomear esta nota?"
 
 #. placeholder {0}: recoveryAction.to
 #: src/App.tsx
 msgid "Renamed to “{0}”."
-msgstr ""
+msgstr "Renomeado para “{0}”."
 
 #: src/note-mutation-presentation.ts
 msgid "Renaming"
-msgstr ""
+msgstr "Renomeando"
 
 #: src/WorkspaceChrome.tsx
 msgid "Renaming links"
-msgstr ""
+msgstr "Renomeando links"
 
 #: src/YourPersonPanel.tsx
 msgid "Represent yourself using an ordinary note in this collection. This does not change access or membership."
-msgstr ""
+msgstr "Represente-se com uma nota comum nesta coleção. Isso não altera o acesso nem a participação."
 
 #: src/AttachmentUpload.tsx
 msgid "Request attachment access"
-msgstr ""
+msgstr "Solicitar acesso aos anexos"
 
 #: src/TypeBrowser.tsx
 msgid "Require a property value to be unique across a deliberate comparison set."
-msgstr ""
+msgstr "Exija que o valor de uma propriedade seja único em um conjunto de comparação definido."
 
 #: src/TypeBrowser.tsx
 msgid "Require an existing target"
-msgstr ""
+msgstr "Exigir destino existente"
 
 #: src/TypeBrowser.tsx
 msgid "Require unique items"
-msgstr ""
+msgstr "Exigir itens únicos"
 
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 #: src/type-contracts.ts
 #: src/TypeBrowser.tsx
 msgid "Required"
-msgstr ""
+msgstr "Obrigatório"
 
 #: src/TypeBrowser.tsx
 msgid "Required fields covered"
-msgstr ""
+msgstr "Campos obrigatórios contemplados"
 
 #: src/TypeBrowser.tsx
 msgid "Required match field"
-msgstr ""
+msgstr "Campo obrigatório para correspondência"
 
 #: src/NewNoteComposer.tsx
 msgid "Required properties"
-msgstr ""
+msgstr "Propriedades obrigatórias"
 
 #: src/App.tsx
 msgid "Resize collections sidebar"
-msgstr ""
+msgstr "Redimensionar barra lateral de coleções"
 
 #: src/App.tsx
 msgid "Resize note inspector"
-msgstr ""
+msgstr "Redimensionar inspetor de notas"
 
 #: src/App.tsx
 msgid "Resize notes sidebar"
-msgstr ""
+msgstr "Redimensionar barra lateral de notas"
 
 #: src/App.tsx
 msgid "Resize types sidebar"
-msgstr ""
+msgstr "Redimensionar barra lateral de tipos"
 
 #: src/next-editor-records.ts
 msgid "Resolve this note's protected edit before changing it."
-msgstr ""
+msgstr "Resolva a edição protegida desta nota antes de alterá-la."
 
 #: src/TypeBrowser.tsx
 msgid "resources"
-msgstr ""
+msgstr "recursos"
 
 #: src/contract-catalog.ts
 msgid "resources[{index}].document is too large."
-msgstr ""
+msgstr "resources[{index}].document é grande demais."
 
 #: src/App.tsx
 msgid "Restore unsaved edits"
-msgstr ""
+msgstr "Restaurar edições não salvas"
 
 #. placeholder {0}: noteTitle(restored, typeDescriptors)
 #: src/use-note-actions.ts
 msgid "Restored “{0}”."
-msgstr ""
+msgstr "“{0}” restaurada."
 
 #: src/use-note-actions.ts
 msgid "Restored note paths."
-msgstr ""
+msgstr "Caminhos das notas restaurados."
 
 #: src/use-note-actions.ts
 msgid "Restored selected notes."
-msgstr ""
+msgstr "Notas selecionadas restauradas."
 
 #: src/use-note-actions.ts
 msgid "Restored unlinked mention."
-msgstr ""
+msgstr "Menção sem vínculo restaurada."
 
 #: src/Toasts.tsx
 msgid "Resume rename"
-msgstr ""
+msgstr "Retomar renomeação"
 
 #: src/code-editor-file-embeds.ts
 #: src/CollectionRail.tsx
 #: src/YourPersonPanel.tsx
 msgid "Retry"
-msgstr ""
+msgstr "Tentar novamente"
 
 #: src/WorkspaceChrome.tsx
 msgid "Retry backlinks"
-msgstr ""
+msgstr "Tentar carregar backlinks novamente"
 
 #: src/CollectionRail.tsx
 msgid "Retry connection"
-msgstr ""
+msgstr "Tentar conexão novamente"
 
 #: src/NoteList.tsx
 msgid "Retry files"
-msgstr ""
+msgstr "Tentar carregar arquivos novamente"
 
 #: src/App.tsx
 msgid "Retry note"
-msgstr ""
+msgstr "Tentar carregar nota novamente"
 
 #: src/NoteList.tsx
 msgid "Retry notes"
-msgstr ""
+msgstr "Tentar carregar notas novamente"
 
 #: src/App.tsx
 msgid "Retry opening editor"
-msgstr ""
+msgstr "Tentar abrir o editor novamente"
 
 #: src/PropertiesPanel.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Retry save"
-msgstr ""
+msgstr "Tentar salvar novamente"
 
 #: src/NoteList.tsx
 msgid "Retry search"
-msgstr ""
+msgstr "Tentar pesquisar novamente"
 
 #: src/TypeBrowser.tsx
 msgid "Revert"
-msgstr ""
+msgstr "Reverter"
 
 #: src/type-contracts.ts
 #: src/TypeBrowser.tsx
 msgid "Review"
-msgstr ""
+msgstr "Revisar"
 
 #: src/YourPersonPanel.tsx
 msgid "Review access"
-msgstr ""
+msgstr "Revisar acesso"
 
 #: src/FolderChangeDialog.tsx
 #: src/TypeBrowser.tsx
 msgid "Review changes"
-msgstr ""
+msgstr "Revisar alterações"
 
 #: src/YourPersonPanel.tsx
 msgid "Review contact conversion"
-msgstr ""
+msgstr "Revisar conversão de contato"
 
 #: src/YourPersonPanel.tsx
 msgid "Review definition files"
-msgstr ""
+msgstr "Revisar arquivos de definição"
 
 #: src/ConflictResolver.tsx
 msgid "Review differences"
-msgstr ""
+msgstr "Revisar diferenças"
 
 #: src/YourPersonPanel.tsx
 msgid "Review fields to write"
-msgstr ""
+msgstr "Revisar campos a gravar"
 
 #: src/YourPersonPanel.tsx
 msgid "Review its Person mappings in Types before creating a person record."
-msgstr ""
+msgstr "Revise os mapeamentos de Pessoa em Tipos antes de criar um registro de pessoa."
 
 #: src/TypeBrowser.tsx
 msgid "Review mapping"
-msgstr ""
+msgstr "Revisar mapeamento"
 
 #: src/YourPersonPanel.tsx
 msgid "Review person setup"
-msgstr ""
+msgstr "Revisar configuração de pessoas"
 
 #: src/YourPersonPanel.tsx
 msgid "Review Person type update"
-msgstr ""
+msgstr "Revisar atualização do tipo Pessoa"
 
 #: src/TypeBrowser.tsx
 msgid "Review recommended"
-msgstr ""
+msgstr "Revisar recomendações"
 
 #: src/App.tsx
 msgid "Review recovered text"
-msgstr ""
+msgstr "Revisar texto recuperado"
 
 #: src/TypeBrowser.tsx
 msgid "Review YAML diff"
-msgstr ""
+msgstr "Revisar diferenças do YAML"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Route"
-msgstr ""
+msgstr "Rota"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Runtime"
-msgstr ""
+msgstr "Execução"
 
 #: src/TypeBrowser.tsx
 msgid "Runtime path handling"
-msgstr ""
+msgstr "Tratamento de caminhos em tempo de execução"
 
 #: src/note-mutation-presentation.ts
 msgid "Save failed"
-msgstr ""
+msgstr "Falha ao salvar"
 
 #: src/PropertiesPanel.tsx
 msgid "Save source"
-msgstr ""
+msgstr "Salvar código-fonte"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Saved access"
-msgstr ""
+msgstr "Acesso salvo"
 
 #: src/CollectionRail.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Saved on this device; waiting for sync"
-msgstr ""
+msgstr "Salvo neste dispositivo; aguardando sincronização"
 
 #. placeholder {0}: saved.name
 #: src/use-type-definition-lifecycle.ts
 msgid "Saved type “{0}”."
-msgstr ""
+msgstr "Tipo “{0}” salvo."
 
 #: src/note-mutation-presentation.ts
 msgid "Saving"
-msgstr ""
+msgstr "Salvando"
 
 #: src/TypeBrowser.tsx
 msgid "Saving affects every matching note"
-msgstr ""
+msgstr "Salvar afeta todas as notas correspondentes"
 
 #. placeholder {0}: type!.name
 #: src/TypeBrowser.tsx
 msgid "Saving affects every note of type <0>{0}</0>"
-msgstr ""
+msgstr "Salvar afeta todas as notas do tipo <0>{0}</0>"
 
 #: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Saving…"
-msgstr ""
+msgstr "Salvando…"
 
 #: src/type-schema.ts
 msgid "Schema settings"
-msgstr ""
+msgstr "Configurações do esquema"
 
 #: src/TypeBrowser.tsx
 msgid "Schema-managed fields"
-msgstr ""
+msgstr "Campos gerenciados pelo esquema"
 
 #: src/NoteListViewOptions.tsx
 #: src/TypeBrowser.tsx
 msgid "Scope"
-msgstr ""
+msgstr "Escopo"
 
 #: src/NoteSearchField.tsx
 msgid "Search"
-msgstr ""
+msgstr "Pesquisar"
 
 #: src/NoteSearchField.tsx
 msgid "Search filters"
-msgstr ""
+msgstr "Filtros de pesquisa"
 
 #: src/NoteList.tsx
 msgid "Search is incomplete."
-msgstr ""
+msgstr "A pesquisa está incompleta."
 
 #: src/NoteSearchField.tsx
 msgid "Search notes and files"
-msgstr ""
+msgstr "Pesquisar notas e arquivos"
 
 #: src/TypeBrowser.tsx
 msgid "Search types"
-msgstr ""
+msgstr "Pesquisar tipos"
 
 #: src/NoteList.tsx
 msgid "Searching"
-msgstr ""
+msgstr "Pesquisando"
 
 #: src/code-editor-completions.ts
 msgid "Section heading"
-msgstr ""
+msgstr "Título de seção"
 
 #: src/code-editor-completions.ts
 msgid "Section in note"
-msgstr ""
+msgstr "Seção na nota"
 
 #: src/WorkspaceChrome.tsx
 msgid "Select a note, or start a new one."
-msgstr ""
+msgstr "Selecione uma nota ou crie uma nova."
 
 #: src/YourPersonPanel.tsx
 msgid "Select a person record."
-msgstr ""
+msgstr "Selecione um registro de pessoa."
 
 #: src/YourPersonPanel.tsx
 msgid "Select a Person-compatible type."
-msgstr ""
+msgstr "Selecione um tipo compatível com Pessoa."
 
 #: src/App.tsx
 #: src/editor-commands.ts
 msgid "Selected notes"
-msgstr ""
+msgstr "Notas selecionadas"
 
 #: src/App.tsx
 msgid "Selection actions"
-msgstr ""
+msgstr "Ações da seleção"
 
 #: src/EditorRail.tsx
 msgid "Send feedback"
-msgstr ""
+msgstr "Enviar comentários"
 
 #: src/code-editor-completions.ts
 msgid "Separate sections"
-msgstr ""
+msgstr "Seções separadas"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Set a value"
-msgstr ""
+msgstr "Definir um valor"
 
 #: src/code-editor-completions.ts
 msgid "Set off quoted text"
-msgstr ""
+msgstr "Destacar texto citado"
 
 #: src/BulkNoteProperties.tsx
 #: src/editor-commands.ts
 msgid "Set property"
-msgstr ""
+msgstr "Definir propriedade"
 
 #: src/TypeBrowser.tsx
 msgid "Set the contract’s required behavior choices before saving this type."
-msgstr ""
+msgstr "Defina as opções obrigatórias de comportamento do contrato antes de salvar este tipo."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Set to null"
-msgstr ""
+msgstr "Definir como nulo"
 
 #: src/YourPersonPanel.tsx
 msgid "Set up person records"
-msgstr ""
+msgstr "Configurar registros de pessoas"
 
 #: src/YourPersonPanel.tsx
 msgid "Set up person records below before reviewing this contact."
-msgstr ""
+msgstr "Configure os registros de pessoas abaixo antes de revisar este contato."
 
 #: src/EditorRail.tsx
 msgid "Settings"
-msgstr ""
+msgstr "Configurações"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Settings"
-msgstr ""
+msgstr "Configurações"
 
 #: src/TypeBrowser.tsx
 msgid "Setup required"
-msgstr ""
+msgstr "Configuração necessária"
 
 #: src/YourPersonPanel.tsx
 msgid "Several person records are linked to your account. Edit them so exactly one record represents you:"
-msgstr ""
+msgstr "Vários registros de pessoas estão vinculados à sua conta. Edite-os para que apenas um represente você:"
 
 #: src/QuickOpen.tsx
 msgid "Shortcuts"
-msgstr ""
+msgstr "Atalhos"
 
 #: src/TypeBrowser.tsx
 msgid "Show affected notes"
-msgstr ""
+msgstr "Mostrar notas afetadas"
 
 #. placeholder {0}: mentions.length
 #: src/WorkspaceChrome.tsx
 msgid "Show all {0}"
-msgstr ""
+msgstr "Mostrar todos os {0}"
 
 #: src/App.tsx
 msgid "Show collections sidebar"
-msgstr ""
+msgstr "Mostrar barra lateral de coleções"
 
 #: src/WorkspaceChrome.tsx
 msgid "Show fewer"
-msgstr ""
+msgstr "Mostrar menos"
 
 #. placeholder {0}: node.path
 #. placeholder {1}: node.count
 #: src/CollectionRail.tsx
 msgid "Show notes in {0}, {1} or more notes"
-msgstr ""
+msgstr "Mostrar notas em {0}, {1} notas ou mais"
 
 #: src/App.tsx
 msgid "Show notes sidebar"
-msgstr ""
+msgstr "Mostrar barra lateral de notas"
 
 #: src/editor-commands.ts
 msgid "Show or hide the notes sidebar"
-msgstr ""
+msgstr "Mostrar ou ocultar a barra lateral de notas"
 
 #: src/App.tsx
 msgid "Show types sidebar"
-msgstr ""
+msgstr "Mostrar barra lateral de tipos"
 
 #: src/App.tsx
 msgid "Sidebar layout controls"
-msgstr ""
+msgstr "Controles de layout da barra lateral"
 
 #: src/App.tsx
 msgid "Sign out"
-msgstr ""
+msgstr "Sair da conta"
 
 #: src/App.tsx
 msgid "Sign out?"
-msgstr ""
+msgstr "Sair da conta?"
 
 #: src/PropertiesPanel.tsx
 msgid "Size"
