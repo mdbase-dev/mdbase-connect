@@ -50,27 +50,27 @@ msgstr "{0, plural, one {# conflito não resolvido} other {# conflitos não reso
 #. placeholder {0}: device.kind
 #: src/renderer/device-requests.tsx
 msgid "{0, select, desktop {A new computer wants to open {name}} mobile {A new phone wants to open {name}} other {A new device wants to open {name}}}"
-msgstr ""
+msgstr "{0, select, desktop {Um novo computador quer abrir {name}} mobile {Um novo celular quer abrir {name}} other {Um novo dispositivo quer abrir {name}}}"
 
 #. placeholder {0}: device.kind
 #: src/renderer/device-requests.tsx
 msgid "{0, select, desktop {Enter the six-digit code shown on the new computer} mobile {Enter the six-digit code shown on the new phone} other {Enter the six-digit code shown on the new device}}"
-msgstr ""
+msgstr "{0, select, desktop {Digite o código de seis dígitos exibido no novo computador} mobile {Digite o código de seis dígitos exibido no novo celular} other {Digite o código de seis dígitos exibido no novo dispositivo}}"
 
 #. placeholder {0}: device.kind
 #: src/renderer/device-requests.tsx
 msgid "{0, select, desktop {That code does not match. Check the code on the new computer. If you did not start this, decline.} mobile {That code does not match. Check the code on the new phone. If you did not start this, decline.} other {That code does not match. Check the code on the new device. If you did not start this, decline.}}"
-msgstr ""
+msgstr "{0, select, desktop {O código não confere. Confira o código no novo computador. Se você não iniciou esta solicitação, recuse.} mobile {O código não confere. Confira o código no novo celular. Se você não iniciou esta solicitação, recuse.} other {O código não confere. Confira o código no novo dispositivo. Se você não iniciou esta solicitação, recuse.}}"
 
 #. placeholder {0}: device.kind
 #: src/renderer/device-requests.tsx
 msgid "{0, select, desktop {The new computer can now open {name}.} mobile {The new phone can now open {name}.} other {The new device can now open {name}.}}"
-msgstr ""
+msgstr "{0, select, desktop {O novo computador agora pode abrir {name}.} mobile {O novo celular agora pode abrir {name}.} other {O novo dispositivo agora pode abrir {name}.}}"
 
 #. placeholder {0}: device.kind
 #: src/renderer/device-requests.tsx
 msgid "{0, select, desktop {The new computer was not given access to {name}.} mobile {The new phone was not given access to {name}.} other {The new device was not given access to {name}.}}"
-msgstr ""
+msgstr "{0, select, desktop {O novo computador não recebeu acesso a {name}.} mobile {O novo celular não recebeu acesso a {name}.} other {O novo dispositivo não recebeu acesso a {name}.}}"
 
 #. placeholder {0}: HOLD_REASONS[hold.reason] ?? hold.reason
 #. placeholder {1}: relativeTime(new Date(hold.since).toISOString())
