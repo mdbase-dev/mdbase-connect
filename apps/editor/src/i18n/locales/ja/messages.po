@@ -58,97 +58,97 @@ msgstr "「{0}」に「{1}」というセクションまたはブロックはあ
 #. placeholder {0}: impact.overlapping
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one { · # also matches another type} other { · # also match another type}}"
-msgstr "{0, plural, one { · ほかの型にも#件一致} other { · ほかの型にも#件一致}}"
+msgstr "{0, plural, other { · ほかの型にも#件一致}}"
 
 #. placeholder {0}: renamePlan.warnings.length
 #: src/App.tsx
 msgid "{0, plural, one { # link needs attention and won’t be changed automatically.} other { # links need attention and won’t be changed automatically.}}"
-msgstr "{0, plural, one { #件のリンクに確認が必要です。自動では変更されません。} other { #件のリンクに確認が必要です。自動では変更されません。}}"
+msgstr "{0, plural, other { #件のリンクに確認が必要です。自動では変更されません。}}"
 
 #. placeholder {0}: result.failures.length
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one { # note could not be confirmed as moved. Check the details below before retrying. Successful moves were not rolled back. Use Move to… on the remaining notes to finish.} other { # notes could not be confirmed as moved. Check the details below before retrying. Successful moves were not rolled back. Use Move to… on the remaining notes to finish.}}"
-msgstr "{0, plural, one { #件のノートが移動されたか確認できませんでした。再試行前に以下の詳細を確認してください。成功した移動は元に戻されていません。残りのノートは「移動先…」で移動してください。} other { #件のノートが移動されたか確認できませんでした。再試行前に以下の詳細を確認してください。成功した移動は元に戻されていません。残りのノートは「移動先…」で移動してください。}}"
+msgstr "{0, plural, other { #件のノートが移動されたか確認できませんでした。再試行前に以下の詳細を確認してください。成功した移動は元に戻されていません。残りのノートは「移動先…」で移動してください。}}"
 
 #. placeholder {0}: implementations.length
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one {# connection configured} other {# connections configured}}"
-msgstr "{0, plural, one {設定済みの接続 # 件} other {設定済みの接続 # 件}}"
+msgstr "{0, plural, other {設定済みの接続 # 件}}"
 
 #. placeholder {0}: impact.current
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one {# currently indexed note matches} other {# currently indexed notes match}}"
-msgstr "{0, plural, one {現在索引に登録されている一致ノート # 件} other {現在索引に登録されている一致ノート # 件}}"
+msgstr "{0, plural, other {現在索引に登録されている一致ノート # 件}}"
 
 #. placeholder {0}: types.length
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one {# definition} other {# definitions}}"
-msgstr "{0, plural, one {定義 # 件} other {定義 # 件}}"
+msgstr "{0, plural, other {定義 # 件}}"
 
 #. placeholder {0}: linkedSchemaFields.length
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one {# field is supplied by the installed schema.} other {# fields are supplied by the installed schema.}}"
-msgstr "{0, plural, one {# 件のフィールドがインストール済みスキーマから提供されています。} other {# 件のフィールドがインストール済みスキーマから提供されています。}}"
+msgstr "{0, plural, other {# 件のフィールドがインストール済みスキーマから提供されています。}}"
 
 #. placeholder {0}: propertyCount(type)
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one {# field} other {# fields}}"
-msgstr "{0, plural, one {フィールド # 件} other {フィールド # 件}}"
+msgstr "{0, plural, other {フィールド # 件}}"
 
 #. placeholder {0}: options.length
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one {# match} other {# matches}}"
-msgstr "{0, plural, one {一致 # 件} other {一致 # 件}}"
+msgstr "{0, plural, other {一致 # 件}}"
 
 #. placeholder {0}: renamePlan.affectedPaths.length
 #: src/App.tsx
 msgid "{0, plural, one {# note contains links that will change.} other {# notes contain links that will change.}}"
-msgstr "{0, plural, one {# 件のノートに変更対象のリンクがあります。} other {# 件のノートに変更対象のリンクがあります。}}"
+msgstr "{0, plural, other {# 件のノートに変更対象のリンクがあります。}}"
 
 #. placeholder {0}: result.moved
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one {# note moved.} other {# notes moved.}}"
-msgstr "{0, plural, one {# 件のノートを移動しました。} other {# 件のノートを移動しました。}}"
+msgstr "{0, plural, other {# 件のノートを移動しました。}}"
 
 #. placeholder {0}: requiredFields.length - requiredMapped
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one {# required field unmapped} other {# required fields unmapped}}"
-msgstr "{0, plural, one {対応付けのない必須フィールド # 件} other {対応付けのない必須フィールド # 件}}"
+msgstr "{0, plural, other {対応付けのない必須フィールド # 件}}"
 
 #. placeholder {0}: recoveryAction.references
 #: src/App.tsx
 msgid "{0, plural, one {Also updated links in # note.} other {Also updated links in # notes.}}"
-msgstr "{0, plural, one {# 件のノート内のリンクも更新しました。} other {# 件のノート内のリンクも更新しました。}}"
+msgstr "{0, plural, other {# 件のノート内のリンクも更新しました。}}"
 
 #. placeholder {0}: error.params.limit
 #: src/type-contracts.ts
 msgid "{0, plural, one {Binding setting{field} needs at least # item for {contractId}.} other {Binding setting{field} needs at least # items for {contractId}.}}"
-msgstr "{0, plural, one {バインディング設定{field}には、{contractId}用の項目が少なくとも#件必要です。} other {バインディング設定{field}には、{contractId}用の項目が少なくとも#件必要です。}}"
+msgstr "{0, plural, other {バインディング設定{field}には、{contractId}用の項目が少なくとも#件必要です。}}"
 
 #. placeholder {0}: plan.moves.length
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one {Move # note?} other {Move # notes?}}"
-msgstr "{0, plural, one {# 件のノートを移動しますか？} other {# 件のノートを移動しますか？}}"
+msgstr "{0, plural, other {# 件のノートを移動しますか？}}"
 
 #. placeholder {0}: recoveryAction.paths.length
 #: src/App.tsx
 msgid "{0, plural, one {Moved # note.} other {Moved # notes.}}"
-msgstr "{0, plural, one {# 件のノートを移動しました。} other {# 件のノートを移動しました。}}"
+msgstr "{0, plural, other {# 件のノートを移動しました。}}"
 
 #. placeholder {0}: plan.moves.length
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one {Rename ‘{basename}’ and move # note?} other {Rename ‘{basename}’ and move # notes?}}"
-msgstr "{0, plural, one {「{basename}」の名前を変更して#件のノートを移動しますか？} other {「{basename}」の名前を変更して#件のノートを移動しますか？}}"
+msgstr "{0, plural, other {「{basename}」の名前を変更して#件のノートを移動しますか？}}"
 
 #. placeholder {0}: files.length
 #: src/AttachmentUpload.tsx
 msgid "{0, plural, one {The file was uploaded, but the note changed before its link could be inserted.} other {The files were uploaded, but the note changed before its link could be inserted.}}"
-msgstr "{0, plural, one {ファイルはアップロードされましたが、リンクの挿入前にノートが変更されました。} other {ファイルはアップロードされましたが、リンクの挿入前にノートが変更されました。}}"
+msgstr "{0, plural, other {ファイルはアップロードされましたが、リンクの挿入前にノートが変更されました。}}"
 
 #. placeholder {0}: files.length
 #: src/AttachmentUpload.tsx
 msgid "{0, plural, one {Uploaded # file. The collection file is committed; the note link is saving separately.} other {Uploaded # files. The collection file is committed; the note link is saving separately.}}"
-msgstr "{0, plural, one {#件のファイルをアップロードしました。コレクション内のファイルは保存済みです。ノートのリンクは別途保存中です。} other {#件のファイルをアップロードしました。コレクション内のファイルは保存済みです。ノートのリンクは別途保存中です。}}"
+msgstr "{0, plural, other {#件のファイルをアップロードしました。コレクション内のファイルは保存済みです。ノートのリンクは別途保存中です。}}"
 
 #. placeholder {0}: contact.name
 #. placeholder {1}: contact.path
@@ -345,15 +345,15 @@ msgstr "{0}。これらの設定はそのまま維持されます。"
 
 #: src/TypeBrowser.tsx
 msgid "{appViews, plural, one {# app view} other {# app views}}"
-msgstr "{appViews, plural, one {アプリのビュー # 件} other {アプリのビュー # 件}}"
+msgstr "{appViews, plural, other {アプリのビュー # 件}}"
 
 #: src/TypeBrowser.tsx
 msgid "{changeCount, plural, one {# field-level change detected.} other {# field-level changes detected.}}"
-msgstr "{changeCount, plural, one {フィールド単位の変更を#件検出しました。} other {フィールド単位の変更を#件検出しました。}}"
+msgstr "{changeCount, plural, other {フィールド単位の変更を#件検出しました。}}"
 
 #: src/TypeBrowser.tsx
 msgid "{contractErrors, plural, one {# issue need attention} other {# issues need attention}}"
-msgstr "{contractErrors, plural, one {要確認の問題 # 件} other {要確認の問題 # 件}}"
+msgstr "{contractErrors, plural, other {要確認の問題 # 件}}"
 
 #: src/type-contracts.ts
 msgid "{contractId} {version} is implemented more than once."
@@ -377,23 +377,23 @@ msgstr "{contractReference} は {contractId} によって宣言されていま�
 
 #: src/type-presentation.ts
 msgid "{count, plural, one {# default} other {# defaults}}"
-msgstr "{count, plural, one {既定値 # 件} other {既定値 # 件}}"
+msgstr "{count, plural, other {既定値 # 件}}"
 
 #: src/type-presentation.ts
 msgid "{count, plural, one {# field selector} other {# field selectors}}"
-msgstr "{count, plural, one {フィールドセレクター # 件} other {フィールドセレクター # 件}}"
+msgstr "{count, plural, other {フィールドセレクター # 件}}"
 
 #: src/type-presentation.ts
 msgid "{count, plural, one {# field} other {# fields}}"
-msgstr "{count, plural, one {フィールド # 件} other {フィールド # 件}}"
+msgstr "{count, plural, other {フィールド # 件}}"
 
 #: src/type-presentation.ts
 msgid "{count, plural, one {# link} other {# links}}"
-msgstr "{count, plural, one {リンク # 件} other {リンク # 件}}"
+msgstr "{count, plural, other {リンク # 件}}"
 
 #: src/CollectionRail.tsx
 msgid "{count, plural, one {# note in {name}} other {# notes in {name}}}"
-msgstr "{count, plural, one {{name}内のノート # 件} other {{name}内のノート # 件}}"
+msgstr "{count, plural, other {{name}内のノート # 件}}"
 
 #: src/TypeBrowser.tsx
 msgid "{count, plural, one {# note is missing required field {field}.} other {# notes are missing required field {field}.}}"
@@ -401,39 +401,39 @@ msgstr "{count, plural, other {# 件のノートに必須フィールド {field}
 
 #: src/CollectionRail.tsx
 msgid "{count, plural, one {# note tagged {name}} other {# notes tagged {name}}}"
-msgstr "{count, plural, one {{name}タグ付きノート # 件} other {{name}タグ付きノート # 件}}"
+msgstr "{count, plural, other {{name}タグ付きノート # 件}}"
 
 #: src/CollectionRail.tsx
 msgid "{count, plural, one {# note with type {name}} other {# notes with type {name}}}"
-msgstr "{count, plural, one {{name}型のノート # 件} other {{name}型のノート # 件}}"
+msgstr "{count, plural, other {{name}型のノート # 件}}"
 
 #: src/type-presentation.ts
 msgid "{count, plural, one {# path pattern} other {# path patterns}}"
-msgstr "{count, plural, one {パスパターン # 件} other {パスパターン # 件}}"
+msgstr "{count, plural, other {パスパターン # 件}}"
 
 #: src/type-presentation.ts
 msgid "{count, plural, one {# unique rule} other {# unique rules}}"
-msgstr "{count, plural, one {一意性ルール # 件} other {一意性ルール # 件}}"
+msgstr "{count, plural, other {一意性ルール # 件}}"
 
 #: src/type-presentation.ts
 msgid "{count, plural, one {# YAML rule} other {# YAML rules}}"
-msgstr "{count, plural, one {YAML ルール # 件} other {YAML ルール # 件}}"
+msgstr "{count, plural, other {YAML ルール # 件}}"
 
 #: src/type-presentation.ts
 msgid "{count, plural, one {# YAML setting} other {# YAML settings}}"
-msgstr "{count, plural, one {YAML 設定 # 件} other {YAML 設定 # 件}}"
+msgstr "{count, plural, other {YAML 設定 # 件}}"
 
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Deleted # note.} other {Deleted # notes.}}"
-msgstr "{count, plural, one {# 件のノートを削除しました。} other {# 件のノートを削除しました。}}"
+msgstr "{count, plural, other {# 件のノートを削除しました。}}"
 
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Moved # note.} other {Moved # notes.}}"
-msgstr "{count, plural, one {# 件のノートを移動しました。} other {# 件のノートを移動しました。}}"
+msgstr "{count, plural, other {# 件のノートを移動しました。}}"
 
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Restored # note.} other {Restored # notes.}}"
-msgstr "{count, plural, one {# 件のノートを復元しました。} other {# 件のノートを復元しました。}}"
+msgstr "{count, plural, other {# 件のノートを復元しました。}}"
 
 #: src/CollectionRail.tsx
 msgid "{count, plural, one {Show notes in {path}, # note} other {Show notes in {path}, # notes}}"
@@ -441,11 +441,11 @@ msgstr "{count, plural, other {{path}のノートを表示（#件）}}"
 
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Updated # note.} other {Updated # notes.}}"
-msgstr "{count, plural, one {# 件のノートを更新しました。} other {# 件のノートを更新しました。}}"
+msgstr "{count, plural, other {# 件のノートを更新しました。}}"
 
 #: src/note-mutation-presentation.ts
 msgid "{count, plural, one {Updating # linked note} other {Updating # linked notes}}"
-msgstr "{count, plural, one {リンク先ノート # 件を更新中} other {リンク先ノート # 件を更新中}}"
+msgstr "{count, plural, other {リンク先ノート # 件を更新中}}"
 
 #: src/CollectionRail.tsx
 msgid "{count} or more notes in {name}"
@@ -469,7 +469,7 @@ msgstr "{environment} 環境"
 
 #: src/TypeBrowser.tsx
 msgid "{extensions, plural, one {# extension} other {# extensions}}"
-msgstr "{extensions, plural, one {拡張機能 # 件} other {拡張機能 # 件}}"
+msgstr "{extensions, plural, other {拡張機能 # 件}}"
 
 #: src/TypeBrowser.tsx
 msgid "{fieldLabel} description"
@@ -489,7 +489,7 @@ msgstr "{fieldLabel}のフィールド型"
 
 #: src/NoteList.tsx
 msgid "{fileCount, plural, one {# file} other {# files}}"
-msgstr "{fileCount, plural, one {ファイル # 件} other {ファイル # 件}}"
+msgstr "{fileCount, plural, other {ファイル # 件}}"
 
 #: src/TypeBrowser.tsx
 msgid "{itemLabel} field type"
@@ -537,11 +537,11 @@ msgstr "{label}.installation.primary_typeにはインストール済みの型を
 
 #: src/TypeBrowser.tsx
 msgid "{mappedCount, plural, one {# value exposed} other {# values exposed}}"
-msgstr "{mappedCount, plural, one {公開される値 # 件} other {公開される値 # 件}}"
+msgstr "{mappedCount, plural, other {公開される値 # 件}}"
 
 #: src/SchemaValueEditor.tsx
 msgid "{minimum, plural, one {At least # item is required.} other {At least # items are required.}}"
-msgstr "{minimum, plural, one {少なくとも#件の項目が必要です。} other {少なくとも#件の項目が必要です。}}"
+msgstr "{minimum, plural, other {少なくとも#件の項目が必要です。}}"
 
 #. placeholder {0}: index + 1
 #: src/SchemaValueEditor.tsx
@@ -609,15 +609,15 @@ msgstr "{newTypeCount, plural, other {「{packName}」をインストールし�
 
 #: src/TypeBrowser.tsx
 msgid "{next, plural, one {# note after update} other {# notes after update}}"
-msgstr "{next, plural, one {更新後のノート # 件} other {更新後のノート # 件}}"
+msgstr "{next, plural, other {更新後のノート # 件}}"
 
 #: src/TypeBrowser.tsx
 msgid "{next, plural, one {# note with these rules} other {# notes with these rules}}"
-msgstr "{next, plural, one {これらのルールに該当するノート # 件} other {これらのルールに該当するノート # 件}}"
+msgstr "{next, plural, other {これらのルールに該当するノート # 件}}"
 
 #: src/NoteList.tsx
 msgid "{noteCount, plural, one {# note} other {# notes}}"
-msgstr "{noteCount, plural, one {ノート # 件} other {ノート # 件}}"
+msgstr "{noteCount, plural, other {ノート # 件}}"
 
 #: src/NoteList.tsx
 msgid "{notes} · {files}"
@@ -637,7 +637,7 @@ msgstr "{product}を再起動する必要があります"
 
 #: src/use-note-actions.ts
 msgid "{references, plural, one {Also updated links in # note.} other {Also updated links in # notes.}}"
-msgstr "{references, plural, one {#件のノート内のリンクも更新しました。} other {#件のノート内のリンクも更新しました。}}"
+msgstr "{references, plural, other {#件のノート内のリンクも更新しました。}}"
 
 #. placeholder {0}: requiredFields.length
 #. placeholder {1}: fields.length
@@ -3164,7 +3164,7 @@ msgstr "「{basename}」を移動"
 #. placeholder {1}: plan.referenceCount
 #: src/FolderChangeDialog.tsx
 msgid "Move {0, plural, one {# note} other {# notes}} and update {1, plural, one {# link} other {# links}}?"
-msgstr "{0, plural, one {#件のノートを移動し} other {#件のノートを移動し}}、{1, plural, one {#件のリンクを更新しますか？} other {#件のリンクを更新しますか？}}"
+msgstr "{0, plural, other {#件のノートを移動し}}、{1, plural, other {#件のリンクを更新しますか？}}"
 
 #. placeholder {0}: paths.length
 #: src/MoveNoteDialog.tsx
@@ -4193,7 +4193,7 @@ msgstr "「{basename}」の名前を変更"
 #. placeholder {1}: plan.referenceCount
 #: src/FolderChangeDialog.tsx
 msgid "Rename ‘{basename}’ and move {0, plural, one {# note} other {# notes}} and update {1, plural, one {# link} other {# links}}?"
-msgstr "「{basename}」の名前を変更し、{0, plural, one {#件のノートを移動して} other {#件のノートを移動して}}{1, plural, one {#件のリンクを更新しますか？} other {#件のリンクを更新しますか？}}"
+msgstr "「{basename}」の名前を変更し、{0, plural, other {#件のノートを移動して}}{1, plural, other {#件のリンクを更新しますか？}}"
 
 #: src/App.tsx
 msgid "Rename and update links"

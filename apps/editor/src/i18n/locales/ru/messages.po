@@ -2076,7 +2076,7 @@ msgstr "Целевая папка"
 
 #: src/TypeBrowser.tsx
 msgid "Details"
-msgstr "Сведения"
+msgstr "Подробности"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -4110,7 +4110,7 @@ msgstr "Перезагрузить редактор"
 #: src/code-editor-file-embeds.ts
 #: src/TypeBrowser.tsx
 msgid "Remove"
-msgstr "Убрать"
+msgstr "Удалить"
 
 #. placeholder {0}: entryName || `entry ${index + 1}`
 #: src/SchemaValueEditor.tsx
