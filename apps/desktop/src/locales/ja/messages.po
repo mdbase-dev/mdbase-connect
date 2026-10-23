@@ -28,49 +28,49 @@ msgstr "、すでにあるファイルが最初の同期バージョンになり
 #. placeholder {0}: sync.pending
 #: src/renderer/daemon-view.mts
 msgid "{0, plural, one {# change to upload} other {# changes to upload}}"
-msgstr "{0, plural, one {アップロードする変更 # 件} other {アップロードする変更 # 件}}"
+msgstr "{0, plural, other {アップロードする変更 # 件}}"
 
 #. placeholder {0}: app.grants.length
 #. placeholder {0}: collections.length
 #: src/renderer/access-view.tsx
 #: src/renderer/main.tsx
 msgid "{0, plural, one {# collection} other {# collections}}"
-msgstr "{0, plural, one {# 件のコレクション} other {# 件のコレクション}}"
+msgstr "{0, plural, other {# 件のコレクション}}"
 
 #. placeholder {0}: unlisted.length
 #: src/renderer/collections-view.tsx
 msgid "{0, plural, one {# file} other {# files}}"
-msgstr "{0, plural, one {# 件のファイル} other {# 件のファイル}}"
+msgstr "{0, plural, other {# 件のファイル}}"
 
 #. placeholder {0}: sync.unresolved
 #: src/renderer/daemon-view.mts
 msgid "{0, plural, one {# unresolved conflict} other {# unresolved conflicts}}"
-msgstr "{0, plural, one {未解決の競合 # 件} other {未解決の競合 # 件}}"
+msgstr "{0, plural, other {未解決の競合 # 件}}"
 
 #. placeholder {0}: device.kind
 #: src/renderer/device-requests.tsx
 msgid "{0, select, desktop {A new computer wants to open {name}} mobile {A new phone wants to open {name}} other {A new device wants to open {name}}}"
-msgstr ""
+msgstr "{0, select, desktop {新しいコンピューターが {name} を開こうとしています} mobile {新しいスマートフォンが {name} を開こうとしています} other {新しいデバイスが {name} を開こうとしています}}"
 
 #. placeholder {0}: device.kind
 #: src/renderer/device-requests.tsx
 msgid "{0, select, desktop {Enter the six-digit code shown on the new computer} mobile {Enter the six-digit code shown on the new phone} other {Enter the six-digit code shown on the new device}}"
-msgstr ""
+msgstr "{0, select, desktop {新しいコンピューターに表示されている6桁のコードを入力してください} mobile {新しいスマートフォンに表示されている6桁のコードを入力してください} other {新しいデバイスに表示されている6桁のコードを入力してください}}"
 
 #. placeholder {0}: device.kind
 #: src/renderer/device-requests.tsx
 msgid "{0, select, desktop {That code does not match. Check the code on the new computer. If you did not start this, decline.} mobile {That code does not match. Check the code on the new phone. If you did not start this, decline.} other {That code does not match. Check the code on the new device. If you did not start this, decline.}}"
-msgstr ""
+msgstr "{0, select, desktop {コードが一致しません。新しいコンピューターに表示されたコードを確認してください。ご自身で開始していない場合は拒否してください。} mobile {コードが一致しません。新しいスマートフォンに表示されたコードを確認してください。ご自身で開始していない場合は拒否してください。} other {コードが一致しません。新しいデバイスに表示されたコードを確認してください。ご自身で開始していない場合は拒否してください。}}"
 
 #. placeholder {0}: device.kind
 #: src/renderer/device-requests.tsx
 msgid "{0, select, desktop {The new computer can now open {name}.} mobile {The new phone can now open {name}.} other {The new device can now open {name}.}}"
-msgstr ""
+msgstr "{0, select, desktop {新しいコンピューターで {name} を開けるようになりました。} mobile {新しいスマートフォンで {name} を開けるようになりました。} other {新しいデバイスで {name} を開けるようになりました。}}"
 
 #. placeholder {0}: device.kind
 #: src/renderer/device-requests.tsx
 msgid "{0, select, desktop {The new computer was not given access to {name}.} mobile {The new phone was not given access to {name}.} other {The new device was not given access to {name}.}}"
-msgstr ""
+msgstr "{0, select, desktop {新しいコンピューターには {name} へのアクセスが許可されませんでした。} mobile {新しいスマートフォンには {name} へのアクセスが許可されませんでした。} other {新しいデバイスには {name} へのアクセスが許可されませんでした。}}"
 
 #. placeholder {0}: HOLD_REASONS[hold.reason] ?? hold.reason
 #. placeholder {1}: relativeTime(new Date(hold.since).toISOString())
@@ -169,7 +169,7 @@ msgstr "{app} はアカウント内の {collection} へのアクセスを失い�
 
 #: src/renderer/main.tsx
 msgid "{attention, plural, one {# item needs you} other {# items need you}}"
-msgstr "{attention, plural, one {# 件の項目に対応が必要です} other {# 件の項目に対応が必要です}}"
+msgstr "{attention, plural, other {# 件の項目に対応が必要です}}"
 
 #: src/renderer/daemon-view.mts
 msgid "{collection} moved here from mdbase Connect (its files were not touched)"
@@ -210,19 +210,19 @@ msgstr "{collection} を再開しました"
 
 #: src/renderer/takeover-state.mts
 msgid "{held, plural, one {# unsent edit in “{name}” conflicts with changes made elsewhere. Review it in the collection's held files.} other {# unsent edits in “{name}” conflict with changes made elsewhere. Review them in the collection's held files.}}"
-msgstr "{held, plural, one {「{name}」の未送信の編集 # 件がほかの場所での変更と競合しています。コレクション内の保護されたファイルを確認してください。} other {「{name}」の未送信の編集 # 件がほかの場所での変更と競合しています。コレクション内の保護されたファイルを確認してください。}}"
+msgstr "{held, plural, other {「{name}」の未送信の編集 # 件がほかの場所での変更と競合しています。コレクション内の保護されたファイルを確認してください。}}"
 
 #: src/renderer/daemon-view.mts
 msgid "{holds, plural, one {# file is waiting for you} other {# files are waiting for you}}"
-msgstr "{holds, plural, one {# 件のファイルが確認を待っています} other {# 件のファイルが確認を待っています}}"
+msgstr "{holds, plural, other {# 件のファイルが確認を待っています}}"
 
 #: src/renderer/daemon-view.mts
 msgid "{holds, plural, one {# file waiting for you} other {# files waiting for you}}"
-msgstr "{holds, plural, one {確認待ちのファイル # 件} other {確認待ちのファイル # 件}}"
+msgstr "{holds, plural, other {確認待ちのファイル # 件}}"
 
 #: src/renderer/takeover-state.mts
 msgid "{interrupted, plural, one {# interrupted write was kept for review; your files were left as they were.} other {# interrupted writes were kept for review; your files were left as they were.}}"
-msgstr "{interrupted, plural, one {中断された書き込み # 件を確認用に保持しました。ファイルは元の状態のままです。} other {中断された書き込み # 件を確認用に保持しました。ファイルは元の状態のままです。}}"
+msgstr "{interrupted, plural, other {中断された書き込み # 件を確認用に保持しました。ファイルは元の状態のままです。}}"
 
 #: src/renderer/takeover-state.mts
 msgid "{safe} Sign in on this computer so they can move automatically when your account is upgraded."
@@ -242,15 +242,15 @@ msgstr "{synced} 件を同期済み"
 
 #: src/renderer/takeover-state.mts
 msgid "{waiting, plural, one {“{name}” syncs again{location}. # edit made in “{name}” before the move is added once it has caught up.{after}{oldFolder}} other {“{name}” syncs again{location}. # edits made in “{name}” before the move are added once it has caught up.{after}{oldFolder}}}"
-msgstr "{waiting, plural, one {「{name}」の同期を再開しました{location}。移動前の編集 # 件は、同期が追いつくと追加されます。{after}{oldFolder}} other {「{name}」の同期を再開しました{location}。移動前の編集 # 件は、同期が追いつくと追加されます。{after}{oldFolder}}}"
+msgstr "{waiting, plural, other {「{name}」の同期を再開しました{location}。移動前に「{name}」で行った編集 # 件は、同期が追いつくと追加されます。{after}{oldFolder}}}"
 
 #: src/renderer/takeover-state.mts
 msgid "{waiting, plural, one {# edit made in “{name}” before the move was not uploaded yet and is kept. mdbase is adding “{name}” back to this computer{where}. {reason}.} other {# edits made in “{name}” before the move were not uploaded yet and are kept. mdbase is adding “{name}” back to this computer{where}. {reason}.}}"
-msgstr "{waiting, plural, one {移動前に「{name}」で行った編集 # 件はまだアップロードされず、保持されています。mdbase は「{name}」をこのコンピューターに再追加中です{where}。{reason}。} other {移動前に「{name}」で行った編集 # 件はまだアップロードされず、保持されています。mdbase は「{name}」をこのコンピューターに再追加中です{where}。{reason}。}}"
+msgstr "{waiting, plural, other {移動前に「{name}」で行った編集 # 件はまだアップロードされず、保持されています。mdbase は「{name}」をこのコンピューターに再追加中です{where}。{reason}。}}"
 
 #: src/renderer/takeover-state.mts
 msgid "{waiting, plural, one {You removed “{name}” from this computer, so # edit made in “{name}” before the move was not added to it. It is still in {oldPath}.} other {You removed “{name}” from this computer, so # edits made in “{name}” before the move were not added to it. They are still in {oldPath}.}}"
-msgstr "{waiting, plural, one {「{name}」をこのコンピューターから削除したため、移動前の編集 # 件は追加されていません。{oldPath} に残っています。} other {「{name}」をこのコンピューターから削除したため、移動前の編集 # 件は追加されていません。{oldPath} に残っています。}}"
+msgstr "{waiting, plural, other {「{name}」をこのコンピューターから削除したため、移動前に「{name}」で行った編集 # 件は追加されていません。{oldPath} に残っています。}}"
 
 #: src/renderer/takeover-panel.tsx
 msgid "<0/>Allow hosted mirrors to stop until I join them again"
@@ -412,7 +412,7 @@ msgstr "承認したアプリは、このコンピューターを経由してコ
 
 #: src/renderer/access-view.tsx
 msgid "Apps you used with mdbase Connect appear here once Private sync is on for the {movedWaiting, plural, one {collection} other {collections}} that moved to this computer. mdbase turns it on by itself; you don't need to approve those apps again."
-msgstr "このコンピューターに移動した {movedWaiting, plural, one {コレクション} other {コレクション}} でプライベート同期が有効になると、mdbase Connect で使っていたアプリがここに表示されます。mdbase が自動で有効にするため、再承認は不要です。"
+msgstr "このコンピューターに移動した {movedWaiting, plural, other {コレクション}} でプライベート同期が有効になると、mdbase Connect で使っていたアプリがここに表示されます。mdbase が自動で有効にするため、再承認は不要です。"
 
 #: src/renderer/main.tsx
 msgid "Ask before new apps connect"
@@ -790,7 +790,7 @@ msgstr "アプリが利用できるこのコンピューター上のフォルダ
 #. placeholder {0}: view.holds
 #: src/renderer/collections-view.tsx
 msgid "Hide {0, plural, one {# file} other {# files}}"
-msgstr "{0, plural, one {# 件のファイルを非表示} other {# 件のファイルを非表示}}"
+msgstr "{0, plural, other {# 件のファイルを非表示}}"
 
 #: src/renderer/takeover-state.mts
 msgid "hosted collections still have edits waiting to upload"
@@ -1354,7 +1354,7 @@ msgstr "確認"
 #. placeholder {0}: view.holds
 #: src/renderer/collections-view.tsx
 msgid "Review {0, plural, one {# file} other {# files}}"
-msgstr "{0, plural, one {# 件のファイルを確認} other {# 件のファイルを確認}}"
+msgstr "{0, plural, other {# 件のファイルを確認}}"
 
 #: src/renderer/access-view.tsx
 msgid "Revoke"
@@ -1699,7 +1699,7 @@ msgstr "このコンピューター"
 #. placeholder {0}: collections.length
 #: src/renderer/main.tsx
 msgid "This computer · {0, plural, one {# collection} other {# collections}}"
-msgstr "このコンピューター · {0, plural, one {# 件のコレクション} other {# 件のコレクション}}"
+msgstr "このコンピューター · {0, plural, other {# 件のコレクション}}"
 
 #: src/renderer/takeover-state.mts
 msgid "this computer also syncs hosted collections with the old engine"
