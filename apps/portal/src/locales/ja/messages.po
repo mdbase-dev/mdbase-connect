@@ -954,462 +954,462 @@ msgstr "フィールドを選択"
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Choose a location"
-msgstr ""
+msgstr "場所を選択"
 
 #. placeholder {0}: unmapped.label
 #: src/authorization-review.tsx
 msgid "Choose a matching field for {0} in {label}."
-msgstr ""
+msgstr "{label} で {0} に対応するフィールドを選んでください。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Choose a new password"
-msgstr ""
+msgstr "新しいパスワードを設定"
 
 #: src/authorization-review.tsx
 msgid "Choose an existing type for {label}."
-msgstr ""
+msgstr "{label} に既存の型を選んでください。"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Choose another way"
-msgstr ""
+msgstr "別の方法を選択"
 
 #: src/authorization-review.tsx
 msgid "Choose how to set up {label}."
-msgstr ""
+msgstr "{label} の設定方法を選んでください。"
 
 #: src/ConnectApp.tsx
 msgid "Choose or create a folder in the desktop app. Collection files stay on this computer."
-msgstr ""
+msgstr "デスクトップアプリでフォルダーを選択または作成してください。コレクションのファイルはこのコンピューターに残ります。"
 
 #: src/ConnectApp.tsx
 msgid "Choose or create my person record"
-msgstr ""
+msgstr "自分のユーザーレコードを選択または作成"
 
 #: src/authorization-view.tsx
 msgid "Choose the folder in mdbase connect."
-msgstr ""
+msgstr "mdbase connect でフォルダーを選んでください。"
 
 #. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
 #: src/authorization-review.tsx
 msgid "Choose whether to add a new {0} type or use one you already have."
-msgstr ""
+msgstr "新しい {0} 型を追加するか、既存の型を使うか選んでください。"
 
 #: src/ConnectApp.tsx
 msgid "Close"
-msgstr ""
+msgstr "閉じる"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Close menu"
-msgstr ""
+msgstr "メニューを閉じる"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Closed registration"
-msgstr ""
+msgstr "新規登録を停止中"
 
 #: src/compatibility.ts
 msgid "Cloud collection required"
-msgstr ""
+msgstr "クラウドコレクションが必要です"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Cloud copy configured"
-msgstr ""
+msgstr "クラウド上のコピーを設定済み"
 
 #: src/authorization-view.tsx
 msgid "Codes are not case-sensitive, expire after ten minutes, and can authorize only the key created by that application."
-msgstr ""
+msgstr "コードは大文字と小文字を区別せず、10 分後に期限切れになります。承認できるのは、そのアプリケーションが作成したキーだけです。"
 
 #: src/authorization-view.tsx
 msgid "Collection"
-msgstr ""
+msgstr "コレクション"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Collection"
-msgstr ""
+msgstr "コレクション"
 
 #: src/authorization-view.tsx
 msgid "Collection changes"
-msgstr ""
+msgstr "コレクションの変更"
 
 #: src/ConnectApp.tsx
 msgid "Collection content remains in your replicas; no cloud copy is configured."
-msgstr ""
+msgstr "コレクションの内容はレプリカに残ります。クラウド上のコピーは設定されていません。"
 
 #: src/ApplicationAccess.tsx
 msgid "Collection ID"
-msgstr ""
+msgstr "コレクション ID"
 
 #: src/ConnectApp.tsx
 msgid "Collection invitation link"
-msgstr ""
+msgstr "コレクションへの招待リンク"
 
 #: src/ConnectApp.tsx
 msgid "Collection name"
-msgstr ""
+msgstr "コレクション名"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Collection owner"
-msgstr ""
+msgstr "コレクションの所有者"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Collection permissions"
-msgstr ""
+msgstr "コレクションの権限"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Collections"
-msgstr ""
+msgstr "コレクション"
 
 #: src/authority-workflows.tsx
 msgid "Computer approved"
-msgstr ""
+msgstr "コンピューターを承認しました"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Computer filter results"
-msgstr ""
+msgstr "コンピューターの絞り込み結果"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Computer not connected"
-msgstr ""
+msgstr "コンピューターは未接続です"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Computer pairing"
-msgstr ""
+msgstr "コンピューターのペアリング"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Computer status"
-msgstr ""
+msgstr "コンピューターの状態"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Computers"
-msgstr ""
+msgstr "コンピューター"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Configured"
-msgstr ""
+msgstr "設定済み"
 
 #: src/AccountManagement.tsx
 msgid "Confirm new password"
-msgstr ""
+msgstr "新しいパスワードを確認"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Confirm new password"
-msgstr ""
+msgstr "新しいパスワードを確認"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Confirm password"
-msgstr ""
+msgstr "パスワードを確認"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Confirm removal"
-msgstr ""
+msgstr "削除を確認"
 
 #: src/AccountManagement.tsx
 msgid "Confirm your identity"
-msgstr ""
+msgstr "本人確認"
 
 #: src/ConnectApp.tsx
 msgid "Connect a computer to add a collection."
-msgstr ""
+msgstr "コレクションを追加するにはコンピューターを接続してください。"
 
 #: src/ConnectApp.tsx
 msgid "Connect management closed"
-msgstr ""
+msgstr "Connect の管理画面は閉じています"
 
 #: src/AccountManagement.tsx
 msgid "Connect more than one method so you always have a way back into your account."
-msgstr ""
+msgstr "アカウントに戻れる方法を確保するため、複数のログイン方法を接続してください。"
 
 #: src/auth-view.tsx
 msgid "Connect this device to your tailnet, then reload the page."
-msgstr ""
+msgstr "このデバイスを tailnet に接続してからページを再読み込みしてください。"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Connected"
-msgstr ""
+msgstr "接続済み"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Connected"
-msgstr ""
+msgstr "接続済み"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Connected applications"
-msgstr ""
+msgstr "接続済みアプリケーション"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Connection"
-msgstr ""
+msgstr "接続"
 
 #: src/ConnectApp.tsx
 msgid "Contact the person who operates this mdbase connect deployment."
-msgstr ""
+msgstr "この mdbase connect 環境の管理者にお問い合わせください。"
 
 #: src/auth-view.tsx
 msgid "Continue"
-msgstr ""
+msgstr "続行"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Continue with GitHub"
-msgstr ""
+msgstr "GitHub で続行"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Continue with Google"
-msgstr ""
+msgstr "Google で続行"
 
 #: src/GoogleIdentityButton.tsx
 msgctxt "Connect interface"
 msgid "Continue with Google"
-msgstr ""
+msgstr "Google で続行"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Copied"
-msgstr ""
+msgstr "コピーしました"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Copy link"
-msgstr ""
+msgstr "リンクをコピー"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Couldn’t connect"
-msgstr ""
+msgstr "接続できませんでした"
 
 #. placeholder {0}: selected?.display_name ?? t(i18n)({ message: "this collection", context: "Application access approval" })
 #. placeholder {1}: existingOperations.size > 0 ? t(i18n)({ message: " Permissions this application does not already have are marked New." }) : ""
 #: src/authorization-view.tsx
 msgid "Covers every record in {0}.{1}"
-msgstr ""
+msgstr "{0} のすべてのレコードが対象です。{1}"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Create"
-msgstr ""
+msgstr "作成"
 
 #: src/authorization-view.tsx
 msgid "Create a hosted collection"
-msgstr ""
+msgstr "ホスト型コレクションを作成"
 
 #: src/authority-workflows.tsx
 msgid "Create a hosted collection before approving this folder."
-msgstr ""
+msgstr "このフォルダーを承認する前にホスト型コレクションを作成してください。"
 
 #: src/CollectionPicker.tsx
 msgid "Create a new collection…"
-msgstr ""
+msgstr "新しいコレクションを作成…"
 
 #: src/authorization-review.tsx
 msgid "Create a separate type supplied by {applicationName}."
-msgstr ""
+msgstr "{applicationName} が提供する別の型を作成します。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Create account"
-msgstr ""
+msgstr "アカウントを作成"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Create an account"
-msgstr ""
+msgstr "アカウントを作成"
 
 #: src/authorization-capabilities.ts
 msgid "Create and maintain timers that run while the application is closed."
-msgstr ""
+msgstr "アプリケーションが閉じている間も動くタイマーを作成・管理します。"
 
 #: src/authorization-capabilities.ts
 msgid "Create and update record types and apply declared type packs."
-msgstr ""
+msgstr "レコード型を作成・更新し、指定された型パックを適用します。"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Create collection"
-msgstr ""
+msgstr "コレクションを作成"
 
 #: src/authorization-view.tsx
 msgid "Create hosted collection"
-msgstr ""
+msgstr "ホスト型コレクションを作成"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Create invitation"
-msgstr ""
+msgstr "招待を作成"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Create records"
-msgstr ""
+msgstr "レコードを作成"
 
 #: src/authorization-capabilities.ts
 msgid "Create records and add files"
-msgstr ""
+msgstr "レコードの作成とファイルの追加"
 
 #: src/authorization-capabilities.ts
 msgid "Create, change, and delete saved view definitions."
-msgstr ""
+msgstr "保存済みビューの定義を作成、変更、削除します。"
 
 #: src/ConnectApp.tsx
 msgid "Created, but this browser could not clear its request. Retrying will use the same collection."
-msgstr ""
+msgstr "作成は完了しましたが、このブラウザーでは要求を消去できませんでした。再試行しても同じコレクションを使用します。"
 
 #: src/authorization-view.tsx
 msgid "Creates a plain mdbase collection hosted by mdbase. Application access is still approved separately."
-msgstr ""
+msgstr "mdbase がホストする通常の mdbase コレクションを作成します。アプリケーションのアクセスは別途承認が必要です。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Creating account…"
-msgstr ""
+msgstr "アカウントを作成中…"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Creating…"
-msgstr ""
+msgstr "作成中…"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Creating…"
-msgstr ""
+msgstr "作成中…"
 
 #: src/authority-workflows.tsx
 msgid "Creation hasn't finished. Approve continues the same named collection."
-msgstr ""
+msgstr "作成はまだ完了していません。承認すると、同じ名前のコレクションで続行します。"
 
 #: src/AccountManagement.tsx
 msgid "Current"
-msgstr ""
+msgstr "現在"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Current allowance"
-msgstr ""
+msgstr "現在の許容量"
 
 #: src/AccountManagement.tsx
 msgid "Current password"
-msgstr ""
+msgstr "現在のパスワード"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Delete"
-msgstr ""
+msgstr "削除"
 
 #. placeholder {0}: collection.display_name
 #: src/ConnectApp.tsx
 msgid "Delete {0} and all of its hosted data? This cannot be undone."
-msgstr ""
+msgstr "{0} とそのホスト型データをすべて削除しますか？ この操作は元に戻せません。"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Delete account"
-msgstr ""
+msgstr "アカウントを削除"
 
 #: src/AccountManagement.tsx
 msgid "Delete account permanently"
-msgstr ""
+msgstr "アカウントを完全に削除"
 
 #: src/AccountManagement.tsx
 msgid "Delete account…"
-msgstr ""
+msgstr "アカウントを削除…"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "delete files"
-msgstr ""
+msgstr "ファイルを削除"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Delete files"
-msgstr ""
+msgstr "ファイルを削除"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Delete permanently"
-msgstr ""
+msgstr "完全に削除"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Delete records"
-msgstr ""
+msgstr "レコードを削除"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Delete records and files"
-msgstr ""
+msgstr "レコードとファイルを削除"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Deleting account…"
-msgstr ""
+msgstr "アカウントを削除中…"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Deny"
-msgstr ""
+msgstr "拒否"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Denying…"
-msgstr ""
+msgstr "拒否中…"
 
 #: src/portal-model.ts
 msgctxt "Connect interface"
 msgid "Desktop approval needed"
-msgstr ""
+msgstr "デスクトップでの承認が必要です"
 
 #: src/authority-workflows.tsx
 msgid "Details"
-msgstr ""
+msgstr "詳細"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Details"
-msgstr ""
+msgstr "詳細"
 
 #: src/auth-view.tsx
 msgid "Development authentication is enabled."
-msgstr ""
+msgstr "開発用認証が有効です。"
 
 #. placeholder {0}: pairing.fingerprint
 #: src/authority-workflows.tsx
 msgid "Device key: <0>{0}</0>"
-msgstr ""
+msgstr "デバイスキー: <0>{0}</0>"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Disconnect"
-msgstr ""
+msgstr "接続を解除"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Disconnect"
-msgstr ""
+msgstr "接続を解除"
 
 #. placeholder {0}: replica.name
 #: src/ConnectApp.tsx
 msgid "Disconnect {0}?"
-msgstr ""
+msgstr "{0} の接続を解除しますか？"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
