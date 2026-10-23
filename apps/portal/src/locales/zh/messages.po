@@ -2778,473 +2778,473 @@ msgstr "返回你的账户"
 
 #: src/authority-workflows.tsx
 msgid "Return to your computer."
-msgstr ""
+msgstr "返回你的电脑。"
 
 #: src/authorization-view.tsx
 msgid "Returning to {applicationName}…"
-msgstr ""
+msgstr "正在返回 {applicationName}…"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Review"
-msgstr ""
+msgstr "审查"
 
 #. placeholder {0}: request.application_name
 #: src/ConnectApp.tsx
 msgid "Review {0}’s collection access request."
-msgstr ""
+msgstr "审查 {0} 的集合访问请求。"
 
 #. placeholder {0}: request.application_name
 #: src/ConnectApp.tsx
 msgid "Review {0}’s request for {collectionName}."
-msgstr ""
+msgstr "审查 {0} 对 {collectionName} 的请求。"
 
 #: src/authorization-view.tsx
 msgid "Review access"
-msgstr ""
+msgstr "审查访问权限"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Review all"
-msgstr ""
+msgstr "全部审查"
 
 #: src/ApplicationAccess.tsx
 msgid "Review applications connected to your account. Your browser sign-in is never shared with them."
-msgstr ""
+msgstr "查看与你账户连接的应用。你的浏览器登录信息绝不会与它们共享。"
 
 #: src/authorization-view.tsx
 msgid "Review in this browser"
-msgstr ""
+msgstr "在此浏览器中审查"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Review next request"
-msgstr ""
+msgstr "审查下一项请求"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Review request"
-msgstr ""
+msgstr "审查请求"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Review request"
-msgstr ""
+msgstr "审查请求"
 
 #: src/ApplicationAccess.tsx
 msgid "Review the access each application has to {collectionName}."
-msgstr ""
+msgstr "审查各应用对 {collectionName} 的访问权限。"
 
 #. placeholder {0}: grant.collection_kind === "local" ? t(i18n)({ message: "the computer holding this collection" }) : t(i18n)({ message: "the hosted authority", context: "Connect interface" })
 #: src/ApplicationAccess.tsx
 msgid "Revocation is pending. Waiting for {0} to confirm enforcement."
-msgstr ""
+msgstr "撤销待完成。正在等待 {0} 确认权限限制已生效。"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoke"
-msgstr ""
+msgstr "撤销"
 
 #. placeholder {0}: group.applicationName
 #. placeholder {1}: entries[0]!.collection_name
 #: src/ApplicationAccess.tsx
 msgid "Revoke {0} access to {1} across all its installations?"
-msgstr ""
+msgstr "撤销 {0} 所有安装实例对 {1} 的访问权限？"
 
 #. placeholder {0}: group.applicationName
 #: src/ApplicationAccess.tsx
 msgid "Revoke {0} access to {collectionName}?"
-msgstr ""
+msgstr "撤销 {0} 对 {collectionName} 的访问权限？"
 
 #. placeholder {0}: connector.name
 #: src/ConnectApp.tsx
 msgid "Revoke {0} and the application grants routed through it?"
-msgstr ""
+msgstr "撤销 {0} 以及经由它转发的应用授权？"
 
 #. placeholder {0}: replica.name
 #: src/ConnectApp.tsx
 msgid "Revoke {0}?"
-msgstr ""
+msgstr "撤销 {0}？"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Revoke access"
-msgstr ""
+msgstr "撤销访问权限"
 
 #. placeholder {0}: grant.collection_name
 #: src/ApplicationAccess.tsx
 msgid "Revoke access to {0}?"
-msgstr ""
+msgstr "撤销对 {0} 的访问权限？"
 
 #. placeholder {0}: group.applicationName
 #: src/ApplicationAccess.tsx
 msgid "Revoke all {0} access and collection creation permission?"
-msgstr ""
+msgstr "撤销 {0} 的所有访问权限和创建集合的权限？"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Revoke application"
-msgstr ""
+msgstr "撤销应用权限"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Revoke collection access"
-msgstr ""
+msgstr "撤销集合访问权限"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoke computer"
-msgstr ""
+msgstr "撤销电脑权限"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoking…"
-msgstr ""
+msgstr "正在撤销…"
 
 #: src/ConnectApp.tsx
 msgid "Role"
-msgstr ""
+msgstr "角色"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Role"
-msgstr ""
+msgstr "角色"
 
 #. placeholder {0}: member.name
 #: src/ConnectApp.tsx
 msgid "Role for {0}"
-msgstr ""
+msgstr "{0} 的角色"
 
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
 msgid "Save"
-msgstr ""
+msgstr "保存"
 
 #: src/ApplicationAccess.tsx
 msgid "Save narrower access"
-msgstr ""
+msgstr "保存收窄后的访问权限"
 
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
 msgid "Saving…"
-msgstr ""
+msgstr "正在保存…"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Schedule background work"
-msgstr ""
+msgstr "安排后台任务"
 
 #: src/ApplicationAccess.tsx
 msgid "Scope"
-msgstr ""
+msgstr "范围"
 
 #: src/CollectionPicker.tsx
 msgid "Search collections by name"
-msgstr ""
+msgstr "按名称搜索集合"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "see collection members"
-msgstr ""
+msgstr "查看集合成员"
 
 #: src/authorization-review.tsx
 msgid "See collection members' account identities, names and roles"
-msgstr ""
+msgstr "查看集合成员的账户身份、姓名和角色"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "see the list of"
-msgstr ""
+msgstr "查看以下列表："
 
 #: src/authorization-review.tsx
 msgid "See your account identity and display name"
-msgstr ""
+msgstr "查看你的账户身份和显示名称"
 
 #. placeholder {0}: relativeTime(connector.last_seen_at)
 #. placeholder {0}: relativeTime(replica.sync_status.last_seen_at ?? collection.source.created_at)
 #: src/ConnectApp.tsx
 msgid "Seen {0}"
-msgstr ""
+msgstr "查看于 {0}"
 
 #: src/authorization-view.tsx
 msgid "Select a collection to continue."
-msgstr ""
+msgstr "请选择一个集合以继续。"
 
 #. placeholder {0}: selected.name
 #: src/CollectionPicker.tsx
 msgid "Selected: <0>{0}</0>"
-msgstr ""
+msgstr "已选择：<0>{0}</0>"
 
 #: src/ConnectApp.tsx
 #: src/FeedbackPage.tsx
 msgctxt "Connect interface"
 msgid "Send feedback"
-msgstr ""
+msgstr "发送反馈"
 
 #: src/auth-view.tsx
 msgid "Send me occasional product updates. You can change this at any time."
-msgstr ""
+msgstr "偶尔向我发送产品动态。你可以随时更改此设置。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Send reset link"
-msgstr ""
+msgstr "发送重置链接"
 
 #: src/ConnectApp.tsx
 msgid "Send this private link to the invited person. Email invitations require an already registered, verified account. If they have just signed up, create a new invitation."
-msgstr ""
+msgstr "将此私人链接发送给受邀者。邮件邀请要求对方已注册并验证账户。如果对方刚刚注册，请创建新邀请。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Send verification link"
-msgstr ""
+msgstr "发送验证链接"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Sending link…"
-msgstr ""
+msgstr "正在发送链接…"
 
 #. placeholder {0}: account.user.email
 #: src/AccountManagement.tsx
 msgid "Sent to {0}."
-msgstr ""
+msgstr "已发送至 {0}。"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Set up and allow access"
-msgstr ""
+msgstr "设置并允许访问"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Setting up and allowing…"
-msgstr ""
+msgstr "正在设置并允许访问…"
 
 #. placeholder {0}: setupLabel(contract)
 #: src/authorization-review.tsx
 msgid "Setup for {0}"
-msgstr ""
+msgstr "{0} 的设置"
 
 #: src/authority-workflows.tsx
 msgid "Shared with you"
-msgstr ""
+msgstr "与你共享"
 
 #: src/ConnectApp.tsx
 msgid "Sharing code"
-msgstr ""
+msgstr "共享代码"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Sharing code"
-msgstr ""
+msgstr "共享代码"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Sharing code"
-msgstr ""
+msgstr "共享代码"
 
 #: src/authorization-view.tsx
 msgid "Short approval code"
-msgstr ""
+msgstr "短批准代码"
 
 #. placeholder {0}: visible.length
 #. placeholder {1}: data.connectors.length
 #: src/ConnectApp.tsx
 msgid "Showing {0} of {1} registered computers."
-msgstr ""
+msgstr "显示 {1} 台已注册电脑中的 {0} 台。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Sign in"
-msgstr ""
+msgstr "登录"
 
 #: src/authority-workflows.tsx
 msgid "Sign in again"
-msgstr ""
+msgstr "重新登录"
 
 #: src/authority-workflows.tsx
 msgid "Sign in on a computer"
-msgstr ""
+msgstr "在电脑上登录"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Sign in to continue"
-msgstr ""
+msgstr "登录以继续"
 
 #: src/auth-view.tsx
 msgid "Sign in with the method connected to your invited account."
-msgstr ""
+msgstr "使用与你的受邀账户关联的方式登录。"
 
 #: src/auth-view.tsx
 msgid "Sign in, review the request, and return to the application."
-msgstr ""
+msgstr "登录并审查请求，然后返回应用。"
 
 #: src/AccountManagement.tsx
 msgid "Sign out"
-msgstr ""
+msgstr "退出登录"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Sign out of this browser"
-msgstr ""
+msgstr "在此浏览器中退出登录"
 
 #: src/AccountManagement.tsx
 msgid "Sign out other sessions"
-msgstr ""
+msgstr "退出其他会话"
 
 #: src/authority-workflows.tsx
 msgid "Sign-in cancelled"
-msgstr ""
+msgstr "登录已取消"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Sign-in methods"
-msgstr ""
+msgstr "登录方式"
 
 #: src/AccountManagement.tsx
 msgid "Sign-in methods for this account are controlled by Tailscale."
-msgstr ""
+msgstr "此账户的登录方式由 Tailscale 管理。"
 
 #: src/auth-view.tsx
 msgid "Sign-in was cancelled. You can try again or choose another method."
-msgstr ""
+msgstr "登录已取消。你可以重试或选择其他方式。"
 
 #. placeholder {0}: formatters(i18n.locale).date(new Date(session.created_at), { dateStyle: "medium", timeStyle: "short" })
 #. placeholder {1}: session.id.slice(-8)
 #: src/AccountManagement.tsx
 msgid "Signed in <0>{0}</0> · ID {1}"
-msgstr ""
+msgstr "已登录 <0>{0}</0> · ID {1}"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Signing in with Google…"
-msgstr ""
+msgstr "正在使用 Google 登录…"
 
 #: src/GoogleIdentityButton.tsx
 msgctxt "Connect interface"
 msgid "Signing in with Google…"
-msgstr ""
+msgstr "正在使用 Google 登录…"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Signing in…"
-msgstr ""
+msgstr "正在登录…"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Signing out…"
-msgstr ""
+msgstr "正在退出登录…"
 
 #: src/auth-view.tsx
 msgid "Start signup again"
-msgstr ""
+msgstr "重新开始注册"
 
 #: src/ConnectApp.tsx
 msgid "Status"
-msgstr ""
+msgstr "状态"
 
 #: src/auth-view.tsx
 msgid "Stop receiving the kind of email this link came in. Messages about your account are still sent."
-msgstr ""
+msgstr "停止接收此链接对应类别的电子邮件。与你账户有关的消息仍会发送。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Storage"
-msgstr ""
+msgstr "存储空间"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Storage & sync"
-msgstr ""
+msgstr "存储与同步"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Stored by mdbase"
-msgstr ""
+msgstr "由 mdbase 存储"
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx
 msgid "Stored on {0}"
-msgstr ""
+msgstr "存储于 {0}"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Stored on your devices"
-msgstr ""
+msgstr "存储在你的设备上"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Sync"
-msgstr ""
+msgstr "同步"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "sync a folder"
-msgstr ""
+msgstr "同步文件夹"
 
 #: src/ConnectApp.tsx
 msgid "Sync folder"
-msgstr ""
+msgstr "同步文件夹"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Sync this collection"
-msgstr ""
+msgstr "同步此集合"
 
 #: src/ConnectApp.tsx
 msgid "Synced folders"
-msgstr ""
+msgstr "同步文件夹"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Synced folders"
-msgstr ""
+msgstr "同步文件夹"
 
 #: src/authorization-capabilities.ts
 msgid "Synchronize an application-controlled local copy of this collection."
-msgstr ""
+msgstr "同步此集合由应用管理的本地副本。"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Tailscale identity"
-msgstr ""
+msgstr "Tailscale 身份"
 
 #: src/auth-view.tsx
 msgid "Terms"
-msgstr ""
+msgstr "条款"
 
 #: src/authority-workflows.tsx
 msgid "The app is uploading and checking a final collection snapshot. The main copy will move only after that exact snapshot is complete."
-msgstr ""
+msgstr "应用正在上传并检查集合的最终快照。只有在该快照完整上传后才会迁移主副本。"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "the application"
-msgstr ""
+msgstr "该应用"
 
 #: src/authorization-view.tsx
 msgid "The application will finish connecting with its one-time device code. You can close this window."
-msgstr ""
+msgstr "应用会使用一次性设备代码完成连接。你可以关闭此窗口。"
 
 #: src/authorization-view.tsx
 msgid "The application will learn that access was not granted. You can close this window."
-msgstr ""
+msgstr "应用会收到访问权限未获批准的结果。你可以关闭此窗口。"
 
 #: src/authorization-view.tsx
 msgid "The application will show that access was not granted."
-msgstr ""
+msgstr "应用会显示访问权限未获批准。"
 
 #. placeholder {0}: field.label.toLocaleLowerCase()
 #: src/authorization-review.tsx
 msgid "The application’s {0} value."
-msgstr ""
+msgstr "应用的 {0} 值。"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "The collection"
-msgstr ""
+msgstr "此集合"
 
 #: src/authorization-view.tsx
 msgid "The collection cannot allow all required record and file permissions together. Choose another collection."
