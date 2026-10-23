@@ -573,512 +573,512 @@ msgstr "{name} 太大，无法上传。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} item suggestions"
-msgstr ""
+msgstr "{name} 条目建议"
 
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} JSON value"
-msgstr ""
+msgstr "{name} JSON 值"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} note suggestions"
-msgstr ""
+msgstr "{name} 文档建议"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} property type"
-msgstr ""
+msgstr "{name} 属性类型"
 
 #: src/TypeBrowser.tsx
 msgid "{name} type definition"
-msgstr ""
+msgstr "{name} 类型定义"
 
 #: src/TypeBrowser.tsx
 msgid "{name} type YAML"
-msgstr ""
+msgstr "{name} 类型 YAML"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} value"
-msgstr ""
+msgstr "{name} 值"
 
 #. placeholder {0}: index + 1
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} value item {0}"
-msgstr ""
+msgstr "{name} 的第 {0} 个值"
 
 #: src/TypeBrowser.tsx
 msgid "{next, plural, one {# note after update} other {# notes after update}}"
-msgstr ""
+msgstr "{next, plural, other {更新后有 # 篇文档}}"
 
 #: src/TypeBrowser.tsx
 msgid "{next, plural, one {# note with these rules} other {# notes with these rules}}"
-msgstr ""
+msgstr "{next, plural, other {使用这些规则时有 # 篇文档}}"
 
 #: src/NoteList.tsx
 msgid "{noteCount, plural, one {# note} other {# notes}}"
-msgstr ""
+msgstr "{noteCount, plural, other {# 篇文档}}"
 
 #: src/NoteList.tsx
 msgid "{notes} · {files}"
-msgstr ""
+msgstr "{notes} · {files}"
 
 #: src/NoteList.tsx
 msgid "{notes} · {files} · {order}"
-msgstr ""
+msgstr "{notes} · {files} · {order}"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{path} cannot be null."
-msgstr ""
+msgstr "{path} 不能为 null。"
 
 #: src/AppErrorBoundary.tsx
 msgid "{product} needs to restart"
-msgstr ""
+msgstr "{product} 需要重启"
 
 #: src/use-note-actions.ts
 msgid "{references, plural, one {Also updated links in # note.} other {Also updated links in # notes.}}"
-msgstr ""
+msgstr "{references, plural, other {另有 # 篇文档中的链接已更新。}}"
 
 #: src/NewNoteComposer.tsx
 msgid "{selectedOptional} set"
-msgstr ""
+msgstr "已设置 {selectedOptional} 项"
 
 #. placeholder {0}: this.job.file.name
 #: src/code-editor-file-embeds.ts
 msgid "{text} upload of {0}"
-msgstr ""
+msgstr "{text} {0} 的上传"
 
 #: src/NoteList.tsx
 msgid "{title} note actions"
-msgstr ""
+msgstr "{title} 文档操作"
 
 #. placeholder {0}: collectionFileFormat(file)
 #: src/NoteList.tsx
 msgid "{title}, {0} file"
-msgstr ""
+msgstr "{title}，{0} 文件"
 
 #: src/TypeBrowser.tsx
 msgid "{title}.md"
-msgstr ""
+msgstr "{title}.md"
 
 #: src/type-contracts.ts
 msgid "{typeReference} allows values outside the contract’s accepted set."
-msgstr ""
+msgstr "{typeReference} 允许使用契约接受范围之外的值。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} allows values the contract rejects."
-msgstr ""
+msgstr "{typeReference} 允许使用契约拒绝的值。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} and {contractReference} allow non-overlapping values."
-msgstr ""
+msgstr "{typeReference} 与 {contractReference} 允许的值没有交集。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} cannot produce a value accepted by {contractReference}."
-msgstr ""
+msgstr "{typeReference} 无法生成 {contractReference} 接受的值。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} does not guarantee the contract’s {contractFormat} format."
-msgstr ""
+msgstr "{typeReference} 不保证符合契约要求的 {contractFormat} 格式。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} does not guarantee the contract’s text pattern."
-msgstr ""
+msgstr "{typeReference} 不保证符合契约要求的文本模式。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} is not declared by the type schema."
-msgstr ""
+msgstr "类型架构未声明 {typeReference}。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} is optional, so some records may omit this required value."
-msgstr ""
+msgstr "{typeReference} 为可选项，因此部分记录可能缺少这个必填值。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} may contain properties rejected by the contract."
-msgstr ""
+msgstr "{typeReference} 可能包含契约拒绝的属性。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} permits values outside the contract’s limits."
-msgstr ""
+msgstr "{typeReference} 允许使用超出契约限制的值。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} satisfies the declared contract field constraints."
-msgstr ""
+msgstr "{typeReference} 满足契约声明的字段约束。"
 
 #. placeholder {0}: linked.path
 #: src/YourPersonPanel.tsx
 msgid "<0>{0}</0> · Edit this note to change its collection display name or identity associations."
-msgstr ""
+msgstr "<0>{0}</0> · 编辑此文档以更改其在集合中的显示名称或身份关联。"
 
 #: src/TypeBrowser.tsx
 msgid "<0>{linkedSchema}</0> is installed with this type. Field structure is edited at the schema source."
-msgstr ""
+msgstr "<0>{linkedSchema}</0> 随此类型一同安装。字段结构需在架构源文件中编辑。"
 
 #: src/QuickOpen.tsx
 msgid "<0>↑↓</0> choose · <1>Enter</1> open · <2>></2> actions · <3>Esc</3> close"
-msgstr ""
+msgstr "<0>↑↓</0> 选择 · <1>Enter</1> 打开 · <2>></2> 操作 · <3>Esc</3> 关闭"
 
 #. placeholder {0}: (changed - 20).toLocaleString(displayLocale())
 #: src/TypeBrowser.tsx
 msgid "<0>More</0>{0} additional notes"
-msgstr ""
+msgstr "<0>更多</0>，另有 {0} 篇文档"
 
 #: src/YourPersonPanel.tsx
 msgid "1 person record needs attention"
-msgstr ""
+msgstr "1 条人员记录需要处理"
 
 #: src/type-schema.ts
 msgid "A {label} for “{name}” already exists."
-msgstr ""
+msgstr "“{name}”的{label}已存在。"
 
 #: src/type-contracts.ts
 msgid "a checkbox"
-msgstr ""
+msgstr "复选框"
 
 #: src/type-contracts.ts
 msgid "A complex schema needs record-level validation."
-msgstr ""
+msgstr "复杂架构需要进行记录级验证。"
 
 #: src/type-contracts.ts
 #: src/type-presentation.ts
 msgid "a date"
-msgstr ""
+msgstr "日期"
 
 #: src/type-contracts.ts
 #: src/type-presentation.ts
 msgid "a date and time"
-msgstr ""
+msgstr "日期和时间"
 
 #: src/type-schema.ts
 msgid "A field named “{name}” already exists."
-msgstr ""
+msgstr "名为“{name}”的字段已存在。"
 
 #: src/folder-change.ts
 msgid "A folder cannot be moved inside itself."
-msgstr ""
+msgstr "不能将文件夹移动到其自身内部。"
 
 #: src/native-gateway.ts
 msgid "A link in {path} will stay broken."
-msgstr ""
+msgstr "{path} 中的一个链接仍将失效。"
 
 #: src/type-schema.ts
 msgid "A link rule for “{field}” already exists."
-msgstr ""
+msgstr "“{field}”的链接规则已存在。"
 
 #: src/type-contracts.ts
 #: src/type-presentation.ts
 msgid "a list"
-msgstr ""
+msgstr "列表"
 
 #: src/TypeBrowser.tsx
 msgid "A mapping copies the source value directly. It does not coerce or transform data."
-msgstr ""
+msgstr "映射会直接复制源值，不会强制转换类型或转换数据。"
 
 #. placeholder {0}: move.to
 #: src/folder-change.ts
 msgid "A note or file already uses “{0}”. Nothing has moved."
-msgstr ""
+msgstr "已有文档或文件使用“{0}”。未移动任何内容。"
 
 #: src/type-contracts.ts
 msgid "a number"
-msgstr ""
+msgstr "数字"
 
 #: src/TypeBrowser.tsx
 msgid "A path will be created from the type name"
-msgstr ""
+msgstr "将根据类型名称创建路径"
 
 #: src/YourPersonPanel.tsx
 msgid "A person record linked to your account has invalid fields. Fix it before relying on it:"
-msgstr ""
+msgstr "与你的账户关联的一条人员记录含有无效字段。请先修正，再使用该记录："
 
 #: src/YourPersonPanel.tsx
 msgid "A person record now matches your account. Reload these settings."
-msgstr ""
+msgstr "现在有一条人员记录与你的账户匹配。请重新加载这些设置。"
 
 #: src/person-setup.ts
 msgid "A Person type already exists but needs compatible mappings. Review it in Types; this setup will not replace it."
-msgstr ""
+msgstr "Person 类型已存在，但需要兼容的映射。请在“类型”中检查；本次设置不会替换它。"
 
 #: src/type-schema.ts
 msgid "A read default for “{field}” already exists."
-msgstr ""
+msgstr "“{field}”的读取默认值已存在。"
 
 #: src/YourPersonPanel.tsx
 msgid "About existing contacts"
-msgstr ""
+msgstr "关于现有联系人"
 
 #: src/QuickOpen.tsx
 msgid "Actions"
-msgstr ""
+msgstr "操作"
 
 #: src/QuickOpen.tsx
 msgid "Actions in quick open"
-msgstr ""
+msgstr "快速打开中的操作"
 
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add"
-msgstr ""
+msgstr "添加"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add "
-msgstr ""
+msgstr "添加 "
 
 #. placeholder {0}: pack.displayName
 #: src/TypeBrowser.tsx
 msgid "Add {0}"
-msgstr ""
+msgstr "添加 {0}"
 
 #. placeholder {0}: primaryLabel.toLocaleLowerCase()
 #: src/NewNoteComposer.tsx
 msgid "Add a {0} to create the note."
-msgstr ""
+msgstr "填写{0}以创建文档。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add a custom property…"
-msgstr ""
+msgstr "添加自定义属性…"
 
 #: src/QuickOpen.tsx
 msgid "Add a link, in the note text"
-msgstr ""
+msgstr "在文档正文中添加链接"
 
 #: src/SdkEditorRoot.tsx
 msgid "Add a Private collection"
-msgstr ""
+msgstr "添加私有集合"
 
 #: src/PropertiesPanel.tsx
 msgid "Add a property to keep details like tags, dates, or a status with this note."
-msgstr ""
+msgstr "添加属性，在此文档中保存标签、日期或状态等详细信息。"
 
 #: src/TypeBrowser.tsx
 msgid "Add a ready-made type to get app compatibility, or install a contract before connecting this type yourself."
-msgstr ""
+msgstr "添加现成类型以获得应用兼容性，或先安装契约，再自行关联此类型。"
 
 #: src/TypeBrowser.tsx
 msgid "Add a type"
-msgstr ""
+msgstr "添加类型"
 
 #. placeholder {0}: schema.minItems
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add at least {0} items."
-msgstr ""
+msgstr "请至少添加 {0} 项。"
 
 #: src/TypeBrowser.tsx
 msgid "Add choice"
-msgstr ""
+msgstr "添加选项"
 
 #: src/TypeBrowser.tsx
 msgid "Add default"
-msgstr ""
+msgstr "添加默认值"
 
 #: src/YourPersonPanel.tsx
 msgid "Add definitions and continue"
-msgstr ""
+msgstr "添加定义并继续"
 
 #: src/SchemaValueEditor.tsx
 msgid "Add entry"
-msgstr ""
+msgstr "添加条目"
 
 #: src/TypeBrowser.tsx
 msgid "Add field"
-msgstr ""
+msgstr "添加字段"
 
 #: src/TypeBrowser.tsx
 msgid "Add field selector"
-msgstr ""
+msgstr "添加字段选择器"
 
 #: src/ConnectionScreens.tsx
 msgid "add files"
-msgstr ""
+msgstr "添加文件"
 
 #: src/SchemaValueEditor.tsx
 msgid "Add item"
-msgstr ""
+msgstr "添加条目"
 
 #: src/TypeBrowser.tsx
 msgid "Add link rule"
-msgstr ""
+msgstr "添加链接规则"
 
 #: src/TypeBrowser.tsx
 msgid "Add nested field"
-msgstr ""
+msgstr "添加嵌套字段"
 
 #: src/YourPersonPanel.tsx
 msgid "Add one Person type, with optional contact details, and its supporting definitions. Existing notes, customized definitions, and access permissions will not be changed."
-msgstr ""
+msgstr "添加一个带有可选联系信息的 Person 类型及其配套定义。现有文档、自定义定义和访问权限均不会更改。"
 
 #: src/SchemaValueEditor.tsx
 msgid "Add optional field"
-msgstr ""
+msgstr "添加可选字段"
 
 #: src/TypeBrowser.tsx
 msgid "Add path pattern"
-msgstr ""
+msgstr "添加路径模式"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add property"
-msgstr ""
+msgstr "添加属性"
 
 #: src/BulkNoteProperties.tsx
 #: src/editor-commands.ts
 msgid "Add tag"
-msgstr ""
+msgstr "添加标签"
 
 #: src/TypeBrowser.tsx
 msgid "Add target type"
-msgstr ""
+msgstr "添加目标类型"
 
 #: src/TypeBrowser.tsx
 msgid "Add unique rule"
-msgstr ""
+msgstr "添加唯一性规则"
 
 #. placeholder {0}: pack.displayName
 #: src/catalog-pack-installation.tsx
 msgid "Added “{0}” and opened the new type."
-msgstr ""
+msgstr "已添加“{0}”并打开新类型。"
 
 #: src/YourPersonPanel.tsx
 msgid "Adding definitions requires permission to manage this collection's types."
-msgstr ""
+msgstr "添加定义需要管理此集合类型的权限。"
 
 #: src/YourPersonPanel.tsx
 msgid "Adding definitions…"
-msgstr ""
+msgstr "正在添加定义…"
 
 #: src/TypeBrowser.tsx
 msgid "Adding one creates a new editable type. Existing files are never overwritten."
-msgstr ""
+msgstr "添加后会创建一个可编辑的新类型，绝不会覆盖现有文件。"
 
 #: src/type-schema.ts
 msgid "additional field policy"
-msgstr ""
+msgstr "额外字段策略"
 
 #: src/TypeBrowser.tsx
 msgid "Additional item rules remain in YAML."
-msgstr ""
+msgstr "额外的条目规则仍保留在 YAML 中。"
 
 #. placeholder {0}: rule.advancedKeys.join(", ")
 #: src/TypeBrowser.tsx
 msgid "Additional link settings remain in YAML: {0}."
-msgstr ""
+msgstr "额外的链接设置仍保留在 YAML 中：{0}。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Additional properties"
-msgstr ""
+msgstr "额外属性"
 
 #. placeholder {0}: rule.advancedKeys.join(", ")
 #: src/TypeBrowser.tsx
 msgid "Additional uniqueness settings remain in YAML: {0}."
-msgstr ""
+msgstr "额外的唯一性设置仍保留在 YAML 中：{0}。"
 
 #: src/TypeBrowser.tsx
 msgid "additional YAML rules"
-msgstr ""
+msgstr "额外的 YAML 规则"
 
 #. placeholder {0}: pack.installedTypes.length
 #. placeholder {1}: pack.resourceCount
 #: src/TypeBrowser.tsx
 msgid "Adds {0} internal types and {1} declared resources in one validated transaction. Existing files will not be overwritten; installation stops if any target conflicts."
-msgstr ""
+msgstr "在一次经过验证的事务中添加 {0} 个内部类型和 {1} 个已声明的资源。不会覆盖现有文件；任何目标发生冲突时，安装都会停止。"
 
 #. placeholder {0}: pack.installedTypes.length
 #: src/TypeBrowser.tsx
 msgid "Adds {0} types"
-msgstr ""
+msgstr "添加 {0} 个类型"
 
 #: src/TypeBrowser.tsx
 msgid "Adds 1 type"
-msgstr ""
+msgstr "添加 1 个类型"
 
 #: src/catalog-pack-installation.tsx
 msgid "Adopt and update"
-msgstr ""
+msgstr "纳入管理并更新"
 
 #: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
 msgid "Advanced"
-msgstr ""
+msgstr "高级"
 
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Advanced"
-msgstr ""
+msgstr "高级"
 
 #: src/TypeBrowser.tsx
 msgid "Advanced JSON Schema rules remain intact and are identified in place. Review any structural conversion before applying it."
-msgstr ""
+msgstr "高级 JSON Schema 规则会完整保留，并在相应位置标明。应用任何结构转换前，请先检查。"
 
 #: src/TypeBrowser.tsx
 msgid "Advanced YAML rules"
-msgstr ""
+msgstr "高级 YAML 规则"
 
 #: src/TypeBrowser.tsx
 msgid "Advisory labels and colour used when records of this type are shown."
-msgstr ""
+msgstr "显示此类型的记录时使用的提示标签和颜色。"
 
 #: src/EditorRail.tsx
 #: src/note-list-view.ts
 #: src/NoteListViewOptions.tsx
 msgid "All notes"
-msgstr ""
+msgstr "所有文档"
 
 #. placeholder {0}: noteCount.toLocaleString(displayLocale())
 #: src/EditorRail.tsx
 msgid "All notes, {0} total"
-msgstr ""
+msgstr "所有文档，共 {0} 篇"
 
 #: src/TypeBrowser.tsx
 msgid "Allow installs"
-msgstr ""
+msgstr "允许安装"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Allow local access"
-msgstr ""
+msgstr "允许本地访问"
 
 #: src/YourPersonPanel.tsx
 msgid "Allow person records in this collection?"
-msgstr ""
+msgstr "允许在此集合中使用人员记录？"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Allow the editor to reach mdbase on this computer. Editing continues through mdbase whenever it is unavailable."
-msgstr ""
+msgstr "允许编辑器访问此计算机上的 mdbase。本地访问不可用时，仍可通过 mdbase 继续编辑。"
 
 #: src/YourPersonPanel.tsx
 msgid "Allow the Editor to see your account identity"
-msgstr ""
+msgstr "允许 Editor 查看你的账户身份"
 
 #: src/TypeBrowser.tsx
 msgid "Allow undeclared fields"
-msgstr ""
+msgstr "允许未声明的字段"
 
 #: src/TypeBrowser.tsx
 msgid "Allowed target types"
-msgstr ""
+msgstr "允许的目标类型"
 
 #: src/TypeBrowser.tsx
 msgid "always present"
-msgstr ""
+msgstr "始终存在"
 
 #: src/type-contracts.ts
 msgid "an advanced schema"
-msgstr ""
+msgstr "高级架构"
 
 #: src/type-contracts.ts
 msgid "an integer"
-msgstr ""
+msgstr "整数"
 
 #: src/type-contracts.ts
 #: src/type-presentation.ts
 msgid "an object"
-msgstr ""
+msgstr "对象"
 
 #: src/TypeBrowser.tsx
 msgid "and"
-msgstr ""
+msgstr "和"
 
 #: src/TypeBrowser.tsx
 msgid "Any"
-msgstr ""
+msgstr "任意"
 
 #: src/TypeBrowser.tsx
 msgid "Any supported format"
