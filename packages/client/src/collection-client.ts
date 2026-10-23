@@ -204,7 +204,7 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
       const outcome = await this.envelopeOperation<WireQueryResult<Frontmatter>, CollectionQueryProblemCode>(
         "query", wireQueryInput(input), COLLECTION_QUERY_PROBLEM_CODES, options
       );
-      return mapOutcome(outcome, value => wireQueryResult(value, undefined));
+      return mapOutcome(outcome, value => wireQueryResult(value, undefined, input));
     }
     const captured = await captureConnectOutcome(() => withRequestBudget(options, this.requestTimeoutMs, async budget => {
       const requestOptions = requestOptionsWithinBudget({ ...options, timeoutMs: null }, budget);
@@ -215,7 +215,7 @@ export class MdbaseCollectionClient<Frontmatter extends JsonObject = JsonObject>
       const outcome = await this.envelopeOperation<WireQueryResult<Frontmatter>, CollectionQueryProblemCode>(
         "query", wireQueryInput(input), COLLECTION_QUERY_PROBLEM_CODES, requestOptions
       );
-      return mapOutcome(outcome, value => wireQueryResult(value, input.output));
+      return mapOutcome(outcome, value => wireQueryResult(value, input.output, input));
     }), COLLECTION_QUERY_PROBLEM_CODES);
     return captured.ok ? captured.value : captured;
   }

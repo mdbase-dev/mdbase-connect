@@ -23,8 +23,8 @@ describe("negotiated metadata output", () => {
       diagnostics: [{ severity: "warning", code: "example", message: "Retained" }] });
     expect(support).toHaveBeenCalledWith("query-metadata-v1", expect.any(Object));
     expect(request.mock.calls[0].slice(0, 2)).toEqual(["query", {
-      output: "metadata", types: ["annotation"], select: ["source", { name: "resolved", expr: "projection.resolved" }],
-      projections: { resolved: { expr: "source.asFile().file.path" } }, include_body: false
+      output: "metadata", types: ["annotation"], select: ["source", "projection.connect_select_1"],
+      projections: { resolved: { expr: "source.asFile().file.path" }, connect_select_1: { expr: "projection.resolved" } }, include_body: false
     }]);
   });
   it("absence of support fails explicit metadata before any extended request", async () => {
