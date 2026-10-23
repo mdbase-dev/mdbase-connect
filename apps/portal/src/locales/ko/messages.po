@@ -2044,58 +2044,58 @@ msgstr "파일 이동 및 이름 변경"
 
 #: src/authority-workflows.tsx
 msgid "Move approved"
-msgstr ""
+msgstr "이동 승인됨"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Move collection online"
-msgstr ""
+msgstr "컬렉션 온라인으로 이동"
 
 #: src/authority-workflows.tsx
 msgid "Move complete"
-msgstr ""
+msgstr "이동 완료"
 
 #: src/authority-workflows.tsx
 msgid "Move ended"
-msgstr ""
+msgstr "이동 종료됨"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Move main copy"
-msgstr ""
+msgstr "기본 사본 이동"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "move or rename"
-msgstr ""
+msgstr "이동 또는 이름 변경"
 
 #: src/authority-workflows.tsx
 msgid "Move the main copy"
-msgstr ""
+msgstr "기본 사본 이동"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Move this collection"
-msgstr ""
+msgstr "이 컬렉션 이동"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Moved"
-msgstr ""
+msgstr "이동됨"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Moved to newer runtime"
-msgstr ""
+msgstr "새 런타임으로 이동됨"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Moving to a computer"
-msgstr ""
+msgstr "컴퓨터로 이동하는 중"
 
 #: src/ConnectApp.tsx
 msgid "My collection"
-msgstr ""
+msgstr "내 컬렉션"
 
 #: src/AccountManagement.tsx
 msgid "Name"
@@ -2109,116 +2109,116 @@ msgstr "이름"
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Name or registration ID"
-msgstr ""
+msgstr "이름 또는 등록 ID"
 
 #: src/compatibility.ts
 msgctxt "Connect interface"
 msgid "Needs mdbase 0.3"
-msgstr ""
+msgstr "mdbase 0.3 필요"
 
 #: src/authorization-review.tsx
 msgid "New"
-msgstr ""
+msgstr "신규"
 
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 msgid "New collection name"
-msgstr ""
+msgstr "새 컬렉션 이름"
 
 #: src/AccountManagement.tsx
 msgid "New password"
-msgstr ""
+msgstr "새 비밀번호"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "New password"
-msgstr ""
+msgstr "새 비밀번호"
 
 #: src/AccountManagement.tsx
 msgid "New passwords do not match."
-msgstr ""
+msgstr "새 비밀번호가 일치하지 않습니다."
 
 #: src/authority-workflows.tsx
 msgid "New synced folder"
-msgstr ""
+msgstr "새 동기화 폴더"
 
 #: src/auth-view.tsx
 msgid "New to mdbase? <0>Create an account</0>"
-msgstr ""
+msgstr "mdbase가 처음인가요? <0>계정 만들기</0>"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "No active code shown"
-msgstr ""
+msgstr "표시할 활성 코드 없음"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "No collection access"
-msgstr ""
+msgstr "컬렉션 액세스 없음"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "No collections"
-msgstr ""
+msgstr "컬렉션 없음"
 
 #: src/CollectionPicker.tsx
 msgid "No collections are available."
-msgstr ""
+msgstr "사용 가능한 컬렉션이 없습니다."
 
 #: src/CollectionPicker.tsx
 msgid "No collections match. Try another name."
-msgstr ""
+msgstr "일치하는 컬렉션이 없습니다. 다른 이름으로 시도하세요."
 
 #: src/authorization-view.tsx
 msgid "No compatible collection is ready."
-msgstr ""
+msgstr "사용할 수 있는 호환 컬렉션이 없습니다."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "No computers connected"
-msgstr ""
+msgstr "연결된 컴퓨터 없음"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "No computers match"
-msgstr ""
+msgstr "일치하는 컴퓨터 없음"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgid "No connected applications"
-msgstr ""
+msgstr "연결된 애플리케이션 없음"
 
 #: src/AccountManagement.tsx
 msgid "No supported reauthentication method is connected."
-msgstr ""
+msgstr "연결된 재인증 방법이 없습니다."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "No synced folders"
-msgstr ""
+msgstr "동기화된 폴더 없음"
 
 #: src/authority-workflows.tsx
 msgid "Not allowed"
-msgstr ""
+msgstr "허용되지 않음"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Not configured"
-msgstr ""
+msgstr "설정되지 않음"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Not connected"
-msgstr ""
+msgstr "연결되지 않음"
 
 #: src/ConnectApp.tsx
 msgid "Not connected yet"
-msgstr ""
+msgstr "아직 연결되지 않음"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Not connected yet"
-msgstr ""
+msgstr "아직 연결되지 않음"
 
 #: src/ConnectApp.tsx
 msgid "Not now"
@@ -2226,11 +2226,11 @@ msgstr "나중에"
 
 #: src/authorization-view.tsx
 msgid "Nothing is allowed until you review access."
-msgstr ""
+msgstr "액세스를 검토하기 전에는 아무것도 허용되지 않습니다."
 
 #: src/AccountManagement.tsx
 msgid "Occasional news about significant changes to mdbase Connect and new mdbase applications."
-msgstr ""
+msgstr "mdbase Connect의 중요한 변경 사항과 새 mdbase 애플리케이션에 관한 가끔 보내는 소식입니다."
 
 #: src/ConnectApp.tsx
 msgid "Offline"
@@ -2244,44 +2244,44 @@ msgstr "오프라인"
 #. placeholder {0}: computer.name
 #: src/ConnectApp.tsx
 msgid "On {0}"
-msgstr ""
+msgstr "{0}에서"
 
 #. placeholder {0}: computer.name
 #: src/ConnectApp.tsx
 msgid "On {0}: offline"
-msgstr ""
+msgstr "{0}에서: 오프라인"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "On this computer"
-msgstr ""
+msgstr "이 컴퓨터에서"
 
 #. placeholder {0}: relativeTime(sharingCode.expiresAt)
 #: src/AccountManagement.tsx
 msgid "One use · expires {0}"
-msgstr ""
+msgstr "1회 사용 · {0}에 만료"
 
 #: src/ConnectApp.tsx
 msgid "Online"
-msgstr ""
+msgstr "온라인"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Online"
-msgstr ""
+msgstr "온라인"
 
 #. placeholder {0}: files.scope.folders.join(", ")
 #: src/authorization-review.tsx
 msgid "Only {0}. Hidden folders are always excluded."
-msgstr ""
+msgstr "{0}만. 숨겨진 폴더는 항상 제외됩니다."
 
 #: src/authorization-view.tsx
 msgid "Only continue if you recognize this exact site."
-msgstr ""
+msgstr "정확히 이 사이트를 아는 경우에만 계속하세요."
 
 #: src/authorization-review.tsx
 msgid "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
-msgstr ""
+msgstr "이 유형 정의만 변경됩니다. 기존 레코드는 그대로 유지됩니다. 액세스가 활성화되기 전에 설정을 검증합니다."
 
 #: src/ConnectApp.tsx
 msgid "Open"
@@ -2295,123 +2295,123 @@ msgstr "{0} 열기"
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Open {0} with {selectedName}"
-msgstr ""
+msgstr "{selectedName}을(를) {0}에서 열기"
 
 #: src/ConnectApp.tsx
 msgid "Open a collection in the editor or manage where its main copy lives."
-msgstr ""
+msgstr "편집기에서 컬렉션을 열거나 기본 사본의 저장 위치를 관리하세요."
 
 #: src/ConnectApp.tsx
 msgid "Open account and sessions"
-msgstr ""
+msgstr "계정 및 세션 열기"
 
 #: src/ConnectApp.tsx
 msgid "Open desktop app"
-msgstr ""
+msgstr "데스크톱 앱 열기"
 
 #: src/ConnectApp.tsx
 msgid "Open editor"
-msgstr ""
+msgstr "편집기 열기"
 
 #: src/portal-ui.tsx
 msgid "Open editor <0>↗</0>"
-msgstr ""
+msgstr "편집기 열기 <0>↗</0>"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Open in {0}"
-msgstr ""
+msgstr "{0}에서 열기"
 
 #: src/ConnectApp.tsx
 msgid "Open in editor"
-msgstr ""
+msgstr "편집기에서 열기"
 
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx
 msgid "Open mdbase connect"
-msgstr ""
+msgstr "mdbase connect 열기"
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx
 msgid "Open mdbase connect on {0} to make this collection available."
-msgstr ""
+msgstr "이 컬렉션을 사용하려면 {0}에서 mdbase connect를 여세요."
 
 #: src/onboarding-view.tsx
 msgid "Open mdbase Connect without it"
-msgstr ""
+msgstr "이 옵션 없이 mdbase Connect 열기"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Open menu"
-msgstr ""
+msgstr "메뉴 열기"
 
 #: src/portal-ui.tsx
 msgctxt "Connect interface"
 msgid "Open navigation"
-msgstr ""
+msgstr "탐색 메뉴 열기"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Open registration"
-msgstr ""
+msgstr "가입 허용"
 
 #: src/auth-view.tsx
 msgid "Open the complete password reset link from your email."
-msgstr ""
+msgstr "이메일에 있는 비밀번호 재설정 링크 전체를 여세요."
 
 #: src/authorization-view.tsx
 msgid "Open the desktop app to connect this computer, add a folder, and continue this same request."
-msgstr ""
+msgstr "데스크톱 앱을 열어 이 컴퓨터를 연결하고 폴더를 추가한 다음 동일한 요청을 계속하세요."
 
 #: src/auth-view.tsx
 msgid "Open the link from the email again, or change email preferences in your account settings."
-msgstr ""
+msgstr "이메일의 링크를 다시 열거나 계정 설정에서 이메일 수신 설정을 변경하세요."
 
 #: src/ConnectApp.tsx
 msgid "Open the mdbase connect desktop app and choose Connect this computer."
-msgstr ""
+msgstr "mdbase connect 데스크톱 앱을 열고 '이 컴퓨터 연결'을 선택하세요."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "open this collection"
-msgstr ""
+msgstr "이 컬렉션 열기"
 
 #: src/auth-view.tsx
 msgid "Open this through Tailscale"
-msgstr ""
+msgstr "Tailscale을 통해 열기"
 
 #: src/auth-view.tsx
 msgid "Open your account"
-msgstr ""
+msgstr "내 계정 열기"
 
 #: src/authority-workflows.tsx
 msgid "Open your collections"
-msgstr ""
+msgstr "내 컬렉션 열기"
 
 #: src/authorization-capabilities.ts
 msgid "Open, search, validate, and follow changes to records and saved views."
-msgstr ""
+msgstr "레코드와 저장된 뷰 열기, 검색, 검증 및 변경 사항 확인"
 
 #: src/authorization-capabilities.ts
 msgid "Open, search, validate, and follow records and saved views; list file names and read file contents."
-msgstr ""
+msgstr "레코드와 저장된 뷰 열기, 검색, 검증 및 변경 사항 확인; 파일 이름 목록 보기와 내용 읽기"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Opening mdbase connect"
-msgstr ""
+msgstr "mdbase connect 여는 중"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Opening mdbase connect"
-msgstr ""
+msgstr "mdbase connect 여는 중"
 
 #: src/main.tsx
 #: src/portal-ui.tsx
 msgctxt "Connect interface"
 msgid "Opening mdbase connect…"
-msgstr ""
+msgstr "mdbase connect 여는 중…"
 
 #: src/auth-view.tsx
 msgid "or"
@@ -2419,12 +2419,12 @@ msgstr "또는"
 
 #: src/ApplicationAccess.tsx
 msgid "Origin"
-msgstr ""
+msgstr "출처"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Overview"
-msgstr ""
+msgstr "개요"
 
 #: src/authority-workflows.tsx
 #: src/ConnectApp.tsx
@@ -2434,97 +2434,97 @@ msgstr "소유자"
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Password"
-msgstr ""
+msgstr "비밀번호"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Password changed"
-msgstr ""
+msgstr "비밀번호 변경됨"
 
 #: src/AccountManagement.tsx
 msgid "Password changed. Other browser sessions were signed out."
-msgstr ""
+msgstr "비밀번호가 변경되었습니다. 다른 브라우저 세션에서 로그아웃되었습니다."
 
 #: src/auth-view.tsx
 msgid "Password recovery is temporarily unavailable. You can still return to sign in."
-msgstr ""
+msgstr "비밀번호 복구를 일시적으로 사용할 수 없습니다. 로그인 화면으로 돌아갈 수는 있습니다."
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Passwords do not match."
-msgstr ""
+msgstr "비밀번호가 일치하지 않습니다."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Paused"
-msgstr ""
+msgstr "일시 중지됨"
 
 #: src/ConnectApp.tsx
 msgid "Pending"
-msgstr ""
+msgstr "대기 중"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Pending invitations"
-msgstr ""
+msgstr "대기 중인 초대"
 
 #: src/authorization-review.tsx
 msgid "People"
-msgstr ""
+msgstr "사용자"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "People & sharing"
-msgstr ""
+msgstr "사용자 및 공유"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "People permissions"
-msgstr ""
+msgstr "사용자 권한"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Permanent allowance"
-msgstr ""
+msgstr "영구 허용량"
 
 #: src/AccountManagement.tsx
 msgid "Permanent for hosted data. Local files are never removed from your computers."
-msgstr ""
+msgstr "호스팅 데이터는 영구적으로 삭제됩니다. 컴퓨터의 로컬 파일은 삭제되지 않습니다."
 
 #: src/authorization-capabilities.ts
 msgid "Permanently delete records and files from this collection."
-msgstr ""
+msgstr "이 컬렉션의 레코드와 파일을 영구적으로 삭제합니다."
 
 #: src/authorization-capabilities.ts
 msgid "Permanently delete records from this collection."
-msgstr ""
+msgstr "이 컬렉션의 레코드를 영구적으로 삭제합니다."
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Permissions"
-msgstr ""
+msgstr "권한"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "person@example.com"
-msgstr ""
+msgstr "person@example.com"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Preparing {0}…"
-msgstr ""
+msgstr "{0} 준비하는 중…"
 
 #: src/onboarding-view.tsx
 msgid "Preparing a place to start."
-msgstr ""
+msgstr "시작할 공간을 준비하는 중입니다."
 
 #: src/ApplicationAccess.tsx
 msgid "Previously approved · Collection no longer visible to your account"
-msgstr ""
+msgstr "이전 승인됨 · 내 계정에서 컬렉션을 더 이상 볼 수 없음"
 
 #: src/auth-view.tsx
 msgid "Privacy"
-msgstr ""
+msgstr "개인정보 보호"
 
 #: src/CollectionPicker.tsx
 msgid "Private"
@@ -2533,12 +2533,12 @@ msgstr "비공개"
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Private collection"
-msgstr ""
+msgstr "비공개 컬렉션"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "product updates"
-msgstr ""
+msgstr "제품 소식"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
