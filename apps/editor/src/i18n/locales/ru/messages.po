@@ -3316,154 +3316,154 @@ msgstr "Контракты приложений не установлены"
 
 #: src/TypeBrowser.tsx
 msgid "No automatic matching rules"
-msgstr ""
+msgstr "Нет правил автоматического сопоставления"
 
 #: src/TypeBrowser.tsx
 msgid "No connections"
-msgstr ""
+msgstr "Нет подключений"
 
 #: src/TypeBrowser.tsx
 msgid "No cross-record uniqueness rules."
-msgstr ""
+msgstr "Нет правил уникальности между записями."
 
 #: src/type-presentation.ts
 msgid "No custom behaviour"
-msgstr ""
+msgstr "Нет особых правил поведения"
 
 #: src/SchemaValueEditor.tsx
 msgid "No declared values."
-msgstr ""
+msgstr "Значения не объявлены."
 
 #: src/App.tsx
 msgid "No earlier note"
-msgstr ""
+msgstr "Нет предыдущей заметки"
 
 #: src/SchemaValueEditor.tsx
 msgid "No entries yet."
-msgstr ""
+msgstr "Пока нет элементов."
 
 #: src/TypeBrowser.tsx
 msgid "No entries."
-msgstr ""
+msgstr "Нет элементов."
 
 #: src/TypeBrowser.tsx
 msgid "No fields are declared yet."
-msgstr ""
+msgstr "Поля пока не объявлены."
 
 #: src/CollectionRail.tsx
 msgid "No folders"
-msgstr ""
+msgstr "Нет папок"
 
 #: src/WorkspaceChrome.tsx
 msgid "No headings yet."
-msgstr ""
+msgstr "Пока нет заголовков."
 
 #: src/TypeBrowser.tsx
 msgid "No inferred rules. Records must declare this type explicitly."
-msgstr ""
+msgstr "Нет правил определения типа. Записи должны указывать этот тип явно."
 
 #: src/code-editor-file-embeds.ts
 msgid "No inline preview is available for {filename}."
-msgstr ""
+msgstr "Для {filename} нет встроенного предпросмотра."
 
 #: src/SchemaValueEditor.tsx
 msgid "No items yet."
-msgstr ""
+msgstr "Пока нет элементов."
 
 #: src/App.tsx
 msgid "No later note"
-msgstr ""
+msgstr "Нет следующей заметки"
 
 #: src/SelectionControls.tsx
 msgid "No matches."
-msgstr ""
+msgstr "Совпадений нет."
 
 #: src/QuickOpen.tsx
 msgid "No matching actions."
-msgstr ""
+msgstr "Подходящих действий нет."
 
 #: src/NoteSearchField.tsx
 msgid "No matching filters"
-msgstr ""
+msgstr "Подходящих фильтров нет"
 
 #: src/TypeBrowser.tsx
 msgid "No matching icons."
-msgstr ""
+msgstr "Подходящих значков нет."
 
 #: src/QuickOpen.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "No matching notes."
-msgstr ""
+msgstr "Подходящих заметок нет."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "No matching schema properties."
-msgstr ""
+msgstr "Подходящих свойств схемы нет."
 
 #: src/TypeBrowser.tsx
 msgid "No nested fields yet."
-msgstr ""
+msgstr "Пока нет вложенных полей."
 
 #. placeholder {0}: reference.target
 #: src/code-editor-reference-diagnostics.ts
 msgid "No note or file matches “{0}”."
-msgstr ""
+msgstr "Для «{0}» не найдено ни заметок, ни файлов."
 
 #: src/WorkspaceChrome.tsx
 msgid "No notes link here yet."
-msgstr ""
+msgstr "На эту заметку пока не ссылаются."
 
 #: src/NoteList.tsx
 msgid "No notes or files found."
-msgstr ""
+msgstr "Заметки и файлы не найдены."
 
 #: src/NewNoteComposer.tsx
 msgid "No optional properties selected."
-msgstr ""
+msgstr "Не выбраны необязательные свойства."
 
 #: src/TypeBrowser.tsx
 msgid "No properties are marked as links."
-msgstr ""
+msgstr "Нет свойств, отмеченных как ссылки."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "No properties yet."
-msgstr ""
+msgstr "Пока нет свойств."
 
 #: src/NotePreview.tsx
 msgid "No text preview."
-msgstr ""
+msgstr "Нет предпросмотра текста."
 
 #: src/PropertiesPanel.tsx
 msgid "No type"
-msgstr ""
+msgstr "Тип не указан"
 
 #: src/TypeBrowser.tsx
 msgid "No types found."
-msgstr ""
+msgstr "Типы не найдены."
 
 #: src/WorkspaceChrome.tsx
 msgid "No unlinked mentions."
-msgstr ""
+msgstr "Нет несвязанных упоминаний."
 
 #: src/use-note-actions.ts
 msgid "No validation issues."
-msgstr ""
+msgstr "Ошибок проверки нет."
 
 #: src/App.tsx
 msgid "Not attempted because an earlier move needs recovery."
-msgstr ""
+msgstr "Операция не выполнена: предыдущее перемещение требует восстановления."
 
 #: src/bulk-note-actions.ts
 msgid "Not changed because an earlier note's change isn't confirmed yet."
-msgstr ""
+msgstr "Без изменений: результат предыдущего изменения заметки ещё не подтверждён."
 
 #: src/note-mutation-presentation.ts
 #: src/WorkspaceChrome.tsx
 msgid "Not confirmed yet"
-msgstr ""
+msgstr "Пока не подтверждено"
 
 #: src/type-contracts.ts
 msgid "Not exposed"
-msgstr ""
+msgstr "Не предоставляется"
 
 #: src/catalog-pack-installation.tsx
 #: src/YourPersonPanel.tsx
@@ -3472,38 +3472,38 @@ msgstr "Не сейчас"
 
 #: src/QuickOpen.tsx
 msgid "Note actions, in the list"
-msgstr ""
+msgstr "Действия с заметкой в списке"
 
 #: src/MarkdownNoteEditor.tsx
 #: src/NewNoteComposer.tsx
 msgid "Note body"
-msgstr ""
+msgstr "Текст заметки"
 
 #: src/ConflictResolver.tsx
 msgid "Note changed elsewhere"
-msgstr ""
+msgstr "Заметка изменена в другом месте"
 
 #: src/App.tsx
 msgid "Note editor"
-msgstr ""
+msgstr "Редактор заметки"
 
 #: src/App.tsx
 msgid "Note history"
-msgstr ""
+msgstr "История заметок"
 
 #: src/App.tsx
 msgid "note link"
-msgstr ""
+msgstr "ссылка на заметку"
 
 #: src/App.tsx
 msgid "note path"
-msgstr ""
+msgstr "путь к заметке"
 
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/PropertiesPanel.tsx
 msgid "Note properties"
-msgstr ""
+msgstr "Свойства заметки"
 
 #: src/MarkdownNoteEditor.tsx
 msgid "Note title"
@@ -3511,11 +3511,11 @@ msgstr "Название заметки"
 
 #: src/NotePreview.tsx
 msgid "Note types"
-msgstr ""
+msgstr "Типы заметок"
 
 #: src/NoteListViewOptions.tsx
 msgid "Note view options"
-msgstr ""
+msgstr "Параметры просмотра заметки"
 
 #: src/QuickOpen.tsx
 msgid "Notes"
@@ -3528,53 +3528,53 @@ msgstr "Заметки"
 
 #: src/NoteList.tsx
 msgid "Notes and files"
-msgstr ""
+msgstr "Заметки и файлы"
 
 #: src/WorkspaceChrome.tsx
 msgid "Notes are ready. Allow type-definition access only if you want to inspect or manage collection types."
-msgstr ""
+msgstr "Заметки готовы. Разрешайте доступ к определениям типов, только если хотите просматривать типы коллекции или управлять ими."
 
 #: src/TypeBrowser.tsx
 msgid "Notes belong to this type when every configured condition group below matches."
-msgstr ""
+msgstr "Заметки относятся к этому типу, если выполняются все заданные ниже группы условий."
 
 #. placeholder {0}: definition.name
 #. placeholder {1}: explicitTypeKeys.map((key, index) => <span key={key}>{index ? ", " : ""}<code>{key}</code></span>)
 #: src/TypeBrowser.tsx
 msgid "Notes can name <0>{0}</0> through {1}. When any configured key is present, automatic rules are skipped."
-msgstr ""
+msgstr "Заметки могут указывать <0>{0}</0> через {1}. Если присутствует любой из заданных ключей, автоматические правила пропускаются."
 
 #: src/NoteList.tsx
 msgid "Notes could not finish loading."
-msgstr ""
+msgstr "Не удалось завершить загрузку заметок."
 
 #: src/FolderChangeDialog.tsx
 msgid "Notes in subfolders move too. Links to these notes will be updated."
-msgstr ""
+msgstr "Заметки во вложенных папках тоже переместятся. Ссылки на них будут обновлены."
 
 #: src/read-only-markdown.tsx
 msgid "Notes larger than 1 MiB are read-only at launch."
-msgstr ""
+msgstr "При запуске заметки размером более 1 МиБ доступны только для чтения."
 
 #: src/TypeBrowser.tsx
 msgid "Notes use this field to declare their type. Edit it in YAML if you need to change it."
-msgstr ""
+msgstr "Заметки используют это поле для указания своего типа. Чтобы изменить его, отредактируйте YAML."
 
 #: src/TypeBrowser.tsx
 msgid "Notes without an explicit assignment belong to this type when every configured condition group below matches."
-msgstr ""
+msgstr "Заметки без явно указанного типа относятся к нему, если выполняются все заданные ниже группы условий."
 
 #: src/Toasts.tsx
 msgid "Notifications"
-msgstr ""
+msgstr "Уведомления"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Null"
-msgstr ""
+msgstr "Пустое значение"
 
 #: src/type-presentation.ts
 msgid "number"
-msgstr ""
+msgstr "число"
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
@@ -3588,21 +3588,21 @@ msgstr "Число"
 
 #: src/code-editor-completions.ts
 msgid "Numbered list"
-msgstr ""
+msgstr "Нумерованный список"
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "Object"
-msgstr ""
+msgstr "Объект"
 
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Object"
-msgstr ""
+msgstr "Объект"
 
 #: src/TypeBrowser.tsx
 msgid "Objects and lists can contain fields at any depth."
-msgstr ""
+msgstr "Объекты и списки могут содержать поля на любой глубине."
 
 #: src/CollectionRail.tsx
 msgid "Offline"
@@ -3610,39 +3610,39 @@ msgstr "Не в сети"
 
 #: src/collection-browser.ts
 msgid "Older"
-msgstr ""
+msgstr "Ранее"
 
 #: src/TypeBrowser.tsx
 msgid "Only declared fields are allowed"
-msgstr ""
+msgstr "Разрешены только объявленные поля"
 
 #: src/BulkNoteProperties.tsx
 msgid "Only properties declared by every selected note’s type can be set."
-msgstr ""
+msgstr "Можно задавать только свойства, объявленные типами всех выбранных заметок."
 
 #: src/embed-actions.ts
 msgid "Open"
-msgstr ""
+msgstr "Открыть"
 
 #: src/code-editor-file-embeds.ts
 msgid "Open {filename}"
-msgstr ""
+msgstr "Открыть {filename}"
 
 #: src/embed-actions.ts
 msgid "Open {name}"
-msgstr ""
+msgstr "Открыть {name}"
 
 #: src/TypeBrowser.tsx
 msgid "Open {primaryTypeLabel}"
-msgstr ""
+msgstr "Открыть {primaryTypeLabel}"
 
 #: src/ConnectionScreens.tsx
 msgid "open and search notes"
-msgstr ""
+msgstr "открывать и искать заметки"
 
 #: src/editor-commands.ts
 msgid "Open Connect"
-msgstr ""
+msgstr "Открыть Connect"
 
 #: src/code-editor-file-embeds.ts
 msgid "Open document"
@@ -3650,31 +3650,31 @@ msgstr "Открыть документ"
 
 #: src/ConnectionScreens.tsx
 msgid "open files"
-msgstr ""
+msgstr "открывать файлы"
 
 #: src/ConnectionScreens.tsx
 msgid "open notes"
-msgstr ""
+msgstr "открывать заметки"
 
 #: src/FileViewer.tsx
 msgid "Open original"
-msgstr ""
+msgstr "Открыть оригинал"
 
 #: src/editor-commands.ts
 msgid "Open Settings"
-msgstr ""
+msgstr "Открыть настройки"
 
 #: src/WorkspaceChrome.tsx
 msgid "Open to find mentions."
-msgstr ""
+msgstr "Откройте, чтобы найти упоминания."
 
 #: src/editor-commands.ts
 msgid "Open Types"
-msgstr ""
+msgstr "Открыть типы"
 
 #: src/TypeBrowser.tsx
 msgid "Open YAML"
-msgstr ""
+msgstr "Открыть YAML"
 
 #: src/NoteList.tsx
 msgid "Opening"
@@ -3682,7 +3682,7 @@ msgstr "Открытие"
 
 #: src/App.tsx
 msgid "Opening “{pendingNotePath}”…"
-msgstr ""
+msgstr "Открытие «{pendingNotePath}»…"
 
 #. placeholder {0}: original.displayName
 #: src/SdkEditorRoot.tsx
@@ -3692,7 +3692,7 @@ msgstr "Открытие {0}"
 #: src/code-editor-file-embeds.ts
 #: src/FileViewer.tsx
 msgid "Opening {filename}"
-msgstr ""
+msgstr "Открытие {filename}"
 
 #: src/LoadingScreens.tsx
 msgid "Opening collection"
@@ -3700,28 +3700,28 @@ msgstr "Открытие коллекции"
 
 #: src/main.tsx
 msgid "Opening mdbase connect… <0>Continue</0>"
-msgstr ""
+msgstr "Открытие mdbase connect… <0>Продолжить</0>"
 
 #: src/main.tsx
 msgid "Opening mdbase…"
-msgstr ""
+msgstr "Подключение к mdbase…"
 
 #: src/WorkspaceChrome.tsx
 msgid "Opening note…"
-msgstr ""
+msgstr "Открытие заметки…"
 
 #: src/code-editor-file-embeds.ts
 msgid "Opening text preview…"
-msgstr ""
+msgstr "Открытие предпросмотра текста…"
 
 #: src/code-editor-note-embeds.ts
 msgid "Opening transcluded note…"
-msgstr ""
+msgstr "Открытие встроенной заметки…"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Operations"
-msgstr ""
+msgstr "Операции"
 
 #: src/TypeBrowser.tsx
 msgid "Optional"
@@ -3729,39 +3729,39 @@ msgstr "Необязательно"
 
 #: src/SchemaValueEditor.tsx
 msgid "Optional field"
-msgstr ""
+msgstr "Необязательное поле"
 
 #: src/TypeBrowser.tsx
 msgid "optional in this type"
-msgstr ""
+msgstr "необязательно для этого типа"
 
 #: src/TypeBrowser.tsx
 msgid "Optional regular expression"
-msgstr ""
+msgstr "Необязательное регулярное выражение"
 
 #: src/type-schema.ts
 msgid "Other collection rules"
-msgstr ""
+msgstr "Другие правила коллекции"
 
 #: src/TypeBrowser.tsx
 msgid "Other fields are allowed"
-msgstr ""
+msgstr "Другие поля разрешены"
 
 #: src/editor-commands.ts
 msgid "outside text inputs"
-msgstr ""
+msgstr "вне текстовых полей"
 
 #: src/TypeBrowser.tsx
 msgid "Pack"
-msgstr ""
+msgstr "Пакет"
 
 #: src/contract-catalog.ts
 msgid "packs[{index}].resource_count must be a positive integer."
-msgstr ""
+msgstr "packs[{index}].resource_count должно быть положительным целым числом."
 
 #: src/TypeBrowser.tsx
 msgid "Partly installed"
-msgstr ""
+msgstr "Установлено частично"
 
 #: src/NewNoteComposer.tsx
 #: src/TypeBrowser.tsx
@@ -3770,90 +3770,90 @@ msgstr "Путь"
 
 #: src/note-list-view.ts
 msgid "Path A–Z"
-msgstr ""
+msgstr "Путь от А до Я"
 
 #: src/embed-actions.ts
 msgid "Path copied."
-msgstr ""
+msgstr "Путь скопирован."
 
 #: src/TypeBrowser.tsx
 msgid "Path folder"
-msgstr ""
+msgstr "Папка в пути"
 
 #: src/TypeBrowser.tsx
 msgid "Path matches any"
-msgstr ""
+msgstr "Путь соответствует любому"
 
 #: src/TypeBrowser.tsx
 msgid "Path pattern"
-msgstr ""
+msgstr "Шаблон пути"
 
 #: src/TypeBrowser.tsx
 msgid "Path patterns with an unsupported value"
-msgstr ""
+msgstr "Шаблоны путей с неподдерживаемым значением"
 
 #: src/type-presentation.ts
 #: src/type-schema.ts
 #: src/TypeBrowser.tsx
 msgid "Path policy"
-msgstr ""
+msgstr "Политика путей"
 
 #: src/TypeBrowser.tsx
 msgid "Path template"
-msgstr ""
+msgstr "Шаблон создания пути"
 
 #. placeholder {0}: collectionRuleLabel(key)
 #: src/TypeBrowser.tsx
 msgid "Path: {0}"
-msgstr ""
+msgstr "Путь: {0}"
 
 #: src/TypeBrowser.tsx
 msgid "Pattern"
-msgstr ""
+msgstr "Шаблон"
 
 #: src/code-editor-file-embeds.ts
 msgid "PDF embed, {filename}"
-msgstr ""
+msgstr "Встроенный PDF: {filename}"
 
 #: src/EmbedPdfViewer.tsx
 msgid "PDF viewer, {filename}"
-msgstr ""
+msgstr "Просмотр PDF: {filename}"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Persisted null"
-msgstr ""
+msgstr "Сохранённое пустое значение"
 
 #: src/YourPersonPanel.tsx
 msgid "Person definitions needed"
-msgstr ""
+msgstr "Требуются определения Person"
 
 #: src/TypeBrowser.tsx
 msgid "person or any"
-msgstr ""
+msgstr "Person или любой тип"
 
 #: src/YourPersonPanel.tsx
 msgid "Person type"
-msgstr ""
+msgstr "Тип Person"
 
 #: src/YourPersonPanel.tsx
 msgid "Person type kept as it is"
-msgstr ""
+msgstr "Тип Person сохранён без изменений"
 
 #: src/YourPersonPanel.tsx
 msgid "Person type update available"
-msgstr ""
+msgstr "Доступно обновление типа Person"
 
 #: src/TypeBrowser.tsx
 msgid "Phosphor icons"
-msgstr ""
+msgstr "Значки Phosphor"
 
 #: src/TypeBrowser.tsx
 msgid "Phosphor Regular"
-msgstr ""
+msgstr "Phosphor Regular"
 
 #: src/editor-commands.ts
 msgid "Pin"
-msgstr ""
+msgstr "Закрепить"
 
 #: src/collection-browser.ts
 msgid "Pinned"
@@ -3861,38 +3861,38 @@ msgstr "Закреплено"
 
 #: src/TypeBrowser.tsx
 msgid "Portable <0>{field}</0> placeholders."
-msgstr ""
+msgstr "Переносимые заполнители <0>{field}</0>."
 
 #: src/TypeBrowser.tsx
 msgid "Possible app compatibility"
-msgstr ""
+msgstr "Возможная совместимость с приложениями"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Preferences stay in this browser."
-msgstr ""
+msgstr "Настройки сохраняются в этом браузере."
 
 #. placeholder {0}: upload.name
 #: src/AttachmentUpload.tsx
 msgid "Preparing “{0}”…"
-msgstr ""
+msgstr "Подготовка «{0}»…"
 
 #: src/MarkdownNoteEditor.tsx
 msgid "Preparing editor…"
-msgstr ""
+msgstr "Подготовка редактора…"
 
 #: src/LoadingScreens.tsx
 msgid "Preparing type list…"
-msgstr ""
+msgstr "Подготовка списка типов…"
 
 #: src/LoadingScreens.tsx
 msgid "Preparing type workspace…"
-msgstr ""
+msgstr "Подготовка рабочего пространства типов…"
 
 #: src/code-editor-file-embeds.ts
 #: src/FileViewer.tsx
 msgid "Preview {filename}"
-msgstr ""
+msgstr "Предпросмотр {filename}"
 
 #. placeholder {0}: formatBytes(this.maxPreviewBytes)
 #. placeholder {1}: formatBytes(entry.file.size)
