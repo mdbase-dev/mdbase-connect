@@ -5095,309 +5095,309 @@ msgstr "Результат загрузки файла неизвестен."
 
 #: src/AttachmentUpload.tsx
 msgid "The file was uploaded, but the note changed before its link could be inserted."
-msgstr ""
+msgstr "Файл загружен, но заметка изменилась до вставки ссылки на него."
 
 #: src/App.tsx
 msgid "The folder’s notes changed. Review the folder change again."
-msgstr ""
+msgstr "Заметки папки изменились. Проверьте изменение папки ещё раз."
 
 #: src/note-session.ts
 msgid "The interrupted operation removed this note. No new write was attempted."
-msgstr ""
+msgstr "Прерванная операция удалила эту заметку. Новая запись данных не предпринималась."
 
 #: src/i18n/LanguageSetting.tsx
 msgctxt "editor language preference"
 msgid "The language choice could not be applied. Please try again."
-msgstr ""
+msgstr "Не удалось применить выбор языка. Повторите попытку."
 
 #: src/TypeBrowser.tsx
 msgid "The linked schema does not expose object fields."
-msgstr ""
+msgstr "Связанная схема не предоставляет поля объектов."
 
 #: src/use-note-actions.ts
 msgid "The move did not complete."
-msgstr ""
+msgstr "Перемещение не завершено."
 
 #: src/next-editor-records.ts
 msgid "The native receipt changed its mutation identity."
-msgstr ""
+msgstr "В подтверждении источника изменился идентификатор операции."
 
 #: src/next-editor-records.ts
 msgid "The native write changed its mutation identity."
-msgstr ""
+msgstr "При записи в источник изменился идентификатор операции."
 
 #: src/App.tsx
 msgid "The new type definition hasn’t been saved."
-msgstr ""
+msgstr "Новое определение типа ещё не сохранено."
 
 #: src/next-editor-records.ts
 msgid "The note change was rejected."
-msgstr ""
+msgstr "Изменение заметки отклонено."
 
 #: src/NewNoteComposer.tsx
 msgid "The note could not be created."
-msgstr ""
+msgstr "Не удалось создать заметку."
 
 #: src/AttachmentUpload.tsx
 #: src/code-editor-file-embeds.ts
 msgid "The note is no longer editable."
-msgstr ""
+msgstr "Заметку больше нельзя редактировать."
 
 #: src/ConflictResolver.tsx
 msgid "The note metadata changed, but the title and body match your edits."
-msgstr ""
+msgstr "Метаданные заметки изменились, но название и текст совпадают с вашими правками."
 
 #: src/App.tsx
 msgid "The note or attachment index is refreshing. Wait for it to finish, then review the folder change again."
-msgstr ""
+msgstr "Индекс заметок или вложений обновляется. Дождитесь завершения и проверьте изменение папки ещё раз."
 
 #: src/next-editor-records.ts
 msgid "The original complete note source is unavailable."
-msgstr ""
+msgstr "Полный исходный текст оригинала заметки недоступен."
 
 #: src/person-records.ts
 msgid "The person identity field must be an array."
-msgstr ""
+msgstr "Поле идентификатора пользователя должно быть массивом."
 
 #: src/person-records.ts
 msgid "The Person mappings conflict with existing Contact fields. Configure non-overlapping mappings first."
-msgstr ""
+msgstr "Сопоставления Person конфликтуют с существующими полями Contact. Сначала настройте сопоставления без пересечений."
 
 #: src/YourPersonPanel.tsx
 msgid "The record's display name belongs to this collection and is not synchronised with your account."
-msgstr ""
+msgstr "Отображаемое имя записи относится к этой коллекции и не синхронизируется с вашей учётной записью."
 
 #: src/App.tsx
 msgid "The recovery copy could not be removed from this browser."
-msgstr ""
+msgstr "Не удалось удалить копию для восстановления из этого браузера."
 
 #: src/use-note-actions.ts
 msgid "The renamed note is no longer available to restore."
-msgstr ""
+msgstr "Переименованную заметку больше нельзя восстановить."
 
 #: src/next-editor-records.ts
 msgid "The saved note changed its record identity."
-msgstr ""
+msgstr "У сохранённой заметки изменился идентификатор записи."
 
 #: src/type-schema.ts
 msgid "The schema path does not identify an object field."
-msgstr ""
+msgstr "Путь схемы не указывает на поле объекта."
 
 #: src/YourPersonPanel.tsx
 msgid "The selected collection changed. Open its person settings again."
-msgstr ""
+msgstr "Выбранная коллекция изменилась. Откройте её настройки записи о пользователе ещё раз."
 
 #: src/gateway.ts
 #: src/native-gateway.ts
 msgid "The selected collection is not ready."
-msgstr ""
+msgstr "Выбранная коллекция не готова."
 
 #: src/native-file-download.ts
 msgid "The selected file has an invalid size."
-msgstr ""
+msgstr "Выбранный файл имеет недопустимый размер."
 
 #: src/TypeBrowser.tsx
 msgid "The source changed without altering declared fields."
-msgstr ""
+msgstr "Исходный текст изменился, но объявленные поля остались прежними."
 
 #: src/TypeBrowser.tsx
 msgid "The stable name used by records and connected apps."
-msgstr ""
+msgstr "Постоянное имя, используемое записями и подключёнными приложениями."
 
 #: src/person-records.ts
 msgid "The target {targetField} field contains different data. Configure a non-conflicting mapping first."
-msgstr ""
+msgstr "Целевое поле {targetField} содержит другие данные. Сначала настройте сопоставление без конфликта."
 
 #: src/person-records.ts
 msgid "The target person name field contains different data. Configure a non-conflicting mapping first."
-msgstr ""
+msgstr "Целевое поле имени пользователя содержит другие данные. Сначала настройте сопоставление без конфликта."
 
 #: src/person-records.ts
 msgid "The target person type is unavailable."
-msgstr ""
+msgstr "Целевой тип записи о пользователе недоступен."
 
 #: src/person-records.ts
 msgid "The target type cannot retain the contact's {canonical} field. Configure that mapping first."
-msgstr ""
+msgstr "Целевой тип не может сохранить поле контакта {canonical}. Сначала настройте его сопоставление."
 
 #: src/person-records.ts
 msgid "The target type would overwrite {key}. Configure compatible mappings first."
-msgstr ""
+msgstr "Целевой тип перезапишет {key}. Сначала настройте совместимые сопоставления."
 
 #: src/code-editor-file-embeds.ts
 msgid "The text preview could not be opened."
-msgstr ""
+msgstr "Не удалось открыть предпросмотр текста."
 
 #: src/code-editor-note-embeds.ts
 #: src/note-embeds.ts
 msgid "The transcluded note could not be opened."
-msgstr ""
+msgstr "Не удалось открыть встроенную заметку."
 
 #: src/native-gateway.ts
 msgid "The type {name} is not defined in this collection."
-msgstr ""
+msgstr "Тип {name} не определён в этой коллекции."
 
 #: src/type-contracts.ts
 #: src/type-schema.ts
 msgid "The type definition must be a YAML object."
-msgstr ""
+msgstr "Определение типа должно быть объектом YAML."
 
 #: src/type-contracts.ts
 msgid "the type field"
-msgstr ""
+msgstr "поле типа"
 
 #: src/contract-catalog.ts
 msgid "The type pack"
-msgstr ""
+msgstr "Пакет типов"
 
 #: src/contract-catalog.ts
 msgid "The type pack contains an unexpected resource {source}."
-msgstr ""
+msgstr "В пакете типов есть неожиданный ресурс {source}."
 
 #: src/contract-catalog.ts
 msgid "The type pack contains duplicate source {source}."
-msgstr ""
+msgstr "В пакете типов повторяется исходный ресурс {source}."
 
 #: src/TypeBrowser.tsx
 msgid "The type pack could not be installed."
-msgstr ""
+msgstr "Не удалось установить пакет типов."
 
 #: src/contract-catalog.ts
 msgid "The type pack does not contain every declared resource."
-msgstr ""
+msgstr "В пакете типов есть не все объявленные ресурсы."
 
 #: src/contract-catalog.ts
 msgid "The type pack does not match its catalog digest."
-msgstr ""
+msgstr "Контрольная сумма пакета типов не совпадает с каталогом."
 
 #: src/contract-catalog.ts
 msgid "The type pack does not provide the contracts declared by the catalog."
-msgstr ""
+msgstr "Пакет типов не предоставляет контракты, объявленные каталогом."
 
 #: src/contract-catalog.ts
 msgid "The type pack is larger than the editor can install."
-msgstr ""
+msgstr "Пакет типов слишком велик для установки редактором."
 
 #: src/contract-catalog.ts
 msgid "The type pack is not valid JSON."
-msgstr ""
+msgstr "Пакет типов не является допустимым JSON."
 
 #. placeholder {0}: response.status
 #: src/contract-catalog.ts
 msgid "The type pack returned {0}."
-msgstr ""
+msgstr "Пакет типов вернул {0}."
 
 #: src/YourPersonPanel.tsx
 msgid "The type used when linking a record to you."
-msgstr ""
+msgstr "Тип, используемый для связи записи с вами."
 
 #: src/contract-catalog.ts
 msgid "The type-pack identity does not match the catalog."
-msgstr ""
+msgstr "Идентификатор пакета типов не совпадает с каталогом."
 
 #: src/contract-catalog.ts
 msgid "The type-pack manifest"
-msgstr ""
+msgstr "Манифест пакета типов"
 
 #: src/contract-catalog.ts
 msgid "The type-pack manifest has an unsupported kind."
-msgstr ""
+msgstr "Манифест пакета типов содержит неподдерживаемый вид."
 
 #: src/contract-catalog.ts
 msgid "The type-pack resource count does not match the catalog."
-msgstr ""
+msgstr "Число ресурсов пакета типов не совпадает с каталогом."
 
 #: src/App.tsx
 msgid "The unfinished folder hasn’t been created."
-msgstr ""
+msgstr "Незавершённая папка ещё не создана."
 
 #: src/App.tsx
 msgid "The unfinished note hasn’t been created."
-msgstr ""
+msgstr "Незавершённая заметка ещё не создана."
 
 #: src/App.tsx
 msgid "The unfinished note or folder will be discarded. Saved note and property changes will finish first."
-msgstr ""
+msgstr "Незавершённая заметка или папка будет удалена. Сначала завершится сохранение заметок и свойств."
 
 #: src/TypeBrowser.tsx
 msgid "The YAML source could not be read."
-msgstr ""
+msgstr "Не удалось прочитать исходный YAML."
 
 #: src/TypeBrowser.tsx
 msgid "Their current structural rules will be replaced."
-msgstr ""
+msgstr "Их текущие структурные правила будут заменены."
 
 #: src/folder-change.ts
 msgid "There are no notes to move in this folder."
-msgstr ""
+msgstr "В этой папке нет заметок для перемещения."
 
 #: src/person-setup.ts
 msgid "These definitions need review in Types. No files have been changed."
-msgstr ""
+msgstr "Эти определения требуют проверки в разделе «Типы». Файлы не изменены."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "These properties are not described by this note's type. Other apps may use them."
-msgstr ""
+msgstr "Эти свойства не описаны типом заметки. Их могут использовать другие приложения."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "These properties must be persisted before this record is valid."
-msgstr ""
+msgstr "Эти свойства необходимо сохранить, чтобы запись стала действительной."
 
 #: src/App.tsx
 msgid "This application does not have permission to make that change."
-msgstr ""
+msgstr "У этого приложения нет разрешения на такое изменение."
 
 #. placeholder {0}: conversion.path
 #. placeholder {1}: conversion.typeName
 #: src/YourPersonPanel.tsx
 msgid "This changes only <0>{0}</0> to the <1>{1}</1> type, which implements both Person and Contact. Its contact information and Markdown body are retained. No other contacts or type definitions are changed."
-msgstr ""
+msgstr "Это изменит только тип <0>{0}</0> на <1>{1}</1>, который реализует Person и Contact. Контактные данные и текст Markdown сохранятся. Другие контакты и определения типов не изменятся."
 
 #: src/App.tsx
 msgid "this collection"
-msgstr ""
+msgstr "эта коллекция"
 
 #: src/TypeBrowser.tsx
 msgid "This collection has explicit type assignment disabled. Every note is classified by automatic rules."
-msgstr ""
+msgstr "В этой коллекции отключено явное указание типа. Каждая заметка классифицируется по автоматическим правилам."
 
 #: src/YourPersonPanel.tsx
 msgid "This collection has no Connect account identity."
-msgstr ""
+msgstr "У этой коллекции нет данных учётной записи Connect."
 
 #: src/TypeBrowser.tsx
 msgid "This collection has no type definitions yet."
-msgstr ""
+msgstr "В этой коллекции пока нет определений типов."
 
 #: src/TypeBrowser.tsx
 msgid "This collection has no type definitions."
-msgstr ""
+msgstr "В этой коллекции нет определений типов."
 
 #: src/NoteList.tsx
 msgid "This collection is empty."
-msgstr ""
+msgstr "Эта коллекция пуста."
 
 #: src/native-gateway.ts
 #: src/native-note-observation.ts
 #: src/next-editor-records.ts
 msgid "This collection is no longer open in mdbase editor."
-msgstr ""
+msgstr "Эта коллекция больше не открыта в mdbase editor."
 
 #: src/gateway.ts
 msgid "This collection needs authorization again. Choose the collection to continue."
-msgstr ""
+msgstr "Для этой коллекции нужно повторно подтвердить доступ. Выберите коллекцию для продолжения."
 
 #: src/YourPersonPanel.tsx
 msgid "This collection needs person definitions before you can create or link a person record. Nothing will be added without your approval."
-msgstr ""
+msgstr "Прежде чем создавать или связывать запись о пользователе, нужно добавить в коллекцию определения Person. Без вашего согласия ничего не будет добавлено."
 
 #: src/person-records.ts
 msgid "This collection uses implicit type selection. Configure the contact's type explicitly in Types before linking."
-msgstr ""
+msgstr "Эта коллекция использует неявный выбор типа. Прежде чем создавать связь, явно настройте тип контакта в разделе «Типы»."
 
 #: src/YourPersonPanel.tsx
 msgid "This collection's Person type was not added from a Person starter that can be upgraded automatically, so it has not been changed. "
-msgstr ""
+msgstr "Тип Person в этой коллекции создан не из начального шаблона Person, допускающего автоматическое обновление, поэтому он не изменён. "
 
 #: src/settings/SettingsView.tsx
 msgctxt "connection route"
@@ -5411,140 +5411,140 @@ msgstr "Этот компьютер"
 
 #: src/person-records.ts
 msgid "This contact has another explicit type. Review its type declarations in the editor first."
-msgstr ""
+msgstr "У этого контакта явно указан другой тип. Сначала проверьте его объявления типов в редакторе."
 
 #: src/TypeBrowser.tsx
 msgid "This contract does not expose simple top-level properties. Configure its field references in YAML."
-msgstr ""
+msgstr "Этот контракт не предоставляет простые свойства верхнего уровня. Настройте ссылки на его поля в YAML."
 
 #: src/use-session-lifecycle.ts
 msgid "This editor session has been closed."
-msgstr ""
+msgstr "Этот сеанс редактора закрыт."
 
 #: src/TypeBrowser.tsx
 msgid "This exact contract is not available in the collection. Restore it or remove the implementation before saving."
-msgstr ""
+msgstr "Этот контракт отсутствует в коллекции. Восстановите его или удалите реализацию перед сохранением."
 
 #: src/gateway.ts
 #: src/native-file-download.ts
 msgid "This file changed. Reload its preview."
-msgstr ""
+msgstr "Файл изменился. Перезагрузите его предпросмотр."
 
 #: src/native-file-download.ts
 msgid "This file exceeds the download limit."
-msgstr ""
+msgstr "Размер файла превышает ограничение скачивания."
 
 #: src/native-gateway.ts
 msgid "This file has no native confirmation metadata. Reload its preview."
-msgstr ""
+msgstr "У файла нет метаданных подтверждения источника. Перезагрузите его предпросмотр."
 
 #: src/gateway.ts
 msgid "This file no longer exists."
-msgstr ""
+msgstr "Файл больше не существует."
 
 #: src/native-file-download.ts
 #: src/native-gateway.ts
 msgid "This file selection is no longer current."
-msgstr ""
+msgstr "Выбранный файл больше не актуален."
 
 #: src/native-gateway.ts
 msgid "This file upload is not confirmed. Resolve its original operation before trying again."
-msgstr ""
+msgstr "Загрузка файла не подтверждена. Разрешите исходную операцию перед повторной попыткой."
 
 #: src/folder-change.ts
 msgid "This folder contains attachments. Moving them cannot yet preserve embedded file references. Move the notes individually instead; attachments will stay in place."
-msgstr ""
+msgstr "В этой папке есть вложения. При их перемещении пока нельзя сохранить встроенные ссылки на файлы. Перемещайте заметки по отдельности: вложения останутся на месте."
 
 #: src/App.tsx
 msgid "This note already moved elsewhere."
-msgstr ""
+msgstr "Эта заметка уже перемещена в другое место."
 
 #: src/next-editor-records.ts
 msgid "This note change has a conflict. Resolve it before continuing."
-msgstr ""
+msgstr "При изменении этой заметки возник конфликт. Разрешите его, прежде чем продолжать."
 
 #: src/next-editor-records.ts
 msgid "This note change is not confirmed. Check the interrupted operation before trying again."
-msgstr ""
+msgstr "Изменение заметки не подтверждено. Проверьте прерванную операцию перед повторной попыткой."
 
 #: src/next-editor-records.ts
 msgid "This note changed after it was opened. Reload before saving."
-msgstr ""
+msgstr "Заметка изменилась после открытия. Перезагрузите её перед сохранением."
 
 #: src/ConflictResolver.tsx
 msgid "This note changed elsewhere"
-msgstr ""
+msgstr "Эта заметка изменена в другом месте"
 
 #: src/use-note-actions.ts
 msgid "This note finished saving after Source was opened. Your source draft is preserved; close and reopen the panel to start from the latest record."
-msgstr ""
+msgstr "Сохранение заметки завершилось после открытия исходного текста. Ваш черновик исходного текста сохранён; закройте и снова откройте панель, чтобы начать с последней версии записи."
 
 #. placeholder {0}: reference.anchor
 #: src/code-editor-reference-diagnostics.ts
 msgid "This note has no “{0}” section or block."
-msgstr ""
+msgstr "В этой заметке нет раздела или блока «{0}»."
 
 #: src/use-note-actions.ts
 msgid "This note moved before the rename check could begin."
-msgstr ""
+msgstr "Заметку переместили до начала проверки переименования."
 
 #: src/use-note-actions.ts
 msgid "This note moved before the rename could begin."
-msgstr ""
+msgstr "Заметку переместили до начала переименования."
 
 #: src/type-contracts.ts
 msgid "This optional contract field is not exposed."
-msgstr ""
+msgstr "Это необязательное поле контракта не предоставляется."
 
 #: src/catalog-pack-installation.tsx
 msgid "This pack conflicts with collection definitions."
-msgstr ""
+msgstr "Этот пакет конфликтует с определениями коллекции."
 
 #: src/use-note-actions.ts
 msgid "This property is not declared by the note’s type."
-msgstr ""
+msgstr "Это свойство не объявлено типом заметки."
 
 #: src/YourPersonPanel.tsx
 msgid "This record is already a person record. Reload these settings."
-msgstr ""
+msgstr "Эта запись уже является записью о пользователе. Перезагрузите настройки."
 
 #: src/YourPersonPanel.tsx
 msgid "This record is already linked to another account. Linking it to yours means you will both see its assignments as your own. Only continue if this record really represents you."
-msgstr ""
+msgstr "Эта запись уже связана с другой учётной записью. Если связать её с вашей, вы оба будете видеть её назначения как собственные. Продолжайте, только если запись действительно представляет вас."
 
 #. placeholder {0}: formatList(conversionImpact)
 #. placeholder {0}: formatList(impact)
 #: src/TypeBrowser.tsx
 msgid "This removes {0}."
-msgstr ""
+msgstr "Это уберёт {0}."
 
 #: src/App.tsx
 msgid "This removes the saved connection from this browser. It does not delete the collection or its files, and it does not revoke mdbase editor’s access in mdbase connect."
-msgstr ""
+msgstr "Это удалит сохранённое подключение из этого браузера. Коллекция и её файлы не удалятся, а доступ mdbase editor в mdbase connect не будет отозван."
 
 #: src/Toasts.tsx
 msgid "This rename was interrupted after it started. Resume it to recover the collection’s authoritative result."
-msgstr ""
+msgstr "Переименование было прервано после начала. Продолжите его, чтобы получить подтверждённый коллекцией результат."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "This required property is missing."
-msgstr ""
+msgstr "Отсутствует обязательное свойство."
 
 #: src/code-editor-note-embeds.ts
 msgid "This transcluded note could not be resolved."
-msgstr ""
+msgstr "Не удалось разрешить встроенную заметку."
 
 #: src/TypeBrowser.tsx
 msgid "This type"
-msgstr ""
+msgstr "Этот тип"
 
 #: src/native-gateway.ts
 msgid "This type changed after it was saved. Reload it before editing again."
-msgstr ""
+msgstr "Этот тип изменился после сохранения. Перезагрузите его перед новым редактированием."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "This value does not match the required format."
-msgstr ""
+msgstr "Значение не соответствует требуемому формату."
 
 #: src/NewNoteComposer.tsx
 msgid "Title"
@@ -5552,15 +5552,15 @@ msgstr "Название"
 
 #: src/note-list-view.ts
 msgid "Title A–Z"
-msgstr ""
+msgstr "Название от А до Я"
 
 #: src/ConflictResolver.tsx
 msgid "Title differences"
-msgstr ""
+msgstr "Различия в названии"
 
 #: src/NewNoteComposer.tsx
 msgid "Title the first note to create the folder."
-msgstr ""
+msgstr "Назовите первую заметку, чтобы создать папку."
 
 #: src/collection-browser.ts
 msgid "Today"
@@ -5568,31 +5568,31 @@ msgstr "Сегодня"
 
 #: src/editor-commands.ts
 msgid "Toggle Vim key bindings"
-msgstr ""
+msgstr "Переключить сочетания клавиш Vim"
 
 #. placeholder {0}: file.path
 #: src/code-editor-completions.ts
 msgid "Transclude file · {0}"
-msgstr ""
+msgstr "Встроить файл · {0}"
 
 #. placeholder {0}: suggestionDetail(suggestion, label)
 #: src/code-editor-completions.ts
 msgid "Transclude note · {0}"
-msgstr ""
+msgstr "Встроить заметку · {0}"
 
 #: src/code-editor-completions.ts
 msgid "Transclude note or file"
-msgstr ""
+msgstr "Встроить заметку или файл"
 
 #. placeholder {0}: reference.title
 #: src/code-editor-note-embeds.ts
 msgid "Transclusion of {0}"
-msgstr ""
+msgstr "Встраивание {0}"
 
 #. placeholder {0}: target.trim()
 #: src/code-editor-note-embeds.ts
 msgid "Transclusion: {0}"
-msgstr ""
+msgstr "Встраивание: {0}"
 
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
@@ -5612,19 +5612,19 @@ msgstr "Тип"
 #. placeholder {0}: filter.value
 #: src/note-list-view.ts
 msgid "Type · {0}"
-msgstr ""
+msgstr "Тип · {0}"
 
 #: src/WorkspaceChrome.tsx
 msgid "Type access"
-msgstr ""
+msgstr "Доступ к типам"
 
 #: src/WorkspaceChrome.tsx
 msgid "Type access needed"
-msgstr ""
+msgstr "Требуется доступ к типам"
 
 #: src/type-schema.ts
 msgid "Type definitions must declare kind: mdbase.type."
-msgstr ""
+msgstr "В определениях типов должен быть указан kind: mdbase.type."
 
 #: src/CodeEditor.tsx
 msgid "Type definitions need a closing --- frontmatter marker."
