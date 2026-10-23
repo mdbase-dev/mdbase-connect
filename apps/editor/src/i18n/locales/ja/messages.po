@@ -4851,493 +4851,493 @@ msgstr "そのリンクは作成可能な Markdown ノートを指していま�
 
 #: src/use-note-actions.ts
 msgid "That note changed after linking. Undo would overwrite its newer text."
-msgstr ""
+msgstr "リンク後にそのノートが変更されました。元に戻すと新しいテキストが上書きされます。"
 
 #: src/unlinked-mentions.ts
 msgid "That note changed. Find its mentions again before linking."
-msgstr ""
+msgstr "そのノートが変更されました。リンクする前にメンションを再検索してください。"
 
 #. placeholder {0}: implementation.typeName
 #: src/person-records.ts
 msgid "The {0} type needs a writable {field} mapping for mdbase.person."
-msgstr ""
+msgstr "{0}型には、mdbase.person用の書き込み可能な{field}の対応付けが必要です。"
 
 #: src/native-gateway.ts
 msgid "The {subject} has a conflict. Resolve it before continuing."
-msgstr ""
+msgstr "{subject}に競合があります。続行前に解決してください。"
 
 #: src/native-gateway.ts
 msgid "The {subject} is not confirmed yet. Check the collection before trying again."
-msgstr ""
+msgstr "{subject}はまだ確認されていません。再試行する前にコレクションを確認してください。"
 
 #: src/native-gateway.ts
 msgid "The {subject} was rejected."
-msgstr ""
+msgstr "{subject}は拒否されました。"
 
 #. placeholder {0}: outdatedStarter!.typeName
 #: src/YourPersonPanel.tsx
 msgid "The <0>{0}</0> type is an earlier Person starter. Review the current starter before creating your record. Nothing will change without your approval."
-msgstr ""
+msgstr "<0>{0}</0>型は以前の Person 初期型です。レコードを作成する前に現在の初期型を確認してください。承認なしに変更されることはありません。"
 
 #: src/TypeBrowser.tsx
 msgid "The after-save preview is unavailable because additional YAML rules must be evaluated by the collection."
-msgstr ""
+msgstr "追加の YAML ルールをコレクション側で評価する必要があるため、保存後のプレビューは利用できません。"
 
 #: src/TypeBrowser.tsx
 msgid "The after-save preview is unavailable because some matching rules must be evaluated by the collection."
-msgstr ""
+msgstr "一致条件の一部をコレクション側で評価する必要があるため、保存後のプレビューは利用できません。"
 
 #: src/contract-catalog.ts
 msgid "The catalog contains duplicate {label} {identity}."
-msgstr ""
+msgstr "カタログに重複した{label} {identity}が含まれています。"
 
 #: src/TypeBrowser.tsx
 msgid "The catalog has no published types."
-msgstr ""
+msgstr "カタログに公開済みの型がありません。"
 
 #: src/collection-mutation-scope.ts
 msgid "The collection changed before this operation completed."
-msgstr ""
+msgstr "操作が完了する前にコレクションが変更されました。"
 
 #: src/native-gateway.ts
 msgid "The collection changed since this setup was reviewed. Review it again."
-msgstr ""
+msgstr "設定の確認後にコレクションが変更されました。もう一度確認してください。"
 
 #: src/native-note-observation.ts
 msgid "The collection changed while its notes were loading. Reload to try again."
-msgstr ""
+msgstr "ノートの読み込み中にコレクションが変更されました。再読み込みして再試行してください。"
 
 #: src/YourPersonPanel.tsx
 msgid "The collection changed. Review person setup again."
-msgstr ""
+msgstr "コレクションが変更されました。人物の設定を再確認してください。"
 
 #: src/App.tsx
 msgid "The collection changed. Review the folder change again."
-msgstr ""
+msgstr "コレクションが変更されました。フォルダーの変更を再確認してください。"
 
 #: src/gateway.ts
 msgid "The collection could not be reached."
-msgstr ""
+msgstr "コレクションに接続できませんでした。"
 
 #: src/native-note-observation.ts
 msgid "The collection could not be read."
-msgstr ""
+msgstr "コレクションを読み取れませんでした。"
 
 #: src/SdkEditorRoot.tsx
 msgid "The collection couldn't be opened. Try again."
-msgstr ""
+msgstr "コレクションを開けませんでした。再試行してください。"
 
 #: src/native-note-observation.ts
 msgid "The collection did not return a complete list of notes."
-msgstr ""
+msgstr "コレクションからノートの完全な一覧が返されませんでした。"
 
 #: src/native-gateway.ts
 msgid "The collection did not return every file."
-msgstr ""
+msgstr "コレクションからすべてのファイルが返されませんでした。"
 
 #: src/native-gateway.ts
 msgid "The collection did not return every record for this contract."
-msgstr ""
+msgstr "コレクションからこの契約のすべてのレコードが返されませんでした。"
 
 #: src/native-gateway.ts
 msgid "The collection did not return this type definition's source."
-msgstr ""
+msgstr "コレクションからこの型定義のソースが返されませんでした。"
 
 #: src/native-gateway.ts
 msgid "The collection does not read this file as a type definition. Check its name and kind."
-msgstr ""
+msgstr "コレクションがこのファイルを型定義として読み取りません。名前と種類を確認してください。"
 
 #: src/file-inventory-controller.ts
 msgid "The collection files could not be read."
-msgstr ""
+msgstr "コレクションのファイルを読み取れませんでした。"
 
 #: src/catalog-pack-installation.tsx
 msgid "The collection has older unmanaged files at the pack’s managed paths."
-msgstr ""
+msgstr "パックが管理するパスに、管理対象外の古いファイルがあります。"
 
 #: src/native-gateway.ts
 msgid "The collection listed a file twice."
-msgstr ""
+msgstr "コレクションが同じファイルを2回列挙しました。"
 
 #: src/native-gateway.ts
 msgid "The collection repeated a file page."
-msgstr ""
+msgstr "コレクションが同じファイルのページを繰り返しました。"
 
 #: src/native-gateway.ts
 msgid "The collection repeated a query page."
-msgstr ""
+msgstr "コレクションが同じクエリのページを繰り返しました。"
 
 #: src/native-gateway.ts
 msgid "The collection returned a file without its content digest."
-msgstr ""
+msgstr "コレクションから内容のダイジェストがないファイルが返されました。"
 
 #: src/native-note-observation.ts
 msgid "The collection returned a note twice. Reload to try again."
-msgstr ""
+msgstr "コレクションから同じノートが2回返されました。再読み込みして再試行してください。"
 
 #: src/SdkEditorRoot.tsx
 msgid "The collection session has ended."
-msgstr ""
+msgstr "コレクションのセッションが終了しました。"
 
 #: src/SdkEditorRoot.tsx
 msgid "The collection that opened isn't the one you chose."
-msgstr ""
+msgstr "開いたコレクションは選択したものと異なります。"
 
 #: src/native-note-observation.ts
 msgid "The collection watch stopped."
-msgstr ""
+msgstr "コレクションの監視が停止しました。"
 
 #: src/next-editor-records.ts
 msgid "The complete note source does not match its native revision. No source was reconstructed or submitted."
-msgstr ""
+msgstr "ノートの完全なソースはネイティブのリビジョンと一致しません。ソースの再構築や送信は行われていません。"
 
 #: src/gateway.ts
 msgid "The computer holding this collection is offline."
-msgstr ""
+msgstr "このコレクションを保持するコンピューターはオフラインです。"
 
 #: src/person-records.ts
 msgid "The contact needs a display name."
-msgstr ""
+msgstr "連絡先には表示名が必要です。"
 
 #: src/contract-catalog.ts
 msgid "The contract catalog"
-msgstr ""
+msgstr "契約カタログ"
 
 #: src/App.tsx
 msgid "The contract catalog could not be loaded."
-msgstr ""
+msgstr "契約カタログを読み込めませんでした。"
 
 #: src/contract-catalog.ts
 msgid "The contract catalog publisher"
-msgstr ""
+msgstr "契約カタログの公開元"
 
 #. placeholder {0}: response.status
 #: src/contract-catalog.ts
 msgid "The contract catalog returned {0}."
-msgstr ""
+msgstr "契約カタログから{0}が返されました。"
 
 #: src/contract-catalog.ts
 msgid "The contract catalog uses an unsupported version."
-msgstr ""
+msgstr "契約カタログは未対応のバージョンを使用しています。"
 
 #: src/type-contracts.ts
 msgid "The contract field"
-msgstr ""
+msgstr "契約フィールド"
 
 #: src/native-gateway.ts
 msgid "The current file does not confirm this upload. Resolve its original operation before trying again."
-msgstr ""
+msgstr "現在のファイルからは、このアップロードを確認できません。再試行前に元の操作を解決してください。"
 
 #: src/next-editor-records.ts
 msgid "The current note is protected. Keep the original operation for recovery before reporting it as saved."
-msgstr ""
+msgstr "現在のノートは保護されています。保存済みとして報告する前に、復元のため元の操作を保持してください。"
 
 #: src/TypeBrowser.tsx
 msgid "the current rules"
-msgstr ""
+msgstr "現在のルール"
 
 #: src/catalog-pack-installation.tsx
 msgid "The definitions changed while they were being reviewed."
-msgstr ""
+msgstr "確認中に定義が変更されました。"
 
 #: src/folder-change.ts
 msgid "The destination folder “{to}” already exists. Choose another name or move its notes individually; folders are not merged automatically."
-msgstr ""
+msgstr "移動先のフォルダー「{to}」はすでに存在します。別の名前を選ぶか、ノートを個別に移動してください。フォルダーは自動的には統合されません。"
 
 #: src/App.tsx
 msgid "The details you entered haven’t been created yet."
-msgstr ""
+msgstr "入力した詳細はまだ作成されていません。"
 
 #: src/YourPersonPanel.tsx
 msgid "The Editor can link a person record only to an identity you let it read. Approve the Editor again for this collection and allow “See your account identity and display name”."
-msgstr ""
+msgstr "エディターが人物レコードをリンクするには、閲覧を許可された識別情報が必要です。このコレクションでエディターを再度承認し、「アカウントの識別情報と表示名を閲覧」を許可してください。"
 
 #: src/ConnectionScreens.tsx
 msgid "The editor opens mdbase 0.3 collections. For an older collection, use mdbase to upgrade a copy, verify that copy, then choose it here. Your original files can stay untouched while you check the result."
-msgstr ""
+msgstr "エディターはmdbase 0.3のコレクションを開きます。古いコレクションの場合は、mdbaseでコピーをアップグレードし、そのコピーを検証してからここで選択してください。結果を確認する間、元のファイルは変更せずに残せます。"
 
 #: src/native-gateway.ts
 msgid "The editor requires its original SDK collection client."
-msgstr ""
+msgstr "エディターには元の SDK コレクションクライアントが必要です。"
 
 #: src/YourPersonPanel.tsx
 msgid "The Editor was not approved."
-msgstr ""
+msgstr "エディターは承認されませんでした。"
 
 #: src/catalog-pack-installation.tsx
 msgid "The editor will replace these reviewed files and record their exact source, version, and digest in <0>mdbase.lock.yaml</0>. Future upgrades stop instead of overwriting an unexpected edit."
-msgstr ""
+msgstr "エディターは確認済みのこれらのファイルを置き換え、正確なソース、バージョン、ダイジェストを<0>mdbase.lock.yaml</0>に記録します。今後のアップグレードは、予期しない編集を上書きせずに停止します。"
 
 #: src/gateway.ts
 #: src/next-editor-records.ts
 msgid "The exact interrupted note operation is unavailable. No new write was attempted."
-msgstr ""
+msgstr "中断されたノート操作の正確な内容を利用できません。新たな書き込みは試行されていません。"
 
 #: src/file-asset-store.ts
 msgid "The file could not be opened."
-msgstr ""
+msgstr "ファイルを開けませんでした。"
 
 #: src/native-file-download.ts
 msgid "The file download limit must be between 0 and 64 MiB."
-msgstr ""
+msgstr "ファイルのダウンロード上限は0～64 MiBにしてください。"
 
 #: src/native-file-download.ts
 msgid "The file stream ended before its selected size."
-msgstr ""
+msgstr "選択したサイズに達する前にファイルのストリームが終了しました。"
 
 #: src/native-file-download.ts
 msgid "The file stream exceeded its selected size."
-msgstr ""
+msgstr "ファイルのストリームが選択したサイズを超えました。"
 
 #: src/native-gateway.ts
 msgid "The file upload outcome is unknown."
-msgstr ""
+msgstr "ファイルのアップロード結果は不明です。"
 
 #: src/AttachmentUpload.tsx
 msgid "The file was uploaded, but the note changed before its link could be inserted."
-msgstr ""
+msgstr "ファイルはアップロードされましたが、リンクの挿入前にノートが変更されました。"
 
 #: src/App.tsx
 msgid "The folder’s notes changed. Review the folder change again."
-msgstr ""
+msgstr "フォルダー内のノートが変更されました。フォルダーの変更を再確認してください。"
 
 #: src/note-session.ts
 msgid "The interrupted operation removed this note. No new write was attempted."
-msgstr ""
+msgstr "中断された操作によってこのノートは削除されました。新たな書き込みは試行されていません。"
 
 #: src/i18n/LanguageSetting.tsx
 msgctxt "editor language preference"
 msgid "The language choice could not be applied. Please try again."
-msgstr ""
+msgstr "言語の選択を適用できませんでした。再試行してください。"
 
 #: src/TypeBrowser.tsx
 msgid "The linked schema does not expose object fields."
-msgstr ""
+msgstr "リンクされたスキーマはオブジェクトのフィールドを公開していません。"
 
 #: src/use-note-actions.ts
 msgid "The move did not complete."
-msgstr ""
+msgstr "移動は完了しませんでした。"
 
 #: src/next-editor-records.ts
 msgid "The native receipt changed its mutation identity."
-msgstr ""
+msgstr "ネイティブの記録で変更操作の識別子が変わりました。"
 
 #: src/next-editor-records.ts
 msgid "The native write changed its mutation identity."
-msgstr ""
+msgstr "ネイティブの書き込みで変更操作の識別子が変わりました。"
 
 #: src/App.tsx
 msgid "The new type definition hasn’t been saved."
-msgstr ""
+msgstr "新しい型定義はまだ保存されていません。"
 
 #: src/next-editor-records.ts
 msgid "The note change was rejected."
-msgstr ""
+msgstr "ノートの変更は拒否されました。"
 
 #: src/NewNoteComposer.tsx
 msgid "The note could not be created."
-msgstr ""
+msgstr "ノートを作成できませんでした。"
 
 #: src/AttachmentUpload.tsx
 #: src/code-editor-file-embeds.ts
 msgid "The note is no longer editable."
-msgstr ""
+msgstr "ノートは編集できなくなりました。"
 
 #: src/ConflictResolver.tsx
 msgid "The note metadata changed, but the title and body match your edits."
-msgstr ""
+msgstr "ノートのメタデータが変わりましたが、タイトルと本文は編集内容と一致します。"
 
 #: src/App.tsx
 msgid "The note or attachment index is refreshing. Wait for it to finish, then review the folder change again."
-msgstr ""
+msgstr "ノートまたは添付ファイルの索引を更新中です。完了を待ってからフォルダーの変更を再確認してください。"
 
 #: src/next-editor-records.ts
 msgid "The original complete note source is unavailable."
-msgstr ""
+msgstr "元の完全なノートのソースを利用できません。"
 
 #: src/person-records.ts
 msgid "The person identity field must be an array."
-msgstr ""
+msgstr "人物の識別情報フィールドは配列にしてください。"
 
 #: src/person-records.ts
 msgid "The Person mappings conflict with existing Contact fields. Configure non-overlapping mappings first."
-msgstr ""
+msgstr "Person の対応付けが既存の Contact フィールドと競合しています。まず重複しない対応付けを設定してください。"
 
 #: src/YourPersonPanel.tsx
 msgid "The record's display name belongs to this collection and is not synchronised with your account."
-msgstr ""
+msgstr "レコードの表示名はこのコレクションに属し、アカウントとは同期されません。"
 
 #: src/App.tsx
 msgid "The recovery copy could not be removed from this browser."
-msgstr ""
+msgstr "このブラウザーから復元用のコピーを削除できませんでした。"
 
 #: src/use-note-actions.ts
 msgid "The renamed note is no longer available to restore."
-msgstr ""
+msgstr "名前を変更したノートを復元できなくなりました。"
 
 #: src/next-editor-records.ts
 msgid "The saved note changed its record identity."
-msgstr ""
+msgstr "保存済みノートのレコード識別子が変わりました。"
 
 #: src/type-schema.ts
 msgid "The schema path does not identify an object field."
-msgstr ""
+msgstr "スキーマのパスはオブジェクトフィールドを指していません。"
 
 #: src/YourPersonPanel.tsx
 msgid "The selected collection changed. Open its person settings again."
-msgstr ""
+msgstr "選択したコレクションが変わりました。人物の設定をもう一度開いてください。"
 
 #: src/gateway.ts
 #: src/native-gateway.ts
 msgid "The selected collection is not ready."
-msgstr ""
+msgstr "選択したコレクションは準備ができていません。"
 
 #: src/native-file-download.ts
 msgid "The selected file has an invalid size."
-msgstr ""
+msgstr "選択したファイルのサイズは無効です。"
 
 #: src/TypeBrowser.tsx
 msgid "The source changed without altering declared fields."
-msgstr ""
+msgstr "宣言済みのフィールドは変わらず、ソースだけが変更されました。"
 
 #: src/TypeBrowser.tsx
 msgid "The stable name used by records and connected apps."
-msgstr ""
+msgstr "レコードと接続先アプリが使用する、変わらない名前です。"
 
 #: src/person-records.ts
 msgid "The target {targetField} field contains different data. Configure a non-conflicting mapping first."
-msgstr ""
+msgstr "対象の{targetField}フィールドには別のデータがあります。先に競合しない対応付けを設定してください。"
 
 #: src/person-records.ts
 msgid "The target person name field contains different data. Configure a non-conflicting mapping first."
-msgstr ""
+msgstr "対象の人物の名前フィールドには別のデータがあります。先に競合しない対応付けを設定してください。"
 
 #: src/person-records.ts
 msgid "The target person type is unavailable."
-msgstr ""
+msgstr "対象の人物の型を利用できません。"
 
 #: src/person-records.ts
 msgid "The target type cannot retain the contact's {canonical} field. Configure that mapping first."
-msgstr ""
+msgstr "対象の型では連絡先の{canonical}フィールドを保持できません。先にその対応付けを設定してください。"
 
 #: src/person-records.ts
 msgid "The target type would overwrite {key}. Configure compatible mappings first."
-msgstr ""
+msgstr "対象の型は{key}を上書きします。先に互換性のある対応付けを設定してください。"
 
 #: src/code-editor-file-embeds.ts
 msgid "The text preview could not be opened."
-msgstr ""
+msgstr "テキストのプレビューを開けませんでした。"
 
 #: src/code-editor-note-embeds.ts
 #: src/note-embeds.ts
 msgid "The transcluded note could not be opened."
-msgstr ""
+msgstr "埋め込まれたノートを開けませんでした。"
 
 #: src/native-gateway.ts
 msgid "The type {name} is not defined in this collection."
-msgstr ""
+msgstr "型{name}はこのコレクションで定義されていません。"
 
 #: src/type-contracts.ts
 #: src/type-schema.ts
 msgid "The type definition must be a YAML object."
-msgstr ""
+msgstr "型定義は YAML オブジェクトにしてください。"
 
 #: src/type-contracts.ts
 msgid "the type field"
-msgstr ""
+msgstr "型フィールド"
 
 #: src/contract-catalog.ts
 msgid "The type pack"
-msgstr ""
+msgstr "型パック"
 
 #: src/contract-catalog.ts
 msgid "The type pack contains an unexpected resource {source}."
-msgstr ""
+msgstr "型パックに予期しないリソース{source}が含まれています。"
 
 #: src/contract-catalog.ts
 msgid "The type pack contains duplicate source {source}."
-msgstr ""
+msgstr "型パックに重複したソース{source}が含まれています。"
 
 #: src/TypeBrowser.tsx
 msgid "The type pack could not be installed."
-msgstr ""
+msgstr "型パックをインストールできませんでした。"
 
 #: src/contract-catalog.ts
 msgid "The type pack does not contain every declared resource."
-msgstr ""
+msgstr "型パックに宣言済みのリソースがすべて含まれていません。"
 
 #: src/contract-catalog.ts
 msgid "The type pack does not match its catalog digest."
-msgstr ""
+msgstr "型パックがカタログのダイジェストと一致しません。"
 
 #: src/contract-catalog.ts
 msgid "The type pack does not provide the contracts declared by the catalog."
-msgstr ""
+msgstr "型パックがカタログで宣言された契約を提供していません。"
 
 #: src/contract-catalog.ts
 msgid "The type pack is larger than the editor can install."
-msgstr ""
+msgstr "型パックが大きすぎてエディターでインストールできません。"
 
 #: src/contract-catalog.ts
 msgid "The type pack is not valid JSON."
-msgstr ""
+msgstr "型パックは有効な JSON ではありません。"
 
 #. placeholder {0}: response.status
 #: src/contract-catalog.ts
 msgid "The type pack returned {0}."
-msgstr ""
+msgstr "型パックから{0}が返されました。"
 
 #: src/YourPersonPanel.tsx
 msgid "The type used when linking a record to you."
-msgstr ""
+msgstr "レコードを自分にリンクする際に使用する型です。"
 
 #: src/contract-catalog.ts
 msgid "The type-pack identity does not match the catalog."
-msgstr ""
+msgstr "型パックの識別情報がカタログと一致しません。"
 
 #: src/contract-catalog.ts
 msgid "The type-pack manifest"
-msgstr ""
+msgstr "型パックのマニフェスト"
 
 #: src/contract-catalog.ts
 msgid "The type-pack manifest has an unsupported kind."
-msgstr ""
+msgstr "型パックのマニフェストには未対応の種類が指定されています。"
 
 #: src/contract-catalog.ts
 msgid "The type-pack resource count does not match the catalog."
-msgstr ""
+msgstr "型パックのリソース数がカタログと一致しません。"
 
 #: src/App.tsx
 msgid "The unfinished folder hasn’t been created."
-msgstr ""
+msgstr "作成途中のフォルダーはまだ作成されていません。"
 
 #: src/App.tsx
 msgid "The unfinished note hasn’t been created."
-msgstr ""
+msgstr "作成途中のノートはまだ作成されていません。"
 
 #: src/App.tsx
 msgid "The unfinished note or folder will be discarded. Saved note and property changes will finish first."
-msgstr ""
+msgstr "作成途中のノートまたはフォルダーは破棄されます。保存済みのノートとプロパティの変更は先に完了します。"
 
 #: src/TypeBrowser.tsx
 msgid "The YAML source could not be read."
-msgstr ""
+msgstr "YAML ソースを読み取れませんでした。"
 
 #: src/TypeBrowser.tsx
 msgid "Their current structural rules will be replaced."
-msgstr ""
+msgstr "現在の構造ルールは置き換えられます。"
 
 #: src/folder-change.ts
 msgid "There are no notes to move in this folder."
-msgstr ""
+msgstr "このフォルダーに移動するノートはありません。"
 
 #: src/person-setup.ts
 msgid "These definitions need review in Types. No files have been changed."
-msgstr ""
+msgstr "これらの定義は「型」での確認が必要です。ファイルは変更されていません。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "These properties are not described by this note's type. Other apps may use them."
-msgstr ""
+msgstr "これらのプロパティはこのノートの型では記述されていません。ほかのアプリが使用している可能性があります。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "These properties must be persisted before this record is valid."
