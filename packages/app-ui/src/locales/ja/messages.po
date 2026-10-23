@@ -14,7 +14,7 @@ msgstr "（新しいタブで開きます）"
 #. placeholder {0}: changes - shownChanges
 #: src/text-diff.ts
 msgid "{0, plural, one {# more changed line} other {# more changed lines}}"
-msgstr "{0, plural, one {変更された行があと#行} other {変更された行があと#行}}"
+msgstr "{0, plural, other {変更された行があと#行}}"
 
 #. placeholder {0}: changes - shownChanges
 #: src/text-diff.ts
@@ -58,7 +58,7 @@ msgstr "このデバイスで{app}に表示されなくなります。コレク�
 
 #: src/FeedbackMarkup.tsx
 msgid "{count, plural, one {# mark applied.} other {# marks applied.}}"
-msgstr "{count, plural, one {#件のマークを適用しました。} other {#件のマークを適用しました。}}"
+msgstr "{count, plural, other {#件のマークを適用しました。}}"
 
 #: src/Feedback.tsx
 msgid "A problem occurred. You can use Send feedback to report it."
