@@ -260,7 +260,7 @@ msgstr ""
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Account"
-msgstr ""
+msgstr "계정"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
@@ -341,7 +341,7 @@ msgstr ""
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Appearance"
-msgstr ""
+msgstr "모양"
 
 #: src/renderer/main.tsx
 msgid "Application"
@@ -414,7 +414,7 @@ msgstr ""
 #: src/renderer/collections-view.tsx
 #: src/renderer/main.tsx
 msgid "Cancel"
-msgstr ""
+msgstr "취소"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -474,7 +474,7 @@ msgstr ""
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Checking"
-msgstr ""
+msgstr "확인 중"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -558,7 +558,7 @@ msgstr ""
 #: src/renderer/ui-components.tsx
 msgctxt "Connect interface"
 msgid "Collections"
-msgstr ""
+msgstr "컬렉션"
 
 #: src/renderer/main.tsx
 msgid "Collections stay on this computer. Synced collections send changes to mdbase; private sync encrypts them so mdbase cannot read them. Your account only receives collection names and app-access details."
@@ -570,7 +570,7 @@ msgstr ""
 
 #: src/renderer/main.tsx
 msgid "Color theme"
-msgstr ""
+msgstr "색상 테마"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
@@ -579,12 +579,12 @@ msgstr ""
 
 #: src/renderer/main.tsx
 msgid "Connected"
-msgstr ""
+msgstr "연결됨"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Connected"
-msgstr ""
+msgstr "연결됨"
 
 #. placeholder {0}: relativeTime(new Date(entry.first_seen_ms).toISOString())
 #. placeholder {1}: entry.legacy_only ? t(i18n)({ message: " · older app version", context: "Connect interface" }) : ""
@@ -605,7 +605,7 @@ msgstr ""
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Connecting"
-msgstr ""
+msgstr "연결 중"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -615,12 +615,12 @@ msgstr ""
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Connecting…"
-msgstr ""
+msgstr "연결 중…"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Connection"
-msgstr ""
+msgstr "연결"
 
 #: src/main/main.ts
 msgctxt "Desktop application"
@@ -681,12 +681,12 @@ msgstr ""
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Delete"
-msgstr ""
+msgstr "삭제"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "delete notes"
-msgstr ""
+msgstr "노트 삭제"
 
 #: src/renderer/collections-view.tsx
 msgid "Deleted on another device"
@@ -694,11 +694,11 @@ msgstr ""
 
 #: src/renderer/collections-view.tsx
 msgid "Description"
-msgstr ""
+msgstr "설명"
 
 #: src/renderer/collections-view.tsx
 msgid "Details"
-msgstr ""
+msgstr "세부 정보"
 
 #: src/renderer/collections-view.tsx
 msgid "Differed when mdbase took over from the old app; this computer's version is in the folder"
@@ -706,7 +706,7 @@ msgstr ""
 
 #: src/renderer/main.tsx
 msgid "Dismiss"
-msgstr ""
+msgstr "닫기"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -868,7 +868,7 @@ msgstr ""
 
 #: src/renderer/language-setting.tsx
 msgid "Language"
-msgstr ""
+msgstr "언어"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
@@ -885,7 +885,7 @@ msgstr ""
 
 #: src/renderer/collections-view.tsx
 msgid "Loading…"
-msgstr ""
+msgstr "불러오는 중…"
 
 #: src/renderer/collections-view.tsx
 msgid "Looked like an accidental overwrite"
@@ -1072,7 +1072,7 @@ msgstr ""
 
 #: src/renderer/collections-view.tsx
 msgid "Name"
-msgstr ""
+msgstr "이름"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1155,16 +1155,16 @@ msgstr ""
 
 #: src/renderer/main.tsx
 msgid "Off"
-msgstr ""
+msgstr "끔"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Offline"
-msgstr ""
+msgstr "오프라인"
 
 #: src/renderer/main.tsx
 msgid "On"
-msgstr ""
+msgstr "반복 날짜"
 
 #: src/renderer/collections-view.tsx
 msgctxt "Local collection management"
@@ -1181,7 +1181,7 @@ msgstr ""
 #: src/main/main.ts
 #: src/renderer/main.tsx
 msgid "Open {0}"
-msgstr ""
+msgstr "{0} 열기"
 
 #: src/renderer/sign-in-panel.tsx
 msgid "Open browser again"
@@ -1217,7 +1217,7 @@ msgstr ""
 
 #: src/renderer/daemon-view.mts
 msgid "Opening…"
-msgstr ""
+msgstr "여는 중…"
 
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
@@ -1245,7 +1245,7 @@ msgstr ""
 
 #: src/renderer/collections-view.tsx
 msgid "Private"
-msgstr ""
+msgstr "비공개"
 
 #: src/renderer/daemon-view.mts
 msgid "Private sync (end-to-end encrypted)"
@@ -1301,7 +1301,7 @@ msgstr ""
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Reminders"
-msgstr ""
+msgstr "리마인더"
 
 #: src/renderer/collections-view.tsx
 msgid "Remove"
@@ -1314,7 +1314,7 @@ msgstr ""
 
 #: src/renderer/main.tsx
 msgid "Rename"
-msgstr ""
+msgstr "이름 바꾸기"
 
 #: src/renderer/collections-view.tsx
 msgid "Resolve this file in the app that uses it."
@@ -1332,7 +1332,7 @@ msgstr ""
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
 msgid "Review"
-msgstr ""
+msgstr "검토"
 
 #. placeholder {0}: view.holds
 #: src/renderer/collections-view.tsx
@@ -1350,7 +1350,7 @@ msgstr ""
 
 #: src/renderer/main.tsx
 msgid "Save"
-msgstr ""
+msgstr "저장"
 
 #: src/renderer/collections-view.tsx
 msgctxt "Local collection management"
@@ -1369,7 +1369,7 @@ msgstr ""
 #: src/renderer/collections-view.tsx
 msgctxt "Local collection management"
 msgid "Saving…"
-msgstr ""
+msgstr "저장 중…"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1380,7 +1380,7 @@ msgstr ""
 #: src/renderer/ui-components.tsx
 msgctxt "Connect interface"
 msgid "Settings"
-msgstr ""
+msgstr "설정"
 
 #: src/main/main.ts
 msgctxt "Desktop application"
@@ -1390,7 +1390,7 @@ msgstr ""
 #: src/renderer/sign-in-panel.tsx
 msgctxt "Connect interface"
 msgid "Sign in"
-msgstr ""
+msgstr "로그인"
 
 #: src/renderer/sign-in-panel.tsx
 msgid "Sign in before adding collections, so your apps can reach them through this computer. Your folders stay on this computer and their locations stay private."
@@ -1516,7 +1516,7 @@ msgstr ""
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Syncing…"
-msgstr ""
+msgstr "동기화 중…"
 
 #: src/renderer/main.tsx
 msgid "System follows your operating system appearance"
@@ -1664,7 +1664,7 @@ msgstr ""
 
 #: src/renderer/main.tsx
 msgid "Theme"
-msgstr ""
+msgstr "테마"
 
 #: src/renderer/access-view.tsx
 msgid "These stay refused on this computer, even if mdbase still lists them."
@@ -1684,12 +1684,12 @@ msgstr ""
 
 #: src/renderer/main.tsx
 msgid "This computer"
-msgstr ""
+msgstr "이 컴퓨터"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "This computer"
-msgstr ""
+msgstr "이 컴퓨터"
 
 #. placeholder {0}: collections.length
 #: src/renderer/main.tsx
@@ -1855,7 +1855,7 @@ msgstr ""
 #. placeholder {0}: status.current_version
 #: src/renderer/main.tsx
 msgid "Version {0}"
-msgstr ""
+msgstr "버전 {0}"
 
 #. placeholder {0}: manifest.version
 #: src/main/update-coordinator.ts
@@ -1881,7 +1881,7 @@ msgstr ""
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Views"
-msgstr ""
+msgstr "뷰"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"

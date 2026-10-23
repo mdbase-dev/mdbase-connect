@@ -10,88 +10,88 @@ msgstr ""
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid " · current session"
-msgstr ""
+msgstr " · 현재 세션"
 
 #: src/authority-workflows.tsx
 msgid " (already allowed)"
-msgstr ""
+msgstr " (이미 허용됨)"
 
 #: src/authorization-review.tsx
 msgid " (higher impact)"
-msgstr ""
+msgstr " (영향이 큼)"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid " {0} can also create new collections for you."
-msgstr ""
+msgstr " {0}에서 새 컬렉션을 만들 수도 있습니다."
 
 #. placeholder {0}: host(request.project_url)
 #: src/authorization-view.tsx
 msgid " {0} does not verify its origin."
-msgstr ""
+msgstr " {0}만으로 출처를 확인할 수 없습니다."
 
 #. placeholder {0}: adoption.mirror_name ?? adoption.source_name
 #: src/authority-workflows.tsx
 msgid " {0} will continue as a synced folder, with edits syncing both ways."
-msgstr ""
+msgstr " {0}은(는) 양방향으로 편집 내용이 동기화되는 폴더로 계속 사용됩니다."
 
 #. placeholder {0}: request.user_code
 #: src/authorization-view.tsx
 msgid " and it shows <0>{0}</0>"
-msgstr ""
+msgstr " 표시된 코드가 <0>{0}</0>이며"
 
 #: src/authorization-review.tsx
 msgid " File actions are included in the collection permissions above."
-msgstr ""
+msgstr " 파일 작업은 위 컬렉션 권한에 포함됩니다."
 
 #. placeholder {0}: pairing.app_origin
 #: src/authority-workflows.tsx
 msgid " from <0>{0}</0>"
-msgstr ""
+msgstr " 출처: <0>{0}</0>"
 
 #: src/authorization-view.tsx
 msgid " Permissions this application does not already have are marked New."
-msgstr ""
+msgstr " 이 애플리케이션에 아직 없는 권한은 신규로 표시됩니다."
 
 #: src/authority-workflows.tsx
 msgid " Previously approved collections stay available."
-msgstr ""
+msgstr " 이전에 승인한 컬렉션은 계속 사용할 수 있습니다."
 
 #: src/authority-workflows.tsx
 msgid " The original local files are no longer the main copy."
-msgstr ""
+msgstr " 원래 로컬 파일은 더 이상 기본 사본이 아닙니다."
 
 #: src/authorization-review.tsx
 msgid " These actions are approved together."
-msgstr ""
+msgstr " 이 작업들은 함께 승인됩니다."
 
 #. placeholder {0}: unavailable.length
 #: src/authorization-view.tsx
 msgid "{0, plural, one {# collection is unavailable} other {# collections are unavailable}}"
-msgstr ""
+msgstr "{0, plural, other {사용할 수 없는 컬렉션 #개}}"
 
 #. placeholder {0}: grant.operations.length
 #. placeholder {0}: operations.size
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgid "{0, plural, one {# permission} other {# permissions}}"
-msgstr ""
+msgstr "{0, plural, other {권한 #개}}"
 
 #. placeholder {0}: notifications.criteria.length
 #: src/authorization-review.tsx
 msgid "{0, plural, one {this rule} other {these # rules}}"
-msgstr ""
+msgstr "{0, plural, other {이 규칙 #개}}"
 
 #. placeholder {0}: import { t, plural } from "@lingui/core/macro"; import { Trans } from "@lingui/react/macro"; import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n"; import { provisionedContract, type SetupType } from "@mdbase/connect-ui/contract-setup"; import React, { useEffect, useMemo, useRef, useState } from "react"; import { APPLICATION_SETUP_OPERATIONS } from "@mdbase-dev/connect-protocol"; import { api, ApiError, type ApplicationFileAction, type AvailableCollection, type ContractSetupChoice as ContractSetupRequestChoice, type HostedCollection, type PendingAuthorization, type UnavailableConnector } from "./api"; import { collectionCompatibility, lostCollectionNotice } from "./compatibility"; import { authorizationCapabilityGroups, authorizationRequirementsError, nextAuthorizationGroups, selectedNextAuthorizationOperations, toggleAuthorizationGroup, selectedFileActions, selectedPeoplePermissions, selectedOperationsForCapabilityGroups, type AuthorizationCapabilityGroup } from "./authorization-capabilities"; import { configurationSetupSummary, initialContractSetupChoice } from "./application-setup"; import { clearAuthorizationReview, disambiguatedCollectionLocations, initialAuthorizationSelection, saveAuthorizationReview, storedAuthorizationReview } from "./authorization-review-state"; import { ContractSetupEditor, contractSetupProblem, NotificationAccess, PermissionList, RequestedAccessSummary, type ContractSetupChoice } from "./authorization-review"; import { formatDeviceCode, host, initials, message, neededProvisions, provisionNames, relativeTime } from "./portal-model"; import { Loading, PageBrand } from "./portal-ui"; export function DeviceAuthorization() { useLocaleRevision(); const initialCode = formatDeviceCode(new URLSearchParams(location.search).get("user_code") ?? ""); const [code, setCode] = useState(initialCode); const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const automaticallyClaimed = useRef(false); async function openRequest(value: string) { const userCode = formatDeviceCode(value); if (userCode.replace("-", "").length !== 8) { setError(t(i18n)({ message: "Enter the eight-character code shown by the application." })); return; } setBusy(true); setError(""); try { const result = await api<{ request_id: string }>( "/v1/device-authorization-requests/lookup", { method: "POST", body: JSON.stringify({ user_code: userCode }) } ); location.replace(`/authorize/${result.request_id}`); } catch (reason) { if (reason instanceof ApiError && reason.status === 401) { location.href = `/login?return_to=${encodeURIComponent(location.href)}`; return; } setError(message(reason)); setBusy(false); } } useEffect(() => { if (!initialCode || automaticallyClaimed.current) return; automaticallyClaimed.current = true; void openRequest(initialCode); }, [initialCode]); return ( <main className="center-page"> <PageBrand label={t(i18n)({ message: "Application connection", context: "Application access approval" })} busy={busy} error={error} /> <form className="decision-panel device-panel" onSubmit={(event) => { event.preventDefault(); void openRequest(code); }}> <p className="eyebrow"><Trans>Short approval code</Trans></p> <h1><Trans>Check the application.</Trans></h1> <p><Trans>Enter the code it shows. You will review the application, collection, and exact permissions before anything is allowed.</Trans></p> <label className="device-code-field"> <span><Trans>Approval code</Trans></span> <input autoFocus={!initialCode} autoComplete="one-time-code" inputMode="text" maxLength={9} value={code} onChange={(event) => setCode(formatDeviceCode(event.target.value))} placeholder="ABCD-EFGH" /> </label> <p className="field-note"><Trans>Codes are not case-sensitive, expire after ten minutes, and can authorize only the key created by that application.</Trans></p> {error && <div className="message error" role="alert">{error}</div>} <button className="button primary" disabled={busy || code.replace("-", "").length !== 8}> {busy ? t(i18n)({ message: "Checking…", context: "Application access approval" }) : t(i18n)({ message: "Review request", context: "Application access approval" })} </button> </form> </main> ); } type RequestStatus = "pending" | "setting_up" | "approved" | "denied" | "expired"; export function Authorization({ requestId }: { requestId: string }) { useLocaleRevision(); const [request, setRequest] = useState<{ authorization: PendingAuthorization; collections: AvailableCollection[]; hosted_collections_available?: boolean; unavailable_connectors: UnavailableConnector[]; } | null>(null); const [status, setStatus] = useState<RequestStatus>("pending"); const [returnUrl, setReturnUrl] = useState(""); const [structuralSetupRequested, setStructuralSetupRequested] = useState(false); const [continuingInDesktop, setContinuingInDesktop] = useState( () => new URLSearchParams(location.search).get("continue_in_desktop") === "1" ); const [error, setError] = useState(""); const [decisionError, setDecisionError] = useState(""); const returning = useRef(false); const loaded = useRef(false); useEffect(() => { let active = true; async function refreshCollections() { try { const next = await api<{ authorization: PendingAuthorization; collections: AvailableCollection[]; hosted_collections_available?: boolean; unavailable_connectors: UnavailableConnector[]; }>(`/v1/authorization-requests/${requestId}`); if (active) { loaded.current = true; setRequest(next); setError(""); } } catch (reason) { if (!active) return; if (reason instanceof ApiError && reason.status === 401) { location.href = `/login?return_to=${encodeURIComponent(location.href)}`; } else if (reason instanceof ApiError && reason.status === 404) { // The request is no longer pending. Once loaded, the status poll owns // the outcome; before that, nothing on this page can be decided. if (!loaded.current) setStatus("expired"); } else { setError(message(reason)); } } } void refreshCollections(); const timer = window.setInterval(() => void refreshCollections(), 10_000); return () => { active = false; window.clearInterval(timer); }; }, [requestId]); useEffect(() => { async function checkStatus() { try { const value = await api<{ status: "pending" | "setting_up" | "approved" | "denied"; redirect_uri?: string; }>(`/v1/authorization-requests/${requestId}/status`); if (returning.current) return; if (decisionError && value.status === "setting_up") return; setStatus(value.status); if (value.redirect_uri) { returning.current = true; setReturnUrl(value.redirect_uri); location.replace(value.redirect_uri); } } catch (reason) { // The status route answers 404 only for an expired or unknown request. // Other polling failures are transient and keep the pending decision. if (reason instanceof ApiError && reason.status === 404 && !returning.current) setStatus("expired"); } } void checkStatus(); const timer = window.setInterval(() => void checkStatus(), 1_000); return () => window.clearInterval(timer); }, [decisionError, requestId]); if (!request) { if (status !== "expired") return <Loading error={error} />; return ( <main className="center-page approval-page"> <PageBrand label={t(i18n)({ message: "Application request", context: "Application access approval" })} /> <section className="decision-panel authorization-panel"> <RequestOutcome status="expired" applicationName={t(i18n)({ message: "the application", context: "Application access approval" })} standalone /> </section> </main> ); } const authorization = request.authorization; const preparingStructure = structuralSetupRequested || authorizationNeedsSetup( authorization, request.collections ); const setupMotionActive = status === "setting_up" || (status === "pending" && structuralSetupRequested); function continueInDesktop(value: boolean) { const url = new URL(location.href); if (value) url.searchParams.set("continue_in_desktop", "1"); else url.searchParams.delete("continue_in_desktop"); history.replaceState(history.state, "", url); setContinuingInDesktop(value); } return ( <main className="center-page approval-page"> <PageBrand label={t(i18n)({ message: "Application request", context: "Application access approval" })} markMotion={setupMotionActive ? (preparingStructure ? "sort" : "stream") : undefined} error={error} /> <section className="decision-panel authorization-panel"> <RequestIdentity request={authorization} showClientKey={!request.collections.some((collection) => collection.kind === "private")} /> {status === "pending" && continuingInDesktop ? ( <DesktopContinuation request={authorization} onReviewHere={() => continueInDesktop(false)} /> ) : status === "pending" ? <> {(decisionError || error) && <div className="message error" role="alert">{decisionError || error}</div>} <ApprovalForm request={authorization} canCreateHosted={request.hosted_collections_available !== false} collections={request.collections} unavailableConnectors={request.unavailable_connectors} onContinueInDesktop={() => continueInDesktop(true)} onDecision={(decision) => setStatus(decision)} onDecisionError={(detail) => { setDecisionError(detail); setStatus("pending"); }} onSetupActivityChange={setStructuralSetupRequested} onCollectionCreated={(collection) => setRequest((current) => current ? { ...current, collections: current.collections.some((existing) => existing.id === collection.id) ? current.collections : [...current.collections, collection] } : current)} /> </> : <RequestOutcome status={status} applicationName={authorization.application_name} portable={authorization.distribution === "portable"} returnUrl={returnUrl} />} </section> </main> ); } const RETURN_LINK_DELAY_MS = 4_000; const SLOW_SETUP_MS = 20_000; export function RequestOutcome({ status, applicationName, portable = false, returnUrl = "", standalone = false }: { status: Exclude<RequestStatus, "pending">; applicationName: string; portable?: boolean; returnUrl?: string; // Without a loaded request there is no application heading above the outcome. standalone?: boolean; }) { useLocaleRevision(); const Heading = standalone ? "h1" : "h2"; // Show a manual return link or a slow-setup note only if the automatic step // has not already taken the user away. const [late, setLate] = useState(false); useEffect(() => { setLate(false); const delay = status === "setting_up" ? SLOW_SETUP_MS : RETURN_LINK_DELAY_MS; const timer = window.setTimeout(() => setLate(true), delay); return () => window.clearTimeout(timer); }, [status]); const returnLink = late && returnUrl ? <a className="button secondary link-button outcome-return" href={returnUrl}><Trans>Return to {applicationName}</Trans></a> : null; if (status === "expired") return <div className="request-outcome" role="status"> <p className="eyebrow outcome-label"><Trans>Request unavailable</Trans></p> <Heading>{t(i18n)({ message: "This request has expired or was already answered." })}</Heading> <p><Trans>Return to {applicationName} and connect again to start a new request.</Trans></p> </div>; if (status === "setting_up") return <div className="request-outcome" role="status"> <p className="eyebrow outcome-label"><Trans>Approval recorded</Trans></p> <h2><Trans>Finishing collection setup…</Trans></h2> <p><Trans>Your choices are being checked with the collection’s main copy. The application does not have access yet.</Trans></p> {late && <p><Trans>This is taking longer than usual. Keep this page open; it continues automatically when setup finishes.</Trans></p>} </div>; const approved = status === "approved"; return <div className="request-outcome" role="status"> <p className="eyebrow outcome-label">{approved ? t(i18n)({ message: "Access approved", context: "Application access approval" }) : t(i18n)({ message: "Access denied", context: "Application access approval" })}</p> <h2>{portable ? t(i18n)`Return to ${applicationName}.` : t(i18n)`Returning to ${applicationName}…`}</h2> <p>{portable ? approved ? t(i18n)({ message: "The application will finish connecting with its one-time device code. You can close this window." }) : t(i18n)({ message: "The application will learn that access was not granted. You can close this window." }) : approved ? t(i18n)({ message: "Your approved collection and permissions will follow you back." }) : t(i18n)({ message: "The application will show that access was not granted." })}</p> {returnLink} </div>; } export function RequestIdentity({ request, showClientKey = true }: { request: PendingAuthorization; showClientKey?: boolean }) { useLocaleRevision(); const [failedIcon, setFailedIcon] = useState<string | null>(null); const portable = request.distribution === "portable"; return ( <header className="request-identity"> <span className="request-identity-mark" aria-hidden="true">{request.icon && request.icon !== failedIcon ? <img src={request.icon} alt="" referrerPolicy="no-referrer" onError={() => setFailedIcon(request.icon)} /> : initials(request.application_name)}</span> <div> <h1>{request.application_name}</h1> <p className="request-origin">{portable ? <>{t(i18n)({ message: "Application using a device code" })}{request.project_url && <> · <code>{host(request.project_url)}</code></>}</> : <code>{host(request.homepage)}</code>}</p> {portable ? <p className="request-guidance portable-authorization-warning" role="note"><Trans><strong>Application origin unverified.</strong> Continue only if you started this connection intentionally{request.user_code ? <Trans> and it shows <code>{request.user_code}</code></Trans> : null}.{request.project_url ? <Trans> {host(request.project_url)} does not verify its origin.</Trans> : null}</Trans></p> : <p className="request-guidance"><Trans>Only continue if you recognize this exact site.</Trans></p>} {showClientKey && request.client_fingerprint ? <p className="request-fingerprint"><Trans>App key <code>{request.client_fingerprint}</code>. Your computer will show this key when you approve the app.</Trans></p> : null} <p className="request-expiry"><Trans>Request expires {relativeTime(request.expires_at)}</Trans></p> </div> </header> ); } function DesktopContinuation({ request, onReviewHere }: { request: PendingAuthorization; onReviewHere(): void; }) { useLocaleRevision(); const desktopUrl = `mdbase-connect://authorize?request_id=${encodeURIComponent(request.id)}`; return ( <section className="desktop-continuation" aria-live="polite"> <h2><Trans>Choose the folder in mdbase connect.</Trans></h2> <p><Trans>This request remains open while you connect the computer or add a collection. Approve it in the desktop app, then return here to continue to {request.application_name}.</Trans></p> <div className="desktop-continuation-status"> <span className="status-dot connecting" aria-hidden="true" /> <div><strong><Trans>Waiting for mdbase connect</Trans></strong><small><Trans>The page will notice when the request is approved.</Trans></small></div> </div> <div className="approval-actions"> <button className="button secondary" type="button" onClick={onReviewHere}><Trans>Review in this browser</Trans></button> <a className="button primary link-button" href={desktopUrl}><Trans>Open mdbase connect</Trans></a> </div> <p className="field-note"><Trans>If the desktop app does not open, <a href="https://mdbase.dev/downloads/" target="_blank" rel="noreferrer">install the current Connect release</a>, then return to this page. The request expires {relativeTime(request.expires_at)}.</Trans></p> </section> ); } export function ApprovalForm(props: React.ComponentProps<typeof SupportedApprovalForm>) { useLocaleRevision(); const error = authorizationRequirementsError(props.request.requirements) ?? (props.request.account_backend === "next" ? nextAuthorizationGroups(props.request.requirements, props.request.requested_operations).error : undefined); if (error) return <div className="message error" role="alert">{error}</div>; return <SupportedApprovalForm {...props} />; } function SupportedApprovalForm({ request, collections, canCreateHosted, unavailableConnectors = [], onContinueInDesktop, onDecision, onDecisionError, onSetupActivityChange, onCollectionCreated }: { request: PendingAuthorization; collections: AvailableCollection[]; canCreateHosted: boolean; unavailableConnectors?: UnavailableConnector[]; onContinueInDesktop?(): void; onDecision(decision: "approved" | "denied"): void | Promise<void>; onDecisionError(detail: string): void; onSetupActivityChange?(active: boolean): void; onCollectionCreated(collection: AvailableCollection): void; }) { const localeRevision = useLocaleRevision(); const [createdCollections, setCreatedCollections] = useState<AvailableCollection[]>([]); const choices = useMemo(() => { const combined = new Map(collections.map((collection) => [collection.id, collection])); for (const collection of createdCollections) { if (!combined.has(collection.id)) combined.set(collection.id, collection); } return [...combined.values()].map((collection) => ({ collection, compatibility: collectionCompatibility(request, collection) })); }, [collections, createdCollections, request, localeRevision]); const visibleChoices = useMemo( () => request.collection_id ? choices.filter((choice) => choice.collection.id === request.collection_id) : choices, [choices, request.collection_id] ); const compatible = useMemo( () => visibleChoices.filter((choice) => choice.compatibility.compatible), [visibleChoices] ); const collectionLocations = useMemo( () => disambiguatedCollectionLocations( compatible.map((choice) => choice.collection) ), [compatible] ); const unavailable = useMemo( () => visibleChoices.filter((choice) => !choice.compatibility.compatible), [visibleChoices] ); const savedReview = useMemo(() => storedAuthorizationReview(request.id), [request.id]); const jointPermissions = request.account_backend === "next"; const requestedPermissionGroups = useMemo( () => jointPermissions ? nextAuthorizationGroups(request.requirements, request.requested_operations).groups : authorizationCapabilityGroups(request.requirements, request.requested_operations), [jointPermissions, request.requirements, request.requested_operations, localeRevision] ); const initialSelection = initialAuthorizationSelection( compatible.map((choice) => choice.collection.id), savedReview ); const [collectionId, setCollectionId] = useState(initialSelection.collectionId); const [collectionConfirmed, setCollectionConfirmed] = useState( Boolean(initialSelection.collectionId) ); const [reviewing, setReviewing] = useState(initialSelection.reviewing); const [chosenOperations, setOperations] = useState(() => { const selected = jointPermissions ? selectedNextAuthorizationOperations(requestedPermissionGroups, savedReview?.operations, savedReview?.fileActions) : selectedOperationsForCapabilityGroups(requestedPermissionGroups, savedReview?.operations); const grouped = new Set(requestedPermissionGroups.flatMap((group) => group.operations)); for (const operation of request.requested_operations) { if (!grouped.has(operation) && (!savedReview?.operations || request.requirements.capabilities?.contract_version === 2 || savedReview.operations.includes(operation))) selected.add(operation); } return selected; }); const people = "people" in request.requirements ? request.requirements.people : undefined; const [peoplePermissions, setPeoplePermissions] = useState(() => people ? selectedPeoplePermissions(people, savedReview?.peoplePermissions) : new Set<string>()); const [chosenFileActions, setFileActions] = useState(() => request.requirements.files ? selectedFileActions(request.requirements.files, savedReview?.fileActions) : new Set<string>() ); const [submitting, setSubmitting] = useState<"approved" | "denied" | "creating" | null>(null); const [creatingHosted, setCreatingHosted] = useState(false); const [showAlternateCollections, setShowAlternateCollections] = useState(false); const [collectionName, setCollectionName] = useState(""); const [error, setError] = useState(""); const [lostCollection, setLostCollection] = useState(""); const collectionChoicesRef = useRef<HTMLFieldSetElement>(null); const createHostedTriggerRef = useRef<HTMLButtonElement>(null); const focusCollectionOnReturn = useRef(false); const focusHostedTriggerOnCancel = useRef(false); const lastSelected = useRef<AvailableCollection | undefined>(undefined); const selected = compatible.find((choice) => choice.collection.id === collectionId)?.collection; const selectedName = selected?.display_name ?? t(i18n)`this collection`; const approval = selected?.authorization; const allowedOperations = approval?.available ? approval.operations : undefined; const allowedFiles = approval?.available ? approval.file_actions : undefined; const permissionGroups = useMemo(() => requestedPermissionGroups.filter((group) => (!allowedOperations || group.operations.every((operation) => allowedOperations.includes(operation))) && (!jointPermissions || !allowedFiles || (group.fileActions ?? []).every(action => allowedFiles.includes(action))) ), [allowedOperations, allowedFiles, jointPermissions, requestedPermissionGroups]); const operations = useMemo(() => { if (!jointPermissions) return new Set([...chosenOperations].filter(operation => !allowedOperations || allowedOperations.includes(operation))); const enabled = permissionGroups.filter(group => group.operations.every(operation => chosenOperations.has(operation))); const selected = new Set(enabled.flatMap(group => group.operations)); if (enabled.some(group => group.id === "definitions.manage")) { for (const operation of APPLICATION_SETUP_OPERATIONS) { if (request.requested_operations.includes(operation) && (!allowedOperations || allowedOperations.includes(operation))) selected.add(operation); } } return selected; }, [allowedOperations, chosenOperations, jointPermissions, permissionGroups, request.requested_operations]); const fileActions = useMemo(() => jointPermissions ? new Set(permissionGroups.filter(group => group.operations.every(operation => operations.has(operation))).flatMap(group => group.fileActions ?? [])) : new Set([...chosenFileActions].filter(action => !allowedFiles || allowedFiles.includes(action as ApplicationFileAction))), [allowedFiles, chosenFileActions, jointPermissions, operations, permissionGroups]); const existingOperations = useMemo(() => new Set(request.existing_access?.find((access) => access.collection_id === collectionId)?.operations ?? []), [collectionId, request.existing_access]); // A Private collection is end-to-end encrypted: the application sets up its // types itself once connected, and a device of the account approves access. const privateCollection = selected?.kind === "private"; const setup = selected && !privateCollection ? neededProvisions(request, selected) : []; const configurationSetup = privateCollection ? [] : request.provisions.configuration ?? []; const hasSetup = setup.length > 0 || configurationSetup.length > 0; const requestSetupSummary = [ ...(request.provisions.type_packs.length > 0 ? [t(i18n)`Adds ${provisionNames(request.provisions.type_packs)} to the collection`] : []), ...(configurationSetup.length > 0 ? [t(i18n)({ message: "Changes collection settings" })] : []) ]; const setupContracts = useMemo(() => selected ? request.requirements.contracts.flatMap((required) => { if (selected.contracts.some((contract) => contract.id === required.id && contract.version === required.version && contract.digest === required.digest)) return []; const contract = provisionedContract(required, request.provisions.type_packs); return contract ? [contract] : []; }) : [], [request.provisions.type_packs, request.requirements.contracts, selected]); const setupTypes = useMemo<SetupType[]>( () => selected?.types ?? [], [selected] ); const setupIdentity = [ collectionId, ...setupContracts.map((contract) => `${contract.id}@${contract.version}`), ...setupTypes.map((type) => `${type.name}@${type.revision ?? ""}`) ].join("|"); const [setupChoices, setSetupChoices] = useState<Record<string, ContractSetupChoice>>({}); const selectedPermissionGroups = permissionGroups.filter((group) => group.operations.every((operation) => operations.has(operation)) ); const selectedPermissionCount = selectedPermissionGroups.length + (!jointPermissions && fileActions.size > 0 ? 1 : 0); const higherImpactLabels = [ ...selectedPermissionGroups.flatMap((group) => group.higherImpact ? [group.label.toLocaleLowerCase()] : [] ), ...(!jointPermissions && fileActions.has("delete") ? [t(i18n)({ message: "delete files", context: "Application access approval" })] : []), ...(peoplePermissions.has("members") ? [t(i18n)({ message: "see collection members", context: "Application access approval" })] : []), ...(hasSetup ? [t(i18n)({ message: "changes to collection setup" })] : []) ]; const approvalBlocker = jointPermissions && requestedPermissionGroups.some(group => group.required && !permissionGroups.includes(group)) ? t(i18n)({ message: "The collection cannot allow all required record and file permissions together. Choose another collection." }) : selectedPermissionCount === 0 && (jointPermissions || !request.requirements.files) ? t(i18n)({ message: "Allow at least one permission to continue." }) : setupContracts.map((contract) => contractSetupProblem( contract, setupChoices[`${contract.id}@${contract.version}`], setupTypes )).find(Boolean); const blockerId = `approval-blocker-${request.id}`; useEffect(() => { if (selected) lastSelected.current = selected; }, [selected]); useEffect(() => { if (collectionId && !compatible.some((choice) => choice.collection.id === collectionId)) { if (lastSelected.current?.id === collectionId) { setLostCollection(lostCollectionNotice(lastSelected.current, unavailable, unavailableConnectors)); } setCollectionId(""); setCollectionConfirmed(false); setReviewing(false); } }, [collectionId, compatible, unavailable, unavailableConnectors]); useEffect(() => { saveAuthorizationReview(request.id, { collectionId, collectionConfirmed, operations: [...operations], fileActions: [...fileActions], peoplePermissions: [...peoplePermissions], reviewing }); }, [collectionConfirmed, collectionId, fileActions, operations, peoplePermissions, request.id, reviewing]); useEffect(() => { if (!reviewing && focusCollectionOnReturn.current) { focusCollectionOnReturn.current = false; collectionChoicesRef.current?.querySelector<HTMLInputElement>("input:checked")?.focus(); } }, [reviewing]); useEffect(() => { if (!creatingHosted && focusHostedTriggerOnCancel.current) { focusHostedTriggerOnCancel.current = false; createHostedTriggerRef.current?.focus(); } }, [creatingHosted]); useEffect(() => { setSetupChoices(Object.fromEntries(setupContracts.map((contract) => [ `${contract.id}@${contract.version}`, initialContractSetupChoice(contract, setupTypes) ]))); }, [setupIdentity]); const contractSetups = setupContracts.flatMap<ContractSetupRequestChoice>((contract) => { const choice = setupChoices[`${contract.id}@${contract.version}`]; if (!choice) return []; if (choice.mode === "starter") return [{ contract: { id: contract.id, version: contract.version, digest: contract.digest }, mode: "starter" as const }]; const type = setupTypes.find((candidate) => candidate.name === choice.typeName); if (!type?.revision) return []; return [{ contract: { id: contract.id, version: contract.version, digest: contract.digest }, mode: "existing" as const, type_name: type.name, type_revision: type.revision, fields: choice.fields, ...(Object.keys(choice.binding).length ? { binding: choice.binding } : {}) }]; }); function toggleCapability(group: AuthorizationCapabilityGroup) { if (group.required) return; setOperations((current) => toggleAuthorizationGroup(current, group)); } function togglePeoplePermission(permission: string) { if (!people?.optional?.some((candidate) => candidate === permission)) return; setPeoplePermissions((current) => { const next = new Set(current); if (!next.delete(permission)) next.add(permission); return next; }); } function toggleFileAction(action: ApplicationFileAction) { setFileActions((current) => { const next = new Set(current); if (next.has(action)) next.delete(action); else next.add(action); return next; }); } function chooseCollection(id: string) { setCollectionId(id); setCollectionConfirmed(true); setLostCollection(""); } async function decide(decision: "approved" | "denied") { const preparingSetup = decision === "approved" && hasSetup; if (preparingSetup) onSetupActivityChange?.(true); setSubmitting(decision); setError(""); onDecisionError(""); try { await api(`/v1/authorization-requests/${request.id}/${decision === "approved" ? "approve" : "deny"}`, { method: "POST", ...(decision === "approved" ? { body: JSON.stringify({ collection_id: collectionId, ...(selected?.offer_id ? { offer_id: selected.offer_id } : {}), operations: [...operations], ...(request.requirements.files ? { file_actions: [...fileActions] } : {}), ...(people ? { people_permissions: [...peoplePermissions] } : {}), contract_setups: privateCollection ? [] : contractSetups }) } : {}) }); clearAuthorizationReview(request.id); await onDecision(decision); } catch (decisionError) { if (preparingSetup) onSetupActivityChange?.(false); onDecisionError(message(decisionError)); setSubmitting(null); } } async function createHostedCollection(event: React.FormEvent) { event.preventDefault(); const displayName = collectionName.trim(); if (!displayName) return; setSubmitting("creating"); setError(""); try { const created = await api<{ collection: HostedCollection }>("/v1/hosted/collections", { method: "POST", body: JSON.stringify({ display_name: displayName, template: "mdbase", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }) }); const collection: AvailableCollection = { id: created.collection.id, display_name: created.collection.display_name, connector_name: t(i18n)`Hosted by mdbase`, spec_version: created.collection.spec_version ?? "0.3.0", contracts: [], types: [], kind: "hosted" }; setCreatedCollections((current) => [...current, collection]); onCollectionCreated(collection); chooseCollection(collection.id); setReviewing(true); setCollectionName(""); setCreatingHosted(false); } catch (creationError) { setError(message(creationError)); } finally { setSubmitting(null); } } const denyButton = <button className="button secondary deny-button" type="button" disabled={submitting !== null} onClick={() => void decide("denied")}>{submitting === "denied" ? t(i18n)({ message: "Denying…", context: "Application access approval" }) : t(i18n)({ message: "Deny", context: "Application access approval" })}</button>; return ( <div className="approval-form" aria-busy={submitting !== null}> {!reviewing && <section className="approval-section" aria-labelledby={`requested-${request.id}`}> <h2 className="approval-section-title" id={`requested-${request.id}`}><Trans>Requests</Trans></h2> <RequestedAccessSummary groups={requestedPermissionGroups} files={request.requirements.files} people={people} /> {requestSetupSummary.length > 0 && <p className="approval-section-note">{requestSetupSummary.join(". ")}.</p>} </section>} <section className="approval-section" aria-labelledby={`collection-${request.id}`}> <h2 className="approval-section-title" id={`collection-${request.id}`}>{reviewing ? t(i18n)({ message: "Collection", context: "Application access approval" }) : t(i18n)({ message: "Choose a collection", context: "Application access approval" })}</h2> {lostCollection && <p className="message error compact" role="alert">{lostCollection}</p>} {reviewing && selected ? <div className="selected-collection-summary"> <div> <strong>{selected.display_name}</strong> <small>{collectionLocations.get(selected.id)}</small> </div> {existingOperations.size > 0 && <span className="collection-status"><Trans><i aria-hidden="true" />Already connected</Trans></span>} {!request.collection_id && <button className="quiet-action" type="button" disabled={submitting !== null} onClick={() => { focusCollectionOnReturn.current = true; setReviewing(false); }}><Trans>Change</Trans></button>} </div> : <> {compatible.length > 0 && <fieldset className="collection-choice-field" ref={collectionChoicesRef}> <legend className="sr-only"><Trans>Collection</Trans></legend> <div className="collection-choice-list"> {compatible.map(({ collection }) => { const connected = request.existing_access?.some((access) => access.collection_id === collection.id); return <label className={collection.id === collectionId ? "selected" : undefined} key={collection.id}> <input type="radio" name={`collection-${request.id}`} value={collection.id} checked={collection.id === collectionId} disabled={submitting !== null} onChange={() => chooseCollection(collection.id)} /> <span className="collection-choice-copy"> <strong>{collection.display_name}</strong> <small>{collectionLocations.get(collection.id)}</small> </span> {connected && <span className="collection-status"><Trans><i aria-hidden="true" />Already connected</Trans></span>} </label>; })} </div> </fieldset>} {compatible.length === 0 && <p className="field-note">{request.collection_id ? t(i18n)({ message: "The collection requested by this application is not available." }) : request.requirements.collection_kind === "hosted" ? t(i18n)({ message: "This application needs a collection hosted by mdbase, and none is ready yet." }) : t(i18n)({ message: "No compatible collection is ready." })}</p>} {(unavailable.length > 0 || unavailableConnectors.length > 0 || (request.requirements.collection_kind !== "hosted" && !request.collection_id) || (canCreateHosted && !request.collection_id)) && <details className="alternate-collection-options" open={compatible.length === 0 || creatingHosted || showAlternateCollections} onToggle={(event) => { if (compatible.length > 0 && !creatingHosted) { setShowAlternateCollections(event.currentTarget.open); } }} > <summary>{compatible.length > 0 ? t(i18n)({ message: "Add or connect another collection" }) : t(i18n)({ message: "Choose another way", context: "Application access approval" })}</summary> <div> {unavailable.length > 0 && <div className="collection-compatibility"> <strong><Trans>{plural(unavailable.length, { one: "# collection is unavailable", other: "# collections are unavailable" })}</Trans></strong> <ul>{unavailable.map(({ collection, compatibility }) => <li key={collection.id}><span>{collection.display_name}</span><small>{compatibility.compatible ? "" : compatibility.detail}</small></li>)}</ul> </div>} {unavailableConnectors.length > 0 && <p className="field-note" role="status"><Trans> {unavailableConnectors.map((connector) => connector.reason === "paused" ? t(i18n)`${connector.connector_name} has remote access paused.` : t(i18n)`${connector.connector_name} is offline.`).join(" ")} Those local collections cannot be selected until their computer is available. </Trans></p>} {request.requirements.collection_kind !== "hosted" && !request.collection_id && <div className="alternate-collection-row"> <div> <strong><Trans>Use a folder on this computer</Trans></strong> <small><Trans>Open the desktop app to connect this computer, add a folder, and continue this same request.</Trans></small> </div> <a className="button secondary link-button" href={`mdbase-connect://authorize?request_id=${encodeURIComponent(request.id)}`} onClick={onContinueInDesktop} ><Trans>Use a local folder</Trans></a> </div>} {canCreateHosted && !request.collection_id && (creatingHosted ? ( <form className="authorization-collection-create" id={`create-hosted-${request.id}`} onSubmit={(event) => void createHostedCollection(event)} > <label> <span><Trans>New collection name</Trans></span> <input autoFocus maxLength={200} value={collectionName} disabled={submitting !== null} placeholder={t(i18n)`Workouts`} onChange={(event) => setCollectionName(event.target.value)} /> </label> <small><Trans>Creates a plain mdbase collection hosted by mdbase. Application access is still approved separately.</Trans></small> <div> <button className="quiet-action" type="button" disabled={submitting !== null} onClick={() => { focusHostedTriggerOnCancel.current = true; setCreatingHosted(false); setCollectionName(""); setError(""); }} ><Trans>Cancel</Trans></button> <button className="button secondary" disabled={submitting !== null || !collectionName.trim()}> {submitting === "creating" ? t(i18n)({ message: "Creating…", context: "Application access approval" }) : t(i18n)({ message: "Create collection", context: "Application access approval" })} </button> </div> </form> ) : ( <div className="alternate-collection-row"> <div> <strong><Trans>Create a hosted collection</Trans></strong> <small><Trans>A new collection stored by mdbase, available from any computer.</Trans></small> </div> <button className="button secondary" type="button" ref={createHostedTriggerRef} aria-controls={`create-hosted-${request.id}`} disabled={submitting !== null} onClick={() => { setCreatingHosted(true); setError(""); }} ><Trans>Create hosted collection</Trans></button> </div> ))} </div> </details>} {error && <div className="message error compact" role="alert">{error}</div>} <footer className="approval-footer"> <p className="approval-receipt" id={`collection-selection-help-${request.id}`}> {!collectionId && compatible.length > 0 ? t(i18n)({ message: "Select a collection to continue." }) : t(i18n)({ message: "Nothing is allowed until you review access." })} </p> <div className="approval-actions"> {denyButton} <button className="button primary" type="button" aria-describedby={`collection-selection-help-${request.id}`} disabled={submitting !== null || !collectionId || !collectionConfirmed} onClick={() => setReviewing(true)} ><Trans>Review access</Trans></button> </div> </footer> </>} </section> {reviewing && <section className="approval-section" aria-labelledby={`permissions-${request.id}`}> <h2 className="approval-section-title" id={`permissions-${request.id}`}><Trans>What it can do</Trans></h2> <p className="approval-section-note"><Trans> Covers every record in {selected?.display_name ?? t(i18n)({ message: "this collection", context: "Application access approval" })}. {existingOperations.size > 0 ? t(i18n)({ message: " Permissions this application does not already have are marked New." }) : ""} </Trans></p> <PermissionList groups={permissionGroups} selected={operations} existingOperations={existingOperations} files={request.requirements.files} selectedFiles={fileActions} allowedFileActions={allowedFiles} people={people} selectedPeople={peoplePermissions} disabled={submitting !== null} onToggleGroup={toggleCapability} onToggleFile={toggleFileAction} onTogglePeople={togglePeoplePermission} /> </section>} {reviewing && hasSetup && <section className="approval-section" aria-labelledby={`changes-${request.id}`}> <h2 className="approval-section-title" id={`changes-${request.id}`}><Trans>Collection changes</Trans></h2> <div className="contract-setup-list"> {setup.length > 0 && <ul className="configuration-setup-list"> {setup.map((provision) => ( <li className="configuration-setup-item" key={provision.manifest.id}> <span aria-hidden="true">+</span> <div> <strong>{provision.manifest.name ?? provision.manifest.id} <code>{provision.manifest.version}</code></strong> <small>{provision.manifest.description ?? t(i18n)({ message: "Install or update the application definitions declared by this version." })}</small> {provision.manifest.resources.some((resource) => resource.upgrade_from) && <small><Trans>Upgrades starter types this application added earlier while keeping your customizations and notes. Types it cannot trace to one of those starters are left unchanged. Conflicts, or other types still using the old contract, stop the whole upgrade.</Trans></small>} </div> </li> ))} </ul>} {setupContracts.map((contract) => { const key = `${contract.id}@${contract.version}`; const choice = setupChoices[key]; return choice && <ContractSetupEditor key={key} applicationName={request.application_name} contract={contract} types={setupTypes} value={choice} disabled={submitting !== null} onChange={(next) => setSetupChoices((current) => ({ ...current, [key]: next }))} />; })} {configurationSetup.length > 0 && <ul className="configuration-setup-list"> {configurationSetup.map((provision) => { const summary = configurationSetupSummary(provision); return <li className="configuration-setup-item" key={`${provision.requirement}:${provision.path}`}> <span aria-hidden="true">+</span> <div> <strong><Trans>Ensure <code>{summary.setting}</code> includes <code>{summary.value}</code></Trans></strong> <small><Trans>If the value is already present, mdbase leaves the collection unchanged. Conflicting settings stop setup without overwriting policy.</Trans></small> </div> </li>; })} </ul>} </div> </section>} {reviewing && <NotificationAccess applicationName={request.application_name} notifications={request.notifications} />} {reviewing && error && <div className="message error compact" role="alert">{error}</div>} {reviewing && <footer className="approval-footer"> <div className="approval-receipt"> <p>{request.distribution === "portable" ? t(i18n)`${request.application_name} can use ${selectedName} while it remains connected. You can revoke access in mdbase connect.` : t(i18n)`${request.application_name} can use ${selectedName} until you revoke access in mdbase connect.`}</p> {privateCollection && <p><Trans>This is a Private collection: it stays on your computer. {request.application_name} can use it while a computer that has it is running mdbase and is signed in to your account.</Trans></p>} {higherImpactLabels.length > 0 && <p className="receipt-impact"><Trans><i aria-hidden="true" />Includes {higherImpactLabels.join(", ")}.</Trans></p>} {approvalBlocker && <p className="receipt-blocker" id={blockerId}>{approvalBlocker}</p>} </div> <div className="approval-actions"> {denyButton} <button className="button primary" type="button" aria-describedby={approvalBlocker ? blockerId : undefined} disabled={submitting !== null || !collectionId || !collectionConfirmed || Boolean(approvalBlocker)} onClick={() => void decide("approved")} >{submitting === "approved" ? (hasSetup ? t(i18n)({ message: "Setting up and allowing…", context: "Application access approval" }) : t(i18n)({ message: "Allowing…", context: "Application access approval" })) : hasSetup ? t(i18n)({ message: "Set up and allow access", context: "Application access approval" }) : t(i18n)({ message: "Allow access", context: "Application access approval" })}</button> </div> </footer>} </div> ); } function authorizationNeedsSetup( request: PendingAuthorization, collections: AvailableCollection[] ): boolean { if (!request.collection_id) return false; const collection = collections.find((candidate) => candidate.id === request.collection_id); if (!collection) return false; return (request.provisions.configuration?.length ?? 0) > 0 || request.provisions.type_packs.length > 0 || request.requirements.contracts.some((required) => !collection.contracts.some((contract) => contract.id === required.id && contract.version === required.version && contract.digest === required.digest ) && Boolean(provisionedContract(required, request.provisions.type_packs)) ); } 
 #: src/authorization-view.tsx
 msgid "{0}"
-msgstr ""
+msgstr "{0}"
 
 #. placeholder {0}: import { formatters } from "@mdbase-dev/i18n"; import { countLabel } from "./count-label"; import { t, plural } from "@lingui/core/macro"; import { Trans } from "@lingui/react/macro"; import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n"; import { ConnectManagementClient, type ManagementOverview, type ManagementRequestOptions } from "@mdbase/connect-management"; import { groupApplicationAccess, authorizationOperationLabel, applicationAccessOriginLabel } from "@mdbase/connect-ui/access"; import { usePermissionSelection } from "@mdbase-dev/ui/permission-selection"; import { ConfirmAction, ConnectPage as Page, ConnectSectionTitle as SectionTitle, ConnectEmpty as Empty } from "./ConnectPrimitives"; type Grant = ManagementOverview["grants"][number]; type Installation = NonNullable<ManagementOverview["installation_access"]>[number]; type BusyOperations = ReadonlySet<string>; type PerformOperation = (id: string, action: (options: ManagementRequestOptions) => Promise<void>) => Promise<boolean>; const allOperations = [ "describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source", "validate", "create", "update", "delete", "rename", "create_view_source", "update_view_source", "delete_view_source", "read_type", "create_type", "update_type", "apply_type_pack", "list_timers", "put_timer", "cancel_timer", "reconcile_timers" ]; export function applicationGroups(grants: Grant[], installations: Installation[]) { const groups = new Map(groupApplicationAccess(grants).map(group => [group.applicationId, { ...group, installations: [] as Installation[] }])); for (const entry of installations) { let group = groups.get(entry.application_family_id); if (!group) { group = { applicationId: entry.application_family_id, applicationName: entry.application_name, collectionCount: 0, grants: [], installations: [] }; groups.set(group.applicationId, group); } group.installations.push(entry); } return [...groups.values()].map(group => ({ ...group, collectionCount: new Set([...group.grants.map(g => g.collection_id), ...group.installations.flatMap(i => i.collection_id ? [i.collection_id] : [])]).size })).sort((a, b) => a.applicationName.localeCompare(b.applicationName)); } function installationScopes(installations: Installation[]) { const scopes = new Map<string | null, Installation[]>(); for (const entry of installations) { const entries = scopes.get(entry.collection_id) ?? []; entries.push(entry); scopes.set(entry.collection_id, entries); } return [...scopes].map(([collectionId, entries]) => ({ collectionId, entries })); } export function AppAccess({ groups, client, busy, perform, collectionName }: { groups: ReturnType<typeof applicationGroups>; client: ConnectManagementClient; busy: BusyOperations; perform: PerformOperation; collectionName?: string; }) { useLocaleRevision(); return <Page title={collectionName ? t(i18n)({ message: "Application access", context: "Connect interface" }) : t(i18n)({ message: "Applications", context: "Connect interface" })} intro={collectionName ? t(i18n)`Review the access each application has to ${collectionName}.` : t(i18n)({ message: "Review applications connected to your account. Your browser sign-in is never shared with them." })}> <section><SectionTitle title={collectionName ? t(i18n)({ message: "Connected applications", context: "Connect interface" }) : t(i18n)({ message: "Application access", context: "Connect interface" })} count={groups.length} /> {groups.map(group => <details className="connect-application" key={group.applicationId}> <summary><span><strong>{group.applicationName}</strong><small>{countLabel(group.collectionCount, "collection")}</small></span><b>{t(i18n)({ message: "Review", context: "Connect interface" })}</b></summary> <div className="connect-application-body"> {installationScopes(group.installations).map(({ collectionId, entries }) => <div className="connect-grant connect-row" key={collectionId ?? "creation"}> <div><strong>{entries[0]!.collection_name ?? t(i18n)({ message: "No collection access", context: "Connect interface" })}</strong><small>{countLabel(entries.length, "installation")}</small> <details className="connect-installation-details"><summary><Trans>Installation details</Trans></summary> {entries.map(entry => <div key={entry.connector_id}> <small><Trans>{entry.application_origin} · {entry.device_kind === "mobile" ? t(i18n)({ message: "Mobile app", context: "Connect interface" }) : t(i18n)({ message: "App installation", context: "Connect interface" })} · ID {entry.installation_id.slice(-8)}</Trans></small> <small><Trans>Registered <time dateTime={entry.created_at}>{formatters(i18n.locale).date(new Date(entry.created_at), { dateStyle: "medium", timeStyle: "short" })}</time></Trans></small> <small>{entry.collection_id ? entry.available ? t(i18n)`Entire collection · Access as your account (${entry.role})` : t(i18n)({ message: "Previously approved · Collection no longer visible to your account" }) : t(i18n)({ message: "This installation has no approved collections." })}</small> {entry.create_collections && <small><Trans>Can create collections for your account</Trans></small>} {entry.approved_optional_file_actions.length > 0 && <small><Trans>Additional file actions approved: {entry.approved_optional_file_actions.join(", ")}</Trans></small>} </div>)} </details> </div> {collectionId && <ConfirmAction className="danger" label={t(i18n)({ message: "Revoke collection access", context: "Connect interface" })} question={t(i18n)`Revoke ${group.applicationName} access to ${entries[0]!.collection_name} across all its installations?`} confirmLabel={t(i18n)({ message: "Revoke collection access", context: "Connect interface" })} busy={busy.has(`scope-${group.applicationId}-${collectionId}`)} onConfirm={() => void perform(`scope-${group.applicationId}-${collectionId}`, async options => { for (const applicationId of new Set(entries.map(entry => entry.application_id))) await client.removeInstallationAccess(applicationId, collectionId, options); })} />} </div>)} {group.grants.map(grant => <GrantEditor key={grant.id} grant={grant} client={client} busy={busy} perform={perform} />)} <ConfirmAction className="danger connect-revoke-application" label={collectionName ? t(i18n)({ message: "Revoke access", context: "Connect interface" }) : t(i18n)({ message: "Revoke application", context: "Connect interface" })} question={collectionName ? t(i18n)`Revoke ${group.applicationName} access to ${collectionName}?` : t(i18n)`Revoke all ${group.applicationName} access and collection creation permission?`} confirmLabel={collectionName ? t(i18n)({ message: "Revoke access", context: "Connect interface" }) : t(i18n)({ message: "Revoke application", context: "Connect interface" })} busy={busy.has(`application-${group.applicationId}`)} onConfirm={() => void perform(`application-${group.applicationId}`, async options => { if (collectionName) { for (const { collectionId, entries } of installationScopes(group.installations)) { if (collectionId) for (const applicationId of new Set(entries.map(entry => entry.application_id))) await client.removeInstallationAccess(applicationId, collectionId, options); } } else { for (const connector of new Set(group.installations.map(i => i.connector_id))) await client.revokeInstallation(connector, options); } if (group.grants.length) await client.revokeApplication(group.grants.map(g => g.id), options); })} /> </div> </details>)} {groups.length === 0 && <Empty title={t(i18n)({ message: "No connected applications" })} body={t(i18n)({ message: "Applications appear here after you approve access." })} />} </section> </Page>; } function GrantEditor({ grant, client, busy, perform }: { client: ConnectManagementClient; grant: Grant; busy: BusyOperations; perform: PerformOperation; }) { useLocaleRevision(); const { selected, setSelected, needsReview, acknowledge } = usePermissionSelection(grant.id, grant.operations); const operations = new Set(selected); if (grant.revocation_status === "revoking") { return <div className="connect-grant connect-row"><span><strong>{grant.collection_name}</strong><small><Trans>Revocation is pending. Waiting for {grant.collection_kind === "local" ? t(i18n)({ message: "the computer holding this collection" }) : t(i18n)({ message: "the hosted authority", context: "Connect interface" })} to confirm enforcement.</Trans></small></span><b>{t(i18n)({ message: "Revoking…", context: "Connect interface" })}</b></div>; } if (grant.scope.access !== "full_collection" || grant.scope.contracts.length > 0) { return <div className="connect-grant connect-row"><span><strong>{grant.collection_name}</strong><small><Trans>Legacy scoped access is revoked. Reauthorize this application for the entire collection.</Trans></small></span><b>{t(i18n)({ message: "Reauthorization required", context: "Connect interface" })}</b></div>; } const ordered = [...allOperations.filter((operation) => grant.operations.includes(operation)), ...grant.operations.filter((operation) => !allOperations.includes(operation))]; const changed = ordered.some((operation) => operations.has(operation) !== grant.operations.includes(operation)); return <details className="connect-grant"> <summary><span><strong>{grant.collection_name}</strong><small><Trans>{plural(grant.operations.length, { one: "# permission", other: "# permissions" })} · {applicationAccessOriginLabel(grant.application_origin)}</Trans></small></span><b>{t(i18n)({ message: "Permissions", context: "Connect interface" })}</b></summary> <div className="connect-grant-body"> {needsReview && <p role="status"><Trans>Access changed elsewhere. Review the current permissions before saving. <button onClick={acknowledge}>Review current access</button></Trans></p>} <div className="connect-permissions">{ordered.map((operation) => <label key={operation}><input className="mdbase-checkbox" type="checkbox" checked={operations.has(operation)} onChange={() => setSelected((current) => current.includes(operation) ? current.filter((value) => value !== operation) : [...current, operation])} /><span>{authorizationOperationLabel(operation)}</span></label>)}</div> <div className="connect-grant-meta"><span><Trans>Collection ID</Trans></span><strong>{grant.collection_id}</strong><span><Trans>Scope</Trans></span><strong><Trans>Entire collection</Trans></strong><span><Trans>Origin</Trans></span><strong>{grant.application_origin}</strong></div> <div className="connect-row-actions"><button className="connect-primary-action mdbase-button is-primary" disabled={needsReview || !changed || operations.size === 0 || busy.has(`grant-${grant.id}`)} onClick={() => void perform(`grant-${grant.id}`, (options) => client.updateGrant(grant.id, ordered.filter((operation) => operations.has(operation)), options))}><Trans>Save narrower access</Trans></button><ConfirmAction className="danger" label={t(i18n)({ message: "Revoke", context: "Connect interface" })} question={t(i18n)`Revoke access to ${grant.collection_name}?`} confirmLabel={t(i18n)({ message: "Revoke", context: "Connect interface" })} busy={busy.has(`grant-${grant.id}`)} onConfirm={() => void perform(`grant-${grant.id}`, (options) => client.revokeGrant(grant.id, options))} /></div> </div> </details>; } 
 #. placeholder {1}: applicationAccessOriginLabel(grant.application_origin)
 #: src/ApplicationAccess.tsx
 msgid "{0} · {1}"
-msgstr ""
+msgstr "{0} · {1}"
 
 #. placeholder {0}: countLabel(usage.record_count, "record")
 #. placeholder {1}: countLabel(usage.file_count, "file")
@@ -99,31 +99,31 @@ msgstr ""
 #. placeholder {3}: formatBytes(usage.file_bytes)
 #: src/AccountManagement.tsx
 msgid "{0} · {1} · {2} Markdown · {3} files"
-msgstr ""
+msgstr "{0} · {1} · {2} Markdown · 파일 {3}개"
 
 #. placeholder {0}: entry.application_origin
 #. placeholder {1}: entry.device_kind === "mobile" ? t(i18n)({ message: "Mobile app", context: "Connect interface" }) : t(i18n)({ message: "App installation", context: "Connect interface" })
 #. placeholder {2}: entry.installation_id.slice(-8)
 #: src/ApplicationAccess.tsx
 msgid "{0} · {1} · ID {2}"
-msgstr ""
+msgstr "{0} · {1} · ID {2}"
 
 #. placeholder {0}: invitation.role === "editor" ? t(i18n)({ message: "Editor", context: "Connect interface" }) : t(i18n)({ message: "Viewer", context: "Connect interface" })
 #. placeholder {1}: relativeTime(invitation.expires_at)
 #: src/ConnectApp.tsx
 msgid "{0} · Expires {1}"
-msgstr ""
+msgstr "{0} · 만료: {1}"
 
 #. placeholder {0}: collection.connector_name
 #. placeholder {1}: uniqueIdSuffix( collection.id, group.map((candidate) => candidate.id) )
 #: src/authorization-review-state.ts
 msgid "{0} · ID …{1}"
-msgstr ""
+msgstr "{0} · ID …{1}"
 
 #. placeholder {0}: suggestion.type.name
 #: src/authorization-review.tsx
 msgid "{0} · suggested"
-msgstr ""
+msgstr "{0} · 추천"
 
 #. placeholder {0}: verbs.slice(0, -1).join(", ")
 #. placeholder {0}: words[0]
@@ -132,413 +132,413 @@ msgstr ""
 #: src/authority-workflows.tsx
 #: src/ConnectApp.tsx
 msgid "{0} and {1}"
-msgstr ""
+msgstr "{0} 및 {1}"
 
 #. placeholder {0}: countLabel(account.deletion.hosted_collections, "hosted-collection")
 #: src/AccountManagement.tsx
 msgid "{0} and their stored data"
-msgstr ""
+msgstr "{0} 및 저장된 데이터"
 
 #. placeholder {0}: collection.display_name
 #. placeholder {1}: incompatible.detail
 #: src/compatibility.ts
 msgid "{0} can no longer be used: {1} Choose another collection."
-msgstr ""
+msgstr "{0}을(를) 더 이상 사용할 수 없습니다: {1} 다른 컬렉션을 선택하세요."
 
 #. placeholder {0}: request.application_name
 #: src/authorization-view.tsx
 msgid "{0} can use {selectedName} until you revoke access in mdbase connect."
-msgstr ""
+msgstr "mdbase connect에서 액세스 권한을 철회할 때까지 {0}이(가) {selectedName}을(를) 사용할 수 있습니다."
 
 #. placeholder {0}: request.application_name
 #: src/authorization-view.tsx
 msgid "{0} can use {selectedName} while it remains connected. You can revoke access in mdbase connect."
-msgstr ""
+msgstr "연결이 유지되는 동안 {0}이(가) {selectedName}을(를) 사용할 수 있습니다. mdbase connect에서 액세스 권한을 철회할 수 있습니다."
 
 #. placeholder {0}: providerLabel(provider)
 #: src/AccountManagement.tsx
 msgid "{0} disconnected."
-msgstr ""
+msgstr "{0}의 연결이 끊겼습니다."
 
 #. placeholder {0}: connector.connector_name
 #: src/authorization-view.tsx
 msgid "{0} has remote access paused."
-msgstr ""
+msgstr "{0}의 원격 액세스가 일시 중지되었습니다."
 
 #. placeholder {0}: collection.display_name
 #: src/compatibility.ts
 msgid "{0} is no longer available. Choose another collection."
-msgstr ""
+msgstr "{0}을(를) 더 이상 사용할 수 없습니다. 다른 컬렉션을 선택하세요."
 
 #. placeholder {0}: providerLabel(linked)
 #: src/AccountManagement.tsx
 msgid "{0} is now connected."
-msgstr ""
+msgstr "{0}이(가) 연결되었습니다."
 
 #. placeholder {0}: adoption.display_name
 #: src/authority-workflows.tsx
 msgid "{0} is now hosted."
-msgstr ""
+msgstr "{0}이(가) 호스팅 컬렉션으로 전환되었습니다."
 
 #. placeholder {0}: connector.connector_name
 #: src/authorization-view.tsx
 msgid "{0} is offline."
-msgstr ""
+msgstr "{0}이(가) 오프라인 상태입니다."
 
 #. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
 msgid "{0} is stored in mdbase replicas on your devices."
-msgstr ""
+msgstr "{0}은(는) 기기의 mdbase 복제본에 저장됩니다."
 
 #. placeholder {0}: collection.display_name
 #. placeholder {1}: connector.connector_name
 #: src/compatibility.ts
 msgid "{0} is unavailable because {1} has remote access paused. Choose another collection."
-msgstr ""
+msgstr "{1}의 원격 액세스가 일시 중지되어 {0}을(를) 사용할 수 없습니다. 다른 컬렉션을 선택하세요."
 
 #. placeholder {0}: collection.display_name
 #. placeholder {1}: connector.connector_name
 #: src/compatibility.ts
 msgid "{0} is unavailable because {1} is offline. Choose another collection."
-msgstr ""
+msgstr "{1}이(가) 오프라인 상태여서 {0}을(를) 사용할 수 없습니다. 다른 컬렉션을 선택하세요."
 
 #. placeholder {0}: request.application_name
 #: src/ConnectApp.tsx
 msgid "{0} is waiting"
-msgstr ""
+msgstr "{0} 대기 중"
 
 #. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
 msgid "{0} keeps its main copy in a folder on a connected computer."
-msgstr ""
+msgstr "{0}의 기본 사본은 연결된 컴퓨터의 폴더에 보관됩니다."
 
 #. placeholder {0}: formatBytes(liveContentBytes)
 #. placeholder {1}: formatBytes(liveFileBytes)
 #: src/AccountManagement.tsx
 msgid "{0} Markdown · {1} files"
-msgstr ""
+msgstr "{0} Markdown · 파일 {1}개"
 
 #. placeholder {0}: formatBytes(liveStorageBytes)
 #. placeholder {1}: formatBytes(limit)
 #: src/AccountManagement.tsx
 msgid "{0} of {1}"
-msgstr ""
+msgstr "{1}개 중 {0}개"
 
 #. placeholder {0}: formatBytes(subscription.usage.retained_file_bytes)
 #. placeholder {1}: formatBytes(subscription.limits.retained_file_bytes)
 #: src/AccountManagement.tsx
 msgid "{0} of {1} retained file storage"
-msgstr ""
+msgstr "보관된 파일 저장 공간 {1} 중 {0}"
 
 #. placeholder {0}: formatBytes(liveStorageBytes)
 #. placeholder {1}: formatBytes(limit)
 #: src/AccountManagement.tsx
 msgid "{0} of {1} used"
-msgstr ""
+msgstr "{1} 중 {0} 사용"
 
 #. placeholder {0}: joinWords(verbs)
 #: src/ConnectApp.tsx
 msgid "{0} records"
-msgstr ""
+msgstr "레코드 {0}개"
 
 #. placeholder {0}: formatBytes(subscription.limits.retained_file_bytes)
 #: src/AccountManagement.tsx
 msgid "{0} retained file storage included"
-msgstr ""
+msgstr "포함된 보관 파일 저장 공간 {0}"
 
 #. placeholder {0}: unavailableConnectors.map((connector) => connector.reason === "paused" ? t(i18n)`${connector.connector_name} has remote access paused.` : t(i18n)`${connector.connector_name} is offline.`).join(" ")
 #: src/authorization-view.tsx
 msgid "{0} Those local collections cannot be selected until their computer is available."
-msgstr ""
+msgstr "{0} 해당 컴퓨터를 사용할 수 있을 때까지 로컬 컬렉션을 선택할 수 없습니다."
 
 #. placeholder {0}: collection.display_name
 #. placeholder {1}: collection.spec_version
 #: src/compatibility.ts
 msgid "{0} uses mdbase {1}. Upgrade a copy to mdbase 0.3 and verify it before approving access; the original can stay untouched."
-msgstr ""
+msgstr "{0}은(는) mdbase {1}을(를) 사용합니다. 사본을 mdbase 0.3으로 업그레이드하고 확인한 뒤 액세스를 승인하세요. 원본은 그대로 둘 수 있습니다."
 
 #. placeholder {0}: contract.id
 #. placeholder {1}: contract.version
 #: src/compatibility.ts
 msgid "{0} v{1}"
-msgstr ""
+msgstr "{0} v{1}"
 
 #. placeholder {0}: selected?.display_name ?? t(i18n)({ message: "The collection", context: "Collection connection" })
 #: src/authority-workflows.tsx
 msgid "{0} will begin syncing automatically. You can close this page."
-msgstr ""
+msgstr "{0}의 동기화가 자동으로 시작됩니다. 이 페이지를 닫아도 됩니다."
 
 #. placeholder {0}: pairing.connector_name
 #. placeholder {1}: pairing.collections?.find(collection=>collection.collection_id===removingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" })
 #: src/authority-workflows.tsx
 msgid "{0} will lose access to {1} on all its devices. Previously downloaded data cannot be erased."
-msgstr ""
+msgstr "{0}이(가) 모든 기기에서 {1}에 대한 액세스 권한을 잃습니다. 이미 다운로드한 데이터는 삭제할 수 없습니다."
 
 #. placeholder {0}: words.slice(0, -1).join(", ")
 #. placeholder {1}: words.at(-1)
 #: src/ConnectApp.tsx
 msgid "{0}, and {1}"
-msgstr ""
+msgstr "{0}, 그리고 {1}"
 
 #. placeholder {0}: Math.floor(seconds / 86_400)
 #: src/AccountManagement.tsx
 msgid "{0}d ago"
-msgstr ""
+msgstr "{0}일 전"
 
 #. placeholder {0}: Math.floor(seconds / 3_600)
 #: src/AccountManagement.tsx
 msgid "{0}h ago"
-msgstr ""
+msgstr "{0}시간 전"
 
 #. placeholder {0}: Math.floor(seconds / 60)
 #: src/AccountManagement.tsx
 msgid "{0}m ago"
-msgstr ""
+msgstr "{0}분 전"
 
 #. placeholder {0}: fileAccessVerbs(request.approved_actions ?? request.actions)
 #: src/authority-workflows.tsx
 msgid "{app} can now {0} files in {collection}. Return to {app} to continue."
-msgstr ""
+msgstr "{app}에서 {collection}의 파일을 {0}할 수 있습니다. 계속하려면 {app}(으)로 돌아가세요."
 
 #. placeholder {0}: request.reason
 #: src/authority-workflows.tsx
 msgid "{app} says: {0}"
-msgstr ""
+msgstr "{app}의 메시지: {0}"
 
 #. placeholder {0}: fileAccessVerbs(request.actions)
 #: src/authority-workflows.tsx
 msgid "{app} won't {0} files in {collection}. Return to {app}; everything else works as before."
-msgstr ""
+msgstr "{app}에서 {collection}의 파일을 {0}하지 않습니다. {app}(으)로 돌아가세요. 다른 기능은 이전과 같이 작동합니다."
 
 #. placeholder {0}: import { t, plural } from "@lingui/core/macro"; import { Trans } from "@lingui/react/macro"; import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n"; import { assessMapping, contractFields, guidedBindingSupported, propertyFields, setupLabel, suggestTypes, typeFields, type SetupContract, type SetupType } from "@mdbase/connect-ui/contract-setup"; import { useMemo } from "react"; import { initialContractSetupChoice } from "./application-setup"; import type { ApplicationFileAction, PendingAuthorization } from "./api"; import { HIGHER_IMPACT_FILE_ACTIONS, HIGHER_IMPACT_PEOPLE_PERMISSIONS, type AuthorizationCapabilityGroup } from "./authorization-capabilities"; import { Select } from "@mdbase-dev/ui/select"; type FileRequirements = NonNullable<PendingAuthorization["requirements"]["files"]>; type PeopleRequirement = import("@mdbase-dev/connect-protocol").ApplicationPeopleRequirement; const PEOPLE_PERMISSION_LABELS: Record<string, string> = { get identity() { return t(i18n)({ message: "See your account identity and display name" }); }, get members() { return t(i18n)({ message: "See collection members' account identities, names and roles" }); } }; const FILE_ACTION_LABELS: Record<ApplicationFileAction, string> = { get list() { return t(i18n)({ message: "List file names and metadata" }); }, get read() { return t(i18n)({ message: "Read file contents", context: "Application access approval" }); }, get add() { return t(i18n)({ message: "Add new files", context: "Application access approval" }); }, get replace() { return t(i18n)({ message: "Replace existing files", context: "Application access approval" }); }, get move() { return t(i18n)({ message: "Move and rename files", context: "Application access approval" }); }, get delete() { return t(i18n)({ message: "Delete files", context: "Application access approval" }); } }; function fileScopeDescription(files: FileRequirements): string { return files.scope.kind === "collection" ? t(i18n)({ message: "Every visible folder. Hidden folders are always excluded." }) : t(i18n)`Only ${files.scope.folders.join(", ")}. Hidden folders are always excluded.`; } function groupSelected(group: AuthorizationCapabilityGroup, selected: ReadonlySet<string>) { return group.operations.every((operation) => selected.has(operation)); } // A compact, read-only statement of what the request asks for, shown before a // collection is chosen so the user can deny without choosing anything. export function RequestedAccessSummary({ groups, files, people }: { groups: AuthorizationCapabilityGroup[]; files?: FileRequirements; people?: PeopleRequirement; }) { useLocaleRevision(); const items = groups.map((group) => ({ id: group.id, label: group.label, higherImpact: group.higherImpact })); if (files && !groups.some(group => group.fileActions !== undefined)) { const actions = "actions" in files ? files.actions : [...files.required, ...(files.optional ?? [])]; const deletes = actions.some((action) => HIGHER_IMPACT_FILE_ACTIONS.has(action)); items.push({ id: "files", label: deletes ? t(i18n)({ message: "Manage and delete files", context: "Application access approval" }) : t(i18n)({ message: "Work with files", context: "Application access approval" }), higherImpact: deletes }); } for (const permission of [...(people?.required ?? []), ...(people?.optional ?? [])]) { items.push({ id: `people.${permission}`, label: PEOPLE_PERMISSION_LABELS[permission], higherImpact: HIGHER_IMPACT_PEOPLE_PERMISSIONS.has(permission) }); } return ( <ul className="requested-access" aria-label={t(i18n)({ message: "Requested access", context: "Application access approval" })}> {items.map((item) => <li className={item.higherImpact ? "higher-impact" : undefined} key={item.id}> {item.label} {item.higherImpact && <span className="sr-only"><Trans> (higher impact)</Trans></span>} </li>)} </ul> ); } // A locked row has no control: it is either required by the application or, // for exact v1 file actions, approved together with the rest of the request. function PermissionRow({ id, label, description, locked, required, checked, higherImpact, isNew, disabled, onToggle }: { id: string; label: string; description?: string; locked: boolean; required: boolean; checked: boolean; higherImpact: boolean; isNew: boolean; disabled: boolean; onToggle?(): void; }) { useLocaleRevision(); const content = <> {locked ? <span className="permission-fixed" aria-hidden="true">✓</span> : <input type="checkbox" checked={checked} disabled={disabled} onChange={onToggle} />} <span className="permission-copy"> <strong>{label}</strong> {description && <small>{description}</small>} </span> <span className="permission-tags"> {isNew && <span className="permission-tag new"><Trans>New</Trans></span>} {higherImpact && <span className="permission-tag impact"><Trans><i aria-hidden="true" />Higher impact</Trans></span>} {required && <span className="permission-tag"><Trans>Required</Trans></span>} </span> </>; return <li className={`permission-row${higherImpact ? " higher-impact" : ""}`} data-permission={id}> {locked ? <div>{content}</div> : <label>{content}</label>} </li>; } export function PermissionList({ groups, selected, existingOperations, files, selectedFiles, allowedFileActions, people, selectedPeople, disabled, onToggleGroup, onToggleFile, onTogglePeople }: { groups: AuthorizationCapabilityGroup[]; selected: ReadonlySet<string>; existingOperations?: ReadonlySet<string>; files?: FileRequirements; selectedFiles: ReadonlySet<string>; allowedFileActions?: readonly ApplicationFileAction[]; people?: PeopleRequirement; selectedPeople: ReadonlySet<string>; disabled: boolean; onToggleGroup(group: AuthorizationCapabilityGroup): void; onToggleFile(action: ApplicationFileAction): void; onTogglePeople(permission: string): void; }) { useLocaleRevision(); const reauthorizing = Boolean(existingOperations && existingOperations.size > 0); const jointPermissions = groups.some(group => group.fileActions !== undefined); const fileRows = files ? "actions" in files ? files.actions.map((action) => ({ action, locked: true, required: false })) : [ ...files.required.map((action) => ({ action, locked: true, required: true })), ...(files.optional ?? []) .filter((action) => !allowedFileActions || allowedFileActions.includes(action)) .map((action) => ({ action, locked: false, required: false })) ] : []; return <> {groups.length > 0 && <ul className="permission-list" aria-label={t(i18n)({ message: "Collection permissions", context: "Application access approval" })}> {groups.map((group) => <PermissionRow key={group.id} id={group.id} label={group.label} description={group.description} locked={group.required} required={group.required} checked={groupSelected(group, selected)} higherImpact={group.higherImpact} isNew={reauthorizing && !group.operations.every((operation) => existingOperations!.has(operation))} disabled={disabled} onToggle={() => onToggleGroup(group)} />)} </ul>} {files && <div className="permission-files"> <p className="permission-files-heading"> <strong>{jointPermissions ? t(i18n)({ message: "File scope", context: "Application access approval" }) : t(i18n)({ message: "Files", context: "Application access approval" })}</strong> <small>{fileScopeDescription(files)}{jointPermissions ? t(i18n)({ message: " File actions are included in the collection permissions above." }) : "actions" in files ? t(i18n)({ message: " These actions are approved together." }) : ""}</small> </p> {!jointPermissions && <ul className="permission-list" aria-label={t(i18n)({ message: "File permissions", context: "Application access approval" })}> {fileRows.map(({ action, locked, required }) => <PermissionRow key={action} id={`files.${action}`} label={FILE_ACTION_LABELS[action]} locked={locked} required={required} checked={selectedFiles.has(action)} higherImpact={HIGHER_IMPACT_FILE_ACTIONS.has(action)} isNew={false} disabled={disabled} onToggle={() => onToggleFile(action)} />)} </ul>} </div>} {people && <div className="permission-files"> <p className="permission-files-heading"> <strong><Trans>People</Trans></strong> <small><Trans>Account identifiers are the same in every collection, so this application can recognise the same person elsewhere. Email addresses and pending invitations are never shared, and this does not let it manage membership.</Trans></small> </p> <ul className="permission-list" aria-label={t(i18n)({ message: "People permissions", context: "Application access approval" })}> {[...(people.required ?? []).map((permission) => ({ permission, required: true })), ...(people.optional ?? []).map((permission) => ({ permission, required: false }))] .map(({ permission, required }) => <PermissionRow key={permission} id={`people.${permission}`} label={PEOPLE_PERMISSION_LABELS[permission]} locked={required} required={required} checked={selectedPeople.has(permission)} higherImpact={HIGHER_IMPACT_PEOPLE_PERMISSIONS.has(permission)} isNew={false} disabled={disabled} onToggle={() => onTogglePeople(permission)} />)} </ul> </div>} </>; } export function NotificationAccess({ applicationName, notifications }: { applicationName: string; notifications: PendingAuthorization["notifications"]; }) { useLocaleRevision(); if (notifications.criteria.length === 0) return null; return ( <details className="notification-access"> <summary> <span> <strong><Trans>Change notifications</Trans></strong> <small><Trans>{applicationName} can turn on {plural(notifications.criteria.length, { one: "this rule", other: "these # rules" })} after access is allowed. Notifications never contain record content.</Trans></small> </span> <b>{t(i18n)({ message: "Details", context: "Application access approval" })}</b> </summary> <ul>{notifications.criteria.map((criterion) => ( <li key={criterion.id}> <span>{criterion.presentation.title}</span> <code>{criterion.event.id} {t(i18n)({ message: "v", context: "Application access approval" })}{criterion.event.version}</code> </li> ))}</ul> <p><Trans>The rules run inside the collection. A notification tells {applicationName} that something changed, not what changed.</Trans></p> </details> ); } export type ContractSetupChoice = ReturnType<typeof initialContractSetupChoice>; export function ContractSetupEditor({ applicationName, contract, types, value, disabled, onChange }: { applicationName: string; contract: SetupContract; types: SetupType[]; value: ContractSetupChoice; disabled: boolean; onChange(value: ContractSetupChoice): void; }) { useLocaleRevision(); const suggestions = useMemo(() => suggestTypes(contract, types), [contract, types]); const canGuideExistingType = guidedBindingSupported(contract); const canChooseExistingType = suggestions.length > 0 && canGuideExistingType; const selectedType = types.find((type) => type.name === value.typeName); const availableFields = selectedType ? typeFields(selectedType) : []; const fields = contractFields(contract); const bindingFields = contract.binding_schema ? propertyFields(contract.binding_schema) : []; const requiredBinding = new Set( Array.isArray(contract.binding_schema?.required) ? contract.binding_schema.required.filter((field): field is string => typeof field === "string") : [] ); function selectType(typeName: string) { const suggestion = suggestions.find((candidate) => candidate.type.name === typeName); onChange({ ...value, typeName, fields: suggestion?.fields ?? {} }); } if (!canChooseExistingType) { return ( <div className="contract-setup-consequence"> <span className="setup-change-mark" aria-hidden="true">+</span> <div> <strong><Trans>{applicationName} needs a {setupLabel(contract).toLocaleLowerCase()} type</Trans></strong> <small><Trans>Allowing access adds a separate type supplied by {applicationName}. Existing records stay unchanged.</Trans></small> <details className="contract-expert-details"> <summary><Trans>Expert details</Trans></summary> <code>{contract.id} · {contract.version}</code> {contract.description && <p>{contract.description}</p>} {!canGuideExistingType && suggestions.length > 0 && <p><Trans>This application uses advanced behavior settings, so an existing type cannot be connected during approval.</Trans></p>} </details> </div> </div> ); } return ( <div className="contract-setup-editor"> <div className="contract-setup-heading"> <div> <strong><Trans>Help {applicationName} understand {setupLabel(contract).toLocaleLowerCase()}</Trans></strong> <small>{contract.description ?? t(i18n)`Choose whether to add a new ${setupLabel(contract).toLocaleLowerCase()} type or use one you already have.`}</small> </div> <details className="contract-expert-details"> <summary><Trans>Expert details</Trans></summary> <code>{contract.id} · {contract.version}</code> </details> </div> <div className="contract-setup-mode" role="radiogroup" aria-label={t(i18n)`Setup for ${setupLabel(contract)}`}> <label className={value.mode === "starter" ? "selected" : undefined}> <input type="radio" name={`setup-${contract.id}-${contract.version}`} checked={value.mode === "starter"} disabled={disabled} onChange={() => onChange({ ...value, mode: "starter" })} /> <span><strong><Trans>Add a new {setupLabel(contract).toLocaleLowerCase()} type</Trans></strong><small><Trans>Create a separate type supplied by {applicationName}.</Trans></small></span> </label> <label className={value.mode === "existing" ? "selected" : undefined}> <input type="radio" name={`setup-${contract.id}-${contract.version}`} checked={value.mode === "existing"} disabled={disabled} onChange={() => onChange({ ...value, mode: "existing" })} /> <span><strong><Trans>Use an existing type</Trans></strong><small><Trans>Keep your current records and explain which fields mean the same thing.</Trans></small></span> </label> </div> {value.mode === "existing" && canGuideExistingType && <div className="contract-mapping"> <label className="contract-type-choice"> <span><Trans>Existing type</Trans></span> <Select aria-label={t(i18n)({ message: "Existing type", context: "Application access approval" })} value={value.typeName} disabled={disabled} options={suggestions.map((suggestion, index) => ({ value: suggestion.type.name, label: index === 0 && suggestion.requiredMatched === suggestion.requiredTotal ? t(i18n)`${suggestion.type.name} · suggested` : suggestion.type.name }))} onChange={selectType} /> </label> <div className="contract-field-list">{fields.map((field) => { const mapped = value.fields[field.reference] ?? ""; const typeField = availableFields.find((candidate) => candidate.reference === mapped); const assessment = assessMapping(field, typeField); return <label key={field.reference}> <span><strong>{field.label}{field.required ? " *" : ""}</strong><small>{field.description ?? t(i18n)`The application’s ${field.label.toLocaleLowerCase()} value.`}</small></span> <Select aria-label={field.label} value={mapped} disabled={disabled} aria-invalid={assessment.level === "error"} options={[ { value: "", label: field.required ? t(i18n)`Choose a field` : t(i18n)`Do not share` }, ...availableFields.map((candidate) => ({ value: candidate.reference, label: candidate.label })) ]} onChange={(chosen) => { const next = { ...value.fields }; if (chosen) next[field.reference] = chosen; else delete next[field.reference]; onChange({ ...value, fields: next }); }} /> <small className={`mapping-assessment ${assessment.level}`}>{assessment.label} · {assessment.message}</small> </label>; })}</div> {bindingFields.length > 0 && <fieldset className="contract-binding"> <legend><Trans>How this type behaves in {applicationName}</Trans></legend> {bindingFields.map((field) => <SchemaInput key={field.name} field={field} required={requiredBinding.has(field.name)} value={value.binding[field.name]} disabled={disabled} onChange={(next) => onChange({ ...value, binding: { ...value.binding, [field.name]: next } })} />)} </fieldset>} <p className="field-note"><Trans>Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active.</Trans></p> </div>} </div> ); } function SchemaInput({ field, required, value, disabled, onChange }: { field: ReturnType<typeof propertyFields>[number]; required: boolean; value: unknown; disabled: boolean; onChange(value: unknown): void; }) { useLocaleRevision(); const options = Array.isArray(field.schema.enum) ? field.schema.enum : undefined; return <label> <span>{field.label}{required ? " *" : ""}</span> {options ? <Select aria-label={field.label} value={value === undefined ? "" : String(value)} disabled={disabled} placeholder={t(i18n)({ message: "Choose", context: "Application access approval" })} options={options.map((option) => ({ value: String(option), label: String(option) }))} onChange={(chosen) => onChange(options.find((option) => String(option) === chosen))} /> : field.kind === "boolean" ? <input type="checkbox" checked={value === true} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /> : <input type={field.kind === "number" || field.kind === "integer" ? "number" : "text"} value={typeof value === "string" || typeof value === "number" ? value : ""} disabled={disabled} onChange={(event) => onChange(field.kind === "number" || field.kind === "integer" ? event.target.value === "" ? undefined : Number(event.target.value) : event.target.value)} />} {field.description && <small>{field.description}</small>} </label>; } export function contractSetupProblem( contract: SetupContract, choice: ContractSetupChoice | undefined, types: SetupType[] ): string | undefined { const label = setupLabel(contract); if (!choice) return t(i18n)`Choose how to set up ${label}.`; if (choice.mode === "starter") return undefined; const type = types.find((candidate) => candidate.name === choice.typeName); if (!type?.revision) return t(i18n)`Choose an existing type for ${label}.`; const available = typeFields(type); const unmapped = contractFields(contract).find((field) => { const candidate = available.find((value) => value.reference === choice.fields[field.reference]); return assessMapping(field, candidate).level === "error"; }); if (unmapped) return t(i18n)`Choose a matching field for ${unmapped.label} in ${label}.`; const requiredBinding = Array.isArray(contract.binding_schema?.required) ? contract.binding_schema.required.filter((field): field is string => typeof field === "string") : []; const missing = requiredBinding.find((field) => { const value = choice.binding[field]; return value === undefined || value === null || value === ""; }); if (missing) { const field = contract.binding_schema ? propertyFields(contract.binding_schema).find((candidate) => candidate.name === missing) : undefined; return t(i18n)`Fill in ${field?.label ?? missing} in ${label}.`; } return undefined; } 
 #: src/authorization-review.tsx
 msgid "{applicationName} can turn on {0} after access is allowed. Notifications never contain record content."
-msgstr ""
+msgstr "액세스를 허용한 후 {applicationName}이(가) {0}을(를) 켤 수 있습니다. 알림에는 레코드 내용이 포함되지 않습니다."
 
 #. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
 #: src/authorization-review.tsx
 msgid "{applicationName} needs a {0} type"
-msgstr ""
+msgstr "{applicationName}에는 {0} 유형이 필요합니다."
 
 #: src/authority-workflows.tsx
 msgid "{collectionName} now lives on your computer."
-msgstr ""
+msgstr "{collectionName}이(가) 이제 내 컴퓨터에 있습니다."
 
 #: src/authority-workflows.tsx
 msgid "{collectionName} remains hosted. Its main copy did not move."
-msgstr ""
+msgstr "{collectionName}은(는) 계속 호스팅됩니다. 기본 사본은 이동하지 않았습니다."
 
 #: src/authority-workflows.tsx
 msgid "{collectionName} will stop being hosted and become a computer-owned collection. This changes where every future edit is accepted."
-msgstr ""
+msgstr "{collectionName}의 호스팅이 중단되고 컴퓨터가 소유하는 컬렉션으로 전환됩니다. 이후의 모든 편집을 승인하는 위치가 바뀝니다."
 
 #: src/AccountManagement.tsx
 msgid "{collections} · {records} · {fileCount}"
-msgstr ""
+msgstr "{collections} · {records} · {fileCount}"
 
 #: src/AccountManagement.tsx
 msgid "{collections} · {records} · {fileCount} · partial usage"
-msgstr ""
+msgstr "{collections} · {records} · {fileCount} · 일부 사용량만 표시"
 
 #: src/AccountManagement.tsx
 msgid "{collections} · usage temporarily unavailable"
-msgstr ""
+msgstr "{collections} · 사용량을 일시적으로 확인할 수 없음"
 
 #: src/ConnectApp.tsx
 msgid "{count} access requests are waiting"
-msgstr ""
+msgstr "액세스 요청 {count}개 대기 중"
 
 #: src/AccountManagement.tsx
 msgid "{label} turned off."
-msgstr ""
+msgstr "{label} 꺼짐"
 
 #: src/AccountManagement.tsx
 msgid "{label} turned on."
-msgstr ""
+msgstr "{label} 켜짐"
 
 #: src/AccountManagement.tsx
 msgid "{tier} hosted storage"
-msgstr ""
+msgstr "{tier} 호스팅 저장 공간"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# application installation} other {# application installations}}"
-msgstr ""
+msgstr "{value, plural, other {애플리케이션 설치 #건}}"
 
 #: src/AccountManagement.tsx
 msgid "{value, plural, one {# byte} other {# bytes}}"
-msgstr ""
+msgstr "{value, plural, other {#바이트}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# collection} other {# collections}}"
-msgstr ""
+msgstr "{value, plural, other {컬렉션 #개}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# connected computer} other {# connected computers}}"
-msgstr ""
+msgstr "{value, plural, other {연결된 컴퓨터 #대}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# file} other {# files}}"
-msgstr ""
+msgstr "{value, plural, other {파일 #개}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# hosted collection} other {# hosted collections}}"
-msgstr ""
+msgstr "{value, plural, other {호스팅 컬렉션 #개}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# installation} other {# installations}}"
-msgstr ""
+msgstr "{value, plural, other {설치 #건}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# record} other {# records}}"
-msgstr ""
+msgstr "{value, plural, other {레코드 #개}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# synced folder} other {# synced folders}}"
-msgstr ""
+msgstr "{value, plural, other {동기화된 폴더 #개}}"
 
 #: src/ConnectApp.tsx
 msgid "<0/>Add collection"
-msgstr ""
+msgstr "<0/>컬렉션 추가"
 
 #: src/authorization-view.tsx
 msgid "<0/>Already connected"
-msgstr ""
+msgstr "<0/>이미 연결됨"
 
 #: src/authorization-review.tsx
 msgid "<0/>Higher impact"
-msgstr ""
+msgstr "<0/>영향이 큼"
 
 #. placeholder {0}: higherImpactLabels.join(", ")
 #: src/authorization-view.tsx
 msgid "<0/>Includes {0}."
-msgstr ""
+msgstr "<0/>{0} 포함"
 
 #: src/ConnectApp.tsx
 msgid "<0/>Invite person"
-msgstr ""
+msgstr "<0/>사용자 초대"
 
 #: src/ConnectApp.tsx
 msgid "<0/>Sync a folder"
-msgstr ""
+msgstr "<0/>폴더 동기화"
 
 #. placeholder {1}: request.user_code ? <Trans> and it shows <code>{request.user_code}</code></Trans> : null
 #. placeholder {3}: request.project_url ? <Trans> {host(request.project_url)} does not verify its origin.</Trans> : null
 #: src/authorization-view.tsx
 msgid "<0>Application origin unverified.</0> Continue only if you started this connection intentionally{1}.{3}"
-msgstr ""
+msgstr "<0>애플리케이션 출처를 확인할 수 없습니다.</0> 직접 시작한 연결인 경우에만 계속하세요{1}.{3}"
 
 #: src/ConnectApp.tsx
 msgid "A cloud copy helps your replicas sync. This page does not report their connection status."
-msgstr ""
+msgstr "클라우드 사본은 복제본 간 동기화를 돕습니다. 이 페이지에는 복제본의 연결 상태가 표시되지 않습니다."
 
 #: src/ConnectApp.tsx
 msgid "A collection was shared with you"
-msgstr ""
+msgstr "컬렉션이 공유되었습니다"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "a new collection"
-msgstr ""
+msgstr "새 컬렉션"
 
 #: src/authorization-view.tsx
 msgid "A new collection stored by mdbase, available from any computer."
-msgstr ""
+msgstr "mdbase에 저장되며 어느 컴퓨터에서나 사용할 수 있는 새 컬렉션입니다."
 
 #: src/AccountManagement.tsx
 msgid "A new one-use sharing code is ready."
-msgstr ""
+msgstr "일회용 공유 코드가 새로 준비되었습니다."
 
 #: src/auth-view.tsx
 msgid "A verified primary email is required. Verify your primary email with GitHub, or sign up using another method."
-msgstr ""
+msgstr "확인된 기본 이메일이 필요합니다. GitHub에서 기본 이메일을 확인하거나 다른 방법으로 가입하세요."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Accept"
-msgstr ""
+msgstr "수락"
 
 #: src/ConnectApp.tsx
 msgid "Accept to add it to your collections. The invitation is bound to this account. Your account name and stable identifier can be shared with other members’ apps when they approve People access."
-msgstr ""
+msgstr "컬렉션에 추가하려면 수락하세요. 초대는 이 계정에 연결됩니다. 다른 구성원의 앱에 사용자 액세스 권한을 승인하면 내 계정 이름과 고유 식별자가 공유될 수 있습니다."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Accepting…"
-msgstr ""
+msgstr "수락하는 중…"
 
 #: src/authority-workflows.tsx
 msgid "Access approved"
-msgstr ""
+msgstr "액세스 승인됨"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Access approved"
-msgstr ""
+msgstr "액세스 승인됨"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Access as your account"
-msgstr ""
+msgstr "내 계정으로 액세스"
 
 #: src/ApplicationAccess.tsx
 msgid "Access changed elsewhere. Review the current permissions before saving. <0>Review current access</0>"
-msgstr ""
+msgstr "다른 곳에서 액세스 권한이 변경되었습니다. 저장하기 전에 현재 권한을 확인하세요. <0>현재 액세스 검토</0>"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Access denied"
-msgstr ""
+msgstr "액세스 거부됨"
 
 #. placeholder {0}: createCollections && !privateChoice ? t(i18n)` ${pairing.connector_name} can also create new collections for you.` : ""
 #. placeholder {1}: pairing.scope_only ? t(i18n)({ message: " Previously approved collections stay available." }) : ""
 #: src/authority-workflows.tsx
 msgid "Access includes the notes and files in the collection you pick.{0}{1}"
-msgstr ""
+msgstr "선택한 컬렉션의 노트와 파일에 액세스할 수 있습니다.{0}{1}"
 
 #: src/ConnectApp.tsx
 msgid "Access to this collection is paused on its computer."
-msgstr ""
+msgstr "이 컬렉션에 대한 액세스가 해당 컴퓨터에서 일시 중지되었습니다."
 
 #: src/ConnectApp.tsx
 #: src/portal-ui.tsx
 msgid "Account"
-msgstr ""
+msgstr "계정"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Account"
-msgstr ""
+msgstr "계정"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Account & sessions"
-msgstr ""
+msgstr "계정 및 세션"
 
 #: src/AccountManagement.tsx
 msgid "Account deletion is temporarily unavailable while we complete a service correction."
-msgstr ""
+msgstr "서비스 문제를 수정하는 동안 계정 삭제를 일시적으로 사용할 수 없습니다."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Account details"
-msgstr ""
+msgstr "계정 세부 정보"
 
 #: src/AccountManagement.tsx
 msgid "Account email"
-msgstr ""
+msgstr "계정 이메일"
 
 #: src/authorization-review.tsx
 msgid "Account identifiers are the same in every collection, so this application can recognise the same person elsewhere. Email addresses and pending invitations are never shared, and this does not let it manage membership."
-msgstr ""
+msgstr "계정 식별자는 모든 컬렉션에서 동일하므로 이 애플리케이션이 다른 곳에서도 동일한 사용자를 식별할 수 있습니다. 이메일 주소와 대기 중인 초대는 공유되지 않으며, 이 권한으로 구성원을 관리할 수 없습니다."
 
 #: src/portal-model.ts
 msgid "Account upgrade in progress"
-msgstr ""
+msgstr "계정 업그레이드 진행 중"
 
 #: src/portal-model.ts
 msgctxt "Connect interface"
 msgid "Account upgrade needed"
-msgstr ""
+msgstr "계정 업그레이드 필요"
 
 #: src/portal-model.ts
 msgctxt "Connect interface"
@@ -841,17 +841,17 @@ msgstr ""
 #: src/ConnectApp.tsx
 #: src/ConnectPrimitives.tsx
 msgid "Cancel"
-msgstr ""
+msgstr "취소"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Cancel"
-msgstr ""
+msgstr "취소"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Cancel"
-msgstr ""
+msgstr "취소"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -877,12 +877,12 @@ msgstr ""
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Change password"
-msgstr ""
+msgstr "비밀번호 변경"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Change password"
-msgstr ""
+msgstr "비밀번호 변경"
 
 #: src/authorization-capabilities.ts
 msgid "Change, move, and rename existing records."
@@ -912,7 +912,7 @@ msgstr ""
 
 #: src/authority-workflows.tsx
 msgid "Check again"
-msgstr ""
+msgstr "다시 확인"
 
 #: src/authorization-view.tsx
 msgid "Check the application."
@@ -930,17 +930,17 @@ msgstr ""
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Checking…"
-msgstr ""
+msgstr "확인 중…"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Choose"
-msgstr ""
+msgstr "선택"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Choose a collection"
-msgstr ""
+msgstr "컬렉션 선택"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
@@ -998,7 +998,7 @@ msgstr ""
 
 #: src/ConnectApp.tsx
 msgid "Close"
-msgstr ""
+msgstr "닫기"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -1025,12 +1025,12 @@ msgstr ""
 
 #: src/authorization-view.tsx
 msgid "Collection"
-msgstr ""
+msgstr "컬렉션"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Collection"
-msgstr ""
+msgstr "컬렉션"
 
 #: src/authorization-view.tsx
 msgid "Collection changes"
@@ -1042,7 +1042,7 @@ msgstr ""
 
 #: src/ApplicationAccess.tsx
 msgid "Collection ID"
-msgstr ""
+msgstr "컬렉션 ID"
 
 #: src/ConnectApp.tsx
 msgid "Collection invitation link"
@@ -1065,7 +1065,7 @@ msgstr ""
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Collections"
-msgstr ""
+msgstr "컬렉션"
 
 #: src/authority-workflows.tsx
 msgid "Computer approved"
@@ -1099,7 +1099,7 @@ msgstr ""
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Configured"
-msgstr ""
+msgstr "구성됨"
 
 #: src/AccountManagement.tsx
 msgid "Confirm new password"
@@ -1143,12 +1143,12 @@ msgstr ""
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Connected"
-msgstr ""
+msgstr "연결됨"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Connected"
-msgstr ""
+msgstr "연결됨"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
@@ -1158,7 +1158,7 @@ msgstr ""
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Connection"
-msgstr ""
+msgstr "연결"
 
 #: src/ConnectApp.tsx
 msgid "Contact the person who operates this mdbase connect deployment."
@@ -1166,7 +1166,7 @@ msgstr ""
 
 #: src/auth-view.tsx
 msgid "Continue"
-msgstr ""
+msgstr "계속"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
@@ -1186,12 +1186,12 @@ msgstr ""
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Copied"
-msgstr ""
+msgstr "복사됨"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Copy link"
-msgstr ""
+msgstr "링크 복사"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
@@ -1286,12 +1286,12 @@ msgstr ""
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Creating…"
-msgstr ""
+msgstr "만드는 중…"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Creating…"
-msgstr ""
+msgstr "만드는 중…"
 
 #: src/authority-workflows.tsx
 msgid "Creation hasn't finished. Approve continues the same named collection."
@@ -1299,7 +1299,7 @@ msgstr ""
 
 #: src/AccountManagement.tsx
 msgid "Current"
-msgstr ""
+msgstr "현재"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -1313,7 +1313,7 @@ msgstr ""
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Delete"
-msgstr ""
+msgstr "삭제"
 
 #. placeholder {0}: collection.display_name
 #: src/ConnectApp.tsx
@@ -1380,12 +1380,12 @@ msgstr ""
 
 #: src/authority-workflows.tsx
 msgid "Details"
-msgstr ""
+msgstr "세부 정보"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Details"
-msgstr ""
+msgstr "세부 정보"
 
 #: src/auth-view.tsx
 msgid "Development authentication is enabled."
@@ -1423,7 +1423,7 @@ msgstr ""
 
 #: src/ConnectApp.tsx
 msgid "Dismiss"
-msgstr ""
+msgstr "닫기"
 
 #: src/authorization-review.tsx
 msgid "Do not share"
@@ -1459,7 +1459,7 @@ msgstr ""
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Editor"
-msgstr ""
+msgstr "편집기"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -1506,7 +1506,7 @@ msgstr ""
 
 #: src/ApplicationAccess.tsx
 msgid "Entire collection"
-msgstr ""
+msgstr "전체 컬렉션"
 
 #. placeholder {0}: entry.role
 #: src/ApplicationAccess.tsx
@@ -1591,7 +1591,7 @@ msgstr ""
 
 #: src/authority-workflows.tsx
 msgid "Folder"
-msgstr ""
+msgstr "폴더"
 
 #: src/authority-workflows.tsx
 msgid "Folder approved"
@@ -1647,7 +1647,7 @@ msgstr ""
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Hosted"
-msgstr ""
+msgstr "호스팅됨"
 
 #: src/AccountManagement.tsx
 msgid "Hosted access was removed immediately. Hosted data deletion continues automatically in the background. Any local collection and mirror files remain on your computers."
@@ -1655,12 +1655,12 @@ msgstr ""
 
 #: src/authorization-view.tsx
 msgid "Hosted by mdbase"
-msgstr ""
+msgstr "mdbase에서 호스팅"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Hosted by mdbase"
-msgstr ""
+msgstr "mdbase에서 호스팅"
 
 #. placeholder {0}: countLabel(replicas.length, "folder")
 #: src/ConnectApp.tsx
@@ -1704,7 +1704,7 @@ msgstr ""
 
 #: src/AccountManagement.tsx
 msgid "Identity"
-msgstr ""
+msgstr "ID"
 
 #: src/AccountManagement.tsx
 msgid "Identity and service configuration."
@@ -1830,7 +1830,7 @@ msgstr ""
 
 #: src/LanguageSetting.tsx
 msgid "Language"
-msgstr ""
+msgstr "언어"
 
 #. placeholder {0}: relativeTime(session.last_seen_at)
 #: src/AccountManagement.tsx
@@ -1866,7 +1866,7 @@ msgstr ""
 
 #: src/ConnectApp.tsx
 msgid "Loading people…"
-msgstr ""
+msgstr "사람 불러오는 중…"
 
 #: src/ConnectApp.tsx
 msgid "Loading your account and collections…"
@@ -1913,7 +1913,7 @@ msgstr ""
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Manage"
-msgstr ""
+msgstr "관리"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
@@ -1989,7 +1989,7 @@ msgstr ""
 
 #: src/ConnectApp.tsx
 msgid "mdbase connect is unavailable"
-msgstr ""
+msgstr "mdbase connect를 사용할 수 없습니다."
 
 #: src/ConnectApp.tsx
 #: src/portal-ui.tsx
@@ -2099,12 +2099,12 @@ msgstr ""
 
 #: src/AccountManagement.tsx
 msgid "Name"
-msgstr ""
+msgstr "이름"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Name"
-msgstr ""
+msgstr "이름"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2222,7 +2222,7 @@ msgstr ""
 
 #: src/ConnectApp.tsx
 msgid "Not now"
-msgstr ""
+msgstr "나중에"
 
 #: src/authorization-view.tsx
 msgid "Nothing is allowed until you review access."
@@ -2234,12 +2234,12 @@ msgstr ""
 
 #: src/ConnectApp.tsx
 msgid "Offline"
-msgstr ""
+msgstr "오프라인"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Offline"
-msgstr ""
+msgstr "오프라인"
 
 #. placeholder {0}: computer.name
 #: src/ConnectApp.tsx
@@ -2285,12 +2285,12 @@ msgstr ""
 
 #: src/ConnectApp.tsx
 msgid "Open"
-msgstr ""
+msgstr "열기"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Open {0}"
-msgstr ""
+msgstr "{0} 열기"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
@@ -2415,7 +2415,7 @@ msgstr ""
 
 #: src/auth-view.tsx
 msgid "or"
-msgstr ""
+msgstr "또는"
 
 #: src/ApplicationAccess.tsx
 msgid "Origin"
@@ -2429,7 +2429,7 @@ msgstr ""
 #: src/authority-workflows.tsx
 #: src/ConnectApp.tsx
 msgid "Owner"
-msgstr ""
+msgstr "소유자"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
@@ -2528,7 +2528,7 @@ msgstr ""
 
 #: src/CollectionPicker.tsx
 msgid "Private"
-msgstr ""
+msgstr "비공개"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2603,7 +2603,7 @@ msgstr ""
 
 #: src/ConnectApp.tsx
 msgid "Reload Connect"
-msgstr ""
+msgstr "Connect 새로고침"
 
 #: src/authority-workflows.tsx
 msgid "Reminders are off. You can turn them on in the app by approving reminders again."
@@ -2655,7 +2655,7 @@ msgstr ""
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
 msgid "Rename"
-msgstr ""
+msgstr "이름 바꾸기"
 
 #. placeholder {0}: collection.display_name
 #. placeholder {0}: connector.name
@@ -2714,7 +2714,7 @@ msgstr ""
 
 #: src/authorization-review.tsx
 msgid "Required"
-msgstr ""
+msgstr "필수"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
@@ -2788,7 +2788,7 @@ msgstr ""
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Review"
-msgstr ""
+msgstr "검토"
 
 #. placeholder {0}: request.application_name
 #: src/ConnectApp.tsx
@@ -2802,7 +2802,7 @@ msgstr ""
 
 #: src/authorization-view.tsx
 msgid "Review access"
-msgstr ""
+msgstr "접근 권한 검토"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2921,7 +2921,7 @@ msgstr ""
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
 msgid "Save"
-msgstr ""
+msgstr "저장"
 
 #: src/ApplicationAccess.tsx
 msgid "Save narrower access"
@@ -2930,7 +2930,7 @@ msgstr ""
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
 msgid "Saving…"
-msgstr ""
+msgstr "저장 중…"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
@@ -2939,7 +2939,7 @@ msgstr ""
 
 #: src/ApplicationAccess.tsx
 msgid "Scope"
-msgstr ""
+msgstr "범위"
 
 #: src/CollectionPicker.tsx
 msgid "Search collections by name"
@@ -2982,7 +2982,7 @@ msgstr ""
 #: src/FeedbackPage.tsx
 msgctxt "Connect interface"
 msgid "Send feedback"
-msgstr ""
+msgstr "피드백 보내기"
 
 #: src/auth-view.tsx
 msgid "Send me occasional product updates. You can change this at any time."
@@ -3058,7 +3058,7 @@ msgstr ""
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Sign in"
-msgstr ""
+msgstr "로그인"
 
 #: src/authority-workflows.tsx
 msgid "Sign in again"
@@ -3083,7 +3083,7 @@ msgstr ""
 
 #: src/AccountManagement.tsx
 msgid "Sign out"
-msgstr ""
+msgstr "로그아웃"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
@@ -3135,7 +3135,7 @@ msgstr ""
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Signing out…"
-msgstr ""
+msgstr "로그아웃 중…"
 
 #: src/auth-view.tsx
 msgid "Start signup again"
@@ -3143,7 +3143,7 @@ msgstr ""
 
 #: src/ConnectApp.tsx
 msgid "Status"
-msgstr ""
+msgstr "상태"
 
 #: src/auth-view.tsx
 msgid "Stop receiving the kind of email this link came in. Messages about your account are still sent."
@@ -3393,17 +3393,17 @@ msgstr ""
 
 #: src/authorization-view.tsx
 msgid "this collection"
-msgstr ""
+msgstr "이 컬렉션"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "this collection"
-msgstr ""
+msgstr "이 컬렉션"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "this collection"
-msgstr ""
+msgstr "이 컬렉션"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
@@ -3499,7 +3499,7 @@ msgstr ""
 #: src/onboarding-view.tsx
 #: src/portal-ui.tsx
 msgid "Try again"
-msgstr ""
+msgstr "다시 시도"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -3805,4 +3805,4 @@ msgstr ""
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Your person record"
-msgstr ""
+msgstr "내 사람 레코드"
