@@ -2674,93 +2674,93 @@ msgstr "互換性なし"
 
 #: src/code-editor-completions.ts
 msgid "Insert a fenced code block"
-msgstr ""
+msgstr "囲みコードブロックを挿入"
 
 #: src/code-editor-completions.ts
 msgid "Insert a Markdown table"
-msgstr ""
+msgstr "Markdown の表を挿入"
 
 #: src/code-editor-completions.ts
 msgid "Insert an internal link"
-msgstr ""
+msgstr "内部リンクを挿入"
 
 #: src/ConnectionScreens.tsx
 msgid "inspect the collection"
-msgstr ""
+msgstr "コレクションを調べる"
 
 #: src/TypeBrowser.tsx
 msgid "Install runtime pack"
-msgstr ""
+msgstr "ランタイムパックをインストール"
 
 #: src/TypeBrowser.tsx
 msgid "Installed"
-msgstr ""
+msgstr "インストール済み"
 
 #: src/TypeBrowser.tsx
 msgid "Installed contract"
-msgstr ""
+msgstr "インストール済みの契約"
 
 #: src/TypeBrowser.tsx
 msgid "Installing…"
-msgstr ""
+msgstr "インストール中…"
 
 #: src/type-presentation.ts
 msgid "integer"
-msgstr ""
+msgstr "整数"
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "Integer"
-msgstr ""
+msgstr "整数"
 
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Integer"
-msgstr ""
+msgstr "整数"
 
 #: src/i18n/LanguageSetting.tsx
 msgctxt "editor language preference"
 msgid "Interface language"
-msgstr ""
+msgstr "表示言語"
 
 #: src/type-contracts.ts
 msgid "invalid JSON Schema"
-msgstr ""
+msgstr "無効な JSON Schema"
 
 #: src/PropertiesPanel.tsx
 #: src/SchemaValueEditor.tsx
 msgid "Invalid JSON."
-msgstr ""
+msgstr "JSON が無効です。"
 
 #: src/YourPersonPanel.tsx
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
-msgstr ""
+msgstr "追加後に編集されていないため、新しい初期データに置き換えられます。"
 
 #: src/TypeBrowser.tsx
 msgid "Its current structural rules will be replaced."
-msgstr ""
+msgstr "現在の構造ルールは置き換えられます。"
 
 #: src/TypeBrowser.tsx
 msgid "Journal/**/*.md"
-msgstr ""
+msgstr "Journal/**/*.md"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Keep Markdown visible within the writing measure."
-msgstr ""
+msgstr "Markdown を執筆領域内に表示します。"
 
 #: src/ConflictResolver.tsx
 msgid "Keep my edits"
-msgstr ""
+msgstr "自分の編集を保持"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Keep the caret line centred while writing in focus mode."
-msgstr ""
+msgstr "集中モードで執筆中、カーソルのある行を中央に保ちます。"
 
 #: src/SchemaValueEditor.tsx
 msgid "Key"
-msgstr ""
+msgstr "キー"
 
 #: src/editor-commands.ts
 msgid "Keyboard shortcuts"
@@ -2769,33 +2769,33 @@ msgstr "キーボードショートカット"
 #: src/i18n/LanguageSetting.tsx
 msgctxt "editor language preference"
 msgid "Language"
-msgstr ""
+msgstr "言語"
 
 #: src/settings/SettingsView.tsx
 msgctxt "editor text size"
 msgid "Large"
-msgstr ""
+msgstr "大"
 
 #: src/code-editor-completions.ts
 msgid "Large section heading"
-msgstr ""
+msgstr "大きなセクション見出し"
 
 #: src/ConflictResolver.tsx
 msgid "Latest title"
-msgstr ""
+msgstr "最新のタイトル"
 
 #: src/ConflictResolver.tsx
 msgid "Latest version"
-msgstr ""
+msgstr "最新バージョン"
 
 #. placeholder {0}: pack.displayName
 #: src/catalog-pack-installation.tsx
 msgid "Let “{0}” manage these definitions?"
-msgstr ""
+msgstr "「{0}」にこれらの定義の管理を許可しますか？"
 
 #: src/type-schema.ts
 msgid "Lifecycle"
-msgstr ""
+msgstr "ライフサイクル"
 
 #: src/WorkspaceChrome.tsx
 msgid "Link"
@@ -2803,67 +2803,67 @@ msgstr "リンク"
 
 #: src/YourPersonPanel.tsx
 msgid "Link a record that already represents you."
-msgstr ""
+msgstr "自分を表す既存のレコードにリンクします。"
 
 #: src/TypeBrowser.tsx
 msgid "Link and uniqueness rules can make matching records valid or invalid without changing their source files."
-msgstr ""
+msgstr "リンクと一意性のルールにより、ソースファイルを変更せずに該当レコードの有効・無効が変わる場合があります。"
 
 #: src/YourPersonPanel.tsx
 msgid "Link anyway"
-msgstr ""
+msgstr "そのままリンク"
 
 #. placeholder {0}: index + 1
 #: src/TypeBrowser.tsx
 msgid "Link field {0}"
-msgstr ""
+msgstr "リンクフィールド {0}"
 
 #. placeholder {0}: noteTitle(mention.note, types)
 #: src/WorkspaceChrome.tsx
 msgid "Link mention in {0}"
-msgstr ""
+msgstr "{0}内のメンションをリンク"
 
 #: src/type-schema.ts
 msgid "link rule"
-msgstr ""
+msgstr "リンクルール"
 
 #: src/type-schema.ts
 msgid "Link rules"
-msgstr ""
+msgstr "リンクルール"
 
 #: src/YourPersonPanel.tsx
 msgid "Link this record to me"
-msgstr ""
+msgstr "このレコードを自分にリンク"
 
 #: src/code-editor-completions.ts
 msgid "Link to note or file"
-msgstr ""
+msgstr "ノートまたはファイルへのリンク"
 
 #: src/editor-commands.ts
 #: src/WorkspaceChrome.tsx
 msgid "Linked from"
-msgstr ""
+msgstr "参照元"
 
 #: src/App.tsx
 msgid "Linked mention."
-msgstr ""
+msgstr "メンションをリンクしました。"
 
 #: src/TypeBrowser.tsx
 msgid "Linked schema field"
-msgstr ""
+msgstr "リンクされたスキーマフィールド"
 
 #. placeholder {0}: linked.name
 #: src/YourPersonPanel.tsx
 msgid "Linked to {0}"
-msgstr ""
+msgstr "{0}にリンク済み"
 
 #: src/TypeBrowser.tsx
 msgid "Links"
-msgstr ""
+msgstr "リンク"
 
 #: src/type-schema.ts
 msgid "links with unsupported values"
-msgstr ""
+msgstr "未対応の値を持つリンク"
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
@@ -2873,84 +2873,84 @@ msgstr "リスト"
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "List"
-msgstr ""
+msgstr "リスト"
 
 #: src/ConnectionScreens.tsx
 msgid "list and search notes"
-msgstr ""
+msgstr "ノートの一覧表示と検索"
 
 #: src/ConnectionScreens.tsx
 msgid "list files"
-msgstr ""
+msgstr "ファイルの一覧表示"
 
 #: src/type-schema.ts
 msgid "list item schema"
-msgstr ""
+msgstr "リスト項目のスキーマ"
 
 #: src/TypeBrowser.tsx
 msgid "List items"
-msgstr ""
+msgstr "リスト項目"
 
 #: src/App.tsx
 msgid "Loaded the latest version."
-msgstr ""
+msgstr "最新バージョンを読み込みました。"
 
 #: src/TypeBrowser.tsx
 msgid "Loading available compatibility packs…"
-msgstr ""
+msgstr "利用可能な互換性パックを読み込み中…"
 
 #: src/TypeBrowser.tsx
 msgid "Loading contract catalog"
-msgstr ""
+msgstr "契約カタログを読み込み中"
 
 #: src/App.tsx
 msgid "Loading file viewer"
-msgstr ""
+msgstr "ファイルビューアーを読み込み中"
 
 #: src/App.tsx
 msgid "Loading folder composer"
-msgstr ""
+msgstr "フォルダー作成画面を読み込み中"
 
 #: src/CollectionRail.tsx
 msgid "Loading folders…"
-msgstr ""
+msgstr "フォルダーを読み込み中…"
 
 #: src/WorkspaceChrome.tsx
 msgid "Loading note"
-msgstr ""
+msgstr "ノートを読み込み中"
 
 #: src/App.tsx
 msgid "Loading note composer"
-msgstr ""
+msgstr "ノート作成画面を読み込み中"
 
 #: src/MarkdownNoteEditor.tsx
 msgid "Loading note editor"
-msgstr ""
+msgstr "ノートエディターを読み込み中"
 
 #: src/NotePreview.tsx
 msgid "Loading preview"
-msgstr ""
+msgstr "プレビューを読み込み中"
 
 #: src/NotePreview.tsx
 msgid "Loading preview…"
-msgstr ""
+msgstr "プレビューを読み込み中…"
 
 #: src/App.tsx
 msgid "Loading properties…"
-msgstr ""
+msgstr "プロパティを読み込み中…"
 
 #: src/LoadingScreens.tsx
 #: src/TypeBrowser.tsx
 msgid "Loading type definition"
-msgstr ""
+msgstr "型定義を読み込み中"
 
 #: src/LoadingScreens.tsx
 msgid "Loading types"
-msgstr ""
+msgstr "型を読み込み中"
 
 #: src/YourPersonPanel.tsx
 msgid "Loading your identity and person records…"
-msgstr ""
+msgstr "識別情報と人物レコードを読み込み中…"
 
 #: src/WorkspaceChrome.tsx
 msgid "Loading…"
@@ -2959,53 +2959,53 @@ msgstr "読み込み中…"
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Local network access is blocked in this browser. Allow it in the site settings, then check again."
-msgstr ""
+msgstr "このブラウザーではローカルネットワークへのアクセスがブロックされています。サイトの設定で許可してから再確認してください。"
 
 #: src/App.tsx
 msgid "Local network access is blocked in this browser. Allow it in the site settings, then try again."
-msgstr ""
+msgstr "このブラウザーではローカルネットワークへのアクセスがブロックされています。サイトの設定で許可してから再試行してください。"
 
 #. placeholder {0}: Intl.DateTimeFormat().resolvedOptions().timeZone
 #: src/SchemaValueEditor.tsx
 msgid "Local time ({0})"
-msgstr ""
+msgstr "現地時刻（{0}）"
 
 #: src/TypeBrowser.tsx
 msgid "Loses"
-msgstr ""
+msgstr "該当しなくなる"
 
 #: src/ConnectionScreens.tsx
 msgid "manage type definitions"
-msgstr ""
+msgstr "型定義を管理"
 
 #: src/contract-catalog.ts
 msgid "manifest.resources[{index}].kind is not supported."
-msgstr ""
+msgstr "manifest.resources[{index}].kindには対応していません。"
 
 #: src/contract-catalog.ts
 msgid "manifest.resources[{index}].mode is not supported."
-msgstr ""
+msgstr "manifest.resources[{index}].modeには対応していません。"
 
 #. placeholder {0}: field.reference
 #: src/type-contracts.ts
 msgid "Map required contract field {0}."
-msgstr ""
+msgstr "必須の契約フィールド {0} を対応付けてください。"
 
 #: src/TypeBrowser.tsx
 msgid "Mapping ready"
-msgstr ""
+msgstr "対応付けの準備完了"
 
 #: src/CodeEditor.tsx
 msgid "Mark task complete"
-msgstr ""
+msgstr "タスクを完了にする"
 
 #: src/CodeEditor.tsx
 msgid "Mark task incomplete"
-msgstr ""
+msgstr "タスクを未完了にする"
 
 #: src/QuickOpen.tsx
 msgid "Markdown commands"
-msgstr ""
+msgstr "Markdown コマンド"
 
 #: src/TypeBrowser.tsx
 msgid "Markdown link"
@@ -3013,153 +3013,153 @@ msgstr "Markdownリンク"
 
 #: src/App.tsx
 msgid "Markdown path"
-msgstr ""
+msgstr "Markdown パス"
 
 #: src/FileViewer.tsx
 msgid "Markdown preview unavailable."
-msgstr ""
+msgstr "Markdown のプレビューを利用できません。"
 
 #: src/QuickOpen.tsx
 msgid "Matching actions"
-msgstr ""
+msgstr "一致する操作"
 
 #: src/TypeBrowser.tsx
 msgid "Matching notes"
-msgstr ""
+msgstr "一致するノート"
 
 #: src/QuickOpen.tsx
 msgid "Matching notes and actions"
-msgstr ""
+msgstr "一致するノートと操作"
 
 #: src/type-schema.ts
 msgid "Matching rules"
-msgstr ""
+msgstr "一致するルール"
 
 #: src/TypeBrowser.tsx
 msgid "Maximum"
-msgstr ""
+msgstr "最大値"
 
 #: src/type-schema.ts
 msgid "maximum items"
-msgstr ""
+msgstr "項目の最大数"
 
 #: src/TypeBrowser.tsx
 msgid "Maximum items"
-msgstr ""
+msgstr "項目の最大数"
 
 #: src/type-schema.ts
 msgid "maximum length"
-msgstr ""
+msgstr "最大長"
 
 #: src/TypeBrowser.tsx
 msgid "Maximum length"
-msgstr ""
+msgstr "最大長"
 
 #: src/TypeBrowser.tsx
 msgid "mdbase catalog"
-msgstr ""
+msgstr "mdbase カタログ"
 
 #: src/App.tsx
 msgid "mdbase could not be reached on this computer. Editing will continue through mdbase."
-msgstr ""
+msgstr "このコンピューター上のmdbaseに接続できませんでした。編集は引き続きmdbase経由で行われます。"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "mdbase could not be reached on this computer. You can keep editing through mdbase."
-msgstr ""
+msgstr "このコンピューター上のmdbaseに接続できませんでした。引き続きmdbase経由で編集できます。"
 
 #: src/next-editor-records.ts
 msgid "Mdbase did not return the complete note source. No source was reconstructed."
-msgstr ""
+msgstr "mdbaseからノートの完全なソースが返されませんでした。ソースは再構築していません。"
 
 #: src/App.tsx
 msgid "mdbase editor can now use mdbase on this computer."
-msgstr ""
+msgstr "mdbase editor がこのコンピューター上のmdbaseを使用できるようになりました。"
 
 #: src/SdkEditorRoot.tsx
 msgid "mdbase editor: {developerMessage}"
-msgstr ""
+msgstr "mdbase editor：{developerMessage}"
 
 #: src/ConnectionScreens.tsx
 msgid "mdbase keeps the access you already approved and shows only what needs to be added."
-msgstr ""
+msgstr "mdbaseはすでに承認されたアクセスを維持し、追加が必要な項目のみを表示します。"
 
 #: src/TypeBrowser.tsx
 msgid "Minimum"
-msgstr ""
+msgstr "最小値"
 
 #: src/type-schema.ts
 msgid "minimum items"
-msgstr ""
+msgstr "項目の最小数"
 
 #: src/TypeBrowser.tsx
 msgid "Minimum items"
-msgstr ""
+msgstr "項目の最小数"
 
 #: src/type-schema.ts
 msgid "minimum length"
-msgstr ""
+msgstr "最小長"
 
 #: src/TypeBrowser.tsx
 msgid "Minimum length"
-msgstr ""
+msgstr "最小長"
 
 #: src/TypeBrowser.tsx
 msgid "Missing field: {mapped}"
-msgstr ""
+msgstr "不足しているフィールド：{mapped}"
 
 #. placeholder {0}: record.path
 #: src/collection-index-controller.ts
 msgid "Missing frontmatter projections for {0}"
-msgstr ""
+msgstr "{0}のフロントマターの投影がありません"
 
 #: src/note-embeds.ts
 msgid "Missing note"
-msgstr ""
+msgstr "ノートが見つかりません"
 
 #: src/TypeBrowser.tsx
 msgid "Missing properties have no type-specific read defaults."
-msgstr ""
+msgstr "不足しているプロパティには、型固有の読み取り時の既定値がありません。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Missing required properties"
-msgstr ""
+msgstr "不足している必須プロパティ"
 
 #: src/PropertiesPanel.tsx
 msgid "Modified"
-msgstr ""
+msgstr "更新日時"
 
 #: src/note-list-view.ts
 msgid "modified newest"
-msgstr ""
+msgstr "更新日時が新しい順"
 
 #: src/note-list-view.ts
 msgid "Modified newest"
-msgstr ""
+msgstr "更新日時が新しい順"
 
 #: src/note-list-view.ts
 msgid "modified oldest"
-msgstr ""
+msgstr "更新日時が古い順"
 
 #: src/note-list-view.ts
 msgid "Modified oldest"
-msgstr ""
+msgstr "更新日時が古い順"
 
 #: src/TypeBrowser.tsx
 msgid "More collection behaviour in YAML"
-msgstr ""
+msgstr "その他のコレクション動作を YAML で設定"
 
 #: src/TypeBrowser.tsx
 msgid "More inferred rules in YAML"
-msgstr ""
+msgstr "その他の推論ルールを YAML で設定"
 
 #: src/App.tsx
 msgid "More note actions"
-msgstr ""
+msgstr "その他のノート操作"
 
 #: src/code-editor-note-embeds.ts
 msgid "More than one note matches this transclusion."
-msgstr ""
+msgstr "この埋め込みに一致するノートが複数あります。"
 
 #: src/MoveNoteDialog.tsx
 msgid "Move"
@@ -3167,18 +3167,18 @@ msgstr "移動"
 
 #: src/FolderChangeDialog.tsx
 msgid "Move ‘{basename}’"
-msgstr ""
+msgstr "「{basename}」を移動"
 
 #. placeholder {0}: plan.moves.length
 #. placeholder {1}: plan.referenceCount
 #: src/FolderChangeDialog.tsx
 msgid "Move {0, plural, one {# note} other {# notes}} and update {1, plural, one {# link} other {# links}}?"
-msgstr ""
+msgstr "{0, plural, one {#件のノートを移動し} other {#件のノートを移動し}}、{1, plural, one {#件のリンクを更新しますか？} other {#件のリンクを更新しますか？}}"
 
 #. placeholder {0}: paths.length
 #: src/MoveNoteDialog.tsx
 msgid "Move {0} notes"
-msgstr ""
+msgstr "{0}件のノートを移動"
 
 #: src/FolderChangeDialog.tsx
 msgid "Move folder"
