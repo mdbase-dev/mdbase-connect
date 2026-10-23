@@ -911,460 +911,460 @@ msgstr "O mdbase pede confirmação na tela deste computador, com a chave do apl
 
 #: src/renderer/daemon-view.mts
 msgid "mdbase cannot reach the sync service. It opens the collection when you are back online."
-msgstr ""
+msgstr "O mdbase não consegue acessar o serviço de sincronização. Ele abrirá a coleção quando você estiver online novamente."
 
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "mdbase connect could not initialize"
-msgstr ""
+msgstr "Não foi possível inicializar o mdbase connect"
 
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "mdbase connect could not install the update"
-msgstr ""
+msgstr "O mdbase connect não conseguiu instalar a atualização"
 
 #: src/renderer/view-model.ts
 msgid "mdbase connect could not reach the service. Check your connection and try again."
-msgstr ""
+msgstr "O mdbase connect não conseguiu acessar o serviço. Verifique sua conexão e tente novamente."
 
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "mdbase connect could not start"
-msgstr ""
+msgstr "Não foi possível iniciar o mdbase connect"
 
 #: src/renderer/ui-components.tsx
 msgid "mdbase connect navigation"
-msgstr ""
+msgstr "Navegação do mdbase connect"
 
 #: src/renderer/main.tsx
 msgid "mdbase connect will start at login."
-msgstr ""
+msgstr "O mdbase connect iniciará ao entrar."
 
 #: src/renderer/access-view.tsx
 msgid "mdbase could not fetch what this app is asking for, or which folders. Approval is possible once it can."
-msgstr ""
+msgstr "O mdbase não conseguiu obter o que este aplicativo está solicitando nem quais pastas. A aprovação será possível quando ele conseguir."
 
 #: src/renderer/view-model.ts
 msgid "mdbase could not reach the sync service. Check your connection and try again. {unchanged}"
-msgstr ""
+msgstr "O mdbase não conseguiu acessar o serviço de sincronização. Verifique sua conexão e tente novamente. {unchanged}"
 
 #: src/renderer/activity-view.tsx
 msgid "mdbase could not read this computer's activity. It is retried automatically."
-msgstr ""
+msgstr "O mdbase não conseguiu ler a atividade deste computador. Ele tentará novamente automaticamente."
 
 #: src/renderer/view-model.ts
 msgid "mdbase could not verify the sync service for this computer. Update mdbase or contact support@mdbase.dev. {unchanged}"
-msgstr ""
+msgstr "O mdbase não conseguiu verificar o serviço de sincronização deste computador. Atualize o mdbase ou entre em contato pelo support@mdbase.dev. {unchanged}"
 
 #: src/renderer/main.tsx
 msgid "mdbase creates a new folder with this name and keeps it on this computer. You can turn on sync later."
-msgstr ""
+msgstr "O mdbase cria uma nova pasta com este nome e a mantém neste computador. Você pode ativar a sincronização depois."
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "mdbase daemon"
-msgstr ""
+msgstr "Serviço mdbase"
 
 #: src/main/daemon-session.ts
 msgctxt "Desktop application"
 msgid "mdbase is not running"
-msgstr ""
+msgstr "O mdbase não está em execução"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "mdbase is not running"
-msgstr ""
+msgstr "O mdbase não está em execução"
 
 #: src/renderer/main.tsx
 msgid "mdbase is not running on this computer. It restarts automatically; if this stays, restart mdbase connect."
-msgstr ""
+msgstr "O mdbase não está em execução neste computador. Ele reinicia automaticamente; se isso continuar, reinicie o mdbase connect."
 
 #: src/renderer/collections-view.tsx
 msgid "mdbase keeps a copy, so web apps and agents can use it while your devices are off."
-msgstr ""
+msgstr "O mdbase mantém uma cópia para que aplicativos web e agentes possam usá-la enquanto seus dispositivos estiverem desligados."
 
 #: src/renderer/collections-view.tsx
 msgid "mdbase kept these files instead of overwriting them. Choose which version to keep."
-msgstr ""
+msgstr "O mdbase preservou esses arquivos em vez de sobrescrevê-los. Escolha qual versão manter."
 
 #: src/main/main.ts
 msgid "mdbase needs attention"
-msgstr ""
+msgstr "O mdbase precisa de atenção"
 
 #: src/main/daemon-session.ts
 msgctxt "Desktop application"
 msgid "mdbase needs attention"
-msgstr ""
+msgstr "O mdbase precisa de atenção"
 
 #: src/main/daemon-session.ts
 msgctxt "Desktop application"
 msgid "mdbase ready"
-msgstr ""
+msgstr "O mdbase está pronto"
 
 #: src/main/daemon-session.ts
 msgctxt "Desktop application"
 msgid "mdbase ready (not signed in)"
-msgstr ""
+msgstr "O mdbase está pronto (sem sessão iniciada)"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "mdbase service"
-msgstr ""
+msgstr "Serviço mdbase"
 
 #. placeholder {0}: entry.app_name
 #: src/renderer/access-view.tsx
 msgid "mdbase shows the app's key when you approve. Check that {0} shows the same key."
-msgstr ""
+msgstr "O mdbase mostra a chave do aplicativo quando você o aprova. Verifique se {0} mostra a mesma chave."
 
 #: src/main/daemon-session.ts
 msgctxt "Desktop application"
 msgid "mdbase starting"
-msgstr ""
+msgstr "O mdbase está iniciando"
 
 #. placeholder {0}: reason.replaceAll("_", " ")
 #: src/renderer/takeover-state.mts
 msgid "mdbase will retry ({0})"
-msgstr ""
+msgstr "O mdbase tentará novamente ({0})"
 
 #: src/renderer/takeover-state.mts
 msgid "mdbase will retry in a new folder"
-msgstr ""
+msgstr "O mdbase tentará novamente em uma nova pasta"
 
 #: src/renderer/takeover-state.mts
 msgid "mdbase will retry once this collection has finished moving"
-msgstr ""
+msgstr "O mdbase tentará novamente quando a transferência desta coleção terminar"
 
 #: src/renderer/takeover-state.mts
 msgid "mdbase will retry shortly"
-msgstr ""
+msgstr "O mdbase tentará novamente em breve"
 
 #: src/renderer/takeover-state.mts
 msgid "mdbase will retry when it can reach the server"
-msgstr ""
+msgstr "O mdbase tentará novamente quando conseguir acessar o servidor"
 
 #: src/renderer/takeover-state.mts
 msgctxt "Collection move recovery"
 msgid "Migration postponed"
-msgstr ""
+msgstr "Migração adiada"
 
 #. placeholder {0}: first.reason
 #: src/renderer/takeover-state.mts
 msgid "Migration postponed: {0}"
-msgstr ""
+msgstr "Migração adiada: {0}"
 
 #: src/renderer/takeover-panel.tsx
 #: src/renderer/takeover-state.mts
 msgid "Move to the new sync engine"
-msgstr ""
+msgstr "Transferir para o novo mecanismo de sincronização"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"
 msgid "Moved"
-msgstr ""
+msgstr "Transferida"
 
 #: src/renderer/takeover-panel.tsx
 msgid "Moved, files kept for review"
-msgstr ""
+msgstr "Transferida, arquivos preservados para revisão"
 
 #: src/renderer/takeover-state.mts
 msgid "Moving your collections to mdbase…"
-msgstr ""
+msgstr "Transferindo suas coleções para o mdbase…"
 
 #: src/renderer/collections-view.tsx
 msgid "Name"
-msgstr ""
+msgstr "Nome"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Needs attention"
-msgstr ""
+msgstr "Precisa de atenção"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
 msgid "New"
-msgstr ""
+msgstr "Novo"
 
 #: src/renderer/main.tsx
 msgid "New apps connect without asking; you are still notified."
-msgstr ""
+msgstr "Novos aplicativos se conectam sem perguntar; você ainda recebe uma notificação."
 
 #: src/renderer/main.tsx
 msgid "New apps now wait for your approval on this computer."
-msgstr ""
+msgstr "Novos aplicativos agora aguardam sua aprovação neste computador."
 
 #: src/renderer/main.tsx
 msgid "New collection"
-msgstr ""
+msgstr "Nova coleção"
 
 #: src/renderer/device-requests.tsx
 msgctxt "Connect interface"
 msgid "New devices waiting"
-msgstr ""
+msgstr "Novos dispositivos aguardando"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
 msgid "No actions"
-msgstr ""
+msgstr "Nenhuma ação"
 
 #: src/renderer/activity-view.tsx
 msgctxt "Connect interface"
 msgid "No activity yet"
-msgstr ""
+msgstr "Nenhuma atividade ainda"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
 msgid "No apps connected"
-msgstr ""
+msgstr "Nenhum aplicativo conectado"
 
 #: src/renderer/collections-view.tsx
 msgctxt "Local collection management"
 msgid "No collections yet"
-msgstr ""
+msgstr "Ainda não há coleções"
 
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
 msgid "No update is ready to install."
-msgstr ""
+msgstr "Não há atualização pronta para instalação."
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Not running"
-msgstr ""
+msgstr "Não está em execução"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Not signed in"
-msgstr ""
+msgstr "Sem sessão iniciada"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
 msgid "Nothing is waiting"
-msgstr ""
+msgstr "Nada está aguardando"
 
 #: src/renderer/collections-view.tsx
 msgid "Nothing is waiting."
-msgstr ""
+msgstr "Nada está aguardando."
 
 #: src/renderer/main.tsx
 msgid "Nothing waiting"
-msgstr ""
+msgstr "Nada aguardando"
 
 #: src/renderer/takeover-state.mts
 msgid "Nothing was changed. Contact support with a diagnostics report."
-msgstr ""
+msgstr "Nada foi alterado. Entre em contato com o suporte com um relatório de diagnóstico."
 
 #: src/renderer/main.tsx
 msgid "Off"
-msgstr ""
+msgstr "Desativado"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Offline"
-msgstr ""
+msgstr "Sem conexão"
 
 #: src/renderer/main.tsx
 msgid "On"
-msgstr ""
+msgstr "Ativado"
 
 #: src/renderer/collections-view.tsx
 msgctxt "Local collection management"
 msgid "On this computer"
-msgstr ""
+msgstr "Neste computador"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "On this computer only"
-msgstr ""
+msgstr "Somente neste computador"
 
 #. placeholder {0}: status.target_version
 #. placeholder {0}: update.target_version
 #: src/main/main.ts
 #: src/renderer/main.tsx
 msgid "Open {0}"
-msgstr ""
+msgstr "Abrir {0}"
 
 #: src/renderer/sign-in-panel.tsx
 msgid "Open browser again"
-msgstr ""
+msgstr "Abrir navegador novamente"
 
 #: src/renderer/collections-view.tsx
 msgid "Open folder"
-msgstr ""
+msgstr "Abrir pasta"
 
 #: src/renderer/collections-view.tsx
 msgctxt "Local collection management"
 msgid "Open in an editor"
-msgstr ""
+msgstr "Abrir em um editor"
 
 #: src/renderer/ui-components.tsx
 msgctxt "Connect interface"
 msgid "Open navigation"
-msgstr ""
+msgstr "Abrir navegação"
 
 #: src/renderer/access-view.tsx
 msgid "Open the app you want to use and connect it to mdbase. You approve it in your browser, and it appears here."
-msgstr ""
+msgstr "Abra o aplicativo que deseja usar e conecte-o ao mdbase. Você o aprova no navegador, e ele aparece aqui."
 
 #: src/main/main.ts
 #: src/renderer/main.tsx
 msgid "Open update"
-msgstr ""
+msgstr "Abrir atualização"
 
 #: src/renderer/sign-in-panel.tsx
 msgctxt "Connect interface"
 msgid "Opening browser…"
-msgstr ""
+msgstr "Abrindo navegador…"
 
 #: src/renderer/daemon-view.mts
 msgid "Opening…"
-msgstr ""
+msgstr "Abrindo…"
 
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
 msgctxt "Connect interface"
 msgid "Overview"
-msgstr ""
+msgstr "Visão geral"
 
 #: src/renderer/collections-view.tsx
 msgctxt "Local collection management"
 msgid "Pause"
-msgstr ""
+msgstr "Pausar"
 
 #: src/renderer/daemon-view.mts
 msgid "Paused"
-msgstr ""
+msgstr "Pausado"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"
 msgid "Postponed"
-msgstr ""
+msgstr "Adiada"
 
 #: src/renderer/main.tsx
 msgid "Previous version restored"
-msgstr ""
+msgstr "Versão anterior restaurada"
 
 #: src/renderer/collections-view.tsx
 msgid "Private"
-msgstr ""
+msgstr "Privada"
 
 #: src/renderer/daemon-view.mts
 msgid "Private sync (end-to-end encrypted)"
-msgstr ""
+msgstr "Sincronização privada (criptografia de ponta a ponta)"
 
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Quit mdbase connect"
-msgstr ""
+msgstr "Sair do mdbase connect"
 
 #: src/renderer/takeover-state.mts
 msgid "Quit mdbase Connect (including its menu-bar or tray icon), then choose Move to the new sync engine."
-msgstr ""
+msgstr "Saia do mdbase Connect (incluindo o ícone na barra de menus ou bandeja) e escolha Transferir para o novo mecanismo de sincronização."
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Read"
-msgstr ""
+msgstr "Ler"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "read and add files"
-msgstr ""
+msgstr "ler e adicionar arquivos"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "read notes"
-msgstr ""
+msgstr "ler notas"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Reading update status…"
-msgstr ""
+msgstr "Lendo status da atualização…"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Ready"
-msgstr ""
+msgstr "Pronto"
 
 #: src/renderer/activity-view.tsx
 msgctxt "Connect interface"
 msgid "Recent activity"
-msgstr ""
+msgstr "Atividade recente"
 
 #: src/renderer/takeover-state.mts
 msgid "Reconnect the drive or restore the folder; the old engine's data is kept."
-msgstr ""
+msgstr "Reconecte a unidade ou restaure a pasta; os dados do mecanismo antigo foram preservados."
 
 #: src/renderer/main.tsx
 msgid "Releases are checked against signed provenance before installation."
-msgstr ""
+msgstr "A procedência assinada das versões é verificada antes da instalação."
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Reminders"
-msgstr ""
+msgstr "Lembretes"
 
 #: src/renderer/collections-view.tsx
 msgid "Remove"
-msgstr ""
+msgstr "Remover"
 
 #. placeholder {0}: collection.name
 #: src/renderer/collections-view.tsx
 msgid "Remove {0} from mdbase? Apps stop using it. The folder and its files stay where they are."
-msgstr ""
+msgstr "Remover {0} do mdbase? Os aplicativos deixarão de usá-la. A pasta e seus arquivos permanecerão onde estão."
 
 #: src/renderer/main.tsx
 msgid "Rename"
-msgstr ""
+msgstr "Renomear"
 
 #: src/renderer/collections-view.tsx
 msgid "Resolve this file in the app that uses it."
-msgstr ""
+msgstr "Resolva este arquivo no aplicativo que o utiliza."
 
 #: src/renderer/collections-view.tsx
 msgctxt "Local collection management"
 msgid "Resume"
-msgstr ""
+msgstr "Retomar"
 
 #: src/renderer/takeover-panel.tsx
 msgid "Returned to the old engine"
-msgstr ""
+msgstr "Retornou ao mecanismo antigo"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
 msgid "Review"
-msgstr ""
+msgstr "Revisar"
 
 #. placeholder {0}: view.holds
 #: src/renderer/collections-view.tsx
 msgid "Review {0, plural, one {# file} other {# files}}"
-msgstr ""
+msgstr "Revisar {0, plural, one {# arquivo} other {# arquivos}}"
 
 #: src/renderer/access-view.tsx
 msgid "Revoke"
-msgstr ""
+msgstr "Revogar"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
 msgid "Revoked"
-msgstr ""
+msgstr "Revogado"
 
 #: src/renderer/main.tsx
 msgid "Save"
-msgstr ""
+msgstr "Salvar"
 
 #: src/renderer/collections-view.tsx
 msgctxt "Local collection management"
 msgid "Save details"
-msgstr ""
+msgstr "Salvar detalhes"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "save views"
-msgstr ""
+msgstr "salvar visualizações"
 
 #: src/renderer/main.tsx
 msgid "Saved app access still works on this computer"
-msgstr ""
+msgstr "O acesso salvo dos aplicativos ainda funciona neste computador"
 
 #: src/renderer/collections-view.tsx
 msgctxt "Local collection management"
