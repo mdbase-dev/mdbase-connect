@@ -1,0 +1,33 @@
+/** Fixed CodeMirror lookup keys; preserve literal $ substitution tokens. */
+const phrases: Record<string, string> = {
+  "Control character": "Управляющий символ",
+  "Selection deleted": "Выделение удалено",
+  "Completions": "Варианты дополнения",
+  "Folded lines": "Свёрнутые строки",
+  "Unfolded lines": "Развёрнутые строки",
+  "Fold line": "Свернуть строку",
+  "Unfold line": "Развернуть строку",
+  "folded code": "Свёрнутый код",
+  "unfold": "Развернуть",
+  "to": "–",
+  "Go to line": "Перейти к строке",
+  "go": "Перейти",
+  "Find": "Найти",
+  "Replace": "Заменить",
+  "next": "Далее",
+  "previous": "Назад",
+  "all": "Все",
+  "match case": "Учитывать регистр",
+  "regexp": "Регулярное выражение",
+  "by word": "Слова целиком",
+  "replace": "Заменить",
+  "replace all": "Заменить всё",
+  "close": "Закрыть",
+  "current match": "Текущее совпадение",
+  "on line": "в строке",
+  "replaced match on line $": "Заменено совпадение в строке $",
+  "replaced $ matches": "Заменено совпадений: $",
+  "Diagnostics": "Диагностика",
+  "No diagnostics": "Нет диагностических сообщений"
+};
+export default phrases;

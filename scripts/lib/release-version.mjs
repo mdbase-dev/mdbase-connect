@@ -13,6 +13,7 @@ export const packagePaths = [
   "packages/app-ui/package.json",
   "packages/client/package.json",
   "packages/devkit/package.json",
+  "packages/i18n/package.json",
   "packages/management/package.json",
   "packages/pickle/package.json",
   "packages/protocol/package.json",
