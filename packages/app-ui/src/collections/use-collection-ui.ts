@@ -1,3 +1,4 @@
+import { useLocaleRevision } from "../i18n.js";
 import type { Mdbase, MdbaseProblem } from "@mdbase-dev/sdk";
 import { describeError } from "@mdbase-dev/sdk/describe";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
@@ -178,7 +179,8 @@ export function useAutoStart(mdbase: Mdbase, enabled = true): void {
 export function useCollectionUi(options: CollectionUiOptions): CollectionUi {
   const { mdbase, app } = options;
   const snapshot = useSyncExternalStore(mdbase.subscribe, mdbase.getSnapshot, mdbase.getSnapshot);
-  const copy = useMemo(() => ({ ...defaultCollectionCopy, ...options.copy }), [options.copy]);
+  const localeRevision = useLocaleRevision();
+  const copy = useMemo(() => ({ ...defaultCollectionCopy, ...options.copy }), [options.copy, localeRevision]);
   const view = useMemo(() => collectionView(snapshot, { appName: app.name, copy }), [snapshot, app.name, copy]);
   const [busy, setBusy] = useState<CollectionActionName | null>(null);
   const [error, setError] = useState<ActionError | null>(null);

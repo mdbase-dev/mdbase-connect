@@ -1,3 +1,5 @@
+import { t } from "@lingui/core/macro";
+import "./i18n.js";
 /**
  * The mdbase apps a collection can be opened in. Editor is the canonical app for a
  * collection; Reader and Writer serve particular workflows on the same records.
@@ -16,19 +18,19 @@ export const mdbaseApps: readonly MdbaseApp[] = [
   {
     id: "editor",
     name: "Editor",
-    description: "Browse and edit records",
+    get description() { return t({ message: "Browse and edit records" }); },
     url: "https://editor.mdbase.dev/"
   },
   {
     id: "reader",
     name: "Reader",
-    description: "Read and annotate sources",
+    get description() { return t({ message: "Read and annotate sources" }); },
     url: "https://reader.mdbase.dev/"
   },
   {
     id: "writer",
     name: "Writer",
-    description: "Write manuscripts that cite your sources",
+    get description() { return t({ message: "Write manuscripts that cite your sources" }); },
     url: "https://writer.mdbase.dev/"
   }
 ];

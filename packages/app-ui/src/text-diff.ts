@@ -1,3 +1,5 @@
+import { t } from "@lingui/core/macro";
+import "./i18n.js";
 export type DiffKind = "same" | "local" | "remote" | "omitted";
 
 export interface DiffLine {
@@ -79,7 +81,7 @@ function compactDiff(lines: DiffLine[]): DiffLine[] {
     const line = lines[index];
     if (line.kind !== "same") {
       if (shownChanges >= MAX_VISIBLE_CHANGES) {
-        visible.push({ kind: "omitted", text: `${changes - shownChanges} more changed lines` });
+        visible.push({ kind: "omitted", text: t`${changes - shownChanges} more changed lines` });
         break;
       }
       visible.push(line);
@@ -91,7 +93,7 @@ function compactDiff(lines: DiffLine[]): DiffLine[] {
     if (previousChange || nextChange) {
       visible.push(line);
     } else if (visible.at(-1)?.kind !== "omitted") {
-      visible.push({ kind: "omitted", text: "Unchanged lines" });
+      visible.push({ kind: "omitted", text: t({ message: "Unchanged lines" }) });
     }
   }
   return visible;

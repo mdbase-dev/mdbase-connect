@@ -4,15 +4,21 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test access.test.ts contract-setup.test.ts"
+    "build": "tsc -p tsconfig.json && node ../app-ui/scripts/compile-macros.mjs",
+    "test": "node --test access.test.ts contract-setup.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "exports": {
-    "./access": "./access.ts",
-    "./contract-setup": "./contract-setup.ts",
-    "./provider-button": "./provider-button.ts",
+    "./access": "./dist/access.js",
+    "./contract-setup": "./dist/contract-setup.js",
+    "./provider-button": "./dist/provider-button.js",
     "./styles.css": "./styles.css"
   },
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  },
   "dependencies": {
+    "@lingui/core": "6.9.0",
     "@mdbase-dev/ui": "workspace:*",
     "yaml": "^2.9.1"
   }

@@ -7,7 +7,7 @@ import {
   provisionedContract,
   suggestTypes,
   typeFields
-} from "./contract-setup.ts";
+} from "./dist/contract-setup.js";
 
 const contractDigest = `sha256:${"a".repeat(64)}`;
 const provision = {
