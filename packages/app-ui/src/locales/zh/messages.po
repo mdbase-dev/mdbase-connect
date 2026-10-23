@@ -892,7 +892,7 @@ msgstr "你已在此设备上退出 {app}。"
 #. Example email address, not user data.
 #: src/Feedback.tsx
 msgid "you@example.com"
-msgstr "you@example.com"
+msgstr "例如：you@example.com"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
