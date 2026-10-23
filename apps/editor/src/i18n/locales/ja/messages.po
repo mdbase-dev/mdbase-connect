@@ -3182,53 +3182,53 @@ msgstr "{0}件のノートを移動"
 
 #: src/FolderChangeDialog.tsx
 msgid "Move folder"
-msgstr ""
+msgstr "フォルダーを移動"
 
 #: src/RailDropTarget.tsx
 msgid "Move here"
-msgstr ""
+msgstr "ここに移動"
 
 #: src/MoveNoteDialog.tsx
 msgid "Move note"
-msgstr ""
+msgstr "ノートを移動"
 
 #: src/ConnectionScreens.tsx
 msgid "move notes"
-msgstr ""
+msgstr "ノートを移動"
 
 #: src/QuickOpen.tsx
 msgid "Move through the note list"
-msgstr ""
+msgstr "ノート一覧を移動"
 
 #: src/CollectionRail.tsx
 #: src/editor-commands.ts
 msgid "Move to…"
-msgstr ""
+msgstr "移動先…"
 
 #. placeholder {0}: progress.completed
 #. placeholder {1}: progress.total
 #. placeholder {2}: progress.path
 #: src/FolderChangeDialog.tsx
 msgid "Moved {0} of {1} notes. {2}"
-msgstr ""
+msgstr "{1}件中{0}件のノートを移動しました。{2}"
 
 #: src/note-mutation-presentation.ts
 #: src/WorkspaceChrome.tsx
 msgid "Moving"
-msgstr ""
+msgstr "移動中"
 
 #: src/note-mutation-presentation.ts
 msgid "Moving note"
-msgstr ""
+msgstr "ノートを移動中"
 
 #: src/App.tsx
 msgid "Moving notes is not available with this collection’s current access."
-msgstr ""
+msgstr "このコレクションへの現在のアクセス権ではノートを移動できません。"
 
 #: src/FolderChangeDialog.tsx
 #: src/MoveNoteDialog.tsx
 msgid "Moving…"
-msgstr ""
+msgstr "移動中…"
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
@@ -3238,15 +3238,15 @@ msgstr "名前"
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Name"
-msgstr ""
+msgstr "名前"
 
 #: src/TypeBrowser.tsx
 msgid "Name field"
-msgstr ""
+msgstr "名前フィールド"
 
 #: src/NewNoteComposer.tsx
 msgid "Name the folder to create it."
-msgstr ""
+msgstr "フォルダーを作成するには名前を付けてください。"
 
 #: src/note-mutation-presentation.ts
 #: src/TypeBrowser.tsx
@@ -3256,20 +3256,20 @@ msgstr "要確認"
 
 #: src/type-schema.ts
 msgid "nested fields"
-msgstr ""
+msgstr "入れ子のフィールド"
 
 #: src/TypeBrowser.tsx
 msgid "Nested fields"
-msgstr ""
+msgstr "入れ子のフィールド"
 
 #: src/type-schema.ts
 msgid "nested required fields"
-msgstr ""
+msgstr "入れ子の必須フィールド"
 
 #: src/CollectionRail.tsx
 #: src/NewNoteComposer.tsx
 msgid "New folder"
-msgstr ""
+msgstr "新しいフォルダー"
 
 #: src/editor-commands.ts
 #: src/NewNoteComposer.tsx
@@ -3280,190 +3280,190 @@ msgstr "新しいノート"
 
 #: src/CollectionRail.tsx
 msgid "New note here"
-msgstr ""
+msgstr "ここに新しいノートを作成"
 
 #: src/editor-commands.ts
 msgid "New note in current folder"
-msgstr ""
+msgstr "現在のフォルダーに新しいノートを作成"
 
 #: src/YourPersonPanel.tsx
 msgid "New person record"
-msgstr ""
+msgstr "新しい人物レコード"
 
 #: src/CollectionRail.tsx
 msgid "New subfolder"
-msgstr ""
+msgstr "新しいサブフォルダー"
 
 #: src/TypeBrowser.tsx
 msgid "New type"
-msgstr ""
+msgstr "新しい型"
 
 #: src/type-schema.ts
 msgid "New type definition"
-msgstr ""
+msgstr "新しい型定義"
 
 #: src/QuickOpen.tsx
 msgid "Next or previous note"
-msgstr ""
+msgstr "次または前のノート"
 
 #: src/TypeBrowser.tsx
 msgid "No app contracts installed"
-msgstr ""
+msgstr "インストール済みのアプリ契約はありません"
 
 #: src/TypeBrowser.tsx
 msgid "No application contracts are installed"
-msgstr ""
+msgstr "アプリの契約はインストールされていません"
 
 #: src/TypeBrowser.tsx
 msgid "No automatic matching rules"
-msgstr ""
+msgstr "自動照合ルールはありません"
 
 #: src/TypeBrowser.tsx
 msgid "No connections"
-msgstr ""
+msgstr "接続はありません"
 
 #: src/TypeBrowser.tsx
 msgid "No cross-record uniqueness rules."
-msgstr ""
+msgstr "レコード間の一意性ルールはありません。"
 
 #: src/type-presentation.ts
 msgid "No custom behaviour"
-msgstr ""
+msgstr "カスタム動作はありません"
 
 #: src/SchemaValueEditor.tsx
 msgid "No declared values."
-msgstr ""
+msgstr "宣言された値はありません。"
 
 #: src/App.tsx
 msgid "No earlier note"
-msgstr ""
+msgstr "前のノートはありません"
 
 #: src/SchemaValueEditor.tsx
 msgid "No entries yet."
-msgstr ""
+msgstr "エントリはまだありません。"
 
 #: src/TypeBrowser.tsx
 msgid "No entries."
-msgstr ""
+msgstr "エントリはありません。"
 
 #: src/TypeBrowser.tsx
 msgid "No fields are declared yet."
-msgstr ""
+msgstr "フィールドはまだ宣言されていません。"
 
 #: src/CollectionRail.tsx
 msgid "No folders"
-msgstr ""
+msgstr "フォルダーはありません"
 
 #: src/WorkspaceChrome.tsx
 msgid "No headings yet."
-msgstr ""
+msgstr "見出しはまだありません。"
 
 #: src/TypeBrowser.tsx
 msgid "No inferred rules. Records must declare this type explicitly."
-msgstr ""
+msgstr "推論ルールはありません。レコードでこの型を明示的に宣言する必要があります。"
 
 #: src/code-editor-file-embeds.ts
 msgid "No inline preview is available for {filename}."
-msgstr ""
+msgstr "{filename}のインラインプレビューは利用できません。"
 
 #: src/SchemaValueEditor.tsx
 msgid "No items yet."
-msgstr ""
+msgstr "項目はまだありません。"
 
 #: src/App.tsx
 msgid "No later note"
-msgstr ""
+msgstr "次のノートはありません"
 
 #: src/SelectionControls.tsx
 msgid "No matches."
-msgstr ""
+msgstr "一致する項目はありません。"
 
 #: src/QuickOpen.tsx
 msgid "No matching actions."
-msgstr ""
+msgstr "一致する操作はありません。"
 
 #: src/NoteSearchField.tsx
 msgid "No matching filters"
-msgstr ""
+msgstr "一致するフィルターはありません"
 
 #: src/TypeBrowser.tsx
 msgid "No matching icons."
-msgstr ""
+msgstr "一致するアイコンはありません。"
 
 #: src/QuickOpen.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "No matching notes."
-msgstr ""
+msgstr "一致するノートはありません。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "No matching schema properties."
-msgstr ""
+msgstr "一致するスキーマプロパティはありません。"
 
 #: src/TypeBrowser.tsx
 msgid "No nested fields yet."
-msgstr ""
+msgstr "入れ子のフィールドはまだありません。"
 
 #. placeholder {0}: reference.target
 #: src/code-editor-reference-diagnostics.ts
 msgid "No note or file matches “{0}”."
-msgstr ""
+msgstr "「{0}」に一致するノートまたはファイルはありません。"
 
 #: src/WorkspaceChrome.tsx
 msgid "No notes link here yet."
-msgstr ""
+msgstr "ここへのリンクがあるノートはまだありません。"
 
 #: src/NoteList.tsx
 msgid "No notes or files found."
-msgstr ""
+msgstr "ノートやファイルが見つかりませんでした。"
 
 #: src/NewNoteComposer.tsx
 msgid "No optional properties selected."
-msgstr ""
+msgstr "任意のプロパティは選択されていません。"
 
 #: src/TypeBrowser.tsx
 msgid "No properties are marked as links."
-msgstr ""
+msgstr "リンクとして指定されたプロパティはありません。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "No properties yet."
-msgstr ""
+msgstr "プロパティはまだありません。"
 
 #: src/NotePreview.tsx
 msgid "No text preview."
-msgstr ""
+msgstr "テキストのプレビューはありません。"
 
 #: src/PropertiesPanel.tsx
 msgid "No type"
-msgstr ""
+msgstr "型なし"
 
 #: src/TypeBrowser.tsx
 msgid "No types found."
-msgstr ""
+msgstr "型が見つかりませんでした。"
 
 #: src/WorkspaceChrome.tsx
 msgid "No unlinked mentions."
-msgstr ""
+msgstr "リンクされていないメンションはありません。"
 
 #: src/use-note-actions.ts
 msgid "No validation issues."
-msgstr ""
+msgstr "検証上の問題はありません。"
 
 #: src/App.tsx
 msgid "Not attempted because an earlier move needs recovery."
-msgstr ""
+msgstr "先行する移動操作の復元が必要なため、試行されませんでした。"
 
 #: src/bulk-note-actions.ts
 msgid "Not changed because an earlier note's change isn't confirmed yet."
-msgstr ""
+msgstr "先行するノートの変更が未確認のため、変更されませんでした。"
 
 #: src/note-mutation-presentation.ts
 #: src/WorkspaceChrome.tsx
 msgid "Not confirmed yet"
-msgstr ""
+msgstr "まだ確認されていません"
 
 #: src/type-contracts.ts
 msgid "Not exposed"
-msgstr ""
+msgstr "公開されていません"
 
 #: src/catalog-pack-installation.tsx
 #: src/YourPersonPanel.tsx
@@ -3472,38 +3472,38 @@ msgstr "後で"
 
 #: src/QuickOpen.tsx
 msgid "Note actions, in the list"
-msgstr ""
+msgstr "一覧内のノート操作"
 
 #: src/MarkdownNoteEditor.tsx
 #: src/NewNoteComposer.tsx
 msgid "Note body"
-msgstr ""
+msgstr "ノート本文"
 
 #: src/ConflictResolver.tsx
 msgid "Note changed elsewhere"
-msgstr ""
+msgstr "ノートが別の場所で変更されました"
 
 #: src/App.tsx
 msgid "Note editor"
-msgstr ""
+msgstr "ノートエディター"
 
 #: src/App.tsx
 msgid "Note history"
-msgstr ""
+msgstr "ノートの履歴"
 
 #: src/App.tsx
 msgid "note link"
-msgstr ""
+msgstr "ノートへのリンク"
 
 #: src/App.tsx
 msgid "note path"
-msgstr ""
+msgstr "ノートのパス"
 
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/PropertiesPanel.tsx
 msgid "Note properties"
-msgstr ""
+msgstr "ノートのプロパティ"
 
 #: src/MarkdownNoteEditor.tsx
 msgid "Note title"
@@ -3511,11 +3511,11 @@ msgstr "ノートのタイトル"
 
 #: src/NotePreview.tsx
 msgid "Note types"
-msgstr ""
+msgstr "ノートの型"
 
 #: src/NoteListViewOptions.tsx
 msgid "Note view options"
-msgstr ""
+msgstr "ノートの表示オプション"
 
 #: src/QuickOpen.tsx
 msgid "Notes"
@@ -3524,45 +3524,45 @@ msgstr "ノート"
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Notes"
-msgstr ""
+msgstr "ノート"
 
 #: src/NoteList.tsx
 msgid "Notes and files"
-msgstr ""
+msgstr "ノートとファイル"
 
 #: src/WorkspaceChrome.tsx
 msgid "Notes are ready. Allow type-definition access only if you want to inspect or manage collection types."
-msgstr ""
+msgstr "ノートを利用できます。コレクションの型を調べたり管理したりする場合のみ、型定義へのアクセスを許可してください。"
 
 #: src/TypeBrowser.tsx
 msgid "Notes belong to this type when every configured condition group below matches."
-msgstr ""
+msgstr "以下で設定した条件グループすべてに一致するノートが、この型に属します。"
 
 #. placeholder {0}: definition.name
 #. placeholder {1}: explicitTypeKeys.map((key, index) => <span key={key}>{index ? ", " : ""}<code>{key}</code></span>)
 #: src/TypeBrowser.tsx
 msgid "Notes can name <0>{0}</0> through {1}. When any configured key is present, automatic rules are skipped."
-msgstr ""
+msgstr "ノートは{1}を通じて<0>{0}</0>を指定できます。設定されたキーが1つでも存在する場合、自動ルールは適用されません。"
 
 #: src/NoteList.tsx
 msgid "Notes could not finish loading."
-msgstr ""
+msgstr "ノートの読み込みを完了できませんでした。"
 
 #: src/FolderChangeDialog.tsx
 msgid "Notes in subfolders move too. Links to these notes will be updated."
-msgstr ""
+msgstr "サブフォルダー内のノートも移動します。これらのノートへのリンクも更新されます。"
 
 #: src/read-only-markdown.tsx
 msgid "Notes larger than 1 MiB are read-only at launch."
-msgstr ""
+msgstr "1 MiB を超えるノートは、起動時に読み取り専用です。"
 
 #: src/TypeBrowser.tsx
 msgid "Notes use this field to declare their type. Edit it in YAML if you need to change it."
-msgstr ""
+msgstr "ノートはこのフィールドを使って型を宣言します。変更する必要がある場合は YAML で編集してください。"
 
 #: src/TypeBrowser.tsx
 msgid "Notes without an explicit assignment belong to this type when every configured condition group below matches."
-msgstr ""
+msgstr "明示的に割り当てられていないノートのうち、以下の条件グループすべてに一致するものがこの型に属します。"
 
 #: src/Toasts.tsx
 msgid "Notifications"
@@ -3570,39 +3570,39 @@ msgstr "通知"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Null"
-msgstr ""
+msgstr "Null"
 
 #: src/type-presentation.ts
 msgid "number"
-msgstr ""
+msgstr "数値"
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "Number"
-msgstr ""
+msgstr "数値"
 
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Number"
-msgstr ""
+msgstr "数値"
 
 #: src/code-editor-completions.ts
 msgid "Numbered list"
-msgstr ""
+msgstr "番号付きリスト"
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "Object"
-msgstr ""
+msgstr "オブジェクト"
 
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Object"
-msgstr ""
+msgstr "オブジェクト"
 
 #: src/TypeBrowser.tsx
 msgid "Objects and lists can contain fields at any depth."
-msgstr ""
+msgstr "オブジェクトとリストには任意の深さまでフィールドを含められます。"
 
 #: src/CollectionRail.tsx
 msgid "Offline"
@@ -3610,15 +3610,15 @@ msgstr "オフライン"
 
 #: src/collection-browser.ts
 msgid "Older"
-msgstr ""
+msgstr "古い順"
 
 #: src/TypeBrowser.tsx
 msgid "Only declared fields are allowed"
-msgstr ""
+msgstr "宣言済みのフィールドのみ許可"
 
 #: src/BulkNoteProperties.tsx
 msgid "Only properties declared by every selected note’s type can be set."
-msgstr ""
+msgstr "選択されたすべてのノートの型で宣言されているプロパティのみ設定できます。"
 
 #: src/embed-actions.ts
 msgid "Open"
@@ -3626,55 +3626,55 @@ msgstr "未解決"
 
 #: src/code-editor-file-embeds.ts
 msgid "Open {filename}"
-msgstr ""
+msgstr "{filename}を開く"
 
 #: src/embed-actions.ts
 msgid "Open {name}"
-msgstr ""
+msgstr "{name}を開く"
 
 #: src/TypeBrowser.tsx
 msgid "Open {primaryTypeLabel}"
-msgstr ""
+msgstr "{primaryTypeLabel}を開く"
 
 #: src/ConnectionScreens.tsx
 msgid "open and search notes"
-msgstr ""
+msgstr "ノートを開いて検索"
 
 #: src/editor-commands.ts
 msgid "Open Connect"
-msgstr ""
+msgstr "Connect を開く"
 
 #: src/code-editor-file-embeds.ts
 msgid "Open document"
-msgstr ""
+msgstr "文書を開く"
 
 #: src/ConnectionScreens.tsx
 msgid "open files"
-msgstr ""
+msgstr "ファイルを開く"
 
 #: src/ConnectionScreens.tsx
 msgid "open notes"
-msgstr ""
+msgstr "ノートを開く"
 
 #: src/FileViewer.tsx
 msgid "Open original"
-msgstr ""
+msgstr "元のファイルを開く"
 
 #: src/editor-commands.ts
 msgid "Open Settings"
-msgstr ""
+msgstr "設定を開く"
 
 #: src/WorkspaceChrome.tsx
 msgid "Open to find mentions."
-msgstr ""
+msgstr "メンションを探すために開きます。"
 
 #: src/editor-commands.ts
 msgid "Open Types"
-msgstr ""
+msgstr "型を開く"
 
 #: src/TypeBrowser.tsx
 msgid "Open YAML"
-msgstr ""
+msgstr "YAML を開く"
 
 #: src/NoteList.tsx
 msgid "Opening"
@@ -3682,25 +3682,25 @@ msgstr "開いています"
 
 #: src/App.tsx
 msgid "Opening “{pendingNotePath}”…"
-msgstr ""
+msgstr "「{pendingNotePath}」を開いています…"
 
 #. placeholder {0}: original.displayName
 #: src/SdkEditorRoot.tsx
 msgid "Opening {0}"
-msgstr ""
+msgstr "{0}を開いています"
 
 #: src/code-editor-file-embeds.ts
 #: src/FileViewer.tsx
 msgid "Opening {filename}"
-msgstr ""
+msgstr "{filename}を開いています"
 
 #: src/LoadingScreens.tsx
 msgid "Opening collection"
-msgstr ""
+msgstr "コレクションを開いています"
 
 #: src/main.tsx
 msgid "Opening mdbase connect… <0>Continue</0>"
-msgstr ""
+msgstr "mdbase connect を開いています… <0>続行</0>"
 
 #: src/main.tsx
 msgid "Opening mdbase…"
@@ -3708,11 +3708,11 @@ msgstr "mdbaseを開いています…"
 
 #: src/WorkspaceChrome.tsx
 msgid "Opening note…"
-msgstr ""
+msgstr "ノートを開いています…"
 
 #: src/code-editor-file-embeds.ts
 msgid "Opening text preview…"
-msgstr ""
+msgstr "テキストのプレビューを開いています…"
 
 #: src/code-editor-note-embeds.ts
 msgid "Opening transcluded note…"
