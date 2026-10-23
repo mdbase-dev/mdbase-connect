@@ -1608,7 +1608,7 @@ msgstr "Compatible"
 
 #: src/TypeBrowser.tsx
 msgid "Compatible tools use this policy when creating and renaming records. Existing files are not moved by this update."
-msgstr "Las aplicaciones compatibles usan esta política al crear y cambiar el nombre de registros. Esta actualización no mueve los archivos existentes."
+msgstr "Las herramientas compatibles usan esta política al crear registros y cambiarles el nombre. Esta actualización no mueve los archivos existentes."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Complete exactly one of the allowed field combinations."
@@ -1620,7 +1620,7 @@ msgstr "Completa una de las combinaciones de campos permitidas."
 
 #: src/PropertiesPanel.tsx
 msgid "Complete record source"
-msgstr "Origen del registro completo"
+msgstr "Código fuente completo del registro"
 
 #: src/TypeBrowser.tsx
 msgid "Computed projections"
@@ -1702,11 +1702,11 @@ msgstr "contratos"
 
 #: src/contract-catalog.ts
 msgid "contracts[{index}].contract_type is not supported."
-msgstr "contracts[{index}].contract_type no es compatible."
+msgstr "No se admite contracts[{index}].contract_type."
 
 #: src/TypeBrowser.tsx
 msgid "Control how compatible apps interpret and act on this type. Values are checked against the contract’s schema."
-msgstr "Controla cómo interpretan y usan este tipo las aplicaciones compatibles. Los valores se validan con el esquema del contrato."
+msgstr "Controla cómo las aplicaciones compatibles interpretan este tipo y actúan sobre él. Los valores se comprueban con el esquema del contrato."
 
 #: src/YourPersonPanel.tsx
 msgid "Convert and link this contact"
@@ -1723,16 +1723,16 @@ msgstr "Convertir elementos"
 #. placeholder {0}: kindLabel(pendingKind)
 #: src/TypeBrowser.tsx
 msgid "Convert list items to {0}?"
-msgstr "¿Convertir los elementos de la lista a {0}?"
+msgstr "¿Convertir los elementos de la lista en {0}?"
 
 #. placeholder {0}: kindLabel(pendingKind)
 #: src/TypeBrowser.tsx
 msgid "Convert this field to {0}?"
-msgstr "¿Convertir este campo a {0}?"
+msgstr "¿Convertir este campo en {0}?"
 
 #: src/App.tsx
 msgid "Copied {label}."
-msgstr "Se copió {label}."
+msgstr "Copiado: {label}."
 
 #: src/editor-commands.ts
 msgid "Copy link"
@@ -1746,7 +1746,7 @@ msgstr "Copiar ruta"
 
 #: src/embed-actions.ts
 msgid "Copy path for {name}"
-msgstr "Copiar ruta de {name}"
+msgstr "Copiar la ruta de {name}"
 
 #: src/YourPersonPanel.tsx
 msgid "Could not add person definitions. Review setup again."
@@ -1754,7 +1754,7 @@ msgstr "No se pudieron añadir las definiciones de persona. Vuelve a revisar la 
 
 #: src/YourPersonPanel.tsx
 msgid "Could not convert this contact. Its type may need additional fields or compatible mappings."
-msgstr "No se pudo convertir este contacto. Puede que su tipo necesite campos adicionales o asignaciones compatibles."
+msgstr "No se pudo convertir este contacto. Es posible que su tipo necesite campos adicionales o asignaciones compatibles."
 
 #: src/YourPersonPanel.tsx
 msgid "Could not link this person."
@@ -1766,7 +1766,7 @@ msgstr "No se pudieron cargar las personas."
 
 #: src/YourPersonPanel.tsx
 msgid "Could not review person setup."
-msgstr "No se pudo revisar la configuración de persona."
+msgstr "No se pudo revisar la configuración de personas."
 
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/use-note-actions.ts
@@ -1784,11 +1784,11 @@ msgstr "No se pudo confirmar si se subió {name}. Revisa los archivos de la cole
 
 #: src/App.tsx
 msgid "Couldn’t copy {label}."
-msgstr "No se pudo copiar {label}."
+msgstr "No se pudo copiar: {label}."
 
 #: src/embed-actions.ts
 msgid "Couldn’t copy the path. Clipboard access is unavailable."
-msgstr "No se pudo copiar la ruta. El portapapeles no está disponible."
+msgstr "No se pudo copiar la ruta. El acceso al portapapeles no está disponible."
 
 #. placeholder {0}: linked.path
 #. placeholder {1}: gatewayError(error)
@@ -1820,7 +1820,7 @@ msgstr "No se pudo instalar {0}"
 #. placeholder {0}: gatewayError(error)
 #: src/use-note-actions.ts
 msgid "Couldn’t link that mention. {0}"
-msgstr "No se pudo vincular esa mención. {0}"
+msgstr "No se pudo enlazar esa mención. {0}"
 
 #. placeholder {0}: gatewayError(error)
 #: src/App.tsx
@@ -1835,7 +1835,7 @@ msgstr "No se pudo mostrar la vista previa de {filename}"
 #. placeholder {1}: gatewayError(error)
 #: src/App.tsx
 msgid "Couldn’t reload rewritten links in “{0}”. {1}"
-msgstr "No se pudieron volver a cargar los enlaces reescritos de «{0}». {1}"
+msgstr "No se pudieron recargar los enlaces reescritos en «{0}». {1}"
 
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/use-note-actions.ts
@@ -1860,11 +1860,11 @@ msgstr "No se pudieron actualizar las propiedades de «{0}». {message}"
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/use-note-actions.ts
 msgid "Couldn’t update source for “{0}”. {message}"
-msgstr "No se pudo actualizar el origen de «{0}». {message}"
+msgstr "No se pudo actualizar el código fuente de «{0}». {message}"
 
 #: src/AttachmentUpload.tsx
 msgid "Couldn’t upload {name} right now. Try again shortly."
-msgstr "No se pudo subir {name} ahora. Vuelve a intentarlo dentro de un momento."
+msgstr "No se pudo subir {name} en este momento. Inténtalo de nuevo en unos instantes."
 
 #: src/AttachmentUpload.tsx
 msgid "Couldn’t upload {name}."
@@ -1872,15 +1872,15 @@ msgstr "No se pudo subir {name}."
 
 #: src/AttachmentUpload.tsx
 msgid "Couldn’t upload {name}. Check your connection and try again."
-msgstr "No se pudo subir {name}. Comprueba la conexión y vuelve a intentarlo."
+msgstr "No se pudo subir {name}. Comprueba tu conexión e inténtalo de nuevo."
 
 #: src/YourPersonPanel.tsx
 msgid "Create a note for yourself, starting from your account name."
-msgstr "Crea un registro de persona para ti a partir del nombre de tu cuenta."
+msgstr "Crea una nota que te represente, a partir del nombre de tu cuenta."
 
 #: src/TypeBrowser.tsx
 msgid "Create fields that already match an installed contract. You can rename and remap them later."
-msgstr "Crea campos que ya coincidan con un contrato instalado. Después podrás cambiarles el nombre y reasignarlos."
+msgstr "Crea campos que ya coincidan con un contrato instalado. Puedes cambiarles el nombre y reasignarlos más adelante."
 
 #: src/NewNoteComposer.tsx
 msgid "Create folder"
@@ -1900,7 +1900,7 @@ msgstr "Crear nota"
 
 #: src/NewNoteComposer.tsx
 msgid "Create note (Ctrl or Command + Enter)"
-msgstr "Crear nota (Ctrl o Command + Enter)"
+msgstr "Crear nota (Ctrl o Comando + Intro)"
 
 #: src/ConnectionScreens.tsx
 msgid "create notes"
@@ -1929,7 +1929,7 @@ msgstr "Se creó el tipo «{0}»."
 
 #: src/TypeBrowser.tsx
 msgid "Creates a ready-to-use {primaryTypeLabel} type with standard fields and an editable contract mapping. Existing files will not be overwritten; installation stops if any target conflicts."
-msgstr "Crea un tipo {primaryTypeLabel} listo para usar con campos estándar y una asignación de contrato editable. No se sobrescribirán archivos existentes; la instalación se detiene si algún destino entra en conflicto."
+msgstr "Se creará un tipo {primaryTypeLabel} listo para usar, con campos estándar y una asignación de contrato editable. No se sobrescribirán los archivos existentes; la instalación se detendrá si algún destino entra en conflicto."
 
 #: src/NewNoteComposer.tsx
 msgid "Creating"
@@ -1981,7 +1981,7 @@ msgstr "Predeterminado"
 #. placeholder {0}: index + 1
 #: src/TypeBrowser.tsx
 msgid "Default field {0}"
-msgstr "Campo predeterminado {0}"
+msgstr "Campo del valor predeterminado {0}"
 
 #: src/TypeBrowser.tsx
 msgid "Default value"
@@ -1989,7 +1989,7 @@ msgstr "Valor predeterminado"
 
 #: src/TypeBrowser.tsx
 msgid "Default value for {field}"
-msgstr "Valor predeterminado para {field}"
+msgstr "Valor predeterminado de {field}"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Defined by this note's type"
@@ -2005,7 +2005,7 @@ msgstr "Cambios en la definición"
 
 #: src/YourPersonPanel.tsx
 msgid "Definitions were added, but their Person mappings need review in Types."
-msgstr "Se añadieron las definiciones, pero hay que revisar las asignaciones Person en Tipos."
+msgstr "Se añadieron las definiciones, pero hay que revisar sus asignaciones de Person en Tipos."
 
 #: src/editor-commands.ts
 msgid "Delete"
@@ -2051,7 +2051,7 @@ msgstr "Diseño"
 
 #: src/TypeBrowser.tsx
 msgid "Design the note shape or work with its complete YAML source."
-msgstr "Diseña la estructura de la nota o trabaja con todo su origen YAML."
+msgstr "Diseña la estructura de la nota o trabaja con su código YAML completo."
 
 #: src/FolderChangeDialog.tsx
 #: src/MoveNoteDialog.tsx
@@ -2069,7 +2069,7 @@ msgstr "Detalles"
 
 #: src/TypeBrowser.tsx
 msgid "Developer and infrastructure packs"
-msgstr "Paquetes para desarrolladores e infraestructura"
+msgstr "Paquetes de desarrollo e infraestructura"
 
 #: src/settings/SettingsView.tsx
 msgctxt "collection runtime"
@@ -2079,7 +2079,7 @@ msgstr "Desactivado"
 #: src/settings/SettingsView.tsx
 msgctxt "explicit type keys setting"
 msgid "Disabled"
-msgstr "Desactivado"
+msgstr "Desactivadas"
 
 #: src/App.tsx
 msgid "Discard changes"
