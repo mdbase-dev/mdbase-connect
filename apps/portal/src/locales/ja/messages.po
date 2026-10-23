@@ -497,343 +497,343 @@ msgstr "選択したコレクションのノートとファイルへのアクセ
 
 #: src/ConnectApp.tsx
 msgid "Access to this collection is paused on its computer."
-msgstr ""
+msgstr "このコレクションへのアクセスは、そのコンピューターで一時停止中です。"
 
 #: src/ConnectApp.tsx
 #: src/portal-ui.tsx
 msgid "Account"
-msgstr ""
+msgstr "アカウント"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Account"
-msgstr ""
+msgstr "アカウント"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Account & sessions"
-msgstr ""
+msgstr "アカウントとセッション"
 
 #: src/AccountManagement.tsx
 msgid "Account deletion is temporarily unavailable while we complete a service correction."
-msgstr ""
+msgstr "サービスの修正作業中のため、アカウントの削除は一時的に利用できません。"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Account details"
-msgstr ""
+msgstr "アカウントの詳細"
 
 #: src/AccountManagement.tsx
 msgid "Account email"
-msgstr ""
+msgstr "アカウントのメールアドレス"
 
 #: src/authorization-review.tsx
 msgid "Account identifiers are the same in every collection, so this application can recognise the same person elsewhere. Email addresses and pending invitations are never shared, and this does not let it manage membership."
-msgstr ""
+msgstr "アカウント識別子はすべてのコレクションで共通のため、このアプリケーションは別の場所でも同じユーザーだと認識できます。メールアドレスや保留中の招待は共有されず、メンバーの管理も許可されません。"
 
 #: src/portal-model.ts
 msgid "Account upgrade in progress"
-msgstr ""
+msgstr "アカウントのアップグレード中"
 
 #: src/portal-model.ts
 msgctxt "Connect interface"
 msgid "Account upgrade needed"
-msgstr ""
+msgstr "アカウントのアップグレードが必要です"
 
 #: src/portal-model.ts
 msgctxt "Connect interface"
 msgid "Account upgrade paused"
-msgstr ""
+msgstr "アカウントのアップグレードを一時停止しました"
 
 #: src/portal-model.ts
 msgid "Account upgrade scheduled"
-msgstr ""
+msgstr "アカウントのアップグレードを予定しました"
 
 #. placeholder {0}: installationAccountLabel(pairing)
 #: src/authority-workflows.tsx
 msgid "Account: {0}"
-msgstr ""
+msgstr "アカウント: {0}"
 
 #: src/ConnectApp.tsx
 msgid "Add a collection to get started."
-msgstr ""
+msgstr "まずコレクションを追加してください。"
 
 #. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
 #: src/authorization-review.tsx
 msgid "Add a new {0} type"
-msgstr ""
+msgstr "新しい {0} 型を追加"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Add collection"
-msgstr ""
+msgstr "コレクションを追加"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Add new files"
-msgstr ""
+msgstr "新しいファイルを追加"
 
 #: src/authorization-capabilities.ts
 msgid "Add new records and files to this collection."
-msgstr ""
+msgstr "このコレクションに新しいレコードとファイルを追加します。"
 
 #: src/authorization-capabilities.ts
 msgid "Add new records to this collection."
-msgstr ""
+msgstr "このコレクションに新しいレコードを追加します。"
 
 #: src/authorization-view.tsx
 msgid "Add or connect another collection"
-msgstr ""
+msgstr "別のコレクションを追加または接続"
 
 #: src/authority-workflows.tsx
 msgid "Additional collection access"
-msgstr ""
+msgstr "追加のコレクションへのアクセス"
 
 #. placeholder {0}: entry.approved_optional_file_actions.join(", ")
 #: src/ApplicationAccess.tsx
 msgid "Additional file actions approved: {0}"
-msgstr ""
+msgstr "承認された追加のファイル操作: {0}"
 
 #. placeholder {0}: provisionNames(request.provisions.type_packs)
 #: src/authorization-view.tsx
 msgid "Adds {0} to the collection"
-msgstr ""
+msgstr "コレクションに {0} を追加します"
 
 #: src/authority-workflows.tsx
 msgid "Advanced: allow more collections"
-msgstr ""
+msgstr "詳細設定: さらに多くのコレクションを許可"
 
 #. placeholder {0}: adoption.mirror_name ?? adoption.source_name
 #: src/authority-workflows.tsx
 msgid "After the move, {0} stays as a synced folder. It will not be a second main copy."
-msgstr ""
+msgstr "移動後、{0} は同期フォルダーとして残ります。二つ目の正本にはなりません。"
 
 #: src/authority-workflows.tsx
 msgid "After the move, the original local files are no longer the main copy."
-msgstr ""
+msgstr "移動後、元のローカルファイルは正本ではなくなります。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "All collections"
-msgstr ""
+msgstr "すべてのコレクション"
 
 #: src/ConnectApp.tsx
 msgid "All statuses"
-msgstr ""
+msgstr "すべての状態"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Allow"
-msgstr ""
+msgstr "許可"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Allow {0} to create new collections"
-msgstr ""
+msgstr "{0} に新しいコレクションの作成を許可"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Allow {0} to send you reminders"
-msgstr ""
+msgstr "{0} にリマインダーの送信を許可"
 
 #. placeholder {0}: fileAccessVerbs(request.actions)
 #: src/authority-workflows.tsx
 msgid "Allow {app} to {0} files?"
-msgstr ""
+msgstr "{app} にファイルの{0}を許可しますか？"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Allow access"
-msgstr ""
+msgstr "アクセスを許可"
 
 #: src/authorization-view.tsx
 msgid "Allow at least one permission to continue."
-msgstr ""
+msgstr "続行するには権限を少なくとも一つ許可してください。"
 
 #: src/authority-workflows.tsx
 msgid "Allow mdbase on this computer to use your account. This is needed after installing or updating the desktop app, even on a computer you used before. It will publish collection names and route application requests, but not local folder paths."
-msgstr ""
+msgstr "このコンピューター上の mdbase にアカウントの使用を許可します。以前使用したコンピューターでも、デスクトップアプリのインストールや更新後に必要です。コレクション名の公開とアプリケーション要求の中継は行いますが、ローカルフォルダーのパスは公開しません。"
 
 #: src/authority-workflows.tsx
 msgid "Allowed"
-msgstr ""
+msgstr "許可済み"
 
 #: src/authorization-review.tsx
 msgid "Allowing access adds a separate type supplied by {applicationName}. Existing records stay unchanged."
-msgstr ""
+msgstr "アクセスを許可すると、{applicationName} が提供する別の型が追加されます。既存のレコードは変更されません。"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Allowing…"
-msgstr ""
+msgstr "許可中…"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Allowing…"
-msgstr ""
+msgstr "許可中…"
 
 #: src/authority-workflows.tsx
 msgid "Already allowed collection (currently unavailable)"
-msgstr ""
+msgstr "許可済みのコレクション（現在利用不可）"
 
 #: src/auth-view.tsx
 msgid "Already have an account? <0>Sign in</0>"
-msgstr ""
+msgstr "アカウントをお持ちですか？ <0>ログイン</0>"
 
 #: src/authority-workflows.tsx
 msgid "Already-allowed access stays in place. Remove access separately if you no longer want it."
-msgstr ""
+msgstr "許可済みのアクセスは維持されます。不要な場合は別途アクセスを削除してください。"
 
 #: src/AccountManagement.tsx
 msgid "Always on"
-msgstr ""
+msgstr "常にオン"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Announcements"
-msgstr ""
+msgstr "お知らせ"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "App access"
-msgstr ""
+msgstr "アプリへのアクセス"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "App installation"
-msgstr ""
+msgstr "アプリのインストール"
 
 #. placeholder {0}: request.client_fingerprint
 #: src/authorization-view.tsx
 msgid "App key <0>{0}</0>. Your computer will show this key when you approve the app."
-msgstr ""
+msgstr "アプリのキー <0>{0}</0>。アプリを承認する際、コンピューターにこのキーが表示されます。"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Application access"
-msgstr ""
+msgstr "アプリケーションへのアクセス"
 
 #. placeholder {0}: countLabel(account.deletion.computers, "computer")
 #: src/AccountManagement.tsx
 msgid "Application access and {0}"
-msgstr ""
+msgstr "アプリケーションへのアクセスと {0}"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Application connection"
-msgstr ""
+msgstr "アプリケーションの接続"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Application request"
-msgstr ""
+msgstr "アプリケーションの要求"
 
 #: src/authorization-view.tsx
 msgid "Application using a device code"
-msgstr ""
+msgstr "デバイスコードを使うアプリケーション"
 
 #: src/authority-workflows.tsx
 msgid "Applications"
-msgstr ""
+msgstr "アプリケーション"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Applications"
-msgstr ""
+msgstr "アプリケーション"
 
 #: src/ConnectApp.tsx
 msgid "Applications appear after you approve access to this collection."
-msgstr ""
+msgstr "このコレクションへのアクセスを承認すると、アプリケーションが表示されます。"
 
 #: src/ApplicationAccess.tsx
 msgid "Applications appear here after you approve access."
-msgstr ""
+msgstr "アクセスを承認すると、ここにアプリケーションが表示されます。"
 
 #: src/authority-workflows.tsx
 msgid "Applies to the collection you chose to open and any new collections selected here. Other collections are not included."
-msgstr ""
+msgstr "開くことを選んだコレクションと、ここで新たに選んだコレクションに適用されます。その他のコレクションは含まれません。"
 
 #: src/authorization-view.tsx
 msgid "Approval code"
-msgstr ""
+msgstr "承認コード"
 
 #: src/authorization-view.tsx
 msgid "Approval recorded"
-msgstr ""
+msgstr "承認を記録しました"
 
 #: src/authority-workflows.tsx
 msgid "Approve computer"
-msgstr ""
+msgstr "コンピューターを承認"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Approve will create this collection and open it in {0}."
-msgstr ""
+msgstr "承認すると、このコレクションを作成して {0} で開きます。"
 
 #. placeholder {0}: adoption.source_name
 #: src/authority-workflows.tsx
 msgid "Approving uploads the complete collection from {0}, validates it as one snapshot, and then makes the hosted version the main copy."
-msgstr ""
+msgstr "承認すると、{0} からコレクション全体がアップロードされ、一つのスナップショットとして検証された後、ホスト側が正本になります。"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Approving…"
-msgstr ""
+msgstr "承認中…"
 
 #: src/AccountManagement.tsx
 msgid "Authentication"
-msgstr ""
+msgstr "認証"
 
 #: src/FeedbackPage.tsx
 msgid "Back to Connect"
-msgstr ""
+msgstr "Connect に戻る"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Beta"
-msgstr ""
+msgstr "ベータ版"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "browser extension"
-msgstr ""
+msgstr "ブラウザー拡張機能"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Browser session"
-msgstr ""
+msgstr "ブラウザーセッション"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Browser session actions"
-msgstr ""
+msgstr "ブラウザーセッションの操作"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Browser sessions"
-msgstr ""
+msgstr "ブラウザーセッション"
 
 #: src/ApplicationAccess.tsx
 msgid "Can create collections for your account"
-msgstr ""
+msgstr "アカウント用のコレクションを作成できます"
 
 #: src/ConnectApp.tsx
 msgid "Can edit notes and manage types"
-msgstr ""
+msgstr "ノートの編集と型の管理ができます"
 
 #: src/ConnectApp.tsx
 msgid "Can edit notes, manage types, rename this collection, and connect apps."
-msgstr ""
+msgstr "ノートの編集、型の管理、このコレクションの名前変更、アプリの接続ができます。"
 
 #: src/ConnectApp.tsx
 msgid "Can read this collection and connect read-only apps or folders."
-msgstr ""
+msgstr "このコレクションの読み取りと、読み取り専用アプリやフォルダーの接続ができます。"
 
 #: src/ConnectApp.tsx
 msgid "Can view and connect read-only apps"
-msgstr ""
+msgstr "読み取り専用アプリの表示と接続ができます"
 
 #: src/AccountManagement.tsx
 #: src/authority-workflows.tsx
@@ -841,115 +841,115 @@ msgstr ""
 #: src/ConnectApp.tsx
 #: src/ConnectPrimitives.tsx
 msgid "Cancel"
-msgstr ""
+msgstr "キャンセル"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Cancel"
-msgstr ""
+msgstr "キャンセル"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Cancel"
-msgstr ""
+msgstr "キャンセル"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Cancel invitation"
-msgstr ""
+msgstr "招待を取り消す"
 
 #: src/ConnectApp.tsx
 msgid "Cancel this collection invitation?"
-msgstr ""
+msgstr "このコレクションへの招待を取り消しますか？"
 
 #: src/authority-workflows.tsx
 msgid "Cancel transfer"
-msgstr ""
+msgstr "転送をキャンセル"
 
 #: src/authorization-view.tsx
 msgid "Change"
-msgstr ""
+msgstr "変更"
 
 #: src/authorization-review.tsx
 msgid "Change notifications"
-msgstr ""
+msgstr "通知を変更"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Change password"
-msgstr ""
+msgstr "パスワードを変更"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Change password"
-msgstr ""
+msgstr "パスワードを変更"
 
 #: src/authorization-capabilities.ts
 msgid "Change, move, and rename existing records."
-msgstr ""
+msgstr "既存のレコードを変更、移動、名前変更します。"
 
 #: src/authorization-capabilities.ts
 msgid "Change, move, and rename records; replace, move, and rename existing files."
-msgstr ""
+msgstr "レコードを変更、移動、名前変更し、既存のファイルを置換、移動、名前変更します。"
 
 #: src/authorization-view.tsx
 msgid "Changes collection settings"
-msgstr ""
+msgstr "コレクションの設定を変更します"
 
 #: src/authorization-view.tsx
 msgid "changes to collection setup"
-msgstr ""
+msgstr "コレクション設定の変更"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Changing password…"
-msgstr ""
+msgstr "パスワードを変更中…"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Changing password…"
-msgstr ""
+msgstr "パスワードを変更中…"
 
 #: src/authority-workflows.tsx
 msgid "Check again"
-msgstr ""
+msgstr "再確認"
 
 #: src/authorization-view.tsx
 msgid "Check the application."
-msgstr ""
+msgstr "アプリケーションを確認してください。"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Check your email"
-msgstr ""
+msgstr "メールを確認してください"
 
 #: src/AccountManagement.tsx
 msgid "Checking active sessions…"
-msgstr ""
+msgstr "有効なセッションを確認中…"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Checking…"
-msgstr ""
+msgstr "確認中…"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Choose"
-msgstr ""
+msgstr "選択"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Choose a collection"
-msgstr ""
+msgstr "コレクションを選択"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Choose a collection to use in {0}."
-msgstr ""
+msgstr "{0} で使用するコレクションを選んでください。"
 
 #: src/authorization-review.tsx
 msgid "Choose a field"
-msgstr ""
+msgstr "フィールドを選択"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
