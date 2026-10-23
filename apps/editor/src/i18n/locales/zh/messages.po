@@ -5139,508 +5139,508 @@ msgstr "笔记或附件索引正在刷新。请等待完成后，重新检查文
 
 #: src/next-editor-records.ts
 msgid "The original complete note source is unavailable."
-msgstr ""
+msgstr "原始的完整笔记源码不可用。"
 
 #: src/person-records.ts
 msgid "The person identity field must be an array."
-msgstr ""
+msgstr "人员身份字段必须是数组。"
 
 #: src/person-records.ts
 msgid "The Person mappings conflict with existing Contact fields. Configure non-overlapping mappings first."
-msgstr ""
+msgstr "Person 映射与现有的 Contact 字段冲突。请先配置互不重叠的映射。"
 
 #: src/YourPersonPanel.tsx
 msgid "The record's display name belongs to this collection and is not synchronised with your account."
-msgstr ""
+msgstr "此记录的显示名称属于此集合，不会与你的账户同步。"
 
 #: src/App.tsx
 msgid "The recovery copy could not be removed from this browser."
-msgstr ""
+msgstr "无法从此浏览器中移除恢复副本。"
 
 #: src/use-note-actions.ts
 msgid "The renamed note is no longer available to restore."
-msgstr ""
+msgstr "重命名后的笔记已不可用，无法恢复。"
 
 #: src/next-editor-records.ts
 msgid "The saved note changed its record identity."
-msgstr ""
+msgstr "已保存笔记的记录标识发生了变化。"
 
 #: src/type-schema.ts
 msgid "The schema path does not identify an object field."
-msgstr ""
+msgstr "架构路径未指向对象字段。"
 
 #: src/YourPersonPanel.tsx
 msgid "The selected collection changed. Open its person settings again."
-msgstr ""
+msgstr "所选集合已更改。请重新打开其人员设置。"
 
 #: src/gateway.ts
 #: src/native-gateway.ts
 msgid "The selected collection is not ready."
-msgstr ""
+msgstr "所选集合尚未就绪。"
 
 #: src/native-file-download.ts
 msgid "The selected file has an invalid size."
-msgstr ""
+msgstr "所选文件的大小无效。"
 
 #: src/TypeBrowser.tsx
 msgid "The source changed without altering declared fields."
-msgstr ""
+msgstr "源码已更改，但声明的字段未变。"
 
 #: src/TypeBrowser.tsx
 msgid "The stable name used by records and connected apps."
-msgstr ""
+msgstr "记录和已连接应用使用的固定名称。"
 
 #: src/person-records.ts
 msgid "The target {targetField} field contains different data. Configure a non-conflicting mapping first."
-msgstr ""
+msgstr "目标字段 {targetField} 包含不同的数据。请先配置无冲突的映射。"
 
 #: src/person-records.ts
 msgid "The target person name field contains different data. Configure a non-conflicting mapping first."
-msgstr ""
+msgstr "目标人员姓名字段包含不同的数据。请先配置无冲突的映射。"
 
 #: src/person-records.ts
 msgid "The target person type is unavailable."
-msgstr ""
+msgstr "目标人员类型不可用。"
 
 #: src/person-records.ts
 msgid "The target type cannot retain the contact's {canonical} field. Configure that mapping first."
-msgstr ""
+msgstr "目标类型无法保留此联系人的 {canonical} 字段。请先配置该映射。"
 
 #: src/person-records.ts
 msgid "The target type would overwrite {key}. Configure compatible mappings first."
-msgstr ""
+msgstr "目标类型会覆盖 {key}。请先配置兼容的映射。"
 
 #: src/code-editor-file-embeds.ts
 msgid "The text preview could not be opened."
-msgstr ""
+msgstr "无法打开文本预览。"
 
 #: src/code-editor-note-embeds.ts
 #: src/note-embeds.ts
 msgid "The transcluded note could not be opened."
-msgstr ""
+msgstr "无法打开嵌入的笔记。"
 
 #: src/native-gateway.ts
 msgid "The type {name} is not defined in this collection."
-msgstr ""
+msgstr "此集合未定义类型 {name}。"
 
 #: src/type-contracts.ts
 #: src/type-schema.ts
 msgid "The type definition must be a YAML object."
-msgstr ""
+msgstr "类型定义必须是 YAML 对象。"
 
 #: src/type-contracts.ts
 msgid "the type field"
-msgstr ""
+msgstr "类型字段"
 
 #: src/contract-catalog.ts
 msgid "The type pack"
-msgstr ""
+msgstr "类型包"
 
 #: src/contract-catalog.ts
 msgid "The type pack contains an unexpected resource {source}."
-msgstr ""
+msgstr "类型包包含预期之外的资源 {source}。"
 
 #: src/contract-catalog.ts
 msgid "The type pack contains duplicate source {source}."
-msgstr ""
+msgstr "类型包包含重复的来源 {source}。"
 
 #: src/TypeBrowser.tsx
 msgid "The type pack could not be installed."
-msgstr ""
+msgstr "无法安装类型包。"
 
 #: src/contract-catalog.ts
 msgid "The type pack does not contain every declared resource."
-msgstr ""
+msgstr "类型包未包含所有已声明的资源。"
 
 #: src/contract-catalog.ts
 msgid "The type pack does not match its catalog digest."
-msgstr ""
+msgstr "类型包与目录中的摘要不匹配。"
 
 #: src/contract-catalog.ts
 msgid "The type pack does not provide the contracts declared by the catalog."
-msgstr ""
+msgstr "类型包未提供目录中声明的契约。"
 
 #: src/contract-catalog.ts
 msgid "The type pack is larger than the editor can install."
-msgstr ""
+msgstr "类型包大小超出了编辑器的安装上限。"
 
 #: src/contract-catalog.ts
 msgid "The type pack is not valid JSON."
-msgstr ""
+msgstr "类型包不是有效的 JSON。"
 
 #. placeholder {0}: response.status
 #: src/contract-catalog.ts
 msgid "The type pack returned {0}."
-msgstr ""
+msgstr "类型包返回了 {0}。"
 
 #: src/YourPersonPanel.tsx
 msgid "The type used when linking a record to you."
-msgstr ""
+msgstr "将记录关联到你时使用的类型。"
 
 #: src/contract-catalog.ts
 msgid "The type-pack identity does not match the catalog."
-msgstr ""
+msgstr "类型包标识与目录不匹配。"
 
 #: src/contract-catalog.ts
 msgid "The type-pack manifest"
-msgstr ""
+msgstr "类型包清单"
 
 #: src/contract-catalog.ts
 msgid "The type-pack manifest has an unsupported kind."
-msgstr ""
+msgstr "类型包清单的种类不受支持。"
 
 #: src/contract-catalog.ts
 msgid "The type-pack resource count does not match the catalog."
-msgstr ""
+msgstr "类型包的资源数量与目录不匹配。"
 
 #: src/App.tsx
 msgid "The unfinished folder hasn’t been created."
-msgstr ""
+msgstr "尚未完成的文件夹还未创建。"
 
 #: src/App.tsx
 msgid "The unfinished note hasn’t been created."
-msgstr ""
+msgstr "尚未完成的笔记还未创建。"
 
 #: src/App.tsx
 msgid "The unfinished note or folder will be discarded. Saved note and property changes will finish first."
-msgstr ""
+msgstr "尚未完成的笔记或文件夹将被丢弃。正在保存的笔记和属性更改会先完成。"
 
 #: src/TypeBrowser.tsx
 msgid "The YAML source could not be read."
-msgstr ""
+msgstr "无法读取 YAML 源码。"
 
 #: src/TypeBrowser.tsx
 msgid "Their current structural rules will be replaced."
-msgstr ""
+msgstr "其现有的结构规则将被替换。"
 
 #: src/folder-change.ts
 msgid "There are no notes to move in this folder."
-msgstr ""
+msgstr "此文件夹中没有可移动的笔记。"
 
 #: src/person-setup.ts
 msgid "These definitions need review in Types. No files have been changed."
-msgstr ""
+msgstr "这些定义需要在“类型”中审阅。未更改任何文件。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "These properties are not described by this note's type. Other apps may use them."
-msgstr ""
+msgstr "此笔记的类型未描述这些属性。其他应用可能会使用它们。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "These properties must be persisted before this record is valid."
-msgstr ""
+msgstr "这些属性必须写入存储后，此记录才有效。"
 
 #: src/App.tsx
 msgid "This application does not have permission to make that change."
-msgstr ""
+msgstr "此应用无权进行此更改。"
 
 #. placeholder {0}: conversion.path
 #. placeholder {1}: conversion.typeName
 #: src/YourPersonPanel.tsx
 msgid "This changes only <0>{0}</0> to the <1>{1}</1> type, which implements both Person and Contact. Its contact information and Markdown body are retained. No other contacts or type definitions are changed."
-msgstr ""
+msgstr "这只会将 <0>{0}</0> 更改为同时实现 Person 和 Contact 的 <1>{1}</1> 类型。其联系信息和 Markdown 正文将保留。不会更改其他联系人或类型定义。"
 
 #: src/App.tsx
 msgid "this collection"
-msgstr ""
+msgstr "此集合"
 
 #: src/TypeBrowser.tsx
 msgid "This collection has explicit type assignment disabled. Every note is classified by automatic rules."
-msgstr ""
+msgstr "此集合已禁用显式类型分配。所有笔记均按自动规则分类。"
 
 #: src/YourPersonPanel.tsx
 msgid "This collection has no Connect account identity."
-msgstr ""
+msgstr "此集合没有 Connect 账户身份。"
 
 #: src/TypeBrowser.tsx
 msgid "This collection has no type definitions yet."
-msgstr ""
+msgstr "此集合尚无类型定义。"
 
 #: src/TypeBrowser.tsx
 msgid "This collection has no type definitions."
-msgstr ""
+msgstr "此集合没有类型定义。"
 
 #: src/NoteList.tsx
 msgid "This collection is empty."
-msgstr ""
+msgstr "此集合为空。"
 
 #: src/native-gateway.ts
 #: src/native-note-observation.ts
 #: src/next-editor-records.ts
 msgid "This collection is no longer open in mdbase editor."
-msgstr ""
+msgstr "此集合已不再在 mdbase editor 中打开。"
 
 #: src/gateway.ts
 msgid "This collection needs authorization again. Choose the collection to continue."
-msgstr ""
+msgstr "此集合需要重新授权。请选择集合以继续。"
 
 #: src/YourPersonPanel.tsx
 msgid "This collection needs person definitions before you can create or link a person record. Nothing will be added without your approval."
-msgstr ""
+msgstr "此集合需要先添加人员定义，才能创建或关联人员记录。未经你批准，不会添加任何内容。"
 
 #: src/person-records.ts
 msgid "This collection uses implicit type selection. Configure the contact's type explicitly in Types before linking."
-msgstr ""
+msgstr "此集合使用隐式类型选择。请先在“类型”中为此联系人显式配置类型，再进行关联。"
 
 #: src/YourPersonPanel.tsx
 msgid "This collection's Person type was not added from a Person starter that can be upgraded automatically, so it has not been changed. "
-msgstr ""
+msgstr "此集合的 Person 类型并非通过可自动升级的 Person 初始类型添加，因此未作更改。 "
 
 #: src/settings/SettingsView.tsx
 msgctxt "connection route"
 msgid "This computer"
-msgstr ""
+msgstr "此电脑"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "This computer"
-msgstr ""
+msgstr "此电脑"
 
 #: src/person-records.ts
 msgid "This contact has another explicit type. Review its type declarations in the editor first."
-msgstr ""
+msgstr "此联系人具有其他显式类型。请先在编辑器中审阅其类型声明。"
 
 #: src/TypeBrowser.tsx
 msgid "This contract does not expose simple top-level properties. Configure its field references in YAML."
-msgstr ""
+msgstr "此契约未公开简单的顶层属性。请在 YAML 中配置其字段引用。"
 
 #: src/use-session-lifecycle.ts
 msgid "This editor session has been closed."
-msgstr ""
+msgstr "此编辑器会话已关闭。"
 
 #: src/TypeBrowser.tsx
 msgid "This exact contract is not available in the collection. Restore it or remove the implementation before saving."
-msgstr ""
+msgstr "此集合中没有这一确切的契约。请在保存前恢复该契约或移除其实现。"
 
 #: src/gateway.ts
 #: src/native-file-download.ts
 msgid "This file changed. Reload its preview."
-msgstr ""
+msgstr "此文件已更改。请重新加载预览。"
 
 #: src/native-file-download.ts
 msgid "This file exceeds the download limit."
-msgstr ""
+msgstr "此文件超出了下载大小限制。"
 
 #: src/native-gateway.ts
 msgid "This file has no native confirmation metadata. Reload its preview."
-msgstr ""
+msgstr "此文件没有原生确认元数据。请重新加载预览。"
 
 #: src/gateway.ts
 msgid "This file no longer exists."
-msgstr ""
+msgstr "此文件已不存在。"
 
 #: src/native-file-download.ts
 #: src/native-gateway.ts
 msgid "This file selection is no longer current."
-msgstr ""
+msgstr "此文件选择已失效。"
 
 #: src/native-gateway.ts
 msgid "This file upload is not confirmed. Resolve its original operation before trying again."
-msgstr ""
+msgstr "此文件上传尚未确认。请先处理其原始操作，再重试。"
 
 #: src/folder-change.ts
 msgid "This folder contains attachments. Moving them cannot yet preserve embedded file references. Move the notes individually instead; attachments will stay in place."
-msgstr ""
+msgstr "此文件夹包含附件。移动附件时尚无法保留嵌入的文件引用。请改为逐个移动笔记；附件将保留在原位置。"
 
 #: src/App.tsx
 msgid "This note already moved elsewhere."
-msgstr ""
+msgstr "此笔记已移至其他位置。"
 
 #: src/next-editor-records.ts
 msgid "This note change has a conflict. Resolve it before continuing."
-msgstr ""
+msgstr "此笔记更改存在冲突。请先解决冲突再继续。"
 
 #: src/next-editor-records.ts
 msgid "This note change is not confirmed. Check the interrupted operation before trying again."
-msgstr ""
+msgstr "此笔记更改尚未确认。请先检查中断的操作，再重试。"
 
 #: src/next-editor-records.ts
 msgid "This note changed after it was opened. Reload before saving."
-msgstr ""
+msgstr "此笔记在打开后发生了更改。请在保存前重新加载。"
 
 #: src/ConflictResolver.tsx
 msgid "This note changed elsewhere"
-msgstr ""
+msgstr "此笔记已在其他位置更改"
 
 #: src/use-note-actions.ts
 msgid "This note finished saving after Source was opened. Your source draft is preserved; close and reopen the panel to start from the latest record."
-msgstr ""
+msgstr "此笔记在打开“源码”后完成了保存。你的源码草稿已保留；请关闭并重新打开面板，以最新记录为起点。"
 
 #. placeholder {0}: reference.anchor
 #: src/code-editor-reference-diagnostics.ts
 msgid "This note has no “{0}” section or block."
-msgstr ""
+msgstr "此笔记中没有“{0}”小节或块。"
 
 #: src/use-note-actions.ts
 msgid "This note moved before the rename check could begin."
-msgstr ""
+msgstr "重命名检查开始前，此笔记已被移动。"
 
 #: src/use-note-actions.ts
 msgid "This note moved before the rename could begin."
-msgstr ""
+msgstr "重命名开始前，此笔记已被移动。"
 
 #: src/type-contracts.ts
 msgid "This optional contract field is not exposed."
-msgstr ""
+msgstr "此可选契约字段未公开。"
 
 #: src/catalog-pack-installation.tsx
 msgid "This pack conflicts with collection definitions."
-msgstr ""
+msgstr "此包与集合定义冲突。"
 
 #: src/use-note-actions.ts
 msgid "This property is not declared by the note’s type."
-msgstr ""
+msgstr "笔记的类型未声明此属性。"
 
 #: src/YourPersonPanel.tsx
 msgid "This record is already a person record. Reload these settings."
-msgstr ""
+msgstr "此记录已是人员记录。请重新加载这些设置。"
 
 #: src/YourPersonPanel.tsx
 msgid "This record is already linked to another account. Linking it to yours means you will both see its assignments as your own. Only continue if this record really represents you."
-msgstr ""
+msgstr "此记录已关联到其他账户。将其关联到你的账户后，你们都会将分配给此记录的事项视为分配给自己。请仅在此记录确实代表你时继续。"
 
 #. placeholder {0}: formatList(conversionImpact)
 #. placeholder {0}: formatList(impact)
 #: src/TypeBrowser.tsx
 msgid "This removes {0}."
-msgstr ""
+msgstr "这将移除 {0}。"
 
 #: src/App.tsx
 msgid "This removes the saved connection from this browser. It does not delete the collection or its files, and it does not revoke mdbase editor’s access in mdbase connect."
-msgstr ""
+msgstr "这将从此浏览器中移除已保存的连接，不会删除集合或其文件，也不会撤销 mdbase connect 中授予 mdbase editor 的访问权限。"
 
 #: src/Toasts.tsx
 msgid "This rename was interrupted after it started. Resume it to recover the collection’s authoritative result."
-msgstr ""
+msgstr "此次重命名在开始后被中断。请恢复操作，以获取集合的权威结果。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "This required property is missing."
-msgstr ""
+msgstr "缺少此必填属性。"
 
 #: src/code-editor-note-embeds.ts
 msgid "This transcluded note could not be resolved."
-msgstr ""
+msgstr "无法解析此嵌入的笔记。"
 
 #: src/TypeBrowser.tsx
 msgid "This type"
-msgstr ""
+msgstr "此类型"
 
 #: src/native-gateway.ts
 msgid "This type changed after it was saved. Reload it before editing again."
-msgstr ""
+msgstr "此类型在保存后发生了更改。请重新加载后再编辑。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "This value does not match the required format."
-msgstr ""
+msgstr "此值不符合要求的格式。"
 
 #: src/NewNoteComposer.tsx
 msgid "Title"
-msgstr ""
+msgstr "标题"
 
 #: src/note-list-view.ts
 msgid "Title A–Z"
-msgstr ""
+msgstr "标题 A–Z"
 
 #: src/ConflictResolver.tsx
 msgid "Title differences"
-msgstr ""
+msgstr "标题差异"
 
 #: src/NewNoteComposer.tsx
 msgid "Title the first note to create the folder."
-msgstr ""
+msgstr "为第一篇笔记设置标题以创建文件夹。"
 
 #: src/YourPersonPanel.tsx
 msgid "to the current Person starter. "
-msgstr ""
+msgstr "为当前的 Person 初始类型。 "
 
 #: src/collection-browser.ts
 msgid "Today"
-msgstr ""
+msgstr "今天"
 
 #: src/editor-commands.ts
 msgid "Toggle Vim key bindings"
-msgstr ""
+msgstr "切换 Vim 键位绑定"
 
 #: src/TypeBrowser.tsx
 msgid "total"
-msgstr ""
+msgstr "总计"
 
 #. placeholder {0}: file.path
 #: src/code-editor-completions.ts
 msgid "Transclude file · {0}"
-msgstr ""
+msgstr "嵌入文件 · {0}"
 
 #. placeholder {0}: suggestionDetail(suggestion, label)
 #: src/code-editor-completions.ts
 msgid "Transclude note · {0}"
-msgstr ""
+msgstr "嵌入笔记 · {0}"
 
 #: src/code-editor-completions.ts
 msgid "Transclude note or file"
-msgstr ""
+msgstr "嵌入笔记或文件"
 
 #. placeholder {0}: reference.title
 #: src/code-editor-note-embeds.ts
 msgid "Transclusion of {0}"
-msgstr ""
+msgstr "{0} 的嵌入内容"
 
 #. placeholder {0}: target.trim()
 #: src/code-editor-note-embeds.ts
 msgid "Transclusion: {0}"
-msgstr ""
+msgstr "嵌入：{0}"
 
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "True"
-msgstr ""
+msgstr "真"
 
 #: src/FileViewer.tsx
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Try again"
-msgstr ""
+msgstr "重试"
 
 #: src/NewNoteComposer.tsx
 msgid "Type"
-msgstr ""
+msgstr "类型"
 
 #. placeholder {0}: filter.value
 #: src/note-list-view.ts
 msgid "Type · {0}"
-msgstr ""
+msgstr "类型 · {0}"
 
 #: src/WorkspaceChrome.tsx
 msgid "Type access"
-msgstr ""
+msgstr "类型访问权限"
 
 #: src/WorkspaceChrome.tsx
 msgid "Type access needed"
-msgstr ""
+msgstr "需要类型访问权限"
 
 #: src/type-schema.ts
 msgid "Type definitions must declare kind: mdbase.type."
-msgstr ""
+msgstr "类型定义必须声明 kind: mdbase.type。"
 
 #: src/CodeEditor.tsx
 msgid "Type definitions need a closing --- frontmatter marker."
-msgstr ""
+msgstr "类型定义的前置元数据需要以 --- 标记结束。"
 
 #: src/CodeEditor.tsx
 #: src/type-contracts.ts
 #: src/type-schema.ts
 msgid "Type definitions need YAML frontmatter between --- markers."
-msgstr ""
+msgstr "类型定义需要在 --- 标记之间包含 YAML 前置元数据。"
 
 #: src/TypeBrowser.tsx
 msgid "Type editor view"
-msgstr ""
+msgstr "类型编辑器视图"
 
 #: src/TypeBrowser.tsx
 msgid "Type key"
-msgstr ""
+msgstr "类型键"
 
 #: src/type-schema.ts
 msgid "Type name"
-msgstr ""
+msgstr "类型名称"
 
 #: src/native-gateway.ts
 msgid "type pack install"
