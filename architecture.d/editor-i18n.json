@@ -1,0 +1,9 @@
+{
+  "reason": "Editor localization adds one app-owned runtime adapter for browser persistence and deployment-local catalogue imports, one language preference row, and a real-provider test render helper. The runtime replaces implicit browser-locale formatting and the Settings English literals; it does not add another collection owner or remote translation service. Settings moves into its own guarded directory without a compatibility wrapper.",
+  "growth": {
+    "productionFiles": 3,
+    "relativeImports": 2,
+    "typeScriptExportDeclarations": 5,
+    "apps/editor": 3
+  }
+}
