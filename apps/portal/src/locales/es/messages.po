@@ -1866,452 +1866,452 @@ msgstr "Cargando el inicio de sesión con Google…"
 
 #: src/ConnectApp.tsx
 msgid "Loading people…"
-msgstr ""
+msgstr "Cargando personas…"
 
 #: src/ConnectApp.tsx
 msgid "Loading your account and collections…"
-msgstr ""
+msgstr "Cargando tu cuenta y tus colecciones…"
 
 #: src/AccountManagement.tsx
 msgid "Local collection and mirror files remain on your computers."
-msgstr ""
+msgstr "Los archivos de colecciones y réplicas locales permanecen en tus ordenadores."
 
 #: src/AccountManagement.tsx
 msgid "Local collection files stay on your computers and are not measured here."
-msgstr ""
+msgstr "Los archivos de colecciones locales permanecen en tus ordenadores y no se cuentan aquí."
 
 #: src/ConnectApp.tsx
 msgid "Location"
-msgstr ""
+msgstr "Ubicación"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Location"
-msgstr ""
+msgstr "Ubicación"
 
 #: src/ConnectApp.tsx
 msgid "Main copy"
-msgstr ""
+msgstr "Copia principal"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Main copy"
-msgstr ""
+msgstr "Copia principal"
 
 #: src/authority-workflows.tsx
 msgid "Main copy hosted by mdbase"
-msgstr ""
+msgstr "Copia principal alojada por mdbase"
 
 #: src/ConnectApp.tsx
 msgid "Main copy moved to a computer"
-msgstr ""
+msgstr "Copia principal trasladada a un ordenador"
 
 #: src/authority-workflows.tsx
 msgid "Main copy on {mirrorName}"
-msgstr ""
+msgstr "Copia principal en {mirrorName}"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Manage"
-msgstr ""
+msgstr "Administrar"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Manage and delete files"
-msgstr ""
+msgstr "Administrar y eliminar archivos"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Manage definitions"
-msgstr ""
+msgstr "Administrar definiciones"
 
 #: src/auth-view.tsx
 msgid "Manage email preferences"
-msgstr ""
+msgstr "Administrar preferencias de correo"
 
 #: src/AccountManagement.tsx
 msgid "Manage hosted storage, sign-in methods, and browser sessions."
-msgstr ""
+msgstr "Administra el almacenamiento alojado, los métodos de inicio de sesión y las sesiones del navegador."
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Manage saved views"
-msgstr ""
+msgstr "Administrar vistas guardadas"
 
 #. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
 msgid "Manage the main copy of {0} and its synced Markdown folders."
-msgstr ""
+msgstr "Administra la copia principal de {0} y sus carpetas Markdown sincronizadas."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "manage timers"
-msgstr ""
+msgstr "administrar temporizadores"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "manage types"
-msgstr ""
+msgstr "administrar tipos"
 
 #: src/ConnectApp.tsx
 msgid "Manage where this collection lives and which applications can use it."
-msgstr ""
+msgstr "Administra dónde reside esta colección y qué aplicaciones pueden utilizarla."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Managed by your tailnet"
-msgstr ""
+msgstr "Administrado por tu tailnet"
 
 #: src/ConnectApp.tsx
 msgid "Management access does not give applications access to collection content. Each application needs its own collection approval."
-msgstr ""
+msgstr "El acceso de administración no da a las aplicaciones acceso al contenido de la colección. Cada aplicación necesita su propia aprobación de colección."
 
 #: src/AccountManagement.tsx
 msgid "Markdown and file usage is temporarily unavailable."
-msgstr ""
+msgstr "El uso de Markdown y archivos no está disponible temporalmente."
 
 #: src/authority-workflows.tsx
 msgid "Markdown edits will sync in both directions. Concurrent edits remain separate until you choose a version."
-msgstr ""
+msgstr "Los cambios en Markdown se sincronizarán en ambos sentidos. Los cambios simultáneos permanecerán separados hasta que elijas una versión."
 
 #: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgid "mdbase connect could not be reached. Check your connection and try again."
-msgstr ""
+msgstr "No se pudo acceder a mdbase connect. Comprueba tu conexión e inténtalo de nuevo."
 
 #: src/portal-model.ts
 msgid "mdbase connect could not reach the service. Check your connection and try again."
-msgstr ""
+msgstr "mdbase connect no pudo acceder al servicio. Comprueba tu conexión e inténtalo de nuevo."
 
 #: src/authority-workflows.tsx
 msgid "mdbase connect is checking the latest hosted changes, registering the folder, and making it the main copy."
-msgstr ""
+msgstr "mdbase connect está comprobando los últimos cambios alojados, registrando la carpeta y convirtiéndola en la copia principal."
 
 #: src/ConnectApp.tsx
 msgid "mdbase connect is unavailable"
-msgstr ""
+msgstr "mdbase connect no está disponible"
 
 #: src/ConnectApp.tsx
 #: src/portal-ui.tsx
 msgid "mdbase connect navigation"
-msgstr ""
+msgstr "Navegación de mdbase connect"
 
 #: src/ConnectApp.tsx
 msgid "mdbase connect needs to restart"
-msgstr ""
+msgstr "mdbase connect necesita reiniciarse"
 
 #. placeholder {0}: adoption.retain_mirror ? t(i18n)` ${adoption.mirror_name ?? adoption.source_name} will continue as a synced folder, with edits syncing both ways.` : t(i18n)({ message: " The original local files are no longer the main copy." })
 #: src/authority-workflows.tsx
 msgid "mdbase now keeps the main copy of this collection.{0}"
-msgstr ""
+msgstr "Ahora mdbase conserva la copia principal de esta colección.{0}"
 
 #: src/authority-workflows.tsx
 msgid "mdbase remembers your choice and {app} follows it. {app} keeps its copy of this collection either way."
-msgstr ""
+msgstr "mdbase recuerda tu elección y {app} la respeta. {app} conserva su copia de esta colección en ambos casos."
 
 #: src/compatibility.ts
 msgctxt "Connect interface"
 msgid "Missing required types"
-msgstr ""
+msgstr "Faltan tipos obligatorios"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "mobile app"
-msgstr ""
+msgstr "aplicación móvil"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Mobile app"
-msgstr ""
+msgstr "Aplicación móvil"
 
 #: src/compatibility.ts
 msgctxt "Connect interface"
 msgid "More access required"
-msgstr ""
+msgstr "Se requiere más acceso"
 
 #: src/AccountManagement.tsx
 msgid "More regular updates about new features and improvements."
-msgstr ""
+msgstr "Más noticias periódicas sobre nuevas funciones y mejoras."
 
 #: src/authority-workflows.tsx
 msgid "Move a local collection to mdbase"
-msgstr ""
+msgstr "Trasladar una colección local a mdbase"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Move and rename files"
-msgstr ""
+msgstr "Mover y cambiar el nombre de archivos"
 
 #: src/authority-workflows.tsx
 msgid "Move approved"
-msgstr ""
+msgstr "Traslado aprobado"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Move collection online"
-msgstr ""
+msgstr "Trasladar colección en línea"
 
 #: src/authority-workflows.tsx
 msgid "Move complete"
-msgstr ""
+msgstr "Traslado completado"
 
 #: src/authority-workflows.tsx
 msgid "Move ended"
-msgstr ""
+msgstr "Traslado terminado"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Move main copy"
-msgstr ""
+msgstr "Trasladar copia principal"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "move or rename"
-msgstr ""
+msgstr "mover o cambiar el nombre"
 
 #: src/authority-workflows.tsx
 msgid "Move the main copy"
-msgstr ""
+msgstr "Trasladar la copia principal"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Move this collection"
-msgstr ""
+msgstr "Trasladar esta colección"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Moved"
-msgstr ""
+msgstr "Trasladada"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Moved to newer runtime"
-msgstr ""
+msgstr "Trasladada a una versión más reciente del motor"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Moving to a computer"
-msgstr ""
+msgstr "Trasladando a un ordenador"
 
 #: src/ConnectApp.tsx
 msgid "My collection"
-msgstr ""
+msgstr "Mi colección"
 
 #: src/AccountManagement.tsx
 msgid "Name"
-msgstr ""
+msgstr "Nombre"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Name"
-msgstr ""
+msgstr "Nombre"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Name or registration ID"
-msgstr ""
+msgstr "Nombre o ID de registro"
 
 #: src/compatibility.ts
 msgctxt "Connect interface"
 msgid "Needs mdbase 0.3"
-msgstr ""
+msgstr "Necesita mdbase 0.3"
 
 #: src/authorization-review.tsx
 msgid "New"
-msgstr ""
+msgstr "Nuevo"
 
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 msgid "New collection name"
-msgstr ""
+msgstr "Nombre de la colección nueva"
 
 #: src/AccountManagement.tsx
 msgid "New password"
-msgstr ""
+msgstr "Contraseña nueva"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "New password"
-msgstr ""
+msgstr "Contraseña nueva"
 
 #: src/AccountManagement.tsx
 msgid "New passwords do not match."
-msgstr ""
+msgstr "Las contraseñas nuevas no coinciden."
 
 #: src/authority-workflows.tsx
 msgid "New synced folder"
-msgstr ""
+msgstr "Carpeta sincronizada nueva"
 
 #: src/auth-view.tsx
 msgid "New to mdbase? <0>Create an account</0>"
-msgstr ""
+msgstr "¿Aún no usas mdbase? <0>Crea una cuenta</0>"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "No active code shown"
-msgstr ""
+msgstr "No se muestra ningún código activo"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "No collection access"
-msgstr ""
+msgstr "Sin acceso a colecciones"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "No collections"
-msgstr ""
+msgstr "Sin colecciones"
 
 #: src/CollectionPicker.tsx
 msgid "No collections are available."
-msgstr ""
+msgstr "No hay colecciones disponibles."
 
 #: src/CollectionPicker.tsx
 msgid "No collections match. Try another name."
-msgstr ""
+msgstr "Ninguna colección coincide. Prueba con otro nombre."
 
 #: src/authorization-view.tsx
 msgid "No compatible collection is ready."
-msgstr ""
+msgstr "No hay ninguna colección compatible lista."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "No computers connected"
-msgstr ""
+msgstr "No hay ordenadores conectados"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "No computers match"
-msgstr ""
+msgstr "Ningún ordenador coincide"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgid "No connected applications"
-msgstr ""
+msgstr "No hay aplicaciones conectadas"
 
 #: src/AccountManagement.tsx
 msgid "No supported reauthentication method is connected."
-msgstr ""
+msgstr "No hay ningún método de reautenticación compatible conectado."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "No synced folders"
-msgstr ""
+msgstr "No hay carpetas sincronizadas"
 
 #: src/authority-workflows.tsx
 msgid "Not allowed"
-msgstr ""
+msgstr "No permitido"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Not configured"
-msgstr ""
+msgstr "Sin configurar"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Not connected"
-msgstr ""
+msgstr "Sin conectar"
 
 #: src/ConnectApp.tsx
 msgid "Not connected yet"
-msgstr ""
+msgstr "Aún sin conectar"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Not connected yet"
-msgstr ""
+msgstr "Aún sin conectar"
 
 #: src/ConnectApp.tsx
 msgid "Not now"
-msgstr ""
+msgstr "Ahora no"
 
 #: src/authorization-view.tsx
 msgid "Nothing is allowed until you review access."
-msgstr ""
+msgstr "No se permite nada hasta que revises el acceso."
 
 #: src/AccountManagement.tsx
 msgid "Occasional news about significant changes to mdbase Connect and new mdbase applications."
-msgstr ""
+msgstr "Noticias ocasionales sobre cambios importantes en mdbase Connect y nuevas aplicaciones de mdbase."
 
 #: src/ConnectApp.tsx
 msgid "Offline"
-msgstr ""
+msgstr "Sin conexión"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Offline"
-msgstr ""
+msgstr "Sin conexión"
 
 #. placeholder {0}: computer.name
 #: src/ConnectApp.tsx
 msgid "On {0}"
-msgstr ""
+msgstr "En {0}"
 
 #. placeholder {0}: computer.name
 #: src/ConnectApp.tsx
 msgid "On {0}: offline"
-msgstr ""
+msgstr "En {0}: sin conexión"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "On this computer"
-msgstr ""
+msgstr "En este ordenador"
 
 #. placeholder {0}: relativeTime(sharingCode.expiresAt)
 #: src/AccountManagement.tsx
 msgid "One use · expires {0}"
-msgstr ""
+msgstr "Un uso · vence {0}"
 
 #: src/ConnectApp.tsx
 msgid "Online"
-msgstr ""
+msgstr "En línea"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Online"
-msgstr ""
+msgstr "En línea"
 
 #. placeholder {0}: files.scope.folders.join(", ")
 #: src/authorization-review.tsx
 msgid "Only {0}. Hidden folders are always excluded."
-msgstr ""
+msgstr "Solo {0}. Las carpetas ocultas siempre se excluyen."
 
 #: src/authorization-view.tsx
 msgid "Only continue if you recognize this exact site."
-msgstr ""
+msgstr "Continúa solo si reconoces este sitio exacto."
 
 #: src/authorization-review.tsx
 msgid "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
-msgstr ""
+msgstr "Solo cambia esta definición de tipo. Los registros existentes permanecen. La configuración se valida antes de que se active el acceso."
 
 #: src/ConnectApp.tsx
 msgid "Open"
-msgstr ""
+msgstr "Abrir"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Open {0}"
-msgstr ""
+msgstr "Abrir {0}"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Open {0} with {selectedName}"
-msgstr ""
+msgstr "Abrir {0} con {selectedName}"
 
 #: src/ConnectApp.tsx
 msgid "Open a collection in the editor or manage where its main copy lives."
-msgstr ""
+msgstr "Abre una colección en el editor o administra dónde reside su copia principal."
 
 #: src/ConnectApp.tsx
 msgid "Open account and sessions"
-msgstr ""
+msgstr "Abrir cuenta y sesiones"
 
 #: src/ConnectApp.tsx
 msgid "Open desktop app"
-msgstr ""
+msgstr "Abrir aplicación de escritorio"
 
 #: src/ConnectApp.tsx
 msgid "Open editor"
-msgstr ""
+msgstr "Abrir editor"
 
 #: src/portal-ui.tsx
 msgid "Open editor <0>↗</0>"
