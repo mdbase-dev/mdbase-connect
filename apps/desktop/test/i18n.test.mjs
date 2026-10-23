@@ -5,6 +5,26 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createNativeLocale } from "../dist/main/i18n.js";
 
+test("desktop locale restores a saved target language ahead of OS preferences", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mdbase-desktop-language-"));
+  try {
+    const original = createNativeLocale(directory, ["en-US"]);
+    await original.initialize();
+    await original.selectLocale("de");
+    assert.equal(original.i18n.locale, "de");
+    assert.equal(original.i18n.number(1234.5), "1.234,5");
+    assert.equal(await readFile(join(directory, "language"), "utf8"), "de");
+
+    const restarted = createNativeLocale(directory, ["ja-JP"]);
+    await restarted.initialize();
+    assert.equal(restarted.i18n.locale, "de");
+    await restarted.selectLocale("ja");
+    assert.equal(restarted.i18n.locale, "ja");
+    assert.equal(restarted.i18n.number(1234.5), "1,234.5");
+    assert.equal(await readFile(join(directory, "language"), "utf8"), "ja");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("desktop locale saves an explicit choice and ignores unsupported saved languages", async () => {
   const directory = await mkdtemp(join(tmpdir(), "mdbase-desktop-language-"));
   try {
