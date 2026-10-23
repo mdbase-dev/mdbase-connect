@@ -10,453 +10,453 @@ msgstr ""
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
 msgid " · older app version"
-msgstr ""
+msgstr " · старая версия приложения"
 
 #: src/renderer/takeover-state.mts
 msgid " in {folder}"
-msgstr ""
+msgstr " в {folder}"
 
 #. placeholder {0}: imp.mirror_root
 #: src/renderer/takeover-state.mts
 msgid " The old folder {0} is kept as it was."
-msgstr ""
+msgstr " Старая папка {0} сохранена без изменений."
 
 #: src/renderer/collections-view.tsx
 msgid ", and the files already in it become the first synced version"
-msgstr ""
+msgstr ", а уже находящиеся в ней файлы станут первой синхронизированной версией"
 
 #. placeholder {0}: sync.pending
 #: src/renderer/daemon-view.mts
 msgid "{0, plural, one {# change to upload} other {# changes to upload}}"
-msgstr ""
+msgstr "{0, plural, one {# изменение для отправки} few {# изменения для отправки} many {# изменений для отправки} other {# изменения для отправки}}"
 
 #. placeholder {0}: app.grants.length
 #. placeholder {0}: collections.length
 #: src/renderer/access-view.tsx
 #: src/renderer/main.tsx
 msgid "{0, plural, one {# collection} other {# collections}}"
-msgstr ""
+msgstr "{0, plural, one {# коллекция} few {# коллекции} many {# коллекций} other {# коллекции}}"
 
 #. placeholder {0}: unlisted.length
 #: src/renderer/collections-view.tsx
 msgid "{0, plural, one {# file} other {# files}}"
-msgstr ""
+msgstr "{0, plural, one {# файл} few {# файла} many {# файлов} other {# файла}}"
 
 #. placeholder {0}: sync.unresolved
 #: src/renderer/daemon-view.mts
 msgid "{0, plural, one {# unresolved conflict} other {# unresolved conflicts}}"
-msgstr ""
+msgstr "{0, plural, one {# неразрешённый конфликт} few {# неразрешённых конфликта} many {# неразрешённых конфликтов} other {# неразрешённого конфликта}}"
 
 #. placeholder {0}: HOLD_REASONS[hold.reason] ?? hold.reason
 #. placeholder {1}: relativeTime(new Date(hold.since).toISOString())
 #: src/renderer/collections-view.tsx
 msgid "{0} · since {1}"
-msgstr ""
+msgstr "{0} · с {1}"
 
 #. placeholder {0}: parts.slice(0, -1).join(", ")
 #. placeholder {1}: parts[parts.length - 1]
 #: src/renderer/daemon-view.mts
 msgid "{0} and {1}"
-msgstr ""
+msgstr "{0} и {1}"
 
 #. placeholder {0}: entry.app_name
 #. placeholder {1}: scope(entry, names)
 #: src/renderer/access-view.tsx
 msgid "{0} can no longer use {1} through this computer."
-msgstr ""
+msgstr "{0} больше не может использовать {1} через этот компьютер."
 
 #. placeholder {0}: entry.app_name
 #: src/renderer/access-view.tsx
 msgid "{0} can now use {where}."
-msgstr ""
+msgstr "Теперь {0} может использовать {where}."
 
 #. placeholder {0}: collection.name
 #: src/renderer/collections-view.tsx
 msgid "{0} is on this computer only now."
-msgstr ""
+msgstr "{0} теперь только на этом компьютере."
 
 #. placeholder {0}: syncTarget.name
 #: src/renderer/collections-view.tsx
 msgid "{0} now syncs privately."
-msgstr ""
+msgstr "{0} теперь синхронизируется в закрытом режиме."
 
 #. placeholder {0}: syncTarget.name
 #: src/renderer/collections-view.tsx
 msgid "{0} now syncs."
-msgstr ""
+msgstr "{0} теперь синхронизируется."
 
 #. placeholder {0}: entry.state === "denied" ? t(i18n)({ message: "Declined", context: "Connect interface" }) : t(i18n)({ message: "Revoked", context: "Connect interface" })
 #: src/renderer/access-view.tsx
 msgid "{0} on this computer"
-msgstr ""
+msgstr "{0} на этом компьютере"
 
 #. placeholder {0}: entry.app_name
 #: src/renderer/access-view.tsx
 msgid "{0} wants to use {where}"
-msgstr ""
+msgstr "{0} запрашивает доступ к {where}"
 
 #. placeholder {0}: added.name
 #: src/renderer/main.tsx
 msgid "{0} was added."
-msgstr ""
+msgstr "Добавлено: {0}."
 
 #. placeholder {0}: created.name
 #: src/renderer/main.tsx
 msgid "{0} was created."
-msgstr ""
+msgstr "Создано: {0}."
 
 #. placeholder {0}: entry.app_name
 #: src/renderer/access-view.tsx
 msgid "{0} was declined."
-msgstr ""
+msgstr "Отклонено: {0}."
 
 #. placeholder {0}: collection.name
 #: src/renderer/collections-view.tsx
 msgid "{0} was removed. Its files were not touched."
-msgstr ""
+msgstr "Убрано: {0}. Файлы не затронуты."
 
 #. placeholder {0}: saved.name
 #: src/renderer/collections-view.tsx
 msgid "{0} was saved."
-msgstr ""
+msgstr "Сохранено: {0}."
 
 #. placeholder {0}: reasonText(collection.reason) ?? missingOpenReason()
 #: src/renderer/daemon-view.mts
 msgid "{0} Your files are untouched."
-msgstr ""
+msgstr "{0} Ваши файлы не затронуты."
 
 #. placeholder {0}: names[id] ?? id
 #: src/renderer/takeover-state.mts
 msgid "{0}: the folder's mdbase marker was removed or changed after the move. mdbase stopped serving it so nothing is overwritten."
-msgstr ""
+msgstr "{0}: после переноса метка mdbase в папке удалена или изменена. mdbase прекратил предоставлять к ней доступ, чтобы ничего не перезаписать."
 
 #: src/renderer/daemon-view.mts
 msgid "{app} asked to use {collection}"
-msgstr ""
+msgstr "{app} запросило доступ к {collection}"
 
 #: src/renderer/daemon-view.mts
 msgid "{app} can now use {collection}"
-msgstr ""
+msgstr "Теперь {app} может использовать {collection}"
 
 #: src/renderer/daemon-view.mts
 msgid "{app} lost access to {collection} in your account"
-msgstr ""
+msgstr "{app} потеряло доступ к {collection} в вашей учётной записи"
 
 #: src/renderer/main.tsx
 msgid "{attention, plural, one {# item needs you} other {# items need you}}"
-msgstr ""
+msgstr "{attention, plural, one {# вопрос требует вашего внимания} few {# вопроса требуют вашего внимания} many {# вопросов требуют вашего внимания} other {# вопроса требуют вашего внимания}}"
 
 #: src/renderer/daemon-view.mts
 msgid "{collection} moved here from mdbase Connect (its files were not touched)"
-msgstr ""
+msgstr "Коллекция {collection} перенесена сюда из mdbase connect (файлы не затронуты)"
 
 #. placeholder {0}: entry.detail === "synced_e2e" ? " privately" : ""
 #: src/renderer/daemon-view.mts
 msgid "{collection} now syncs{0}"
-msgstr ""
+msgstr "Коллекция {collection} теперь синхронизируется{0}"
 
 #: src/renderer/daemon-view.mts
 msgid "{collection} stopped syncing"
-msgstr ""
+msgstr "Синхронизация коллекции {collection} остановлена"
 
 #: src/renderer/daemon-view.mts
 msgid "{collection} was added"
-msgstr ""
+msgstr "Добавлена коллекция {collection}"
 
 #: src/renderer/daemon-view.mts
 msgid "{collection} was joined from your account"
-msgstr ""
+msgstr "Коллекция {collection} подключена из вашей учётной записи"
 
 #: src/renderer/daemon-view.mts
 msgid "{collection} was paused"
-msgstr ""
+msgstr "Синхронизация коллекции {collection} приостановлена"
 
 #: src/renderer/daemon-view.mts
 msgid "{collection} was removed (its files were not touched)"
-msgstr ""
+msgstr "Коллекция {collection} убрана (файлы не затронуты)"
 
 #: src/renderer/daemon-view.mts
 msgid "{collection} was renamed or described"
-msgstr ""
+msgstr "Название или описание коллекции {collection} изменено"
 
 #: src/renderer/daemon-view.mts
 msgid "{collection} was resumed"
-msgstr ""
+msgstr "Синхронизация коллекции {collection} возобновлена"
 
 #: src/renderer/takeover-state.mts
 msgid "{held, plural, one {# unsent edit in “{name}” conflicts with changes made elsewhere. Review it in the collection's held files.} other {# unsent edits in “{name}” conflict with changes made elsewhere. Review them in the collection's held files.}}"
-msgstr ""
+msgstr "{held, plural, one {# неотправленная правка в «{name}» конфликтует с изменениями из другого места. Проверьте её в защищённых файлах коллекции.} few {# неотправленные правки в «{name}» конфликтуют с изменениями из другого места. Проверьте их в защищённых файлах коллекции.} many {# неотправленных правок в «{name}» конфликтуют с изменениями из другого места. Проверьте их в защищённых файлах коллекции.} other {# неотправленной правки в «{name}» конфликтуют с изменениями из другого места. Проверьте их в защищённых файлах коллекции.}}"
 
 #: src/renderer/daemon-view.mts
 msgid "{holds, plural, one {# file is waiting for you} other {# files are waiting for you}}"
-msgstr ""
+msgstr "{holds, plural, one {# файл ожидает вашего решения} few {# файла ожидают вашего решения} many {# файлов ожидают вашего решения} other {# файла ожидают вашего решения}}"
 
 #: src/renderer/daemon-view.mts
 msgid "{holds, plural, one {# file waiting for you} other {# files waiting for you}}"
-msgstr ""
+msgstr "{holds, plural, one {# файл ожидает вашего решения} few {# файла ожидают вашего решения} many {# файлов ожидают вашего решения} other {# файла ожидают вашего решения}}"
 
 #: src/renderer/takeover-state.mts
 msgid "{interrupted, plural, one {# interrupted write was kept for review; your files were left as they were.} other {# interrupted writes were kept for review; your files were left as they were.}}"
-msgstr ""
+msgstr "{interrupted, plural, one {# прерванная запись сохранена для проверки; ваши файлы оставлены без изменений.} few {# прерванные записи сохранены для проверки; ваши файлы оставлены без изменений.} many {# прерванных записей сохранены для проверки; ваши файлы оставлены без изменений.} other {# прерванной записи сохранены для проверки; ваши файлы оставлены без изменений.}}"
 
 #: src/renderer/takeover-state.mts
 msgid "{safe} Sign in on this computer so they can move automatically when your account is upgraded."
-msgstr ""
+msgstr "{safe} Войдите в учётную запись на этом компьютере, чтобы они автоматически перенеслись после обновления вашей учётной записи."
 
 #: src/renderer/takeover-state.mts
 msgid "{safe} They will move automatically when mdbase can reach the server and confirm your account upgrade."
-msgstr ""
+msgstr "{safe} Они автоматически перенесутся, когда mdbase свяжется с сервером и подтвердит обновление вашей учётной записи."
 
 #: src/renderer/takeover-state.mts
 msgid "{safe} They will move automatically when your account is upgraded, shortly."
-msgstr ""
+msgstr "{safe} Они автоматически перенесутся вскоре после обновления вашей учётной записи."
 
 #: src/renderer/main.tsx
 msgid "{synced} synced"
-msgstr ""
+msgstr "{synced} синхронизировано"
 
 #: src/renderer/takeover-state.mts
 msgid "{waiting, plural, one {“{name}” syncs again{location}. # edit made in “{name}” before the move is added once it has caught up.{after}{oldFolder}} other {“{name}” syncs again{location}. # edits made in “{name}” before the move are added once it has caught up.{after}{oldFolder}}}"
-msgstr ""
+msgstr "{waiting, plural, one {«{name}» снова синхронизируется{location}. # правка, внесённая в «{name}» до переноса, будет добавлена после получения последних изменений.{after}{oldFolder}} few {«{name}» снова синхронизируется{location}. # правки, внесённые в «{name}» до переноса, будут добавлены после получения последних изменений.{after}{oldFolder}} many {«{name}» снова синхронизируется{location}. # правок, внесённых в «{name}» до переноса, будут добавлены после получения последних изменений.{after}{oldFolder}} other {«{name}» снова синхронизируется{location}. # правки, внесённые в «{name}» до переноса, будут добавлены после получения последних изменений.{after}{oldFolder}}}"
 
 #: src/renderer/takeover-state.mts
 msgid "{waiting, plural, one {# edit made in “{name}” before the move was not uploaded yet and is kept. mdbase is adding “{name}” back to this computer{where}. {reason}.} other {# edits made in “{name}” before the move were not uploaded yet and are kept. mdbase is adding “{name}” back to this computer{where}. {reason}.}}"
-msgstr ""
+msgstr "{waiting, plural, one {# правка, внесённая в «{name}» до переноса, ещё не отправлена и сохранена. mdbase возвращает «{name}» на этот компьютер{where}. {reason}.} few {# правки, внесённые в «{name}» до переноса, ещё не отправлены и сохранены. mdbase возвращает «{name}» на этот компьютер{where}. {reason}.} many {# правок, внесённых в «{name}» до переноса, ещё не отправлены и сохранены. mdbase возвращает «{name}» на этот компьютер{where}. {reason}.} other {# правки, внесённые в «{name}» до переноса, ещё не отправлены и сохранены. mdbase возвращает «{name}» на этот компьютер{where}. {reason}.}}"
 
 #: src/renderer/takeover-state.mts
 msgid "{waiting, plural, one {You removed “{name}” from this computer, so # edit made in “{name}” before the move was not added to it. It is still in {oldPath}.} other {You removed “{name}” from this computer, so # edits made in “{name}” before the move were not added to it. They are still in {oldPath}.}}"
-msgstr ""
+msgstr "{waiting, plural, one {Вы убрали «{name}» с этого компьютера, поэтому # правка, внесённая в «{name}» до переноса, не была добавлена. Она по-прежнему находится в {oldPath}.} few {Вы убрали «{name}» с этого компьютера, поэтому # правки, внесённые в «{name}» до переноса, не были добавлены. Они по-прежнему находятся в {oldPath}.} many {Вы убрали «{name}» с этого компьютера, поэтому # правок, внесённых в «{name}» до переноса, не были добавлены. Они по-прежнему находятся в {oldPath}.} other {Вы убрали «{name}» с этого компьютера, поэтому # правки, внесённые в «{name}» до переноса, не были добавлены. Они по-прежнему находятся в {oldPath}.}}"
 
 #: src/renderer/takeover-panel.tsx
 msgid "<0/>Allow hosted mirrors to stop until I join them again"
-msgstr ""
+msgstr "<0/>Разрешить остановку размещённых зеркал, пока я не подключу их снова"
 
 #: src/renderer/collections-view.tsx
 msgid "<0/>I have checked these files"
-msgstr ""
+msgstr "<0/>Я проверил эти файлы"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "a collection"
-msgstr ""
+msgstr "коллекция"
 
 #: src/renderer/access-view.tsx
 msgid "a collection that is no longer on this computer"
-msgstr ""
+msgstr "коллекция, которой больше нет на этом компьютере"
 
 #. placeholder {0}: folderName(name)
 #: src/main/main.ts
 msgid "A folder named \"{0}\" already exists there. Choose another name or use Add existing."
-msgstr ""
+msgstr "Папка с именем «{0}» уже существует в этом месте. Выберите другое имя или используйте «Добавить существующую»."
 
 #: src/renderer/device-requests.tsx
 msgid "A new {label} wants to open {name}"
-msgstr ""
+msgstr "Новое {label} запрашивает доступ к {name}"
 
 #: src/renderer/device-requests.tsx
 msgid "a Private collection"
-msgstr ""
+msgstr "закрытая коллекция"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Account"
-msgstr ""
+msgstr "Учётная запись"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Account and startup."
-msgstr ""
+msgstr "Учётная запись и запуск."
 
 #: src/renderer/daemon-view.mts
 msgid "Account connection needs attention"
-msgstr ""
+msgstr "Подключение учётной записи требует внимания"
 
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
 msgctxt "Connect interface"
 msgid "Activity"
-msgstr ""
+msgstr "Активность"
 
 #: src/renderer/activity-view.tsx
 msgctxt "Connect interface"
 msgid "Activity is unavailable"
-msgstr ""
+msgstr "Сведения об активности недоступны"
 
 #: src/renderer/collections-view.tsx
 msgid "Add a folder of Markdown notes or create a new collection."
-msgstr ""
+msgstr "Добавьте папку с заметками Markdown или создайте новую коллекцию."
 
 #: src/renderer/collections-view.tsx
 msgid "Add existing"
-msgstr ""
+msgstr "Добавить существующую"
 
 #: src/renderer/main.tsx
 msgid "Add existing folder"
-msgstr ""
+msgstr "Добавить существующую папку"
 
 #: src/renderer/main.tsx
 msgid "Add your first collection"
-msgstr ""
+msgstr "Добавить первую коллекцию"
 
 #: src/renderer/main.tsx
 msgid "All on this computer only"
-msgstr ""
+msgstr "Все только на этом компьютере"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "An app"
-msgstr ""
+msgstr "Приложение"
 
 #: src/renderer/daemon-view.mts
 msgid "Another app, such as Obsidian, is using this folder right now. mdbase opens it when that app lets go."
-msgstr ""
+msgstr "Сейчас эту папку использует другое приложение, например Obsidian. mdbase откроет её, когда приложение освободит её."
 
 #: src/renderer/takeover-state.mts
 msgid "another program is writing to the folder"
-msgstr ""
+msgstr "другая программа записывает данные в папку"
 
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
 msgctxt "Connect interface"
 msgid "App access"
-msgstr ""
+msgstr "Доступ приложений"
 
 #: src/renderer/activity-view.tsx
 msgid "App access and collection changes on this computer will be listed here."
-msgstr ""
+msgstr "Здесь появятся изменения коллекций и доступа приложений на этом компьютере."
 
 #: src/renderer/main.tsx
 msgid "App access and collection changes on this computer."
-msgstr ""
+msgstr "Изменения коллекций и доступа приложений на этом компьютере."
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "App approval"
-msgstr ""
+msgstr "Одобрение приложения"
 
 #: src/renderer/access-view.tsx
 msgid "App key"
-msgstr ""
+msgstr "Ключ приложения"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Appearance"
-msgstr ""
+msgstr "Оформление"
 
 #: src/renderer/main.tsx
 msgid "Application"
-msgstr ""
+msgstr "Приложение"
 
 #: src/renderer/device-requests.tsx
 msgctxt "Connect interface"
 msgid "Approve"
-msgstr ""
+msgstr "Одобрить"
 
 #: src/renderer/device-requests.tsx
 msgid "Approve a device only if you started setting it up yourself."
-msgstr ""
+msgstr "Одобряйте устройство, только если вы сами начали его настройку."
 
 #: src/renderer/sign-in-panel.tsx
 msgid "Approve this computer in your browser. This window updates automatically."
-msgstr ""
+msgstr "Одобрите этот компьютер в браузере. Окно обновится автоматически."
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
 msgid "Approve…"
-msgstr ""
+msgstr "Одобрить…"
 
 #: src/renderer/daemon-view.mts
 msgid "Apps cannot use it until you resume it."
-msgstr ""
+msgstr "Приложения не смогут использовать её, пока вы не возобновите работу."
 
 #: src/renderer/daemon-view.mts
 msgid "Apps keep working while the change finishes."
-msgstr ""
+msgstr "Приложения продолжат работать до завершения изменения."
 
 #: src/renderer/access-view.tsx
 msgid "Apps that can use your collections through this computer."
-msgstr ""
+msgstr "Приложения, которые могут использовать ваши коллекции через этот компьютер."
 
 #: src/renderer/access-view.tsx
 msgid "Apps you approve in mdbase appear here before they can connect."
-msgstr ""
+msgstr "Одобренные вами в mdbase приложения появятся здесь до подключения."
 
 #: src/renderer/main.tsx
 msgid "Apps you approve in mdbase reach your local collections through this computer."
-msgstr ""
+msgstr "Одобренные вами в mdbase приложения получают доступ к локальным коллекциям через этот компьютер."
 
 #: src/renderer/main.tsx
 msgid "Apps you approve reach your collections through this computer"
-msgstr ""
+msgstr "Одобренные вами приложения получают доступ к коллекциям через этот компьютер"
 
 #: src/renderer/access-view.tsx
 msgid "Apps you used with mdbase Connect appear here once Private sync is on for the {movedWaiting, plural, one {collection} other {collections}} that moved to this computer. mdbase turns it on by itself; you don't need to approve those apps again."
-msgstr ""
+msgstr "Приложения, которые вы использовали с mdbase connect, появятся здесь, когда для перенесённых на этот компьютер {movedWaiting, plural, one {коллекции} few {коллекций} many {коллекций} other {коллекций}} включится закрытая синхронизация. mdbase включит её автоматически; повторно одобрять приложения не нужно."
 
 #: src/renderer/main.tsx
 msgid "Ask before new apps connect"
-msgstr ""
+msgstr "Спрашивать перед подключением новых приложений"
 
 #. placeholder {0}: relativeTime(new Date(entry.first_seen_ms).toISOString())
 #: src/renderer/access-view.tsx
 msgid "Asked {0}"
-msgstr ""
+msgstr "Запрос отправлен: {0}"
 
 #: src/renderer/main.tsx
 msgid "Available in installed builds"
-msgstr ""
+msgstr "Доступно в установленных сборках"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Background behavior"
-msgstr ""
+msgstr "Работа в фоновом режиме"
 
 #: src/renderer/collections-view.tsx
 #: src/renderer/main.tsx
 msgid "Cancel"
-msgstr ""
+msgstr "Отмена"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Catching up…"
-msgstr ""
+msgstr "Получение последних изменений…"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "change note types"
-msgstr ""
+msgstr "изменять типы заметок"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Change types"
-msgstr ""
+msgstr "Изменять типы"
 
 #: src/renderer/collections-view.tsx
 msgid "Changed by a program mdbase does not recognise"
-msgstr ""
+msgstr "Изменено неизвестной mdbase программой"
 
 #: src/renderer/collections-view.tsx
 msgid "Changed here and elsewhere"
-msgstr ""
+msgstr "Изменено здесь и в другом месте"
 
 #: src/renderer/collections-view.tsx
 msgctxt "Local collection management"
 msgid "Changed while read-only"
-msgstr ""
+msgstr "Изменено в режиме только для чтения"
 
 #: src/renderer/daemon-view.mts
 msgid "Changing sync…"
-msgstr ""
+msgstr "Изменение синхронизации…"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Check for updates"
-msgstr ""
+msgstr "Проверить обновления"
 
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Check for updates"
-msgstr ""
+msgstr "Проверить обновления"
 
 #. placeholder {0}: entry.app_name
 #: src/renderer/access-view.tsx
