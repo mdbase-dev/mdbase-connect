@@ -1,3 +1,6 @@
+import { Trans } from "@lingui/react/macro";
+import { t } from "@lingui/core/macro";
+import { useLingui } from "@lingui/react";
 import { Component, useEffect, type ErrorInfo, type ReactNode } from "react";
 import { FeedbackButton, useFeedback } from "@mdbase-dev/ui/feedback";
 
@@ -28,12 +31,13 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
 }
 
 function FatalError({ product }: { product: "mdbase editor" | "mdbase connect" }) {
+  useLingui();
   const { reportError } = useFeedback();
   useEffect(() => { reportError({ code: "unknown_error" }); }, [reportError]);
   return <main className="fatal-error" role="alert"><div>
-    <strong>{product} needs to restart</strong>
-    <p>Your collection was not deleted. Changes that had already finished saving are safe.</p>
-    <button onClick={() => location.reload()}>Reload {product === "mdbase connect" ? "Connect" : "editor"}</button>
+    <strong><Trans>{product} needs to restart</Trans></strong>
+    <p><Trans>Your collection was not deleted. Changes that had already finished saving are safe.</Trans></p>
+    <button onClick={() => location.reload()}>{product === "mdbase connect" ? t`Reload Connect` : t`Reload editor`}</button>
     <FeedbackButton topic="problem" />
   </div></main>;
 }

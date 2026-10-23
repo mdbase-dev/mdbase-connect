@@ -1,3 +1,5 @@
+import { t } from "@lingui/core/macro";
+import { useLingui } from "@lingui/react";
 import { useEffect, useRef, useState } from "react";
 import { CheckCircleIcon as CheckCircle, WarningCircleIcon as CircleAlert, XIcon as X } from "./icons";
 
@@ -54,20 +56,21 @@ export function buildToastItems({
     message: recoveryMessage,
     tone: "success",
     durationMs: undoWindowMs,
-    action: { label: recoveryBusy ? "Undoing" : "Undo", onAction: onUndo, busy: recoveryBusy }
+    action: { label: recoveryBusy ? t`Undoing` : t`Undo`, onAction: onUndo, busy: recoveryBusy }
   });
   if (hasPendingRename) items.push({
     id: "rename-recovery",
-    message: "This rename was interrupted after it started. Resume it to recover the collection’s authoritative result.",
+    message: t`This rename was interrupted after it started. Resume it to recover the collection’s authoritative result.`,
     tone: "error",
     sticky: true,
     dismissible: false,
-    action: { label: "Resume rename", onAction: onResumeRename }
+    action: { label: t`Resume rename`, onAction: onResumeRename }
   });
   return items;
 }
 
 export function ToastStack({ toasts, onDismiss }: { toasts: ToastItem[]; onDismiss: (id: string) => void }) {
+  useLingui();
   useEffect(() => {
     const escape = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented || document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]')) return;
@@ -78,12 +81,13 @@ export function ToastStack({ toasts, onDismiss }: { toasts: ToastItem[]; onDismi
     return () => window.removeEventListener("keydown", escape);
   }, [toasts, onDismiss]);
   if (!toasts.length) return null;
-  return <div className="toast-stack" aria-label="Notifications">
+  return <div className="toast-stack" aria-label={t`Notifications`}>
     {toasts.map((toast) => <Toast key={toast.id} toast={toast} onDismiss={onDismiss} />)}
   </div>;
 }
 
 function Toast({ toast, onDismiss }: { toast: ToastItem; onDismiss: (id: string) => void }) {
+  useLingui();
   const dismiss = () => onDismiss(toast.id);
   const [paused, setPaused] = useState(false);
   useAutoDismiss(toast, dismiss, paused);
@@ -91,7 +95,7 @@ function Toast({ toast, onDismiss }: { toast: ToastItem; onDismiss: (id: string)
     {toast.tone === "error" ? <CircleAlert aria-hidden="true" /> : toast.tone === "success" ? <CheckCircle aria-hidden="true" /> : null}
     <span>{toast.message}</span>
     {toast.action && <button disabled={toast.action.busy} onClick={toast.action.onAction}>{toast.action.label}</button>}
-    {toast.dismissible === false ? null : <button className="icon-button" aria-label="Dismiss notification" disabled={toast.action?.busy} onClick={dismiss}><X aria-hidden="true" /></button>}
+    {toast.dismissible === false ? null : <button className="icon-button" aria-label={t`Dismiss notification`} disabled={toast.action?.busy} onClick={dismiss}><X aria-hidden="true" /></button>}
   </div>;
 }
 

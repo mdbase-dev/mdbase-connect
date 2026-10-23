@@ -1,3 +1,4 @@
+import { t, plural } from "@lingui/core/macro";
 import type { CollectionContractDescriptor, JsonObject } from "@mdbase-dev/connect";
 import Ajv2020, { type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
 import { isMap, isSeq, parseDocument, type Document } from "yaml";
@@ -133,7 +134,7 @@ export function createTypeSourceFromContract(
     delete (schema as Record<string, unknown>).$id;
     document.setIn(["name"], name);
     document.setIn(["version"], 1);
-    document.setIn(["description"], `Implements ${contract.id} ${contract.version}.`);
+    document.setIn(["description"], t`Implements ${contract.id} ${contract.version}.`);
     document.setIn(["schema"], {
       dialect: "json-schema-2020-12",
       value: schema
@@ -152,7 +153,7 @@ export function addTypeContractImplementation(
   const implementations = readTypeContractImplementations(source);
   if (implementations.some((implementation) =>
     implementation.contract === contract.id && implementation.version === contract.version)) {
-    throw new Error(`${contract.id} ${contract.version} is already implemented.`);
+    throw new Error(t`${contract.id} ${contract.version} is already implemented.`);
   }
   const mappings = suggestedFieldMappings(source, contract, resolvedTypeSchema);
   return mutate(source, (document) => {
@@ -192,7 +193,7 @@ export function setTypeContractFieldMapping(
 ): string {
   const implementation = readTypeContractImplementations(source).find((candidate) =>
     candidate.contract === contractId && candidate.version === version);
-  if (!implementation) throw new Error(`${contractId} ${version} is not implemented by this type.`);
+  if (!implementation) throw new Error(t`${contractId} ${version} is not implemented by this type.`);
   return mutate(source, (document) => {
     const fieldsPath = ["implements", implementation.sourceIndex, "fields"] as Array<string | number>;
     const aliases = equivalentReferences(contractField);
@@ -215,7 +216,7 @@ export function setTypeContractBinding(
 ): string {
   const implementation = readTypeContractImplementations(source).find((candidate) =>
     candidate.contract === contractId && candidate.version === version);
-  if (!implementation) throw new Error(`${contractId} ${version} is not implemented by this type.`);
+  if (!implementation) throw new Error(t`${contractId} ${version} is not implemented by this type.`);
   return mutate(source, (document) => {
     const bindingPath = ["implements", implementation.sourceIndex, "binding"] as Array<string | number>;
     if (Object.keys(binding).length) document.setIn(bindingPath, structuredClone(binding));
@@ -258,7 +259,7 @@ export function validateTypeContractImplementations(
       issues.push({
         level: "error",
         implementationIndex,
-        message: "Each implementation needs an exact contract ID and version."
+        message: t`Each implementation needs an exact contract ID and version.`
       });
       return;
     }
@@ -268,7 +269,7 @@ export function validateTypeContractImplementations(
         level: "error",
         implementationIndex,
         contract: contractId,
-        message: `${contractId} ${version} is implemented more than once.`
+        message: t`${contractId} ${version} is implemented more than once.`
       });
     }
     seen.add(key);
@@ -278,7 +279,7 @@ export function validateTypeContractImplementations(
         level: "error",
         implementationIndex,
         contract: contractId,
-        message: `${contractId} ${version} is not installed in this collection.`
+        message: t`${contractId} ${version} is not installed in this collection.`
       });
       return;
     }
@@ -289,7 +290,7 @@ export function validateTypeContractImplementations(
         level: "error",
         implementationIndex,
         contract: contractId,
-        message: "Field mappings must be a YAML object."
+        message: t`Field mappings must be a YAML object.`
       });
     }
 
@@ -300,7 +301,7 @@ export function validateTypeContractImplementations(
           implementationIndex,
           contract: contractId,
           field: field.reference,
-          message: `Map required contract field ${field.reference}.`
+          message: t`Map required contract field ${field.reference}.`
         });
       }
     }
@@ -313,7 +314,7 @@ export function validateTypeContractImplementations(
           implementationIndex,
           contract: contractId,
           field: contractReference,
-          message: `${contractReference} is not declared by ${contractId}.`
+          message: t`${contractReference} is not declared by ${contractId}.`
         });
         continue;
       }
@@ -324,7 +325,7 @@ export function validateTypeContractImplementations(
           implementationIndex,
           contract: contractId,
           field: contractReference,
-          message: `${typeReference} is not declared by the type schema.`
+          message: t`${typeReference} is not declared by the type schema.`
         });
         continue;
       }
@@ -362,7 +363,7 @@ export function validateTypeContractImplementations(
         level: "error",
         implementationIndex,
         contract: contractId,
-        message: `${contractId} does not define implementation bindings.`
+        message: t`${contractId} does not define implementation bindings.`
       });
     }
   });
@@ -417,13 +418,13 @@ export function assessContractFieldMapping(
     return field.required
       ? {
           level: "error",
-          label: "Required",
-          message: `Map required contract field ${field.reference}.`
+          label: t`Required`,
+          message: t`Map required contract field ${field.reference}.`
         }
       : {
           level: "unmapped",
-          label: "Not exposed",
-          message: "This optional contract field is not exposed."
+          label: t`Not exposed`,
+          message: t`This optional contract field is not exposed.`
         };
   }
   return assessSchemaCompatibility(
@@ -464,43 +465,43 @@ function assessSchemaCompatibility(
   typeSchemaValue: Record<string, unknown>,
   contractRequired: boolean,
   typeRequired: boolean,
-  contractReference = "The contract field",
-  typeReference = "the type field"
+  contractReference = t`The contract field`,
+  typeReference = t`the type field`
 ): ContractMappingAssessment {
   const contractKind = schemaKind(contractSchemaValue);
   const typeKind = schemaKind(typeSchemaValue);
   if (!compatibleKinds(contractKind, typeKind)) {
     return {
       level: "error",
-      label: "Incompatible",
+      label: t`Incompatible`,
       message: `${contractReference} expects ${kindLabel(contractKind)}, but ${typeReference} is ${kindLabel(typeKind)}.`
     };
   }
 
   const warnings: string[] = [];
   if (contractRequired && !typeRequired) {
-    warnings.push(`${typeReference} is optional, so some records may omit this required value.`);
+    warnings.push(t`${typeReference} is optional, so some records may omit this required value.`);
   }
   if (contractKind === "advanced" || typeKind === "advanced") {
-    warnings.push("A complex schema needs record-level validation.");
+    warnings.push(t`A complex schema needs record-level validation.`);
   }
 
   const contractValues = schemaAllowedValues(contractSchemaValue);
   const typeValues = schemaAllowedValues(typeSchemaValue);
   if (contractValues) {
     if (!typeValues) {
-      warnings.push(`${typeReference} allows values outside the contract’s accepted set.`);
+      warnings.push(t`${typeReference} allows values outside the contract’s accepted set.`);
     } else {
       const accepted = [...typeValues].filter((value) => contractValues.has(value));
       if (!accepted.length) {
         return {
           level: "error",
-          label: "Incompatible",
-          message: `${typeReference} cannot produce a value accepted by ${contractReference}.`
+          label: t`Incompatible`,
+          message: t`${typeReference} cannot produce a value accepted by ${contractReference}.`
         };
       }
       if (accepted.length < typeValues.size) {
-        warnings.push(`${typeReference} allows values the contract rejects.`);
+        warnings.push(t`${typeReference} allows values the contract rejects.`);
       }
     }
   }
@@ -509,12 +510,12 @@ function assessSchemaCompatibility(
   if (range === "disjoint") {
     return {
       level: "error",
-      label: "Incompatible",
-      message: `${typeReference} and ${contractReference} allow non-overlapping values.`
+      label: t`Incompatible`,
+      message: t`${typeReference} and ${contractReference} allow non-overlapping values.`
     };
   }
   if (range === "broader") {
-    warnings.push(`${typeReference} permits values outside the contract’s limits.`);
+    warnings.push(t`${typeReference} permits values outside the contract’s limits.`);
   }
 
   const contractFormat = typeof contractSchemaValue.format === "string"
@@ -524,16 +525,16 @@ function assessSchemaCompatibility(
     ? typeSchemaValue.format
     : undefined;
   if (contractFormat && contractFormat !== typeFormat) {
-    warnings.push(`${typeReference} does not guarantee the contract’s ${contractFormat} format.`);
+    warnings.push(t`${typeReference} does not guarantee the contract’s ${contractFormat} format.`);
   }
   if (typeof contractSchemaValue.pattern === "string"
       && contractSchemaValue.pattern !== typeSchemaValue.pattern) {
-    warnings.push(`${typeReference} does not guarantee the contract’s text pattern.`);
+    warnings.push(t`${typeReference} does not guarantee the contract’s text pattern.`);
   }
   if (contractKind === "object"
       && contractSchemaValue.additionalProperties === false
       && typeSchemaValue.additionalProperties !== false) {
-    warnings.push(`${typeReference} may contain properties rejected by the contract.`);
+    warnings.push(t`${typeReference} may contain properties rejected by the contract.`);
   }
   if (contractKind === "array") {
     const contractItem = record(contractSchemaValue.items);
@@ -542,7 +543,7 @@ function assessSchemaCompatibility(
         && !compatibleKinds(schemaKind(contractItem), schemaKind(typeItem))) {
       return {
         level: "error",
-        label: "Incompatible",
+        label: t`Incompatible`,
         message: `${typeReference} contains ${kindLabel(schemaKind(typeItem))} values, but ${contractReference} expects ${kindLabel(schemaKind(contractItem))} values.`
       };
     }
@@ -551,13 +552,13 @@ function assessSchemaCompatibility(
   return warnings.length
     ? {
         level: "warning",
-        label: "Review",
+        label: t`Review`,
         message: warnings.join(" ")
       }
     : {
         level: "valid",
-        label: "Compatible",
-        message: `${typeReference} satisfies the declared contract field constraints.`
+        label: t`Compatible`,
+        message: t`${typeReference} satisfies the declared contract field constraints.`
       };
 }
 
@@ -646,13 +647,13 @@ function validateBinding(schema: JsonObject, binding: Record<string, unknown>, c
       bindingValidators.set(schema, validate);
     }
   } catch (error) {
-    const detail = error instanceof Error ? error.message : "invalid JSON Schema";
-    return `Binding settings for ${contractId} cannot be edited because its schema is invalid: ${detail}`;
+    const detail = error instanceof Error ? error.message : t`invalid JSON Schema`;
+    return t`Binding settings for ${contractId} cannot be edited because its schema is invalid: ${detail}`;
   }
   if (validate(binding)) return undefined;
   const errors = validate.errors ?? [];
   const first = errors[0];
-  if (!first) return `Binding settings do not satisfy ${contractId}.`;
+  if (!first) return t`Binding settings do not satisfy ${contractId}.`;
   const message = bindingErrorMessage(first, contractId);
   return errors.length > 1 ? `${message} ${errors.length - 1} more ${errors.length === 2 ? "setting needs" : "settings need"} attention.` : message;
 }
@@ -662,16 +663,16 @@ function bindingErrorMessage(error: ErrorObject, contractId: string): string {
     .map((segment) => segment.replaceAll("~1", "/").replaceAll("~0", "~"));
   if (error.keyword === "required" && typeof error.params.missingProperty === "string") {
     segments.push(error.params.missingProperty);
-    return `Binding setting ${segments.join(".")} is required by ${contractId}.`;
+    return t`Binding setting ${segments.join(".")} is required by ${contractId}.`;
   }
   const field = segments.length ? ` ${segments.join(".")}` : "";
   if (error.keyword === "minLength" && error.params.limit === 1) {
-    return `Binding setting${field} must not be empty for ${contractId}.`;
+    return t`Binding setting${field} must not be empty for ${contractId}.`;
   }
   if (error.keyword === "minItems" && typeof error.params.limit === "number") {
-    return `Binding setting${field} needs at least ${error.params.limit} ${error.params.limit === 1 ? "item" : "items"} for ${contractId}.`;
+    return plural(error.params.limit, { one: `Binding setting${field} needs at least # item for ${contractId}.`, other: `Binding setting${field} needs at least # items for ${contractId}.` });
   }
-  return `Binding setting${field} ${error.message ?? "is invalid"} for ${contractId}.`;
+  return t`Binding setting${field} ${error.message ?? "is invalid"} for ${contractId}.`;
 }
 
 function stableValue(value: unknown): string {
@@ -839,14 +840,14 @@ function compatibleKinds(contractKind: TypeFieldKind, typeKind: TypeFieldKind): 
 function kindLabel(kind: TypeFieldKind): string {
   const labels: Record<TypeFieldKind, string> = {
     string: "text",
-    number: "a number",
-    integer: "an integer",
-    boolean: "a checkbox",
-    array: "a list",
-    object: "an object",
-    date: "a date",
-    datetime: "a date and time",
-    advanced: "an advanced schema"
+    number: t`a number`,
+    integer: t`an integer`,
+    boolean: t`a checkbox`,
+    array: t`a list`,
+    object: t`an object`,
+    date: t`a date`,
+    datetime: t`a date and time`,
+    advanced: t`an advanced schema`
   };
   return labels[kind];
 }
@@ -865,11 +866,11 @@ function availableTypeName(contractId: string, existingTypeNames: string[]): str
 
 function parseTypeSource(source: string): ParsedTypeSource {
   const match = source.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---([\s\S]*)$/u);
-  if (!match) throw new Error("Type definitions need YAML frontmatter between --- markers.");
+  if (!match) throw new Error(t`Type definitions need YAML frontmatter between --- markers.`);
   const document = parseDocument(match[1]);
   if (document.errors.length) throw new Error(document.errors[0].message);
   const value = document.toJS();
-  if (!isRecord(value)) throw new Error("The type definition must be a YAML object.");
+  if (!isRecord(value)) throw new Error(t`The type definition must be a YAML object.`);
   return { document, tail: match[2], value };
 }
 

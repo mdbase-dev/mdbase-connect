@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import { MdbaseError, type FilesApi, type FileView } from "@mdbase-dev/sdk";
 
 /** Preserve the entire listed selection, not just the content digest: an ID can
@@ -32,18 +33,18 @@ export async function downloadNativeFile(
   // Snapshot scalars so caller mutation cannot silently retarget the request.
   const selected = { ...selection };
   const cancelled = () => new MdbaseError({
-    code: "cancelled", recovery: "none", message: "This file selection is no longer current."
+    code: "cancelled", recovery: "none", message: t`This file selection is no longer current.`
   });
   const check = () => {
     if (signal.aborted || !isCurrent()) throw cancelled();
   };
   check();
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 0 || maxBytes > MAX_BYTES)
-    throw new RangeError("The file download limit must be between 0 and 64 MiB.");
+    throw new RangeError(t`The file download limit must be between 0 and 64 MiB.`);
   if (!Number.isSafeInteger(selected.size) || selected.size < 0)
-    throw new RangeError("The selected file has an invalid size.");
+    throw new RangeError(t`The selected file has an invalid size.`);
   if (selected.size > maxBytes)
-    throw new MdbaseError({ code: "too_large", recovery: "none", message: "This file exceeds the download limit." });
+    throw new MdbaseError({ code: "too_large", recovery: "none", message: t`This file exceeds the download limit.` });
 
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   let metadataBarrier: Promise<void> | undefined;
@@ -63,7 +64,7 @@ export async function downloadNativeFile(
     if (file.id !== selected.id || file.path !== selected.path || file.digest !== selected.digest
       || file.size !== selected.size || file.contentProfile !== selected.contentProfile
       || file.confirmedSeq !== selected.confirmedSeq)
-      throw new Error("This file changed. Reload its preview.");
+      throw new Error(t`This file changed. Reload its preview.`);
   };
 
   try {
@@ -82,11 +83,11 @@ export async function downloadNativeFile(
       const chunk = await settle(reader.read());
       if (chunk.done) break;
       if (chunk.value.byteLength > selected.size - count)
-        throw new Error("The file stream exceeded its selected size.");
+        throw new Error(t`The file stream exceeded its selected size.`);
       bytes.set(chunk.value, count);
       count += chunk.value.byteLength;
     }
-    if (count !== selected.size) throw new Error("The file stream ended before its selected size.");
+    if (count !== selected.size) throw new Error(t`The file stream ended before its selected size.`);
     match(file);
     // Only actual persisted Markdown profiles qualify, never a filename/MIME.
     // AttachmentV1 and Blob have distinct SDK verification; both must be UTF-8

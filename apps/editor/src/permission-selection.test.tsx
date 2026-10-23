@@ -1,4 +1,4 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook } from "./test/locale";
 import { expect, it } from "vitest";
 import { usePermissionSelection } from "@mdbase-dev/ui/permission-selection";
 

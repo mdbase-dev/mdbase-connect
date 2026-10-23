@@ -1,3 +1,5 @@
+import { useLingui } from "@lingui/react";
+import { t } from "@lingui/core/macro";
 import {
   useEffect,
   useId,
@@ -12,7 +14,7 @@ export function ComboboxInput({
   listLabel = `${label} suggestions`,
   value,
   options,
-  emptyMessage = "No matches.",
+  emptyMessage = t`No matches.`,
   containerClassName = "",
   onValueChange,
   onOptionSelect,
@@ -31,6 +33,7 @@ export function ComboboxInput({
   onInputBlur?: () => void;
   onInputKeyDown?: (event: KeyboardEvent<HTMLInputElement>) => void;
 }) {
+  useLingui();
   const listId = useId();
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);

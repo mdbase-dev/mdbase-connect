@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, within } from "./test/locale";
 import userEvent from "@testing-library/user-event";
 import type { JsonObject } from "@mdbase-dev/connect";
 import { useState } from "react";

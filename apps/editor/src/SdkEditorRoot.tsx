@@ -1,3 +1,6 @@
+import { Trans } from "@lingui/react/macro";
+import { t } from "@lingui/core/macro";
+import { useLingui } from "@lingui/react";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createMdbase, type Mdbase, type MdbaseApplicationDeclaration, type MdbaseClient } from "@mdbase-dev/sdk";
 import { CollectionGate, CollectionSwitcher, defaultCollectionCopy, type CollectionSection, type CollectionSectionItem, type CollectionSectionItemAction, type CollectionView } from "@mdbase-dev/ui/collections";
@@ -62,18 +65,19 @@ let privateGeneration = 0;
  * never closes the entry or its SDK-owned Native clients. Isolated tests may
  * supply an app-owned collection section, never a production fallback. */
 export function SdkEditorRoot({ sdk, renderNative, onFeedbackContext, privateCollections }: SdkEditorRootProps) {
+  useLingui();
   const declaration = declarations.get(sdk);
   const privates = import.meta.env.MODE === "test" ? privateCollections ?? null : null;
   const snapshot = useSyncExternalStore((listener) => sdk.subscribe(listener), () => sdk.getSnapshot(), () => sdk.getSnapshot());
   // Developer-only detail (e.g. which manifest fields a registration refusal named): logs, never the screen.
   const developerMessage = snapshot.status === "blocked" ? describeError(snapshot)?.developerMessage ?? null : null;
-  useEffect(() => { if (developerMessage) console.warn(`mdbase editor: ${developerMessage}`); }, [developerMessage]);
+  useEffect(() => { if (developerMessage) console.warn(t`mdbase editor: ${developerMessage}`); }, [developerMessage]);
   const priv = usePrivateSection(sdk, privates);
   const sections = priv.section ? [priv.section] : undefined;
   const switcher: EditorCollectionSwitcher = (onBeforeLeave) => <CollectionSwitcher mdbase={sdk} app={editorCollectionApp} allowDelete
     variant="full" allowPrivate={false} className="editor-collection-switcher" sections={sections} onBeforeLeave={onBeforeLeave} />;
   const extraActions = (view: CollectionView) => <>
-    {priv.section && view.kind === "choosing" && <button type="button" className="mdbase-button" onClick={priv.add}>Add a Private collection</button>}
+    {priv.section && view.kind === "choosing" && <button type="button" className="mdbase-button" onClick={priv.add}><Trans>Add a Private collection</Trans></button>}
     {priv.problem && <p className="editor-private-problem" role="alert">{priv.problem}</p>}
     <FeedbackButton />
   </>;
@@ -104,7 +108,7 @@ function usePrivateSection(sdk: Mdbase, privates: PrivateCollections | null) {
   const load = useCallback((signal: AbortSignal) => {
     if (!privates) return;
     privates.collections({ signal }).then((next) => { if (!signal.aborted) setList(next); },
-      (error: unknown) => { if (!signal.aborted) setFailure({ id: null, message: describeError(error)?.message ?? "Private collections couldn't be loaded." }); });
+      (error: unknown) => { if (!signal.aborted) setFailure({ id: null, message: describeError(error)?.message ?? t`Private collections couldn't be loaded.` }); });
   }, [privates]);
   useLayoutEffect(() => {
     if (!privates) return;
@@ -143,7 +147,7 @@ function usePrivateSection(sdk: Mdbase, privates: PrivateCollections | null) {
     if (!controller || !current(controller.signal) || busy.current) return;
     busy.current = true; setFailure(null);
     try { await action(controller.signal); }
-    catch (error) { if (current(controller.signal)) setFailure({ id, message: describeError(error)?.message ?? "The collection couldn't be opened. Try again." }); }
+    catch (error) { if (current(controller.signal)) setFailure({ id, message: describeError(error)?.message ?? t`The collection couldn't be opened. Try again.` }); }
     finally { if (caller.current === controller) busy.current = false; }
   };
   const setAvailability = (collectionId: string, availability: CollectionAvailability, signal: AbortSignal) =>
@@ -164,7 +168,7 @@ function usePrivateSection(sdk: Mdbase, privates: PrivateCollections | null) {
     const client = await privates.open(entry.collectionId, { signal });
     if (!current(signal) || client.collection !== entry.collectionId) {
       client.close();
-      if (current(signal)) throw new Error("The collection that opened isn't the one you chose.");
+      if (current(signal)) throw new Error(t`The collection that opened isn't the one you chose.`);
       return;
     }
     let live = true;
@@ -173,7 +177,7 @@ function usePrivateSection(sdk: Mdbase, privates: PrivateCollections | null) {
     const connection: EditorConnection = { id: client.collection, displayName: entry.displayName, generation: `private:${++privateGeneration}`,
       records: client, files: client.files, isCurrent: () => live && current(signal) };
     const requireCurrent = () => {
-      if (!connection.isCurrent()) throw new DOMException("The collection session has ended.", "AbortError");
+      if (!connection.isCurrent()) throw new DOMException(t`The collection session has ended.`, "AbortError");
     };
     const requestSignal = (supplied?: AbortSignal) => AbortSignal.any([signal, life.signal, ...(supplied ? [supplied] : [])]);
     const leave = () => {
@@ -258,12 +262,12 @@ function usePrivateSection(sdk: Mdbase, privates: PrivateCollections | null) {
     const deletable = entry.role === "owner" && reason !== "access_removed" && reason !== "collection_deleted";
     return {
       id: entry.collectionId, name: entry.displayName, current: !!scope?.connection.isCurrent() && scope.connection.id === entry.collectionId,
-      detail: failure?.id === entry.collectionId ? failure.message : waiting === entry.collectionId ? "Waiting for your computer…" : privateDetail(entry.availability),
+      detail: failure?.id === entry.collectionId ? failure.message : waiting === entry.collectionId ? t`Waiting for your computer…` : privateDetail(entry.availability),
       actions: deletable ? [deleteAction(entry)] : undefined,
     };
   });
   return {
-    section: { id: "private", title: "Private collections", items, onSelect: select, onClose: () => scope?.actions.chooseAnother().catch(() => {}) } satisfies CollectionSection,
+    section: { id: "private", title: t`Private collections`, items, onSelect: select, onClose: () => scope?.actions.chooseAnother().catch(() => {}) } satisfies CollectionSection,
     scope: scope?.connection.isCurrent() ? scope : null,
     problem: failure?.id === null ? failure.message : null,
     add: () => authorize(),
@@ -272,10 +276,10 @@ function usePrivateSection(sdk: Mdbase, privates: PrivateCollections | null) {
 
 /** A Private row's second line: its availability, and what selecting it does when that isn't opening. */
 function privateDetail(availability: CollectionAvailability): string | null {
-  if (availability.state === "opening") return "Getting this collection ready…";
+  if (availability.state === "opening") return t`Getting this collection ready…`;
   const copy = availability.state === "unavailable" ? describeError(availability) : null;
   if (!copy) return null;
-  const fix = copy.action === "choose_collection" ? "Remove from this browser"
+  const fix = copy.action === "choose_collection" ? t`Remove from this browser`
     : copy.action === "approve" || copy.action === "update_app" ? copy.actionLabel : null;
   return fix ? `${copy.title} · ${fix}` : copy.title;
 }
@@ -288,6 +292,7 @@ function NativeScopeView({ application, connection, declaration, switcher, rende
   renderNative?: SdkEditorRootProps["renderNative"];
   onFeedbackContext?: SdkEditorRootProps["onFeedbackContext"];
 }) {
+  useLingui();
   const client = connection.records;
   // The parent keys by original SDK ID/generation. A later snapshot may return
   // a new facade object for the same scope; it must not retire this gateway.
@@ -299,7 +304,7 @@ function NativeScopeView({ application, connection, declaration, switcher, rende
     queueMicrotask(() => { if (active) setView({ client, scope: { application, connection: original, gateway } }); });
     return () => { active = false; gateway.dispose(); };
   }, [application, client, declaration, original]);
-  const opening = <OpeningScreen app="editor" title={`Opening ${original.displayName}`} />;
+  const opening = <OpeningScreen app="editor" title={t`Opening ${original.displayName}`} />;
   if (!view || view.client !== client) return opening;
   if (renderNative) return renderNative(view.scope);
   return <Suspense fallback={opening}><EditorApp gateway={view.scope.gateway} collectionSwitcher={switcher} onFeedbackContext={onFeedbackContext} /></Suspense>;

@@ -1,3 +1,5 @@
+import { t } from "@lingui/core/macro";
+import { i18n } from "@lingui/core";
 import { MdbaseConnectError, type PendingMutationSummary } from "@mdbase-dev/connect";
 import type { CollectionGateway } from "./model";
 import type { NoteSession, NoteSessionStore } from "./note-session";
@@ -23,14 +25,22 @@ export function pendingNoteRequestId(error: unknown): string | undefined {
     ? error.problem.details.request_id : undefined;
 }
 
-const PENDING_NOUNS: Readonly<Record<string, string>> = { update: "change", rename: "rename", create: "new note", delete: "delete" };
+function pendingMessage(operation: PendingMutationSummary): string {
+  const date = new Date(operation.createdAt).toLocaleString(i18n.locale);
+  switch (operation.operation) {
+    case "create": return t`Your new note from ${date} isn’t confirmed yet. Check again to finish saving it.`;
+    case "rename": return t`Your rename from ${date} isn’t confirmed yet. Check again to finish saving it.`;
+    case "delete": return t`Your deletion from ${date} isn’t confirmed yet. Check again to finish saving it.`;
+    default: return t`Your change from ${date} isn’t confirmed yet. Check again to finish saving it.`;
+  }
+}
 
 export function pendingNoteToasts(pending: readonly PendingMutationSummary[], renameId: string | undefined, busy: boolean, recover: (id: string) => Promise<void>): ToastItem[] {
   return pending.filter((operation) => operation.requestId !== renameId).map((operation) => ({
     id: `pending-${operation.requestId}`,
-    message: `Your ${PENDING_NOUNS[operation.operation] ?? "change"} from ${new Date(operation.createdAt).toLocaleString()} isn't confirmed yet. Check again to finish saving it.`,
+    message: pendingMessage(operation),
     tone: "error", sticky: true, dismissible: false,
-    action: { label: "Check again", busy, onAction: () => void recover(operation.requestId) }
+    action: { label: t`Check again`, busy, onAction: () => void recover(operation.requestId) }
   }));
 }
 

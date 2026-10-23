@@ -1,3 +1,4 @@
+import { t } from "@lingui/core/macro";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import type { NoteSummary } from "./model";
 import { noteTitle } from "./note";
@@ -13,15 +14,15 @@ export interface NoteRowStatus {
 }
 
 export function filterLabel(filter: NoteFilter | undefined, fallback: string): string {
-  if (!filter) return fallback || "All notes";
+  if (!filter) return fallback || t`All notes`;
   return filter.kind === "tag" ? `#${filter.value}` : filter.value;
 }
 
 export function filterScopeLabel(filter: NoteFilter | undefined): string | undefined {
   if (!filter) return undefined;
-  if (filter.kind === "folder") return `Folder · ${filter.value}`;
-  if (filter.kind === "tag") return `Tag · #${filter.value}`;
-  return `Type · ${filter.value}`;
+  if (filter.kind === "folder") return t`Folder · ${filter.value}`;
+  if (filter.kind === "tag") return t`Tag · #${filter.value}`;
+  return t`Type · ${filter.value}`;
 }
 
 export const noteSorts = ["modified-desc", "modified-asc", "title-asc", "path-asc"] as const;
@@ -34,10 +35,10 @@ export const noteSortOptions: ReadonlyArray<{
   label: string;
   summary: string;
 }> = [
-  { value: "modified-desc", label: "Modified newest", summary: "modified newest" },
-  { value: "modified-asc", label: "Modified oldest", summary: "modified oldest" },
-  { value: "title-asc", label: "Title A–Z", summary: "title A–Z" },
-  { value: "path-asc", label: "Path A–Z", summary: "path A–Z" }
+  { value: "modified-desc", get label() { return t`Modified newest`; }, get summary() { return t`modified newest`; } },
+  { value: "modified-asc", get label() { return t`Modified oldest`; }, get summary() { return t`modified oldest`; } },
+  { value: "title-asc", get label() { return t`Title A–Z`; }, summary: "title A–Z" },
+  { value: "path-asc", get label() { return t`Path A–Z`; }, summary: "path A–Z" }
 ];
 
 const storageKey = "mdbase-editor:note-sort";
