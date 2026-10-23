@@ -161,7 +161,7 @@ msgstr "{0, plural, other {重命名“{basename}”并移动 # 篇文档？}}"
 #. placeholder {2}: node.path
 #: src/CollectionRail.tsx
 msgid "{0, plural, one {Show notes in {1}, # note} other {Show notes in {2}, # notes}}"
-msgstr "{0, plural, other {显示 {2} 中的笔记（# 篇或更多）}}"
+msgstr "{0, plural, other {显示 {2} 中的笔记，共 # 篇}}"
 
 #. placeholder {0}: files.length
 #: src/AttachmentUpload.tsx
