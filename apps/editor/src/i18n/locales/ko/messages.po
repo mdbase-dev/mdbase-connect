@@ -3965,431 +3965,431 @@ msgstr "노트 유형에서 제공되며 이 파일에는 저장되지 않습니
 #: src/NoteSearchField.tsx
 #: src/QuickOpen.tsx
 msgid "Quick open"
-msgstr ""
+msgstr "빠른 열기"
 
 #. placeholder {0}: shortcutModifier()
 #: src/NoteSearchField.tsx
 msgid "Quick open · {0} P anywhere"
-msgstr ""
+msgstr "빠른 열기 · 어디서나 {0} P"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Quiet Markdown"
-msgstr ""
+msgstr "간결한 Markdown"
 
 #: src/code-editor-completions.ts
 msgid "Quote"
-msgstr ""
+msgstr "인용"
 
 #: src/PropertiesPanel.tsx
 msgid "Raw frontmatter JSON"
-msgstr ""
+msgstr "원시 프런트매터 JSON"
 
 #: src/type-schema.ts
 msgid "read default"
-msgstr ""
+msgstr "읽기 기본값"
 
 #: src/type-schema.ts
 #: src/TypeBrowser.tsx
 msgid "Read defaults"
-msgstr ""
+msgstr "읽기 기본값"
 
 #: src/type-schema.ts
 msgid "read defaults with an unsupported value"
-msgstr ""
+msgstr "지원되지 않는 값이 있는 읽기 기본값"
 
 #: src/App.tsx
 msgid "Read only"
-msgstr ""
+msgstr "읽기 전용"
 
 #: src/read-only-markdown.tsx
 msgid "Read-only Markdown preview"
-msgstr ""
+msgstr "읽기 전용 Markdown 미리보기"
 
 #: src/AttachmentUpload.tsx
 msgid "Reading"
-msgstr ""
+msgstr "읽는 중"
 
 #: src/WorkspaceChrome.tsx
 msgid "Reading collection links…"
-msgstr ""
+msgstr "컬렉션 링크 읽는 중…"
 
 #: src/WorkspaceChrome.tsx
 msgid "Reading collection text…"
-msgstr ""
+msgstr "컬렉션 텍스트 읽는 중…"
 
 #: src/FileViewer.tsx
 msgid "Reading file content…"
-msgstr ""
+msgstr "파일 콘텐츠 읽는 중…"
 
 #: src/LoadingScreens.tsx
 msgid "Reading its notes and types"
-msgstr ""
+msgstr "노트와 유형 읽는 중"
 
 #: src/WorkspaceChrome.tsx
 msgid "Reading note content…"
-msgstr ""
+msgstr "노트 콘텐츠 읽는 중…"
 
 #: src/NoteList.tsx
 msgid "Reading notes and files"
-msgstr ""
+msgstr "노트 및 파일 읽는 중"
 
 #: src/NoteList.tsx
 msgid "Reading notes and files…"
-msgstr ""
+msgstr "노트 및 파일 읽는 중…"
 
 #: src/TypeBrowser.tsx
 msgid "Reading type definition…"
-msgstr ""
+msgstr "유형 정의 읽는 중…"
 
 #: src/TypeBrowser.tsx
 msgid "Ready-made types"
-msgstr ""
+msgstr "준비된 유형"
 
 #: src/ConnectionScreens.tsx
 msgid "Recent collections"
-msgstr ""
+msgstr "최근 컬렉션"
 
 #: src/QuickOpen.tsx
 msgid "Recent notes and actions"
-msgstr ""
+msgstr "최근 노트 및 작업"
 
 #: src/CollectionRail.tsx
 msgid "Reconnecting"
-msgstr ""
+msgstr "다시 연결 중"
 
 #: src/native-note-observation.ts
 msgid "Reconnecting to the collection…"
-msgstr ""
+msgstr "컬렉션에 다시 연결 중…"
 
 #: src/record-source.ts
 msgid "Record frontmatter must be a YAML mapping."
-msgstr ""
+msgstr "레코드 프런트매터는 YAML 매핑이어야 합니다."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Record link"
-msgstr ""
+msgstr "레코드 링크"
 
 #: src/PropertiesPanel.tsx
 msgid "Record source"
-msgstr ""
+msgstr "레코드 원본"
 
 #: src/gateway.ts
 msgid "Recover the interrupted note operation before making another change. No new write was attempted."
-msgstr ""
+msgstr "다른 변경을 하기 전에 중단된 노트 작업을 복구하세요. 새 쓰기 작업은 시도하지 않았습니다."
 
 #. placeholder {0}: move.from
 #: src/App.tsx
 msgid "Recover the unsaved edits in “{0}” before moving this folder."
-msgstr ""
+msgstr "이 폴더를 이동하기 전에 “{0}”의 저장되지 않은 편집 내용을 복구하세요."
 
 #: src/App.tsx
 msgid "Recover unsaved edits before moving this note."
-msgstr ""
+msgstr "이 노트를 이동하기 전에 저장되지 않은 편집 내용을 복구하세요."
 
 #: src/note-mutation-presentation.ts
 msgid "Recovering deletion"
-msgstr ""
+msgstr "삭제 복구 중"
 
 #: src/note-mutation-presentation.ts
 msgid "Recovering rename"
-msgstr ""
+msgstr "이름 변경 복구 중"
 
 #: src/WorkspaceChrome.tsx
 msgid "References could not finish loading."
-msgstr ""
+msgstr "참조를 모두 불러오지 못했습니다."
 
 #: src/App.tsx
 msgid "Refreshing collection state before reconnecting."
-msgstr ""
+msgstr "다시 연결하기 전에 컬렉션 상태를 새로고침합니다."
 
 #: src/AppErrorBoundary.tsx
 msgid "Reload Connect"
-msgstr ""
+msgstr "Connect 새로고침"
 
 #: src/AppErrorBoundary.tsx
 msgid "Reload editor"
-msgstr ""
+msgstr "편집기 새로고침"
 
 #: src/code-editor-file-embeds.ts
 #: src/TypeBrowser.tsx
 msgid "Remove"
-msgstr ""
+msgstr "제거"
 
 #. placeholder {0}: entryName || `entry ${index + 1}`
 #: src/SchemaValueEditor.tsx
 msgid "Remove {0}"
-msgstr ""
+msgstr "{0} 제거"
 
 #. placeholder {0}: itemLabel.toLocaleLowerCase()
 #. placeholder {1}: index + 1
 #: src/TypeBrowser.tsx
 msgid "Remove {0} {1}"
-msgstr ""
+msgstr "{0} {1} 제거"
 
 #. placeholder {0}: implementation.contract
 #: src/TypeBrowser.tsx
 msgid "Remove {0} contract"
-msgstr ""
+msgstr "{0} 계약 제거"
 
 #. placeholder {0}: filter.kind
 #. placeholder {1}: filter.value
 #: src/NoteSearchField.tsx
 msgid "Remove {0} filter {1}"
-msgstr ""
+msgstr "필터 {0} {1}개 제거"
 
 #: src/SchemaValueEditor.tsx
 msgid "Remove {field}"
-msgstr ""
+msgstr "{field} 제거"
 
 #: src/TypeBrowser.tsx
 msgid "Remove {fieldLabel} field"
-msgstr ""
+msgstr "{fieldLabel} 필드 제거"
 
 #. placeholder {0}: index + 1
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Remove {name} item {0}"
-msgstr ""
+msgstr "{name} 항목 {0} 제거"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Remove {name} property"
-msgstr ""
+msgstr "{name} 속성 제거"
 
 #: src/SdkEditorRoot.tsx
 msgid "Remove from this browser"
-msgstr ""
+msgstr "이 브라우저에서 제거"
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
 msgid "Remove link rule for {0}"
-msgstr ""
+msgstr "{0}의 링크 규칙 제거"
 
 #. placeholder {0}: entry.field
 #: src/TypeBrowser.tsx
 msgid "Remove read default for {0}"
-msgstr ""
+msgstr "{0}의 읽기 기본값 제거"
 
 #: src/BulkNoteProperties.tsx
 #: src/editor-commands.ts
 msgid "Remove tag"
-msgstr ""
+msgstr "태그 제거"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Remove this collection from the editor without changing its files."
-msgstr ""
+msgstr "파일을 변경하지 않고 편집기에서 이 컬렉션을 제거합니다."
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
 msgid "Remove uniqueness rule for {0}"
-msgstr ""
+msgstr "{0}의 고유성 규칙 제거"
 
 #: src/editor-commands.ts
 msgid "Rename"
-msgstr ""
+msgstr "이름 바꾸기"
 
 #: src/FolderChangeDialog.tsx
 msgid "Rename ‘{basename}’"
-msgstr ""
+msgstr "‘{basename}’ 이름 바꾸기"
 
 #: src/App.tsx
 msgid "Rename and update links"
-msgstr ""
+msgstr "이름을 바꾸고 링크 업데이트"
 
 #: src/FolderChangeDialog.tsx
 msgid "Rename folder"
-msgstr ""
+msgstr "폴더 이름 바꾸기"
 
 #: src/CollectionRail.tsx
 msgid "Rename folder…"
-msgstr ""
+msgstr "폴더 이름 바꾸기…"
 
 #: src/App.tsx
 msgid "Rename Markdown path"
-msgstr ""
+msgstr "Markdown 경로 이름 바꾸기"
 
 #: src/App.tsx
 msgid "Rename path"
-msgstr ""
+msgstr "경로 이름 바꾸기"
 
 #: src/App.tsx
 msgid "Rename this note?"
-msgstr ""
+msgstr "이 노트의 이름을 바꿀까요?"
 
 #. placeholder {0}: recoveryAction.to
 #: src/App.tsx
 msgid "Renamed to “{0}”."
-msgstr ""
+msgstr "“{0}”(으)로 이름을 바꿨습니다."
 
 #: src/note-mutation-presentation.ts
 msgid "Renaming"
-msgstr ""
+msgstr "이름 바꾸는 중"
 
 #: src/WorkspaceChrome.tsx
 msgid "Renaming links"
-msgstr ""
+msgstr "링크 이름 바꾸는 중"
 
 #: src/YourPersonPanel.tsx
 msgid "Represent yourself using an ordinary note in this collection. This does not change access or membership."
-msgstr ""
+msgstr "이 컬렉션의 일반 노트로 나를 나타냅니다. 접근 권한이나 멤버십은 변경되지 않습니다."
 
 #: src/AttachmentUpload.tsx
 msgid "Request attachment access"
-msgstr ""
+msgstr "첨부 파일 접근 요청"
 
 #: src/TypeBrowser.tsx
 msgid "Require a property value to be unique across a deliberate comparison set."
-msgstr ""
+msgstr "지정된 비교 집합에서 속성 값을 고유하게 설정합니다."
 
 #: src/TypeBrowser.tsx
 msgid "Require an existing target"
-msgstr ""
+msgstr "기존 대상 필요"
 
 #: src/TypeBrowser.tsx
 msgid "Require unique items"
-msgstr ""
+msgstr "고유 항목 필요"
 
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 #: src/type-contracts.ts
 #: src/TypeBrowser.tsx
 msgid "Required"
-msgstr ""
+msgstr "필수"
 
 #: src/TypeBrowser.tsx
 msgid "required · "
-msgstr ""
+msgstr "필수 · "
 
 #: src/TypeBrowser.tsx
 msgid "Required fields covered"
-msgstr ""
+msgstr "필수 필드 충족"
 
 #: src/TypeBrowser.tsx
 msgid "Required match field"
-msgstr ""
+msgstr "필수 일치 필드"
 
 #: src/NewNoteComposer.tsx
 msgid "Required properties"
-msgstr ""
+msgstr "필수 속성"
 
 #: src/App.tsx
 msgid "Resize {listName} sidebar"
-msgstr ""
+msgstr "{listName} 사이드바 크기 조정"
 
 #: src/App.tsx
 msgid "Resize collections sidebar"
-msgstr ""
+msgstr "컬렉션 사이드바 크기 조정"
 
 #: src/App.tsx
 msgid "Resize note inspector"
-msgstr ""
+msgstr "노트 검사기 크기 조정"
 
 #: src/next-editor-records.ts
 msgid "Resolve this note's protected edit before changing it."
-msgstr ""
+msgstr "변경하기 전에 이 노트의 보호된 편집 내용을 해결하세요."
 
 #: src/TypeBrowser.tsx
 msgid "resources"
-msgstr ""
+msgstr "리소스"
 
 #: src/contract-catalog.ts
 msgid "resources[{index}].document is too large."
-msgstr ""
+msgstr "resources[{index}].document가 너무 큽니다."
 
 #: src/App.tsx
 msgid "Restore unsaved edits"
-msgstr ""
+msgstr "저장되지 않은 편집 내용 복원"
 
 #. placeholder {0}: noteTitle(restored, typeDescriptors)
 #: src/use-note-actions.ts
 msgid "Restored “{0}”."
-msgstr ""
+msgstr "“{0}” 복원됨."
 
 #: src/use-note-actions.ts
 msgid "Restored note paths."
-msgstr ""
+msgstr "노트 경로 복원됨."
 
 #: src/use-note-actions.ts
 msgid "Restored selected notes."
-msgstr ""
+msgstr "선택한 노트 복원됨."
 
 #: src/use-note-actions.ts
 msgid "Restored unlinked mention."
-msgstr ""
+msgstr "연결되지 않은 언급 복원됨."
 
 #: src/Toasts.tsx
 msgid "Resume rename"
-msgstr ""
+msgstr "이름 변경 재개"
 
 #: src/code-editor-file-embeds.ts
 #: src/CollectionRail.tsx
 #: src/YourPersonPanel.tsx
 msgid "Retry"
-msgstr ""
+msgstr "다시 시도"
 
 #: src/WorkspaceChrome.tsx
 msgid "Retry backlinks"
-msgstr ""
+msgstr "백링크 다시 시도"
 
 #: src/CollectionRail.tsx
 msgid "Retry connection"
-msgstr ""
+msgstr "연결 다시 시도"
 
 #: src/NoteList.tsx
 msgid "Retry files"
-msgstr ""
+msgstr "파일 다시 시도"
 
 #: src/App.tsx
 msgid "Retry note"
-msgstr ""
+msgstr "노트 다시 시도"
 
 #: src/NoteList.tsx
 msgid "Retry notes"
-msgstr ""
+msgstr "노트 다시 시도"
 
 #: src/App.tsx
 msgid "Retry opening editor"
-msgstr ""
+msgstr "편집기 열기 다시 시도"
 
 #: src/PropertiesPanel.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Retry save"
-msgstr ""
+msgstr "저장 다시 시도"
 
 #: src/NoteList.tsx
 msgid "Retry search"
-msgstr ""
+msgstr "검색 다시 시도"
 
 #: src/TypeBrowser.tsx
 msgid "Revert"
-msgstr ""
+msgstr "되돌리기"
 
 #: src/type-contracts.ts
 #: src/TypeBrowser.tsx
 msgid "Review"
-msgstr ""
+msgstr "검토"
 
 #: src/YourPersonPanel.tsx
 msgid "Review access"
-msgstr ""
+msgstr "접근 권한 검토"
 
 #: src/FolderChangeDialog.tsx
 #: src/TypeBrowser.tsx
 msgid "Review changes"
-msgstr ""
+msgstr "변경사항 검토"
 
 #: src/YourPersonPanel.tsx
 msgid "Review contact conversion"
-msgstr ""
+msgstr "연락처 변환 검토"
 
 #: src/YourPersonPanel.tsx
 msgid "Review definition files"
-msgstr ""
+msgstr "정의 파일 검토"
 
 #: src/ConflictResolver.tsx
 msgid "Review differences"
-msgstr ""
+msgstr "차이 검토"
 
 #: src/YourPersonPanel.tsx
 msgid "Review fields to write"
