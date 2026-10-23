@@ -485,80 +485,80 @@ msgstr ""
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Opening your collection"
-msgstr ""
+msgstr "Ihre Sammlung wird geöffnet"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Opening…"
-msgstr ""
+msgstr "Wird geöffnet…"
 
 #: src/AppSwitcher.tsx
 msgid "Opens in a new tab"
-msgstr ""
+msgstr "Wird in einem neuen Tab geöffnet"
 
 #: src/Feedback.tsx
 msgid "Optional"
-msgstr ""
+msgstr "Optional"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Owner"
-msgstr ""
+msgstr "Besitzer"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Private"
-msgstr ""
+msgstr "Privat"
 
 #: src/Feedback.tsx
 msgid "Private feedback to the mdbase team."
-msgstr ""
+msgstr "Privates Feedback an das mdbase-Team."
 
 #: src/apps.ts
 msgid "Read and annotate sources"
-msgstr ""
+msgstr "Quellen lesen und annotieren"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Reload"
-msgstr ""
+msgstr "Neu laden"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Reload to continue."
-msgstr ""
+msgstr "Laden Sie die Seite neu, um fortzufahren."
 
 #: src/Feedback.tsx
 msgid "Remove"
-msgstr ""
+msgstr "Entfernen"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Remove"
-msgstr ""
+msgstr "Entfernen"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Remove {collection} from this list?"
-msgstr ""
+msgstr "{collection} aus dieser Liste entfernen?"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Remove from this list"
-msgstr ""
+msgstr "Aus dieser Liste entfernen"
 
 #: src/Feedback.tsx
 msgid "Replies aren’t guaranteed. Not for security reports or urgent support."
-msgstr ""
+msgstr "Antworten sind nicht garantiert. Nicht für Sicherheitsmeldungen oder dringende Supportanfragen."
 
 #: src/Feedback.tsx
 msgid "Reply email"
-msgstr ""
+msgstr "E-Mail-Adresse für Antworten"
 
 #: src/feedback-data.ts
 #: src/Feedback.tsx
 msgid "Report a problem"
-msgstr ""
+msgstr "Problem melden"
 
 #: src/FeedbackMarkup.tsx
 msgctxt "Screenshot annotations"
@@ -567,343 +567,343 @@ msgstr ""
 
 #: src/CommandPalette.tsx
 msgid "Results"
-msgstr ""
+msgstr "Ergebnisse"
 
 #: src/Feedback.tsx
 msgid "Retake screenshot"
-msgstr ""
+msgstr "Screenshot erneut aufnehmen"
 
 #: src/FeedbackVerification.tsx
 msgid "Retry verification"
-msgstr ""
+msgstr "Überprüfung erneut versuchen"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Review access"
-msgstr ""
+msgstr "Zugriff prüfen"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Review access to {collection} there."
-msgstr ""
+msgstr "Prüfen Sie dort den Zugriff auf {collection}."
 
 #: src/Feedback.tsx
 msgid "Review for private information before sending."
-msgstr ""
+msgstr "Prüfen Sie den Screenshot vor dem Senden auf private Informationen."
 
 #: src/SaveNotice.tsx
 msgid "Saved"
-msgstr ""
+msgstr "Gespeichert"
 
 #: src/SaveNotice.tsx
 msgid "Saving"
-msgstr ""
+msgstr "Wird gespeichert"
 
 #: src/feedback-data.ts
 msgid "Screen capture isn’t available in this browser. You can attach an image instead."
-msgstr ""
+msgstr "Bildschirmaufnahmen sind in diesem Browser nicht verfügbar. Sie können stattdessen ein Bild anhängen."
 
 #: src/feedback-data.ts
 msgid "Screen sharing ended before a screenshot was taken."
-msgstr ""
+msgstr "Die Bildschirmfreigabe wurde beendet, bevor ein Screenshot aufgenommen werden konnte."
 
 #: src/Feedback.tsx
 msgid "Screenshot"
-msgstr ""
+msgstr "Screenshot"
 
 #: src/FeedbackMarkup.tsx
 msgid "Screenshot annotation canvas"
-msgstr ""
+msgstr "Zeichenfläche für Screenshot-Markierungen"
 
 #: src/Feedback.tsx
 msgid "Screenshot attached to your feedback"
-msgstr ""
+msgstr "An Ihr Feedback angehängter Screenshot"
 
 #: src/Feedback.tsx
 msgid "Screenshot captured. Sharing has stopped."
-msgstr ""
+msgstr "Screenshot aufgenommen. Die Bildschirmfreigabe wurde beendet."
 
 #: src/FeedbackMarkup.tsx
 msgid "Screenshot tools"
-msgstr ""
+msgstr "Screenshot-Werkzeuge"
 
 #: src/CommandPalette.tsx
 msgid "Search commands"
-msgstr ""
+msgstr "Befehle suchen"
 
 #: src/Feedback.tsx
 msgid "Send feedback"
-msgstr ""
+msgstr "Feedback senden"
 
 #: src/Feedback.tsx
 msgid "Sending timed out. Please try again."
-msgstr ""
+msgstr "Zeitüberschreitung beim Senden. Bitte versuchen Sie es erneut."
 
 #: src/Feedback.tsx
 msgid "Sending…"
-msgstr ""
+msgstr "Wird gesendet…"
 
 #: src/Feedback.tsx
 msgid "Sent privately to the mdbase team."
-msgstr ""
+msgstr "Privat an das mdbase-Team gesendet."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Set up"
-msgstr ""
+msgstr "Einrichten"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Set up {collection} for {app}"
-msgstr ""
+msgstr "{collection} für {app} einrichten"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Setting up…"
-msgstr ""
+msgstr "Wird eingerichtet…"
 
 #: src/feedback-data.ts
 msgid "Share something you like"
-msgstr ""
+msgstr "Teilen, was Ihnen gefällt"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Sign in"
-msgstr ""
+msgstr "Anmelden"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Sign in and choose a collection there."
-msgstr ""
+msgstr "Melden Sie sich dort an und wählen Sie eine Sammlung aus."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Sign in with your mdbase account. You'll choose which collection {app} can use."
-msgstr ""
+msgstr "Melden Sie sich mit Ihrem mdbase-Konto an. Danach wählen Sie aus, welche Sammlung {app} verwenden darf."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Sign out"
-msgstr ""
+msgstr "Abmelden"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Sign out anyway"
-msgstr ""
+msgstr "Trotzdem abmelden"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Signed in as {account}"
-msgstr ""
+msgstr "Angemeldet als {account}"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Signing out…"
-msgstr ""
+msgstr "Abmeldung läuft…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Starting {app}…"
-msgstr ""
+msgstr "{app} wird gestartet…"
 
 #: src/feedback-data.ts
 msgid "Suggest an improvement"
-msgstr ""
+msgstr "Verbesserung vorschlagen"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Switch collection, current: {collection}"
-msgstr ""
+msgstr "Sammlung wechseln, aktuell: {collection}"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Syncing your collection…"
-msgstr ""
+msgstr "Ihre Sammlung wird synchronisiert…"
 
 #: src/ThemeSelect.tsx
 msgctxt "Color theme"
 msgid "System"
-msgstr ""
+msgstr "System"
 
 #: src/Feedback.tsx
 msgid "Taking screenshot…"
-msgstr ""
+msgstr "Screenshot wird aufgenommen…"
 
 #: src/feedback-data.ts
 msgid "Thanks for the idea."
-msgstr ""
+msgstr "Vielen Dank für Ihre Idee."
 
 #: src/feedback-data.ts
 msgid "Thanks for the kind words."
-msgstr ""
+msgstr "Vielen Dank für Ihre freundlichen Worte."
 
 #: src/feedback-data.ts
 msgid "Thanks for the report."
-msgstr ""
+msgstr "Vielen Dank für Ihre Meldung."
 
 #: src/Feedback.tsx
 msgid "The screenshot could not be captured."
-msgstr ""
+msgstr "Der Screenshot konnte nicht aufgenommen werden."
 
 #: src/feedback-data.ts
 msgid "The screenshot could not be captured. Try again."
-msgstr ""
+msgstr "Der Screenshot konnte nicht aufgenommen werden. Versuchen Sie es erneut."
 
 #: src/feedback-data.ts
 msgid "The screenshot could not be cleaned in this browser."
-msgstr ""
+msgstr "Der Screenshot konnte in diesem Browser nicht bereinigt werden."
 
 #: src/feedback-data.ts
 msgid "The screenshot could not be created in this browser."
-msgstr ""
+msgstr "Der Screenshot konnte in diesem Browser nicht erstellt werden."
 
 #: src/feedback-data.ts
 msgid "The screenshot could not be created."
-msgstr ""
+msgstr "Der Screenshot konnte nicht erstellt werden."
 
 #: src/FeedbackMarkup.tsx
 msgid "The screenshot could not be opened for markup."
-msgstr ""
+msgstr "Der Screenshot konnte nicht zum Markieren geöffnet werden."
 
 #: src/Feedback.tsx
 msgid "The screenshot could not be read."
-msgstr ""
+msgstr "Der Screenshot konnte nicht gelesen werden."
 
 #: src/FeedbackMarkup.tsx
 msgid "The screenshot could not be saved."
-msgstr ""
+msgstr "Der Screenshot konnte nicht gespeichert werden."
 
 #: src/feedback-data.ts
 msgid "The screenshot does not contain a valid PNG or JPEG image."
-msgstr ""
+msgstr "Der Screenshot enthält kein gültiges PNG- oder JPEG-Bild."
 
 #: src/feedback-data.ts
 msgid "The screenshot is larger than 3 MB. Choose a smaller image."
-msgstr ""
+msgstr "Der Screenshot ist größer als 3 MB. Wählen Sie ein kleineres Bild aus."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "this collection"
-msgstr ""
+msgstr "diese Sammlung"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "This device is still listed under your account until you remove it there."
-msgstr ""
+msgstr "Dieses Gerät wird weiterhin in Ihrem Konto aufgeführt, bis Sie es dort entfernen."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "This is taking longer than usual."
-msgstr ""
+msgstr "Das dauert länger als üblich."
 
 #: src/CommandPalette.tsx
 msgid "to close"
-msgstr ""
+msgstr "zum Schließen"
 
 #: src/CommandPalette.tsx
 msgid "to move"
-msgstr ""
+msgstr "zum Navigieren"
 
 #: src/CommandPalette.tsx
 msgid "to open"
-msgstr ""
+msgstr "zum Öffnen"
 
 #: src/screens.tsx
 msgid "Try again"
-msgstr ""
+msgstr "Erneut versuchen"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Try again"
-msgstr ""
+msgstr "Erneut versuchen"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Type {collection} to confirm"
-msgstr ""
+msgstr "Geben Sie {collection} zur Bestätigung ein"
 
 #: src/text-diff.ts
 msgid "Unchanged lines"
-msgstr ""
+msgstr "Unveränderte Zeilen"
 
 #: src/FeedbackMarkup.tsx
 msgid "Undo"
-msgstr ""
+msgstr "Rückgängig"
 
 #: src/SaveNotice.tsx
 msgid "Unsaved"
-msgstr ""
+msgstr "Nicht gespeichert"
 
 #: src/FeedbackMarkup.tsx
 msgid "Up to 100 marks can be applied. Undo or reset to make another mark."
-msgstr ""
+msgstr "Es sind höchstens 100 Markierungen möglich. Machen Sie eine rückgängig oder setzen Sie alle zurück, um eine weitere zu setzen."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Use {app}'s version"
-msgstr ""
+msgstr "Version von {app} verwenden"
 
 #: src/FeedbackVerification.tsx
 msgid "Verification could not be completed. Try again."
-msgstr ""
+msgstr "Die Überprüfung konnte nicht abgeschlossen werden. Versuchen Sie es erneut."
 
 #: src/FeedbackVerification.tsx
 msgid "Verification could not be loaded. Check your connection and try again."
-msgstr ""
+msgstr "Die Überprüfung konnte nicht geladen werden. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Waiting for the collection key…"
-msgstr ""
+msgstr "Warten auf den Schlüssel der Sammlung…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "What changes"
-msgstr ""
+msgstr "Was sich ändert"
 
 #: src/Feedback.tsx
 msgid "What gets sent"
-msgstr ""
+msgstr "Was gesendet wird"
 
 #: src/feedback-data.ts
 msgid "What happened?"
-msgstr ""
+msgstr "Was ist passiert?"
 
 #: src/feedback-data.ts
 msgid "What made a difference?"
-msgstr ""
+msgstr "Was hat für Sie den Unterschied gemacht?"
 
 #: src/feedback-data.ts
 msgid "What were you trying to do?"
-msgstr ""
+msgstr "Was wollten Sie tun?"
 
 #: src/feedback-data.ts
 msgid "What would you like to improve?"
-msgstr ""
+msgstr "Was sollte verbessert werden?"
 
 #: src/feedback-data.ts
 msgid "What’s working well for you?"
-msgstr ""
+msgstr "Was funktioniert für Sie gut?"
 
 #: src/apps.ts
 msgid "Write manuscripts that cite your sources"
-msgstr ""
+msgstr "Manuskripte schreiben, die Ihre Quellen zitieren"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "You've signed out of {app} on this device."
-msgstr ""
+msgstr "Sie haben sich auf diesem Gerät von {app} abgemeldet."
 
 #. Example email address, not user data.
 #: src/Feedback.tsx
 msgid "you@example.com"
-msgstr ""
+msgstr "name@example.com"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Your collections"
-msgstr ""
+msgstr "Ihre Sammlungen"
 
 #: src/Feedback.tsx
 msgid "Your message, any reply email and included screenshot, plus these app and build details."
-msgstr ""
+msgstr "Ihre Nachricht, eine etwaige E-Mail-Adresse für Antworten und ein beigefügter Screenshot sowie diese Angaben zu App und Build."
