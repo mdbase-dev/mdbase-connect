@@ -578,36 +578,36 @@ msgstr "{name} ist keine zulässige Eigenschaft."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} is required."
-msgstr ""
+msgstr "{name} ist erforderlich."
 
 #: src/AttachmentUpload.tsx
 msgid "{name} is too large to upload."
-msgstr ""
+msgstr "{name} ist zu groß zum Hochladen."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} item suggestions"
-msgstr ""
+msgstr "Elementvorschläge für {name}"
 
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} JSON value"
-msgstr ""
+msgstr "JSON-Wert für {name}"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} note suggestions"
-msgstr ""
+msgstr "Notizvorschläge für {name}"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} property type"
-msgstr ""
+msgstr "Eigenschaftstyp für {name}"
 
 #: src/TypeBrowser.tsx
 msgid "{name} type definition"
-msgstr ""
+msgstr "Typdefinition für {name}"
 
 #: src/TypeBrowser.tsx
 msgid "{name} type YAML"
-msgstr ""
+msgstr "Typ-YAML für {name}"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} value"
@@ -616,213 +616,213 @@ msgstr "Wert von {name}"
 #. placeholder {0}: index + 1
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} value item {0}"
-msgstr ""
+msgstr "Werteintrag {0} für {name}"
 
 #: src/TypeBrowser.tsx
 msgid "{next, plural, one {# note after update} other {# notes after update}}"
-msgstr ""
+msgstr "{next, plural, one {# Notiz nach der Aktualisierung} other {# Notizen nach der Aktualisierung}}"
 
 #: src/TypeBrowser.tsx
 msgid "{next, plural, one {# note with these rules} other {# notes with these rules}}"
-msgstr ""
+msgstr "{next, plural, one {# Notiz mit diesen Regeln} other {# Notizen mit diesen Regeln}}"
 
 #: src/NoteList.tsx
 msgid "{noteCount, plural, one {# note} other {# notes}}"
-msgstr ""
+msgstr "{noteCount, plural, one {# Notiz} other {# Notizen}}"
 
 #: src/NoteList.tsx
 msgid "{notes} · {files}"
-msgstr ""
+msgstr "{notes} · {files}"
 
 #: src/NoteList.tsx
 msgid "{notes} · {files} · {order}"
-msgstr ""
+msgstr "{notes} · {files} · {order}"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{path} cannot be null."
-msgstr ""
+msgstr "{path} darf nicht null sein."
 
 #: src/AppErrorBoundary.tsx
 msgid "{product} needs to restart"
-msgstr ""
+msgstr "{product} muss neu gestartet werden"
 
 #: src/use-note-actions.ts
 msgid "{references, plural, one {Also updated links in # note.} other {Also updated links in # notes.}}"
-msgstr ""
+msgstr "{references, plural, one {Links in # Notiz ebenfalls aktualisiert.} other {Links in # Notizen ebenfalls aktualisiert.}}"
 
 #. placeholder {0}: requiredFields.length
 #. placeholder {1}: fields.length
 #: src/TypeBrowser.tsx
 msgid "{requiredMapped}/{0} required · {mappedCount}/{1} total"
-msgstr ""
+msgstr "{requiredMapped}/{0} erforderlich · {mappedCount}/{1} insgesamt"
 
 #: src/NewNoteComposer.tsx
 msgid "{selectedOptional} set"
-msgstr ""
+msgstr "{selectedOptional} festgelegt"
 
 #. placeholder {0}: this.job.file.name
 #: src/code-editor-file-embeds.ts
 msgid "{text} upload of {0}"
-msgstr ""
+msgstr "{text} hochgeladen: {0}"
 
 #: src/NoteList.tsx
 msgid "{title} note actions"
-msgstr ""
+msgstr "Notizaktionen für {title}"
 
 #. placeholder {0}: collectionFileFormat(file)
 #: src/NoteList.tsx
 msgid "{title}, {0} file"
-msgstr ""
+msgstr "{title}, {0} Datei"
 
 #: src/TypeBrowser.tsx
 msgid "{title}.md"
-msgstr ""
+msgstr "{title}.md"
 
 #: src/type-contracts.ts
 msgid "{typeReference} allows values outside the contract’s accepted set."
-msgstr ""
+msgstr "{typeReference} erlaubt Werte außerhalb der vom Vertrag akzeptierten Menge."
 
 #: src/type-contracts.ts
 msgid "{typeReference} allows values the contract rejects."
-msgstr ""
+msgstr "{typeReference} erlaubt Werte, die der Vertrag ablehnt."
 
 #: src/type-contracts.ts
 msgid "{typeReference} and {contractReference} allow non-overlapping values."
-msgstr ""
+msgstr "{typeReference} und {contractReference} erlauben Werte ohne Überschneidung."
 
 #: src/type-contracts.ts
 msgid "{typeReference} cannot produce a value accepted by {contractReference}."
-msgstr ""
+msgstr "{typeReference} kann keinen von {contractReference} akzeptierten Wert erzeugen."
 
 #: src/type-contracts.ts
 msgid "{typeReference} does not guarantee the contract’s {contractFormat} format."
-msgstr ""
+msgstr "{typeReference} gewährleistet das Vertragsformat {contractFormat} nicht."
 
 #: src/type-contracts.ts
 msgid "{typeReference} does not guarantee the contract’s text pattern."
-msgstr ""
+msgstr "{typeReference} gewährleistet das Textmuster des Vertrags nicht."
 
 #: src/type-contracts.ts
 msgid "{typeReference} is not declared by the type schema."
-msgstr ""
+msgstr "{typeReference} ist im Typschema nicht deklariert."
 
 #: src/type-contracts.ts
 msgid "{typeReference} is optional, so some records may omit this required value."
-msgstr ""
+msgstr "{typeReference} ist optional; bei manchen Datensätzen könnte dieser erforderliche Wert fehlen."
 
 #: src/type-contracts.ts
 msgid "{typeReference} may contain properties rejected by the contract."
-msgstr ""
+msgstr "{typeReference} kann Eigenschaften enthalten, die der Vertrag ablehnt."
 
 #: src/type-contracts.ts
 msgid "{typeReference} permits values outside the contract’s limits."
-msgstr ""
+msgstr "{typeReference} erlaubt Werte außerhalb der Vertragsgrenzen."
 
 #: src/type-contracts.ts
 msgid "{typeReference} satisfies the declared contract field constraints."
-msgstr ""
+msgstr "{typeReference} erfüllt die deklarierten Einschränkungen für das Vertragsfeld."
 
 #. placeholder {0}: linked.path
 #: src/YourPersonPanel.tsx
 msgid "<0>{0}</0> · Edit this note to change its collection display name or identity associations."
-msgstr ""
+msgstr "<0>{0}</0> · Bearbeiten Sie diese Notiz, um den Anzeigenamen der Sammlung oder Identitätszuordnungen zu ändern."
 
 #: src/TypeBrowser.tsx
 msgid "<0>{linkedSchema}</0> is installed with this type. Field structure is edited at the schema source."
-msgstr ""
+msgstr "<0>{linkedSchema}</0> ist mit diesem Typ installiert. Die Feldstruktur wird an der Schemaquelle bearbeitet."
 
 #: src/QuickOpen.tsx
 msgid "<0>↑↓</0> choose · <1>Enter</1> open · <2>></2> actions · <3>Esc</3> close"
-msgstr ""
+msgstr "<0>↑↓</0> auswählen · <1>Enter</1> öffnen · <2>></2> Aktionen · <3>Esc</3> schließen"
 
 #. placeholder {0}: (changed - 20).toLocaleString(displayLocale())
 #: src/TypeBrowser.tsx
 msgid "<0>More</0>{0} additional notes"
-msgstr ""
+msgstr "<0>Mehr</0>{0} weitere Notizen"
 
 #: src/YourPersonPanel.tsx
 msgid "1 person record needs attention"
-msgstr ""
+msgstr "1 Personendatensatz muss geprüft werden"
 
 #: src/type-schema.ts
 msgid "A {label} for “{name}” already exists."
-msgstr ""
+msgstr "Ein {label} für „{name}“ ist bereits vorhanden."
 
 #: src/type-contracts.ts
 msgid "a checkbox"
-msgstr ""
+msgstr "ein Kontrollkästchen"
 
 #: src/type-contracts.ts
 msgid "A complex schema needs record-level validation."
-msgstr ""
+msgstr "Ein komplexes Schema erfordert eine Validierung auf Datensatzebene."
 
 #: src/type-contracts.ts
 #: src/type-presentation.ts
 msgid "a date"
-msgstr ""
+msgstr "ein Datum"
 
 #: src/type-contracts.ts
 #: src/type-presentation.ts
 msgid "a date and time"
-msgstr ""
+msgstr "ein Datum und eine Uhrzeit"
 
 #: src/type-schema.ts
 msgid "A field named “{name}” already exists."
-msgstr ""
+msgstr "Ein Feld namens „{name}“ ist bereits vorhanden."
 
 #: src/folder-change.ts
 msgid "A folder cannot be moved inside itself."
-msgstr ""
+msgstr "Ein Ordner kann nicht in sich selbst verschoben werden."
 
 #: src/native-gateway.ts
 msgid "A link in {path} will stay broken."
-msgstr ""
+msgstr "Ein Link in {path} bleibt defekt."
 
 #: src/type-schema.ts
 msgid "A link rule for “{field}” already exists."
-msgstr ""
+msgstr "Eine Linkregel für „{field}“ ist bereits vorhanden."
 
 #: src/type-contracts.ts
 #: src/type-presentation.ts
 msgid "a list"
-msgstr ""
+msgstr "eine Liste"
 
 #: src/TypeBrowser.tsx
 msgid "A mapping copies the source value directly. It does not coerce or transform data."
-msgstr ""
+msgstr "Eine Zuordnung kopiert den Quellwert direkt. Sie wandelt Daten nicht um."
 
 #. placeholder {0}: move.to
 #: src/folder-change.ts
 msgid "A note or file already uses “{0}”. Nothing has moved."
-msgstr ""
+msgstr "Eine Notiz oder Datei verwendet bereits „{0}“. Nichts wurde verschoben."
 
 #: src/type-contracts.ts
 msgid "a number"
-msgstr ""
+msgstr "eine Zahl"
 
 #: src/TypeBrowser.tsx
 msgid "A path will be created from the type name"
-msgstr ""
+msgstr "Aus dem Typnamen wird ein Pfad erstellt"
 
 #: src/YourPersonPanel.tsx
 msgid "A person record linked to your account has invalid fields. Fix it before relying on it:"
-msgstr ""
+msgstr "Ein mit Ihrem Konto verknüpfter Personendatensatz enthält ungültige Felder. Korrigieren Sie ihn, bevor Sie sich darauf verlassen:"
 
 #: src/YourPersonPanel.tsx
 msgid "A person record now matches your account. Reload these settings."
-msgstr ""
+msgstr "Ein Personendatensatz entspricht jetzt Ihrem Konto. Laden Sie diese Einstellungen neu."
 
 #: src/person-setup.ts
 msgid "A Person type already exists but needs compatible mappings. Review it in Types; this setup will not replace it."
-msgstr ""
+msgstr "Ein Typ „Person“ ist bereits vorhanden, benötigt aber kompatible Zuordnungen. Prüfen Sie ihn unter „Typen“; diese Einrichtung ersetzt ihn nicht."
 
 #: src/type-schema.ts
 msgid "A read default for “{field}” already exists."
-msgstr ""
+msgstr "Ein Lesestandardwert für „{field}“ ist bereits vorhanden."
 
 #: src/YourPersonPanel.tsx
 msgid "About existing contacts"
-msgstr ""
+msgstr "Über vorhandene Kontakte"
 
 #: src/QuickOpen.tsx
 msgid "Actions"
@@ -830,7 +830,7 @@ msgstr "Aktionen"
 
 #: src/QuickOpen.tsx
 msgid "Actions in quick open"
-msgstr ""
+msgstr "Aktionen in der Schnellauswahl"
 
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
@@ -845,15 +845,15 @@ msgstr "{0} hinzufügen"
 #. placeholder {0}: primaryLabel.toLocaleLowerCase()
 #: src/NewNoteComposer.tsx
 msgid "Add a {0} to create the note."
-msgstr ""
+msgstr "Fügen Sie einen {0} hinzu, um die Notiz zu erstellen."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add a custom property…"
-msgstr ""
+msgstr "Benutzerdefinierte Eigenschaft hinzufügen…"
 
 #: src/QuickOpen.tsx
 msgid "Add a link, in the note text"
-msgstr ""
+msgstr "Link im Notiztext hinzufügen"
 
 #: src/SdkEditorRoot.tsx
 msgid "Add a Private collection"
@@ -861,36 +861,36 @@ msgstr "Private Sammlung hinzufügen"
 
 #: src/PropertiesPanel.tsx
 msgid "Add a property to keep details like tags, dates, or a status with this note."
-msgstr ""
+msgstr "Fügen Sie eine Eigenschaft hinzu, um Angaben wie Tags, Daten oder einen Status bei dieser Notiz zu speichern."
 
 #: src/TypeBrowser.tsx
 msgid "Add a ready-made type to get app compatibility, or install a contract before connecting this type yourself."
-msgstr ""
+msgstr "Fügen Sie einen vorgefertigten Typ für App-Kompatibilität hinzu oder installieren Sie einen Vertrag, bevor Sie diesen Typ selbst verbinden."
 
 #: src/TypeBrowser.tsx
 msgid "Add a type"
-msgstr ""
+msgstr "Typ hinzufügen"
 
 #. placeholder {0}: schema.minItems
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add at least {0} items."
-msgstr ""
+msgstr "Fügen Sie mindestens {0} Einträge hinzu."
 
 #: src/TypeBrowser.tsx
 msgid "Add choice"
-msgstr ""
+msgstr "Auswahlmöglichkeit hinzufügen"
 
 #: src/TypeBrowser.tsx
 msgid "Add default"
-msgstr ""
+msgstr "Standardwert hinzufügen"
 
 #: src/YourPersonPanel.tsx
 msgid "Add definitions and continue"
-msgstr ""
+msgstr "Definitionen hinzufügen und fortfahren"
 
 #: src/SchemaValueEditor.tsx
 msgid "Add entry"
-msgstr ""
+msgstr "Eintrag hinzufügen"
 
 #: src/TypeBrowser.tsx
 msgid "Add field"
@@ -898,36 +898,36 @@ msgstr "Feld hinzufügen"
 
 #: src/TypeBrowser.tsx
 msgid "Add field selector"
-msgstr ""
+msgstr "Feldauswahl hinzufügen"
 
 #: src/ConnectionScreens.tsx
 msgid "add files"
-msgstr ""
+msgstr "Dateien hinzufügen"
 
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add item"
-msgstr ""
+msgstr "Element hinzufügen"
 
 #: src/TypeBrowser.tsx
 msgid "Add link rule"
-msgstr ""
+msgstr "Linkregel hinzufügen"
 
 #: src/TypeBrowser.tsx
 msgid "Add nested field"
-msgstr ""
+msgstr "Verschachteltes Feld hinzufügen"
 
 #: src/YourPersonPanel.tsx
 msgid "Add one Person type, with optional contact details, and its supporting definitions. Existing notes, customized definitions, and access permissions will not be changed."
-msgstr ""
+msgstr "Fügen Sie einen Person-Typ mit optionalen Kontaktdaten und den zugehörigen Definitionen hinzu. Vorhandene Notizen, angepasste Definitionen und Zugriffsberechtigungen bleiben unverändert."
 
 #: src/SchemaValueEditor.tsx
 msgid "Add optional field"
-msgstr ""
+msgstr "Optionales Feld hinzufügen"
 
 #: src/TypeBrowser.tsx
 msgid "Add path pattern"
-msgstr ""
+msgstr "Pfadmuster hinzufügen"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add property"
@@ -937,73 +937,73 @@ msgstr "Eigenschaft hinzufügen"
 #: src/editor-commands.ts
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add tag"
-msgstr ""
+msgstr "Tag hinzufügen"
 
 #: src/TypeBrowser.tsx
 msgid "Add target type"
-msgstr ""
+msgstr "Zieltyp hinzufügen"
 
 #: src/TypeBrowser.tsx
 msgid "Add unique rule"
-msgstr ""
+msgstr "Eindeutigkeitsregel hinzufügen"
 
 #. placeholder {0}: pack.displayName
 #: src/catalog-pack-installation.tsx
 msgid "Added “{0}” and opened the new type."
-msgstr ""
+msgstr "„{0}“ hinzugefügt und neuen Typ geöffnet."
 
 #: src/YourPersonPanel.tsx
 msgid "Adding definitions requires permission to manage this collection's types."
-msgstr ""
+msgstr "Zum Hinzufügen von Definitionen benötigen Sie die Berechtigung, die Typen dieser Sammlung zu verwalten."
 
 #: src/YourPersonPanel.tsx
 msgid "Adding definitions…"
-msgstr ""
+msgstr "Definitionen werden hinzugefügt…"
 
 #: src/TypeBrowser.tsx
 msgid "Adding one creates a new editable type. Existing files are never overwritten."
-msgstr ""
+msgstr "Dadurch entsteht ein neuer bearbeitbarer Typ. Vorhandene Dateien werden niemals überschrieben."
 
 #: src/type-schema.ts
 msgid "additional field policy"
-msgstr ""
+msgstr "Richtlinie für zusätzliche Felder"
 
 #: src/TypeBrowser.tsx
 msgid "Additional item rules remain in YAML."
-msgstr ""
+msgstr "Zusätzliche Elementregeln bleiben in YAML erhalten."
 
 #. placeholder {0}: rule.advancedKeys.join(", ")
 #: src/TypeBrowser.tsx
 msgid "Additional link settings remain in YAML: {0}."
-msgstr ""
+msgstr "Zusätzliche Linkeinstellungen bleiben in YAML erhalten: {0}."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Additional properties"
-msgstr ""
+msgstr "Zusätzliche Eigenschaften"
 
 #. placeholder {0}: rule.advancedKeys.join(", ")
 #: src/TypeBrowser.tsx
 msgid "Additional uniqueness settings remain in YAML: {0}."
-msgstr ""
+msgstr "Zusätzliche Eindeutigkeitseinstellungen bleiben in YAML erhalten: {0}."
 
 #. placeholder {0}: pack.installedTypes.length
 #. placeholder {1}: pack.resourceCount
 #: src/TypeBrowser.tsx
 msgid "Adds {0} internal types and {1} declared resources in one validated transaction. Existing files will not be overwritten; installation stops if any target conflicts."
-msgstr ""
+msgstr "Fügt {0} interne Typen und {1} deklarierte Ressourcen in einer validierten Transaktion hinzu. Vorhandene Dateien werden nicht überschrieben; bei einem Zielkonflikt wird die Installation abgebrochen."
 
 #. placeholder {0}: pack.installedTypes.length
 #: src/TypeBrowser.tsx
 msgid "Adds {0} types"
-msgstr ""
+msgstr "Fügt {0} Typen hinzu"
 
 #: src/TypeBrowser.tsx
 msgid "Adds 1 type"
-msgstr ""
+msgstr "Fügt 1 Typ hinzu"
 
 #: src/catalog-pack-installation.tsx
 msgid "Adopt and update"
-msgstr ""
+msgstr "Übernehmen und aktualisieren"
 
 #: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
@@ -1013,81 +1013,81 @@ msgstr "Erweitert"
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Advanced"
-msgstr ""
+msgstr "Erweitert"
 
 #: src/TypeBrowser.tsx
 msgid "Advanced JSON Schema rules remain intact and are identified in place. Review any structural conversion before applying it."
-msgstr ""
+msgstr "Erweiterte JSON-Schema-Regeln bleiben erhalten und sind direkt gekennzeichnet. Prüfen Sie jede strukturelle Umwandlung vor dem Anwenden."
 
 #: src/TypeBrowser.tsx
 msgid "Advanced YAML rules"
-msgstr ""
+msgstr "Erweiterte YAML-Regeln"
 
 #: src/TypeBrowser.tsx
 msgid "Advisory labels and colour used when records of this type are shown."
-msgstr ""
+msgstr "Hinweisende Beschriftungen und Farben für die Anzeige von Datensätzen dieses Typs."
 
 #: src/EditorRail.tsx
 #: src/note-list-view.ts
 #: src/NoteListViewOptions.tsx
 msgid "All notes"
-msgstr ""
+msgstr "Alle Notizen"
 
 #. placeholder {0}: noteCount.toLocaleString(displayLocale())
 #: src/EditorRail.tsx
 msgid "All notes, {0} total"
-msgstr ""
+msgstr "Alle Notizen, insgesamt {0}"
 
 #: src/TypeBrowser.tsx
 msgid "Allow installs"
-msgstr ""
+msgstr "Installationen zulassen"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Allow local access"
-msgstr ""
+msgstr "Lokalen Zugriff zulassen"
 
 #: src/YourPersonPanel.tsx
 msgid "Allow person records in this collection?"
-msgstr ""
+msgstr "Personendatensätze in dieser Sammlung zulassen?"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Allow the editor to reach mdbase on this computer. Editing continues through mdbase whenever it is unavailable."
-msgstr ""
+msgstr "Erlauben Sie dem Editor, mdbase auf diesem Computer zu erreichen. Wenn es nicht verfügbar ist, erfolgt die Bearbeitung weiterhin über mdbase."
 
 #: src/YourPersonPanel.tsx
 msgid "Allow the Editor to see your account identity"
-msgstr ""
+msgstr "Dem Editor Einsicht in Ihre Kontoidentität erlauben"
 
 #: src/TypeBrowser.tsx
 msgid "Allow undeclared fields"
-msgstr ""
+msgstr "Nicht deklarierte Felder zulassen"
 
 #: src/TypeBrowser.tsx
 msgid "Allowed target types"
-msgstr ""
+msgstr "Zulässige Zieltypen"
 
 #: src/TypeBrowser.tsx
 msgid "always present"
-msgstr ""
+msgstr "immer vorhanden"
 
 #: src/type-contracts.ts
 msgid "an advanced schema"
-msgstr ""
+msgstr "ein erweitertes Schema"
 
 #: src/type-contracts.ts
 msgid "an integer"
-msgstr ""
+msgstr "eine Ganzzahl"
 
 #: src/type-contracts.ts
 #: src/type-presentation.ts
 msgid "an object"
-msgstr ""
+msgstr "ein Objekt"
 
 #: src/TypeBrowser.tsx
 msgid "and"
-msgstr ""
+msgstr "und"
 
 #: src/TypeBrowser.tsx
 msgid "Any"
