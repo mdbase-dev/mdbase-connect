@@ -537,7 +537,7 @@ describe("managed two-phase orchestration", () => {
     const c = fakeConnect(), order: string[] = [];
     const members = new Map<string, { reads: number; resumed: boolean; rolledBack: boolean; restarted: boolean; stopAt?: WorkerStatus }>();
     const pre = { job: "managed" as const, collections: ids, cut_over_collections: [] as string[], backend: "legacy" as const,
-      intents: [] as string[], archive_scoped: o.scoped ?? true, phase_latch: null as "cutover" | "route_back" | null,
+      intents: [] as string[], quiet_intents: [] as string[], archive_scoped: o.scoped ?? true, phase_latch: null as "cutover" | "route_back" | null,
       run: { binding: "two-phase-v1", collections: ids, backup_hold: hold, operator_stop_before_flip: o.operatorStop ?? false, started_us: "1" } };
     const pauseMode = (s: WorkerStatus, resumed: number | null = null) => { s.run!.stop_before_flip = true; s.run!.resumed_run_sequence = resumed; return s; };
     const view = (id: string): WorkerStatus => {
@@ -572,6 +572,7 @@ describe("managed two-phase orchestration", () => {
         order.push(`latch:${phase}`); pre.phase_latch = phase;
       }),
       prepareTarget: vi.fn(async () => undefined), cleanupTimers: vi.fn(async () => ({ deleted: 0 })),
+      unfence: vi.fn(async (_account: string, id: string) => { order.push(`unfence:${id}`); }),
       cutover: vi.fn(async (id: string) => { order.push(`cutover:${id}`); if (!pre.cut_over_collections.includes(id)) pre.cut_over_collections.push(id); }),
       flip: vi.fn(async () => { order.push("flip"); }), completion: vi.fn(async () => undefined)
     });
@@ -691,27 +692,37 @@ describe("managed two-phase orchestration", () => {
     const d = managed(undefined, { operatorStop: true });
     expect(await labRun(account, hold, d, true)).toHaveProperty("stopped.reason", PAUSE_REASON);
     expect(await routeBack(account, d)).toEqual({ done: { account_id: account, collection_ids: [collection, second], not_dispatched: [],
-      disposition: "fresh_attempt_required", collections: [collection, second].map(collection_id => ({
+      disposition: "legacy_post_bulk_follow_up", collections: [collection, second].map(collection_id => ({
         account_id: account, collection_id, rolled_back: true, legacy_verified: true, run_sequence: 1 })) } });
     expect(d.worker.restart).not.toHaveBeenCalled(); expect(d.connect.cleanupTimers).toHaveBeenCalledTimes(2);
     // Idempotent: a rerun only re-confirms the settled rollback.
-    expect(await routeBack(account, d)).toHaveProperty("done.disposition", "fresh_attempt_required");
+    expect(await routeBack(account, d)).toHaveProperty("done.disposition", "legacy_post_bulk_follow_up");
     expect(d.worker.rollback).toHaveBeenCalledTimes(2); expect(d.connect.flip).not.toHaveBeenCalled();
   });
   it("an unscoped managed route-back is terminal too: no restart re-fences a source no lab-run could continue", async () => {
     const d = managed(undefined, { scoped: false, operatorStop: true });
     await labRun(account, hold, d, true);
-    expect(await routeBack(account, d)).toMatchObject({ done: { disposition: "fresh_attempt_required",
+    expect(await routeBack(account, d)).toMatchObject({ done: { disposition: "legacy_post_bulk_follow_up",
       collections: [expect.objectContaining({ collection_id: collection, rolled_back: true }), expect.objectContaining({ collection_id: second, rolled_back: true })] } });
     expect(d.worker.restart).not.toHaveBeenCalled();
     expect(await labRun(account, hold, d, true)).toMatchObject({ stopped: { reason: "managed_route_back_started", resume: `${CLI} route-back ${account}` } });
   });
-  it("route-back leaves a never-dispatched member untouched and reports it", async () => {
+  it("route-back unfences a never-dispatched member after the latch and the fresh re-inspection", async () => {
     const d = managed(); stopAt(d, collection, st("stopped", STEP.drained, { reason: "settlement_unknown" }));
     expect(await labRun(account, hold, d)).toMatchObject({ stopped: { collection_id: collection } });
-    expect(await routeBack(account, d)).toMatchObject({ done: { not_dispatched: [second], disposition: "fresh_attempt_required",
-      collections: [expect.objectContaining({ collection_id: collection, rolled_back: true }), { collection_id: second, not_dispatched: true }] } });
-    expect(d.order).toEqual([`run:${collection}`, "latch:route_back", `rollback:${collection}`]);
+    expect(await routeBack(account, d)).toMatchObject({ done: { not_dispatched: [second], disposition: "legacy_post_bulk_follow_up",
+      collections: [expect.objectContaining({ collection_id: collection, rolled_back: true }), { collection_id: second, not_dispatched: true, legacy_verified: true }] } });
+    expect(d.order).toEqual([`run:${collection}`, "latch:route_back", `rollback:${collection}`, `unfence:${second}`]);
+  });
+  it("a runless intent past the quiet period counts as never dispatched; a failed unfence names route-back", async () => {
+    const d = managed(); stopAt(d, collection, st("stopped", STEP.drained, { reason: "settlement_unknown" }));
+    await labRun(account, hold, d); d.pre.intents.push(second); d.pre.quiet_intents.push(second);
+    vi.mocked(d.connect.unfence!).mockRejectedValueOnce(refusal("migration_run_not_current"));
+    expect(await routeBack(account, d)).toMatchObject({ stopped: { step: "unfence", reason: "migration_run_not_current", collection_id: second,
+      resume: `${CLI} route-back ${account}` } });
+    expect(await routeBack(account, d)).toMatchObject({ done: { not_dispatched: [second],
+      collections: [expect.objectContaining({ collection_id: collection, rolled_back: true }), { collection_id: second, not_dispatched: true, legacy_verified: true }] } });
+    expect(d.order.filter(e => e.startsWith("latch:"))).toEqual(["latch:route_back"]);
   });
   it("route-back refuses the whole set before any mutation while a member's dispatch is UNKNOWN", async () => {
     const d = managed(); stopAt(d, collection, st("stopped", STEP.drained, { reason: "settlement_unknown" }));
@@ -719,10 +730,28 @@ describe("managed two-phase orchestration", () => {
     expect(await routeBack(account, d)).toMatchObject({ stopped: { reason: "worker_run_outcome_unknown", collection_id: second } });
     expect(d.worker.rollback).not.toHaveBeenCalled(); expect(d.connect.cleanupTimers).not.toHaveBeenCalled();
   });
-  it("route-back with nothing dispatched mutates nothing and names the rerun", async () => {
-    const d = managed();
+  it("an unscoped route-back with nothing dispatched mutates nothing and names the rerun", async () => {
+    const d = managed(undefined, { scoped: false });
     expect(await routeBack(account, d)).toEqual({ stopped: { step: "worker_status", reason: "managed_nothing_dispatched",
       inspect: `${CLI} status ${account}`, resume: `${CLI} lab-run ${account} ${hold}`, collection_ids: [collection, second] } });
+    expect(d.connect.latchPhase).not.toHaveBeenCalled(); expect(d.connect.unfence).not.toHaveBeenCalled();
+  });
+  it("a scoped route-back with nothing dispatched still unfences every prearchive-fenced member", async () => {
+    const d = managed();
+    expect(await routeBack(account, d)).toMatchObject({ done: { not_dispatched: [collection, second], disposition: "legacy_post_bulk_follow_up" } });
+    expect(d.order).toEqual(["latch:route_back", `unfence:${collection}`, `unfence:${second}`]);
+  });
+  it("resume imports EVERY member's timers before the cutover latch or any resume", async () => {
+    const d = managed(undefined, { operatorStop: true }); let failing = true;
+    d.connect.importTimers = vi.fn(async (id: string) => { d.order.push(`import:${id}`); if (id === second && failing) throw refusal("timer_import_mismatch"); return {}; });
+    // Both Workers still reach their pause; only the CP import of the last member failed.
+    expect(await labRun(account, hold, d, true)).toMatchObject({ stopped: { step: "import_timers", reason: "timer_import_mismatch", collection_id: second } });
+    expect(await resumeLab(account, d)).toMatchObject({ stopped: { step: "import_timers", reason: "timer_import_mismatch", collection_id: second, phase: "prepare" } });
+    expect(d.connect.latchPhase).not.toHaveBeenCalled(); expect(d.worker.resume).not.toHaveBeenCalled(); expect(d.connect.cutover).not.toHaveBeenCalled();
+    failing = false; d.order.length = 0;
+    expect(await resumeLab(account, d)).toHaveProperty("done.migration_complete", true);
+    expect(d.order.slice(0, 3)).toEqual([`import:${collection}`, `import:${second}`, "latch:cutover"]);
+    expect(d.worker.run).toHaveBeenCalledTimes(2); expect(d.connect.flip).toHaveBeenCalledTimes(1);
   });
   it("route-back inspects the second member before mutating an eligible first member", async () => {
     const d = managed(), paused = st("stopped", STEP.verified, { reason: PAUSE_REASON });
@@ -770,7 +799,7 @@ describe("managed two-phase orchestration", () => {
     for (const again of [() => labRun(account, hold, d), () => resumeLab(account, d)])
       expect(await again()).toMatchObject({ stopped: { step: "preflight", reason: "managed_route_back_started", resume: `${CLI} route-back ${account}` } });
     expect(d.worker.resume).not.toHaveBeenCalled(); expect(d.connect.bindRun).toHaveBeenCalledTimes(2);
-    expect(await routeBack(account, d)).toHaveProperty("done.disposition", "fresh_attempt_required");
+    expect(await routeBack(account, d)).toHaveProperty("done.disposition", "legacy_post_bulk_follow_up");
   });
   it("route-back re-inspects under its latch: a member dispatched meanwhile is rolled back too", async () => {
     const d = managed(); stopAt(d, collection, st("stopped", STEP.drained, { reason: "settlement_unknown" }));

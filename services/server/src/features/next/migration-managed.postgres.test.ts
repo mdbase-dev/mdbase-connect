@@ -14,6 +14,7 @@ import { labRun, labStatus, postgresLabConnect, resumeLab, routeBack, PAUSE_REAS
   type LabWorker, type WorkerReply, type WorkerStatus } from "./migration-lab.js";
 import { migrationDeployments, migrationRoute, type MigrationRouting } from "./migration-routing.js";
 import { inTransaction } from "./bootstrap-common.js";
+import { latchPhase, readManagedRun } from "./migration-managed-ledger.js";
 import { claim, registerMigrationProviderRoutes } from "./migration-provider.js";
 import { prearchiveInventory } from "./migration-prearchive-inventory.js";
 import { registerMigrationReplicaRoutes } from "./migration-replicas.js";
@@ -165,7 +166,14 @@ suite("managed two-phase driver through postgresLabConnect and the real CP route
         return found;
       },
       legacyMigrationReplicas: unexpected, legacyMigrationRevokeReplicas: unexpected,
-      legacyMigrationRestoreReplicas: unexpected, legacyMigrationUnfence: unexpected
+      legacyMigrationRestoreReplicas: unexpected,
+      legacyMigrationUnfence: vi.fn(async (id: string) => {
+        const s = providers.get(id)!.source;
+        if (s.state !== "migrating") throw new HostedProviderResponseError(409, "legacy_migration_not_started", "Not fenced.");
+        Object.assign(s, { state: "active", migration_id: null, started_at: null });
+        await writer.query("UPDATE hosted_provider_collections SET state='active',legacy_migration_id=NULL,legacy_migration_started_at=NULL WHERE id=$1", [id]);
+        return { collection_id: id, state: "active" as const, migration_id: null, started_at: null, retain_until: null };
+      })
     };
     const app = Fastify(), token = "synthetic-managed-source-role-".repeat(2); apps.push(app);
     registerMigrationProviderRoutes(app, { db, token, environment, provider });
@@ -366,7 +374,7 @@ suite("managed two-phase driver through postgresLabConnect and the real CP route
     expect(f.collections.map(id => f.runs.get(id)!.reason)).toEqual([PAUSE_REASON, "settlement_unknown"]);
     expect(await timers(first!)).toBe(1); expect(await timers(second!)).toBe(1);
     const back = await routeBack(f.account, f.deps);
-    expect(back).toEqual({ done: { account_id: f.account, collection_ids: f.collections, not_dispatched: [], disposition: "fresh_attempt_required",
+    expect(back).toEqual({ done: { account_id: f.account, collection_ids: f.collections, not_dispatched: [], disposition: "legacy_post_bulk_follow_up",
       collections: f.collections.map(collection_id => ({ account_id: f.account, collection_id, rolled_back: true, legacy_verified: true, run_sequence: 1 })) } });
     expect(f.order.filter(e => e.startsWith("rollback:"))).toEqual(f.collections.map(id => `rollback:${id}`));
     for (const id of f.collections) {
@@ -376,9 +384,9 @@ suite("managed two-phase driver through postgresLabConnect and the real CP route
     expect(await events(f.account, "next_migration.rollback")).toHaveLength(2);
     expect(await events(f.account, "next_migration.timers_rollback_cleanup")).toHaveLength(2);
     expect(f.worker.restart).not.toHaveBeenCalled(); expect(f.provider.legacyMigrationFence).not.toHaveBeenCalled();
-    // Why no restart: the CP's original-archive fence refuses the restored source.
+    // Why no restart: the CP fence refuses once route-back has latched (and the restored source is no longer the archived one).
     const refence = await f.cp("POST", first!, "fence");
-    expect(refence.statusCode).toBe(409); expect(refence.json().error.code).toBe("migration_archive_source_changed");
+    expect(refence.statusCode).toBe(409); expect(refence.json().error.code).toBe("managed_route_back_started");
     expect(await backend(f.account)).toBe("legacy"); expect(await events(f.account, "next_migration.flip")).toHaveLength(0);
     // Idempotent: a repeated route-back re-verifies, records nothing new and calls no provider rollback.
     expect(await routeBack(f.account, f.deps)).toEqual(back);
@@ -391,27 +399,34 @@ suite("managed two-phase driver through postgresLabConnect and the real CP route
     expect(f.worker.run).toHaveBeenCalledTimes(2);
   });
 
-  it("route-back leaves a never-dispatched member (no run, no native state, no intent) untouched", async () => {
+  it("route-back unfences a never-dispatched member (no run, no native state, no intent) through the canonical started-claim unfence", async () => {
     const f = await fixture(), [first, second] = f.collections;
     f.faults.set(first!, "stop_prepare");
     expect(await run(f)).toMatchObject({ stopped: { reason: "settlement_unknown", collection_id: first, phase: "prepare" } });
     expect(f.worker.run).toHaveBeenCalledTimes(1); expect(f.prepareTarget).toHaveBeenCalledTimes(1);
-    expect(await routeBack(f.account, f.deps)).toMatchObject({ done: { not_dispatched: [second], disposition: "fresh_attempt_required",
-      collections: [{ collection_id: first, rolled_back: true }, { collection_id: second, not_dispatched: true }] } });
-    // The undispatched member keeps its original prearchive fence: nothing rolled it back or dispatched it.
-    expect(f.providers.get(second!)!.source).toMatchObject({ state: "migrating", migration_id: f.archive.scoped_recovery!.source_fences[1]!.migration_id });
+    const back = await routeBack(f.account, f.deps);
+    expect(back).toMatchObject({ done: { not_dispatched: [second], disposition: "legacy_post_bulk_follow_up",
+      collections: [{ collection_id: first, rolled_back: true }, { collection_id: second, not_dispatched: true, legacy_verified: true }] } });
+    // Its original prearchive fence is lifted by the existing unfence step, bound to that run.
+    for (const id of f.collections) expect(f.providers.get(id)!.source).toMatchObject({ state: "active", migration_id: null, started_at: null });
+    expect(await events(f.account, "next_migration.unfence")).toEqual([{ metadata: { migration_id: f.archive.scoped_recovery!.source_fences[1]!.migration_id } }]);
     expect(await events(f.account, "next_migration.rollback_intent")).toEqual([{ metadata: expect.objectContaining({ migration_id: f.runs.get(first!)!.migration }) }]);
     expect(f.worker.run).toHaveBeenCalledTimes(1); expect(f.order).toEqual([`run:${first}`, `rollback:${first}`]);
-    // No dispatch under this attempt any more: its restore needs the fresh-attempt lifecycle.
+    // No dispatch under this attempt any more; a rerun re-verifies without a second unfence.
     await expect(f.connect.claimWorkerRun!(f.account, second!)).rejects.toHaveProperty("code", "managed_route_back_started");
     expect(await events(f.account, "next_migration.worker_run_intent")).toHaveLength(1);
+    expect(await routeBack(f.account, f.deps)).toEqual(back);
+    expect(f.provider.legacyMigrationUnfence).toHaveBeenCalledTimes(1); expect(await backend(f.account)).toBe("legacy");
   });
 
-  it("refuses a route-back when nothing was dispatched", async () => {
+  it("a scoped route-back with nothing dispatched still restores every prearchive-fenced member", async () => {
     const f = await fixture(), prepare = vi.fn(async () => { throw Object.assign(new Error("Synthetic target stop"), { code: "migration_target_unavailable" }); });
     f.connect.prepareTarget = prepare;
     expect(await run(f)).toMatchObject({ stopped: { step: "prepare_target", collection_id: f.collections[0] } });
-    expect(await routeBack(f.account, f.deps)).toMatchObject({ stopped: { reason: "managed_nothing_dispatched", resume: `${CLI} lab-run ${f.account} ${hold}` } });
+    expect(await routeBack(f.account, f.deps)).toMatchObject({ done: { not_dispatched: f.collections, disposition: "legacy_post_bulk_follow_up" } });
+    for (const id of f.collections) expect(f.providers.get(id)!.source).toMatchObject({ state: "active", migration_id: null });
+    expect(await events(f.account, "next_migration.managed_route_back")).toHaveLength(1);
+    expect(await events(f.account, "next_migration.unfence")).toHaveLength(2);
     expect(f.worker.run).not.toHaveBeenCalled(); expect(f.worker.rollback).not.toHaveBeenCalled();
   });
 
@@ -430,6 +445,74 @@ suite("managed two-phase driver through postgresLabConnect and the real CP route
     expect(status).toMatchObject({ intents: f.collections, collections: [
       { collection_id: first, intent: true, worker: { run: { reason: PAUSE_REASON } } },
       { collection_id: second, intent: true, worker: { run: null } }] });
+  });
+
+  /** Wait until a request blocks on a row lock (the account lock another transaction holds). */
+  const blocked = async (fragment: string) => {
+    for (let i = 0; i < 300; i++) {
+      if ((await admin.query("SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE $1", [`%${fragment}%`])).rows.length) return;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    throw new Error("The request never waited on the account lock.");
+  };
+  const ageIntent = (f: Fixture, id: string, seconds: number) => db.query(`UPDATE audit_events SET created_at=now()-make_interval(secs => $3)
+    WHERE user_id=$1 AND subject_id=$2 AND event_type='next_migration.worker_run_intent'`, [f.account, id, seconds]);
+
+  it("a runless intent past the 420 s quiet period routes back as never dispatched; the original run's late fence then refuses", async () => {
+    const f = await fixture(), [first, second] = f.collections;
+    f.faults.set(second!, "absent");
+    expect(await run(f)).toMatchObject({ stopped: { step: "worker_run", reason: "worker_run_missing", collection_id: second } });
+    await ageIntent(f, second!, 419); // Database clock, not the driver's.
+    expect(await routeBack(f.account, f.deps)).toMatchObject({ stopped: { reason: "worker_run_outcome_unknown", collection_id: second } });
+    expect(await events(f.account, "next_migration.managed_route_back")).toHaveLength(0);
+    await ageIntent(f, second!, 421);
+    expect(await routeBack(f.account, f.deps)).toMatchObject({ done: { not_dispatched: [second], disposition: "legacy_post_bulk_follow_up",
+      collections: [{ collection_id: first, rolled_back: true }, { collection_id: second, not_dispatched: true, legacy_verified: true }] } });
+    for (const id of f.collections) expect(f.providers.get(id)!.source).toMatchObject({ state: "active", migration_id: null, started_at: null });
+    // The original dispatch arrives late: its first forward effect refuses before any provider call.
+    f.faults.delete(second!);
+    const late = await f.cp("POST", second!, "fence");
+    expect(late.statusCode).toBe(409); expect(late.json().error.code).toBe("managed_route_back_started");
+    expect(f.provider.legacyMigrationFence).not.toHaveBeenCalled(); expect(await events(f.account, "next_migration.fence")).toHaveLength(1);
+    expect(await backend(f.account)).toBe("legacy"); expect(await cutOvers(f.account)).toBe(0);
+  });
+
+  it("the CP fence rechecks the route-back latch after the account lock it waited on; reads and the canonical unfence stay open", async () => {
+    const f = await fixture(), [first] = f.collections;
+    await f.connect.bindRun!(f.account, f.collections, hold, true);
+    const holder = await db.connect();
+    try {
+      await holder.query("BEGIN"); await holder.query("SELECT id FROM users WHERE id=$1 FOR NO KEY UPDATE", [f.account]);
+      const fence = f.cp("POST", first!, "fence");
+      await blocked("FOR SHARE OF h,u,m");
+      await latchPhase(holder, f.account, "route_back", (await readManagedRun(holder, f.account))!);
+      await holder.query("COMMIT");
+      const reply = await fence;
+      expect(reply.statusCode).toBe(409); expect(reply.json().error.code).toBe("managed_route_back_started");
+    } finally { holder.release(); }
+    expect(await events(f.account, "next_migration.fence")).toHaveLength(0);
+    expect((await f.cp("GET", first!, "source")).statusCode).toBe(200);
+    const current = await claim(db, first!);
+    const unfence = await f.cp("POST", first!, "unfence", { owner_account: current.account, started_us: current.started_us,
+      migration_id: f.providers.get(first!)!.source.migration_id });
+    expect(unfence.statusCode, unfence.body).toBe(200);
+    expect(f.providers.get(first!)!.source).toMatchObject({ state: "active", migration_id: null });
+  });
+
+  it("the cutover latch rechecks the held set after the account lock it waited on, naming the collection and predicate", async () => {
+    const f = await fixture(), [, second] = f.collections;
+    await f.connect.bindRun!(f.account, f.collections, hold, true);
+    const holder = await db.connect();
+    let latched: Promise<unknown> | undefined;
+    try {
+      await holder.query("BEGIN"); await holder.query("SELECT id FROM users WHERE id=$1 FOR NO KEY UPDATE", [f.account]);
+      latched = f.connect.latchPhase!(f.account, "cutover").then(() => "latched", (error: unknown) => error);
+      await blocked("FOR NO KEY UPDATE");
+      await holder.query("UPDATE hosted_collections SET quarantined_at=now() WHERE id=$1", [second]);
+      await holder.query("COMMIT");
+    } finally { holder.release(); }
+    expect(await latched).toMatchObject({ code: "collections_unsettled", details: { unsettled: [{ collection_id: second, predicate: "quarantined" }] } });
+    expect(await events(f.account, "next_migration.managed_cutover")).toHaveLength(0);
   });
 
   it.each(["lab-run", "resume"] as const)("a phase 2 interruption only moves forward through %s: one flip, no new dispatch, no rollback", async entry => {
@@ -502,7 +585,7 @@ suite("managed two-phase driver through postgresLabConnect and the real CP route
       resume: `${CLI} route-back ${f.account}` } });
     expect(f.worker.resume).not.toHaveBeenCalled(); expect(await events(f.account, "next_migration.managed_cutover")).toHaveLength(0);
     f.connect.preflight = preflight;
-    expect(await routeBack(f.account, f.deps)).toHaveProperty("done.disposition", "fresh_attempt_required");
+    expect(await routeBack(f.account, f.deps)).toHaveProperty("done.disposition", "legacy_post_bulk_follow_up");
     expect(f.order.filter(e => e.startsWith("rollback:"))).toEqual(f.collections.map(id => `rollback:${id}`));
   });
 

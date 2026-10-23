@@ -133,7 +133,9 @@ export async function serialized<T>(db: DatabasePool, collection: string, run: (
   }
 }
 
-async function step(kind: Kind, collection: string, body: Record<string, unknown>, options: Options & { provider: Provider }): Promise<unknown> {
+/** The routes' options without their token: an in-process caller presents none. */
+type StepOptions = Omit<Options, "token"> & { provider: Provider };
+async function step(kind: Kind, collection: string, body: Record<string, unknown>, options: StepOptions): Promise<unknown> {
   const presented = body as Binding, provider = options.provider, deadline = Date.now() + 25_000;
   await bound(options.db, collection, presented);
   if (kind === "rollback" || kind === "rollback-receipt") return rollback(kind, collection, body as RollbackBody, options, deadline);
@@ -178,6 +180,22 @@ async function step(kind: Kind, collection: string, body: Record<string, unknown
       return result;
     });
   });
+}
+
+/** Route-back of a held member no Worker run fenced (a scoped archive's original fence):
+ * the canonical started-claim unfence of the provider's current fenced run. A source
+ * already active needs nothing; a cut-over source is never on a fenced run. */
+export async function unfenceUndispatched(db: DatabasePool, provider: Pick<Provider, "legacyMigrationDrain">
+  & Partial<Pick<Provider, "legacyMigrationRevokedReplicas" | "legacyMigrationUnfence">>, account: string, collection: string): Promise<void> {
+  if (!provider.legacyMigrationRevokedReplicas || !provider.legacyMigrationUnfence) throw new RolloutRefused("migration_source_unavailable", "The legacy provider cannot unfence.", 503);
+  const current = await claim(db, collection);
+  if (current.account !== account) throw new RolloutRefused("migration_claim_not_current", "The presented migration claim is not current.");
+  const source = await provider.legacyMigrationDrain(collection, { deadline: Date.now() + 25_000 });
+  if (source.state === "active") return;
+  if (!source.migration_id) throw new RolloutRefused("migration_run_not_current", "The provider run is not the presented fenced run.");
+  // The unfence step calls only these three provider methods.
+  await step("unfence", collection, { owner_account: account, started_us: current.started_us, migration_id: source.migration_id },
+    { db, provider: provider as Provider });
 }
 
 const ROLLBACK_INTENT = "next_migration.rollback_intent", ROLLBACK_DONE = "next_migration.rollback";
@@ -250,7 +268,7 @@ async function intended(db: DatabaseQueryable, collection: string, account: stri
  * the run owns; Connect adds the current epoch and records the binding before
  * dispatch. A replay or read presents the rest of that binding again. */
 async function rollback(kind: "rollback" | "rollback-receipt", collection: string, body: RollbackBody,
-  options: Options & { provider: Provider }, deadline: number) {
+  options: StepOptions, deadline: number) {
   return serialized(options.db, collection, async () => {
     await refuseQueuedCutover(options.db, collection);
     const input = providerBinding(body, await currentEpoch(options.db, collection));
@@ -325,7 +343,7 @@ async function rollback(kind: "rollback" | "rollback-receipt", collection: strin
  * and EXACTLY the revocations the current provider run owns. Found, never twice:
  * the log refuses a second cutover, which would park the collection's queue. */
 async function cutoverPolicy(collection: string, body: Binding & { revoked: string[]; base_seq: number },
-  options: Options & { provider: Provider }, deadline: number) {
+  options: StepOptions, deadline: number) {
   const reply = (created: boolean) => ({ collection_id: collection, migration_id: body.migration_id, revoked: body.revoked, freeze: false, created });
   const existing = async (db: DatabaseQueryable) => {
     const queued = await queuedCutovers(db, collection);
@@ -366,7 +384,7 @@ async function cutoverPolicy(collection: string, body: Binding & { revoked: stri
 /** Queue a member policy item for each current member the SHADOW target's queue
  * does not already hold, and remove any it holds that is no longer a member.
  * Returns the exact owner-inclusive member map for the native comparison. */
-async function membersPolicy(collection: string, body: Binding, options: Options) {
+async function membersPolicy(collection: string, body: Binding, options: Omit<Options, "token">) {
   const result = await inTransaction(options.db, async client => {
     const current = await bound(client, collection, body, true);
     await refuseQueuedCutover(client, collection);
@@ -393,7 +411,7 @@ const ABORT_BARRIER = "next_migration.appendbase_abort_barrier";
  * intent with migration cutover. Audit + one freeze outbox row commit together;
  * retries find that full tuple, never queue a replacement correlation. */
 async function abortBarrier(collection: string, body: AbortBarrierBody,
-  options: Options & { provider: Provider }, deadline: number, readOnly: boolean) {
+  options: StepOptions, deadline: number, readOnly: boolean) {
   const digest = Buffer.from(domainHash("mdbase/v1/migration-appendbase-abort-barrier", encodeCbor([
     uuidBytes(collection), uuidBytes(body.owner_account), body.started_us, uuidBytes(body.migration_id),
     uuidBytes(body.driver_id), uuidBytes(body.action_id), body.run_sequence, body.action_sequence,

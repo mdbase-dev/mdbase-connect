@@ -102,8 +102,9 @@ In phase 2 a rerun of `lab-run <account> <original-hold>` or `resume <account>`
 reconciles every original member, including ones already routed to NEXT. Routed
 members do not re-enter target creation, replace service keys, or rerun their
 Worker launch or resume. A lost resume reply stops; the rerun finds the run
-resumed and does not resend it. Cutover and timer evidence are reconfirmed
-before the single flip. Whole-account source capture/start is not repeated
+resumed and does not resend it. A Worker whose cutover (Route) reply was lost
+retries the same idempotent CP cutover while it still holds that action's
+ticket. Cutover and timer evidence are reconfirmed before the single flip. Whole-account source capture/start is not repeated
 after cutover; the accepted original archive and its source fences remain in
 place. Existing provider/Worker paths retain their own original-source checks.
 
@@ -111,7 +112,12 @@ With `--stop-before-flip`, `lab-run` returns `operator_pause_before_cutover`
 at the shared barrier: every member paused, timers imported, nothing cut over.
 `resume` crosses the barrier only from a complete pause pass; otherwise it stops
 with `managed_pause_incomplete` and changes nothing, and rerunning `lab-run`
-with the same flag completes the pass. Without the flag, `lab-run` crosses the
+with the same flag completes the pass. It then imports every member's timers
+(the same idempotent importer) before the cutover latch, so a failed import
+stops before any latch or resume. The cutover latch rechecks, under the account
+lock, that the held set still matches the binding and every member is still
+eligible (`collections_mismatch`, or `collections_unsettled` with each member's
+predicate). Without the flag, `lab-run` crosses the
 barrier itself.
 
 `status` reports every held member, its CP cutover, whether it has a durable
@@ -129,45 +135,52 @@ or added/missing UUIDs).
   command with `migration_post_cutover`, preserving routed serving custody;
   partial cutover is forward only;
 - a durable dispatch intent with no visible run refuses the entire command with
-  `worker_run_outcome_unknown`;
-- a member with no run, no native checkpoint or outstanding action and no intent
-  was never dispatched: it is left untouched and listed in `not_dispatched`
-  (`managed_nothing_dispatched` if that is every member);
+  `worker_run_outcome_unknown` until the intent is older than 420 s on the
+  database clock (the Worker's 300 s held-ticket deadline, its 60 s run request
+  timeout and a 60 s margin); after that it counts as never dispatched;
+- a member with no run, no native checkpoint or outstanding action (and no
+  recent intent) was never dispatched: it is restored through the canonical
+  started-claim unfence (`next_migration.unfence`) and listed in
+  `not_dispatched`; an unscoped account with nothing dispatched and no intent
+  stops with `managed_nothing_dispatched` and changes nothing;
 - every other member is rolled back through the Worker's sequence-bound
   rollback (the CP's receipted rollback route), and its imported timers are
   removed once the legacy source is active again.
 
-If anything was dispatched, route-back first commits its latch (losing to a
-cutover latch refuses as above), then inspects the whole set again under it: no
-dispatch reservation or resume can begin after the latch, so the second
-inspection is the one that acts. A repeated route-back finds its latch and
-inspects once.
+If anything needs restoring (a dispatched member, an intent, or a scoped
+archive, whose sources are fenced since the archive), route-back first commits
+its latch (losing to a cutover latch refuses as above), then inspects the whole
+set again under it with fresh Worker reads: no dispatch reservation or resume
+can begin after the latch, and from then on the CP fence route refuses every
+member with `managed_route_back_started` (`collection_id`, predicate
+`route_back_latch`), so an original run that arrives late cannot fence. Reads,
+rollback and unfence are unaffected. The second inspection is the one that
+acts. A repeated route-back finds its latch and inspects once.
 
 A managed route-back is terminal for the attempt and never restarts a member: it
-ends with `disposition: "fresh_attempt_required"`, the account on legacy and every
-rolled-back source active. A start whose accepted archive is scoped
+ends with `disposition: "legacy_post_bulk_follow_up"`, the account on legacy and
+every member's source active (rolled back or unfenced). A start whose accepted archive is scoped
 (`mdbase-recovery-set/scoped-hosted-v1`) can only ever take its archived original
 fence: once the source is restored the CP refuses it with
 `migration_archive_source_changed`, so a restarted run could never fence again.
 For other archives a restart would re-fence the source, but under the route-back
 latch nothing could resume it, and without the latch a failed restart beside a
 cut-over sibling would strand the account. Its rolled-back runs are terminal for
-the binding, and a never-dispatched member keeps its original pre-archive fence.
+the binding; the account stays legacy and its `next_migration.managed_route_back`
+latch event puts it on the post-bulk follow-up list.
 The fixture job keeps the restart and re-fence.
 
 ## Known gaps
 
-- An intent with no visible run cannot be resolved: the Worker has no CP-minted
-  dispatch identity or exactly-once admission to prove the original dispatch
-  never took effect. Such an account stays stopped.
-- After a route-back, continuing needs a whole-account fresh attempt: restoring
-  never-dispatched pre-archive-fenced members, retiring the original attempt
-  with durable evidence (its run binding, intents and latches are per account,
-  not per attempt), and a fresh archive, start and Worker run. None of this
-  exists yet.
+- `lab-run` and `resume` never resolve an intent with no visible run; only
+  route-back does, after the quiet period. The CP cannot read provider holds;
+  the route-back fence refusal, not hold release, is what stops a late run.
+- A routed-back account stays legacy. Migrating it again is post-bulk follow-up
+  work; there is no fresh attempt.
 - A phase 2 Worker stop with an unsettled forward action (an outstanding
-  non-rollback action) has no driver operation to settle it; the account stays
-  stopped forward-only, as a singleton run would.
+  non-rollback action, or a Route whose ticket was already released) has no
+  driver operation to settle it; the account stays stopped forward-only, as a
+  singleton run would. Escalate.
 
 ## Operator output and qualification boundary
 
@@ -198,8 +211,9 @@ synthetic archive metadata and a modeled pause-mode Worker that calls those
 routes. It covers the two-phase order (no cutover before the last member's
 pause), a one-member ordinary LAB start, transferred history, all-transferred
 refusal, phase 1 failure with whole-set route-back through the real rollback
-route and the refused re-fence, a never-dispatched member left untouched,
-intent-without-run UNKNOWN, phase 2 interruption and lost resume replies
+route and the refused re-fence, never-dispatched members unfenced (and a late
+fence refused), intent-without-run UNKNOWN until its quiet period, phase 2
+interruption, lost resume and Route replies and a failed last-member import
 completing forward, a first resume that has not yet arrived (route-back refuses;
 its late arrival completes the set), both latch races (route-back after its
 inspection, phase 2 after its preflight), latch mutual exclusion under a held

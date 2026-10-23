@@ -147,10 +147,10 @@ no resume is known to have arrived. Once route-back has committed its own latch,
 | `managed_pause_incomplete` | `resume` before every member reached the pause; rerun `lab-run` |
 | `managed_phase_inconsistent` | phase 2 found a member neither at the pause nor past it, or phase 1 found one past it |
 | `migration_pause_mode_conflict` | a member's Worker run is not in pause mode |
-| `worker_run_outcome_unknown` | a durable dispatch intent with no visible run; nothing is resent |
-| `managed_nothing_dispatched` | route-back found no dispatched member; rerun `lab-run` |
+| `worker_run_outcome_unknown` | a durable dispatch intent with no visible run; nothing is resent. Route-back treats it as never dispatched once it is older than 420 s |
+| `managed_nothing_dispatched` | an unscoped route-back found nothing dispatched and no intent; rerun `lab-run` |
 | `managed_cutover_started` | route-back after phase 2 began (cutover latch, or a member resumed); continue with `resume` |
-| `managed_route_back_started` | `lab-run`/`resume` (or a dispatch reservation) after route-back began; continue with `route-back` |
+| `managed_route_back_started` | `lab-run`/`resume`, a dispatch reservation or a CP fence after route-back began; continue with `route-back` |
 | step `cutover_latch` / `route_back_latch` | the latch write failed or lost to the other latch; an unknown commit is resolved by `status` (`phase_latch`) |
 | `collections_unsettled`, `collections_mismatch` | admission refusal, with bounded `details` (member UUIDs) |
 
@@ -211,10 +211,12 @@ When route-back is done it prints the `lab-run` command that continues the resta
 A managed account is inspected whole first: the cutover latch or a resumed member
 refuses everything (`managed_cutover_started`), as do a recorded cutover or a member
 at cutover intent (`migration_post_cutover`) and a dispatch intent with no visible
-run (`worker_run_outcome_unknown`). A never-dispatched member is left untouched and
-listed in `not_dispatched`. If anything was dispatched, route-back commits its latch
-and inspects the whole account again before the first rollback. A managed route-back
-is terminal for the attempt whatever the archive kind: no member is restarted, the
-legacy sources stay active, and the result carries `disposition:
-"fresh_attempt_required"` instead of a `lab-run` command; see
+run (`worker_run_outcome_unknown`) until that intent is older than 420 s. If anything
+needs restoring, route-back commits its latch, after which the CP refuses every fence
+for the account, and inspects the whole account again before the first rollback.
+Never-dispatched members are then unfenced through the canonical started-claim unfence
+and listed in `not_dispatched`. A managed route-back is terminal for the attempt
+whatever the archive kind: no member is restarted, every legacy source is active, and
+the result carries `disposition: "legacy_post_bulk_follow_up"` instead of a `lab-run`
+command; see
 [managed accounts](managed-account-migration.md#known-gaps).

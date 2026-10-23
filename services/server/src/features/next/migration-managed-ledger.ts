@@ -35,10 +35,40 @@ export async function readManagedRun(db: DatabaseQueryable, account: string): Pr
   throw new RolloutRefused("managed_run_invalid", "The original managed run binding is unavailable.");
 }
 
+/** Under lockManagedAccount: bind the complete distinct held set, hold and pause intent once;
+ * a later bind must present exactly the original. */
+export async function bindManagedRun(client: DatabaseQueryable, account: string, collections: readonly string[], hold: string,
+  operatorStop: boolean): Promise<void> {
+  const member = (await client.query<{ started_us: string }>(
+    `SELECT (extract(epoch FROM started_at)*1000000)::bigint::text AS started_us FROM next_migration_cohort_members
+     WHERE account_id=$1 AND started_at IS NOT NULL AND terminal_excluded_at IS NULL`, [account])).rows[0];
+  if (!member) throw new RolloutRefused("account_not_started", "The account's migration has not started.");
+  const held = (await client.query<{ id: string }>(
+    "SELECT id::text FROM hosted_collections WHERE user_id=$1 AND authority_state<>'transferred' ORDER BY id FOR SHARE", [account])).rows.map(c => c.id);
+  if (held.join() !== collections.join() || new Set(collections).size !== collections.length)
+    throw new RolloutRefused("collections_mismatch", "The managed run must bind the complete distinct held set.");
+  const expected = managedRunSchema.parse({ binding: BINDING, collections, backup_hold: hold,
+    operator_stop_before_flip: operatorStop, started_us: member.started_us });
+  const original = await readManagedRun(client, account);
+  if (original) {
+    if (JSON.stringify(original) !== JSON.stringify(expected)) throw new RolloutRefused("managed_run_conflict", "Resume the original collection set, hold and pause intent.");
+  } else await audit(client, account, MANAGED_RUN, account, expected);
+}
+
 /** Members with a durable dispatch intent (a read; claimWorkerRun stays authoritative). */
 export async function readIntents(db: DatabaseQueryable, account: string): Promise<string[]> {
   return (await db.query<{ id: string }>("SELECT DISTINCT subject_id AS id FROM audit_events WHERE user_id=$1 AND event_type=$2 ORDER BY subject_id",
     [account, WORKER_INTENT])).rows.map(r => r.id);
+}
+
+/** An intent with no visible run stays UNKNOWN for longer than the Worker's held-ticket
+ * retry deadline (300 s) plus the run request's 60 s timeout and a 60 s margin. */
+const UNKNOWN_QUIET_SECONDS = 420;
+/** Intents older than UNKNOWN_QUIET_SECONDS on the database clock. */
+export async function readQuietIntents(db: DatabaseQueryable, account: string): Promise<string[]> {
+  return (await db.query<{ id: string }>(
+    `SELECT subject_id AS id FROM audit_events WHERE user_id=$1 AND event_type=$2 GROUP BY subject_id
+     HAVING max(created_at) < now() - make_interval(secs => $3) ORDER BY subject_id`, [account, WORKER_INTENT, UNKNOWN_QUIET_SECONDS])).rows.map(r => r.id);
 }
 
 /** Only the authenticated start transition writes this contract. Read every
@@ -80,6 +110,30 @@ export async function readPhaseLatch(db: DatabaseQueryable, account: string): Pr
     [account, Object.values(LATCH)])).rows;
   if (rows.length > 1) throw new RolloutRefused("managed_phase_inconsistent", "Both phase latches are recorded.");
   return !rows.length ? null : rows[0]!.event_type === LATCH.cutover ? "cutover" : "route_back";
+}
+
+/** The original run's hold on a fence: called after the caller's lock on the account row,
+ * this fresh read refuses once route-back began, so no late original run fences a member
+ * route-back restores. Rollback, unfence and reads never call it. */
+export async function refuseRoutedBack(client: DatabaseQueryable, account: string, collection: string): Promise<void> {
+  if (await readPhaseLatch(client, account) === "route_back") throw new RolloutRefused("managed_route_back_started",
+    "Route-back began; the original run may not fence.", 409, { collection_id: collection, predicate: "route_back_latch" });
+}
+
+/** Under lockManagedAccount, a fresh read before the cutover latch: the started, unexcluded
+ * legacy account still holds exactly the bound set, every member settled. */
+export async function requireBoundHeldSet(client: DatabaseQueryable, account: string, run: ManagedRun): Promise<void> {
+  const rows = (await client.query<{ id: string; predicate: string | null }>(
+    `SELECT h.id::text AS id, CASE WHEN u.account_backend<>'legacy' OR m.started_at IS NULL OR m.terminal_excluded_at IS NOT NULL THEN 'account'
+       WHEN EXISTS (SELECT 1 FROM next_collection_deletion_facts d WHERE d.collection_id=h.id) THEN 'deleted'
+       WHEN h.quarantined_at IS NOT NULL THEN 'quarantined' WHEN h.authority_state<>'active' THEN 'authority_other' END AS predicate
+     FROM hosted_collections h JOIN users u ON u.id=h.user_id LEFT JOIN next_migration_cohort_members m ON m.account_id=u.id
+     WHERE h.user_id=$1 AND h.authority_state<>'transferred' ORDER BY h.id`, [account])).rows;
+  const ids = rows.map(r => r.id);
+  if (ids.join() !== run.collections.join()) throw new RolloutRefused("collections_mismatch", "The held set changed since the original run.", 409,
+    { added: ids.filter(id => !run.collections.includes(id)), missing: run.collections.filter(id => !ids.includes(id)) });
+  const unsettled = rows.filter(r => r.predicate).map(r => ({ collection_id: r.id, predicate: r.predicate }));
+  if (unsettled.length) throw new RolloutRefused("collections_unsettled", "Every held hosted collection must remain eligible.", 409, { unsettled });
 }
 
 /** Under lockManagedAccount: record `phase` unless the other phase is recorded. Idempotent. */

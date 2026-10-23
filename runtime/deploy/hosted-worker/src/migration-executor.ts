@@ -9,8 +9,9 @@
  * Stops for an operator, never retries a possibly-landed effect:
  * - a saved action this wake does not hold the ticket for (evicted or lost
  *   acknowledgement): its outcome is UNKNOWN;
- * - an effect request whose reply was lost, a settlement whose physical
- *   confirmation failed, or a native refusal of a result;
+ * - an effect request whose reply was lost (except Route, whose Connect cutover
+ *   is idempotent), a settlement whose physical confirmation failed, or a native
+ *   refusal of a result;
  * - rollback (route-back is an operator procedure), unsupported actions.
  *
  * Waits: the Driver's one-shot `Wait` (paused, draining, keying), Connect's
@@ -410,7 +411,9 @@ export class MigrationExecutor {
         const [, s, cs, bf, digest] = f;
         if (nat(s) === null || nat(cs) === null || nat(bf) === null || !(digest instanceof Uint8Array)) return stop("route_fields_invalid");
         const facts = { s_final: s as number, cutover_seq: cs as number, barrier_f: bf as number, final_digest: hex(digest) };
-        return this.#provider(run, t, "cutover", () => connect().cutover(c, facts, signal), signal, true);
+        // Connect records these exact facts once and repeats them idempotently, so a lost reply
+        // retries the same held ticket instead of leaving the cut-over member UNKNOWN.
+        return this.#provider(run, t, "cutover", () => connect().cutover(c, facts, signal), signal, false);
       }
       case 2: return this.#open(run, t, f, signal);
       case 3: return this.#page(t, f, signal);
