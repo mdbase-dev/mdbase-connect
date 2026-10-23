@@ -91,7 +91,7 @@
     "version:check": "node scripts/check-release-version.mjs",
     "version:set": "node scripts/set-release-version.mjs",
     "generate:icons": "node scripts/write-brand-icons.mjs",
-    "i18n:check": "pnpm --filter @mdbase-dev/ui i18n:check && pnpm --filter @mdbase/connect-ui i18n:check && pnpm --filter @mdbase/connect-portal i18n:check && pnpm --filter @mdbase/connect-desktop i18n:check"
+    "i18n:check": "pnpm --filter @mdbase-dev/i18n build && pnpm --filter @mdbase-dev/ui i18n:check && pnpm --filter @mdbase/connect-ui i18n:check && pnpm --filter @mdbase/connect-portal i18n:check && pnpm --filter @mdbase/connect-desktop i18n:check"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
