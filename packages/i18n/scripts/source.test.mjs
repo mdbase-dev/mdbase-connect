@@ -136,6 +136,75 @@ test("source guard follows rendered React state, including the private-account n
   assert.deepEqual(issues.filter((issue) => issue.kind === "unmarked visible string").map((issue) => issue.text), ["target", "targets"]);
 });
 
+const writerNotice = (initial, update, rendered = "notice.text") => `function WorkspaceView() {
+  const [notice, setNotice] = useState(${initial});
+  function store() { setNotice(${update}); }
+  return notice && <div className={\`toast tone-\${notice.tone}\`}
+    role={notice.tone === "problem" ? "alert" : "status"}>
+    {notice.tone === "busy" ? <Spinner /> : <Icon />}
+    <span>{${rendered}}</span>
+    {notice.tone === "busy" && <Cancel />}
+  </div>;
+}`;
+
+test("source guard accepts writer notice discriminators but follows rendered text", () => {
+  assert.deepEqual(inspectUiSource(writerNotice("null", '{ tone: "busy", text: t`Storing…` }')), []);
+  assert.deepEqual(inspectUiSource(writerNotice("null", '{ tone: "problem", text: translate`Try again.` }')), []);
+  assert.deepEqual(inspectUiSource(writerNotice("null", '{ tone: "ok", text: t`Stored.` }')), []);
+  assert.deepEqual(inspectUiSource(writerNotice("null", '{ tone: "busy", text: "Storing…" }'))
+    .map((issue) => issue.text), ["Storing…"]);
+});
+
+for (const [name, initial, update, rendered, expected] of [
+  ["initializer", '{ tone: "busy", text: "Storing…" }', "null", "notice.text", ["Storing…"]],
+  ["updater", "null", 'previous => ({ ...previous, tone: "busy", text: "Storing…" })', "notice.text", ["Storing…"]],
+  ["computed access", "null", '{ tone: "busy", text: "Storing…" }', 'notice["text"]', ["Storing…"]],
+  ["quoted keys", "null", '{ "tone": "busy", ["text"]: "Storing…" }', "notice.text", ["Storing…"]],
+  ["nested fields", "null", '{ tone: "busy", content: { mode: "pending", copy: "Storing…" } }', "notice.content.copy", ["Storing…"]],
+  ["arbitrary field names", "null", '{ text: "busy", tone: "Storing…" }', "notice.tone", ["Storing…"]],
+  ["multiple rendered fields", "null", '{ tone: "busy", text: "Storing…", detail: "Please wait." }', "notice.text}{notice.detail", ["Storing…", "Please wait."]],
+  ["conditional copy", "null", '{ tone: "busy", text: ok ? "Stored." : "Try again." }', "notice.text", ["Stored.", "Try again."]],
+]) {
+  test(`source guard tracks object-state ${name} at field granularity`, () => {
+    assert.deepEqual(inspectUiSource(writerNotice(initial, update, rendered)).map((issue) => issue.text), expected);
+  });
+}
+
+test("editor state types and opaque component prop spreads are not rendered copy", () => {
+  assert.deepEqual(inspectUiSource(`function CollectionRail() {
+    const [folderChange, setFolderChange] = useState<{ mode: "rename" | "move"; from: string }>();
+    const moveFolder = (from) => setFolderChange({ from, mode: "move" });
+    return <>{folderChange && <FolderChangeDialog key={folderChange.mode} {...folderChange} />}</>;
+  }`), []);
+  assert.deepEqual(inspectUiSource(`function Panel() {
+    const [notice, setNotice] = useState<{ text: "Storing…"; mode: "busy" }>({ text: "Storing…", mode: "busy" });
+    return <><Dialog {...notice} /><p>{notice.text}</p></>;
+  }`).map((issue) => issue.text), ["Storing…"]);
+});
+
+test("source guard still rejects scalar initializers with literal state types", () => {
+  assert.deepEqual(inspectUiSource(`function Panel() {
+    const [notice] = useState<"Storing…" | null>("Storing…");
+    return <p>{notice}</p>;
+  }`).map((issue) => issue.text), ["Storing…"]);
+});
+
+test("object-state fields reaching visible attributes are copy too", () => {
+  assert.deepEqual(inspectUiSource(`function Panel() {
+    const [notice, setNotice] = useState(null);
+    setNotice({ status: "busy", hint: "Please wait." });
+    return <input placeholder={notice.hint} className={notice.status} />;
+  }`).map((issue) => issue.text), ["Please wait."]);
+});
+
+test("truthiness-only object state does not make sibling fields visible", () => {
+  assert.deepEqual(inspectUiSource(`function Panel() {
+    const [notice, setNotice] = useState(null);
+    setNotice({ status: "busy", payload: "internal" });
+    return notice && <Spinner />;
+  }`), []);
+});
+
 for (const [name, value, kind] of [
   ["plain notice", '"Save your recovery key."', "unmarked visible string"],
   ["template notice", '`Save your recovery key.`', "unmarked visible string"],
