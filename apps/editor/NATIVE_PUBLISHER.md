@@ -1,4 +1,4 @@
-# Native Editor staging publication
+# Native Editor publication
 
 The native path is the only publication path of the `Editor CI and release`
 workflow. Main pushes, pull requests and dispatches with a blank `source_sha` run
@@ -12,7 +12,7 @@ and a deployment GO must precede dispatch. A PR/CI result is not Stage acceptanc
 ## Existing trust handoff, not CI authentication
 
 The ten original public target packet files live under
-`vendor/native-release/staging/`. `config/native-publish/staging.json` binds the
+`vendor/native-release/<target>/`. `config/native-publish/<target>.json` binds the
 accepted SDK source/tree and original facts digest as DATA, never authorization.
 Off-CI release/asset authentication is not repeated or replaced in CI. The SDK,
 UI and direct protocol remain original file archives. No LAB archive retargeting,
@@ -29,11 +29,25 @@ Protected `editor-staging` environment variables:
 
 The fourth value is the RAW signed asset, not its module, context or receipt.
 Facts digest: `d54aef71521ab3561bd9a81cd1303410a3fde29f8fbd35a1e0041e58d0569de3`.
-Production has no supplied target intake here and refuses; do not reuse Stage.
-The ordinary Editor dependency now uses the original production SDK with beta.141
-trust. The staging packet and its publisher tests are historical inputs, not a
+The ordinary Editor dependency uses the unchanged original production SDK with
+beta.141 trust. Its production packet is supplied separately from staging and
+uses the same existing intake checks; no trust is minted or authenticated here.
+The staging packet and its publisher tests are historical inputs, not a
 publishable main candidate: main no longer matches the staging archive hash.
-This dependency pin does not supply a production publisher intake or deployment GO.
+
+Protected `editor-production` environment expectations (owner-configured, not
+inspected or changed by this source):
+
+| Variable | Original SHA256 |
+| --- | --- |
+| `NATIVE_SDK_SHA256` | `e64771a90bed2fb3837d4b65df8930fcd124d3059fcb0bcbaf9d64dbfb148205` |
+| `NATIVE_UI_SHA256` | `8f785294454321c40596bdaad976dc4c5374c3f23dfa828f47e3e7b3139b77e5` |
+| `NATIVE_PROTOCOL_SHA256` | `cd1e15236ab7e25c511a4ba13af6a9df23f4b41715161479bba97b0445e1c138` |
+| `NATIVE_TRUST_ASSET_SHA256` | `7912e40838213e60b65848350d319a48019021317b112e3326429b250f0133d7` |
+
+Production packet facts digest:
+`51bdf004a7f5a72a358b4534660b11f23196cb23a8d583138b75bbc284719617`.
+This intake is not per-app live qualification or a deployment GO.
 
 ## Build and upload
 

@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { it } from 'node:test';
 import { parse } from 'yaml';
-import { assertDispatch, assertCurrentHead } from './refs.mjs';
+import { assertDispatch, assertCurrentHead, deploymentFor } from './refs.mjs';
 import { loadOriginals, protectedHashes } from './originals.mjs';
 import { assertArtifactMetadata, assertArtifactRun, assertArtifactDirectory } from './artifact.mjs';
 import { inventoryDirectory } from './native-publish-bytes.mjs';
@@ -19,6 +19,9 @@ const hashes={NATIVE_SDK_SHA256:'15eb64b50fc7c2809ff3dba9cce5104fe48d8592208b3af
  NATIVE_UI_SHA256:'8f785294454321c40596bdaad976dc4c5374c3f23dfa828f47e3e7b3139b77e5',
  NATIVE_PROTOCOL_SHA256:'cd1e15236ab7e25c511a4ba13af6a9df23f4b41715161479bba97b0445e1c138',
  NATIVE_TRUST_ASSET_SHA256:'67e117646c9c26927f0d5a44cbd26f057c318975032e9cd24f24b020150cdbc7'};
+const productionHashes={...hashes,
+ NATIVE_SDK_SHA256:'e64771a90bed2fb3837d4b65df8930fcd124d3059fcb0bcbaf9d64dbfb148205',
+ NATIVE_TRUST_ASSET_SHA256:'7912e40838213e60b65848350d319a48019021317b112e3326429b250f0133d7'};
 const source='a'.repeat(40),tree='b'.repeat(40),origin='https://editor-staging.mdbase.dev';
 const uuid='12345678-1234-4234-8234-123456789abc';
 const env={TARGET:'staging',SOURCE_SHA:source,GITHUB_SHA:source,GITHUB_REF:'refs/heads/release/native-staging',GITHUB_EVENT_NAME:'workflow_dispatch'};
@@ -60,6 +63,16 @@ it('binds the historical Stage packet, lock and ALL extracted SDK/UI/protocol or
  assert.throws(()=>protectedHashes({}),/four protected/);
  }finally{await rm(root,{recursive:true,force:true});}
 });
+it('binds the original production beta141 packet and ALL installed SDK/UI/protocol members',async()=>{
+ const result=await loadOriginals({target:'production',repoRoot,hashes:productionHashes,installed:true});
+ assert.equal(result.environment,'production');assert.equal(result.archives.sdk.members,896);
+ assert.equal(result.archives.sdk.sha256,productionHashes.NATIVE_SDK_SHA256);
+ assert.equal(result.release.cpOrigin,'https://connect.mdbase.dev');
+ assert.equal(result.release.source.version,'0.1.0-beta.141');
+ assert.equal(result.release.assetSha256,productionHashes.NATIVE_TRUST_ASSET_SHA256);
+ await assert.rejects(loadOriginals({target:'production',repoRoot,hashes}),/protected archive hash/);
+ await assert.rejects(loadOriginals({target:'staging',repoRoot,hashes:productionHashes}),/producer complete SDK inventory|canonical artifact facts/);
+});
 it('requires exact manual release-ref HEAD, never a tag/main/short/moving source',async()=>{
  assert.equal(assertDispatch(env).sha,source);
  for(const patch of [{SOURCE_SHA:'abcd'},{GITHUB_EVENT_NAME:'push'},{GITHUB_REF:'refs/heads/main'},{GITHUB_SHA:tree},{TARGET:'lab'}])
@@ -85,12 +98,17 @@ it('uses page20 and resolves only the unique uploaded URL/full source/channel to
   {...entry,deployment_trigger:{metadata:{commit_hash:tree,branch:'staging'}}},{...entry,deployment_trigger:{metadata:{commit_hash:source,branch:'main'}}}])await assert.rejects(capture([bad]),/UUID/);
  await assert.rejects(capture([entry,entry]),/UUID/);
 });
-it('retains BOTH configured Editor callbacks and refuses retargeted installations',()=>{
- const plan={origin,target:'staging',sdkTrust:{release:{cpOrigin:'https://connect-staging.mdbase.dev'}}};
- const manifest={manifest_version:1,id:'dev.mdbase.editor',homepage:origin+'/',redirect_uris:[origin+'/',origin+'/?server=https%3A%2F%2Fconnect-staging.mdbase.dev'],installation_origins:{staging:{'app-runtime':[origin]}}};
+for(const target of ['staging','production']) it(`retains BOTH ${target} callbacks and refuses retargeted installations`,()=>{
+ const {origin,connectOrigin,branch,releaseRef}=deploymentFor(target);
+ assert.equal(branch,target==='production'?'main':'staging');
+ const binding=assertDispatch({...env,TARGET:target,GITHUB_REF:`refs/heads/${releaseRef}`});
+ assert.equal(binding.target,target);assert.equal(binding.origin,origin);
+ const plan={origin,target,sdkTrust:{release:{cpOrigin:connectOrigin}}};
+ const manifest={manifest_version:1,id:'dev.mdbase.editor',homepage:origin+'/',redirect_uris:[origin+'/',origin+'/?server='+encodeURIComponent(connectOrigin)],installation_origins:{[target]:{'app-runtime':[origin]}}};
  assertBuiltManifest(manifest,plan);
  assert.throws(()=>assertBuiltManifest({...manifest,redirect_uris:[origin+'/']},plan));
- assert.throws(()=>assertBuiltManifest({...manifest,installation_origins:{production:{'app-runtime':[origin]}}},plan));
+ const other=target==='production'?'staging':'production';
+ assert.throws(()=>assertBuiltManifest({...manifest,installation_origins:{[other]:{'app-runtime':[origin]}}},plan));
 });
 async function fixture() {
  const root=await mkdtemp(join(tmpdir(),'editor-publisher-'));
