@@ -1,9 +1,26 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createNativeLocale } from "../dist/main/i18n.js";
+
+test("native locale bundle runs without workspace packages or catalogue files", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mdbase-isolated-locale-"));
+  try {
+    const bundle = join(directory, "locale.cjs");
+    await copyFile(new URL("../dist/main/i18n.js", import.meta.url), bundle);
+    const { createNativeLocale: isolatedLocale } = createRequire(import.meta.url)(bundle);
+    const runtime = isolatedLocale(join(directory, "preferences"), ["ja-JP"]);
+    await runtime.initialize();
+    assert.equal(runtime.i18n.locale, "ja");
+    for (const locale of ["en", "fr", "de", "es", "ja", "ko", "pt", "ru", "zh"]) {
+      await runtime.selectLocale(locale);
+      assert.equal(runtime.i18n.locale, locale);
+    }
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
 
 test("desktop locale restores a saved target language ahead of OS preferences", async () => {
   const directory = await mkdtemp(join(tmpdir(), "mdbase-desktop-language-"));

@@ -4,6 +4,14 @@ import test from "node:test";
 
 const require = createRequire(import.meta.url);
 
+test("bundled workspace inputs are pruned before ASAR packaging", () => {
+  const manifest = require("../package.json");
+  assert.equal(manifest.devDependencies["@mdbase-dev/i18n"], "workspace:*");
+  for (const [name, version] of Object.entries(manifest.dependencies)) {
+    assert.ok(!version.startsWith("workspace:"), `${name} would link outside app.asar`);
+  }
+});
+
 test("packaged macOS builds allow only local-network ATS exceptions for staging", () => {
   const config = require("../forge.config.cjs");
   assert.deepEqual(config.packagerConfig.extendInfo?.NSAppTransportSecurity, {

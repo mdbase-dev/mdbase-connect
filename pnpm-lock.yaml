@@ -54,9 +54,6 @@ importers:
       '@lingui/react':
         specifier: 6.9.0
         version: 6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0)
-      '@mdbase-dev/i18n':
-        specifier: workspace:*
-        version: link:../../packages/i18n
       react:
         specifier: ^19.3.0
         version: 19.3.0
@@ -100,6 +97,9 @@ importers:
       '@mdbase-dev/connect-protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@mdbase-dev/i18n':
+        specifier: workspace:*
+        version: link:../../packages/i18n
       '@mdbase-dev/ui':
         specifier: workspace:*
         version: link:../../packages/app-ui
