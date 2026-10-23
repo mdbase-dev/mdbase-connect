@@ -69,8 +69,11 @@ Excludes are glob patterns. The guard defaults to catalogue includes/excludes an
 skips tests, locale data and node_modules. It catches visible JSX/attribute strings
 and local React state rendered as copy (including notices passed to its setter),
 plus unsafe translation placement, not arbitrary UI copy in every non-React dependency;
-source review remains necessary. State used only as an enum/lookup key or input value
-is not visible copy. Explicit-instance core macros, plural/select helpers inside `t`
+source review remains necessary. Object state is tracked by rendered member path:
+`notice.text` checks only `text` in initializers and setter updates, not sibling
+CSS/control-flow discriminators. Nested and literal-computed member paths work too.
+State used only as a truthiness gate, enum/lookup key, input value or opaque component
+prop spread is not visible copy; types are never copy. Explicit-instance core macros, plural/select helpers inside `t`
 ICU templates and class instance-field translations are supported; static fields and
 module-level translations remain eager and fail. Keep exclusions narrow and justified.
 `mdbase-i18n source` runs only the guard; `--config path` selects a Lingui config.

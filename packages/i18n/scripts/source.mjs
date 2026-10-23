@@ -129,7 +129,20 @@ export function inspectUiSource(source, file = "component.tsx", options = {}) {
     ts.forEachChild(node, collectState);
   }
   collectState(ast);
-  const visibleState = new Set();
+  // Each binding carries the member paths that reach copy, not the whole object.
+  // An empty path means the state value itself is rendered.
+  const visibleState = new Map();
+  const propertyName = (name) => {
+    if (ts.isComputedPropertyName(name)) {
+      name = name.expression;
+      if (!ts.isStringLiteralLike(name) && !ts.isNumericLiteral(name)) return "*";
+    }
+    return ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isNumericLiteral(name)
+      ? name.text : "*";
+  };
+  const reachesStateOutput = (binding, path) => visibleState.get(binding)?.some((rendered) =>
+    rendered.length <= path.length && rendered.every((key, i) =>
+      key === "*" || path[i] === "*" || key === path[i]));
   function stateFor(node, name) {
     for (let p = node; p; p = p.parent) {
       const binding = stateBindings.get(p)?.find((binding) => binding.value === name || binding.setter === name);
@@ -141,7 +154,10 @@ export function inspectUiSource(source, file = "component.tsx", options = {}) {
     stateFor(node, node.expression.text)?.setter === node.expression.text;
   function output(node) {
     let property = false;
+    const path = [];
     for (let p = node.parent; p; p = p.parent) {
+      // Types and opaque prop spreads do not render a value at this boundary.
+      if (ts.isTypeNode(p) || ts.isJsxSpreadAttribute(p)) return false;
       if (ts.isBinaryExpression(p) && comparisons.has(p.operatorToken.kind))
         return false;
       if (
@@ -150,18 +166,33 @@ export function inspectUiSource(source, file = "component.tsx", options = {}) {
         p.condition.end >= node.end
       )
         return false;
-      if (ts.isCallExpression(p)) return isStateSetter(p) ||
-        [...visibleState].some((binding) => binding.declaration.initializer === p);
-      if (ts.isPropertyAssignment(p))
-        property = visibleProperties.has(p.name.getText(ast));
+      // The left operand of && controls whether the right operand is rendered;
+      // it does not render an object's fields (notice && <p>{notice.text}</p>).
+      if (ts.isBinaryExpression(p) && p.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
+        p.left.pos <= node.pos && p.left.end >= node.end) return false;
+      if (ts.isElementAccessExpression(p) && p.argumentExpression.pos <= node.pos &&
+        p.argumentExpression.end >= node.end) return false;
+      if (ts.isCallExpression(p)) {
+        const binding = isStateSetter(p) ? stateFor(p, p.expression.text) :
+          [...visibleState.keys()].find((binding) => binding.declaration.initializer === p);
+        return reachesStateOutput(binding, path) ?? false;
+      }
+      if (ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p)) {
+        if (p.name.pos <= node.pos && p.name.end >= node.end && !ts.isShorthandPropertyAssignment(p))
+          return false;
+        path.unshift(propertyName(p.name));
+        property = visibleProperties.has(propertyName(p.name));
+      }
       if (ts.isJsxAttribute(p))
         return property || visibleAttributes.has(p.name.getText(ast));
       if (ts.isJsxExpression(p)) {
         if (ts.isJsxElement(p.parent) || ts.isJsxFragment(p.parent))
           return true;
       }
-      if (ts.isVariableDeclaration(p) &&
-        [...visibleState].some((binding) => binding.declaration === p)) return true;
+      if (ts.isVariableDeclaration(p)) {
+        const binding = [...visibleState.keys()].find((binding) => binding.declaration === p);
+        if (binding) return reachesStateOutput(binding, path);
+      }
       if (ts.isFunctionLike(p) && !isStateSetter(p.parent)) return false;
     }
     return false;
@@ -169,10 +200,25 @@ export function inspectUiSource(source, file = "component.tsx", options = {}) {
   // Follow local React state only when its value is actually rendered as copy.
   // Enum comparisons, input values, protocol state and arbitrary calls stay opaque.
   function collectVisibleState(node) {
-    if (ts.isIdentifier(node) && !ts.isPropertyAccessExpression(node.parent) &&
-      !ts.isElementAccessExpression(node.parent) && output(node)) {
+    if (ts.isIdentifier(node)) {
       const binding = stateFor(node, node.text);
-      if (binding?.value === node.text) visibleState.add(binding);
+      if (binding?.value === node.text) {
+        let reference = node;
+        const path = [];
+        while ((ts.isPropertyAccessExpression(reference.parent) || ts.isElementAccessExpression(reference.parent)) &&
+          reference.parent.expression === reference) {
+          reference = reference.parent;
+          path.push(ts.isPropertyAccessExpression(reference) ? reference.name.text :
+            ts.isStringLiteralLike(reference.argumentExpression) || ts.isNumericLiteral(reference.argumentExpression)
+              ? reference.argumentExpression.text : "*");
+        }
+        // Member names and computed keys are not references to the state value.
+        if (!(ts.isPropertyAccessExpression(node.parent) && node.parent.name === node) &&
+          output(reference)) {
+          if (!visibleState.has(binding)) visibleState.set(binding, []);
+          visibleState.get(binding).push(path);
+        }
+      }
     }
     ts.forEachChild(node, collectVisibleState);
   }
