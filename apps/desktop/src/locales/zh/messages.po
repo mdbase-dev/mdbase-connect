@@ -14,7 +14,7 @@ msgstr " · 旧版应用"
 
 #: src/renderer/takeover-state.mts
 msgid " in {folder}"
-msgstr "，位于 {folder}"
+msgstr " 位于 {folder}"
 
 #. placeholder {0}: imp.mirror_root
 #: src/renderer/takeover-state.mts
@@ -213,7 +213,7 @@ msgstr "{safe} 账户即将升级，届时它们会自动迁移。"
 
 #: src/renderer/main.tsx
 msgid "{synced} synced"
-msgstr "已同步 {synced}"
+msgstr "{synced} 已同步"
 
 #: src/renderer/takeover-state.mts
 msgid "{waiting, plural, one {“{name}” syncs again{location}. # edit made in “{name}” before the move is added once it has caught up.{after}{oldFolder}} other {“{name}” syncs again{location}. # edits made in “{name}” before the move are added once it has caught up.{after}{oldFolder}}}"

@@ -14,11 +14,11 @@ msgstr " · 当前会话"
 
 #: src/authority-workflows.tsx
 msgid " (already allowed)"
-msgstr "（已允许）"
+msgstr " （已允许）"
 
 #: src/authorization-review.tsx
 msgid " (higher impact)"
-msgstr "（影响较大）"
+msgstr " （影响较大）"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
@@ -38,7 +38,7 @@ msgstr " {0} 将继续作为同步文件夹使用，修改会双向同步。"
 #. placeholder {0}: request.user_code
 #: src/authorization-view.tsx
 msgid " and it shows <0>{0}</0>"
-msgstr "，且显示 <0>{0}</0>"
+msgstr " 并显示 <0>{0}</0>"
 
 #: src/authorization-review.tsx
 msgid " File actions are included in the collection permissions above."
@@ -47,7 +47,7 @@ msgstr " 文件操作已包含在上面的集合权限中。"
 #. placeholder {0}: pairing.app_origin
 #: src/authority-workflows.tsx
 msgid " from <0>{0}</0>"
-msgstr "，来自 <0>{0}</0>"
+msgstr " 来自 <0>{0}</0>"
 
 #: src/authorization-view.tsx
 msgid " Permissions this application does not already have are marked New."
