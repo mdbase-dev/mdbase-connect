@@ -47,6 +47,31 @@ msgstr "{0, plural, other {파일 #개}}"
 msgid "{0, plural, one {# unresolved conflict} other {# unresolved conflicts}}"
 msgstr "{0, plural, other {해결되지 않은 충돌 #건}}"
 
+#. placeholder {0}: device.kind
+#: src/renderer/device-requests.tsx
+msgid "{0, select, desktop {A new computer wants to open {name}} mobile {A new phone wants to open {name}} other {A new device wants to open {name}}}"
+msgstr ""
+
+#. placeholder {0}: device.kind
+#: src/renderer/device-requests.tsx
+msgid "{0, select, desktop {Enter the six-digit code shown on the new computer} mobile {Enter the six-digit code shown on the new phone} other {Enter the six-digit code shown on the new device}}"
+msgstr ""
+
+#. placeholder {0}: device.kind
+#: src/renderer/device-requests.tsx
+msgid "{0, select, desktop {That code does not match. Check the code on the new computer. If you did not start this, decline.} mobile {That code does not match. Check the code on the new phone. If you did not start this, decline.} other {That code does not match. Check the code on the new device. If you did not start this, decline.}}"
+msgstr ""
+
+#. placeholder {0}: device.kind
+#: src/renderer/device-requests.tsx
+msgid "{0, select, desktop {The new computer can now open {name}.} mobile {The new phone can now open {name}.} other {The new device can now open {name}.}}"
+msgstr ""
+
+#. placeholder {0}: device.kind
+#: src/renderer/device-requests.tsx
+msgid "{0, select, desktop {The new computer was not given access to {name}.} mobile {The new phone was not given access to {name}.} other {The new device was not given access to {name}.}}"
+msgstr ""
+
 #. placeholder {0}: HOLD_REASONS[hold.reason] ?? hold.reason
 #. placeholder {1}: relativeTime(new Date(hold.since).toISOString())
 #: src/renderer/collections-view.tsx
@@ -248,10 +273,6 @@ msgstr "이 컴퓨터에 더 이상 없는 컬렉션"
 #: src/main/main.ts
 msgid "A folder named \"{0}\" already exists there. Choose another name or use Add existing."
 msgstr "해당 위치에 \"{0}\" 폴더가 이미 있습니다. 다른 이름을 선택하거나 '기존 항목 추가'를 사용하세요."
-
-#: src/renderer/device-requests.tsx
-msgid "A new {label} wants to open {name}"
-msgstr "새 {label}에서 {name}을(를) 열려고 합니다"
 
 #: src/renderer/device-requests.tsx
 msgid "a Private collection"
@@ -747,10 +768,6 @@ msgstr "종단 간 암호화: mdbase에서 읽을 수 없습니다. 웹 앱은 �
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "이 컴퓨터의 이름을 입력하세요."
-
-#: src/renderer/device-requests.tsx
-msgid "Enter the six-digit code shown on the new {label}"
-msgstr "새 {label}에 표시된 6자리 코드를 입력하세요."
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1526,10 +1543,6 @@ msgstr "시스템 설정은 운영체제의 화면 모드를 따릅니다"
 msgid "Take the other version"
 msgstr "다른 버전 선택"
 
-#: src/renderer/device-requests.tsx
-msgid "That code does not match. Check the code on the new {label}. If you did not start this, decline."
-msgstr "코드가 일치하지 않습니다. 새 {label}에 표시된 코드를 확인하세요. 직접 시작하지 않았다면 거절하세요."
-
 #: src/main/boot-gate.ts
 msgctxt "Desktop application"
 msgid "The application update is in progress."
@@ -1611,14 +1624,6 @@ msgstr "이동이 실패하여 다시 시도할 예정"
 #: src/renderer/takeover-state.mts
 msgid "The move finished, but needs your attention."
 msgstr "이동은 끝났지만 확인이 필요합니다."
-
-#: src/renderer/device-requests.tsx
-msgid "The new {label} can now open {name}."
-msgstr "새 {label}에서 이제 {name}을(를) 열 수 있습니다."
-
-#: src/renderer/device-requests.tsx
-msgid "The new {label} was not given access to {name}."
-msgstr "새 {label}에는 {name}에 대한 액세스 권한이 부여되지 않았습니다."
 
 #: src/renderer/takeover-state.mts
 msgid "the old engine's mirror state could not be read"

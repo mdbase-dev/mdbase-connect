@@ -47,6 +47,31 @@ msgstr "{0, plural, other {# 个文件}}"
 msgid "{0, plural, one {# unresolved conflict} other {# unresolved conflicts}}"
 msgstr "{0, plural, other {# 项未解决的冲突}}"
 
+#. placeholder {0}: device.kind
+#: src/renderer/device-requests.tsx
+msgid "{0, select, desktop {A new computer wants to open {name}} mobile {A new phone wants to open {name}} other {A new device wants to open {name}}}"
+msgstr ""
+
+#. placeholder {0}: device.kind
+#: src/renderer/device-requests.tsx
+msgid "{0, select, desktop {Enter the six-digit code shown on the new computer} mobile {Enter the six-digit code shown on the new phone} other {Enter the six-digit code shown on the new device}}"
+msgstr ""
+
+#. placeholder {0}: device.kind
+#: src/renderer/device-requests.tsx
+msgid "{0, select, desktop {That code does not match. Check the code on the new computer. If you did not start this, decline.} mobile {That code does not match. Check the code on the new phone. If you did not start this, decline.} other {That code does not match. Check the code on the new device. If you did not start this, decline.}}"
+msgstr ""
+
+#. placeholder {0}: device.kind
+#: src/renderer/device-requests.tsx
+msgid "{0, select, desktop {The new computer can now open {name}.} mobile {The new phone can now open {name}.} other {The new device can now open {name}.}}"
+msgstr ""
+
+#. placeholder {0}: device.kind
+#: src/renderer/device-requests.tsx
+msgid "{0, select, desktop {The new computer was not given access to {name}.} mobile {The new phone was not given access to {name}.} other {The new device was not given access to {name}.}}"
+msgstr ""
+
 #. placeholder {0}: HOLD_REASONS[hold.reason] ?? hold.reason
 #. placeholder {1}: relativeTime(new Date(hold.since).toISOString())
 #: src/renderer/collections-view.tsx
@@ -248,10 +273,6 @@ msgstr "一个不再位于此电脑上的集合"
 #: src/main/main.ts
 msgid "A folder named \"{0}\" already exists there. Choose another name or use Add existing."
 msgstr "此位置已有名为“{0}”的文件夹。请选择其他名称，或使用“添加现有文件夹”。"
-
-#: src/renderer/device-requests.tsx
-msgid "A new {label} wants to open {name}"
-msgstr "新的{label}想要打开{name}"
 
 #: src/renderer/device-requests.tsx
 msgid "a Private collection"
@@ -747,10 +768,6 @@ msgstr "端到端加密：mdbase 无法读取。只有你的某台设备在线�
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "输入此电脑的名称。"
-
-#: src/renderer/device-requests.tsx
-msgid "Enter the six-digit code shown on the new {label}"
-msgstr "输入新{label}显示的六位代码"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1526,10 +1543,6 @@ msgstr "跟随操作系统外观"
 msgid "Take the other version"
 msgstr "采用另一版本"
 
-#: src/renderer/device-requests.tsx
-msgid "That code does not match. Check the code on the new {label}. If you did not start this, decline."
-msgstr "代码不匹配。请核对新{label}上的代码。如果不是你发起的，请拒绝。"
-
 #: src/main/boot-gate.ts
 msgctxt "Desktop application"
 msgid "The application update is in progress."
@@ -1611,14 +1624,6 @@ msgstr "迁移失败，将重试"
 #: src/renderer/takeover-state.mts
 msgid "The move finished, but needs your attention."
 msgstr "迁移已完成，但需要你处理。"
-
-#: src/renderer/device-requests.tsx
-msgid "The new {label} can now open {name}."
-msgstr "新的{label}现在可以打开{name}。"
-
-#: src/renderer/device-requests.tsx
-msgid "The new {label} was not given access to {name}."
-msgstr "新的{label}未获得{name}的访问权限。"
 
 #: src/renderer/takeover-state.mts
 msgid "the old engine's mirror state could not be read"

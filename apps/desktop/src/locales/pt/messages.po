@@ -47,6 +47,31 @@ msgstr "{0, plural, one {# arquivo} other {# arquivos}}"
 msgid "{0, plural, one {# unresolved conflict} other {# unresolved conflicts}}"
 msgstr "{0, plural, one {# conflito não resolvido} other {# conflitos não resolvidos}}"
 
+#. placeholder {0}: device.kind
+#: src/renderer/device-requests.tsx
+msgid "{0, select, desktop {A new computer wants to open {name}} mobile {A new phone wants to open {name}} other {A new device wants to open {name}}}"
+msgstr ""
+
+#. placeholder {0}: device.kind
+#: src/renderer/device-requests.tsx
+msgid "{0, select, desktop {Enter the six-digit code shown on the new computer} mobile {Enter the six-digit code shown on the new phone} other {Enter the six-digit code shown on the new device}}"
+msgstr ""
+
+#. placeholder {0}: device.kind
+#: src/renderer/device-requests.tsx
+msgid "{0, select, desktop {That code does not match. Check the code on the new computer. If you did not start this, decline.} mobile {That code does not match. Check the code on the new phone. If you did not start this, decline.} other {That code does not match. Check the code on the new device. If you did not start this, decline.}}"
+msgstr ""
+
+#. placeholder {0}: device.kind
+#: src/renderer/device-requests.tsx
+msgid "{0, select, desktop {The new computer can now open {name}.} mobile {The new phone can now open {name}.} other {The new device can now open {name}.}}"
+msgstr ""
+
+#. placeholder {0}: device.kind
+#: src/renderer/device-requests.tsx
+msgid "{0, select, desktop {The new computer was not given access to {name}.} mobile {The new phone was not given access to {name}.} other {The new device was not given access to {name}.}}"
+msgstr ""
+
 #. placeholder {0}: HOLD_REASONS[hold.reason] ?? hold.reason
 #. placeholder {1}: relativeTime(new Date(hold.since).toISOString())
 #: src/renderer/collections-view.tsx
@@ -248,10 +273,6 @@ msgstr "uma coleção que não está mais neste computador"
 #: src/main/main.ts
 msgid "A folder named \"{0}\" already exists there. Choose another name or use Add existing."
 msgstr "Já existe uma pasta chamada \"{0}\" nesse local. Escolha outro nome ou use Adicionar existente."
-
-#: src/renderer/device-requests.tsx
-msgid "A new {label} wants to open {name}"
-msgstr "Um novo {label} quer abrir {name}"
 
 #: src/renderer/device-requests.tsx
 msgid "a Private collection"
@@ -747,10 +768,6 @@ msgstr "Criptografia de ponta a ponta: o mdbase não consegue ler os dados. Apli
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
 msgstr "Digite um nome para este computador."
-
-#: src/renderer/device-requests.tsx
-msgid "Enter the six-digit code shown on the new {label}"
-msgstr "Digite o código de seis dígitos exibido no novo {label}"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1526,10 +1543,6 @@ msgstr "O sistema segue a aparência do seu sistema operacional"
 msgid "Take the other version"
 msgstr "Usar a outra versão"
 
-#: src/renderer/device-requests.tsx
-msgid "That code does not match. Check the code on the new {label}. If you did not start this, decline."
-msgstr "Esse código não corresponde. Verifique o código no novo {label}. Se você não iniciou isso, recuse."
-
 #: src/main/boot-gate.ts
 msgctxt "Desktop application"
 msgid "The application update is in progress."
@@ -1611,14 +1624,6 @@ msgstr "a transferência falhou e será tentada novamente"
 #: src/renderer/takeover-state.mts
 msgid "The move finished, but needs your attention."
 msgstr "A transferência terminou, mas precisa da sua atenção."
-
-#: src/renderer/device-requests.tsx
-msgid "The new {label} can now open {name}."
-msgstr "O novo {label} agora pode abrir {name}."
-
-#: src/renderer/device-requests.tsx
-msgid "The new {label} was not given access to {name}."
-msgstr "O novo {label} não recebeu acesso a {name}."
 
 #: src/renderer/takeover-state.mts
 msgid "the old engine's mirror state could not be read"
