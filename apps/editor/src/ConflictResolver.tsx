@@ -1,3 +1,4 @@
+import { i18n } from "@lingui/core";
 import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
@@ -17,7 +18,7 @@ export function ConflictResolver({ local, remote, onUseRemote, onKeepLocal }: {
   onKeepLocal: () => void;
 }) {
   useLingui();
-  const bodyDiff = useMemo(() => compareLines(local.body, remote.body), [local.body, remote.body]);
+  const bodyDiff = useMemo(() => compareLines(local.body, remote.body), [local.body, remote.body, i18n.locale]);
   const titleChanged = local.title !== remote.title;
   return <section className="conflict-resolver" role="alert" aria-label={t`Note changed elsewhere`}>
     <div className="conflict-summary">

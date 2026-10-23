@@ -1,3 +1,4 @@
+import { i18n } from "@lingui/core";
 import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
@@ -67,7 +68,7 @@ function renderExcerpt(source: string): { content: ReactNode; truncated: boolean
 
 export function ReadOnlyMarkdown({ source, byteLength }: { source: string; byteLength: number }) {
   useLingui();
-  const { content, truncated } = useMemo(() => renderExcerpt(source), [source]);
+  const { content, truncated } = useMemo(() => renderExcerpt(source), [source, i18n.locale]);
   return <section className="read-only-markdown" role="region" aria-label={t`Read-only Markdown preview`} tabIndex={0}>
     <p className="read-only-markdown-notice"><Trans>Read-only Markdown preview</Trans></p>
     {byteLength > 1_048_576 && <p className="read-only-markdown-notice"><Trans>Notes larger than 1 MiB are read-only at launch.</Trans></p>}

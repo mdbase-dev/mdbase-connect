@@ -1,9 +1,9 @@
 {
-  "reason": "Editor localization adds one app-owned runtime adapter for browser persistence and deployment-local catalogue imports, one language preference row, and a real-provider test render helper. The runtime replaces implicit browser-locale formatting and the Settings English literals; it does not add another collection owner or remote translation service. Settings moves into its own guarded directory without a compatibility wrapper.",
+  "reason": "Editor localization adds exactly four production modules: Lingui configuration, browser/runtime adapter, language preference row, and active-locale display formatting. The runtime replaces implicit browser-locale formatting and English literals without adding a collection owner or remote service. Eight exports expose those boundaries and two type-presentation helpers relocated out of TypeBrowser to stay below its existing line ceiling. Eleven relative imports connect the runtime, display formatting and real-English test setup. Settings moves without a compatibility wrapper; production catalogue JSON/PO is data, not extra implementation modules.",
   "growth": {
-    "productionFiles": 3,
-    "relativeImports": 2,
-    "typeScriptExportDeclarations": 5,
-    "apps/editor": 3
+    "productionFiles": 4,
+    "relativeImports": 11,
+    "typeScriptExportDeclarations": 8,
+    "apps/editor": 4
   }
 }
