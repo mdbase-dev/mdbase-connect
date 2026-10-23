@@ -366,7 +366,7 @@ msgstr "{value, plural, one {# instalação do aplicativo} other {# instalaçõe
 
 #: src/AccountManagement.tsx
 msgid "{value, plural, one {# byte} other {# bytes}}"
-msgstr "{value, plural, one {# byte} other {# bytes}}"
+msgstr "{value, plural, one {# octeto} other {# octetos}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# collection} other {# collections}}"
@@ -793,7 +793,7 @@ msgstr "Voltar ao Connect"
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Beta"
-msgstr "Beta"
+msgstr "Plano beta"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
@@ -1459,7 +1459,7 @@ msgstr "Editar registros e arquivos"
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Editor"
-msgstr "Editor"
+msgstr "Pode editar"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2234,12 +2234,12 @@ msgstr "Notícias ocasionais sobre mudanças importantes no mdbase Connect e nov
 
 #: src/ConnectApp.tsx
 msgid "Offline"
-msgstr "Offline"
+msgstr "Sem conexão"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Offline"
-msgstr "Offline"
+msgstr "Sem conexão"
 
 #. placeholder {0}: computer.name
 #: src/ConnectApp.tsx
@@ -2263,12 +2263,12 @@ msgstr "Uso único · expira {0}"
 
 #: src/ConnectApp.tsx
 msgid "Online"
-msgstr "Online"
+msgstr "Conectado"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Online"
-msgstr "Online"
+msgstr "Conectado"
 
 #. placeholder {0}: files.scope.folders.join(", ")
 #: src/authorization-review.tsx
@@ -3143,7 +3143,7 @@ msgstr "Reiniciar cadastro"
 
 #: src/ConnectApp.tsx
 msgid "Status"
-msgstr "Status"
+msgstr "Situação"
 
 #: src/auth-view.tsx
 msgid "Stop receiving the kind of email this link came in. Messages about your account are still sent."
