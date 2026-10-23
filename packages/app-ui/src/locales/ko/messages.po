@@ -9,12 +9,12 @@ msgstr ""
 
 #: src/AppSwitcher.tsx
 msgid "(opens in a new tab)"
-msgstr ""
+msgstr "(새 탭에서 열림)"
 
 #. placeholder {0}: changes - shownChanges
 #: src/text-diff.ts
 msgid "{0, plural, one {# more changed line} other {# more changed lines}}"
-msgstr ""
+msgstr "{0, plural, other {변경된 줄 #개 더}}"
 
 #. placeholder {0}: changes - shownChanges
 #: src/text-diff.ts
@@ -24,55 +24,55 @@ msgstr ""
 #. placeholder {0}: signIn.accountLogin
 #: src/collections/model.ts
 msgid "{0} on GitHub"
-msgstr ""
+msgstr "GitHub에서 {0}"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "{app} can't open collections here"
-msgstr ""
+msgstr "{app}에서 컬렉션을 열 수 없습니다"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "{app} doesn't have access to any collections yet. Choose one you have, or create a new one."
-msgstr ""
+msgstr "아직 {app}에 접근 권한이 부여된 컬렉션이 없습니다. 보유한 컬렉션을 선택하거나 새로 만드세요."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "{app} has stopped"
-msgstr ""
+msgstr "{app}이(가) 중지되었습니다"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "{app} needs to add a few things to this collection before it can use it."
-msgstr ""
+msgstr "{app}에서 이 컬렉션을 사용하려면 몇 가지 항목을 추가해야 합니다."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "{app} needs your approval in mdbase before it can open it."
-msgstr ""
+msgstr "컬렉션을 열려면 mdbase에서 {app}의 접근을 승인해야 합니다."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "{app} stops showing it on this device. Nothing in the collection is deleted, and {app} keeps its access. To end access, use Manage access."
-msgstr ""
+msgstr "이 기기에서 컬렉션 표시를 중지합니다. 컬렉션의 항목은 삭제되지 않으며 {app}의 접근 권한도 유지됩니다. 접근을 종료하려면 ‘접근 관리’를 사용하세요."
 
 #: src/FeedbackMarkup.tsx
 msgid "{count, plural, one {# mark applied.} other {# marks applied.}}"
-msgstr ""
+msgstr "{count, plural, other {표시 #개를 적용했습니다.}}"
 
 #: src/Feedback.tsx
 msgid "A problem occurred. You can use Send feedback to report it."
-msgstr ""
+msgstr "문제가 발생했습니다. ‘피드백 보내기’를 통해 문제를 알려주세요."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Access wasn't given."
-msgstr ""
+msgstr "접근 권한이 부여되지 않았습니다."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Access wasn't given. You can try again or choose a different collection."
-msgstr ""
+msgstr "접근 권한이 부여되지 않았습니다. 다시 시도하거나 다른 컬렉션을 선택할 수 있습니다."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -82,11 +82,11 @@ msgstr ""
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Add a Private collection"
-msgstr ""
+msgstr "비공개 컬렉션 추가"
 
 #: src/FeedbackMarkup.tsx
 msgid "Apply changes"
-msgstr ""
+msgstr "변경 사항 적용"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -99,53 +99,53 @@ msgstr ""
 
 #: src/Feedback.tsx
 msgid "Attach screenshot"
-msgstr ""
+msgstr "스크린샷 첨부"
 
 #: src/Feedback.tsx
 msgid "Back to your work"
-msgstr ""
+msgstr "작업으로 돌아가기"
 
 #: src/FeedbackMarkup.tsx
 msgid "Blackout"
-msgstr ""
+msgstr "가리기"
 
 #: src/apps.ts
 msgid "Browse and edit records"
-msgstr ""
+msgstr "레코드 탐색 및 편집"
 
 #: src/Feedback.tsx
 msgid "Browser, OS, viewport and recent error codes. No note contents, paths or credentials."
-msgstr ""
+msgstr "브라우저, 운영체제, 뷰포트 및 최근 오류 코드입니다. 노트 내용, 경로 또는 인증 정보는 포함되지 않습니다."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Can edit"
-msgstr ""
+msgstr "편집 가능"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Can view"
-msgstr ""
+msgstr "보기 가능"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Can't continue"
-msgstr ""
+msgstr "계속할 수 없습니다"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Can't open {collection}"
-msgstr ""
+msgstr "{collection}을(를) 열 수 없습니다"
 
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
 msgid "Cancel"
-msgstr ""
+msgstr "취소"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Cancel"
-msgstr ""
+msgstr "취소"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -165,42 +165,42 @@ msgstr ""
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Choose a collection"
-msgstr ""
+msgstr "컬렉션 선택"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Choose a different collection"
-msgstr ""
+msgstr "다른 컬렉션 선택"
 
 #: src/feedback-data.ts
 msgid "Choose a PNG or JPEG screenshot."
-msgstr ""
+msgstr "PNG 또는 JPEG 스크린샷을 선택하세요."
 
 #: src/feedback-data.ts
 msgid "Choose a screenshot smaller than 16 megapixels."
-msgstr ""
+msgstr "16메가픽셀 미만의 스크린샷을 선택하세요."
 
 #: src/feedback-data.ts
 msgid "Choose a screenshot smaller than 3 MB."
-msgstr ""
+msgstr "3MB 미만의 스크린샷을 선택하세요."
 
 #: src/Feedback.tsx
 msgid "Choose an image"
-msgstr ""
+msgstr "이미지 선택"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Choose or create a collection there."
-msgstr ""
+msgstr "그곳에서 컬렉션을 선택하거나 만드세요."
 
 #: src/Dialog.tsx
 msgid "Close"
-msgstr ""
+msgstr "닫기"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Close"
-msgstr ""
+msgstr "닫기"
 
 #. placeholder {0}: label.toLowerCase()
 #: src/CommandPalette.tsx
@@ -209,30 +209,30 @@ msgstr ""
 
 #: src/CommandPalette.tsx
 msgid "Close {label}"
-msgstr ""
+msgstr "{label} 닫기"
 
 #: src/Feedback.tsx
 msgid "Close feedback"
-msgstr ""
+msgstr "피드백 닫기"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Collection"
-msgstr ""
+msgstr "컬렉션"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Collections"
-msgstr ""
+msgstr "컬렉션"
 
 #: src/ThemeSelect.tsx
 msgctxt "Color theme"
 msgid "Color theme"
-msgstr ""
+msgstr "색상 테마"
 
 #: src/CommandPalette.tsx
 msgid "Commands"
-msgstr ""
+msgstr "명령"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -247,31 +247,31 @@ msgstr ""
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Continue"
-msgstr ""
+msgstr "계속"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Continue in the mdbase window"
-msgstr ""
+msgstr "mdbase 창에서 계속"
 
 #: src/AppSwitcher.tsx
 msgid "Current"
-msgstr ""
+msgstr "현재"
 
 #: src/ThemeSelect.tsx
 msgctxt "Color theme"
 msgid "Dark"
-msgstr ""
+msgstr "어둡게"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Delete {collection}?"
-msgstr ""
+msgstr "{collection}을(를) 삭제하시겠습니까?"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Delete collection"
-msgstr ""
+msgstr "컬렉션 삭제"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -285,96 +285,96 @@ msgstr ""
 
 #: src/screens.tsx
 msgid "Details"
-msgstr ""
+msgstr "세부 정보"
 
 #: src/FeedbackMarkup.tsx
 msgid "Drag to mark. Keyboard: arrows move; Space starts or finishes. Blackout removes pixels."
-msgstr ""
+msgstr "드래그하여 표시하세요. 키보드: 화살표 키로 이동하고 스페이스바로 시작하거나 완료합니다. 가리기는 픽셀을 제거합니다."
 
 #: src/FeedbackMarkup.tsx
 msgid "Draw"
-msgstr ""
+msgstr "그리기"
 
 #: src/CommandPalette.tsx
 msgid "Esc"
-msgstr ""
+msgstr "Esc"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Everyone, including you, loses access to it on every device and app right away. This can't be undone."
-msgstr ""
+msgstr "나를 포함한 모든 사용자가 모든 기기와 앱에서 즉시 접근 권한을 잃습니다. 이 작업은 되돌릴 수 없습니다."
 
 #: src/feedback-data.ts
 msgid "Feedback could not be sent. Check your connection and try again."
-msgstr ""
+msgstr "피드백을 보내지 못했습니다. 연결을 확인하고 다시 시도하세요."
 
 #: src/feedback-data.ts
 #: src/Feedback.tsx
 msgid "Feedback could not be sent. Please try again."
-msgstr ""
+msgstr "피드백을 보내지 못했습니다. 다시 시도하세요."
 
 #: src/Feedback.tsx
 msgid "Feedback type"
-msgstr ""
+msgstr "피드백 유형"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Find a collection"
-msgstr ""
+msgstr "컬렉션 찾기"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Give {app} a collection"
-msgstr ""
+msgstr "{app}에 컬렉션 제공"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Give {app} access to {collection}?"
-msgstr ""
+msgstr "{app}에 {collection} 접근을 허용하시겠습니까?"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Give {app} access to this collection?"
-msgstr ""
+msgstr "{app}에 이 컬렉션 접근을 허용하시겠습니까?"
 
 #: src/FeedbackMarkup.tsx
 msgid "Highlight"
-msgstr ""
+msgstr "강조 표시"
 
 #: src/feedback-data.ts
 msgid "How would it help you?"
-msgstr ""
+msgstr "어떤 도움이 되나요?"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "ID {id}"
-msgstr ""
+msgstr "ID {id}"
 
 #: src/Feedback.tsx
 msgid "Images: PNG or JPEG, up to 3 MB. Blackout replaces pixels; only the final image is attached."
-msgstr ""
+msgstr "이미지: PNG 또는 JPEG, 최대 3MB입니다. 가리기는 픽셀을 대체하며 최종 이미지만 첨부됩니다."
 
 #: src/Feedback.tsx
 msgid "Include collection name:"
-msgstr ""
+msgstr "컬렉션 이름 포함:"
 
 #: src/Feedback.tsx
 msgid "Include screenshot"
-msgstr ""
+msgstr "스크린샷 포함"
 
 #: src/Feedback.tsx
 msgid "Include technical diagnostics"
-msgstr ""
+msgstr "기술 진단 정보 포함"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Kept on your computers, not stored by mdbase"
-msgstr ""
+msgstr "컴퓨터에 보관되며 mdbase에는 저장되지 않습니다"
 
 #: src/ThemeSelect.tsx
 msgctxt "Color theme"
 msgid "Light"
-msgstr ""
+msgstr "밝게"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -384,12 +384,12 @@ msgstr ""
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Manage access"
-msgstr ""
+msgstr "접근 관리"
 
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
 msgid "Mark up screenshot"
-msgstr ""
+msgstr "스크린샷에 표시"
 
 #: src/FeedbackMarkup.tsx
 #~ msgid "marks applied."
@@ -397,34 +397,34 @@ msgstr ""
 
 #: src/Feedback.tsx
 msgid "Markup discarded. Screenshot excluded."
-msgstr ""
+msgstr "표시 내용을 버렸습니다. 스크린샷은 제외되었습니다."
 
 #: src/AppSwitcher.tsx
 msgid "mdbase {current}: open this collection in another app"
-msgstr ""
+msgstr "mdbase {current}: 이 컬렉션을 다른 앱에서 열기"
 
 #: src/AppSwitcher.tsx
 msgid "mdbase apps"
-msgstr ""
+msgstr "mdbase 앱"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "More for {collection}"
-msgstr ""
+msgstr "{collection} 추가 옵션"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Needs a decision"
-msgstr ""
+msgstr "결정 필요"
 
 #: src/SaveNotice.tsx
 msgid "Needs attention"
-msgstr ""
+msgstr "확인 필요"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "No collection was added."
-msgstr ""
+msgstr "컬렉션이 추가되지 않았습니다."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -433,44 +433,44 @@ msgstr ""
 
 #: src/Feedback.tsx
 msgid "No screenshot taken. You can still send feedback."
-msgstr ""
+msgstr "스크린샷을 찍지 않았습니다. 그래도 피드백을 보낼 수 있습니다."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Nothing in your collection will change."
-msgstr ""
+msgstr "컬렉션의 내용은 변경되지 않습니다."
 
 #: src/CommandPalette.tsx
 msgid "Nothing matches"
-msgstr ""
+msgstr "일치하는 항목 없음"
 
 #: src/AppSwitcher.tsx
 msgid "Open in another mdbase app"
-msgstr ""
+msgstr "다른 mdbase 앱에서 열기"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Open now"
-msgstr ""
+msgstr "지금 열기"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Open the mdbase window again"
-msgstr ""
+msgstr "mdbase 창 다시 열기"
 
 #: src/AppSwitcher.tsx
 msgid "Open this collection in"
-msgstr ""
+msgstr "이 컬렉션을 다음에서 열기"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Open your collections in {app}"
-msgstr ""
+msgstr "{app}에서 컬렉션 열기"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Opening {collection}"
-msgstr ""
+msgstr "{collection} 여는 중"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -485,7 +485,7 @@ msgstr ""
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Opening your collection"
-msgstr ""
+msgstr "컬렉션 여는 중"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -494,11 +494,11 @@ msgstr ""
 
 #: src/AppSwitcher.tsx
 msgid "Opens in a new tab"
-msgstr ""
+msgstr "새 탭에서 열립니다"
 
 #: src/Feedback.tsx
 msgid "Optional"
-msgstr ""
+msgstr "선택 사항"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
