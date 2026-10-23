@@ -42,5 +42,6 @@ test("access: pending, served-by-app and refused are separated; badge counts dec
 test("activity reads as sentences and never hides an unknown kind", () => {
   assert.equal(describeActivity({ kind: "sync_enabled", collection_name: "Notes", detail: "synced_e2e" }), "Notes now syncs privately");
   assert.equal(describeActivity({ kind: "app_revoked", app_name: "Reader", collection_name: "Notes" }), "You revoked Reader on Notes");
+  assert.equal(describeActivity({ kind: "collection_taken_over", collection_name: "Notes" }), "Notes moved here from mdbase Connect (its files were not touched)");
   assert.equal(describeActivity({ kind: "files_held" }), "files held");
 });

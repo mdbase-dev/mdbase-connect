@@ -219,7 +219,7 @@ function App() {
           ) : route === "collections" ? (
             <CollectionsView collections={collections} busy={busy} onAdd={addExisting} onCreate={openCreate} onAct={act} onNotice={setNotice} />
           ) : route === "access" ? (
-            <AccessView groups={groups} names={names} busy={busy} requireApproval={requireApproval} onAct={act} onNotice={setNotice} />
+            <AccessView groups={groups} names={names} busy={busy} requireApproval={requireApproval} movedWaiting={collections.filter((c) => c.notices?.some((n) => n.code === "private_sync_pending")).length} onAct={act} onNotice={setNotice} />
           ) : route === "activity" ? (
             <ActivityView entries={activity} />
           ) : (

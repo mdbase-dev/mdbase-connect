@@ -23,7 +23,7 @@ pub struct ActivityEntry {
     pub at_ms: u64,
     /// What, snake_case: `collection_added`, `collection_removed`,
     /// `collection_updated`, `collection_paused`, `collection_resumed`,
-    /// `collection_joined`, `sync_enabled`, `sync_disabled`, `app_connected`,
+    /// `collection_joined`, `collection_taken_over`, `sync_enabled`, `sync_disabled`, `app_connected`,
     /// `app_requested`, `app_approved`, `app_declined`, `app_revoked`,
     /// `app_revoked_in_account`, `signed_in`, `signed_out`, `computer_renamed`.
     pub kind: String,

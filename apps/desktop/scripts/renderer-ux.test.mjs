@@ -59,7 +59,13 @@ async function desktop({ signedIn = true, collections = [], access = [], devices
       addCollection: record("addCollection"),
       chooseCreateFolder: async () => "/disposable/parent",
       createCollection: async (input) => { calls.push(["createCollection", input]); return { name: input.name }; },
-      enableSync: record("enableSync"),
+      enableSync: async (...args) => {
+        calls.push(["enableSync", ...args]);
+        const failure = fixture.failEnableSync;
+        fixture.failEnableSync = null;
+        if (failure) throw new Error(failure);
+        return null;
+      },
       removeCollection: record("removeCollection"),
       listHolds: async () => fixture.holds ?? [],
       resolveHold: async (id, hold, how) => { calls.push(["resolveHold", id, hold, how]); fixture.holds = (fixture.holds ?? []).filter((h) => h.id !== hold);
@@ -183,6 +189,29 @@ test("turning on sync defaults to private and removal is confirmed; long paths s
     page.once("dialog", (prompt) => prompt.dismiss());
     await card.getByRole("button", { name: "Remove" }).click();
     assert.deepEqual(await calls("removeCollection"), [], "dismissing the confirmation keeps the collection");
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("a failed turn-on of sync is explained inside the dialog, which stays open for a retry", async () => {
+  const { page, errors, calls } = await desktop({ collections: [collection()] });
+  try {
+    await nav(page, "Collections").click();
+    const card = page.locator(".collection-card").filter({ hasText: "Notes" });
+    await card.getByRole("button", { name: "Turn on sync" }).click();
+    const dialog = page.getByRole("dialog");
+    await page.evaluate(() => {
+      window.fixture.failEnableSync = "Error invoking remote method 'connect:collections:sync-enable': DaemonControlError: this build has no authenticated trust for synced collections";
+    });
+    await dialog.getByRole("button", { name: "Turn on sync" }).click();
+    const alert = dialog.getByRole("alert");
+    await alert.waitFor();
+    assert.match(await alert.innerText(), /^This version of mdbase can't turn on sync\. Update mdbase, then try again\. The folder and its files are unchanged\.$/);
+    assert.equal(await dialog.isVisible(), true);
+    await dialog.getByRole("button", { name: "Turn on sync" }).click();
+    await page.getByText("Notes now syncs privately.", { exact: true }).waitFor();
+    assert.equal(await page.getByRole("dialog").count(), 0);
+    assert.equal((await calls("enableSync")).length, 2);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });

@@ -48,10 +48,12 @@ function AppRequest({ entry, names, busy, onAct, onNotice }: {
   />;
 }
 
-export function AccessView({ groups, names, busy, requireApproval, onAct, onNotice }: {
+export function AccessView({ groups, names, busy, requireApproval, movedWaiting = 0, onAct, onNotice }: {
   groups: AccessGroups<AccessEntry>;
   names: Record<string, string>;
   busy: boolean;
+  /** Collections moved here from mdbase Connect whose Private sync is not on yet. */
+  movedWaiting?: number;
   requireApproval: boolean | null;
   onAct: Act;
   onNotice(value: string): void;
@@ -70,7 +72,9 @@ export function AccessView({ groups, names, busy, requireApproval, onAct, onNoti
       <section>
         <SectionHeading title="Connected apps" note="Apps that can use your collections through this computer." count={groups.apps.length} />
         {groups.apps.length === 0
-          ? <Empty title="No apps connected" text="Open the app you want to use and connect it to mdbase. You approve it in your browser, and it appears here." />
+          ? movedWaiting > 0
+            ? <Empty title="Your apps reconnect soon" text={`Apps you used with mdbase Connect appear here once Private sync is on for the ${plural(movedWaiting, "collection", "collections")} that moved to this computer. mdbase turns it on by itself; you don't need to approve those apps again.`} />
+            : <Empty title="No apps connected" text="Open the app you want to use and connect it to mdbase. You approve it in your browser, and it appears here." />
           : <div className="application-access-list">{groups.apps.map((app) => (
             <details key={app.appId} className="application-grant-group" open={app.unacknowledged > 0}>
               <summary>
