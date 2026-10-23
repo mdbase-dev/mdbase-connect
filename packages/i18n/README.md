@@ -67,8 +67,12 @@ allowlisting. Optional `i18n-policy.json`:
 Includes are directories, relative to the config root (not glob expressions).
 Excludes are glob patterns. The guard defaults to catalogue includes/excludes and
 skips tests, locale data and node_modules. It catches visible JSX/attribute strings
-and unsafe translation placement, not arbitrary UI copy in every non-React dependency;
-source review remains necessary. Keep exclusions narrow and justified.
+and local React state rendered as copy (including notices passed to its setter),
+plus unsafe translation placement, not arbitrary UI copy in every non-React dependency;
+source review remains necessary. State used only as an enum/lookup key or input value
+is not visible copy. Explicit-instance core macros, plural/select helpers inside `t`
+ICU templates and class instance-field translations are supported; static fields and
+module-level translations remain eager and fail. Keep exclusions narrow and justified.
 `mdbase-i18n source` runs only the guard; `--config path` selects a Lingui config.
 
 ## Runtime and picker
@@ -208,6 +212,22 @@ identical generated-ID values become one entry, and different values for the sam
 ID throw instead of silently overriding one another. If two concepts really need
 different wording, give them different semantic source contexts; otherwise align
 their translations. No library prefixes, app-side ID rewriting or duplicate messages.
+
+Catch these collisions before runtime by including each library's compiled JSON path
+in the application's check command (quote `{locale}`; all nine locales are checked):
+
+```sh
+mdbase-i18n check --compose 'node_modules/@mdbase-dev/ui/dist/locales/{locale}/messages.json'
+# Multiple libraries: append more path templates, or repeat --compose.
+```
+
+Paths are filesystem paths relative to the Lingui config root, not JS `CatalogueSource`
+modules; include every library passed to `libraries` at runtime. Libraries must be
+compiled/built first. The check compiles app catalogues, then uses the runtime's exact
+compiled-value comparison across all app scopes and supplied libraries. Identical
+values deduplicate, including ICU objects with different key order. Failure reports
+**every conflicting ID, locale and pair of compiled values**; missing library JSON
+fails too. No last-wins overrides or collision allowlist.
 
 For this monorepo: public `packages/app-ui` (`@mdbase-dev/ui`) ships its own
 catalogues and `/i18n` export for Writer, Reader and TaskNotes. Private

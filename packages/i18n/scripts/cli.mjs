@@ -7,6 +7,7 @@ import { formatter } from "@lingui/format-po";
 import { assertCompleteCatalogue } from "./checks.mjs";
 import { inspectUiSource } from "./source.mjs";
 import { locales } from "./config.mjs";
+import { mergeCatalogues } from "../dist/runtime.js";
 
 const require = createRequire(import.meta.url);
 const lingui = resolve(dirname(require.resolve("@lingui/cli")), "lingui.js");
@@ -17,7 +18,19 @@ function run(args) {
 }
 export async function main(command, args = []) {
   if (!["extract", "compile", "check", "source"].includes(command))
-    throw new Error("Usage: mdbase-i18n extract|compile|check|source [--config lingui.config.ts]");
+    throw new Error("Usage: mdbase-i18n extract|compile|check|source [--config lingui.config.ts] [--compose library/{locale}/messages.json ...]");
+  const compose = [];
+  const linguiArgs = [];
+  for (let index = 0; index < args.length; index++) {
+    if (args[index] !== "--compose") { linguiArgs.push(args[index]); continue; }
+    if (command !== "check") throw new Error("--compose is only supported by check");
+    const start = compose.length;
+    while (index + 1 < args.length && !args[index + 1].startsWith("--")) compose.push(args[++index]);
+    if (compose.length === start) throw new Error("--compose requires compiled JSON paths containing {locale}");
+  }
+  if (compose.some((path) => !path.includes("{locale}") || !path.endsWith(".json")))
+    throw new Error("--compose requires compiled JSON paths containing {locale}");
+  args = linguiArgs;
   if (command === "extract") return run(["extract", "--workers", "1", ...args]);
   if (command === "compile") return run(["compile", "--strict", "--workers", "1", ...args]);
   const configIndex = args.indexOf("--config");
@@ -37,6 +50,23 @@ export async function main(command, args = []) {
         assertCompleteCatalogue(english, await load(locale), locale, policy.allowIdentical?.[locale]);
     }
     run(["compile", "--strict", "--workers", "1", ...args]);
+    // Use exactly the runtime's compiled-value equality, including nested ICU objects.
+    // Include every app scope so app/app and library/library collisions also fail.
+    const paths = [...config.catalogs.map((catalogue) => catalogue.path + ".json"),
+      ...compose.map((path) => resolve(config.rootDir, path))];
+    const conflicts = [];
+    for (const locale of locales) {
+      const catalogues = await Promise.all(paths.map(async (path) => {
+        const filename = path.replaceAll("{locale}", locale);
+        const catalogue = JSON.parse(await readFile(filename, "utf8"));
+        if (!catalogue.messages || typeof catalogue.messages !== "object" || Array.isArray(catalogue.messages))
+          throw new Error("Expected compiled catalogue messages: " + filename);
+        return catalogue;
+      }));
+      try { mergeCatalogues(catalogues); }
+      catch (error) { conflicts.push(...error.message.split("\n").map((line) => locale + ": " + line)); }
+    }
+    if (conflicts.length) throw new Error(conflicts.join("\n"));
   }
   const source = policy.source ?? {};
   const includes = source.include ?? config.catalogs.flatMap((catalogue) => catalogue.include);
