@@ -3898,40 +3898,40 @@ msgstr "Предпросмотр {filename}"
 #. placeholder {1}: formatBytes(entry.file.size)
 #: src/file-asset-store.ts
 msgid "Preview is limited to {0}. Download this {1} file to open it."
-msgstr ""
+msgstr "Предпросмотр ограничен размером {0}. Скачайте файл {1}, чтобы открыть его."
 
 #. placeholder {0}: preview.title
 #: src/NotePreview.tsx
 msgid "Preview of {0}"
-msgstr ""
+msgstr "Предпросмотр {0}"
 
 #: src/read-only-markdown.tsx
 msgid "Preview truncated for display. The whole verified original is available using Open original."
-msgstr ""
+msgstr "Предпросмотр сокращён. Полный проверенный оригинал доступен через «Открыть оригинал»."
 
 #: src/NotePreview.tsx
 msgid "Preview unavailable."
-msgstr ""
+msgstr "Предпросмотр недоступен."
 
 #: src/collection-browser.ts
 msgid "Previous 30 days"
-msgstr ""
+msgstr "За предыдущие 30 дней"
 
 #: src/collection-browser.ts
 msgid "Previous 7 days"
-msgstr ""
+msgstr "За предыдущие 7 дней"
 
 #: src/ConnectionScreens.tsx
 msgid "Previously opened in mdbase editor"
-msgstr ""
+msgstr "Ранее открытые в mdbase editor"
 
 #: src/SdkEditorRoot.tsx
 msgid "Private collections"
-msgstr ""
+msgstr "Закрытые коллекции"
 
 #: src/SdkEditorRoot.tsx
 msgid "Private collections couldn't be loaded."
-msgstr ""
+msgstr "Не удалось загрузить закрытые коллекции."
 
 #: src/type-schema.ts
 msgid "Projections"
@@ -3939,7 +3939,7 @@ msgstr "Проекции"
 
 #: src/TypeBrowser.tsx
 msgid "Projects/**/*.md"
-msgstr ""
+msgstr "Projects/**/*.md"
 
 #: src/NewNoteComposer.tsx
 #: src/PropertiesPanel.tsx
@@ -3948,11 +3948,11 @@ msgstr "Свойства"
 
 #: src/PropertiesPanel.tsx
 msgid "Properties could not be saved."
-msgstr ""
+msgstr "Не удалось сохранить свойства."
 
 #: src/PropertiesPanel.tsx
 msgid "Properties format"
-msgstr ""
+msgstr "Формат свойств"
 
 #: src/BulkNoteProperties.tsx
 msgid "Property"
@@ -3960,27 +3960,27 @@ msgstr "Свойство"
 
 #: src/PropertiesPanel.tsx
 msgid "Property options"
-msgstr ""
+msgstr "Варианты свойства"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Provided by the note's type, not stored in this file."
-msgstr ""
+msgstr "Задано типом заметки, не хранится в этом файле."
 
 #: src/editor-commands.ts
 #: src/NoteSearchField.tsx
 #: src/QuickOpen.tsx
 msgid "Quick open"
-msgstr ""
+msgstr "Быстрый переход"
 
 #. placeholder {0}: shortcutModifier()
 #: src/NoteSearchField.tsx
 msgid "Quick open · {0} P anywhere"
-msgstr ""
+msgstr "Быстрый переход · {0} P из любого места"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Quiet Markdown"
-msgstr ""
+msgstr "Спокойный Markdown"
 
 #: src/code-editor-completions.ts
 msgid "Quote"
@@ -3988,28 +3988,28 @@ msgstr "Цитата"
 
 #: src/PropertiesPanel.tsx
 msgid "Raw frontmatter JSON"
-msgstr ""
+msgstr "Исходный JSON метаданных"
 
 #: src/type-schema.ts
 msgid "read default"
-msgstr ""
+msgstr "значение для чтения по умолчанию"
 
 #: src/type-schema.ts
 #: src/TypeBrowser.tsx
 msgid "Read defaults"
-msgstr ""
+msgstr "Значения для чтения по умолчанию"
 
 #: src/type-schema.ts
 msgid "read defaults with an unsupported value"
-msgstr ""
+msgstr "значения для чтения по умолчанию с неподдерживаемым значением"
 
 #: src/App.tsx
 msgid "Read only"
-msgstr ""
+msgstr "Только чтение"
 
 #: src/read-only-markdown.tsx
 msgid "Read-only Markdown preview"
-msgstr ""
+msgstr "Предпросмотр Markdown только для чтения"
 
 #: src/AttachmentUpload.tsx
 msgid "Reading"
@@ -4017,47 +4017,47 @@ msgstr "Чтение"
 
 #: src/WorkspaceChrome.tsx
 msgid "Reading collection links…"
-msgstr ""
+msgstr "Чтение ссылок коллекции…"
 
 #: src/WorkspaceChrome.tsx
 msgid "Reading collection text…"
-msgstr ""
+msgstr "Чтение текста коллекции…"
 
 #: src/FileViewer.tsx
 msgid "Reading file content…"
-msgstr ""
+msgstr "Чтение содержимого файла…"
 
 #: src/LoadingScreens.tsx
 msgid "Reading its notes and types"
-msgstr ""
+msgstr "Чтение заметок и типов коллекции"
 
 #: src/WorkspaceChrome.tsx
 msgid "Reading note content…"
-msgstr ""
+msgstr "Чтение содержимого заметки…"
 
 #: src/NoteList.tsx
 msgid "Reading notes and files"
-msgstr ""
+msgstr "Чтение заметок и файлов"
 
 #: src/NoteList.tsx
 msgid "Reading notes and files…"
-msgstr ""
+msgstr "Чтение заметок и файлов…"
 
 #: src/TypeBrowser.tsx
 msgid "Reading type definition…"
-msgstr ""
+msgstr "Чтение определения типа…"
 
 #: src/TypeBrowser.tsx
 msgid "Ready-made types"
-msgstr ""
+msgstr "Готовые типы"
 
 #: src/ConnectionScreens.tsx
 msgid "Recent collections"
-msgstr ""
+msgstr "Недавние коллекции"
 
 #: src/QuickOpen.tsx
 msgid "Recent notes and actions"
-msgstr ""
+msgstr "Недавние заметки и действия"
 
 #: src/CollectionRail.tsx
 msgid "Reconnecting"
@@ -4065,48 +4065,48 @@ msgstr "Повторное подключение"
 
 #: src/native-note-observation.ts
 msgid "Reconnecting to the collection…"
-msgstr ""
+msgstr "Повторное подключение к коллекции…"
 
 #: src/record-source.ts
 msgid "Record frontmatter must be a YAML mapping."
-msgstr ""
+msgstr "Метаданные записи должны быть отображением YAML."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Record link"
-msgstr ""
+msgstr "Ссылка на запись"
 
 #: src/PropertiesPanel.tsx
 msgid "Record source"
-msgstr ""
+msgstr "Исходный текст записи"
 
 #: src/gateway.ts
 msgid "Recover the interrupted note operation before making another change. No new write was attempted."
-msgstr ""
+msgstr "Восстановите прерванную операцию с заметкой, прежде чем вносить новое изменение. Новая запись данных не предпринималась."
 
 #. placeholder {0}: move.from
 #: src/App.tsx
 msgid "Recover the unsaved edits in “{0}” before moving this folder."
-msgstr ""
+msgstr "Восстановите несохранённые правки в «{0}», прежде чем перемещать эту папку."
 
 #: src/App.tsx
 msgid "Recover unsaved edits before moving this note."
-msgstr ""
+msgstr "Восстановите несохранённые правки, прежде чем перемещать эту заметку."
 
 #: src/note-mutation-presentation.ts
 msgid "Recovering deletion"
-msgstr ""
+msgstr "Восстановление удаления"
 
 #: src/note-mutation-presentation.ts
 msgid "Recovering rename"
-msgstr ""
+msgstr "Восстановление переименования"
 
 #: src/WorkspaceChrome.tsx
 msgid "References could not finish loading."
-msgstr ""
+msgstr "Не удалось завершить загрузку ссылок."
 
 #: src/App.tsx
 msgid "Refreshing collection state before reconnecting."
-msgstr ""
+msgstr "Обновление состояния коллекции перед повторным подключением."
 
 #: src/AppErrorBoundary.tsx
 msgid "Reload Connect"
@@ -4114,12 +4114,12 @@ msgstr "Перезагрузить Connect"
 
 #: src/AppErrorBoundary.tsx
 msgid "Reload editor"
-msgstr ""
+msgstr "Перезагрузить редактор"
 
 #: src/code-editor-file-embeds.ts
 #: src/TypeBrowser.tsx
 msgid "Remove"
-msgstr ""
+msgstr "Убрать"
 
 #. placeholder {0}: entryName || `entry ${index + 1}`
 #: src/SchemaValueEditor.tsx
@@ -4130,65 +4130,65 @@ msgstr "Удалить: {0}"
 #. placeholder {1}: index + 1
 #: src/TypeBrowser.tsx
 msgid "Remove {0} {1}"
-msgstr ""
+msgstr "Убрать {0} {1}"
 
 #. placeholder {0}: implementation.contract
 #: src/TypeBrowser.tsx
 msgid "Remove {0} contract"
-msgstr ""
+msgstr "Убрать контракт {0}"
 
 #. placeholder {0}: filter.kind
 #. placeholder {1}: filter.value
 #: src/NoteSearchField.tsx
 msgid "Remove {0} filter {1}"
-msgstr ""
+msgstr "Убрать фильтр {0} {1}"
 
 #: src/SchemaValueEditor.tsx
 msgid "Remove {field}"
-msgstr ""
+msgstr "Убрать {field}"
 
 #: src/TypeBrowser.tsx
 msgid "Remove {fieldLabel} field"
-msgstr ""
+msgstr "Убрать поле {fieldLabel}"
 
 #. placeholder {0}: index + 1
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Remove {name} item {0}"
-msgstr ""
+msgstr "Убрать элемент {name} {0}"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Remove {name} property"
-msgstr ""
+msgstr "Убрать свойство {name}"
 
 #: src/SdkEditorRoot.tsx
 msgid "Remove from this browser"
-msgstr ""
+msgstr "Убрать из этого браузера"
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
 msgid "Remove link rule for {0}"
-msgstr ""
+msgstr "Убрать правило ссылки для {0}"
 
 #. placeholder {0}: entry.field
 #: src/TypeBrowser.tsx
 msgid "Remove read default for {0}"
-msgstr ""
+msgstr "Убрать значение для чтения по умолчанию для {0}"
 
 #: src/BulkNoteProperties.tsx
 #: src/editor-commands.ts
 msgid "Remove tag"
-msgstr ""
+msgstr "Убрать тег"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Remove this collection from the editor without changing its files."
-msgstr ""
+msgstr "Убрать эту коллекцию из редактора, не меняя её файлы."
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
 msgid "Remove uniqueness rule for {0}"
-msgstr ""
+msgstr "Убрать правило уникальности для {0}"
 
 #: src/editor-commands.ts
 msgid "Rename"
@@ -4196,70 +4196,70 @@ msgstr "Переименовать"
 
 #: src/FolderChangeDialog.tsx
 msgid "Rename ‘{basename}’"
-msgstr ""
+msgstr "Переименовать «{basename}»"
 
 #. placeholder {0}: plan.moves.length
 #. placeholder {1}: plan.referenceCount
 #: src/FolderChangeDialog.tsx
 msgid "Rename ‘{basename}’ and move {0, plural, one {# note} other {# notes}} and update {1, plural, one {# link} other {# links}}?"
-msgstr ""
+msgstr "Переименовать «{basename}», переместить {0, plural, one {# заметку} few {# заметки} many {# заметок} other {# заметки}} и обновить {1, plural, one {# ссылку} few {# ссылки} many {# ссылок} other {# ссылки}}?"
 
 #: src/App.tsx
 msgid "Rename and update links"
-msgstr ""
+msgstr "Переименовать и обновить ссылки"
 
 #: src/FolderChangeDialog.tsx
 msgid "Rename folder"
-msgstr ""
+msgstr "Переименовать папку"
 
 #: src/CollectionRail.tsx
 msgid "Rename folder…"
-msgstr ""
+msgstr "Переименовать папку…"
 
 #: src/App.tsx
 msgid "Rename Markdown path"
-msgstr ""
+msgstr "Переименовать путь Markdown"
 
 #: src/App.tsx
 msgid "Rename path"
-msgstr ""
+msgstr "Переименовать путь"
 
 #: src/App.tsx
 msgid "Rename this note?"
-msgstr ""
+msgstr "Переименовать эту заметку?"
 
 #. placeholder {0}: recoveryAction.to
 #: src/App.tsx
 msgid "Renamed to “{0}”."
-msgstr ""
+msgstr "Переименовано в «{0}»."
 
 #: src/note-mutation-presentation.ts
 msgid "Renaming"
-msgstr ""
+msgstr "Переименование"
 
 #: src/WorkspaceChrome.tsx
 msgid "Renaming links"
-msgstr ""
+msgstr "Переименование ссылок"
 
 #: src/YourPersonPanel.tsx
 msgid "Represent yourself using an ordinary note in this collection. This does not change access or membership."
-msgstr ""
+msgstr "Представьте себя обычной заметкой в этой коллекции. Это не изменит доступ или принадлежность."
 
 #: src/AttachmentUpload.tsx
 msgid "Request attachment access"
-msgstr ""
+msgstr "Запросить доступ к прикреплённым файлам"
 
 #: src/TypeBrowser.tsx
 msgid "Require a property value to be unique across a deliberate comparison set."
-msgstr ""
+msgstr "Требовать уникальности значения свойства в заданной группе сравнения."
 
 #: src/TypeBrowser.tsx
 msgid "Require an existing target"
-msgstr ""
+msgstr "Требовать существования целевой записи"
 
 #: src/TypeBrowser.tsx
 msgid "Require unique items"
-msgstr ""
+msgstr "Требовать уникальных элементов"
 
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
@@ -4270,43 +4270,43 @@ msgstr "Обязательно"
 
 #: src/TypeBrowser.tsx
 msgid "Required fields covered"
-msgstr ""
+msgstr "Обязательные поля охвачены"
 
 #: src/TypeBrowser.tsx
 msgid "Required match field"
-msgstr ""
+msgstr "Обязательное поле соответствия"
 
 #: src/NewNoteComposer.tsx
 msgid "Required properties"
-msgstr ""
+msgstr "Обязательные свойства"
 
 #: src/App.tsx
 msgid "Resize collections sidebar"
-msgstr ""
+msgstr "Изменить ширину боковой панели коллекций"
 
 #: src/App.tsx
 msgid "Resize note inspector"
-msgstr ""
+msgstr "Изменить ширину панели сведений о заметке"
 
 #: src/App.tsx
 msgid "Resize notes sidebar"
-msgstr ""
+msgstr "Изменить ширину боковой панели заметок"
 
 #: src/App.tsx
 msgid "Resize types sidebar"
-msgstr ""
+msgstr "Изменить ширину боковой панели типов"
 
 #: src/next-editor-records.ts
 msgid "Resolve this note's protected edit before changing it."
-msgstr ""
+msgstr "Разрешите защищённое изменение этой заметки, прежде чем менять её."
 
 #: src/TypeBrowser.tsx
 msgid "resources"
-msgstr ""
+msgstr "ресурсы"
 
 #: src/contract-catalog.ts
 msgid "resources[{index}].document is too large."
-msgstr ""
+msgstr "resources[{index}].document слишком велик."
 
 #: src/App.tsx
 msgid "Restore unsaved edits"
@@ -4315,23 +4315,23 @@ msgstr "Восстановить несохранённые изменения"
 #. placeholder {0}: noteTitle(restored, typeDescriptors)
 #: src/use-note-actions.ts
 msgid "Restored “{0}”."
-msgstr ""
+msgstr "Восстановлено: «{0}»."
 
 #: src/use-note-actions.ts
 msgid "Restored note paths."
-msgstr ""
+msgstr "Пути заметок восстановлены."
 
 #: src/use-note-actions.ts
 msgid "Restored selected notes."
-msgstr ""
+msgstr "Выбранные заметки восстановлены."
 
 #: src/use-note-actions.ts
 msgid "Restored unlinked mention."
-msgstr ""
+msgstr "Несвязанное упоминание восстановлено."
 
 #: src/Toasts.tsx
 msgid "Resume rename"
-msgstr ""
+msgstr "Продолжить переименование"
 
 #: src/code-editor-file-embeds.ts
 #: src/CollectionRail.tsx
@@ -4341,7 +4341,7 @@ msgstr "Повторить попытку"
 
 #: src/WorkspaceChrome.tsx
 msgid "Retry backlinks"
-msgstr ""
+msgstr "Повторить загрузку обратных ссылок"
 
 #: src/CollectionRail.tsx
 msgid "Retry connection"
@@ -4349,19 +4349,19 @@ msgstr "Повторить подключение"
 
 #: src/NoteList.tsx
 msgid "Retry files"
-msgstr ""
+msgstr "Повторить загрузку файлов"
 
 #: src/App.tsx
 msgid "Retry note"
-msgstr ""
+msgstr "Повторить загрузку заметки"
 
 #: src/NoteList.tsx
 msgid "Retry notes"
-msgstr ""
+msgstr "Повторить загрузку заметок"
 
 #: src/App.tsx
 msgid "Retry opening editor"
-msgstr ""
+msgstr "Повторить открытие редактора"
 
 #: src/PropertiesPanel.tsx
 #: src/WorkspaceChrome.tsx
@@ -4374,7 +4374,7 @@ msgstr "Повторить поиск"
 
 #: src/TypeBrowser.tsx
 msgid "Revert"
-msgstr ""
+msgstr "Вернуть прежнее значение"
 
 #: src/type-contracts.ts
 #: src/TypeBrowser.tsx
@@ -4383,93 +4383,93 @@ msgstr "Проверить"
 
 #: src/YourPersonPanel.tsx
 msgid "Review access"
-msgstr ""
+msgstr "Проверить доступ"
 
 #: src/FolderChangeDialog.tsx
 #: src/TypeBrowser.tsx
 msgid "Review changes"
-msgstr ""
+msgstr "Проверить изменения"
 
 #: src/YourPersonPanel.tsx
 msgid "Review contact conversion"
-msgstr ""
+msgstr "Проверить преобразование контакта"
 
 #: src/YourPersonPanel.tsx
 msgid "Review definition files"
-msgstr ""
+msgstr "Проверить файлы определений"
 
 #: src/ConflictResolver.tsx
 msgid "Review differences"
-msgstr ""
+msgstr "Проверить различия"
 
 #: src/YourPersonPanel.tsx
 msgid "Review fields to write"
-msgstr ""
+msgstr "Проверить поля для записи"
 
 #: src/YourPersonPanel.tsx
 msgid "Review its Person mappings in Types before creating a person record."
-msgstr ""
+msgstr "Проверьте сопоставления Person в разделе «Типы», прежде чем создавать запись о пользователе."
 
 #: src/TypeBrowser.tsx
 msgid "Review mapping"
-msgstr ""
+msgstr "Проверить сопоставление"
 
 #: src/YourPersonPanel.tsx
 msgid "Review person setup"
-msgstr ""
+msgstr "Проверить настройку записи о пользователе"
 
 #: src/YourPersonPanel.tsx
 msgid "Review Person type update"
-msgstr ""
+msgstr "Проверить обновление типа Person"
 
 #: src/TypeBrowser.tsx
 msgid "Review recommended"
-msgstr ""
+msgstr "Проверить рекомендованное"
 
 #: src/App.tsx
 msgid "Review recovered text"
-msgstr ""
+msgstr "Проверить восстановленный текст"
 
 #: src/TypeBrowser.tsx
 msgid "Review YAML diff"
-msgstr ""
+msgstr "Проверить различия YAML"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Route"
-msgstr ""
+msgstr "Маршрут"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Runtime"
-msgstr ""
+msgstr "Среда выполнения"
 
 #: src/TypeBrowser.tsx
 msgid "Runtime path handling"
-msgstr ""
+msgstr "Обработка путей при работе"
 
 #: src/note-mutation-presentation.ts
 msgid "Save failed"
-msgstr ""
+msgstr "Не удалось сохранить"
 
 #: src/PropertiesPanel.tsx
 msgid "Save source"
-msgstr ""
+msgstr "Сохранить исходный текст"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Saved access"
-msgstr ""
+msgstr "Сохранённый доступ"
 
 #: src/CollectionRail.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Saved on this device; waiting for sync"
-msgstr ""
+msgstr "Сохранено на устройстве; ожидает синхронизации"
 
 #. placeholder {0}: saved.name
 #: src/use-type-definition-lifecycle.ts
 msgid "Saved type “{0}”."
-msgstr ""
+msgstr "Сохранён тип «{0}»."
 
 #: src/note-mutation-presentation.ts
 msgid "Saving"
@@ -4477,12 +4477,12 @@ msgstr "Сохранение"
 
 #: src/TypeBrowser.tsx
 msgid "Saving affects every matching note"
-msgstr ""
+msgstr "Сохранение затронет все соответствующие заметки"
 
 #. placeholder {0}: type!.name
 #: src/TypeBrowser.tsx
 msgid "Saving affects every note of type <0>{0}</0>"
-msgstr ""
+msgstr "Сохранение затронет все заметки типа <0>{0}</0>"
 
 #: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
@@ -4492,11 +4492,11 @@ msgstr "Сохранение…"
 
 #: src/type-schema.ts
 msgid "Schema settings"
-msgstr ""
+msgstr "Настройки схемы"
 
 #: src/TypeBrowser.tsx
 msgid "Schema-managed fields"
-msgstr ""
+msgstr "Поля под управлением схемы"
 
 #: src/NoteListViewOptions.tsx
 #: src/TypeBrowser.tsx
@@ -4509,15 +4509,15 @@ msgstr "Поиск"
 
 #: src/NoteSearchField.tsx
 msgid "Search filters"
-msgstr ""
+msgstr "Поисковые фильтры"
 
 #: src/NoteList.tsx
 msgid "Search is incomplete."
-msgstr ""
+msgstr "Поиск не завершён."
 
 #: src/NoteSearchField.tsx
 msgid "Search notes and files"
-msgstr ""
+msgstr "Поиск заметок и файлов"
 
 #: src/TypeBrowser.tsx
 msgid "Search types"
