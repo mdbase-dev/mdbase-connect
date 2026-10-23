@@ -7,6 +7,9 @@ describe("portal catalogue integration", () => {
     expect(Object.keys(appCatalogues.english.messages).length).toBeGreaterThan(700);
     expect(Object.keys(runtime.i18n.messages).length).toBeGreaterThan(Object.keys(appCatalogues.english.messages).length);
     expect(document.documentElement.lang).toBe("en");
+    // Shared Cancel is library-owned rather than an app fallback/translation conflict.
+    expect(Object.hasOwn(appCatalogues.english.messages, "dEgA5A")).toBe(false);
+    expect(runtime.i18n._("dEgA5A")).toBe("Cancel");
   });
   it("loads target app catalogue chunks without activating them", async () => {
     for (const locale of ["fr", "de", "es", "ja", "ko", "pt", "ru", "zh"] as const) {
