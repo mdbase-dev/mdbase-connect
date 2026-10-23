@@ -20,7 +20,7 @@ msgstr " · {0} à examiner"
 #. placeholder {1}: result.failed.map(({ path, error }) => `${path} — ${gatewayError(error)}`).join("; ")
 #: src/use-note-actions.ts
 msgid " {0} couldn’t be changed: {1}"
-msgstr " {0} échec(s) de modification : {1}"
+msgstr " Modifications non effectuées ({0}) : {1}"
 
 #: src/FolderChangeDialog.tsx
 msgid " Links were updated."
@@ -2573,7 +2573,7 @@ msgstr "Les futurs chemins de fichier peuvent changer"
 
 #: src/TypeBrowser.tsx
 msgid "Gains"
-msgstr "Ajoutées"
+msgstr "Ajout"
 
 #: src/TypeBrowser.tsx
 msgid "Generated path ownership"
@@ -2966,7 +2966,7 @@ msgstr "Heure locale ({0})"
 
 #: src/TypeBrowser.tsx
 msgid "Loses"
-msgstr "Perd"
+msgstr "Retrait"
 
 #: src/ConnectionScreens.tsx
 msgid "manage type definitions"
@@ -3105,7 +3105,7 @@ msgstr "Champ manquant : {mapped}"
 #. placeholder {0}: record.path
 #: src/collection-index-controller.ts
 msgid "Missing frontmatter projections for {0}"
-msgstr "Projections du frontmatter manquantes pour {0}"
+msgstr "Projections des métadonnées YAML manquantes pour {0}"
 
 #: src/note-embeds.ts
 msgid "Missing note"
@@ -3562,7 +3562,7 @@ msgstr "Notifications"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Null"
-msgstr "Null"
+msgstr "Valeur nulle"
 
 #: src/type-presentation.ts
 msgid "number"
@@ -4426,7 +4426,7 @@ msgstr "Examiner les différences YAML"
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Route"
-msgstr "Route"
+msgstr "Chemin de connexion"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -4728,7 +4728,7 @@ msgstr "Arrêt en toute sécurité"
 
 #: src/TypeBrowser.tsx
 msgid "Structured frontmatter conditions"
-msgstr "Conditions structurées du frontmatter"
+msgstr "Conditions structurées des métadonnées YAML"
 
 #: src/TypeBrowser.tsx
 msgid "Suggested from field names and shapes only. Confirm that the meanings agree."
@@ -5622,13 +5622,13 @@ msgstr "Les définitions de type doivent déclarer kind: mdbase.type."
 
 #: src/CodeEditor.tsx
 msgid "Type definitions need a closing --- frontmatter marker."
-msgstr "Les définitions de type nécessitent un marqueur de fermeture --- pour le frontmatter."
+msgstr "Les définitions de type nécessitent un marqueur de fermeture --- pour les métadonnées YAML."
 
 #: src/CodeEditor.tsx
 #: src/type-contracts.ts
 #: src/type-schema.ts
 msgid "Type definitions need YAML frontmatter between --- markers."
-msgstr "Les définitions de type nécessitent un frontmatter YAML entre des marqueurs ---."
+msgstr "Les définitions de type nécessitent des métadonnées YAML entre des marqueurs ---."
 
 #: src/TypeBrowser.tsx
 msgid "Type editor view"
