@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "./test/locale";
 import { expect, it, vi } from "vitest";
 import { MdbaseConnectError } from "@mdbase-dev/connect";
 import { connectProblem } from "@mdbase-dev/connect-testing";

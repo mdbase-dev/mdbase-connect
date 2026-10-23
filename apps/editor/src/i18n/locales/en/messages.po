@@ -1,0 +1,293 @@
+msgid ""
+msgstr ""
+"POT-Creation-Date: 2026-10-23 22:06+1100\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: @lingui/cli\n"
+"Language: en\n"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Allow local access"
+msgstr "Allow local access"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Allow the editor to reach mdbase on this computer. Editing continues through mdbase whenever it is unavailable."
+msgstr "Allow the editor to reach mdbase on this computer. Editing continues through mdbase whenever it is unavailable."
+
+#: src/settings/SettingsView.tsx
+msgctxt "direct connection availability"
+msgid "Available"
+msgstr "Available"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Back to collection"
+msgstr "Back to collection"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Change note text without changing the surrounding interface."
+msgstr "Change note text without changing the surrounding interface."
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Check again"
+msgstr "Check again"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Checking for mdbase on this computer."
+msgstr "Checking for mdbase on this computer."
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Checking…"
+msgstr "Checking…"
+
+#: src/i18n/LanguageSetting.tsx
+msgctxt "editor language preference"
+msgid "Choose the interface language for this browser. Your notes are not translated."
+msgstr "Choose the interface language for this browser. Your notes are not translated."
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Collection"
+msgstr "Collection"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Collection ID"
+msgstr "Collection ID"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Color theme"
+msgstr "Color theme"
+
+#: src/settings/SettingsView.tsx
+msgctxt "editor text size"
+msgid "Comfortable"
+msgstr "Comfortable"
+
+#: src/settings/SettingsView.tsx
+msgctxt "editor text size"
+msgid "Compact"
+msgstr "Compact"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Connection"
+msgstr "Connection"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Details"
+msgstr "Details"
+
+#: src/settings/SettingsView.tsx
+msgctxt "collection runtime"
+msgid "Disabled"
+msgstr "Disabled"
+
+#: src/settings/SettingsView.tsx
+msgctxt "explicit type keys setting"
+msgid "Disabled"
+msgstr "Disabled"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Editing"
+msgstr "Editing"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Editor settings"
+msgstr "Editor settings"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Editor text size"
+msgstr "Editor text size"
+
+#. placeholder {0}: stringValue(runtime.profile_version, "0.1.0")
+#: src/settings/SettingsView.tsx
+msgid "Enabled · {0}"
+msgstr "Enabled · {0}"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Explicit type keys"
+msgstr "Explicit type keys"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Follow the system appearance or keep a theme in this browser."
+msgstr "Follow the system appearance or keep a theme in this browser."
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Forget from this browser"
+msgstr "Forget from this browser"
+
+#: src/settings/SettingsView.tsx
+msgctxt "connection route"
+msgid "Hosted"
+msgstr "Hosted"
+
+#: src/i18n/LanguageSetting.tsx
+msgctxt "editor language preference"
+msgid "Interface language"
+msgstr "Interface language"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Keep Markdown visible within the writing measure."
+msgstr "Keep Markdown visible within the writing measure."
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Keep the caret line centred while writing in focus mode."
+msgstr "Keep the caret line centred while writing in focus mode."
+
+#: src/i18n/LanguageSetting.tsx
+msgctxt "editor language preference"
+msgid "Language"
+msgstr "Language"
+
+#: src/settings/SettingsView.tsx
+msgctxt "editor text size"
+msgid "Large"
+msgstr "Large"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Local network access is blocked in this browser. Allow it in the site settings, then check again."
+msgstr "Local network access is blocked in this browser. Allow it in the site settings, then check again."
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "mdbase could not be reached on this computer. You can keep editing through mdbase."
+msgstr "mdbase could not be reached on this computer. You can keep editing through mdbase."
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Name"
+msgstr "Name"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Notes"
+msgstr "Notes"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Operations"
+msgstr "Operations"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Preferences stay in this browser."
+msgstr "Preferences stay in this browser."
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Quiet Markdown"
+msgstr "Quiet Markdown"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Remove this collection from the editor without changing its files."
+msgstr "Remove this collection from the editor without changing its files."
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Route"
+msgstr "Route"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Runtime"
+msgstr "Runtime"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Saved access"
+msgstr "Saved access"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Settings"
+msgstr "Settings"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Soften punctuation away from the active line and make tasks checkable."
+msgstr "Soften punctuation away from the active line and make tasks checkable."
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Specification"
+msgstr "Specification"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Text size"
+msgstr "Text size"
+
+#: src/i18n/LanguageSetting.tsx
+msgctxt "editor language preference"
+msgid "The language choice could not be applied. Please try again."
+msgstr "The language choice could not be applied. Please try again."
+
+#: src/settings/SettingsView.tsx
+msgctxt "connection route"
+msgid "This computer"
+msgstr "This computer"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "This computer"
+msgstr "This computer"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Types"
+msgstr "Types"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Types folder"
+msgstr "Types folder"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Typewriter scrolling"
+msgstr "Typewriter scrolling"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Use normal, insert, visual, and command modes in the note editor."
+msgstr "Use normal, insert, visual, and command modes in the note editor."
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Validation"
+msgstr "Validation"
+
+#: src/settings/SettingsView.tsx
+msgctxt "connection route"
+msgid "Via mdbase"
+msgstr "Via mdbase"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Vim key bindings"
+msgstr "Vim key bindings"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Wrap long lines"
+msgstr "Wrap long lines"
