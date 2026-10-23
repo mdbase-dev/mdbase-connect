@@ -2218,111 +2218,111 @@ msgstr "Редактировать исходный текст"
 
 #: src/NewNoteComposer.tsx
 msgid "Edit file path"
-msgstr ""
+msgstr "Изменить путь к файлу"
 
 #: src/ConnectionScreens.tsx
 msgid "edit notes"
-msgstr ""
+msgstr "редактировать заметки"
 
 #: src/TypeBrowser.tsx
 msgid "Edit reference"
-msgstr ""
+msgstr "Изменить ссылку"
 
 #: src/PropertiesPanel.tsx
 msgid "Edit the underlying property values. Other apps use these values too."
-msgstr ""
+msgstr "Изменяйте значения исходных свойств. Другие приложения тоже используют эти значения."
 
 #: src/TypeBrowser.tsx
 msgid "Edit YAML"
-msgstr ""
+msgstr "Редактировать YAML"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Editing"
-msgstr ""
+msgstr "Редактирование"
 
 #: src/App.tsx
 msgid "Editing is paused until you restore or discard these edits. They stay in this browser for up to seven days, or until saved or discarded. Restoring does not overwrite a newer version without review."
-msgstr ""
+msgstr "Редактирование приостановлено до восстановления или удаления этих правок. Они хранятся в этом браузере до семи дней либо до сохранения или удаления. Восстановление не перезапишет новую версию без проверки."
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Editor settings"
-msgstr ""
+msgstr "Настройки редактора"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Editor text size"
-msgstr ""
+msgstr "Размер текста редактора"
 
 #: src/TypeBrowser.tsx
 msgid "Effective values for missing properties. Source files stay unchanged."
-msgstr ""
+msgstr "Действующие значения отсутствующих свойств. Исходные файлы не меняются."
 
 #: src/code-editor-completions.ts
 msgid "Embed collection content"
-msgstr ""
+msgstr "Встроить содержимое коллекции"
 
 #: src/code-editor-file-embeds.ts
 msgid "Embedded PDF, {filename}"
-msgstr ""
+msgstr "Встроенный PDF: {filename}"
 
 #. placeholder {0}: stringValue(runtime.profile_version, "0.1.0")
 #: src/settings/SettingsView.tsx
 msgid "Enabled · {0}"
-msgstr ""
+msgstr "Включено · {0}"
 
 #. placeholder {0}: schema.maximum
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter {0} or less."
-msgstr ""
+msgstr "Введите не больше {0}."
 
 #. placeholder {0}: schema.minimum
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter {0} or more."
-msgstr ""
+msgstr "Введите не меньше {0}."
 
 #: src/FolderChangeDialog.tsx
 msgid "Enter a folder name without slashes."
-msgstr ""
+msgstr "Введите имя папки без косых черт."
 
 #: src/SchemaValueEditor.tsx
 msgid "Enter a JSON {type}."
-msgstr ""
+msgstr "Введите JSON-значение типа {type}."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter a list."
-msgstr ""
+msgstr "Введите список."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter a number."
-msgstr ""
+msgstr "Введите число."
 
 #: src/TypeBrowser.tsx
 msgid "Enter a valid JSON value."
-msgstr ""
+msgstr "Введите допустимое значение JSON."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter a whole number."
-msgstr ""
+msgstr "Введите целое число."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter an object."
-msgstr ""
+msgstr "Введите объект."
 
 #. placeholder {0}: schema.minLength
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter at least {0} characters."
-msgstr ""
+msgstr "Введите не менее {0} символов."
 
 #. placeholder {0}: schema.maxLength
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter no more than {0} characters."
-msgstr ""
+msgstr "Введите не более {0} символов."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter text."
-msgstr ""
+msgstr "Введите текст."
 
 #: src/TypeBrowser.tsx
 msgid "Entire collection"
@@ -2331,46 +2331,46 @@ msgstr "Вся коллекция"
 #. placeholder {0}: index + 1
 #: src/SchemaValueEditor.tsx
 msgid "Entry {0} value"
-msgstr ""
+msgstr "Значение элемента {0}"
 
 #: src/PropertiesPanel.tsx
 msgid "Exact Markdown source, including YAML frontmatter and body."
-msgstr ""
+msgstr "Точный исходный текст Markdown, включая метаданные YAML и основной текст."
 
 #: src/TypeBrowser.tsx
 msgid "Existing notes need attention"
-msgstr ""
+msgstr "Существующие заметки требуют внимания"
 
 #: src/YourPersonPanel.tsx
 msgid "Existing notes, other definitions, and access permissions will not be changed."
-msgstr ""
+msgstr "Существующие заметки, другие определения и разрешения доступа не изменятся."
 
 #: src/YourPersonPanel.tsx
 msgid "Existing person or contact"
-msgstr ""
+msgstr "Существующий пользователь или контакт"
 
 #: src/App.tsx
 #: src/QuickOpen.tsx
 msgid "Exit focus mode"
-msgstr ""
+msgstr "Выйти из режима сосредоточения"
 
 #. placeholder {0}: node.path
 #: src/CollectionRail.tsx
 msgid "Expand {0}"
-msgstr ""
+msgstr "Развернуть {0}"
 
 #: src/TypeBrowser.tsx
 msgid "Expand {fieldLabel} field"
-msgstr ""
+msgstr "Развернуть поле {fieldLabel}"
 
 #: src/CollectionRail.tsx
 msgid "Expand descendants"
-msgstr ""
+msgstr "Развернуть вложенные элементы"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Explicit type keys"
-msgstr ""
+msgstr "Явные ключи типов"
 
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
@@ -2379,23 +2379,23 @@ msgstr "Ложь"
 
 #: src/TypeBrowser.tsx
 msgid "Field mappings"
-msgstr ""
+msgstr "Сопоставления полей"
 
 #: src/type-contracts.ts
 msgid "Field mappings must be a YAML object."
-msgstr ""
+msgstr "Сопоставления полей должны быть объектом YAML."
 
 #: src/TypeBrowser.tsx
 msgid "Field name"
-msgstr ""
+msgstr "Имя поля"
 
 #: src/TypeBrowser.tsx
 msgid "Field selectors with an unsupported value"
-msgstr ""
+msgstr "Селекторы полей с неподдерживаемым значением"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Field type"
-msgstr ""
+msgstr "Тип поля"
 
 #: src/TypeBrowser.tsx
 msgid "Fields"
@@ -2403,20 +2403,20 @@ msgstr "Поля"
 
 #: src/TypeBrowser.tsx
 msgid "Fields added"
-msgstr ""
+msgstr "Добавленные поля"
 
 #: src/TypeBrowser.tsx
 msgid "Fields changed"
-msgstr ""
+msgstr "Изменённые поля"
 
 #: src/TypeBrowser.tsx
 msgid "Fields removed"
-msgstr ""
+msgstr "Удалённые поля"
 
 #. placeholder {0}: file.path
 #: src/code-editor-completions.ts
 msgid "File · {0}"
-msgstr ""
+msgstr "Файл · {0}"
 
 #: src/NewNoteComposer.tsx
 msgid "File path"
@@ -2424,77 +2424,77 @@ msgstr "Путь к файлу"
 
 #: src/FileViewer.tsx
 msgid "File viewer, {filename}"
-msgstr ""
+msgstr "Просмотр файла: {filename}"
 
 #: src/NewNoteComposer.tsx
 msgid "Fill in the required properties."
-msgstr ""
+msgstr "Заполните обязательные свойства."
 
 #: src/code-editor-completions.ts
 msgid "Filter links by type"
-msgstr ""
+msgstr "Фильтровать ссылки по типу"
 
 #: src/QuickOpen.tsx
 msgid "Find a note by title or path, or type > for actions"
-msgstr ""
+msgstr "Найдите заметку по названию или пути либо введите > для действий"
 
 #: src/QuickOpen.tsx
 msgid "Find a note or action"
-msgstr ""
+msgstr "Найдите заметку или действие"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Find a property"
-msgstr ""
+msgstr "Найти свойство"
 
 #: src/QuickOpen.tsx
 msgid "Find in note"
-msgstr ""
+msgstr "Найти в заметке"
 
 #: src/WorkspaceChrome.tsx
 msgid "Find linked notes"
-msgstr ""
+msgstr "Найти связанные заметки"
 
 #: src/CollectionRail.tsx
 msgid "Finding folders…"
-msgstr ""
+msgstr "Поиск папок…"
 
 #. placeholder {0}: pack.displayName
 #: src/TypeBrowser.tsx
 msgid "Finish adding {0}"
-msgstr ""
+msgstr "Завершить добавление {0}"
 
 #: src/NewNoteComposer.tsx
 msgid "First note"
-msgstr ""
+msgstr "Первая заметка"
 
 #: src/PropertiesPanel.tsx
 msgid "Fix invalid fields to continue saving"
-msgstr ""
+msgstr "Исправьте недопустимые поля для продолжения сохранения"
 
 #: src/TypeBrowser.tsx
 msgid "Fix mapping"
-msgstr ""
+msgstr "Исправить сопоставление"
 
 #: src/NewNoteComposer.tsx
 msgid "Fix the highlighted property values."
-msgstr ""
+msgstr "Исправьте выделенные значения свойств."
 
 #: src/PropertiesPanel.tsx
 msgid "Fix the JSON to continue saving"
-msgstr ""
+msgstr "Исправьте JSON для продолжения сохранения"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Fix the JSON value before saving."
-msgstr ""
+msgstr "Исправьте значение JSON перед сохранением."
 
 #: src/TypeBrowser.tsx
 msgid "Fix the YAML source before returning to the field editor."
-msgstr ""
+msgstr "Исправьте исходный YAML, прежде чем вернуться к редактору полей."
 
 #: src/App.tsx
 #: src/editor-commands.ts
 msgid "Focus mode"
-msgstr ""
+msgstr "Режим сосредоточения"
 
 #: src/TypeBrowser.tsx
 msgid "Folder"
@@ -2503,135 +2503,135 @@ msgstr "Папка"
 #. placeholder {0}: filter.value
 #: src/note-list-view.ts
 msgid "Folder · {0}"
-msgstr ""
+msgstr "Папка · {0}"
 
 #: src/FolderChangeDialog.tsx
 msgid "Folder change complete"
-msgstr ""
+msgstr "Изменение папки завершено"
 
 #: src/FolderChangeDialog.tsx
 msgid "Folder change needs attention"
-msgstr ""
+msgstr "Изменение папки требует внимания"
 
 #. placeholder {0}: gatewayError(error)
 #: src/App.tsx
 msgid "Folder changes were applied, but refreshing the index failed. {0}"
-msgstr ""
+msgstr "Изменения папки применены, но обновить индекс не удалось. {0}"
 
 #: src/FolderChangeDialog.tsx
 #: src/NewNoteComposer.tsx
 msgid "Folder name"
-msgstr ""
+msgstr "Имя папки"
 
 #: src/CollectionRail.tsx
 msgid "folder path"
-msgstr ""
+msgstr "путь к папке"
 
 #: src/CollectionRail.tsx
 msgid "Folders"
-msgstr ""
+msgstr "Папки"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Follow the system appearance or keep a theme in this browser."
-msgstr ""
+msgstr "Используйте оформление системы или закрепите тему в этом браузере."
 
 #: src/TypeBrowser.tsx
 msgid "For integrations and specialised setups"
-msgstr ""
+msgstr "Для интеграций и специальных настроек"
 
 #: src/App.tsx
 msgid "Forget “{name}” from this browser?"
-msgstr ""
+msgstr "Забыть «{name}» в этом браузере?"
 
 #: src/App.tsx
 #: src/ConnectionScreens.tsx
 msgid "Forget from this browser"
-msgstr ""
+msgstr "Забыть в этом браузере"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Forget from this browser"
-msgstr ""
+msgstr "Забыть в этом браузере"
 
 #: src/TypeBrowser.tsx
 msgid "Format"
-msgstr ""
+msgstr "Формат"
 
 #: src/App.tsx
 msgid "Forward in note history"
-msgstr ""
+msgstr "Вперёд по истории заметок"
 
 #: src/App.tsx
 msgid "Forward to {historyForwardPath} · Alt+Right"
-msgstr ""
+msgstr "Вперёд к {historyForwardPath} · Alt+Right"
 
 #. placeholder {0}: catalog.publisher.name
 #: src/TypeBrowser.tsx
 msgid "From {0}"
-msgstr ""
+msgstr "Из {0}"
 
 #. placeholder {0}: plan.from
 #. placeholder {1}: plan.to
 #: src/FolderChangeDialog.tsx
 msgid "From <0>{0}</0> to <1>{1}</1>. This changes paths across the collection, including subfolders."
-msgstr ""
+msgstr "Из <0>{0}</0> в <1>{1}</1>. Это изменит пути во всей коллекции, включая вложенные папки."
 
 #: src/TypeBrowser.tsx
 msgid "Frontmatter contains all"
-msgstr ""
+msgstr "Метаданные содержат все поля"
 
 #: src/PropertiesPanel.tsx
 msgid "Frontmatter must be a JSON object."
-msgstr ""
+msgstr "Метаданные должны быть объектом JSON."
 
 #: src/TypeBrowser.tsx
 msgid "Future file paths may change"
-msgstr ""
+msgstr "Будущие пути к файлам могут измениться"
 
 #: src/TypeBrowser.tsx
 msgid "Gains"
-msgstr ""
+msgstr "Получат тип"
 
 #: src/TypeBrowser.tsx
 msgid "Generated path ownership"
-msgstr ""
+msgstr "Принадлежность создаваемых путей"
 
 #: src/SdkEditorRoot.tsx
 msgid "Getting this collection ready…"
-msgstr ""
+msgstr "Подготовка коллекции…"
 
 #: src/TypeBrowser.tsx
 msgid "Give the type a name, then add the fields its notes need."
-msgstr ""
+msgstr "Назовите тип, затем добавьте поля, необходимые его заметкам."
 
 #: src/TypeBrowser.tsx
 msgid "Guide compatible tools when they create or rename records of this type."
-msgstr ""
+msgstr "Укажите совместимым инструментам, как создавать и переименовывать записи этого типа."
 
 #: src/code-editor-completions.ts
 msgid "Heading 1"
-msgstr ""
+msgstr "Заголовок 1"
 
 #: src/code-editor-completions.ts
 msgid "Heading 2"
-msgstr ""
+msgstr "Заголовок 2"
 
 #: src/code-editor-completions.ts
 msgid "Heading 3"
-msgstr ""
+msgstr "Заголовок 3"
 
 #: src/EditorRail.tsx
 msgid "Hide collections sidebar"
-msgstr ""
+msgstr "Скрыть боковую панель коллекций"
 
 #: src/App.tsx
 msgid "Hide notes sidebar"
-msgstr ""
+msgstr "Скрыть боковую панель заметок"
 
 #: src/App.tsx
 msgid "Hide types sidebar"
-msgstr ""
+msgstr "Скрыть боковую панель типов"
 
 #: src/settings/SettingsView.tsx
 msgctxt "connection route"
@@ -2640,15 +2640,15 @@ msgstr "Размещено в mdbase"
 
 #: src/TypeBrowser.tsx
 msgid "How notes are assigned to this type."
-msgstr ""
+msgstr "Как заметки относятся к этому типу."
 
 #: src/TypeBrowser.tsx
 msgid "How this type appears and behaves across compatible tools."
-msgstr ""
+msgstr "Как этот тип выглядит и работает в совместимых инструментах."
 
 #: src/TypeBrowser.tsx
 msgid "Icon"
-msgstr ""
+msgstr "Значок"
 
 #: src/TypeBrowser.tsx
 msgid "Identity"
@@ -2656,67 +2656,67 @@ msgstr "Личность"
 
 #: src/TypeBrowser.tsx
 msgid "Impact is based on the currently indexed notes. The collection validates the complete definition when you confirm."
-msgstr ""
+msgstr "Оценка влияния основана на заметках в текущем индексе. При подтверждении коллекция проверит полное определение."
 
 #. placeholder {0}: contract.id
 #. placeholder {1}: contract.version
 #: src/type-contracts.ts
 msgid "Implements {0} {1}."
-msgstr ""
+msgstr "Реализует {0} {1}."
 
 #: src/editor-commands.ts
 msgid "in the list"
-msgstr ""
+msgstr "в списке"
 
 #: src/type-contracts.ts
 msgid "Incompatible"
-msgstr ""
+msgstr "Несовместимо"
 
 #: src/code-editor-completions.ts
 msgid "Insert a fenced code block"
-msgstr ""
+msgstr "Вставить ограждённый блок кода"
 
 #: src/code-editor-completions.ts
 msgid "Insert a Markdown table"
-msgstr ""
+msgstr "Вставить таблицу Markdown"
 
 #: src/code-editor-completions.ts
 msgid "Insert an internal link"
-msgstr ""
+msgstr "Вставить внутреннюю ссылку"
 
 #: src/ConnectionScreens.tsx
 msgid "inspect the collection"
-msgstr ""
+msgstr "просматривать коллекцию"
 
 #: src/TypeBrowser.tsx
 msgid "Install runtime pack"
-msgstr ""
+msgstr "Установить пакет среды выполнения"
 
 #: src/TypeBrowser.tsx
 msgid "Installed"
-msgstr ""
+msgstr "Установлено"
 
 #: src/TypeBrowser.tsx
 msgid "Installed contract"
-msgstr ""
+msgstr "Установленный контракт"
 
 #: src/TypeBrowser.tsx
 msgid "Installing…"
-msgstr ""
+msgstr "Установка…"
 
 #: src/type-presentation.ts
 msgid "integer"
-msgstr ""
+msgstr "целое число"
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "Integer"
-msgstr ""
+msgstr "Целое число"
 
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Integer"
-msgstr ""
+msgstr "Целое число"
 
 #: src/i18n/LanguageSetting.tsx
 msgctxt "editor language preference"
@@ -2725,42 +2725,42 @@ msgstr "Язык интерфейса"
 
 #: src/type-contracts.ts
 msgid "invalid JSON Schema"
-msgstr ""
+msgstr "недопустимая JSON Schema"
 
 #: src/PropertiesPanel.tsx
 #: src/SchemaValueEditor.tsx
 msgid "Invalid JSON."
-msgstr ""
+msgstr "Недопустимый JSON."
 
 #: src/YourPersonPanel.tsx
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
-msgstr ""
+msgstr "С момента добавления запись не редактировалась, поэтому она будет заменена новой начальной записью."
 
 #: src/TypeBrowser.tsx
 msgid "Its current structural rules will be replaced."
-msgstr ""
+msgstr "Её текущие структурные правила будут заменены."
 
 #: src/TypeBrowser.tsx
 msgid "Journal/**/*.md"
-msgstr ""
+msgstr "Journal/**/*.md"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Keep Markdown visible within the writing measure."
-msgstr ""
+msgstr "Сохранять Markdown видимым в области набора текста."
 
 #: src/ConflictResolver.tsx
 msgid "Keep my edits"
-msgstr ""
+msgstr "Сохранить мои правки"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Keep the caret line centred while writing in focus mode."
-msgstr ""
+msgstr "Удерживать строку с курсором по центру во время работы в режиме сосредоточения."
 
 #: src/SchemaValueEditor.tsx
 msgid "Key"
-msgstr ""
+msgstr "Ключ"
 
 #: src/editor-commands.ts
 msgid "Keyboard shortcuts"
