@@ -23,8 +23,8 @@ format. Ordinary package-only development builds permit Lingui's fallback while
 authoring; they do **not** certify translation completeness. Release validation
 must run the root strict checks first. No translation service or CI authoring.
 
-The owned package commands invoke the kit CLI file directly until the kit's
-workspace-bin realpath guard is fixed upstream; no validation is bypassed.
+Package commands use the kit\'s unconditional `mdbase-i18n` bin entry (fixed in
+kit b4134d71), including real npm/workspace symlinks; no adapter is needed.
 
 ## Runtime
 

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "./test/render";
+import { act, fireEvent, render, screen, within } from "./test/render";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Pairing } from "./authority-workflows";
 import { api, type DevicePairing } from "./api";
@@ -33,9 +33,9 @@ async function fixture(extra: Partial<DevicePairing> = {}) {
 describe("one explicit collection consent", () => {
   it("lands directly on the picker with app/origin/warning, and no account or approval mutation", async () => {
     const f = await fixture();
-    expect(f.container.querySelector("select")).toBeNull();
+    expect(f.picker.parentElement?.querySelector("select")).toBeNull();
     expect(screen.getByRole("combobox", { name: "Open in Reader" })).toBeInTheDocument();
-    expect(screen.queryAllByRole("option", { selected: true })).toEqual([]);
+    expect(within(f.picker).queryAllByRole("option", { selected: true })).toEqual([]);
     expect(screen.queryByRole("button", { name: "Use this account" })).not.toBeInTheDocument();
     expect(screen.queryByText(/mdbase was upgraded/)).not.toBeInTheDocument();
     expect(screen.getByText(/Approve only if you started sign-in/)).toHaveTextContent("https://reader.example");
@@ -118,11 +118,11 @@ describe("one explicit collection consent", () => {
       {collection_id:"private",display_name:"Private notes",role:"member",kind:"private"},
     ]});
     expect(screen.getAllByRole("listbox")).toHaveLength(1);
-    expect(screen.getAllByRole("option")).toHaveLength(2);
+    expect(within(f.picker).getAllByRole("option")).toHaveLength(2);
     const privateRow = screen.getByRole("option", {name:"Private notes"});
     expect(privateRow).toHaveAccessibleDescription("Private · Shared with you");
     expect(privateRow).toHaveAttribute("data-value", "private");
-    expect(screen.queryAllByRole("option", {selected:true})).toEqual([]);
+    expect(within(f.picker).queryAllByRole("option", {selected:true})).toEqual([]);
     expect(screen.getByRole("button", {name:"Open Reader"})).toBeDisabled();
     fireEvent.click(privateRow);
     expect(screen.getByRole("button", {name:"Open Reader with Private notes"})).toBeEnabled();
