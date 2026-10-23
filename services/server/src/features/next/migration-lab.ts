@@ -28,7 +28,7 @@ import { audit } from "../../platform/audit-events.js";
 import { flipEvidenceDigest } from "./account-backend-flip.js";
 import { inTransaction } from "./bootstrap-common.js";
 import { SCOPED_HOSTED_ARCHIVE_SCHEMA } from "./migration-archive-profile.js";
-import { BINDING, bindManagedRun, latchPhase, latchRefused, lockManagedAccount, type ManagedRun, type PhaseLatch, readIntents,
+import { BINDING, bindManagedRun, latchPhase, latchRefused, latchUnboundRouteBack, lockManagedAccount, type ManagedRun, type PhaseLatch, readIntents,
   readManagedRun, readPhaseLatch, readQuietIntents, recordedStartContract, requireBoundHeldSet, WORKER_INTENT } from "./migration-managed-ledger.js";
 import { claim } from "./migration-provider.js";
 import { unfenceUndispatched } from "./migration-replicas.js";
@@ -145,8 +145,9 @@ export interface LabConnect {
   bindRun?(account: string, collections: readonly string[], hold: string, operatorStopBeforeFlip: boolean): Promise<void>;
   claimWorkerRun?(account: string, collection: string): Promise<boolean>;
   /** The account's one-way phase latch (migration-managed-ledger.ts), committed before the first resume or rollback. */
-  latchPhase?(account: string, phase: PhaseLatch): Promise<void>;
-  /** Route-back of a member no Worker run fenced: the canonical started-claim unfence (none when active). */ unfence?(account: string, collection: string): Promise<void>;
+  latchPhase?(account: string, phase: PhaseLatch, collections?: readonly string[]): Promise<void>;
+  /** Route-back of a source no Worker run unfenced: the canonical started-claim unfence of the ORIGINAL archive fence. */
+  unfence?(account: string, collection: string): Promise<void>;
   /** Canonical SHADOW/device/genesis bootstrap BEFORE Worker ready() custody. */
   prepareTarget(collection: string): Promise<void>;
   importTimers(collection: string): Promise<unknown>;
@@ -342,6 +343,7 @@ export function postgresLabConnect(options: {
         if (latch) throw latchRefused(latch);
         const run = await readManagedRun(client, account);
         if (!run?.collections.includes(collection)) throw new RolloutRefused("managed_run_missing", "No original run binding for this collection.");
+        await requireBoundHeldSet(client, account, run);
         const current = await claim(client, collection, true);
         if (current.account !== account || current.started_us !== run.started_us) throw new RolloutRefused("migration_source_changed", "The original migration claim changed.");
         const prior = await client.query("SELECT 1 FROM audit_events WHERE user_id=$1 AND subject_id=$2 AND event_type=$3", [account, collection, WORKER_INTENT]);
@@ -355,16 +357,17 @@ export function postgresLabConnect(options: {
         return true;
       });
     },
-    async latchPhase(account, phase) {
+    async latchPhase(account, phase, collections) {
       await inTransaction(db, async client => {
         await lockManagedAccount(client, account, deployment);
         const run = await readManagedRun(client, account);
+        if (!run && phase === "route_back" && collections) return latchUnboundRouteBack(client, account, collections);
         if (!run) throw new RolloutRefused("managed_run_missing", "No original run binding for this account.");
         if (phase === "cutover") await requireBoundHeldSet(client, account, run);
         await latchPhase(client, account, phase, run);
       });
     },
-    unfence: (account, collection) => unfenceUndispatched(db, provider, account, collection),
+    unfence: (account, collection) => unfenceUndispatched(db, provider, account, collection, options.environment),
     async prepareTarget(collection) {
       // A routed-but-not-flipped rerun already has its recorded NEXT target.
       // Do not re-enter the pre-cutover creator or replace its service keys.
@@ -843,14 +846,10 @@ export async function resumeLab(account: string, deps: LabDeps): Promise<LabOutc
   return driveLabRun(account, before.status.run!.backup_hold, pre, deps, true);
 }
 
-/**
- * rollback → resolve a lost rollback reply from the receipt → timer cleanup → (fixture
- * job only) restart with the expected run sequence and wait for the re-fence. A managed
- * account is inspected whole before any mutation: no phase 2 latch, nothing resumed or at cutover
- * intent; an intent with no run stays UNKNOWN until quiet, then counts as never dispatched. The latch
- * commits (the CP fence refuses from then on) and the account is re-inspected (fresh) before every
- * dispatched member is rolled back and every other one unfenced: it stays legacy for post-bulk follow-up.
- */
+/** rollback → resolve a lost rollback reply from the receipt → timer cleanup → (fixture job only) restart with the
+ * expected run sequence and wait for the re-fence. A managed account is inspected whole first: no phase 2 latch, nothing
+ * resumed or at cutover intent; an intent with no run is UNKNOWN until quiet. After the latch (the CP fence refuses from
+ * then on) and a fresh re-inspection, it is done only with EVERY source verified active; it stays legacy for follow-up. */
 export async function routeBack(account: string, deps: LabDeps): Promise<LabOutcome> {
   const cmd = commands(account);
   const stop = (step: string, reason: string, error?: unknown): { stopped: LabStop } => ({ stopped: { step, reason, inspect: cmd.inspect, resume: cmd.routeBack,
@@ -898,7 +897,7 @@ export async function routeBack(account: string, deps: LabDeps): Promise<LabOutc
     // Latch before the first rollback, then re-inspect: no dispatch intent or resume can begin after it.
     try {
       if (!deps.connect.latchPhase) throw new Error("Managed run ledger unavailable.");
-      await deps.connect.latchPhase(account, "route_back");
+      await deps.connect.latchPhase(account, "route_back", managed.collections);
       const latched = await deps.connect.preflight(account);
       if (!("job" in latched)) throw new RolloutRefused("start_profile_invalid", "The recorded start changed.");
       managed = latched;
@@ -914,15 +913,15 @@ export async function routeBack(account: string, deps: LabDeps): Promise<LabOutc
   // continue, and a scoped archive's original fence is never taken again. Sources end active.
   const results: Record<string, unknown>[] = [];
   for (const { collection, dispatched } of plan) {
-    if (!dispatched) {
+    const rolled = dispatched ? await routeBackCollection(account, collection, { ...deps,
+      log: event => deps.log?.({ ...event, collection_id: collection }) }, false) : { done: { collection_id: collection, not_dispatched: true } };
+    if ("stopped" in rolled) return { stopped: { ...rolled.stopped, collection_id: collection, collection_ids: managed.collections } };
+    // Never dispatched, or a run that rolled back before its Fence (no Unfence): restore the original fence.
+    if (rolled.done.legacy_verified !== true) {
       try { if (!deps.connect.unfence) throw new Error("Managed run ledger unavailable."); await deps.connect.unfence(account, collection); }
       catch (error) { return { stopped: { ...stop("unfence", codeOf(error), error).stopped, collection_id: collection, collection_ids: managed.collections } }; }
-      results.push({ collection_id: collection, not_dispatched: true, legacy_verified: true }); continue;
     }
-    const result = await routeBackCollection(account, collection, { ...deps,
-      log: event => deps.log?.({ ...event, collection_id: collection }) }, false);
-    if ("stopped" in result) return { stopped: { ...result.stopped, collection_id: collection, collection_ids: managed.collections } };
-    results.push(result.done);
+    results.push({ ...rolled.done, legacy_verified: true });
   }
   return { done: { account_id: account, collection_ids: managed.collections, collections: results, not_dispatched: notDispatched,
     disposition: "legacy_post_bulk_follow_up" } };

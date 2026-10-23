@@ -27,9 +27,10 @@ import { safeEqual } from "../../security.js";
 import { CreateError, inTransaction } from "./bootstrap-common.js";
 import type { LogServiceClient } from "./log-service-client.js";
 import { migrationMemberPlan, queueMigrationMembers } from "./migration-members.js";
-import { claim } from "./migration-provider.js";
+import { claim, originalArchiveFence } from "./migration-provider.js";
 import { migrationServiceRateLimit } from "./migration-rate-limit.js";
 import { RolloutRefused } from "./migration-rollout.js";
+import { requireOriginalArchiveSource } from "./migration-scoped-archive.js";
 import { queueNextPolicy, type PolicyEmitter } from "./policy-outbox.js";
 import { existingCloudCopy } from "./service-cloud-copy.js";
 import { domainHash, encodeCbor, uuidBytes } from "./policy-wire.js";
@@ -182,20 +183,25 @@ async function step(kind: Kind, collection: string, body: Record<string, unknown
   });
 }
 
-/** Route-back of a held member no Worker run fenced (a scoped archive's original fence):
- * the canonical started-claim unfence of the provider's current fenced run. A source
- * already active needs nothing; a cut-over source is never on a fenced run. */
+/** Route-back of a source no Worker run unfenced (never dispatched, or rolled back before its
+ * Fence): the canonical started-claim unfence, bound to the accepted ORIGINAL archive fence and
+ * never to an observed run. An active source must be exactly settled (its head may have moved). */
 export async function unfenceUndispatched(db: DatabasePool, provider: Pick<Provider, "legacyMigrationDrain">
-  & Partial<Pick<Provider, "legacyMigrationRevokedReplicas" | "legacyMigrationUnfence">>, account: string, collection: string): Promise<void> {
+  & Pick<HostedProviderClient, "legacyMigrationSource"> & Partial<Pick<Provider, "legacyMigrationRevokedReplicas" | "legacyMigrationUnfence">>, account: string, collection: string,
+  environment?: string): Promise<void> {
   if (!provider.legacyMigrationRevokedReplicas || !provider.legacyMigrationUnfence) throw new RolloutRefused("migration_source_unavailable", "The legacy provider cannot unfence.", 503);
   const current = await claim(db, collection);
   if (current.account !== account) throw new RolloutRefused("migration_claim_not_current", "The presented migration claim is not current.");
-  const source = await provider.legacyMigrationDrain(collection, { deadline: Date.now() + 25_000 });
-  if (source.state === "active") return;
-  if (!source.migration_id) throw new RolloutRefused("migration_run_not_current", "The provider run is not the presented fenced run.");
-  // The unfence step calls only these three provider methods.
-  await step("unfence", collection, { owner_account: account, started_us: current.started_us, migration_id: source.migration_id },
-    { db, provider: provider as Provider });
+  const original = await inTransaction(db, client => originalArchiveFence(client, collection, account, current.started_us, environment));
+  const observed = await provider.legacyMigrationSource(collection, { deadline: Date.now() + 25_000 }), source = observed.drain;
+  if (source.collection_id !== collection) throw new RolloutRefused("migration_source_unavailable", "The source identity does not match.", 503);
+  // The settled-active guard of rollback timer cleanup.
+  if (source.state === "active" && source.migration_id == null && source.started_at === null && source.retain_until === null) return;
+  if (!original) throw new RolloutRefused("migration_run_not_current", "No accepted original fence binds this source.");
+  requireOriginalArchiveSource(original, source, observed.notificationWatermark);
+  // The unfence step calls only the drain, revoked-replica and unfence provider methods.
+  await step("unfence", collection, { owner_account: account, started_us: current.started_us, migration_id: original.original.migration_id },
+    { db, provider: (provider as Pick<Provider, "legacyMigrationDrain">) as Provider });
 }
 
 const ROLLBACK_INTENT = "next_migration.rollback_intent", ROLLBACK_DONE = "next_migration.rollback";

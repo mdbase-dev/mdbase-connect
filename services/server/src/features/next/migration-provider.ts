@@ -34,7 +34,7 @@ interface Options {
 /** Called only AFTER the existing started-account claim has been locked. A
  * historic scoped receipt is not allowed to fall back to a fresh physical
  * fence when its current binding/acceptance is missing or stale. */
-async function originalArchiveFence(client: DatabaseQueryable, collection: string, account: string, startedUs: string, environment: string | undefined) {
+export async function originalArchiveFence(client: DatabaseQueryable, collection: string, account: string, startedUs: string, environment: string | undefined) {
   const member = (await client.query<{ cohort: string; scoped: boolean }>(`SELECT m.cohort,
     EXISTS(SELECT 1 FROM next_migration_archive_acceptances a WHERE a.cohort=m.cohort
       AND a.verified_result->>'schema'=$2) AS scoped

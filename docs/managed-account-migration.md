@@ -114,10 +114,11 @@ at the shared barrier: every member paused, timers imported, nothing cut over.
 with `managed_pause_incomplete` and changes nothing, and rerunning `lab-run`
 with the same flag completes the pass. It then imports every member's timers
 (the same idempotent importer) before the cutover latch, so a failed import
-stops before any latch or resume. The cutover latch rechecks, under the account
-lock, that the held set still matches the binding and every member is still
-eligible (`collections_mismatch`, or `collections_unsettled` with each member's
-predicate). Without the flag, `lab-run` crosses the
+stops before any latch or resume. The binding, every dispatch reservation and
+the cutover latch recheck, under the account lock and before they commit, that
+the held set still matches and every member is still eligible
+(`collections_mismatch`, or `collections_unsettled` with each member's
+predicate); the held rows stay share-locked until that commit. Without the flag, `lab-run` crosses the
 barrier itself.
 
 `status` reports every held member, its CP cutover, whether it has a durable
@@ -145,7 +146,17 @@ or added/missing UUIDs).
   stops with `managed_nothing_dispatched` and changes nothing;
 - every other member is rolled back through the Worker's sequence-bound
   rollback (the CP's receipted rollback route), and its imported timers are
-  removed once the legacy source is active again.
+  removed once the legacy source is active again. A run that rolled back before
+  its Fence never unfenced, so its source is then restored like a
+  never-dispatched one.
+
+That unfence is bound to the accepted original archive fence: a still-fenced
+source must be exactly that fence (`migration_archive_source_changed`
+otherwise), and an observed later run is never adopted. An already active source
+must be settled (no run, start or retention), though its head may have moved. A
+scoped account route-back directly after its start, before any binding, latches
+on the recorded start and the exact eligible held set, without inventing a hold
+or binding.
 
 If anything needs restoring (a dispatched member, an intent, or a scoped
 archive, whose sources are fenced since the archive), route-back first commits
@@ -159,7 +170,8 @@ acts. A repeated route-back finds its latch and inspects once.
 
 A managed route-back is terminal for the attempt and never restarts a member: it
 ends with `disposition: "legacy_post_bulk_follow_up"`, the account on legacy and
-every member's source active (rolled back or unfenced). A start whose accepted archive is scoped
+every member's source verified active (rolled back or unfenced); it is never
+done while any source is unverified. A start whose accepted archive is scoped
 (`mdbase-recovery-set/scoped-hosted-v1`) can only ever take its archived original
 fence: once the source is restored the CP refuses it with
 `migration_archive_source_changed`, so a restarted run could never fence again.

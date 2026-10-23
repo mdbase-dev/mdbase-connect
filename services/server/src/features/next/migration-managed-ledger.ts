@@ -39,20 +39,23 @@ export async function readManagedRun(db: DatabaseQueryable, account: string): Pr
  * a later bind must present exactly the original. */
 export async function bindManagedRun(client: DatabaseQueryable, account: string, collections: readonly string[], hold: string,
   operatorStop: boolean): Promise<void> {
-  const member = (await client.query<{ started_us: string }>(
-    `SELECT (extract(epoch FROM started_at)*1000000)::bigint::text AS started_us FROM next_migration_cohort_members
-     WHERE account_id=$1 AND started_at IS NOT NULL AND terminal_excluded_at IS NULL`, [account])).rows[0];
-  if (!member) throw new RolloutRefused("account_not_started", "The account's migration has not started.");
-  const held = (await client.query<{ id: string }>(
-    "SELECT id::text FROM hosted_collections WHERE user_id=$1 AND authority_state<>'transferred' ORDER BY id FOR SHARE", [account])).rows.map(c => c.id);
-  if (held.join() !== collections.join() || new Set(collections).size !== collections.length)
-    throw new RolloutRefused("collections_mismatch", "The managed run must bind the complete distinct held set.");
+  const started_us = await startedUs(client, account);
+  // The same fresh whole-set admission as dispatch and the cutover latch, after the account lock.
+  await requireBoundHeldSet(client, account, { collections });
   const expected = managedRunSchema.parse({ binding: BINDING, collections, backup_hold: hold,
-    operator_stop_before_flip: operatorStop, started_us: member.started_us });
+    operator_stop_before_flip: operatorStop, started_us });
   const original = await readManagedRun(client, account);
   if (original) {
     if (JSON.stringify(original) !== JSON.stringify(expected)) throw new RolloutRefused("managed_run_conflict", "Resume the original collection set, hold and pause intent.");
   } else await audit(client, account, MANAGED_RUN, account, expected);
+}
+
+async function startedUs(client: DatabaseQueryable, account: string): Promise<string> {
+  const member = (await client.query<{ started_us: string }>(
+    `SELECT (extract(epoch FROM started_at)*1000000)::bigint::text AS started_us FROM next_migration_cohort_members
+     WHERE account_id=$1 AND started_at IS NOT NULL AND terminal_excluded_at IS NULL`, [account])).rows[0];
+  if (!member) throw new RolloutRefused("account_not_started", "The account's migration has not started.");
+  return member.started_us;
 }
 
 /** Members with a durable dispatch intent (a read; claimWorkerRun stays authoritative). */
@@ -120,15 +123,16 @@ export async function refuseRoutedBack(client: DatabaseQueryable, account: strin
     "Route-back began; the original run may not fence.", 409, { collection_id: collection, predicate: "route_back_latch" });
 }
 
-/** Under lockManagedAccount, a fresh read before the cutover latch: the started, unexcluded
- * legacy account still holds exactly the bound set, every member settled. */
-export async function requireBoundHeldSet(client: DatabaseQueryable, account: string, run: ManagedRun): Promise<void> {
+/** Under lockManagedAccount, a fresh read before binding, each dispatch and the cutover latch:
+ * the started, unexcluded legacy account still holds exactly the bound set, every member settled.
+ * The held rows stay share-locked until the caller commits (bind's original lock order). */
+export async function requireBoundHeldSet(client: DatabaseQueryable, account: string, run: { collections: readonly string[] }): Promise<void> {
   const rows = (await client.query<{ id: string; predicate: string | null }>(
     `SELECT h.id::text AS id, CASE WHEN u.account_backend<>'legacy' OR m.started_at IS NULL OR m.terminal_excluded_at IS NOT NULL THEN 'account'
        WHEN EXISTS (SELECT 1 FROM next_collection_deletion_facts d WHERE d.collection_id=h.id) THEN 'deleted'
        WHEN h.quarantined_at IS NOT NULL THEN 'quarantined' WHEN h.authority_state<>'active' THEN 'authority_other' END AS predicate
      FROM hosted_collections h JOIN users u ON u.id=h.user_id LEFT JOIN next_migration_cohort_members m ON m.account_id=u.id
-     WHERE h.user_id=$1 AND h.authority_state<>'transferred' ORDER BY h.id`, [account])).rows;
+     WHERE h.user_id=$1 AND h.authority_state<>'transferred' ORDER BY h.id FOR SHARE OF h`, [account])).rows;
   const ids = rows.map(r => r.id);
   if (ids.join() !== run.collections.join()) throw new RolloutRefused("collections_mismatch", "The held set changed since the original run.", 409,
     { added: ids.filter(id => !run.collections.includes(id)), missing: run.collections.filter(id => !ids.includes(id)) });
@@ -141,4 +145,13 @@ export async function latchPhase(client: DatabaseQueryable, account: string, pha
   const current = await readPhaseLatch(client, account);
   if (current && current !== phase) throw latchRefused(current);
   if (!current) await audit(client, account, LATCH[phase], account, { binding: run.binding, backup_hold: run.backup_hold, started_us: run.started_us });
+}
+
+/** Under lockManagedAccount: route-back of a started account never bound (so nothing dispatched)
+ * latches on its recorded start and exact eligible held set. No hold or binding is invented. */
+export async function latchUnboundRouteBack(client: DatabaseQueryable, account: string, collections: readonly string[]): Promise<void> {
+  await requireBoundHeldSet(client, account, { collections });
+  const current = await readPhaseLatch(client, account);
+  if (current === "cutover") throw latchRefused(current);
+  if (!current) await audit(client, account, LATCH.route_back, account, { started_us: await startedUs(client, account), collections });
 }

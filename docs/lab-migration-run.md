@@ -214,8 +214,9 @@ at cutover intent (`migration_post_cutover`) and a dispatch intent with no visib
 run (`worker_run_outcome_unknown`) until that intent is older than 420 s. If anything
 needs restoring, route-back commits its latch, after which the CP refuses every fence
 for the account, and inspects the whole account again before the first rollback.
-Never-dispatched members are then unfenced through the canonical started-claim unfence
-and listed in `not_dispatched`. A managed route-back is terminal for the attempt
+Never-dispatched members, and runs that rolled back before their Fence, are then
+unfenced through the canonical started-claim unfence of the accepted original archive
+fence; never-dispatched members are listed in `not_dispatched`. A managed route-back is terminal for the attempt
 whatever the archive kind: no member is restarted, every legacy source is active, and
 the result carries `disposition: "legacy_post_bulk_follow_up"` instead of a `lab-run`
 command; see
