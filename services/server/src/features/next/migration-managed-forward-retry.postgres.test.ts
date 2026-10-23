@@ -51,7 +51,7 @@ postgres("G4 original-attempt operator retry through canonical CP steps", () => 
   });
 
   async function fixture(fault: "confirm_once" | "lost_confirm" | "permanent" | "timer_import" | "no_manifest" | "lost_worker_route") {
-    const account = randomUUID(), collections = [randomUUID(), randomUUID()].sort(), cohort = `g4-${randomUUID()}`;
+    const account = randomUUID(), collections: string[] = [randomUUID(), randomUUID()].sort(), cohort = `g4-${randomUUID()}`;
     await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Synthetic G4')", [account, `${account}@example.test`]);
     for (const id of collections) await db.query(`INSERT INTO hosted_collections
       (id,user_id,display_name,template,provider_url,authority_state) VALUES($1,$2,'G4','mdbase','https://provider.example','active')`, [id, account]);
@@ -125,7 +125,7 @@ postgres("G4 original-attempt operator retry through canonical CP steps", () => 
         dispatches.push([id, backupHold, pause]);
         expect(runs.has(id)).toBe(false); expect(pause).toBe(true);
         const status: WorkerStatus = { run: { state: "stopped", reason: PAUSE_REASON, backup_hold: backupHold,
-          migration_id: providers.get(id)!.source.migration_id, stop_before_flip: true, resumed_run_sequence: null },
+          migration_id: providers.get(id)!.source.migration_id!, stop_before_flip: true, resumed_run_sequence: null },
           native: { run_sequence: 1, checkpoint: { step: STEP.verified, fenced: true }, outstanding: null } };
         runs.set(id, status); order.push(`pause:${id}`); return ok(structuredClone(status));
       },
@@ -154,7 +154,7 @@ postgres("G4 original-attempt operator retry through canonical CP steps", () => 
               await cutOverCollection(db, provider, id, facts);
               if (++calls === 1) throw new TypeError("synthetic lost canonical Route response");
               return { status: 200, code: null, body: { collection_id: id, account_id: account } };
-            } }) as ReturnType<ConstructorParameters<typeof MigrationExecutor>[0]["connect"]>,
+            } }) as unknown as ReturnType<ConstructorParameters<typeof MigrationExecutor>[0]["connect"]>,
             source: unused, sleep: async () => undefined, now: () => 1
           });
           await executor.wake(new AbortController().signal, { actions: 8, ms: 10_000 });
@@ -292,7 +292,7 @@ describe("G4 real executor Route retry boundary (ledger-faithful native fixture)
         requests++; seen.push([id, value]);
         if (requests === 1) { commits++; throw new TypeError("synthetic lost response"); }
         return { status: 200, code: null, body: { collection_id: id, account_id: native.owner } };
-      } }) as ReturnType<ConstructorParameters<typeof MigrationExecutor>[0]["connect"]>,
+      } }) as unknown as ReturnType<ConstructorParameters<typeof MigrationExecutor>[0]["connect"]>,
       source: async () => { throw new Error("No source read for Route"); }, sleep: async () => undefined, now: () => 1
     });
     const result = await executor.wake(new AbortController().signal, { actions: 8, ms: 10_000 });
