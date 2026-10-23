@@ -1,3 +1,6 @@
+import { t } from "@lingui/core/macro";
+import { Trans } from "@lingui/react/macro";
+import { useLocaleRevision } from "./i18n.js";
 import { useEffect, useRef, useState, useSyncExternalStore, type JSX, type ReactNode, type RefObject } from "react";
 
 import type { MdbaseAppId } from "./apps.js";
@@ -24,6 +27,7 @@ export function OpeningScreen(props: {
   readonly onRetry?: (() => void) | undefined;
   readonly entrance?: "flock" | undefined;
 }): JSX.Element {
+  useLocaleRevision();
   if (props.entrance === "flock" && typeof props.app === "string") return <LaunchScreen {...props} app={props.app} />;
   const { app, title, detail, error, onRetry } = props;
   const Container = props.layout === "panel" ? "div" : "main";
@@ -39,7 +43,7 @@ export function OpeningScreen(props: {
         <p>{error ?? title}</p>
         {!error && detail && <small>{detail}</small>}
       </div>
-      {error && onRetry && <button type="button" className="mdbase-button" onClick={onRetry}>Try again</button>}
+      {error && onRetry && <button type="button" className="mdbase-button" onClick={onRetry}><Trans>Try again</Trans></button>}
     </div>
   </Container>;
 }
@@ -53,6 +57,7 @@ function LaunchScreen({ app, title, detail, error, onRetry }: {
   readonly error?: string | null | undefined;
   readonly onRetry?: (() => void) | undefined;
 }): JSX.Element {
+  useLocaleRevision();
   const markHost = useRef<HTMLSpanElement>(null);
   const { flying, canvas } = useFlockEntrance(markHost);
   return <main
@@ -75,7 +80,7 @@ function LaunchScreen({ app, title, detail, error, onRetry }: {
         <p>{error ?? title}</p>
         {!error && detail && <small>{detail}</small>}
       </div>
-      {error && onRetry && <button type="button" className="mdbase-button" onClick={onRetry}>Try again</button>}
+      {error && onRetry && <button type="button" className="mdbase-button" onClick={onRetry}><Trans>Try again</Trans></button>}
     </div>
     {canvas}
   </main>;
@@ -97,6 +102,7 @@ export function ConnectLayout({ app, title, lead, status, error, detail, footnot
   readonly footnote?: ReactNode | undefined;
   readonly children?: ReactNode | undefined;
 }): JSX.Element {
+  useLocaleRevision();
   return <main className="mdbase-connect-screen">
     <section>
       <Wordmark app={app} motion="assemble" />
@@ -104,7 +110,7 @@ export function ConnectLayout({ app, title, lead, status, error, detail, footnot
       {lead && <p className="mdbase-connect-lead">{lead}</p>}
       {status && status !== error && <p className="mdbase-connect-status" role="status">{status}</p>}
       {error && <p className="mdbase-connect-error" role="alert">{error}</p>}
-      {detail && <details className="mdbase-connect-detail"><summary>Details</summary><code>{detail}</code></details>}
+      {detail && <details className="mdbase-connect-detail"><summary><Trans>Details</Trans></summary><code>{detail}</code></details>}
       {children}
       {footnote && <p className="mdbase-connect-footnote">{footnote}</p>}
     </section>

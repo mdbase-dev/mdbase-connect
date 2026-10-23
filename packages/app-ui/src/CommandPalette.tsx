@@ -1,3 +1,6 @@
+import { t } from "@lingui/core/macro";
+import { Trans } from "@lingui/react/macro";
+import { useLocaleRevision } from "./i18n.js";
 import { Fragment, useEffect, useMemo, useRef, useState, type JSX, type KeyboardEvent } from "react";
 
 export interface Command {
@@ -67,7 +70,7 @@ export function matchingCommands(
  * Find or run anything: every mdbase app opens it with Mod+K. Typing filters commands; the
  * arrows move, Enter runs, Shift+Enter runs a command's alternate, Escape closes.
  */
-export function CommandPalette({ open, commands, onClose, label = "Commands", placeholder = "Search commands", showAll }: {
+export function CommandPalette({ open, commands, onClose, label = t({ message: "Commands" }), placeholder = t({ message: "Search commands" }), showAll }: {
   readonly open: boolean;
   readonly commands: readonly Command[];
   readonly onClose: () => void;
@@ -75,6 +78,7 @@ export function CommandPalette({ open, commands, onClose, label = "Commands", pl
   readonly placeholder?: string | undefined;
   readonly showAll?: readonly string[] | undefined;
 }): JSX.Element | null {
+  useLocaleRevision();
   return open ? <OpenCommandPalette commands={commands} onClose={onClose} label={label} placeholder={placeholder} showAll={showAll} /> : null;
 }
 
@@ -85,6 +89,7 @@ function OpenCommandPalette({ commands, onClose, label, placeholder, showAll }: 
   readonly placeholder: string;
   readonly showAll?: readonly string[] | undefined;
 }): JSX.Element {
+  useLocaleRevision();
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -101,7 +106,7 @@ function OpenCommandPalette({ commands, onClose, label, placeholder, showAll }: 
   };
   const hintId = `${label.replace(/\W+/gu, "-").toLowerCase()}-hint`;
   return <dialog className="mdbase-command-backdrop" open>
-    <button className="mdbase-command-dismiss" type="button" aria-label={`Close ${label.toLowerCase()}`} onClick={onClose} />
+    <button className="mdbase-command-dismiss" type="button" aria-label={t`Close ${label.toLowerCase()}`} onClick={onClose} />
     <section
       ref={paletteRef}
       className="mdbase-command-palette"
@@ -134,7 +139,7 @@ function OpenCommandPalette({ commands, onClose, label, placeholder, showAll }: 
           onKeyDown={(event) => handleKeys(event, matches, active, setActive, run, onClose)}
         />
       </label>
-      <div className="mdbase-command-results" role="listbox" aria-label="Results" aria-describedby={hintId}>
+      <div className="mdbase-command-results" role="listbox" aria-label={t({ message: "Results" })} aria-describedby={hintId}>
         {matches.length > 0
           ? matches.map((command, index) => <Fragment key={command.id}>
             {command.group !== matches[index - 1]?.group
@@ -142,15 +147,15 @@ function OpenCommandPalette({ commands, onClose, label, placeholder, showAll }: 
               : null}
             <CommandRow command={command} active={index === active} onRun={run} />
           </Fragment>)
-          : <div className="mdbase-command-empty">Nothing matches</div>}
+          : <div className="mdbase-command-empty"><Trans>Nothing matches</Trans></div>}
       </div>
       <footer className="mdbase-command-footer" id={hintId}>
-        <span><kbd>↑</kbd><kbd>↓</kbd> to move</span>
-        <span><kbd>↵</kbd> to open</span>
+        <span><kbd>↑</kbd><kbd>↓</kbd>  <Trans>to move</Trans></span>
+        <span><kbd>↵</kbd>  <Trans>to open</Trans></span>
         {matches[active]?.alternate
           ? <span><kbd>{shortcutLabel("shift")}</kbd><kbd>↵</kbd> {matches[active].alternate.label.toLocaleLowerCase()}</span>
           : null}
-        <span><kbd>Esc</kbd> to close</span>
+        <span><kbd><Trans>Esc</Trans></kbd>  <Trans>to close</Trans></span>
       </footer>
     </section>
   </dialog>;
@@ -176,6 +181,7 @@ function CommandRow({ command, active, onRun }: {
   readonly active: boolean;
   readonly onRun: (command: Command, alternate?: boolean) => void;
 }): JSX.Element {
+  useLocaleRevision();
   const ref = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (active) ref.current?.scrollIntoView({ block: "nearest" });
