@@ -50,27 +50,27 @@ msgstr "{0, plural, other {# 项未解决的冲突}}"
 #. placeholder {0}: device.kind
 #: src/renderer/device-requests.tsx
 msgid "{0, select, desktop {A new computer wants to open {name}} mobile {A new phone wants to open {name}} other {A new device wants to open {name}}}"
-msgstr ""
+msgstr "{0, select, desktop {一台新电脑请求打开 {name}} mobile {一部新手机请求打开 {name}} other {一台新设备请求打开 {name}}}"
 
 #. placeholder {0}: device.kind
 #: src/renderer/device-requests.tsx
 msgid "{0, select, desktop {Enter the six-digit code shown on the new computer} mobile {Enter the six-digit code shown on the new phone} other {Enter the six-digit code shown on the new device}}"
-msgstr ""
+msgstr "{0, select, desktop {请输入新电脑上显示的六位代码} mobile {请输入新手机上显示的六位代码} other {请输入新设备上显示的六位代码}}"
 
 #. placeholder {0}: device.kind
 #: src/renderer/device-requests.tsx
 msgid "{0, select, desktop {That code does not match. Check the code on the new computer. If you did not start this, decline.} mobile {That code does not match. Check the code on the new phone. If you did not start this, decline.} other {That code does not match. Check the code on the new device. If you did not start this, decline.}}"
-msgstr ""
+msgstr "{0, select, desktop {代码不匹配。请核对新电脑上的代码。如果这不是你发起的请求，请拒绝。} mobile {代码不匹配。请核对新手机上的代码。如果这不是你发起的请求，请拒绝。} other {代码不匹配。请核对新设备上的代码。如果这不是你发起的请求，请拒绝。}}"
 
 #. placeholder {0}: device.kind
 #: src/renderer/device-requests.tsx
 msgid "{0, select, desktop {The new computer can now open {name}.} mobile {The new phone can now open {name}.} other {The new device can now open {name}.}}"
-msgstr ""
+msgstr "{0, select, desktop {新电脑现在可以打开 {name}。} mobile {新手机现在可以打开 {name}。} other {新设备现在可以打开 {name}。}}"
 
 #. placeholder {0}: device.kind
 #: src/renderer/device-requests.tsx
 msgid "{0, select, desktop {The new computer was not given access to {name}.} mobile {The new phone was not given access to {name}.} other {The new device was not given access to {name}.}}"
-msgstr ""
+msgstr "{0, select, desktop {新电脑未获得访问 {name} 的权限。} mobile {新手机未获得访问 {name} 的权限。} other {新设备未获得访问 {name} 的权限。}}"
 
 #. placeholder {0}: HOLD_REASONS[hold.reason] ?? hold.reason
 #. placeholder {1}: relativeTime(new Date(hold.since).toISOString())
@@ -412,7 +412,7 @@ msgstr "你批准的应用会通过此电脑访问你的集合"
 
 #: src/renderer/access-view.tsx
 msgid "Apps you used with mdbase Connect appear here once Private sync is on for the {movedWaiting, plural, one {collection} other {collections}} that moved to this computer. mdbase turns it on by itself; you don't need to approve those apps again."
-msgstr "你使用过的 mdbase Connect 应用会在迁移到此电脑的{movedWaiting, plural, other {# 个集合}}开启私有同步后显示在这里。mdbase 会自行开启同步，你无需重新批准这些应用。"
+msgstr "你使用过的 mdbase Connect 应用会在迁移到此电脑的{movedWaiting, plural, other {集合}}开启私有同步后显示在这里。mdbase 会自行开启同步，你无需重新批准这些应用。"
 
 #: src/renderer/main.tsx
 msgid "Ask before new apps connect"
