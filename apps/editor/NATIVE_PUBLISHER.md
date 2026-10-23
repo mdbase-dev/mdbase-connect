@@ -30,6 +30,10 @@ Protected `editor-staging` environment variables:
 The fourth value is the RAW signed asset, not its module, context or receipt.
 Facts digest: `d54aef71521ab3561bd9a81cd1303410a3fde29f8fbd35a1e0041e58d0569de3`.
 Production has no supplied target intake here and refuses; do not reuse Stage.
+The ordinary Editor dependency now uses the original production SDK with beta.141
+trust. The staging packet and its publisher tests are historical inputs, not a
+publishable main candidate: main no longer matches the staging archive hash.
+This dependency pin does not supply a production publisher intake or deployment GO.
 
 ## Build and upload
 
