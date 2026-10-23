@@ -1,3 +1,4 @@
+import { i18n } from "@lingui/core";
 import { displayLocale } from "./i18n/format";
 import { Trans } from "@lingui/react/macro";
 import { t, plural } from "@lingui/core/macro";
@@ -30,7 +31,7 @@ import { ComboboxInput } from "./SelectionControls";
 import { SaveNotice } from "@mdbase-dev/ui/save-notice";
 import { PathLabel } from "./WorkspaceChrome";
 import { useDelayedBusy } from "./use-delayed-busy";
-import { kindLabel, kindName } from "./type-presentation";
+import { kindLabel, kindName, countSummary, collectionBehaviourSummary } from "./type-presentation";
 import { Select, type SelectItems, type SelectOption } from "@mdbase-dev/ui/select";
 import {
   contractCatalogPackStatus,
@@ -233,7 +234,7 @@ export function TypeInspector({ readOnly = false, type, availableTypes = [], con
   const [reviewing, setReviewing] = useState(false);
   const [visualError, setVisualError] = useState<string>();
   const dirty = creating ? source.trim().length > 0 : Boolean(document && source !== document.document);
-  const parsed = useMemo(() => parseVisualType(source), [source]);
+  const parsed = useMemo(() => parseVisualType(source), [source, i18n.locale]);
   const contractState = useMemo(() => {
     if (!parsed.value) return { implementations: [], issues: [] };
     try {
@@ -244,11 +245,11 @@ export function TypeInspector({ readOnly = false, type, availableTypes = [], con
     } catch {
       return { implementations: [], issues: [] };
     }
-  }, [contracts, parsed.value, source, type?.schema]);
+  }, [contracts, parsed.value, source, type?.schema, i18n.locale]);
   const contractErrors = contractState.issues.filter((issue) => issue.level === "error");
   const impact = useMemo(() => parsed.value
     ? typeImpact(document?.document, source, notes, type?.name, explicitTypeKeys)
-    : undefined, [document?.document, explicitTypeKeys.join("\u0000"), notes, parsed.value, source, type?.name]);
+    : undefined, [document?.document, explicitTypeKeys.join("\u0000"), notes, parsed.value, source, type?.name, i18n.locale]);
   useEffect(() => {
     setView("visual");
     setReviewing(false);
@@ -369,9 +370,9 @@ function VisualTypeEditor({ definition, source, impact, typeNames, contracts, ty
     : [];
   const fieldSuggestions = useMemo(
     () => membershipFieldSuggestions(source, typeSchema, notes, explicitTypeKeys),
-    [explicitTypeKeys.join("\u0000"), notes, source, typeSchema]
+    [explicitTypeKeys.join("\u0000"), notes, source, typeSchema, i18n.locale]
   );
-  const pathSuggestions = useMemo(() => membershipPathSuggestions(notes), [notes]);
+  const pathSuggestions = useMemo(() => membershipPathSuggestions(notes), [notes, i18n.locale]);
   useEffect(() => setActiveField(undefined), [definition.name]);
 
   return <div className="visual-type-editor">
@@ -533,14 +534,14 @@ function ContractEditor({ source, contracts, typeSchema, creating, typeNames, is
   onBrowsePacks?: () => void;
 }) {
   useLingui();
-  const implementations = useMemo(() => readTypeContractImplementations(source), [source]);
+  const implementations = useMemo(() => readTypeContractImplementations(source), [source, i18n.locale]);
   const implementedKeys = new Set(implementations.map((implementation) => `${implementation.contract}@${implementation.version}`));
   const available = contracts.filter((contract) => !implementedKeys.has(contractKey(contract)));
   const suggestions = useMemo(
     () => suggestContractsForType(source, contracts, typeSchema).slice(0, 3),
-    [contracts, source, typeSchema]
+    [contracts, source, typeSchema, i18n.locale]
   );
-  const typeFields = useMemo(() => typeFieldsForContracts(source, typeSchema), [source, typeSchema]);
+  const typeFields = useMemo(() => typeFieldsForContracts(source, typeSchema), [source, typeSchema, i18n.locale]);
   const implementationIndexes = new Set(implementations.map((implementation) => implementation.sourceIndex));
   const globalIssues = issues.filter((issue) =>
     issue.implementationIndex === undefined || !implementationIndexes.has(issue.implementationIndex));
@@ -1312,34 +1313,7 @@ function TypeMembershipPreview({ impact, advanced = false, afterUpdate = false }
   </div>;
 }
 
-function collectionBehaviourSummary(definition: VisualTypeDefinition): string {
-  const collection = definition.collection;
-  const displayConfigured = Object.values(collection.display).some(Boolean);
-  const pathConfigured = Boolean(collection.path.pattern || collection.path.folder || collection.path.template);
-  const settings = [
-    displayConfigured ? t`Display` : undefined,
-    countSummary(collection.readDefaults.length, "default"),
-    countSummary(collection.links.length, "link"),
-    countSummary(collection.unique.length, "unique rule"),
-    pathConfigured ? t`Path policy` : undefined,
-    countSummary(collection.advancedKeys.length + collection.path.advancedKeys.length, "YAML setting")
-  ].filter((value): value is string => Boolean(value));
-  return settings.length ? settings.join(" · ") : t`No custom behaviour`;
-}
 
-function countSummary(count: number, kind: "default" | "link" | "unique rule" | "YAML setting" | "field" | "path pattern" | "field selector" | "YAML rule"): string | undefined {
-  if (!count) return undefined;
-  switch (kind) {
-    case "field": return plural(count, { one: "# field", other: "# fields" });
-    case "path pattern": return plural(count, { one: "# path pattern", other: "# path patterns" });
-    case "field selector": return plural(count, { one: "# field selector", other: "# field selectors" });
-    case "YAML rule": return plural(count, { one: "# YAML rule", other: "# YAML rules" });
-    case "default": return plural(count, { one: "# default", other: "# defaults" });
-    case "link": return plural(count, { one: "# link", other: "# links" });
-    case "unique rule": return plural(count, { one: "# unique rule", other: "# unique rules" });
-    case "YAML setting": return plural(count, { one: "# YAML setting", other: "# YAML settings" });
-  }
-}
 
 const FEATURED_PHOSPHOR_ICONS = [
   "note",
@@ -1433,7 +1407,7 @@ function IconPicker({ value, onChange }: {
         return leftStarts - rightStarts || left.length - right.length || left.localeCompare(right);
       })
       .slice(0, 72);
-  }, [query]);
+  }, [query, i18n.locale]);
 
   useEffect(() => setQuery(value), [value]);
   useEffect(() => setActiveIndex(0), [query]);

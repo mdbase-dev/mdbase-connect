@@ -1,3 +1,4 @@
+import { i18n } from "@lingui/core";
 import { displayLocale } from "./i18n/format";
 import { Trans } from "@lingui/react/macro";
 import { t, plural } from "@lingui/core/macro";
@@ -76,9 +77,9 @@ export function NoteList({ entries: sourceEntries, selection, onSelection, selec
   const scrollRef = useRef<HTMLDivElement>(null);
   const revealedEntry = useRef<string | undefined>(undefined);
   const searching = Boolean(searchQuery.trim());
-  const pins = useMemo(() => new Set(!searching && !filter ? pinnedPaths : []), [filter, pinnedPaths, searching]);
-  const entries = useMemo(() => pins.size ? [...sourceEntries.filter((entry) => entry.kind === "note" && pins.has(entry.path)), ...sourceEntries.filter((entry) => entry.kind !== "note" || !pins.has(entry.path))] : sourceEntries, [sourceEntries, pins]);
-  const listItems = useMemo(() => browserListItems(entries, sort, types, undefined, searching, pins), [entries, searching, sort, types, pins]);
+  const pins = useMemo(() => new Set(!searching && !filter ? pinnedPaths : []), [filter, pinnedPaths, searching, i18n.locale]);
+  const entries = useMemo(() => pins.size ? [...sourceEntries.filter((entry) => entry.kind === "note" && pins.has(entry.path)), ...sourceEntries.filter((entry) => entry.kind !== "note" || !pins.has(entry.path))] : sourceEntries, [sourceEntries, pins, i18n.locale]);
+  const listItems = useMemo(() => browserListItems(entries, sort, types, undefined, searching, pins), [entries, searching, sort, types, pins, i18n.locale]);
   const currentSelection = selection ?? { paths: selectedPath ? [selectedPath] : [], anchor: selectedPath, focus: selectedPath };
   const selectedPaths = new Set(currentSelection.paths);
   const focusedPath = currentSelection.focus ?? selectedPath;
@@ -106,12 +107,12 @@ export function NoteList({ entries: sourceEntries, selection, onSelection, selec
   });
   const selectedEntryIndex = useMemo(() => entries.findIndex((entry) => entry.kind === "note"
     ? entry.path === focusedPath && !selectedFilePath
-    : entry.path === selectedFilePath), [entries, selectedFilePath, focusedPath]);
+    : entry.path === selectedFilePath), [entries, selectedFilePath, focusedPath, i18n.locale]);
   const selectedItemId = useMemo(() => {
     if (selectedEntryIndex < 0) return undefined;
     const itemIndex = listItems.findIndex((item) => item.entryIndex === selectedEntryIndex);
     return itemIndex >= 0 ? `note-entry-${itemIndex}` : undefined;
-  }, [listItems, selectedEntryIndex]);
+  }, [listItems, selectedEntryIndex, i18n.locale]);
 
   const openEntry = useCallback((entry: CollectionBrowserEntry, options?: { keyboard?: boolean }) => {
     if (entry.kind === "note") onSelect(entry.note.path, options);

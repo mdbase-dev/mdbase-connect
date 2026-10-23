@@ -1,3 +1,4 @@
+import { i18n } from "@lingui/core";
 import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
@@ -65,7 +66,7 @@ export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType,
     : t`Title`;
   const formSchema = useMemo(
     () => creationFormSchema(type?.schema, displayField),
-    [displayField, type?.schema]
+    [displayField, type?.schema, i18n.locale]
   );
   const schema = schemaShape(formSchema);
   const displayPath = fieldReferencePath(displayField);
@@ -100,7 +101,7 @@ export function NewNoteComposer({ types, defaultFolder, defaultTag, defaultType,
   );
   useEffect(() => onDraftChange?.(hasDraft), [hasDraft, onDraftChange]);
 
-  const defaults = useMemo(() => seededProperties(type, defaultTag), [defaultTag, type]);
+  const defaults = useMemo(() => seededProperties(type, defaultTag), [defaultTag, type, i18n.locale]);
 
   function selectType(nextName: string) {
     const nextType = types.find((candidate) => candidate.name === nextName);

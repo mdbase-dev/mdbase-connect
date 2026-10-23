@@ -1,3 +1,4 @@
+import { i18n } from "@lingui/core";
 import { t } from "@lingui/core/macro";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import type { CollectionFile, NoteSummary } from "./model";
@@ -39,10 +40,10 @@ export function useCollectionBrowserEntries(
     const needle = query.trim().toLocaleLowerCase();
     return files.filter((file) => (!filter || file.path === filter.value || file.path.startsWith(`${filter.value}/`))
       && (!needle || file.path.toLocaleLowerCase().includes(needle)));
-  }, [files, filter, query]);
+  }, [files, filter, query, i18n.locale]);
   const entries = useMemo(
     () => collectionBrowserEntries(notes, visibleFiles, sort, types, Boolean(query.trim())),
-    [notes, query, sort, types, visibleFiles]
+    [notes, query, sort, types, visibleFiles, i18n.locale]
   );
   return { visibleFiles, entries };
 }

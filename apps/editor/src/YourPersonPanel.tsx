@@ -1,3 +1,4 @@
+import { i18n } from "@lingui/core";
 import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
@@ -55,7 +56,7 @@ export function YourPersonPanel({ gateway, description, canCreate, canEdit, canI
   const identity = directory?.account;
   const records = directory?.people;
   const linked = directory?.me.status === "linked" ? directory.me.person : undefined;
-  const properties = useMemo(() => identity && implementation ? newPersonProperties(implementation, identity, identity.name) : {}, [identity, implementation]);
+  const properties = useMemo(() => identity && implementation ? newPersonProperties(implementation, identity, identity.name) : {}, [identity, implementation, i18n.locale]);
   const selectedPerson = records?.find((record) => record.path === path);
   const selectedIsClaimed = Boolean(identity && selectedPerson && claimedByAnotherAccount(selectedPerson, identity));
 

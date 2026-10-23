@@ -1,3 +1,4 @@
+import { i18n } from "@lingui/core";
 import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
@@ -42,11 +43,11 @@ export function QuickOpen({ index, recentPaths, types, commands = [], initialCom
   const commandQuery = (commandMode ? query.trimStart().slice(1) : query).trim();
   const results = useMemo(() => commandMode ? [] : commandQuery
     ? searchNoteResults(index, commandQuery, 12)
-    : recentNotes(index, recentPaths).slice(0, 12), [commandMode, commandQuery, index, recentPaths]);
-  const filteredCommands = useMemo(() => filterCommands(commands, commandQuery), [commands, commandQuery]);
+    : recentNotes(index, recentPaths).slice(0, 12), [commandMode, commandQuery, index, recentPaths, i18n.locale]);
+  const filteredCommands = useMemo(() => filterCommands(commands, commandQuery), [commands, commandQuery, i18n.locale]);
   const showCommands = filteredCommands.length > 0 && (commandMode || !commandQuery || results.length === 0);
   const sections = useMemo(() => buildSections(results, filteredCommands, commandMode, showCommands),
-    [commandMode, filteredCommands, results, showCommands]);
+    [commandMode, filteredCommands, results, showCommands, i18n.locale]);
   const rows = sections.map((section) => section.row);
   useEffect(() => setActiveIndex(0), [query]);
   useEffect(() => {
