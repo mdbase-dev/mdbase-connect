@@ -1,0 +1,33 @@
+/** Fixed CodeMirror lookup keys; preserve literal $ substitution tokens. */
+const phrases: Record<string, string> = {
+  "Control character": "Control character",
+  "Selection deleted": "Selection deleted",
+  "Completions": "Completions",
+  "Folded lines": "Folded lines",
+  "Unfolded lines": "Unfolded lines",
+  "Fold line": "Fold line",
+  "Unfold line": "Unfold line",
+  "folded code": "Folded code",
+  "unfold": "Unfold",
+  "to": "to",
+  "Go to line": "Go to line",
+  "go": "Go",
+  "Find": "Find",
+  "Replace": "Replace",
+  "next": "Next",
+  "previous": "Previous",
+  "all": "All",
+  "match case": "Match case",
+  "regexp": "Regular expression",
+  "by word": "Whole words",
+  "replace": "Replace",
+  "replace all": "Replace all",
+  "close": "Close",
+  "current match": "Current match",
+  "on line": "on line",
+  "replaced match on line $": "Replaced match on line $",
+  "replaced $ matches": "Replaced $ matches",
+  "Diagnostics": "Diagnostics",
+  "No diagnostics": "No diagnostics"
+};
+export default phrases;

@@ -1,0 +1,33 @@
+/** Fixed CodeMirror lookup keys; preserve literal $ substitution tokens. */
+const phrases: Record<string, string> = {
+  "Control character": "제어 문자",
+  "Selection deleted": "선택 영역 삭제됨",
+  "Completions": "자동 완성",
+  "Folded lines": "접힌 줄",
+  "Unfolded lines": "펼친 줄",
+  "Fold line": "줄 접기",
+  "Unfold line": "줄 펼치기",
+  "folded code": "접힌 코드",
+  "unfold": "펼치기",
+  "to": "~",
+  "Go to line": "줄로 이동",
+  "go": "이동",
+  "Find": "찾기",
+  "Replace": "바꾸기",
+  "next": "다음",
+  "previous": "이전",
+  "all": "모두",
+  "match case": "대소문자 구분",
+  "regexp": "정규식",
+  "by word": "단어 단위",
+  "replace": "바꾸기",
+  "replace all": "모두 바꾸기",
+  "close": "닫기",
+  "current match": "현재 일치 항목",
+  "on line": "줄",
+  "replaced match on line $": "$줄의 일치 항목을 바꿨습니다",
+  "replaced $ matches": "일치 항목 $개를 바꿨습니다",
+  "Diagnostics": "진단",
+  "No diagnostics": "진단 없음"
+};
+export default phrases;

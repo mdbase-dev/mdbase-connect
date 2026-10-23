@@ -30,7 +30,8 @@ test("reports every public package absent from the registry", async () => {
   });
 
   assert.deepEqual(missing, ["@mdbase-dev/connect-testing"]);
-  assert.equal(requested.length, 8);
+  assert.equal(requested.length, 9);
+  assert.ok(requested.some((url) => url.endsWith("%40mdbase-dev%2Fi18n")));
 });
 
 test("fails closed when the registry cannot answer authoritatively", async () => {
