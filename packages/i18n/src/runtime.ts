@@ -22,18 +22,40 @@ export interface LocaleStorage {
 }
 /** JSON imports lose compiled tuple types. This is compiler-owned ICU data, not code. */
 export interface Catalogue { messages: object }
-export interface RuntimeOptions {
-  /** Inject the Lingui global singleton when existing core macros target it. */
-  i18n?: I18n;
+export interface CatalogueSource {
   english: Catalogue;
   loadLocale: (locale: Exclude<Locale, "en">) => Promise<Catalogue>;
+}
+/** Stable union: identical generated IDs deduplicate; conflicting values fail closed. */
+export function mergeCatalogues(catalogues: readonly Catalogue[]): Catalogue {
+  const canonical = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(canonical);
+    if (value && typeof value === "object") return Object.fromEntries(
+      Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, value]) => [key, canonical(value)]));
+    return value;
+  };
+  const messages = new Map<string, unknown>();
+  for (const catalogue of catalogues) for (const [id, value] of Object.entries(catalogue.messages)) {
+    const normalized = canonical(value);
+    if (messages.has(id) && JSON.stringify(messages.get(id)) !== JSON.stringify(normalized))
+      throw new Error("Conflicting compiled translation for message ID: " + id);
+    messages.set(id, normalized);
+  }
+  return { messages: Object.fromEntries([...messages].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) };
+}
+export interface RuntimeOptions extends CatalogueSource {
+  /** Inject the Lingui global singleton when existing core macros target it. */
+  i18n?: I18n;
+  /** Libraries own their PO scope and lazy compiled catalogues, never a provider. */
+  libraries?: readonly CatalogueSource[];
   storage?: LocaleStorage;
   preferences?: readonly string[];
   document?: Pick<Document, "documentElement">;
 }
 export function createI18nRuntime(options: RuntimeOptions) {
   const i18n = options.i18n ?? setupI18n();
-  i18n.load("en", options.english.messages as Messages);
+  const sources: readonly CatalogueSource[] = [options, ...(options.libraries ?? [])];
+  i18n.load("en", mergeCatalogues(sources.map((source) => source.english)).messages as Messages);
   i18n.activate("en");
   const document = options.document ?? (typeof globalThis.document === "undefined" ? undefined : globalThis.document);
   let generation = 0;
@@ -50,8 +72,9 @@ export function createI18nRuntime(options: RuntimeOptions) {
   async function activate(locale: Locale, persist: boolean) {
     const request = ++generation;
     if (!loaded.has(locale) && locale !== "en") {
-      const catalogue = await options.loadLocale(locale);
+      const catalogues = await Promise.all(sources.map((source) => source.loadLocale(locale)));
       if (request !== generation) return;
+      const catalogue = mergeCatalogues(catalogues);
       i18n.load(locale, catalogue.messages as Messages);
       loaded.add(locale);
     }
