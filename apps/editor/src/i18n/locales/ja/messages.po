@@ -5341,17 +5341,17 @@ msgstr "これらのプロパティはこのノートの型では記述されて
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "These properties must be persisted before this record is valid."
-msgstr ""
+msgstr "このレコードを有効にするには、これらのプロパティを保存する必要があります。"
 
 #: src/App.tsx
 msgid "This application does not have permission to make that change."
-msgstr ""
+msgstr "このアプリにはその変更を行う権限がありません。"
 
 #. placeholder {0}: conversion.path
 #. placeholder {1}: conversion.typeName
 #: src/YourPersonPanel.tsx
 msgid "This changes only <0>{0}</0> to the <1>{1}</1> type, which implements both Person and Contact. Its contact information and Markdown body are retained. No other contacts or type definitions are changed."
-msgstr ""
+msgstr "変更されるのは<0>{0}</0>だけです。Person と Contact の両方を実装する<1>{1}</1>型になります。連絡先情報と Markdown 本文は保持されます。ほかの連絡先や型定義は変更されません。"
 
 #: src/App.tsx
 msgid "this collection"
@@ -5359,192 +5359,192 @@ msgstr "このコレクション"
 
 #: src/TypeBrowser.tsx
 msgid "This collection has explicit type assignment disabled. Every note is classified by automatic rules."
-msgstr ""
+msgstr "このコレクションでは明示的な型の割り当てが無効です。すべてのノートは自動ルールで分類されます。"
 
 #: src/YourPersonPanel.tsx
 msgid "This collection has no Connect account identity."
-msgstr ""
+msgstr "このコレクションには Connect のアカウント識別情報がありません。"
 
 #: src/TypeBrowser.tsx
 msgid "This collection has no type definitions yet."
-msgstr ""
+msgstr "このコレクションにはまだ型定義がありません。"
 
 #: src/TypeBrowser.tsx
 msgid "This collection has no type definitions."
-msgstr ""
+msgstr "このコレクションには型定義がありません。"
 
 #: src/NoteList.tsx
 msgid "This collection is empty."
-msgstr ""
+msgstr "このコレクションは空です。"
 
 #: src/native-gateway.ts
 #: src/native-note-observation.ts
 #: src/next-editor-records.ts
 msgid "This collection is no longer open in mdbase editor."
-msgstr ""
+msgstr "このコレクションはmdbase editor で開かれていません。"
 
 #: src/gateway.ts
 msgid "This collection needs authorization again. Choose the collection to continue."
-msgstr ""
+msgstr "このコレクションは再認証が必要です。続行するにはコレクションを選択してください。"
 
 #: src/YourPersonPanel.tsx
 msgid "This collection needs person definitions before you can create or link a person record. Nothing will be added without your approval."
-msgstr ""
+msgstr "人物レコードを作成またはリンクする前に、このコレクションには人物の定義が必要です。承認なしに追加されることはありません。"
 
 #: src/person-records.ts
 msgid "This collection uses implicit type selection. Configure the contact's type explicitly in Types before linking."
-msgstr ""
+msgstr "このコレクションでは型を暗黙的に選択します。リンクする前に「型」で連絡先の型を明示的に設定してください。"
 
 #: src/YourPersonPanel.tsx
 msgid "This collection's Person type was not added from a Person starter that can be upgraded automatically, so it has not been changed. "
-msgstr ""
+msgstr "このコレクションの Person 型は、自動でアップグレードできる Person 初期型から追加されたものではないため、変更されていません。 "
 
 #: src/settings/SettingsView.tsx
 msgctxt "connection route"
 msgid "This computer"
-msgstr ""
+msgstr "このコンピューター"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "This computer"
-msgstr ""
+msgstr "このコンピューター"
 
 #: src/person-records.ts
 msgid "This contact has another explicit type. Review its type declarations in the editor first."
-msgstr ""
+msgstr "この連絡先には別の明示的な型があります。まずエディターで型の宣言を確認してください。"
 
 #: src/TypeBrowser.tsx
 msgid "This contract does not expose simple top-level properties. Configure its field references in YAML."
-msgstr ""
+msgstr "この契約は単純な最上位プロパティを公開していません。YAML でフィールド参照を設定してください。"
 
 #: src/use-session-lifecycle.ts
 msgid "This editor session has been closed."
-msgstr ""
+msgstr "このエディターのセッションは終了しました。"
 
 #: src/TypeBrowser.tsx
 msgid "This exact contract is not available in the collection. Restore it or remove the implementation before saving."
-msgstr ""
+msgstr "このコレクションには、指定された正確な契約がありません。保存する前に契約を復元するか、実装を削除してください。"
 
 #: src/gateway.ts
 #: src/native-file-download.ts
 msgid "This file changed. Reload its preview."
-msgstr ""
+msgstr "このファイルが変更されました。プレビューを再読み込みしてください。"
 
 #: src/native-file-download.ts
 msgid "This file exceeds the download limit."
-msgstr ""
+msgstr "このファイルはダウンロードの上限を超えています。"
 
 #: src/native-gateway.ts
 msgid "This file has no native confirmation metadata. Reload its preview."
-msgstr ""
+msgstr "このファイルにはネイティブの確認メタデータがありません。プレビューを再読み込みしてください。"
 
 #: src/gateway.ts
 msgid "This file no longer exists."
-msgstr ""
+msgstr "このファイルはもう存在しません。"
 
 #: src/native-file-download.ts
 #: src/native-gateway.ts
 msgid "This file selection is no longer current."
-msgstr ""
+msgstr "選択されたファイルは現在のものではありません。"
 
 #: src/native-gateway.ts
 msgid "This file upload is not confirmed. Resolve its original operation before trying again."
-msgstr ""
+msgstr "このファイルのアップロードは未確認です。再試行前に元の操作を解決してください。"
 
 #: src/folder-change.ts
 msgid "This folder contains attachments. Moving them cannot yet preserve embedded file references. Move the notes individually instead; attachments will stay in place."
-msgstr ""
+msgstr "このフォルダーには添付ファイルがあります。移動すると埋め込まれたファイル参照を維持できません。ノートを個別に移動してください。添付ファイルは元の場所に残ります。"
 
 #: src/App.tsx
 msgid "This note already moved elsewhere."
-msgstr ""
+msgstr "このノートはすでに別の場所に移動しました。"
 
 #: src/next-editor-records.ts
 msgid "This note change has a conflict. Resolve it before continuing."
-msgstr ""
+msgstr "このノートの変更に競合があります。続行前に解決してください。"
 
 #: src/next-editor-records.ts
 msgid "This note change is not confirmed. Check the interrupted operation before trying again."
-msgstr ""
+msgstr "このノートの変更は未確認です。再試行前に中断された操作を確認してください。"
 
 #: src/next-editor-records.ts
 msgid "This note changed after it was opened. Reload before saving."
-msgstr ""
+msgstr "このノートは開いた後に変更されました。保存前に再読み込みしてください。"
 
 #: src/ConflictResolver.tsx
 msgid "This note changed elsewhere"
-msgstr ""
+msgstr "このノートは別の場所で変更されました"
 
 #: src/use-note-actions.ts
 msgid "This note finished saving after Source was opened. Your source draft is preserved; close and reopen the panel to start from the latest record."
-msgstr ""
+msgstr "「ソース」を開いた後にこのノートの保存が完了しました。ソースの下書きは保持されています。最新版から作業を始めるには、パネルを閉じて開き直してください。"
 
 #. placeholder {0}: reference.anchor
 #: src/code-editor-reference-diagnostics.ts
 msgid "This note has no “{0}” section or block."
-msgstr ""
+msgstr "このノートに「{0}」というセクションまたはブロックはありません。"
 
 #: src/use-note-actions.ts
 msgid "This note moved before the rename check could begin."
-msgstr ""
+msgstr "名前変更の確認を始める前に、このノートが移動されました。"
 
 #: src/use-note-actions.ts
 msgid "This note moved before the rename could begin."
-msgstr ""
+msgstr "名前変更を始める前に、このノートが移動されました。"
 
 #: src/type-contracts.ts
 msgid "This optional contract field is not exposed."
-msgstr ""
+msgstr "この任意の契約フィールドは公開されていません。"
 
 #: src/catalog-pack-installation.tsx
 msgid "This pack conflicts with collection definitions."
-msgstr ""
+msgstr "このパックはコレクションの定義と競合します。"
 
 #: src/use-note-actions.ts
 msgid "This property is not declared by the note’s type."
-msgstr ""
+msgstr "このプロパティはノートの型で宣言されていません。"
 
 #: src/YourPersonPanel.tsx
 msgid "This record is already a person record. Reload these settings."
-msgstr ""
+msgstr "このレコードはすでに人物レコードです。この設定を再読み込みしてください。"
 
 #: src/YourPersonPanel.tsx
 msgid "This record is already linked to another account. Linking it to yours means you will both see its assignments as your own. Only continue if this record really represents you."
-msgstr ""
+msgstr "このレコードはすでに別のアカウントにリンクされています。自分のアカウントにリンクすると、両者に割り当てられた情報がそれぞれ自分のものとして表示されます。このレコードが本当に自分を表す場合のみ続行してください。"
 
 #. placeholder {0}: formatList(conversionImpact)
 #. placeholder {0}: formatList(impact)
 #: src/TypeBrowser.tsx
 msgid "This removes {0}."
-msgstr ""
+msgstr "これにより{0}が削除されます。"
 
 #: src/App.tsx
 msgid "This removes the saved connection from this browser. It does not delete the collection or its files, and it does not revoke mdbase editor’s access in mdbase connect."
-msgstr ""
+msgstr "このブラウザーから保存済みの接続を削除します。コレクションやファイルは削除されず、mdbase connect での mdbase editor のアクセス権も取り消されません。"
 
 #: src/Toasts.tsx
 msgid "This rename was interrupted after it started. Resume it to recover the collection’s authoritative result."
-msgstr ""
+msgstr "この名前変更は開始後に中断されました。再開してコレクションの正本の結果を復元してください。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "This required property is missing."
-msgstr ""
+msgstr "この必須プロパティがありません。"
 
 #: src/code-editor-note-embeds.ts
 msgid "This transcluded note could not be resolved."
-msgstr ""
+msgstr "この埋め込みノートを解決できませんでした。"
 
 #: src/TypeBrowser.tsx
 msgid "This type"
-msgstr ""
+msgstr "この型"
 
 #: src/native-gateway.ts
 msgid "This type changed after it was saved. Reload it before editing again."
-msgstr ""
+msgstr "この型は保存後に変更されました。再び編集する前に再読み込みしてください。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "This value does not match the required format."
-msgstr ""
+msgstr "この値は必須の形式に一致しません。"
 
 #: src/NewNoteComposer.tsx
 msgid "Title"
@@ -5552,15 +5552,15 @@ msgstr "タイトル"
 
 #: src/note-list-view.ts
 msgid "Title A–Z"
-msgstr ""
+msgstr "タイトルの昇順"
 
 #: src/ConflictResolver.tsx
 msgid "Title differences"
-msgstr ""
+msgstr "タイトルの差分"
 
 #: src/NewNoteComposer.tsx
 msgid "Title the first note to create the folder."
-msgstr ""
+msgstr "フォルダーを作成するには、最初のノートにタイトルを付けてください。"
 
 #: src/collection-browser.ts
 msgid "Today"
@@ -5568,36 +5568,36 @@ msgstr "今日"
 
 #: src/editor-commands.ts
 msgid "Toggle Vim key bindings"
-msgstr ""
+msgstr "Vim キーバインドを切り替え"
 
 #. placeholder {0}: file.path
 #: src/code-editor-completions.ts
 msgid "Transclude file · {0}"
-msgstr ""
+msgstr "ファイルを埋め込む · {0}"
 
 #. placeholder {0}: suggestionDetail(suggestion, label)
 #: src/code-editor-completions.ts
 msgid "Transclude note · {0}"
-msgstr ""
+msgstr "ノートを埋め込む · {0}"
 
 #: src/code-editor-completions.ts
 msgid "Transclude note or file"
-msgstr ""
+msgstr "ノートまたはファイルを埋め込む"
 
 #. placeholder {0}: reference.title
 #: src/code-editor-note-embeds.ts
 msgid "Transclusion of {0}"
-msgstr ""
+msgstr "{0}の埋め込み"
 
 #. placeholder {0}: target.trim()
 #: src/code-editor-note-embeds.ts
 msgid "Transclusion: {0}"
-msgstr ""
+msgstr "埋め込み：{0}"
 
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "True"
-msgstr ""
+msgstr "真"
 
 #: src/FileViewer.tsx
 #: src/TypeBrowser.tsx
@@ -5612,92 +5612,92 @@ msgstr "種類"
 #. placeholder {0}: filter.value
 #: src/note-list-view.ts
 msgid "Type · {0}"
-msgstr ""
+msgstr "型 · {0}"
 
 #: src/WorkspaceChrome.tsx
 msgid "Type access"
-msgstr ""
+msgstr "型へのアクセス"
 
 #: src/WorkspaceChrome.tsx
 msgid "Type access needed"
-msgstr ""
+msgstr "型へのアクセスが必要です"
 
 #: src/type-schema.ts
 msgid "Type definitions must declare kind: mdbase.type."
-msgstr ""
+msgstr "型定義には kind: mdbase.type を宣言してください。"
 
 #: src/CodeEditor.tsx
 msgid "Type definitions need a closing --- frontmatter marker."
-msgstr ""
+msgstr "型定義にはフロントマターの終了を示す --- が必要です。"
 
 #: src/CodeEditor.tsx
 #: src/type-contracts.ts
 #: src/type-schema.ts
 msgid "Type definitions need YAML frontmatter between --- markers."
-msgstr ""
+msgstr "型定義には --- で囲まれた YAML フロントマターが必要です。"
 
 #: src/TypeBrowser.tsx
 msgid "Type editor view"
-msgstr ""
+msgstr "型エディターの表示"
 
 #: src/TypeBrowser.tsx
 msgid "Type key"
-msgstr ""
+msgstr "型キー"
 
 #: src/type-schema.ts
 msgid "Type name"
-msgstr ""
+msgstr "型名"
 
 #: src/native-gateway.ts
 msgid "type pack install"
-msgstr ""
+msgstr "型パックをインストール"
 
 #: src/TypeBrowser.tsx
 msgid "Type resources"
-msgstr ""
+msgstr "型のリソース"
 
 #: src/TypeBrowser.tsx
 msgid "Type source differences"
-msgstr ""
+msgstr "型のソースの差分"
 
 #. placeholder {0}: note.types.join(", ")
 #: src/NoteList.tsx
 msgid "Type: {0}"
-msgstr ""
+msgstr "型：{0}"
 
 #. placeholder {0}: filter.value
 #: src/NoteSearchField.tsx
 msgid "type:{0}"
-msgstr ""
+msgstr "type:{0}"
 
 #: src/EditorRail.tsx
 #: src/LoadingScreens.tsx
 #: src/TypeBrowser.tsx
 msgid "Types"
-msgstr ""
+msgstr "型"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Types"
-msgstr ""
+msgstr "型"
 
 #: src/EditorRail.tsx
 msgid "Types ({typeCount})"
-msgstr ""
+msgstr "型（{typeCount}件）"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Types folder"
-msgstr ""
+msgstr "型のフォルダー"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Typewriter scrolling"
-msgstr ""
+msgstr "タイプライター式スクロール"
 
 #: src/collection-browser.ts
 msgid "Undated"
-msgstr ""
+msgstr "日付なし"
 
 #: src/Toasts.tsx
 msgid "Undo"
@@ -5705,185 +5705,185 @@ msgstr "元に戻す"
 
 #: src/Toasts.tsx
 msgid "Undoing"
-msgstr ""
+msgstr "元に戻しています"
 
 #. placeholder {0}: index + 1
 #: src/TypeBrowser.tsx
 msgid "Unique field {0}"
-msgstr ""
+msgstr "一意のフィールド {0}"
 
 #: src/type-schema.ts
 msgid "unique items"
-msgstr ""
+msgstr "一意の項目"
 
 #: src/type-schema.ts
 msgid "unique rules with unsupported values"
-msgstr ""
+msgstr "未対応の値を持つ一意性ルール"
 
 #: src/TypeBrowser.tsx
 msgid "Uniqueness"
-msgstr ""
+msgstr "一意性"
 
 #: src/type-schema.ts
 msgid "Uniqueness rules"
-msgstr ""
+msgstr "一意性ルール"
 
 #. placeholder {0}: mentions.length
 #: src/WorkspaceChrome.tsx
 msgid "Unlinked mentions ({0})"
-msgstr ""
+msgstr "リンクされていないメンション（{0}件）"
 
 #: src/editor-commands.ts
 msgid "Unpin"
-msgstr ""
+msgstr "ピン留めを解除"
 
 #: src/App.tsx
 msgid "Unsaved draft found"
-msgstr ""
+msgstr "未保存の下書きが見つかりました"
 
 #: src/App.tsx
 msgid "Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes."
-msgstr ""
+msgstr "このブラウザーでは未保存の編集をバックアップできません。保存が完了するまで、このタブを開いたままにしてください。"
 
 #: src/App.tsx
 msgid "Unsaved edits from an earlier session are available."
-msgstr ""
+msgstr "以前のセッションで保存されなかった編集があります。"
 
 #: src/App.tsx
 msgid "Unsaved type definition changes will be discarded. Saved note and property changes will finish first."
-msgstr ""
+msgstr "型定義の未保存の変更は破棄されます。保存済みのノートとプロパティの変更は先に完了します。"
 
 #: src/App.tsx
 msgid "Unsaved type or creation changes will be discarded when the new collection opens. Note and property changes will finish saving first."
-msgstr ""
+msgstr "新しいコレクションを開くと、未保存の型または作成途中の変更は破棄されます。ノートとプロパティの変更は先に保存を完了します。"
 
 #: src/App.tsx
 msgid "Unsaved type or creation changes will be discarded."
-msgstr ""
+msgstr "未保存の型または作成途中の変更は破棄されます。"
 
 #: src/ConflictResolver.tsx
 #: src/MarkdownNoteEditor.tsx
 #: src/NewNoteComposer.tsx
 #: src/note.ts
 msgid "Untitled"
-msgstr ""
+msgstr "無題"
 
 #: src/ConnectionScreens.tsx
 msgid "Untitled collection"
-msgstr ""
+msgstr "無題のコレクション"
 
 #: src/TypeBrowser.tsx
 msgid "Unversioned"
-msgstr ""
+msgstr "バージョンなし"
 
 #: src/ConnectionScreens.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Update access"
-msgstr ""
+msgstr "アクセス権を更新"
 
 #. placeholder {0}: accessSummary(missingCapabilities)
 #: src/ConnectionScreens.tsx
 msgid "Update access to {0} in this collection."
-msgstr ""
+msgstr "このコレクションで{0}へのアクセス権を更新します。"
 
 #: src/YourPersonPanel.tsx
 msgid "Update definitions and continue"
-msgstr ""
+msgstr "定義を更新して続行"
 
 #: src/YourPersonPanel.tsx
 msgid "Update the Person type?"
-msgstr ""
+msgstr "Person 型を更新しますか？"
 
 #: src/TypeBrowser.tsx
 msgid "Update this type?"
-msgstr ""
+msgstr "この型を更新しますか？"
 
 #: src/YourPersonPanel.tsx
 msgid "Updating definitions…"
-msgstr ""
+msgstr "定義を更新中…"
 
 #: src/note-mutation-presentation.ts
 msgid "Updating properties"
-msgstr ""
+msgstr "プロパティを更新中"
 
 #: src/YourPersonPanel.tsx
 msgid "upgrade"
-msgstr ""
+msgstr "アップグレード"
 
 #. placeholder {0}: setup.upgrade.target
 #: src/YourPersonPanel.tsx
 msgid "Upgrade <0>{0}</0> to the current Person starter. "
-msgstr ""
+msgstr "<0>{0}</0>を現在の Person 初期型にアップグレードします。 "
 
 #. placeholder {0}: files[0]!.name
 #: src/AttachmentUpload.tsx
 msgid "Uploaded “{0}”. The collection file is committed; the note link is saving separately."
-msgstr ""
+msgstr "「{0}」をアップロードしました。コレクション内のファイルは保存済みです。ノートのリンクは別途保存中です。"
 
 #: src/AttachmentUpload.tsx
 msgid "Uploading"
-msgstr ""
+msgstr "アップロード中"
 
 #. placeholder {0}: this.job.file.name
 #: src/code-editor-file-embeds.ts
 msgid "Uploading {0}…"
-msgstr ""
+msgstr "{0}をアップロード中…"
 
 #: src/AttachmentUpload.tsx
 msgid "Uploading {name} took too long. Try again."
-msgstr ""
+msgstr "{name}のアップロードがタイムアウトしました。再試行してください。"
 
 #: src/folder-change.ts
 msgid "Use a collection-relative folder path without empty, . or .. segments."
-msgstr ""
+msgstr "空の要素、.、.. を含まないコレクション内の相対フォルダーパスを使用してください。"
 
 #: src/use-note-actions.ts
 msgid "Use a collection-relative path ending in .md."
-msgstr ""
+msgstr "末尾が .md のコレクション内の相対パスを使用してください。"
 
 #: src/NewNoteComposer.tsx
 msgid "Use a Markdown file path ending in .md."
-msgstr ""
+msgstr "末尾が .md の Markdown ファイルパスを使用してください。"
 
 #: src/TypeBrowser.tsx
 msgid "Use contract"
-msgstr ""
+msgstr "契約を使用"
 
 #: src/ConflictResolver.tsx
 msgid "Use latest"
-msgstr ""
+msgstr "最新版を使用"
 
 #. placeholder {0}: schema.maxItems
 #: src/StructuredPropertiesEditor.tsx
 msgid "Use no more than {0} items."
-msgstr ""
+msgstr "項目は{0}件以内にしてください。"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Use normal, insert, visual, and command modes in the note editor."
-msgstr ""
+msgstr "ノートエディターで通常、挿入、ビジュアル、コマンドの各モードを使用します。"
 
 #: src/ConnectionScreens.tsx
 msgid "use the editor"
-msgstr ""
+msgstr "エディターを使用"
 
 #. placeholder {0}: formatValue(schema.const)
 #: src/StructuredPropertiesEditor.tsx
 msgid "Use the required value {0}."
-msgstr ""
+msgstr "必須の値{0}を使用してください。"
 
 #: src/CollectionRail.tsx
 msgid "Use this computer"
-msgstr ""
+msgstr "このコンピューターを使用"
 
 #: src/TypeBrowser.tsx
 msgid "Validation"
-msgstr ""
+msgstr "検証"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Validation"
-msgstr ""
+msgstr "検証"
 
 #: src/TypeBrowser.tsx
 msgid "Validation may change"
