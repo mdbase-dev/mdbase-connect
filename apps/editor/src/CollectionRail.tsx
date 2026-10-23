@@ -237,7 +237,7 @@ function FolderTreeRow({ node, expanded, activeFilter, loading, onFilter, onTogg
       <button
         className={`rail-row-action${activeFilter?.kind === "folder" && activeFilter.value === node.path ? " selected" : ""}`}
         aria-current={activeFilter?.kind === "folder" && activeFilter.value === node.path ? "page" : undefined}
-        aria-label={facetCountLabel("folder", { name: node.path, count: node.count }, loading)}
+        aria-label={loading ? t`Show notes in ${node.path}, ${node.count} or more notes` : plural(node.count, { one: `Show notes in ${node.path}, # note`, other: `Show notes in ${node.path}, # notes` })}
         data-folder-path={node.path}
         draggable={Boolean(folderActions.onMoveFolder)}
         onDragStart={(event) => { event.dataTransfer.setData(FOLDER_PATH_MIME, node.path); event.dataTransfer.effectAllowed = "move"; }}

@@ -1,17 +1,19 @@
 import { t } from "@lingui/core/macro";
+import { i18n } from "@lingui/core";
 import type { Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type ViewUpdate } from "@codemirror/view";
 import type { ResolvedNoteEmbed } from "./note-embeds";
 import { embedActions, focusEmbedOnPointer } from "./embed-actions";
 
 class NoteEmbedWidget extends WidgetType {
+  readonly locale = i18n.locale;
   constructor(
     readonly reference: ResolvedNoteEmbed,
     readonly open: ((path: string) => void) | undefined
   ) { super(); }
 
   eq(other: NoteEmbedWidget) {
-    return Boolean(this.open) === Boolean(other.open)
+    return this.locale === other.locale && Boolean(this.open) === Boolean(other.open)
       && this.reference.status === other.reference.status
       && this.reference.path === other.reference.path
       && this.reference.revision === other.reference.revision
