@@ -1936,7 +1936,7 @@ msgstr "Cuando esta carpeta se trasladó al nuevo motor de sincronización, mdba
 
 #: src/renderer/main.tsx
 msgid "Workouts"
-msgstr "Workouts"
+msgstr "Entrenamientos"
 
 #: src/renderer/daemon-view.mts
 msgid "You approved {app} for {collection}"

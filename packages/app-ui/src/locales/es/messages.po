@@ -897,7 +897,7 @@ msgstr "Has cerrado sesión en {app} en este dispositivo."
 #. Example email address, not user data.
 #: src/Feedback.tsx
 msgid "you@example.com"
-msgstr "you@example.com"
+msgstr "tu@ejemplo.com"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"

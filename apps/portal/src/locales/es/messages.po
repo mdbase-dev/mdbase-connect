@@ -3719,7 +3719,7 @@ msgstr "Trabajar con archivos"
 
 #: src/authorization-view.tsx
 msgid "Workouts"
-msgstr "Workouts"
+msgstr "Entrenamientos"
 
 #: src/authority-workflows.tsx
 msgid "Writes pause during verification, then hosted access is retired."
