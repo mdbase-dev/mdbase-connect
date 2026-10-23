@@ -1145,8 +1145,8 @@ describePg("installation device sign-in on daemon pairing", () => {
     }
     expect((await db.query("SELECT 1 FROM next_background_grants WHERE approval_request_id=$1",[p.input.installation.request_id])).rows).toHaveLength(2);
   });
-  async function currentTimerFixture(application?:string) {
-    const p=await prepared("app-runtime",false,undefined,undefined,application ?? await timerApp()),collection=await scopeCollection(p.owner.user);
+  async function currentTimerFixture(application?:string, owner?:Awaited<ReturnType<typeof account>>, existingCollection?:string) {
+    const p=await prepared("app-runtime",false,owner,undefined,application ?? await timerApp()),collection=existingCollection ?? await scopeCollection(p.owner.user);
     expect((await approvePicked(p,p.flow,[collection],collection,true)).statusCode).toBe(200);
     const receipt=(await p.flow.exchange()).json(),grantId=receipt.timer_grants[0].grant_id as string;
     const batch=(await db.query("INSERT INTO next_policy_batches(collection_id,seq,prev,item,issued_at,state) VALUES($1,2,$2,$3,2,'appended') RETURNING id",[collection,Buffer.alloc(32),Buffer.alloc(1)])).rows[0].id;
@@ -1158,12 +1158,14 @@ describePg("installation device sign-in on daemon pairing", () => {
     return {p,collection,grantId,batch,resolver,token:receipt.token as string};
   }
   const timerPath = (f:Awaited<ReturnType<typeof currentTimerFixture>>) => `/v1/next/collections/${f.collection}/background-grants/${f.grantId}/timers/reminders`;
-  async function tasknotesRetirementFixture() {
-    const register=async(suffix:string)=>{
-      const declaration=applicationDeclaration({id:"dev.tasknotes.app",name:"TaskNotes",origin:webOrigin,environment:"lab",manifest:{
-        manifest_version:1,id:"dev.tasknotes.app",name:"TaskNotes",homepage:webOrigin,redirect_uris:[`${webOrigin}/auth/${suffix}`],
+  async function tasknotesRetirementFixture(webhook=false) {
+    const register=async(suffix:string,origin=webOrigin,homepage=origin)=>{
+      const declaration=applicationDeclaration({id:"dev.tasknotes.app",name:"TaskNotes",origin,environment:"lab",manifest:{
+        manifest_version:1,id:"dev.tasknotes.app",name:"TaskNotes",homepage,redirect_uris:[`${homepage}/auth/${suffix}`],
+        ...(homepage!==origin?{installation_origins:{lab:{"app-runtime":[origin]}}}:{}),
         requirements:{access:"full_collection",contracts:[],capabilities:{contract_version:2,required:["collection.read"],optional:["background.schedule"]}},
-        notifications:{criteria:[{id:"task.reminder",event:MDBASE_TIMER_FIRED_CONTRACT,presentation:{title:"Task reminder"}},{id:"other",event:MDBASE_TIMER_FIRED_CONTRACT,presentation:{title:"Other"}}]}}});
+        notifications:{criteria:[{id:"task.reminder",event:MDBASE_TIMER_FIRED_CONTRACT,presentation:{title:"Task reminder"}},{id:"other",event:MDBASE_TIMER_FIRED_CONTRACT,presentation:{title:"Other"}}],
+          ...(webhook&&suffix==="original"?{native_delivery:{mode:"webhook",url:"https://hooks.example.test/tasknotes"}}:{})}}});
       return resolveApplicationRegistration({declaration,signal:new AbortController().signal,isCurrent:()=>true,fetch:async(input,init)=>{
         const url=new URL(String(input));expect(url.origin).toBe("https://connect.test");
         const response=await app.inject({method:"POST",url:url.pathname,headers:{"content-type":"application/json"},payload:String(init!.body)});
@@ -1181,7 +1183,7 @@ describePg("installation device sign-in on daemon pairing", () => {
       await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'Old device',$3)",[connector,user,randomUUID()]);
       await db.query("INSERT INTO collections(id,user_id,connector_id,local_id,display_name,spec_version,enabled,authority_state) VALUES($1,$2,$3,$4,'Synthetic','0.3.0',true,'retired')",[authority,user,connector,collection]);
       await db.query(`INSERT INTO grants(id,user_id,application_id,collection_id,operations,application_origin,notification_criteria,application_authorization,application_installation_id)
-        VALUES($1,$2,$3,$4,'["put_timer","reconcile_timers"]'::jsonb,'https://tasknotes.example.test',$5::jsonb,'{"binding":{"protocol_version":4}}'::jsonb,$6)`,
+        VALUES($1,$2,$3,$4,'["put_timer","reconcile_timers"]'::jsonb,'https://lab.tasknotes-app.pages.dev',$5::jsonb,'{"binding":{"protocol_version":4}}'::jsonb,$6)`,
       [id,user,application,authority,JSON.stringify([{id:"task.reminder",event:MDBASE_TIMER_FIRED_CONTRACT,presentation:{title:"Task reminder"}},{id:"other",event:MDBASE_TIMER_FIRED_CONTRACT,presentation:{title:"Other"}}]),randomUUID()]);
       return id;
     };
@@ -1192,7 +1194,7 @@ describePg("installation device sign-in on daemon pairing", () => {
         VALUES($1,$2,$3,$4,$5,7,$6,CASE WHEN $6='fired' THEN $5::timestamptz ELSE NULL END,'2020-01-01','2020-01-02')`,[grant,namespace,id,criterion,fire,status]);
     };
     const reconcile=(timers:Array<{id:string;fire_at:string}>=[])=>app.inject({method:"POST",url:timerPath(f).replace("/reminders","/task-reminders/reconcile"),headers:{authorization:`Bearer ${f.token}`},payload:{criterion_id:"task.reminder",timers}});
-    return {...f,legacy,first,second,past,future,add,reconcile};
+    return {...f,legacy,first,second,past,future,add,reconcile,register};
   }
   it("retires all old TaskNotes devices in only the exact tuple, preserves state and sends overdue work once",async()=>{
     const f=await tasknotesRetirementFixture();
@@ -1241,7 +1243,9 @@ describePg("installation device sign-in on daemon pairing", () => {
     await service.drainOnce();await worker.fireDue();await worker.drainConsumer(consumer);await service.drainOnce();
     expect(sent.filter(s=>s.payload.includes(timerEventId(f.grantId,"task-reminders","overdue",7)))).toHaveLength(1);
     expect(sent.some(s=>s.payload.includes(event))).toBe(false);
-    expect(sent.filter(s=>s.payload.includes(timerEventId(f.first,"other","other-namespace",7)))).toHaveLength(1);
+    // Transport signals have no namespace. The same retired criterion cannot
+    // retain delivery authority just because its optional event used another one.
+    expect(sent.filter(s=>s.payload.includes(timerEventId(f.first,"other","other-namespace",7)))).toHaveLength(0);
     expect((await db.query("SELECT status FROM notification_deliveries WHERE signal_id=$1",[signal])).rows).toEqual([{status:"discarded"}]);
     await db.query("DELETE FROM next_timer_events WHERE event_id=$1",[event]);await service.drainOnce();
     const oldGrant=(await f.resolver.resolve(db,f.first))!;
@@ -1255,6 +1259,63 @@ describePg("installation device sign-in on daemon pairing", () => {
     });
     await db.query("UPDATE next_background_grants SET revoked_at=now() WHERE id=$1",[f.grantId]);
     expect((await db.query("SELECT 1 FROM next_tasknotes_legacy_reminder_retirements WHERE user_id=$1",[f.p.owner.user])).rows).toHaveLength(1);
+  });
+  it.each(["registration-origin","consent-origin"] as const)("does not retire TaskNotes authority for another origin sharing its bundle ID (%s)",async mode=>{
+    const f=await tasknotesRetirementFixture(),origin="https://independent.example.test";
+    await f.add(f.first,"original",f.future);
+    const registered=await f.register(`independent-${mode}`,origin,mode==="consent-origin"?webOrigin:origin);
+    expect((await db.query("SELECT family_identity FROM applications WHERE id=$1",[registered.id])).rows[0].family_identity).toBe("bundle:dev.tasknotes.app");
+    apps.set(registered.id,{name:"TaskNotes",web:origin,mobile:"capacitor://independent.example.test"});
+    const independent=await currentTimerFixture(registered.id,f.p.owner,f.collection);
+    const oldIndependent=await f.legacy(f.p.owner.user,registered.id);
+    await db.query("UPDATE grants SET application_origin=$2 WHERE id=$1",[oldIndependent,origin]);
+    await f.add(oldIndependent,"independent",f.future);
+    const result=await app.inject({method:"POST",url:timerPath(independent).replace("/reminders","/task-reminders/reconcile"),headers:{authorization:`Bearer ${independent.token}`},payload:{criterion_id:"task.reminder",timers:[]}});
+    expect(result.statusCode,result.body).toBe(200);
+    expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1",[f.first])).rows).toEqual([{status:"scheduled"}]);
+    expect((await db.query("SELECT 1 FROM next_tasknotes_legacy_reminder_retirements WHERE user_id=$1 AND collection_id=$2",[f.p.owner.user,f.collection])).rows).toHaveLength(0);
+    // Genuine retirement must likewise leave the other registration's timers.
+    expect((await f.reconcile([{id:"original",fire_at:f.future}])).statusCode).toBe(200);
+    expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1",[f.first])).rows).toEqual([{status:"cancelled"}]);
+    expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1",[oldIndependent])).rows).toEqual([{status:"scheduled"}]);
+  });
+  it.each(["before","after"] as const)("fences legacy push and webhook retries without retained NEXT events queued %s retirement",async when=>{
+    const f=await tasknotesRetirementFixture(true);
+    const queue=async(grant:string,criterion="task.reminder",prune=false)=>{
+      const signal=randomUUID(),signalId=randomUUID(),channel=randomUUID(),subscription=randomUUID();
+      if(prune) await db.query(`INSERT INTO next_timer_events(event_id,grant_id,criterion_id,namespace,timer_id,generation,scheduled_for,fired_at,late_by_ms)
+        VALUES($1,$2,$3,'task-reminders','pruned',7,$4,$4,0)`,[signalId,grant,criterion,f.past]);
+      await db.query(`INSERT INTO push_channels(id,grant_id,installation_id,kind,endpoint,p256dh,auth)
+        VALUES($1,$2,$3,'web_push','https://push.example.test/retention','key','auth')`,[channel,grant,randomUUID()]);
+      await db.query("INSERT INTO notification_subscriptions(id,grant_id,channel_id,criterion_id) VALUES($1,$2,$3,$4)",[subscription,grant,channel,criterion]);
+      await db.query("INSERT INTO notification_signals(id,signal_id,grant_id,criterion_id,cursor) VALUES($1,$2,$3,$4,$2)",[signal,signalId,grant,criterion]);
+      await db.query("INSERT INTO notification_deliveries(id,signal_id,subscription_id,status,attempts) VALUES($1,$2,$3,'retry',1)",[randomUUID(),signal,subscription]);
+      await db.query("INSERT INTO notification_webhook_deliveries(id,signal_id,url,status,attempts) VALUES($1,$2,'https://hooks.example.test/tasknotes','retry',1)",[randomUUID(),signal]);
+      if(prune) await db.query("DELETE FROM next_timer_events WHERE event_id=$1",[signalId]);
+      return {signal,signalId};
+    };
+    if(when==="after") expect((await f.reconcile()).statusCode).toBe(200);
+    const retired=[await queue(f.first,"task.reminder",true),await queue(f.first)];
+    const foreign=await account(),otherCollection=await scopeCollection(f.p.owner.user),otherApp=await timerApp();
+    await db.query("UPDATE applications SET notifications=(SELECT a.notifications FROM applications a JOIN grants g ON g.application_id=a.id WHERE g.id=$2) WHERE id=$1",[otherApp,f.first]);
+    const sameBundle=await f.register("original","https://independent.example.test"),sameBundleLegacy=await f.legacy(f.p.owner.user,sameBundle.id);
+    await db.query("UPDATE grants SET application_origin='https://independent.example.test' WHERE id=$1",[sameBundleLegacy]);
+    const preserved=[await queue(f.first,"other"),await queue(await f.legacy(foreign.user)),
+      await queue(await f.legacy(f.p.owner.user,undefined,otherCollection)),await queue(await f.legacy(f.p.owner.user,otherApp)),await queue(sameBundleLegacy)];
+    if(when==="before") expect((await f.reconcile()).statusCode).toBe(200);
+    expect((await db.query("SELECT 1 FROM next_timer_events WHERE event_id=ANY($1::text[])",[retired.map(r=>r.signalId)])).rows).toHaveLength(0);
+    for(const record of preserved) for(const table of ["notification_deliveries","notification_webhook_deliveries"]) {
+      expect((await db.query(`SELECT status FROM ${table} WHERE signal_id=$1`,[record.signal])).rows).toEqual([{status:"retry"}]);
+    }
+    const sent:string[]=[];
+    const service=new NotificationService(db,{webPush:{send:async(_target,payload)=>{sent.push(payload);}},
+      webhook:{send:async(_target,payload)=>{sent.push(payload);},publicKeys:()=>[]}},1000,()=>undefined,channelSealer,f.resolver);
+    await service.drainOnce();await service.drainOnce();
+    for(const record of retired) {
+      expect(sent.some(payload=>payload.includes(record.signalId))).toBe(false);
+      for(const table of ["notification_deliveries","notification_webhook_deliveries"]) expect((await db.query(`SELECT status FROM ${table} WHERE signal_id=$1`,[record.signal])).rows).toEqual([{status:"discarded"}]);
+    }
+    for(const record of preserved) expect(sent.filter(payload=>payload.includes(record.signalId))).toHaveLength(2);
   });
   it("preserves real imported overdue/fired history only after the original hosted account completion",async()=>{
     const f=await tasknotesRetirementFixture(),owner=f.p.owner.user,cohort=`reminders-${randomUUID().slice(0,8)}`,actor="synthetic-local-pg";

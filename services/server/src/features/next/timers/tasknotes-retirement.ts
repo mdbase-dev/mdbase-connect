@@ -5,6 +5,15 @@ import { TimerError, type DesiredTimer } from "./model.js";
 import { requireTimerMigrationEffects } from "./migration-effects.js";
 
 const TASKNOTES_FAMILY = "bundle:dev.tasknotes.app";
+// Bundle IDs and homepages are self-declared. Require both a known public
+// TaskNotes registration origin and the original consent's exact app origin.
+// These are the first-party public origins retained in migration 0066; arbitrary
+// loopback/development registrations do not acquire cross-device retirement.
+const TASKNOTES_ORIGINS = `('https://app.tasknotes.dev','https://staging.tasknotes-app.pages.dev',
+  'https://lab.tasknotes-app.pages.dev','capacitor://app.tasknotes.dev')`;
+const TASKNOTES_REGISTRATION = `a.family_identity=$2 AND a.homepage ~
+  '^https://(app[.]tasknotes[.]dev|staging[.]tasknotes-app[.]pages[.]dev|lab[.]tasknotes-app[.]pages[.]dev)(/|$)'`;
+const TASKNOTES_LEGACY = `${TASKNOTES_REGISTRATION} AND g.application_origin IN ${TASKNOTES_ORIGINS}`;
 const TASK_REMINDERS = "task-reminders";
 const CRITERION = "task.reminder";
 
@@ -21,11 +30,12 @@ async function scope(db: DatabaseQueryable, grant: TimerGrant): Promise<Scope | 
   const row = (await db.query<Scope>(
     `SELECT b.user_id,b.collection_id,b.principal_kind
      FROM next_background_grants b JOIN applications a ON a.id=b.application_id
-     WHERE b.id=$1 AND b.principal_kind='installation' AND a.family_identity=$2
+     WHERE b.id=$1 AND b.principal_kind='installation' AND ${TASKNOTES_REGISTRATION}
+       AND b.timer_declaration->>'app_origin' IN ${TASKNOTES_ORIGINS}
      UNION ALL
      SELECT g.user_id,COALESCE(c.local_id,g.hosted_collection_id,g.next_collection_id), 'legacy'
      FROM grants g JOIN applications a ON a.id=g.application_id LEFT JOIN collections c ON c.id=g.collection_id
-     WHERE g.id=$1 AND a.family_identity=$2`, [grant.grantId,TASKNOTES_FAMILY])).rows[0];
+     WHERE g.id=$1 AND ${TASKNOTES_LEGACY}`, [grant.grantId,TASKNOTES_FAMILY])).rows[0];
   if (!row?.collection_id) return;
   const digest = createHash("sha256").update(`mdbase/tasknotes-retirement\0${row.user_id}\0${TASKNOTES_FAMILY}\0${row.collection_id}`).digest();
   await db.query("SELECT pg_advisory_xact_lock($1,$2)", [digest.readInt32BE(0),digest.readInt32BE(4)]);
@@ -55,8 +65,9 @@ export async function requireTaskReminderWrite(db: DatabaseQueryable, grant: Tim
 
 /** Caller owns the reconcile transaction. Only its first successful native
  * reconcile transfers history and fences ALL old devices in this exact tuple.
- * The registered family is the same authority boundary as removeInstallationAccess;
- * versioned SDK registrations intentionally have different application UUIDs.
+ * Versioned registrations have different application UUIDs. A shared bundle
+ * name alone is not TaskNotes ownership: both registration and consent must
+ * belong to the known first-party origins before this boundary is entered.
  * No native-to-native ownership or predecessor selection is implied. */
 export async function retireLegacyTaskReminders(
   db: DatabaseQueryable, grant: TimerGrant, namespace: string, criterionId: string, desired: DesiredTimer[]
@@ -67,7 +78,7 @@ export async function retireLegacyTaskReminders(
   const values = [row.user_id,TASKNOTES_FAMILY,row.collection_id];
   const legacy = await db.query<{id:string}>(`SELECT g.id FROM grants g JOIN applications a ON a.id=g.application_id
     LEFT JOIN collections c ON c.id=g.collection_id
-    WHERE g.user_id=$1 AND a.family_identity=$2
+    WHERE g.user_id=$1 AND ${TASKNOTES_LEGACY}
       AND COALESCE(c.local_id,g.hosted_collection_id,g.next_collection_id)=$3 ORDER BY g.id`,values);
   for (const old of legacy.rows) await requireTimerMigrationEffects(db,old.id);
   const inserted = await db.query(`INSERT INTO next_tasknotes_legacy_reminder_retirements(user_id,collection_id)
@@ -81,7 +92,7 @@ export async function retireLegacyTaskReminders(
        SELECT DISTINCT ON (t.timer_id) t.*
        FROM next_timers t JOIN grants g ON g.id=t.grant_id JOIN applications a ON a.id=g.application_id
        LEFT JOIN collections c ON c.id=g.collection_id
-       WHERE g.user_id=$1 AND a.family_identity=$2
+       WHERE g.user_id=$1 AND ${TASKNOTES_LEGACY}
          AND COALESCE(c.local_id,g.hosted_collection_id,g.next_collection_id)=$3
          AND t.namespace='task-reminders' AND t.criterion_id='task.reminder'
          AND t.status IN ('scheduled','firing','fired')
@@ -97,20 +108,21 @@ export async function retireLegacyTaskReminders(
     [...values,grant.grantId,JSON.stringify(desired.map(timer=>({id:timer.id,fire_at:timer.fireAt.toISOString()})))]);
   await db.query(`UPDATE next_timers t SET status='cancelled',updated_at=now()
     FROM grants g JOIN applications a ON a.id=g.application_id LEFT JOIN collections c ON c.id=g.collection_id
-    WHERE t.grant_id=g.id AND g.user_id=$1 AND a.family_identity=$2
+    WHERE t.grant_id=g.id AND g.user_id=$1 AND ${TASKNOTES_LEGACY}
       AND COALESCE(c.local_id,g.hosted_collection_id,g.next_collection_id)=$3
       AND t.namespace='task-reminders' AND t.criterion_id='task.reminder'
       AND t.status IN ('scheduled','firing')`,values);
-  // Settle already queued deliveries while their event still identifies the
-  // exact namespace. This remains effective after event retention pruning.
+  // Signals (including original runtime signals) have a criterion but no
+  // durable namespace. Fence this legacy criterion even after event pruning;
+  // do not infer provenance from the optional retained NEXT event.
   for (const table of ["notification_deliveries","notification_webhook_deliveries"]) {
     await db.query(`UPDATE ${table} d SET status='discarded',lease_token=NULL,leased_until=NULL,
         last_error='legacy_reminders_retired'
-      FROM notification_signals s JOIN next_timer_events e ON e.event_id=s.signal_id
-      JOIN grants g ON g.id=e.grant_id JOIN applications a ON a.id=g.application_id LEFT JOIN collections c ON c.id=g.collection_id
-      WHERE d.signal_id=s.id AND s.grant_id=g.id AND g.user_id=$1 AND a.family_identity=$2
+      FROM notification_signals s JOIN grants g ON g.id=s.grant_id
+      JOIN applications a ON a.id=g.application_id LEFT JOIN collections c ON c.id=g.collection_id
+      WHERE d.signal_id=s.id AND g.user_id=$1 AND ${TASKNOTES_LEGACY}
         AND COALESCE(c.local_id,g.hosted_collection_id,g.next_collection_id)=$3
-        AND e.namespace='task-reminders' AND e.criterion_id='task.reminder'
+        AND s.criterion_id='task.reminder'
         AND d.status IN ('pending','retry','sending')`,values);
   }
 }

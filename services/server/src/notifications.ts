@@ -172,9 +172,9 @@ export class NotificationService {
       const row = await load(connection);
       if (!row) { await connection.query("ROLLBACK"); return "delivery_not_current"; }
       if (row.grant_id !== grantId) throw new Error("Invalid notification channel grant identity.");
-      if (retired && (await connection.query(`SELECT 1 FROM next_timer_events
-        WHERE event_id=$1 AND grant_id=$2 AND namespace='task-reminders' AND criterion_id='task.reminder'`,
-      [row.signal_id,grantId])).rows.length) {
+      // Original legacy signals and retries can outlive every NEXT event.
+      // Signals carry no namespace: the durable fence applies to this criterion.
+      if (retired && row.criterion_id === "task.reminder") {
         await connection.query("ROLLBACK"); return "criterion_removed";
       }
       if (!declaration || !grant.criteria.some(criterion=>criterion.id===row.criterion_id)
