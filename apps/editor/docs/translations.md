@@ -15,13 +15,11 @@ identifiers and authority diagnostics are not translated. English startup does
 not imply offline collection access.
 
 Shared controls use the workspace `@mdbase-dev/ui`, not the retired vendored UI.
-Their separately owned PO catalogues from `packages/app-ui/src/locales` and
-`packages/ui/locales` are compiled into editor-owned `src/i18n/shared/*.json` and
-composed with the editor catalogue at activation. `pnpm i18n:shared` reuses the
-kit checks on both shared packages before compilation. It never writes into the
-shared packages. During English source authoring only,
-`node scripts/compile-shared-locales.mjs --english-only` refreshes synchronous
-English; it is not an all-locale gate. All
+Their independently compiled `uiCatalogues` and `connectUiCatalogues` exports
+are passed to the kit’s `libraries` option alongside the editor catalogue. The
+kit composes real message envelopes synchronously in English and atomically
+switches all library and application catalogues together for target locales.
+Run `pnpm build:packages` before direct editor checks to build these exports. All
 core macros, shared controls and the React provider use the same Lingui singleton.
 Locale changes do not remount forms or CodeMirror and do not discard drafts.
 CodeMirror's standard phrases come from the kit and are compartment-reconfigured.

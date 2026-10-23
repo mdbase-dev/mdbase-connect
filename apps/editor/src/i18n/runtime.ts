@@ -1,10 +1,10 @@
 import { i18n } from "@lingui/core";
-import { createI18nRuntime, type Catalogue, type RuntimeOptions } from "@mdbase-dev/i18n";
-import editorEnglish from "./locales/en/messages.json";
-import sharedEnglish from "./shared/en.json";
+import { createI18nRuntime, type RuntimeOptions } from "@mdbase-dev/i18n";
+import { uiCatalogues } from "@mdbase-dev/ui/i18n";
+import { connectUiCatalogues } from "@mdbase/connect-ui/i18n";
+import english from "./locales/en/messages.json";
 
 export const localeStorageKey = "mdbase-editor:locale";
-const english = { messages: { ...sharedEnglish.messages, ...editorEnglish.messages } };
 
 // Enumerated, deployment-local chunks, never a remote translation service.
 const loaders = {
@@ -17,15 +17,12 @@ const loaders = {
   ru: () => import("./locales/ru/messages.json"),
   zh: () => import("./locales/zh/messages.json")
 };
-const sharedLoaders = import.meta.glob<Catalogue>("./shared/{fr,de,es,ja,ko,pt,ru,zh}.json", { import: "default" });
 
 export function createEditorLocaleRuntime(options: Partial<RuntimeOptions> = {}) {
   return createI18nRuntime({
     english,
-    loadLocale: async (locale) => {
-      const [editor, shared] = await Promise.all([loaders[locale](), sharedLoaders[`./shared/${locale}.json`]!()]);
-      return { messages: { ...shared.messages, ...editor.default.messages } };
-    },
+    libraries: [uiCatalogues, connectUiCatalogues],
+    loadLocale: async (locale) => (await loaders[locale]()).default,
     storage: {
       getLocale: () => {
         // Browsers can deny storage access. Negotiation still works in that case.
