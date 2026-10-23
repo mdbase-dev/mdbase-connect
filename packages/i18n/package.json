@@ -12,6 +12,7 @@
   "sideEffects": false,
   "files": [
     "dist",
+    "scripts/bin.mjs",
     "scripts/cli.mjs",
     "scripts/config.mjs",
     "scripts/config.d.mts",
@@ -20,7 +21,7 @@
     "README.md"
   ],
   "bin": {
-    "mdbase-i18n": "scripts/cli.mjs"
+    "mdbase-i18n": "scripts/bin.mjs"
   },
   "exports": {
     ".": {
@@ -43,6 +44,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run && node --test scripts/*.test.mjs",
+    "test:packed": "node --test scripts/cli.test.mjs",
     "lint": "eslint src scripts",
     "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
   },

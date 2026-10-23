@@ -1,10 +1,10 @@
 {
-  "reason": "One shared i18n package replaces duplicated product runtime and pilot validation code. Separate React/tooling entry points keep Node tooling out of browser bundles; nine CodeMirror dictionaries provide true per-language lazy chunks. No application adopts it in this change.",
+  "reason": "One shared i18n package replaces duplicated product runtime and pilot validation code. Separate React/tooling entry points keep Node tooling out of browser bundles; nine CodeMirror dictionaries provide true per-language lazy chunks. A dedicated unconditional bin imports CLI main so npm-style symlinks cannot silently bypass validation. No application adopts it in this change.",
   "growth": {
-    "productionFiles": 19,
-    "relativeImports": 14,
+    "productionFiles": 20,
+    "relativeImports": 15,
     "workspacePackages": 1,
     "typeScriptExportDeclarations": 37,
-    "packages/i18n": 19
+    "packages/i18n": 20
   }
 }

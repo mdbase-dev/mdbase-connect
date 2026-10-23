@@ -235,6 +235,11 @@ network or an AI key; only dependency installation does. There is no delivery
 manifest or pack-fetch protocol in this package.
 
 Kit verification: `pnpm --filter @mdbase-dev/i18n verify`.
+`pnpm --filter @mdbase-dev/i18n test:packed` repeats the packed-consumer check:
+real extraction, all nine authored catalogues, strict compile and source checks
+through an npm-style `node_modules/.bin` symlink, including rejection of a broken
+catalogue. The public bin always invokes the CLI; consumers should use the bare
+`mdbase-i18n` commands above and remove temporary exported-main adapter launchers.
 Build before `pnpm --filter @mdbase-dev/i18n pack --pack-destination <directory>`.
 The tarball includes built ESM/types plus its self-contained CLI/scripts; no workspace
 dependency or source checkout is required. React and Lingui core/react are peers.
