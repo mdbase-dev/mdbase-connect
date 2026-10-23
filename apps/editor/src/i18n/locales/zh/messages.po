@@ -2076,7 +2076,7 @@ msgstr "目标文件夹"
 
 #: src/TypeBrowser.tsx
 msgid "Details"
-msgstr "详细信息"
+msgstr "详情"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"

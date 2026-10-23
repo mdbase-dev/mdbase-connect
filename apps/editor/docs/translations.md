@@ -78,7 +78,8 @@ Portuguese retains links, pixels, Offline, status and Via mdbase. Literal diagno
 brand envelopes and schema/path tokens stay unchanged. Shared German Details uses
 the portal's explicit `URmyfc` allowlist, without padding. Russian generic Details
 and Remove align with the public library's Подробности and Удалить to avoid an
-ID collision; contextual settings Details remains separate. `progress.py` flags
+ID collision. Chinese generic Details likewise aligns with shared 详情;
+contextual settings Details remains separate. `progress.py` flags
 some legitimate identical translations heuristically.
 
 All eight target POs are merged, including Simplified Chinese from `cd18d11`.
