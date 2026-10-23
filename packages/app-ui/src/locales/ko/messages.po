@@ -553,180 +553,180 @@ msgstr "답변을 보장하지 않습니다. 보안 신고나 긴급 지원에�
 
 #: src/Feedback.tsx
 msgid "Reply email"
-msgstr ""
+msgstr "답변 이메일"
 
 #: src/feedback-data.ts
 #: src/Feedback.tsx
 msgid "Report a problem"
-msgstr ""
+msgstr "문제 신고"
 
 #: src/CommandPalette.tsx
 msgid "Results"
-msgstr ""
+msgstr "검색 결과"
 
 #: src/Feedback.tsx
 msgid "Retake screenshot"
-msgstr ""
+msgstr "스크린샷 다시 찍기"
 
 #: src/FeedbackVerification.tsx
 msgid "Retry verification"
-msgstr ""
+msgstr "인증 다시 시도"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Review access"
-msgstr ""
+msgstr "접근 권한 검토"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Review access to {collection} there."
-msgstr ""
+msgstr "그곳에서 {collection} 접근 권한을 검토하세요."
 
 #: src/Feedback.tsx
 msgid "Review for private information before sending."
-msgstr ""
+msgstr "보내기 전에 개인정보가 포함되어 있는지 확인하세요."
 
 #: src/SaveNotice.tsx
 msgid "Saved"
-msgstr ""
+msgstr "저장됨"
 
 #: src/SaveNotice.tsx
 msgid "Saving"
-msgstr ""
+msgstr "저장 중"
 
 #: src/feedback-data.ts
 msgid "Screen capture isn’t available in this browser. You can attach an image instead."
-msgstr ""
+msgstr "이 브라우저에서는 화면을 캡처할 수 없습니다. 대신 이미지를 첨부할 수 있습니다."
 
 #: src/feedback-data.ts
 msgid "Screen sharing ended before a screenshot was taken."
-msgstr ""
+msgstr "스크린샷을 찍기 전에 화면 공유가 종료되었습니다."
 
 #: src/Feedback.tsx
 msgid "Screenshot"
-msgstr ""
+msgstr "스크린샷"
 
 #: src/FeedbackMarkup.tsx
 msgid "Screenshot annotation canvas"
-msgstr ""
+msgstr "스크린샷 주석 캔버스"
 
 #: src/Feedback.tsx
 msgid "Screenshot attached to your feedback"
-msgstr ""
+msgstr "피드백에 스크린샷이 첨부됨"
 
 #: src/Feedback.tsx
 msgid "Screenshot captured. Sharing has stopped."
-msgstr ""
+msgstr "스크린샷을 캡처했습니다. 화면 공유가 중지되었습니다."
 
 #: src/FeedbackMarkup.tsx
 msgid "Screenshot tools"
-msgstr ""
+msgstr "스크린샷 도구"
 
 #: src/CommandPalette.tsx
 msgid "Search commands"
-msgstr ""
+msgstr "명령 검색"
 
 #: src/Feedback.tsx
 msgid "Send feedback"
-msgstr ""
+msgstr "피드백 보내기"
 
 #: src/Feedback.tsx
 msgid "Sending timed out. Please try again."
-msgstr ""
+msgstr "전송 시간이 초과되었습니다. 다시 시도하세요."
 
 #: src/Feedback.tsx
 msgid "Sending…"
-msgstr ""
+msgstr "보내는 중…"
 
 #: src/Feedback.tsx
 msgid "Sent privately to the mdbase team."
-msgstr ""
+msgstr "mdbase 팀에 비공개로 전송되었습니다."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Set up"
-msgstr ""
+msgstr "설정"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Set up {collection} for {app}"
-msgstr ""
+msgstr "{app}에서 사용할 {collection} 설정"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Setting up…"
-msgstr ""
+msgstr "설정 중…"
 
 #: src/feedback-data.ts
 msgid "Share something you like"
-msgstr ""
+msgstr "마음에 드는 점 공유하기"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Sign in"
-msgstr ""
+msgstr "로그인"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Sign in and choose a collection there."
-msgstr ""
+msgstr "로그인한 다음 그곳에서 컬렉션을 선택하세요."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Sign in with your mdbase account. You'll choose which collection {app} can use."
-msgstr ""
+msgstr "mdbase 계정으로 로그인하세요. {app}에서 사용할 컬렉션을 선택하게 됩니다."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Sign out"
-msgstr ""
+msgstr "로그아웃"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Sign out anyway"
-msgstr ""
+msgstr "그래도 로그아웃"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Signed in as {account}"
-msgstr ""
+msgstr "{account}(으)로 로그인됨"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Signing out…"
-msgstr ""
+msgstr "로그아웃 중…"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Starting {app}…"
-msgstr ""
+msgstr "{app} 시작 중…"
 
 #: src/feedback-data.ts
 msgid "Suggest an improvement"
-msgstr ""
+msgstr "개선 사항 제안"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Switch collection, current: {collection}"
-msgstr ""
+msgstr "컬렉션 전환, 현재: {collection}"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Syncing your collection…"
-msgstr ""
+msgstr "컬렉션 동기화 중…"
 
 #: src/ThemeSelect.tsx
 msgctxt "Color theme"
 msgid "System"
-msgstr ""
+msgstr "시스템"
 
 #: src/Feedback.tsx
 msgid "Taking screenshot…"
-msgstr ""
+msgstr "스크린샷 찍는 중…"
 
 #: src/feedback-data.ts
 msgid "Thanks for the idea."
-msgstr ""
+msgstr "아이디어를 보내주셔서 감사합니다."
 
 #: src/feedback-data.ts
 msgid "Thanks for the kind words."
