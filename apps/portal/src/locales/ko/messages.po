@@ -1554,40 +1554,40 @@ msgstr "피드백을 사용할 수 없음"
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Feedback unavailable"
-msgstr ""
+msgstr "피드백 이용 불가"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "File permissions"
-msgstr ""
+msgstr "파일 권한"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "File scope"
-msgstr ""
+msgstr "파일 범위"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Files"
-msgstr ""
+msgstr "파일"
 
 #. placeholder {0}: field?.label ?? missing
 #: src/authorization-review.tsx
 msgid "Fill in {0} in {label}."
-msgstr ""
+msgstr "{label}에서 {0}을(를) 입력하세요."
 
 #: src/ConnectApp.tsx
 msgid "Find a computer"
-msgstr ""
+msgstr "컴퓨터 찾기"
 
 #: src/authorization-view.tsx
 msgid "Finishing collection setup…"
-msgstr ""
+msgstr "컬렉션 설정 마무리하는 중…"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Finishing the move"
-msgstr ""
+msgstr "이동 마무리하는 중"
 
 #: src/authority-workflows.tsx
 msgid "Folder"
@@ -1595,54 +1595,54 @@ msgstr "폴더"
 
 #: src/authority-workflows.tsx
 msgid "Folder approved"
-msgstr ""
+msgstr "폴더 승인됨"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Folder sync"
-msgstr ""
+msgstr "폴더 동기화"
 
 #: src/auth-view.tsx
 msgid "Forgot your password?"
-msgstr ""
+msgstr "비밀번호를 잊으셨나요?"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Generate a new code"
-msgstr ""
+msgstr "새 코드 생성"
 
 #: src/AccountManagement.tsx
 msgid "Generate a private code, then send it to the collection owner."
-msgstr ""
+msgstr "비공개 코드를 생성해 컬렉션 소유자에게 보내세요."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Generate code"
-msgstr ""
+msgstr "코드 생성"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Generating…"
-msgstr ""
+msgstr "생성하는 중…"
 
 #: src/portal-model.ts
 msgid "GitHub account @{login}"
-msgstr ""
+msgstr "GitHub 계정 @{login}"
 
 #: src/auth-view.tsx
 #: src/GoogleIdentityButton.tsx
 msgid "Google sign-in could not be loaded."
-msgstr ""
+msgstr "Google 로그인을 불러올 수 없습니다."
 
 #: src/auth-view.tsx
 #: src/GoogleIdentityButton.tsx
 msgid "Google sign-in did not load correctly."
-msgstr ""
+msgstr "Google 로그인이 올바르게 로드되지 않았습니다."
 
 #. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
 #: src/authorization-review.tsx
 msgid "Help {applicationName} understand {0}"
-msgstr ""
+msgstr "{applicationName}이(가) {0}을(를) 이해하도록 돕기"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -1651,7 +1651,7 @@ msgstr "호스팅됨"
 
 #: src/AccountManagement.tsx
 msgid "Hosted access was removed immediately. Hosted data deletion continues automatically in the background. Any local collection and mirror files remain on your computers."
-msgstr ""
+msgstr "호스팅 액세스 권한은 즉시 제거되었습니다. 호스팅 데이터 삭제는 백그라운드에서 자동으로 계속됩니다. 로컬 컬렉션과 미러 파일은 컴퓨터에 남습니다."
 
 #: src/authorization-view.tsx
 msgid "Hosted by mdbase"
@@ -1665,42 +1665,42 @@ msgstr "mdbase에서 호스팅"
 #. placeholder {0}: countLabel(replicas.length, "folder")
 #: src/ConnectApp.tsx
 msgid "Hosted by mdbase · {0}"
-msgstr ""
+msgstr "mdbase에서 호스팅 · {0}"
 
 #: src/authority-workflows.tsx
 msgid "Hosted collection"
-msgstr ""
+msgstr "호스팅 컬렉션"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Hosted collection"
-msgstr ""
+msgstr "호스팅 컬렉션"
 
 #: src/ConnectApp.tsx
 msgid "Hosted creation is unavailable on this server."
-msgstr ""
+msgstr "이 서버에서는 호스팅 컬렉션을 만들 수 없습니다."
 
 #: src/authority-workflows.tsx
 msgid "Hosted service"
-msgstr ""
+msgstr "호스팅 서비스"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Hosted storage"
-msgstr ""
+msgstr "호스팅 저장 공간"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Hosted writes are paused"
-msgstr ""
+msgstr "호스팅 쓰기 일시 중지됨"
 
 #: src/authorization-review.tsx
 msgid "How this type behaves in {applicationName}"
-msgstr ""
+msgstr "{applicationName}에서 이 유형이 작동하는 방식"
 
 #: src/auth-view.tsx
 msgid "I agree to the <0>Terms of Service</0> and have read the <1>Privacy Policy</1>."
-msgstr ""
+msgstr "<0>서비스 약관</0>에 동의하며 <1>개인정보 처리방침</1>을 읽었습니다."
 
 #: src/AccountManagement.tsx
 msgid "Identity"
@@ -1708,125 +1708,125 @@ msgstr "ID"
 
 #: src/AccountManagement.tsx
 msgid "Identity and service configuration."
-msgstr ""
+msgstr "계정 및 서비스 설정 정보"
 
 #: src/AccountManagement.tsx
 msgid "Identity confirmed for this deletion."
-msgstr ""
+msgstr "이 삭제 작업을 위한 본인 확인이 완료되었습니다."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Identity unavailable"
-msgstr ""
+msgstr "본인 확인 불가"
 
 #: src/auth-view.tsx
 msgid "If an mdbase connect account uses that address, its one-time reset link is on the way."
-msgstr ""
+msgstr "해당 주소를 사용하는 mdbase connect 계정이 있다면 일회용 재설정 링크가 전송됩니다."
 
 #: src/auth-view.tsx
 msgid "If that address can be used, its one-time verification link is on the way."
-msgstr ""
+msgstr "해당 주소를 사용할 수 있다면 일회용 확인 링크가 전송됩니다."
 
 #: src/ConnectApp.tsx
 msgid "If the desktop app does not open when you {action}, <0>install the latest release</0> and try again."
-msgstr ""
+msgstr "{action}할 때 데스크톱 앱이 열리지 않으면 <0>최신 버전을 설치</0>하고 다시 시도하세요."
 
 #. placeholder {0}: relativeTime(request.expires_at)
 #: src/authorization-view.tsx
 msgid "If the desktop app does not open, <0>install the current Connect release</0>, then return to this page. The request expires {0}."
-msgstr ""
+msgstr "데스크톱 앱이 열리지 않으면 <0>현재 Connect 버전을 설치</0>한 뒤 이 페이지로 돌아오세요. 요청은 {0}에 만료됩니다."
 
 #: src/authorization-view.tsx
 msgid "If the value is already present, mdbase leaves the collection unchanged. Conflicting settings stop setup without overwriting policy."
-msgstr ""
+msgstr "값이 이미 있으면 mdbase는 컬렉션을 변경하지 않습니다. 설정이 충돌하면 정책을 덮어쓰지 않고 설정을 중단합니다."
 
 #: src/authority-workflows.tsx
 msgid "If verification fails or this request expires, hosted writes resume."
-msgstr ""
+msgstr "확인에 실패하거나 이 요청이 만료되면 호스팅 쓰기가 재개됩니다."
 
 #: src/authority-workflows.tsx
 msgid "In {collection}. Allow only if you just asked for this in {app}."
-msgstr ""
+msgstr "{collection}에서 요청했습니다. 방금 {app}에서 요청한 경우에만 허용하세요."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Included storage"
-msgstr ""
+msgstr "포함된 저장 공간"
 
 #. placeholder {0}: connector.minimum_connector_version ? t(i18n)`version ${connector.minimum_connector_version} or later` : t(i18n)({ message: "the latest release", context: "Connect interface" })
 #: src/ConnectApp.tsx
 msgid "Install {0}"
-msgstr ""
+msgstr "{0} 설치"
 
 #: src/authorization-view.tsx
 msgid "Install or update the application definitions declared by this version."
-msgstr ""
+msgstr "이 버전에서 선언한 애플리케이션 정의를 설치하거나 업데이트합니다."
 
 #: src/ConnectApp.tsx
 msgid "Install the latest release"
-msgstr ""
+msgstr "최신 버전 설치"
 
 #: src/ApplicationAccess.tsx
 msgid "Installation details"
-msgstr ""
+msgstr "설치 세부 정보"
 
 #: src/ConnectApp.tsx
 msgid "Invitation ready"
-msgstr ""
+msgstr "초대 준비됨"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Invitation required"
-msgstr ""
+msgstr "초대 필요"
 
 #: src/ConnectApp.tsx
 msgid "Invite using"
-msgstr ""
+msgstr "초대 방법"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Invite using"
-msgstr ""
+msgstr "초대 방법"
 
 #: src/auth-view.tsx
 msgid "Invited? Open the link in your invitation email. "
-msgstr ""
+msgstr "초대를 받았나요? 초대 이메일의 링크를 여세요. "
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Invitee code"
-msgstr ""
+msgstr "초대받은 사람 코드"
 
 #: src/auth-view.tsx
 msgid "Join the signup waitlist"
-msgstr ""
+msgstr "가입 대기 명단에 등록"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Just a moment…"
-msgstr ""
+msgstr "잠시만 기다려 주세요…"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "just now"
-msgstr ""
+msgstr "방금 전"
 
 #: src/authority-workflows.tsx
 msgid "Keep access"
-msgstr ""
+msgstr "액세스 유지"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Keep an offline replica"
-msgstr ""
+msgstr "오프라인 복제본 유지"
 
 #: src/authority-workflows.tsx
 msgid "Keep it hosted"
-msgstr ""
+msgstr "호스팅 상태 유지"
 
 #: src/authorization-review.tsx
 msgid "Keep your current records and explain which fields mean the same thing."
-msgstr ""
+msgstr "현재 레코드를 유지하면서 같은 의미의 필드를 지정하세요."
 
 #: src/LanguageSetting.tsx
 msgid "Language"
@@ -1835,34 +1835,34 @@ msgstr "언어"
 #. placeholder {0}: relativeTime(session.last_seen_at)
 #: src/AccountManagement.tsx
 msgid "Last used {0}"
-msgstr ""
+msgstr "마지막 사용: {0}"
 
 #: src/ApplicationAccess.tsx
 msgid "Legacy scoped access is revoked. Reauthorize this application for the entire collection."
-msgstr ""
+msgstr "기존 범위 제한 액세스가 철회되었습니다. 전체 컬렉션에 대해 이 애플리케이션을 다시 승인하세요."
 
 #: src/ConnectApp.tsx
 msgid "Link your account to an editable record in this collection. Collection access is approved separately."
-msgstr ""
+msgstr "이 컬렉션에서 내 계정을 편집 가능한 레코드에 연결합니다. 컬렉션 액세스는 별도로 승인됩니다."
 
 #: src/authorization-review.tsx
 msgid "List file names and metadata"
-msgstr ""
+msgstr "파일 이름 및 메타데이터 목록 보기"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Loading account details…"
-msgstr ""
+msgstr "계정 세부 정보 불러오는 중…"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Loading Google sign-in…"
-msgstr ""
+msgstr "Google 로그인 불러오는 중…"
 
 #: src/GoogleIdentityButton.tsx
 msgctxt "Connect interface"
 msgid "Loading Google sign-in…"
-msgstr ""
+msgstr "Google 로그인 불러오는 중…"
 
 #: src/ConnectApp.tsx
 msgid "Loading people…"
@@ -1870,45 +1870,45 @@ msgstr "사람 불러오는 중…"
 
 #: src/ConnectApp.tsx
 msgid "Loading your account and collections…"
-msgstr ""
+msgstr "계정 및 컬렉션 불러오는 중…"
 
 #: src/AccountManagement.tsx
 msgid "Local collection and mirror files remain on your computers."
-msgstr ""
+msgstr "로컬 컬렉션 및 미러 파일은 컴퓨터에 남습니다."
 
 #: src/AccountManagement.tsx
 msgid "Local collection files stay on your computers and are not measured here."
-msgstr ""
+msgstr "로컬 컬렉션 파일은 컴퓨터에 남으며 여기의 사용량에 포함되지 않습니다."
 
 #: src/ConnectApp.tsx
 msgid "Location"
-msgstr ""
+msgstr "위치"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Location"
-msgstr ""
+msgstr "위치"
 
 #: src/ConnectApp.tsx
 msgid "Main copy"
-msgstr ""
+msgstr "기본 사본"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Main copy"
-msgstr ""
+msgstr "기본 사본"
 
 #: src/authority-workflows.tsx
 msgid "Main copy hosted by mdbase"
-msgstr ""
+msgstr "mdbase에서 호스팅하는 기본 사본"
 
 #: src/ConnectApp.tsx
 msgid "Main copy moved to a computer"
-msgstr ""
+msgstr "컴퓨터로 이동한 기본 사본"
 
 #: src/authority-workflows.tsx
 msgid "Main copy on {mirrorName}"
-msgstr ""
+msgstr "{mirrorName}에 있는 기본 사본"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -1918,74 +1918,74 @@ msgstr "관리"
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Manage and delete files"
-msgstr ""
+msgstr "파일 관리 및 삭제"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Manage definitions"
-msgstr ""
+msgstr "정의 관리"
 
 #: src/auth-view.tsx
 msgid "Manage email preferences"
-msgstr ""
+msgstr "이메일 수신 설정 관리"
 
 #: src/AccountManagement.tsx
 msgid "Manage hosted storage, sign-in methods, and browser sessions."
-msgstr ""
+msgstr "호스팅 저장 공간, 로그인 방법 및 브라우저 세션을 관리합니다."
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Manage saved views"
-msgstr ""
+msgstr "저장된 뷰 관리"
 
 #. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
 msgid "Manage the main copy of {0} and its synced Markdown folders."
-msgstr ""
+msgstr "{0}의 기본 사본과 동기화된 Markdown 폴더를 관리합니다."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "manage timers"
-msgstr ""
+msgstr "타이머 관리"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "manage types"
-msgstr ""
+msgstr "유형 관리"
 
 #: src/ConnectApp.tsx
 msgid "Manage where this collection lives and which applications can use it."
-msgstr ""
+msgstr "이 컬렉션의 저장 위치와 사용할 수 있는 애플리케이션을 관리합니다."
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Managed by your tailnet"
-msgstr ""
+msgstr "내 테일넷에서 관리"
 
 #: src/ConnectApp.tsx
 msgid "Management access does not give applications access to collection content. Each application needs its own collection approval."
-msgstr ""
+msgstr "관리 액세스 권한만으로 애플리케이션이 컬렉션 내용을 볼 수는 없습니다. 각 애플리케이션에는 별도의 컬렉션 승인이 필요합니다."
 
 #: src/AccountManagement.tsx
 msgid "Markdown and file usage is temporarily unavailable."
-msgstr ""
+msgstr "Markdown 및 파일 사용량을 일시적으로 확인할 수 없습니다."
 
 #: src/authority-workflows.tsx
 msgid "Markdown edits will sync in both directions. Concurrent edits remain separate until you choose a version."
-msgstr ""
+msgstr "Markdown 편집 내용은 양방향으로 동기화됩니다. 동시에 수정한 내용은 버전을 선택할 때까지 별도로 유지됩니다."
 
 #: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgid "mdbase connect could not be reached. Check your connection and try again."
-msgstr ""
+msgstr "mdbase connect에 연결할 수 없습니다. 연결 상태를 확인하고 다시 시도하세요."
 
 #: src/portal-model.ts
 msgid "mdbase connect could not reach the service. Check your connection and try again."
-msgstr ""
+msgstr "mdbase connect가 서비스에 연결할 수 없습니다. 연결 상태를 확인하고 다시 시도하세요."
 
 #: src/authority-workflows.tsx
 msgid "mdbase connect is checking the latest hosted changes, registering the folder, and making it the main copy."
-msgstr ""
+msgstr "mdbase connect에서 최신 호스팅 변경 사항을 확인하고 폴더를 등록한 뒤 기본 사본으로 설정하고 있습니다."
 
 #: src/ConnectApp.tsx
 msgid "mdbase connect is unavailable"
@@ -1994,53 +1994,53 @@ msgstr "mdbase connect를 사용할 수 없습니다."
 #: src/ConnectApp.tsx
 #: src/portal-ui.tsx
 msgid "mdbase connect navigation"
-msgstr ""
+msgstr "mdbase connect 탐색"
 
 #: src/ConnectApp.tsx
 msgid "mdbase connect needs to restart"
-msgstr ""
+msgstr "mdbase connect를 다시 시작해야 합니다"
 
 #. placeholder {0}: adoption.retain_mirror ? t(i18n)` ${adoption.mirror_name ?? adoption.source_name} will continue as a synced folder, with edits syncing both ways.` : t(i18n)({ message: " The original local files are no longer the main copy." })
 #: src/authority-workflows.tsx
 msgid "mdbase now keeps the main copy of this collection.{0}"
-msgstr ""
+msgstr "이제 mdbase가 이 컬렉션의 기본 사본을 보관합니다.{0}"
 
 #: src/authority-workflows.tsx
 msgid "mdbase remembers your choice and {app} follows it. {app} keeps its copy of this collection either way."
-msgstr ""
+msgstr "mdbase가 선택을 기억하고 {app}에서 따릅니다. 어느 쪽을 선택해도 {app}에는 이 컬렉션의 사본이 유지됩니다."
 
 #: src/compatibility.ts
 msgctxt "Connect interface"
 msgid "Missing required types"
-msgstr ""
+msgstr "필수 유형 누락"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "mobile app"
-msgstr ""
+msgstr "모바일 앱"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Mobile app"
-msgstr ""
+msgstr "모바일 앱"
 
 #: src/compatibility.ts
 msgctxt "Connect interface"
 msgid "More access required"
-msgstr ""
+msgstr "추가 액세스 필요"
 
 #: src/AccountManagement.tsx
 msgid "More regular updates about new features and improvements."
-msgstr ""
+msgstr "새 기능과 개선 사항에 관한 정기 소식을 더 자주 받습니다."
 
 #: src/authority-workflows.tsx
 msgid "Move a local collection to mdbase"
-msgstr ""
+msgstr "로컬 컬렉션을 mdbase로 이동"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Move and rename files"
-msgstr ""
+msgstr "파일 이동 및 이름 변경"
 
 #: src/authority-workflows.tsx
 msgid "Move approved"
