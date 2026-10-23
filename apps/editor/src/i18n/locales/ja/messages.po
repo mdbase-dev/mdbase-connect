@@ -1008,7 +1008,7 @@ msgstr "採用して更新"
 #: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
 msgid "Advanced"
-msgstr "詳細"
+msgstr "詳細設定"
 
 #: src/type-presentation.ts
 msgctxt "property type"
@@ -2652,7 +2652,7 @@ msgstr "アイコン"
 
 #: src/TypeBrowser.tsx
 msgid "Identity"
-msgstr "本人確認"
+msgstr "識別情報"
 
 #: src/TypeBrowser.tsx
 msgid "Impact is based on the currently indexed notes. The collection validates the complete definition when you confirm."
@@ -3622,7 +3622,7 @@ msgstr "選択されたすべてのノートの型で宣言されているプロ
 
 #: src/embed-actions.ts
 msgid "Open"
-msgstr "未解決"
+msgstr "開く"
 
 #: src/code-editor-file-embeds.ts
 msgid "Open {filename}"
@@ -5607,7 +5607,7 @@ msgstr "再試行"
 
 #: src/NewNoteComposer.tsx
 msgid "Type"
-msgstr "種類"
+msgstr "型"
 
 #. placeholder {0}: filter.value
 #: src/note-list-view.ts
@@ -5955,7 +5955,7 @@ msgstr "長い行を折り返す"
 
 #: src/TypeBrowser.tsx
 msgid "YAML"
-msgstr ""
+msgstr "YAML"
 
 #: src/collection-browser.ts
 msgid "Yesterday"
