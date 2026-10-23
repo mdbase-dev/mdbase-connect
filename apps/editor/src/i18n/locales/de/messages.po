@@ -2579,7 +2579,7 @@ msgstr "Von <0>{0}</0> nach <1>{1}</1>. Dadurch ändern sich Pfade in der gesamt
 
 #: src/TypeBrowser.tsx
 msgid "Frontmatter contains all"
-msgstr "Frontmatter enthält alles"
+msgstr "Frontmatter enthält alle angegebenen Felder"
 
 #: src/PropertiesPanel.tsx
 msgid "Frontmatter must be a JSON object."
@@ -3782,7 +3782,7 @@ msgstr "Pfadordner"
 
 #: src/TypeBrowser.tsx
 msgid "Path matches any"
-msgstr "Pfad entspricht einem der Muster"
+msgstr "Pfad passt auf eines der Muster"
 
 #: src/TypeBrowser.tsx
 msgid "Path pattern"
@@ -5634,7 +5634,7 @@ msgstr "Typdefinitionen benötigen eine abschließende Frontmatter-Markierung --
 #: src/type-contracts.ts
 #: src/type-schema.ts
 msgid "Type definitions need YAML frontmatter between --- markers."
-msgstr "Typdefinitionen benötigen YAML-Frontmatter zwischen --- -Markierungen."
+msgstr "Typdefinitionen benötigen YAML-Frontmatter zwischen zwei Trennzeilen mit ---."
 
 #: src/TypeBrowser.tsx
 msgid "Type editor view"
@@ -5835,7 +5835,7 @@ msgstr "Das Hochladen von {name} dauerte zu lange. Versuchen Sie es erneut."
 
 #: src/folder-change.ts
 msgid "Use a collection-relative folder path without empty, . or .. segments."
-msgstr "Verwenden Sie einen sammlungsrelativen Ordnerpfad ohne leere Segmente, . oder ..."
+msgstr "Verwenden Sie einen sammlungsrelativen Ordnerpfad ohne leere Segmente sowie ohne die Segmente „.“ oder „..“."
 
 #: src/use-note-actions.ts
 msgid "Use a collection-relative path ending in .md."
