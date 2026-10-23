@@ -241,7 +241,7 @@ function TurnOnSyncDialog({ collection, busy, error, onAct, onClose, onConfirm }
       </div>
       {unlisted.length > 0 && (
         <div className="collection-holds">
-          <p><Trans>When this folder moved to the new sync engine, mdbase kept another version of {plural(unlisted.length, { one: "# file", other: "# files" })}. The folder has this computer's version; check it before sync starts from it.</Trans></p>
+          <p>{t(i18n)`When this folder moved to the new sync engine, mdbase kept another version of ${plural(unlisted.length, { one: "# file", other: "# files" })}. The folder has this computer's version; check it before sync starts from it.`}</p>
           <ul>{unlisted.map((hold) => <li key={hold.path}><code>{hold.path}</code></li>)}</ul>
           <label className="takeover-option"><Trans>
             <input type="checkbox" checked={reviewed} disabled={busy} onChange={(event) => setReviewed(event.target.checked)} />
