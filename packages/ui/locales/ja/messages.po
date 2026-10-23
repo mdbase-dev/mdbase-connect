@@ -1,0 +1,307 @@
+msgid ""
+msgstr ""
+"POT-Creation-Date: 2026-10-23 22:26+1100\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: @lingui/cli\n"
+"Language: ja\n"
+
+#. placeholder {0}: typeField.label
+#. placeholder {1}: contractField.label
+#: contract-setup.ts
+msgid "{0} can supply {1}."
+msgstr ""
+
+#. placeholder {0}: typeField.label
+#. placeholder {1}: kindLabel(typeField.kind)
+#. placeholder {2}: contractField.label
+#. placeholder {3}: kindLabel(contractField.kind)
+#: contract-setup.ts
+msgid "{0} is {1}, but {2} needs {3}."
+msgstr ""
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a complex value"
+msgstr ""
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a date"
+msgstr ""
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a date and time"
+msgstr ""
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a group of values"
+msgstr ""
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a list"
+msgstr ""
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a number"
+msgstr ""
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a whole number"
+msgstr ""
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "a yes/no value"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Add record types"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Additional operations declared by this application."
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Cancel this app's scheduled activity"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Change record types"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Change records"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Change saved views"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Check available record types"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Check collection validity"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Check what this app needs to set up"
+msgstr ""
+
+#. placeholder {0}: contractField.label
+#: contract-setup.ts
+msgid "Choose which field supplies {0}."
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create and edit records"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create or change saved views and type definitions."
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create or update this app's scheduled activity"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create records"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create saved views"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Create, edit, rename, or move records."
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Delete records"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Delete saved views"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Describe the collection"
+msgstr ""
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Doesn’t match"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Inspect saved-view definitions"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Install or update record types"
+msgstr ""
+
+#. placeholder {0}: url.host
+#: access.ts
+msgid "Local development ({0})"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Manage collection structure"
+msgstr ""
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Matches"
+msgstr ""
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Not shared"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Other permissions"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Permanently remove records from this collection."
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Read collection details, records, saved views, and type definitions."
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Read records"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Rename or move records"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Replace this app's scheduled activity"
+msgstr ""
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Required"
+msgstr ""
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Review"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Run saved views"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Schedule app activity"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Search and query"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "See collection changes"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "See saved views"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "See this app's scheduled activity"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "Set up this app in the collection"
+msgstr ""
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Some existing records may not have this required value."
+msgstr ""
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "Some existing values are outside the application’s accepted set."
+msgstr ""
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "The existing field allows values the application may not understand."
+msgstr ""
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "The two fields allow different values."
+msgstr ""
+
+#: contract-setup.ts
+msgctxt "Collection field mapping"
+msgid "This optional value will not be shared with the application."
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "View and find records"
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "View and manage timers owned by this application."
+msgstr ""
+
+#: access.ts
+msgctxt "Application permission"
+msgid "View record types"
+msgstr ""

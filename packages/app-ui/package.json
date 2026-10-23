@@ -110,7 +110,10 @@
     "README.md"
   ],
   "scripts": {
-    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json --jsx preserve && node scripts/compile-macros.mjs",
+    "i18n:extract": "mdbase-i18n extract",
+    "i18n:compile": "mdbase-i18n compile",
+    "i18n:check": "mdbase-i18n check",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json && node scripts/compile-macros.mjs",
     "test": "node ../../scripts/ci/vitest.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
@@ -127,6 +130,7 @@
     "react-dom": "^19.2.0"
   },
   "devDependencies": {
+    "@mdbase-dev/i18n": "workspace:*",
     "@babel/core": "^7.29.7",
     "@babel/plugin-transform-react-jsx": "^7.29.7",
     "@codemirror/view": "^6.43.12",

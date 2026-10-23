@@ -1,6 +1,5 @@
 import { t } from "@lingui/core/macro";
-import { Trans } from "@lingui/react/macro";
-import "./i18n.js";
+import { useLocaleRevision } from "./i18n.js";
 import { useEffect, useRef, useState } from "react";
 
 interface TurnstileApi {
@@ -24,6 +23,7 @@ declare global {
 let turnstileScript: Promise<void> | undefined;
 
 export function FeedbackVerification({ siteKey, onToken }: { siteKey: string; onToken(token: string): void }) {
+  useLocaleRevision();
   const container = useRef<HTMLDivElement>(null);
   const callback = useRef(onToken);
   const [error, setError] = useState("");
@@ -55,7 +55,7 @@ export function FeedbackVerification({ siteKey, onToken }: { siteKey: string; on
 
   return <div className="mdbase-feedback-verification">
     <div ref={container} />
-    {error && <><p className="mdbase-feedback-error" role="alert">{error}</p><button type="button" onClick={() => setAttempt((value) => value + 1)}><Trans>Retry verification</Trans></button></>}
+    {error && <><p className="mdbase-feedback-error" role="alert">{error}</p><button type="button" onClick={() => setAttempt((value) => value + 1)}>{t({ message: "Retry verification" })}</button></>}
   </div>;
 }
 

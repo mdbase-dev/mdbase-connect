@@ -2,7 +2,7 @@ import { transformAsync } from "@babel/core";
 import { readdir, readFile, writeFile, unlink } from "node:fs/promises";
 import { resolve } from "node:path";
 
-// Run after declaration/type emission with JSX preserved. Keep source messages for
+// Run after declaration/type emission. Keep source messages for
 // synchronous English in consumers that have not adopted a catalogue yet.
 async function compile(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -13,7 +13,6 @@ async function compile(directory) {
       filename: path, configFile: false, babelrc: false,
       plugins: [
         ["@lingui/babel-plugin-lingui-macro", { descriptorFields: "message" }],
-        ["@babel/plugin-transform-react-jsx", { runtime: "automatic" }],
       ],
     });
     const output = path.replace(/\.jsx$/, ".js");

@@ -1,7 +1,6 @@
 import { t } from "@lingui/core/macro";
-import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision } from "./i18n.js";
-import { Fragment, useEffect, useMemo, useRef, useState, type JSX, type KeyboardEvent } from "react";
+import { Fragment, useEffect, useId, useMemo, useRef, useState, type JSX, type KeyboardEvent } from "react";
 
 export interface Command {
   readonly id: string;
@@ -104,9 +103,9 @@ function OpenCommandPalette({ commands, onClose, label, placeholder, showAll }: 
     onClose();
     (alternate && command.alternate ? command.alternate.run : command.run)();
   };
-  const hintId = `${label.replace(/\W+/gu, "-").toLowerCase()}-hint`;
+  const hintId = useId();
   return <dialog className="mdbase-command-backdrop" open>
-    <button className="mdbase-command-dismiss" type="button" aria-label={t`Close ${label.toLowerCase()}`} onClick={onClose} />
+    <button className="mdbase-command-dismiss" type="button" aria-label={t`Close ${label}`} onClick={onClose} />
     <section
       ref={paletteRef}
       className="mdbase-command-palette"
@@ -147,15 +146,15 @@ function OpenCommandPalette({ commands, onClose, label, placeholder, showAll }: 
               : null}
             <CommandRow command={command} active={index === active} onRun={run} />
           </Fragment>)
-          : <div className="mdbase-command-empty"><Trans>Nothing matches</Trans></div>}
+          : <div className="mdbase-command-empty">{t({ message: "Nothing matches" })}</div>}
       </div>
       <footer className="mdbase-command-footer" id={hintId}>
-        <span><kbd>↑</kbd><kbd>↓</kbd>  <Trans>to move</Trans></span>
-        <span><kbd>↵</kbd>  <Trans>to open</Trans></span>
+        <span><kbd>↑</kbd><kbd>↓</kbd>  {t({ message: "to move" })}</span>
+        <span><kbd>↵</kbd>  {t({ message: "to open" })}</span>
         {matches[active]?.alternate
           ? <span><kbd>{shortcutLabel("shift")}</kbd><kbd>↵</kbd> {matches[active].alternate.label.toLocaleLowerCase()}</span>
           : null}
-        <span><kbd><Trans>Esc</Trans></kbd>  <Trans>to close</Trans></span>
+        <span><kbd>{t({ message: "Esc" })}</kbd>  {t({ message: "to close" })}</span>
       </footer>
     </section>
   </dialog>;

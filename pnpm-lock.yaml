@@ -337,6 +337,9 @@ importers:
       '@lingui/vite-plugin':
         specifier: 6.9.0
         version: 6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(@lingui/babel-plugin-lingui-macro@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(esbuild@0.28.1)(rolldown@1.2.14)(supports-color@10.2.2)(vite@8.3.4(@types/node@24.19.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.1)(yaml@2.9.1))
+      '@mdbase-dev/i18n':
+        specifier: workspace:*
+        version: link:../i18n
       '@mdbase-dev/sdk':
         specifier: file:vendor/sdk-0.0.0-bd131b16.tgz
         version: file:packages/app-ui/vendor/sdk-0.0.0-bd131b16.tgz
@@ -561,6 +564,9 @@ importers:
         specifier: ^2.9.1
         version: 2.9.1
     devDependencies:
+      '@mdbase-dev/i18n':
+        specifier: workspace:*
+        version: link:../i18n
       typescript:
         specifier: ^7.0.2
         version: 7.0.2

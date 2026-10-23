@@ -1,4 +1,4 @@
-import { t } from "@lingui/core/macro";
+import { t, plural } from "@lingui/core/macro";
 import "./i18n.js";
 export type DiffKind = "same" | "local" | "remote" | "omitted";
 
@@ -81,7 +81,7 @@ function compactDiff(lines: DiffLine[]): DiffLine[] {
     const line = lines[index];
     if (line.kind !== "same") {
       if (shownChanges >= MAX_VISIBLE_CHANGES) {
-        visible.push({ kind: "omitted", text: t`${changes - shownChanges} more changed lines` });
+        visible.push({ kind: "omitted", text: plural(changes - shownChanges, { one: "# more changed line", other: "# more changed lines" }) });
         break;
       }
       visible.push(line);
