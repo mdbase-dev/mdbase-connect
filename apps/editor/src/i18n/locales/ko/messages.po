@@ -4393,420 +4393,420 @@ msgstr "차이 검토"
 
 #: src/YourPersonPanel.tsx
 msgid "Review fields to write"
-msgstr ""
+msgstr "기록할 필드 검토"
 
 #: src/YourPersonPanel.tsx
 msgid "Review its Person mappings in Types before creating a person record."
-msgstr ""
+msgstr "사람 레코드를 만들기 전에 유형에서 Person 매핑을 검토하세요."
 
 #: src/TypeBrowser.tsx
 msgid "Review mapping"
-msgstr ""
+msgstr "매핑 검토"
 
 #: src/YourPersonPanel.tsx
 msgid "Review person setup"
-msgstr ""
+msgstr "사람 설정 검토"
 
 #: src/YourPersonPanel.tsx
 msgid "Review Person type update"
-msgstr ""
+msgstr "Person 유형 업데이트 검토"
 
 #: src/TypeBrowser.tsx
 msgid "Review recommended"
-msgstr ""
+msgstr "검토 권장"
 
 #: src/App.tsx
 msgid "Review recovered text"
-msgstr ""
+msgstr "복구된 텍스트 검토"
 
 #: src/TypeBrowser.tsx
 msgid "Review YAML diff"
-msgstr ""
+msgstr "YAML 차이 검토"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Route"
-msgstr ""
+msgstr "경로"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Runtime"
-msgstr ""
+msgstr "런타임"
 
 #: src/TypeBrowser.tsx
 msgid "Runtime path handling"
-msgstr ""
+msgstr "런타임 경로 처리"
 
 #: src/note-mutation-presentation.ts
 msgid "Save failed"
-msgstr ""
+msgstr "저장 실패"
 
 #: src/PropertiesPanel.tsx
 msgid "Save source"
-msgstr ""
+msgstr "원본 저장"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Saved access"
-msgstr ""
+msgstr "접근 권한 저장됨"
 
 #: src/CollectionRail.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Saved on this device; waiting for sync"
-msgstr ""
+msgstr "이 기기에 저장됨 · 동기화 대기 중"
 
 #. placeholder {0}: saved.name
 #: src/use-type-definition-lifecycle.ts
 msgid "Saved type “{0}”."
-msgstr ""
+msgstr "유형 “{0}” 저장됨."
 
 #: src/note-mutation-presentation.ts
 msgid "Saving"
-msgstr ""
+msgstr "저장 중"
 
 #: src/TypeBrowser.tsx
 msgid "Saving affects every matching note"
-msgstr ""
+msgstr "저장하면 일치하는 모든 노트에 영향을 줍니다."
 
 #: src/TypeBrowser.tsx
 msgid "Saving affects every note of type "
-msgstr ""
+msgstr "저장하면 다음 유형의 모든 노트에 영향을 줍니다: "
 
 #: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Saving…"
-msgstr ""
+msgstr "저장 중…"
 
 #: src/type-schema.ts
 msgid "Schema settings"
-msgstr ""
+msgstr "스키마 설정"
 
 #: src/TypeBrowser.tsx
 msgid "Schema-managed fields"
-msgstr ""
+msgstr "스키마 관리 필드"
 
 #: src/NoteListViewOptions.tsx
 #: src/TypeBrowser.tsx
 msgid "Scope"
-msgstr ""
+msgstr "범위"
 
 #: src/NoteSearchField.tsx
 msgid "Search"
-msgstr ""
+msgstr "검색"
 
 #: src/NoteSearchField.tsx
 msgid "Search filters"
-msgstr ""
+msgstr "검색 필터"
 
 #: src/NoteList.tsx
 msgid "Search is incomplete."
-msgstr ""
+msgstr "검색이 완료되지 않았습니다."
 
 #: src/NoteSearchField.tsx
 msgid "Search notes and files"
-msgstr ""
+msgstr "노트 및 파일 검색"
 
 #: src/TypeBrowser.tsx
 msgid "Search types"
-msgstr ""
+msgstr "유형 검색"
 
 #: src/NoteList.tsx
 msgid "Searching"
-msgstr ""
+msgstr "검색 중"
 
 #: src/code-editor-completions.ts
 msgid "Section heading"
-msgstr ""
+msgstr "섹션 제목"
 
 #: src/code-editor-completions.ts
 msgid "Section in note"
-msgstr ""
+msgstr "노트 내 섹션"
 
 #: src/WorkspaceChrome.tsx
 msgid "Select a note, or start a new one."
-msgstr ""
+msgstr "노트를 선택하거나 새 노트를 시작하세요."
 
 #: src/YourPersonPanel.tsx
 msgid "Select a person record."
-msgstr ""
+msgstr "사람 레코드를 선택하세요."
 
 #: src/YourPersonPanel.tsx
 msgid "Select a Person-compatible type."
-msgstr ""
+msgstr "Person 호환 유형을 선택하세요."
 
 #: src/App.tsx
 #: src/editor-commands.ts
 msgid "Selected notes"
-msgstr ""
+msgstr "선택한 노트"
 
 #: src/App.tsx
 msgid "Selection actions"
-msgstr ""
+msgstr "선택 항목 작업"
 
 #: src/EditorRail.tsx
 msgid "Send feedback"
-msgstr ""
+msgstr "피드백 보내기"
 
 #: src/code-editor-completions.ts
 msgid "Separate sections"
-msgstr ""
+msgstr "섹션 구분"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Set a value"
-msgstr ""
+msgstr "값 설정"
 
 #: src/code-editor-completions.ts
 msgid "Set off quoted text"
-msgstr ""
+msgstr "인용문 서식 적용"
 
 #: src/BulkNoteProperties.tsx
 #: src/editor-commands.ts
 msgid "Set property"
-msgstr ""
+msgstr "속성 설정"
 
 #: src/TypeBrowser.tsx
 msgid "Set the contract’s required behavior choices before saving this type."
-msgstr ""
+msgstr "이 유형을 저장하기 전에 계약에서 요구하는 동작 옵션을 설정하세요."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Set to null"
-msgstr ""
+msgstr "Null로 설정"
 
 #: src/YourPersonPanel.tsx
 msgid "Set up person records"
-msgstr ""
+msgstr "사람 레코드 설정"
 
 #: src/YourPersonPanel.tsx
 msgid "Set up person records below before reviewing this contact."
-msgstr ""
+msgstr "이 연락처를 검토하기 전에 아래에서 사람 레코드를 설정하세요."
 
 #: src/EditorRail.tsx
 msgid "Settings"
-msgstr ""
+msgstr "설정"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Settings"
-msgstr ""
+msgstr "설정"
 
 #: src/TypeBrowser.tsx
 msgid "Setup required"
-msgstr ""
+msgstr "설정 필요"
 
 #: src/YourPersonPanel.tsx
 msgid "Several person records are linked to your account. Edit them so exactly one record represents you:"
-msgstr ""
+msgstr "계정에 연결된 사람 레코드가 여러 개 있습니다. 정확히 하나만 나를 나타내도록 수정하세요:"
 
 #: src/QuickOpen.tsx
 msgid "Shortcuts"
-msgstr ""
+msgstr "단축키"
 
 #: src/App.tsx
 msgid "show"
-msgstr ""
+msgstr "표시"
 
 #: src/App.tsx
 msgid "Show {listName} sidebar"
-msgstr ""
+msgstr "{listName} 사이드바 표시"
 
 #: src/TypeBrowser.tsx
 msgid "Show affected notes"
-msgstr ""
+msgstr "영향받는 노트 표시"
 
 #. placeholder {0}: mentions.length
 #: src/WorkspaceChrome.tsx
 msgid "Show all {0}"
-msgstr ""
+msgstr "{0} 모두 표시"
 
 #: src/App.tsx
 msgid "Show collections sidebar"
-msgstr ""
+msgstr "컬렉션 사이드바 표시"
 
 #: src/WorkspaceChrome.tsx
 msgid "Show fewer"
-msgstr ""
+msgstr "간략히"
 
 #: src/editor-commands.ts
 msgid "Show or hide the notes sidebar"
-msgstr ""
+msgstr "노트 사이드바 표시 또는 숨기기"
 
 #: src/App.tsx
 msgid "Sidebar layout controls"
-msgstr ""
+msgstr "사이드바 레이아웃 제어"
 
 #: src/App.tsx
 msgid "Sign out"
-msgstr ""
+msgstr "로그아웃"
 
 #: src/App.tsx
 msgid "Sign out?"
-msgstr ""
+msgstr "로그아웃할까요?"
 
 #: src/PropertiesPanel.tsx
 msgid "Size"
-msgstr ""
+msgstr "크기"
 
 #: src/code-editor-completions.ts
 msgid "Small section heading"
-msgstr ""
+msgstr "작은 섹션 제목"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Soften punctuation away from the active line and make tasks checkable."
-msgstr ""
+msgstr "현재 줄 바깥의 문장 부호를 약하게 표시하고 작업을 체크할 수 있게 합니다."
 
 #: src/TypeBrowser.tsx
 msgid "some matching rules"
-msgstr ""
+msgstr "일부 일치 규칙"
 
 #: src/NoteListViewOptions.tsx
 msgid "Sort"
-msgstr ""
+msgstr "정렬"
 
 #: src/PropertiesPanel.tsx
 msgid "Source could not be saved. Your edits are still here."
-msgstr ""
+msgstr "원본을 저장하지 못했습니다. 편집 내용은 그대로 있습니다."
 
 #: src/TypeBrowser.tsx
 msgid "Source field"
-msgstr ""
+msgstr "원본 필드"
 
 #: src/PropertiesPanel.tsx
 msgid "Source saves when focus leaves the editor"
-msgstr ""
+msgstr "편집기에서 포커스가 벗어나면 원본이 저장됩니다."
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Specification"
-msgstr ""
+msgstr "명세"
 
 #: src/code-editor-completions.ts
 msgid "Start a checkable task"
-msgstr ""
+msgstr "체크 가능한 작업 시작"
 
 #: src/code-editor-completions.ts
 msgid "Start a list"
-msgstr ""
+msgstr "목록 시작"
 
 #: src/code-editor-completions.ts
 msgid "Start an ordered list"
-msgstr ""
+msgstr "번호 매기기 목록 시작"
 
 #: src/TypeBrowser.tsx
 msgid "Start blank or from a ready-made type"
-msgstr ""
+msgstr "빈 상태 또는 준비된 유형에서 시작"
 
 #: src/TypeBrowser.tsx
 msgid "Start from an empty definition and add your own fields."
-msgstr ""
+msgstr "빈 정의에서 시작해 필드를 직접 추가하세요."
 
 #: src/TypeBrowser.tsx
 msgid "Start from an empty definition, or choose a ready-made type and adapt its fields and contract mapping to fit your collection."
-msgstr ""
+msgstr "빈 정의에서 시작하거나 준비된 유형을 선택한 다음 컬렉션에 맞게 필드와 계약 매핑을 조정하세요."
 
 #: src/TypeBrowser.tsx
 msgid "Start with app compatibility"
-msgstr ""
+msgstr "앱 호환성으로 시작"
 
 #: src/MarkdownNoteEditor.tsx
 #: src/NewNoteComposer.tsx
 msgid "Start writing"
-msgstr ""
+msgstr "작성 시작"
 
 #: src/TypeBrowser.tsx
 msgid "Starting contract"
-msgstr ""
+msgstr "시작 계약"
 
 #: src/TypeBrowser.tsx
 msgid "status"
-msgstr ""
+msgstr "상태"
 
 #: src/note-mutation-presentation.ts
 msgid "Stopping safely"
-msgstr ""
+msgstr "안전하게 중단하는 중"
 
 #: src/TypeBrowser.tsx
 msgid "Structured frontmatter conditions"
-msgstr ""
+msgstr "구조화된 프런트매터 조건"
 
 #: src/TypeBrowser.tsx
 msgid "Suggested from field names and shapes only. Confirm that the meanings agree."
-msgstr ""
+msgstr "필드 이름과 형태만 바탕으로 제안되었습니다. 의미가 맞는지 확인하세요."
 
 #: src/NewNoteComposer.tsx
 msgid "Suggested path"
-msgstr ""
+msgstr "제안된 경로"
 
 #: src/App.tsx
 #: src/editor-commands.ts
 msgid "Switch collection"
-msgstr ""
+msgstr "컬렉션 전환"
 
 #: src/App.tsx
 msgid "Switch collections?"
-msgstr ""
+msgstr "컬렉션을 전환할까요?"
 
 #: src/editor-commands.ts
 msgid "Switch theme"
-msgstr ""
+msgstr "테마 전환"
 
 #: src/ConnectionScreens.tsx
 msgid "sync changes"
-msgstr ""
+msgstr "변경사항 동기화"
 
 #: src/CollectionRail.tsx
 msgid "Sync stopped"
-msgstr ""
+msgstr "동기화 중단됨"
 
 #: src/editor-commands.ts
 msgid "System → Light → Dark"
-msgstr ""
+msgstr "시스템 → 밝게 → 어둡게"
 
 #: src/code-editor-completions.ts
 msgid "Table"
-msgstr ""
+msgstr "표"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "tag"
-msgstr ""
+msgstr "태그"
 
 #: src/BulkNoteProperties.tsx
 msgid "Tag"
-msgstr ""
+msgstr "태그"
 
 #. placeholder {0}: filter.value
 #: src/note-list-view.ts
 msgid "Tag · #{0}"
-msgstr ""
+msgstr "태그 · #{0}"
 
 #: src/bulk-note-actions.ts
 msgid "Tags must be text or a list of text before they can be changed together."
-msgstr ""
+msgstr "태그를 함께 변경하려면 텍스트 또는 텍스트 목록이어야 합니다."
 
 #: src/code-editor-completions.ts
 msgid "Task"
-msgstr ""
+msgstr "작업"
 
 #: src/TypeBrowser.tsx
 msgid "tasks"
-msgstr ""
+msgstr "작업"
 
 #: src/TypeBrowser.tsx
 msgid "tasks/{id}.md"
-msgstr ""
+msgstr "tasks/{id}.md"
 
 #: src/TypeBrowser.tsx
 msgid "Technical details"
-msgstr ""
+msgstr "기술 세부 정보"
 
 #: src/TypeBrowser.tsx
 msgid "Tell compatible apps what this type’s fields mean."
-msgstr ""
+msgstr "호환 앱에 이 유형의 필드가 의미하는 바를 알려줍니다."
 
 #: src/TypeBrowser.tsx
 msgid "Template"
-msgstr ""
+msgstr "템플릿"
 
 #: src/type-presentation.ts
 msgid "text"
