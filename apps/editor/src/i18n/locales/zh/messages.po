@@ -4645,497 +4645,497 @@ msgstr "退出登录？"
 
 #: src/PropertiesPanel.tsx
 msgid "Size"
-msgstr ""
+msgstr "大小"
 
 #: src/code-editor-completions.ts
 msgid "Small section heading"
-msgstr ""
+msgstr "小节标题"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Soften punctuation away from the active line and make tasks checkable."
-msgstr ""
+msgstr "淡化非当前行的标点，并让任务可以勾选。"
 
 #: src/TypeBrowser.tsx
 msgid "some matching rules"
-msgstr ""
+msgstr "部分匹配规则"
 
 #: src/NoteListViewOptions.tsx
 msgid "Sort"
-msgstr ""
+msgstr "排序"
 
 #: src/PropertiesPanel.tsx
 msgid "Source could not be saved. Your edits are still here."
-msgstr ""
+msgstr "无法保存源码。你的编辑仍然保留。"
 
 #: src/TypeBrowser.tsx
 msgid "Source field"
-msgstr ""
+msgstr "源字段"
 
 #: src/PropertiesPanel.tsx
 msgid "Source saves when focus leaves the editor"
-msgstr ""
+msgstr "焦点离开编辑器时保存源码"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Specification"
-msgstr ""
+msgstr "规范"
 
 #: src/code-editor-completions.ts
 msgid "Start a checkable task"
-msgstr ""
+msgstr "插入可勾选的任务"
 
 #: src/code-editor-completions.ts
 msgid "Start a list"
-msgstr ""
+msgstr "插入列表"
 
 #: src/code-editor-completions.ts
 msgid "Start an ordered list"
-msgstr ""
+msgstr "插入有序列表"
 
 #: src/TypeBrowser.tsx
 msgid "Start blank or from a ready-made type"
-msgstr ""
+msgstr "从空白或现成类型开始"
 
 #: src/TypeBrowser.tsx
 msgid "Start from an empty definition and add your own fields."
-msgstr ""
+msgstr "从空白定义开始，添加你自己的字段。"
 
 #: src/TypeBrowser.tsx
 msgid "Start from an empty definition, or choose a ready-made type and adapt its fields and contract mapping to fit your collection."
-msgstr ""
+msgstr "从空白定义开始，或选择现成类型，调整其字段和契约映射以适配你的集合。"
 
 #: src/TypeBrowser.tsx
 msgid "Start with app compatibility"
-msgstr ""
+msgstr "从应用兼容性开始"
 
 #: src/MarkdownNoteEditor.tsx
 #: src/NewNoteComposer.tsx
 msgid "Start writing"
-msgstr ""
+msgstr "开始写作"
 
 #: src/TypeBrowser.tsx
 msgid "Starting contract"
-msgstr ""
+msgstr "初始契约"
 
 #: src/TypeBrowser.tsx
 msgid "status"
-msgstr ""
+msgstr "status"
 
 #: src/note-mutation-presentation.ts
 msgid "Stopping safely"
-msgstr ""
+msgstr "正在安全停止"
 
 #: src/TypeBrowser.tsx
 msgid "Structured frontmatter conditions"
-msgstr ""
+msgstr "结构化前置元数据条件"
 
 #: src/TypeBrowser.tsx
 msgid "Suggested from field names and shapes only. Confirm that the meanings agree."
-msgstr ""
+msgstr "建议仅依据字段名称和结构生成。请确认含义一致。"
 
 #: src/NewNoteComposer.tsx
 msgid "Suggested path"
-msgstr ""
+msgstr "建议路径"
 
 #: src/App.tsx
 #: src/editor-commands.ts
 msgid "Switch collection"
-msgstr ""
+msgstr "切换集合"
 
 #: src/App.tsx
 msgid "Switch collections?"
-msgstr ""
+msgstr "切换集合？"
 
 #: src/editor-commands.ts
 msgid "Switch theme"
-msgstr ""
+msgstr "切换主题"
 
 #: src/ConnectionScreens.tsx
 msgid "sync changes"
-msgstr ""
+msgstr "同步更改"
 
 #: src/CollectionRail.tsx
 msgid "Sync stopped"
-msgstr ""
+msgstr "同步已停止"
 
 #: src/editor-commands.ts
 msgid "System → Light → Dark"
-msgstr ""
+msgstr "跟随系统 → 浅色 → 深色"
 
 #: src/code-editor-completions.ts
 msgid "Table"
-msgstr ""
+msgstr "表格"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "tag"
-msgstr ""
+msgstr "标签"
 
 #: src/BulkNoteProperties.tsx
 msgid "Tag"
-msgstr ""
+msgstr "标签"
 
 #. placeholder {0}: filter.value
 #: src/note-list-view.ts
 msgid "Tag · #{0}"
-msgstr ""
+msgstr "标签 · #{0}"
 
 #: src/bulk-note-actions.ts
 msgid "Tags must be text or a list of text before they can be changed together."
-msgstr ""
+msgstr "标签必须是文本或文本列表，才能批量更改。"
 
 #: src/code-editor-completions.ts
 msgid "Task"
-msgstr ""
+msgstr "任务"
 
 #: src/TypeBrowser.tsx
 msgid "tasks"
-msgstr ""
+msgstr "tasks"
 
 #: src/TypeBrowser.tsx
 msgid "tasks/{id}.md"
-msgstr ""
+msgstr "tasks/{id}.md"
 
 #: src/TypeBrowser.tsx
 msgid "Technical details"
-msgstr ""
+msgstr "技术详情"
 
 #: src/TypeBrowser.tsx
 msgid "Tell compatible apps what this type’s fields mean."
-msgstr ""
+msgstr "告知兼容应用此类型各字段的含义。"
 
 #: src/TypeBrowser.tsx
 msgid "Template"
-msgstr ""
+msgstr "模板"
 
 #: src/type-presentation.ts
 msgid "text"
-msgstr ""
+msgstr "文本"
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "Text"
-msgstr ""
+msgstr "文本"
 
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Text"
-msgstr ""
+msgstr "文本"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Text size"
-msgstr ""
+msgstr "字号"
 
 #: src/TypeBrowser.tsx
 msgid "That field could not be changed."
-msgstr ""
+msgstr "无法更改该字段。"
 
 #: src/code-editor-note-embeds.ts
 msgid "That heading or block does not exist in this note."
-msgstr ""
+msgstr "此笔记中不存在该标题或块。"
 
 #: src/App.tsx
 msgid "That link does not point to a Markdown note that can be created."
-msgstr ""
+msgstr "该链接未指向可创建的 Markdown 笔记。"
 
 #: src/use-note-actions.ts
 msgid "That note changed after linking. Undo would overwrite its newer text."
-msgstr ""
+msgstr "该笔记在建立链接后已更改。撤销会覆盖其较新的文本。"
 
 #: src/unlinked-mentions.ts
 msgid "That note changed. Find its mentions again before linking."
-msgstr ""
+msgstr "该笔记已更改。请重新查找提及它的位置后再建立链接。"
 
 #. placeholder {0}: implementation.typeName
 #: src/person-records.ts
 msgid "The {0} type needs a writable {field} mapping for mdbase.person."
-msgstr ""
+msgstr "{0} 类型需要为 mdbase.person 配置可写的 {field} 映射。"
 
 #: src/native-gateway.ts
 msgid "The {subject} has a conflict. Resolve it before continuing."
-msgstr ""
+msgstr "{subject} 存在冲突。请解决后再继续。"
 
 #: src/native-gateway.ts
 msgid "The {subject} is not confirmed yet. Check the collection before trying again."
-msgstr ""
+msgstr "{subject} 尚未确认。请检查集合后再重试。"
 
 #: src/native-gateway.ts
 msgid "The {subject} was rejected."
-msgstr ""
+msgstr "{subject} 已被拒绝。"
 
 #. placeholder {0}: outdatedStarter!.typeName
 #: src/YourPersonPanel.tsx
 msgid "The <0>{0}</0> type is an earlier Person starter. Review the current starter before creating your record. Nothing will change without your approval."
-msgstr ""
+msgstr "<0>{0}</0> 类型是较早版本的 Person 初始类型。创建你的记录前，请检查当前的初始类型。未经你批准，不会进行任何更改。"
 
 #: src/TypeBrowser.tsx
 msgid "The after-save preview is unavailable because "
-msgstr ""
+msgstr "保存后预览不可用，因为 "
 
 #: src/contract-catalog.ts
 msgid "The catalog contains duplicate {label} {identity}."
-msgstr ""
+msgstr "资源目录中存在重复的 {label} {identity}。"
 
 #: src/TypeBrowser.tsx
 msgid "The catalog has no published types."
-msgstr ""
+msgstr "资源目录中没有已发布的类型。"
 
 #: src/collection-mutation-scope.ts
 msgid "The collection changed before this operation completed."
-msgstr ""
+msgstr "此操作完成前，集合已更改。"
 
 #: src/native-gateway.ts
 msgid "The collection changed since this setup was reviewed. Review it again."
-msgstr ""
+msgstr "此设置检查后，集合已更改。请重新检查。"
 
 #: src/native-note-observation.ts
 msgid "The collection changed while its notes were loading. Reload to try again."
-msgstr ""
+msgstr "加载笔记期间集合已更改。请重新加载后重试。"
 
 #: src/YourPersonPanel.tsx
 msgid "The collection changed. Review person setup again."
-msgstr ""
+msgstr "集合已更改。请重新检查人员设置。"
 
 #: src/App.tsx
 msgid "The collection changed. Review the folder change again."
-msgstr ""
+msgstr "集合已更改。请重新检查文件夹更改。"
 
 #: src/gateway.ts
 msgid "The collection could not be reached."
-msgstr ""
+msgstr "无法连接到集合。"
 
 #: src/native-note-observation.ts
 msgid "The collection could not be read."
-msgstr ""
+msgstr "无法读取集合。"
 
 #: src/SdkEditorRoot.tsx
 msgid "The collection couldn't be opened. Try again."
-msgstr ""
+msgstr "无法打开集合。请重试。"
 
 #: src/native-note-observation.ts
 msgid "The collection did not return a complete list of notes."
-msgstr ""
+msgstr "集合未返回完整的笔记列表。"
 
 #: src/native-gateway.ts
 msgid "The collection did not return every file."
-msgstr ""
+msgstr "集合未返回所有文件。"
 
 #: src/native-gateway.ts
 msgid "The collection did not return every record for this contract."
-msgstr ""
+msgstr "集合未返回此契约的所有记录。"
 
 #: src/native-gateway.ts
 msgid "The collection did not return this type definition's source."
-msgstr ""
+msgstr "集合未返回此类型定义的源码。"
 
 #: src/native-gateway.ts
 msgid "The collection does not read this file as a type definition. Check its name and kind."
-msgstr ""
+msgstr "集合未将此文件识别为类型定义。请检查其名称和类别。"
 
 #: src/file-inventory-controller.ts
 msgid "The collection files could not be read."
-msgstr ""
+msgstr "无法读取集合文件。"
 
 #: src/catalog-pack-installation.tsx
 msgid "The collection has older unmanaged files at the pack’s managed paths."
-msgstr ""
+msgstr "数据包的受管理路径中存在较早的非受管理集合文件。"
 
 #: src/native-gateway.ts
 msgid "The collection listed a file twice."
-msgstr ""
+msgstr "集合重复列出了同一文件。"
 
 #: src/native-gateway.ts
 msgid "The collection repeated a file page."
-msgstr ""
+msgstr "集合返回了重复的文件分页。"
 
 #: src/native-gateway.ts
 msgid "The collection repeated a query page."
-msgstr ""
+msgstr "集合返回了重复的查询分页。"
 
 #: src/native-gateway.ts
 msgid "The collection returned a file without its content digest."
-msgstr ""
+msgstr "集合返回的文件缺少内容摘要。"
 
 #: src/native-note-observation.ts
 msgid "The collection returned a note twice. Reload to try again."
-msgstr ""
+msgstr "集合重复返回了同一笔记。请重新加载后重试。"
 
 #: src/SdkEditorRoot.tsx
 msgid "The collection session has ended."
-msgstr ""
+msgstr "集合会话已结束。"
 
 #: src/SdkEditorRoot.tsx
 msgid "The collection that opened isn't the one you chose."
-msgstr ""
+msgstr "打开的集合不是你选择的集合。"
 
 #: src/native-note-observation.ts
 msgid "The collection watch stopped."
-msgstr ""
+msgstr "集合监听已停止。"
 
 #: src/next-editor-records.ts
 msgid "The complete note source does not match its native revision. No source was reconstructed or submitted."
-msgstr ""
+msgstr "完整的笔记源码与其原生修订版本不匹配。未重建或提交任何源码。"
 
 #: src/gateway.ts
 msgid "The computer holding this collection is offline."
-msgstr ""
+msgstr "存储此集合的计算机已离线。"
 
 #: src/person-records.ts
 msgid "The contact needs a display name."
-msgstr ""
+msgstr "联系人需要显示名称。"
 
 #: src/contract-catalog.ts
 msgid "The contract catalog"
-msgstr ""
+msgstr "契约资源目录"
 
 #: src/App.tsx
 msgid "The contract catalog could not be loaded."
-msgstr ""
+msgstr "无法加载契约资源目录。"
 
 #: src/contract-catalog.ts
 msgid "The contract catalog publisher"
-msgstr ""
+msgstr "契约资源目录发布者"
 
 #. placeholder {0}: response.status
 #: src/contract-catalog.ts
 msgid "The contract catalog returned {0}."
-msgstr ""
+msgstr "契约资源目录返回了 {0}。"
 
 #: src/contract-catalog.ts
 msgid "The contract catalog uses an unsupported version."
-msgstr ""
+msgstr "契约资源目录使用了不支持的版本。"
 
 #: src/type-contracts.ts
 msgid "The contract field"
-msgstr ""
+msgstr "契约字段"
 
 #: src/native-gateway.ts
 msgid "The current file does not confirm this upload. Resolve its original operation before trying again."
-msgstr ""
+msgstr "当前文件无法确认此次上传。请先处理原始操作，再重试。"
 
 #: src/next-editor-records.ts
 msgid "The current note is protected. Keep the original operation for recovery before reporting it as saved."
-msgstr ""
+msgstr "当前笔记受保护。请保留原始操作以便恢复，之后才能报告为已保存。"
 
 #: src/TypeBrowser.tsx
 msgid "the current rules"
-msgstr ""
+msgstr "当前规则"
 
 #: src/catalog-pack-installation.tsx
 msgid "The definitions changed while they were being reviewed."
-msgstr ""
+msgstr "检查期间定义已更改。"
 
 #: src/folder-change.ts
 msgid "The destination folder “{to}” already exists. Choose another name or move its notes individually; folders are not merged automatically."
-msgstr ""
+msgstr "目标文件夹“{to}”已存在。请选择其他名称，或逐一移动其中的笔记；文件夹不会自动合并。"
 
 #: src/App.tsx
 msgid "The details you entered haven’t been created yet."
-msgstr ""
+msgstr "你输入的详情尚未创建。"
 
 #: src/YourPersonPanel.tsx
 msgid "The Editor can link a person record only to an identity you let it read. Approve the Editor again for this collection and allow “See your account identity and display name”."
-msgstr ""
+msgstr "Editor 只能将人员记录关联到你允许它读取的身份。请重新批准 Editor 访问此集合，并允许“查看你的账户身份和显示名称”。"
 
 #: src/ConnectionScreens.tsx
 msgid "The editor opens mdbase 0.3 collections. For an older collection, use mdbase to upgrade a copy, verify that copy, then choose it here. Your original files can stay untouched while you check the result."
-msgstr ""
+msgstr "编辑器可打开 mdbase 0.3 集合。对于旧版集合，请使用 mdbase 升级其副本，验证后在此选择该副本。检查结果时，你的原始文件可以保持不变。"
 
 #: src/native-gateway.ts
 msgid "The editor requires its original SDK collection client."
-msgstr ""
+msgstr "编辑器需要使用其原始 SDK 集合客户端。"
 
 #: src/YourPersonPanel.tsx
 msgid "The Editor was not approved."
-msgstr ""
+msgstr "Editor 未获批准。"
 
 #: src/catalog-pack-installation.tsx
 msgid "The editor will replace these reviewed files and record their exact source, version, and digest in <0>mdbase.lock.yaml</0>. Future upgrades stop instead of overwriting an unexpected edit."
-msgstr ""
+msgstr "编辑器将替换这些已检查的文件，并在 <0>mdbase.lock.yaml</0> 中记录其确切来源、版本和摘要。今后升级遇到意外编辑时会停止，而不会覆盖。"
 
 #: src/gateway.ts
 #: src/next-editor-records.ts
 msgid "The exact interrupted note operation is unavailable. No new write was attempted."
-msgstr ""
+msgstr "无法获取中断的笔记操作的确切信息。未尝试新的写入。"
 
 #: src/file-asset-store.ts
 msgid "The file could not be opened."
-msgstr ""
+msgstr "无法打开文件。"
 
 #: src/native-file-download.ts
 msgid "The file download limit must be between 0 and 64 MiB."
-msgstr ""
+msgstr "文件下载上限必须介于 0 和 64 MiB 之间。"
 
 #: src/native-file-download.ts
 msgid "The file stream ended before its selected size."
-msgstr ""
+msgstr "文件流尚未达到所选大小就已结束。"
 
 #: src/native-file-download.ts
 msgid "The file stream exceeded its selected size."
-msgstr ""
+msgstr "文件流超出了所选大小。"
 
 #: src/native-gateway.ts
 msgid "The file upload outcome is unknown."
-msgstr ""
+msgstr "文件上传结果未知。"
 
 #: src/AttachmentUpload.tsx
 msgid "The file was uploaded, but the note changed before its link could be inserted."
-msgstr ""
+msgstr "文件已上传，但插入其链接前笔记已更改。"
 
 #: src/App.tsx
 msgid "The folder’s notes changed. Review the folder change again."
-msgstr ""
+msgstr "文件夹中的笔记已更改。请重新检查文件夹更改。"
 
 #: src/note-session.ts
 msgid "The interrupted operation removed this note. No new write was attempted."
-msgstr ""
+msgstr "中断的操作已移除此笔记。未尝试新的写入。"
 
 #: src/i18n/LanguageSetting.tsx
 msgctxt "editor language preference"
 msgid "The language choice could not be applied. Please try again."
-msgstr ""
+msgstr "无法应用所选语言。请重试。"
 
 #: src/TypeBrowser.tsx
 msgid "The linked schema does not expose object fields."
-msgstr ""
+msgstr "关联的架构未提供对象字段。"
 
 #: src/use-note-actions.ts
 msgid "The move did not complete."
-msgstr ""
+msgstr "移动未完成。"
 
 #: src/next-editor-records.ts
 msgid "The native receipt changed its mutation identity."
-msgstr ""
+msgstr "原生回执的变更标识发生了变化。"
 
 #: src/next-editor-records.ts
 msgid "The native write changed its mutation identity."
-msgstr ""
+msgstr "原生写入的变更标识发生了变化。"
 
 #: src/App.tsx
 msgid "The new type definition hasn’t been saved."
-msgstr ""
+msgstr "新的类型定义尚未保存。"
 
 #: src/next-editor-records.ts
 msgid "The note change was rejected."
-msgstr ""
+msgstr "笔记更改已被拒绝。"
 
 #: src/NewNoteComposer.tsx
 msgid "The note could not be created."
-msgstr ""
+msgstr "无法创建笔记。"
 
 #: src/AttachmentUpload.tsx
 #: src/code-editor-file-embeds.ts
 msgid "The note is no longer editable."
-msgstr ""
+msgstr "此笔记已无法编辑。"
 
 #: src/ConflictResolver.tsx
 msgid "The note metadata changed, but the title and body match your edits."
-msgstr ""
+msgstr "笔记元数据已更改，但标题和正文与你的编辑一致。"
 
 #: src/App.tsx
 msgid "The note or attachment index is refreshing. Wait for it to finish, then review the folder change again."
-msgstr ""
+msgstr "笔记或附件索引正在刷新。请等待完成后，重新检查文件夹更改。"
 
 #: src/next-editor-records.ts
 msgid "The original complete note source is unavailable."
