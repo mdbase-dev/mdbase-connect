@@ -995,264 +995,264 @@ msgstr "채택 및 업데이트"
 #: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
 msgid "Advanced"
-msgstr ""
+msgstr "고급"
 
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Advanced"
-msgstr ""
+msgstr "고급"
 
 #: src/TypeBrowser.tsx
 msgid "Advanced JSON Schema rules remain intact and are identified in place. Review any structural conversion before applying it."
-msgstr ""
+msgstr "고급 JSON Schema 규칙은 그대로 유지되며 해당 위치에 표시됩니다. 구조를 변환하기 전에 검토하세요."
 
 #: src/TypeBrowser.tsx
 msgid "Advanced YAML rules"
-msgstr ""
+msgstr "고급 YAML 규칙"
 
 #: src/TypeBrowser.tsx
 msgid "Advisory labels and colour used when records of this type are shown."
-msgstr ""
+msgstr "이 유형의 레코드를 표시할 때 사용하는 참고용 레이블과 색상입니다."
 
 #: src/EditorRail.tsx
 #: src/note-list-view.ts
 #: src/NoteListViewOptions.tsx
 msgid "All notes"
-msgstr ""
+msgstr "모든 노트"
 
 #. placeholder {0}: noteCount.toLocaleString(displayLocale())
 #: src/EditorRail.tsx
 msgid "All notes, {0} total"
-msgstr ""
+msgstr "모든 노트, 총 {0}개"
 
 #: src/TypeBrowser.tsx
 msgid "Allow installs"
-msgstr ""
+msgstr "설치 허용"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Allow local access"
-msgstr ""
+msgstr "로컬 접근 허용"
 
 #: src/YourPersonPanel.tsx
 msgid "Allow person records in this collection?"
-msgstr ""
+msgstr "이 컬렉션에서 사람 레코드를 허용할까요?"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Allow the editor to reach mdbase on this computer. Editing continues through mdbase whenever it is unavailable."
-msgstr ""
+msgstr "이 컴퓨터의 mdbase에 편집기가 접근하도록 허용합니다. mdbase를 사용할 수 없을 때도 편집은 계속됩니다."
 
 #: src/YourPersonPanel.tsx
 msgid "Allow the Editor to see your account identity"
-msgstr ""
+msgstr "편집기가 계정 ID를 확인하도록 허용"
 
 #: src/TypeBrowser.tsx
 msgid "Allow undeclared fields"
-msgstr ""
+msgstr "선언되지 않은 필드 허용"
 
 #: src/TypeBrowser.tsx
 msgid "Allowed target types"
-msgstr ""
+msgstr "허용된 대상 유형"
 
 #: src/TypeBrowser.tsx
 msgid "always present"
-msgstr ""
+msgstr "항상 있음"
 
 #: src/type-contracts.ts
 msgid "an advanced schema"
-msgstr ""
+msgstr "고급 스키마"
 
 #: src/type-contracts.ts
 msgid "an integer"
-msgstr ""
+msgstr "정수"
 
 #: src/type-contracts.ts
 #: src/type-presentation.ts
 msgid "an object"
-msgstr ""
+msgstr "객체"
 
 #: src/TypeBrowser.tsx
 msgid "and"
-msgstr ""
+msgstr "및"
 
 #: src/TypeBrowser.tsx
 msgid "Any"
-msgstr ""
+msgstr "모두"
 
 #: src/TypeBrowser.tsx
 msgid "Any supported format"
-msgstr ""
+msgstr "지원되는 모든 형식"
 
 #: src/TypeBrowser.tsx
 msgid "Application behavior"
-msgstr ""
+msgstr "애플리케이션 동작"
 
 #: src/type-schema.ts
 msgid "Application compatibility"
-msgstr ""
+msgstr "애플리케이션 호환성"
 
 #: src/TypeBrowser.tsx
 msgid "Application view"
-msgstr ""
+msgstr "애플리케이션 뷰"
 
 #: src/BulkNoteProperties.tsx
 msgid "Apply"
-msgstr ""
+msgstr "적용"
 
 #: src/BulkNoteProperties.tsx
 msgid "Applying…"
-msgstr ""
+msgstr "적용 중…"
 
 #: src/TypeBrowser.tsx
 msgid "Apps read these contract field names while your notes keep their own field names."
-msgstr ""
+msgstr "앱은 이 계약의 필드 이름을 읽으며 노트에는 자체 필드 이름을 유지합니다."
 
 #: src/ConnectionScreens.tsx
 msgid "as files."
-msgstr ""
+msgstr "파일로."
 
 #: src/YourPersonPanel.tsx
 msgid "Ask a collection editor to link your person record."
-msgstr ""
+msgstr "컬렉션 편집자에게 사람 레코드를 연결해 달라고 요청하세요."
 
 #: src/TypeBrowser.tsx
 msgid "Assigned by name"
-msgstr ""
+msgstr "이름으로 지정됨"
 
 #: src/AttachmentUpload.tsx
 msgid "Attach file…"
-msgstr ""
+msgstr "파일 첨부…"
 
 #: src/AttachmentUpload.tsx
 msgid "Attaching file…"
-msgstr ""
+msgstr "파일 첨부 중…"
 
 #: src/native-gateway.ts
 msgid "Attaching files is not available for this collection in mdbase editor yet."
-msgstr ""
+msgstr "mdbase editor에서는 아직 이 컬렉션에 파일을 첨부할 수 없습니다."
 
 #. placeholder {0}: controller.upload.name
 #: src/AttachmentUpload.tsx
 msgid "Attachment progress for {0}"
-msgstr ""
+msgstr "첨부 진행률: {0}"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Automatic"
-msgstr ""
+msgstr "자동"
 
 #: src/TypeBrowser.tsx
 msgid "Automatic matching"
-msgstr ""
+msgstr "자동 매칭"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Automatic properties"
-msgstr ""
+msgstr "자동 속성"
 
 #: src/settings/SettingsView.tsx
 msgctxt "direct connection availability"
 msgid "Available"
-msgstr ""
+msgstr "사용 가능"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Back"
-msgstr ""
+msgstr "뒤로"
 
 #: src/App.tsx
 msgid "Back in note history"
-msgstr ""
+msgstr "노트 기록에서 뒤로"
 
 #: src/QuickOpen.tsx
 msgid "Back or forward"
-msgstr ""
+msgstr "뒤로 또는 앞으로"
 
 #: src/App.tsx
 msgid "Back to {historyBackPath} · Alt+Left"
-msgstr ""
+msgstr "{historyBackPath}(으)로 돌아가기 · Alt+왼쪽 화살표"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Back to collection"
-msgstr ""
+msgstr "컬렉션으로 돌아가기"
 
 #: src/WorkspaceChrome.tsx
 msgid "Back to collections"
-msgstr ""
+msgstr "컬렉션 목록으로 돌아가기"
 
 #: src/TypeBrowser.tsx
 msgid "Back to editing"
-msgstr ""
+msgstr "편집으로 돌아가기"
 
 #: src/PropertiesPanel.tsx
 msgid "Back to fields"
-msgstr ""
+msgstr "필드로 돌아가기"
 
 #: src/App.tsx
 msgid "Back to notes"
-msgstr ""
+msgstr "노트로 돌아가기"
 
 #: src/FileViewer.tsx
 msgid "Back to notes and files"
-msgstr ""
+msgstr "노트 및 파일로 돌아가기"
 
 #: src/TypeBrowser.tsx
 msgid "Back to types"
-msgstr ""
+msgstr "유형으로 돌아가기"
 
 #: src/QuickOpen.tsx
 msgid "Best matches"
-msgstr ""
+msgstr "가장 일치하는 항목"
 
 #. placeholder {0}: segments.join(".")
 #: src/type-contracts.ts
 msgid "Binding setting {0} is required by {contractId}."
-msgstr ""
+msgstr "{contractId}에 바인딩 설정 {0}이(가) 필요합니다."
 
 #. placeholder {0}: error.message ?? "is invalid"
 #: src/type-contracts.ts
 msgid "Binding setting{field} {0} for {contractId}."
-msgstr ""
+msgstr "{contractId}의 바인딩 설정{field} {0}."
 
 #: src/type-contracts.ts
 msgid "Binding setting{field} must not be empty for {contractId}."
-msgstr ""
+msgstr "{contractId}의 바인딩 설정{field}은(는) 비워 둘 수 없습니다."
 
 #: src/type-contracts.ts
 msgid "Binding settings do not satisfy {contractId}."
-msgstr ""
+msgstr "바인딩 설정이 {contractId}의 요구사항을 충족하지 않습니다."
 
 #: src/type-contracts.ts
 msgid "Binding settings for {contractId} cannot be edited because its schema is invalid: {detail}"
-msgstr ""
+msgstr "스키마가 잘못되어 {contractId}의 바인딩 설정을 편집할 수 없습니다: {detail}"
 
 #. placeholder {0}: anchor.preview
 #: src/code-editor-completions.ts
 msgid "Block · {0}"
-msgstr ""
+msgstr "블록 · {0}"
 
 #: src/ConflictResolver.tsx
 msgid "Body differences"
-msgstr ""
+msgstr "본문 차이"
 
 #: src/QuickOpen.tsx
 msgid "Bold or italic"
-msgstr ""
+msgstr "굵게 또는 기울임"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Boolean"
-msgstr ""
+msgstr "불리언"
 
 #: src/TypeBrowser.tsx
 msgid "Browse ready-made types"
-msgstr ""
+msgstr "준비된 유형 찾아보기"
 
 #: src/code-editor-completions.ts
 msgid "Bulleted list"
-msgstr ""
+msgstr "글머리 기호 목록"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Calculated"
-msgstr ""
+msgstr "계산됨"
 
 #: src/App.tsx
 #: src/BulkNoteProperties.tsx
@@ -1265,162 +1265,162 @@ msgstr ""
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Cancel"
-msgstr ""
+msgstr "취소"
 
 #: src/YourPersonPanel.tsx
 msgid "Cancel conversion"
-msgstr ""
+msgstr "변환 취소"
 
 #: src/NewNoteComposer.tsx
 msgid "Cancel new folder"
-msgstr ""
+msgstr "새 폴더 취소"
 
 #: src/NewNoteComposer.tsx
 msgid "Cancel new note"
-msgstr ""
+msgstr "새 노트 취소"
 
 #: src/TypeBrowser.tsx
 msgid "Catalog"
-msgstr ""
+msgstr "카탈로그"
 
 #: src/TypeBrowser.tsx
 msgid "Catalog source"
-msgstr ""
+msgstr "카탈로그 소스"
 
 #: src/TypeBrowser.tsx
 msgid "Catalog unavailable"
-msgstr ""
+msgstr "카탈로그를 사용할 수 없음"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Change note text without changing the surrounding interface."
-msgstr ""
+msgstr "주변 인터페이스는 그대로 두고 노트 텍스트만 변경합니다."
 
 #: src/note-mutation-presentation.ts
 msgid "Changed elsewhere"
-msgstr ""
+msgstr "다른 곳에서 변경됨"
 
 #: src/pending-note-mutation.ts
 msgid "Check again"
-msgstr ""
+msgstr "다시 확인"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Check again"
-msgstr ""
+msgstr "다시 확인"
 
 #: src/editor-commands.ts
 msgid "Check note"
-msgstr ""
+msgstr "노트 확인"
 
 #: src/ConnectionScreens.tsx
 msgid "check notes"
-msgstr ""
+msgstr "노트 확인"
 
 #: src/next-editor-records.ts
 msgid "Check your unconfirmed change before making another one. Nothing new was saved."
-msgstr ""
+msgstr "확인되지 않은 변경사항을 확인한 후 다른 작업을 하세요. 새로 저장된 내용은 없습니다."
 
 #: src/type-presentation.ts
 msgid "checkbox"
-msgstr ""
+msgstr "체크박스"
 
 #: src/TypeBrowser.tsx
 msgid "Checkbox"
-msgstr ""
+msgstr "체크박스"
 
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Checkbox"
-msgstr ""
+msgstr "체크박스"
 
 #: src/AttachmentUpload.tsx
 #: src/note-mutation-presentation.ts
 #: src/WorkspaceChrome.tsx
 msgid "Checking"
-msgstr ""
+msgstr "확인 중"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Checking for mdbase on this computer."
-msgstr ""
+msgstr "이 컴퓨터에서 mdbase를 확인하는 중입니다."
 
 #: src/note-mutation-presentation.ts
 msgid "Checking impact"
-msgstr ""
+msgstr "영향 확인 중"
 
 #: src/FolderChangeDialog.tsx
 msgid "Checking notes and links…"
-msgstr ""
+msgstr "노트 및 링크 확인 중…"
 
 #: src/YourPersonPanel.tsx
 msgid "Checking person setup…"
-msgstr ""
+msgstr "사람 설정 확인 중…"
 
 #: src/CollectionRail.tsx
 msgid "Checking…"
-msgstr ""
+msgstr "확인 중…"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Checking…"
-msgstr ""
+msgstr "확인 중…"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Choice"
-msgstr ""
+msgstr "선택"
 
 #: src/TypeBrowser.tsx
 msgid "Choice value"
-msgstr ""
+msgstr "선택 값"
 
 #: src/TypeBrowser.tsx
 msgid "Choices"
-msgstr ""
+msgstr "선택 항목"
 
 #: src/SchemaValueEditor.tsx
 msgid "Choose"
-msgstr ""
+msgstr "선택"
 
 #: src/ConnectionScreens.tsx
 msgid "Choose a collection"
-msgstr ""
+msgstr "컬렉션 선택"
 
 #: src/gateway.ts
 msgid "Choose a collection before editing notes."
-msgstr ""
+msgstr "노트를 편집하기 전에 컬렉션을 선택하세요."
 
 #: src/use-note-actions.ts
 msgid "Choose a collection-relative folder."
-msgstr ""
+msgstr "컬렉션 기준 폴더를 선택하세요."
 
 #: src/folder-change.ts
 msgid "Choose a different folder path."
-msgstr ""
+msgstr "다른 폴더 경로를 선택하세요."
 
 #: src/MoveNoteDialog.tsx
 msgid "Choose a folder. Incoming links will be updated too."
-msgstr ""
+msgstr "폴더를 선택하세요. 들어오는 링크도 업데이트됩니다."
 
 #: src/YourPersonPanel.tsx
 msgid "Choose a record…"
-msgstr ""
+msgstr "레코드 선택…"
 
 #: src/person-records.ts
 msgid "Choose a target type that implements both Person and Contact so existing contact semantics are retained."
-msgstr ""
+msgstr "기존 연락처 의미를 유지하려면 Person과 Contact를 모두 구현하는 대상 유형을 선택하세요."
 
 #: src/TypeBrowser.tsx
 msgid "Choose an icon"
-msgstr ""
+msgstr "아이콘 선택"
 
 #: src/TypeBrowser.tsx
 msgid "Choose an icon from the Phosphor library."
-msgstr ""
+msgstr "Phosphor 라이브러리에서 아이콘을 선택하세요."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Choose one of the allowed values."
-msgstr ""
+msgstr "허용된 값 중 하나를 선택하세요."
 
 #: src/TypeBrowser.tsx
 msgid "Choose scope"
