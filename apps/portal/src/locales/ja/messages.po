@@ -1414,20 +1414,20 @@ msgstr "{0} の接続を解除しますか？"
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Disconnecting…"
-msgstr ""
+msgstr "接続を解除中…"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Disconnecting…"
-msgstr ""
+msgstr "接続を解除中…"
 
 #: src/ConnectApp.tsx
 msgid "Dismiss"
-msgstr ""
+msgstr "閉じる"
 
 #: src/authorization-review.tsx
 msgid "Do not share"
-msgstr ""
+msgstr "共有しない"
 
 #. placeholder {0}: formatBytes(subscription.limits.max_document_bytes)
 #. placeholder {1}: formatBytes(subscription.limits.max_single_file_bytes)
@@ -1435,434 +1435,434 @@ msgstr ""
 #. placeholder {3}: countLabel(subscription.limits.max_application_replicas_per_collection, "application-installation")
 #: src/AccountManagement.tsx
 msgid "Documents up to {0} · files up to {1} · {2} · {3} per collection"
-msgstr ""
+msgstr "ドキュメントは最大 {0} · ファイルは最大 {1} · {2} · コレクションあたり {3}"
 
 #: src/authority-workflows.tsx
 msgid "Don't allow"
-msgstr ""
+msgstr "許可しない"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Downloads only"
-msgstr ""
+msgstr "ダウンロードのみ"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Edit records"
-msgstr ""
+msgstr "レコードを編集"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Edit records and files"
-msgstr ""
+msgstr "レコードとファイルを編集"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Editor"
-msgstr ""
+msgstr "エディター"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Edits sync both ways"
-msgstr ""
+msgstr "編集内容を双方向に同期"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Email"
-msgstr ""
+msgstr "メール"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Email"
-msgstr ""
+msgstr "メール"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Email address"
-msgstr ""
+msgstr "メールアドレス"
 
 #: src/AccountManagement.tsx
 msgid "Email and password"
-msgstr ""
+msgstr "メールとパスワード"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Email and password"
-msgstr ""
+msgstr "メールとパスワード"
 
 #. placeholder {0}: summary.setting
 #. placeholder {1}: summary.value
 #: src/authorization-view.tsx
 msgid "Ensure <0>{0}</0> includes <1>{1}</1>"
-msgstr ""
+msgstr "<0>{0}</0> に <1>{1}</1> が含まれるようにする"
 
 #: src/authorization-view.tsx
 msgid "Enter the code it shows. You will review the application, collection, and exact permissions before anything is allowed."
-msgstr ""
+msgstr "アプリケーションに表示されるコードを入力してください。許可する前に、アプリケーション、コレクション、正確な権限を確認できます。"
 
 #: src/authorization-view.tsx
 msgid "Enter the eight-character code shown by the application."
-msgstr ""
+msgstr "アプリケーションに表示される 8 文字のコードを入力してください。"
 
 #: src/ApplicationAccess.tsx
 msgid "Entire collection"
-msgstr ""
+msgstr "コレクション全体"
 
 #. placeholder {0}: entry.role
 #: src/ApplicationAccess.tsx
 msgid "Entire collection · Access as your account ({0})"
-msgstr ""
+msgstr "コレクション全体 · アカウントとしてアクセス（{0}）"
 
 #: src/AccountManagement.tsx
 msgid "Every browser session and sign-in method"
-msgstr ""
+msgstr "すべてのブラウザーセッションとログイン方法"
 
 #: src/authorization-review.tsx
 msgid "Every visible folder. Hidden folders are always excluded."
-msgstr ""
+msgstr "表示されるすべてのフォルダー。隠しフォルダーは常に除外されます。"
 
 #: src/authority-workflows.tsx
 msgid "Existing access is revoked. Connect applications again to use the local collection."
-msgstr ""
+msgstr "既存のアクセスを取り消しました。ローカルコレクションを使用するには、Connect アプリケーションを再接続してください。"
 
 #: src/authority-workflows.tsx
 msgid "Existing Markdown is checked before upload. Collection paths and device credentials stay off the control plane."
-msgstr ""
+msgstr "アップロード前に既存の Markdown を確認します。コレクションのパスとデバイスの認証情報は制御サービスに送信されません。"
 
 #: src/authorization-review.tsx
 msgid "Existing type"
-msgstr ""
+msgstr "既存の型"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Existing type"
-msgstr ""
+msgstr "既存の型"
 
 #: src/authorization-review.tsx
 msgid "Expert details"
-msgstr ""
+msgstr "詳細情報"
 
 #: src/FeedbackPage.tsx
 msgid "Feedback goes privately to the mdbase team."
-msgstr ""
+msgstr "フィードバックは mdbase チームに非公開で送られます。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Feedback is unavailable"
-msgstr ""
+msgstr "フィードバックを利用できません"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Feedback unavailable"
-msgstr ""
+msgstr "フィードバックを利用できません"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "File permissions"
-msgstr ""
+msgstr "ファイルの権限"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "File scope"
-msgstr ""
+msgstr "ファイルの対象範囲"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Files"
-msgstr ""
+msgstr "ファイル"
 
 #. placeholder {0}: field?.label ?? missing
 #: src/authorization-review.tsx
 msgid "Fill in {0} in {label}."
-msgstr ""
+msgstr "{label} の {0} を入力してください。"
 
 #: src/ConnectApp.tsx
 msgid "Find a computer"
-msgstr ""
+msgstr "コンピューターを探す"
 
 #: src/authorization-view.tsx
 msgid "Finishing collection setup…"
-msgstr ""
+msgstr "コレクションの設定を完了中…"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Finishing the move"
-msgstr ""
+msgstr "移動を完了中"
 
 #: src/authority-workflows.tsx
 msgid "Folder"
-msgstr ""
+msgstr "フォルダー"
 
 #: src/authority-workflows.tsx
 msgid "Folder approved"
-msgstr ""
+msgstr "フォルダーを承認しました"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Folder sync"
-msgstr ""
+msgstr "フォルダーの同期"
 
 #: src/auth-view.tsx
 msgid "Forgot your password?"
-msgstr ""
+msgstr "パスワードをお忘れですか？"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Generate a new code"
-msgstr ""
+msgstr "新しいコードを生成"
 
 #: src/AccountManagement.tsx
 msgid "Generate a private code, then send it to the collection owner."
-msgstr ""
+msgstr "非公開のコードを生成してコレクションの所有者に送ってください。"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Generate code"
-msgstr ""
+msgstr "コードを生成"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Generating…"
-msgstr ""
+msgstr "生成中…"
 
 #: src/portal-model.ts
 msgid "GitHub account @{login}"
-msgstr ""
+msgstr "GitHub アカウント @{login}"
 
 #: src/auth-view.tsx
 #: src/GoogleIdentityButton.tsx
 msgid "Google sign-in could not be loaded."
-msgstr ""
+msgstr "Google ログインを読み込めませんでした。"
 
 #: src/auth-view.tsx
 #: src/GoogleIdentityButton.tsx
 msgid "Google sign-in did not load correctly."
-msgstr ""
+msgstr "Google ログインが正しく読み込まれませんでした。"
 
 #. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
 #: src/authorization-review.tsx
 msgid "Help {applicationName} understand {0}"
-msgstr ""
+msgstr "{applicationName} が {0} を理解できるようにする"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Hosted"
-msgstr ""
+msgstr "ホスト型"
 
 #: src/AccountManagement.tsx
 msgid "Hosted access was removed immediately. Hosted data deletion continues automatically in the background. Any local collection and mirror files remain on your computers."
-msgstr ""
+msgstr "ホスト型のアクセスは直ちに削除されました。ホスト型データの削除はバックグラウンドで自動的に続きます。ローカルコレクションとミラーファイルはコンピューター上に残ります。"
 
 #: src/authorization-view.tsx
 msgid "Hosted by mdbase"
-msgstr ""
+msgstr "mdbase がホスト"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Hosted by mdbase"
-msgstr ""
+msgstr "mdbase がホスト"
 
 #. placeholder {0}: countLabel(replicas.length, "folder")
 #: src/ConnectApp.tsx
 msgid "Hosted by mdbase · {0}"
-msgstr ""
+msgstr "mdbase がホスト · {0}"
 
 #: src/authority-workflows.tsx
 msgid "Hosted collection"
-msgstr ""
+msgstr "ホスト型コレクション"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Hosted collection"
-msgstr ""
+msgstr "ホスト型コレクション"
 
 #: src/ConnectApp.tsx
 msgid "Hosted creation is unavailable on this server."
-msgstr ""
+msgstr "このサーバーではホスト型コレクションを作成できません。"
 
 #: src/authority-workflows.tsx
 msgid "Hosted service"
-msgstr ""
+msgstr "ホストサービス"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Hosted storage"
-msgstr ""
+msgstr "ホスト型ストレージ"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Hosted writes are paused"
-msgstr ""
+msgstr "ホスト型への書き込みは一時停止中"
 
 #: src/authorization-review.tsx
 msgid "How this type behaves in {applicationName}"
-msgstr ""
+msgstr "この型の {applicationName} での動作"
 
 #: src/auth-view.tsx
 msgid "I agree to the <0>Terms of Service</0> and have read the <1>Privacy Policy</1>."
-msgstr ""
+msgstr "<0>利用規約</0>に同意し、<1>プライバシーポリシー</1>を読みました。"
 
 #: src/AccountManagement.tsx
 msgid "Identity"
-msgstr ""
+msgstr "本人確認"
 
 #: src/AccountManagement.tsx
 msgid "Identity and service configuration."
-msgstr ""
+msgstr "本人確認とサービスの設定。"
 
 #: src/AccountManagement.tsx
 msgid "Identity confirmed for this deletion."
-msgstr ""
+msgstr "この削除の本人確認が完了しました。"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Identity unavailable"
-msgstr ""
+msgstr "本人確認が利用できません"
 
 #: src/auth-view.tsx
 msgid "If an mdbase connect account uses that address, its one-time reset link is on the way."
-msgstr ""
+msgstr "そのアドレスを使う mdbase connect アカウントがあれば、一回限りのリセットリンクを送信します。"
 
 #: src/auth-view.tsx
 msgid "If that address can be used, its one-time verification link is on the way."
-msgstr ""
+msgstr "そのアドレスが利用できる場合、一回限りの確認リンクを送信します。"
 
 #: src/ConnectApp.tsx
 msgid "If the desktop app does not open when you {action}, <0>install the latest release</0> and try again."
-msgstr ""
+msgstr "{action}してもデスクトップアプリが開かない場合は、<0>最新版をインストール</0>して再試行してください。"
 
 #. placeholder {0}: relativeTime(request.expires_at)
 #: src/authorization-view.tsx
 msgid "If the desktop app does not open, <0>install the current Connect release</0>, then return to this page. The request expires {0}."
-msgstr ""
+msgstr "デスクトップアプリが開かない場合は、<0>現行の Connect リリースをインストール</0>してからこのページに戻ってください。要求は {0} に期限切れになります。"
 
 #: src/authorization-view.tsx
 msgid "If the value is already present, mdbase leaves the collection unchanged. Conflicting settings stop setup without overwriting policy."
-msgstr ""
+msgstr "値がすでに含まれている場合、mdbase はコレクションを変更しません。設定が競合する場合、ポリシーを上書きせずに設定を中止します。"
 
 #: src/authority-workflows.tsx
 msgid "If verification fails or this request expires, hosted writes resume."
-msgstr ""
+msgstr "検証に失敗した場合や要求が期限切れになった場合は、ホスト型への書き込みを再開します。"
 
 #: src/authority-workflows.tsx
 msgid "In {collection}. Allow only if you just asked for this in {app}."
-msgstr ""
+msgstr "{collection} 内。この操作を {app} で直前に要求した場合のみ許可してください。"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Included storage"
-msgstr ""
+msgstr "含まれるストレージ"
 
 #. placeholder {0}: connector.minimum_connector_version ? t(i18n)`version ${connector.minimum_connector_version} or later` : t(i18n)({ message: "the latest release", context: "Connect interface" })
 #: src/ConnectApp.tsx
 msgid "Install {0}"
-msgstr ""
+msgstr "{0} をインストール"
 
 #: src/authorization-view.tsx
 msgid "Install or update the application definitions declared by this version."
-msgstr ""
+msgstr "このバージョンで指定されたアプリケーション定義をインストールまたは更新します。"
 
 #: src/ConnectApp.tsx
 msgid "Install the latest release"
-msgstr ""
+msgstr "最新版をインストール"
 
 #: src/ApplicationAccess.tsx
 msgid "Installation details"
-msgstr ""
+msgstr "インストールの詳細"
 
 #: src/ConnectApp.tsx
 msgid "Invitation ready"
-msgstr ""
+msgstr "招待の準備ができました"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Invitation required"
-msgstr ""
+msgstr "招待が必要です"
 
 #: src/ConnectApp.tsx
 msgid "Invite using"
-msgstr ""
+msgstr "招待方法"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Invite using"
-msgstr ""
+msgstr "招待方法"
 
 #: src/auth-view.tsx
 msgid "Invited? Open the link in your invitation email. "
-msgstr ""
+msgstr "招待されていますか？ 招待メールのリンクを開いてください。 "
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Invitee code"
-msgstr ""
+msgstr "招待されたユーザーのコード"
 
 #: src/auth-view.tsx
 msgid "Join the signup waitlist"
-msgstr ""
+msgstr "新規登録の順番待ちに参加"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Just a moment…"
-msgstr ""
+msgstr "少々お待ちください…"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "just now"
-msgstr ""
+msgstr "たった今"
 
 #: src/authority-workflows.tsx
 msgid "Keep access"
-msgstr ""
+msgstr "アクセスを維持"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Keep an offline replica"
-msgstr ""
+msgstr "オフラインのレプリカを保持"
 
 #: src/authority-workflows.tsx
 msgid "Keep it hosted"
-msgstr ""
+msgstr "ホスト型のままにする"
 
 #: src/authorization-review.tsx
 msgid "Keep your current records and explain which fields mean the same thing."
-msgstr ""
+msgstr "現在のレコードを残し、同じ意味を持つフィールドを指定してください。"
 
 #: src/LanguageSetting.tsx
 msgid "Language"
-msgstr ""
+msgstr "言語"
 
 #. placeholder {0}: relativeTime(session.last_seen_at)
 #: src/AccountManagement.tsx
 msgid "Last used {0}"
-msgstr ""
+msgstr "最終使用 {0}"
 
 #: src/ApplicationAccess.tsx
 msgid "Legacy scoped access is revoked. Reauthorize this application for the entire collection."
-msgstr ""
+msgstr "旧形式の範囲限定アクセスは取り消されました。このアプリケーションにコレクション全体へのアクセスを再承認してください。"
 
 #: src/ConnectApp.tsx
 msgid "Link your account to an editable record in this collection. Collection access is approved separately."
-msgstr ""
+msgstr "アカウントをこのコレクション内の編集可能なレコードに紐付けます。コレクションへのアクセスは別途承認が必要です。"
 
 #: src/authorization-review.tsx
 msgid "List file names and metadata"
-msgstr ""
+msgstr "ファイル名とメタデータを一覧表示"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Loading account details…"
-msgstr ""
+msgstr "アカウントの詳細を読み込み中…"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Loading Google sign-in…"
-msgstr ""
+msgstr "Google ログインを読み込み中…"
 
 #: src/GoogleIdentityButton.tsx
 msgctxt "Connect interface"
 msgid "Loading Google sign-in…"
-msgstr ""
+msgstr "Google ログインを読み込み中…"
 
 #: src/ConnectApp.tsx
 msgid "Loading people…"
