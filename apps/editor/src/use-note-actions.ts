@@ -327,7 +327,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
         setDocument(renamed);
         setSelectedPath(renamed.path);
         setPathDraft(renamed.path);
-        localStorage.setItem("mdbase-editor:last-note", renamed.path);
+        localStorage.setItem(`mdbase-editor:last-note:${token.collectionId}`, renamed.path);
       }
       setRecentPaths((current) => rememberRecentPath(forgetRecentPath(current, from), renamed.path));
       replaceNoteHistoryPath(from, renamed.path);
@@ -602,7 +602,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
             setDocument(restored);
             setSelectedPath(restored.path);
             setPathDraft(restored.path);
-            localStorage.setItem("mdbase-editor:last-note", restored.path);
+            localStorage.setItem(`mdbase-editor:last-note:${token.collectionId}`, restored.path);
           }
           setRecentPaths((current) => rememberRecentPath(forgetRecentPath(current, move.to), restored.path));
           replaceNoteHistoryPath(move.to, restored.path);
