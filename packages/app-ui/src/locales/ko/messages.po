@@ -897,7 +897,7 @@ msgstr "이 기기에서 {app}에서 로그아웃했습니다."
 #. Example email address, not user data.
 #: src/Feedback.tsx
 msgid "you@example.com"
-msgstr "you@example.com"
+msgstr "na@example.com"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
