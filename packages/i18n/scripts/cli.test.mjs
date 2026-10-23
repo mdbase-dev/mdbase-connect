@@ -1,0 +1,42 @@
+import assert from "node:assert/strict";
+import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
+import test from "node:test";
+import { formatter } from "@lingui/format-po";
+import { locales } from "./config.mjs";
+const cli = fileURLToPath(new URL("./cli.mjs", import.meta.url));
+const config = new URL("./config.mjs", import.meta.url).href;
+test("real extraction, nine authored PO catalogues, strict JSON compile, sync and visible-copy guard", async (t) => {
+  const root = await mkdtemp(resolve(tmpdir(), "mdbase-i18n-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(resolve(root, "src"));
+  await writeFile(resolve(root, "package.json"), '{"type":"module"}');
+  await writeFile(resolve(root, "lingui.config.mjs"), 'import { i18nConfig } from ' + JSON.stringify(config) + '; export default i18nConfig();');
+  await writeFile(resolve(root, "src/App.tsx"), 'import { t } from "@lingui/core/macro"; export function App() { return <button aria-label={t\x60Hello\x60}>{t\x60Hello\x60}</button>; }');
+  const run = (command) => spawnSync(process.execPath, [cli, command], { cwd: root, encoding: "utf8" });
+  const extracted = run("extract");
+  assert.equal(extracted.status, 0, extracted.stdout + extracted.stderr);
+  const translations = { en: "Hello", fr: "Bonjour", de: "Hallo", es: "Hola", ja: "こんにちは", ko: "안녕하세요", pt: "Olá", ru: "Здравствуйте", zh: "你好" };
+  for (const locale of locales) {
+    const filename = resolve(root, "src/i18n/locales", locale, "messages.po");
+    const existing = await readFile(filename, "utf8");
+    const context = { locale, sourceLocale: "en", filename, existing };
+    const entries = await formatter({}).parse(existing, context);
+    for (const entry of Object.values(entries)) entry.translation = translations[locale];
+    await writeFile(filename, await formatter({ origins: true, lineNumbers: false }).serialize(entries, context));
+  }
+  const checked = run("check");
+  assert.equal(checked.status, 0, checked.stdout + checked.stderr);
+  const french = JSON.parse(await readFile(resolve(root, "src/i18n/locales/fr/messages.json"), "utf8"));
+  assert.equal(Object.values(french.messages)[0][0], "Bonjour");
+  await writeFile(resolve(root, "src/Unsafe.tsx"), "export function Unsafe() { return <p>Unmarked copy</p>; }");
+  const unsafe = run("check");
+  assert.notEqual(unsafe.status, 0);
+  assert.match(unsafe.stderr, /unmarked JSX/);
+  await writeFile(resolve(root, "src/Unsafe.tsx"), 'import { t } from "@lingui/core/macro"; export const extra = () => t\x60New message\x60;');
+  const stale = run("check");
+  assert.notEqual(stale.status, 0, "source extraction drift must fail");
+});

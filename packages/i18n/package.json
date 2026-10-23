@@ -1,0 +1,74 @@
+{
+  "name": "@mdbase-dev/i18n",
+  "version": "0.1.0-beta.141",
+  "type": "module",
+  "private": false,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mdbase-dev/mdbase-connect.git",
+    "directory": "packages/i18n"
+  },
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "scripts/cli.mjs",
+    "scripts/config.mjs",
+    "scripts/config.d.mts",
+    "scripts/checks.mjs",
+    "scripts/source.mjs",
+    "README.md"
+  ],
+  "bin": {
+    "mdbase-i18n": "scripts/cli.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js"
+    },
+    "./config": "./scripts/config.mjs",
+    "./checks": "./scripts/checks.mjs",
+    "./source": "./scripts/source.mjs",
+    "./codemirror": {
+      "types": "./dist/codemirror.d.ts",
+      "import": "./dist/codemirror.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run && node --test scripts/*.test.mjs",
+    "lint": "eslint src scripts",
+    "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
+  },
+  "dependencies": {
+    "@lingui/cli": "6.9.0",
+    "@lingui/conf": "6.9.0",
+    "@lingui/format-po": "6.9.0",
+    "@lingui/message-utils": "6.9.0",
+    "typescript": "6.0.3"
+  },
+  "peerDependencies": {
+    "@lingui/core": "6.9.0",
+    "@lingui/react": "6.9.0",
+    "react": "^19.2.0"
+  },
+  "devDependencies": {
+    "@lingui/core": "6.9.0",
+    "@lingui/react": "6.9.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "@testing-library/react": "^16.3.2",
+    "jsdom": "^29.1.1",
+    "vitest": "^4.1.11",
+    "eslint": "^10.1.0",
+    "typescript-eslint": "^8.65.0"
+  }
+}

@@ -1,0 +1,33 @@
+/** Fixed CodeMirror lookup keys; preserve literal $ substitution tokens. */
+const phrases: Record<string, string> = {
+  "Control character": "制御文字",
+  "Selection deleted": "選択範囲を削除しました",
+  "Completions": "補完候補",
+  "Folded lines": "折りたたんだ行",
+  "Unfolded lines": "展開した行",
+  "Fold line": "行を折りたたむ",
+  "Unfold line": "行を展開",
+  "folded code": "折りたたんだコード",
+  "unfold": "展開",
+  "to": "から",
+  "Go to line": "指定行へ移動",
+  "go": "移動",
+  "Find": "検索",
+  "Replace": "置換",
+  "next": "次へ",
+  "previous": "前へ",
+  "all": "すべて",
+  "match case": "大文字と小文字を区別",
+  "regexp": "正規表現",
+  "by word": "単語単位",
+  "replace": "置換",
+  "replace all": "すべて置換",
+  "close": "閉じる",
+  "current match": "現在の一致箇所",
+  "on line": "行",
+  "replaced match on line $": "$ 行目の一致箇所を置換しました",
+  "replaced $ matches": "$ 件の一致箇所を置換しました",
+  "Diagnostics": "診断",
+  "No diagnostics": "診断結果はありません"
+};
+export default phrases;
