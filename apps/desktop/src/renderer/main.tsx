@@ -1,3 +1,9 @@
+import { LocaleProvider } from "@mdbase-dev/i18n/react";
+import { runtime } from "./i18n";
+import { LanguageSetting } from "./language-setting";
+import { t, plural } from "@lingui/core/macro";
+import { Trans } from "@lingui/react/macro";
+import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import "@mdbase-dev/ui/fonts.css";
 import "@mdbase/connect-ui/styles.css";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -19,40 +25,41 @@ import {
   SettingSwitch,
   ThemeMenu
 } from "./ui-components";
-import { message, plural, type Route } from "./view-model";
+import { message, type Route } from "./view-model";
 import "./styles.css";
 
 const routeCopy: Record<Route, { eyebrow: string; title: string; lede: string }> = {
   overview: {
-    eyebrow: "This computer",
-    title: "Your local connection.",
-    lede: "Collections, app access and sync status in one place."
+    get eyebrow() { return t(i18n)({ message: "This computer", context: "Connect interface" }); },
+    get title() { return t(i18n)({ message: "Your local connection.", context: "Connect interface" }); },
+    get lede() { return t(i18n)({ message: "Collections, app access and sync status in one place." }); }
   },
   collections: {
-    eyebrow: "Collections",
-    title: "Your collections.",
-    lede: "Folders on this computer that your apps can use, and how each one syncs."
+    get eyebrow() { return t(i18n)({ message: "Collections", context: "Connect interface" }); },
+    get title() { return t(i18n)({ message: "Your collections.", context: "Connect interface" }); },
+    get lede() { return t(i18n)({ message: "Folders on this computer that your apps can use, and how each one syncs." }); }
   },
   access: {
-    eyebrow: "App access",
-    title: "Decide what apps can do.",
-    lede: "Apps you approve in mdbase reach your local collections through this computer."
+    get eyebrow() { return t(i18n)({ message: "App access", context: "Connect interface" }); },
+    get title() { return t(i18n)({ message: "Decide what apps can do.", context: "Connect interface" }); },
+    get lede() { return t(i18n)({ message: "Apps you approve in mdbase reach your local collections through this computer." }); }
   },
   activity: {
-    eyebrow: "Activity",
-    title: "What reached this computer.",
-    lede: "App access and collection changes on this computer."
+    get eyebrow() { return t(i18n)({ message: "Activity", context: "Connect interface" }); },
+    get title() { return t(i18n)({ message: "What reached this computer." }); },
+    get lede() { return t(i18n)({ message: "App access and collection changes on this computer." }); }
   },
   settings: {
-    eyebrow: "Settings",
-    title: "Account and startup.",
-    lede: "This computer's account, app approval and background behavior."
+    get eyebrow() { return t(i18n)({ message: "Settings", context: "Connect interface" }); },
+    get title() { return t(i18n)({ message: "Account and startup.", context: "Connect interface" }); },
+    get lede() { return t(i18n)({ message: "This computer's account, app approval and background behavior." }); }
   }
 };
 
 const POLL_MS = 5_000;
 
 function App() {
+  useLocaleRevision();
   const [route, setRoute] = useState<Route>("overview");
   const [status, setStatus] = useState<DaemonStatus | null>(null);
   const [checked, setChecked] = useState(false);
@@ -140,7 +147,7 @@ function App() {
   /** Collections are registered to an account, so adding one needs sign-in first. */
   function requireSignIn(): boolean {
     if (cloud?.configured) return true;
-    setSignInReason("Sign in first, then add your collection.");
+    setSignInReason(t(i18n)({ message: "Sign in first, then add your collection." }));
     return false;
   }
 
@@ -155,7 +162,7 @@ function App() {
       const added = await window.mdbaseConnect.addCollection();
       if (added) {
         setRoute("collections");
-        setNotice(`${added.name} was added.`);
+        setNotice(t(i18n)`${added.name} was added.`);
       }
     });
   }
@@ -179,10 +186,10 @@ function App() {
         pendingCount={groups.attention}
         deviceCount={devices.length}
         connection={connection}
-        computerName={`This computer · ${collections.length} ${plural(collections.length, "collection", "collections")}`}
+        computerName={t(i18n)`This computer · ${plural(collections.length, { one: "# collection", other: "# collections" })}`}
         onSelect={selectRoute}
       />
-      <button className="product-sidebar-backdrop" aria-label="Close navigation" onClick={() => setNavigationOpen(false)} />
+      <button className="product-sidebar-backdrop" aria-label={t(i18n)({ message: "Close navigation", context: "Connect interface" })} onClick={() => setNavigationOpen(false)} />
       <div className="product-canvas desktop-canvas">
         <MobileProductBar open={navigationOpen} onOpen={() => setNavigationOpen(true)} />
         <main className="content">
@@ -191,8 +198,8 @@ function App() {
           </header>
 
           <div aria-live="polite">
-            {error && <div className="message error-message" role="alert"><span>{error}</span> <button className="quiet-action" onClick={() => setError(null)}>Dismiss</button></div>}
-            {checked && !status && <div className="message error-message" role="status">mdbase is not running on this computer. It restarts automatically; if this stays, restart mdbase connect.</div>}
+            {error && <div className="message error-message" role="alert"><span>{error}</span> <button className="quiet-action" onClick={() => setError(null)}><Trans>Dismiss</Trans></button></div>}
+            {checked && !status && <div className="message error-message" role="status">{t(i18n)({ message: "mdbase is not running on this computer. It restarts automatically; if this stays, restart mdbase connect." })}</div>}
             {notice && <div className="message notice-message">{notice}</div>}
           </div>
 
@@ -244,7 +251,7 @@ function App() {
             setCreateOpen(false);
             setRoute("collections");
             setError(null);
-            setNotice(`${created.name} was created.`);
+            setNotice(t(i18n)`${created.name} was created.`);
             await refresh();
           } finally {
             setBusy(false);
@@ -265,23 +272,24 @@ function Overview({ cloud, connectionLabel, collections, attention, busy, onNavi
   onAdd(): void;
   onCreate(): void;
 }) {
+  useLocaleRevision();
   if (!cloud?.configured) return null;
   const synced = collections.filter((collection) => collection.mode !== "local").length;
   return (
     <div className="workspace-stack">
       {collections.length === 0 && <section>
-        <Empty title="Add your first collection" text="Choose a folder of Markdown notes, or create a new one. It stays on this computer; your apps reach it through mdbase." />
+        <Empty title={t(i18n)({ message: "Add your first collection" })} text={t(i18n)({ message: "Choose a folder of Markdown notes, or create a new one. It stays on this computer; your apps reach it through mdbase." })} />
         <div className="collection-config-actions">
-          <button className="button primary" disabled={busy} onClick={onAdd}>Add existing folder</button>
-          <button className="button secondary" disabled={busy} onClick={onCreate}>Create collection</button>
+          <button className="button primary" disabled={busy} onClick={onAdd}><Trans>Add existing folder</Trans></button>
+          <button className="button secondary" disabled={busy} onClick={onCreate}><Trans>Create collection</Trans></button>
         </div>
       </section>}
       <section>
-        <SectionHeading title="Overview" note="What this computer is doing right now." />
+        <SectionHeading title={t(i18n)({ message: "Overview", context: "Connect interface" })} note={t(i18n)({ message: "What this computer is doing right now." })} />
         <div className="overview-list">
-          <OverviewRow label="Account" value={connectionLabel} detail={cloud.serverUrl ?? ""} action="Settings" onClick={() => onNavigate("settings")} />
-          <OverviewRow label="Collections" value={`${collections.length} ${plural(collections.length, "collection", "collections")}`} detail={synced > 0 ? `${synced} synced` : "All on this computer only"} action="Collections" onClick={() => onNavigate("collections")} />
-          <OverviewRow label="App access" value={attention > 0 ? `${attention} ${plural(attention, "item needs", "items need")} you` : "Nothing waiting"} detail="Apps you approve reach your collections through this computer" action="App access" onClick={() => onNavigate("access")} />
+          <OverviewRow label={t(i18n)({ message: "Account", context: "Connect interface" })} value={connectionLabel} detail={cloud.serverUrl ?? ""} action={t(i18n)({ message: "Settings", context: "Connect interface" })} onClick={() => onNavigate("settings")} />
+          <OverviewRow label={t(i18n)({ message: "Collections", context: "Connect interface" })} value={t(i18n)`${plural(collections.length, { one: "# collection", other: "# collections" })}`} detail={synced > 0 ? t(i18n)`${synced} synced` : t(i18n)`All on this computer only`} action={t(i18n)({ message: "Collections", context: "Connect interface" })} onClick={() => onNavigate("collections")} />
+          <OverviewRow label={t(i18n)({ message: "App access", context: "Connect interface" })} value={attention > 0 ? t(i18n)`${plural(attention, { one: "# item needs you", other: "# items need you" })}` : t(i18n)`Nothing waiting`} detail={t(i18n)`Apps you approve reach your collections through this computer`} action={t(i18n)({ message: "App access", context: "Connect interface" })} onClick={() => onNavigate("access")} />
         </div>
       </section>
     </div>
@@ -289,6 +297,7 @@ function Overview({ cloud, connectionLabel, collections, attention, busy, onNavi
 }
 
 function OverviewRow({ label, value, detail, action, onClick }: { label: string; value: string; detail: string; action: string; onClick(): void }) {
+  useLocaleRevision();
   return <div className="overview-row"><span>{label}</span><div><strong>{value}</strong><small>{detail}</small></div><button className="quiet-action" onClick={onClick}>{action}</button></div>;
 }
 
@@ -297,19 +306,20 @@ function CreateCollectionDialog({ busy, onClose, onCreate }: {
   onClose(): void;
   onCreate(input: { parent: string; name: string }): Promise<void>;
 }) {
+  useLocaleRevision();
   const [name, setName] = useState("");
   const [parent, setParent] = useState("");
   const [failure, setFailure] = useState<string | null>(null);
   return (
-    <Dialog open onClose={() => !busy && onClose()} title="Create a collection" className="modal" closeDisabled={busy}>
-      <p className="eyebrow">New collection</p>
+    <Dialog open onClose={() => !busy && onClose()} title={t(i18n)({ message: "Create a collection", context: "Connect interface" })} className="modal" closeDisabled={busy}>
+      <p className="eyebrow"><Trans>New collection</Trans></p>
       {failure && <div className="message error-message" role="alert">{failure}</div>}
-      <p>mdbase creates a new folder with this name and keeps it on this computer. You can turn on sync later.</p>
-      <label><span>Collection name</span><input autoFocus disabled={busy} value={name} maxLength={100} onChange={(event) => setName(event.target.value)} placeholder="Workouts" /></label>
-      <label><span>Create the folder in</span><button className="folder-picker" disabled={busy} onClick={() => void window.mdbaseConnect.chooseCreateFolder().then((chosen) => { if (chosen) setParent(chosen); }).catch((reason) => setFailure(message(reason)))}>{parent || "Choose a location…"}</button></label>
+      <p><Trans>mdbase creates a new folder with this name and keeps it on this computer. You can turn on sync later.</Trans></p>
+      <label><span><Trans>Collection name</Trans></span><input autoFocus disabled={busy} value={name} maxLength={100} onChange={(event) => setName(event.target.value)} placeholder={t(i18n)`Workouts`} /></label>
+      <label><span><Trans>Create the folder in</Trans></span><button className="folder-picker" disabled={busy} onClick={() => void window.mdbaseConnect.chooseCreateFolder().then((chosen) => { if (chosen) setParent(chosen); }).catch((reason) => setFailure(message(reason)))}>{parent || t(i18n)({ message: "Choose a location…", context: "Connect interface" })}</button></label>
       <div className="modal-actions">
-        <button className="button secondary" disabled={busy} onClick={onClose}>Cancel</button>
-        <button className="button primary" disabled={busy || !name.trim() || !parent} onClick={() => { setFailure(null); void onCreate({ parent, name: name.trim() }).catch((reason) => setFailure(message(reason))); }}>Create collection</button>
+        <button className="button secondary" disabled={busy} onClick={onClose}><Trans>Cancel</Trans></button>
+        <button className="button primary" disabled={busy || !name.trim() || !parent} onClick={() => { setFailure(null); void onCreate({ parent, name: name.trim() }).catch((reason) => setFailure(message(reason))); }}><Trans>Create collection</Trans></button>
       </div>
     </Dialog>
   );
@@ -325,79 +335,81 @@ function Settings({ cloud, connectionLabel, requireApproval, startup, updateStat
   onAct(action: () => Promise<unknown>): Promise<void>;
   onNotice(value: string): void;
 }) {
+  useLocaleRevision();
   return (
     <div className="workspace-stack settings-stack">
       {cloud?.configured && (
         <section>
-          <SectionHeading title="Account" note="The mdbase account this computer is signed in to." />
+          <SectionHeading title={t(i18n)({ message: "Account", context: "Connect interface" })} note={t(i18n)({ message: "The mdbase account this computer is signed in to." })} />
           <div className="settings-rows">
-            <SettingRow label="mdbase service" value={cloud.serverUrl ?? "Signed in"} detail={cloud.online ? "Connected" : "Saved app access still works on this computer"} mono />
-            <SettingRow label="Connection" value={connectionLabel} detail="Keeps apps on your other devices connected to this computer" />
+            <SettingRow label={t(i18n)({ message: "mdbase service", context: "Connect interface" })} value={cloud.serverUrl ?? t(i18n)`Signed in`} detail={cloud.online ? t(i18n)`Connected` : t(i18n)`Saved app access still works on this computer`} mono />
+            <SettingRow label={t(i18n)({ message: "Connection", context: "Connect interface" })} value={connectionLabel} detail={t(i18n)`Keeps apps on your other devices connected to this computer`} />
             <ComputerNameRow name={cloud.computerName ?? null} busy={busy} onAct={onAct} onNotice={onNotice} />
           </div>
           <div className="portal-connection-actions">
-            <button className="button secondary" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.openAccount())}>Manage in mdbase</button>
+            <button className="button secondary" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.openAccount())}><Trans>Manage in mdbase</Trans></button>
             <button className="button secondary danger-text disconnect-button" disabled={busy} onClick={() => {
-              if (window.confirm("Sign out on this computer? Apps can no longer reach your local collections through this computer. Your files are unaffected.")) {
+              if (window.confirm(t(i18n)({ message: "Sign out on this computer? Apps can no longer reach your local collections through this computer. Your files are unaffected." }))) {
                 void onAct(() => window.mdbaseConnect.signOut());
               }
-            }}>Sign out on this computer…</button>
+            }}><Trans>Sign out on this computer…</Trans></button>
           </div>
         </section>
       )}
       <section>
-        <SectionHeading title="App approval" note="How new apps get access to your local collections." />
+        <SectionHeading title={t(i18n)({ message: "App approval", context: "Connect interface" })} note={t(i18n)({ message: "How new apps get access to your local collections." })} />
         <div className="settings-rows">
           <SettingSwitch
             className="setting-toggle"
-            label="Ask before new apps connect"
-            description="When on, an app you approve in mdbase also waits for your approval on this computer"
+            label={t(i18n)({ message: "Ask before new apps connect" })}
+            description={t(i18n)({ message: "When on, an app you approve in mdbase also waits for your approval on this computer" })}
             checked={requireApproval === true}
             disabled={busy || requireApproval === null}
-            stateLabel={requireApproval === null ? "Unavailable" : requireApproval ? "On" : "Off"}
+            stateLabel={requireApproval === null ? t(i18n)`Unavailable` : requireApproval ? t(i18n)`On` : t(i18n)`Off`}
             onChange={(checked) => void onAct(async () => {
               // Turning it off is confirmed on this computer's screen by mdbase itself.
               await window.mdbaseConnect.setRequireApproval(checked);
-              onNotice(checked ? "New apps now wait for your approval on this computer." : "New apps connect without asking; you are still notified.");
+              onNotice(checked ? t(i18n)({ message: "New apps now wait for your approval on this computer." }) : t(i18n)({ message: "New apps connect without asking; you are still notified." }));
             })}
           />
         </div>
       </section>
       <section>
-        <SectionHeading title="Background behavior" note="Keep mdbase connect in the tray without opening a window." />
+        <SectionHeading title={t(i18n)({ message: "Background behavior", context: "Connect interface" })} note={t(i18n)({ message: "Keep mdbase connect in the tray without opening a window." })} />
         <div className="settings-rows">
           <SettingSwitch
             className="setting-toggle"
-            label="Start at login"
-            description={startup.available ? "Launch in the tray when you sign in" : "Available in installed builds"}
+            label={t(i18n)({ message: "Start at login", context: "Connect interface" })}
+            description={startup.available ? t(i18n)({ message: "Launch in the tray when you sign in" }) : t(i18n)({ message: "Available in installed builds" })}
             checked={startup.enabled}
             disabled={!startup.available || busy}
-            stateLabel={startup.available ? startup.enabled ? "On" : "Off" : "Unavailable"}
+            stateLabel={startup.available ? startup.enabled ? t(i18n)`On` : t(i18n)`Off` : t(i18n)`Unavailable`}
             onChange={(checked) => void onAct(async () => {
               await window.mdbaseConnect.setLaunchAtLogin(checked);
-              onNotice(checked ? "mdbase connect will start at login." : "Launch at login is off.");
+              onNotice(checked ? t(i18n)({ message: "mdbase connect will start at login." }) : t(i18n)({ message: "Launch at login is off.", context: "Connect interface" }));
             })}
           />
         </div>
       </section>
       <section>
-        <SectionHeading title="Updates" note="Releases are checked against signed provenance before installation." />
+        <SectionHeading title={t(i18n)({ message: "Updates", context: "Connect interface" })} note={t(i18n)({ message: "Releases are checked against signed provenance before installation." })} />
         <div className="settings-rows">
           <UpdateRow status={updateStatus} busy={busy} onAct={onAct} />
-          {updateStatus?.daemon_notice ? <SettingRow label="mdbase daemon" value="Previous version restored" detail={updateStatus.daemon_notice} /> : null}
+          {updateStatus?.daemon_notice ? <SettingRow label={t(i18n)({ message: "mdbase daemon", context: "Connect interface" })} value={t(i18n)`Previous version restored`} detail={updateStatus.daemon_notice} /> : null}
         </div>
       </section>
       <section>
-        <SectionHeading title="Appearance" note="Use the system setting or keep a theme on this computer." />
+        <SectionHeading title={t(i18n)({ message: "Appearance", context: "Connect interface" })} note={t(i18n)({ message: "Use the system setting or keep a theme on this computer." })} />
         <div className="settings-rows">
           <div className="setting-row">
-            <span>Theme</span>
-            <div><strong>Color theme</strong><small>System follows your operating system appearance</small></div>
+            <span><Trans>Theme</Trans></span>
+            <div><strong><Trans>Color theme</Trans></strong><small><Trans>System follows your operating system appearance</Trans></small></div>
             <ThemeMenu />
           </div>
+          <LanguageSetting />
         </div>
       </section>
-      <section className="privacy-block"><span className="privacy-lock">⌁</span><div><strong>Folder locations are never uploaded.</strong><p>Collections stay on this computer. Synced collections send changes to mdbase; private sync encrypts them so mdbase cannot read them. Your account only receives collection names and app-access details.</p></div></section>
+      <section className="privacy-block"><span className="privacy-lock">⌁</span><div><strong><Trans>Folder locations are never uploaded.</Trans></strong><p><Trans>Collections stay on this computer. Synced collections send changes to mdbase; private sync encrypts them so mdbase cannot read them. Your account only receives collection names and app-access details.</Trans></p></div></section>
     </div>
   );
 }
@@ -408,21 +420,22 @@ function ComputerNameRow({ name, busy, onAct, onNotice }: {
   onAct(action: () => Promise<unknown>): Promise<void>;
   onNotice(value: string): void;
 }) {
+  useLocaleRevision();
   const [draft, setDraft] = useState<string | null>(null);
   if (draft === null) {
-    return <div className="setting-row"><span>This computer</span><div><strong>{name ?? "Unnamed"}</strong><small>How this computer appears in your mdbase account</small></div><button className="quiet-action" disabled={busy} onClick={() => setDraft(name ?? "")}>Rename</button></div>;
+    return <div className="setting-row"><span><Trans>This computer</Trans></span><div><strong>{name ?? t(i18n)({ message: "Unnamed", context: "Connect interface" })}</strong><small><Trans>How this computer appears in your mdbase account</Trans></small></div><button className="quiet-action" disabled={busy} onClick={() => setDraft(name ?? "")}><Trans>Rename</Trans></button></div>;
   }
   return (
     <div className="setting-row">
-      <span>This computer</span>
+      <span><Trans>This computer</Trans></span>
       <div className="computer-name-form">
-        <input aria-label="Computer name" autoFocus value={draft} maxLength={100} disabled={busy} onChange={(event) => setDraft(event.target.value)} />
-        <button className="button secondary" disabled={busy} onClick={() => setDraft(null)}>Cancel</button>
+        <input aria-label={t(i18n)({ message: "Computer name", context: "Connect interface" })} autoFocus value={draft} maxLength={100} disabled={busy} onChange={(event) => setDraft(event.target.value)} />
+        <button className="button secondary" disabled={busy} onClick={() => setDraft(null)}><Trans>Cancel</Trans></button>
         <button className="button primary" disabled={busy || !draft.trim()} onClick={() => void onAct(async () => {
           const renamed = await window.mdbaseConnect.renameComputer(draft.trim());
           setDraft(null);
-          onNotice(`This computer is now called ${renamed.name}.`);
-        })}>Save</button>
+          onNotice(t(i18n)`This computer is now called ${renamed.name}.`);
+        })}><Trans>Save</Trans></button>
       </div>
     </div>
   );
@@ -433,15 +446,16 @@ function UpdateRow({ status, busy, onAct }: {
   busy: boolean;
   onAct(action: () => Promise<unknown>): Promise<void>;
 }) {
+  useLocaleRevision();
   const install = status?.can_install === true;
   const label = install
-    ? status.phase === "ready" ? `Install ${status.target_version}` : `Open ${status.target_version ?? "update"}`
-    : "Check for updates";
+    ? status.phase === "ready" ? t(i18n)`Install ${status.target_version}` : status.target_version ? t(i18n)`Open ${status.target_version}` : t(i18n)`Open update`
+    : t(i18n)({ message: "Check for updates", context: "Connect interface" });
   const enabled = install || status?.can_check === true;
   return (
     <div className="setting-row">
-      <span>Application</span>
-      <div><strong>{`Version ${status?.current_version ?? "checking"}`}</strong><small>{status?.message ?? "Reading update status…"}</small></div>
+      <span><Trans>Application</Trans></span>
+      <div><strong>{status?.current_version ? t(i18n)`Version ${status.current_version}` : t(i18n)`Checking version…`}</strong><small>{status?.message ?? t(i18n)({ message: "Reading update status…", context: "Connect interface" })}</small></div>
       {status && status.phase !== "unavailable" ? (
         <button className="quiet-action" disabled={busy || !enabled} onClick={() => void onAct(() =>
           install ? window.mdbaseConnect.installUpdate() : window.mdbaseConnect.checkForUpdates())}>{label}</button>
@@ -451,7 +465,18 @@ function UpdateRow({ status, busy, onAct }: {
 }
 
 function SettingRow({ label, value, detail, mono = false }: { label: string; value: string; detail: string; mono?: boolean }) {
+  useLocaleRevision();
   return <div className="setting-row"><span>{label}</span><div><strong className={mono ? "mono" : ""}>{value}</strong><small>{detail}</small></div></div>;
 }
 
-createRoot(document.getElementById("root")!).render(<React.StrictMode><App /></React.StrictMode>);
+function LocalizedApp() {
+  const revision = useLocaleRevision();
+  const [languageError, setLanguageError] = useState(false);
+  useEffect(() => setLanguageError(false), [revision]);
+  const showLanguageError = useCallback(() => setLanguageError(true), []);
+  return <LocaleProvider runtime={runtime} onError={showLanguageError}>
+    {languageError && <p role="alert">{t(i18n)`The language could not be loaded. Choose it again in Settings.`}</p>}
+    <App />
+  </LocaleProvider>;
+}
+createRoot(document.getElementById("root")!).render(<React.StrictMode><LocalizedApp /></React.StrictMode>);

@@ -1,3 +1,7 @@
+import { LocaleProvider } from "@mdbase-dev/i18n/react";
+import { runtime } from "./i18n";
+import { t } from "@lingui/core/macro";
+import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import "@mdbase-dev/ui/fonts.css";
 import "@mdbase/connect-ui/styles.css";
 import "@mdbase-dev/ui/motion.css";
@@ -28,6 +32,7 @@ import "./authorization.css";
 const ConnectApp = React.lazy(() => import("./ConnectApp").then(module => ({ default: module.ConnectApp })));
 
 function Portal({ bootstrapSecrets }: { bootstrapSecrets: PortalBootstrapSecrets }) {
+  useLocaleRevision();
   const pairingId = location.pathname.match(/^\/pair\/([0-9a-f-]+)$/i)?.[1];
   const mirrorPairingId = location.pathname.match(/^\/mirror\/([0-9a-f-]+)$/i)?.[1];
   const authorityAdoptionId = location.pathname.match(/^\/adopt\/([0-9a-f-]+)$/i)?.[1];
@@ -48,10 +53,21 @@ function Portal({ bootstrapSecrets }: { bootstrapSecrets: PortalBootstrapSecrets
   if (authorityAdoptionId) return <AuthorityAdoption adoptionId={authorityAdoptionId} />;
   if (authorityTransferId) return <AuthorityTransfer transferId={authorityTransferId} />;
   if (authorizationId) return <Authorization requestId={authorizationId} />;
-  return <React.Suspense fallback={<main className="portal-redirect" aria-live="polite">Opening mdbase connect…</main>}><ConnectApp /></React.Suspense>;
+  return <React.Suspense fallback={<main className="portal-redirect" aria-live="polite">{t(i18n)({ message: "Opening mdbase connect…", context: "Connect interface" })}</main>}><ConnectApp /></React.Suspense>;
+}
+
+function LocalizedPortal({ bootstrapSecrets }: { bootstrapSecrets: PortalBootstrapSecrets }) {
+  const revision = useLocaleRevision();
+  const [languageError, setLanguageError] = React.useState(false);
+  React.useEffect(() => setLanguageError(false), [revision]);
+  const showLanguageError = React.useCallback(() => setLanguageError(true), []);
+  return <LocaleProvider runtime={runtime} onError={showLanguageError}>
+    {languageError && <p role="alert">{t(i18n)`The language could not be loaded. Choose it again using the language setting.`}</p>}
+    <Portal bootstrapSecrets={bootstrapSecrets} />
+  </LocaleProvider>;
 }
 
 const bootstrapSecrets = capturePortalBootstrapSecrets();
 createRoot(document.getElementById("root")!).render(
-  <React.StrictMode><Portal bootstrapSecrets={bootstrapSecrets} /></React.StrictMode>
+  <React.StrictMode><LocalizedPortal bootstrapSecrets={bootstrapSecrets} /></React.StrictMode>
 );

@@ -1,3 +1,5 @@
+import { t } from "@lingui/core/macro";
+import { i18n } from "@mdbase-dev/ui/i18n";
 export interface StoredAuthorizationReview {
   collectionId?: string;
   collectionConfirmed?: boolean;
@@ -55,7 +57,7 @@ function disambiguatedCollectionLocations(
         collection.id,
         group.length === 1
           ? collection.connector_name
-          : `${collection.connector_name} · ID …${uniqueIdSuffix(
+          : t(i18n)`${collection.connector_name} · ID …${uniqueIdSuffix(
               collection.id,
               group.map((candidate) => candidate.id)
             )}`

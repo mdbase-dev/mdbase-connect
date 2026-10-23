@@ -1,3 +1,6 @@
+import { t } from "@lingui/core/macro";
+import { Trans } from "@lingui/react/macro";
+import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import { observeProviderWidth } from "@mdbase/connect-ui/provider-button";
 import React, { useEffect, useId, useRef, useState, useSyncExternalStore, type InputHTMLAttributes } from "react";
 import { observeTheme, resolveDarkTheme } from "@mdbase-dev/ui/theme";
@@ -11,20 +14,22 @@ import {
 import { PageBrand } from "./portal-ui";
 
 function MinimalAuthPage({ children }: { children: React.ReactNode }) {
+  useLocaleRevision();
   return <div className="minimal-auth-shell">
     <main className="center-page minimal-auth-page">
       <PageBrand label="connect" />
       {children}
     </main>
     <footer className="minimal-auth-footer">
-      <a href="https://mdbase.dev/privacy/">Privacy</a>
-      <a href="https://mdbase.dev/terms/">Terms</a>
+      <a href="https://mdbase.dev/privacy/"><Trans>Privacy</Trans></a>
+      <a href="https://mdbase.dev/terms/"><Trans>Terms</Trans></a>
     </footer>
   </div>;
 }
 
 /** Keep native constraints, but announce errors beside the field. */
 function AuthInput({ label, matchValue, onChange, onBlur, ...props }: InputHTMLAttributes<HTMLInputElement> & { label: string; matchValue?: string }) {
+  useLocaleRevision();
   const labelId = useId();
   const errorId = useId();
   const input = useRef<HTMLInputElement>(null);
@@ -32,7 +37,7 @@ function AuthInput({ label, matchValue, onChange, onBlur, ...props }: InputHTMLA
   useEffect(() => {
     const field = input.current;
     if (!field) return;
-    field.setCustomValidity(matchValue !== undefined && field.value && field.value !== matchValue ? "Passwords do not match." : "");
+    field.setCustomValidity(matchValue !== undefined && field.value && field.value !== matchValue ? t(i18n)({ message: "Passwords do not match.", context: "Account sign-in" }) : "");
     setError((current) => current ? field.validationMessage : "");
   }, [matchValue, props.value]);
   return <label>
@@ -54,14 +59,16 @@ function AuthInput({ label, matchValue, onChange, onBlur, ...props }: InputHTMLA
 }
 
 function Loading({ error }: { error: string }) {
+  useLocaleRevision();
   return <MinimalAuthPage><section className="auth-panel" aria-busy={!error}>
-    <h1>{error ? "Couldn’t connect" : "Opening mdbase connect"}</h1>
-    <p role={error ? "alert" : "status"}>{error || "Just a moment…"}</p>
-    {error && <button className="mdbase-button is-primary" onClick={() => location.reload()}>Try again</button>}
+    <h1>{error ? t(i18n)({ message: "Couldn’t connect", context: "Account sign-in" }) : t(i18n)({ message: "Opening mdbase connect", context: "Account sign-in" })}</h1>
+    <p role={error ? "alert" : "status"}>{error || t(i18n)({ message: "Just a moment…", context: "Account sign-in" })}</p>
+    {error && <button className="mdbase-button is-primary" onClick={() => location.reload()}><Trans>Try again</Trans></button>}
   </section></MinimalAuthPage>;
 }
 
 export function Login() {
+  useLocaleRevision();
   const [name, setName] = useState("Callum");
   const [email, setEmail] = useState("callum@example.com");
   const [config, setConfig] = useState<AuthConfig | null>(null);
@@ -109,27 +116,27 @@ export function Login() {
   if (config.provider === "tailscale") return (
     <MinimalAuthPage>
       <section className="auth-panel">
-        <h1>Open this through Tailscale</h1>
-        <p>Connect this device to your tailnet, then reload the page.</p>
+        <h1><Trans>Open this through Tailscale</Trans></h1>
+        <p><Trans>Connect this device to your tailnet, then reload the page.</Trans></p>
         {error && <div className="message error" role="alert">{error}</div>}
-        <button className="mdbase-button is-primary" onClick={() => location.reload()}>Try again</button>
+        <button className="mdbase-button is-primary" onClick={() => location.reload()}><Trans>Try again</Trans></button>
       </section>
     </MinimalAuthPage>
   );
   const providers = config.providers.length > 0
     ? config.providers
     : config.provider === "github"
-      ? [{ id: "github" as const, label: "Continue with GitHub", login_url: "/auth/github" }]
+      ? [{ id: "github" as const, label: t(i18n)({ message: "Continue with GitHub", context: "Account sign-in" }), login_url: "/auth/github" }]
       : [];
   if (providers.length > 0 || config.password_login) return (
     <MinimalAuthPage>
       <section className="auth-panel">
-        <h1>{continuingAuthorization ? "Sign in to continue" : "Sign in"}</h1>
+        <h1>{continuingAuthorization ? t(i18n)({ message: "Sign in to continue", context: "Account sign-in" }) : t(i18n)({ message: "Sign in", context: "Account sign-in" })}</h1>
         <p>{continuingAuthorization
-          ? "Sign in, review the request, and return to the application."
+          ? t(i18n)({ message: "Sign in, review the request, and return to the application." })
           : config.registration === "open"
-            ? "Your collections and account, in one place."
-            : "Sign in with the method connected to your invited account."}</p>
+            ? t(i18n)({ message: "Your collections and account, in one place." })
+            : t(i18n)({ message: "Sign in with the method connected to your invited account." })}</p>
         {error && <div className="message error" role="alert">{error}</div>}
         {config.password_login && (
           <PasswordLoginForm
@@ -141,14 +148,14 @@ export function Login() {
         <AuthProviders providers={providers} divider={config.password_login === true} onError={setError} />
         {config.registration !== "open" && (
           <p className="auth-footnote">
-            {config.password_registration ? "Invited? Open the link in your invitation email. " : ""}
-            <a href="https://mdbase.dev/beta/">Join the signup waitlist</a>.
+            {config.password_registration ? t(i18n)({ message: "Invited? Open the link in your invitation email. " }) : ""}
+            <a href="https://mdbase.dev/beta/"><Trans>Join the signup waitlist</Trans></a>.
           </p>
         )}
         {config.registration === "open" && (config.password_public_registration || config.external_public_registration) && (
-          <p className="auth-footnote">
+          <p className="auth-footnote"><Trans>
             New to mdbase? <a href={`/signup?return_to=${encodeURIComponent(returnTarget())}`}>Create an account</a>
-          </p>
+          </Trans></p>
         )}
       </section>
     </MinimalAuthPage>
@@ -157,12 +164,12 @@ export function Login() {
   return (
     <MinimalAuthPage>
       <form className="auth-panel" aria-busy={busy} onSubmit={(event) => void signIn(event)}>
-        <h1>Open your account</h1>
-        <p>Development authentication is enabled.</p>
+        <h1><Trans>Open your account</Trans></h1>
+        <p><Trans>Development authentication is enabled.</Trans></p>
         {error && <div className="message error" role="alert">{error}</div>}
-        <AuthInput label="Name" autoComplete="name" required value={name} onChange={(event) => setName(event.target.value)} />
-        <AuthInput label="Email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} />
-        <button className="mdbase-button is-primary" type="submit" disabled={busy}>Continue</button>
+        <AuthInput label={t(i18n)({ message: "Name", context: "Account sign-in" })} autoComplete="name" required value={name} onChange={(event) => setName(event.target.value)} />
+        <AuthInput label={t(i18n)({ message: "Email", context: "Account sign-in" })} type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} />
+        <button className="mdbase-button is-primary" type="submit" disabled={busy}><Trans>Continue</Trans></button>
       </form>
     </MinimalAuthPage>
   );
@@ -177,6 +184,7 @@ function PasswordLoginForm({
   onError(value: string): void;
   onSignedIn(): void;
 }) {
+  useLocaleRevision();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -200,7 +208,7 @@ function PasswordLoginForm({
 
   return (
     <form className="password-auth-form" aria-busy={busy} onSubmit={(event) => void signIn(event)}>
-      <AuthInput label="Email"
+      <AuthInput label={t(i18n)({ message: "Email", context: "Account sign-in" })}
         type="email"
         autoComplete="username"
         maxLength={320}
@@ -208,7 +216,7 @@ function PasswordLoginForm({
         value={email}
         onChange={(event) => setEmail(event.target.value)}
       />
-      <AuthInput label="Password"
+      <AuthInput label={t(i18n)({ message: "Password", context: "Account sign-in" })}
         type="password"
         autoComplete="current-password"
         maxLength={1024}
@@ -217,18 +225,19 @@ function PasswordLoginForm({
         onChange={(event) => setPassword(event.target.value)}
       />
       <button className="mdbase-button is-primary" disabled={busy} type="submit">
-        {busy ? "Signing in…" : "Sign in"}
+        {busy ? t(i18n)({ message: "Signing in…", context: "Account sign-in" }) : t(i18n)({ message: "Sign in", context: "Account sign-in" })}
       </button>
       {recoveryAvailable && (
-        <a className="quiet-auth-link" href="/forgot-password">
+        <a className="quiet-auth-link" href="/forgot-password"><Trans>
           Forgot your password?
-        </a>
+        </Trans></a>
       )}
     </form>
   );
 }
 
 export function ForgotPassword() {
+  useLocaleRevision();
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
@@ -264,16 +273,16 @@ export function ForgotPassword() {
   return (
     <MinimalAuthPage>
       <section className="auth-panel">
-        <h1>{submitted ? "Check your email" : "Reset your password"}</h1>
+        <h1>{submitted ? t(i18n)({ message: "Check your email", context: "Account sign-in" }) : t(i18n)({ message: "Reset your password", context: "Account sign-in" })}</h1>
         <p role={submitted ? "status" : undefined} aria-live={submitted ? "polite" : undefined}>{submitted
-          ? "If an mdbase connect account uses that address, its one-time reset link is on the way."
+          ? t(i18n)({ message: "If an mdbase connect account uses that address, its one-time reset link is on the way." })
           : available
-            ? "We’ll email you a reset link. It expires in one hour."
-            : "Password recovery is temporarily unavailable. You can still return to sign in."}</p>
+            ? t(i18n)({ message: "We’ll email you a reset link. It expires in one hour." })
+            : t(i18n)({ message: "Password recovery is temporarily unavailable. You can still return to sign in." })}</p>
         {error && <div className="message error" role="alert">{error}</div>}
         {!submitted && available && (
           <form className="password-auth-form" aria-busy={busy} onSubmit={(event) => void requestReset(event)}>
-            <AuthInput label="Email"
+            <AuthInput label={t(i18n)({ message: "Email", context: "Account sign-in" })}
               type="email"
               autoComplete="email"
               autoFocus
@@ -283,11 +292,11 @@ export function ForgotPassword() {
               onChange={(event) => setEmail(event.target.value)}
             />
             <button className="mdbase-button is-primary" disabled={busy} type="submit">
-              {busy ? "Sending link…" : "Send reset link"}
+              {busy ? t(i18n)({ message: "Sending link…", context: "Account sign-in" }) : t(i18n)({ message: "Send reset link", context: "Account sign-in" })}
             </button>
           </form>
         )}
-        <a className="quiet-auth-link" href="/login">Return to sign in</a>
+        <a className="quiet-auth-link" href="/login"><Trans>Return to sign in</Trans></a>
       </section>
     </MinimalAuthPage>
   );
@@ -295,6 +304,7 @@ export function ForgotPassword() {
 
 // A mail scanner may open this link, so only the explicit button unsubscribes.
 export function Unsubscribe({ unsubscribeToken }: { unsubscribeToken: string }) {
+  useLocaleRevision();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [unsubscribed, setUnsubscribed] = useState<"announcements" | "product_updates" | null>(null);
@@ -317,33 +327,34 @@ export function Unsubscribe({ unsubscribeToken }: { unsubscribeToken: string }) 
     }
   }
 
-  const topic = unsubscribed === "product_updates" ? "product updates" : "announcements";
+  const topic = unsubscribed === "product_updates" ? t(i18n)({ message: "product updates", context: "Account sign-in" }) : "announcements";
   return (
     <MinimalAuthPage>
       <section className="auth-panel">
-        <h1>{unsubscribed ? "You’re unsubscribed" : unsubscribeToken ? "Unsubscribe from mdbase email" : "This unsubscribe link can’t be opened"}</h1>
+        <h1>{unsubscribed ? t(i18n)({ message: "You’re unsubscribed", context: "Account sign-in" }) : unsubscribeToken ? t(i18n)({ message: "Unsubscribe from mdbase email" }) : t(i18n)({ message: "This unsubscribe link can’t be opened" })}</h1>
         <p role={unsubscribed ? "status" : undefined} aria-live={unsubscribed ? "polite" : undefined}>
           {unsubscribed
-            ? `You won’t receive ${topic} from mdbase Connect. Messages about your account, such as verification and security email, are still sent.`
+            ? t(i18n)`You won’t receive ${topic} from mdbase Connect. Messages about your account, such as verification and security email, are still sent.`
             : unsubscribeToken
-              ? "Stop receiving the kind of email this link came in. Messages about your account are still sent."
-              : "Open the link from the email again, or change email preferences in your account settings."}
+              ? t(i18n)({ message: "Stop receiving the kind of email this link came in. Messages about your account are still sent." })
+              : t(i18n)({ message: "Open the link from the email again, or change email preferences in your account settings." })}
         </p>
         {error && <div className="message error" role="alert">{error}</div>}
         {unsubscribeToken && !unsubscribed && (
           <form className="password-auth-form" aria-busy={busy} onSubmit={(event) => void unsubscribe(event)}>
             <button className="mdbase-button is-primary" disabled={busy} type="submit">
-              {busy ? "Unsubscribing…" : "Unsubscribe"}
+              {busy ? t(i18n)({ message: "Unsubscribing…", context: "Account sign-in" }) : t(i18n)({ message: "Unsubscribe", context: "Account sign-in" })}
             </button>
           </form>
         )}
-        <a className="quiet-auth-link" href="/account">Manage email preferences</a>
+        <a className="quiet-auth-link" href="/account"><Trans>Manage email preferences</Trans></a>
       </section>
     </MinimalAuthPage>
   );
 }
 
 export function ResetPassword({ resetToken }: { resetToken: string }) {
+  useLocaleRevision();
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const [password, setPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
@@ -383,21 +394,21 @@ export function ResetPassword({ resetToken }: { resetToken: string }) {
     <MinimalAuthPage>
       <section className="auth-panel">
         <h1>{completed
-          ? "Password changed"
+          ? t(i18n)({ message: "Password changed", context: "Account sign-in" })
           : ready
-            ? "Choose a new password"
-            : "This reset link can’t be opened"}</h1>
+            ? t(i18n)({ message: "Choose a new password", context: "Account sign-in" })
+            : t(i18n)({ message: "This reset link can’t be opened" })}</h1>
         <p role={completed ? "status" : undefined} aria-live={completed ? "polite" : undefined}>{completed
-          ? "Your other browser sessions have been signed out. This browser is now signed in with the new password."
+          ? t(i18n)({ message: "Your other browser sessions have been signed out. This browser is now signed in with the new password." })
           : ready
-            ? "Replacing your password signs out every other browser session connected to the account."
+            ? t(i18n)({ message: "Replacing your password signs out every other browser session connected to the account." })
             : resetToken
-              ? "The link is invalid, expired, already used, or password sign-in is temporarily unavailable."
-              : "Open the complete password reset link from your email."}</p>
+              ? t(i18n)({ message: "The link is invalid, expired, already used, or password sign-in is temporarily unavailable." })
+              : t(i18n)({ message: "Open the complete password reset link from your email." })}</p>
         {error && <div className="message error" role="alert">{error}</div>}
         {!completed && ready && (
           <form className="password-auth-form" aria-busy={busy} onSubmit={(event) => void resetPassword(event)}>
-            <AuthInput label="New password"
+            <AuthInput label={t(i18n)({ message: "New password", context: "Account sign-in" })}
               type="password"
               autoComplete="new-password"
               autoFocus
@@ -408,10 +419,10 @@ export function ResetPassword({ resetToken }: { resetToken: string }) {
               value={password}
               onChange={(event) => setPassword(event.target.value)}
             />
-            <p className="field-note" id="reset-password-guidance">
+            <p className="field-note" id="reset-password-guidance"><Trans>
               Use at least 15 characters. Spaces are welcome.
-            </p>
-            <AuthInput label="Confirm new password" matchValue={password} name="password-confirmation"
+            </Trans></p>
+            <AuthInput label={t(i18n)({ message: "Confirm new password", context: "Account sign-in" })} matchValue={password} name="password-confirmation"
               type="password"
               autoComplete="new-password"
               minLength={15}
@@ -421,13 +432,13 @@ export function ResetPassword({ resetToken }: { resetToken: string }) {
               onChange={(event) => setPasswordConfirmation(event.target.value)}
             />
             <button className="mdbase-button is-primary" disabled={busy} type="submit">
-              {busy ? "Changing password…" : "Change password"}
+              {busy ? t(i18n)({ message: "Changing password…", context: "Account sign-in" }) : t(i18n)({ message: "Change password", context: "Account sign-in" })}
             </button>
           </form>
         )}
         {completed
-          ? <a className="mdbase-button is-primary" href="/">Open your account</a>
-          : <a className="quiet-auth-link" href="/login">Return to sign in</a>}
+          ? <a className="mdbase-button is-primary" href="/"><Trans>Open your account</Trans></a>
+          : <a className="quiet-auth-link" href="/login"><Trans>Return to sign in</Trans></a>}
       </section>
     </MinimalAuthPage>
   );
@@ -440,6 +451,7 @@ export function Signup({
   invitationToken: string;
   verificationToken: string;
 }) {
+  useLocaleRevision();
   const externalSignup = !invitationToken && !verificationToken
     && new URLSearchParams(location.search).get("external") === "1";
   const [config, setConfig] = useState<AuthConfig | null>(null);
@@ -573,18 +585,18 @@ export function Signup({
   if (canRequest) return (
     <MinimalAuthPage>
       <section className="auth-panel">
-        <h1>{requestSubmitted ? "Check your email" : "Create an account"}</h1>
+        <h1>{requestSubmitted ? t(i18n)({ message: "Check your email", context: "Account sign-in" }) : t(i18n)({ message: "Create an account", context: "Account sign-in" })}</h1>
         <p role={requestSubmitted ? "status" : undefined} aria-live={requestSubmitted ? "polite" : undefined}>
           {requestSubmitted
-            ? "If that address can be used, its one-time verification link is on the way."
+            ? t(i18n)({ message: "If that address can be used, its one-time verification link is on the way." })
             : config.external_public_registration
-              ? config.password_public_registration ? "Use a connected account, or verify your email to get started." : "Use a connected account to get started."
-              : "We’ll email you a link to verify your address. Then you can choose a password."}
+              ? config.password_public_registration ? t(i18n)({ message: "Use a connected account, or verify your email to get started." }) : t(i18n)({ message: "Use a connected account to get started." })
+              : t(i18n)({ message: "We’ll email you a link to verify your address. Then you can choose a password." })}
         </p>
         {error && <div className="message error" role="alert">{error}</div>}
         {!requestSubmitted && config.password_public_registration && (
           <form className="password-auth-form" aria-busy={busy} onSubmit={(event) => void requestVerification(event)}>
-            <AuthInput label="Email"
+            <AuthInput label={t(i18n)({ message: "Email", context: "Account sign-in" })}
               type="email"
               autoComplete="email"
               autoFocus
@@ -594,38 +606,38 @@ export function Signup({
               onChange={(event) => setEmail(event.target.value)}
             />
             <button className="mdbase-button is-primary" disabled={busy} type="submit">
-              {busy ? "Sending link…" : "Send verification link"}
+              {busy ? t(i18n)({ message: "Sending link…", context: "Account sign-in" }) : t(i18n)({ message: "Send verification link", context: "Account sign-in" })}
             </button>
           </form>
         )}
         {!requestSubmitted && config.external_public_registration && (
           <AuthProviders providers={config.providers} divider={config.password_public_registration === true} onError={setError} />
         )}
-        <p className="auth-footnote">Already have an account? <a href={signInUrl()}>Sign in</a></p>
+        <p className="auth-footnote"><Trans>Already have an account? <a href={signInUrl()}>Sign in</a></Trans></p>
       </section>
     </MinimalAuthPage>
   );
   return (
     <MinimalAuthPage>
       <section className="auth-panel">
-        <h1>{ready ? "Create an account" : "This account setup link can’t be opened"}</h1>
+        <h1>{ready ? t(i18n)({ message: "Create an account", context: "Account sign-in" }) : t(i18n)({ message: "This account setup link can’t be opened" })}</h1>
         <p>{ready
           ? externalSignup
-            ? "Your email is verified. Confirm your name to finish setting up your account. No password needed."
-            : "Your email is verified. Choose a name and password to finish setting up your account."
+            ? t(i18n)({ message: "Your email is verified. Confirm your name to finish setting up your account. No password needed." })
+            : t(i18n)({ message: "Your email is verified. Choose a name and password to finish setting up your account." })
           : isInvitation || hasVerification || externalSignup
-            ? "The link is invalid, expired, already used, or account setup is temporarily unavailable."
-            : "Public account creation is temporarily unavailable."}</p>
+            ? t(i18n)({ message: "The link is invalid, expired, already used, or account setup is temporarily unavailable." })
+            : t(i18n)({ message: "Public account creation is temporarily unavailable." })}</p>
         {error && <div className="message error" role="alert">{error}</div>}
         {ready && config.agreements && (
           <form className="password-auth-form signup-form" aria-busy={busy} onSubmit={(event) => void createAccount(event)}>
-            <AuthInput label="Email"
+            <AuthInput label={t(i18n)({ message: "Email", context: "Account sign-in" })}
               type="email"
               autoComplete="username"
               readOnly
               value={verifiedEmail}
             />
-            <AuthInput label="Name"
+            <AuthInput label={t(i18n)({ message: "Name", context: "Account sign-in" })}
               autoComplete="name"
               maxLength={100}
               required
@@ -633,7 +645,7 @@ export function Signup({
               onChange={(event) => setName(event.target.value)}
             />
             {!externalSignup && <>
-            <AuthInput label="Password"
+            <AuthInput label={t(i18n)({ message: "Password", context: "Account sign-in" })}
               type="password"
               autoComplete="new-password"
               minLength={15}
@@ -643,10 +655,10 @@ export function Signup({
               value={password}
               onChange={(event) => setPassword(event.target.value)}
             />
-            <p className="field-note" id="password-guidance">
+            <p className="field-note" id="password-guidance"><Trans>
               Use at least 15 characters. Spaces are welcome.
-            </p>
-            <AuthInput label="Confirm password" matchValue={password} name="password-confirmation"
+            </Trans></p>
+            <AuthInput label={t(i18n)({ message: "Confirm password", context: "Account sign-in" })} matchValue={password} name="password-confirmation"
               type="password"
               autoComplete="new-password"
               minLength={15}
@@ -664,7 +676,7 @@ export function Signup({
                 checked={agreementsAccepted}
                 onChange={(event) => setAgreementsAccepted(event.target.checked)}
               />
-              <span>
+              <span><Trans>
                 I agree to the{" "}
                 <a href={config.agreements.terms.url} target="_blank" rel="noreferrer">
                   Terms of Service
@@ -673,7 +685,7 @@ export function Signup({
                 <a href={config.agreements.privacy.url} target="_blank" rel="noreferrer">
                   Privacy Policy
                 </a>.
-              </span>
+              </Trans></span>
             </label>
             {!isInvitation && <label className="auth-agreement">
               <input
@@ -682,19 +694,19 @@ export function Signup({
                 checked={productUpdates}
                 onChange={(event) => setProductUpdates(event.target.checked)}
               />
-              <span>Send me occasional product updates. You can change this at any time.</span>
+              <span><Trans>Send me occasional product updates. You can change this at any time.</Trans></span>
             </label>}
             <button
               className="mdbase-button is-primary"
               disabled={busy || !agreementsAccepted}
               type="submit"
             >
-              {busy ? "Creating account…" : "Create account"}
+              {busy ? t(i18n)({ message: "Creating account…", context: "Account sign-in" }) : t(i18n)({ message: "Create account", context: "Account sign-in" })}
             </button>
           </form>
         )}
-        {externalSignup && (!ready || error) && <a className="quiet-auth-link" href={`/signup?return_to=${encodeURIComponent(returnTarget())}`}>Start signup again</a>}
-        <a className="quiet-auth-link" href={signInUrl()}>Return to sign in</a>
+        {externalSignup && (!ready || error) && <a className="quiet-auth-link" href={`/signup?return_to=${encodeURIComponent(returnTarget())}`}><Trans>Start signup again</Trans></a>}
+        <a className="quiet-auth-link" href={signInUrl()}><Trans>Return to sign in</Trans></a>
       </section>
     </MinimalAuthPage>
   );
@@ -702,8 +714,8 @@ export function Signup({
 
 function authenticationFlowError(): string {
   switch (new URLSearchParams(location.search).get("auth_error")) {
-    case "cancelled": return "Sign-in was cancelled. You can try again or choose another method.";
-    case "verified_email_required": return "A verified primary email is required. Verify your primary email with GitHub, or sign up using another method.";
+    case "cancelled": return t(i18n)`Sign-in was cancelled. You can try again or choose another method.`;
+    case "verified_email_required": return t(i18n)`A verified primary email is required. Verify your primary email with GitHub, or sign up using another method.`;
     default: return "";
   }
 }
@@ -713,9 +725,10 @@ function AuthProviders({ providers, divider = false, onError }: {
   divider?: boolean;
   onError(value: string): void;
 }) {
+  useLocaleRevision();
   if (!providers.length) return null;
   return <div className="auth-providers">
-    {divider && <div className="provider-divider"><span>or</span></div>}
+    {divider && <div className="provider-divider"><span><Trans>or</Trans></span></div>}
     {providers.map((provider) => <React.Fragment key={provider.id}>
       {provider.id === "google"
         ? <GoogleSignIn returnTo={returnTarget()} onError={onError} />
@@ -777,6 +790,7 @@ interface GoogleAccountsApi {
         theme: "outline" | "filled_black";
         size: "large";
         text: "continue_with";
+        locale?: string;
         shape: "rectangular";
         logo_alignment: "left";
         width: number;
@@ -788,6 +802,7 @@ interface GoogleAccountsApi {
 let googleLibrary: Promise<GoogleAccountsApi> | null = null;
 
 function GoogleSignIn({ returnTo, onError }: { returnTo: string; onError(value: string): void }) {
+  useLocaleRevision();
   return <GoogleIdentityButton
     startUrl={`/auth/google?return_to=${encodeURIComponent(returnTo)}`}
     onComplete={navigateAfterAuthentication}
@@ -804,6 +819,7 @@ export function GoogleIdentityButton({ startUrl, onComplete, onError }: {
   onComplete(redirectTo: string): void;
   onError(value: string): void;
 }) {
+  const localeRevision = useLocaleRevision();
   const container = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLDivElement>(null);
   const [attempt, setAttempt] = useState(0);
@@ -868,11 +884,12 @@ export function GoogleIdentityButton({ startUrl, onComplete, onError }: {
       theme: dark ? "filled_black" : "outline",
       size: "large",
       text: "continue_with",
+      locale: i18n.locale === "pt" ? "pt-BR" : i18n.locale === "zh" ? "zh-CN" : i18n.locale,
       shape: "rectangular",
       logo_alignment: "left",
       width
     });
-  }, [google, width, dark]);
+  }, [google, width, dark, localeRevision]);
 
   const ready = Boolean(google && width);
   return <div ref={container} className={`google-provider ${busy ? "busy" : ""}`} aria-busy={busy || (!ready && !failed)}>
@@ -880,13 +897,14 @@ export function GoogleIdentityButton({ startUrl, onComplete, onError }: {
     {!ready && <button type="button" className="mdbase-button provider-button provider-loading" disabled={!failed}
       onClick={() => { onError(""); setAttempt((value) => value + 1); }}>
       {!failed && <span className="auth-spinner" aria-hidden="true" />}
-      {failed ? "Retry Google sign-in" : "Continue with Google"}
+      {failed ? t(i18n)({ message: "Retry Google sign-in", context: "Account sign-in" }) : t(i18n)({ message: "Continue with Google", context: "Account sign-in" })}
     </button>}
-    <span className="sr-only" role="status">{busy ? "Signing in with Google…" : !ready && !failed ? "Loading Google sign-in…" : ""}</span>
+    <span className="sr-only" role="status">{busy ? t(i18n)({ message: "Signing in with Google…", context: "Account sign-in" }) : !ready && !failed ? t(i18n)({ message: "Loading Google sign-in…", context: "Account sign-in" }) : ""}</span>
   </div>;
 }
 
 function GitHubMark() {
+  useLocaleRevision();
   return (
     <svg
       className="github-mark"
@@ -913,9 +931,9 @@ function loadGoogleIdentityServices(): Promise<GoogleAccountsApi> {
     script.onload = () => {
       const loaded = (window as unknown as { google?: GoogleAccountsApi }).google;
       if (loaded?.accounts?.id) resolve(loaded);
-      else reject(new Error("Google sign-in did not load correctly."));
+      else reject(new Error(t(i18n)({ message: "Google sign-in did not load correctly." })));
     };
-    script.onerror = () => reject(new Error("Google sign-in could not be loaded."));
+    script.onerror = () => reject(new Error(t(i18n)({ message: "Google sign-in could not be loaded." })));
     document.head.append(script);
   });
   googleLibrary = googleLibrary.catch((reason) => {
