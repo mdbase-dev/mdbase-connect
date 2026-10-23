@@ -157,6 +157,16 @@ test("source guard rejects unmarked initial rendered state", () => {
 
 for (const [name, source] of [
   [
+    "state used only as a JSX condition and type-level literals",
+    `function Panel() {
+      const [dialog, setDialog] = useState<{ kind: "rename"; message: string }>();
+      const [kind, setKind] = useState<Exclude<Kind, "advanced">>();
+      setDialog({ kind: "rename", message: "Not rendered directly" });
+      setKind("advanced");
+      return <>{dialog && <Dialog message={dialog.message} {...dialog} />}{!kind && <Spinner />}</>;
+    }`,
+  ],
+  [
     "marked state notices",
     'function Panel() { const [notice, setNotice] = useState(null); function submit() { setNotice(t(i18n)`Unlocked ${count} collections.`); } return <p>{notice}</p>; }',
   ],

@@ -142,7 +142,10 @@ export function inspectUiSource(source, file = "component.tsx", options = {}) {
   function output(node) {
     let property = false;
     for (let p = node.parent; p; p = p.parent) {
-      if (ts.isBinaryExpression(p) && comparisons.has(p.operatorToken.kind))
+      if (ts.isTypeNode(p) || ts.isJsxSpreadAttribute(p)) return false;
+      if (ts.isPrefixUnaryExpression(p) && p.operator === ts.SyntaxKind.ExclamationToken) return false;
+      if (ts.isBinaryExpression(p) && (comparisons.has(p.operatorToken.kind) ||
+        (p.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken && p.left.pos <= node.pos && p.left.end >= node.end)))
         return false;
       if (
         ts.isConditionalExpression(p) &&
