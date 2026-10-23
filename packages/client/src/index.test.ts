@@ -725,9 +725,9 @@ describe("provider-neutral collection client", () => {
 
     expect(wireInput).toEqual({
       types: ["note"],
-      projections: { age: { expr: "age_days(file.mtime)" } },
+      projections: { age: { expr: "age_days(file.mtime)" }, connect_select_1: { expr: "age" } },
       where: "status == 'open'",
-      select: ["file.path", { name: "age", expr: "age", label: "Age" }],
+      select: ["file.path", "projection.connect_select_1"],
       order_by: [{ field: "file.mtime", direction: "desc" }],
       group_by: [{ field: "status" }],
       summary_functions: { count_open: { expr: "count()" } },

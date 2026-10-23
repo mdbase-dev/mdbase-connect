@@ -15,33 +15,54 @@ export interface WireQueryResult<Frontmatter extends JsonObject> {
   };
 }
 
+// beta.126's typed QueryRequest accepts only string selections. Lower named
+// expressions to ordinary projections, which both legacy and current hosts
+// accept. Private aliases avoid overwriting user projections or literal fields.
+function querySelections(input: QueryInput | QueryMetadataInput) {
+  const projections = { ...input.projections };
+  const aliases = new Map<string, string>();
+  const occupied = new Set([
+    ...Object.keys(projections),
+    ...(input.select ?? []).filter((s): s is string => typeof s === "string").map(s => s.replace(/^projection\./, ""))
+  ]);
+  const select = input.select?.map((selection, index) => {
+    if (typeof selection === "string") return selection;
+    let alias = `connect_select_${index}`;
+    while (occupied.has(alias)) alias += "_";
+    occupied.add(alias);
+    projections[alias] = { expression: selection.expression };
+    aliases.set(alias, selection.name);
+    return `projection.${alias}`;
+  });
+  const field = (name: string) => {
+    for (const [alias, original] of aliases) if (original === name) return alias;
+    return name;
+  };
+  return { projections, aliases, select, field };
+}
+
 export function wireQueryInput(input: QueryInput | QueryMetadataInput) {
+  const selection = querySelections(input);
   return {
     ...(input.output ? { output: input.output } : {}),
     ...(input.types ? { types: input.types } : {}),
     ...(input.timezone ? { timezone: input.timezone } : {}),
     ...(input.context ? { context: input.context } : {}),
-    ...(input.projections ? {
-      projections: Object.fromEntries(Object.entries(input.projections).map(([name, projection]) => [
+    ...(Object.keys(selection.projections).length ? {
+      projections: Object.fromEntries(Object.entries(selection.projections).map(([name, projection]) => [
         name, { expr: projection.expression, ...(projection.description ? { description: projection.description } : {}) }
       ]))
     } : {}),
     ...(input.where ? { where: input.where } : {}),
-    ...(input.select ? {
-      select: input.select.map(selection => typeof selection === "string" ? selection : {
-        name: selection.name, expr: selection.expression,
-        ...(selection.label ? { label: selection.label } : {}),
-        ...(selection.description ? { description: selection.description } : {})
-      })
-    } : {}),
-    ...(input.orderBy ? { order_by: input.orderBy } : {}),
-    ...(input.groupBy ? { group_by: input.groupBy } : {}),
+    ...(selection.select ? { select: selection.select } : {}),
+    ...(input.orderBy ? { order_by: input.orderBy.map(order => ({ ...order, field: selection.field(order.field) })) } : {}),
+    ...(input.groupBy ? { group_by: input.groupBy.map(order => ({ ...order, field: selection.field(order.field) })) } : {}),
     ...(input.summaryFunctions ? {
       summary_functions: Object.fromEntries(Object.entries(input.summaryFunctions).map(([name, projection]) => [
         name, { expr: projection.expression, ...(projection.description ? { description: projection.description } : {}) }
       ]))
     } : {}),
-    ...(input.summaries ? { summaries: input.summaries } : {}),
+    ...(input.summaries ? { summaries: input.summaries.map(summary => ({ ...summary, field: selection.field(summary.field) })) } : {}),
     ...(input.limit === undefined ? {} : { limit: input.limit }),
     ...(input.offset === undefined ? {} : { offset: input.offset }),
     ...(input.pagination ? { pagination: input.pagination } : {}),
@@ -85,11 +106,16 @@ function metadataRecord(value: import("@mdbase-dev/connect-protocol").QueryMetad
 }
 
 export function wireQueryResult<Frontmatter extends JsonObject>(
-  value: WireQueryResult<Frontmatter>, output: "metadata" | undefined
+  value: WireQueryResult<Frontmatter>, output: "metadata" | undefined, input?: QueryInput | QueryMetadataInput
 ): QueryResult<Frontmatter> | QueryMetadataResult {
   if (!value || !Array.isArray(value.results) || value.output !== output) {
     throw connectError("invalid_operation_response", "The authority returned an invalid query output mode.");
   }
+  const aliases = input ? querySelections(input).aliases : new Map<string, string>();
+  if (aliases.size) value = { ...value, results: value.results.map(row => ({
+    ...row,
+    ...(row.values ? { values: Object.fromEntries(Object.entries(row.values).map(([key, entry]) => [aliases.get(key) ?? key, entry])) } : {})
+  })) };
   const meta = value.meta ? {
     ...(typeof value.meta.total_count === "number" ? { totalCount: value.meta.total_count } : {}),
     ...(value.meta.total_count_outcome === undefined ? {} : { totalCountOutcome: value.meta.total_count_outcome }),
