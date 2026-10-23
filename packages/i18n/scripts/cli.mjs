@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
@@ -59,7 +58,4 @@ export async function main(command, args = []) {
   const issues = (await Promise.all(files.map(async (file) => inspectUiSource(await readFile(file, "utf8"), file, source)))).flat();
   if (issues.length) throw new Error(issues.map((i) => i.file + ":" + i.line + " " + i.kind + ": " + i.text).join("\n"));
   console.log("i18n: catalogue contracts and source guard passed (" + files.length + " modules).");
-}
-if (process.argv[1] && resolve(process.argv[1]) === resolve(new URL(import.meta.url).pathname)) {
-  main(process.argv[2], process.argv.slice(3)).catch((error) => { console.error(error.message); process.exitCode = 1; });
 }
