@@ -1641,19 +1641,19 @@ msgstr "Укажите ровно одно из разрешённых соче�
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Complete one of the allowed field combinations."
-msgstr ""
+msgstr "Заполните одно из разрешённых сочетаний полей."
 
 #: src/PropertiesPanel.tsx
 msgid "Complete record source"
-msgstr ""
+msgstr "Полный исходный текст записи"
 
 #: src/TypeBrowser.tsx
 msgid "Computed projections"
-msgstr ""
+msgstr "Вычисляемые представления"
 
 #: src/TypeBrowser.tsx
 msgid "Configure settings"
-msgstr ""
+msgstr "Настроить параметры"
 
 #: src/TypeBrowser.tsx
 msgid "Configured"
@@ -1661,11 +1661,11 @@ msgstr "Настроено"
 
 #: src/TypeBrowser.tsx
 msgid "Confirm the collection-wide effect before saving."
-msgstr ""
+msgstr "Перед сохранением подтвердите влияние на всю коллекцию."
 
 #: src/TypeBrowser.tsx
 msgid "Confirm update"
-msgstr ""
+msgstr "Подтвердить обновление"
 
 #: src/ConnectionScreens.tsx
 msgid "Connect another collection"
@@ -1673,11 +1673,11 @@ msgstr "Подключить другую коллекцию"
 
 #: src/App.tsx
 msgid "Connect another collection?"
-msgstr ""
+msgstr "Подключить другую коллекцию?"
 
 #: src/TypeBrowser.tsx
 msgid "Connect application contract"
-msgstr ""
+msgstr "Подключить контракт приложения"
 
 #: src/CollectionRail.tsx
 msgid "Connected"
@@ -1690,12 +1690,12 @@ msgstr "Подключение"
 
 #: src/type-schema.ts
 msgid "constant value"
-msgstr ""
+msgstr "постоянное значение"
 
 #. placeholder {0}: reference.title
 #: src/code-editor-note-embeds.ts
 msgid "Content of {0}"
-msgstr ""
+msgstr "Содержимое {0}"
 
 #: src/TypeBrowser.tsx
 msgid "Contents"
@@ -1707,57 +1707,57 @@ msgstr "Продолжить"
 
 #: src/TypeBrowser.tsx
 msgid "contract"
-msgstr ""
+msgstr "контракт"
 
 #: src/TypeBrowser.tsx
 msgid "Contract"
-msgstr ""
+msgstr "Контракт"
 
 #: src/TypeBrowser.tsx
 msgid "Contract field"
-msgstr ""
+msgstr "Поле контракта"
 
 #: src/TypeBrowser.tsx
 msgid "Contract settings"
-msgstr ""
+msgstr "Параметры контракта"
 
 #: src/TypeBrowser.tsx
 msgid "contracts"
-msgstr ""
+msgstr "контракты"
 
 #: src/contract-catalog.ts
 msgid "contracts[{index}].contract_type is not supported."
-msgstr ""
+msgstr "contracts[{index}].contract_type не поддерживается."
 
 #: src/TypeBrowser.tsx
 msgid "Control how compatible apps interpret and act on this type. Values are checked against the contract’s schema."
-msgstr ""
+msgstr "Управляйте тем, как совместимые приложения интерпретируют этот тип и работают с ним. Значения проверяются по схеме контракта."
 
 #: src/YourPersonPanel.tsx
 msgid "Convert and link this contact"
-msgstr ""
+msgstr "Преобразовать и связать этот контакт"
 
 #: src/TypeBrowser.tsx
 msgid "Convert field"
-msgstr ""
+msgstr "Преобразовать поле"
 
 #: src/TypeBrowser.tsx
 msgid "Convert items"
-msgstr ""
+msgstr "Преобразовать элементы"
 
 #. placeholder {0}: kindLabel(pendingKind)
 #: src/TypeBrowser.tsx
 msgid "Convert list items to {0}?"
-msgstr ""
+msgstr "Преобразовать элементы списка в {0}?"
 
 #. placeholder {0}: kindLabel(pendingKind)
 #: src/TypeBrowser.tsx
 msgid "Convert this field to {0}?"
-msgstr ""
+msgstr "Преобразовать это поле в {0}?"
 
 #: src/App.tsx
 msgid "Copied {label}."
-msgstr ""
+msgstr "Скопировано: {label}."
 
 #: src/editor-commands.ts
 msgid "Copy link"
@@ -1771,202 +1771,202 @@ msgstr "Копировать путь"
 
 #: src/embed-actions.ts
 msgid "Copy path for {name}"
-msgstr ""
+msgstr "Скопировать путь для {name}"
 
 #: src/YourPersonPanel.tsx
 msgid "Could not add person definitions. Review setup again."
-msgstr ""
+msgstr "Не удалось добавить определения Person. Проверьте настройку ещё раз."
 
 #: src/YourPersonPanel.tsx
 msgid "Could not convert this contact. Its type may need additional fields or compatible mappings."
-msgstr ""
+msgstr "Не удалось преобразовать этот контакт. Его типу могут требоваться дополнительные поля или совместимые сопоставления."
 
 #: src/YourPersonPanel.tsx
 msgid "Could not link this person."
-msgstr ""
+msgstr "Не удалось связать эту запись о пользователе."
 
 #: src/YourPersonPanel.tsx
 msgid "Could not load people."
-msgstr ""
+msgstr "Не удалось загрузить список людей."
 
 #: src/YourPersonPanel.tsx
 msgid "Could not review person setup."
-msgstr ""
+msgstr "Не удалось проверить настройку записи о пользователе."
 
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/use-note-actions.ts
 msgid "Couldn’t check “{0}”. {message}"
-msgstr ""
+msgstr "Не удалось проверить «{0}». {message}"
 
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/use-note-actions.ts
 msgid "Couldn’t check the rename for “{0}”. {message}"
-msgstr ""
+msgstr "Не удалось проверить переименование «{0}». {message}"
 
 #: src/AttachmentUpload.tsx
 msgid "Couldn’t confirm whether {name} was uploaded. Check the collection’s files before uploading again."
-msgstr ""
+msgstr "Не удалось подтвердить загрузку {name}. Проверьте файлы коллекции перед повторной загрузкой."
 
 #: src/App.tsx
 msgid "Couldn’t copy {label}."
-msgstr ""
+msgstr "Не удалось скопировать {label}."
 
 #: src/embed-actions.ts
 msgid "Couldn’t copy the path. Clipboard access is unavailable."
-msgstr ""
+msgstr "Не удалось скопировать путь: буфер обмена недоступен."
 
 #. placeholder {0}: linked.path
 #. placeholder {1}: gatewayError(error)
 #: src/App.tsx
 msgid "Couldn’t create “{0}”. {1}"
-msgstr ""
+msgstr "Не удалось создать «{0}». {1}"
 
 #. placeholder {0}: session.draft.title || path
 #. placeholder {1}: session.error
 #: src/use-note-actions.ts
 msgid "Couldn’t delete “{0}”. {1}"
-msgstr ""
+msgstr "Не удалось удалить «{0}». {1}"
 
 #. placeholder {0}: gatewayError(error)
 #: src/use-note-actions.ts
 msgid "Couldn’t delete “{path}”. {0}"
-msgstr ""
+msgstr "Не удалось удалить «{path}». {0}"
 
 #. placeholder {0}: gatewayError(error)
 #: src/use-note-actions.ts
 msgid "Couldn’t duplicate note. {0}"
-msgstr ""
+msgstr "Не удалось дублировать заметку. {0}"
 
 #. placeholder {0}: pack.displayName
 #: src/TypeBrowser.tsx
 msgid "Couldn’t install {0}"
-msgstr ""
+msgstr "Не удалось установить {0}"
 
 #. placeholder {0}: gatewayError(error)
 #: src/use-note-actions.ts
 msgid "Couldn’t link that mention. {0}"
-msgstr ""
+msgstr "Не удалось связать это упоминание. {0}"
 
 #. placeholder {0}: gatewayError(error)
 #: src/App.tsx
 msgid "Couldn’t open “{path}”. {0}"
-msgstr ""
+msgstr "Не удалось открыть «{path}». {0}"
 
 #: src/FileViewer.tsx
 msgid "Couldn’t preview {filename}"
-msgstr ""
+msgstr "Не удалось показать предпросмотр {filename}"
 
 #. placeholder {0}: session.document.path
 #. placeholder {1}: gatewayError(error)
 #: src/App.tsx
 msgid "Couldn’t reload rewritten links in “{0}”. {1}"
-msgstr ""
+msgstr "Не удалось перезагрузить обновлённые ссылки в «{0}». {1}"
 
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/use-note-actions.ts
 msgid "Couldn’t rename “{0}”. {message}"
-msgstr ""
+msgstr "Не удалось переименовать «{0}». {message}"
 
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/App.tsx
 msgid "Couldn’t save “{0}”. {message}"
-msgstr ""
+msgstr "Не удалось сохранить «{0}». {message}"
 
 #. placeholder {0}: gatewayError(error)
 #: src/use-note-actions.ts
 msgid "Couldn’t undo that change. {0}"
-msgstr ""
+msgstr "Не удалось отменить это изменение. {0}"
 
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/use-note-actions.ts
 msgid "Couldn’t update properties for “{0}”. {message}"
-msgstr ""
+msgstr "Не удалось обновить свойства «{0}». {message}"
 
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/use-note-actions.ts
 msgid "Couldn’t update source for “{0}”. {message}"
-msgstr ""
+msgstr "Не удалось обновить исходный текст «{0}». {message}"
 
 #: src/AttachmentUpload.tsx
 msgid "Couldn’t upload {name} right now. Try again shortly."
-msgstr ""
+msgstr "Сейчас не удаётся загрузить {name}. Повторите попытку позже."
 
 #: src/AttachmentUpload.tsx
 msgid "Couldn’t upload {name}."
-msgstr ""
+msgstr "Не удалось загрузить {name}."
 
 #: src/AttachmentUpload.tsx
 msgid "Couldn’t upload {name}. Check your connection and try again."
-msgstr ""
+msgstr "Не удалось загрузить {name}. Проверьте подключение и повторите попытку."
 
 #: src/YourPersonPanel.tsx
 msgid "Create a note for yourself, starting from your account name."
-msgstr ""
+msgstr "Создайте заметку о себе, начав с имени в вашей учётной записи."
 
 #: src/TypeBrowser.tsx
 msgid "Create fields that already match an installed contract. You can rename and remap them later."
-msgstr ""
+msgstr "Создайте поля, уже соответствующие установленному контракту. Позже их можно переименовать и сопоставить заново."
 
 #: src/NewNoteComposer.tsx
 msgid "Create folder"
-msgstr ""
+msgstr "Создать папку"
 
 #: src/NewNoteComposer.tsx
 msgid "Create it with a first note. Empty folders aren’t stored."
-msgstr ""
+msgstr "Создайте её с первой заметкой. Пустые папки не хранятся."
 
 #: src/YourPersonPanel.tsx
 msgid "Create my person record"
-msgstr ""
+msgstr "Создать мою запись о пользователе"
 
 #: src/NewNoteComposer.tsx
 msgid "Create note"
-msgstr ""
+msgstr "Создать заметку"
 
 #: src/NewNoteComposer.tsx
 msgid "Create note (Ctrl or Command + Enter)"
-msgstr ""
+msgstr "Создать заметку (Ctrl или Command + Enter)"
 
 #: src/ConnectionScreens.tsx
 msgid "create notes"
-msgstr ""
+msgstr "создавать заметки"
 
 #: src/NoteList.tsx
 msgid "Create the first note"
-msgstr ""
+msgstr "Создать первую заметку"
 
 #: src/TypeBrowser.tsx
 msgid "Create the first type"
-msgstr ""
+msgstr "Создать первый тип"
 
 #: src/TypeBrowser.tsx
 msgid "Create this type?"
-msgstr ""
+msgstr "Создать этот тип?"
 
 #: src/TypeBrowser.tsx
 msgid "Create type"
-msgstr ""
+msgstr "Создать тип"
 
 #. placeholder {0}: saved.name
 #: src/use-type-definition-lifecycle.ts
 msgid "Created type “{0}”."
-msgstr ""
+msgstr "Создан тип «{0}»."
 
 #: src/TypeBrowser.tsx
 msgid "Creates a ready-to-use {primaryTypeLabel} type with standard fields and an editable contract mapping. Existing files will not be overwritten; installation stops if any target conflicts."
-msgstr ""
+msgstr "Создаёт готовый тип {primaryTypeLabel} со стандартными полями и редактируемым сопоставлением контракта. Существующие файлы не будут перезаписаны; при конфликте с любым целевым объектом установка остановится."
 
 #: src/NewNoteComposer.tsx
 msgid "Creating"
-msgstr ""
+msgstr "Создание"
 
 #: src/NewNoteComposer.tsx
 msgid "Creating folder"
-msgstr ""
+msgstr "Создание папки"
 
 #: src/NewNoteComposer.tsx
 msgid "Ctrl "
-msgstr ""
+msgstr "Ctrl "
 
 #: src/editor-commands.ts
 msgid "Current note"
@@ -1988,53 +1988,53 @@ msgstr "Дата"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Date & time"
-msgstr ""
+msgstr "Дата и время"
 
 #: src/TypeBrowser.tsx
 msgid "Date and time"
-msgstr ""
+msgstr "Дата и время"
 
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Date and time"
-msgstr ""
+msgstr "Дата и время"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Default"
-msgstr ""
+msgstr "По умолчанию"
 
 #. placeholder {0}: index + 1
 #: src/TypeBrowser.tsx
 msgid "Default field {0}"
-msgstr ""
+msgstr "Поле по умолчанию {0}"
 
 #: src/TypeBrowser.tsx
 msgid "Default value"
-msgstr ""
+msgstr "Значение по умолчанию"
 
 #: src/TypeBrowser.tsx
 msgid "Default value for {field}"
-msgstr ""
+msgstr "Значение по умолчанию для {field}"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Defined by this note's type"
-msgstr ""
+msgstr "Определяется типом этой заметки"
 
 #: src/TypeBrowser.tsx
 msgid "Definition"
-msgstr ""
+msgstr "Определение"
 
 #: src/TypeBrowser.tsx
 msgid "Definition changes"
-msgstr ""
+msgstr "Изменения определений"
 
 #: src/YourPersonPanel.tsx
 msgid "Definitions were added, but their Person mappings need review in Types."
-msgstr ""
+msgstr "Определения добавлены, но их сопоставления Person требуют проверки в разделе «Типы»."
 
 #: src/editor-commands.ts
 msgid "Delete"
-msgstr ""
+msgstr "Удалить"
 
 #: src/ConnectionScreens.tsx
 msgid "delete notes"
@@ -2042,24 +2042,24 @@ msgstr "удалять заметки"
 
 #: src/App.tsx
 msgid "Deleted “{title}”."
-msgstr ""
+msgstr "Удалено: «{title}»."
 
 #: src/note-mutation-presentation.ts
 #: src/WorkspaceChrome.tsx
 msgid "Deleting"
-msgstr ""
+msgstr "Удаление"
 
 #: src/App.tsx
 msgid "Deleting “{title}”…"
-msgstr ""
+msgstr "Удаление «{title}»…"
 
 #: src/note-mutation-presentation.ts
 msgid "Deleting note"
-msgstr ""
+msgstr "Удаление заметки"
 
 #: src/TypeBrowser.tsx
 msgid "Describe which properties point to other records and how targets are validated."
-msgstr ""
+msgstr "Укажите, какие свойства ссылаются на другие записи и как проверяются целевые записи."
 
 #: src/type-schema.ts
 #: src/TypeBrowser.tsx
@@ -2068,43 +2068,43 @@ msgstr "Описание"
 
 #: src/TypeBrowser.tsx
 msgid "Description field"
-msgstr ""
+msgstr "Поле описания"
 
 #: src/TypeBrowser.tsx
 msgid "Design"
-msgstr ""
+msgstr "Конструктор"
 
 #: src/TypeBrowser.tsx
 msgid "Design the note shape or work with its complete YAML source."
-msgstr ""
+msgstr "Создайте структуру заметки или работайте с полным исходным YAML."
 
 #: src/FolderChangeDialog.tsx
 #: src/MoveNoteDialog.tsx
 msgid "Destination folder"
-msgstr ""
+msgstr "Целевая папка"
 
 #: src/TypeBrowser.tsx
 msgid "Details"
-msgstr ""
+msgstr "Сведения"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Details"
-msgstr ""
+msgstr "Сведения"
 
 #: src/TypeBrowser.tsx
 msgid "Developer and infrastructure packs"
-msgstr ""
+msgstr "Пакеты для разработчиков и инфраструктуры"
 
 #: src/settings/SettingsView.tsx
 msgctxt "collection runtime"
 msgid "Disabled"
-msgstr ""
+msgstr "Отключено"
 
 #: src/settings/SettingsView.tsx
 msgctxt "explicit type keys setting"
 msgid "Disabled"
-msgstr ""
+msgstr "Отключено"
 
 #: src/App.tsx
 msgid "Discard changes"
@@ -2112,11 +2112,11 @@ msgstr "Отменить изменения"
 
 #: src/App.tsx
 msgid "Discard folder"
-msgstr ""
+msgstr "Отменить создание папки"
 
 #: src/App.tsx
 msgid "Discard note"
-msgstr ""
+msgstr "Отменить создание заметки"
 
 #: src/App.tsx
 msgid "Discard recovered edits"
@@ -2124,27 +2124,27 @@ msgstr "Удалить восстановленные изменения"
 
 #: src/App.tsx
 msgid "Discard this folder?"
-msgstr ""
+msgstr "Отменить создание этой папки?"
 
 #: src/App.tsx
 msgid "Discard this note?"
-msgstr ""
+msgstr "Отменить создание этой заметки?"
 
 #: src/App.tsx
 msgid "Discard this type?"
-msgstr ""
+msgstr "Отменить создание этого типа?"
 
 #: src/App.tsx
 msgid "Discard type"
-msgstr ""
+msgstr "Отменить создание типа"
 
 #: src/App.tsx
 msgid "Discard type changes?"
-msgstr ""
+msgstr "Отменить изменения типа?"
 
 #: src/Toasts.tsx
 msgid "Dismiss notification"
-msgstr ""
+msgstr "Закрыть уведомление"
 
 #: src/type-presentation.ts
 #: src/TypeBrowser.tsx
@@ -2153,28 +2153,28 @@ msgstr "Отображение"
 
 #: src/TypeBrowser.tsx
 msgid "Display icon"
-msgstr ""
+msgstr "Значок"
 
 #: src/type-schema.ts
 msgid "Display metadata"
-msgstr ""
+msgstr "Отображать метаданные"
 
 #: src/type-schema.ts
 msgid "display with an unsupported value"
-msgstr ""
+msgstr "отображение с неподдерживаемым значением"
 
 #: src/code-editor-completions.ts
 msgid "Divider"
-msgstr ""
+msgstr "Разделитель"
 
 #: src/editor-commands.ts
 #: src/WorkspaceChrome.tsx
 msgid "Document outline"
-msgstr ""
+msgstr "Структура документа"
 
 #: src/type-schema.ts
 msgid "Documentation"
-msgstr ""
+msgstr "Документация"
 
 #: src/FolderChangeDialog.tsx
 msgid "Done"
@@ -2190,31 +2190,31 @@ msgstr "Создать копию"
 
 #: src/use-note-actions.ts
 msgid "Duplicated note."
-msgstr ""
+msgstr "Заметка дублирована."
 
 #: src/NewNoteComposer.tsx
 msgid "e.g. Reading list"
-msgstr ""
+msgstr "Например, «Список для чтения»"
 
 #: src/NewNoteComposer.tsx
 msgid "e.g. Research"
-msgstr ""
+msgstr "Например, «Исследование»"
 
 #: src/TypeBrowser.tsx
 msgid "Each choice includes its portable contract and an editable local mapping."
-msgstr ""
+msgstr "Каждый вариант включает переносимый контракт и редактируемое локальное сопоставление."
 
 #: src/type-contracts.ts
 msgid "Each implementation needs an exact contract ID and version."
-msgstr ""
+msgstr "Для каждой реализации нужны точный идентификатор и версия контракта."
 
 #: src/ConnectionScreens.tsx
 msgid "edit and move notes"
-msgstr ""
+msgstr "редактировать и перемещать заметки"
 
 #: src/PropertiesPanel.tsx
 msgid "Edit as source"
-msgstr ""
+msgstr "Редактировать исходный текст"
 
 #: src/NewNoteComposer.tsx
 msgid "Edit file path"
