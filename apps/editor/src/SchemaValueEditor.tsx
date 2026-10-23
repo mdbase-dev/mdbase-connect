@@ -1,3 +1,4 @@
+import { i18n } from "@lingui/core";
 import { Trans } from "@lingui/react/macro";
 import { t, plural } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
@@ -21,7 +22,7 @@ export function SchemaValueEditor({ name, schema, rootSchema, value, required = 
 }) {
   useLingui();
   const root = rootSchema ?? schema;
-  const resolved = useMemo(() => resolveSchema(root, schema), [root, schema]);
+  const resolved = useMemo(() => resolveSchema(root, schema), [root, schema, i18n.locale]);
   const supplied = suppliedValue(resolved);
   useEffect(() => {
     if (value === undefined && (required || supplied !== undefined)) {
@@ -275,7 +276,7 @@ function JsonSchemaValueEditor({ name, type, label, value, onChange, onValidityC
   onValidityChange?: (valid: boolean) => void;
 }) {
   useLingui();
-  const initial = useMemo(() => value ?? (type === "array" ? [] : {}), [type, value]);
+  const initial = useMemo(() => value ?? (type === "array" ? [] : {}), [type, value, i18n.locale]);
   const [text, setText] = useState(() => JSON.stringify(initial, null, 2));
   const [error, setError] = useState<string>();
   return <label className="schema-value schema-json-value">{label}<CodeEditor value={text} label={t`${name} JSON value`} language="json" lineWrapping={false} onChange={(next) => {

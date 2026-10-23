@@ -1,3 +1,4 @@
+import { i18n } from "@lingui/core";
 import { Trans } from "@lingui/react/macro";
 import { t, plural } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
@@ -293,8 +294,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const ignoreNextMobileHistoryPush = useRef(false);
   const mobileLayout = viewportWidth <= 760;
   const typeDescriptors = description?.types ?? emptyTypeDescriptors;
-  const tagFacets = useMemo(() => collectionTags(allNotes), [allNotes]);
-  const typeFacets = useMemo(() => collectionTypes(allNotes, typeDescriptors.map((type) => type.name)), [allNotes, typeDescriptors]);
+  const tagFacets = useMemo(() => collectionTags(allNotes), [allNotes, i18n.locale]);
+  const typeFacets = useMemo(() => collectionTypes(allNotes, typeDescriptors.map((type) => type.name)), [allNotes, typeDescriptors, i18n.locale]);
   const setNotice = useCallback((message?: string, tone: ToastTone = "error") => {
     setNoticeState(message ? { message, tone } : undefined);
     if (message && tone !== "info") signalMdbaseMark(tone === "error" ? "error" : "saved");
@@ -855,16 +856,16 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     return () => window.removeEventListener("beforeunload", beforeUnload);
   }, [typeCreating, typeDocument, typeSource]);
 
-  const searchIndex = useMemo(() => searchIndexCache.current.build(allNotes, typeDescriptors), [allNotes, typeDescriptors]);
+  const searchIndex = useMemo(() => searchIndexCache.current.build(allNotes, typeDescriptors), [allNotes, typeDescriptors, i18n.locale]);
   const searchedResults = useMemo(() => {
     return deferredSearch.trim() ? searchNoteResults(searchIndex, deferredSearch) : undefined;
-  }, [deferredSearch, searchIndex]);
+  }, [deferredSearch, searchIndex, i18n.locale]);
   const searchedNotes = useMemo(() => searchedResults
     ? searchedResults.map((result) => result.note)
-    : allNotes, [allNotes, searchedResults]);
+    : allNotes, [allNotes, searchedResults, i18n.locale]);
   const searchContexts = useMemo(() => new Map(
     searchedResults?.map((result) => [result.note.path, result]) ?? []
-  ), [searchedResults]);
+  ), [searchedResults, i18n.locale]);
   const visibleNotes = useMemo(() => {
     const filtered = !noteFilter
       ? searchedNotes
@@ -874,17 +875,17 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           ? searchedNotes.filter((note) => noteTags(note).includes(noteFilter.value))
           : searchedNotes.filter((note) => note.types.includes(noteFilter.value));
     return deferredSearch.trim() ? filtered : sortNotes(filtered, noteSort, typeDescriptors);
-  }, [deferredSearch, noteFilter, noteSort, searchedNotes, typeDescriptors]);
+  }, [deferredSearch, noteFilter, noteSort, searchedNotes, typeDescriptors, i18n.locale]);
   const { visibleFiles, entries: visibleBrowserEntries } = useCollectionBrowserEntries(
     visibleNotes, fileInventory.files, noteFilter, deferredSearch, noteSort, typeDescriptors);
-  const visibleNotePaths = useMemo(() => new Set(visibleBrowserEntries.filter((entry) => entry.kind === "note").map((entry) => entry.path)), [visibleBrowserEntries]);
-  const listSelection = useMemo(() => selectedCollectionFile || creationMode ? { paths: [] } : selection ? { ...selection, paths: selection.paths.filter((path) => visibleNotePaths.has(path)) } : { paths: selectedPath && visibleNotePaths.has(selectedPath) ? [selectedPath] : [], anchor: selectedPath, focus: selectedPath }, [creationMode, selectedCollectionFile, selectedPath, selection, visibleNotePaths]);
+  const visibleNotePaths = useMemo(() => new Set(visibleBrowserEntries.filter((entry) => entry.kind === "note").map((entry) => entry.path)), [visibleBrowserEntries, i18n.locale]);
+  const listSelection = useMemo(() => selectedCollectionFile || creationMode ? { paths: [] } : selection ? { ...selection, paths: selection.paths.filter((path) => visibleNotePaths.has(path)) } : { paths: selectedPath && visibleNotePaths.has(selectedPath) ? [selectedPath] : [], anchor: selectedPath, focus: selectedPath }, [creationMode, selectedCollectionFile, selectedPath, selection, visibleNotePaths, i18n.locale]);
   const selectionFields = useMemo(() => {
     const paths = new Set(listSelection.paths);
     return bulkFields(allNotes.filter((note) => paths.has(note.path)), typeDescriptors);
-  }, [allNotes, listSelection.paths, typeDescriptors]);
-  const linkTypeNames = useMemo(() => description?.types.map((type) => type.name) ?? [], [description]);
-  const linkOptions = useMemo(() => linkSuggestions(allNotes, linkTypeNames, typeDescriptors), [allNotes, linkTypeNames, typeDescriptors]);
+  }, [allNotes, listSelection.paths, typeDescriptors, i18n.locale]);
+  const linkTypeNames = useMemo(() => description?.types.map((type) => type.name) ?? [], [description, i18n.locale]);
+  const linkOptions = useMemo(() => linkSuggestions(allNotes, linkTypeNames, typeDescriptors), [allNotes, linkTypeNames, typeDescriptors, i18n.locale]);
   const embeddedNotes = useEmbeddedNoteReferences(
     gateway,
     { collectionId: workspaceCollectionId.current, epoch: collectionEpoch.current },
@@ -895,8 +896,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     document?.path,
     visibleNoteEmbedKeys
   );
-  const backlinkNotes = useMemo(() => document ? backlinksFor(document.path, allNotes, typeDescriptors) : [], [allNotes, document, typeDescriptors]);
-  const mentions = useMemo(() => document ? unlinkedMentions(searchIndex, document.path, draft?.title ?? noteTitle(document, typeDescriptors)) : [], [searchIndex, document, draft?.title, typeDescriptors]);
+  const backlinkNotes = useMemo(() => document ? backlinksFor(document.path, allNotes, typeDescriptors) : [], [allNotes, document, typeDescriptors, i18n.locale]);
+  const mentions = useMemo(() => document ? unlinkedMentions(searchIndex, document.path, draft?.title ?? noteTitle(document, typeDescriptors)) : [], [searchIndex, document, draft?.title, typeDescriptors, i18n.locale]);
   const focusMode = preferences.focusMode && surface === "notes" && Boolean(document) && !creationMode && !selectedCollectionFile;
 
   function toggleFocus() { setPreferences((current) => ({ ...current, focusMode: !current.focusMode })); }
@@ -1641,7 +1642,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [canRenameNotes, creationDirty, creationMode, document, focusMode, mutationsFrozen, noteFilter, noteLoading, openNote, phase, quickOpen, selectedCollectionFile, selectedPath, shortcutsOpen, surface, visibleBrowserEntries]);
 
-  const wordCount = useMemo(() => noteWordCount(draft?.body ?? ""), [draft?.body]);
+  const wordCount = useMemo(() => noteWordCount(draft?.body ?? ""), [draft?.body, i18n.locale]);
   const launching = useLaunchEntrancePlaying();
   const usable = phase === "ready" && Boolean(description) && !launching;
   // First usable render: only now may the offline shell install and precache.

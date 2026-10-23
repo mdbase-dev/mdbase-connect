@@ -1,3 +1,4 @@
+import { i18n } from "@lingui/core";
 import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
@@ -60,7 +61,7 @@ export function StructuredPropertiesEditor({
   onValidityChange?: (valid: boolean) => void;
 }) {
   useLingui();
-  const included = useMemo(() => propertyNames ? new Set(propertyNames) : undefined, [propertyNames]);
+  const included = useMemo(() => propertyNames ? new Set(propertyNames) : undefined, [propertyNames, i18n.locale]);
   const visible = (name: string) => !included || included.has(name);
   const required = contract.required.filter(visible);
   const [editorValidity, setEditorValidity] = useState<Record<string, boolean>>({});

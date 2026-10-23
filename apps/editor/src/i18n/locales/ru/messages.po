@@ -385,19 +385,19 @@ msgstr ""
 msgid "{contractReference} is not declared by {contractId}."
 msgstr ""
 
-#: src/TypeBrowser.tsx
+#: src/type-presentation.ts
 msgid "{count, plural, one {# default} other {# defaults}}"
 msgstr ""
 
-#: src/TypeBrowser.tsx
+#: src/type-presentation.ts
 msgid "{count, plural, one {# field selector} other {# field selectors}}"
 msgstr ""
 
-#: src/TypeBrowser.tsx
+#: src/type-presentation.ts
 msgid "{count, plural, one {# field} other {# fields}}"
 msgstr ""
 
-#: src/TypeBrowser.tsx
+#: src/type-presentation.ts
 msgid "{count, plural, one {# link} other {# links}}"
 msgstr ""
 
@@ -413,19 +413,19 @@ msgstr ""
 msgid "{count, plural, one {# note with type {name}} other {# notes with type {name}}}"
 msgstr ""
 
-#: src/TypeBrowser.tsx
+#: src/type-presentation.ts
 msgid "{count, plural, one {# path pattern} other {# path patterns}}"
 msgstr ""
 
-#: src/TypeBrowser.tsx
+#: src/type-presentation.ts
 msgid "{count, plural, one {# unique rule} other {# unique rules}}"
 msgstr ""
 
-#: src/TypeBrowser.tsx
+#: src/type-presentation.ts
 msgid "{count, plural, one {# YAML rule} other {# YAML rules}}"
 msgstr ""
 
-#: src/TypeBrowser.tsx
+#: src/type-presentation.ts
 msgid "{count, plural, one {# YAML setting} other {# YAML settings}}"
 msgstr ""
 
@@ -1510,10 +1510,6 @@ msgctxt "settings view"
 msgid "Collection"
 msgstr ""
 
-#: src/CollectionRail.tsx
-msgid "Collection {label}"
-msgstr ""
-
 #: src/type-schema.ts
 #: src/TypeBrowser.tsx
 msgid "Collection behaviour"
@@ -1521,6 +1517,14 @@ msgstr ""
 
 #: src/App.tsx
 msgid "Collection changed before the type pack finished."
+msgstr ""
+
+#: src/CollectionRail.tsx
+msgid "Collection changes saved on this device; waiting for sync"
+msgstr ""
+
+#: src/CollectionRail.tsx
+msgid "Collection connected"
 msgstr ""
 
 #: src/settings/SettingsView.tsx
@@ -1545,8 +1549,16 @@ msgstr ""
 msgid "Collection notes and files"
 msgstr ""
 
+#: src/CollectionRail.tsx
+msgid "Collection offline"
+msgstr ""
+
 #: src/ConnectionScreens.tsx
 msgid "Collection options for {name}"
+msgstr ""
+
+#: src/CollectionRail.tsx
+msgid "Collection reconnecting"
 msgstr ""
 
 #: src/TypeBrowser.tsx
@@ -1556,6 +1568,10 @@ msgstr ""
 #: src/collection-browser.ts
 #: src/NoteList.tsx
 msgid "Collection root"
+msgstr ""
+
+#: src/CollectionRail.tsx
+msgid "Collection stopped"
 msgstr ""
 
 #: src/EditorRail.tsx
@@ -2121,6 +2137,7 @@ msgstr ""
 msgid "Dismiss notification"
 msgstr ""
 
+#: src/type-presentation.ts
 #: src/TypeBrowser.tsx
 msgid "Display"
 msgstr ""
@@ -3318,7 +3335,7 @@ msgstr ""
 msgid "No cross-record uniqueness rules."
 msgstr ""
 
-#: src/TypeBrowser.tsx
+#: src/type-presentation.ts
 msgid "No custom behaviour"
 msgstr ""
 
@@ -3788,6 +3805,7 @@ msgstr ""
 msgid "Path patterns with an unsupported value"
 msgstr ""
 
+#: src/type-presentation.ts
 #: src/type-schema.ts
 #: src/TypeBrowser.tsx
 msgid "Path policy"

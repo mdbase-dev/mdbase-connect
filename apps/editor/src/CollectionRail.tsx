@@ -1,3 +1,4 @@
+import { i18n } from "@lingui/core";
 import { Trans } from "@lingui/react/macro";
 import { t, plural } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
@@ -53,7 +54,7 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
   useLingui();
   const [folderChange, setFolderChange] = useState<{ from: string; parent?: string; mode: "rename" | "move" }>();
   const moveFolder = onPlanFolderChange && onChangeFolder ? (from: string, parent: string) => setFolderChange({ from, parent, mode: "move" }) : undefined;
-  const collectionFolders = useMemo(() => folderTree(notes, files.map((file) => file.path)), [files, notes]);
+  const collectionFolders = useMemo(() => folderTree(notes, files.map((file) => file.path)), [files, notes, i18n.locale]);
   return <><EditorRail
     collectionName={name}
     noteCount={count}
@@ -317,8 +318,15 @@ export function connectWorkspaceUrl(collectionId: string): string {
 export function ConnectionStatus({ state, issue, onReconnect }: { state: ShownConnectionState; issue?: string | undefined; onReconnect: () => void }) {
   useLingui();
   const label = connectionLabels[state];
+  const ariaLabel = {
+    connected: t`Collection connected`,
+    reconnecting: t`Collection reconnecting`,
+    stopped: t`Collection stopped`,
+    offline: t`Collection offline`,
+    saved_on_device: t`Collection changes saved on this device; waiting for sync`
+  }[state];
   return <>
-    <p role="status" aria-label={t`Collection ${label}`} title={issue ?? label}><span className={`status-dot ${state === "connected" ? state : state === "stopped" ? "stopped" : "reconnecting"}`} aria-hidden="true" /><span>{label}</span></p>
+    <p role="status" aria-label={ariaLabel} title={issue ?? label}><span className={`status-dot ${state === "connected" ? state : state === "stopped" ? "stopped" : "reconnecting"}`} aria-hidden="true" /><span>{label}</span></p>
     {(state === "reconnecting" || state === "stopped") && <button className="reconnect-action" aria-label={t`Retry connection`} onClick={onReconnect}><Trans>Retry</Trans></button>}
   </>;
 }
