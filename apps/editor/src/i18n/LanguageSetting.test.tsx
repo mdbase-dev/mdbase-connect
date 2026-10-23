@@ -6,6 +6,8 @@ import { defaultPreferences } from "../preferences";
 import { SettingsView } from "../settings/SettingsView";
 import { LanguageSetting } from "./LanguageSetting";
 import english from "./locales/en/messages.json";
+import { uiCatalogues } from "@mdbase-dev/ui/i18n";
+import { connectUiCatalogues } from "@mdbase/connect-ui/i18n";
 import { createEditorLocaleRuntime, localeStorageKey } from "./runtime";
 
 describe("editor language preference", () => {
@@ -35,9 +37,16 @@ describe("editor language preference", () => {
   it("updates locale formatting and persistence without remounting a draft", async () => {
     const gateway = new DemoCollectionGateway(12);
     const description = await gateway.describe();
-    // Transport fixture only: actual compiled ICU data and the real Lingui provider.
-    // This verifies activation/formatting, not German translation completeness.
-    const runtime = createEditorLocaleRuntime({ preferences: ["en"], loadLocale: async () => english });
+    // Transport fixture only: actual compiled English ICU data for ALL sources.
+    // Mixing the app English fixture with real German library messages would
+    // correctly fail the kit’s conflicting-ID guard. This verifies preference
+    // state/formatting, not German completeness; real chunks are tested separately.
+    const runtime = createEditorLocaleRuntime({
+      preferences: ["en"], loadLocale: async () => english,
+      libraries: [uiCatalogues, connectUiCatalogues].map((source) => ({
+        ...source, loadLocale: async () => source.english
+      }))
+    });
     render(<LocaleProvider runtime={runtime} onError={vi.fn()}>
       <input aria-label="Draft" defaultValue="My unsaved note" />
       <SettingsView description={description} connection={null} noteCount={1234567}

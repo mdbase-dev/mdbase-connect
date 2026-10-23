@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { locales } from "@mdbase-dev/i18n";
 import { createEditorLocaleRuntime } from "./runtime";
 import editorEnglish from "./locales/en/messages.json";
 import { uiCatalogues } from "@mdbase-dev/ui/i18n";
@@ -15,6 +16,18 @@ describe("editor catalogue composition", () => {
         expect(runtime.i18n.messages[id]).toEqual(message);
       }
     }
+  });
+
+  // This checks real chunk composition/collision handling, not PO completeness.
+  // Raw authored-translation completeness remains a separate mandatory build gate.
+  it.each(locales.filter((locale) => locale !== "en"))("atomically composes real %s chunks", async (locale) => {
+    const runtime = createEditorLocaleRuntime({
+      preferences: ["en"], storage: undefined,
+      document: document.implementation.createHTMLDocument()
+    });
+    await runtime.selectLocale(locale);
+    expect(runtime.i18n.locale).toBe(locale);
+    expect(Object.keys(runtime.i18n.messages).length).toBeGreaterThan(0);
   });
 
   it("does not catalogue CSS classes or sidebar behavior identifiers", () => {
