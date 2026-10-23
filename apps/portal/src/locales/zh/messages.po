@@ -68,7 +68,7 @@ msgstr " 这些操作会一并获得批准。"
 #. placeholder {0}: notifications.criteria.length
 #: src/authorization-review.tsx
 msgid "{0, plural, one {{applicationName} can turn on this rule after access is allowed. Notifications never contain record content.} other {{applicationName} can turn on these # rules after access is allowed. Notifications never contain record content.}}"
-msgstr ""
+msgstr "{0, plural, other {允许访问后，{applicationName} 可以启用这 # 条规则。通知绝不包含记录内容。}}"
 
 #. placeholder {0}: unavailable.length
 #: src/authorization-view.tsx
@@ -283,7 +283,7 @@ msgstr "{0} 分钟前"
 
 #: src/authority-workflows.tsx
 msgid "{app} now has this file access in {collection}. Return to {app} to continue."
-msgstr ""
+msgstr "{app} 现在已获得对 {collection} 的这项文件访问权限。请返回 {app} 继续操作。"
 
 #. placeholder {0}: request.reason
 #: src/authority-workflows.tsx
@@ -292,7 +292,7 @@ msgstr "{app} 提示：{0}"
 
 #: src/authority-workflows.tsx
 msgid "{app} was not given this file access in {collection}. Return to {app}; everything else works as before."
-msgstr ""
+msgstr "{app} 未获得对 {collection} 的这项文件访问权限。请返回 {app}；其他功能不受影响。"
 
 #. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
 #: src/authorization-review.tsx
@@ -341,7 +341,7 @@ msgstr "{tier} 托管存储空间"
 
 #: src/auth-view.tsx
 msgid "{unsubscribed, select, product_updates {You won’t receive product updates from mdbase Connect. Messages about your account, such as verification and security email, are still sent.} other {You won’t receive announcements from mdbase Connect. Messages about your account, such as verification and security email, are still sent.}}"
-msgstr ""
+msgstr "{unsubscribed, select, product_updates {你将不再收到 mdbase Connect 的产品更新。与账户有关的邮件（如验证和安全邮件）仍会发送。} other {你将不再收到 mdbase Connect 的公告。与账户有关的邮件（如验证和安全邮件）仍会发送。}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# application installation} other {# application installations}}"
@@ -621,7 +621,7 @@ msgstr "允许 {0} 向你发送提醒"
 
 #: src/authority-workflows.tsx
 msgid "Allow {app} this file access?"
-msgstr ""
+msgstr "允许 {app} 获得这项文件访问权限吗？"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
