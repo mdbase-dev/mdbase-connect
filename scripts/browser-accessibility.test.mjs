@@ -77,7 +77,8 @@ async function auditPortalLoading() {
           }),
           overflow: document.documentElement.scrollWidth > innerWidth
         }));
-        assert.equal(layout.edges.length, 4);
+        // Brand row, mark, language picker, theme picker, and status copy.
+        assert.equal(layout.edges.length, 5);
         for (const edge of layout.edges) {
           assert.ok(edge.left >= 20 && edge.right <= width - 20,
             `portal loading ${colorScheme}/${width}: branding and status retain a 20px viewport inset`);

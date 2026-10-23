@@ -1,6 +1,14 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import { lingui } from "@lingui/vite-plugin";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+// The editor's portal-served Playwright fixture invokes Vite directly.
+execFileSync(process.execPath, [
+  fileURLToPath(new URL("../../packages/app-ui/scripts/compile-catalogues.mjs", import.meta.url)),
+  fileURLToPath(new URL(".", import.meta.url)),
+], { stdio: "inherit" });
 
 export default defineConfig({
   plugins: [react(), lingui({ macroTransform: true })],

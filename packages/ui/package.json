@@ -6,10 +6,10 @@
   "scripts": {
     "i18n:extract": "mdbase-i18n extract",
     "i18n:compile": "mdbase-i18n compile",
-    "i18n:check": "mdbase-i18n check --compose '../app-ui/src/locales/{locale}/messages.json'",
+    "i18n:check": "mdbase-i18n check --compose \"../app-ui/src/locales/{locale}/messages.json\"",
     "build": "node ../app-ui/scripts/compile-catalogues.mjs && tsc -p tsconfig.json && node ../app-ui/scripts/compile-macros.mjs",
-    "test": "node --import ../app-ui/scripts/register-macros.mjs --test access.test.ts contract-setup.test.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "test": "node ../app-ui/scripts/compile-catalogues.mjs && node --import ../app-ui/scripts/register-macros.mjs --test access.test.ts contract-setup.test.ts",
+    "typecheck": "node ../app-ui/scripts/compile-catalogues.mjs && tsc -p tsconfig.json --noEmit"
   },
   "exports": {
     "./i18n": "./dist/i18n.js",
