@@ -18,7 +18,12 @@ Translators author only target PO catalogues. `pnpm i18n:check` validates all fo
 scopes before the normal root build/typecheck; it rejects missing/fuzzy entries,
 English placeholders, stale extraction and incompatible ICU/rich-text contracts.
 Reviewed identical examples/proper nouns need generated-ID allowlists in the
-scope's `i18n-policy.json`. JSON is generated and ignored, not a second authoring
+scope's `i18n-policy.json`. The reviewed lists cover placeholder-only/version
+layouts, IDs and Esc, example addresses, Workouts, and genuine identical terms:
+French collection/installation/application/description; German Details, Name,
+Optional, Screenshot, System, Status, Online/Offline, mobile App, and `in {folder}`;
+Spanish byte/bytes, Beta and Editor. These are per-locale generated IDs, not
+blanket English exemptions. JSON is generated and ignored, not a second authoring
 format. Ordinary package-only development builds permit Lingui's fallback while
 authoring; they do **not** certify translation completeness. Release validation
 must run the root strict checks first. No translation service or CI authoring.
