@@ -956,6 +956,8 @@ async function auditDesktopRoutes() {
     });
     const updateStatus = { phase: "idle", current_version: "1.0.0", channel: "stable", message: "Up to date", can_check: true, can_install: false };
     window.mdbaseConnect = {
+      getLocale: async () => "en",
+      setLocale: async () => {},
       status: async () => ({ target: "isolated_profile", state_dir: "/home/example/.mdbase", account: { signed_in: true, online: true }, collections: [collection] }),
       updateStatus: async () => updateStatus,
       checkForUpdates: async () => updateStatus,
