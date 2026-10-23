@@ -5887,7 +5887,7 @@ msgstr "検証"
 
 #: src/TypeBrowser.tsx
 msgid "Validation may change"
-msgstr ""
+msgstr "検証結果が変わる場合があります"
 
 #. placeholder {0}: type.version
 #: src/TypeBrowser.tsx
@@ -5897,7 +5897,7 @@ msgstr "バージョン {0}"
 #: src/settings/SettingsView.tsx
 msgctxt "connection route"
 msgid "Via mdbase"
-msgstr ""
+msgstr "mdbase 経由"
 
 #: src/NoteListViewOptions.tsx
 msgid "View options"
@@ -5905,20 +5905,20 @@ msgstr "ビューのオプション"
 
 #: src/TypeBrowser.tsx
 msgid "View pack JSON"
-msgstr ""
+msgstr "パックの JSON を表示"
 
 #: src/TypeBrowser.tsx
 msgid "View settings"
-msgstr ""
+msgstr "表示設定"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Vim key bindings"
-msgstr ""
+msgstr "Vim キーバインド"
 
 #: src/App.tsx
 msgid "Wait for the complete note and attachment index before changing a folder."
-msgstr ""
+msgstr "フォルダーを変更する前に、ノートと添付ファイルの索引が完成するまで待ってください。"
 
 #: src/YourPersonPanel.tsx
 msgid "Waiting for approval…"
@@ -5926,32 +5926,32 @@ msgstr "承認を待っています…"
 
 #: src/SdkEditorRoot.tsx
 msgid "Waiting for your computer…"
-msgstr ""
+msgstr "コンピューターを待機中…"
 
 #: src/TypeBrowser.tsx
 msgid "What belongs in this field?"
-msgstr ""
+msgstr "このフィールドには何を入力しますか？"
 
 #: src/TypeBrowser.tsx
 msgid "Which notes use this type"
-msgstr ""
+msgstr "この型を使用するノート"
 
 #: src/PropertiesPanel.tsx
 msgid "Words"
-msgstr ""
+msgstr "単語"
 
 #: src/Dialog.tsx
 msgid "Working…"
-msgstr ""
+msgstr "処理中…"
 
 #: src/TypeBrowser.tsx
 msgid "Works with applications"
-msgstr ""
+msgstr "アプリと連携"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Wrap long lines"
-msgstr ""
+msgstr "長い行を折り返す"
 
 #: src/TypeBrowser.tsx
 msgid "YAML"
@@ -5967,68 +5967,68 @@ msgstr "このウィンドウは閉じてかまいません。"
 
 #: src/YourPersonPanel.tsx
 msgid "You can link an existing person directly, or review converting a single contact without changing the rest of your address book. Advanced Person mappings are available in Types; required fields there affect every record of that type."
-msgstr ""
+msgstr "既存の人物レコードに直接リンクするか、アドレス帳のほかの連絡先を変更せずに1件の連絡先を変換するか確認できます。Person の高度な対応付けは「型」で設定できます。その必須フィールドは、この型のすべてのレコードに影響します。"
 
 #: src/YourPersonPanel.tsx
 msgid "You can still use it, or compare it with the current starter in Types."
-msgstr ""
+msgstr "そのまま使用するか、「型」で現在の初期型と比較できます。"
 
 #: src/AttachmentUpload.tsx
 msgid "You don’t have permission to upload {name}."
-msgstr ""
+msgstr "{name}をアップロードする権限がありません。"
 
 #: src/ConnectionScreens.tsx
 msgid "You’ll continue to mdbase. Sign in if asked, choose a collection, and approve mdbase editor. You’ll return here automatically; your files stay where they are."
-msgstr ""
+msgstr "mdbaseに進みます。求められたらサインインし、コレクションを選択してmdbase editor を承認してください。自動的にここに戻ります。ファイルは元の場所に残ります。"
 
 #: src/YourPersonPanel.tsx
 msgid "Your account"
-msgstr ""
+msgstr "アカウント"
 
 #: src/pending-note-mutation.ts
 msgid "Your change from {date} isn’t confirmed yet. Check again to finish saving it."
-msgstr ""
+msgstr "{date}の変更はまだ確認されていません。再確認して保存を完了してください。"
 
 #: src/AppErrorBoundary.tsx
 msgid "Your collection was not deleted. Changes that had already finished saving are safe."
-msgstr ""
+msgstr "コレクションは削除されていません。すでに保存が完了した変更は保持されています。"
 
 #: src/pending-note-mutation.ts
 msgid "Your deletion from {date} isn’t confirmed yet. Check again to finish saving it."
-msgstr ""
+msgstr "{date}の削除はまだ確認されていません。再確認して保存を完了してください。"
 
 #: src/ConflictResolver.tsx
 msgid "Your edits"
-msgstr ""
+msgstr "自分の編集"
 
 #: src/YourPersonPanel.tsx
 msgid "Your edits to this type are kept; only the starter's own changes are merged in."
-msgstr ""
+msgstr "この型への編集は保持され、初期型自体の変更のみが統合されます。"
 
 #: src/pending-note-mutation.ts
 msgid "Your new note from {date} isn’t confirmed yet. Check again to finish saving it."
-msgstr ""
+msgstr "{date}に作成した新しいノートはまだ確認されていません。再確認して保存を完了してください。"
 
 #: src/ConnectionScreens.tsx
 msgid "Your notes,"
-msgstr ""
+msgstr "あなたのノート、"
 
 #: src/YourPersonPanel.tsx
 msgid "Your person record"
-msgstr ""
+msgstr "自分の人物レコード"
 
 #: src/next-editor-records.ts
 msgid "Your previous change is still being saved. Try again in a moment."
-msgstr ""
+msgstr "前の変更はまだ保存中です。少し待ってから再試行してください。"
 
 #: src/pending-note-mutation.ts
 msgid "Your rename from {date} isn’t confirmed yet. Check again to finish saving it."
-msgstr ""
+msgstr "{date}の名前変更はまだ確認されていません。再確認して保存を完了してください。"
 
 #: src/ConflictResolver.tsx
 msgid "Your title"
-msgstr ""
+msgstr "タイトル"
 
 #: src/App.tsx
 msgid "Your unsaved changes to this type definition won’t be kept."
-msgstr ""
+msgstr "この型定義への未保存の変更は保持されません。"
