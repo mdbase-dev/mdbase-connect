@@ -1866,452 +1866,452 @@ msgstr "Google ログインを読み込み中…"
 
 #: src/ConnectApp.tsx
 msgid "Loading people…"
-msgstr ""
+msgstr "ユーザーを読み込み中…"
 
 #: src/ConnectApp.tsx
 msgid "Loading your account and collections…"
-msgstr ""
+msgstr "アカウントとコレクションを読み込み中…"
 
 #: src/AccountManagement.tsx
 msgid "Local collection and mirror files remain on your computers."
-msgstr ""
+msgstr "ローカルコレクションとミラーファイルはコンピューター上に残ります。"
 
 #: src/AccountManagement.tsx
 msgid "Local collection files stay on your computers and are not measured here."
-msgstr ""
+msgstr "ローカルコレクションのファイルはコンピューター上に残り、ここでは使用量を計測しません。"
 
 #: src/ConnectApp.tsx
 msgid "Location"
-msgstr ""
+msgstr "場所"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Location"
-msgstr ""
+msgstr "場所"
 
 #: src/ConnectApp.tsx
 msgid "Main copy"
-msgstr ""
+msgstr "正本"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Main copy"
-msgstr ""
+msgstr "正本"
 
 #: src/authority-workflows.tsx
 msgid "Main copy hosted by mdbase"
-msgstr ""
+msgstr "mdbase がホストする正本"
 
 #: src/ConnectApp.tsx
 msgid "Main copy moved to a computer"
-msgstr ""
+msgstr "正本をコンピューターに移動しました"
 
 #: src/authority-workflows.tsx
 msgid "Main copy on {mirrorName}"
-msgstr ""
+msgstr "{mirrorName} 上の正本"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Manage"
-msgstr ""
+msgstr "管理"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Manage and delete files"
-msgstr ""
+msgstr "ファイルの管理と削除"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Manage definitions"
-msgstr ""
+msgstr "定義を管理"
 
 #: src/auth-view.tsx
 msgid "Manage email preferences"
-msgstr ""
+msgstr "メールの受信設定を管理"
 
 #: src/AccountManagement.tsx
 msgid "Manage hosted storage, sign-in methods, and browser sessions."
-msgstr ""
+msgstr "ホスト型ストレージ、ログイン方法、ブラウザーセッションを管理します。"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Manage saved views"
-msgstr ""
+msgstr "保存済みビューを管理"
 
 #. placeholder {0}: collection.name
 #: src/ConnectApp.tsx
 msgid "Manage the main copy of {0} and its synced Markdown folders."
-msgstr ""
+msgstr "{0} の正本と同期する Markdown フォルダーを管理します。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "manage timers"
-msgstr ""
+msgstr "タイマーを管理"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "manage types"
-msgstr ""
+msgstr "型を管理"
 
 #: src/ConnectApp.tsx
 msgid "Manage where this collection lives and which applications can use it."
-msgstr ""
+msgstr "このコレクションの保存場所と、利用できるアプリケーションを管理します。"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Managed by your tailnet"
-msgstr ""
+msgstr "tailnet が管理"
 
 #: src/ConnectApp.tsx
 msgid "Management access does not give applications access to collection content. Each application needs its own collection approval."
-msgstr ""
+msgstr "管理画面へのアクセスだけでは、アプリケーションにコレクションの内容へのアクセスは与えられません。各アプリケーションには個別のコレクション承認が必要です。"
 
 #: src/AccountManagement.tsx
 msgid "Markdown and file usage is temporarily unavailable."
-msgstr ""
+msgstr "Markdown とファイルの使用量を一時的に取得できません。"
 
 #: src/authority-workflows.tsx
 msgid "Markdown edits will sync in both directions. Concurrent edits remain separate until you choose a version."
-msgstr ""
+msgstr "Markdown の編集内容は双方向に同期されます。同時編集は、バージョンを選択するまで別々に保持されます。"
 
 #: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 msgid "mdbase connect could not be reached. Check your connection and try again."
-msgstr ""
+msgstr "mdbase connect に接続できませんでした。接続を確認して再試行してください。"
 
 #: src/portal-model.ts
 msgid "mdbase connect could not reach the service. Check your connection and try again."
-msgstr ""
+msgstr "mdbase connect からサービスに接続できませんでした。接続を確認して再試行してください。"
 
 #: src/authority-workflows.tsx
 msgid "mdbase connect is checking the latest hosted changes, registering the folder, and making it the main copy."
-msgstr ""
+msgstr "mdbase connect がホスト側の最新の変更を確認し、フォルダーを登録して正本にしています。"
 
 #: src/ConnectApp.tsx
 msgid "mdbase connect is unavailable"
-msgstr ""
+msgstr "mdbase connect を利用できません"
 
 #: src/ConnectApp.tsx
 #: src/portal-ui.tsx
 msgid "mdbase connect navigation"
-msgstr ""
+msgstr "mdbase connect のナビゲーション"
 
 #: src/ConnectApp.tsx
 msgid "mdbase connect needs to restart"
-msgstr ""
+msgstr "mdbase connect の再起動が必要です"
 
 #. placeholder {0}: adoption.retain_mirror ? t(i18n)` ${adoption.mirror_name ?? adoption.source_name} will continue as a synced folder, with edits syncing both ways.` : t(i18n)({ message: " The original local files are no longer the main copy." })
 #: src/authority-workflows.tsx
 msgid "mdbase now keeps the main copy of this collection.{0}"
-msgstr ""
+msgstr "mdbase がこのコレクションの正本を保持するようになりました。{0}"
 
 #: src/authority-workflows.tsx
 msgid "mdbase remembers your choice and {app} follows it. {app} keeps its copy of this collection either way."
-msgstr ""
+msgstr "mdbase は選択を記憶し、{app} はそれに従います。いずれの場合も {app} はこのコレクションのコピーを保持します。"
 
 #: src/compatibility.ts
 msgctxt "Connect interface"
 msgid "Missing required types"
-msgstr ""
+msgstr "必要な型がありません"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "mobile app"
-msgstr ""
+msgstr "モバイルアプリ"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Mobile app"
-msgstr ""
+msgstr "モバイルアプリ"
 
 #: src/compatibility.ts
 msgctxt "Connect interface"
 msgid "More access required"
-msgstr ""
+msgstr "追加のアクセス権が必要です"
 
 #: src/AccountManagement.tsx
 msgid "More regular updates about new features and improvements."
-msgstr ""
+msgstr "新機能や改善についての定期的なお知らせを増やします。"
 
 #: src/authority-workflows.tsx
 msgid "Move a local collection to mdbase"
-msgstr ""
+msgstr "ローカルコレクションを mdbase に移動"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Move and rename files"
-msgstr ""
+msgstr "ファイルの移動と名前変更"
 
 #: src/authority-workflows.tsx
 msgid "Move approved"
-msgstr ""
+msgstr "移動を承認しました"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Move collection online"
-msgstr ""
+msgstr "コレクションをオンラインに移動"
 
 #: src/authority-workflows.tsx
 msgid "Move complete"
-msgstr ""
+msgstr "移動が完了しました"
 
 #: src/authority-workflows.tsx
 msgid "Move ended"
-msgstr ""
+msgstr "移動が終了しました"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Move main copy"
-msgstr ""
+msgstr "正本を移動"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "move or rename"
-msgstr ""
+msgstr "移動または名前変更"
 
 #: src/authority-workflows.tsx
 msgid "Move the main copy"
-msgstr ""
+msgstr "正本を移動"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "Move this collection"
-msgstr ""
+msgstr "このコレクションを移動"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Moved"
-msgstr ""
+msgstr "移動済み"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Moved to newer runtime"
-msgstr ""
+msgstr "新しいランタイムに移行済み"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Moving to a computer"
-msgstr ""
+msgstr "コンピューターに移動中"
 
 #: src/ConnectApp.tsx
 msgid "My collection"
-msgstr ""
+msgstr "自分のコレクション"
 
 #: src/AccountManagement.tsx
 msgid "Name"
-msgstr ""
+msgstr "名前"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Name"
-msgstr ""
+msgstr "名前"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Name or registration ID"
-msgstr ""
+msgstr "名前または登録 ID"
 
 #: src/compatibility.ts
 msgctxt "Connect interface"
 msgid "Needs mdbase 0.3"
-msgstr ""
+msgstr "mdbase 0.3 が必要です"
 
 #: src/authorization-review.tsx
 msgid "New"
-msgstr ""
+msgstr "新規"
 
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 msgid "New collection name"
-msgstr ""
+msgstr "新しいコレクション名"
 
 #: src/AccountManagement.tsx
 msgid "New password"
-msgstr ""
+msgstr "新しいパスワード"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "New password"
-msgstr ""
+msgstr "新しいパスワード"
 
 #: src/AccountManagement.tsx
 msgid "New passwords do not match."
-msgstr ""
+msgstr "新しいパスワードが一致しません。"
 
 #: src/authority-workflows.tsx
 msgid "New synced folder"
-msgstr ""
+msgstr "新しい同期フォルダー"
 
 #: src/auth-view.tsx
 msgid "New to mdbase? <0>Create an account</0>"
-msgstr ""
+msgstr "mdbase は初めてですか？ <0>アカウントを作成</0>"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "No active code shown"
-msgstr ""
+msgstr "有効なコードは表示されていません"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "No collection access"
-msgstr ""
+msgstr "コレクションへのアクセス権なし"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "No collections"
-msgstr ""
+msgstr "コレクションなし"
 
 #: src/CollectionPicker.tsx
 msgid "No collections are available."
-msgstr ""
+msgstr "利用できるコレクションはありません。"
 
 #: src/CollectionPicker.tsx
 msgid "No collections match. Try another name."
-msgstr ""
+msgstr "一致するコレクションはありません。別の名前を試してください。"
 
 #: src/authorization-view.tsx
 msgid "No compatible collection is ready."
-msgstr ""
+msgstr "使用できる互換コレクションはありません。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "No computers connected"
-msgstr ""
+msgstr "接続済みコンピューターはありません"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "No computers match"
-msgstr ""
+msgstr "一致するコンピューターはありません"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgid "No connected applications"
-msgstr ""
+msgstr "接続済みアプリケーションはありません"
 
 #: src/AccountManagement.tsx
 msgid "No supported reauthentication method is connected."
-msgstr ""
+msgstr "対応する再認証方法が接続されていません。"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "No synced folders"
-msgstr ""
+msgstr "同期フォルダーはありません"
 
 #: src/authority-workflows.tsx
 msgid "Not allowed"
-msgstr ""
+msgstr "許可されていません"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Not configured"
-msgstr ""
+msgstr "未設定"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Not connected"
-msgstr ""
+msgstr "未接続"
 
 #: src/ConnectApp.tsx
 msgid "Not connected yet"
-msgstr ""
+msgstr "まだ接続されていません"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Not connected yet"
-msgstr ""
+msgstr "まだ接続されていません"
 
 #: src/ConnectApp.tsx
 msgid "Not now"
-msgstr ""
+msgstr "後で"
 
 #: src/authorization-view.tsx
 msgid "Nothing is allowed until you review access."
-msgstr ""
+msgstr "アクセスを確認するまで何も許可されません。"
 
 #: src/AccountManagement.tsx
 msgid "Occasional news about significant changes to mdbase Connect and new mdbase applications."
-msgstr ""
+msgstr "mdbase Connect の重要な変更や新しい mdbase アプリケーションについて、ときどきお知らせします。"
 
 #: src/ConnectApp.tsx
 msgid "Offline"
-msgstr ""
+msgstr "オフライン"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Offline"
-msgstr ""
+msgstr "オフライン"
 
 #. placeholder {0}: computer.name
 #: src/ConnectApp.tsx
 msgid "On {0}"
-msgstr ""
+msgstr "{0} 上"
 
 #. placeholder {0}: computer.name
 #: src/ConnectApp.tsx
 msgid "On {0}: offline"
-msgstr ""
+msgstr "{0} 上: オフライン"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "On this computer"
-msgstr ""
+msgstr "このコンピューター上"
 
 #. placeholder {0}: relativeTime(sharingCode.expiresAt)
 #: src/AccountManagement.tsx
 msgid "One use · expires {0}"
-msgstr ""
+msgstr "一回限り · 有効期限 {0}"
 
 #: src/ConnectApp.tsx
 msgid "Online"
-msgstr ""
+msgstr "オンライン"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Online"
-msgstr ""
+msgstr "オンライン"
 
 #. placeholder {0}: files.scope.folders.join(", ")
 #: src/authorization-review.tsx
 msgid "Only {0}. Hidden folders are always excluded."
-msgstr ""
+msgstr "{0} のみ。隠しフォルダーは常に除外されます。"
 
 #: src/authorization-view.tsx
 msgid "Only continue if you recognize this exact site."
-msgstr ""
+msgstr "このサイトに確実に心当たりがある場合のみ続行してください。"
 
 #: src/authorization-review.tsx
 msgid "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
-msgstr ""
+msgstr "変更されるのはこの型定義だけです。既存のレコードはそのまま残ります。アクセスが有効になる前に設定が検証されます。"
 
 #: src/ConnectApp.tsx
 msgid "Open"
-msgstr ""
+msgstr "開く"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Open {0}"
-msgstr ""
+msgstr "{0} を開く"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Open {0} with {selectedName}"
-msgstr ""
+msgstr "{selectedName} で {0} を開く"
 
 #: src/ConnectApp.tsx
 msgid "Open a collection in the editor or manage where its main copy lives."
-msgstr ""
+msgstr "エディターでコレクションを開くか、正本の場所を管理します。"
 
 #: src/ConnectApp.tsx
 msgid "Open account and sessions"
-msgstr ""
+msgstr "アカウントとセッションを開く"
 
 #: src/ConnectApp.tsx
 msgid "Open desktop app"
-msgstr ""
+msgstr "デスクトップアプリを開く"
 
 #: src/ConnectApp.tsx
 msgid "Open editor"
-msgstr ""
+msgstr "エディターを開く"
 
 #: src/portal-ui.tsx
 msgid "Open editor <0>↗</0>"
