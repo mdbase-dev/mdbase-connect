@@ -116,7 +116,7 @@ import { buildEditorCommands, command, formatShortcut, matchesCommandShortcut, t
 import { unlinkedMentions } from "./unlinked-mentions";
 import { loadThemePreference, saveThemePreference } from "@mdbase-dev/ui/theme";
 import { QuickOpen, ShortcutHelp } from "./QuickOpen";
-import { SettingsView } from "./SettingsView";
+import { SettingsView } from "./settings/SettingsView";
 import { buildToastItems, ToastStack, type ToastTone } from "./Toasts";
 import { NEW_TYPE_SOURCE } from "./type-presentation";
 import { useCollectionIndex } from "./use-collection-index";
