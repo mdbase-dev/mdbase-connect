@@ -11,7 +11,8 @@
   },
   "homepage": "https://mdbase.dev",
   "sideEffects": [
-    "*.css"
+    "*.css",
+    "./dist/i18n.js"
   ],
   "exports": {
     "./i18n": {
