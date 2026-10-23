@@ -1,3 +1,4 @@
+import { i18n } from "@lingui/core";
 import { useLingui } from "@lingui/react";
 import { t } from "@lingui/core/macro";
 import {
@@ -38,11 +39,11 @@ export function ComboboxInput({
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const [dropUp, setDropUp] = useState(false);
-  const uniqueOptions = useMemo(() => [...new Set(options)], [options]);
+  const uniqueOptions = useMemo(() => [...new Set(options)], [options, i18n.locale]);
   const matches = useMemo(() => {
     const search = value.trim().toLocaleLowerCase();
     return uniqueOptions.filter((option) => !search || option.toLocaleLowerCase().includes(search));
-  }, [uniqueOptions, value]);
+  }, [uniqueOptions, value, i18n.locale]);
   const hasOptions = uniqueOptions.length > 0;
 
   useEffect(() => {

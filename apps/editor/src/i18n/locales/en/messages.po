@@ -385,19 +385,19 @@ msgstr "{contractId} does not define implementation bindings."
 msgid "{contractReference} is not declared by {contractId}."
 msgstr "{contractReference} is not declared by {contractId}."
 
-#: src/TypeBrowser.tsx
+#: src/type-presentation.ts
 msgid "{count, plural, one {# default} other {# defaults}}"
 msgstr "{count, plural, one {# default} other {# defaults}}"
 
-#: src/TypeBrowser.tsx
+#: src/type-presentation.ts
 msgid "{count, plural, one {# field selector} other {# field selectors}}"
 msgstr "{count, plural, one {# field selector} other {# field selectors}}"
 
-#: src/TypeBrowser.tsx
+#: src/type-presentation.ts
 msgid "{count, plural, one {# field} other {# fields}}"
 msgstr "{count, plural, one {# field} other {# fields}}"
 
-#: src/TypeBrowser.tsx
+#: src/type-presentation.ts
 msgid "{count, plural, one {# link} other {# links}}"
 msgstr "{count, plural, one {# link} other {# links}}"
 
@@ -413,19 +413,19 @@ msgstr "{count, plural, one {# note tagged {name}} other {# notes tagged {name}}
 msgid "{count, plural, one {# note with type {name}} other {# notes with type {name}}}"
 msgstr "{count, plural, one {# note with type {name}} other {# notes with type {name}}}"
 
-#: src/TypeBrowser.tsx
+#: src/type-presentation.ts
 msgid "{count, plural, one {# path pattern} other {# path patterns}}"
 msgstr "{count, plural, one {# path pattern} other {# path patterns}}"
 
-#: src/TypeBrowser.tsx
+#: src/type-presentation.ts
 msgid "{count, plural, one {# unique rule} other {# unique rules}}"
 msgstr "{count, plural, one {# unique rule} other {# unique rules}}"
 
-#: src/TypeBrowser.tsx
+#: src/type-presentation.ts
 msgid "{count, plural, one {# YAML rule} other {# YAML rules}}"
 msgstr "{count, plural, one {# YAML rule} other {# YAML rules}}"
 
-#: src/TypeBrowser.tsx
+#: src/type-presentation.ts
 msgid "{count, plural, one {# YAML setting} other {# YAML settings}}"
 msgstr "{count, plural, one {# YAML setting} other {# YAML settings}}"
 
@@ -1510,10 +1510,6 @@ msgctxt "settings view"
 msgid "Collection"
 msgstr "Collection"
 
-#: src/CollectionRail.tsx
-msgid "Collection {label}"
-msgstr "Collection {label}"
-
 #: src/type-schema.ts
 #: src/TypeBrowser.tsx
 msgid "Collection behaviour"
@@ -1522,6 +1518,14 @@ msgstr "Collection behaviour"
 #: src/App.tsx
 msgid "Collection changed before the type pack finished."
 msgstr "Collection changed before the type pack finished."
+
+#: src/CollectionRail.tsx
+msgid "Collection changes saved on this device; waiting for sync"
+msgstr "Collection changes saved on this device; waiting for sync"
+
+#: src/CollectionRail.tsx
+msgid "Collection connected"
+msgstr "Collection connected"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -1545,9 +1549,17 @@ msgstr "Collection not listed?"
 msgid "Collection notes and files"
 msgstr "Collection notes and files"
 
+#: src/CollectionRail.tsx
+msgid "Collection offline"
+msgstr "Collection offline"
+
 #: src/ConnectionScreens.tsx
 msgid "Collection options for {name}"
 msgstr "Collection options for {name}"
+
+#: src/CollectionRail.tsx
+msgid "Collection reconnecting"
+msgstr "Collection reconnecting"
 
 #: src/TypeBrowser.tsx
 msgid "Collection resources"
@@ -1557,6 +1569,10 @@ msgstr "Collection resources"
 #: src/NoteList.tsx
 msgid "Collection root"
 msgstr "Collection root"
+
+#: src/CollectionRail.tsx
+msgid "Collection stopped"
+msgstr "Collection stopped"
 
 #: src/EditorRail.tsx
 msgid "Collection tools"
@@ -2121,6 +2137,7 @@ msgstr "Discard type changes?"
 msgid "Dismiss notification"
 msgstr "Dismiss notification"
 
+#: src/type-presentation.ts
 #: src/TypeBrowser.tsx
 msgid "Display"
 msgstr "Display"
@@ -3318,7 +3335,7 @@ msgstr "No connections"
 msgid "No cross-record uniqueness rules."
 msgstr "No cross-record uniqueness rules."
 
-#: src/TypeBrowser.tsx
+#: src/type-presentation.ts
 msgid "No custom behaviour"
 msgstr "No custom behaviour"
 
@@ -3788,6 +3805,7 @@ msgstr "Path pattern"
 msgid "Path patterns with an unsupported value"
 msgstr "Path patterns with an unsupported value"
 
+#: src/type-presentation.ts
 #: src/type-schema.ts
 #: src/TypeBrowser.tsx
 msgid "Path policy"

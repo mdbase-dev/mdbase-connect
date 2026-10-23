@@ -1,3 +1,4 @@
+import { i18n } from "@lingui/core";
 import { displayLocale } from "./i18n/format";
 import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
@@ -40,9 +41,9 @@ export function PropertiesPanel({
   onSaveDocument
 }: PropertiesPanelProps) {
   useLingui();
-  const initial = useMemo(() => structuredClone(note.frontmatter), [note]);
+  const initial = useMemo(() => structuredClone(note.frontmatter), [note, i18n.locale]);
   const initialDocument = note.document ?? composeRecordSource(note.frontmatter, note.body ?? "");
-  const contract = useMemo(() => mergedSchema(note.types, types), [note.types, types]);
+  const contract = useMemo(() => mergedSchema(note.types, types), [note.types, types, i18n.locale]);
   const [draft, setDraft] = useState<JsonObject>(initial);
   const [persistedFrontmatter, setPersistedFrontmatter] = useState(initial);
   const [mode, setMode] = useState<"fields" | "json" | "source">("fields");

@@ -1,5 +1,5 @@
-import { t } from "@lingui/core/macro";
-import type { TypeFieldKind } from "./type-schema";
+import { t, plural } from "@lingui/core/macro";
+import type { TypeFieldKind, VisualTypeDefinition } from "./type-schema";
 
 export function kindLabel(kind: Exclude<TypeFieldKind, "advanced">): string {
   const labels: Record<Exclude<TypeFieldKind, "advanced">, string> = {
@@ -28,6 +28,35 @@ export function kindName(kind: TypeFieldKind): string {
     advanced: t({ message: "Advanced", context: "property type" })
   };
   return labels[kind];
+}
+
+export function collectionBehaviourSummary(definition: VisualTypeDefinition): string {
+  const collection = definition.collection;
+  const displayConfigured = Object.values(collection.display).some(Boolean);
+  const pathConfigured = Boolean(collection.path.pattern || collection.path.folder || collection.path.template);
+  const settings = [
+    displayConfigured ? t`Display` : undefined,
+    countSummary(collection.readDefaults.length, "default"),
+    countSummary(collection.links.length, "link"),
+    countSummary(collection.unique.length, "unique rule"),
+    pathConfigured ? t`Path policy` : undefined,
+    countSummary(collection.advancedKeys.length + collection.path.advancedKeys.length, "YAML setting")
+  ].filter((value): value is string => Boolean(value));
+  return settings.length ? settings.join(" · ") : t`No custom behaviour`;
+}
+
+export function countSummary(count: number, kind: "default" | "link" | "unique rule" | "YAML setting" | "field" | "path pattern" | "field selector" | "YAML rule"): string | undefined {
+  if (!count) return undefined;
+  switch (kind) {
+    case "field": return plural(count, { one: "# field", other: "# fields" });
+    case "path pattern": return plural(count, { one: "# path pattern", other: "# path patterns" });
+    case "field selector": return plural(count, { one: "# field selector", other: "# field selectors" });
+    case "YAML rule": return plural(count, { one: "# YAML rule", other: "# YAML rules" });
+    case "default": return plural(count, { one: "# default", other: "# defaults" });
+    case "link": return plural(count, { one: "# link", other: "# links" });
+    case "unique rule": return plural(count, { one: "# unique rule", other: "# unique rules" });
+    case "YAML setting": return plural(count, { one: "# YAML setting", other: "# YAML settings" });
+  }
 }
 
 export const NEW_TYPE_SOURCE = `---
