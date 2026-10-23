@@ -12,6 +12,7 @@ import { safeEqual } from "../../security.js";
 import { CreateError, inTransaction, lock, refuseRevoked } from "./bootstrap-common.js";
 import { configuredClaimAudience, consumeServiceClaimChallenge, issueServiceClaimChallenge, sameServiceClaim } from "./migration-claim-auth.js";
 import { migrationServiceRateLimit } from "./migration-rate-limit.js";
+import { refuseRoutedBack } from "./migration-managed-ledger.js";
 import { requireCurrentCohortArchive, RolloutRefused } from "./migration-rollout.js";
 import { SCOPED_HOSTED_ARCHIVE_SCHEMA } from "./migration-archive-profile.js";
 import { requireOriginalArchiveSource } from "./migration-scoped-archive.js";
@@ -33,7 +34,7 @@ interface Options {
 /** Called only AFTER the existing started-account claim has been locked. A
  * historic scoped receipt is not allowed to fall back to a fresh physical
  * fence when its current binding/acceptance is missing or stale. */
-async function originalArchiveFence(client: DatabaseQueryable, collection: string, account: string, startedUs: string, environment: string | undefined) {
+export async function originalArchiveFence(client: DatabaseQueryable, collection: string, account: string, startedUs: string, environment: string | undefined) {
   const member = (await client.query<{ cohort: string; scoped: boolean }>(`SELECT m.cohort,
     EXISTS(SELECT 1 FROM next_migration_archive_acceptances a WHERE a.cohort=m.cohort
       AND a.verified_result->>'schema'=$2) AS scoped
@@ -155,6 +156,8 @@ async function action(collection: string, fence: boolean, options: Options) {
     if (current.account !== before.account || current.started_us !== before.started_us) {
       throw new RolloutRefused("migration_source_changed", "The migration claim changed.");
     }
+    // After the claim's share lock on the account row, before any fence effect.
+    if (fence) await refuseRoutedBack(client, current.account, collection);
     return originalArchiveFence(client, collection, current.account, current.started_us, options.environment);
   };
   const original = await inTransaction(options.db, archiveCurrent);

@@ -125,22 +125,44 @@ describe("migration job environment gate (deployment configuration only)", () =>
       provider: {} as Parameters<typeof postgresLabConnect>[0]["provider"] })).toThrow(expect.objectContaining({ code: "lab_only" }));
     expect(db.query).not.toHaveBeenCalled();
   });
-  it.each(["lab", "staging", "production"])("%s retains its own start-profile admission", async environment => {
+  it.each([
+    ["lab", { profile: "lab-fixture-v1" }, false], ["lab", {}, true], ["staging", {}, true], ["production", {}, true]
+  ] as const)("%s selects the contract from recorded start metadata %j", async (environment, metadata, managed) => {
     const query = vi.fn()
       .mockResolvedValueOnce({ rows: [{ backend: "legacy", member: true, released: true, frozen: true, started: true, excluded: false }] })
-      .mockResolvedValueOnce({ rows: [{ present: 1 }] })
-      .mockResolvedValueOnce({ rows: [{ id: collection, state: "active" }] });
+      .mockResolvedValueOnce({ rows: [{ metadata }] })
+      .mockResolvedValueOnce({ rows: [{ id: collection, state: "active" }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ scoped: true }] });
     const db = { query } as unknown as Parameters<typeof postgresLabConnect>[0]["db"];
     const connect = postgresLabConnect({ db, source: db, actor: "operator", timers: true, environment,
       provider: {} as Parameters<typeof postgresLabConnect>[0]["provider"] });
-    expect(await connect.preflight(account)).toEqual({ collection, backend: "legacy" });
-    expect(query.mock.calls[1]).toEqual([expect.stringContaining("IS NOT DISTINCT FROM $2"),
-      [account, environment === "lab" ? "lab-fixture-v1" : null]]);
+    expect(await connect.preflight(account)).toEqual(managed
+      ? { job: "managed", collections: [collection], backend: "legacy", cut_over_collections: [], run: null, intents: [], quiet_intents: [], archive_scoped: true, phase_latch: null }
+      : { collection, backend: "legacy" });
+    expect(query.mock.calls[1]).toEqual([expect.stringContaining("LIMIT 2"), [account]]);
+    expect(query.mock.calls[1]![0]).not.toContain("metadata->>"); // Never filter away contradictory starts.
   });
-  it.each(["staging", "production"])("%s cannot substitute a LAB fixture start for ordinary archive admission", async environment => {
+  it.each(["lab", "staging", "production"])("%s refuses missing, ambiguous or unknown recorded starts", async environment => {
+    for (const rows of [[], [{ metadata: {} }, { metadata: {} }], [{ metadata: { profile: "lab-fixture-v1" } }, { metadata: {} }],
+      [{ metadata: { profile: "future" } }], [{ metadata: { profile: null } }], [{ metadata: [] }], [{ metadata: null }]]) {
+      const query = vi.fn()
+        .mockResolvedValueOnce({ rows: [{ member: true, released: true, frozen: true, started: true }] })
+        .mockResolvedValueOnce({ rows });
+      const db = { query } as unknown as Parameters<typeof postgresLabConnect>[0]["db"];
+      const connect = postgresLabConnect({ db, source: db, actor: "operator", timers: true, environment,
+        provider: {} as Parameters<typeof postgresLabConnect>[0]["provider"] });
+      await expect(connect.preflight(account)).rejects.toHaveProperty("code", "start_profile_invalid");
+      expect(query).toHaveBeenCalledTimes(2);
+    }
+  });
+  it.each(["staging", "production"])("%s cannot adopt even a single LAB fixture start", async environment => {
     const query = vi.fn()
       .mockResolvedValueOnce({ rows: [{ member: true, released: true, frozen: true, started: true }] })
-      .mockResolvedValueOnce({ rows: [] });
+      .mockResolvedValueOnce({ rows: [{ metadata: { profile: "lab-fixture-v1" } }] });
     const db = { query } as unknown as Parameters<typeof postgresLabConnect>[0]["db"];
     const connect = postgresLabConnect({ db, source: db, actor: "operator", timers: true, environment,
       provider: {} as Parameters<typeof postgresLabConnect>[0]["provider"] });

@@ -77,6 +77,16 @@ describe("explicit local build transport scope", () => {
       provider: {} as Parameters<typeof postgresLabConnect>[0]["provider"] })).not.toThrow();
     expect(query).not.toHaveBeenCalled();
   });
+  it("a legitimate local fixture deployment retains the recorded singleton contract", async () => {
+    const query = vi.fn()
+      .mockResolvedValueOnce({ rows: [{ backend: "legacy", member: true, released: true, frozen: true, started: true, excluded: false }] })
+      .mockResolvedValueOnce({ rows: [{ metadata: { profile: "lab-fixture-v1" } }] })
+      .mockResolvedValueOnce({ rows: [{ id: collection, state: "active" }] });
+    const db = { query } as unknown as Parameters<typeof postgresLabConnect>[0]["db"];
+    const connect = postgresLabConnect({ db, source: db, actor: "test", timers: true, environment: "local",
+      provider: {} as Parameters<typeof postgresLabConnect>[0]["provider"] });
+    expect(await connect.preflight(account)).toEqual({ collection, backend: "legacy" });
+  });
   it("local factory URLs require local build and exact local origin; token separation is unchanged", () => {
     expect(parseNextControlPlaneEnv(env)?.cloudCopyBootstrap?.hosted.url).toBe(env.MDBASE_NEXT_HOSTED_SERVICE_URL);
     for (const value of ["http://localhost:8333", "http://external.test:8333", "https://hosted.example.test", "http://127.0.0.1:8333/path"]) {
