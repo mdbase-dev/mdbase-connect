@@ -9,1253 +9,1253 @@ msgstr ""
 
 #: src/use-note-actions.ts
 msgid "Recover the unsaved edits in this note before changing it."
-msgstr ""
+msgstr "更改此文档前，请先恢复其中未保存的编辑。"
 
 #. placeholder {0}: warnings.length
 #: src/TypeBrowser.tsx
 msgid " · {0} to review"
-msgstr ""
+msgstr " · {0} 项待检查"
 
 #. placeholder {0}: result.failed.length
 #. placeholder {1}: result.failed.map(({ path, error }) => `${path} — ${gatewayError(error)}`).join("; ")
 #: src/use-note-actions.ts
 msgid " {0} couldn’t be changed: {1}"
-msgstr ""
+msgstr " {0} 项无法更改：{1}"
 
 #: src/FolderChangeDialog.tsx
 msgid " Links were updated."
-msgstr ""
+msgstr " 链接已更新。"
 
 #: src/App.tsx
 msgid " The move may still be applying; recover the pending operation before retrying."
-msgstr ""
+msgstr " 移动操作可能仍在执行；重试前请先恢复待处理的操作。"
 
 #. placeholder {0}: suggestion.requiredMatched
 #. placeholder {1}: suggestion.requiredFields
 #: src/TypeBrowser.tsx
 msgid ", {0} of {1} required"
-msgstr ""
+msgstr "，已匹配 {1} 个必填字段中的 {0} 个"
 
 #: src/NewNoteComposer.tsx
 msgid ".md"
-msgstr ""
+msgstr ".md"
 
 #: src/NewNoteComposer.tsx
 msgid "‹title›"
-msgstr ""
+msgstr "‹标题›"
 
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/App.tsx
 msgid "“{0}” changed elsewhere. Your edits are still here."
-msgstr ""
+msgstr "“{0}”已在其他地方更改。你的编辑仍然保留。"
 
 #. placeholder {0}: note.title
 #. placeholder {1}: reference.anchor
 #: src/code-editor-reference-diagnostics.ts
 msgid "“{0}” has no “{1}” section or block."
-msgstr ""
+msgstr "“{0}”中没有“{1}”章节或块。"
 
 #. placeholder {0}: impact.overlapping
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one { · # also matches another type} other { · # also match another type}}"
-msgstr ""
+msgstr "{0, plural, other { · # 篇文档也匹配其他类型}}"
 
 #. placeholder {0}: renamePlan.warnings.length
 #: src/App.tsx
 msgid "{0, plural, one { # link needs attention and won’t be changed automatically.} other { # links need attention and won’t be changed automatically.}}"
-msgstr ""
+msgstr "{0, plural, other { # 个链接需要处理，不会自动更改。}}"
 
 #. placeholder {0}: result.failures.length
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one { # note could not be confirmed as moved. Check the details below before retrying. Successful moves were not rolled back. Use Move to… on the remaining notes to finish.} other { # notes could not be confirmed as moved. Check the details below before retrying. Successful moves were not rolled back. Use Move to… on the remaining notes to finish.}}"
-msgstr ""
+msgstr "{0, plural, other { # 篇文档无法确认是否已移动。重试前请检查下方详情。已成功移动的文档未回滚。对其余文档使用“移动到…”以完成操作。}}"
 
 #. placeholder {0}: implementations.length
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one {# connection configured} other {# connections configured}}"
-msgstr ""
+msgstr "{0, plural, other {已配置 # 个连接}}"
 
 #. placeholder {0}: impact.current
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one {# currently indexed note matches} other {# currently indexed notes match}}"
-msgstr ""
+msgstr "{0, plural, other {# 篇当前已索引的文档匹配}}"
 
 #. placeholder {0}: types.length
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one {# definition} other {# definitions}}"
-msgstr ""
+msgstr "{0, plural, other {# 个定义}}"
 
 #. placeholder {0}: linkedSchemaFields.length
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one {# field is supplied by the installed schema.} other {# fields are supplied by the installed schema.}}"
-msgstr ""
+msgstr "{0, plural, other {# 个字段由已安装的架构提供。}}"
 
 #. placeholder {0}: propertyCount(type)
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one {# field} other {# fields}}"
-msgstr ""
+msgstr "{0, plural, other {# 个字段}}"
 
 #. placeholder {0}: options.length
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one {# match} other {# matches}}"
-msgstr ""
+msgstr "{0, plural, other {# 项匹配}}"
 
 #. placeholder {0}: renamePlan.affectedPaths.length
 #: src/App.tsx
 msgid "{0, plural, one {# note contains links that will change.} other {# notes contain links that will change.}}"
-msgstr ""
+msgstr "{0, plural, other {# 篇文档包含将要更改的链接。}}"
 
 #. placeholder {0}: result.moved
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one {# note moved.} other {# notes moved.}}"
-msgstr ""
+msgstr "{0, plural, other {已移动 # 篇文档。}}"
 
 #. placeholder {0}: requiredFields.length - requiredMapped
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one {# required field unmapped} other {# required fields unmapped}}"
-msgstr ""
+msgstr "{0, plural, other {# 个必填字段尚未映射}}"
 
 #. placeholder {0}: recoveryAction.references
 #: src/App.tsx
 msgid "{0, plural, one {Also updated links in # note.} other {Also updated links in # notes.}}"
-msgstr ""
+msgstr "{0, plural, other {还更新了 # 篇文档中的链接。}}"
 
 #. placeholder {0}: error.params.limit
 #: src/type-contracts.ts
 msgid "{0, plural, one {Binding setting{field} needs at least # item for {contractId}.} other {Binding setting{field} needs at least # items for {contractId}.}}"
-msgstr ""
+msgstr "{0, plural, other {{contractId} 的绑定设置{field} 至少需要 # 项。}}"
 
 #. placeholder {0}: plan.moves.length
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one {Move # note?} other {Move # notes?}}"
-msgstr ""
+msgstr "{0, plural, other {移动 # 篇文档？}}"
 
 #. placeholder {0}: recoveryAction.paths.length
 #: src/App.tsx
 msgid "{0, plural, one {Moved # note.} other {Moved # notes.}}"
-msgstr ""
+msgstr "{0, plural, other {已移动 # 篇文档。}}"
 
 #. placeholder {0}: plan.moves.length
 #: src/FolderChangeDialog.tsx
 msgid "{0, plural, one {Rename ‘{basename}’ and move # note?} other {Rename ‘{basename}’ and move # notes?}}"
-msgstr ""
+msgstr "{0, plural, other {重命名“{basename}”并移动 # 篇文档？}}"
 
 #. placeholder {0}: files.length
 #: src/AttachmentUpload.tsx
 msgid "{0, plural, one {The file was uploaded, but the note changed before its link could be inserted.} other {The files were uploaded, but the note changed before its link could be inserted.}}"
-msgstr ""
+msgstr "{0, plural, other {文件已上传，但在插入链接前，文档已更改。}}"
 
 #. placeholder {0}: files.length
 #: src/AttachmentUpload.tsx
 msgid "{0, plural, one {Uploaded # file. The collection file is committed; the note link is saving separately.} other {Uploaded # files. The collection file is committed; the note link is saving separately.}}"
-msgstr ""
+msgstr "{0, plural, other {已上传 # 个文件。集合中的文件已提交；文档中的链接正在单独保存。}}"
 
 #. placeholder {0}: contact.name
 #. placeholder {1}: contact.path
 #: src/YourPersonPanel.tsx
 msgid "{0} · {1} (Contact-only)"
-msgstr ""
+msgstr "{0} · {1}（仅联系人）"
 
 #. placeholder {0}: formatFileSize(asset.file.size)
 #: src/FileViewer.tsx
 msgid "{0} · Preview unavailable. Use Open original to view this file."
-msgstr ""
+msgstr "{0} · 无法预览。请使用“打开原文件”查看此文件。"
 
 #. placeholder {0}: field.name
 #: src/BulkNoteProperties.tsx
 msgid "{0} (not shared)"
-msgstr ""
+msgstr "{0}（非共有）"
 
 #. placeholder {0}: contract.id
 #. placeholder {1}: contract.version
 #: src/type-contracts.ts
 msgid "{0} {1} is already implemented."
-msgstr ""
+msgstr "{0} {1} 已有实现。"
 
 #. placeholder {0}: implementation.contract
 #. placeholder {1}: field.reference
 #: src/TypeBrowser.tsx
 msgid "{0} {1} source field"
-msgstr ""
+msgstr "{0} {1} 源字段"
 
 #. placeholder {0}: implementation.contract
 #. placeholder {1}: field.reference
 #: src/TypeBrowser.tsx
 msgid "{0} {1} type field"
-msgstr ""
+msgstr "{0} {1} 类型字段"
 
 #. placeholder {0}: pack.displayName
 #: src/TypeBrowser.tsx
 msgid "{0} added"
-msgstr ""
+msgstr "已添加 {0}"
 
 #. placeholder {0}: optional.length
 #: src/NewNoteComposer.tsx
 msgid "{0} available"
-msgstr ""
+msgstr "{0} 项可用"
 
 #. placeholder {0}: progress.completedUnits
 #: src/App.tsx
 msgid "{0} changes applied"
-msgstr ""
+msgstr "已应用 {0} 项更改"
 
 #. placeholder {0}: typeFieldPathLabel(field.path)
 #: src/TypeBrowser.tsx
 msgid "{0} choice"
-msgstr ""
+msgstr "{0} 选项"
 
 #. placeholder {0}: node.path
 #: src/CollectionRail.tsx
 msgid "{0} folder actions"
-msgstr ""
+msgstr "{0} 文件夹操作"
 
 #. placeholder {0}: resultCount.toLocaleString(displayLocale())
 #: src/NoteList.tsx
 msgid "{0} found · relevance"
-msgstr ""
+msgstr "找到 {0} 项 · 按相关性排序"
 
 #. placeholder {0}: resultCount.toLocaleString(displayLocale())
 #: src/NoteList.tsx
 msgid "{0} found so far"
-msgstr ""
+msgstr "目前找到 {0} 项"
 
 #. placeholder {0}: resultCount.toLocaleString(displayLocale())
 #: src/NoteList.tsx
 msgid "{0} found so far · incomplete"
-msgstr ""
+msgstr "目前找到 {0} 项 · 结果不完整"
 
 #. placeholder {0}: resultCount.toLocaleString(displayLocale())
 #. placeholder {1}: contentLoaded.toLocaleString(displayLocale())
 #. placeholder {2}: contentTotal?.toLocaleString(displayLocale()) ?? "…"
 #: src/NoteList.tsx
 msgid "{0} found so far · searching {1} of {2}"
-msgstr ""
+msgstr "目前找到 {0} 项 · 正在搜索 {1}/{2} 项"
 
 #. placeholder {0}: person.path
 #: src/person-records.ts
 msgid "{0} implements Person through multiple types. Resolve its mappings in Types before linking."
-msgstr ""
+msgstr "{0} 通过多个类型实现了 Person。关联前，请在“类型”中解决映射问题。"
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
 msgid "{0} link format"
-msgstr ""
+msgstr "{0} 链接格式"
 
 #. placeholder {0}: plan.warnings.length.toLocaleString(displayLocale())
 #. placeholder {1}: plan.warnings.join("; ")
 #: src/FolderChangeDialog.tsx
 msgid "{0} link warnings need attention and will not be fixed automatically: {1}"
-msgstr ""
+msgstr "{0} 个链接警告需要处理，不会自动修复：{1}"
 
 #. placeholder {0}: noteCount.toLocaleString(displayLocale())
 #: src/NoteList.tsx
 msgid "{0} notes loaded · incomplete"
-msgstr ""
+msgstr "已加载 {0} 篇文档 · 结果不完整"
 
 #. placeholder {0}: noteMatches.length
 #. placeholder {1}: reference.target
 #: src/code-editor-reference-diagnostics.ts
 msgid "{0} notes match “{1}”. Use a path to disambiguate it."
-msgstr ""
+msgstr "{0} 篇文档匹配“{1}”。请使用路径来明确目标。"
 
 #. placeholder {0}: matches.length
 #: src/note-embeds.ts
 msgid "{0} notes match this reference."
-msgstr ""
+msgstr "{0} 篇文档匹配此引用。"
 
 #. placeholder {0}: impact.current.toLocaleString(displayLocale())
 #. placeholder {1}: impact.addedPaths.length.toLocaleString(displayLocale())
 #. placeholder {2}: impact.removedPaths.length.toLocaleString(displayLocale())
 #: src/TypeBrowser.tsx
 msgid "{0} now · {1} gain this type · {2} lose it"
-msgstr ""
+msgstr "当前 {0} 篇 · {1} 篇将获得此类型 · {2} 篇将失去此类型"
 
 #. placeholder {0}: suggestion.matchedFields
 #. placeholder {1}: suggestion.totalFields
 #: src/TypeBrowser.tsx
 msgid "{0} of {1} fields match"
-msgstr ""
+msgstr "{1} 个字段中有 {0} 个匹配"
 
 #. placeholder {0}: noteCount.toLocaleString(displayLocale())
 #. placeholder {1}: total?.toLocaleString(displayLocale()) ?? "…"
 #: src/NoteList.tsx
 msgid "{0} of {1} notes"
-msgstr ""
+msgstr "{0}/{1} 篇文档"
 
 #. placeholder {0}: shortcutModifier()
 #: src/NoteSearchField.tsx
 msgid "{0} P"
-msgstr ""
+msgstr "{0} P"
 
 #. placeholder {0}: directory.invalid.length
 #: src/YourPersonPanel.tsx
 msgid "{0} person records need attention"
-msgstr ""
+msgstr "{0} 条人员记录需要处理"
 
 #. placeholder {0}: Math.round(value)
 #: src/WorkspaceChrome.tsx
 msgid "{0} pixels"
-msgstr ""
+msgstr "{0} 像素"
 
 #. placeholder {0}: propertyCount(type)
 #: src/TypeBrowser.tsx
 msgid "{0} schema properties"
-msgstr ""
+msgstr "{0} 个架构属性"
 
 #. placeholder {0}: listSelection.paths.length
 #: src/App.tsx
 msgid "{0} selected"
-msgstr ""
+msgstr "已选择 {0} 项"
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
 msgid "{0} target type"
-msgstr ""
+msgstr "{0} 目标类型"
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
 msgid "{0} uniqueness path pattern"
-msgstr ""
+msgstr "{0} 唯一性路径模式"
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
 msgid "{0} uniqueness scope"
-msgstr ""
+msgstr "{0} 唯一性范围"
 
 #. placeholder {0}: kindName(field.kind)
 #: src/TypeBrowser.tsx
 msgid "{0} value"
-msgstr ""
+msgstr "{0} 值"
 
 #. placeholder {0}: setup.assessment.lock.action
 #. placeholder {1}: setup.assessment.lock.target
 #: src/YourPersonPanel.tsx
 msgid "{0}: <0>{1}</0> (setup receipt)"
-msgstr ""
+msgstr "{0}：<0>{1}</0>（设置回执）"
 
 #. placeholder {0}: definition.advancedMatchKeys.map(matchRuleLabel).join(" · ")
 #: src/TypeBrowser.tsx
 msgid "{0}. These rules combine with the visual rules above."
-msgstr ""
+msgstr "{0}。这些规则与上方的可视化规则结合使用。"
 
 #. placeholder {0}: advancedKeys.join(" · ")
 #: src/TypeBrowser.tsx
 msgid "{0}. These settings remain intact."
-msgstr ""
+msgstr "{0}。这些设置保持不变。"
 
 #: src/TypeBrowser.tsx
 msgid "{appViews, plural, one {# app view} other {# app views}}"
-msgstr ""
+msgstr "{appViews, plural, other {# 个应用视图}}"
 
 #: src/TypeBrowser.tsx
 msgid "{changeCount, plural, one {# field-level change detected.} other {# field-level changes detected.}}"
-msgstr ""
+msgstr "{changeCount, plural, other {检测到 # 项字段级更改。}}"
 
 #: src/TypeBrowser.tsx
 msgid "{contractErrors, plural, one {# issue need attention} other {# issues need attention}}"
-msgstr ""
+msgstr "{contractErrors, plural, other {# 个问题需要处理}}"
 
 #: src/type-contracts.ts
 msgid "{contractId} {version} is implemented more than once."
-msgstr ""
+msgstr "{contractId} {version} 已被多次实现。"
 
 #: src/type-contracts.ts
 msgid "{contractId} {version} is not implemented by this type."
-msgstr ""
+msgstr "此类型尚未实现 {contractId} {version}。"
 
 #: src/type-contracts.ts
 msgid "{contractId} {version} is not installed in this collection."
-msgstr ""
+msgstr "此集合尚未安装 {contractId} {version}。"
 
 #: src/type-contracts.ts
 msgid "{contractId} does not define implementation bindings."
-msgstr ""
+msgstr "{contractId} 未定义实现绑定。"
 
 #: src/type-contracts.ts
 msgid "{contractReference} is not declared by {contractId}."
-msgstr ""
+msgstr "{contractId} 未声明 {contractReference}。"
 
 #: src/type-presentation.ts
 msgid "{count, plural, one {# default} other {# defaults}}"
-msgstr ""
+msgstr "{count, plural, other {# 项默认值}}"
 
 #: src/type-presentation.ts
 msgid "{count, plural, one {# field selector} other {# field selectors}}"
-msgstr ""
+msgstr "{count, plural, other {# 个字段选择器}}"
 
 #: src/type-presentation.ts
 msgid "{count, plural, one {# field} other {# fields}}"
-msgstr ""
+msgstr "{count, plural, other {# 个字段}}"
 
 #: src/type-presentation.ts
 msgid "{count, plural, one {# link} other {# links}}"
-msgstr ""
+msgstr "{count, plural, other {# 个链接}}"
 
 #: src/CollectionRail.tsx
 msgid "{count, plural, one {# note in {name}} other {# notes in {name}}}"
-msgstr ""
+msgstr "{count, plural, other {{name} 中有 # 篇文档}}"
 
 #: src/TypeBrowser.tsx
 msgid "{count, plural, one {# note is missing required field {field}.} other {# notes are missing required field {field}.}}"
-msgstr ""
+msgstr "{count, plural, other {# 篇文档缺少必填字段 {field}。}}"
 
 #: src/CollectionRail.tsx
 msgid "{count, plural, one {# note tagged {name}} other {# notes tagged {name}}}"
-msgstr ""
+msgstr "{count, plural, other {# 篇文档带有标签 {name}}}"
 
 #: src/CollectionRail.tsx
 msgid "{count, plural, one {# note with type {name}} other {# notes with type {name}}}"
-msgstr ""
+msgstr "{count, plural, other {# 篇文档具有类型 {name}}}"
 
 #: src/type-presentation.ts
 msgid "{count, plural, one {# path pattern} other {# path patterns}}"
-msgstr ""
+msgstr "{count, plural, other {# 个路径模式}}"
 
 #: src/type-presentation.ts
 msgid "{count, plural, one {# unique rule} other {# unique rules}}"
-msgstr ""
+msgstr "{count, plural, other {# 条唯一性规则}}"
 
 #: src/type-presentation.ts
 msgid "{count, plural, one {# YAML rule} other {# YAML rules}}"
-msgstr ""
+msgstr "{count, plural, other {# 条 YAML 规则}}"
 
 #: src/type-presentation.ts
 msgid "{count, plural, one {# YAML setting} other {# YAML settings}}"
-msgstr ""
+msgstr "{count, plural, other {# 项 YAML 设置}}"
 
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Deleted # note.} other {Deleted # notes.}}"
-msgstr ""
+msgstr "{count, plural, other {已删除 # 篇文档。}}"
 
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Moved # note.} other {Moved # notes.}}"
-msgstr ""
+msgstr "{count, plural, other {已移动 # 篇文档。}}"
 
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Restored # note.} other {Restored # notes.}}"
-msgstr ""
+msgstr "{count, plural, other {已恢复 # 篇文档。}}"
 
 #: src/CollectionRail.tsx
 msgid "{count, plural, one {Show notes in {path}, # note} other {Show notes in {path}, # notes}}"
-msgstr ""
+msgstr "{count, plural, other {显示 {path} 中的笔记，共 # 篇}}"
 
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Updated # note.} other {Updated # notes.}}"
-msgstr ""
+msgstr "{count, plural, other {已更新 # 篇文档。}}"
 
 #: src/note-mutation-presentation.ts
 msgid "{count, plural, one {Updating # linked note} other {Updating # linked notes}}"
-msgstr ""
+msgstr "{count, plural, other {正在更新 # 篇关联文档}}"
 
 #: src/CollectionRail.tsx
 msgid "{count} or more notes in {name}"
-msgstr ""
+msgstr "{name} 中有至少 {count} 篇文档"
 
 #: src/CollectionRail.tsx
 msgid "{count} or more notes tagged {name}"
-msgstr ""
+msgstr "至少 {count} 篇文档带有标签 {name}"
 
 #: src/CollectionRail.tsx
 msgid "{count} or more notes with type {name}"
-msgstr ""
+msgstr "至少 {count} 篇文档具有类型 {name}"
 
 #: src/SchemaValueEditor.tsx
 msgid "{entryName} value"
-msgstr ""
+msgstr "{entryName} 值"
 
 #: src/EnvironmentBadge.tsx
 msgid "{environment} environment"
-msgstr ""
+msgstr "{environment} 环境"
 
 #: src/TypeBrowser.tsx
 msgid "{extensions, plural, one {# extension} other {# extensions}}"
-msgstr ""
+msgstr "{extensions, plural, other {# 个扩展}}"
 
 #: src/TypeBrowser.tsx
 msgid "{fieldLabel} description"
-msgstr ""
+msgstr "{fieldLabel} 描述"
 
 #: src/TypeBrowser.tsx
 msgid "{fieldLabel} field name"
-msgstr ""
+msgstr "{fieldLabel} 字段名称"
 
 #: src/TypeBrowser.tsx
 msgid "{fieldLabel} field options"
-msgstr ""
+msgstr "{fieldLabel} 字段选项"
 
 #: src/TypeBrowser.tsx
 msgid "{fieldLabel} field type"
-msgstr ""
+msgstr "{fieldLabel} 字段类型"
 
 #: src/NoteList.tsx
 msgid "{fileCount, plural, one {# file} other {# files}}"
-msgstr ""
+msgstr "{fileCount, plural, other {# 个文件}}"
 
 #: src/TypeBrowser.tsx
 msgid "{itemLabel} field type"
-msgstr ""
+msgstr "{itemLabel} 字段类型"
 
 #: src/TypeBrowser.tsx
 msgid "{itemLabel} suggestions"
-msgstr ""
+msgstr "{itemLabel} 建议"
 
 #: src/contract-catalog.ts
 msgid "{label} is not supported."
-msgstr ""
+msgstr "不支持 {label}。"
 
 #: src/contract-catalog.ts
 msgid "{label} must be a non-empty string."
-msgstr ""
+msgstr "{label} 必须为非空字符串。"
 
 #: src/contract-catalog.ts
 msgid "{label} must be a SHA-256 digest."
-msgstr ""
+msgstr "{label} 必须为 SHA-256 摘要。"
 
 #: src/contract-catalog.ts
 msgid "{label} must be a URL."
-msgstr ""
+msgstr "{label} 必须为 URL。"
 
 #: src/contract-catalog.ts
 msgid "{label} must be an array."
-msgstr ""
+msgstr "{label} 必须为数组。"
 
 #: src/contract-catalog.ts
 msgid "{label} must be an object."
-msgstr ""
+msgstr "{label} 必须为对象。"
 
 #: src/contract-catalog.ts
 msgid "{label} must stay inside the collection."
-msgstr ""
+msgstr "{label} 必须位于集合内。"
 
 #: src/contract-catalog.ts
 msgid "{label} must use HTTP or HTTPS."
-msgstr ""
+msgstr "{label} 必须使用 HTTP 或 HTTPS。"
 
 #: src/contract-catalog.ts
 msgid "{label}.installation.primary_type must name an installed type."
-msgstr ""
+msgstr "{label}.installation.primary_type 必须指定已安装的类型。"
 
 #: src/TypeBrowser.tsx
 msgid "{mappedCount, plural, one {# value exposed} other {# values exposed}}"
-msgstr ""
+msgstr "{mappedCount, plural, other {已向应用提供 # 个值}}"
 
 #: src/SchemaValueEditor.tsx
 msgid "{minimum, plural, one {At least # item is required.} other {At least # items are required.}}"
-msgstr ""
+msgstr "{minimum, plural, other {至少需要 # 项。}}"
 
 #. placeholder {0}: index + 1
 #: src/SchemaValueEditor.tsx
 msgid "{name} entry {0} key"
-msgstr ""
+msgstr "{name} 第 {0} 项的键"
 
 #: src/AttachmentUpload.tsx
 msgid "{name} is a file type that can’t be uploaded."
-msgstr ""
+msgstr "{name} 的文件类型不支持上传。"
 
 #. placeholder {0}: limit.trim()
 #: src/AttachmentUpload.tsx
 msgid "{name} is larger than the {0} limit."
-msgstr ""
+msgstr "{name} 超过了 {0} 的大小限制。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} is not an allowed property."
-msgstr ""
+msgstr "{name} 不是允许的属性。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} is required."
-msgstr ""
+msgstr "{name} 为必填项。"
 
 #: src/AttachmentUpload.tsx
 msgid "{name} is too large to upload."
-msgstr ""
+msgstr "{name} 太大，无法上传。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} item suggestions"
-msgstr ""
+msgstr "{name} 条目建议"
 
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} JSON value"
-msgstr ""
+msgstr "{name} JSON 值"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} note suggestions"
-msgstr ""
+msgstr "{name} 文档建议"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} property type"
-msgstr ""
+msgstr "{name} 属性类型"
 
 #: src/TypeBrowser.tsx
 msgid "{name} type definition"
-msgstr ""
+msgstr "{name} 类型定义"
 
 #: src/TypeBrowser.tsx
 msgid "{name} type YAML"
-msgstr ""
+msgstr "{name} 类型 YAML"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} value"
-msgstr ""
+msgstr "{name} 值"
 
 #. placeholder {0}: index + 1
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} value item {0}"
-msgstr ""
+msgstr "{name} 的第 {0} 个值"
 
 #: src/catalog-pack-installation.tsx
 msgid "{newTypeCount, plural, one {Installed “{packName}” ({resourceCount} resources, # new type).} other {Installed “{packName}” ({resourceCount} resources, # new types).}}"
-msgstr ""
+msgstr "{newTypeCount, plural, other {已安装“{packName}”（{resourceCount} 个资源，# 个新类型）。}}"
 
 #: src/TypeBrowser.tsx
 msgid "{next, plural, one {# note after update} other {# notes after update}}"
-msgstr ""
+msgstr "{next, plural, other {更新后有 # 篇文档}}"
 
 #: src/TypeBrowser.tsx
 msgid "{next, plural, one {# note with these rules} other {# notes with these rules}}"
-msgstr ""
+msgstr "{next, plural, other {使用这些规则时有 # 篇文档}}"
 
 #: src/NoteList.tsx
 msgid "{noteCount, plural, one {# note} other {# notes}}"
-msgstr ""
+msgstr "{noteCount, plural, other {# 篇文档}}"
 
 #: src/NoteList.tsx
 msgid "{notes} · {files}"
-msgstr ""
+msgstr "{notes} · {files}"
 
 #: src/NoteList.tsx
 msgid "{notes} · {files} · {order}"
-msgstr ""
+msgstr "{notes} · {files} · {order}"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{path} cannot be null."
-msgstr ""
+msgstr "{path} 不能为 null。"
 
 #: src/AppErrorBoundary.tsx
 msgid "{product} needs to restart"
-msgstr ""
+msgstr "{product} 需要重启"
 
 #: src/use-note-actions.ts
 msgid "{references, plural, one {Also updated links in # note.} other {Also updated links in # notes.}}"
-msgstr ""
+msgstr "{references, plural, other {另有 # 篇文档中的链接已更新。}}"
 
 #. placeholder {0}: requiredFields.length
 #. placeholder {1}: fields.length
 #: src/TypeBrowser.tsx
 msgid "{requiredMapped}/{0} required · {mappedCount}/{1} total"
-msgstr ""
+msgstr "必需字段 {requiredMapped}/{0} · 总计 {mappedCount}/{1}"
 
 #: src/NewNoteComposer.tsx
 msgid "{selectedOptional} set"
-msgstr ""
+msgstr "已设置 {selectedOptional} 项"
 
 #. placeholder {0}: this.job.file.name
 #: src/code-editor-file-embeds.ts
 msgid "{text} upload of {0}"
-msgstr ""
+msgstr "{text} {0} 的上传"
 
 #: src/NoteList.tsx
 msgid "{title} note actions"
-msgstr ""
+msgstr "{title} 文档操作"
 
 #. placeholder {0}: collectionFileFormat(file)
 #: src/NoteList.tsx
 msgid "{title}, {0} file"
-msgstr ""
+msgstr "{title}，{0} 文件"
 
 #: src/TypeBrowser.tsx
 msgid "{title}.md"
-msgstr ""
+msgstr "{title}.md"
 
 #: src/type-contracts.ts
 msgid "{typeReference} allows values outside the contract’s accepted set."
-msgstr ""
+msgstr "{typeReference} 允许使用契约接受范围之外的值。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} allows values the contract rejects."
-msgstr ""
+msgstr "{typeReference} 允许使用契约拒绝的值。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} and {contractReference} allow non-overlapping values."
-msgstr ""
+msgstr "{typeReference} 与 {contractReference} 允许的值没有交集。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} cannot produce a value accepted by {contractReference}."
-msgstr ""
+msgstr "{typeReference} 无法生成 {contractReference} 接受的值。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} does not guarantee the contract’s {contractFormat} format."
-msgstr ""
+msgstr "{typeReference} 不保证符合契约要求的 {contractFormat} 格式。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} does not guarantee the contract’s text pattern."
-msgstr ""
+msgstr "{typeReference} 不保证符合契约要求的文本模式。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} is not declared by the type schema."
-msgstr ""
+msgstr "类型架构未声明 {typeReference}。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} is optional, so some records may omit this required value."
-msgstr ""
+msgstr "{typeReference} 为可选项，因此部分记录可能缺少这个必填值。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} may contain properties rejected by the contract."
-msgstr ""
+msgstr "{typeReference} 可能包含契约拒绝的属性。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} permits values outside the contract’s limits."
-msgstr ""
+msgstr "{typeReference} 允许使用超出契约限制的值。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} satisfies the declared contract field constraints."
-msgstr ""
+msgstr "{typeReference} 满足契约声明的字段约束。"
 
 #. placeholder {0}: linked.path
 #: src/YourPersonPanel.tsx
 msgid "<0>{0}</0> · Edit this note to change its collection display name or identity associations."
-msgstr ""
+msgstr "<0>{0}</0> · 编辑此文档以更改其在集合中的显示名称或身份关联。"
 
 #: src/TypeBrowser.tsx
 msgid "<0>{linkedSchema}</0> is installed with this type. Field structure is edited at the schema source."
-msgstr ""
+msgstr "<0>{linkedSchema}</0> 随此类型一同安装。字段结构需在架构源文件中编辑。"
 
 #: src/QuickOpen.tsx
 msgid "<0>↑↓</0> choose · <1>Enter</1> open · <2>></2> actions · <3>Esc</3> close"
-msgstr ""
+msgstr "<0>↑↓</0> 选择 · <1>Enter</1> 打开 · <2>></2> 操作 · <3>Esc</3> 关闭"
 
 #. placeholder {0}: (changed - 20).toLocaleString(displayLocale())
 #: src/TypeBrowser.tsx
 msgid "<0>More</0>{0} additional notes"
-msgstr ""
+msgstr "<0>更多</0>，另有 {0} 篇文档"
 
 #: src/YourPersonPanel.tsx
 msgid "1 person record needs attention"
-msgstr ""
+msgstr "1 条人员记录需要处理"
 
 #: src/type-schema.ts
 msgid "A {label} for “{name}” already exists."
-msgstr ""
+msgstr "“{name}”的{label}已存在。"
 
 #: src/type-contracts.ts
 msgid "a checkbox"
-msgstr ""
+msgstr "复选框"
 
 #: src/type-contracts.ts
 msgid "A complex schema needs record-level validation."
-msgstr ""
+msgstr "复杂架构需要进行记录级验证。"
 
 #: src/type-contracts.ts
 #: src/type-presentation.ts
 msgid "a date"
-msgstr ""
+msgstr "日期"
 
 #: src/type-contracts.ts
 #: src/type-presentation.ts
 msgid "a date and time"
-msgstr ""
+msgstr "日期和时间"
 
 #: src/type-schema.ts
 msgid "A field named “{name}” already exists."
-msgstr ""
+msgstr "名为“{name}”的字段已存在。"
 
 #: src/folder-change.ts
 msgid "A folder cannot be moved inside itself."
-msgstr ""
+msgstr "不能将文件夹移动到其自身内部。"
 
 #: src/native-gateway.ts
 msgid "A link in {path} will stay broken."
-msgstr ""
+msgstr "{path} 中的一个链接仍将失效。"
 
 #: src/type-schema.ts
 msgid "A link rule for “{field}” already exists."
-msgstr ""
+msgstr "“{field}”的链接规则已存在。"
 
 #: src/type-contracts.ts
 #: src/type-presentation.ts
 msgid "a list"
-msgstr ""
+msgstr "列表"
 
 #: src/TypeBrowser.tsx
 msgid "A mapping copies the source value directly. It does not coerce or transform data."
-msgstr ""
+msgstr "映射会直接复制源值，不会强制转换类型或转换数据。"
 
 #. placeholder {0}: move.to
 #: src/folder-change.ts
 msgid "A note or file already uses “{0}”. Nothing has moved."
-msgstr ""
+msgstr "已有文档或文件使用“{0}”。未移动任何内容。"
 
 #: src/type-contracts.ts
 msgid "a number"
-msgstr ""
+msgstr "数字"
 
 #: src/TypeBrowser.tsx
 msgid "A path will be created from the type name"
-msgstr ""
+msgstr "将根据类型名称创建路径"
 
 #: src/YourPersonPanel.tsx
 msgid "A person record linked to your account has invalid fields. Fix it before relying on it:"
-msgstr ""
+msgstr "与你的账户关联的一条人员记录含有无效字段。请先修正，再使用该记录："
 
 #: src/YourPersonPanel.tsx
 msgid "A person record now matches your account. Reload these settings."
-msgstr ""
+msgstr "现在有一条人员记录与你的账户匹配。请重新加载这些设置。"
 
 #: src/person-setup.ts
 msgid "A Person type already exists but needs compatible mappings. Review it in Types; this setup will not replace it."
-msgstr ""
+msgstr "Person 类型已存在，但需要兼容的映射。请在“类型”中检查；本次设置不会替换它。"
 
 #: src/type-schema.ts
 msgid "A read default for “{field}” already exists."
-msgstr ""
+msgstr "“{field}”的读取默认值已存在。"
 
 #: src/YourPersonPanel.tsx
 msgid "About existing contacts"
-msgstr ""
+msgstr "关于现有联系人"
 
 #: src/QuickOpen.tsx
 msgid "Actions"
-msgstr ""
+msgstr "操作"
 
 #: src/QuickOpen.tsx
 msgid "Actions in quick open"
-msgstr ""
+msgstr "快速打开中的操作"
 
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add"
-msgstr ""
+msgstr "添加"
 
 #. placeholder {0}: pack.displayName
 #: src/TypeBrowser.tsx
 msgid "Add {0}"
-msgstr ""
+msgstr "添加 {0}"
 
 #. placeholder {0}: primaryLabel.toLocaleLowerCase()
 #: src/NewNoteComposer.tsx
 msgid "Add a {0} to create the note."
-msgstr ""
+msgstr "填写{0}以创建文档。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add a custom property…"
-msgstr ""
+msgstr "添加自定义属性…"
 
 #: src/QuickOpen.tsx
 msgid "Add a link, in the note text"
-msgstr ""
+msgstr "在文档正文中添加链接"
 
 #: src/SdkEditorRoot.tsx
 msgid "Add a Private collection"
-msgstr ""
+msgstr "添加私有集合"
 
 #: src/PropertiesPanel.tsx
 msgid "Add a property to keep details like tags, dates, or a status with this note."
-msgstr ""
+msgstr "添加属性，在此文档中保存标签、日期或状态等详细信息。"
 
 #: src/TypeBrowser.tsx
 msgid "Add a ready-made type to get app compatibility, or install a contract before connecting this type yourself."
-msgstr ""
+msgstr "添加现成类型以获得应用兼容性，或先安装契约，再自行关联此类型。"
 
 #: src/TypeBrowser.tsx
 msgid "Add a type"
-msgstr ""
+msgstr "添加类型"
 
 #. placeholder {0}: schema.minItems
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add at least {0} items."
-msgstr ""
+msgstr "请至少添加 {0} 项。"
 
 #: src/TypeBrowser.tsx
 msgid "Add choice"
-msgstr ""
+msgstr "添加选项"
 
 #: src/TypeBrowser.tsx
 msgid "Add default"
-msgstr ""
+msgstr "添加默认值"
 
 #: src/YourPersonPanel.tsx
 msgid "Add definitions and continue"
-msgstr ""
+msgstr "添加定义并继续"
 
 #: src/SchemaValueEditor.tsx
 msgid "Add entry"
-msgstr ""
+msgstr "添加条目"
 
 #: src/TypeBrowser.tsx
 msgid "Add field"
-msgstr ""
+msgstr "添加字段"
 
 #: src/TypeBrowser.tsx
 msgid "Add field selector"
-msgstr ""
+msgstr "添加字段选择器"
 
 #: src/ConnectionScreens.tsx
 msgid "add files"
-msgstr ""
+msgstr "添加文件"
 
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add item"
-msgstr ""
+msgstr "添加条目"
 
 #: src/TypeBrowser.tsx
 msgid "Add link rule"
-msgstr ""
+msgstr "添加链接规则"
 
 #: src/TypeBrowser.tsx
 msgid "Add nested field"
-msgstr ""
+msgstr "添加嵌套字段"
 
 #: src/YourPersonPanel.tsx
 msgid "Add one Person type, with optional contact details, and its supporting definitions. Existing notes, customized definitions, and access permissions will not be changed."
-msgstr ""
+msgstr "添加一个带有可选联系信息的 Person 类型及其配套定义。现有文档、自定义定义和访问权限均不会更改。"
 
 #: src/SchemaValueEditor.tsx
 msgid "Add optional field"
-msgstr ""
+msgstr "添加可选字段"
 
 #: src/TypeBrowser.tsx
 msgid "Add path pattern"
-msgstr ""
+msgstr "添加路径模式"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add property"
-msgstr ""
+msgstr "添加属性"
 
 #: src/BulkNoteProperties.tsx
 #: src/editor-commands.ts
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add tag"
-msgstr ""
+msgstr "添加标签"
 
 #: src/TypeBrowser.tsx
 msgid "Add target type"
-msgstr ""
+msgstr "添加目标类型"
 
 #: src/TypeBrowser.tsx
 msgid "Add unique rule"
-msgstr ""
+msgstr "添加唯一性规则"
 
 #. placeholder {0}: pack.displayName
 #: src/catalog-pack-installation.tsx
 msgid "Added “{0}” and opened the new type."
-msgstr ""
+msgstr "已添加“{0}”并打开新类型。"
 
 #: src/YourPersonPanel.tsx
 msgid "Adding definitions requires permission to manage this collection's types."
-msgstr ""
+msgstr "添加定义需要管理此集合类型的权限。"
 
 #: src/YourPersonPanel.tsx
 msgid "Adding definitions…"
-msgstr ""
+msgstr "正在添加定义…"
 
 #: src/TypeBrowser.tsx
 msgid "Adding one creates a new editable type. Existing files are never overwritten."
-msgstr ""
+msgstr "添加后会创建一个可编辑的新类型，绝不会覆盖现有文件。"
 
 #: src/type-schema.ts
 msgid "additional field policy"
-msgstr ""
+msgstr "额外字段策略"
 
 #: src/TypeBrowser.tsx
 msgid "Additional item rules remain in YAML."
-msgstr ""
+msgstr "额外的条目规则仍保留在 YAML 中。"
 
 #. placeholder {0}: rule.advancedKeys.join(", ")
 #: src/TypeBrowser.tsx
 msgid "Additional link settings remain in YAML: {0}."
-msgstr ""
+msgstr "额外的链接设置仍保留在 YAML 中：{0}。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Additional properties"
-msgstr ""
+msgstr "额外属性"
 
 #. placeholder {0}: rule.advancedKeys.join(", ")
 #: src/TypeBrowser.tsx
 msgid "Additional uniqueness settings remain in YAML: {0}."
-msgstr ""
+msgstr "额外的唯一性设置仍保留在 YAML 中：{0}。"
 
 #. placeholder {0}: pack.installedTypes.length
 #. placeholder {1}: pack.resourceCount
 #: src/TypeBrowser.tsx
 msgid "Adds {0} internal types and {1} declared resources in one validated transaction. Existing files will not be overwritten; installation stops if any target conflicts."
-msgstr ""
+msgstr "在一次经过验证的事务中添加 {0} 个内部类型和 {1} 个已声明的资源。不会覆盖现有文件；任何目标发生冲突时，安装都会停止。"
 
 #. placeholder {0}: pack.installedTypes.length
 #: src/TypeBrowser.tsx
 msgid "Adds {0} types"
-msgstr ""
+msgstr "添加 {0} 个类型"
 
 #: src/TypeBrowser.tsx
 msgid "Adds 1 type"
-msgstr ""
+msgstr "添加 1 个类型"
 
 #: src/catalog-pack-installation.tsx
 msgid "Adopt and update"
-msgstr ""
+msgstr "纳入管理并更新"
 
 #: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
 msgid "Advanced"
-msgstr ""
+msgstr "高级"
 
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Advanced"
-msgstr ""
+msgstr "高级"
 
 #: src/TypeBrowser.tsx
 msgid "Advanced JSON Schema rules remain intact and are identified in place. Review any structural conversion before applying it."
-msgstr ""
+msgstr "高级 JSON Schema 规则会完整保留，并在相应位置标明。应用任何结构转换前，请先检查。"
 
 #: src/TypeBrowser.tsx
 msgid "Advanced YAML rules"
-msgstr ""
+msgstr "高级 YAML 规则"
 
 #: src/TypeBrowser.tsx
 msgid "Advisory labels and colour used when records of this type are shown."
-msgstr ""
+msgstr "显示此类型的记录时使用的提示标签和颜色。"
 
 #: src/App.tsx
 #: src/EditorRail.tsx
 #: src/note-list-view.ts
 #: src/NoteListViewOptions.tsx
 msgid "All notes"
-msgstr ""
+msgstr "所有文档"
 
 #. placeholder {0}: noteCount.toLocaleString(displayLocale())
 #: src/EditorRail.tsx
 msgid "All notes, {0} total"
-msgstr ""
+msgstr "所有文档，共 {0} 篇"
 
 #: src/TypeBrowser.tsx
 msgid "Allow installs"
-msgstr ""
+msgstr "允许安装"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Allow local access"
-msgstr ""
+msgstr "允许本地访问"
 
 #: src/YourPersonPanel.tsx
 msgid "Allow person records in this collection?"
-msgstr ""
+msgstr "允许在此集合中使用人员记录？"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Allow the editor to reach mdbase on this computer. Editing continues through mdbase whenever it is unavailable."
-msgstr ""
+msgstr "允许编辑器访问此计算机上的 mdbase。本地访问不可用时，仍可通过 mdbase 继续编辑。"
 
 #: src/YourPersonPanel.tsx
 msgid "Allow the Editor to see your account identity"
-msgstr ""
+msgstr "允许 Editor 查看你的账户身份"
 
 #: src/TypeBrowser.tsx
 msgid "Allow undeclared fields"
-msgstr ""
+msgstr "允许未声明的字段"
 
 #: src/TypeBrowser.tsx
 msgid "Allowed target types"
-msgstr ""
+msgstr "允许的目标类型"
 
 #: src/TypeBrowser.tsx
 msgid "always present"
-msgstr ""
+msgstr "始终存在"
 
 #: src/type-contracts.ts
 msgid "an advanced schema"
-msgstr ""
+msgstr "高级架构"
 
 #: src/type-contracts.ts
 msgid "an integer"
-msgstr ""
+msgstr "整数"
 
 #: src/type-contracts.ts
 #: src/type-presentation.ts
 msgid "an object"
-msgstr ""
+msgstr "对象"
 
 #: src/TypeBrowser.tsx
 msgid "and"
-msgstr ""
+msgstr "和"
 
 #: src/TypeBrowser.tsx
 msgid "Any"
-msgstr ""
+msgstr "任意"
 
 #: src/TypeBrowser.tsx
 msgid "Any supported format"
-msgstr ""
+msgstr "任何支持的格式"
 
 #: src/TypeBrowser.tsx
 msgid "Application behavior"
-msgstr ""
+msgstr "应用行为"
 
 #: src/type-schema.ts
 msgid "Application compatibility"
-msgstr ""
+msgstr "应用兼容性"
 
 #: src/TypeBrowser.tsx
 msgid "Application view"
-msgstr ""
+msgstr "应用视图"
 
 #: src/BulkNoteProperties.tsx
 msgid "Apply"
-msgstr ""
+msgstr "应用"
 
 #: src/BulkNoteProperties.tsx
 msgid "Applying…"
-msgstr ""
+msgstr "正在应用…"
 
 #: src/TypeBrowser.tsx
 msgid "Apps read these contract field names while your notes keep their own field names."
-msgstr ""
+msgstr "应用读取这些契约字段名，你的笔记仍保留自己的字段名。"
 
 #: src/ConnectionScreens.tsx
 msgid "as files."
-msgstr ""
+msgstr "以文件形式保存。"
 
 #: src/YourPersonPanel.tsx
 msgid "Ask a collection editor to link your person record."
-msgstr ""
+msgstr "请让集合编辑者关联你的人物记录。"
 
 #: src/TypeBrowser.tsx
 msgid "Assigned by name"
-msgstr ""
+msgstr "按名称指定"
 
 #: src/AttachmentUpload.tsx
 msgid "Attach file…"
-msgstr ""
+msgstr "添加附件…"
 
 #: src/AttachmentUpload.tsx
 msgid "Attaching file…"
-msgstr ""
+msgstr "正在添加附件…"
 
 #: src/native-gateway.ts
 msgid "Attaching files is not available for this collection in mdbase editor yet."
-msgstr ""
+msgstr "mdbase editor 暂不支持为此集合添加附件。"
 
 #. placeholder {0}: controller.upload.name
 #: src/AttachmentUpload.tsx
 msgid "Attachment progress for {0}"
-msgstr ""
+msgstr "{0} 的附件上传进度"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Automatic"
-msgstr ""
+msgstr "自动"
 
 #: src/TypeBrowser.tsx
 msgid "Automatic matching"
-msgstr ""
+msgstr "自动匹配"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Automatic properties"
-msgstr ""
+msgstr "自动属性"
 
 #: src/settings/SettingsView.tsx
 msgctxt "direct connection availability"
 msgid "Available"
-msgstr ""
+msgstr "可用"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Back"
-msgstr ""
+msgstr "返回"
 
 #: src/App.tsx
 msgid "Back in note history"
-msgstr ""
+msgstr "返回笔记历史中的上一项"
 
 #: src/QuickOpen.tsx
 msgid "Back or forward"
-msgstr ""
+msgstr "后退或前进"
 
 #: src/App.tsx
 msgid "Back to {historyBackPath} · Alt+Left"
-msgstr ""
+msgstr "返回 {historyBackPath} · Alt+Left"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Back to collection"
-msgstr ""
+msgstr "返回集合"
 
 #: src/WorkspaceChrome.tsx
 msgid "Back to collections"
-msgstr ""
+msgstr "返回集合列表"
 
 #: src/TypeBrowser.tsx
 msgid "Back to editing"
-msgstr ""
+msgstr "返回编辑"
 
 #: src/PropertiesPanel.tsx
 msgid "Back to fields"
-msgstr ""
+msgstr "返回字段"
 
 #: src/App.tsx
 msgid "Back to notes"
-msgstr ""
+msgstr "返回笔记"
 
 #: src/FileViewer.tsx
 msgid "Back to notes and files"
-msgstr ""
+msgstr "返回笔记和文件"
 
 #: src/TypeBrowser.tsx
 msgid "Back to types"
-msgstr ""
+msgstr "返回类型"
 
 #: src/QuickOpen.tsx
 msgid "Best matches"
-msgstr ""
+msgstr "最佳匹配"
 
 #. placeholder {0}: segments.join(".")
 #: src/type-contracts.ts
 msgid "Binding setting {0} is required by {contractId}."
-msgstr ""
+msgstr "{contractId} 要求提供绑定设置 {0}。"
 
 #. placeholder {0}: error.message ?? "is invalid"
 #: src/type-contracts.ts
 msgid "Binding setting{field} {0} for {contractId}."
-msgstr ""
+msgstr "{contractId} 的绑定设置{field}：{0}。"
 
 #: src/type-contracts.ts
 msgid "Binding setting{field} must not be empty for {contractId}."
-msgstr ""
+msgstr "{contractId} 的绑定设置{field}不能为空。"
 
 #: src/type-contracts.ts
 msgid "Binding settings do not satisfy {contractId}."
-msgstr ""
+msgstr "绑定设置不符合 {contractId} 的要求。"
 
 #: src/type-contracts.ts
 msgid "Binding settings for {contractId} cannot be edited because its schema is invalid: {detail}"
-msgstr ""
+msgstr "无法编辑 {contractId} 的绑定设置，因为其架构无效：{detail}"
 
 #. placeholder {0}: anchor.preview ?? ""
 #: src/code-editor-completions.ts
 msgid "Block · {0}"
-msgstr ""
+msgstr "块 · {0}"
 
 #: src/ConflictResolver.tsx
 msgid "Body differences"
-msgstr ""
+msgstr "正文差异"
 
 #: src/QuickOpen.tsx
 msgid "Bold or italic"
-msgstr ""
+msgstr "粗体或斜体"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Boolean"
-msgstr ""
+msgstr "布尔值"
 
 #: src/TypeBrowser.tsx
 msgid "Browse ready-made types"
-msgstr ""
+msgstr "浏览现成类型"
 
 #: src/code-editor-completions.ts
 msgid "Bulleted list"
-msgstr ""
+msgstr "无序列表"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Calculated"
-msgstr ""
+msgstr "计算值"
 
 #: src/App.tsx
 #: src/BulkNoteProperties.tsx
@@ -1268,4758 +1268,4758 @@ msgstr ""
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Cancel"
-msgstr ""
+msgstr "取消"
 
 #: src/YourPersonPanel.tsx
 msgid "Cancel conversion"
-msgstr ""
+msgstr "取消转换"
 
 #: src/NewNoteComposer.tsx
 msgid "Cancel new folder"
-msgstr ""
+msgstr "取消新建文件夹"
 
 #: src/NewNoteComposer.tsx
 msgid "Cancel new note"
-msgstr ""
+msgstr "取消新建笔记"
 
 #: src/TypeBrowser.tsx
 msgid "Catalog"
-msgstr ""
+msgstr "资源目录"
 
 #: src/TypeBrowser.tsx
 msgid "Catalog source"
-msgstr ""
+msgstr "资源目录来源"
 
 #: src/TypeBrowser.tsx
 msgid "Catalog unavailable"
-msgstr ""
+msgstr "资源目录不可用"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Change note text without changing the surrounding interface."
-msgstr ""
+msgstr "调整笔记文字大小，不改变周围的界面。"
 
 #: src/note-mutation-presentation.ts
 msgid "Changed elsewhere"
-msgstr ""
+msgstr "已在其他位置更改"
 
 #: src/pending-note-mutation.ts
 msgid "Check again"
-msgstr ""
+msgstr "重新检查"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Check again"
-msgstr ""
+msgstr "重新检查"
 
 #: src/editor-commands.ts
 msgid "Check note"
-msgstr ""
+msgstr "检查笔记"
 
 #: src/ConnectionScreens.tsx
 msgid "check notes"
-msgstr ""
+msgstr "检查笔记"
 
 #: src/next-editor-records.ts
 msgid "Check your unconfirmed change before making another one. Nothing new was saved."
-msgstr ""
+msgstr "请先检查你未确认的更改，再进行下一次更改。未保存任何新内容。"
 
 #: src/type-presentation.ts
 msgid "checkbox"
-msgstr ""
+msgstr "复选框"
 
 #: src/TypeBrowser.tsx
 msgid "Checkbox"
-msgstr ""
+msgstr "复选框"
 
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Checkbox"
-msgstr ""
+msgstr "复选框"
 
 #: src/AttachmentUpload.tsx
 #: src/note-mutation-presentation.ts
 #: src/WorkspaceChrome.tsx
 msgid "Checking"
-msgstr ""
+msgstr "正在检查"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Checking for mdbase on this computer."
-msgstr ""
+msgstr "正在检查此计算机上的 mdbase。"
 
 #: src/note-mutation-presentation.ts
 msgid "Checking impact"
-msgstr ""
+msgstr "正在检查影响"
 
 #: src/FolderChangeDialog.tsx
 msgid "Checking notes and links…"
-msgstr ""
+msgstr "正在检查笔记和链接…"
 
 #: src/YourPersonPanel.tsx
 msgid "Checking person setup…"
-msgstr ""
+msgstr "正在检查人物设置…"
 
 #: src/CollectionRail.tsx
 msgid "Checking…"
-msgstr ""
+msgstr "正在检查…"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Checking…"
-msgstr ""
+msgstr "正在检查…"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Choice"
-msgstr ""
+msgstr "选项"
 
 #: src/TypeBrowser.tsx
 msgid "Choice value"
-msgstr ""
+msgstr "选项值"
 
 #: src/TypeBrowser.tsx
 msgid "Choices"
-msgstr ""
+msgstr "选项"
 
 #: src/SchemaValueEditor.tsx
 msgid "Choose"
-msgstr ""
+msgstr "选择"
 
 #: src/ConnectionScreens.tsx
 msgid "Choose a collection"
-msgstr ""
+msgstr "选择集合"
 
 #: src/gateway.ts
 msgid "Choose a collection before editing notes."
-msgstr ""
+msgstr "请先选择集合，再编辑笔记。"
 
 #: src/use-note-actions.ts
 msgid "Choose a collection-relative folder."
-msgstr ""
+msgstr "请选择相对于集合根目录的文件夹。"
 
 #: src/folder-change.ts
 msgid "Choose a different folder path."
-msgstr ""
+msgstr "请选择其他文件夹路径。"
 
 #: src/MoveNoteDialog.tsx
 msgid "Choose a folder. Incoming links will be updated too."
-msgstr ""
+msgstr "请选择文件夹。指向这些笔记的链接也会更新。"
 
 #: src/YourPersonPanel.tsx
 msgid "Choose a record…"
-msgstr ""
+msgstr "选择记录…"
 
 #: src/person-records.ts
 msgid "Choose a target type that implements both Person and Contact so existing contact semantics are retained."
-msgstr ""
+msgstr "请选择同时实现 Person 和 Contact 的目标类型，以保留现有的联系人语义。"
 
 #: src/TypeBrowser.tsx
 msgid "Choose an icon"
-msgstr ""
+msgstr "选择图标"
 
 #: src/TypeBrowser.tsx
 msgid "Choose an icon from the Phosphor library."
-msgstr ""
+msgstr "从 Phosphor 图标库中选择图标。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Choose one of the allowed values."
-msgstr ""
+msgstr "请选择一个允许的值。"
 
 #: src/TypeBrowser.tsx
 msgid "Choose scope"
-msgstr ""
+msgstr "选择范围"
 
 #: src/ConnectionScreens.tsx
 msgid "Choose the collection you want to write in."
-msgstr ""
+msgstr "选择你想要写入的集合。"
 
 #: src/i18n/LanguageSetting.tsx
 msgctxt "editor language preference"
 msgid "Choose the interface language for this browser. Your notes are not translated."
-msgstr ""
+msgstr "选择此浏览器的界面语言。你的笔记不会被翻译。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Choose true or false."
-msgstr ""
+msgstr "请选择真或假。"
 
 #: src/code-editor-note-embeds.ts
 msgid "Circular transclusion stopped here."
-msgstr ""
+msgstr "循环嵌入已在此停止。"
 
 #: src/App.tsx
 msgid "Clear"
-msgstr ""
+msgstr "清除"
 
 #: src/TypeBrowser.tsx
 msgid "Clear display icon"
-msgstr ""
+msgstr "清除显示图标"
 
 #: src/NoteSearchField.tsx
 msgid "Clear search"
-msgstr ""
+msgstr "清除搜索"
 
 #: src/App.tsx
 #: src/editor-commands.ts
 msgid "Clear selection"
-msgstr ""
+msgstr "清除选择"
 
 #: src/TypeBrowser.tsx
 msgid "Clear type search"
-msgstr ""
+msgstr "清除类型搜索"
 
 #: src/FileViewer.tsx
 msgid "Close file preview"
-msgstr ""
+msgstr "关闭文件预览"
 
 #: src/QuickOpen.tsx
 msgid "Close keyboard shortcuts"
-msgstr ""
+msgstr "关闭键盘快捷键"
 
 #: src/WorkspaceChrome.tsx
 msgid "Close outline"
-msgstr ""
+msgstr "关闭大纲"
 
 #: src/PropertiesPanel.tsx
 msgid "Close properties"
-msgstr ""
+msgstr "关闭属性"
 
 #: src/QuickOpen.tsx
 msgid "Close quick open"
-msgstr ""
+msgstr "关闭快速打开"
 
 #: src/code-editor-completions.ts
 msgid "Code block"
-msgstr ""
+msgstr "代码块"
 
 #. placeholder {0}: node.path
 #: src/CollectionRail.tsx
 msgid "Collapse {0}"
-msgstr ""
+msgstr "折叠 {0}"
 
 #: src/TypeBrowser.tsx
 msgid "Collapse {fieldLabel} field"
-msgstr ""
+msgstr "折叠 {fieldLabel} 字段"
 
 #: src/CollectionRail.tsx
 msgid "Collapse descendants"
-msgstr ""
+msgstr "折叠所有下级项"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Collection"
-msgstr ""
+msgstr "集合"
 
 #: src/type-schema.ts
 #: src/TypeBrowser.tsx
 msgid "Collection behaviour"
-msgstr ""
+msgstr "集合行为"
 
 #: src/App.tsx
 msgid "Collection changed before the type pack finished."
-msgstr ""
+msgstr "类型包处理完成前，集合已切换。"
 
 #: src/CollectionRail.tsx
 msgid "Collection changes saved on this device; waiting for sync"
-msgstr ""
+msgstr "集合更改已保存在此设备上；等待同步"
 
 #: src/CollectionRail.tsx
 msgid "Collection connected"
-msgstr ""
+msgstr "集合已连接"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Collection ID"
-msgstr ""
+msgstr "集合 ID"
 
 #: src/App.tsx
 #: src/collection-mutation-scope.ts
 msgid "Collection mutations are temporarily disabled."
-msgstr ""
+msgstr "集合更改操作已暂时禁用。"
 
 #: src/EditorRail.tsx
 msgid "Collection navigation"
-msgstr ""
+msgstr "集合导航"
 
 #: src/ConnectionScreens.tsx
 msgid "Collection not listed?"
-msgstr ""
+msgstr "找不到集合？"
 
 #: src/NoteList.tsx
 msgid "Collection notes and files"
-msgstr ""
+msgstr "集合笔记和文件"
 
 #: src/CollectionRail.tsx
 msgid "Collection offline"
-msgstr ""
+msgstr "集合已离线"
 
 #: src/ConnectionScreens.tsx
 msgid "Collection options for {name}"
-msgstr ""
+msgstr "集合 {name} 的选项"
 
 #: src/CollectionRail.tsx
 msgid "Collection reconnecting"
-msgstr ""
+msgstr "集合正在重新连接"
 
 #: src/TypeBrowser.tsx
 msgid "Collection resources"
-msgstr ""
+msgstr "集合资源"
 
 #: src/collection-browser.ts
 #: src/FolderChangeDialog.tsx
 #: src/NoteList.tsx
 msgid "Collection root"
-msgstr ""
+msgstr "集合根目录"
 
 #: src/CollectionRail.tsx
 msgid "Collection stopped"
-msgstr ""
+msgstr "集合同步已停止"
 
 #: src/EditorRail.tsx
 msgid "Collection tools"
-msgstr ""
+msgstr "集合工具"
 
 #: src/TypeBrowser.tsx
 msgid "Collection types"
-msgstr ""
+msgstr "集合类型"
 
 #: src/NoteList.tsx
 #: src/TypeBrowser.tsx
 msgid "Collections"
-msgstr ""
+msgstr "集合"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Color theme"
-msgstr ""
+msgstr "颜色主题"
 
 #: src/TypeBrowser.tsx
 msgid "Colour field"
-msgstr ""
+msgstr "颜色字段"
 
 #: src/settings/SettingsView.tsx
 msgctxt "editor text size"
 msgid "Comfortable"
-msgstr ""
+msgstr "舒适"
 
 #: src/editor-commands.ts
 msgid "Commands"
-msgstr ""
+msgstr "命令"
 
 #: src/TypeBrowser.tsx
 msgid "Common icons"
-msgstr ""
+msgstr "常用图标"
 
 #: src/settings/SettingsView.tsx
 msgctxt "editor text size"
 msgid "Compact"
-msgstr ""
+msgstr "紧凑"
 
 #: src/ConflictResolver.tsx
 msgid "Compare your edits with the latest version before choosing which one to save."
-msgstr ""
+msgstr "先将你的编辑与最新版本进行比较，再选择要保存的版本。"
 
 #: src/type-contracts.ts
 msgid "Compatible"
-msgstr ""
+msgstr "兼容"
 
 #: src/TypeBrowser.tsx
 msgid "Compatible tools use this policy when creating and renaming records. Existing files are not moved by this update."
-msgstr ""
+msgstr "兼容工具在创建和重命名记录时会使用此策略。本次更新不会移动现有文件。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Complete exactly one of the allowed field combinations."
-msgstr ""
+msgstr "请填写且仅填写一种允许的字段组合。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Complete one of the allowed field combinations."
-msgstr ""
+msgstr "请填写一种允许的字段组合。"
 
 #: src/PropertiesPanel.tsx
 msgid "Complete record source"
-msgstr ""
+msgstr "完整记录源码"
 
 #: src/TypeBrowser.tsx
 msgid "Computed projections"
-msgstr ""
+msgstr "计算投影"
 
 #: src/TypeBrowser.tsx
 msgid "Configure settings"
-msgstr ""
+msgstr "配置设置"
 
 #: src/TypeBrowser.tsx
 msgid "Configured"
-msgstr ""
+msgstr "已配置"
 
 #: src/TypeBrowser.tsx
 msgid "Confirm the collection-wide effect before saving."
-msgstr ""
+msgstr "保存前，请确认对整个集合的影响。"
 
 #: src/TypeBrowser.tsx
 msgid "Confirm update"
-msgstr ""
+msgstr "确认更新"
 
 #: src/ConnectionScreens.tsx
 msgid "Connect another collection"
-msgstr ""
+msgstr "连接另一个集合"
 
 #: src/App.tsx
 msgid "Connect another collection?"
-msgstr ""
+msgstr "连接另一个集合？"
 
 #: src/TypeBrowser.tsx
 msgid "Connect application contract"
-msgstr ""
+msgstr "关联应用契约"
 
 #: src/CollectionRail.tsx
 msgid "Connected"
-msgstr ""
+msgstr "已连接"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Connection"
-msgstr ""
+msgstr "连接"
 
 #: src/type-schema.ts
 msgid "constant value"
-msgstr ""
+msgstr "常量值"
 
 #. placeholder {0}: reference.title
 #: src/code-editor-note-embeds.ts
 msgid "Content of {0}"
-msgstr ""
+msgstr "{0} 的内容"
 
 #: src/TypeBrowser.tsx
 msgid "Contents"
-msgstr ""
+msgstr "内容"
 
 #: src/App.tsx
 msgid "Continue"
-msgstr ""
+msgstr "继续"
 
 #: src/TypeBrowser.tsx
 msgid "contract"
-msgstr ""
+msgstr "契约"
 
 #: src/TypeBrowser.tsx
 msgid "Contract"
-msgstr ""
+msgstr "契约"
 
 #: src/TypeBrowser.tsx
 msgid "Contract field"
-msgstr ""
+msgstr "契约字段"
 
 #: src/TypeBrowser.tsx
 msgid "Contract settings"
-msgstr ""
+msgstr "契约设置"
 
 #: src/TypeBrowser.tsx
 msgid "contracts"
-msgstr ""
+msgstr "契约"
 
 #: src/contract-catalog.ts
 msgid "contracts[{index}].contract_type is not supported."
-msgstr ""
+msgstr "不支持 contracts[{index}].contract_type。"
 
 #: src/TypeBrowser.tsx
 msgid "Control how compatible apps interpret and act on this type. Values are checked against the contract’s schema."
-msgstr ""
+msgstr "控制兼容应用如何解读和处理此类型。各项值将根据契约架构进行检查。"
 
 #: src/YourPersonPanel.tsx
 msgid "Convert and link this contact"
-msgstr ""
+msgstr "转换并关联此联系人"
 
 #: src/TypeBrowser.tsx
 msgid "Convert field"
-msgstr ""
+msgstr "转换字段"
 
 #: src/TypeBrowser.tsx
 msgid "Convert items"
-msgstr ""
+msgstr "转换列表项"
 
 #. placeholder {0}: kindLabel(pendingKind)
 #: src/TypeBrowser.tsx
 msgid "Convert list items to {0}?"
-msgstr ""
+msgstr "将列表项转换为{0}？"
 
 #. placeholder {0}: kindLabel(pendingKind)
 #: src/TypeBrowser.tsx
 msgid "Convert this field to {0}?"
-msgstr ""
+msgstr "将此字段转换为{0}？"
 
 #: src/App.tsx
 msgid "Copied {label}."
-msgstr ""
+msgstr "已复制{label}。"
 
 #: src/editor-commands.ts
 msgid "Copy link"
-msgstr ""
+msgstr "复制链接"
 
 #: src/CollectionRail.tsx
 #: src/editor-commands.ts
 #: src/embed-actions.ts
 msgid "Copy path"
-msgstr ""
+msgstr "复制路径"
 
 #: src/embed-actions.ts
 msgid "Copy path for {name}"
-msgstr ""
+msgstr "复制 {name} 的路径"
 
 #: src/YourPersonPanel.tsx
 msgid "Could not add person definitions. Review setup again."
-msgstr ""
+msgstr "无法添加人员定义。请重新检查设置。"
 
 #: src/YourPersonPanel.tsx
 msgid "Could not convert this contact. Its type may need additional fields or compatible mappings."
-msgstr ""
+msgstr "无法转换此联系人。其类型可能需要额外的字段或兼容的映射。"
 
 #: src/YourPersonPanel.tsx
 msgid "Could not link this person."
-msgstr ""
+msgstr "无法关联此人员。"
 
 #: src/YourPersonPanel.tsx
 msgid "Could not load people."
-msgstr ""
+msgstr "无法加载人员。"
 
 #: src/YourPersonPanel.tsx
 msgid "Could not review person setup."
-msgstr ""
+msgstr "无法检查人员设置。"
 
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/use-note-actions.ts
 msgid "Couldn’t check “{0}”. {message}"
-msgstr ""
+msgstr "无法检查“{0}”。{message}"
 
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/use-note-actions.ts
 msgid "Couldn’t check the rename for “{0}”. {message}"
-msgstr ""
+msgstr "无法检查“{0}”的重命名操作。{message}"
 
 #: src/AttachmentUpload.tsx
 msgid "Couldn’t confirm whether {name} was uploaded. Check the collection’s files before uploading again."
-msgstr ""
+msgstr "无法确认 {name} 是否已上传。再次上传前，请检查集合中的文件。"
 
 #: src/App.tsx
 msgid "Couldn’t copy {label}."
-msgstr ""
+msgstr "无法复制{label}。"
 
 #: src/embed-actions.ts
 msgid "Couldn’t copy the path. Clipboard access is unavailable."
-msgstr ""
+msgstr "无法复制路径。剪贴板访问不可用。"
 
 #. placeholder {0}: linked.path
 #. placeholder {1}: gatewayError(error)
 #: src/App.tsx
 msgid "Couldn’t create “{0}”. {1}"
-msgstr ""
+msgstr "无法创建“{0}”。{1}"
 
 #. placeholder {0}: session.draft.title || path
 #. placeholder {1}: session.error
 #: src/use-note-actions.ts
 msgid "Couldn’t delete “{0}”. {1}"
-msgstr ""
+msgstr "无法删除“{0}”。{1}"
 
 #. placeholder {0}: gatewayError(error)
 #: src/use-note-actions.ts
 msgid "Couldn’t delete “{path}”. {0}"
-msgstr ""
+msgstr "无法删除“{path}”。{0}"
 
 #. placeholder {0}: gatewayError(error)
 #: src/use-note-actions.ts
 msgid "Couldn’t duplicate note. {0}"
-msgstr ""
+msgstr "无法创建笔记副本。{0}"
 
 #. placeholder {0}: pack.displayName
 #: src/TypeBrowser.tsx
 msgid "Couldn’t install {0}"
-msgstr ""
+msgstr "无法安装 {0}"
 
 #. placeholder {0}: gatewayError(error)
 #: src/use-note-actions.ts
 msgid "Couldn’t link that mention. {0}"
-msgstr ""
+msgstr "无法关联该提及。{0}"
 
 #. placeholder {0}: gatewayError(error)
 #: src/App.tsx
 msgid "Couldn’t open “{path}”. {0}"
-msgstr ""
+msgstr "无法打开“{path}”。{0}"
 
 #: src/FileViewer.tsx
 msgid "Couldn’t preview {filename}"
-msgstr ""
+msgstr "无法预览 {filename}"
 
 #. placeholder {0}: session.document.path
 #. placeholder {1}: gatewayError(error)
 #: src/App.tsx
 msgid "Couldn’t reload rewritten links in “{0}”. {1}"
-msgstr ""
+msgstr "无法重新加载“{0}”中改写后的链接。{1}"
 
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/use-note-actions.ts
 msgid "Couldn’t rename “{0}”. {message}"
-msgstr ""
+msgstr "无法重命名“{0}”。{message}"
 
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/App.tsx
 msgid "Couldn’t save “{0}”. {message}"
-msgstr ""
+msgstr "无法保存“{0}”。{message}"
 
 #. placeholder {0}: gatewayError(error)
 #: src/use-note-actions.ts
 msgid "Couldn’t undo that change. {0}"
-msgstr ""
+msgstr "无法撤销该更改。{0}"
 
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/use-note-actions.ts
 msgid "Couldn’t update properties for “{0}”. {message}"
-msgstr ""
+msgstr "无法更新“{0}”的属性。{message}"
 
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/use-note-actions.ts
 msgid "Couldn’t update source for “{0}”. {message}"
-msgstr ""
+msgstr "无法更新“{0}”的源码。{message}"
 
 #: src/AttachmentUpload.tsx
 msgid "Couldn’t upload {name} right now. Try again shortly."
-msgstr ""
+msgstr "暂时无法上传 {name}。请稍后重试。"
 
 #: src/AttachmentUpload.tsx
 msgid "Couldn’t upload {name}."
-msgstr ""
+msgstr "无法上传 {name}。"
 
 #: src/AttachmentUpload.tsx
 msgid "Couldn’t upload {name}. Check your connection and try again."
-msgstr ""
+msgstr "无法上传 {name}。请检查网络连接后重试。"
 
 #: src/YourPersonPanel.tsx
 msgid "Create a note for yourself, starting from your account name."
-msgstr ""
+msgstr "以你的账户名为初始名称，为自己创建一篇笔记。"
 
 #: src/TypeBrowser.tsx
 msgid "Create fields that already match an installed contract. You can rename and remap them later."
-msgstr ""
+msgstr "创建与已安装契约匹配的字段。你可以稍后重命名并重新映射这些字段。"
 
 #: src/NewNoteComposer.tsx
 msgid "Create folder"
-msgstr ""
+msgstr "创建文件夹"
 
 #: src/NewNoteComposer.tsx
 msgid "Create it with a first note. Empty folders aren’t stored."
-msgstr ""
+msgstr "创建第一篇笔记时一并创建此文件夹。空文件夹不会被存储。"
 
 #: src/YourPersonPanel.tsx
 msgid "Create my person record"
-msgstr ""
+msgstr "创建我的人员记录"
 
 #: src/NewNoteComposer.tsx
 msgid "Create note"
-msgstr ""
+msgstr "创建笔记"
 
 #: src/NewNoteComposer.tsx
 msgid "Create note (Ctrl or Command + Enter)"
-msgstr ""
+msgstr "创建笔记（Ctrl 或 Command + Enter）"
 
 #: src/ConnectionScreens.tsx
 msgid "create notes"
-msgstr ""
+msgstr "创建笔记"
 
 #: src/NoteList.tsx
 msgid "Create the first note"
-msgstr ""
+msgstr "创建第一篇笔记"
 
 #: src/TypeBrowser.tsx
 msgid "Create the first type"
-msgstr ""
+msgstr "创建第一个类型"
 
 #: src/TypeBrowser.tsx
 msgid "Create this type?"
-msgstr ""
+msgstr "创建此类型？"
 
 #: src/TypeBrowser.tsx
 msgid "Create type"
-msgstr ""
+msgstr "创建类型"
 
 #. placeholder {0}: saved.name
 #: src/use-type-definition-lifecycle.ts
 msgid "Created type “{0}”."
-msgstr ""
+msgstr "已创建类型“{0}”。"
 
 #: src/TypeBrowser.tsx
 msgid "Creates a ready-to-use {primaryTypeLabel} type with standard fields and an editable contract mapping. Existing files will not be overwritten; installation stops if any target conflicts."
-msgstr ""
+msgstr "创建一个开箱即用的 {primaryTypeLabel} 类型，包含标准字段和可编辑的契约映射。不会覆盖现有文件；若任何目标存在冲突，安装将停止。"
 
 #: src/NewNoteComposer.tsx
 msgid "Creating"
-msgstr ""
+msgstr "正在创建"
 
 #: src/NewNoteComposer.tsx
 msgid "Creating folder"
-msgstr ""
+msgstr "正在创建文件夹"
 
 #: src/NewNoteComposer.tsx
 msgid "Ctrl "
-msgstr ""
+msgstr "Ctrl "
 
 #: src/editor-commands.ts
 msgid "Current note"
-msgstr ""
+msgstr "当前笔记"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Custom"
-msgstr ""
+msgstr "自定义"
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "Date"
-msgstr ""
+msgstr "日期"
 
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Date"
-msgstr ""
+msgstr "日期"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Date & time"
-msgstr ""
+msgstr "日期和时间"
 
 #: src/TypeBrowser.tsx
 msgid "Date and time"
-msgstr ""
+msgstr "日期和时间"
 
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Date and time"
-msgstr ""
+msgstr "日期和时间"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Default"
-msgstr ""
+msgstr "默认"
 
 #. placeholder {0}: index + 1
 #: src/TypeBrowser.tsx
 msgid "Default field {0}"
-msgstr ""
+msgstr "默认字段 {0}"
 
 #: src/TypeBrowser.tsx
 msgid "Default value"
-msgstr ""
+msgstr "默认值"
 
 #: src/TypeBrowser.tsx
 msgid "Default value for {field}"
-msgstr ""
+msgstr "{field} 的默认值"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Defined by this note's type"
-msgstr ""
+msgstr "由此笔记的类型定义"
 
 #: src/TypeBrowser.tsx
 msgid "Definition"
-msgstr ""
+msgstr "定义"
 
 #: src/TypeBrowser.tsx
 msgid "Definition changes"
-msgstr ""
+msgstr "定义更改"
 
 #: src/YourPersonPanel.tsx
 msgid "Definitions were added, but their Person mappings need review in Types."
-msgstr ""
+msgstr "已添加定义，但需在“类型”中检查其 Person 映射。"
 
 #: src/editor-commands.ts
 msgid "Delete"
-msgstr ""
+msgstr "删除"
 
 #: src/ConnectionScreens.tsx
 msgid "delete notes"
-msgstr ""
+msgstr "删除笔记"
 
 #: src/App.tsx
 msgid "Deleted “{title}”."
-msgstr ""
+msgstr "已删除“{title}”。"
 
 #: src/note-mutation-presentation.ts
 #: src/WorkspaceChrome.tsx
 msgid "Deleting"
-msgstr ""
+msgstr "正在删除"
 
 #: src/App.tsx
 msgid "Deleting “{title}”…"
-msgstr ""
+msgstr "正在删除“{title}”…"
 
 #: src/note-mutation-presentation.ts
 msgid "Deleting note"
-msgstr ""
+msgstr "正在删除笔记"
 
 #: src/TypeBrowser.tsx
 msgid "Describe which properties point to other records and how targets are validated."
-msgstr ""
+msgstr "描述哪些属性指向其他记录，以及如何验证目标。"
 
 #: src/type-schema.ts
 #: src/TypeBrowser.tsx
 msgid "Description"
-msgstr ""
+msgstr "描述"
 
 #: src/TypeBrowser.tsx
 msgid "Description field"
-msgstr ""
+msgstr "描述字段"
 
 #: src/TypeBrowser.tsx
 msgid "Design"
-msgstr ""
+msgstr "设计"
 
 #: src/TypeBrowser.tsx
 msgid "Design the note shape or work with its complete YAML source."
-msgstr ""
+msgstr "设计笔记结构，或编辑完整的 YAML 源码。"
 
 #: src/FolderChangeDialog.tsx
 #: src/MoveNoteDialog.tsx
 msgid "Destination folder"
-msgstr ""
+msgstr "目标文件夹"
 
 #: src/TypeBrowser.tsx
 msgid "Details"
-msgstr ""
+msgstr "详细信息"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Details"
-msgstr ""
+msgstr "详细信息"
 
 #: src/TypeBrowser.tsx
 msgid "Developer and infrastructure packs"
-msgstr ""
+msgstr "开发者和基础设施包"
 
 #: src/settings/SettingsView.tsx
 msgctxt "collection runtime"
 msgid "Disabled"
-msgstr ""
+msgstr "已禁用"
 
 #: src/settings/SettingsView.tsx
 msgctxt "explicit type keys setting"
 msgid "Disabled"
-msgstr ""
+msgstr "已禁用"
 
 #: src/App.tsx
 msgid "Discard changes"
-msgstr ""
+msgstr "放弃更改"
 
 #: src/App.tsx
 msgid "Discard folder"
-msgstr ""
+msgstr "放弃文件夹"
 
 #: src/App.tsx
 msgid "Discard note"
-msgstr ""
+msgstr "放弃笔记"
 
 #: src/App.tsx
 msgid "Discard recovered edits"
-msgstr ""
+msgstr "放弃恢复的编辑"
 
 #: src/App.tsx
 msgid "Discard this folder?"
-msgstr ""
+msgstr "放弃此文件夹？"
 
 #: src/App.tsx
 msgid "Discard this note?"
-msgstr ""
+msgstr "放弃此笔记？"
 
 #: src/App.tsx
 msgid "Discard this type?"
-msgstr ""
+msgstr "放弃此类型？"
 
 #: src/App.tsx
 msgid "Discard type"
-msgstr ""
+msgstr "放弃类型"
 
 #: src/App.tsx
 msgid "Discard type changes?"
-msgstr ""
+msgstr "放弃类型更改？"
 
 #: src/Toasts.tsx
 msgid "Dismiss notification"
-msgstr ""
+msgstr "关闭通知"
 
 #: src/type-presentation.ts
 #: src/TypeBrowser.tsx
 msgid "Display"
-msgstr ""
+msgstr "显示"
 
 #: src/TypeBrowser.tsx
 msgid "Display icon"
-msgstr ""
+msgstr "显示图标"
 
 #: src/type-schema.ts
 msgid "Display metadata"
-msgstr ""
+msgstr "显示元数据"
 
 #: src/type-schema.ts
 msgid "display with an unsupported value"
-msgstr ""
+msgstr "display 的值不受支持"
 
 #: src/code-editor-completions.ts
 msgid "Divider"
-msgstr ""
+msgstr "分隔线"
 
 #: src/editor-commands.ts
 #: src/WorkspaceChrome.tsx
 msgid "Document outline"
-msgstr ""
+msgstr "文档大纲"
 
 #: src/type-schema.ts
 msgid "Documentation"
-msgstr ""
+msgstr "文档"
 
 #: src/FolderChangeDialog.tsx
 msgid "Done"
-msgstr ""
+msgstr "完成"
 
 #: src/WorkspaceChrome.tsx
 msgid "Drag to resize · Double-click to reset"
-msgstr ""
+msgstr "拖动调整大小 · 双击重置"
 
 #: src/editor-commands.ts
 msgid "Duplicate"
-msgstr ""
+msgstr "创建副本"
 
 #: src/use-note-actions.ts
 msgid "Duplicated note."
-msgstr ""
+msgstr "已创建笔记副本。"
 
 #: src/NewNoteComposer.tsx
 msgid "e.g. Reading list"
-msgstr ""
+msgstr "例如：阅读清单"
 
 #: src/NewNoteComposer.tsx
 msgid "e.g. Research"
-msgstr ""
+msgstr "例如：研究"
 
 #: src/TypeBrowser.tsx
 msgid "Each choice includes its portable contract and an editable local mapping."
-msgstr ""
+msgstr "每个选项都包含可移植的契约和可编辑的本地映射。"
 
 #: src/type-contracts.ts
 msgid "Each implementation needs an exact contract ID and version."
-msgstr ""
+msgstr "每个实现都需要确切的契约 ID 和版本。"
 
 #: src/ConnectionScreens.tsx
 msgid "edit and move notes"
-msgstr ""
+msgstr "编辑和移动笔记"
 
 #: src/PropertiesPanel.tsx
 msgid "Edit as source"
-msgstr ""
+msgstr "编辑源码"
 
 #: src/NewNoteComposer.tsx
 msgid "Edit file path"
-msgstr ""
+msgstr "编辑文件路径"
 
 #: src/ConnectionScreens.tsx
 msgid "edit notes"
-msgstr ""
+msgstr "编辑笔记"
 
 #: src/TypeBrowser.tsx
 msgid "Edit reference"
-msgstr ""
+msgstr "编辑引用"
 
 #: src/PropertiesPanel.tsx
 msgid "Edit the underlying property values. Other apps use these values too."
-msgstr ""
+msgstr "编辑底层属性值。其他应用也使用这些值。"
 
 #: src/TypeBrowser.tsx
 msgid "Edit YAML"
-msgstr ""
+msgstr "编辑 YAML"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Editing"
-msgstr ""
+msgstr "编辑"
 
 #: src/App.tsx
 msgid "Editing is paused until you restore or discard these edits. They stay in this browser for up to seven days, or until saved or discarded. Restoring does not overwrite a newer version without review."
-msgstr ""
+msgstr "编辑已暂停，直到你恢复或放弃这些编辑。这些编辑会在此浏览器中保留最多七天，或直到保存或放弃。恢复时不会未经审阅就覆盖较新的版本。"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Editor settings"
-msgstr ""
+msgstr "编辑器设置"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Editor text size"
-msgstr ""
+msgstr "编辑器字号"
 
 #: src/TypeBrowser.tsx
 msgid "Effective values for missing properties. Source files stay unchanged."
-msgstr ""
+msgstr "缺失属性的生效值。源文件保持不变。"
 
 #: src/code-editor-completions.ts
 msgid "Embed collection content"
-msgstr ""
+msgstr "嵌入集合内容"
 
 #: src/code-editor-file-embeds.ts
 msgid "Embedded PDF, {filename}"
-msgstr ""
+msgstr "内嵌 PDF，{filename}"
 
 #. placeholder {0}: stringValue(runtime.profile_version, "0.1.0")
 #: src/settings/SettingsView.tsx
 msgid "Enabled · {0}"
-msgstr ""
+msgstr "已启用 · {0}"
 
 #. placeholder {0}: schema.maximum
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter {0} or less."
-msgstr ""
+msgstr "输入不大于 {0} 的值。"
 
 #. placeholder {0}: schema.minimum
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter {0} or more."
-msgstr ""
+msgstr "输入不小于 {0} 的值。"
 
 #: src/FolderChangeDialog.tsx
 msgid "Enter a folder name without slashes."
-msgstr ""
+msgstr "输入不含斜杠的文件夹名称。"
 
 #: src/SchemaValueEditor.tsx
 msgid "Enter a JSON {type}."
-msgstr ""
+msgstr "输入 JSON {type}。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter a list."
-msgstr ""
+msgstr "输入列表。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter a number."
-msgstr ""
+msgstr "输入数字。"
 
 #: src/TypeBrowser.tsx
 msgid "Enter a valid JSON value."
-msgstr ""
+msgstr "输入有效的 JSON 值。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter a whole number."
-msgstr ""
+msgstr "输入整数。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter an object."
-msgstr ""
+msgstr "输入对象。"
 
 #. placeholder {0}: schema.minLength
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter at least {0} characters."
-msgstr ""
+msgstr "输入至少 {0} 个字符。"
 
 #. placeholder {0}: schema.maxLength
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter no more than {0} characters."
-msgstr ""
+msgstr "输入不超过 {0} 个字符。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter text."
-msgstr ""
+msgstr "输入文本。"
 
 #: src/TypeBrowser.tsx
 msgid "Entire collection"
-msgstr ""
+msgstr "整个集合"
 
 #. placeholder {0}: index + 1
 #: src/SchemaValueEditor.tsx
 msgid "Entry {0} value"
-msgstr ""
+msgstr "条目 {0} 的值"
 
 #: src/PropertiesPanel.tsx
 msgid "Exact Markdown source, including YAML frontmatter and body."
-msgstr ""
+msgstr "完整的 Markdown 源码，包含 YAML 前置元数据和正文。"
 
 #: src/TypeBrowser.tsx
 msgid "Existing notes need attention"
-msgstr ""
+msgstr "现有笔记需要处理"
 
 #: src/YourPersonPanel.tsx
 msgid "Existing notes, other definitions, and access permissions will not be changed."
-msgstr ""
+msgstr "现有笔记、其他定义和访问权限不会改变。"
 
 #: src/YourPersonPanel.tsx
 msgid "Existing person or contact"
-msgstr ""
+msgstr "现有人员或联系人"
 
 #: src/App.tsx
 #: src/QuickOpen.tsx
 msgid "Exit focus mode"
-msgstr ""
+msgstr "退出专注模式"
 
 #. placeholder {0}: node.path
 #: src/CollectionRail.tsx
 msgid "Expand {0}"
-msgstr ""
+msgstr "展开 {0}"
 
 #: src/TypeBrowser.tsx
 msgid "Expand {fieldLabel} field"
-msgstr ""
+msgstr "展开 {fieldLabel} 字段"
 
 #: src/CollectionRail.tsx
 msgid "Expand descendants"
-msgstr ""
+msgstr "展开所有下级项"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Explicit type keys"
-msgstr ""
+msgstr "显式类型键"
 
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "False"
-msgstr ""
+msgstr "假"
 
 #: src/TypeBrowser.tsx
 msgid "Field mappings"
-msgstr ""
+msgstr "字段映射"
 
 #: src/type-contracts.ts
 msgid "Field mappings must be a YAML object."
-msgstr ""
+msgstr "字段映射必须是 YAML 对象。"
 
 #: src/TypeBrowser.tsx
 msgid "Field name"
-msgstr ""
+msgstr "字段名称"
 
 #: src/TypeBrowser.tsx
 msgid "Field selectors with an unsupported value"
-msgstr ""
+msgstr "字段选择器的值不受支持"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Field type"
-msgstr ""
+msgstr "字段类型"
 
 #: src/TypeBrowser.tsx
 msgid "Fields"
-msgstr ""
+msgstr "字段"
 
 #: src/TypeBrowser.tsx
 msgid "Fields added"
-msgstr ""
+msgstr "新增字段"
 
 #: src/TypeBrowser.tsx
 msgid "Fields changed"
-msgstr ""
+msgstr "已更改字段"
 
 #: src/TypeBrowser.tsx
 msgid "Fields removed"
-msgstr ""
+msgstr "已移除字段"
 
 #. placeholder {0}: file.path
 #: src/code-editor-completions.ts
 msgid "File · {0}"
-msgstr ""
+msgstr "文件 · {0}"
 
 #: src/NewNoteComposer.tsx
 msgid "File path"
-msgstr ""
+msgstr "文件路径"
 
 #: src/FileViewer.tsx
 msgid "File viewer, {filename}"
-msgstr ""
+msgstr "文件查看器，{filename}"
 
 #: src/NewNoteComposer.tsx
 msgid "Fill in the required properties."
-msgstr ""
+msgstr "填写必填属性。"
 
 #: src/code-editor-completions.ts
 msgid "Filter links by type"
-msgstr ""
+msgstr "按类型筛选链接"
 
 #: src/QuickOpen.tsx
 msgid "Find a note by title or path, or type > for actions"
-msgstr ""
+msgstr "按标题或路径查找笔记，或输入 > 查找操作"
 
 #: src/QuickOpen.tsx
 msgid "Find a note or action"
-msgstr ""
+msgstr "查找笔记或操作"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Find a property"
-msgstr ""
+msgstr "查找属性"
 
 #: src/QuickOpen.tsx
 msgid "Find in note"
-msgstr ""
+msgstr "在笔记中查找"
 
 #: src/WorkspaceChrome.tsx
 msgid "Find linked notes"
-msgstr ""
+msgstr "查找链接的笔记"
 
 #: src/CollectionRail.tsx
 msgid "Finding folders…"
-msgstr ""
+msgstr "正在查找文件夹…"
 
 #. placeholder {0}: pack.displayName
 #: src/TypeBrowser.tsx
 msgid "Finish adding {0}"
-msgstr ""
+msgstr "完成添加 {0}"
 
 #: src/NewNoteComposer.tsx
 msgid "First note"
-msgstr ""
+msgstr "第一篇笔记"
 
 #: src/PropertiesPanel.tsx
 msgid "Fix invalid fields to continue saving"
-msgstr ""
+msgstr "修正无效字段后才能继续保存"
 
 #: src/TypeBrowser.tsx
 msgid "Fix mapping"
-msgstr ""
+msgstr "修正映射"
 
 #: src/NewNoteComposer.tsx
 msgid "Fix the highlighted property values."
-msgstr ""
+msgstr "修正高亮的属性值。"
 
 #: src/PropertiesPanel.tsx
 msgid "Fix the JSON to continue saving"
-msgstr ""
+msgstr "修正 JSON 后才能继续保存"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Fix the JSON value before saving."
-msgstr ""
+msgstr "保存前请修正 JSON 值。"
 
 #: src/TypeBrowser.tsx
 msgid "Fix the YAML source before returning to the field editor."
-msgstr ""
+msgstr "返回字段编辑器前，请修正 YAML 源码。"
 
 #: src/App.tsx
 #: src/editor-commands.ts
 msgid "Focus mode"
-msgstr ""
+msgstr "专注模式"
 
 #: src/TypeBrowser.tsx
 msgid "Folder"
-msgstr ""
+msgstr "文件夹"
 
 #. placeholder {0}: filter.value
 #: src/note-list-view.ts
 msgid "Folder · {0}"
-msgstr ""
+msgstr "文件夹 · {0}"
 
 #: src/FolderChangeDialog.tsx
 msgid "Folder change complete"
-msgstr ""
+msgstr "文件夹更改已完成"
 
 #: src/FolderChangeDialog.tsx
 msgid "Folder change needs attention"
-msgstr ""
+msgstr "文件夹更改需要处理"
 
 #. placeholder {0}: gatewayError(error)
 #: src/App.tsx
 msgid "Folder changes were applied, but refreshing the index failed. {0}"
-msgstr ""
+msgstr "文件夹更改已应用，但刷新索引失败。{0}"
 
 #: src/FolderChangeDialog.tsx
 #: src/NewNoteComposer.tsx
 msgid "Folder name"
-msgstr ""
+msgstr "文件夹名称"
 
 #: src/CollectionRail.tsx
 msgid "folder path"
-msgstr ""
+msgstr "文件夹路径"
 
 #: src/CollectionRail.tsx
 msgid "Folders"
-msgstr ""
+msgstr "文件夹"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Follow the system appearance or keep a theme in this browser."
-msgstr ""
+msgstr "跟随系统外观，或在此浏览器中固定使用某个主题。"
 
 #: src/TypeBrowser.tsx
 msgid "For integrations and specialised setups"
-msgstr ""
+msgstr "用于集成和专门配置"
 
 #: src/App.tsx
 msgid "Forget “{name}” from this browser?"
-msgstr ""
+msgstr "从此浏览器中移除“{name}”？"
 
 #: src/App.tsx
 #: src/ConnectionScreens.tsx
 msgid "Forget from this browser"
-msgstr ""
+msgstr "从此浏览器中移除"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Forget from this browser"
-msgstr ""
+msgstr "从此浏览器中移除"
 
 #: src/TypeBrowser.tsx
 msgid "Format"
-msgstr ""
+msgstr "格式"
 
 #: src/App.tsx
 msgid "Forward in note history"
-msgstr ""
+msgstr "在笔记历史中前进"
 
 #: src/App.tsx
 msgid "Forward to {historyForwardPath} · Alt+Right"
-msgstr ""
+msgstr "前进到 {historyForwardPath} · Alt+Right"
 
 #. placeholder {0}: catalog.publisher.name
 #: src/TypeBrowser.tsx
 msgid "From {0}"
-msgstr ""
+msgstr "来自 {0}"
 
 #. placeholder {0}: plan.from
 #. placeholder {1}: plan.to
 #: src/FolderChangeDialog.tsx
 msgid "From <0>{0}</0> to <1>{1}</1>. This changes paths across the collection, including subfolders."
-msgstr ""
+msgstr "从 <0>{0}</0> 到 <1>{1}</1>。这会更改整个集合中的路径，包括子文件夹。"
 
 #: src/TypeBrowser.tsx
 msgid "Frontmatter contains all"
-msgstr ""
+msgstr "前置元数据包含所有字段"
 
 #: src/PropertiesPanel.tsx
 msgid "Frontmatter must be a JSON object."
-msgstr ""
+msgstr "前置元数据必须是 JSON 对象。"
 
 #: src/TypeBrowser.tsx
 msgid "Future file paths may change"
-msgstr ""
+msgstr "未来的文件路径可能改变"
 
 #: src/TypeBrowser.tsx
 msgid "Gains"
-msgstr ""
+msgstr "新增"
 
 #: src/TypeBrowser.tsx
 msgid "Generated path ownership"
-msgstr ""
+msgstr "生成路径归属"
 
 #: src/SdkEditorRoot.tsx
 msgid "Getting this collection ready…"
-msgstr ""
+msgstr "正在准备此集合…"
 
 #: src/TypeBrowser.tsx
 msgid "Give the type a name, then add the fields its notes need."
-msgstr ""
+msgstr "为类型命名，然后添加其笔记所需的字段。"
 
 #: src/TypeBrowser.tsx
 msgid "Guide compatible tools when they create or rename records of this type."
-msgstr ""
+msgstr "为兼容工具创建或重命名此类型的记录提供指引。"
 
 #: src/code-editor-completions.ts
 msgid "Heading 1"
-msgstr ""
+msgstr "一级标题"
 
 #: src/code-editor-completions.ts
 msgid "Heading 2"
-msgstr ""
+msgstr "二级标题"
 
 #: src/code-editor-completions.ts
 msgid "Heading 3"
-msgstr ""
+msgstr "三级标题"
 
 #: src/EditorRail.tsx
 msgid "Hide collections sidebar"
-msgstr ""
+msgstr "隐藏集合侧边栏"
 
 #: src/App.tsx
 msgid "Hide notes sidebar"
-msgstr ""
+msgstr "隐藏笔记侧边栏"
 
 #: src/App.tsx
 msgid "Hide types sidebar"
-msgstr ""
+msgstr "隐藏类型侧边栏"
 
 #: src/settings/SettingsView.tsx
 msgctxt "connection route"
 msgid "Hosted"
-msgstr ""
+msgstr "托管"
 
 #: src/TypeBrowser.tsx
 msgid "How notes are assigned to this type."
-msgstr ""
+msgstr "笔记如何归入此类型。"
 
 #: src/TypeBrowser.tsx
 msgid "How this type appears and behaves across compatible tools."
-msgstr ""
+msgstr "此类型在兼容工具中的显示方式和行为。"
 
 #: src/TypeBrowser.tsx
 msgid "Icon"
-msgstr ""
+msgstr "图标"
 
 #: src/TypeBrowser.tsx
 msgid "Identity"
-msgstr ""
+msgstr "标识"
 
 #: src/TypeBrowser.tsx
 msgid "Impact is based on the currently indexed notes. The collection validates the complete definition when you confirm."
-msgstr ""
+msgstr "影响评估基于当前已索引的笔记。你确认时，集合会验证完整定义。"
 
 #. placeholder {0}: contract.id
 #. placeholder {1}: contract.version
 #: src/type-contracts.ts
 msgid "Implements {0} {1}."
-msgstr ""
+msgstr "实现 {0} {1}。"
 
 #: src/editor-commands.ts
 msgid "in the list"
-msgstr ""
+msgstr "在列表中"
 
 #: src/type-contracts.ts
 msgid "Incompatible"
-msgstr ""
+msgstr "不兼容"
 
 #: src/code-editor-completions.ts
 msgid "Insert a fenced code block"
-msgstr ""
+msgstr "插入围栏代码块"
 
 #: src/code-editor-completions.ts
 msgid "Insert a Markdown table"
-msgstr ""
+msgstr "插入 Markdown 表格"
 
 #: src/code-editor-completions.ts
 msgid "Insert an internal link"
-msgstr ""
+msgstr "插入内部链接"
 
 #: src/ConnectionScreens.tsx
 msgid "inspect the collection"
-msgstr ""
+msgstr "检查集合"
 
 #: src/TypeBrowser.tsx
 msgid "Install runtime pack"
-msgstr ""
+msgstr "安装运行时包"
 
 #: src/TypeBrowser.tsx
 msgid "Installed"
-msgstr ""
+msgstr "已安装"
 
 #: src/TypeBrowser.tsx
 msgid "Installed contract"
-msgstr ""
+msgstr "已安装的契约"
 
 #: src/TypeBrowser.tsx
 msgid "Installing…"
-msgstr ""
+msgstr "正在安装…"
 
 #: src/type-presentation.ts
 msgid "integer"
-msgstr ""
+msgstr "整数"
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "Integer"
-msgstr ""
+msgstr "整数"
 
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Integer"
-msgstr ""
+msgstr "整数"
 
 #: src/i18n/LanguageSetting.tsx
 msgctxt "editor language preference"
 msgid "Interface language"
-msgstr ""
+msgstr "界面语言"
 
 #: src/type-contracts.ts
 msgid "invalid JSON Schema"
-msgstr ""
+msgstr "JSON 架构无效"
 
 #: src/PropertiesPanel.tsx
 #: src/SchemaValueEditor.tsx
 msgid "Invalid JSON."
-msgstr ""
+msgstr "JSON 无效。"
 
 #: src/YourPersonPanel.tsx
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
-msgstr ""
+msgstr "此类型自添加后未被编辑过，因此会被新的初始模板替换。"
 
 #: src/TypeBrowser.tsx
 msgid "Its current structural rules will be replaced."
-msgstr ""
+msgstr "其当前结构规则将被替换。"
 
 #: src/TypeBrowser.tsx
 msgid "Journal/**/*.md"
-msgstr ""
+msgstr "Journal/**/*.md"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Keep Markdown visible within the writing measure."
-msgstr ""
+msgstr "让 Markdown 始终显示在写作区域的宽度内。"
 
 #: src/ConflictResolver.tsx
 msgid "Keep my edits"
-msgstr ""
+msgstr "保留我的编辑"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Keep the caret line centred while writing in focus mode."
-msgstr ""
+msgstr "在专注模式下写作时，让光标所在行保持居中。"
 
 #: src/SchemaValueEditor.tsx
 msgid "Key"
-msgstr ""
+msgstr "键"
 
 #: src/editor-commands.ts
 msgid "Keyboard shortcuts"
-msgstr ""
+msgstr "键盘快捷键"
 
 #: src/i18n/LanguageSetting.tsx
 msgctxt "editor language preference"
 msgid "Language"
-msgstr ""
+msgstr "语言"
 
 #: src/settings/SettingsView.tsx
 msgctxt "editor text size"
 msgid "Large"
-msgstr ""
+msgstr "大"
 
 #: src/code-editor-completions.ts
 msgid "Large section heading"
-msgstr ""
+msgstr "大号章节标题"
 
 #: src/ConflictResolver.tsx
 msgid "Latest title"
-msgstr ""
+msgstr "最新标题"
 
 #: src/ConflictResolver.tsx
 msgid "Latest version"
-msgstr ""
+msgstr "最新版本"
 
 #. placeholder {0}: pack.displayName
 #: src/catalog-pack-installation.tsx
 msgid "Let “{0}” manage these definitions?"
-msgstr ""
+msgstr "允许“{0}”管理这些定义吗？"
 
 #: src/type-schema.ts
 msgid "Lifecycle"
-msgstr ""
+msgstr "生命周期"
 
 #: src/WorkspaceChrome.tsx
 msgid "Link"
-msgstr ""
+msgstr "添加链接"
 
 #: src/YourPersonPanel.tsx
 msgid "Link a record that already represents you."
-msgstr ""
+msgstr "关联一条已代表你的记录。"
 
 #: src/TypeBrowser.tsx
 msgid "Link and uniqueness rules can make matching records valid or invalid without changing their source files."
-msgstr ""
+msgstr "链接和唯一性规则可在不更改源文件的情况下，使匹配的记录变为有效或无效。"
 
 #: src/YourPersonPanel.tsx
 msgid "Link anyway"
-msgstr ""
+msgstr "仍然关联"
 
 #. placeholder {0}: index + 1
 #: src/TypeBrowser.tsx
 msgid "Link field {0}"
-msgstr ""
+msgstr "链接字段 {0}"
 
 #. placeholder {0}: noteTitle(mention.note, types)
 #: src/WorkspaceChrome.tsx
 msgid "Link mention in {0}"
-msgstr ""
+msgstr "为 {0} 中的提及添加链接"
 
 #: src/type-schema.ts
 msgid "link rule"
-msgstr ""
+msgstr "链接规则"
 
 #: src/type-schema.ts
 msgid "Link rules"
-msgstr ""
+msgstr "链接规则"
 
 #: src/YourPersonPanel.tsx
 msgid "Link this record to me"
-msgstr ""
+msgstr "将此记录关联到我"
 
 #: src/code-editor-completions.ts
 msgid "Link to note or file"
-msgstr ""
+msgstr "链接到笔记或文件"
 
 #: src/editor-commands.ts
 #: src/WorkspaceChrome.tsx
 msgid "Linked from"
-msgstr ""
+msgstr "反向链接"
 
 #: src/App.tsx
 msgid "Linked mention."
-msgstr ""
+msgstr "已为提及添加链接。"
 
 #: src/TypeBrowser.tsx
 msgid "Linked schema field"
-msgstr ""
+msgstr "关联的架构字段"
 
 #. placeholder {0}: linked.name
 #: src/YourPersonPanel.tsx
 msgid "Linked to {0}"
-msgstr ""
+msgstr "已关联到 {0}"
 
 #: src/TypeBrowser.tsx
 msgid "Links"
-msgstr ""
+msgstr "链接"
 
 #: src/type-schema.ts
 msgid "links with unsupported values"
-msgstr ""
+msgstr "含有不支持值的链接"
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "List"
-msgstr ""
+msgstr "列表"
 
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "List"
-msgstr ""
+msgstr "列表"
 
 #: src/ConnectionScreens.tsx
 msgid "list and search notes"
-msgstr ""
+msgstr "列出和搜索笔记"
 
 #: src/ConnectionScreens.tsx
 msgid "list files"
-msgstr ""
+msgstr "列出文件"
 
 #: src/type-schema.ts
 msgid "list item schema"
-msgstr ""
+msgstr "列表项架构"
 
 #: src/TypeBrowser.tsx
 msgid "List items"
-msgstr ""
+msgstr "列表项"
 
 #: src/App.tsx
 msgid "Loaded the latest version."
-msgstr ""
+msgstr "已加载最新版本。"
 
 #: src/TypeBrowser.tsx
 msgid "Loading available compatibility packs…"
-msgstr ""
+msgstr "正在加载可用的兼容包…"
 
 #: src/TypeBrowser.tsx
 msgid "Loading contract catalog"
-msgstr ""
+msgstr "正在加载契约资源目录"
 
 #: src/App.tsx
 msgid "Loading file viewer"
-msgstr ""
+msgstr "正在加载文件查看器"
 
 #: src/App.tsx
 msgid "Loading folder composer"
-msgstr ""
+msgstr "正在加载新建文件夹界面"
 
 #: src/CollectionRail.tsx
 msgid "Loading folders…"
-msgstr ""
+msgstr "正在加载文件夹…"
 
 #: src/WorkspaceChrome.tsx
 msgid "Loading note"
-msgstr ""
+msgstr "正在加载笔记"
 
 #: src/App.tsx
 msgid "Loading note composer"
-msgstr ""
+msgstr "正在加载新建笔记界面"
 
 #: src/MarkdownNoteEditor.tsx
 msgid "Loading note editor"
-msgstr ""
+msgstr "正在加载笔记编辑器"
 
 #: src/NotePreview.tsx
 msgid "Loading preview"
-msgstr ""
+msgstr "正在加载预览"
 
 #: src/NotePreview.tsx
 msgid "Loading preview…"
-msgstr ""
+msgstr "正在加载预览…"
 
 #: src/App.tsx
 msgid "Loading properties…"
-msgstr ""
+msgstr "正在加载属性…"
 
 #: src/LoadingScreens.tsx
 #: src/TypeBrowser.tsx
 msgid "Loading type definition"
-msgstr ""
+msgstr "正在加载类型定义"
 
 #: src/LoadingScreens.tsx
 msgid "Loading types"
-msgstr ""
+msgstr "正在加载类型"
 
 #: src/YourPersonPanel.tsx
 msgid "Loading your identity and person records…"
-msgstr ""
+msgstr "正在加载你的身份和人员记录…"
 
 #: src/WorkspaceChrome.tsx
 msgid "Loading…"
-msgstr ""
+msgstr "正在加载…"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Local network access is blocked in this browser. Allow it in the site settings, then check again."
-msgstr ""
+msgstr "此浏览器阻止了本地网络访问。请在网站设置中允许访问，然后重新检查。"
 
 #: src/App.tsx
 msgid "Local network access is blocked in this browser. Allow it in the site settings, then try again."
-msgstr ""
+msgstr "此浏览器阻止了本地网络访问。请在网站设置中允许访问，然后重试。"
 
 #. placeholder {0}: Intl.DateTimeFormat().resolvedOptions().timeZone
 #: src/SchemaValueEditor.tsx
 msgid "Local time ({0})"
-msgstr ""
+msgstr "本地时间（{0}）"
 
 #: src/TypeBrowser.tsx
 msgid "Loses"
-msgstr ""
+msgstr "移出"
 
 #: src/ConnectionScreens.tsx
 msgid "manage type definitions"
-msgstr ""
+msgstr "管理类型定义"
 
 #: src/contract-catalog.ts
 msgid "manifest.resources[{index}].kind is not supported."
-msgstr ""
+msgstr "不支持 manifest.resources[{index}].kind。"
 
 #: src/contract-catalog.ts
 msgid "manifest.resources[{index}].mode is not supported."
-msgstr ""
+msgstr "不支持 manifest.resources[{index}].mode。"
 
 #. placeholder {0}: field.reference
 #: src/type-contracts.ts
 msgid "Map required contract field {0}."
-msgstr ""
+msgstr "映射必需的契约字段 {0}。"
 
 #: src/TypeBrowser.tsx
 msgid "Mapping ready"
-msgstr ""
+msgstr "映射已就绪"
 
 #: src/CodeEditor.tsx
 msgid "Mark task complete"
-msgstr ""
+msgstr "将任务标记为已完成"
 
 #: src/CodeEditor.tsx
 msgid "Mark task incomplete"
-msgstr ""
+msgstr "将任务标记为未完成"
 
 #: src/QuickOpen.tsx
 msgid "Markdown commands"
-msgstr ""
+msgstr "Markdown 命令"
 
 #: src/TypeBrowser.tsx
 msgid "Markdown link"
-msgstr ""
+msgstr "Markdown 链接"
 
 #: src/App.tsx
 msgid "Markdown path"
-msgstr ""
+msgstr "Markdown 路径"
 
 #: src/FileViewer.tsx
 msgid "Markdown preview unavailable."
-msgstr ""
+msgstr "Markdown 预览不可用。"
 
 #: src/QuickOpen.tsx
 msgid "Matching actions"
-msgstr ""
+msgstr "匹配的操作"
 
 #: src/TypeBrowser.tsx
 msgid "Matching notes"
-msgstr ""
+msgstr "匹配的笔记"
 
 #: src/QuickOpen.tsx
 msgid "Matching notes and actions"
-msgstr ""
+msgstr "匹配的笔记和操作"
 
 #: src/type-schema.ts
 msgid "Matching rules"
-msgstr ""
+msgstr "匹配规则"
 
 #: src/TypeBrowser.tsx
 msgid "Maximum"
-msgstr ""
+msgstr "最大值"
 
 #: src/type-schema.ts
 msgid "maximum items"
-msgstr ""
+msgstr "最多项数"
 
 #: src/TypeBrowser.tsx
 msgid "Maximum items"
-msgstr ""
+msgstr "最多项数"
 
 #: src/type-schema.ts
 msgid "maximum length"
-msgstr ""
+msgstr "最大长度"
 
 #: src/TypeBrowser.tsx
 msgid "Maximum length"
-msgstr ""
+msgstr "最大长度"
 
 #: src/TypeBrowser.tsx
 msgid "mdbase catalog"
-msgstr ""
+msgstr "mdbase 资源目录"
 
 #: src/App.tsx
 msgid "mdbase could not be reached on this computer. Editing will continue through mdbase."
-msgstr ""
+msgstr "无法连接此计算机上的 mdbase。将继续通过 mdbase 编辑。"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "mdbase could not be reached on this computer. You can keep editing through mdbase."
-msgstr ""
+msgstr "无法连接此计算机上的 mdbase。你可以继续通过 mdbase 编辑。"
 
 #: src/next-editor-records.ts
 msgid "Mdbase did not return the complete note source. No source was reconstructed."
-msgstr ""
+msgstr "mdbase 未返回完整的笔记源文本。未重建任何源文本。"
 
 #: src/App.tsx
 msgid "mdbase editor can now use mdbase on this computer."
-msgstr ""
+msgstr "mdbase editor 现在可以使用此计算机上的 mdbase。"
 
 #: src/SdkEditorRoot.tsx
 msgid "mdbase editor: {developerMessage}"
-msgstr ""
+msgstr "mdbase editor：{developerMessage}"
 
 #: src/ConnectionScreens.tsx
 msgid "mdbase keeps the access you already approved and shows only what needs to be added."
-msgstr ""
+msgstr "mdbase 会保留你已批准的访问权限，仅显示需要新增的权限。"
 
 #: src/TypeBrowser.tsx
 msgid "Minimum"
-msgstr ""
+msgstr "最小值"
 
 #: src/type-schema.ts
 msgid "minimum items"
-msgstr ""
+msgstr "最少项数"
 
 #: src/TypeBrowser.tsx
 msgid "Minimum items"
-msgstr ""
+msgstr "最少项数"
 
 #: src/type-schema.ts
 msgid "minimum length"
-msgstr ""
+msgstr "最小长度"
 
 #: src/TypeBrowser.tsx
 msgid "Minimum length"
-msgstr ""
+msgstr "最小长度"
 
 #: src/TypeBrowser.tsx
 msgid "Missing field: {mapped}"
-msgstr ""
+msgstr "缺少字段：{mapped}"
 
 #. placeholder {0}: record.path
 #: src/collection-index-controller.ts
 msgid "Missing frontmatter projections for {0}"
-msgstr ""
+msgstr "缺少 {0} 的前置元数据投影"
 
 #: src/note-embeds.ts
 msgid "Missing note"
-msgstr ""
+msgstr "笔记缺失"
 
 #: src/TypeBrowser.tsx
 msgid "Missing properties have no type-specific read defaults."
-msgstr ""
+msgstr "缺失的属性没有此类型专用的读取默认值。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Missing required properties"
-msgstr ""
+msgstr "缺少必填属性"
 
 #: src/PropertiesPanel.tsx
 msgid "Modified"
-msgstr ""
+msgstr "修改时间"
 
 #: src/note-list-view.ts
 msgid "modified newest"
-msgstr ""
+msgstr "修改时间从新到旧"
 
 #: src/note-list-view.ts
 msgid "Modified newest"
-msgstr ""
+msgstr "修改时间从新到旧"
 
 #: src/note-list-view.ts
 msgid "modified oldest"
-msgstr ""
+msgstr "修改时间从旧到新"
 
 #: src/note-list-view.ts
 msgid "Modified oldest"
-msgstr ""
+msgstr "修改时间从旧到新"
 
 #: src/TypeBrowser.tsx
 msgid "More collection behaviour in YAML"
-msgstr ""
+msgstr "YAML 中的更多集合行为"
 
 #: src/TypeBrowser.tsx
 msgid "More inferred rules in YAML"
-msgstr ""
+msgstr "YAML 中的更多推断规则"
 
 #: src/App.tsx
 msgid "More note actions"
-msgstr ""
+msgstr "更多笔记操作"
 
 #: src/code-editor-note-embeds.ts
 msgid "More than one note matches this transclusion."
-msgstr ""
+msgstr "多篇笔记与此嵌入引用匹配。"
 
 #: src/MoveNoteDialog.tsx
 msgid "Move"
-msgstr ""
+msgstr "移动"
 
 #: src/FolderChangeDialog.tsx
 msgid "Move ‘{basename}’"
-msgstr ""
+msgstr "移动“{basename}”"
 
 #. placeholder {0}: plan.moves.length
 #. placeholder {1}: plan.referenceCount
 #: src/FolderChangeDialog.tsx
 msgid "Move {0, plural, one {# note} other {# notes}} and update {1, plural, one {# link} other {# links}}?"
-msgstr ""
+msgstr "移动 {0, plural, other {# 篇笔记}} 并更新 {1, plural, other {# 个链接}}？"
 
 #. placeholder {0}: paths.length
 #: src/MoveNoteDialog.tsx
 msgid "Move {0} notes"
-msgstr ""
+msgstr "移动 {0} 篇笔记"
 
 #: src/FolderChangeDialog.tsx
 msgid "Move folder"
-msgstr ""
+msgstr "移动文件夹"
 
 #: src/RailDropTarget.tsx
 msgid "Move here"
-msgstr ""
+msgstr "移动到这里"
 
 #: src/MoveNoteDialog.tsx
 msgid "Move note"
-msgstr ""
+msgstr "移动笔记"
 
 #: src/ConnectionScreens.tsx
 msgid "move notes"
-msgstr ""
+msgstr "移动笔记"
 
 #: src/QuickOpen.tsx
 msgid "Move through the note list"
-msgstr ""
+msgstr "在笔记列表中移动"
 
 #: src/CollectionRail.tsx
 #: src/editor-commands.ts
 msgid "Move to…"
-msgstr ""
+msgstr "移动到…"
 
 #. placeholder {0}: progress.completed
 #. placeholder {1}: progress.total
 #. placeholder {2}: progress.path
 #: src/FolderChangeDialog.tsx
 msgid "Moved {0} of {1} notes. {2}"
-msgstr ""
+msgstr "已移动 {0} 篇笔记，共 {1} 篇。{2}"
 
 #: src/note-mutation-presentation.ts
 #: src/WorkspaceChrome.tsx
 msgid "Moving"
-msgstr ""
+msgstr "正在移动"
 
 #: src/note-mutation-presentation.ts
 msgid "Moving note"
-msgstr ""
+msgstr "正在移动笔记"
 
 #: src/App.tsx
 msgid "Moving notes is not available with this collection’s current access."
-msgstr ""
+msgstr "此集合当前的访问权限不支持移动笔记。"
 
 #: src/FolderChangeDialog.tsx
 #: src/MoveNoteDialog.tsx
 msgid "Moving…"
-msgstr ""
+msgstr "正在移动…"
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "Name"
-msgstr ""
+msgstr "名称"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Name"
-msgstr ""
+msgstr "名称"
 
 #: src/TypeBrowser.tsx
 msgid "Name field"
-msgstr ""
+msgstr "名称字段"
 
 #: src/NewNoteComposer.tsx
 msgid "Name the folder to create it."
-msgstr ""
+msgstr "输入文件夹名称以创建。"
 
 #: src/note-mutation-presentation.ts
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Needs attention"
-msgstr ""
+msgstr "需要处理"
 
 #: src/type-schema.ts
 msgid "nested fields"
-msgstr ""
+msgstr "嵌套字段"
 
 #: src/TypeBrowser.tsx
 msgid "Nested fields"
-msgstr ""
+msgstr "嵌套字段"
 
 #: src/type-schema.ts
 msgid "nested required fields"
-msgstr ""
+msgstr "嵌套必填字段"
 
 #: src/CollectionRail.tsx
 #: src/NewNoteComposer.tsx
 msgid "New folder"
-msgstr ""
+msgstr "新建文件夹"
 
 #: src/editor-commands.ts
 #: src/NewNoteComposer.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
 msgid "New note"
-msgstr ""
+msgstr "新建笔记"
 
 #: src/CollectionRail.tsx
 msgid "New note here"
-msgstr ""
+msgstr "在此新建笔记"
 
 #: src/editor-commands.ts
 msgid "New note in current folder"
-msgstr ""
+msgstr "在当前文件夹中新建笔记"
 
 #: src/YourPersonPanel.tsx
 msgid "New person record"
-msgstr ""
+msgstr "新建人员记录"
 
 #: src/CollectionRail.tsx
 msgid "New subfolder"
-msgstr ""
+msgstr "新建子文件夹"
 
 #: src/TypeBrowser.tsx
 msgid "New type"
-msgstr ""
+msgstr "新建类型"
 
 #: src/type-schema.ts
 msgid "New type definition"
-msgstr ""
+msgstr "新建类型定义"
 
 #: src/QuickOpen.tsx
 msgid "Next or previous note"
-msgstr ""
+msgstr "下一篇或上一篇笔记"
 
 #: src/TypeBrowser.tsx
 msgid "No app contracts installed"
-msgstr ""
+msgstr "未安装应用契约"
 
 #: src/TypeBrowser.tsx
 msgid "No application contracts are installed"
-msgstr ""
+msgstr "未安装任何应用契约"
 
 #: src/TypeBrowser.tsx
 msgid "No automatic matching rules"
-msgstr ""
+msgstr "没有自动匹配规则"
 
 #: src/TypeBrowser.tsx
 msgid "No connections"
-msgstr ""
+msgstr "没有连接"
 
 #: src/TypeBrowser.tsx
 msgid "No cross-record uniqueness rules."
-msgstr ""
+msgstr "没有跨记录唯一性规则。"
 
 #: src/type-presentation.ts
 msgid "No custom behaviour"
-msgstr ""
+msgstr "没有自定义行为"
 
 #: src/SchemaValueEditor.tsx
 msgid "No declared values."
-msgstr ""
+msgstr "没有已声明的值。"
 
 #: src/App.tsx
 msgid "No earlier note"
-msgstr ""
+msgstr "没有更早的笔记"
 
 #: src/SchemaValueEditor.tsx
 msgid "No entries yet."
-msgstr ""
+msgstr "暂无条目。"
 
 #: src/TypeBrowser.tsx
 msgid "No entries."
-msgstr ""
+msgstr "没有条目。"
 
 #: src/TypeBrowser.tsx
 msgid "No fields are declared yet."
-msgstr ""
+msgstr "尚未声明任何字段。"
 
 #: src/CollectionRail.tsx
 msgid "No folders"
-msgstr ""
+msgstr "没有文件夹"
 
 #: src/WorkspaceChrome.tsx
 msgid "No headings yet."
-msgstr ""
+msgstr "暂无标题。"
 
 #: src/TypeBrowser.tsx
 msgid "No inferred rules. Records must declare this type explicitly."
-msgstr ""
+msgstr "没有推断规则。记录必须显式声明此类型。"
 
 #: src/code-editor-file-embeds.ts
 msgid "No inline preview is available for {filename}."
-msgstr ""
+msgstr "{filename} 没有可用的内嵌预览。"
 
 #: src/SchemaValueEditor.tsx
 msgid "No items yet."
-msgstr ""
+msgstr "暂无项目。"
 
 #: src/App.tsx
 msgid "No later note"
-msgstr ""
+msgstr "没有更晚的笔记"
 
 #: src/SelectionControls.tsx
 msgid "No matches."
-msgstr ""
+msgstr "没有匹配项。"
 
 #: src/QuickOpen.tsx
 msgid "No matching actions."
-msgstr ""
+msgstr "没有匹配的操作。"
 
 #: src/NoteSearchField.tsx
 msgid "No matching filters"
-msgstr ""
+msgstr "没有匹配的筛选条件"
 
 #: src/TypeBrowser.tsx
 msgid "No matching icons."
-msgstr ""
+msgstr "没有匹配的图标。"
 
 #: src/QuickOpen.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "No matching notes."
-msgstr ""
+msgstr "没有匹配的笔记。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "No matching schema properties."
-msgstr ""
+msgstr "没有匹配的架构属性。"
 
 #: src/TypeBrowser.tsx
 msgid "No nested fields yet."
-msgstr ""
+msgstr "暂无嵌套字段。"
 
 #. placeholder {0}: reference.target
 #: src/code-editor-reference-diagnostics.ts
 msgid "No note or file matches “{0}”."
-msgstr ""
+msgstr "没有与“{0}”匹配的笔记或文件。"
 
 #: src/WorkspaceChrome.tsx
 msgid "No notes link here yet."
-msgstr ""
+msgstr "暂无笔记链接到此处。"
 
 #: src/NoteList.tsx
 msgid "No notes or files found."
-msgstr ""
+msgstr "未找到笔记或文件。"
 
 #: src/NewNoteComposer.tsx
 msgid "No optional properties selected."
-msgstr ""
+msgstr "未选择可选属性。"
 
 #: src/TypeBrowser.tsx
 msgid "No properties are marked as links."
-msgstr ""
+msgstr "没有属性被标记为链接。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "No properties yet."
-msgstr ""
+msgstr "暂无属性。"
 
 #: src/NotePreview.tsx
 msgid "No text preview."
-msgstr ""
+msgstr "没有文本预览。"
 
 #: src/PropertiesPanel.tsx
 msgid "No type"
-msgstr ""
+msgstr "无类型"
 
 #: src/TypeBrowser.tsx
 msgid "No types found."
-msgstr ""
+msgstr "未找到类型。"
 
 #: src/WorkspaceChrome.tsx
 msgid "No unlinked mentions."
-msgstr ""
+msgstr "没有未链接的提及。"
 
 #: src/use-note-actions.ts
 msgid "No validation issues."
-msgstr ""
+msgstr "没有验证问题。"
 
 #: src/App.tsx
 msgid "Not attempted because an earlier move needs recovery."
-msgstr ""
+msgstr "未尝试，因为之前的移动操作需要恢复。"
 
 #: src/bulk-note-actions.ts
 msgid "Not changed because an earlier note's change isn't confirmed yet."
-msgstr ""
+msgstr "未更改，因为之前一篇笔记的更改尚未确认。"
 
 #: src/note-mutation-presentation.ts
 #: src/WorkspaceChrome.tsx
 msgid "Not confirmed yet"
-msgstr ""
+msgstr "尚未确认"
 
 #: src/type-contracts.ts
 msgid "Not exposed"
-msgstr ""
+msgstr "未公开"
 
 #: src/catalog-pack-installation.tsx
 #: src/YourPersonPanel.tsx
 msgid "Not now"
-msgstr ""
+msgstr "暂不"
 
 #: src/QuickOpen.tsx
 msgid "Note actions, in the list"
-msgstr ""
+msgstr "列表中的笔记操作"
 
 #: src/MarkdownNoteEditor.tsx
 #: src/NewNoteComposer.tsx
 msgid "Note body"
-msgstr ""
+msgstr "笔记正文"
 
 #: src/ConflictResolver.tsx
 msgid "Note changed elsewhere"
-msgstr ""
+msgstr "笔记已在其他地方更改"
 
 #: src/App.tsx
 msgid "Note editor"
-msgstr ""
+msgstr "笔记编辑器"
 
 #: src/App.tsx
 msgid "Note history"
-msgstr ""
+msgstr "笔记历史"
 
 #: src/App.tsx
 msgid "note link"
-msgstr ""
+msgstr "笔记链接"
 
 #: src/App.tsx
 msgid "note path"
-msgstr ""
+msgstr "笔记路径"
 
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/PropertiesPanel.tsx
 msgid "Note properties"
-msgstr ""
+msgstr "笔记属性"
 
 #: src/MarkdownNoteEditor.tsx
 msgid "Note title"
-msgstr ""
+msgstr "笔记标题"
 
 #: src/NotePreview.tsx
 msgid "Note types"
-msgstr ""
+msgstr "笔记类型"
 
 #: src/NoteListViewOptions.tsx
 msgid "Note view options"
-msgstr ""
+msgstr "笔记视图选项"
 
 #: src/QuickOpen.tsx
 msgid "Notes"
-msgstr ""
+msgstr "笔记"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Notes"
-msgstr ""
+msgstr "笔记"
 
 #: src/NoteList.tsx
 msgid "Notes and files"
-msgstr ""
+msgstr "笔记和文件"
 
 #: src/WorkspaceChrome.tsx
 msgid "Notes are ready. Allow type-definition access only if you want to inspect or manage collection types."
-msgstr ""
+msgstr "笔记已就绪。只有在你想查看或管理集合类型时，才需允许访问类型定义。"
 
 #: src/TypeBrowser.tsx
 msgid "Notes belong to this type when every configured condition group below matches."
-msgstr ""
+msgstr "当下方配置的所有条件组都匹配时，笔记属于此类型。"
 
 #. placeholder {0}: definition.name
 #. placeholder {1}: explicitTypeKeys.map((key, index) => <span key={key}>{index ? ", " : ""}<code>{key}</code></span>)
 #: src/TypeBrowser.tsx
 msgid "Notes can name <0>{0}</0> through {1}. When any configured key is present, automatic rules are skipped."
-msgstr ""
+msgstr "笔记可通过 {1} 指定 <0>{0}</0>。只要存在任一已配置的键，就会跳过自动规则。"
 
 #: src/NoteList.tsx
 msgid "Notes could not finish loading."
-msgstr ""
+msgstr "笔记未能完成加载。"
 
 #: src/FolderChangeDialog.tsx
 msgid "Notes in subfolders move too. Links to these notes will be updated."
-msgstr ""
+msgstr "子文件夹中的笔记也会移动。指向这些笔记的链接将会更新。"
 
 #: src/read-only-markdown.tsx
 msgid "Notes larger than 1 MiB are read-only at launch."
-msgstr ""
+msgstr "首发版本中，超过 1 MiB 的笔记为只读。"
 
 #: src/TypeBrowser.tsx
 msgid "Notes use this field to declare their type. Edit it in YAML if you need to change it."
-msgstr ""
+msgstr "笔记使用此字段声明类型。如需更改，请在 YAML 中编辑。"
 
 #: src/TypeBrowser.tsx
 msgid "Notes without an explicit assignment belong to this type when every configured condition group below matches."
-msgstr ""
+msgstr "未显式指定类型的笔记，在下方配置的所有条件组都匹配时属于此类型。"
 
 #: src/Toasts.tsx
 msgid "Notifications"
-msgstr ""
+msgstr "通知"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Null"
-msgstr ""
+msgstr "空值"
 
 #: src/type-presentation.ts
 msgid "number"
-msgstr ""
+msgstr "数字"
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "Number"
-msgstr ""
+msgstr "数字"
 
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Number"
-msgstr ""
+msgstr "数字"
 
 #: src/code-editor-completions.ts
 msgid "Numbered list"
-msgstr ""
+msgstr "有序列表"
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "Object"
-msgstr ""
+msgstr "对象"
 
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Object"
-msgstr ""
+msgstr "对象"
 
 #: src/TypeBrowser.tsx
 msgid "Objects and lists can contain fields at any depth."
-msgstr ""
+msgstr "对象和列表可以包含任意深度的字段。"
 
 #: src/CollectionRail.tsx
 msgid "Offline"
-msgstr ""
+msgstr "离线"
 
 #: src/collection-browser.ts
 msgid "Older"
-msgstr ""
+msgstr "更早"
 
 #: src/TypeBrowser.tsx
 msgid "Only declared fields are allowed"
-msgstr ""
+msgstr "仅允许已声明的字段"
 
 #: src/BulkNoteProperties.tsx
 msgid "Only properties declared by every selected note’s type can be set."
-msgstr ""
+msgstr "只能设置所有选中笔记的类型均已声明的属性。"
 
 #: src/embed-actions.ts
 msgid "Open"
-msgstr ""
+msgstr "打开"
 
 #: src/code-editor-file-embeds.ts
 msgid "Open {filename}"
-msgstr ""
+msgstr "打开 {filename}"
 
 #: src/embed-actions.ts
 msgid "Open {name}"
-msgstr ""
+msgstr "打开 {name}"
 
 #: src/TypeBrowser.tsx
 msgid "Open {primaryTypeLabel}"
-msgstr ""
+msgstr "打开 {primaryTypeLabel}"
 
 #: src/ConnectionScreens.tsx
 msgid "open and search notes"
-msgstr ""
+msgstr "打开并搜索笔记"
 
 #: src/editor-commands.ts
 msgid "Open Connect"
-msgstr ""
+msgstr "打开 Connect"
 
 #: src/code-editor-file-embeds.ts
 msgid "Open document"
-msgstr ""
+msgstr "打开文档"
 
 #: src/ConnectionScreens.tsx
 msgid "open files"
-msgstr ""
+msgstr "打开文件"
 
 #: src/ConnectionScreens.tsx
 msgid "open notes"
-msgstr ""
+msgstr "打开笔记"
 
 #: src/FileViewer.tsx
 msgid "Open original"
-msgstr ""
+msgstr "打开原文件"
 
 #: src/editor-commands.ts
 msgid "Open Settings"
-msgstr ""
+msgstr "打开设置"
 
 #: src/WorkspaceChrome.tsx
 msgid "Open to find mentions."
-msgstr ""
+msgstr "展开以查找提及。"
 
 #: src/editor-commands.ts
 msgid "Open Types"
-msgstr ""
+msgstr "打开类型"
 
 #: src/TypeBrowser.tsx
 msgid "Open YAML"
-msgstr ""
+msgstr "打开 YAML"
 
 #: src/NoteList.tsx
 msgid "Opening"
-msgstr ""
+msgstr "正在打开"
 
 #: src/App.tsx
 msgid "Opening “{pendingNotePath}”…"
-msgstr ""
+msgstr "正在打开“{pendingNotePath}”…"
 
 #. placeholder {0}: original.displayName
 #: src/SdkEditorRoot.tsx
 msgid "Opening {0}"
-msgstr ""
+msgstr "正在打开 {0}"
 
 #: src/code-editor-file-embeds.ts
 #: src/FileViewer.tsx
 msgid "Opening {filename}"
-msgstr ""
+msgstr "正在打开 {filename}"
 
 #: src/LoadingScreens.tsx
 msgid "Opening collection"
-msgstr ""
+msgstr "正在打开集合"
 
 #: src/main.tsx
 msgid "Opening mdbase connect… <0>Continue</0>"
-msgstr ""
+msgstr "正在打开 mdbase connect… <0>继续</0>"
 
 #: src/main.tsx
 msgid "Opening mdbase…"
-msgstr ""
+msgstr "正在打开 mdbase…"
 
 #: src/WorkspaceChrome.tsx
 msgid "Opening note…"
-msgstr ""
+msgstr "正在打开笔记…"
 
 #: src/code-editor-file-embeds.ts
 msgid "Opening text preview…"
-msgstr ""
+msgstr "正在打开文本预览…"
 
 #: src/code-editor-note-embeds.ts
 msgid "Opening transcluded note…"
-msgstr ""
+msgstr "正在打开嵌入的笔记…"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Operations"
-msgstr ""
+msgstr "操作"
 
 #: src/TypeBrowser.tsx
 msgid "Optional"
-msgstr ""
+msgstr "可选"
 
 #: src/SchemaValueEditor.tsx
 msgid "Optional field"
-msgstr ""
+msgstr "可选字段"
 
 #: src/TypeBrowser.tsx
 msgid "optional in this type"
-msgstr ""
+msgstr "在此类型中为可选"
 
 #: src/TypeBrowser.tsx
 msgid "Optional regular expression"
-msgstr ""
+msgstr "可选的正则表达式"
 
 #: src/type-schema.ts
 msgid "Other collection rules"
-msgstr ""
+msgstr "其他集合规则"
 
 #: src/TypeBrowser.tsx
 msgid "Other fields are allowed"
-msgstr ""
+msgstr "允许其他字段"
 
 #: src/editor-commands.ts
 msgid "outside text inputs"
-msgstr ""
+msgstr "在文本输入框外"
 
 #: src/TypeBrowser.tsx
 msgid "Pack"
-msgstr ""
+msgstr "包"
 
 #: src/contract-catalog.ts
 msgid "packs[{index}].resource_count must be a positive integer."
-msgstr ""
+msgstr "packs[{index}].resource_count 必须是正整数。"
 
 #: src/TypeBrowser.tsx
 msgid "Partly installed"
-msgstr ""
+msgstr "已部分安装"
 
 #: src/NewNoteComposer.tsx
 #: src/TypeBrowser.tsx
 msgid "Path"
-msgstr ""
+msgstr "路径"
 
 #: src/note-list-view.ts
 msgid "Path A–Z"
-msgstr ""
+msgstr "路径 A–Z"
 
 #: src/embed-actions.ts
 msgid "Path copied."
-msgstr ""
+msgstr "路径已复制。"
 
 #: src/TypeBrowser.tsx
 msgid "Path folder"
-msgstr ""
+msgstr "路径文件夹"
 
 #: src/TypeBrowser.tsx
 msgid "Path matches any"
-msgstr ""
+msgstr "路径匹配任一模式"
 
 #: src/TypeBrowser.tsx
 msgid "Path pattern"
-msgstr ""
+msgstr "路径模式"
 
 #: src/TypeBrowser.tsx
 msgid "Path patterns with an unsupported value"
-msgstr ""
+msgstr "值不受支持的路径模式"
 
 #: src/type-presentation.ts
 #: src/type-schema.ts
 #: src/TypeBrowser.tsx
 msgid "Path policy"
-msgstr ""
+msgstr "路径策略"
 
 #: src/TypeBrowser.tsx
 msgid "Path template"
-msgstr ""
+msgstr "路径模板"
 
 #. placeholder {0}: collectionRuleLabel(key)
 #: src/TypeBrowser.tsx
 msgid "Path: {0}"
-msgstr ""
+msgstr "路径：{0}"
 
 #: src/TypeBrowser.tsx
 msgid "Pattern"
-msgstr ""
+msgstr "模式"
 
 #: src/code-editor-file-embeds.ts
 msgid "PDF embed, {filename}"
-msgstr ""
+msgstr "嵌入的 PDF，{filename}"
 
 #: src/EmbedPdfViewer.tsx
 msgid "PDF viewer, {filename}"
-msgstr ""
+msgstr "PDF 查看器，{filename}"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Persisted null"
-msgstr ""
+msgstr "已持久化的 null"
 
 #: src/YourPersonPanel.tsx
 msgid "Person definitions needed"
-msgstr ""
+msgstr "需要人员定义"
 
 #: src/TypeBrowser.tsx
 msgid "person or any"
-msgstr ""
+msgstr "person 或 any"
 
 #: src/YourPersonPanel.tsx
 msgid "Person type"
-msgstr ""
+msgstr "Person 类型"
 
 #: src/YourPersonPanel.tsx
 msgid "Person type kept as it is"
-msgstr ""
+msgstr "Person 类型保持原样"
 
 #: src/YourPersonPanel.tsx
 msgid "Person type update available"
-msgstr ""
+msgstr "Person 类型有可用更新"
 
 #: src/TypeBrowser.tsx
 msgid "Phosphor icons"
-msgstr ""
+msgstr "Phosphor 图标"
 
 #: src/TypeBrowser.tsx
 msgid "Phosphor Regular"
-msgstr ""
+msgstr "Phosphor Regular"
 
 #: src/editor-commands.ts
 msgid "Pin"
-msgstr ""
+msgstr "固定"
 
 #: src/collection-browser.ts
 msgid "Pinned"
-msgstr ""
+msgstr "已固定"
 
 #: src/TypeBrowser.tsx
 msgid "Portable <0>{field}</0> placeholders."
-msgstr ""
+msgstr "可移植的 <0>{field}</0> 占位符。"
 
 #: src/TypeBrowser.tsx
 msgid "Possible app compatibility"
-msgstr ""
+msgstr "可能兼容的应用"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Preferences stay in this browser."
-msgstr ""
+msgstr "偏好设置仅保存在此浏览器中。"
 
 #. placeholder {0}: upload.name
 #: src/AttachmentUpload.tsx
 msgid "Preparing “{0}”…"
-msgstr ""
+msgstr "正在准备“{0}”…"
 
 #: src/MarkdownNoteEditor.tsx
 msgid "Preparing editor…"
-msgstr ""
+msgstr "正在准备编辑器…"
 
 #: src/LoadingScreens.tsx
 msgid "Preparing type list…"
-msgstr ""
+msgstr "正在准备类型列表…"
 
 #: src/LoadingScreens.tsx
 msgid "Preparing type workspace…"
-msgstr ""
+msgstr "正在准备类型工作区…"
 
 #: src/code-editor-file-embeds.ts
 #: src/FileViewer.tsx
 msgid "Preview {filename}"
-msgstr ""
+msgstr "预览 {filename}"
 
 #. placeholder {0}: formatBytes(this.maxPreviewBytes)
 #. placeholder {1}: formatBytes(entry.file.size)
 #: src/file-asset-store.ts
 msgid "Preview is limited to {0}. Download this {1} file to open it."
-msgstr ""
+msgstr "预览大小上限为 {0}。请下载这个大小为 {1} 的文件以打开它。"
 
 #. placeholder {0}: preview.title
 #: src/NotePreview.tsx
 msgid "Preview of {0}"
-msgstr ""
+msgstr "{0} 的预览"
 
 #: src/read-only-markdown.tsx
 msgid "Preview truncated for display. The whole verified original is available using Open original."
-msgstr ""
+msgstr "显示的预览已截断。点击“打开原文件”可查看经过验证的完整原文件。"
 
 #: src/NotePreview.tsx
 msgid "Preview unavailable."
-msgstr ""
+msgstr "预览不可用。"
 
 #: src/collection-browser.ts
 msgid "Previous 30 days"
-msgstr ""
+msgstr "过去 30 天"
 
 #: src/collection-browser.ts
 msgid "Previous 7 days"
-msgstr ""
+msgstr "过去 7 天"
 
 #: src/ConnectionScreens.tsx
 msgid "Previously opened in mdbase editor"
-msgstr ""
+msgstr "曾在 mdbase editor 中打开"
 
 #: src/SdkEditorRoot.tsx
 msgid "Private collections"
-msgstr ""
+msgstr "私有集合"
 
 #: src/SdkEditorRoot.tsx
 msgid "Private collections couldn't be loaded."
-msgstr ""
+msgstr "无法加载私有集合。"
 
 #: src/type-schema.ts
 msgid "Projections"
-msgstr ""
+msgstr "投影"
 
 #: src/TypeBrowser.tsx
 msgid "Projects/**/*.md"
-msgstr ""
+msgstr "Projects/**/*.md"
 
 #: src/NewNoteComposer.tsx
 #: src/PropertiesPanel.tsx
 msgid "Properties"
-msgstr ""
+msgstr "属性"
 
 #: src/PropertiesPanel.tsx
 msgid "Properties could not be saved."
-msgstr ""
+msgstr "无法保存属性。"
 
 #: src/PropertiesPanel.tsx
 msgid "Properties format"
-msgstr ""
+msgstr "属性格式"
 
 #: src/BulkNoteProperties.tsx
 msgid "Property"
-msgstr ""
+msgstr "属性"
 
 #: src/PropertiesPanel.tsx
 msgid "Property options"
-msgstr ""
+msgstr "属性选项"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Provided by the note's type, not stored in this file."
-msgstr ""
+msgstr "由笔记的类型提供，不存储在此文件中。"
 
 #: src/editor-commands.ts
 #: src/NoteSearchField.tsx
 #: src/QuickOpen.tsx
 msgid "Quick open"
-msgstr ""
+msgstr "快速打开"
 
 #. placeholder {0}: shortcutModifier()
 #: src/NoteSearchField.tsx
 msgid "Quick open · {0} P anywhere"
-msgstr ""
+msgstr "快速打开 · 在任意位置按 {0} P"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Quiet Markdown"
-msgstr ""
+msgstr "淡化 Markdown 标记"
 
 #: src/code-editor-completions.ts
 msgid "Quote"
-msgstr ""
+msgstr "引用"
 
 #: src/PropertiesPanel.tsx
 msgid "Raw frontmatter JSON"
-msgstr ""
+msgstr "原始前置元数据 JSON"
 
 #: src/type-schema.ts
 msgid "read default"
-msgstr ""
+msgstr "读取默认值"
 
 #: src/type-schema.ts
 #: src/TypeBrowser.tsx
 msgid "Read defaults"
-msgstr ""
+msgstr "读取默认值"
 
 #: src/type-schema.ts
 msgid "read defaults with an unsupported value"
-msgstr ""
+msgstr "值不受支持的读取默认值"
 
 #: src/App.tsx
 msgid "Read only"
-msgstr ""
+msgstr "只读"
 
 #: src/read-only-markdown.tsx
 msgid "Read-only Markdown preview"
-msgstr ""
+msgstr "只读 Markdown 预览"
 
 #: src/AttachmentUpload.tsx
 msgid "Reading"
-msgstr ""
+msgstr "正在读取"
 
 #: src/WorkspaceChrome.tsx
 msgid "Reading collection links…"
-msgstr ""
+msgstr "正在读取集合链接…"
 
 #: src/WorkspaceChrome.tsx
 msgid "Reading collection text…"
-msgstr ""
+msgstr "正在读取集合文本…"
 
 #: src/FileViewer.tsx
 msgid "Reading file content…"
-msgstr ""
+msgstr "正在读取文件内容…"
 
 #: src/LoadingScreens.tsx
 msgid "Reading its notes and types"
-msgstr ""
+msgstr "正在读取其中的笔记和类型"
 
 #: src/WorkspaceChrome.tsx
 msgid "Reading note content…"
-msgstr ""
+msgstr "正在读取笔记内容…"
 
 #: src/NoteList.tsx
 msgid "Reading notes and files"
-msgstr ""
+msgstr "正在读取笔记和文件"
 
 #: src/NoteList.tsx
 msgid "Reading notes and files…"
-msgstr ""
+msgstr "正在读取笔记和文件…"
 
 #: src/TypeBrowser.tsx
 msgid "Reading type definition…"
-msgstr ""
+msgstr "正在读取类型定义…"
 
 #: src/TypeBrowser.tsx
 msgid "Ready-made types"
-msgstr ""
+msgstr "现成类型"
 
 #: src/ConnectionScreens.tsx
 msgid "Recent collections"
-msgstr ""
+msgstr "最近的集合"
 
 #: src/QuickOpen.tsx
 msgid "Recent notes and actions"
-msgstr ""
+msgstr "最近的笔记和操作"
 
 #: src/CollectionRail.tsx
 msgid "Reconnecting"
-msgstr ""
+msgstr "正在重新连接"
 
 #: src/native-note-observation.ts
 msgid "Reconnecting to the collection…"
-msgstr ""
+msgstr "正在重新连接集合…"
 
 #: src/record-source.ts
 msgid "Record frontmatter must be a YAML mapping."
-msgstr ""
+msgstr "记录的前置元数据必须是 YAML 映射。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Record link"
-msgstr ""
+msgstr "记录链接"
 
 #: src/PropertiesPanel.tsx
 msgid "Record source"
-msgstr ""
+msgstr "记录源码"
 
 #: src/gateway.ts
 msgid "Recover the interrupted note operation before making another change. No new write was attempted."
-msgstr ""
+msgstr "再次更改前，请先恢复中断的笔记操作。未尝试任何新的写入。"
 
 #. placeholder {0}: move.from
 #: src/App.tsx
 msgid "Recover the unsaved edits in “{0}” before moving this folder."
-msgstr ""
+msgstr "移动此文件夹前，请先恢复“{0}”中未保存的编辑。"
 
 #: src/App.tsx
 msgid "Recover unsaved edits before moving this note."
-msgstr ""
+msgstr "移动此笔记前，请先恢复未保存的编辑。"
 
 #: src/note-mutation-presentation.ts
 msgid "Recovering deletion"
-msgstr ""
+msgstr "正在恢复删除操作"
 
 #: src/note-mutation-presentation.ts
 msgid "Recovering rename"
-msgstr ""
+msgstr "正在恢复重命名操作"
 
 #: src/WorkspaceChrome.tsx
 msgid "References could not finish loading."
-msgstr ""
+msgstr "引用未能完成加载。"
 
 #: src/App.tsx
 msgid "Refreshing collection state before reconnecting."
-msgstr ""
+msgstr "正在刷新集合状态，随后重新连接。"
 
 #: src/AppErrorBoundary.tsx
 msgid "Reload Connect"
-msgstr ""
+msgstr "重新加载 Connect"
 
 #: src/AppErrorBoundary.tsx
 msgid "Reload editor"
-msgstr ""
+msgstr "重新加载编辑器"
 
 #: src/code-editor-file-embeds.ts
 #: src/TypeBrowser.tsx
 msgid "Remove"
-msgstr ""
+msgstr "移除"
 
 #. placeholder {0}: entryName || `entry ${index + 1}`
 #: src/SchemaValueEditor.tsx
 msgid "Remove {0}"
-msgstr ""
+msgstr "移除 {0}"
 
 #. placeholder {0}: itemLabel.toLocaleLowerCase()
 #. placeholder {1}: index + 1
 #: src/TypeBrowser.tsx
 msgid "Remove {0} {1}"
-msgstr ""
+msgstr "移除 {0} {1}"
 
 #. placeholder {0}: implementation.contract
 #: src/TypeBrowser.tsx
 msgid "Remove {0} contract"
-msgstr ""
+msgstr "移除 {0} 契约"
 
 #. placeholder {0}: filter.kind
 #. placeholder {1}: filter.value
 #: src/NoteSearchField.tsx
 msgid "Remove {0} filter {1}"
-msgstr ""
+msgstr "移除 {0} 筛选条件 {1}"
 
 #: src/SchemaValueEditor.tsx
 msgid "Remove {field}"
-msgstr ""
+msgstr "移除 {field}"
 
 #: src/TypeBrowser.tsx
 msgid "Remove {fieldLabel} field"
-msgstr ""
+msgstr "移除 {fieldLabel} 字段"
 
 #. placeholder {0}: index + 1
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Remove {name} item {0}"
-msgstr ""
+msgstr "移除 {name} 的第 {0} 项"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Remove {name} property"
-msgstr ""
+msgstr "移除 {name} 属性"
 
 #: src/SdkEditorRoot.tsx
 msgid "Remove from this browser"
-msgstr ""
+msgstr "从此浏览器移除"
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
 msgid "Remove link rule for {0}"
-msgstr ""
+msgstr "移除 {0} 的链接规则"
 
 #. placeholder {0}: entry.field
 #: src/TypeBrowser.tsx
 msgid "Remove read default for {0}"
-msgstr ""
+msgstr "移除 {0} 的读取默认值"
 
 #: src/BulkNoteProperties.tsx
 #: src/editor-commands.ts
 msgid "Remove tag"
-msgstr ""
+msgstr "移除标签"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Remove this collection from the editor without changing its files."
-msgstr ""
+msgstr "从编辑器中移除此集合，不更改其文件。"
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
 msgid "Remove uniqueness rule for {0}"
-msgstr ""
+msgstr "移除 {0} 的唯一性规则"
 
 #: src/editor-commands.ts
 msgid "Rename"
-msgstr ""
+msgstr "重命名"
 
 #: src/FolderChangeDialog.tsx
 msgid "Rename ‘{basename}’"
-msgstr ""
+msgstr "重命名“{basename}”"
 
 #. placeholder {0}: plan.moves.length
 #. placeholder {1}: plan.referenceCount
 #: src/FolderChangeDialog.tsx
 msgid "Rename ‘{basename}’ and move {0, plural, one {# note} other {# notes}} and update {1, plural, one {# link} other {# links}}?"
-msgstr ""
+msgstr "重命名“{basename}”，移动 {0, plural, other {# 篇笔记}} 并更新 {1, plural, other {# 个链接}}？"
 
 #: src/App.tsx
 msgid "Rename and update links"
-msgstr ""
+msgstr "重命名并更新链接"
 
 #: src/FolderChangeDialog.tsx
 msgid "Rename folder"
-msgstr ""
+msgstr "重命名文件夹"
 
 #: src/CollectionRail.tsx
 msgid "Rename folder…"
-msgstr ""
+msgstr "重命名文件夹…"
 
 #: src/App.tsx
 msgid "Rename Markdown path"
-msgstr ""
+msgstr "重命名 Markdown 路径"
 
 #: src/App.tsx
 msgid "Rename path"
-msgstr ""
+msgstr "重命名路径"
 
 #: src/App.tsx
 msgid "Rename this note?"
-msgstr ""
+msgstr "重命名此笔记？"
 
 #. placeholder {0}: recoveryAction.to
 #: src/App.tsx
 msgid "Renamed to “{0}”."
-msgstr ""
+msgstr "已重命名为“{0}”。"
 
 #: src/note-mutation-presentation.ts
 msgid "Renaming"
-msgstr ""
+msgstr "正在重命名"
 
 #: src/WorkspaceChrome.tsx
 msgid "Renaming links"
-msgstr ""
+msgstr "正在重命名链接"
 
 #: src/YourPersonPanel.tsx
 msgid "Represent yourself using an ordinary note in this collection. This does not change access or membership."
-msgstr ""
+msgstr "使用此集合中的普通笔记来代表你自己。这不会更改访问权限或成员资格。"
 
 #: src/AttachmentUpload.tsx
 msgid "Request attachment access"
-msgstr ""
+msgstr "请求附件访问权限"
 
 #: src/TypeBrowser.tsx
 msgid "Require a property value to be unique across a deliberate comparison set."
-msgstr ""
+msgstr "要求属性值在指定的比较范围内唯一。"
 
 #: src/TypeBrowser.tsx
 msgid "Require an existing target"
-msgstr ""
+msgstr "要求目标已存在"
 
 #: src/TypeBrowser.tsx
 msgid "Require unique items"
-msgstr ""
+msgstr "要求各项不重复"
 
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 #: src/type-contracts.ts
 #: src/TypeBrowser.tsx
 msgid "Required"
-msgstr ""
+msgstr "必填"
 
 #: src/TypeBrowser.tsx
 msgid "Required fields covered"
-msgstr ""
+msgstr "所有必填字段均已映射"
 
 #: src/TypeBrowser.tsx
 msgid "Required match field"
-msgstr ""
+msgstr "匹配时必需的字段"
 
 #: src/NewNoteComposer.tsx
 msgid "Required properties"
-msgstr ""
+msgstr "必填属性"
 
 #: src/App.tsx
 msgid "Resize collections sidebar"
-msgstr ""
+msgstr "调整集合侧边栏大小"
 
 #: src/App.tsx
 msgid "Resize note inspector"
-msgstr ""
+msgstr "调整笔记检查器大小"
 
 #: src/App.tsx
 msgid "Resize notes sidebar"
-msgstr ""
+msgstr "调整笔记侧边栏大小"
 
 #: src/App.tsx
 msgid "Resize types sidebar"
-msgstr ""
+msgstr "调整类型侧边栏大小"
 
 #: src/next-editor-records.ts
 msgid "Resolve this note's protected edit before changing it."
-msgstr ""
+msgstr "请先处理此笔记中受保护的编辑，再进行更改。"
 
 #: src/TypeBrowser.tsx
 msgid "resources"
-msgstr ""
+msgstr "资源"
 
 #: src/contract-catalog.ts
 msgid "resources[{index}].document is too large."
-msgstr ""
+msgstr "resources[{index}].document 过大。"
 
 #: src/App.tsx
 msgid "Restore unsaved edits"
-msgstr ""
+msgstr "恢复未保存的编辑"
 
 #. placeholder {0}: noteTitle(restored, typeDescriptors)
 #: src/use-note-actions.ts
 msgid "Restored “{0}”."
-msgstr ""
+msgstr "已恢复“{0}”。"
 
 #: src/use-note-actions.ts
 msgid "Restored note paths."
-msgstr ""
+msgstr "已恢复笔记路径。"
 
 #: src/use-note-actions.ts
 msgid "Restored selected notes."
-msgstr ""
+msgstr "已恢复所选笔记。"
 
 #: src/use-note-actions.ts
 msgid "Restored unlinked mention."
-msgstr ""
+msgstr "已恢复未链接的提及。"
 
 #: src/Toasts.tsx
 msgid "Resume rename"
-msgstr ""
+msgstr "继续重命名"
 
 #: src/code-editor-file-embeds.ts
 #: src/CollectionRail.tsx
 #: src/YourPersonPanel.tsx
 msgid "Retry"
-msgstr ""
+msgstr "重试"
 
 #: src/WorkspaceChrome.tsx
 msgid "Retry backlinks"
-msgstr ""
+msgstr "重试加载反向链接"
 
 #: src/CollectionRail.tsx
 msgid "Retry connection"
-msgstr ""
+msgstr "重试连接"
 
 #: src/NoteList.tsx
 msgid "Retry files"
-msgstr ""
+msgstr "重试加载文件"
 
 #: src/App.tsx
 msgid "Retry note"
-msgstr ""
+msgstr "重试加载笔记"
 
 #: src/NoteList.tsx
 msgid "Retry notes"
-msgstr ""
+msgstr "重试加载笔记"
 
 #: src/App.tsx
 msgid "Retry opening editor"
-msgstr ""
+msgstr "重试打开编辑器"
 
 #: src/PropertiesPanel.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Retry save"
-msgstr ""
+msgstr "重试保存"
 
 #: src/NoteList.tsx
 msgid "Retry search"
-msgstr ""
+msgstr "重试搜索"
 
 #: src/TypeBrowser.tsx
 msgid "Revert"
-msgstr ""
+msgstr "还原"
 
 #: src/type-contracts.ts
 #: src/TypeBrowser.tsx
 msgid "Review"
-msgstr ""
+msgstr "审阅"
 
 #: src/YourPersonPanel.tsx
 msgid "Review access"
-msgstr ""
+msgstr "审阅访问权限"
 
 #: src/FolderChangeDialog.tsx
 #: src/TypeBrowser.tsx
 msgid "Review changes"
-msgstr ""
+msgstr "审阅更改"
 
 #: src/YourPersonPanel.tsx
 msgid "Review contact conversion"
-msgstr ""
+msgstr "审阅联系人转换"
 
 #: src/YourPersonPanel.tsx
 msgid "Review definition files"
-msgstr ""
+msgstr "审阅定义文件"
 
 #: src/ConflictResolver.tsx
 msgid "Review differences"
-msgstr ""
+msgstr "审阅差异"
 
 #: src/YourPersonPanel.tsx
 msgid "Review fields to write"
-msgstr ""
+msgstr "审阅待写入的字段"
 
 #: src/YourPersonPanel.tsx
 msgid "Review its Person mappings in Types before creating a person record."
-msgstr ""
+msgstr "创建人员记录前，请在“类型”中审阅其 Person 映射。"
 
 #: src/TypeBrowser.tsx
 msgid "Review mapping"
-msgstr ""
+msgstr "审阅映射"
 
 #: src/YourPersonPanel.tsx
 msgid "Review person setup"
-msgstr ""
+msgstr "审阅人员设置"
 
 #: src/YourPersonPanel.tsx
 msgid "Review Person type update"
-msgstr ""
+msgstr "审阅 Person 类型更新"
 
 #: src/TypeBrowser.tsx
 msgid "Review recommended"
-msgstr ""
+msgstr "建议审阅"
 
 #: src/App.tsx
 msgid "Review recovered text"
-msgstr ""
+msgstr "审阅恢复的文本"
 
 #: src/TypeBrowser.tsx
 msgid "Review YAML diff"
-msgstr ""
+msgstr "审阅 YAML 差异"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Route"
-msgstr ""
+msgstr "路由"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Runtime"
-msgstr ""
+msgstr "运行时"
 
 #: src/TypeBrowser.tsx
 msgid "Runtime path handling"
-msgstr ""
+msgstr "运行时路径处理"
 
 #: src/note-mutation-presentation.ts
 msgid "Save failed"
-msgstr ""
+msgstr "保存失败"
 
 #: src/PropertiesPanel.tsx
 msgid "Save source"
-msgstr ""
+msgstr "保存源码"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Saved access"
-msgstr ""
+msgstr "已保存的访问权限"
 
 #: src/CollectionRail.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Saved on this device; waiting for sync"
-msgstr ""
+msgstr "已保存在此设备上，等待同步"
 
 #. placeholder {0}: saved.name
 #: src/use-type-definition-lifecycle.ts
 msgid "Saved type “{0}”."
-msgstr ""
+msgstr "已保存类型“{0}”。"
 
 #: src/note-mutation-presentation.ts
 msgid "Saving"
-msgstr ""
+msgstr "正在保存"
 
 #: src/TypeBrowser.tsx
 msgid "Saving affects every matching note"
-msgstr ""
+msgstr "保存会影响所有匹配的笔记"
 
 #. placeholder {0}: type!.name
 #: src/TypeBrowser.tsx
 msgid "Saving affects every note of type <0>{0}</0>"
-msgstr ""
+msgstr "保存会影响所有类型为 <0>{0}</0> 的笔记"
 
 #: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Saving…"
-msgstr ""
+msgstr "正在保存…"
 
 #: src/type-schema.ts
 msgid "Schema settings"
-msgstr ""
+msgstr "架构设置"
 
 #: src/TypeBrowser.tsx
 msgid "Schema-managed fields"
-msgstr ""
+msgstr "由架构管理的字段"
 
 #: src/NoteListViewOptions.tsx
 #: src/TypeBrowser.tsx
 msgid "Scope"
-msgstr ""
+msgstr "范围"
 
 #: src/NoteSearchField.tsx
 msgid "Search"
-msgstr ""
+msgstr "搜索"
 
 #: src/NoteSearchField.tsx
 msgid "Search filters"
-msgstr ""
+msgstr "搜索筛选条件"
 
 #: src/NoteList.tsx
 msgid "Search is incomplete."
-msgstr ""
+msgstr "搜索结果不完整。"
 
 #: src/NoteSearchField.tsx
 msgid "Search notes and files"
-msgstr ""
+msgstr "搜索笔记和文件"
 
 #: src/TypeBrowser.tsx
 msgid "Search types"
-msgstr ""
+msgstr "搜索类型"
 
 #: src/NoteList.tsx
 msgid "Searching"
-msgstr ""
+msgstr "正在搜索"
 
 #: src/code-editor-completions.ts
 msgid "Section heading"
-msgstr ""
+msgstr "章节标题"
 
 #: src/code-editor-completions.ts
 msgid "Section in note"
-msgstr ""
+msgstr "笔记中的章节"
 
 #: src/WorkspaceChrome.tsx
 msgid "Select a note, or start a new one."
-msgstr ""
+msgstr "选择一篇笔记，或新建一篇。"
 
 #: src/YourPersonPanel.tsx
 msgid "Select a person record."
-msgstr ""
+msgstr "选择一条人员记录。"
 
 #: src/YourPersonPanel.tsx
 msgid "Select a Person-compatible type."
-msgstr ""
+msgstr "选择兼容 Person 的类型。"
 
 #: src/App.tsx
 #: src/editor-commands.ts
 msgid "Selected notes"
-msgstr ""
+msgstr "所选笔记"
 
 #: src/App.tsx
 msgid "Selection actions"
-msgstr ""
+msgstr "所选项操作"
 
 #: src/EditorRail.tsx
 msgid "Send feedback"
-msgstr ""
+msgstr "发送反馈"
 
 #: src/code-editor-completions.ts
 msgid "Separate sections"
-msgstr ""
+msgstr "分隔章节"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Set a value"
-msgstr ""
+msgstr "设置值"
 
 #: src/code-editor-completions.ts
 msgid "Set off quoted text"
-msgstr ""
+msgstr "将引用文字独立成块"
 
 #: src/BulkNoteProperties.tsx
 #: src/editor-commands.ts
 msgid "Set property"
-msgstr ""
+msgstr "设置属性"
 
 #: src/TypeBrowser.tsx
 msgid "Set the contract’s required behavior choices before saving this type."
-msgstr ""
+msgstr "保存此类型前，请设置契约要求的行为选项。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Set to null"
-msgstr ""
+msgstr "设为 null"
 
 #: src/YourPersonPanel.tsx
 msgid "Set up person records"
-msgstr ""
+msgstr "设置人员记录"
 
 #: src/YourPersonPanel.tsx
 msgid "Set up person records below before reviewing this contact."
-msgstr ""
+msgstr "审阅此联系人前，请先在下方设置人员记录。"
 
 #: src/EditorRail.tsx
 msgid "Settings"
-msgstr ""
+msgstr "设置"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Settings"
-msgstr ""
+msgstr "设置"
 
 #: src/TypeBrowser.tsx
 msgid "Setup required"
-msgstr ""
+msgstr "需要设置"
 
 #: src/YourPersonPanel.tsx
 msgid "Several person records are linked to your account. Edit them so exactly one record represents you:"
-msgstr ""
+msgstr "多条人员记录关联到了你的账户。请编辑这些记录，确保只有一条记录代表你："
 
 #: src/QuickOpen.tsx
 msgid "Shortcuts"
-msgstr ""
+msgstr "快捷键"
 
 #: src/TypeBrowser.tsx
 msgid "Show affected notes"
-msgstr ""
+msgstr "显示受影响的笔记"
 
 #. placeholder {0}: mentions.length
 #: src/WorkspaceChrome.tsx
 msgid "Show all {0}"
-msgstr ""
+msgstr "显示全部 {0} 条"
 
 #: src/App.tsx
 msgid "Show collections sidebar"
-msgstr ""
+msgstr "显示集合侧边栏"
 
 #: src/WorkspaceChrome.tsx
 msgid "Show fewer"
-msgstr ""
+msgstr "收起"
 
 #. placeholder {0}: node.path
 #. placeholder {1}: node.count
 #: src/CollectionRail.tsx
 msgid "Show notes in {0}, {1} or more notes"
-msgstr ""
+msgstr "显示 {0} 中的笔记（{1} 篇或更多）"
 
 #: src/App.tsx
 msgid "Show notes sidebar"
-msgstr ""
+msgstr "显示笔记侧边栏"
 
 #: src/editor-commands.ts
 msgid "Show or hide the notes sidebar"
-msgstr ""
+msgstr "显示或隐藏笔记侧边栏"
 
 #: src/App.tsx
 msgid "Show types sidebar"
-msgstr ""
+msgstr "显示类型侧边栏"
 
 #: src/App.tsx
 msgid "Sidebar layout controls"
-msgstr ""
+msgstr "侧边栏布局控件"
 
 #: src/App.tsx
 msgid "Sign out"
-msgstr ""
+msgstr "退出登录"
 
 #: src/App.tsx
 msgid "Sign out?"
-msgstr ""
+msgstr "退出登录？"
 
 #: src/PropertiesPanel.tsx
 msgid "Size"
-msgstr ""
+msgstr "大小"
 
 #: src/code-editor-completions.ts
 msgid "Small section heading"
-msgstr ""
+msgstr "小节标题"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Soften punctuation away from the active line and make tasks checkable."
-msgstr ""
+msgstr "淡化非当前行的标点，并让任务可以勾选。"
 
 #: src/NoteListViewOptions.tsx
 msgid "Sort"
-msgstr ""
+msgstr "排序"
 
 #: src/PropertiesPanel.tsx
 msgid "Source could not be saved. Your edits are still here."
-msgstr ""
+msgstr "无法保存源码。你的编辑仍然保留。"
 
 #: src/TypeBrowser.tsx
 msgid "Source field"
-msgstr ""
+msgstr "源字段"
 
 #: src/PropertiesPanel.tsx
 msgid "Source saves when focus leaves the editor"
-msgstr ""
+msgstr "焦点离开编辑器时保存源码"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Specification"
-msgstr ""
+msgstr "规范"
 
 #: src/code-editor-completions.ts
 msgid "Start a checkable task"
-msgstr ""
+msgstr "插入可勾选的任务"
 
 #: src/code-editor-completions.ts
 msgid "Start a list"
-msgstr ""
+msgstr "插入列表"
 
 #: src/code-editor-completions.ts
 msgid "Start an ordered list"
-msgstr ""
+msgstr "插入有序列表"
 
 #: src/TypeBrowser.tsx
 msgid "Start blank or from a ready-made type"
-msgstr ""
+msgstr "从空白或现成类型开始"
 
 #: src/TypeBrowser.tsx
 msgid "Start from an empty definition and add your own fields."
-msgstr ""
+msgstr "从空白定义开始，添加你自己的字段。"
 
 #: src/TypeBrowser.tsx
 msgid "Start from an empty definition, or choose a ready-made type and adapt its fields and contract mapping to fit your collection."
-msgstr ""
+msgstr "从空白定义开始，或选择现成类型，调整其字段和契约映射以适配你的集合。"
 
 #: src/TypeBrowser.tsx
 msgid "Start with app compatibility"
-msgstr ""
+msgstr "从应用兼容性开始"
 
 #: src/MarkdownNoteEditor.tsx
 #: src/NewNoteComposer.tsx
 msgid "Start writing"
-msgstr ""
+msgstr "开始写作"
 
 #: src/TypeBrowser.tsx
 msgid "Starting contract"
-msgstr ""
+msgstr "初始契约"
 
 #: src/TypeBrowser.tsx
 msgid "status"
-msgstr ""
+msgstr "status"
 
 #: src/note-mutation-presentation.ts
 msgid "Stopping safely"
-msgstr ""
+msgstr "正在安全停止"
 
 #: src/TypeBrowser.tsx
 msgid "Structured frontmatter conditions"
-msgstr ""
+msgstr "结构化前置元数据条件"
 
 #: src/TypeBrowser.tsx
 msgid "Suggested from field names and shapes only. Confirm that the meanings agree."
-msgstr ""
+msgstr "建议仅依据字段名称和结构生成。请确认含义一致。"
 
 #: src/NewNoteComposer.tsx
 msgid "Suggested path"
-msgstr ""
+msgstr "建议路径"
 
 #: src/App.tsx
 #: src/editor-commands.ts
 msgid "Switch collection"
-msgstr ""
+msgstr "切换集合"
 
 #: src/App.tsx
 msgid "Switch collections?"
-msgstr ""
+msgstr "切换集合？"
 
 #: src/editor-commands.ts
 msgid "Switch theme"
-msgstr ""
+msgstr "切换主题"
 
 #: src/ConnectionScreens.tsx
 msgid "sync changes"
-msgstr ""
+msgstr "同步更改"
 
 #: src/CollectionRail.tsx
 msgid "Sync stopped"
-msgstr ""
+msgstr "同步已停止"
 
 #: src/editor-commands.ts
 msgid "System → Light → Dark"
-msgstr ""
+msgstr "跟随系统 → 浅色 → 深色"
 
 #: src/code-editor-completions.ts
 msgid "Table"
-msgstr ""
+msgstr "表格"
 
 #: src/BulkNoteProperties.tsx
 msgid "Tag"
-msgstr ""
+msgstr "标签"
 
 #. placeholder {0}: filter.value
 #: src/note-list-view.ts
 msgid "Tag · #{0}"
-msgstr ""
+msgstr "标签 · #{0}"
 
 #: src/bulk-note-actions.ts
 msgid "Tags must be text or a list of text before they can be changed together."
-msgstr ""
+msgstr "标签必须是文本或文本列表，才能批量更改。"
 
 #: src/code-editor-completions.ts
 msgid "Task"
-msgstr ""
+msgstr "任务"
 
 #: src/TypeBrowser.tsx
 msgid "tasks"
-msgstr ""
+msgstr "tasks"
 
 #: src/TypeBrowser.tsx
 msgid "tasks/{id}.md"
-msgstr ""
+msgstr "tasks/{id}.md"
 
 #: src/TypeBrowser.tsx
 msgid "Technical details"
-msgstr ""
+msgstr "技术详情"
 
 #: src/TypeBrowser.tsx
 msgid "Tell compatible apps what this type’s fields mean."
-msgstr ""
+msgstr "告知兼容应用此类型各字段的含义。"
 
 #: src/TypeBrowser.tsx
 msgid "Template"
-msgstr ""
+msgstr "模板"
 
 #: src/type-presentation.ts
 msgid "text"
-msgstr ""
+msgstr "文本"
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "Text"
-msgstr ""
+msgstr "文本"
 
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Text"
-msgstr ""
+msgstr "文本"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Text size"
-msgstr ""
+msgstr "字号"
 
 #: src/TypeBrowser.tsx
 msgid "That field could not be changed."
-msgstr ""
+msgstr "无法更改该字段。"
 
 #: src/code-editor-note-embeds.ts
 msgid "That heading or block does not exist in this note."
-msgstr ""
+msgstr "此笔记中不存在该标题或块。"
 
 #: src/App.tsx
 msgid "That link does not point to a Markdown note that can be created."
-msgstr ""
+msgstr "该链接未指向可创建的 Markdown 笔记。"
 
 #: src/use-note-actions.ts
 msgid "That note changed after linking. Undo would overwrite its newer text."
-msgstr ""
+msgstr "该笔记在建立链接后已更改。撤销会覆盖其较新的文本。"
 
 #: src/unlinked-mentions.ts
 msgid "That note changed. Find its mentions again before linking."
-msgstr ""
+msgstr "该笔记已更改。请重新查找提及它的位置后再建立链接。"
 
 #. placeholder {0}: implementation.typeName
 #: src/person-records.ts
 msgid "The {0} type needs a writable {field} mapping for mdbase.person."
-msgstr ""
+msgstr "{0} 类型需要为 mdbase.person 配置可写的 {field} 映射。"
 
 #: src/native-gateway.ts
 msgid "The {subject} has a conflict. Resolve it before continuing."
-msgstr ""
+msgstr "{subject} 存在冲突。请解决后再继续。"
 
 #: src/native-gateway.ts
 msgid "The {subject} is not confirmed yet. Check the collection before trying again."
-msgstr ""
+msgstr "{subject} 尚未确认。请检查集合后再重试。"
 
 #: src/native-gateway.ts
 msgid "The {subject} was rejected."
-msgstr ""
+msgstr "{subject} 已被拒绝。"
 
 #. placeholder {0}: outdatedStarter!.typeName
 #: src/YourPersonPanel.tsx
 msgid "The <0>{0}</0> type is an earlier Person starter. Review the current starter before creating your record. Nothing will change without your approval."
-msgstr ""
+msgstr "<0>{0}</0> 类型是较早版本的 Person 初始类型。创建你的记录前，请检查当前的初始类型。未经你批准，不会进行任何更改。"
 
 #: src/TypeBrowser.tsx
 msgid "The after-save preview is unavailable because additional YAML rules must be evaluated by the collection."
-msgstr ""
+msgstr "保存后的预览暂不可用，因为需要由集合评估其他 YAML 规则。"
 
 #: src/TypeBrowser.tsx
 msgid "The after-save preview is unavailable because some matching rules must be evaluated by the collection."
-msgstr ""
+msgstr "保存后的预览暂不可用，因为需要由集合评估部分匹配规则。"
 
 #: src/contract-catalog.ts
 msgid "The catalog contains duplicate {label} {identity}."
-msgstr ""
+msgstr "资源目录中存在重复的 {label} {identity}。"
 
 #: src/TypeBrowser.tsx
 msgid "The catalog has no published types."
-msgstr ""
+msgstr "资源目录中没有已发布的类型。"
 
 #: src/collection-mutation-scope.ts
 msgid "The collection changed before this operation completed."
-msgstr ""
+msgstr "此操作完成前，集合已更改。"
 
 #: src/native-gateway.ts
 msgid "The collection changed since this setup was reviewed. Review it again."
-msgstr ""
+msgstr "此设置检查后，集合已更改。请重新检查。"
 
 #: src/native-note-observation.ts
 msgid "The collection changed while its notes were loading. Reload to try again."
-msgstr ""
+msgstr "加载笔记期间集合已更改。请重新加载后重试。"
 
 #: src/YourPersonPanel.tsx
 msgid "The collection changed. Review person setup again."
-msgstr ""
+msgstr "集合已更改。请重新检查人员设置。"
 
 #: src/App.tsx
 msgid "The collection changed. Review the folder change again."
-msgstr ""
+msgstr "集合已更改。请重新检查文件夹更改。"
 
 #: src/gateway.ts
 msgid "The collection could not be reached."
-msgstr ""
+msgstr "无法连接到集合。"
 
 #: src/native-note-observation.ts
 msgid "The collection could not be read."
-msgstr ""
+msgstr "无法读取集合。"
 
 #: src/SdkEditorRoot.tsx
 msgid "The collection couldn't be opened. Try again."
-msgstr ""
+msgstr "无法打开集合。请重试。"
 
 #: src/native-note-observation.ts
 msgid "The collection did not return a complete list of notes."
-msgstr ""
+msgstr "集合未返回完整的笔记列表。"
 
 #: src/native-gateway.ts
 msgid "The collection did not return every file."
-msgstr ""
+msgstr "集合未返回所有文件。"
 
 #: src/native-gateway.ts
 msgid "The collection did not return every record for this contract."
-msgstr ""
+msgstr "集合未返回此契约的所有记录。"
 
 #: src/native-gateway.ts
 msgid "The collection did not return this type definition's source."
-msgstr ""
+msgstr "集合未返回此类型定义的源码。"
 
 #: src/native-gateway.ts
 msgid "The collection does not read this file as a type definition. Check its name and kind."
-msgstr ""
+msgstr "集合未将此文件识别为类型定义。请检查其名称和类别。"
 
 #: src/file-inventory-controller.ts
 msgid "The collection files could not be read."
-msgstr ""
+msgstr "无法读取集合文件。"
 
 #: src/catalog-pack-installation.tsx
 msgid "The collection has older unmanaged files at the pack’s managed paths."
-msgstr ""
+msgstr "数据包的受管理路径中存在较早的非受管理集合文件。"
 
 #: src/native-gateway.ts
 msgid "The collection listed a file twice."
-msgstr ""
+msgstr "集合重复列出了同一文件。"
 
 #: src/native-gateway.ts
 msgid "The collection repeated a file page."
-msgstr ""
+msgstr "集合返回了重复的文件分页。"
 
 #: src/native-gateway.ts
 msgid "The collection repeated a query page."
-msgstr ""
+msgstr "集合返回了重复的查询分页。"
 
 #: src/native-gateway.ts
 msgid "The collection returned a file without its content digest."
-msgstr ""
+msgstr "集合返回的文件缺少内容摘要。"
 
 #: src/native-note-observation.ts
 msgid "The collection returned a note twice. Reload to try again."
-msgstr ""
+msgstr "集合重复返回了同一笔记。请重新加载后重试。"
 
 #: src/SdkEditorRoot.tsx
 msgid "The collection session has ended."
-msgstr ""
+msgstr "集合会话已结束。"
 
 #: src/SdkEditorRoot.tsx
 msgid "The collection that opened isn't the one you chose."
-msgstr ""
+msgstr "打开的集合不是你选择的集合。"
 
 #: src/native-note-observation.ts
 msgid "The collection watch stopped."
-msgstr ""
+msgstr "集合监听已停止。"
 
 #: src/next-editor-records.ts
 msgid "The complete note source does not match its native revision. No source was reconstructed or submitted."
-msgstr ""
+msgstr "完整的笔记源码与其原生修订版本不匹配。未重建或提交任何源码。"
 
 #: src/gateway.ts
 msgid "The computer holding this collection is offline."
-msgstr ""
+msgstr "存储此集合的计算机已离线。"
 
 #: src/person-records.ts
 msgid "The contact needs a display name."
-msgstr ""
+msgstr "联系人需要显示名称。"
 
 #: src/contract-catalog.ts
 msgid "The contract catalog"
-msgstr ""
+msgstr "契约资源目录"
 
 #: src/App.tsx
 msgid "The contract catalog could not be loaded."
-msgstr ""
+msgstr "无法加载契约资源目录。"
 
 #: src/contract-catalog.ts
 msgid "The contract catalog publisher"
-msgstr ""
+msgstr "契约资源目录发布者"
 
 #. placeholder {0}: response.status
 #: src/contract-catalog.ts
 msgid "The contract catalog returned {0}."
-msgstr ""
+msgstr "契约资源目录返回了 {0}。"
 
 #: src/contract-catalog.ts
 msgid "The contract catalog uses an unsupported version."
-msgstr ""
+msgstr "契约资源目录使用了不支持的版本。"
 
 #: src/type-contracts.ts
 msgid "The contract field"
-msgstr ""
+msgstr "契约字段"
 
 #: src/native-gateway.ts
 msgid "The current file does not confirm this upload. Resolve its original operation before trying again."
-msgstr ""
+msgstr "当前文件无法确认此次上传。请先处理原始操作，再重试。"
 
 #: src/next-editor-records.ts
 msgid "The current note is protected. Keep the original operation for recovery before reporting it as saved."
-msgstr ""
+msgstr "当前笔记受保护。请保留原始操作以便恢复，之后才能报告为已保存。"
 
 #: src/TypeBrowser.tsx
 msgid "the current rules"
-msgstr ""
+msgstr "当前规则"
 
 #: src/catalog-pack-installation.tsx
 msgid "The definitions changed while they were being reviewed."
-msgstr ""
+msgstr "检查期间定义已更改。"
 
 #: src/folder-change.ts
 msgid "The destination folder “{to}” already exists. Choose another name or move its notes individually; folders are not merged automatically."
-msgstr ""
+msgstr "目标文件夹“{to}”已存在。请选择其他名称，或逐一移动其中的笔记；文件夹不会自动合并。"
 
 #: src/App.tsx
 msgid "The details you entered haven’t been created yet."
-msgstr ""
+msgstr "你输入的详情尚未创建。"
 
 #: src/YourPersonPanel.tsx
 msgid "The Editor can link a person record only to an identity you let it read. Approve the Editor again for this collection and allow “See your account identity and display name”."
-msgstr ""
+msgstr "Editor 只能将人员记录关联到你允许它读取的身份。请重新批准 Editor 访问此集合，并允许“查看你的账户身份和显示名称”。"
 
 #: src/ConnectionScreens.tsx
 msgid "The editor opens mdbase 0.3 collections. For an older collection, use mdbase to upgrade a copy, verify that copy, then choose it here. Your original files can stay untouched while you check the result."
-msgstr ""
+msgstr "编辑器可打开 mdbase 0.3 集合。对于旧版集合，请使用 mdbase 升级其副本，验证后在此选择该副本。检查结果时，你的原始文件可以保持不变。"
 
 #: src/native-gateway.ts
 msgid "The editor requires its original SDK collection client."
-msgstr ""
+msgstr "编辑器需要使用其原始 SDK 集合客户端。"
 
 #: src/YourPersonPanel.tsx
 msgid "The Editor was not approved."
-msgstr ""
+msgstr "Editor 未获批准。"
 
 #: src/catalog-pack-installation.tsx
 msgid "The editor will replace these reviewed files and record their exact source, version, and digest in <0>mdbase.lock.yaml</0>. Future upgrades stop instead of overwriting an unexpected edit."
-msgstr ""
+msgstr "编辑器将替换这些已检查的文件，并在 <0>mdbase.lock.yaml</0> 中记录其确切来源、版本和摘要。今后升级遇到意外编辑时会停止，而不会覆盖。"
 
 #: src/gateway.ts
 #: src/next-editor-records.ts
 msgid "The exact interrupted note operation is unavailable. No new write was attempted."
-msgstr ""
+msgstr "无法获取中断的笔记操作的确切信息。未尝试新的写入。"
 
 #: src/file-asset-store.ts
 msgid "The file could not be opened."
-msgstr ""
+msgstr "无法打开文件。"
 
 #: src/native-file-download.ts
 msgid "The file download limit must be between 0 and 64 MiB."
-msgstr ""
+msgstr "文件下载上限必须介于 0 和 64 MiB 之间。"
 
 #: src/native-file-download.ts
 msgid "The file stream ended before its selected size."
-msgstr ""
+msgstr "文件流尚未达到所选大小就已结束。"
 
 #: src/native-file-download.ts
 msgid "The file stream exceeded its selected size."
-msgstr ""
+msgstr "文件流超出了所选大小。"
 
 #: src/native-gateway.ts
 msgid "The file upload outcome is unknown."
-msgstr ""
+msgstr "文件上传结果未知。"
 
 #: src/AttachmentUpload.tsx
 msgid "The file was uploaded, but the note changed before its link could be inserted."
-msgstr ""
+msgstr "文件已上传，但插入其链接前笔记已更改。"
 
 #: src/App.tsx
 msgid "The folder’s notes changed. Review the folder change again."
-msgstr ""
+msgstr "文件夹中的笔记已更改。请重新检查文件夹更改。"
 
 #: src/note-session.ts
 msgid "The interrupted operation removed this note. No new write was attempted."
-msgstr ""
+msgstr "中断的操作已移除此笔记。未尝试新的写入。"
 
 #: src/i18n/LanguageSetting.tsx
 msgctxt "editor language preference"
 msgid "The language choice could not be applied. Please try again."
-msgstr ""
+msgstr "无法应用所选语言。请重试。"
 
 #: src/TypeBrowser.tsx
 msgid "The linked schema does not expose object fields."
-msgstr ""
+msgstr "关联的架构未提供对象字段。"
 
 #: src/use-note-actions.ts
 msgid "The move did not complete."
-msgstr ""
+msgstr "移动未完成。"
 
 #: src/next-editor-records.ts
 msgid "The native receipt changed its mutation identity."
-msgstr ""
+msgstr "原生回执的变更标识发生了变化。"
 
 #: src/next-editor-records.ts
 msgid "The native write changed its mutation identity."
-msgstr ""
+msgstr "原生写入的变更标识发生了变化。"
 
 #: src/App.tsx
 msgid "The new type definition hasn’t been saved."
-msgstr ""
+msgstr "新的类型定义尚未保存。"
 
 #: src/next-editor-records.ts
 msgid "The note change was rejected."
-msgstr ""
+msgstr "笔记更改已被拒绝。"
 
 #: src/NewNoteComposer.tsx
 msgid "The note could not be created."
-msgstr ""
+msgstr "无法创建笔记。"
 
 #: src/AttachmentUpload.tsx
 #: src/code-editor-file-embeds.ts
 msgid "The note is no longer editable."
-msgstr ""
+msgstr "此笔记已无法编辑。"
 
 #: src/ConflictResolver.tsx
 msgid "The note metadata changed, but the title and body match your edits."
-msgstr ""
+msgstr "笔记元数据已更改，但标题和正文与你的编辑一致。"
 
 #: src/App.tsx
 msgid "The note or attachment index is refreshing. Wait for it to finish, then review the folder change again."
-msgstr ""
+msgstr "笔记或附件索引正在刷新。请等待完成后，重新检查文件夹更改。"
 
 #: src/next-editor-records.ts
 msgid "The original complete note source is unavailable."
-msgstr ""
+msgstr "原始的完整笔记源码不可用。"
 
 #: src/person-records.ts
 msgid "The person identity field must be an array."
-msgstr ""
+msgstr "人员身份字段必须是数组。"
 
 #: src/person-records.ts
 msgid "The Person mappings conflict with existing Contact fields. Configure non-overlapping mappings first."
-msgstr ""
+msgstr "Person 映射与现有的 Contact 字段冲突。请先配置互不重叠的映射。"
 
 #: src/YourPersonPanel.tsx
 msgid "The record's display name belongs to this collection and is not synchronised with your account."
-msgstr ""
+msgstr "此记录的显示名称属于此集合，不会与你的账户同步。"
 
 #: src/App.tsx
 msgid "The recovery copy could not be removed from this browser."
-msgstr ""
+msgstr "无法从此浏览器中移除恢复副本。"
 
 #: src/use-note-actions.ts
 msgid "The renamed note is no longer available to restore."
-msgstr ""
+msgstr "重命名后的笔记已不可用，无法恢复。"
 
 #: src/next-editor-records.ts
 msgid "The saved note changed its record identity."
-msgstr ""
+msgstr "已保存笔记的记录标识发生了变化。"
 
 #: src/type-schema.ts
 msgid "The schema path does not identify an object field."
-msgstr ""
+msgstr "架构路径未指向对象字段。"
 
 #: src/YourPersonPanel.tsx
 msgid "The selected collection changed. Open its person settings again."
-msgstr ""
+msgstr "所选集合已更改。请重新打开其人员设置。"
 
 #: src/gateway.ts
 #: src/native-gateway.ts
 msgid "The selected collection is not ready."
-msgstr ""
+msgstr "所选集合尚未就绪。"
 
 #: src/native-file-download.ts
 msgid "The selected file has an invalid size."
-msgstr ""
+msgstr "所选文件的大小无效。"
 
 #: src/TypeBrowser.tsx
 msgid "The source changed without altering declared fields."
-msgstr ""
+msgstr "源码已更改，但声明的字段未变。"
 
 #: src/TypeBrowser.tsx
 msgid "The stable name used by records and connected apps."
-msgstr ""
+msgstr "记录和已连接应用使用的固定名称。"
 
 #: src/person-records.ts
 msgid "The target {targetField} field contains different data. Configure a non-conflicting mapping first."
-msgstr ""
+msgstr "目标字段 {targetField} 包含不同的数据。请先配置无冲突的映射。"
 
 #: src/person-records.ts
 msgid "The target person name field contains different data. Configure a non-conflicting mapping first."
-msgstr ""
+msgstr "目标人员姓名字段包含不同的数据。请先配置无冲突的映射。"
 
 #: src/person-records.ts
 msgid "The target person type is unavailable."
-msgstr ""
+msgstr "目标人员类型不可用。"
 
 #: src/person-records.ts
 msgid "The target type cannot retain the contact's {canonical} field. Configure that mapping first."
-msgstr ""
+msgstr "目标类型无法保留此联系人的 {canonical} 字段。请先配置该映射。"
 
 #: src/person-records.ts
 msgid "The target type would overwrite {key}. Configure compatible mappings first."
-msgstr ""
+msgstr "目标类型会覆盖 {key}。请先配置兼容的映射。"
 
 #: src/code-editor-file-embeds.ts
 msgid "The text preview could not be opened."
-msgstr ""
+msgstr "无法打开文本预览。"
 
 #: src/code-editor-note-embeds.ts
 #: src/note-embeds.ts
 msgid "The transcluded note could not be opened."
-msgstr ""
+msgstr "无法打开嵌入的笔记。"
 
 #: src/native-gateway.ts
 msgid "The type {name} is not defined in this collection."
-msgstr ""
+msgstr "此集合未定义类型 {name}。"
 
 #: src/type-contracts.ts
 #: src/type-schema.ts
 msgid "The type definition must be a YAML object."
-msgstr ""
+msgstr "类型定义必须是 YAML 对象。"
 
 #: src/type-contracts.ts
 msgid "the type field"
-msgstr ""
+msgstr "类型字段"
 
 #: src/contract-catalog.ts
 msgid "The type pack"
-msgstr ""
+msgstr "类型包"
 
 #: src/contract-catalog.ts
 msgid "The type pack contains an unexpected resource {source}."
-msgstr ""
+msgstr "类型包包含预期之外的资源 {source}。"
 
 #: src/contract-catalog.ts
 msgid "The type pack contains duplicate source {source}."
-msgstr ""
+msgstr "类型包包含重复的来源 {source}。"
 
 #: src/TypeBrowser.tsx
 msgid "The type pack could not be installed."
-msgstr ""
+msgstr "无法安装类型包。"
 
 #: src/contract-catalog.ts
 msgid "The type pack does not contain every declared resource."
-msgstr ""
+msgstr "类型包未包含所有已声明的资源。"
 
 #: src/contract-catalog.ts
 msgid "The type pack does not match its catalog digest."
-msgstr ""
+msgstr "类型包与目录中的摘要不匹配。"
 
 #: src/contract-catalog.ts
 msgid "The type pack does not provide the contracts declared by the catalog."
-msgstr ""
+msgstr "类型包未提供目录中声明的契约。"
 
 #: src/contract-catalog.ts
 msgid "The type pack is larger than the editor can install."
-msgstr ""
+msgstr "类型包大小超出了编辑器的安装上限。"
 
 #: src/contract-catalog.ts
 msgid "The type pack is not valid JSON."
-msgstr ""
+msgstr "类型包不是有效的 JSON。"
 
 #. placeholder {0}: response.status
 #: src/contract-catalog.ts
 msgid "The type pack returned {0}."
-msgstr ""
+msgstr "类型包返回了 {0}。"
 
 #: src/YourPersonPanel.tsx
 msgid "The type used when linking a record to you."
-msgstr ""
+msgstr "将记录关联到你时使用的类型。"
 
 #: src/contract-catalog.ts
 msgid "The type-pack identity does not match the catalog."
-msgstr ""
+msgstr "类型包标识与目录不匹配。"
 
 #: src/contract-catalog.ts
 msgid "The type-pack manifest"
-msgstr ""
+msgstr "类型包清单"
 
 #: src/contract-catalog.ts
 msgid "The type-pack manifest has an unsupported kind."
-msgstr ""
+msgstr "类型包清单的种类不受支持。"
 
 #: src/contract-catalog.ts
 msgid "The type-pack resource count does not match the catalog."
-msgstr ""
+msgstr "类型包的资源数量与目录不匹配。"
 
 #: src/App.tsx
 msgid "The unfinished folder hasn’t been created."
-msgstr ""
+msgstr "尚未完成的文件夹还未创建。"
 
 #: src/App.tsx
 msgid "The unfinished note hasn’t been created."
-msgstr ""
+msgstr "尚未完成的笔记还未创建。"
 
 #: src/App.tsx
 msgid "The unfinished note or folder will be discarded. Saved note and property changes will finish first."
-msgstr ""
+msgstr "尚未完成的笔记或文件夹将被丢弃。正在保存的笔记和属性更改会先完成。"
 
 #: src/TypeBrowser.tsx
 msgid "The YAML source could not be read."
-msgstr ""
+msgstr "无法读取 YAML 源码。"
 
 #: src/TypeBrowser.tsx
 msgid "Their current structural rules will be replaced."
-msgstr ""
+msgstr "其现有的结构规则将被替换。"
 
 #: src/folder-change.ts
 msgid "There are no notes to move in this folder."
-msgstr ""
+msgstr "此文件夹中没有可移动的笔记。"
 
 #: src/person-setup.ts
 msgid "These definitions need review in Types. No files have been changed."
-msgstr ""
+msgstr "这些定义需要在“类型”中审阅。未更改任何文件。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "These properties are not described by this note's type. Other apps may use them."
-msgstr ""
+msgstr "此笔记的类型未描述这些属性。其他应用可能会使用它们。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "These properties must be persisted before this record is valid."
-msgstr ""
+msgstr "这些属性必须写入存储后，此记录才有效。"
 
 #: src/App.tsx
 msgid "This application does not have permission to make that change."
-msgstr ""
+msgstr "此应用无权进行此更改。"
 
 #. placeholder {0}: conversion.path
 #. placeholder {1}: conversion.typeName
 #: src/YourPersonPanel.tsx
 msgid "This changes only <0>{0}</0> to the <1>{1}</1> type, which implements both Person and Contact. Its contact information and Markdown body are retained. No other contacts or type definitions are changed."
-msgstr ""
+msgstr "这只会将 <0>{0}</0> 更改为同时实现 Person 和 Contact 的 <1>{1}</1> 类型。其联系信息和 Markdown 正文将保留。不会更改其他联系人或类型定义。"
 
 #: src/App.tsx
 msgid "this collection"
-msgstr ""
+msgstr "此集合"
 
 #: src/TypeBrowser.tsx
 msgid "This collection has explicit type assignment disabled. Every note is classified by automatic rules."
-msgstr ""
+msgstr "此集合已禁用显式类型分配。所有笔记均按自动规则分类。"
 
 #: src/YourPersonPanel.tsx
 msgid "This collection has no Connect account identity."
-msgstr ""
+msgstr "此集合没有 Connect 账户身份。"
 
 #: src/TypeBrowser.tsx
 msgid "This collection has no type definitions yet."
-msgstr ""
+msgstr "此集合尚无类型定义。"
 
 #: src/TypeBrowser.tsx
 msgid "This collection has no type definitions."
-msgstr ""
+msgstr "此集合没有类型定义。"
 
 #: src/NoteList.tsx
 msgid "This collection is empty."
-msgstr ""
+msgstr "此集合为空。"
 
 #: src/native-gateway.ts
 #: src/native-note-observation.ts
 #: src/next-editor-records.ts
 msgid "This collection is no longer open in mdbase editor."
-msgstr ""
+msgstr "此集合已不再在 mdbase editor 中打开。"
 
 #: src/gateway.ts
 msgid "This collection needs authorization again. Choose the collection to continue."
-msgstr ""
+msgstr "此集合需要重新授权。请选择集合以继续。"
 
 #: src/YourPersonPanel.tsx
 msgid "This collection needs person definitions before you can create or link a person record. Nothing will be added without your approval."
-msgstr ""
+msgstr "此集合需要先添加人员定义，才能创建或关联人员记录。未经你批准，不会添加任何内容。"
 
 #: src/person-records.ts
 msgid "This collection uses implicit type selection. Configure the contact's type explicitly in Types before linking."
-msgstr ""
+msgstr "此集合使用隐式类型选择。请先在“类型”中为此联系人显式配置类型，再进行关联。"
 
 #: src/YourPersonPanel.tsx
 msgid "This collection's Person type was not added from a Person starter that can be upgraded automatically, so it has not been changed. "
-msgstr ""
+msgstr "此集合的 Person 类型并非通过可自动升级的 Person 初始类型添加，因此未作更改。 "
 
 #: src/settings/SettingsView.tsx
 msgctxt "connection route"
 msgid "This computer"
-msgstr ""
+msgstr "此电脑"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "This computer"
-msgstr ""
+msgstr "此电脑"
 
 #: src/person-records.ts
 msgid "This contact has another explicit type. Review its type declarations in the editor first."
-msgstr ""
+msgstr "此联系人具有其他显式类型。请先在编辑器中审阅其类型声明。"
 
 #: src/TypeBrowser.tsx
 msgid "This contract does not expose simple top-level properties. Configure its field references in YAML."
-msgstr ""
+msgstr "此契约未公开简单的顶层属性。请在 YAML 中配置其字段引用。"
 
 #: src/use-session-lifecycle.ts
 msgid "This editor session has been closed."
-msgstr ""
+msgstr "此编辑器会话已关闭。"
 
 #: src/TypeBrowser.tsx
 msgid "This exact contract is not available in the collection. Restore it or remove the implementation before saving."
-msgstr ""
+msgstr "此集合中没有这一确切的契约。请在保存前恢复该契约或移除其实现。"
 
 #: src/gateway.ts
 #: src/native-file-download.ts
 msgid "This file changed. Reload its preview."
-msgstr ""
+msgstr "此文件已更改。请重新加载预览。"
 
 #: src/native-file-download.ts
 msgid "This file exceeds the download limit."
-msgstr ""
+msgstr "此文件超出了下载大小限制。"
 
 #: src/native-gateway.ts
 msgid "This file has no native confirmation metadata. Reload its preview."
-msgstr ""
+msgstr "此文件没有原生确认元数据。请重新加载预览。"
 
 #: src/gateway.ts
 msgid "This file no longer exists."
-msgstr ""
+msgstr "此文件已不存在。"
 
 #: src/native-file-download.ts
 #: src/native-gateway.ts
 msgid "This file selection is no longer current."
-msgstr ""
+msgstr "此文件选择已失效。"
 
 #: src/native-gateway.ts
 msgid "This file upload is not confirmed. Resolve its original operation before trying again."
-msgstr ""
+msgstr "此文件上传尚未确认。请先处理其原始操作，再重试。"
 
 #: src/folder-change.ts
 msgid "This folder contains attachments. Moving them cannot yet preserve embedded file references. Move the notes individually instead; attachments will stay in place."
-msgstr ""
+msgstr "此文件夹包含附件。移动附件时尚无法保留嵌入的文件引用。请改为逐个移动笔记；附件将保留在原位置。"
 
 #: src/App.tsx
 msgid "This note already moved elsewhere."
-msgstr ""
+msgstr "此笔记已移至其他位置。"
 
 #: src/next-editor-records.ts
 msgid "This note change has a conflict. Resolve it before continuing."
-msgstr ""
+msgstr "此笔记更改存在冲突。请先解决冲突再继续。"
 
 #: src/next-editor-records.ts
 msgid "This note change is not confirmed. Check the interrupted operation before trying again."
-msgstr ""
+msgstr "此笔记更改尚未确认。请先检查中断的操作，再重试。"
 
 #: src/next-editor-records.ts
 msgid "This note changed after it was opened. Reload before saving."
-msgstr ""
+msgstr "此笔记在打开后发生了更改。请在保存前重新加载。"
 
 #: src/ConflictResolver.tsx
 msgid "This note changed elsewhere"
-msgstr ""
+msgstr "此笔记已在其他位置更改"
 
 #: src/use-note-actions.ts
 msgid "This note finished saving after Source was opened. Your source draft is preserved; close and reopen the panel to start from the latest record."
-msgstr ""
+msgstr "此笔记在打开“源码”后完成了保存。你的源码草稿已保留；请关闭并重新打开面板，以最新记录为起点。"
 
 #. placeholder {0}: reference.anchor
 #: src/code-editor-reference-diagnostics.ts
 msgid "This note has no “{0}” section or block."
-msgstr ""
+msgstr "此笔记中没有“{0}”小节或块。"
 
 #: src/use-note-actions.ts
 msgid "This note moved before the rename check could begin."
-msgstr ""
+msgstr "重命名检查开始前，此笔记已被移动。"
 
 #: src/use-note-actions.ts
 msgid "This note moved before the rename could begin."
-msgstr ""
+msgstr "重命名开始前，此笔记已被移动。"
 
 #: src/type-contracts.ts
 msgid "This optional contract field is not exposed."
-msgstr ""
+msgstr "此可选契约字段未公开。"
 
 #: src/catalog-pack-installation.tsx
 msgid "This pack conflicts with collection definitions."
-msgstr ""
+msgstr "此包与集合定义冲突。"
 
 #: src/use-note-actions.ts
 msgid "This property is not declared by the note’s type."
-msgstr ""
+msgstr "笔记的类型未声明此属性。"
 
 #: src/YourPersonPanel.tsx
 msgid "This record is already a person record. Reload these settings."
-msgstr ""
+msgstr "此记录已是人员记录。请重新加载这些设置。"
 
 #: src/YourPersonPanel.tsx
 msgid "This record is already linked to another account. Linking it to yours means you will both see its assignments as your own. Only continue if this record really represents you."
-msgstr ""
+msgstr "此记录已关联到其他账户。将其关联到你的账户后，你们都会将分配给此记录的事项视为分配给自己。请仅在此记录确实代表你时继续。"
 
 #. placeholder {0}: formatList(conversionImpact)
 #. placeholder {0}: formatList(impact)
 #: src/TypeBrowser.tsx
 msgid "This removes {0}."
-msgstr ""
+msgstr "这将移除 {0}。"
 
 #: src/App.tsx
 msgid "This removes the saved connection from this browser. It does not delete the collection or its files, and it does not revoke mdbase editor’s access in mdbase connect."
-msgstr ""
+msgstr "这将从此浏览器中移除已保存的连接，不会删除集合或其文件，也不会撤销 mdbase connect 中授予 mdbase editor 的访问权限。"
 
 #: src/Toasts.tsx
 msgid "This rename was interrupted after it started. Resume it to recover the collection’s authoritative result."
-msgstr ""
+msgstr "此次重命名在开始后被中断。请恢复操作，以获取集合的权威结果。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "This required property is missing."
-msgstr ""
+msgstr "缺少此必填属性。"
 
 #: src/code-editor-note-embeds.ts
 msgid "This transcluded note could not be resolved."
-msgstr ""
+msgstr "无法解析此嵌入的笔记。"
 
 #: src/TypeBrowser.tsx
 msgid "This type"
-msgstr ""
+msgstr "此类型"
 
 #: src/native-gateway.ts
 msgid "This type changed after it was saved. Reload it before editing again."
-msgstr ""
+msgstr "此类型在保存后发生了更改。请重新加载后再编辑。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "This value does not match the required format."
-msgstr ""
+msgstr "此值不符合要求的格式。"
 
 #: src/NewNoteComposer.tsx
 msgid "Title"
-msgstr ""
+msgstr "标题"
 
 #: src/note-list-view.ts
 msgid "Title A–Z"
-msgstr ""
+msgstr "标题 A–Z"
 
 #: src/ConflictResolver.tsx
 msgid "Title differences"
-msgstr ""
+msgstr "标题差异"
 
 #: src/NewNoteComposer.tsx
 msgid "Title the first note to create the folder."
-msgstr ""
+msgstr "为第一篇笔记设置标题以创建文件夹。"
 
 #: src/collection-browser.ts
 msgid "Today"
-msgstr ""
+msgstr "今天"
 
 #: src/editor-commands.ts
 msgid "Toggle Vim key bindings"
-msgstr ""
+msgstr "切换 Vim 键位绑定"
 
 #. placeholder {0}: file.path
 #: src/code-editor-completions.ts
 msgid "Transclude file · {0}"
-msgstr ""
+msgstr "嵌入文件 · {0}"
 
 #. placeholder {0}: suggestionDetail(suggestion, label)
 #: src/code-editor-completions.ts
 msgid "Transclude note · {0}"
-msgstr ""
+msgstr "嵌入笔记 · {0}"
 
 #: src/code-editor-completions.ts
 msgid "Transclude note or file"
-msgstr ""
+msgstr "嵌入笔记或文件"
 
 #. placeholder {0}: reference.title
 #: src/code-editor-note-embeds.ts
 msgid "Transclusion of {0}"
-msgstr ""
+msgstr "{0} 的嵌入内容"
 
 #. placeholder {0}: target.trim()
 #: src/code-editor-note-embeds.ts
 msgid "Transclusion: {0}"
-msgstr ""
+msgstr "嵌入：{0}"
 
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "True"
-msgstr ""
+msgstr "真"
 
 #: src/FileViewer.tsx
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Try again"
-msgstr ""
+msgstr "重试"
 
 #: src/NewNoteComposer.tsx
 msgid "Type"
-msgstr ""
+msgstr "类型"
 
 #. placeholder {0}: filter.value
 #: src/note-list-view.ts
 msgid "Type · {0}"
-msgstr ""
+msgstr "类型 · {0}"
 
 #: src/WorkspaceChrome.tsx
 msgid "Type access"
-msgstr ""
+msgstr "类型访问权限"
 
 #: src/WorkspaceChrome.tsx
 msgid "Type access needed"
-msgstr ""
+msgstr "需要类型访问权限"
 
 #: src/type-schema.ts
 msgid "Type definitions must declare kind: mdbase.type."
-msgstr ""
+msgstr "类型定义必须声明 kind: mdbase.type。"
 
 #: src/CodeEditor.tsx
 msgid "Type definitions need a closing --- frontmatter marker."
-msgstr ""
+msgstr "类型定义的前置元数据需要以 --- 标记结束。"
 
 #: src/CodeEditor.tsx
 #: src/type-contracts.ts
 #: src/type-schema.ts
 msgid "Type definitions need YAML frontmatter between --- markers."
-msgstr ""
+msgstr "类型定义需要在 --- 标记之间包含 YAML 前置元数据。"
 
 #: src/TypeBrowser.tsx
 msgid "Type editor view"
-msgstr ""
+msgstr "类型编辑器视图"
 
 #: src/TypeBrowser.tsx
 msgid "Type key"
-msgstr ""
+msgstr "类型键"
 
 #: src/type-schema.ts
 msgid "Type name"
-msgstr ""
+msgstr "类型名称"
 
 #: src/native-gateway.ts
 msgid "type pack install"
-msgstr ""
+msgstr "类型包安装"
 
 #: src/TypeBrowser.tsx
 msgid "Type resources"
-msgstr ""
+msgstr "类型资源"
 
 #: src/TypeBrowser.tsx
 msgid "Type source differences"
-msgstr ""
+msgstr "类型源码差异"
 
 #. placeholder {0}: note.types.join(", ")
 #: src/NoteList.tsx
 msgid "Type: {0}"
-msgstr ""
+msgstr "类型：{0}"
 
 #. placeholder {0}: filter.value
 #: src/NoteSearchField.tsx
 msgid "type:{0}"
-msgstr ""
+msgstr "type:{0}"
 
 #: src/EditorRail.tsx
 #: src/LoadingScreens.tsx
 #: src/TypeBrowser.tsx
 msgid "Types"
-msgstr ""
+msgstr "类型"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Types"
-msgstr ""
+msgstr "类型"
 
 #: src/EditorRail.tsx
 msgid "Types ({typeCount})"
-msgstr ""
+msgstr "类型（{typeCount}）"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Types folder"
-msgstr ""
+msgstr "类型文件夹"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Typewriter scrolling"
-msgstr ""
+msgstr "打字机式滚动"
 
 #: src/collection-browser.ts
 msgid "Undated"
-msgstr ""
+msgstr "无日期"
 
 #: src/Toasts.tsx
 msgid "Undo"
-msgstr ""
+msgstr "撤销"
 
 #: src/Toasts.tsx
 msgid "Undoing"
-msgstr ""
+msgstr "正在撤销"
 
 #. placeholder {0}: index + 1
 #: src/TypeBrowser.tsx
 msgid "Unique field {0}"
-msgstr ""
+msgstr "唯一性字段 {0}"
 
 #: src/type-schema.ts
 msgid "unique items"
-msgstr ""
+msgstr "不重复的项目"
 
 #: src/type-schema.ts
 msgid "unique rules with unsupported values"
-msgstr ""
+msgstr "含有不支持的值的唯一性规则"
 
 #: src/TypeBrowser.tsx
 msgid "Uniqueness"
-msgstr ""
+msgstr "唯一性"
 
 #: src/type-schema.ts
 msgid "Uniqueness rules"
-msgstr ""
+msgstr "唯一性规则"
 
 #. placeholder {0}: mentions.length
 #: src/WorkspaceChrome.tsx
 msgid "Unlinked mentions ({0})"
-msgstr ""
+msgstr "未链接的提及（{0}）"
 
 #: src/editor-commands.ts
 msgid "Unpin"
-msgstr ""
+msgstr "取消固定"
 
 #: src/App.tsx
 msgid "Unsaved draft found"
-msgstr ""
+msgstr "发现未保存的草稿"
 
 #: src/App.tsx
 msgid "Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes."
-msgstr ""
+msgstr "此浏览器无法备份未保存的编辑。保存完成前，请保持此标签页打开。"
 
 #: src/App.tsx
 msgid "Unsaved edits from an earlier session are available."
-msgstr ""
+msgstr "有上次会话中未保存的编辑可恢复。"
 
 #: src/App.tsx
 msgid "Unsaved type definition changes will be discarded. Saved note and property changes will finish first."
-msgstr ""
+msgstr "未保存的类型定义更改将被丢弃。笔记和属性更改会先完成保存。"
 
 #: src/App.tsx
 msgid "Unsaved type or creation changes will be discarded when the new collection opens. Note and property changes will finish saving first."
-msgstr ""
+msgstr "新集合打开时，未保存的类型更改或创建操作中的更改将被丢弃。笔记和属性更改会先完成保存。"
 
 #: src/App.tsx
 msgid "Unsaved type or creation changes will be discarded."
-msgstr ""
+msgstr "未保存的类型更改或创建操作中的更改将被丢弃。"
 
 #: src/ConflictResolver.tsx
 #: src/MarkdownNoteEditor.tsx
 #: src/NewNoteComposer.tsx
 #: src/note.ts
 msgid "Untitled"
-msgstr ""
+msgstr "无标题"
 
 #: src/ConnectionScreens.tsx
 msgid "Untitled collection"
-msgstr ""
+msgstr "无标题集合"
 
 #: src/TypeBrowser.tsx
 msgid "Unversioned"
-msgstr ""
+msgstr "无版本"
 
 #: src/ConnectionScreens.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Update access"
-msgstr ""
+msgstr "更新访问权限"
 
 #. placeholder {0}: accessSummary(missingCapabilities)
 #: src/ConnectionScreens.tsx
 msgid "Update access to {0} in this collection."
-msgstr ""
+msgstr "更新在此集合中{0}的权限。"
 
 #: src/YourPersonPanel.tsx
 msgid "Update definitions and continue"
-msgstr ""
+msgstr "更新定义并继续"
 
 #: src/YourPersonPanel.tsx
 msgid "Update the Person type?"
-msgstr ""
+msgstr "要更新 Person 类型吗？"
 
 #: src/TypeBrowser.tsx
 msgid "Update this type?"
-msgstr ""
+msgstr "要更新此类型吗？"
 
 #: src/YourPersonPanel.tsx
 msgid "Updating definitions…"
-msgstr ""
+msgstr "正在更新定义…"
 
 #: src/note-mutation-presentation.ts
 msgid "Updating properties"
-msgstr ""
+msgstr "正在更新属性"
 
 #: src/YourPersonPanel.tsx
 msgid "upgrade"
-msgstr ""
+msgstr "升级"
 
 #. placeholder {0}: setup.upgrade.target
 #: src/YourPersonPanel.tsx
 msgid "Upgrade <0>{0}</0> to the current Person starter. "
-msgstr ""
+msgstr "将 <0>{0}</0> 升级为当前的 Person 初始类型。 "
 
 #. placeholder {0}: files[0]!.name
 #: src/AttachmentUpload.tsx
 msgid "Uploaded “{0}”. The collection file is committed; the note link is saving separately."
-msgstr ""
+msgstr "已上传“{0}”。集合中的文件已提交；笔记链接正在单独保存。"
 
 #: src/AttachmentUpload.tsx
 msgid "Uploading"
-msgstr ""
+msgstr "正在上传"
 
 #. placeholder {0}: this.job.file.name
 #: src/code-editor-file-embeds.ts
 msgid "Uploading {0}…"
-msgstr ""
+msgstr "正在上传 {0}…"
 
 #: src/AttachmentUpload.tsx
 msgid "Uploading {name} took too long. Try again."
-msgstr ""
+msgstr "上传 {name} 超时。请重试。"
 
 #: src/folder-change.ts
 msgid "Use a collection-relative folder path without empty, . or .. segments."
-msgstr ""
+msgstr "请使用相对于集合的文件夹路径，路径段不能留空，也不能为 . 或 ..。"
 
 #: src/use-note-actions.ts
 msgid "Use a collection-relative path ending in .md."
-msgstr ""
+msgstr "请使用以 .md 结尾的集合相对路径。"
 
 #: src/NewNoteComposer.tsx
 msgid "Use a Markdown file path ending in .md."
-msgstr ""
+msgstr "请使用以 .md 结尾的 Markdown 文件路径。"
 
 #: src/TypeBrowser.tsx
 msgid "Use contract"
-msgstr ""
+msgstr "使用契约"
 
 #: src/ConflictResolver.tsx
 msgid "Use latest"
-msgstr ""
+msgstr "使用最新版本"
 
 #. placeholder {0}: schema.maxItems
 #: src/StructuredPropertiesEditor.tsx
 msgid "Use no more than {0} items."
-msgstr ""
+msgstr "最多使用 {0} 项。"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Use normal, insert, visual, and command modes in the note editor."
-msgstr ""
+msgstr "在笔记编辑器中使用普通、插入、可视和命令模式。"
 
 #: src/ConnectionScreens.tsx
 msgid "use the editor"
-msgstr ""
+msgstr "使用编辑器"
 
 #. placeholder {0}: formatValue(schema.const)
 #: src/StructuredPropertiesEditor.tsx
 msgid "Use the required value {0}."
-msgstr ""
+msgstr "请使用指定值 {0}。"
 
 #: src/CollectionRail.tsx
 msgid "Use this computer"
-msgstr ""
+msgstr "使用此电脑"
 
 #: src/TypeBrowser.tsx
 msgid "Validation"
-msgstr ""
+msgstr "验证"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Validation"
-msgstr ""
+msgstr "验证"
 
 #: src/TypeBrowser.tsx
 msgid "Validation may change"
-msgstr ""
+msgstr "验证结果可能变化"
 
 #. placeholder {0}: type.version
 #: src/TypeBrowser.tsx
 msgid "Version {0}"
-msgstr ""
+msgstr "版本 {0}"
 
 #: src/settings/SettingsView.tsx
 msgctxt "connection route"
 msgid "Via mdbase"
-msgstr ""
+msgstr "通过 mdbase"
 
 #: src/NoteListViewOptions.tsx
 msgid "View options"
-msgstr ""
+msgstr "视图选项"
 
 #: src/TypeBrowser.tsx
 msgid "View pack JSON"
-msgstr ""
+msgstr "查看类型包 JSON"
 
 #: src/TypeBrowser.tsx
 msgid "View settings"
-msgstr ""
+msgstr "查看设置"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Vim key bindings"
-msgstr ""
+msgstr "Vim 按键绑定"
 
 #: src/App.tsx
 msgid "Wait for the complete note and attachment index before changing a folder."
-msgstr ""
+msgstr "更改文件夹前，请等待笔记和附件索引全部完成。"
 
 #: src/YourPersonPanel.tsx
 msgid "Waiting for approval…"
-msgstr ""
+msgstr "等待批准…"
 
 #: src/SdkEditorRoot.tsx
 msgid "Waiting for your computer…"
-msgstr ""
+msgstr "正在等待你的电脑…"
 
 #: src/TypeBrowser.tsx
 msgid "What belongs in this field?"
-msgstr ""
+msgstr "此字段应填写什么？"
 
 #: src/TypeBrowser.tsx
 msgid "Which notes use this type"
-msgstr ""
+msgstr "哪些笔记使用此类型"
 
 #: src/PropertiesPanel.tsx
 msgid "Words"
-msgstr ""
+msgstr "字数"
 
 #: src/Dialog.tsx
 msgid "Working…"
-msgstr ""
+msgstr "处理中…"
 
 #: src/TypeBrowser.tsx
 msgid "Works with applications"
-msgstr ""
+msgstr "与应用配合使用"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Wrap long lines"
-msgstr ""
+msgstr "长行自动换行"
 
 #: src/TypeBrowser.tsx
 msgid "YAML"
-msgstr ""
+msgstr "YAML"
 
 #: src/collection-browser.ts
 msgid "Yesterday"
-msgstr ""
+msgstr "昨天"
 
 #: src/main.tsx
 msgid "You can close this window."
-msgstr ""
+msgstr "你可以关闭此窗口。"
 
 #: src/YourPersonPanel.tsx
 msgid "You can link an existing person directly, or review converting a single contact without changing the rest of your address book. Advanced Person mappings are available in Types; required fields there affect every record of that type."
-msgstr ""
+msgstr "你可以直接关联现有人员，也可以先检查单个联系人的转换方案，而不更改通讯录中的其他联系人。“类型”中提供高级 Person 映射；其中的必填字段会影响该类型的每条记录。"
 
 #: src/YourPersonPanel.tsx
 msgid "You can still use it, or compare it with the current starter in Types."
-msgstr ""
+msgstr "你仍可使用它，或在“类型”中将它与当前的初始类型进行比较。"
 
 #: src/AttachmentUpload.tsx
 msgid "You don’t have permission to upload {name}."
-msgstr ""
+msgstr "你没有上传 {name} 的权限。"
 
 #: src/ConnectionScreens.tsx
 msgid "You’ll continue to mdbase. Sign in if asked, choose a collection, and approve mdbase editor. You’ll return here automatically; your files stay where they are."
-msgstr ""
+msgstr "你将前往 mdbase。如有提示，请登录，然后选择一个集合并批准 mdbase editor。完成后将自动返回此处；你的文件仍保留在原处。"
 
 #: src/YourPersonPanel.tsx
 msgid "Your account"
-msgstr ""
+msgstr "你的账户"
 
 #: src/pending-note-mutation.ts
 msgid "Your change from {date} isn’t confirmed yet. Check again to finish saving it."
-msgstr ""
+msgstr "你在 {date} 所做的更改尚未确认。请再次检查以完成保存。"
 
 #: src/AppErrorBoundary.tsx
 msgid "Your collection was not deleted. Changes that had already finished saving are safe."
-msgstr ""
+msgstr "你的集合未被删除。已完成保存的更改是安全的。"
 
 #: src/pending-note-mutation.ts
 msgid "Your deletion from {date} isn’t confirmed yet. Check again to finish saving it."
-msgstr ""
+msgstr "你在 {date} 所做的删除尚未确认。请再次检查以完成保存。"
 
 #: src/ConflictResolver.tsx
 msgid "Your edits"
-msgstr ""
+msgstr "你的编辑"
 
 #: src/YourPersonPanel.tsx
 msgid "Your edits to this type are kept; only the starter's own changes are merged in."
-msgstr ""
+msgstr "你对此类型的编辑会保留；仅合并初始类型本身的更改。"
 
 #: src/pending-note-mutation.ts
 msgid "Your new note from {date} isn’t confirmed yet. Check again to finish saving it."
-msgstr ""
+msgstr "你在 {date} 新建的笔记尚未确认。请再次检查以完成保存。"
 
 #: src/ConnectionScreens.tsx
 msgid "Your notes,"
-msgstr ""
+msgstr "你的笔记，"
 
 #: src/YourPersonPanel.tsx
 msgid "Your person record"
-msgstr ""
+msgstr "你的人员记录"
 
 #: src/next-editor-records.ts
 msgid "Your previous change is still being saved. Try again in a moment."
-msgstr ""
+msgstr "你上一次的更改仍在保存中。请稍后重试。"
 
 #: src/pending-note-mutation.ts
 msgid "Your rename from {date} isn’t confirmed yet. Check again to finish saving it."
-msgstr ""
+msgstr "你在 {date} 所做的重命名尚未确认。请再次检查以完成保存。"
 
 #: src/ConflictResolver.tsx
 msgid "Your title"
-msgstr ""
+msgstr "你的标题"
 
 #: src/App.tsx
 msgid "Your unsaved changes to this type definition won’t be kept."
-msgstr ""
+msgstr "你对此类型定义所做的未保存更改将不会保留。"
