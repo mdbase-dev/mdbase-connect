@@ -45,6 +45,13 @@ earlier local build are required. Build workspace dependencies with
 the full dependency closure itself. Composition paths use double quotes so
 Windows cmd and POSIX shells pass the same arguments.
 
+Vite uses the official Lingui Babel preset through `@rolldown/plugin-babel`,
+matching CLI extraction and library/Node macro compilation. Do not enable the
+Lingui 6.9 native `macroTransform` path here: it numbers mixed rich-text and
+nested-expression placeholders differently from extraction, producing missing
+production IDs (the portable authorization warning is covered by the full
+production accessibility gate). This applies to Editor as well.
+
 ## Runtime
 
 Each app composes its catalogue with both independent library CatalogueSources.

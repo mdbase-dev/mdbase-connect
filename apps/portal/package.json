@@ -16,28 +16,29 @@
   "dependencies": {
     "@lingui/core": "6.9.0",
     "@lingui/react": "6.9.0",
-    "@mdbase-dev/i18n": "workspace:*",
-    "@mdbase/connect-management": "workspace:*",
-    "@phosphor-icons/react": "^2.1.10",
-    "@mdbase/connect-ui": "workspace:*",
     "@mdbase-dev/connect-protocol": "workspace:*",
+    "@mdbase-dev/i18n": "workspace:*",
     "@mdbase-dev/ui": "workspace:*",
+    "@mdbase/connect-management": "workspace:*",
+    "@mdbase/connect-ui": "workspace:*",
+    "@phosphor-icons/react": "^2.1.10",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
-    "@lingui/vite-plugin": "6.9.0",
     "@babel/core": "^7.29.7",
     "@lingui/babel-plugin-lingui-macro": "6.9.0",
+    "@lingui/vite-plugin": "6.9.0",
+    "@rolldown/plugin-babel": "^0.2.4",
     "@testing-library/jest-dom": "7.0.0",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
-    "jsdom": "^29.1.1",
-    "vitest": "^4.1.11",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.0.3",
+    "jsdom": "^29.1.1",
     "typescript": "^7.0.2",
-    "vite": "^8.1.6"
+    "vite": "^8.1.6",
+    "vitest": "^4.1.11"
   }
 }

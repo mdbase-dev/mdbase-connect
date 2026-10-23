@@ -32,9 +32,7 @@
     "scheduler": "^0.28.0"
   },
   "devDependencies": {
-    "@lingui/vite-plugin": "6.9.0",
     "@babel/core": "^7.29.7",
-    "@lingui/babel-plugin-lingui-macro": "6.9.0",
     "@electron-forge/cli": "^7.11.2",
     "@electron-forge/maker-appx": "^7.11.2",
     "@electron-forge/maker-deb": "^7.11.2",
@@ -42,9 +40,12 @@
     "@electron-forge/maker-rpm": "^7.11.2",
     "@electron-forge/maker-squirrel": "^7.11.2",
     "@electron-forge/maker-zip": "^7.11.2",
-    "@mdbase/connect-ui": "workspace:*",
+    "@lingui/babel-plugin-lingui-macro": "6.9.0",
+    "@lingui/vite-plugin": "6.9.0",
     "@mdbase-dev/connect-protocol": "workspace:*",
     "@mdbase-dev/ui": "workspace:*",
+    "@mdbase/connect-ui": "workspace:*",
+    "@rolldown/plugin-babel": "^0.2.4",
     "@types/node": "^24.0.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
