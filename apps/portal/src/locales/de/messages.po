@@ -2315,466 +2315,466 @@ msgstr "Editor öffnen"
 
 #: src/portal-ui.tsx
 msgid "Open editor <0>↗</0>"
-msgstr ""
+msgstr "Editor öffnen <0>↗</0>"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Open in {0}"
-msgstr ""
+msgstr "In {0} öffnen"
 
 #: src/ConnectApp.tsx
 msgid "Open in editor"
-msgstr ""
+msgstr "Im Editor öffnen"
 
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx
 msgid "Open mdbase connect"
-msgstr ""
+msgstr "mdbase connect öffnen"
 
 #. placeholder {0}: collection.detail
 #: src/ConnectApp.tsx
 msgid "Open mdbase connect on {0} to make this collection available."
-msgstr ""
+msgstr "Öffnen Sie mdbase connect auf {0}, um diese Sammlung verfügbar zu machen."
 
 #: src/onboarding-view.tsx
 msgid "Open mdbase Connect without it"
-msgstr ""
+msgstr "mdbase Connect ohne dies öffnen"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Open menu"
-msgstr ""
+msgstr "Menü öffnen"
 
 #: src/portal-ui.tsx
 msgctxt "Connect interface"
 msgid "Open navigation"
-msgstr ""
+msgstr "Navigation öffnen"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Open registration"
-msgstr ""
+msgstr "Registrierung öffnen"
 
 #: src/auth-view.tsx
 msgid "Open the complete password reset link from your email."
-msgstr ""
+msgstr "Öffnen Sie den vollständigen Link zum Zurücksetzen des Passworts aus Ihrer E-Mail."
 
 #: src/authorization-view.tsx
 msgid "Open the desktop app to connect this computer, add a folder, and continue this same request."
-msgstr ""
+msgstr "Öffnen Sie die Desktop-App, um diesen Computer zu verbinden, einen Ordner hinzuzufügen und dieselbe Anfrage fortzusetzen."
 
 #: src/auth-view.tsx
 msgid "Open the link from the email again, or change email preferences in your account settings."
-msgstr ""
+msgstr "Öffnen Sie den Link aus der E-Mail erneut oder ändern Sie Ihre E-Mail-Einstellungen in den Kontoeinstellungen."
 
 #: src/ConnectApp.tsx
 msgid "Open the mdbase connect desktop app and choose Connect this computer."
-msgstr ""
+msgstr "Öffnen Sie die Desktop-App mdbase connect und wählen Sie „Diesen Computer verbinden“."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "open this collection"
-msgstr ""
+msgstr "diese Sammlung öffnen"
 
 #: src/auth-view.tsx
 msgid "Open this through Tailscale"
-msgstr ""
+msgstr "Über Tailscale öffnen"
 
 #: src/auth-view.tsx
 msgid "Open your account"
-msgstr ""
+msgstr "Ihr Konto öffnen"
 
 #: src/authority-workflows.tsx
 msgid "Open your collections"
-msgstr ""
+msgstr "Ihre Sammlungen öffnen"
 
 #: src/authorization-capabilities.ts
 msgid "Open, search, validate, and follow changes to records and saved views."
-msgstr ""
+msgstr "Datensätze und gespeicherte Ansichten öffnen, durchsuchen, prüfen und Änderungen verfolgen."
 
 #: src/authorization-capabilities.ts
 msgid "Open, search, validate, and follow records and saved views; list file names and read file contents."
-msgstr ""
+msgstr "Datensätze und gespeicherte Ansichten öffnen, durchsuchen, prüfen und Änderungen verfolgen; Dateinamen auflisten und Dateiinhalte lesen."
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Opening mdbase connect"
-msgstr ""
+msgstr "mdbase connect wird geöffnet"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Opening mdbase connect"
-msgstr ""
+msgstr "mdbase connect wird geöffnet"
 
 #: src/main.tsx
 #: src/portal-ui.tsx
 msgctxt "Connect interface"
 msgid "Opening mdbase connect…"
-msgstr ""
+msgstr "mdbase connect wird geöffnet…"
 
 #: src/auth-view.tsx
 msgid "or"
-msgstr ""
+msgstr "oder"
 
 #: src/ApplicationAccess.tsx
 msgid "Origin"
-msgstr ""
+msgstr "Herkunft"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Overview"
-msgstr ""
+msgstr "Übersicht"
 
 #: src/authority-workflows.tsx
 #: src/ConnectApp.tsx
 msgid "Owner"
-msgstr ""
+msgstr "Eigentümer"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Password"
-msgstr ""
+msgstr "Passwort"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Password changed"
-msgstr ""
+msgstr "Passwort geändert"
 
 #: src/AccountManagement.tsx
 msgid "Password changed. Other browser sessions were signed out."
-msgstr ""
+msgstr "Passwort geändert. Andere Browsersitzungen wurden abgemeldet."
 
 #: src/auth-view.tsx
 msgid "Password recovery is temporarily unavailable. You can still return to sign in."
-msgstr ""
+msgstr "Die Passwortwiederherstellung ist vorübergehend nicht verfügbar. Sie können zur Anmeldung zurückkehren."
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Passwords do not match."
-msgstr ""
+msgstr "Passwörter stimmen nicht überein."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Paused"
-msgstr ""
+msgstr "Pausiert"
 
 #: src/ConnectApp.tsx
 msgid "Pending"
-msgstr ""
+msgstr "Ausstehend"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Pending invitations"
-msgstr ""
+msgstr "Ausstehende Einladungen"
 
 #: src/authorization-review.tsx
 msgid "People"
-msgstr ""
+msgstr "Personen"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "People & sharing"
-msgstr ""
+msgstr "Personen und Freigaben"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "People permissions"
-msgstr ""
+msgstr "Personenberechtigungen"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Permanent allowance"
-msgstr ""
+msgstr "Dauerhaftes Kontingent"
 
 #: src/AccountManagement.tsx
 msgid "Permanent for hosted data. Local files are never removed from your computers."
-msgstr ""
+msgstr "Dauerhaft für gehostete Daten. Lokale Dateien werden nie von Ihren Computern entfernt."
 
 #: src/authorization-capabilities.ts
 msgid "Permanently delete records and files from this collection."
-msgstr ""
+msgstr "Datensätze und Dateien aus dieser Sammlung dauerhaft löschen."
 
 #: src/authorization-capabilities.ts
 msgid "Permanently delete records from this collection."
-msgstr ""
+msgstr "Datensätze aus dieser Sammlung dauerhaft löschen."
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Permissions"
-msgstr ""
+msgstr "Berechtigungen"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "person@example.com"
-msgstr ""
+msgstr "person@beispiel.de"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Preparing {0}…"
-msgstr ""
+msgstr "{0} wird vorbereitet…"
 
 #: src/onboarding-view.tsx
 msgid "Preparing a place to start."
-msgstr ""
+msgstr "Ein Startpunkt wird vorbereitet."
 
 #: src/ApplicationAccess.tsx
 msgid "Previously approved · Collection no longer visible to your account"
-msgstr ""
+msgstr "Zuvor genehmigt · Sammlung für Ihr Konto nicht mehr sichtbar"
 
 #: src/auth-view.tsx
 msgid "Privacy"
-msgstr ""
+msgstr "Datenschutz"
 
 #: src/CollectionPicker.tsx
 msgid "Private"
-msgstr ""
+msgstr "Privat"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Private collection"
-msgstr ""
+msgstr "Private Sammlung"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "product updates"
-msgstr ""
+msgstr "Produktneuigkeiten"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Product updates"
-msgstr ""
+msgstr "Produktneuigkeiten"
 
 #: src/auth-view.tsx
 msgid "Public account creation is temporarily unavailable."
-msgstr ""
+msgstr "Die öffentliche Kontoerstellung ist vorübergehend nicht verfügbar."
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Read file contents"
-msgstr ""
+msgstr "Dateiinhalte lesen"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Read records and files"
-msgstr ""
+msgstr "Datensätze und Dateien lesen"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Read this collection"
-msgstr ""
+msgstr "Diese Sammlung lesen"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Reauthorization required"
-msgstr ""
+msgstr "Erneute Autorisierung erforderlich"
 
 #: src/CollectionPicker.tsx
 msgid "Recently used"
-msgstr ""
+msgstr "Kürzlich verwendet"
 
 #: src/authority-workflows.tsx
 msgid "Recovery"
-msgstr ""
+msgstr "Wiederherstellung"
 
 #. placeholder {0}: new Date(connector.created_at).toLocaleString()
 #. placeholder {1}: connector.id.slice(-8)
 #: src/ConnectApp.tsx
 msgid "Registered {0} · ID {1}"
-msgstr ""
+msgstr "Registriert: {0} · ID {1}"
 
 #. placeholder {0}: formatters(i18n.locale).date(new Date(entry.created_at), { dateStyle: "medium", timeStyle: "short" })
 #: src/ApplicationAccess.tsx
 msgid "Registered <0>{0}</0>"
-msgstr ""
+msgstr "Registriert: <0>{0}</0>"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Registered computers"
-msgstr ""
+msgstr "Registrierte Computer"
 
 #: src/ConnectApp.tsx
 msgid "Registered computers stay listed when offline. Revoking one also invalidates grants routed through it."
-msgstr ""
+msgstr "Registrierte Computer bleiben auch offline aufgeführt. Wird einer widerrufen, werden auch die darüber vermittelten Berechtigungen ungültig."
 
 #: src/AccountManagement.tsx
 msgid "Registration"
-msgstr ""
+msgstr "Registrierung"
 
 #: src/ConnectApp.tsx
 msgid "Reload Connect"
-msgstr ""
+msgstr "Connect neu laden"
 
 #: src/authority-workflows.tsx
 msgid "Reminders are off. You can turn them on in the app by approving reminders again."
-msgstr ""
+msgstr "Erinnerungen sind deaktiviert. Sie können sie in der App durch erneute Genehmigung wieder aktivieren."
 
 #: src/authority-workflows.tsx
 msgid "Reminders will be off. You can finish setup and turn them on later in the app. Collection access stays unchanged."
-msgstr ""
+msgstr "Erinnerungen werden deaktiviert. Sie können die Einrichtung abschließen und sie später in der App aktivieren. Der Sammlungszugriff bleibt unverändert."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Remove"
-msgstr ""
+msgstr "Entfernen"
 
 #. placeholder {0}: member.name
 #. placeholder {1}: collection.display_name
 #: src/ConnectApp.tsx
 msgid "Remove {0} from {1}? Their application and folder access will also be revoked."
-msgstr ""
+msgstr "{0} aus {1} entfernen? Deren Anwendungs- und Ordnerzugriff wird ebenfalls widerrufen."
 
 #. placeholder {0}: member.name
 #: src/ConnectApp.tsx
 msgid "Remove {0} from the unnamed collection? Their application and folder access will also be revoked."
-msgstr ""
+msgstr "{0} aus der unbenannten Sammlung entfernen? Deren Anwendungs- und Ordnerzugriff wird ebenfalls widerrufen."
 
 #: src/authority-workflows.tsx
 msgid "Remove access"
-msgstr ""
+msgstr "Zugriff entfernen"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Remove access"
-msgstr ""
+msgstr "Zugriff entfernen"
 
 #. placeholder {0}: pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" })
 #: src/authority-workflows.tsx
 msgid "Removing access to {0}…"
-msgstr ""
+msgstr "Zugriff auf {0} wird entfernt…"
 
 #: src/ConnectApp.tsx
 msgid "Removing application and folder access…"
-msgstr ""
+msgstr "Anwendungs- und Ordnerzugriff wird entfernt…"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Removing…"
-msgstr ""
+msgstr "Wird entfernt…"
 
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
 msgid "Rename"
-msgstr ""
+msgstr "Umbenennen"
 
 #. placeholder {0}: collection.display_name
 #. placeholder {0}: connector.name
 #: src/ConnectApp.tsx
 msgid "Rename {0}"
-msgstr ""
+msgstr "{0} umbenennen"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Replace existing files"
-msgstr ""
+msgstr "Bestehende Dateien ersetzen"
 
 #: src/auth-view.tsx
 msgid "Replacing your password signs out every other browser session connected to the account."
-msgstr ""
+msgstr "Wenn Sie Ihr Passwort ersetzen, werden alle anderen mit dem Konto verbundenen Browsersitzungen abgemeldet."
 
 #. placeholder {0}: relativeTime(request.expires_at)
 #: src/authorization-view.tsx
 msgid "Request expires {0}"
-msgstr ""
+msgstr "Anfrage läuft {0} ab"
 
 #. placeholder {0}: response.status
 #: src/api.ts
 msgid "Request failed with HTTP {0}."
-msgstr ""
+msgstr "Anfrage mit HTTP {0} fehlgeschlagen."
 
 #: src/authorization-view.tsx
 msgid "Request unavailable"
-msgstr ""
+msgstr "Anfrage nicht verfügbar"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Requested access"
-msgstr ""
+msgstr "Angeforderter Zugriff"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Requested by {0}. No requesting origin is available."
-msgstr ""
+msgstr "Angefordert von {0}. Die Herkunft der Anfrage ist nicht verfügbar."
 
 #. placeholder {0}: pairing.connector_name
 #. placeholder {1}: appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""
 #. placeholder {2}: pairing.app_origin?.trim() && <Trans> from <code>{pairing.app_origin}</code></Trans>
 #: src/authority-workflows.tsx
 msgid "Requested by {0}{1}{2}. Approve only if you started sign-in in this app."
-msgstr ""
+msgstr "Angefordert von {0}{1}{2}. Genehmigen Sie dies nur, wenn Sie die Anmeldung in dieser App gestartet haben."
 
 #. placeholder {0}: pairing.app_origin
 #: src/authority-workflows.tsx
 msgid "Requested from <0>{0}</0>. The origin shown here is not proof of who made the request."
-msgstr ""
+msgstr "Angefordert von <0>{0}</0>. Die hier angezeigte Herkunft beweist nicht, wer die Anfrage gestellt hat."
 
 #: src/authorization-view.tsx
 msgid "Requests"
-msgstr ""
+msgstr "Anfragen"
 
 #: src/authorization-review.tsx
 msgid "Required"
-msgstr ""
+msgstr "Erforderlich"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Reset your password"
-msgstr ""
+msgstr "Passwort zurücksetzen"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Retry creation"
-msgstr ""
+msgstr "Erstellung erneut versuchen"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Retry Google sign-in"
-msgstr ""
+msgstr "Google-Anmeldung erneut versuchen"
 
 #: src/GoogleIdentityButton.tsx
 msgctxt "Connect interface"
 msgid "Retry Google sign-in"
-msgstr ""
+msgstr "Google-Anmeldung erneut versuchen"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Return to {0}"
-msgstr ""
+msgstr "Zurück zu {0}"
 
 #. placeholder {0}: adoption.source_name
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Return to {0}."
-msgstr ""
+msgstr "Zurück zu {0}."
 
 #: src/authorization-view.tsx
 msgid "Return to {applicationName}"
-msgstr ""
+msgstr "Zurück zu {applicationName}"
 
 #: src/authorization-view.tsx
 msgid "Return to {applicationName} and connect again to start a new request."
-msgstr ""
+msgstr "Kehren Sie zu {applicationName} zurück und verbinden Sie sich erneut, um eine neue Anfrage zu starten."
 
 #: src/authorization-view.tsx
 msgid "Return to {applicationName}."
-msgstr ""
+msgstr "Zurück zu {applicationName}."
 
 #: src/authority-workflows.tsx
 msgid "Return to {mirrorName}."
-msgstr ""
+msgstr "Zurück zu {mirrorName}."
 
 #: src/authority-workflows.tsx
 msgid "Return to mdbase connect."
-msgstr ""
+msgstr "Zurück zu mdbase connect."
 
 #: src/AccountManagement.tsx
 #: src/auth-view.tsx
 msgid "Return to sign in"
-msgstr ""
+msgstr "Zurück zur Anmeldung"
 
 #: src/authority-workflows.tsx
 msgid "Return to your account"
-msgstr ""
+msgstr "Zurück zu Ihrem Konto"
 
 #: src/authority-workflows.tsx
 msgid "Return to your computer."
