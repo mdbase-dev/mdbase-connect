@@ -563,7 +563,7 @@ msgstr "Informar de un problema"
 #: src/FeedbackMarkup.tsx
 msgctxt "Screenshot annotations"
 msgid "Reset"
-msgstr ""
+msgstr "Restablecer"
 
 #: src/CommandPalette.tsx
 msgid "Results"
