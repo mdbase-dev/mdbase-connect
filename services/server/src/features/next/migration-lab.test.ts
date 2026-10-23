@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  decidePoll, decideRouteBack, labRun, resumeLab, labWorkerClient, routeBack, PAUSE_REASON, STEP,
+  decidePoll, decideRouteBack, labRun, labStatus, resumeLab, labWorkerClient, routeBack, PAUSE_REASON, STEP,
   type LabConnect, type LabWorker, type RouteBackPhase, type WorkerReply, type WorkerStatus
 } from "./migration-lab.js";
 
@@ -523,5 +523,81 @@ describe("CLI", () => {
     const message = await cliUnder(environment);
     expect(message).not.toContain("MDBASE_CONNECT_ENVIRONMENT");
     expect(message).toContain("DATABASE_URL");
+  });
+});
+
+
+describe("managed set orchestration", () => {
+  const second = "20000000-0000-4000-8000-000000000003";
+  function managed(ids = [collection, second]) {
+    const c = fakeConnect(), started = new Set<string>(), cursors = new Map<string, number>();
+    c.connect.cleanupTimers = vi.fn(async () => ({ deleted: 0 }));
+    const pre = { job: "managed" as const, collections: ids, cut_over_collections: [], backend: "legacy" as const,
+      run: { collections: ids, backup_hold: hold, stop_before_flip: false, started_us: "1" } };
+    Object.assign(c.connect, { preflight: async () => pre, bindRun: vi.fn(async () => undefined), claimWorkerRun: vi.fn(async () => true) });
+    const w = fakeWorker(happy);
+    w.worker.rollback = vi.fn(w.worker.rollback);
+    w.worker.run = vi.fn(async id => { started.add(id); return ok(st("running", 0)); });
+    w.worker.status = vi.fn(async id => {
+      if (!started.has(id)) return ok({ run: null, native: { run_sequence: null, checkpoint: null, outstanding: null } });
+      const cursor = cursors.get(id) ?? 0; cursors.set(id, cursor + 1);
+      return ok(st(cursor ? "done" : "running", cursor ? STEP.routed : STEP.drained));
+    });
+    c.connect.flip = vi.fn(async () => undefined); c.connect.completion = vi.fn(async () => undefined);
+    return { pre, ...deps(w.worker, c.connect), started };
+  }
+  it("flips once with the sorted complete array and preserves managed completion output", async () => {
+    const d = managed();
+    expect(await labRun(account, hold, d)).toEqual({ done: { account_id: account, collection_ids: d.pre.collections, backend: "next", migration_complete: true } });
+    expect(d.connect.flip).toHaveBeenCalledExactlyOnceWith(account, [collection, second]);
+    expect(d.connect.completion).toHaveBeenCalledExactlyOnceWith(account, [collection, second]);
+  });
+  it.each([{ ids: [second, collection] }, { ids: [collection, collection] }, { ids: [] }])("rejects a noncanonical array before dispatch: $ids", async ({ ids }) => {
+    const d = managed(ids);
+    expect(await labRun(account, hold, d)).toHaveProperty("stopped.reason", "managed_inventory_invalid");
+    expect(d.connect.bindRun).not.toHaveBeenCalled(); expect(d.worker.run).not.toHaveBeenCalled();
+  });
+  it("an existing launch intent with no visible run stops without dispatch", async () => {
+    const d = managed(); d.connect.claimWorkerRun = vi.fn(async () => false);
+    expect(await labRun(account, hold, d)).toMatchObject({ stopped: { step: "worker_run", reason: "worker_run_outcome_unknown", collection_id: collection } });
+    expect(d.worker.run).not.toHaveBeenCalled(); expect(d.connect.flip).not.toHaveBeenCalled();
+  });
+  it("retries a changing second-member import and refreshes the entire set on a changing flip source", async () => {
+    const d = managed(), imports: string[] = []; let changedImport = false, changedFlip = false;
+    d.connect.importTimers = async id => {
+      imports.push(id);
+      if (id === second && !changedImport) { changedImport = true; throw refusal("timer_source_changed"); }
+    };
+    d.connect.flip = vi.fn(async () => { if (!changedFlip) { changedFlip = true; throw refusal("timers_source_changed"); } });
+    expect(await labRun(account, hold, d)).toHaveProperty("done.migration_complete", true);
+    expect(imports).toEqual([collection, second, second, collection, second]); expect(d.connect.flip).toHaveBeenCalledTimes(2);
+  });
+  it("status inspects every member, including an unavailable second member", async () => {
+    const d = managed(); d.worker.status = vi.fn(async id => id === second ? { kind: "unknown", reason: "worker_unreachable" } : ok(st("done", STEP.routed)));
+    const result = await labStatus(account, d);
+    expect(result.collections).toEqual([
+      expect.objectContaining({ collection_id: collection, worker: st("done", STEP.routed) }),
+      expect.objectContaining({ collection_id: second, worker: { kind: "unknown", reason: "worker_unreachable" } })
+    ]);
+    expect(d.worker.status).toHaveBeenCalledTimes(2);
+  });
+  it("route-back uses canonical cleanup/restart/refence behavior for every eligible member", async () => {
+    const d = managed(), phases = new Map<string, number>();
+    d.worker.status = vi.fn(async id => {
+      const phase = phases.get(id) ?? 0;
+      return ok(phase === 0 ? st("stopped", STEP.verified) : phase === 1 ? st("done", STEP.rolledBack) : st("running", STEP.drained, { seq: 2 }));
+    });
+    d.worker.rollback = vi.fn(async id => { phases.set(id, 1); return ok(st("running", STEP.rollingBack)); });
+    d.worker.restart = vi.fn(async id => { phases.set(id, 2); return ok(st("running", 0, { seq: 2 })); });
+    expect(await routeBack(account, d)).toMatchObject({ done: { collection_ids: [collection, second], refenced: true,
+      collections: [expect.objectContaining({ collection_id: collection, refenced: true }), expect.objectContaining({ collection_id: second, refenced: true })] } });
+    expect(d.worker.rollback).toHaveBeenCalledTimes(2); expect(d.worker.restart).toHaveBeenCalledTimes(2);
+    expect(d.connect.cleanupTimers).toHaveBeenCalledTimes(2); expect(d.connect.flip).not.toHaveBeenCalled();
+  });
+  it("route-back inspects the second member before mutating an eligible first member", async () => {
+    const d = managed(); d.worker.status = vi.fn(async id => id === second ? ok(st("done", STEP.routed)) : ok(st("stopped", STEP.verified)));
+    expect(await routeBack(account, d)).toMatchObject({ stopped: { reason: "migration_post_cutover", collection_id: second } });
+    expect(d.worker.status).toHaveBeenCalledTimes(2); expect(d.connect.cleanupTimers).not.toHaveBeenCalled();
+    expect(d.worker.rollback).not.toHaveBeenCalled();
   });
 });

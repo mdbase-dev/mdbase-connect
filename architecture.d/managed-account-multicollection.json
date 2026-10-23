@@ -1,0 +1,7 @@
+{
+  "reason": "The existing account migration driver now imports the canonical transaction helper and audit writer to durably reserve original Worker dispatches without a new table. One exported deployment selector distinguishes managed account orchestration from the unchanged singleton LAB fixture contract.",
+  "growth": {
+    "relativeImports": 2,
+    "typeScriptExportDeclarations": 1
+  }
+}

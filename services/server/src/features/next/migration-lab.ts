@@ -15,11 +15,13 @@
 // idempotent timer import after `timer_source_changed` are retried.
 import { z } from "zod";
 import { localBuild, localDeployment, rehearsalDiagnostics } from "../../local-deployment.js";
-import type { DatabasePool } from "../../database-types.js";
+import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
 import type { HostedProviderClient } from "../../hosted-provider.js";
+import { audit } from "../../platform/audit-events.js";
 import { flipEvidenceDigest } from "./account-backend-flip.js";
+import { inTransaction } from "./bootstrap-common.js";
 import { claim } from "./migration-provider.js";
-import { labTargetSubCause, labTargetUnavailable, migrationJobEnvironment } from "./migration-lab-target.js";
+import { labTargetSubCause, labTargetUnavailable, migrationJobForEnvironment } from "./migration-lab-target.js";
 import { cutOverCollection, flipAccountBackend, RolloutRefused } from "./migration-rollout.js";
 import { requireCompletedAccountMigration } from "./migration-sharing.js";
 import { cleanUpRolledBackTimerImport } from "./migration-timer-cleanup.js";
@@ -117,14 +119,20 @@ export interface LabWorker extends WorkerOperator {
 }
 
 /** The control-plane side; refusals throw with a `code` (RolloutRefused, TimerImportRefused). */
+type ManagedRun = { collections: string[]; backup_hold: string; stop_before_flip: boolean; started_us: string };
+type Preflight = { collection: string; backend: "legacy" | "next" }
+  | { job: "managed"; collections: string[]; backend: "legacy" | "next"; cut_over_collections: string[]; run: ManagedRun | null };
 export interface LabConnect {
-  preflight(account: string): Promise<{ collection: string; backend: "legacy" | "next" }>;
+  preflight(account: string): Promise<Preflight>;
+  /** Existing CP audit rows bind the original set/hold and reserve ONE dispatch per collection. */
+  bindRun?(account: string, collections: readonly string[], hold: string, pause: boolean): Promise<void>;
+  claimWorkerRun?(account: string, collection: string): Promise<boolean>;
   /** Canonical SHADOW/device/genesis bootstrap BEFORE Worker ready() custody. */
   prepareTarget(collection: string): Promise<void>;
   importTimers(collection: string): Promise<unknown>;
   cutover(collection: string): Promise<void>;
-  flip(account: string, collection: string): Promise<void>;
-  completion(account: string, collection: string): Promise<void>;
+  flip(account: string, collections: string | readonly string[]): Promise<void>;
+  completion(account: string, collections: string | readonly string[]): Promise<void>;
   cleanupTimers(collection: string, migrationId: string): Promise<{ deleted: number }>;
 }
 
@@ -141,7 +149,8 @@ interface LabDeps {
 }
 
 interface TargetReplyDiagnostic { raw_error?: { sub_cause: NonNullable<ReturnType<typeof labTargetSubCause>> } }
-interface LabStop { step: string; reason: string; inspect: string; resume: string; worker_run_reply?: WorkerRunReplyDiagnostic; target_reply?: TargetReplyDiagnostic }
+interface LabStop { step: string; reason: string; inspect: string; resume: string; collection_id?: string; collection_ids?: readonly string[];
+  worker_run_reply?: WorkerRunReplyDiagnostic; target_reply?: TargetReplyDiagnostic }
 export type LabOutcome = { done: Record<string, unknown> } | { stopped: LabStop };
 
 /** HTTPS client for the hosted Worker's internal migration entry (service token). */
@@ -231,6 +240,17 @@ export function labWorkerClient(config: { url: string; token: string; environmen
   };
 }
 
+const MANAGED_RUN = "next_migration.managed_run", WORKER_INTENT = "next_migration.worker_run_intent";
+const managedRunSchema = z.object({ collections: z.array(z.string().regex(UUID)).min(1).max(16), backup_hold: z.string().regex(UUID),
+  stop_before_flip: z.boolean(), started_us: z.string().regex(/^[1-9][0-9]*$/u) }).strict();
+async function readManagedRun(db: DatabaseQueryable, account: string): Promise<ManagedRun | null> {
+  const rows = (await db.query<{ metadata: unknown }>(
+    "SELECT metadata FROM audit_events WHERE user_id=$1 AND event_type=$2 AND subject_id=$1::text", [account, MANAGED_RUN])).rows;
+  if (!rows.length) return null;
+  const parsed = managedRunSchema.safeParse(rows[0]!.metadata);
+  if (rows.length !== 1 || !parsed.success) throw new RolloutRefused("managed_run_invalid", "The original managed run binding is unavailable.");
+  return parsed.data;
+}
 /** The control-plane port over the Connect database and the legacy provider. */
 export function postgresLabConnect(options: {
   db: DatabasePool; source: DatabasePool; actor: string; timers: boolean; environment?: string;
@@ -241,8 +261,9 @@ export function postgresLabConnect(options: {
   const { db, provider } = options;
   // Staging and production use the SAME ordinary archived start and completion;
   // only LAB (and an explicit local deployment) keeps the LAB fixture profile.
-  const job = localBuild() ? (options.environment === "local" ? "lab" : undefined) : migrationJobEnvironment(options.environment);
+  const job = migrationJobForEnvironment(options.environment);
   if (!job) throw new RolloutRefused("lab_only", "The migration job is unavailable in this build/environment.", 503);
+  const rolloutEnvironment = job === "lab" ? "lab" : options.environment;
   return {
     async preflight(account) {
       const row = (await db.query<{ backend: string; member: boolean; released: boolean; frozen: boolean; started: boolean; excluded: boolean }>(
@@ -262,12 +283,60 @@ export function postgresLabConnect(options: {
       if (!start.rows.length) throw job === "lab"
         ? new RolloutRefused("lab_profile_missing", "The account did not start with the LAB fixture profile.")
         : new RolloutRefused("start_profile_invalid", "The account did not start with the ordinary archived start.");
-      const hosted = (await db.query<{ id: string; state: string }>(
-        "SELECT id::text AS id, authority_state AS state FROM hosted_collections WHERE user_id=$1 AND authority_state<>'transferred'", [account])).rows;
+      const hosted = (await db.query<{ id: string; state: string; quarantined: boolean; deleted: boolean; cut_over: boolean }>(
+        `SELECT h.id::text AS id, h.authority_state AS state, h.quarantined_at IS NOT NULL AS quarantined,
+           EXISTS (SELECT 1 FROM next_collection_deletion_facts d WHERE d.collection_id=h.id) AS deleted,
+           EXISTS (SELECT 1 FROM next_migration_collections c WHERE c.collection_id=h.id AND c.account_id=h.user_id) AS cut_over
+         FROM hosted_collections h WHERE h.user_id=$1 AND h.authority_state<>'transferred' ORDER BY h.id`, [account])).rows;
+      if (job === "managed") {
+        if (!hosted.length) throw new RolloutRefused("managed_inventory_empty", "No held hosted collections; use the separately admitted zero-hosted path.");
+        if (hosted.length > 16) throw new RolloutRefused("managed_inventory_over_cap", "The managed account exceeds the 16-collection bound.");
+        if (hosted.some(c => c.state !== "active" || c.quarantined || c.deleted))
+          throw new RolloutRefused("collections_unsettled", "Every held hosted collection must remain eligible.");
+        const collections = hosted.map(c => c.id), run = await readManagedRun(db, account);
+        if (run && run.collections.join() !== collections.join()) throw new RolloutRefused("collections_mismatch", "The held set changed since the original run.");
+        return { job, collections, backend: row.backend === "next" ? "next" : "legacy", run,
+          cut_over_collections: hosted.filter(c => c.cut_over).map(c => c.id) };
+      }
       if (hosted.length !== 1 || hosted[0]!.state !== "active") {
         throw new RolloutRefused("lab_inventory_invalid", "The rehearsal account must have exactly one settled hosted collection.");
       }
       return { collection: hosted[0]!.id, backend: row.backend === "next" ? "next" : "legacy" };
+    },
+    async bindRun(account, collections, hold, pause) {
+      if (job !== "managed") throw new Error("Managed run binding used by a fixture job.");
+      await inTransaction(db, async client => {
+        await client.query("SELECT id FROM users WHERE id=$1 FOR UPDATE", [account]);
+        const member = (await client.query<{ started_us: string }>(
+          `SELECT (extract(epoch FROM started_at)*1000000)::bigint::text AS started_us FROM next_migration_cohort_members
+           WHERE account_id=$1 AND started_at IS NOT NULL AND terminal_excluded_at IS NULL`, [account])).rows[0];
+        if (!member) throw new RolloutRefused("account_not_started", "The account's migration has not started.");
+        const held = (await client.query<{ id: string }>(
+          "SELECT id::text FROM hosted_collections WHERE user_id=$1 AND authority_state<>'transferred' ORDER BY id FOR SHARE", [account])).rows.map(c => c.id);
+        if (held.join() !== collections.join() || new Set(collections).size !== collections.length)
+          throw new RolloutRefused("collections_mismatch", "The managed run must bind the complete distinct held set.");
+        const expected = managedRunSchema.parse({ collections, backup_hold: hold, stop_before_flip: pause, started_us: member.started_us });
+        const original = await readManagedRun(client, account);
+        if (original) {
+          if (JSON.stringify(original) !== JSON.stringify(expected)) throw new RolloutRefused("managed_run_conflict", "Resume the original collection set, hold and pause intent.");
+        } else await audit(client, account, MANAGED_RUN, account, expected);
+      });
+    },
+    async claimWorkerRun(account, collection) {
+      if (job !== "managed") throw new Error("Managed dispatch used by a fixture job.");
+      return inTransaction(db, async client => {
+        await client.query("SELECT id FROM users WHERE id=$1 FOR UPDATE", [account]);
+        const run = await readManagedRun(client, account);
+        if (!run?.collections.includes(collection)) throw new RolloutRefused("managed_run_missing", "No original run binding for this collection.");
+        const current = await claim(client, collection, true);
+        if (current.account !== account || current.started_us !== run.started_us) throw new RolloutRefused("migration_source_changed", "The original migration claim changed.");
+        const prior = await client.query("SELECT 1 FROM audit_events WHERE user_id=$1 AND subject_id=$2 AND event_type=$3", [account, collection, WORKER_INTENT]);
+        if (prior.rows.length) return false;
+        // COMMIT precedes dispatch. An unknown COMMIT or lost Worker reply can
+        // only reconcile by status, including after process loss; never replay.
+        await audit(client, account, WORKER_INTENT, collection, { backup_hold: run.backup_hold, started_us: run.started_us });
+        return true;
+      });
     },
     async prepareTarget(collection) {
       // A routed-but-not-flipped rerun already has its recorded NEXT target.
@@ -299,17 +368,25 @@ export function postgresLabConnect(options: {
         barrier_f: Number(row.barrier_f), final_digest: row.final_digest });
     },
     async flip(account, collection) {
+      const collections = typeof collection === "string" ? [collection] : collection;
+      if (!collections.length) throw new RolloutRefused("managed_inventory_empty", "The hosted migration driver requires a nonempty set.");
+      if (new Set(collections).size !== collections.length) throw new RolloutRefused("collections_duplicated", "A collection is named twice.");
       const rows = (await db.query<{ collection_id: string; barrier_f: string; final_digest: string }>(
-        "SELECT collection_id::text, barrier_f::text, final_digest FROM next_migration_collections WHERE collection_id=$1 AND account_id=$2",
-        [collection, account])).rows;
-      if (rows.length !== 1) throw new RolloutRefused("cutover_not_recorded", "No cutover is recorded for the account's collection.");
-      await flipAccountBackend(db, account, [collection], flipEvidenceDigest(rows), { enabled: options.timers, provider }, job);
+        "SELECT collection_id::text, barrier_f::text, final_digest FROM next_migration_collections WHERE collection_id=ANY($1::uuid[]) AND account_id=$2",
+        [collections, account])).rows;
+      if (rows.length !== collections.length) throw new RolloutRefused("cutover_not_recorded", "No cutover is recorded for every named collection.");
+      await flipAccountBackend(db, account, collections, flipEvidenceDigest(rows), { enabled: options.timers, provider }, rolloutEnvironment);
     },
     async completion(account, collection) {
       // A cohort completes on an accepted archive OR, without one, on the LAB
       // completion event; the strict readback requires exactly one of the two.
       // A suspended owner's migration completes too (suspension is unchanged).
-      try { await requireCompletedAccountMigration(db, collection, account, { suspendedOwner: true }); } catch (error) {
+      const collections = typeof collection === "string" ? [collection] : collection;
+      if (!collections.length) throw new RolloutRefused("managed_inventory_empty", "The hosted migration driver requires a nonempty set.");
+      try {
+        for (const id of collections)
+          await requireCompletedAccountMigration(db, id, account, { suspendedOwner: true });
+      } catch (error) {
         if ((error as { code?: unknown })?.code === "collection_migrating") {
           throw new RolloutRefused("lab_completion_missing", "The completion readback refuses this account.");
         }
@@ -318,7 +395,7 @@ export function postgresLabConnect(options: {
     },
     async cleanupTimers(collection, migrationId) {
       const current = await claim(db, collection);
-      return cleanUpRolledBackTimerImport(db, provider, job, collection,
+      return cleanUpRolledBackTimerImport(db, provider, rolloutEnvironment, collection,
         { owner_account: current.account, started_us: current.started_us, migration_id: migrationId });
     }
   };
@@ -451,88 +528,155 @@ export async function labRun(account: string, backupHold: string, deps: LabDeps,
   return driveLabRun(account, backupHold, pre, deps, stopBeforeFlip);
 }
 
-/** Continue the one preflight-bound collection, including after explicit resume. */
-async function driveLabRun(account: string, backupHold: string, pre: Awaited<ReturnType<LabConnect["preflight"]>>,
-  deps: LabDeps, stopBeforeFlip: boolean): Promise<LabOutcome> {
-  const cmd = commands(account, backupHold), log = deps.log ?? (() => undefined);
-  const now = deps.now ?? Date.now, startedAt = now();
+/** Drive each member through the same collection behavior, then flip exactly once. */
+async function driveLabRun(account: string, backupHold: string, pre: Preflight,
+  deps: LabDeps, stopBeforeFlip: boolean, explicitResume = false): Promise<LabOutcome> {
+  const cmd = commands(account, backupHold), managed = "job" in pre;
+  const collections = managed ? pre.collections : [pre.collection];
+  const log = deps.log ?? (() => undefined), pace = await poller(deps), now = deps.now ?? Date.now, startedAt = now();
+  let current: string | undefined;
   const stop = (step: string, reason: string, routeBack = false, diagnostic?: WorkerRunReplyDiagnostic, target?: TargetReplyDiagnostic): LabOutcome =>
     ({ stopped: { step, reason, inspect: cmd.inspect, resume: reason === PAUSE_REASON ? cmd.resume
       : routeBack ? cmd.routeBack : cmd.labRun + (stopBeforeFlip ? " --stop-before-flip" : ""),
+      ...(managed ? { collection_ids: collections, ...(current ? { collection_id: current } : {}) } : {}),
       ...(diagnostic ? { worker_run_reply: diagnostic } : {}), ...(target ? { target_reply: target } : {}) } });
-  const { collection } = pre;
-  log({ step: "preflight", collection, backend: pre.backend });
-  const pace = await poller(deps);
-
-  const importTimers = async (): Promise<LabOutcome | null> => {
+  if (managed && (!collections.length || collections.length > 16 || new Set(collections).size !== collections.length
+      || collections.some((id, i) => !UUID.test(id) || i > 0 && id <= collections[i - 1]!))) return stop("preflight", "managed_inventory_invalid");
+  log(managed ? { step: "preflight", collection_ids: collections, backend: pre.backend }
+    : { step: "preflight", collection: pre.collection, backend: pre.backend });
+  const memberLog = (collection: string, event: Record<string, unknown>) => log(managed ? { ...event, collection_id: collection } : event);
+  const importTimers = async (collection: string): Promise<LabOutcome | null> => {
+    current = collection;
     for (let attempt = 1; ; attempt++) {
-      try { log({ step: "import_timers", manifest: await deps.connect.importTimers(collection) }); return null; } catch (error) {
+      try { memberLog(collection, { step: "import_timers", manifest: await deps.connect.importTimers(collection) }); return null; } catch (error) {
         const code = codeOf(error);
         if (code !== "timer_source_changed" || attempt >= 5) return stop("import_timers", code);
-        log({ step: "import_timers", retry: code, attempt });
-        await pace.wait();
+        memberLog(collection, { step: "import_timers", retry: code, attempt }); await pace.wait();
       }
     }
   };
-
-  if (pre.backend === "legacy") {
-    // ready() needs an enrolled hosted identity. The executor's later target
-    // action reuses the canonical immutable tuple; HTTP200 here is not H1.
-    try { await deps.connect.prepareTarget(collection); }
-    catch (error) {
-      const cause = labTargetSubCause(error, deps.environment);
-      const diagnostic = cause ? { raw_error: { sub_cause: cause } } : undefined;
-      if (diagnostic) log({ step: "target_reply", ...diagnostic });
-      return stop("prepare_target", codeOf(error), false, undefined, diagnostic);
+  const driveCollection = async (collection: string): Promise<LabOutcome | "paused" | null> => {
+    current = collection;
+    // Managed retries observe the original Worker row FIRST. An absent run
+    // after a durable dispatch intent is UNKNOWN, never permission to resend.
+    let started: WorkerReply | undefined = managed ? await readStatus(deps, collection, pace) : undefined;
+    if (started && started.kind !== "ok") return stop("worker_status", started.kind === "refused" ? started.code : started.reason);
+    if (started?.kind === "ok" && !started.status.run) {
+      if ("error" in started.status.native) return stop("worker_status", `native_state:${started.status.native.error}`);
+      if ("job" in pre && pre.cut_over_collections.includes(collection)
+          || started.status.native.checkpoint || started.status.native.outstanding) return stop("worker_status", "worker_run_missing");
+      started = undefined;
     }
-    log({ step: "prepare_target", collection });
-    const started = await deps.worker.run(collection, backupHold, stopBeforeFlip);
-    if (started.diagnostic) log({ step: "worker_run_reply", kind: started.kind, ...started.diagnostic });
+    if (!started) {
+      try { await deps.connect.prepareTarget(collection); }
+      catch (error) {
+        const cause = labTargetSubCause(error, deps.environment), diagnostic = cause ? { raw_error: { sub_cause: cause } } : undefined;
+        if (diagnostic) memberLog(collection, { step: "target_reply", ...diagnostic });
+        return stop("prepare_target", codeOf(error), false, undefined, diagnostic);
+      }
+      memberLog(collection, { step: "prepare_target", collection });
+      if (managed) {
+        try {
+          if (!deps.connect.claimWorkerRun || !await deps.connect.claimWorkerRun(account, collection)) return stop("worker_run", "worker_run_outcome_unknown");
+        } catch (error) { return stop("worker_run", codeOf(error)); }
+      }
+      started = await deps.worker.run(collection, backupHold, stopBeforeFlip);
+    }
+    if (started.diagnostic) memberLog(collection, { step: "worker_run_reply", kind: started.kind, ...started.diagnostic });
     if (started.kind === "refused") return stop("worker_run", started.code, false, started.diagnostic);
-    // Preserve the initial run reply before resolving it by read-only status, never retrying the run.
-    const confirmed = started.kind === "ok" ? started : await readStatus(deps, collection, pace);
+    let confirmed = started.kind === "ok" ? started : await readStatus(deps, collection, pace);
     if (confirmed.kind !== "ok") return stop("worker_run", confirmed.kind === "refused" ? confirmed.code : confirmed.reason, false, started.diagnostic);
     if (confirmed.status.run?.backup_hold !== backupHold) return stop("worker_run", confirmed.status.run ? "migration_run_exists" : "worker_run_missing", false, started.diagnostic);
-    if (stopBeforeFlip ? confirmed.status.run.stop_before_flip !== true : confirmed.status.run.stop_before_flip === true) {
+    if (stopBeforeFlip ? confirmed.status.run.stop_before_flip !== true : confirmed.status.run.stop_before_flip === true)
       return stop("worker_run", "migration_pause_mode_conflict");
+    if (managed && explicitResume && confirmed.status.run.reason === PAUSE_REASON) {
+      confirmed = await resumeWorker(collection, confirmed.status, deps.worker);
+      if (confirmed.kind !== "ok") return stop("resume", confirmed.kind === "refused" ? confirmed.code : confirmed.reason);
     }
-    log({ step: "worker_run", state: confirmed.status.run.state });
-
-    let timersImported = false, timeline = "";
+    memberLog(collection, { step: "worker_run", state: confirmed.status.run?.state });
+    let timersImported = false, timeline = "", initial = managed ? confirmed : undefined;
     for (;;) {
-      const reply = await readStatus(deps, collection, pace);
+      const reply: WorkerReply = initial ?? await readStatus(deps, collection, pace); initial = undefined;
       if (reply.kind !== "ok") return stop("worker_status", reply.kind === "refused" ? reply.code : reply.reason);
+      // Bind every read, not just the first reply, to this original hold/intent.
+      if (managed && (reply.status.run?.backup_hold !== backupHold || (reply.status.run.stop_before_flip === true) !== stopBeforeFlip))
+        return stop("worker_status", "migration_run_exists");
       const line = workerTimeline(reply.status, now() - startedAt), key = JSON.stringify({ ...line, t_ms: 0 });
-      if (key !== timeline) { timeline = key; log(line); }
+      if (key !== timeline) { timeline = key; memberLog(collection, line); }
       const decision = decidePoll(reply.status, timersImported);
-      if (decision.action === "stop") return stop("worker_status", decision.reason, decision.routeBack);
+      if (decision.action === "stop") {
+        if (managed && decision.reason === PAUSE_REASON && stopBeforeFlip) {
+          if (!explicitResume) return "paused";
+          const resumed = await resumeWorker(collection, reply.status, deps.worker);
+          if (resumed.kind !== "ok") return stop("resume", resumed.kind === "refused" ? resumed.code : resumed.reason);
+          initial = resumed; continue;
+        }
+        return stop("worker_status", decision.reason, decision.routeBack);
+      }
       if (decision.action === "routed") break;
       if (decision.action === "import_timers") {
-        const stopped = await importTimers();
-        if (stopped) return stopped;
-        timersImported = true;
-        continue;
+        const stopped = await importTimers(collection); if (stopped) return stopped;
+        timersImported = true; continue;
       }
       if (pace.expired()) return stop("worker_status", "poll_timeout");
       await pace.wait(reply.status);
     }
-    log({ step: "worker_status", routed: true });
-    if (!timersImported) { const stopped = await importTimers(); if (stopped) return stopped; }
+    memberLog(collection, { step: "worker_status", routed: true });
+    if (!timersImported) { const stopped = await importTimers(collection); if (stopped) return stopped; }
     try { await deps.connect.cutover(collection); } catch (error) { return stop("cutover", codeOf(error)); }
-    log({ step: "cutover", recorded: true });
+    memberLog(collection, { step: "cutover", recorded: true });
+    return null;
+  };
+  const named = managed ? collections : collections[0]!;
+  if (pre.backend === "legacy") {
+    if (managed) {
+      try {
+        if (!deps.connect.bindRun) throw new Error("Managed run ledger unavailable.");
+        await deps.connect.bindRun(account, collections, backupHold, stopBeforeFlip);
+      } catch (error) { return stop("bind_run", codeOf(error)); }
+    }
+    let paused = false;
+    for (const collection of collections) {
+      const result = await driveCollection(collection);
+      if (result === "paused") paused = true; else if (result) return result;
+    }
+    current = undefined;
+    if (paused) return stop("worker_status", PAUSE_REASON);
     for (let attempt = 1; ; attempt++) {
-      try { await deps.connect.flip(account, collection); break; } catch (error) {
+      try { await deps.connect.flip(account, named); break; } catch (error) {
         const code = codeOf(error);
         if (code !== "timers_source_changed" || attempt >= 5) return stop("flip", code);
         log({ step: "flip", retry: code, attempt });
-        const stopped = await importTimers();
-        if (stopped) return stopped;
+        // The flip rereads ALL sources. Refresh every manifest before retrying
+        // the one combined-evidence flip, including already-routed members.
+        for (const collection of collections) { const stopped = await importTimers(collection); if (stopped) return stopped; }
+        current = undefined;
       }
     }
-    log({ step: "flip", backend: "next" });
+    log({ step: "flip", backend: "next", ...(managed ? { collection_ids: collections } : {}) });
   }
-  try { await deps.connect.completion(account, collection); } catch (error) { return stop("verify_completion", codeOf(error)); }
-  return { done: { account_id: account, collection_id: collection, backend: "next", lab_complete: true } };
+  try { await deps.connect.completion(account, named); } catch (error) { return stop("verify_completion", codeOf(error)); }
+  return { done: managed ? { account_id: account, collection_ids: collections, backend: "next", migration_complete: true }
+    : { account_id: account, collection_id: collections[0], backend: "next", lab_complete: true } };
+}
+
+async function resumeWorker(collection: string, before: WorkerStatus, worker: LabWorker): Promise<WorkerReply> {
+  const refuse = (code: string): WorkerReply => ({ kind: "refused", code });
+  const { run, native } = before;
+  if ("error" in native) return refuse(`native_state:${native.error}`);
+  const sequence = native.run_sequence;
+  if (!sequence) return refuse("run_sequence_unavailable");
+  if (!run || run.state !== "stopped" || run.reason !== PAUSE_REASON || run.stop_before_flip !== true
+      || run.resumed_run_sequence !== null || native.checkpoint?.step !== STEP.verified
+      || !native.checkpoint.fenced || native.outstanding || !UUID.test(run.backup_hold)) return refuse("migration_pause_not_current");
+  const resumed = await worker.resume(collection, sequence);
+  if (resumed.kind !== "ok") return refuse(resumed.kind === "refused"
+    ? `operator_refused:${resumed.code}` : `operator_outcome_unknown:${resumed.reason}`);
+  const after = resumed.status;
+  if ("error" in after.native || after.native.run_sequence !== sequence || after.run?.resumed_run_sequence !== sequence
+      || after.run.stop_before_flip !== true || after.run.backup_hold !== run.backup_hold
+      || !["running", "waiting", "done"].includes(after.run.state)) return refuse("operator_outcome_unknown:resume_unconfirmed");
+  return resumed;
 }
 
 /** Explicit, sequence-bound resume; a lost operator reply is never retried or adopted. */
@@ -542,26 +686,16 @@ export async function resumeLab(account: string, deps: LabDeps): Promise<LabOutc
   if (!UUID.test(account)) return stop("invalid_request");
   let pre: Awaited<ReturnType<LabConnect["preflight"]>>;
   try { pre = await deps.connect.preflight(account); } catch (error) { return stop(codeOf(error)); }
+  if ("job" in pre) {
+    if (!pre.run) return stop("managed_run_missing");
+    return driveLabRun(account, pre.run.backup_hold, pre, deps, pre.run.stop_before_flip, true);
+  }
   if (pre.backend !== "legacy") return stop("account_already_next");
   const before = await readStatus(deps, pre.collection, await poller(deps));
   if (before.kind !== "ok") return stop(before.kind === "refused" ? before.code : before.reason);
-  const { run, native } = before.status;
-  if ("error" in native) return stop(`native_state:${native.error}`);
-  const sequence = native.run_sequence;
-  if (!sequence) return stop("run_sequence_unavailable");
-  if (!run || run.state !== "stopped" || run.reason !== PAUSE_REASON || run.stop_before_flip !== true
-      || run.resumed_run_sequence !== null || native.checkpoint?.step !== STEP.verified
-      || !native.checkpoint.fenced || native.outstanding || !UUID.test(run.backup_hold)) return stop("migration_pause_not_current");
-  const resumed = await deps.worker.resume(pre.collection, sequence);
-  if (resumed.kind !== "ok") return stop(resumed.kind === "refused"
-    ? `operator_refused:${resumed.code}` : `operator_outcome_unknown:${resumed.reason}`);
-  const after = resumed.status;
-  if ("error" in after.native || after.native.run_sequence !== sequence || after.run?.resumed_run_sequence !== sequence
-      || after.run.stop_before_flip !== true || after.run.backup_hold !== run.backup_hold
-      || !["running", "waiting", "done"].includes(after.run.state)) {
-    return stop("operator_outcome_unknown:resume_unconfirmed");
-  }
-  return driveLabRun(account, run.backup_hold, pre, deps, true);
+  const resumed = await resumeWorker(pre.collection, before.status, deps.worker);
+  if (resumed.kind !== "ok") return stop(resumed.kind === "refused" ? resumed.code : resumed.reason);
+  return driveLabRun(account, before.status.run!.backup_hold, pre, deps, true);
 }
 
 /**
@@ -569,13 +703,44 @@ export async function resumeLab(account: string, deps: LabDeps): Promise<LabOutc
  * restart with the expected run sequence (re-import) → wait for the re-fence.
  */
 export async function routeBack(account: string, deps: LabDeps): Promise<LabOutcome> {
-  const cmd = commands(account), log = deps.log ?? (() => undefined);
+  const cmd = commands(account);
   const stop = (step: string, reason: string): LabOutcome => ({ stopped: { step, reason, inspect: cmd.inspect, resume: cmd.routeBack } });
   if (!UUID.test(account)) return stop("preflight", "invalid_request");
   let pre: Awaited<ReturnType<LabConnect["preflight"]>>;
   try { pre = await deps.connect.preflight(account); } catch (error) { return stop("preflight", codeOf(error)); }
   if (pre.backend !== "legacy") return stop("preflight", "account_already_next");
-  const { collection } = pre, pace = await poller(deps), tried = new Set<string>();
+  if (!("job" in pre)) return routeBackCollection(account, pre.collection, deps);
+  // Inspect the entire set BEFORE any cleanup/rollback. A routed sibling keeps
+  // its serving custody; partial cutover requires forward reconciliation.
+  const observed = await Promise.all(pre.collections.map(async collection => ({ collection, reply: await deps.worker.status(collection) })));
+  for (const { collection, reply } of observed) {
+    const refuse = (reason: string): LabOutcome => ({ stopped: { step: "worker_status", reason, inspect: cmd.inspect, resume: cmd.routeBack,
+      collection_id: collection, collection_ids: pre.collections } });
+    if (reply.kind !== "ok") return refuse(reply.kind === "refused" ? reply.code : reply.reason);
+    if (pre.cut_over_collections.includes(collection) || !("error" in reply.status.native)
+        && (reply.status.native.checkpoint?.step ?? 0) >= STEP.cutoverIntent
+        && (reply.status.native.checkpoint?.step ?? 0) < STEP.rollingBack) return refuse("migration_post_cutover");
+    if (!reply.status.run) return refuse("worker_run_missing");
+    if (!pre.run || reply.status.run.backup_hold !== pre.run.backup_hold
+        || (reply.status.run.stop_before_flip === true) !== pre.run.stop_before_flip) return refuse("managed_run_conflict");
+    const decision = decideRouteBack(reply.status, "start");
+    if (decision.action === "stop") return refuse(decision.reason);
+  }
+  const results: Record<string, unknown>[] = [];
+  for (const collection of pre.collections) {
+    const result = await routeBackCollection(account, collection, { ...deps,
+      log: event => deps.log?.({ ...event, collection_id: collection }) });
+    if ("stopped" in result) return { stopped: { ...result.stopped, collection_id: collection, collection_ids: pre.collections } };
+    results.push(result.done);
+  }
+  return { done: { account_id: account, collection_ids: pre.collections, refenced: true, collections: results } };
+}
+
+/** Canonical per-collection rollback/restart; shared by fixture and managed jobs. */
+async function routeBackCollection(account: string, collection: string, deps: LabDeps): Promise<LabOutcome> {
+  const cmd = commands(account), log = deps.log ?? (() => undefined);
+  const stop = (step: string, reason: string): LabOutcome => ({ stopped: { step, reason, inspect: cmd.inspect, resume: cmd.routeBack } });
+  const pace = await poller(deps), tried = new Set<string>();
   let phase: RouteBackPhase = "start";
   // Each operator call is bound to the expected sequence; a lost reply stops (a rerun re-reads state first).
   const operate = async (step: string, call: () => Promise<WorkerReply>): Promise<LabOutcome | null> => {
@@ -626,6 +791,14 @@ export async function routeBack(account: string, deps: LabDeps): Promise<LabOutc
 /** Read-only: the account's control-plane facts and the Worker status. */
 export async function labStatus(account: string, deps: Pick<LabDeps, "worker" | "connect">): Promise<Record<string, unknown>> {
   const pre = await deps.connect.preflight(account);
+  if ("job" in pre) {
+    const collections = await Promise.all(pre.collections.map(async collection_id => {
+      const reply = await deps.worker.status(collection_id);
+      return { collection_id, cut_over: pre.cut_over_collections.includes(collection_id),
+        worker: reply.kind === "ok" ? reply.status : reply };
+    }));
+    return { account_id: account, ...pre, collection_ids: pre.collections, collections };
+  }
   const reply = await deps.worker.status(pre.collection);
   return { account_id: account, ...pre, worker: reply.kind === "ok" ? reply.status : reply };
 }

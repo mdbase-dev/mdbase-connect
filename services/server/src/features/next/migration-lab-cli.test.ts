@@ -29,7 +29,8 @@ async function invoke(environment: keyof typeof origins, command: string, overri
   effects.openDatabase.mockResolvedValue({ end: effects.sourceEnd });
   effects.connect.mockReturnValue({}); effects.worker.mockReturnValue({});
   effects.providerConfig.mockReturnValue({ url: "https://provider.invalid", internalToken: "p".repeat(40) });
-  for (const method of [effects.run, effects.resume, effects.routeBack]) method.mockResolvedValue({ done: { lab_complete: true } });
+  for (const method of [effects.run, effects.resume]) method.mockResolvedValue({ done: { account_id: account, collection_ids: [hold], backend: "next", migration_complete: true } });
+  effects.routeBack.mockResolvedValue({ done: { account_id: account, collection_ids: [hold], refenced: true } });
   effects.status.mockResolvedValue({ status: "observed" });
   for (const [key, value] of Object.entries({
     MDBASE_CONNECT_ENVIRONMENT: environment, PUBLIC_URL: origins[environment], DATABASE_URL: "postgres://synthetic@control.invalid/control",
@@ -59,10 +60,11 @@ describe.each(["staging", "production"] as const)("%s product CLI entry composit
     expect(effects.createDatabase).toHaveBeenCalledExactlyOnceWith("postgres://synthetic@control.invalid/control");
     expect(effects.openDatabase).toHaveBeenCalledExactlyOnceWith(sourceUrl, undefined);
     expect(effects.connect).toHaveBeenCalledWith(expect.objectContaining({ environment, actor: "migration-operator", timers: true,
-      ...(command === "lab-run" ? { prepareTarget: expect.any(Function) } : {}) }));
+      ...(["lab-run", "resume"].includes(command) ? { prepareTarget: expect.any(Function) } : {}) }));
     expect(effects.worker).toHaveBeenCalledWith(expect.objectContaining({ environment }));
     const selected = command === "lab-run" ? effects.run : command === "resume" ? effects.resume : command === "route-back" ? effects.routeBack : effects.status;
     expect(selected).toHaveBeenCalledOnce();
+    if (["lab-run", "resume"].includes(command)) expect(log).toHaveBeenCalledExactlyOnceWith(JSON.stringify({ done: { account_id: account, collection_ids: [hold], backend: "next", migration_complete: true } }));
     if (command !== "status") expect(selected.mock.calls[0]![command === "lab-run" ? 2 : 1]).toMatchObject({ environment });
     expect(effects.sourceEnd).toHaveBeenCalledOnce(); expect(effects.controlEnd).toHaveBeenCalledOnce();
   });

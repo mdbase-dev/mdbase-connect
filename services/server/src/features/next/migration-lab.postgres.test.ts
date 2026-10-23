@@ -81,9 +81,11 @@ suite("lab-run against the control plane (synthetic PostgreSQL, scripted Worker)
   /** Answers status from a script; reaching `routed` first records the cutover as the Worker's Route does. */
   function worker(f: Fixture, script: WorkerStatus[]): LabWorker {
     const unused = async () => { throw new Error("not used by lab-run"); };
+    let started = false;
     return {
-      run: async () => ({ kind: "ok", status: status("running", 0) }),
+      run: async () => { started = true; return { kind: "ok", status: status("running", 0) }; },
       async status() {
+        if (!started) return { kind: "ok", status: { run: null, native: { checkpoint: null, outstanding: null, run_sequence: null } } };
         const next = script.length > 1 ? script.shift()! : script[0]!;
         if (next.native && "checkpoint" in next.native && next.native.checkpoint?.step === STEP.routed) {
           await cutOverCollection(db, f.provider, f.collection, { s_final: 7, cutover_seq: 11, barrier_f: 13, final_digest: "e".repeat(64) });
@@ -129,7 +131,7 @@ suite("lab-run against the control plane (synthetic PostgreSQL, scripted Worker)
 
   it("staging deployment: an ordinary archived start runs, flips as staging and completes on the accepted archive", async () => {
     const f = await fixture(false, "staging");
-    expect(await labRun(f.user, hold, deps(f, routed()))).toEqual({ done: { account_id: f.user, collection_id: f.collection, backend: "next", lab_complete: true } });
+    expect(await labRun(f.user, hold, deps(f, routed()))).toEqual({ done: { account_id: f.user, collection_ids: [f.collection], backend: "next", migration_complete: true } });
     expect(await backend(f.user)).toBe("next");
     expect(f.provider.source.state).toBe("migrated");
     await requireCompletedAccountMigration(db, f.collection, f.user);
@@ -141,7 +143,7 @@ suite("lab-run against the control plane (synthetic PostgreSQL, scripted Worker)
   it("staging deployment: a suspended owner migrates and completes, while every product guard still refuses it", async () => {
     const f = await fixture(false, "staging");
     await db.query("UPDATE users SET suspended_at=now(), session_epoch=session_epoch+1 WHERE id=$1", [f.user]);
-    expect(await labRun(f.user, hold, deps(f, routed()))).toEqual({ done: { account_id: f.user, collection_id: f.collection, backend: "next", lab_complete: true } });
+    expect(await labRun(f.user, hold, deps(f, routed()))).toEqual({ done: { account_id: f.user, collection_ids: [f.collection], backend: "next", migration_complete: true } });
     expect(await backend(f.user)).toBe("next");
     await requireCompletedAccountMigration(db, f.collection, f.user, { suspendedOwner: true });
     // Sharing, timers and other post-migration guards keep refusing the suspended owner.

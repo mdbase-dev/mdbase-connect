@@ -129,11 +129,13 @@ describe("migration job environment gate (deployment configuration only)", () =>
     const query = vi.fn()
       .mockResolvedValueOnce({ rows: [{ backend: "legacy", member: true, released: true, frozen: true, started: true, excluded: false }] })
       .mockResolvedValueOnce({ rows: [{ present: 1 }] })
-      .mockResolvedValueOnce({ rows: [{ id: collection, state: "active" }] });
+      .mockResolvedValueOnce({ rows: [{ id: collection, state: "active" }] })
+      .mockResolvedValueOnce({ rows: [] });
     const db = { query } as unknown as Parameters<typeof postgresLabConnect>[0]["db"];
     const connect = postgresLabConnect({ db, source: db, actor: "operator", timers: true, environment,
       provider: {} as Parameters<typeof postgresLabConnect>[0]["provider"] });
-    expect(await connect.preflight(account)).toEqual({ collection, backend: "legacy" });
+    expect(await connect.preflight(account)).toEqual(environment === "lab" ? { collection, backend: "legacy" }
+      : { job: "managed", collections: [collection], backend: "legacy", cut_over_collections: [], run: null });
     expect(query.mock.calls[1]).toEqual([expect.stringContaining("IS NOT DISTINCT FROM $2"),
       [account, environment === "lab" ? "lab-fixture-v1" : null]]);
   });
