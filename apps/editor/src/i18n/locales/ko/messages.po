@@ -5644,384 +5644,384 @@ msgstr "유형 이름"
 
 #: src/native-gateway.ts
 msgid "type pack install"
-msgstr ""
+msgstr "유형 팩 설치"
 
 #: src/TypeBrowser.tsx
 msgid "Type resources"
-msgstr ""
+msgstr "유형 리소스"
 
 #: src/TypeBrowser.tsx
 msgid "Type source differences"
-msgstr ""
+msgstr "유형 원본 차이"
 
 #. placeholder {0}: note.types.join(", ")
 #: src/NoteList.tsx
 msgid "Type: {0}"
-msgstr ""
+msgstr "유형: {0}"
 
 #. placeholder {0}: filter.value
 #: src/NoteSearchField.tsx
 msgid "type:{0}"
-msgstr ""
+msgstr "유형:{0}"
 
 #: src/EditorRail.tsx
 #: src/LoadingScreens.tsx
 #: src/TypeBrowser.tsx
 msgid "Types"
-msgstr ""
+msgstr "유형"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Types"
-msgstr ""
+msgstr "유형"
 
 #: src/EditorRail.tsx
 msgid "Types ({typeCount})"
-msgstr ""
+msgstr "유형 ({typeCount})"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Types folder"
-msgstr ""
+msgstr "유형 폴더"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Typewriter scrolling"
-msgstr ""
+msgstr "타자기 스크롤"
 
 #: src/collection-browser.ts
 msgid "Undated"
-msgstr ""
+msgstr "날짜 없음"
 
 #: src/Toasts.tsx
 msgid "Undo"
-msgstr ""
+msgstr "실행 취소"
 
 #: src/Toasts.tsx
 msgid "Undoing"
-msgstr ""
+msgstr "실행 취소 중"
 
 #. placeholder {0}: index + 1
 #: src/TypeBrowser.tsx
 msgid "Unique field {0}"
-msgstr ""
+msgstr "고유 필드 {0}"
 
 #: src/type-schema.ts
 msgid "unique items"
-msgstr ""
+msgstr "고유 항목"
 
 #: src/type-schema.ts
 msgid "unique rules with unsupported values"
-msgstr ""
+msgstr "지원되지 않는 값을 포함한 고유성 규칙"
 
 #: src/TypeBrowser.tsx
 msgid "Uniqueness"
-msgstr ""
+msgstr "고유성"
 
 #: src/type-schema.ts
 msgid "Uniqueness rules"
-msgstr ""
+msgstr "고유성 규칙"
 
 #. placeholder {0}: mentions.length
 #: src/WorkspaceChrome.tsx
 msgid "Unlinked mentions ({0})"
-msgstr ""
+msgstr "연결되지 않은 언급 ({0})"
 
 #: src/editor-commands.ts
 msgid "Unpin"
-msgstr ""
+msgstr "고정 해제"
 
 #: src/App.tsx
 msgid "Unsaved draft found"
-msgstr ""
+msgstr "저장되지 않은 초안 발견"
 
 #: src/App.tsx
 msgid "Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes."
-msgstr ""
+msgstr "이 브라우저에서는 저장되지 않은 편집 내용을 백업할 수 없습니다. 저장이 끝날 때까지 이 탭을 열어 두세요."
 
 #: src/App.tsx
 msgid "Unsaved edits from an earlier session are available."
-msgstr ""
+msgstr "이전 세션의 저장되지 않은 편집 내용을 복구할 수 있습니다."
 
 #: src/App.tsx
 msgid "Unsaved type definition changes will be discarded. Saved note and property changes will finish first."
-msgstr ""
+msgstr "저장되지 않은 유형 정의 변경사항은 버려집니다. 저장된 노트 및 속성 변경은 먼저 완료됩니다."
 
 #: src/App.tsx
 msgid "Unsaved type or creation changes will be discarded when the new collection opens. Note and property changes will finish saving first."
-msgstr ""
+msgstr "새 컬렉션을 열면 저장되지 않은 유형 또는 생성 변경사항이 버려집니다. 노트 및 속성 변경은 저장을 먼저 완료합니다."
 
 #: src/App.tsx
 msgid "Unsaved type or creation changes will be discarded."
-msgstr ""
+msgstr "저장되지 않은 유형 또는 생성 변경사항이 버려집니다."
 
 #: src/ConflictResolver.tsx
 #: src/MarkdownNoteEditor.tsx
 #: src/NewNoteComposer.tsx
 #: src/note.ts
 msgid "Untitled"
-msgstr ""
+msgstr "제목 없음"
 
 #: src/ConnectionScreens.tsx
 msgid "Untitled collection"
-msgstr ""
+msgstr "제목 없는 컬렉션"
 
 #: src/TypeBrowser.tsx
 msgid "Unversioned"
-msgstr ""
+msgstr "버전 없음"
 
 #: src/ConnectionScreens.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Update access"
-msgstr ""
+msgstr "접근 권한 업데이트"
 
 #. placeholder {0}: accessSummary(missingCapabilities)
 #: src/ConnectionScreens.tsx
 msgid "Update access to {0} in this collection."
-msgstr ""
+msgstr "이 컬렉션에서 {0}에 대한 접근 권한을 업데이트합니다."
 
 #: src/YourPersonPanel.tsx
 msgid "Update definitions and continue"
-msgstr ""
+msgstr "정의 업데이트 후 계속"
 
 #: src/YourPersonPanel.tsx
 msgid "Update the Person type?"
-msgstr ""
+msgstr "Person 유형을 업데이트할까요?"
 
 #: src/TypeBrowser.tsx
 msgid "Update this type?"
-msgstr ""
+msgstr "이 유형을 업데이트할까요?"
 
 #: src/YourPersonPanel.tsx
 msgid "Updating definitions…"
-msgstr ""
+msgstr "정의 업데이트 중…"
 
 #: src/note-mutation-presentation.ts
 msgid "Updating properties"
-msgstr ""
+msgstr "속성 업데이트 중"
 
 #: src/YourPersonPanel.tsx
 msgid "upgrade"
-msgstr ""
+msgstr "업그레이드"
 
 #: src/YourPersonPanel.tsx
 msgid "Upgrade "
-msgstr ""
+msgstr "업그레이드 "
 
 #. placeholder {0}: files[0]!.name
 #: src/AttachmentUpload.tsx
 msgid "Uploaded “{0}”. The collection file is committed; the note link is saving separately."
-msgstr ""
+msgstr "“{0}” 업로드됨. 컬렉션 파일 저장이 완료되었으며 노트 링크는 별도로 저장 중입니다."
 
 #: src/AttachmentUpload.tsx
 msgid "Uploading"
-msgstr ""
+msgstr "업로드 중"
 
 #. placeholder {0}: this.job.file.name
 #: src/code-editor-file-embeds.ts
 msgid "Uploading {0}…"
-msgstr ""
+msgstr "{0} 업로드 중…"
 
 #: src/AttachmentUpload.tsx
 msgid "Uploading {name} took too long. Try again."
-msgstr ""
+msgstr "{name} 업로드 시간이 초과되었습니다. 다시 시도하세요."
 
 #: src/folder-change.ts
 msgid "Use a collection-relative folder path without empty, . or .. segments."
-msgstr ""
+msgstr "비어 있는 세그먼트나 . 또는 .. 세그먼트가 없는 컬렉션 기준 폴더 경로를 사용하세요."
 
 #: src/use-note-actions.ts
 msgid "Use a collection-relative path ending in .md."
-msgstr ""
+msgstr ".md로 끝나는 컬렉션 기준 경로를 사용하세요."
 
 #: src/NewNoteComposer.tsx
 msgid "Use a Markdown file path ending in .md."
-msgstr ""
+msgstr ".md로 끝나는 Markdown 파일 경로를 사용하세요."
 
 #: src/TypeBrowser.tsx
 msgid "Use contract"
-msgstr ""
+msgstr "계약 사용"
 
 #: src/ConflictResolver.tsx
 msgid "Use latest"
-msgstr ""
+msgstr "최신 버전 사용"
 
 #. placeholder {0}: schema.maxItems
 #: src/StructuredPropertiesEditor.tsx
 msgid "Use no more than {0} items."
-msgstr ""
+msgstr "항목을 최대 {0}개까지 사용하세요."
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Use normal, insert, visual, and command modes in the note editor."
-msgstr ""
+msgstr "노트 편집기에서 일반, 삽입, 비주얼 및 명령 모드를 사용하세요."
 
 #: src/ConnectionScreens.tsx
 msgid "use the editor"
-msgstr ""
+msgstr "편집기 사용"
 
 #. placeholder {0}: formatValue(schema.const)
 #: src/StructuredPropertiesEditor.tsx
 msgid "Use the required value {0}."
-msgstr ""
+msgstr "필수 값 {0}을(를) 사용하세요."
 
 #: src/CollectionRail.tsx
 msgid "Use this computer"
-msgstr ""
+msgstr "이 컴퓨터 사용"
 
 #: src/TypeBrowser.tsx
 msgid "Validation"
-msgstr ""
+msgstr "검증"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Validation"
-msgstr ""
+msgstr "검증"
 
 #: src/TypeBrowser.tsx
 msgid "Validation may change"
-msgstr ""
+msgstr "검증 결과가 달라질 수 있음"
 
 #. placeholder {0}: type.version
 #: src/TypeBrowser.tsx
 msgid "Version {0}"
-msgstr ""
+msgstr "버전 {0}"
 
 #: src/settings/SettingsView.tsx
 msgctxt "connection route"
 msgid "Via mdbase"
-msgstr ""
+msgstr "mdbase를 통해"
 
 #: src/NoteListViewOptions.tsx
 msgid "View options"
-msgstr ""
+msgstr "보기 옵션"
 
 #: src/TypeBrowser.tsx
 msgid "View pack JSON"
-msgstr ""
+msgstr "팩 JSON 보기"
 
 #: src/TypeBrowser.tsx
 msgid "View settings"
-msgstr ""
+msgstr "보기 설정"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Vim key bindings"
-msgstr ""
+msgstr "Vim 키 바인딩"
 
 #: src/App.tsx
 msgid "Wait for the complete note and attachment index before changing a folder."
-msgstr ""
+msgstr "폴더를 변경하기 전에 노트 및 첨부 파일 색인을 완전히 불러올 때까지 기다리세요."
 
 #: src/YourPersonPanel.tsx
 msgid "Waiting for approval…"
-msgstr ""
+msgstr "승인 대기 중…"
 
 #: src/SdkEditorRoot.tsx
 msgid "Waiting for your computer…"
-msgstr ""
+msgstr "컴퓨터 대기 중…"
 
 #: src/TypeBrowser.tsx
 msgid "What belongs in this field?"
-msgstr ""
+msgstr "이 필드에는 무엇을 입력하나요?"
 
 #: src/TypeBrowser.tsx
 msgid "Which notes use this type"
-msgstr ""
+msgstr "이 유형을 사용하는 노트"
 
 #: src/PropertiesPanel.tsx
 msgid "Words"
-msgstr ""
+msgstr "단어"
 
 #: src/Dialog.tsx
 msgid "Working…"
-msgstr ""
+msgstr "작업 중…"
 
 #: src/TypeBrowser.tsx
 msgid "Works with applications"
-msgstr ""
+msgstr "애플리케이션과 호환"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Wrap long lines"
-msgstr ""
+msgstr "긴 줄 자동 줄바꿈"
 
 #: src/TypeBrowser.tsx
 msgid "YAML"
-msgstr ""
+msgstr "YAML"
 
 #: src/collection-browser.ts
 msgid "Yesterday"
-msgstr ""
+msgstr "어제"
 
 #: src/main.tsx
 msgid "You can close this window."
-msgstr ""
+msgstr "이 창을 닫아도 됩니다."
 
 #: src/YourPersonPanel.tsx
 msgid "You can link an existing person directly, or review converting a single contact without changing the rest of your address book. Advanced Person mappings are available in Types; required fields there affect every record of that type."
-msgstr ""
+msgstr "기존 사람을 바로 연결하거나 주소록의 다른 항목은 변경하지 않고 연락처 하나를 변환하는 방식을 검토할 수 있습니다. 고급 Person 매핑은 유형에서 설정할 수 있으며, 필수 필드는 해당 유형의 모든 레코드에 영향을 줍니다."
 
 #: src/YourPersonPanel.tsx
 msgid "You can still use it, or compare it with the current starter in Types."
-msgstr ""
+msgstr "계속 사용하거나 유형에서 현재 기본 유형과 비교할 수 있습니다."
 
 #: src/AttachmentUpload.tsx
 msgid "You don’t have permission to upload {name}."
-msgstr ""
+msgstr "{name}을(를) 업로드할 권한이 없습니다."
 
 #: src/ConnectionScreens.tsx
 msgid "You’ll continue to mdbase. Sign in if asked, choose a collection, and approve mdbase editor. You’ll return here automatically; your files stay where they are."
-msgstr ""
+msgstr "mdbase로 이동합니다. 요청이 있으면 로그인하고 컬렉션을 선택한 다음 mdbase editor를 승인하세요. 자동으로 여기로 돌아오며 파일은 원래 위치에 유지됩니다."
 
 #: src/YourPersonPanel.tsx
 msgid "Your account"
-msgstr ""
+msgstr "계정"
 
 #: src/pending-note-mutation.ts
 msgid "Your change from {date} isn’t confirmed yet. Check again to finish saving it."
-msgstr ""
+msgstr "{date}의 변경사항이 아직 확인되지 않았습니다. 저장을 완료하려면 다시 확인하세요."
 
 #: src/AppErrorBoundary.tsx
 msgid "Your collection was not deleted. Changes that had already finished saving are safe."
-msgstr ""
+msgstr "컬렉션은 삭제되지 않았습니다. 이미 저장이 완료된 변경사항은 안전합니다."
 
 #: src/pending-note-mutation.ts
 msgid "Your deletion from {date} isn’t confirmed yet. Check again to finish saving it."
-msgstr ""
+msgstr "{date}의 삭제가 아직 확인되지 않았습니다. 저장을 완료하려면 다시 확인하세요."
 
 #: src/ConflictResolver.tsx
 msgid "Your edits"
-msgstr ""
+msgstr "편집 내용"
 
 #: src/YourPersonPanel.tsx
 msgid "Your edits to this type are kept; only the starter's own changes are merged in."
-msgstr ""
+msgstr "이 유형에 대한 편집 내용은 유지되며 기본 유형 자체의 변경사항만 병합됩니다."
 
 #: src/pending-note-mutation.ts
 msgid "Your new note from {date} isn’t confirmed yet. Check again to finish saving it."
-msgstr ""
+msgstr "{date}의 새 노트가 아직 확인되지 않았습니다. 저장을 완료하려면 다시 확인하세요."
 
 #: src/ConnectionScreens.tsx
 msgid "Your notes,"
-msgstr ""
+msgstr "내 노트,"
 
 #: src/YourPersonPanel.tsx
 msgid "Your person record"
-msgstr ""
+msgstr "내 사람 레코드"
 
 #: src/next-editor-records.ts
 msgid "Your previous change is still being saved. Try again in a moment."
-msgstr ""
+msgstr "이전 변경사항을 아직 저장 중입니다. 잠시 후 다시 시도하세요."
 
 #: src/pending-note-mutation.ts
 msgid "Your rename from {date} isn’t confirmed yet. Check again to finish saving it."
-msgstr ""
+msgstr "{date}의 이름 변경이 아직 확인되지 않았습니다. 저장을 완료하려면 다시 확인하세요."
 
 #: src/ConflictResolver.tsx
 msgid "Your title"
-msgstr ""
+msgstr "제목"
 
 #: src/App.tsx
 msgid "Your unsaved changes to this type definition won’t be kept."
-msgstr ""
+msgstr "이 유형 정의의 저장되지 않은 변경사항은 유지되지 않습니다."
