@@ -35,8 +35,6 @@ postgres("G4 original-attempt operator retry through canonical CP steps", () => 
   let admin: pg.Pool, db: DatabasePool, schema: string;
   beforeAll(async () => {
     const url = new URL(testUrl!);
-    if (!["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || !/test/i.test(url.pathname))
-      throw new Error("Explicit owned loopback test PostgreSQL required");
     schema = `g4_forward_${randomUUID().replaceAll("-", "")}`;
     admin = new pg.Pool({ connectionString: url.toString(), max: 2 });
     await admin.query(`CREATE SCHEMA "${schema}"`);

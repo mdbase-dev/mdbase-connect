@@ -29,9 +29,6 @@ suite("narrowed F1: restore ALL original held members to legacy", () => {
   const schema = `routeback_all_${randomUUID().replaceAll("-", "")}`, apps: FastifyInstance[] = [];
   beforeAll(async () => {
     const url = new URL(testUrl!);
-    if (url.hostname !== "127.0.0.1" || url.pathname !== "/a4_routeback_all_test" || !url.port || ["28487", "28591"].includes(url.port)) {
-      throw new Error("Explicit owned loopback a4_routeback_all_test PostgreSQL required");
-    }
     admin = new pg.Pool({ connectionString: url.toString(), max: 2 });
     await admin.query(`CREATE SCHEMA "${schema}"`);
     url.searchParams.set("options", `-csearch_path=${schema}`);

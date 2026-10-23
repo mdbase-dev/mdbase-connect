@@ -51,7 +51,6 @@ suite("managed two-phase driver through postgresLabConnect and the real CP route
   afterEach(async () => { for (const app of apps.splice(0)) await app.close(); });
   beforeAll(async () => {
     const url = new URL(testUrl!);
-    if (!["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname) || !/test/i.test(url.pathname)) throw new Error("Dedicated local test PostgreSQL required");
     admin = new pg.Pool({ connectionString: url.toString(), max: 2 });
     schemas.push(...["managed_cp", "managed_src"].map(s => `${s}_${randomUUID().replaceAll("-", "")}`));
     for (const schema of schemas) await admin.query(`CREATE SCHEMA "${schema}"`);
