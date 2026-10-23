@@ -520,309 +520,309 @@ msgstr "{label}には対応していません。"
 
 #: src/contract-catalog.ts
 msgid "{label} must be a non-empty string."
-msgstr ""
+msgstr "{label}には空でない文字列を指定してください。"
 
 #: src/contract-catalog.ts
 msgid "{label} must be a SHA-256 digest."
-msgstr ""
+msgstr "{label}には SHA-256 ダイジェストを指定してください。"
 
 #: src/contract-catalog.ts
 msgid "{label} must be a URL."
-msgstr ""
+msgstr "{label}には URL を指定してください。"
 
 #: src/contract-catalog.ts
 msgid "{label} must be an array."
-msgstr ""
+msgstr "{label}には配列を指定してください。"
 
 #: src/contract-catalog.ts
 msgid "{label} must be an object."
-msgstr ""
+msgstr "{label}にはオブジェクトを指定してください。"
 
 #: src/contract-catalog.ts
 msgid "{label} must stay inside the collection."
-msgstr ""
+msgstr "{label}はコレクション内に収めてください。"
 
 #: src/contract-catalog.ts
 msgid "{label} must use HTTP or HTTPS."
-msgstr ""
+msgstr "{label}には HTTP または HTTPS を使用してください。"
 
 #: src/contract-catalog.ts
 msgid "{label}.installation.primary_type must name an installed type."
-msgstr ""
+msgstr "{label}.installation.primary_typeにはインストール済みの型を指定してください。"
 
 #: src/TypeBrowser.tsx
 msgid "{mappedCount, plural, one {# value exposed} other {# values exposed}}"
-msgstr ""
+msgstr "{mappedCount, plural, one {公開される値 # 件} other {公開される値 # 件}}"
 
 #: src/SchemaValueEditor.tsx
 msgid "{minimum, plural, one {At least # item is required.} other {At least # items are required.}}"
-msgstr ""
+msgstr "{minimum, plural, one {少なくとも#件の項目が必要です。} other {少なくとも#件の項目が必要です。}}"
 
 #. placeholder {0}: index + 1
 #: src/SchemaValueEditor.tsx
 msgid "{name} entry {0} key"
-msgstr ""
+msgstr "{name}のエントリ {0} のキー"
 
 #: src/AttachmentUpload.tsx
 msgid "{name} is a file type that can’t be uploaded."
-msgstr ""
+msgstr "{name}のファイル形式はアップロードできません。"
 
 #. placeholder {0}: limit.trim()
 #: src/AttachmentUpload.tsx
 msgid "{name} is larger than the {0} limit."
-msgstr ""
+msgstr "{name}は上限の{0}を超えています。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} is not an allowed property."
-msgstr ""
+msgstr "{name}は許可されていないプロパティです。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} is required."
-msgstr ""
+msgstr "{name}は必須です。"
 
 #: src/AttachmentUpload.tsx
 msgid "{name} is too large to upload."
-msgstr ""
+msgstr "{name}はサイズが大きすぎてアップロードできません。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} item suggestions"
-msgstr ""
+msgstr "{name}の項目の候補"
 
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} JSON value"
-msgstr ""
+msgstr "{name}の JSON 値"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} note suggestions"
-msgstr ""
+msgstr "{name}のノート候補"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} property type"
-msgstr ""
+msgstr "{name}のプロパティ型"
 
 #: src/TypeBrowser.tsx
 msgid "{name} type definition"
-msgstr ""
+msgstr "{name}の型定義"
 
 #: src/TypeBrowser.tsx
 msgid "{name} type YAML"
-msgstr ""
+msgstr "{name}の型 YAML"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} value"
-msgstr ""
+msgstr "{name}の値"
 
 #. placeholder {0}: index + 1
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} value item {0}"
-msgstr ""
+msgstr "{name}の値の項目 {0}"
 
 #: src/TypeBrowser.tsx
 msgid "{next, plural, one {# note after update} other {# notes after update}}"
-msgstr ""
+msgstr "{next, plural, one {更新後のノート # 件} other {更新後のノート # 件}}"
 
 #: src/TypeBrowser.tsx
 msgid "{next, plural, one {# note with these rules} other {# notes with these rules}}"
-msgstr ""
+msgstr "{next, plural, one {これらのルールに該当するノート # 件} other {これらのルールに該当するノート # 件}}"
 
 #: src/NoteList.tsx
 msgid "{noteCount, plural, one {# note} other {# notes}}"
-msgstr ""
+msgstr "{noteCount, plural, one {ノート # 件} other {ノート # 件}}"
 
 #: src/NoteList.tsx
 msgid "{notes} · {files}"
-msgstr ""
+msgstr "{notes} · {files}"
 
 #: src/NoteList.tsx
 msgid "{notes} · {files} · {order}"
-msgstr ""
+msgstr "{notes} · {files} · {order}"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{path} cannot be null."
-msgstr ""
+msgstr "{path}に null は指定できません。"
 
 #: src/AppErrorBoundary.tsx
 msgid "{product} needs to restart"
-msgstr ""
+msgstr "{product}を再起動する必要があります"
 
 #: src/use-note-actions.ts
 msgid "{references, plural, one {Also updated links in # note.} other {Also updated links in # notes.}}"
-msgstr ""
+msgstr "{references, plural, one {#件のノート内のリンクも更新しました。} other {#件のノート内のリンクも更新しました。}}"
 
 #. placeholder {0}: requiredFields.length
 #. placeholder {1}: fields.length
 #: src/TypeBrowser.tsx
 msgid "{requiredMapped}/{0} required · {mappedCount}/{1} total"
-msgstr ""
+msgstr "必須 {0} 件中 {requiredMapped} 件 · 全 {1} 件中 {mappedCount} 件"
 
 #: src/NewNoteComposer.tsx
 msgid "{selectedOptional} set"
-msgstr ""
+msgstr "設定済み {selectedOptional} 件"
 
 #. placeholder {0}: this.job.file.name
 #: src/code-editor-file-embeds.ts
 msgid "{text} upload of {0}"
-msgstr ""
+msgstr "{text}をアップロード中（全{0}件）"
 
 #: src/NoteList.tsx
 msgid "{title} note actions"
-msgstr ""
+msgstr "{title}のノート操作"
 
 #. placeholder {0}: collectionFileFormat(file)
 #: src/NoteList.tsx
 msgid "{title}, {0} file"
-msgstr ""
+msgstr "{title}、ファイル {0} 件"
 
 #: src/TypeBrowser.tsx
 msgid "{title}.md"
-msgstr ""
+msgstr "{title}.md"
 
 #: src/type-contracts.ts
 msgid "{typeReference} allows values outside the contract’s accepted set."
-msgstr ""
+msgstr "{typeReference}では契約の許容範囲外の値が許可されています。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} allows values the contract rejects."
-msgstr ""
+msgstr "{typeReference}では契約が拒否する値が許可されています。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} and {contractReference} allow non-overlapping values."
-msgstr ""
+msgstr "{typeReference}と{contractReference}の許容値は重なりません。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} cannot produce a value accepted by {contractReference}."
-msgstr ""
+msgstr "{typeReference}からは{contractReference}で許容される値を生成できません。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} does not guarantee the contract’s {contractFormat} format."
-msgstr ""
+msgstr "{typeReference}では契約の{contractFormat}形式が保証されません。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} does not guarantee the contract’s text pattern."
-msgstr ""
+msgstr "{typeReference}では契約のテキストパターンが保証されません。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} is not declared by the type schema."
-msgstr ""
+msgstr "{typeReference}は型スキーマで宣言されていません。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} is optional, so some records may omit this required value."
-msgstr ""
+msgstr "{typeReference}は任意項目のため、一部のレコードにはこの必須値がない可能性があります。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} may contain properties rejected by the contract."
-msgstr ""
+msgstr "{typeReference}には契約が拒否するプロパティが含まれる可能性があります。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} permits values outside the contract’s limits."
-msgstr ""
+msgstr "{typeReference}では契約の制限を超える値が許可されています。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} satisfies the declared contract field constraints."
-msgstr ""
+msgstr "{typeReference}は宣言された契約フィールドの制約を満たしています。"
 
 #. placeholder {0}: linked.path
 #: src/YourPersonPanel.tsx
 msgid "<0>{0}</0> · Edit this note to change its collection display name or identity associations."
-msgstr ""
+msgstr "<0>{0}</0> · コレクションの表示名や識別情報との関連付けを変更するには、このノートを編集してください。"
 
 #: src/TypeBrowser.tsx
 msgid "<0>{linkedSchema}</0> is installed with this type. Field structure is edited at the schema source."
-msgstr ""
+msgstr "<0>{linkedSchema}</0>はこの型とともにインストールされています。フィールド構造はスキーマのソースで編集してください。"
 
 #: src/QuickOpen.tsx
 msgid "<0>↑↓</0> choose · <1>Enter</1> open · <2>></2> actions · <3>Esc</3> close"
-msgstr ""
+msgstr "<0>↑↓</0> で選択 · <1>Enter</1> で開く · <2>></2> で操作 · <3>Esc</3> で閉じる"
 
 #. placeholder {0}: (changed - 20).toLocaleString(displayLocale())
 #: src/TypeBrowser.tsx
 msgid "<0>More</0>{0} additional notes"
-msgstr ""
+msgstr "<0>その他</0>追加のノート {0} 件"
 
 #: src/YourPersonPanel.tsx
 msgid "1 person record needs attention"
-msgstr ""
+msgstr "人物レコード 1 件に確認が必要です"
 
 #: src/type-schema.ts
 msgid "A {label} for “{name}” already exists."
-msgstr ""
+msgstr "「{name}」の{label}はすでに存在します。"
 
 #: src/type-contracts.ts
 msgid "a checkbox"
-msgstr ""
+msgstr "チェックボックス"
 
 #: src/type-contracts.ts
 msgid "A complex schema needs record-level validation."
-msgstr ""
+msgstr "複雑なスキーマはレコード単位での検証が必要です。"
 
 #: src/type-contracts.ts
 #: src/type-presentation.ts
 msgid "a date"
-msgstr ""
+msgstr "日付"
 
 #: src/type-contracts.ts
 #: src/type-presentation.ts
 msgid "a date and time"
-msgstr ""
+msgstr "日時"
 
 #: src/type-schema.ts
 msgid "A field named “{name}” already exists."
-msgstr ""
+msgstr "「{name}」というフィールドはすでに存在します。"
 
 #: src/folder-change.ts
 msgid "A folder cannot be moved inside itself."
-msgstr ""
+msgstr "フォルダーを自分自身の中に移動することはできません。"
 
 #: src/native-gateway.ts
 msgid "A link in {path} will stay broken."
-msgstr ""
+msgstr "{path}内のリンクは壊れたままになります。"
 
 #: src/type-schema.ts
 msgid "A link rule for “{field}” already exists."
-msgstr ""
+msgstr "「{field}」のリンクルールはすでに存在します。"
 
 #: src/type-contracts.ts
 #: src/type-presentation.ts
 msgid "a list"
-msgstr ""
+msgstr "リスト"
 
 #: src/TypeBrowser.tsx
 msgid "A mapping copies the source value directly. It does not coerce or transform data."
-msgstr ""
+msgstr "対応付けではソースの値をそのままコピーします。データの型変換や加工は行いません。"
 
 #. placeholder {0}: move.to
 #: src/folder-change.ts
 msgid "A note or file already uses “{0}”. Nothing has moved."
-msgstr ""
+msgstr "「{0}」は別のノートまたはファイルで使用中です。移動は行われませんでした。"
 
 #: src/type-contracts.ts
 msgid "a number"
-msgstr ""
+msgstr "数値"
 
 #: src/TypeBrowser.tsx
 msgid "A path will be created from the type name"
-msgstr ""
+msgstr "型名からパスが作成されます"
 
 #: src/YourPersonPanel.tsx
 msgid "A person record linked to your account has invalid fields. Fix it before relying on it:"
-msgstr ""
+msgstr "アカウントにリンクされた人物レコードに無効なフィールドがあります。使用する前に修正してください："
 
 #: src/YourPersonPanel.tsx
 msgid "A person record now matches your account. Reload these settings."
-msgstr ""
+msgstr "人物レコードがアカウントに一致するようになりました。この設定を再読み込みしてください。"
 
 #: src/person-setup.ts
 msgid "A Person type already exists but needs compatible mappings. Review it in Types; this setup will not replace it."
-msgstr ""
+msgstr "Person 型はすでに存在しますが、互換性のある対応付けが必要です。「型」で確認してください。この設定では既存の型は置き換えられません。"
 
 #: src/type-schema.ts
 msgid "A read default for “{field}” already exists."
-msgstr ""
+msgstr "「{field}」の読み取り時の既定値はすでに存在します。"
 
 #: src/YourPersonPanel.tsx
 msgid "About existing contacts"
-msgstr ""
+msgstr "既存の連絡先について"
 
 #: src/QuickOpen.tsx
 msgid "Actions"
@@ -830,7 +830,7 @@ msgstr "操作"
 
 #: src/QuickOpen.tsx
 msgid "Actions in quick open"
-msgstr ""
+msgstr "クイックオープンの操作"
 
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
@@ -845,15 +845,15 @@ msgstr "{0}を追加"
 #. placeholder {0}: primaryLabel.toLocaleLowerCase()
 #: src/NewNoteComposer.tsx
 msgid "Add a {0} to create the note."
-msgstr ""
+msgstr "ノートを作成するには{0}を追加してください。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add a custom property…"
-msgstr ""
+msgstr "カスタムプロパティを追加…"
 
 #: src/QuickOpen.tsx
 msgid "Add a link, in the note text"
-msgstr ""
+msgstr "ノート本文にリンクを追加"
 
 #: src/SdkEditorRoot.tsx
 msgid "Add a Private collection"
@@ -861,145 +861,145 @@ msgstr "プライベートコレクションを追加"
 
 #: src/PropertiesPanel.tsx
 msgid "Add a property to keep details like tags, dates, or a status with this note."
-msgstr ""
+msgstr "このノートのタグ、日付、状態などの詳細を保存するプロパティを追加します。"
 
 #: src/TypeBrowser.tsx
 msgid "Add a ready-made type to get app compatibility, or install a contract before connecting this type yourself."
-msgstr ""
+msgstr "アプリとの互換性がある既成の型を追加するか、自分でこの型を接続する前に契約をインストールしてください。"
 
 #: src/TypeBrowser.tsx
 msgid "Add a type"
-msgstr ""
+msgstr "型を追加"
 
 #. placeholder {0}: schema.minItems
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add at least {0} items."
-msgstr ""
+msgstr "少なくとも{0}件の項目を追加してください。"
 
 #: src/TypeBrowser.tsx
 msgid "Add choice"
-msgstr ""
+msgstr "選択肢を追加"
 
 #: src/TypeBrowser.tsx
 msgid "Add default"
-msgstr ""
+msgstr "既定値を追加"
 
 #: src/YourPersonPanel.tsx
 msgid "Add definitions and continue"
-msgstr ""
+msgstr "定義を追加して続行"
 
 #: src/SchemaValueEditor.tsx
 msgid "Add entry"
-msgstr ""
+msgstr "エントリを追加"
 
 #: src/TypeBrowser.tsx
 msgid "Add field"
-msgstr ""
+msgstr "フィールドを追加"
 
 #: src/TypeBrowser.tsx
 msgid "Add field selector"
-msgstr ""
+msgstr "フィールドセレクターを追加"
 
 #: src/ConnectionScreens.tsx
 msgid "add files"
-msgstr ""
+msgstr "ファイルを追加"
 
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add item"
-msgstr ""
+msgstr "項目を追加"
 
 #: src/TypeBrowser.tsx
 msgid "Add link rule"
-msgstr ""
+msgstr "リンクルールを追加"
 
 #: src/TypeBrowser.tsx
 msgid "Add nested field"
-msgstr ""
+msgstr "入れ子のフィールドを追加"
 
 #: src/YourPersonPanel.tsx
 msgid "Add one Person type, with optional contact details, and its supporting definitions. Existing notes, customized definitions, and access permissions will not be changed."
-msgstr ""
+msgstr "任意の連絡先情報と補助定義を備えた Person 型を1つ追加します。既存のノート、カスタマイズ済みの定義、アクセス権限は変更されません。"
 
 #: src/SchemaValueEditor.tsx
 msgid "Add optional field"
-msgstr ""
+msgstr "任意フィールドを追加"
 
 #: src/TypeBrowser.tsx
 msgid "Add path pattern"
-msgstr ""
+msgstr "パスパターンを追加"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add property"
-msgstr ""
+msgstr "プロパティを追加"
 
 #: src/BulkNoteProperties.tsx
 #: src/editor-commands.ts
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add tag"
-msgstr ""
+msgstr "タグを追加"
 
 #: src/TypeBrowser.tsx
 msgid "Add target type"
-msgstr ""
+msgstr "対象の型を追加"
 
 #: src/TypeBrowser.tsx
 msgid "Add unique rule"
-msgstr ""
+msgstr "一意性ルールを追加"
 
 #. placeholder {0}: pack.displayName
 #: src/catalog-pack-installation.tsx
 msgid "Added “{0}” and opened the new type."
-msgstr ""
+msgstr "「{0}」を追加し、新しい型を開きました。"
 
 #: src/YourPersonPanel.tsx
 msgid "Adding definitions requires permission to manage this collection's types."
-msgstr ""
+msgstr "定義の追加には、このコレクションの型を管理する権限が必要です。"
 
 #: src/YourPersonPanel.tsx
 msgid "Adding definitions…"
-msgstr ""
+msgstr "定義を追加中…"
 
 #: src/TypeBrowser.tsx
 msgid "Adding one creates a new editable type. Existing files are never overwritten."
-msgstr ""
+msgstr "追加すると、編集可能な新しい型が作成されます。既存のファイルは上書きされません。"
 
 #: src/type-schema.ts
 msgid "additional field policy"
-msgstr ""
+msgstr "追加フィールドのポリシー"
 
 #: src/TypeBrowser.tsx
 msgid "Additional item rules remain in YAML."
-msgstr ""
+msgstr "項目に関する追加ルールは YAML に残ります。"
 
 #. placeholder {0}: rule.advancedKeys.join(", ")
 #: src/TypeBrowser.tsx
 msgid "Additional link settings remain in YAML: {0}."
-msgstr ""
+msgstr "追加のリンク設定は YAML に残ります：{0}。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Additional properties"
-msgstr ""
+msgstr "追加のプロパティ"
 
 #. placeholder {0}: rule.advancedKeys.join(", ")
 #: src/TypeBrowser.tsx
 msgid "Additional uniqueness settings remain in YAML: {0}."
-msgstr ""
+msgstr "追加の一意性設定は YAML に残ります：{0}。"
 
 #. placeholder {0}: pack.installedTypes.length
 #. placeholder {1}: pack.resourceCount
 #: src/TypeBrowser.tsx
 msgid "Adds {0} internal types and {1} declared resources in one validated transaction. Existing files will not be overwritten; installation stops if any target conflicts."
-msgstr ""
+msgstr "内部型{0}件と宣言済みリソース{1}件を、検証済みの単一トランザクションで追加します。既存のファイルは上書きされません。対象のいずれかが競合する場合、インストールは中止されます。"
 
 #. placeholder {0}: pack.installedTypes.length
 #: src/TypeBrowser.tsx
 msgid "Adds {0} types"
-msgstr ""
+msgstr "型を{0}件追加"
 
 #: src/TypeBrowser.tsx
 msgid "Adds 1 type"
-msgstr ""
+msgstr "型を1件追加"
 
 #: src/catalog-pack-installation.tsx
 msgid "Adopt and update"
