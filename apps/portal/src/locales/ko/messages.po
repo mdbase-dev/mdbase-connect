@@ -2543,63 +2543,63 @@ msgstr "제품 소식"
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Product updates"
-msgstr ""
+msgstr "제품 소식"
 
 #: src/auth-view.tsx
 msgid "Public account creation is temporarily unavailable."
-msgstr ""
+msgstr "공개 계정 생성을 일시적으로 사용할 수 없습니다."
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Read file contents"
-msgstr ""
+msgstr "파일 내용 읽기"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Read records and files"
-msgstr ""
+msgstr "레코드 및 파일 읽기"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Read this collection"
-msgstr ""
+msgstr "이 컬렉션 읽기"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Reauthorization required"
-msgstr ""
+msgstr "재승인 필요"
 
 #: src/CollectionPicker.tsx
 msgid "Recently used"
-msgstr ""
+msgstr "최근 사용"
 
 #: src/authority-workflows.tsx
 msgid "Recovery"
-msgstr ""
+msgstr "복구"
 
 #. placeholder {0}: new Date(connector.created_at).toLocaleString()
 #. placeholder {1}: connector.id.slice(-8)
 #: src/ConnectApp.tsx
 msgid "Registered {0} · ID {1}"
-msgstr ""
+msgstr "등록일 {0} · ID {1}"
 
 #. placeholder {0}: formatters(i18n.locale).date(new Date(entry.created_at), { dateStyle: "medium", timeStyle: "short" })
 #: src/ApplicationAccess.tsx
 msgid "Registered <0>{0}</0>"
-msgstr ""
+msgstr "등록됨 <0>{0}</0>"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Registered computers"
-msgstr ""
+msgstr "등록된 컴퓨터"
 
 #: src/ConnectApp.tsx
 msgid "Registered computers stay listed when offline. Revoking one also invalidates grants routed through it."
-msgstr ""
+msgstr "등록된 컴퓨터는 오프라인이어도 목록에 남습니다. 철회하면 이를 통해 전달된 권한도 무효화됩니다."
 
 #: src/AccountManagement.tsx
 msgid "Registration"
-msgstr ""
+msgstr "등록"
 
 #: src/ConnectApp.tsx
 msgid "Reload Connect"
@@ -2607,50 +2607,50 @@ msgstr "Connect 새로고침"
 
 #: src/authority-workflows.tsx
 msgid "Reminders are off. You can turn them on in the app by approving reminders again."
-msgstr ""
+msgstr "리마인더가 꺼졌습니다. 앱에서 리마인더를 다시 승인해 켤 수 있습니다."
 
 #: src/authority-workflows.tsx
 msgid "Reminders will be off. You can finish setup and turn them on later in the app. Collection access stays unchanged."
-msgstr ""
+msgstr "리마인더가 꺼집니다. 설정을 마치고 나중에 앱에서 켤 수 있습니다. 컬렉션 액세스는 변경되지 않습니다."
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Remove"
-msgstr ""
+msgstr "제거"
 
 #. placeholder {0}: member.name
 #. placeholder {1}: collection.display_name
 #: src/ConnectApp.tsx
 msgid "Remove {0} from {1}? Their application and folder access will also be revoked."
-msgstr ""
+msgstr "{1}에서 {0}을(를) 제거할까요? 해당 사용자의 애플리케이션 및 폴더 액세스도 철회됩니다."
 
 #. placeholder {0}: member.name
 #: src/ConnectApp.tsx
 msgid "Remove {0} from the unnamed collection? Their application and folder access will also be revoked."
-msgstr ""
+msgstr "이름 없는 컬렉션에서 {0}을(를) 제거할까요? 해당 사용자의 애플리케이션 및 폴더 액세스도 철회됩니다."
 
 #: src/authority-workflows.tsx
 msgid "Remove access"
-msgstr ""
+msgstr "액세스 제거"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Remove access"
-msgstr ""
+msgstr "액세스 제거"
 
 #. placeholder {0}: pairing.collections?.find(collection=>collection.collection_id===revokingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" })
 #: src/authority-workflows.tsx
 msgid "Removing access to {0}…"
-msgstr ""
+msgstr "{0}에 대한 액세스 제거하는 중…"
 
 #: src/ConnectApp.tsx
 msgid "Removing application and folder access…"
-msgstr ""
+msgstr "애플리케이션 및 폴더 액세스 제거하는 중…"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Removing…"
-msgstr ""
+msgstr "제거하는 중…"
 
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
@@ -2661,56 +2661,56 @@ msgstr "이름 바꾸기"
 #. placeholder {0}: connector.name
 #: src/ConnectApp.tsx
 msgid "Rename {0}"
-msgstr ""
+msgstr "{0} 이름 변경"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Replace existing files"
-msgstr ""
+msgstr "기존 파일 교체"
 
 #: src/auth-view.tsx
 msgid "Replacing your password signs out every other browser session connected to the account."
-msgstr ""
+msgstr "비밀번호를 바꾸면 계정에 연결된 다른 모든 브라우저 세션에서 로그아웃됩니다."
 
 #. placeholder {0}: relativeTime(request.expires_at)
 #: src/authorization-view.tsx
 msgid "Request expires {0}"
-msgstr ""
+msgstr "요청 만료: {0}"
 
 #. placeholder {0}: response.status
 #: src/api.ts
 msgid "Request failed with HTTP {0}."
-msgstr ""
+msgstr "HTTP {0} 오류로 요청에 실패했습니다."
 
 #: src/authorization-view.tsx
 msgid "Request unavailable"
-msgstr ""
+msgstr "요청을 사용할 수 없음"
 
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Requested access"
-msgstr ""
+msgstr "요청된 액세스"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Requested by {0}. No requesting origin is available."
-msgstr ""
+msgstr "{0}에서 요청했습니다. 요청 출처 정보가 없습니다."
 
 #. placeholder {0}: pairing.connector_name
 #. placeholder {1}: appOriginKind(pairing.app_origin) ? ` (${appOriginKind(pairing.app_origin)})` : ""
 #. placeholder {2}: pairing.app_origin?.trim() && <Trans> from <code>{pairing.app_origin}</code></Trans>
 #: src/authority-workflows.tsx
 msgid "Requested by {0}{1}{2}. Approve only if you started sign-in in this app."
-msgstr ""
+msgstr "{0}{1}{2}에서 요청했습니다. 이 앱에서 로그인을 시작한 경우에만 승인하세요."
 
 #. placeholder {0}: pairing.app_origin
 #: src/authority-workflows.tsx
 msgid "Requested from <0>{0}</0>. The origin shown here is not proof of who made the request."
-msgstr ""
+msgstr "<0>{0}</0>에서 요청했습니다. 여기 표시된 출처만으로 요청자를 확인할 수 없습니다."
 
 #: src/authorization-view.tsx
 msgid "Requests"
-msgstr ""
+msgstr "요청"
 
 #: src/authorization-review.tsx
 msgid "Required"
@@ -2719,70 +2719,70 @@ msgstr "필수"
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Reset your password"
-msgstr ""
+msgstr "비밀번호 재설정"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Retry creation"
-msgstr ""
+msgstr "생성 다시 시도"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Retry Google sign-in"
-msgstr ""
+msgstr "Google 로그인 다시 시도"
 
 #: src/GoogleIdentityButton.tsx
 msgctxt "Connect interface"
 msgid "Retry Google sign-in"
-msgstr ""
+msgstr "Google 로그인 다시 시도"
 
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Return to {0}"
-msgstr ""
+msgstr "{0}(으)로 돌아가기"
 
 #. placeholder {0}: adoption.source_name
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
 msgid "Return to {0}."
-msgstr ""
+msgstr "{0}(으)로 돌아가세요."
 
 #: src/authorization-view.tsx
 msgid "Return to {applicationName}"
-msgstr ""
+msgstr "{applicationName}(으)로 돌아가기"
 
 #: src/authorization-view.tsx
 msgid "Return to {applicationName} and connect again to start a new request."
-msgstr ""
+msgstr "{applicationName}(으)로 돌아가 다시 연결하여 새 요청을 시작하세요."
 
 #: src/authorization-view.tsx
 msgid "Return to {applicationName}."
-msgstr ""
+msgstr "{applicationName}(으)로 돌아가세요."
 
 #: src/authority-workflows.tsx
 msgid "Return to {mirrorName}."
-msgstr ""
+msgstr "{mirrorName}(으)로 돌아가세요."
 
 #: src/authority-workflows.tsx
 msgid "Return to mdbase connect."
-msgstr ""
+msgstr "mdbase connect로 돌아가세요."
 
 #: src/AccountManagement.tsx
 #: src/auth-view.tsx
 msgid "Return to sign in"
-msgstr ""
+msgstr "로그인 화면으로 돌아가기"
 
 #: src/authority-workflows.tsx
 msgid "Return to your account"
-msgstr ""
+msgstr "내 계정으로 돌아가기"
 
 #: src/authority-workflows.tsx
 msgid "Return to your computer."
-msgstr ""
+msgstr "내 컴퓨터로 돌아가세요."
 
 #: src/authorization-view.tsx
 msgid "Returning to {applicationName}…"
-msgstr ""
+msgstr "{applicationName}(으)로 돌아가는 중…"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
@@ -2793,12 +2793,12 @@ msgstr "검토"
 #. placeholder {0}: request.application_name
 #: src/ConnectApp.tsx
 msgid "Review {0}’s collection access request."
-msgstr ""
+msgstr "{0}의 컬렉션 액세스 요청을 검토하세요."
 
 #. placeholder {0}: request.application_name
 #: src/ConnectApp.tsx
 msgid "Review {0}’s request for {collectionName}."
-msgstr ""
+msgstr "{collectionName}에 대한 {0}의 요청을 검토하세요."
 
 #: src/authorization-view.tsx
 msgid "Review access"
@@ -2807,116 +2807,116 @@ msgstr "접근 권한 검토"
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Review all"
-msgstr ""
+msgstr "모두 검토"
 
 #: src/ApplicationAccess.tsx
 msgid "Review applications connected to your account. Your browser sign-in is never shared with them."
-msgstr ""
+msgstr "계정에 연결된 애플리케이션을 검토하세요. 브라우저 로그인 정보는 애플리케이션과 공유되지 않습니다."
 
 #: src/authorization-view.tsx
 msgid "Review in this browser"
-msgstr ""
+msgstr "이 브라우저에서 검토"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Review next request"
-msgstr ""
+msgstr "다음 요청 검토"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Review request"
-msgstr ""
+msgstr "요청 검토"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Review request"
-msgstr ""
+msgstr "요청 검토"
 
 #: src/ApplicationAccess.tsx
 msgid "Review the access each application has to {collectionName}."
-msgstr ""
+msgstr "각 애플리케이션의 {collectionName} 액세스 권한을 검토하세요."
 
 #. placeholder {0}: grant.collection_kind === "local" ? t(i18n)({ message: "the computer holding this collection" }) : t(i18n)({ message: "the hosted authority", context: "Connect interface" })
 #: src/ApplicationAccess.tsx
 msgid "Revocation is pending. Waiting for {0} to confirm enforcement."
-msgstr ""
+msgstr "철회 대기 중입니다. {0}의 적용 확인을 기다리고 있습니다."
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoke"
-msgstr ""
+msgstr "철회"
 
 #. placeholder {0}: group.applicationName
 #. placeholder {1}: entries[0]!.collection_name
 #: src/ApplicationAccess.tsx
 msgid "Revoke {0} access to {1} across all its installations?"
-msgstr ""
+msgstr "모든 설치에서 {1}에 대한 {0}의 액세스를 철회할까요?"
 
 #. placeholder {0}: group.applicationName
 #: src/ApplicationAccess.tsx
 msgid "Revoke {0} access to {collectionName}?"
-msgstr ""
+msgstr "{collectionName}에 대한 {0}의 액세스를 철회할까요?"
 
 #. placeholder {0}: connector.name
 #: src/ConnectApp.tsx
 msgid "Revoke {0} and the application grants routed through it?"
-msgstr ""
+msgstr "{0} 및 이를 통해 전달되는 애플리케이션 권한을 철회할까요?"
 
 #. placeholder {0}: replica.name
 #: src/ConnectApp.tsx
 msgid "Revoke {0}?"
-msgstr ""
+msgstr "{0}을(를) 철회할까요?"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Revoke access"
-msgstr ""
+msgstr "액세스 철회"
 
 #. placeholder {0}: grant.collection_name
 #: src/ApplicationAccess.tsx
 msgid "Revoke access to {0}?"
-msgstr ""
+msgstr "{0}에 대한 액세스를 철회할까요?"
 
 #. placeholder {0}: group.applicationName
 #: src/ApplicationAccess.tsx
 msgid "Revoke all {0} access and collection creation permission?"
-msgstr ""
+msgstr "{0}의 모든 액세스 권한과 컬렉션 생성 권한을 철회할까요?"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Revoke application"
-msgstr ""
+msgstr "애플리케이션 철회"
 
 #: src/ApplicationAccess.tsx
 msgctxt "Connect interface"
 msgid "Revoke collection access"
-msgstr ""
+msgstr "컬렉션 액세스 철회"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoke computer"
-msgstr ""
+msgstr "컴퓨터 철회"
 
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Revoking…"
-msgstr ""
+msgstr "철회하는 중…"
 
 #: src/ConnectApp.tsx
 msgid "Role"
-msgstr ""
+msgstr "역할"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Role"
-msgstr ""
+msgstr "역할"
 
 #. placeholder {0}: member.name
 #: src/ConnectApp.tsx
 msgid "Role for {0}"
-msgstr ""
+msgstr "{0}의 역할"
 
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
@@ -2925,7 +2925,7 @@ msgstr "저장"
 
 #: src/ApplicationAccess.tsx
 msgid "Save narrower access"
-msgstr ""
+msgstr "축소된 액세스 저장"
 
 #: src/ConnectPrimitives.tsx
 msgctxt "Connect interface"
@@ -2935,7 +2935,7 @@ msgstr "저장 중…"
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Schedule background work"
-msgstr ""
+msgstr "백그라운드 작업 예약"
 
 #: src/ApplicationAccess.tsx
 msgid "Scope"
@@ -2943,40 +2943,40 @@ msgstr "범위"
 
 #: src/CollectionPicker.tsx
 msgid "Search collections by name"
-msgstr ""
+msgstr "이름으로 컬렉션 검색"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "see collection members"
-msgstr ""
+msgstr "컬렉션 구성원 보기"
 
 #: src/authorization-review.tsx
 msgid "See collection members' account identities, names and roles"
-msgstr ""
+msgstr "컬렉션 구성원의 계정 식별 정보, 이름 및 역할 보기"
 
 #: src/authority-workflows.tsx
 msgctxt "Collection connection"
 msgid "see the list of"
-msgstr ""
+msgstr "목록 보기"
 
 #: src/authorization-review.tsx
 msgid "See your account identity and display name"
-msgstr ""
+msgstr "내 계정 식별 정보 및 표시 이름 보기"
 
 #. placeholder {0}: relativeTime(connector.last_seen_at)
 #. placeholder {0}: relativeTime(replica.sync_status.last_seen_at ?? collection.source.created_at)
 #: src/ConnectApp.tsx
 msgid "Seen {0}"
-msgstr ""
+msgstr "마지막 확인: {0}"
 
 #: src/authorization-view.tsx
 msgid "Select a collection to continue."
-msgstr ""
+msgstr "계속하려면 컬렉션을 선택하세요."
 
 #. placeholder {0}: selected.name
 #: src/CollectionPicker.tsx
 msgid "Selected: <0>{0}</0>"
-msgstr ""
+msgstr "선택됨: <0>{0}</0>"
 
 #: src/ConnectApp.tsx
 #: src/FeedbackPage.tsx
@@ -2986,74 +2986,74 @@ msgstr "피드백 보내기"
 
 #: src/auth-view.tsx
 msgid "Send me occasional product updates. You can change this at any time."
-msgstr ""
+msgstr "가끔 제품 소식을 보내주세요. 언제든 설정을 변경할 수 있습니다."
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Send reset link"
-msgstr ""
+msgstr "재설정 링크 보내기"
 
 #: src/ConnectApp.tsx
 msgid "Send this private link to the invited person. Email invitations require an already registered, verified account. If they have just signed up, create a new invitation."
-msgstr ""
+msgstr "초대할 사용자에게 이 비공개 링크를 보내세요. 이메일 초대에는 이미 등록되고 확인된 계정이 필요합니다. 방금 가입했다면 새 초대를 만드세요."
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Send verification link"
-msgstr ""
+msgstr "확인 링크 보내기"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
 msgid "Sending link…"
-msgstr ""
+msgstr "링크 보내는 중…"
 
 #. placeholder {0}: account.user.email
 #: src/AccountManagement.tsx
 msgid "Sent to {0}."
-msgstr ""
+msgstr "{0}에 전송됨."
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Set up and allow access"
-msgstr ""
+msgstr "설정 및 액세스 허용"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
 msgid "Setting up and allowing…"
-msgstr ""
+msgstr "설정하고 허용하는 중…"
 
 #. placeholder {0}: setupLabel(contract)
 #: src/authorization-review.tsx
 msgid "Setup for {0}"
-msgstr ""
+msgstr "{0}의 설정"
 
 #: src/authority-workflows.tsx
 msgid "Shared with you"
-msgstr ""
+msgstr "나와 공유됨"
 
 #: src/ConnectApp.tsx
 msgid "Sharing code"
-msgstr ""
+msgstr "공유 코드"
 
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Sharing code"
-msgstr ""
+msgstr "공유 코드"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Sharing code"
-msgstr ""
+msgstr "공유 코드"
 
 #: src/authorization-view.tsx
 msgid "Short approval code"
-msgstr ""
+msgstr "짧은 승인 코드"
 
 #. placeholder {0}: visible.length
 #. placeholder {1}: data.connectors.length
 #: src/ConnectApp.tsx
 msgid "Showing {0} of {1} registered computers."
-msgstr ""
+msgstr "등록된 컴퓨터 {1}대 중 {0}대 표시 중"
 
 #: src/auth-view.tsx
 msgctxt "Account sign-in"
@@ -3062,7 +3062,7 @@ msgstr "로그인"
 
 #: src/authority-workflows.tsx
 msgid "Sign in again"
-msgstr ""
+msgstr "다시 로그인"
 
 #: src/authority-workflows.tsx
 msgid "Sign in on a computer"
