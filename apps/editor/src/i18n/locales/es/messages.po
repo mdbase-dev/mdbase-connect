@@ -4645,497 +4645,497 @@ msgstr "¿Cerrar sesión?"
 
 #: src/PropertiesPanel.tsx
 msgid "Size"
-msgstr ""
+msgstr "Tamaño"
 
 #: src/code-editor-completions.ts
 msgid "Small section heading"
-msgstr ""
+msgstr "Encabezado de sección pequeño"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Soften punctuation away from the active line and make tasks checkable."
-msgstr ""
+msgstr "Suaviza los signos de puntuación lejos de la línea activa y permite marcar tareas como completadas."
 
 #: src/TypeBrowser.tsx
 msgid "some matching rules"
-msgstr ""
+msgstr "algunas reglas de coincidencia"
 
 #: src/NoteListViewOptions.tsx
 msgid "Sort"
-msgstr ""
+msgstr "Ordenar"
 
 #: src/PropertiesPanel.tsx
 msgid "Source could not be saved. Your edits are still here."
-msgstr ""
+msgstr "No se pudo guardar el origen. Tus ediciones siguen aquí."
 
 #: src/TypeBrowser.tsx
 msgid "Source field"
-msgstr ""
+msgstr "Campo de origen"
 
 #: src/PropertiesPanel.tsx
 msgid "Source saves when focus leaves the editor"
-msgstr ""
+msgstr "El origen se guarda cuando el editor pierde el foco"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Specification"
-msgstr ""
+msgstr "Especificación"
 
 #: src/code-editor-completions.ts
 msgid "Start a checkable task"
-msgstr ""
+msgstr "Iniciar una tarea con casilla"
 
 #: src/code-editor-completions.ts
 msgid "Start a list"
-msgstr ""
+msgstr "Iniciar una lista"
 
 #: src/code-editor-completions.ts
 msgid "Start an ordered list"
-msgstr ""
+msgstr "Iniciar una lista ordenada"
 
 #: src/TypeBrowser.tsx
 msgid "Start blank or from a ready-made type"
-msgstr ""
+msgstr "Empezar en blanco o a partir de un tipo listo para usar"
 
 #: src/TypeBrowser.tsx
 msgid "Start from an empty definition and add your own fields."
-msgstr ""
+msgstr "Empieza con una definición vacía y añade tus propios campos."
 
 #: src/TypeBrowser.tsx
 msgid "Start from an empty definition, or choose a ready-made type and adapt its fields and contract mapping to fit your collection."
-msgstr ""
+msgstr "Empieza con una definición vacía o elige un tipo listo para usar y adapta sus campos y la asignación del contrato a tu colección."
 
 #: src/TypeBrowser.tsx
 msgid "Start with app compatibility"
-msgstr ""
+msgstr "Empezar con compatibilidad para aplicaciones"
 
 #: src/MarkdownNoteEditor.tsx
 #: src/NewNoteComposer.tsx
 msgid "Start writing"
-msgstr ""
+msgstr "Empezar a escribir"
 
 #: src/TypeBrowser.tsx
 msgid "Starting contract"
-msgstr ""
+msgstr "Contrato inicial"
 
 #: src/TypeBrowser.tsx
 msgid "status"
-msgstr ""
+msgstr "estado"
 
 #: src/note-mutation-presentation.ts
 msgid "Stopping safely"
-msgstr ""
+msgstr "Deteniéndose de forma segura"
 
 #: src/TypeBrowser.tsx
 msgid "Structured frontmatter conditions"
-msgstr ""
+msgstr "Condiciones estructuradas del frontmatter"
 
 #: src/TypeBrowser.tsx
 msgid "Suggested from field names and shapes only. Confirm that the meanings agree."
-msgstr ""
+msgstr "Sugerido solo a partir de nombres y estructuras de campos. Confirma que los significados coincidan."
 
 #: src/NewNoteComposer.tsx
 msgid "Suggested path"
-msgstr ""
+msgstr "Ruta sugerida"
 
 #: src/App.tsx
 #: src/editor-commands.ts
 msgid "Switch collection"
-msgstr ""
+msgstr "Cambiar de colección"
 
 #: src/App.tsx
 msgid "Switch collections?"
-msgstr ""
+msgstr "¿Cambiar de colección?"
 
 #: src/editor-commands.ts
 msgid "Switch theme"
-msgstr ""
+msgstr "Cambiar el tema"
 
 #: src/ConnectionScreens.tsx
 msgid "sync changes"
-msgstr ""
+msgstr "sincronizar cambios"
 
 #: src/CollectionRail.tsx
 msgid "Sync stopped"
-msgstr ""
+msgstr "Sincronización detenida"
 
 #: src/editor-commands.ts
 msgid "System → Light → Dark"
-msgstr ""
+msgstr "Sistema → Claro → Oscuro"
 
 #: src/code-editor-completions.ts
 msgid "Table"
-msgstr ""
+msgstr "Tabla"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "tag"
-msgstr ""
+msgstr "etiqueta"
 
 #: src/BulkNoteProperties.tsx
 msgid "Tag"
-msgstr ""
+msgstr "Etiqueta"
 
 #. placeholder {0}: filter.value
 #: src/note-list-view.ts
 msgid "Tag · #{0}"
-msgstr ""
+msgstr "Etiqueta · #{0}"
 
 #: src/bulk-note-actions.ts
 msgid "Tags must be text or a list of text before they can be changed together."
-msgstr ""
+msgstr "Las etiquetas deben ser texto o una lista de textos para poder cambiarlas a la vez."
 
 #: src/code-editor-completions.ts
 msgid "Task"
-msgstr ""
+msgstr "Tarea"
 
 #: src/TypeBrowser.tsx
 msgid "tasks"
-msgstr ""
+msgstr "tareas"
 
 #: src/TypeBrowser.tsx
 msgid "tasks/{id}.md"
-msgstr ""
+msgstr "tasks/{id}.md"
 
 #: src/TypeBrowser.tsx
 msgid "Technical details"
-msgstr ""
+msgstr "Detalles técnicos"
 
 #: src/TypeBrowser.tsx
 msgid "Tell compatible apps what this type’s fields mean."
-msgstr ""
+msgstr "Indica a las aplicaciones compatibles qué significan los campos de este tipo."
 
 #: src/TypeBrowser.tsx
 msgid "Template"
-msgstr ""
+msgstr "Plantilla"
 
 #: src/type-presentation.ts
 msgid "text"
-msgstr ""
+msgstr "texto"
 
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 msgid "Text"
-msgstr ""
+msgstr "Texto"
 
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Text"
-msgstr ""
+msgstr "Texto"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Text size"
-msgstr ""
+msgstr "Tamaño del texto"
 
 #: src/TypeBrowser.tsx
 msgid "That field could not be changed."
-msgstr ""
+msgstr "No se pudo cambiar ese campo."
 
 #: src/code-editor-note-embeds.ts
 msgid "That heading or block does not exist in this note."
-msgstr ""
+msgstr "Ese encabezado o bloque no existe en esta nota."
 
 #: src/App.tsx
 msgid "That link does not point to a Markdown note that can be created."
-msgstr ""
+msgstr "Ese enlace no apunta a una nota Markdown que se pueda crear."
 
 #: src/use-note-actions.ts
 msgid "That note changed after linking. Undo would overwrite its newer text."
-msgstr ""
+msgstr "Esa nota cambió después de vincularla. Deshacer sobrescribiría su texto más reciente."
 
 #: src/unlinked-mentions.ts
 msgid "That note changed. Find its mentions again before linking."
-msgstr ""
+msgstr "Esa nota cambió. Vuelve a buscar sus menciones antes de vincularla."
 
 #. placeholder {0}: implementation.typeName
 #: src/person-records.ts
 msgid "The {0} type needs a writable {field} mapping for mdbase.person."
-msgstr ""
+msgstr "El tipo {0} necesita una asignación editable de {field} para mdbase.person."
 
 #: src/native-gateway.ts
 msgid "The {subject} has a conflict. Resolve it before continuing."
-msgstr ""
+msgstr "Hay un conflicto con {subject}. Resuélvelo antes de continuar."
 
 #: src/native-gateway.ts
 msgid "The {subject} is not confirmed yet. Check the collection before trying again."
-msgstr ""
+msgstr "Aún no se ha confirmado {subject}. Revisa la colección antes de volver a intentarlo."
 
 #: src/native-gateway.ts
 msgid "The {subject} was rejected."
-msgstr ""
+msgstr "Se rechazó {subject}."
 
 #. placeholder {0}: outdatedStarter!.typeName
 #: src/YourPersonPanel.tsx
 msgid "The <0>{0}</0> type is an earlier Person starter. Review the current starter before creating your record. Nothing will change without your approval."
-msgstr ""
+msgstr "El tipo <0>{0}</0> es un tipo inicial Person anterior. Revisa el tipo inicial actual antes de crear tu registro. No se cambiará nada sin tu aprobación."
 
 #: src/TypeBrowser.tsx
 msgid "The after-save preview is unavailable because "
-msgstr ""
+msgstr "La vista previa tras guardar no está disponible porque "
 
 #: src/contract-catalog.ts
 msgid "The catalog contains duplicate {label} {identity}."
-msgstr ""
+msgstr "El catálogo contiene {label} {identity} duplicado."
 
 #: src/TypeBrowser.tsx
 msgid "The catalog has no published types."
-msgstr ""
+msgstr "El catálogo no contiene tipos publicados."
 
 #: src/collection-mutation-scope.ts
 msgid "The collection changed before this operation completed."
-msgstr ""
+msgstr "La colección cambió antes de que terminara esta operación."
 
 #: src/native-gateway.ts
 msgid "The collection changed since this setup was reviewed. Review it again."
-msgstr ""
+msgstr "La colección cambió desde que se revisó esta configuración. Vuelve a revisarla."
 
 #: src/native-note-observation.ts
 msgid "The collection changed while its notes were loading. Reload to try again."
-msgstr ""
+msgstr "La colección cambió mientras se cargaban sus notas. Vuelve a cargarla para intentarlo de nuevo."
 
 #: src/YourPersonPanel.tsx
 msgid "The collection changed. Review person setup again."
-msgstr ""
+msgstr "La colección cambió. Vuelve a revisar la configuración de persona."
 
 #: src/App.tsx
 msgid "The collection changed. Review the folder change again."
-msgstr ""
+msgstr "La colección cambió. Vuelve a revisar el cambio de carpeta."
 
 #: src/gateway.ts
 msgid "The collection could not be reached."
-msgstr ""
+msgstr "No se pudo acceder a la colección."
 
 #: src/native-note-observation.ts
 msgid "The collection could not be read."
-msgstr ""
+msgstr "No se pudo leer la colección."
 
 #: src/SdkEditorRoot.tsx
 msgid "The collection couldn't be opened. Try again."
-msgstr ""
+msgstr "No se pudo abrir la colección. Vuelve a intentarlo."
 
 #: src/native-note-observation.ts
 msgid "The collection did not return a complete list of notes."
-msgstr ""
+msgstr "La colección no devolvió una lista completa de notas."
 
 #: src/native-gateway.ts
 msgid "The collection did not return every file."
-msgstr ""
+msgstr "La colección no devolvió todos los archivos."
 
 #: src/native-gateway.ts
 msgid "The collection did not return every record for this contract."
-msgstr ""
+msgstr "La colección no devolvió todos los registros de este contrato."
 
 #: src/native-gateway.ts
 msgid "The collection did not return this type definition's source."
-msgstr ""
+msgstr "La colección no devolvió el origen de esta definición de tipo."
 
 #: src/native-gateway.ts
 msgid "The collection does not read this file as a type definition. Check its name and kind."
-msgstr ""
+msgstr "La colección no interpreta este archivo como una definición de tipo. Comprueba su nombre y tipo."
 
 #: src/file-inventory-controller.ts
 msgid "The collection files could not be read."
-msgstr ""
+msgstr "No se pudieron leer los archivos de la colección."
 
 #: src/catalog-pack-installation.tsx
 msgid "The collection has older unmanaged files at the pack’s managed paths."
-msgstr ""
+msgstr "La colección tiene archivos antiguos no administrados en las rutas administradas del paquete."
 
 #: src/native-gateway.ts
 msgid "The collection listed a file twice."
-msgstr ""
+msgstr "La colección enumeró un archivo dos veces."
 
 #: src/native-gateway.ts
 msgid "The collection repeated a file page."
-msgstr ""
+msgstr "La colección repitió una página de archivos."
 
 #: src/native-gateway.ts
 msgid "The collection repeated a query page."
-msgstr ""
+msgstr "La colección repitió una página de consulta."
 
 #: src/native-gateway.ts
 msgid "The collection returned a file without its content digest."
-msgstr ""
+msgstr "La colección devolvió un archivo sin su resumen de contenido."
 
 #: src/native-note-observation.ts
 msgid "The collection returned a note twice. Reload to try again."
-msgstr ""
+msgstr "La colección devolvió una nota dos veces. Vuelve a cargarla para intentarlo de nuevo."
 
 #: src/SdkEditorRoot.tsx
 msgid "The collection session has ended."
-msgstr ""
+msgstr "La sesión de la colección ha terminado."
 
 #: src/SdkEditorRoot.tsx
 msgid "The collection that opened isn't the one you chose."
-msgstr ""
+msgstr "La colección que se abrió no es la que elegiste."
 
 #: src/native-note-observation.ts
 msgid "The collection watch stopped."
-msgstr ""
+msgstr "Se detuvo la supervisión de la colección."
 
 #: src/next-editor-records.ts
 msgid "The complete note source does not match its native revision. No source was reconstructed or submitted."
-msgstr ""
+msgstr "El origen completo de la nota no coincide con su revisión nativa. No se reconstruyó ni se envió ningún origen."
 
 #: src/gateway.ts
 msgid "The computer holding this collection is offline."
-msgstr ""
+msgstr "El ordenador que contiene esta colección está sin conexión."
 
 #: src/person-records.ts
 msgid "The contact needs a display name."
-msgstr ""
+msgstr "El contacto necesita un nombre visible."
 
 #: src/contract-catalog.ts
 msgid "The contract catalog"
-msgstr ""
+msgstr "El catálogo de contratos"
 
 #: src/App.tsx
 msgid "The contract catalog could not be loaded."
-msgstr ""
+msgstr "No se pudo cargar el catálogo de contratos."
 
 #: src/contract-catalog.ts
 msgid "The contract catalog publisher"
-msgstr ""
+msgstr "Publicador del catálogo de contratos"
 
 #. placeholder {0}: response.status
 #: src/contract-catalog.ts
 msgid "The contract catalog returned {0}."
-msgstr ""
+msgstr "El catálogo de contratos devolvió {0}."
 
 #: src/contract-catalog.ts
 msgid "The contract catalog uses an unsupported version."
-msgstr ""
+msgstr "El catálogo de contratos usa una versión no compatible."
 
 #: src/type-contracts.ts
 msgid "The contract field"
-msgstr ""
+msgstr "El campo del contrato"
 
 #: src/native-gateway.ts
 msgid "The current file does not confirm this upload. Resolve its original operation before trying again."
-msgstr ""
+msgstr "El archivo actual no confirma esta subida. Resuelve la operación original antes de volver a intentarlo."
 
 #: src/next-editor-records.ts
 msgid "The current note is protected. Keep the original operation for recovery before reporting it as saved."
-msgstr ""
+msgstr "La nota actual está protegida. Conserva la operación original para recuperarla antes de indicar que se ha guardado."
 
 #: src/TypeBrowser.tsx
 msgid "the current rules"
-msgstr ""
+msgstr "las reglas actuales"
 
 #: src/catalog-pack-installation.tsx
 msgid "The definitions changed while they were being reviewed."
-msgstr ""
+msgstr "Las definiciones cambiaron mientras se revisaban."
 
 #: src/folder-change.ts
 msgid "The destination folder “{to}” already exists. Choose another name or move its notes individually; folders are not merged automatically."
-msgstr ""
+msgstr "La carpeta de destino «{to}» ya existe. Elige otro nombre o mueve sus notas de una en una; las carpetas no se combinan automáticamente."
 
 #: src/App.tsx
 msgid "The details you entered haven’t been created yet."
-msgstr ""
+msgstr "Aún no se han creado los detalles que introdujiste."
 
 #: src/YourPersonPanel.tsx
 msgid "The Editor can link a person record only to an identity you let it read. Approve the Editor again for this collection and allow “See your account identity and display name”."
-msgstr ""
+msgstr "El editor solo puede vincular un registro de persona a una identidad que le permitas leer. Vuelve a aprobar el editor para esta colección y permite «Ver la identidad de tu cuenta y el nombre visible»."
 
 #: src/ConnectionScreens.tsx
 msgid "The editor opens mdbase 0.3 collections. For an older collection, use mdbase to upgrade a copy, verify that copy, then choose it here. Your original files can stay untouched while you check the result."
-msgstr ""
+msgstr "El editor abre colecciones mdbase 0.3. Para una colección anterior, usa mdbase para actualizar una copia, verifica esa copia y luego selecciónala aquí. Puedes dejar intactos los archivos originales mientras compruebas el resultado."
 
 #: src/native-gateway.ts
 msgid "The editor requires its original SDK collection client."
-msgstr ""
+msgstr "El editor necesita su cliente de colección SDK original."
 
 #: src/YourPersonPanel.tsx
 msgid "The Editor was not approved."
-msgstr ""
+msgstr "No se aprobó el editor."
 
 #: src/catalog-pack-installation.tsx
 msgid "The editor will replace these reviewed files and record their exact source, version, and digest in <0>mdbase.lock.yaml</0>. Future upgrades stop instead of overwriting an unexpected edit."
-msgstr ""
+msgstr "El editor reemplazará estos archivos revisados y registrará su origen, versión y resumen exactos en <0>mdbase.lock.yaml</0>. Las actualizaciones futuras se detendrán en lugar de sobrescribir un cambio inesperado."
 
 #: src/gateway.ts
 #: src/next-editor-records.ts
 msgid "The exact interrupted note operation is unavailable. No new write was attempted."
-msgstr ""
+msgstr "La operación exacta de nota interrumpida no está disponible. No se intentó ninguna escritura nueva."
 
 #: src/file-asset-store.ts
 msgid "The file could not be opened."
-msgstr ""
+msgstr "No se pudo abrir el archivo."
 
 #: src/native-file-download.ts
 msgid "The file download limit must be between 0 and 64 MiB."
-msgstr ""
+msgstr "El límite de descarga de archivos debe estar entre 0 y 64 MiB."
 
 #: src/native-file-download.ts
 msgid "The file stream ended before its selected size."
-msgstr ""
+msgstr "El flujo del archivo terminó antes del tamaño seleccionado."
 
 #: src/native-file-download.ts
 msgid "The file stream exceeded its selected size."
-msgstr ""
+msgstr "El flujo del archivo superó el tamaño seleccionado."
 
 #: src/native-gateway.ts
 msgid "The file upload outcome is unknown."
-msgstr ""
+msgstr "Se desconoce el resultado de la subida del archivo."
 
 #: src/AttachmentUpload.tsx
 msgid "The file was uploaded, but the note changed before its link could be inserted."
-msgstr ""
+msgstr "Se subió el archivo, pero la nota cambió antes de que se pudiera insertar el enlace."
 
 #: src/App.tsx
 msgid "The folder’s notes changed. Review the folder change again."
-msgstr ""
+msgstr "Las notas de la carpeta cambiaron. Vuelve a revisar el cambio de carpeta."
 
 #: src/note-session.ts
 msgid "The interrupted operation removed this note. No new write was attempted."
-msgstr ""
+msgstr "La operación interrumpida eliminó esta nota. No se intentó ninguna escritura nueva."
 
 #: src/i18n/LanguageSetting.tsx
 msgctxt "editor language preference"
 msgid "The language choice could not be applied. Please try again."
-msgstr ""
+msgstr "No se pudo aplicar el idioma elegido. Vuelve a intentarlo."
 
 #: src/TypeBrowser.tsx
 msgid "The linked schema does not expose object fields."
-msgstr ""
+msgstr "El esquema vinculado no expone campos de objeto."
 
 #: src/use-note-actions.ts
 msgid "The move did not complete."
-msgstr ""
+msgstr "No se completó el traslado."
 
 #: src/next-editor-records.ts
 msgid "The native receipt changed its mutation identity."
-msgstr ""
+msgstr "La identidad de mutación del comprobante nativo cambió."
 
 #: src/next-editor-records.ts
 msgid "The native write changed its mutation identity."
-msgstr ""
+msgstr "La identidad de mutación de la escritura nativa cambió."
 
 #: src/App.tsx
 msgid "The new type definition hasn’t been saved."
-msgstr ""
+msgstr "La nueva definición de tipo aún no se ha guardado."
 
 #: src/next-editor-records.ts
 msgid "The note change was rejected."
-msgstr ""
+msgstr "Se rechazó el cambio de la nota."
 
 #: src/NewNoteComposer.tsx
 msgid "The note could not be created."
-msgstr ""
+msgstr "No se pudo crear la nota."
 
 #: src/AttachmentUpload.tsx
 #: src/code-editor-file-embeds.ts
 msgid "The note is no longer editable."
-msgstr ""
+msgstr "La nota ya no se puede editar."
 
 #: src/ConflictResolver.tsx
 msgid "The note metadata changed, but the title and body match your edits."
-msgstr ""
+msgstr "Los metadatos de la nota cambiaron, pero el título y el cuerpo coinciden con tus ediciones."
 
 #: src/App.tsx
 msgid "The note or attachment index is refreshing. Wait for it to finish, then review the folder change again."
-msgstr ""
+msgstr "Se está actualizando el índice de notas o adjuntos. Espera a que termine y vuelve a revisar el cambio de carpeta."
 
 #: src/next-editor-records.ts
 msgid "The original complete note source is unavailable."
