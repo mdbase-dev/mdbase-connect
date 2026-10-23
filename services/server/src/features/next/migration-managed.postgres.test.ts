@@ -36,9 +36,11 @@ const empty = (): WorkerStatus => ({ run: null, native: { run_sequence: null, ch
  * - `stop_prepare`: the original run stops once drained, before the pause (phase 1);
  * - `absent`: the dispatch reply is lost and no run exists (intent, no run);
  * - `lost_resume_reply`: resume takes effect but its reply is lost;
+ * - `delayed_resume`: the resume reply is lost and the request has not arrived yet
+ *   (`deliver()` lets the original request arrive later);
  * - `stop_cutover`: after resume the run stops at cutover intent with an
  *   outstanding forward action the driver cannot settle (phase 2). */
-type Fault = "stop_prepare" | "absent" | "lost_resume_reply" | "stop_cutover";
+type Fault = "stop_prepare" | "absent" | "lost_resume_reply" | "delayed_resume" | "stop_cutover";
 type ModelRun = { hold: string; pause: boolean; seq: number; step: number; state: string; reason: string | null;
   resumed: number | null; outstanding: { sequence: number; kind: number } | null; migration: string };
 
@@ -182,7 +184,7 @@ suite("managed two-phase driver through postgresLabConnect and the real CP route
     // hold and pause mode. Its first wake takes the original fence and reads the
     // source through the real CP routes; a pause-mode run stops at the verified
     // pre-cutover pause until resumed; rollback goes through the real CP route.
-    const runs = new Map<string, ModelRun>(), faults = new Map<string, Fault>(), order: string[] = [];
+    const runs = new Map<string, ModelRun>(), faults = new Map<string, Fault>(), order: string[] = [], delayed: (() => Promise<WorkerReply>)[] = [];
     const snapshot = (id: string): WorkerStatus => {
       const r = runs.get(id); if (!r) return empty();
       return { run: { state: r.state, reason: r.reason, backup_hold: r.hold, migration_id: r.migration, stop_before_flip: r.pause, resumed_run_sequence: r.resumed },
@@ -228,6 +230,9 @@ suite("managed two-phase driver through postgresLabConnect and the real CP route
         return ok(snapshot(id));
       }),
       resume: vi.fn(async (id, sequence) => {
+        if (faults.get(id) === "delayed_resume") {
+          faults.delete(id); delayed.push(() => worker.resume(id, sequence)); return lost;
+        }
         const r = runs.get(id);
         if (!r || r.seq !== sequence || r.state !== "stopped" || r.reason !== PAUSE_REASON || r.resumed !== null) return refused("migration_not_paused");
         Object.assign(r, { resumed: sequence, state: "running", reason: null }); order.push(`resume:${id}`);
@@ -246,7 +251,7 @@ suite("managed two-phase driver through postgresLabConnect and the real CP route
       restart: unused, resolve: unused
     };
     const deps = { worker, connect, sleep: async () => undefined };
-    return { account, collections, transferredIds, cohort, providers, provider, prepareTarget, connect, worker, runs, faults, order, deps, archive, environment, cp };
+    return { account, collections, transferredIds, cohort, providers, provider, prepareTarget, connect, worker, runs, faults, order, delayed, deps, archive, environment, cp };
   }
   type Fixture = Awaited<ReturnType<typeof fixture>>;
   const backend = async (account: string) => (await db.query("SELECT account_backend FROM users WHERE id=$1", [account])).rows[0].account_backend;
@@ -378,8 +383,11 @@ suite("managed two-phase driver through postgresLabConnect and the real CP route
     // Idempotent: a repeated route-back re-verifies, records nothing new and calls no provider rollback.
     expect(await routeBack(f.account, f.deps)).toEqual(back);
     expect(f.provider.legacyMigrationRollback).toHaveBeenCalledTimes(2); expect(await events(f.account, "next_migration.rollback")).toHaveLength(2);
-    // The rolled-back binding is terminal: lab-run neither dispatches again nor resumes.
-    expect(await run(f)).toMatchObject({ stopped: { reason: "rolled_back", collection_id: first, resume: `${CLI} route-back ${f.account}` } });
+    // The route-back latch is terminal for this attempt: lab-run neither dispatches again nor resumes.
+    expect(await run(f)).toMatchObject({ stopped: { step: "preflight", reason: "managed_route_back_started", resume: `${CLI} route-back ${f.account}` } });
+    expect(await events(f.account, "next_migration.managed_route_back")).toEqual([{ metadata: { binding: "two-phase-v1", backup_hold: hold,
+      started_us: expect.stringMatching(/^[1-9][0-9]*$/u) } }]);
+    expect(await events(f.account, "next_migration.managed_cutover")).toHaveLength(0);
     expect(f.worker.run).toHaveBeenCalledTimes(2);
   });
 
@@ -394,6 +402,9 @@ suite("managed two-phase driver through postgresLabConnect and the real CP route
     expect(f.providers.get(second!)!.source).toMatchObject({ state: "migrating", migration_id: f.archive.scoped_recovery!.source_fences[1]!.migration_id });
     expect(await events(f.account, "next_migration.rollback_intent")).toEqual([{ metadata: expect.objectContaining({ migration_id: f.runs.get(first!)!.migration }) }]);
     expect(f.worker.run).toHaveBeenCalledTimes(1); expect(f.order).toEqual([`run:${first}`, `rollback:${first}`]);
+    // No dispatch under this attempt any more: its restore needs the fresh-attempt lifecycle.
+    await expect(f.connect.claimWorkerRun!(f.account, second!)).rejects.toHaveProperty("code", "managed_route_back_started");
+    expect(await events(f.account, "next_migration.worker_run_intent")).toHaveLength(1);
   });
 
   it("refuses a route-back when nothing was dispatched", async () => {
@@ -430,7 +441,7 @@ suite("managed two-phase driver through postgresLabConnect and the real CP route
     expect(await run(f)).toMatchObject({ stopped: { step: "cutover", reason: "migration_source_unavailable", phase: "cutover",
       collection_id: second, resume: `${CLI} resume ${f.account}` } });
     expect(f.providers.get(first!)!.source.state).toBe("migrated"); expect(await backend(f.account)).toBe("legacy");
-    expect(await routeBack(f.account, f.deps)).toMatchObject({ stopped: { reason: "migration_post_cutover", collection_id: first } });
+    expect(await routeBack(f.account, f.deps)).toMatchObject({ stopped: { step: "preflight", reason: "managed_cutover_started" } });
     expect(f.worker.rollback).not.toHaveBeenCalled();
     expect(await (entry === "resume" ? resumeLab(f.account, f.deps) : run(f))).toHaveProperty("done.migration_complete", true);
     expect(f.order).toEqual(twoPhaseOrder(f.collections)); expect(f.worker.run).toHaveBeenCalledTimes(2);
@@ -447,12 +458,80 @@ suite("managed two-phase driver through postgresLabConnect and the real CP route
     expect(f.worker.resume).toHaveBeenCalledTimes(2); expect(f.order).toEqual(twoPhaseOrder(f.collections));
   });
 
+  it("a first resume that has not arrived yet makes the account forward only; its late arrival completes the set", async () => {
+    const f = await fixture(), [first] = f.collections;
+    f.faults.set(first!, "delayed_resume");
+    expect(await run(f)).toMatchObject({ stopped: { step: "resume", reason: "operator_outcome_unknown:worker_unreachable",
+      collection_id: first, phase: "cutover", resume: `${CLI} resume ${f.account}` } });
+    // Nothing is resumed or cut over anywhere, yet route-back never treats the unknown resume as absent.
+    expect(f.collections.map(id => f.runs.get(id)!.reason)).toEqual([PAUSE_REASON, PAUSE_REASON]); expect(await cutOvers(f.account)).toBe(0);
+    expect(await routeBack(f.account, f.deps)).toMatchObject({ stopped: { step: "preflight", reason: "managed_cutover_started", resume: `${CLI} resume ${f.account}` } });
+    expect(f.worker.rollback).not.toHaveBeenCalled(); expect(f.provider.legacyMigrationRollback).not.toHaveBeenCalled();
+    expect(await events(f.account, "next_migration.managed_route_back")).toHaveLength(0);
+    expect(await labStatus(f.account, f.deps)).toMatchObject({ phase_latch: "cutover" });
+    expect(await f.delayed.shift()!()).toMatchObject({ kind: "ok" }); // The original request arrives after the checks.
+    expect(await run(f)).toHaveProperty("done.migration_complete", true);
+    expect(f.order).toEqual(twoPhaseOrder(f.collections)); expect(await events(f.account, "next_migration.flip")).toHaveLength(1);
+  });
+
+  it("route-back that passed its inspection loses to a phase 2 latch committed meanwhile, before any rollback", async () => {
+    const f = await fixture(), status = f.worker.status.bind(f.worker); let raced = false;
+    expect(await labRun(f.account, hold, f.deps, true)).toHaveProperty("stopped.reason", PAUSE_REASON);
+    f.worker.status = vi.fn(async id => {
+      const reply = await status(id);
+      // A concurrent resume command commits its latch while route-back inspects the last member.
+      if (id === f.collections[1] && !raced) { raced = true; await f.connect.latchPhase!(f.account, "cutover"); }
+      return reply;
+    });
+    expect(await routeBack(f.account, f.deps)).toMatchObject({ stopped: { step: "preflight", reason: "managed_cutover_started" } });
+    expect(f.worker.rollback).not.toHaveBeenCalled(); expect(f.provider.legacyMigrationRollback).not.toHaveBeenCalled();
+    expect(await events(f.account, "next_migration.managed_route_back")).toHaveLength(0);
+    expect(await resumeLab(f.account, f.deps)).toHaveProperty("done.migration_complete", true);
+    expect(f.order).toEqual(twoPhaseOrder(f.collections));
+  });
+
+  it("phase 2 that read no latch loses to a route-back latch committed meanwhile and sends no resume", async () => {
+    const f = await fixture(), preflight = f.connect.preflight.bind(f.connect);
+    expect(await labRun(f.account, hold, f.deps, true)).toHaveProperty("stopped.reason", PAUSE_REASON);
+    f.connect.preflight = async (account, options) => {
+      const pre = await preflight(account, options);
+      await f.connect.latchPhase!(account, "route_back"); // Committed after this resume's preflight read.
+      return pre;
+    };
+    expect(await resumeLab(f.account, f.deps)).toMatchObject({ stopped: { step: "cutover_latch", reason: "managed_route_back_started",
+      resume: `${CLI} route-back ${f.account}` } });
+    expect(f.worker.resume).not.toHaveBeenCalled(); expect(await events(f.account, "next_migration.managed_cutover")).toHaveLength(0);
+    f.connect.preflight = preflight;
+    expect(await routeBack(f.account, f.deps)).toHaveProperty("done.disposition", "fresh_attempt_required");
+    expect(f.order.filter(e => e.startsWith("rollback:"))).toEqual(f.collections.map(id => `rollback:${id}`));
+  });
+
+  it("the two latches exclude each other under the account lock; each is idempotent", async () => {
+    const f = await fixture();
+    expect(await labRun(f.account, hold, f.deps, true)).toHaveProperty("stopped.reason", PAUSE_REASON);
+    const blocker = await db.connect();
+    try {
+      await blocker.query("BEGIN"); await blocker.query("SELECT id FROM users WHERE id=$1 FOR NO KEY UPDATE", [f.account]);
+      const both = Promise.allSettled([f.connect.latchPhase!(f.account, "route_back"), f.connect.latchPhase!(f.account, "cutover")]);
+      await new Promise(resolve => setTimeout(resolve, 200)); // Both now wait on the same account lock.
+      await blocker.query("COMMIT");
+      const settled = await both, won = settled.findIndex(r => r.status === "fulfilled");
+      expect(settled.filter(r => r.status === "fulfilled")).toHaveLength(1);
+      const winner = won === 0 ? "route_back" : "cutover", loser = settled[1 - won] as PromiseRejectedResult;
+      expect(loser.reason).toHaveProperty("code", `managed_${winner}_started`);
+      await f.connect.latchPhase!(f.account, winner); // Idempotent.
+      await expect(f.connect.latchPhase!(f.account, winner === "cutover" ? "route_back" : "cutover")).rejects.toHaveProperty("code", `managed_${winner}_started`);
+      const recorded = await db.query("SELECT event_type FROM audit_events WHERE user_id=$1 AND event_type IN ('next_migration.managed_cutover','next_migration.managed_route_back')", [f.account]);
+      expect(recorded.rows).toEqual([{ event_type: `next_migration.managed_${winner}` }]);
+    } finally { blocker.release(); }
+  });
+
   it("a Worker stop at cutover intent after a sibling cut over is forward only: route-back refuses and nothing rolls back", async () => {
     const f = await fixture(), [first, second] = f.collections;
     f.faults.set(second!, "stop_cutover");
     expect(await run(f)).toMatchObject({ stopped: { step: "worker_status", reason: "settlement_unknown", phase: "cutover",
       collection_id: second, resume: `${CLI} resume ${f.account}` } });
-    expect(await routeBack(f.account, f.deps)).toMatchObject({ stopped: { reason: "migration_post_cutover", collection_id: first } });
+    expect(await routeBack(f.account, f.deps)).toMatchObject({ stopped: { step: "preflight", reason: "managed_cutover_started" } });
     expect(f.worker.rollback).not.toHaveBeenCalled(); expect(f.worker.resolve).not.toHaveBeenCalled();
     expect(f.providers.get(first!)!.source.state).toBe("migrated"); expect(f.providers.get(second!)!.source.state).toBe("migrating");
     // Settling the outstanding forward action needs a Worker operation the driver does not have.

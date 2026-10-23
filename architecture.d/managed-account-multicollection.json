@@ -1,6 +1,9 @@
 {
-  "reason": "The existing account migration driver now imports the canonical transaction helper and audit writer to durably reserve original Worker dispatches without a new table, and the scoped archive schema constant so route-back uses the same predicate as the control plane's original-archive fence. The private contract read derives fixture versus managed behavior from exactly one authenticated recorded account start, without adding public state or a selector export.",
+  "reason": "The existing account migration driver now imports the canonical transaction helper and audit writer to durably reserve original Worker dispatches without a new table, and the scoped archive schema constant so route-back uses the same predicate as the control plane's original-archive fence. The private contract read derives fixture versus managed behavior from exactly one authenticated recorded account start, without adding public state or a selector export. The managed account's durable ledger (recorded start contract, run binding, dispatch intents and the one-way cutover/route-back phase latch) moves into one reviewable server module, migration-managed-ledger.ts, because the driver file is at its line budget; the latch closes a whole-account rollback/resume race with audit events under the existing account lock, adding no table, column or Worker protocol.",
   "growth": {
-    "relativeImports": 3
+    "relativeImports": 7,
+    "productionFiles": 1,
+    "services/server": 1,
+    "typeScriptExportDeclarations": 12
   }
 }

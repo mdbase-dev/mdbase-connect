@@ -135,8 +135,11 @@ Worker run is dispatched in pause mode (`stop_before_flip: true`), whatever the
 operator flag. Phase 1 takes every member to the verified pause below with its
 timers imported. Phase 2 then resumes, routes and cuts each over in turn, and
 flips once. Stops carry `phase` (`prepare` or `cutover`) and `collection_ids`;
-member stops add `collection_id`. In phase 2 every stop resumes with `resume`
-(or the same `lab-run`); route-back is no longer available.
+member stops add `collection_id`. Phase 2 starts by committing the account's
+cutover latch, before the first resume: from then on every stop resumes with
+`resume` (or the same `lab-run`) and route-back is no longer available, even when
+no resume is known to have arrived. Once route-back has committed its own latch,
+`lab-run` and `resume` stop and send nothing.
 
 | Stop | Meaning |
 |---|---|
@@ -146,6 +149,9 @@ member stops add `collection_id`. In phase 2 every stop resumes with `resume`
 | `migration_pause_mode_conflict` | a member's Worker run is not in pause mode |
 | `worker_run_outcome_unknown` | a durable dispatch intent with no visible run; nothing is resent |
 | `managed_nothing_dispatched` | route-back found no dispatched member; rerun `lab-run` |
+| `managed_cutover_started` | route-back after phase 2 began (cutover latch, or a member resumed); continue with `resume` |
+| `managed_route_back_started` | `lab-run`/`resume` (or a dispatch reservation) after route-back began; continue with `route-back` |
+| step `cutover_latch` / `route_back_latch` | the latch write failed or lost to the other latch; an unknown commit is resolved by `status` (`phase_latch`) |
 | `collections_unsettled`, `collections_mismatch` | admission refusal, with bounded `details` (member UUIDs) |
 
 ## Verified H1 pause and resume
@@ -190,7 +196,7 @@ expected_action_sequence}`), bound to the sequence the status reported.
 | run `stopped`/`done` before cutover intent, nothing outstanding | `rollback` with the current run sequence, then wait |
 | outstanding `Unrevoke` or `Unfence` (lost rollback reply) | `resolve` it; the Worker settles it from the provider's rollback receipt |
 | any other outstanding action | stop (`outstanding_unknown:<kind>`) |
-| checkpoint `rolled_back` | Timer cleanup (as the deployment's LAB, staging or production environment) for the rolled-back provider run, then `restart` with the current run sequence (not for a managed account with a scoped archive: done after cleanup) |
+| checkpoint `rolled_back` | Timer cleanup (as the deployment's LAB, staging or production environment) for the rolled-back provider run, then `restart` with the current run sequence (not for a managed account: done after cleanup) |
 | `rolling_back` while stopped (for example `rollback_needs_operator`) | stop |
 | cutover intent or later, failed or gone | stop |
 | run `running`/`waiting` while rolling back | wait |
@@ -202,10 +208,13 @@ expected_action_sequence}`), bound to the sequence the status reported.
 
 When route-back is done it prints the `lab-run` command that continues the restarted run.
 
-A managed account is inspected whole first: a recorded cutover or a member at cutover
-intent refuses everything (`migration_post_cutover`), as does a dispatch intent with
-no visible run (`worker_run_outcome_unknown`). A never-dispatched member is left
-untouched and listed in `not_dispatched`. When the start's accepted archive is
-scoped, its original fence can never be taken again, so no member is restarted and
-the result carries `disposition: "fresh_attempt_required"` instead of a `lab-run`
-command; see [managed accounts](managed-account-migration.md#known-gaps).
+A managed account is inspected whole first: the cutover latch or a resumed member
+refuses everything (`managed_cutover_started`), as do a recorded cutover or a member
+at cutover intent (`migration_post_cutover`) and a dispatch intent with no visible
+run (`worker_run_outcome_unknown`). A never-dispatched member is left untouched and
+listed in `not_dispatched`. If anything was dispatched, route-back commits its latch
+and inspects the whole account again before the first rollback. A managed route-back
+is terminal for the attempt whatever the archive kind: no member is restarted, the
+legacy sources stay active, and the result carries `disposition:
+"fresh_attempt_required"` instead of a `lab-run` command; see
+[managed accounts](managed-account-migration.md#known-gaps).

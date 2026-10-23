@@ -68,7 +68,7 @@ describe("LAB target diagnostics against a real local HTTP server", () => {
   it.each([undefined, "staging", "production", "LAB"])("does not expose retained LAB causes to %s orchestration", async environment => {
     mode = "http";
     const run = vi.fn(), worker = { run } as unknown as LabWorker;
-    const connect = { preflight: async () => ({ collection, backend: "legacy" }), prepareTarget: labTargetBootstrap(config, localFetch) } as LabConnect;
+    const connect = { preflight: async () => ({ collection, backend: "legacy" }), prepareTarget: labTargetBootstrap(config, localFetch) } as Partial<LabConnect> as LabConnect;
     const events: Record<string, unknown>[] = [];
     const outcome = await labRun(account, hold, { worker, connect, environment, log: event => events.push(event) });
     expect(JSON.stringify([events, outcome])).not.toContain("sub_cause");
@@ -85,7 +85,7 @@ describe("LAB target diagnostics against a real local HTTP server", () => {
     mode = String(scenario); requests = 0;
     const run = vi.fn(async () => { throw new Error("Worker must not be dispatched"); });
     const worker = { run } as unknown as LabWorker;
-    const connect = { preflight: async () => ({ collection, backend: "legacy" }), prepareTarget: labTargetBootstrap(config, localFetch) } as LabConnect;
+    const connect = { preflight: async () => ({ collection, backend: "legacy" }), prepareTarget: labTargetBootstrap(config, localFetch) } as Partial<LabConnect> as LabConnect;
     const directory = mkdtempSync(join(process.cwd(), ".target-private-test-")), path = join(directory, "target.json");
     const progress: Record<string, unknown>[] = [];
     try {

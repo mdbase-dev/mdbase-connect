@@ -31,9 +31,10 @@ at that pause. Only when every member is at the pause does phase 2 start: for
 each member in order the driver sends the sequence-bound resume, waits for the
 route, re-imports its timers and confirms its recorded cutover and legacy
 retention. It then calls the existing array-capable account flip once with the
-complete array and the digest of all recorded cutovers. A failure before the
-first resume is therefore pre-cutover for the whole set; after it, the driver
-only moves forward. The flip transaction still checks whole-set equality, authority,
+complete array and the digest of all recorded cutovers. Before its first resume,
+phase 2 commits the account's one-way cutover latch (below). A failure before that
+latch is pre-cutover for the whole set; after it, the driver only moves forward,
+even if no resume is known to have arrived. The flip transaction still checks whole-set equality, authority,
 provider run, timer manifests and target identities, starter reservation, and
 cohort completion. A member failure or UNKNOWN leaves the account on legacy.
 A changing timer source retries the bounded idempotent import; a flip's
@@ -44,8 +45,9 @@ combined flip. No archive, hold, source, provider, epoch or flip guard is waived
 
 No new tables or SQL migrations are needed. Existing Worker rows retain native
 run/checkpoint/outstanding-action state; `next_migration_collections` retains
-cutovers. Two new event types in the existing durable `audit_events` ledger
-prevent a process restart from replaying an original ambiguous launch:
+cutovers. Four new event types in the existing durable `audit_events` ledger
+(read and written by `migration-managed-ledger.ts`) prevent a process restart
+from replaying an original ambiguous launch and keep rollback and resume apart:
 
 - `next_migration.managed_run` binds `binding: "two-phase-v1"`, the original
   complete collection array, backup hold, the operator's
@@ -57,6 +59,23 @@ prevent a process restart from replaying an original ambiguous launch:
   under the existing account row lock and records `worker_pause: true`. Its
   transaction commits before the Worker call. Concurrent invocations cannot
   both reserve the same dispatch.
+- `next_migration.managed_cutover` and `next_migration.managed_route_back` are the
+  account's one-way phase latch (metadata: binding, hold, start time). Phase 2
+  commits the cutover latch before its first resume; route-back commits the
+  route-back latch before its first rollback. Each is written under the account
+  row lock and refuses while the other exists (`managed_cutover_started`,
+  `managed_route_back_started`); rewriting the same one is a no-op. A dispatch
+  reservation refuses under either latch.
+
+The latch closes a whole-account race that per-member Worker serialization
+cannot: a resume whose reply was lost may still be in flight. If route-back
+judged only current cutover rows and Worker status, that resume could arrive
+after its checks, so one member cut over while a sibling rolled back, and a
+scoped archive's original fence cannot be retaken. With the latch, no resume is
+sent unless the cutover latch committed first, and route-back then refuses.
+Conversely, once route-back has latched, `lab-run` and `resume` stop at
+preflight with `managed_route_back_started` and send nothing, so route-back
+continues alone.
 
 An unversioned binding (`{collections, backup_hold, stop_before_flip,
 started_us}`, where the Worker's pause mode followed the operator flag) is never
@@ -70,9 +89,9 @@ but not with the foreign-key `KEY SHARE` check of a writer that locked a hosted
 row first (for example hosted approval), so the two cannot deadlock.
 
 A managed retry reads every member's Worker status before launching anything,
-and derives the phase from it. A member that consumed its resume, a member at
-or past Worker cutover intent, or a recorded cutover means phase 2: every
-invocation, `lab-run` or `resume`, only moves forward. A visible run must match
+and derives the phase from it. The cutover latch, a member that consumed its
+resume, a member at or past Worker cutover intent, or a recorded cutover means
+phase 2: every invocation, `lab-run` or `resume`, only moves forward. A visible run must match
 the original hold and be in pause mode. With a durable launch intent and no
 visible Worker run, the driver stops at `worker_run_outcome_unknown` before
 target preparation; it never resends `Worker.run`. A crash between intent commit
@@ -104,6 +123,8 @@ or added/missing UUIDs).
 
 `route-back` inspects the complete set before mutating any member:
 
+- a cutover latch refuses the entire command with `managed_cutover_started`
+  before any Worker read, as does a member that consumed a resume without one;
 - a recorded cutover or a Worker at or past cutover intent refuses the entire
   command with `migration_post_cutover`, preserving routed serving custody;
   partial cutover is forward only;
@@ -116,24 +137,34 @@ or added/missing UUIDs).
   rollback (the CP's receipted rollback route), and its imported timers are
   removed once the legacy source is active again.
 
-A start whose accepted archive is scoped (`mdbase-recovery-set/scoped-hosted-v1`)
-can only ever take its archived original fence: once the source is restored the
-CP refuses it with `migration_archive_source_changed`, so a restarted run could
-never fence again. Route-back therefore does not restart such members and ends
-with `disposition: "fresh_attempt_required"`. The account stays on legacy, its
-rolled-back runs are terminal for the binding, and a never-dispatched member
-keeps its original pre-archive fence. Other archives keep the existing restart
-and re-fence.
+If anything was dispatched, route-back first commits its latch (losing to a
+cutover latch refuses as above), then inspects the whole set again under it: no
+dispatch reservation or resume can begin after the latch, so the second
+inspection is the one that acts. A repeated route-back finds its latch and
+inspects once.
+
+A managed route-back is terminal for the attempt and never restarts a member: it
+ends with `disposition: "fresh_attempt_required"`, the account on legacy and every
+rolled-back source active. A start whose accepted archive is scoped
+(`mdbase-recovery-set/scoped-hosted-v1`) can only ever take its archived original
+fence: once the source is restored the CP refuses it with
+`migration_archive_source_changed`, so a restarted run could never fence again.
+For other archives a restart would re-fence the source, but under the route-back
+latch nothing could resume it, and without the latch a failed restart beside a
+cut-over sibling would strand the account. Its rolled-back runs are terminal for
+the binding, and a never-dispatched member keeps its original pre-archive fence.
+The fixture job keeps the restart and re-fence.
 
 ## Known gaps
 
 - An intent with no visible run cannot be resolved: the Worker has no CP-minted
   dispatch identity or exactly-once admission to prove the original dispatch
   never took effect. Such an account stays stopped.
-- After a scoped route-back, continuing needs a whole-account fresh attempt:
-  restoring never-dispatched pre-archive-fenced members, retiring the original
-  attempt with durable evidence, and a fresh archive, start and Worker run. None
-  of this exists yet.
+- After a route-back, continuing needs a whole-account fresh attempt: restoring
+  never-dispatched pre-archive-fenced members, retiring the original attempt
+  with durable evidence (its run binding, intents and latches are per account,
+  not per attempt), and a fresh archive, start and Worker run. None of this
+  exists yet.
 - A phase 2 Worker stop with an unsettled forward action (an outstanding
   non-rollback action) has no driver operation to settle it; the account stays
   stopped forward-only, as a singleton run would.
@@ -169,7 +200,11 @@ pause), a one-member ordinary LAB start, transferred history, all-transferred
 refusal, phase 1 failure with whole-set route-back through the real rollback
 route and the refused re-fence, a never-dispatched member left untouched,
 intent-without-run UNKNOWN, phase 2 interruption and lost resume replies
-completing forward, a phase 2 Worker stop that route-back refuses, the legacy
+completing forward, a first resume that has not yet arrived (route-back refuses;
+its late arrival completes the set), both latch races (route-back after its
+inspection, phase 2 after its preflight), latch mutual exclusion under a held
+account lock, re-inspection under the route-back latch, a phase 2 Worker stop
+that route-back refuses, the legacy
 binding refusal, bounded unsettled details, the account-lock/foreign-key
 deadlock case, subset/duplicate refusal, pause/resume, timer-source changes and
 the 16/17 boundary. Several cases run as ordinary LAB starts. Fixture and ordinary LAB accounts share one adapter, and
