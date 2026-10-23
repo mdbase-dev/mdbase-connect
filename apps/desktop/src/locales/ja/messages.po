@@ -461,453 +461,453 @@ msgstr "更新を確認"
 #. placeholder {0}: entry.app_name
 #: src/renderer/access-view.tsx
 msgid "Check that {0} shows the same key."
-msgstr ""
+msgstr "{0} に同じキーが表示されていることを確認してください。"
 
 #: src/renderer/takeover-state.mts
 msgid "Check that the disk is not full, then try again. Nothing was changed."
-msgstr ""
+msgstr "ディスクの空き容量を確認してから再試行してください。何も変更されていません。"
 
 #: src/renderer/takeover-state.mts
 msgid "Check whether this folder was copied from another computer. Nothing was changed."
-msgstr ""
+msgstr "このフォルダーが別のコンピューターからコピーされたものか確認してください。何も変更されていません。"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Checking"
-msgstr ""
+msgstr "確認中"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Checking connection…"
-msgstr ""
+msgstr "接続を確認中…"
 
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
 msgid "Checking the signed release channel…"
-msgstr ""
+msgstr "署名済みリリースチャンネルを確認中…"
 
 #: src/renderer/main.tsx
 msgid "Checking version…"
-msgstr ""
+msgstr "バージョンを確認中…"
 
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Choose a collection folder"
-msgstr ""
+msgstr "コレクションのフォルダーを選択"
 
 #: src/renderer/main.tsx
 msgid "Choose a folder of Markdown notes, or create a new one. It stays on this computer; your apps reach it through mdbase."
-msgstr ""
+msgstr "Markdown ノートのフォルダーを選ぶか、新しく作成してください。フォルダーはこのコンピューターに残り、アプリは mdbase 経由でアクセスします。"
 
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Choose a folder to add"
-msgstr ""
+msgstr "追加するフォルダーを選択"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Choose a location…"
-msgstr ""
+msgstr "場所を選択…"
 
 #: src/renderer/collections-view.tsx
 msgid "Choose a version for each of these files before turning on sync."
-msgstr ""
+msgstr "同期を有効にする前に、各ファイルのバージョンを選んでください。"
 
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Choose how to sync."
-msgstr ""
+msgstr "同期方法を選んでください。"
 
 #: src/renderer/takeover-state.mts
 msgid "Choose Move to the new sync engine and allow hosted mirrors to stop. Edits they have not uploaded yet are kept and added when you join those collections on this computer."
-msgstr ""
+msgstr "「新しい同期エンジンに移動」を選び、ホスト型ミラーの停止を許可してください。まだアップロードされていない編集は保持され、このコンピューターでコレクションに参加すると追加されます。"
 
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Choose where to create the collection folder"
-msgstr ""
+msgstr "コレクションのフォルダーを作成する場所を選択"
 
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Choose where to create the folder."
-msgstr ""
+msgstr "フォルダーを作成する場所を選んでください。"
 
 #: src/renderer/takeover-state.mts
 msgid "Close apps that are editing this folder, then choose Move to the new sync engine."
-msgstr ""
+msgstr "このフォルダーを編集中のアプリを閉じてから、「新しい同期エンジンに移動」を選んでください。"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Close navigation"
-msgstr ""
+msgstr "ナビゲーションを閉じる"
 
 #: src/renderer/collections-view.tsx
 msgid "Cloud copy"
-msgstr ""
+msgstr "クラウド上のコピー"
 
 #: src/renderer/main.tsx
 msgid "Collection name"
-msgstr ""
+msgstr "コレクション名"
 
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Collection name must be between 1 and 100 characters."
-msgstr ""
+msgstr "コレクション名は 1～100 文字にしてください。"
 
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
 msgctxt "Connect interface"
 msgid "Collections"
-msgstr ""
+msgstr "コレクション"
 
 #: src/renderer/main.tsx
 msgid "Collections stay on this computer. Synced collections send changes to mdbase; private sync encrypts them so mdbase cannot read them. Your account only receives collection names and app-access details."
-msgstr ""
+msgstr "コレクションはこのコンピューターに残ります。同期するコレクションは変更を mdbase に送信します。プライベート同期では暗号化するため mdbase は内容を読めません。アカウントにはコレクション名とアプリアクセスの詳細のみが送られます。"
 
 #: src/renderer/main.tsx
 msgid "Collections, app access and sync status in one place."
-msgstr ""
+msgstr "コレクション、アプリアクセス、同期状態を一か所で管理します。"
 
 #: src/renderer/main.tsx
 msgid "Color theme"
-msgstr ""
+msgstr "配色テーマ"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Computer name"
-msgstr ""
+msgstr "コンピューター名"
 
 #: src/renderer/main.tsx
 msgid "Connected"
-msgstr ""
+msgstr "接続済み"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Connected"
-msgstr ""
+msgstr "接続済み"
 
 #. placeholder {0}: relativeTime(new Date(entry.first_seen_ms).toISOString())
 #. placeholder {1}: entry.legacy_only ? t(i18n)({ message: " · older app version", context: "Connect interface" }) : ""
 #: src/renderer/access-view.tsx
 msgid "Connected {0}{1}"
-msgstr ""
+msgstr "接続済み {0}{1}"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
 msgid "Connected apps"
-msgstr ""
+msgstr "接続済みアプリ"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Connected securely"
-msgstr ""
+msgstr "安全に接続済み"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Connecting"
-msgstr ""
+msgstr "接続中"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Connecting securely…"
-msgstr ""
+msgstr "安全に接続中…"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Connecting…"
-msgstr ""
+msgstr "接続中…"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Connection"
-msgstr ""
+msgstr "接続"
 
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Could not check for updates"
-msgstr ""
+msgstr "更新を確認できませんでした"
 
 #. placeholder {0}: message(error)
 #: src/main/update-coordinator.ts
 msgid "Could not verify updates: {0}"
-msgstr ""
+msgstr "更新を検証できませんでした: {0}"
 
 #: src/renderer/collections-view.tsx
 msgid "Create"
-msgstr ""
+msgstr "作成"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Create a collection"
-msgstr ""
+msgstr "コレクションを作成"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Create and edit"
-msgstr ""
+msgstr "作成と編集"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "create and edit notes"
-msgstr ""
+msgstr "ノートを作成・編集"
 
 #: src/renderer/main.tsx
 msgid "Create collection"
-msgstr ""
+msgstr "コレクションを作成"
 
 #: src/renderer/main.tsx
 msgid "Create the folder in"
-msgstr ""
+msgstr "フォルダーの作成先"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Decide what apps can do."
-msgstr ""
+msgstr "アプリに許可する操作を決めてください。"
 
 #: src/renderer/approval-prompt.tsx
 msgid "Decline"
-msgstr ""
+msgstr "拒否"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
 msgid "Declined"
-msgstr ""
+msgstr "拒否済み"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
 msgid "Declined or revoked here"
-msgstr ""
+msgstr "ここで拒否または取り消し"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Delete"
-msgstr ""
+msgstr "削除"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "delete notes"
-msgstr ""
+msgstr "ノートを削除"
 
 #: src/renderer/collections-view.tsx
 msgid "Deleted on another device"
-msgstr ""
+msgstr "別のデバイスで削除されました"
 
 #: src/renderer/collections-view.tsx
 msgid "Description"
-msgstr ""
+msgstr "説明"
 
 #: src/renderer/collections-view.tsx
 msgid "Details"
-msgstr ""
+msgstr "詳細"
 
 #: src/renderer/collections-view.tsx
 msgid "Differed when mdbase took over from the old app; this computer's version is in the folder"
-msgstr ""
+msgstr "旧アプリから mdbase に移行した時点で内容が異なっていました。このコンピューターのバージョンはフォルダー内にあります"
 
 #: src/renderer/main.tsx
 msgid "Dismiss"
-msgstr ""
+msgstr "閉じる"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "do nothing yet"
-msgstr ""
+msgstr "まだ何もしない"
 
 #. placeholder {0}: manifest.version
 #: src/main/update-coordinator.ts
 msgid "Downloading verified version {0}…"
-msgstr ""
+msgstr "検証済みバージョン {0} をダウンロード中…"
 
 #: src/renderer/collections-view.tsx
 msgid "Each folder stays where it is. Sync is optional."
-msgstr ""
+msgstr "各フォルダーは元の場所に残ります。同期は任意です。"
 
 #: src/renderer/collections-view.tsx
 msgid "Edited here before the move but never uploaded, and changed elsewhere since; the current version is in the folder"
-msgstr ""
+msgstr "移動前にこのコンピューターで編集されましたがアップロードされず、その後別の場所でも変更されました。現在のバージョンはフォルダー内にあります"
 
 #. placeholder {0}: imp.error
 #: src/renderer/takeover-state.mts
 msgid "Edits made in “{name}” before the move could not be read ({0}). They are kept in the old Connect data."
-msgstr ""
+msgstr "移動前に「{name}」で行った編集を読み取れませんでした（{0}）。旧 Connect データに保持されています。"
 
 #: src/renderer/takeover-state.mts
 msgid "edits waiting to upload in hosted collections could not be saved for the move"
-msgstr ""
+msgstr "ホスト型コレクションのアップロード待ちの編集を移動用に保存できませんでした"
 
 #: src/renderer/takeover-state.mts
 msgid "Email support@mdbase.dev and include a diagnostics report. We'll finish your upgrade or move this computer back to mdbase Connect."
-msgstr ""
+msgstr "support@mdbase.dev に診断レポートを添えてメールしてください。アップグレードを完了するか、このコンピューターを mdbase Connect に戻します。"
 
 #: src/renderer/collections-view.tsx
 msgid "End-to-end encrypted: mdbase cannot read it. Web apps work only while one of your devices is online."
-msgstr ""
+msgstr "エンドツーエンドで暗号化され、mdbase は内容を読めません。Web アプリはデバイスのいずれかがオンラインの間だけ動作します。"
 
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
-msgstr ""
+msgstr "このコンピューターの名前を入力してください。"
 
 #: src/renderer/device-requests.tsx
 msgid "Enter the six-digit code shown on the new {label}"
-msgstr ""
+msgstr "新しい {label} に表示された 6 桁のコードを入力してください"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Files"
-msgstr ""
+msgstr "ファイル"
 
 #: src/renderer/sign-in-panel.tsx
 msgctxt "Connect interface"
 msgid "Finish in your browser."
-msgstr ""
+msgstr "ブラウザーで完了してください。"
 
 #: src/renderer/main.tsx
 msgid "Folder locations are never uploaded."
-msgstr ""
+msgstr "フォルダーの場所はアップロードされません。"
 
 #: src/renderer/main.tsx
 msgid "Folders on this computer that your apps can use, and how each one syncs."
-msgstr ""
+msgstr "アプリが利用できるこのコンピューター上のフォルダーと、それぞれの同期方法です。"
 
 #. placeholder {0}: view.holds
 #: src/renderer/collections-view.tsx
 msgid "Hide {0, plural, one {# file} other {# files}}"
-msgstr ""
+msgstr "{0, plural, one {# 件のファイルを非表示} other {# 件のファイルを非表示}}"
 
 #: src/renderer/takeover-state.mts
 msgid "hosted collections still have edits waiting to upload"
-msgstr ""
+msgstr "ホスト型コレクションにアップロード待ちの編集が残っています"
 
 #: src/renderer/main.tsx
 msgid "How new apps get access to your local collections."
-msgstr ""
+msgstr "新しいアプリにローカルコレクションへのアクセスを許可する方法です。"
 
 #: src/renderer/collections-view.tsx
 msgid "How should it sync?"
-msgstr ""
+msgstr "どのように同期しますか？"
 
 #: src/renderer/main.tsx
 msgid "How this computer appears in your mdbase account"
-msgstr ""
+msgstr "mdbase アカウントに表示されるこのコンピューターの情報"
 
 #. placeholder {0}: entry.app_name
 #. placeholder {1}: capabilityPhrase(entry.capabilities)
 #: src/renderer/access-view.tsx
 msgid "If you approve, {0} will be able to {1} in {where}, through this computer. You can revoke this at any time."
-msgstr ""
+msgstr "承認すると、{0} はこのコンピューター経由で {where} 内の {1} を実行できます。いつでも取り消せます。"
 
 #: src/renderer/device-requests.tsx
 msgid "If you approve, it can read and change everything in {name}, as this computer can."
-msgstr ""
+msgstr "承認すると、このコンピューターと同様に {name} のすべてを読み取り、変更できます。"
 
 #. placeholder {0}: status.target_version
 #. placeholder {0}: update.target_version
 #: src/main/main.ts
 #: src/renderer/main.tsx
 msgid "Install {0}"
-msgstr ""
+msgstr "{0} をインストール"
 
 #: src/main/update-coordinator.ts
 msgid "Installing version {target}. mdbase keeps syncing while the app restarts."
-msgstr ""
+msgstr "バージョン {target} をインストール中です。アプリの再起動中も mdbase は同期を続けます。"
 
 #: src/renderer/daemon-view.mts
 msgid "It failed to open."
-msgstr ""
+msgstr "開けませんでした。"
 
 #: src/renderer/takeover-state.mts
 msgctxt "Collection move recovery"
 msgid "it is not a text file"
-msgstr ""
+msgstr "テキストファイルではありません"
 
 #: src/renderer/takeover-state.mts
 msgid "It moves when you join that hosted collection on this computer."
-msgstr ""
+msgstr "このコンピューターでそのホスト型コレクションに参加すると移動します。"
 
 #: src/renderer/takeover-state.mts
 msgid "It retries when mdbase restarts. If it keeps failing, move again to see the error."
-msgstr ""
+msgstr "mdbase の再起動時に再試行します。失敗が続く場合は、再度移動してエラーを確認してください。"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "Joining this collection…"
-msgstr ""
+msgstr "このコレクションに参加中…"
 
 #: src/renderer/collections-view.tsx
 msgid "Keep both"
-msgstr ""
+msgstr "両方保持"
 
 #: src/renderer/collections-view.tsx
 msgid "Keep current"
-msgstr ""
+msgstr "現在のものを保持"
 
 #: src/renderer/main.tsx
 msgid "Keep mdbase connect in the tray without opening a window."
-msgstr ""
+msgstr "ウィンドウを開かず、mdbase connect をトレイで動かします。"
 
 #: src/renderer/takeover-state.mts
 msgid "Keep mdbase open. This can take a few minutes."
-msgstr ""
+msgstr "mdbase を開いたままにしてください。数分かかる場合があります。"
 
 #: src/renderer/takeover-state.mts
 msgid "Keep mdbase open. Your files stay where they are."
-msgstr ""
+msgstr "mdbase を開いたままにしてください。ファイルは元の場所に残ります。"
 
 #: src/renderer/collections-view.tsx
 msgid "Keep this computer's"
-msgstr ""
+msgstr "このコンピューターのものを保持"
 
 #: src/renderer/main.tsx
 msgid "Keeps apps on your other devices connected to this computer"
-msgstr ""
+msgstr "ほかのデバイス上のアプリから、このコンピューターへの接続を維持します"
 
 #: src/renderer/activity-view.tsx
 msgid "Kept on this computer only: the last 200 changes."
-msgstr ""
+msgstr "このコンピューター上のみ保持: 直近 200 件の変更。"
 
 #: src/renderer/language-setting.tsx
 msgid "Language"
-msgstr ""
+msgstr "言語"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
 msgid "Launch at login is off."
-msgstr ""
+msgstr "ログイン時の起動はオフです。"
 
 #: src/renderer/main.tsx
 msgid "Launch in the tray when you sign in"
-msgstr ""
+msgstr "ログイン時にトレイで起動"
 
 #: src/renderer/takeover-state.mts
 msgid "Leave mdbase Connect's data in place and contact support with a diagnostics report."
-msgstr ""
+msgstr "mdbase Connect のデータをそのまま残し、診断レポートを添えてサポートに連絡してください。"
 
 #: src/renderer/collections-view.tsx
 msgid "Loading…"
-msgstr ""
+msgstr "読み込み中…"
 
 #: src/renderer/collections-view.tsx
 msgid "Looked like an accidental overwrite"
-msgstr ""
+msgstr "誤った上書きの可能性があります"
 
 #: src/renderer/main.tsx
 msgid "Manage in mdbase"
-msgstr ""
+msgstr "mdbase で管理"
 
 #: src/renderer/access-view.tsx
 msgid "Mark as seen"
-msgstr ""
+msgstr "確認済みにする"
 
 #. placeholder {0}: bundled.version
 #. placeholder {1}: result.version
 #: src/main/main.ts
 msgid "mdbase {0} did not start on this computer, so mdbase {1} keeps running. The next app update tries again."
-msgstr ""
+msgstr "このコンピューターで mdbase {0} が起動しなかったため、mdbase {1} が動作し続けます。次のアプリ更新時に再試行します。"
 
 #: src/renderer/access-view.tsx
 msgid "mdbase asks you to confirm on this computer's screen, with the app's key."
-msgstr ""
+msgstr "mdbase はこのコンピューターの画面で、アプリのキーを使った確認を求めます。"
 
 #: src/renderer/daemon-view.mts
 msgid "mdbase cannot reach the sync service. It opens the collection when you are back online."
