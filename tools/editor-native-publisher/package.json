@@ -2,6 +2,6 @@
   "name": "editor-native-upload-tool",
   "private": true,
   "dependencies": {
-    "wrangler": "4.114.0"
+    "wrangler": "4.152.0"
   }
 }
