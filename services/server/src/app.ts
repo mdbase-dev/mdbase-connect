@@ -350,19 +350,22 @@ export async function buildApp(options: BuildOptions) {
     encoding: "utf8",
     runFirst: true
   });
-  const allowedOrigins = new Set([
+  const credentialedOrigins = new Set([
     ...accountOrigins,
     ...(options.editorOrigin ? [options.editorOrigin] : []),
     ...(Object.hasOwn(applicationOrigins, options.environment ?? "")
       ? [...applicationOrigins[options.environment!], ...nativeApplicationOrigins] : [])
   ]);
   await app.register(cors, {
-    origin: (origin, callback) => callback(null, origin !== undefined && allowedOrigins.has(origin)),
-    credentials: true,
-    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    // Let browsers reuse a preflight for 2 hours (Chromium's cap) instead of
-    // paying an OPTIONS round trip before every cross-origin app call.
-    maxAge: 7200
+    delegator: (request, callback) => callback(null, {
+      // Browser SDK bearer-token requests keep origin reflection.
+      origin: true,
+      credentials: request.headers.origin !== undefined && credentialedOrigins.has(request.headers.origin),
+      methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+      // Let browsers reuse a preflight for 2 hours (Chromium's cap) instead of
+      // paying an OPTIONS round trip before every cross-origin app call.
+      maxAge: 7200
+    })
   });
   await app.register(websocket);
   app.addContentTypeParser(

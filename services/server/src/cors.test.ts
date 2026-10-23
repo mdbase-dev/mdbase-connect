@@ -38,15 +38,17 @@ for (const [environment, origins] of Object.entries(deployments)) {
       }
     });
 
-    it("does not allow sibling, lookalike, other-environment or null origins", async () => {
+    it("reflects arbitrary, sibling, other-environment and null origins without credentials", async () => {
       const otherEnvironment = environment === "production" ? deployments.staging : deployments.production;
-      for (const origin of ["https://other.mdbase.dev", "https://reader.mdbase.dev.example", "https://preview.mdbase-reader.pages.dev",
+      for (const origin of ["https://application.example", "https://callumalpass.github.io", "https://other.mdbase.dev",
+        "https://reader.mdbase.dev.example", "https://preview.mdbase-reader.pages.dev",
         "http://reader.mdbase.dev", "https://reader.mdbase.dev:444", "null", otherEnvironment[1]]) {
         for (const method of ["GET", "OPTIONS"] as const) {
           const response = await app.inject({ method, url: "/v1/me", headers: {
             origin, cookie: "mdbase_session=synthetic", "access-control-request-method": "GET"
           } });
-          expect(response.headers["access-control-allow-origin"]).toBeUndefined();
+          expect(response.headers["access-control-allow-origin"]).toBe(origin);
+          if (method === "OPTIONS") expect(response.statusCode).toBe(204);
           expect(response.headers["access-control-allow-credentials"]).toBeUndefined();
         }
       }

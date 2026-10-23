@@ -1,3 +1,3 @@
 ## Fixed
 
-- Tighten CORS origin allowlist to deployed first-party apps for each environment and explicitly configured management origins.
+- Tighten the credentialed CORS origin allowlist to first-party apps and configured management origins, preserving origin reflection for browser SDK bearer-token requests.

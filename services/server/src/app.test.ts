@@ -87,10 +87,10 @@ function browserSdkMethods(): string[] {
 }
 
 describe("mdbase connect server", () => {
-  it.each(["https://mdbase-l11-lab.pages.dev", "https://application.example"])("advertises every browser SDK method in unauthenticated preflight from configured origin %s", async (origin) => {
+  it.each(["https://mdbase-l11-lab.pages.dev", "https://application.example"])("advertises every browser SDK method in unauthenticated preflight from %s", async (origin) => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
-    const { app } = await buildApp({ db, publicUrl: "https://connect.example", managementOrigins: [origin] });
+    const { app } = await buildApp({ db, publicUrl: "https://connect.example" });
     resources.push(() => app.close());
     const sdkMethods = browserSdkMethods();
     expect(sdkMethods.length).toBeGreaterThan(0);
@@ -106,6 +106,7 @@ describe("mdbase connect server", () => {
       });
       expect(response.statusCode).toBe(204);
       expect(response.headers["access-control-allow-origin"]).toBe(origin);
+      expect(response.headers["access-control-allow-credentials"]).toBeUndefined();
       const methods = String(response.headers["access-control-allow-methods"]).split(",").map((value) => value.trim());
       expect(methods).toContain(method);
       const headers = String(response.headers["access-control-allow-headers"]).split(",").map((value) => value.trim().toLowerCase());
@@ -1421,7 +1422,7 @@ describe("mdbase connect server", () => {
       }).toString()
     });
     expect(device.statusCode, JSON.stringify(device.json())).toBe(200);
-    expect(device.headers["access-control-allow-origin"]).toBeUndefined();
+    expect(device.headers["access-control-allow-origin"]).toBe("null");
     expect(device.headers["access-control-allow-credentials"]).toBeUndefined();
     expect(device.headers["cache-control"]).toContain("no-store");
     expect(device.json()).toMatchObject({
