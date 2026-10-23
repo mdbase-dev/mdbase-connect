@@ -161,7 +161,7 @@ msgstr "{0, plural, other {重命名“{basename}”并移动 # 篇文档？}}"
 #. placeholder {2}: node.path
 #: src/CollectionRail.tsx
 msgid "{0, plural, one {Show notes in {1}, # note} other {Show notes in {2}, # notes}}"
-msgstr ""
+msgstr "{0, plural, other {显示 {2} 中的笔记（# 篇或更多）}}"
 
 #. placeholder {0}: files.length
 #: src/AttachmentUpload.tsx
@@ -297,7 +297,7 @@ msgstr "当前 {0} 篇 · {1} 篇将获得此类型 · {2} 篇将失去此类型
 #. placeholder {1}: suggestion.totalFields
 #: src/TypeBrowser.tsx
 msgid "{0} of {1} fields match"
-msgstr ""
+msgstr "{1} 个字段中有 {0} 个匹配"
 
 #. placeholder {0}: noteCount.toLocaleString(displayLocale())
 #. placeholder {1}: total?.toLocaleString(displayLocale()) ?? "…"
@@ -654,7 +654,7 @@ msgstr "{references, plural, other {另有 # 篇文档中的链接已更新。}}
 #. placeholder {1}: fields.length
 #: src/TypeBrowser.tsx
 msgid "{requiredMapped}/{0} required · {mappedCount}/{1} total"
-msgstr ""
+msgstr "必需字段 {requiredMapped}/{0} · 总计 {mappedCount}/{1}"
 
 #: src/NewNoteComposer.tsx
 msgid "{selectedOptional} set"
@@ -1530,11 +1530,11 @@ msgstr "类型包处理完成前，集合已切换。"
 
 #: src/CollectionRail.tsx
 msgid "Collection changes saved on this device; waiting for sync"
-msgstr ""
+msgstr "集合更改已保存在此设备上；等待同步"
 
 #: src/CollectionRail.tsx
 msgid "Collection connected"
-msgstr ""
+msgstr "集合已连接"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -1560,7 +1560,7 @@ msgstr "集合笔记和文件"
 
 #: src/CollectionRail.tsx
 msgid "Collection offline"
-msgstr ""
+msgstr "集合已离线"
 
 #: src/ConnectionScreens.tsx
 msgid "Collection options for {name}"
@@ -1568,7 +1568,7 @@ msgstr "集合 {name} 的选项"
 
 #: src/CollectionRail.tsx
 msgid "Collection reconnecting"
-msgstr ""
+msgstr "集合正在重新连接"
 
 #: src/TypeBrowser.tsx
 msgid "Collection resources"
@@ -1581,7 +1581,7 @@ msgstr "集合根目录"
 
 #: src/CollectionRail.tsx
 msgid "Collection stopped"
-msgstr ""
+msgstr "集合同步已停止"
 
 #: src/EditorRail.tsx
 msgid "Collection tools"
@@ -3173,7 +3173,7 @@ msgstr "移动“{basename}”"
 #. placeholder {1}: plan.referenceCount
 #: src/FolderChangeDialog.tsx
 msgid "Move {0, plural, one {# note} other {# notes}} and update {1, plural, one {# link} other {# links}}?"
-msgstr ""
+msgstr "移动 {0, plural, other {# 篇笔记}} 并更新 {1, plural, other {# 个链接}}？"
 
 #. placeholder {0}: paths.length
 #: src/MoveNoteDialog.tsx
@@ -4202,7 +4202,7 @@ msgstr "重命名“{basename}”"
 #. placeholder {1}: plan.referenceCount
 #: src/FolderChangeDialog.tsx
 msgid "Rename ‘{basename}’ and move {0, plural, one {# note} other {# notes}} and update {1, plural, one {# link} other {# links}}?"
-msgstr ""
+msgstr "重命名“{basename}”，移动 {0, plural, other {# 篇笔记}} 并更新 {1, plural, other {# 个链接}}？"
 
 #: src/App.tsx
 msgid "Rename and update links"
@@ -4290,11 +4290,11 @@ msgstr "调整笔记检查器大小"
 
 #: src/App.tsx
 msgid "Resize notes sidebar"
-msgstr ""
+msgstr "调整笔记侧边栏大小"
 
 #: src/App.tsx
 msgid "Resize types sidebar"
-msgstr ""
+msgstr "调整类型侧边栏大小"
 
 #: src/next-editor-records.ts
 msgid "Resolve this note's protected edit before changing it."
@@ -4482,7 +4482,7 @@ msgstr "保存会影响所有匹配的笔记"
 #. placeholder {0}: type!.name
 #: src/TypeBrowser.tsx
 msgid "Saving affects every note of type <0>{0}</0>"
-msgstr ""
+msgstr "保存会影响所有类型为 <0>{0}</0> 的笔记"
 
 #: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
@@ -4635,11 +4635,11 @@ msgstr "收起"
 #. placeholder {1}: node.count
 #: src/CollectionRail.tsx
 msgid "Show notes in {0}, {1} or more notes"
-msgstr ""
+msgstr "显示 {0} 中的笔记（{1} 篇或更多）"
 
 #: src/App.tsx
 msgid "Show notes sidebar"
-msgstr ""
+msgstr "显示笔记侧边栏"
 
 #: src/editor-commands.ts
 msgid "Show or hide the notes sidebar"
@@ -4647,7 +4647,7 @@ msgstr "显示或隐藏笔记侧边栏"
 
 #: src/App.tsx
 msgid "Show types sidebar"
-msgstr ""
+msgstr "显示类型侧边栏"
 
 #: src/App.tsx
 msgid "Sidebar layout controls"
@@ -4881,11 +4881,11 @@ msgstr "<0>{0}</0> 类型是较早版本的 Person 初始类型。创建你的�
 
 #: src/TypeBrowser.tsx
 msgid "The after-save preview is unavailable because additional YAML rules must be evaluated by the collection."
-msgstr ""
+msgstr "保存后的预览暂不可用，因为需要由集合评估其他 YAML 规则。"
 
 #: src/TypeBrowser.tsx
 msgid "The after-save preview is unavailable because some matching rules must be evaluated by the collection."
-msgstr ""
+msgstr "保存后的预览暂不可用，因为需要由集合评估部分匹配规则。"
 
 #: src/contract-catalog.ts
 msgid "The catalog contains duplicate {label} {identity}."
@@ -5813,7 +5813,7 @@ msgstr "升级"
 #. placeholder {0}: setup.upgrade.target
 #: src/YourPersonPanel.tsx
 msgid "Upgrade <0>{0}</0> to the current Person starter. "
-msgstr ""
+msgstr "将 <0>{0}</0> 升级为当前的 Person 初始类型。 "
 
 #. placeholder {0}: files[0]!.name
 #: src/AttachmentUpload.tsx
