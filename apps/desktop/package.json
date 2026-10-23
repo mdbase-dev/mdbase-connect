@@ -26,7 +26,6 @@
   "dependencies": {
     "@lingui/core": "6.9.0",
     "@lingui/react": "6.9.0",
-    "@mdbase-dev/i18n": "workspace:*",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "scheduler": "^0.28.0"
@@ -43,6 +42,7 @@
     "@lingui/babel-plugin-lingui-macro": "6.9.0",
     "@lingui/vite-plugin": "6.9.0",
     "@mdbase-dev/connect-protocol": "workspace:*",
+    "@mdbase-dev/i18n": "workspace:*",
     "@mdbase-dev/ui": "workspace:*",
     "@mdbase/connect-ui": "workspace:*",
     "@rolldown/plugin-babel": "^0.2.4",
