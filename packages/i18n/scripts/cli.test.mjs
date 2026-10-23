@@ -112,6 +112,15 @@ test("packed npm .bin CLI runs extraction, catalogue checks, compile and source 
   const unsafeNotice = run("source");
   assert.equal(unsafeNotice.status, 1, unsafeNotice.stdout + unsafeNotice.stderr);
   assert.match(unsafeNotice.stderr, /unmarked visible interpolation.*Account unlocked/);
+  const writerNotice = 'export function Workspace() { const [notice, setNotice] = useState(null); setNotice({ tone: "busy", text: COPY }); return notice && <div className={notice.tone}><span>{notice.text}</span></div>; }';
+  await writeFile(resolve(root, "src/Unsafe.tsx"), writerNotice.replace("COPY", 't`Storing…`'));
+  const safeObjectNotice = run("source");
+  assert.equal(safeObjectNotice.status, 0, safeObjectNotice.stdout + safeObjectNotice.stderr);
+  await writeFile(resolve(root, "src/Unsafe.tsx"), writerNotice.replace("COPY", '"Storing…"'));
+  const unsafeObjectNotice = run("source");
+  assert.equal(unsafeObjectNotice.status, 1, unsafeObjectNotice.stdout + unsafeObjectNotice.stderr);
+  assert.match(unsafeObjectNotice.stderr, /unmarked visible string: Storing…/);
+  assert.doesNotMatch(unsafeObjectNotice.stderr, /unmarked visible string: busy/);
   await writeFile(resolve(root, "src/Unsafe.tsx"), 'import { t } from "@lingui/core/macro"; export const extra = () => t\x60New message\x60;');
   const stale = run("check");
   assert.notEqual(stale.status, 0, "source extraction drift must fail");
