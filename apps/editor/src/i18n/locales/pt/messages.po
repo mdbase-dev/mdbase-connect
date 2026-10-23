@@ -2072,7 +2072,7 @@ msgstr "Campo de descrição"
 
 #: src/TypeBrowser.tsx
 msgid "Design"
-msgstr "Design"
+msgstr "Estrutura"
 
 #: src/TypeBrowser.tsx
 msgid "Design the note shape or work with its complete YAML source."
@@ -2799,7 +2799,7 @@ msgstr "Ciclo de vida"
 
 #: src/WorkspaceChrome.tsx
 msgid "Link"
-msgstr "Link"
+msgstr "Vincular"
 
 #: src/YourPersonPanel.tsx
 msgid "Link a record that already represents you."
@@ -2859,7 +2859,7 @@ msgstr "Vinculado a {0}"
 
 #: src/TypeBrowser.tsx
 msgid "Links"
-msgstr "Links"
+msgstr "Vínculos"
 
 #: src/type-schema.ts
 msgid "links with unsupported values"
