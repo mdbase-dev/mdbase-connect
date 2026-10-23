@@ -50,27 +50,27 @@ msgstr "{0, plural, other {해결되지 않은 충돌 #건}}"
 #. placeholder {0}: device.kind
 #: src/renderer/device-requests.tsx
 msgid "{0, select, desktop {A new computer wants to open {name}} mobile {A new phone wants to open {name}} other {A new device wants to open {name}}}"
-msgstr ""
+msgstr "{0, select, desktop {새 컴퓨터가 {name}을(를) 열려고 합니다} mobile {새 휴대전화가 {name}을(를) 열려고 합니다} other {새 기기가 {name}을(를) 열려고 합니다}}"
 
 #. placeholder {0}: device.kind
 #: src/renderer/device-requests.tsx
 msgid "{0, select, desktop {Enter the six-digit code shown on the new computer} mobile {Enter the six-digit code shown on the new phone} other {Enter the six-digit code shown on the new device}}"
-msgstr ""
+msgstr "{0, select, desktop {새 컴퓨터에 표시된 6자리 코드를 입력하세요} mobile {새 휴대전화에 표시된 6자리 코드를 입력하세요} other {새 기기에 표시된 6자리 코드를 입력하세요}}"
 
 #. placeholder {0}: device.kind
 #: src/renderer/device-requests.tsx
 msgid "{0, select, desktop {That code does not match. Check the code on the new computer. If you did not start this, decline.} mobile {That code does not match. Check the code on the new phone. If you did not start this, decline.} other {That code does not match. Check the code on the new device. If you did not start this, decline.}}"
-msgstr ""
+msgstr "{0, select, desktop {코드가 일치하지 않습니다. 새 컴퓨터에 표시된 코드를 확인하세요. 직접 시작한 요청이 아니라면 거절하세요.} mobile {코드가 일치하지 않습니다. 새 휴대전화에 표시된 코드를 확인하세요. 직접 시작한 요청이 아니라면 거절하세요.} other {코드가 일치하지 않습니다. 새 기기에 표시된 코드를 확인하세요. 직접 시작한 요청이 아니라면 거절하세요.}}"
 
 #. placeholder {0}: device.kind
 #: src/renderer/device-requests.tsx
 msgid "{0, select, desktop {The new computer can now open {name}.} mobile {The new phone can now open {name}.} other {The new device can now open {name}.}}"
-msgstr ""
+msgstr "{0, select, desktop {이제 새 컴퓨터에서 {name}을(를) 열 수 있습니다.} mobile {이제 새 휴대전화에서 {name}을(를) 열 수 있습니다.} other {이제 새 기기에서 {name}을(를) 열 수 있습니다.}}"
 
 #. placeholder {0}: device.kind
 #: src/renderer/device-requests.tsx
 msgid "{0, select, desktop {The new computer was not given access to {name}.} mobile {The new phone was not given access to {name}.} other {The new device was not given access to {name}.}}"
-msgstr ""
+msgstr "{0, select, desktop {새 컴퓨터에 {name} 접근 권한이 부여되지 않았습니다.} mobile {새 휴대전화에 {name} 접근 권한이 부여되지 않았습니다.} other {새 기기에 {name} 접근 권한이 부여되지 않았습니다.}}"
 
 #. placeholder {0}: HOLD_REASONS[hold.reason] ?? hold.reason
 #. placeholder {1}: relativeTime(new Date(hold.since).toISOString())
@@ -250,7 +250,7 @@ msgstr "{waiting, plural, other {이동 전에 “{name}”에서 편집한 #건
 
 #: src/renderer/takeover-state.mts
 msgid "{waiting, plural, one {You removed “{name}” from this computer, so # edit made in “{name}” before the move was not added to it. It is still in {oldPath}.} other {You removed “{name}” from this computer, so # edits made in “{name}” before the move were not added to it. They are still in {oldPath}.}}"
-msgstr "{waiting, plural, other {이 컴퓨터에서 “{name}”을(를) 제거했으므로 이동 전 편집 #건은 추가되지 않았습니다. 해당 편집은 여전히 {oldPath}에 있습니다.}}"
+msgstr "{waiting, plural, other {이 컴퓨터에서 “{name}”을(를) 제거했으므로 이동 전에 “{name}”에서 편집한 #건은 추가되지 않았습니다. 해당 편집은 여전히 {oldPath}에 있습니다.}}"
 
 #: src/renderer/takeover-panel.tsx
 msgid "<0/>Allow hosted mirrors to stop until I join them again"

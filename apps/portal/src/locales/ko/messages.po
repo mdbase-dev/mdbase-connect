@@ -68,7 +68,7 @@ msgstr " 이 작업들은 함께 승인됩니다."
 #. placeholder {0}: notifications.criteria.length
 #: src/authorization-review.tsx
 msgid "{0, plural, one {{applicationName} can turn on this rule after access is allowed. Notifications never contain record content.} other {{applicationName} can turn on these # rules after access is allowed. Notifications never contain record content.}}"
-msgstr ""
+msgstr "{0, plural, other {접근을 허용하면 {applicationName}에서 규칙 #개를 켤 수 있습니다. 알림에는 레코드 내용이 포함되지 않습니다.}}"
 
 #. placeholder {0}: unavailable.length
 #: src/authorization-view.tsx
@@ -283,7 +283,7 @@ msgstr "{0}분 전"
 
 #: src/authority-workflows.tsx
 msgid "{app} now has this file access in {collection}. Return to {app} to continue."
-msgstr ""
+msgstr "{app}에 {collection}의 해당 파일 접근 권한이 부여되었습니다. 계속하려면 앱 {app}으로 돌아가세요."
 
 #. placeholder {0}: request.reason
 #: src/authority-workflows.tsx
@@ -292,7 +292,7 @@ msgstr "{app}의 메시지: {0}"
 
 #: src/authority-workflows.tsx
 msgid "{app} was not given this file access in {collection}. Return to {app}; everything else works as before."
-msgstr ""
+msgstr "{app}에 {collection}의 해당 파일 접근 권한이 부여되지 않았습니다. 앱 {app}으로 돌아가세요. 다른 기능은 이전과 동일하게 작동합니다."
 
 #. placeholder {0}: setupLabel(contract).toLocaleLowerCase()
 #: src/authorization-review.tsx
@@ -341,7 +341,7 @@ msgstr "{tier} 호스팅 저장 공간"
 
 #: src/auth-view.tsx
 msgid "{unsubscribed, select, product_updates {You won’t receive product updates from mdbase Connect. Messages about your account, such as verification and security email, are still sent.} other {You won’t receive announcements from mdbase Connect. Messages about your account, such as verification and security email, are still sent.}}"
-msgstr ""
+msgstr "{unsubscribed, select, product_updates {이제 mdbase Connect의 제품 업데이트를 받지 않습니다. 인증 및 보안 이메일과 같은 계정 관련 메시지는 계속 전송됩니다.} other {이제 mdbase Connect의 공지 사항을 받지 않습니다. 인증 및 보안 이메일과 같은 계정 관련 메시지는 계속 전송됩니다.}}"
 
 #: src/count-label.ts
 msgid "{value, plural, one {# application installation} other {# application installations}}"
@@ -621,7 +621,7 @@ msgstr "{0}에서 리마인더를 보내도록 허용"
 
 #: src/authority-workflows.tsx
 msgid "Allow {app} this file access?"
-msgstr ""
+msgstr "{app}에 해당 파일 접근을 허용하시겠습니까?"
 
 #: src/authorization-view.tsx
 msgctxt "Application access approval"
