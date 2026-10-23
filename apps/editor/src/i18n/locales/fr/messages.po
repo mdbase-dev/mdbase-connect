@@ -907,11 +907,11 @@ msgstr "Ajoutez un type Personne, avec des coordonnées facultatives, et les dé
 
 #: src/SchemaValueEditor.tsx
 msgid "Add optional field"
-msgstr ""
+msgstr "Ajouter un champ facultatif"
 
 #: src/TypeBrowser.tsx
 msgid "Add path pattern"
-msgstr ""
+msgstr "Ajouter un modèle de chemin"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Add property"
@@ -920,77 +920,77 @@ msgstr "Ajouter une propriété"
 #: src/BulkNoteProperties.tsx
 #: src/editor-commands.ts
 msgid "Add tag"
-msgstr ""
+msgstr "Ajouter une étiquette"
 
 #: src/TypeBrowser.tsx
 msgid "Add target type"
-msgstr ""
+msgstr "Ajouter un type cible"
 
 #: src/TypeBrowser.tsx
 msgid "Add unique rule"
-msgstr ""
+msgstr "Ajouter une règle d’unicité"
 
 #. placeholder {0}: pack.displayName
 #: src/catalog-pack-installation.tsx
 msgid "Added “{0}” and opened the new type."
-msgstr ""
+msgstr "« {0} » ajouté ; le nouveau type est ouvert."
 
 #: src/YourPersonPanel.tsx
 msgid "Adding definitions requires permission to manage this collection's types."
-msgstr ""
+msgstr "L’ajout de définitions nécessite l’autorisation de gérer les types de cette collection."
 
 #: src/YourPersonPanel.tsx
 msgid "Adding definitions…"
-msgstr ""
+msgstr "Ajout des définitions…"
 
 #: src/TypeBrowser.tsx
 msgid "Adding one creates a new editable type. Existing files are never overwritten."
-msgstr ""
+msgstr "L’ajout en crée un nouveau type modifiable. Les fichiers existants ne sont jamais écrasés."
 
 #: src/type-schema.ts
 msgid "additional field policy"
-msgstr ""
+msgstr "politique des champs supplémentaires"
 
 #: src/TypeBrowser.tsx
 msgid "Additional item rules remain in YAML."
-msgstr ""
+msgstr "Les règles d’éléments supplémentaires restent dans le YAML."
 
 #. placeholder {0}: rule.advancedKeys.join(", ")
 #: src/TypeBrowser.tsx
 msgid "Additional link settings remain in YAML: {0}."
-msgstr ""
+msgstr "Les paramètres de lien supplémentaires restent dans le YAML : {0}."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Additional properties"
-msgstr ""
+msgstr "Propriétés supplémentaires"
 
 #. placeholder {0}: rule.advancedKeys.join(", ")
 #: src/TypeBrowser.tsx
 msgid "Additional uniqueness settings remain in YAML: {0}."
-msgstr ""
+msgstr "Les paramètres d’unicité supplémentaires restent dans le YAML : {0}."
 
 #: src/TypeBrowser.tsx
 msgid "additional YAML rules"
-msgstr ""
+msgstr "règles YAML supplémentaires"
 
 #. placeholder {0}: pack.installedTypes.length
 #. placeholder {1}: pack.resourceCount
 #: src/TypeBrowser.tsx
 msgid "Adds {0} internal types and {1} declared resources in one validated transaction. Existing files will not be overwritten; installation stops if any target conflicts."
-msgstr ""
+msgstr "Ajoute {0} types internes et {1} ressources déclarées en une seule transaction validée. Les fichiers existants ne seront pas écrasés ; l’installation s’arrête si une cible entre en conflit."
 
 #. placeholder {0}: pack.installedTypes.length
 #: src/TypeBrowser.tsx
 msgid "Adds {0} types"
-msgstr ""
+msgstr "Ajoute {0} types"
 
 #: src/TypeBrowser.tsx
 msgid "Adds 1 type"
-msgstr ""
+msgstr "Ajoute 1 type"
 
 #: src/catalog-pack-installation.tsx
 msgid "Adopt and update"
-msgstr ""
+msgstr "Adopter et mettre à jour"
 
 #: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
@@ -1000,101 +1000,101 @@ msgstr "Avancé"
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Advanced"
-msgstr ""
+msgstr "Avancé"
 
 #: src/TypeBrowser.tsx
 msgid "Advanced JSON Schema rules remain intact and are identified in place. Review any structural conversion before applying it."
-msgstr ""
+msgstr "Les règles JSON Schema avancées restent intactes et sont signalées sur place. Examinez toute conversion structurelle avant de l’appliquer."
 
 #: src/TypeBrowser.tsx
 msgid "Advanced YAML rules"
-msgstr ""
+msgstr "Règles YAML avancées"
 
 #: src/TypeBrowser.tsx
 msgid "Advisory labels and colour used when records of this type are shown."
-msgstr ""
+msgstr "Libellés indicatifs et couleur utilisés pour afficher les documents de ce type."
 
 #: src/EditorRail.tsx
 #: src/note-list-view.ts
 #: src/NoteListViewOptions.tsx
 msgid "All notes"
-msgstr ""
+msgstr "Toutes les notes"
 
 #. placeholder {0}: noteCount.toLocaleString(displayLocale())
 #: src/EditorRail.tsx
 msgid "All notes, {0} total"
-msgstr ""
+msgstr "Toutes les notes, {0} au total"
 
 #: src/TypeBrowser.tsx
 msgid "Allow installs"
-msgstr ""
+msgstr "Autoriser les installations"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Allow local access"
-msgstr ""
+msgstr "Autoriser l’accès local"
 
 #: src/YourPersonPanel.tsx
 msgid "Allow person records in this collection?"
-msgstr ""
+msgstr "Autoriser les documents de personne dans cette collection ?"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Allow the editor to reach mdbase on this computer. Editing continues through mdbase whenever it is unavailable."
-msgstr ""
+msgstr "Autorisez l’éditeur à joindre mdbase sur cet ordinateur. La modification se poursuit via mdbase chaque fois que cet accès est indisponible."
 
 #: src/YourPersonPanel.tsx
 msgid "Allow the Editor to see your account identity"
-msgstr ""
+msgstr "Autoriser l’éditeur à voir l’identité de votre compte"
 
 #: src/TypeBrowser.tsx
 msgid "Allow undeclared fields"
-msgstr ""
+msgstr "Autoriser les champs non déclarés"
 
 #: src/TypeBrowser.tsx
 msgid "Allowed target types"
-msgstr ""
+msgstr "Types cibles autorisés"
 
 #: src/TypeBrowser.tsx
 msgid "always present"
-msgstr ""
+msgstr "toujours présent"
 
 #: src/type-contracts.ts
 msgid "an advanced schema"
-msgstr ""
+msgstr "un schéma avancé"
 
 #: src/type-contracts.ts
 msgid "an integer"
-msgstr ""
+msgstr "un entier"
 
 #: src/type-contracts.ts
 #: src/type-presentation.ts
 msgid "an object"
-msgstr ""
+msgstr "un objet"
 
 #: src/TypeBrowser.tsx
 msgid "and"
-msgstr ""
+msgstr "et"
 
 #: src/TypeBrowser.tsx
 msgid "Any"
-msgstr ""
+msgstr "Tout"
 
 #: src/TypeBrowser.tsx
 msgid "Any supported format"
-msgstr ""
+msgstr "Tout format pris en charge"
 
 #: src/TypeBrowser.tsx
 msgid "Application behavior"
-msgstr ""
+msgstr "Comportement de l’application"
 
 #: src/type-schema.ts
 msgid "Application compatibility"
-msgstr ""
+msgstr "Compatibilité des applications"
 
 #: src/TypeBrowser.tsx
 msgid "Application view"
-msgstr ""
+msgstr "Vue de l’application"
 
 #: src/BulkNoteProperties.tsx
 msgid "Apply"
@@ -1106,53 +1106,53 @@ msgstr "Application…"
 
 #: src/TypeBrowser.tsx
 msgid "Apps read these contract field names while your notes keep their own field names."
-msgstr ""
+msgstr "Les applications lisent ces noms de champs de contrat, tandis que vos notes conservent leurs propres noms de champs."
 
 #: src/ConnectionScreens.tsx
 msgid "as files."
-msgstr ""
+msgstr "sous forme de fichiers."
 
 #: src/YourPersonPanel.tsx
 msgid "Ask a collection editor to link your person record."
-msgstr ""
+msgstr "Demandez à une personne pouvant modifier la collection de lier votre document de personne."
 
 #: src/TypeBrowser.tsx
 msgid "Assigned by name"
-msgstr ""
+msgstr "Attribué par nom"
 
 #: src/AttachmentUpload.tsx
 msgid "Attach file…"
-msgstr ""
+msgstr "Joindre un fichier…"
 
 #: src/AttachmentUpload.tsx
 msgid "Attaching file…"
-msgstr ""
+msgstr "Ajout du fichier joint…"
 
 #: src/native-gateway.ts
 msgid "Attaching files is not available for this collection in mdbase editor yet."
-msgstr ""
+msgstr "La jonction de fichiers n’est pas encore disponible pour cette collection dans l’éditeur mdbase."
 
 #. placeholder {0}: controller.upload.name
 #: src/AttachmentUpload.tsx
 msgid "Attachment progress for {0}"
-msgstr ""
+msgstr "Progression de la pièce jointe pour {0}"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Automatic"
-msgstr ""
+msgstr "Automatique"
 
 #: src/TypeBrowser.tsx
 msgid "Automatic matching"
-msgstr ""
+msgstr "Correspondance automatique"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Automatic properties"
-msgstr ""
+msgstr "Propriétés automatiques"
 
 #: src/settings/SettingsView.tsx
 msgctxt "direct connection availability"
 msgid "Available"
-msgstr ""
+msgstr "Disponible"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Back"
@@ -1160,99 +1160,99 @@ msgstr "Retour"
 
 #: src/App.tsx
 msgid "Back in note history"
-msgstr ""
+msgstr "Retour dans l’historique des notes"
 
 #: src/QuickOpen.tsx
 msgid "Back or forward"
-msgstr ""
+msgstr "Précédent ou suivant"
 
 #: src/App.tsx
 msgid "Back to {historyBackPath} · Alt+Left"
-msgstr ""
+msgstr "Retour à {historyBackPath} · Alt+Left"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Back to collection"
-msgstr ""
+msgstr "Retour à la collection"
 
 #: src/WorkspaceChrome.tsx
 msgid "Back to collections"
-msgstr ""
+msgstr "Retour aux collections"
 
 #: src/TypeBrowser.tsx
 msgid "Back to editing"
-msgstr ""
+msgstr "Retour à la modification"
 
 #: src/PropertiesPanel.tsx
 msgid "Back to fields"
-msgstr ""
+msgstr "Retour aux champs"
 
 #: src/App.tsx
 msgid "Back to notes"
-msgstr ""
+msgstr "Retour aux notes"
 
 #: src/FileViewer.tsx
 msgid "Back to notes and files"
-msgstr ""
+msgstr "Retour aux notes et fichiers"
 
 #: src/TypeBrowser.tsx
 msgid "Back to types"
-msgstr ""
+msgstr "Retour aux types"
 
 #: src/QuickOpen.tsx
 msgid "Best matches"
-msgstr ""
+msgstr "Meilleures correspondances"
 
 #. placeholder {0}: segments.join(".")
 #: src/type-contracts.ts
 msgid "Binding setting {0} is required by {contractId}."
-msgstr ""
+msgstr "Le paramètre de liaison {0} est requis par {contractId}."
 
 #. placeholder {0}: error.message ?? "is invalid"
 #: src/type-contracts.ts
 msgid "Binding setting{field} {0} for {contractId}."
-msgstr ""
+msgstr "Paramètre de liaison{field} {0} pour {contractId}."
 
 #: src/type-contracts.ts
 msgid "Binding setting{field} must not be empty for {contractId}."
-msgstr ""
+msgstr "Le paramètre de liaison{field} ne doit pas être vide pour {contractId}."
 
 #: src/type-contracts.ts
 msgid "Binding settings do not satisfy {contractId}."
-msgstr ""
+msgstr "Les paramètres de liaison ne satisfont pas {contractId}."
 
 #: src/type-contracts.ts
 msgid "Binding settings for {contractId} cannot be edited because its schema is invalid: {detail}"
-msgstr ""
+msgstr "Les paramètres de liaison de {contractId} ne peuvent pas être modifiés, car son schéma est invalide : {detail}"
 
 #. placeholder {0}: anchor.preview
 #: src/code-editor-completions.ts
 msgid "Block · {0}"
-msgstr ""
+msgstr "Bloc · {0}"
 
 #: src/ConflictResolver.tsx
 msgid "Body differences"
-msgstr ""
+msgstr "Différences du corps"
 
 #: src/QuickOpen.tsx
 msgid "Bold or italic"
-msgstr ""
+msgstr "Gras ou italique"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Boolean"
-msgstr ""
+msgstr "Booléen"
 
 #: src/TypeBrowser.tsx
 msgid "Browse ready-made types"
-msgstr ""
+msgstr "Parcourir les types prêts à l’emploi"
 
 #: src/code-editor-completions.ts
 msgid "Bulleted list"
-msgstr ""
+msgstr "Liste à puces"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Calculated"
-msgstr ""
+msgstr "Calculé"
 
 #: src/App.tsx
 #: src/BulkNoteProperties.tsx
@@ -1269,32 +1269,32 @@ msgstr "Annuler"
 
 #: src/YourPersonPanel.tsx
 msgid "Cancel conversion"
-msgstr ""
+msgstr "Annuler la conversion"
 
 #: src/NewNoteComposer.tsx
 msgid "Cancel new folder"
-msgstr ""
+msgstr "Annuler le nouveau dossier"
 
 #: src/NewNoteComposer.tsx
 msgid "Cancel new note"
-msgstr ""
+msgstr "Annuler la nouvelle note"
 
 #: src/TypeBrowser.tsx
 msgid "Catalog"
-msgstr ""
+msgstr "Catalogue"
 
 #: src/TypeBrowser.tsx
 msgid "Catalog source"
-msgstr ""
+msgstr "Source du catalogue"
 
 #: src/TypeBrowser.tsx
 msgid "Catalog unavailable"
-msgstr ""
+msgstr "Catalogue indisponible"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Change note text without changing the surrounding interface."
-msgstr ""
+msgstr "Modifiez le texte des notes sans changer le reste de l’interface."
 
 #: src/note-mutation-presentation.ts
 msgid "Changed elsewhere"
@@ -1307,32 +1307,32 @@ msgstr "Vérifier à nouveau"
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Check again"
-msgstr ""
+msgstr "Vérifier à nouveau"
 
 #: src/editor-commands.ts
 msgid "Check note"
-msgstr ""
+msgstr "Vérifier la note"
 
 #: src/ConnectionScreens.tsx
 msgid "check notes"
-msgstr ""
+msgstr "vérifier les notes"
 
 #: src/next-editor-records.ts
 msgid "Check your unconfirmed change before making another one. Nothing new was saved."
-msgstr ""
+msgstr "Vérifiez votre modification non confirmée avant d’en effectuer une autre. Rien de nouveau n’a été enregistré."
 
 #: src/type-presentation.ts
 msgid "checkbox"
-msgstr ""
+msgstr "case à cocher"
 
 #: src/TypeBrowser.tsx
 msgid "Checkbox"
-msgstr ""
+msgstr "Case à cocher"
 
 #: src/type-presentation.ts
 msgctxt "property type"
 msgid "Checkbox"
-msgstr ""
+msgstr "Case à cocher"
 
 #: src/AttachmentUpload.tsx
 #: src/note-mutation-presentation.ts
@@ -1343,19 +1343,19 @@ msgstr "Vérification en cours"
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Checking for mdbase on this computer."
-msgstr ""
+msgstr "Recherche de mdbase sur cet ordinateur."
 
 #: src/note-mutation-presentation.ts
 msgid "Checking impact"
-msgstr ""
+msgstr "Vérification de l’impact"
 
 #: src/FolderChangeDialog.tsx
 msgid "Checking notes and links…"
-msgstr ""
+msgstr "Vérification des notes et des liens…"
 
 #: src/YourPersonPanel.tsx
 msgid "Checking person setup…"
-msgstr ""
+msgstr "Vérification de la configuration de la personne…"
 
 #: src/CollectionRail.tsx
 msgid "Checking…"
@@ -1364,19 +1364,19 @@ msgstr "Vérification…"
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Checking…"
-msgstr ""
+msgstr "Vérification…"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Choice"
-msgstr ""
+msgstr "Choix"
 
 #: src/TypeBrowser.tsx
 msgid "Choice value"
-msgstr ""
+msgstr "Valeur du choix"
 
 #: src/TypeBrowser.tsx
 msgid "Choices"
-msgstr ""
+msgstr "Choix"
 
 #: src/SchemaValueEditor.tsx
 msgid "Choose"
@@ -1388,60 +1388,60 @@ msgstr "Choisir une collection"
 
 #: src/gateway.ts
 msgid "Choose a collection before editing notes."
-msgstr ""
+msgstr "Choisissez une collection avant de modifier des notes."
 
 #: src/use-note-actions.ts
 msgid "Choose a collection-relative folder."
-msgstr ""
+msgstr "Choisissez un dossier relatif à la collection."
 
 #: src/folder-change.ts
 msgid "Choose a different folder path."
-msgstr ""
+msgstr "Choisissez un autre chemin de dossier."
 
 #: src/MoveNoteDialog.tsx
 msgid "Choose a folder. Incoming links will be updated too."
-msgstr ""
+msgstr "Choisissez un dossier. Les liens entrants seront également mis à jour."
 
 #: src/YourPersonPanel.tsx
 msgid "Choose a record…"
-msgstr ""
+msgstr "Choisir un document…"
 
 #: src/person-records.ts
 msgid "Choose a target type that implements both Person and Contact so existing contact semantics are retained."
-msgstr ""
+msgstr "Choisissez un type cible qui implémente à la fois Person et Contact afin de conserver la sémantique des contacts existante."
 
 #: src/TypeBrowser.tsx
 msgid "Choose an icon"
-msgstr ""
+msgstr "Choisir une icône"
 
 #: src/TypeBrowser.tsx
 msgid "Choose an icon from the Phosphor library."
-msgstr ""
+msgstr "Choisissez une icône dans la bibliothèque Phosphor."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Choose one of the allowed values."
-msgstr ""
+msgstr "Choisissez l’une des valeurs autorisées."
 
 #: src/TypeBrowser.tsx
 msgid "Choose scope"
-msgstr ""
+msgstr "Choisir la portée"
 
 #: src/ConnectionScreens.tsx
 msgid "Choose the collection you want to write in."
-msgstr ""
+msgstr "Choisissez la collection dans laquelle vous souhaitez écrire."
 
 #: src/i18n/LanguageSetting.tsx
 msgctxt "editor language preference"
 msgid "Choose the interface language for this browser. Your notes are not translated."
-msgstr ""
+msgstr "Choisissez la langue de l’interface pour ce navigateur. Vos notes ne sont pas traduites."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Choose true or false."
-msgstr ""
+msgstr "Choisissez vrai ou faux."
 
 #: src/code-editor-note-embeds.ts
 msgid "Circular transclusion stopped here."
-msgstr ""
+msgstr "Transclusion circulaire interrompue ici."
 
 #: src/App.tsx
 msgid "Clear"
@@ -1449,7 +1449,7 @@ msgstr "Effacer"
 
 #: src/TypeBrowser.tsx
 msgid "Clear display icon"
-msgstr ""
+msgstr "Effacer l’icône d’affichage"
 
 #: src/NoteSearchField.tsx
 msgid "Clear search"
@@ -1462,109 +1462,109 @@ msgstr "Effacer la sélection"
 
 #: src/TypeBrowser.tsx
 msgid "Clear type search"
-msgstr ""
+msgstr "Effacer la recherche de type"
 
 #: src/FileViewer.tsx
 msgid "Close file preview"
-msgstr ""
+msgstr "Fermer l’aperçu du fichier"
 
 #: src/QuickOpen.tsx
 msgid "Close keyboard shortcuts"
-msgstr ""
+msgstr "Fermer les raccourcis clavier"
 
 #: src/WorkspaceChrome.tsx
 msgid "Close outline"
-msgstr ""
+msgstr "Fermer le plan"
 
 #: src/PropertiesPanel.tsx
 msgid "Close properties"
-msgstr ""
+msgstr "Fermer les propriétés"
 
 #: src/QuickOpen.tsx
 msgid "Close quick open"
-msgstr ""
+msgstr "Fermer l’ouverture rapide"
 
 #: src/CodeEditor.tsx
 msgid "cm-task-checkbox mdbase-checkbox"
-msgstr ""
+msgstr "cm-task-checkbox mdbase-checkbox"
 
 #: src/code-editor-completions.ts
 msgid "Code block"
-msgstr ""
+msgstr "Bloc de code"
 
 #. placeholder {0}: node.path
 #: src/CollectionRail.tsx
 msgid "Collapse {0}"
-msgstr ""
+msgstr "Réduire {0}"
 
 #: src/TypeBrowser.tsx
 msgid "Collapse {fieldLabel} field"
-msgstr ""
+msgstr "Réduire le champ {fieldLabel}"
 
 #: src/CollectionRail.tsx
 msgid "Collapse descendants"
-msgstr ""
+msgstr "Réduire les descendants"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Collection"
-msgstr ""
+msgstr "Collection"
 
 #: src/CollectionRail.tsx
 msgid "Collection {label}"
-msgstr ""
+msgstr "Collection {label}"
 
 #: src/type-schema.ts
 #: src/TypeBrowser.tsx
 msgid "Collection behaviour"
-msgstr ""
+msgstr "Comportement de la collection"
 
 #: src/App.tsx
 msgid "Collection changed before the type pack finished."
-msgstr ""
+msgstr "La collection a changé avant la fin du pack de types."
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Collection ID"
-msgstr ""
+msgstr "ID de la collection"
 
 #: src/App.tsx
 #: src/collection-mutation-scope.ts
 msgid "Collection mutations are temporarily disabled."
-msgstr ""
+msgstr "Les modifications de la collection sont temporairement désactivées."
 
 #: src/EditorRail.tsx
 msgid "Collection navigation"
-msgstr ""
+msgstr "Navigation de la collection"
 
 #: src/ConnectionScreens.tsx
 msgid "Collection not listed?"
-msgstr ""
+msgstr "Votre collection n’apparaît pas ?"
 
 #: src/NoteList.tsx
 msgid "Collection notes and files"
-msgstr ""
+msgstr "Notes et fichiers de la collection"
 
 #: src/ConnectionScreens.tsx
 msgid "Collection options for {name}"
-msgstr ""
+msgstr "Options de la collection {name}"
 
 #: src/TypeBrowser.tsx
 msgid "Collection resources"
-msgstr ""
+msgstr "Ressources de la collection"
 
 #: src/collection-browser.ts
 #: src/NoteList.tsx
 msgid "Collection root"
-msgstr ""
+msgstr "Racine de la collection"
 
 #: src/EditorRail.tsx
 msgid "Collection tools"
-msgstr ""
+msgstr "Outils de la collection"
 
 #: src/TypeBrowser.tsx
 msgid "Collection types"
-msgstr ""
+msgstr "Types de la collection"
 
 #: src/NoteList.tsx
 #: src/TypeBrowser.tsx
@@ -1574,16 +1574,16 @@ msgstr "Collections mdbase"
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Color theme"
-msgstr ""
+msgstr "Thème de couleur"
 
 #: src/TypeBrowser.tsx
 msgid "Colour field"
-msgstr ""
+msgstr "Champ de couleur"
 
 #: src/settings/SettingsView.tsx
 msgctxt "editor text size"
 msgid "Comfortable"
-msgstr ""
+msgstr "Confortable"
 
 #: src/editor-commands.ts
 msgid "Commands"
@@ -1591,56 +1591,56 @@ msgstr "Commandes"
 
 #: src/TypeBrowser.tsx
 msgid "Common icons"
-msgstr ""
+msgstr "Icônes courantes"
 
 #: src/settings/SettingsView.tsx
 msgctxt "editor text size"
 msgid "Compact"
-msgstr ""
+msgstr "Compact"
 
 #: src/ConflictResolver.tsx
 msgid "Compare your edits with the latest version before choosing which one to save."
-msgstr ""
+msgstr "Comparez vos modifications avec la dernière version avant de choisir celle à enregistrer."
 
 #: src/type-contracts.ts
 msgid "Compatible"
-msgstr ""
+msgstr "Compatible"
 
 #: src/TypeBrowser.tsx
 msgid "Compatible tools use this policy when creating and renaming records. Existing files are not moved by this update."
-msgstr ""
+msgstr "Les outils compatibles appliquent cette politique lors de la création et du renommage de documents. Les fichiers existants ne sont pas déplacés par cette mise à jour."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Complete exactly one of the allowed field combinations."
-msgstr ""
+msgstr "Renseignez exactement l’une des combinaisons de champs autorisées."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Complete one of the allowed field combinations."
-msgstr ""
+msgstr "Renseignez l’une des combinaisons de champs autorisées."
 
 #: src/PropertiesPanel.tsx
 msgid "Complete record source"
-msgstr ""
+msgstr "Source complète du document"
 
 #: src/TypeBrowser.tsx
 msgid "Computed projections"
-msgstr ""
+msgstr "Projections calculées"
 
 #: src/TypeBrowser.tsx
 msgid "Configure settings"
-msgstr ""
+msgstr "Configurer les paramètres"
 
 #: src/TypeBrowser.tsx
 msgid "Configured"
-msgstr ""
+msgstr "Configuré"
 
 #: src/TypeBrowser.tsx
 msgid "Confirm the collection-wide effect before saving."
-msgstr ""
+msgstr "Confirmez l’effet sur toute la collection avant d’enregistrer."
 
 #: src/TypeBrowser.tsx
 msgid "Confirm update"
-msgstr ""
+msgstr "Confirmer la mise à jour"
 
 #: src/ConnectionScreens.tsx
 msgid "Connect another collection"
@@ -1648,11 +1648,11 @@ msgstr "Connecter une autre collection"
 
 #: src/App.tsx
 msgid "Connect another collection?"
-msgstr ""
+msgstr "Connecter une autre collection ?"
 
 #: src/TypeBrowser.tsx
 msgid "Connect application contract"
-msgstr ""
+msgstr "Connecter le contrat d’application"
 
 #: src/CollectionRail.tsx
 msgid "Connected"
@@ -1661,16 +1661,16 @@ msgstr "Connexion établie"
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Connection"
-msgstr ""
+msgstr "Connexion"
 
 #: src/type-schema.ts
 msgid "constant value"
-msgstr ""
+msgstr "valeur constante"
 
 #. placeholder {0}: reference.title
 #: src/code-editor-note-embeds.ts
 msgid "Content of {0}"
-msgstr ""
+msgstr "Contenu de {0}"
 
 #: src/TypeBrowser.tsx
 msgid "Contents"
@@ -1682,61 +1682,61 @@ msgstr "Continuer"
 
 #: src/TypeBrowser.tsx
 msgid "contract"
-msgstr ""
+msgstr "contrat"
 
 #: src/TypeBrowser.tsx
 msgid "Contract"
-msgstr ""
+msgstr "Contrat"
 
 #: src/TypeBrowser.tsx
 msgid "Contract field"
-msgstr ""
+msgstr "Champ du contrat"
 
 #: src/TypeBrowser.tsx
 msgid "Contract settings"
-msgstr ""
+msgstr "Paramètres du contrat"
 
 #: src/TypeBrowser.tsx
 msgid "contracts"
-msgstr ""
+msgstr "contrats"
 
 #: src/contract-catalog.ts
 msgid "contracts[{index}].contract_type is not supported."
-msgstr ""
+msgstr "contracts[{index}].contract_type n’est pas pris en charge."
 
 #: src/TypeBrowser.tsx
 msgid "Control how compatible apps interpret and act on this type. Values are checked against the contract’s schema."
-msgstr ""
+msgstr "Contrôlez la façon dont les applications compatibles interprètent ce type et agissent en conséquence. Les valeurs sont vérifiées par rapport au schéma du contrat."
 
 #: src/YourPersonPanel.tsx
 msgid "Convert and link this contact"
-msgstr ""
+msgstr "Convertir et lier ce contact"
 
 #: src/TypeBrowser.tsx
 msgid "Convert field"
-msgstr ""
+msgstr "Convertir le champ"
 
 #: src/TypeBrowser.tsx
 msgid "Convert items"
-msgstr ""
+msgstr "Convertir les éléments"
 
 #. placeholder {0}: kindLabel(pendingKind)
 #: src/TypeBrowser.tsx
 msgid "Convert list items to {0}?"
-msgstr ""
+msgstr "Convertir les éléments de la liste en {0} ?"
 
 #. placeholder {0}: kindLabel(pendingKind)
 #: src/TypeBrowser.tsx
 msgid "Convert this field to {0}?"
-msgstr ""
+msgstr "Convertir ce champ en {0} ?"
 
 #: src/App.tsx
 msgid "Copied {label}."
-msgstr ""
+msgstr "Copié : {label}."
 
 #: src/editor-commands.ts
 msgid "Copy link"
-msgstr ""
+msgstr "Copier le lien"
 
 #: src/CollectionRail.tsx
 #: src/editor-commands.ts
@@ -1746,19 +1746,19 @@ msgstr "Copier le chemin"
 
 #: src/embed-actions.ts
 msgid "Copy path for {name}"
-msgstr ""
+msgstr "Copier le chemin de {name}"
 
 #: src/YourPersonPanel.tsx
 msgid "Could not add person definitions. Review setup again."
-msgstr ""
+msgstr "Impossible d’ajouter les définitions de personne. Réexaminez la configuration."
 
 #: src/YourPersonPanel.tsx
 msgid "Could not convert this contact. Its type may need additional fields or compatible mappings."
-msgstr ""
+msgstr "Impossible de convertir ce contact. Son type peut nécessiter des champs supplémentaires ou des mappages compatibles."
 
 #: src/YourPersonPanel.tsx
 msgid "Could not link this person."
-msgstr ""
+msgstr "Impossible de lier cette personne."
 
 #: src/YourPersonPanel.tsx
 msgid "Could not load people."
