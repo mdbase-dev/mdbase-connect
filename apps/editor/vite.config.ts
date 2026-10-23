@@ -19,7 +19,7 @@ export default defineConfig(({ mode }) => ({
   plugins: [react(), lingui({ macroTransform: true }), offlineShellPlugin({ register: false })],
   // hoistingLimits gives each workspace package its own copies; @mdbase-dev/ui must use the app's
   // React and CodeMirror (two @codemirror/state instances cannot share an editor).
-  resolve: { dedupe: ["react", "react-dom", "@codemirror/state", "@codemirror/view"] },
+  resolve: { dedupe: ["react", "react-dom", "@lingui/core", "@lingui/react", "@codemirror/state", "@codemirror/view"] },
   build: {
     target: "es2022",
     sourcemap: true,
@@ -32,6 +32,9 @@ export default defineConfig(({ mode }) => ({
     }
   },
   test: {
+    // Workspace packages have isolated installs. Inline the provider and its
+    // Lingui dependency so Vite's React/context deduplication also applies in tests.
+    server: { deps: { inline: ["@mdbase-dev/i18n", "@lingui/react"] } },
     environment: "jsdom",
     setupFiles: ["./src/test-setup.ts"],
     restoreMocks: true,
